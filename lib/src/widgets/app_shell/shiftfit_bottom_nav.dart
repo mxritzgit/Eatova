@@ -20,6 +20,7 @@ class ShiftFitBottomNav extends StatelessWidget {
     (Icons.restaurant_rounded, 'Food'),
     (Icons.menu_book_rounded, 'Rezepte'),
     (Icons.chat_bubble_outline_rounded, 'Coach'),
+    (Icons.sports_gymnastics_rounded, 'Übungen'),
   ];
 
   @override
@@ -113,7 +114,12 @@ class _NavItem extends StatelessWidget {
                     letterSpacing: -0.1,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   ),
-                  child: Text(label),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ],
             ),
