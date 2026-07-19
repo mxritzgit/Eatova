@@ -56,7 +56,7 @@ dependencies:
   # Server-Komponente — alles laeuft via zonedSchedule lokal, das haelt den
   # Gratis-Apple-Team-Status und die Zero-Cost-Constraint. timezone liefert die
   # TZDateTime-Basis, auf der flutter_local_notifications zonedSchedule fusst.
-  flutter_local_notifications: ^22.0.0
+  flutter_local_notifications: ^22.1.0
   timezone: ^0.11.0
   # flutter_timezone liefert den IANA-Namen der Geraete-Zone (z.B.
   # "Europe/Berlin"). Damit setzt LocalNotificationService.init() die lokale
