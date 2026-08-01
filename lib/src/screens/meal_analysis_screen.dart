@@ -143,19 +143,21 @@ class MealAnalysisScreen extends StatelessWidget {
 
         final children = <Widget>[
           const _KcalHeader(),
-          SizedBox(height: boundedHeight ? 6 : 4),
+          SizedBox(height: boundedHeight ? 10 : 8),
           _FoodDateStrip(
             selectedDate: selectedDate,
             pastDays: visiblePastDays,
             onSelected: onDateSelected,
           ),
-          SizedBox(height: boundedHeight ? 8 : 10),
+          SizedBox(height: boundedHeight ? 12 : 14),
           // Glass-Kalorienkarte mit inline-Makros (hoehen-begrenzt im Tab).
+          // Weniger Flex als der Verlauf: die Karte hat eine feste Menge an
+          // Inhalt, die Liste darunter profitiert von jeder zusaetzlichen Zeile.
           if (boundedHeight)
-            Expanded(flex: 46, child: calsCard)
+            Expanded(flex: 40, child: calsCard)
           else
             calsCard,
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           // Add-Block: FESTE Hoehe, NICHT Expanded -> sitzt klar oben,
           // damit Such-Launcher + Action-Buttons ohne Scroll hit-testbar sind.
           _FoodAddBlock(
@@ -165,10 +167,10 @@ class MealAnalysisScreen extends StatelessWidget {
             onAiScan: () => _openAddSheet(context, _heuristicSlot()),
             onQuick: () => _openAddSheet(context, _heuristicSlot()),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           // Verlauf: einzige unten wachsende Sektion.
           if (boundedHeight)
-            Expanded(flex: 40, child: historyCard)
+            Expanded(flex: 46, child: historyCard)
           else
             historyCard,
         ];
@@ -218,27 +220,27 @@ class _FoodAddBlock extends StatelessWidget {
               child: _FoodActionButton(
                 key: const ValueKey('food-action-barcode'),
                 icon: Icons.qr_code_scanner_rounded,
-                label: 'Barcode\nscannen',
+                label: 'Barcode',
                 filled: false,
                 onTap: onBarcode,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             Expanded(
               child: _FoodActionButton(
                 key: const ValueKey('food-action-ai'),
-                icon: Icons.add_a_photo_rounded,
+                icon: Icons.auto_awesome_rounded,
                 label: 'KI-Scan',
                 filled: true,
                 onTap: onAiScan,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 8),
             Expanded(
               child: _FoodActionButton(
                 key: const ValueKey('food-action-quick'),
                 icon: Icons.bolt_rounded,
-                label: 'Schnell\nhinzufügen',
+                label: 'Schnell',
                 filled: false,
                 onTap: onQuick,
               ),
@@ -263,17 +265,18 @@ class _FoodSearchBar extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(rControl),
       child: Container(
-        height: 48,
+        height: 46,
         padding: const EdgeInsets.symmetric(horizontal: 12),
+        // Randlos: der Fill traegt die Form. Im Tab sind Suche, Chips und
+        // Aktionen dieselbe Klasse „tippbare Flaeche" und teilen ihn sich.
         decoration: BoxDecoration(
           color: surface,
           borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(color: hairline),
         ),
         child: const Row(
           children: [
             Icon(Icons.search_rounded, size: 18, color: textMuted),
-            SizedBox(width: 10),
+            SizedBox(width: 8),
             Expanded(
               child: Text(
                 'Lebensmittel oder Mahlzeiten suchen…',
@@ -283,6 +286,7 @@ class _FoodSearchBar extends StatelessWidget {
                   color: textMuted,
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
+                  letterSpacing: -0.2,
                 ),
               ),
             ),
@@ -316,30 +320,31 @@ class _FoodActionButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(rControl),
       child: Container(
-        height: 64,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        // Icon + einzeiliges Label nebeneinander statt uebereinander: liest
+        // sich als eine Beschriftung, braucht knapp die halbe Hoehe des alten
+        // zweizeiligen Blocks und bleibt bei 1.3x-Systemschrift stabil.
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           color: filled ? forgeLime : surface,
           borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(color: filled ? forgeLime : hairline),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 20, color: fg),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: fg,
-                fontSize: 11,
-                height: 1.1,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.1,
+            Icon(icon, size: 17, color: fg),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                ),
               ),
             ),
           ],
@@ -355,14 +360,14 @@ class _KcalHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: EdgeInsets.fromLTRB(2, 2, 0, 4),
+      padding: EdgeInsets.fromLTRB(2, 0, 0, 0),
       child: Text(
         'Ernährung',
         style: TextStyle(
           color: textPrimary,
-          fontSize: 18,
+          fontSize: 22,
           fontWeight: FontWeight.w700,
-          letterSpacing: -0.3,
+          letterSpacing: -0.5,
         ),
       ),
     );
@@ -389,73 +394,66 @@ class _FoodDateStrip extends StatelessWidget {
       (index) => today.subtract(Duration(days: pastDays - index)),
     );
 
-    return Container(
+    // Keine umschliessende Karte mehr: die Chips tragen ihre Form selbst, ein
+    // Rahmen um den Rahmen ist genau die Verschachtelung, die den Tab schwer
+    // wirken liess. Uebrig bleibt eine leise Kopfzeile mit dem gewaehlten Tag.
+    return Column(
       key: const ValueKey('food-date-strip'),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-            child: Row(
-              children: [
-                const Icon(Icons.calendar_month_rounded,
-                    size: 15, color: forgeLime),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    _selectedLabel(today, selected),
-                    key: const ValueKey('food-date-selected-label'),
-                    style: const TextStyle(
-                      color: textPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.1,
-                    ),
-                  ),
-                ),
-                const Text(
-                  'Verlauf',
-                  style: TextStyle(
-                    color: textMuted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
+          child: Row(
             children: [
-              for (var index = 0; index < days.length; index++) ...[
-                Expanded(
-                  child: _FoodDateChip(
-                    key: ValueKey('food-date-chip-$index'),
-                    date: days[index],
-                    label: _chipLabel(index, today, days[index]),
-                    selected: DateUtils.isSameDay(days[index], selected),
-                    onTap: () => onSelected(days[index]),
+              const Icon(Icons.calendar_today_rounded,
+                  size: 12, color: textMuted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _selectedLabel(today, selected),
+                  key: const ValueKey('food-date-selected-label'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.1,
                   ),
                 ),
-                if (index != days.length - 1) const SizedBox(width: 6),
-              ],
+              ),
             ],
           ),
-        ],
-      ),
+        ),
+        Row(
+          children: [
+            for (var index = 0; index < days.length; index++) ...[
+              Expanded(
+                child: _FoodDateChip(
+                  key: ValueKey('food-date-chip-$index'),
+                  date: days[index],
+                  label: _chipLabel(index, today, days[index]),
+                  selected: DateUtils.isSameDay(days[index], selected),
+                  onTap: () => onSelected(days[index]),
+                ),
+              ),
+              if (index != days.length - 1) const SizedBox(width: 6),
+            ],
+          ],
+        ),
+      ],
     );
   }
+
+  // Chip-Kopfzeile. Fuer aeltere Tage der Wochentag statt nochmal des Datums —
+  // darunter steht bereits „23.7.", zweimal dasselbe sah nach Fehler aus.
+  static const _weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
   static String _chipLabel(int index, DateTime today, DateTime date) {
     final offset = today.difference(date).inDays;
     if (offset == 0) return 'Heute';
     if (offset == 1) return 'Gestern';
-    return '${date.day}.${date.month}.';
+    return _weekdays[date.weekday - 1];
   }
 
   static String _selectedLabel(DateTime today, DateTime selected) {
@@ -487,35 +485,37 @@ class _FoodDateChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(rControl),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
         decoration: BoxDecoration(
-          color: selected ? forgeLime : surfaceSoft,
+          color: selected ? forgeLime : surface,
           borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(
-            color: selected ? forgeLime : hairline,
-          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Wochentag tritt zurueck, das Datum traegt die Zeile — beim
+            // gewaehlten Chip kehrt sich das um, weil dort der Kontext zaehlt.
             Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: selected ? bg : textPrimary,
-                fontSize: 10,
+                color: selected ? bg : textMuted,
+                fontSize: 10.5,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.1,
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 3),
             Text(
               '${date.day}.${date.month}.',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: selected ? bg.withValues(alpha: 0.72) : textMuted,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
+                color: selected ? bg.withValues(alpha: 0.68) : textPrimary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
