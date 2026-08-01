@@ -8,6 +8,7 @@ import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../models/user_profile.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/meal_slot_style.dart';
 import '../common/basic_widgets.dart';
 
 class CaloriesOverviewCard extends StatelessWidget {
@@ -36,25 +37,31 @@ class CaloriesOverviewCard extends StatelessWidget {
     final progress = (eaten / adjustedGoal).clamp(0.0, 1.0);
     final remainingColor = remaining >= 0 ? forgeLime : danger;
 
+    // Die Karte laeuft im Food-Tab in einer festen Flex-Hoehe. Die Stufen
+    // muessen daher mit der Systemschrift mitwandern: bei 1.3x (App-Cap, s.
+    // ShiftFitApp) braucht derselbe Inhalt ~30 % mehr Hoehe, sonst kippt die
+    // Karte in einen Bottom-Overflow.
+    final textScale = MediaQuery.textScalerOf(context).scale(100) / 100;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxHeight = constraints.hasBoundedHeight
             ? constraints.maxHeight
             : double.infinity;
-        final compact = maxHeight < 270;
-        final tight = maxHeight < 225;
-        final padding = EdgeInsets.all(tight ? 12 : (compact ? 14 : 18));
-        final ringSize = tight ? 60.0 : (compact ? 72.0 : 92.0);
-        final remainingSize = tight ? 32.0 : (compact ? 38.0 : 46.0);
-        final titleGap = tight ? 4.0 : (compact ? 6.0 : 8.0);
-        final statsGap = tight ? 6.0 : (compact ? 8.0 : 12.0);
-        final macrosGap = tight ? 8.0 : (compact ? 10.0 : 14.0);
-        final showSubtitle = !tight;
+        final compact = maxHeight < 265 * textScale;
+        final tight = maxHeight < 200 * textScale;
+        final padding = EdgeInsets.all(tight ? 10 : (compact ? 14 : 18));
+        final ringSize = tight ? 54.0 : (compact ? 72.0 : 92.0);
+        final remainingSize = tight ? 28.0 : (compact ? 38.0 : 46.0);
+        final titleGap = tight ? 3.0 : (compact ? 6.0 : 8.0);
+        final statsGap = tight ? 5.0 : (compact ? 8.0 : 12.0);
+        final macrosGap = tight ? 6.0 : (compact ? 10.0 : 14.0);
 
+        // spaceBetween in allen Stufen: der Inhalt passt jetzt ueberall in die
+        // Stufe, restliche Hoehe wird gleichmaessig auf die Bloecke verteilt
+        // statt als Leerraum unten zu haengen.
         final content = Column(
-          mainAxisAlignment: compact
-              ? MainAxisAlignment.start
-              : MainAxisAlignment.spaceBetween,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -77,42 +84,45 @@ class CaloriesOverviewCard extends StatelessWidget {
                         ),
                       ),
                       SizedBox(height: titleGap),
-                      Text(
-                        _formatThousands(remaining),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: remainingColor,
-                          fontSize: remainingSize,
-                          fontWeight: FontWeight.w700,
-                          height: 1.0,
-                          letterSpacing: compact ? -1.4 : -1.8,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                      SizedBox(height: tight ? 1 : 2),
-                      Text(
-                        'kcal',
-                        style: TextStyle(
-                          color: textMuted,
-                          fontSize: tight ? 12 : 13,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      if (showSubtitle) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Ziel: ${_formatThousands(adjustedGoal)} kcal',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: textMuted,
-                            fontSize: 13,
-                            height: 1.3,
+                      // Einheit sitzt auf der Grundlinie neben der Zahl statt
+                      // in einer eigenen Zeile: spart Hoehe und liest sich als
+                      // ein Wert. Das frueher darunter stehende „Ziel: …" ist
+                      // raus — die ZIEL-Kachel darunter zeigt exakt dasselbe.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _formatThousands(remaining),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: remainingColor,
+                                fontSize: remainingSize,
+                                fontWeight: FontWeight.w700,
+                                height: 1.0,
+                                letterSpacing: compact ? -1.4 : -1.8,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures()
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                          Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: Text(
+                              'kcal',
+                              style: TextStyle(
+                                color: textMuted,
+                                fontSize: tight ? 12 : 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -123,32 +133,28 @@ class CaloriesOverviewCard extends StatelessWidget {
                   child: _ProgressRing(
                     progress: progress,
                     strokeWidth: compact ? 8 : 10,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          '${(progress * 100).round()}%',
-                          style: TextStyle(
-                            color: textPrimary,
-                            fontSize: tight ? 15 : (compact ? 17 : 19),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(height: tight ? 0 : 2),
-                        Text(
-                          'des Ziels',
-                          style: TextStyle(
-                            color: textMuted,
-                            fontSize: tight ? 8.5 : 10,
-                          ),
-                        ),
-                      ],
+                    // Nur die Prozentzahl im Ring. Das fruehere „des Ziels"
+                    // darunter passte nie in den Innenkreis und schnitt den
+                    // Ring optisch an — und der Bezug steht ohnehin links
+                    // („VERBLEIBENDE KCAL") und in der ZIEL-Statistik.
+                    child: Text(
+                      '${(progress * 100).round()}%',
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: textPrimary,
+                        fontSize: tight ? 17 : (compact ? 20 : 24),
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5,
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
             SizedBox(height: statsGap),
+            // Statistikzeile ohne Kacheln: drei Werte, durch Haarlinien
+            // getrennt. Die frueheren Boxen waren ein Rahmen im Rahmen im
+            // Rahmen — die Trenner leisten dasselbe mit einem Pixel.
             Row(
               children: [
                 Expanded(
@@ -156,31 +162,32 @@ class CaloriesOverviewCard extends StatelessWidget {
                     icon: Icons.gps_fixed_rounded,
                     iconColor: forgeLime,
                     label: 'ZIEL',
-                    value: _formatThousands(goal),
+                    value: '${_formatThousands(goal)} kcal',
                     compact: compact,
                     tight: tight,
                   ),
                 ),
-                SizedBox(width: compact ? 6 : 8),
+                const _StatDivider(),
                 Expanded(
                   child: _StatTile(
                     icon: Icons.restaurant_rounded,
                     iconColor: forgeLime,
                     label: 'GEGESSEN',
-                    combinedKcal: '$eaten kcal',
-                    combinedKcalKey: const ValueKey('analyse-daily-kcal-total'),
+                    value: '${_formatThousands(eaten)} kcal',
+                    valueKey: const ValueKey('analyse-daily-kcal-total'),
                     compact: compact,
                     tight: tight,
                   ),
                 ),
-                SizedBox(width: compact ? 6 : 8),
+                const _StatDivider(),
                 Expanded(
                   child: _StatTile(
                     icon: Icons.local_fire_department_outlined,
                     iconColor: cyan,
                     label: 'VERBRANNT',
-                    value: burned == 0 ? '—' : _formatThousands(burned),
-                    showKcalSuffix: burned != 0,
+                    value: burned == 0
+                        ? '—'
+                        : '${_formatThousands(burned)} kcal',
                     compact: compact,
                     tight: tight,
                   ),
@@ -338,43 +345,40 @@ class _InlineMacroBar extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: compact ? 10.5 : 11.5,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.1,
-                ),
-              ),
-            ),
-          ],
+        // Name tritt zurueck, die Gramm-Zahl ist der Wert, den man abliest.
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: textMuted,
+            fontSize: tight ? 10 : (compact ? 10.5 : 11),
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.1,
+          ),
         ),
-        SizedBox(height: tight ? 3 : 5),
+        SizedBox(height: tight ? 3 : 6),
         ClipRRect(
           borderRadius: BorderRadius.circular(rPill),
           child: LinearProgressIndicator(
             value: ratio,
-            minHeight: 6,
-            backgroundColor: surfaceSoft,
+            minHeight: 5,
+            // surfaceSoft verschwindet auf dem Glas-Panel fast — die leere
+            // Spur braucht eine eigene, vom Untergrund unabhaengige Deckkraft.
+            backgroundColor: hairline,
             valueColor: AlwaysStoppedAnimation(color),
           ),
         ),
-        SizedBox(height: tight ? 3 : 4),
+        SizedBox(height: tight ? 3 : 5),
         Text(
           '$currentG/${goalG}g',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 11,
+          style: TextStyle(
+            color: textPrimary,
+            fontSize: tight ? 10.5 : 11.5,
             fontWeight: FontWeight.w700,
-            fontFeatures: [FontFeature.tabularFigures()],
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],
@@ -387,36 +391,26 @@ class _StatTile extends StatelessWidget {
     required this.icon,
     required this.iconColor,
     required this.label,
-    this.value,
-    this.showKcalSuffix = true,
-    this.combinedKcal,
-    this.combinedKcalKey,
+    required this.value,
+    this.valueKey,
     this.compact = false,
     this.tight = false,
-  }) : assert(value != null || combinedKcal != null);
+  });
 
   final IconData icon;
   final Color iconColor;
   final String label;
-  final String? value;
-  final bool showKcalSuffix;
-  final String? combinedKcal;
-  final Key? combinedKcalKey;
+
+  /// Fertig formatierter Wert inklusive Einheit (z. B. `'590 kcal'`).
+  final String value;
+  final Key? valueKey;
   final bool compact;
   final bool tight;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        vertical: tight ? 6 : (compact ? 7 : 11),
-        horizontal: compact ? 6 : 8,
-      ),
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rControl),
-        border: Border.all(color: hairline),
-      ),
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 6),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -432,7 +426,7 @@ class _StatTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: textMuted,
-                    fontSize: compact ? 8.2 : 9,
+                    fontSize: tight ? 8 : (compact ? 8.2 : 9),
                     fontWeight: FontWeight.w600,
                     letterSpacing: compact ? 0.35 : 0.6,
                   ),
@@ -441,47 +435,34 @@ class _StatTile extends StatelessWidget {
             ],
           ),
           SizedBox(height: tight ? 2 : 4),
-          if (combinedKcal != null)
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                combinedKcal!,
-                key: combinedKcalKey,
-                maxLines: 1,
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: compact ? 12.5 : 14,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            )
-          else ...[
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                value!,
-                maxLines: 1,
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: compact ? 13 : 15,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              key: valueKey,
+              maxLines: 1,
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: tight ? 11.5 : (compact ? 12.5 : 14),
+                fontWeight: FontWeight.w700,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
-            if (showKcalSuffix && !tight)
-              const Text(
-                'kcal',
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 9,
-                ),
-              ),
-          ],
+          ),
         ],
       ),
     );
+  }
+}
+
+/// Haarlinie zwischen zwei Werten der Statistikzeile. Bewusst kuerzer als die
+/// Zeile hoch ist — ein Trenner soll gliedern, nicht ein Gitter aufziehen.
+class _StatDivider extends StatelessWidget {
+  const _StatDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: 1, height: 24, color: hairline);
   }
 }
 
@@ -503,7 +484,14 @@ class _ProgressRing extends StatelessWidget {
     return RepaintBoundary(
       child: CustomPaint(
         painter: _RingPainter(progress: progress, strokeWidth: strokeWidth),
-        child: Center(child: child),
+        // Inhalt auf die Innenflaeche begrenzen: ohne das Inset lief das Label
+        // („des Ziels") ueber den Ring hinaus und schnitt ihn optisch an.
+        child: Padding(
+          padding: EdgeInsets.all(strokeWidth + 3),
+          child: Center(
+            child: FittedBox(fit: BoxFit.scaleDown, child: child),
+          ),
+        ),
       ),
     );
   }
@@ -611,20 +599,30 @@ class MealsTodayCard extends StatelessWidget {
 
     return AppCard(
       key: const ValueKey('kcal-meals-today-card'),
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           header,
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Expanded(
             child: sorted.isEmpty
                 ? const _HistoryEmptyState()
                 : SlidableAutoCloseBehavior(
-                    child: ListView.builder(
+                    child: ListView.separated(
                       key: const ValueKey('food-history'),
                       padding: EdgeInsets.zero,
                       itemCount: sorted.length,
+                      // Haarlinie ab dem Icon eingerueckt — trennt die Zeilen,
+                      // ohne die Liste in ein Gitter zu zerlegen.
+                      separatorBuilder: (context, _) => const Padding(
+                        padding: EdgeInsets.only(left: 54),
+                        child: Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: hairline,
+                        ),
+                      ),
                       itemBuilder: (context, index) {
                         final meal = sorted[index];
                         final entry = _HistoryEntry(
@@ -675,21 +673,35 @@ class _HistoryEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: surfaceSoft,
+              borderRadius: BorderRadius.circular(rPill),
+            ),
+            child: const Icon(
+              Icons.restaurant_rounded,
+              color: textMuted,
+              size: 20,
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
             'Noch nichts geloggt',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: textMuted,
+              color: textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
           ),
-          SizedBox(height: 4),
-          Text(
+          const SizedBox(height: 4),
+          const Text(
             'Tippe oben auf KI-Scan, Barcode oder Suche.',
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -714,33 +726,29 @@ class _HistoryEntry extends StatelessWidget {
   final LoggedMeal meal;
   final VoidCallback? onTap;
 
-  IconData get _slotIcon => switch (meal.slot) {
-        MealSlot.breakfast => Icons.bakery_dining_rounded,
-        MealSlot.lunch => Icons.lunch_dining_rounded,
-        MealSlot.dinner => Icons.dinner_dining_rounded,
-        MealSlot.snack => Icons.coffee_rounded,
-      };
-
   @override
   Widget build(BuildContext context) {
     final grams = meal.result.estimatedGrams;
     final amount = grams > 0 ? '~$grams g' : '1 Portion';
+    // Icon + Farbe kommen aus der gemeinsamen Slot-Zuordnung, damit eine
+    // Mahlzeit im Verlauf genauso aussieht wie im Add-Sheet.
+    final accent = meal.slot.accent;
 
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(rControl),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: 9),
         child: Row(
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
-                color: surfaceSoft,
+                color: accent.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(rControl),
               ),
-              child: Icon(_slotIcon, color: textMuted, size: 22),
+              child: Icon(meal.slot.icon, color: accent, size: 19),
             ),
             const SizedBox(width: 12),
             Expanded(
