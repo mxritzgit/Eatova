@@ -161,14 +161,41 @@ class HomeStore extends ChangeNotifier {
     final remProt = (p.proteinGoalG - macroProgress.proteinG).round();
     final remCarbs = (p.carbsGoalG - macroProgress.carbsG).round();
     final remFat = (p.fatGoalG - macroProgress.fatG).round();
-    return [
+    final lines = [
       'Körpergewicht: ${p.weightKg} kg (Ziel ${p.targetWeightKg} kg).',
       'Heute gegessen: $dailyConsumedKcal von ${p.dailyKcalGoal} kcal '
           '(noch $remKcal kcal übrig).',
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
           'Fett $remFat g.',
       'Aktueller Workout-Streak: $workoutStreak Tage.',
-    ].join(' ');
+    ];
+    // Konkrete Lebensmittel-Namen zuletzt anhängen, damit der Coach auf „was
+    // habe ich heute gegessen?" antworten kann. Bewusst als LETZTE Zeile: der
+    // 600-Zeichen-Cap der Edge Function kappt so nur die Essensliste, nie die
+    // kcal-/Makro-Kernwerte davor.
+    final foods = _todaysFoodSummary();
+    if (foods != null) lines.add(foods);
+    return lines.join(' ');
+  }
+
+  /// Kompakte Auflistung der heute geloggten Mahlzeiten (Slot: Name (kcal)),
+  /// oder null wenn nichts geloggt ist. Gekappt auf [maxFoods] Einträge und
+  /// die Namen auf 40 Zeichen, damit der Kontext den 600-Zeichen-Rahmen der
+  /// Edge Function nicht sprengt; bei mehr Einträgen signalisiert „…" die
+  /// gekürzte Liste.
+  String? _todaysFoodSummary() {
+    const maxFoods = 10;
+    final meals = mealsForFoodDate(DateTime.now());
+    if (meals.isEmpty) return null;
+    final shown = meals.take(maxFoods).map((m) {
+      final raw = m.result.mealName.trim();
+      final name = raw.isEmpty
+          ? 'Mahlzeit'
+          : (raw.length > 40 ? '${raw.substring(0, 39)}…' : raw);
+      return '${m.slot.label}: $name (${m.result.caloriesKcal} kcal)';
+    }).join(', ');
+    final suffix = meals.length > maxFoods ? ' …' : '';
+    return 'Heute gegessene Lebensmittel — $shown$suffix.';
   }
 
   bool get selectedFoodDateIsToday =>

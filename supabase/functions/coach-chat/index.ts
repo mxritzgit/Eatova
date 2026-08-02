@@ -691,9 +691,12 @@ Deno.serve(async (req: Request) => {
     typeof body?.session_id === "string" && SESSION_ID_RE.test(body.session_id)
       ? body.session_id
       : null;
-  // Faktischer App-Kontext (Profil + Tagesbilanz) vom Client. Control-Chars
-  // entfernt + gekappt; wird im System-Prompt explizit als Daten (NICHT als
-  // Anweisung) gerahmt, damit er nicht als Injection-Vektor missbraucht wird.
+  // Faktischer App-Kontext (Profil + Tagesbilanz + heute gegessene Lebensmittel)
+  // vom Client. Control-Chars entfernt + gekappt; wird im System-Prompt explizit
+  // als Daten (NICHT als Anweisung) gerahmt, damit er nicht als Injection-Vektor
+  // missbraucht wird. Cap 1200 (war 600): die Essensliste (Namen der geloggten
+  // Mahlzeiten) haengt hinten dran und braucht an vollen Tagen mehr Platz, ohne
+  // dass die kcal-/Makro-Kernwerte davor abgeschnitten werden.
   const rawContext = typeof body?.user_context === "string"
     ? body.user_context as string
     : "";
@@ -701,7 +704,7 @@ Deno.serve(async (req: Request) => {
     .filter((ch) => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) !== 127)
     .join("")
     .trim()
-    .slice(0, 600);
+    .slice(0, 1200);
 
   // Session sicherstellen (vor Pre-Filter, damit auch Refusals der richtigen
   // Konversation zugeordnet werden).
