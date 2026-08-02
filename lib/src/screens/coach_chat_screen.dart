@@ -10,13 +10,17 @@ import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../services/coach_chat_service.dart';
 import '../theme/app_colors.dart';
+import '../widgets/common/motion.dart';
 
 /// Coach-Chat: Grok-basierter Fitness-/Ernaehrungs-Coach.
 ///
 /// Design ist bewusst dezent: kleiner zentrierter Titel, gradient Greeting im
-/// Empty State, User-Bubble + Coach-Plain-Text mit Gradient-Dot. Mehrere
-/// Sessions sind ueber das Listen-Icon oben rechts erreichbar; die Quota
-/// liegt hinter dem (i)-Icon oben links.
+/// Empty State (+ Vorschlag-Chips), User-Bubble + Coach-Plain-Text mit
+/// Gradient-Dot. Mehrere Sessions sind ueber das Listen-Icon oben rechts
+/// erreichbar; die Quota liegt hinter dem (i)-Icon oben links und meldet sich
+/// bei <= 2 Restfragen als dezenter Pill ueber dem Composer. Der Composer:
+/// "+"-Attach links (Kamera/Galerie via Sheet), Mic <-> Send animiert rechts,
+/// Lime-Fokusrahmen.
 class CoachChatScreen extends StatefulWidget {
   const CoachChatScreen({
     super.key,
@@ -58,12 +62,16 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   String? _error;
 
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
-  bool get _canInteract =>
+
+  /// Tippen ist auch WAEHREND einer laufenden Antwort erlaubt (sonst wuerde
+  /// das disabled-TextField mitten im Flow die Tastatur schliessen) —
+  /// nur Aktionen (Senden/Mic/Attach) warten auf [_canInteract].
+  bool get _canType =>
       widget.service != null &&
       !_loading &&
-      !_sending &&
       _quota.remaining > 0 &&
       _activeSessionId != null;
+  bool get _canInteract => _canType && !_sending;
 
   @override
   void initState() {
@@ -208,6 +216,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
 
+    HapticFeedback.selectionClick();
     final displayText = text.isEmpty
         ? 'Analysiere dieses Bild im Fitness-Kontext.'
         : text;
@@ -329,7 +338,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     if (lower.contains('denied') || lower.contains('permission')) {
       return '$permissionText wurde nicht erlaubt. Du kannst die Berechtigung in den iOS-Einstellungen wieder aktivieren.';
     }
-    return 'Das Bild konnte nicht geoeffnet werden.';
+    return 'Das Bild konnte nicht geöffnet werden.';
   }
 
   Future<void> _toggleSpeechInput() async {
@@ -366,9 +375,73 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       if (!mounted) return;
       setState(() {
         _listening = false;
-        _error = 'Spracherkennung ist auf diesem Geraet gerade nicht verfuegbar.';
+        _error = 'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.';
       });
     }
+  }
+
+  /// Ein Vorschlag-Chip legt den Text nur ins Feld (statt direkt zu senden) —
+  /// die Quota ist knapp, der User behaelt die Kontrolle vor dem Abschicken.
+  void _applySuggestion(String text) {
+    if (!_canType) return;
+    HapticFeedback.selectionClick();
+    _input.text = text;
+    _input.selection = TextSelection.collapsed(offset: text.length);
+    _inputFocus.requestFocus();
+  }
+
+  void _openAttachSheet() {
+    if (!_canInteract) return;
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: hairline,
+                    borderRadius: BorderRadius.circular(rPill),
+                  ),
+                ),
+              ),
+              _AttachTile(
+                key: const ValueKey('coach-camera'),
+                icon: Icons.photo_camera_outlined,
+                label: 'Foto aufnehmen',
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _pickAndSendImage(ImageSource.camera);
+                },
+              ),
+              const SizedBox(height: 6),
+              _AttachTile(
+                key: const ValueKey('coach-gallery'),
+                icon: Icons.photo_outlined,
+                label: 'Aus der Galerie',
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _pickAndSendImage(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _openSessionsSheet() {
@@ -483,7 +556,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                     ),
                   )
                 : _messages.isEmpty
-                    ? _Greeting(name: widget.userName)
+                    ? _Greeting(
+                        name: widget.userName,
+                        onSuggestion: _applySuggestion,
+                      )
                     : _Conversation(
                         controller: _scroll,
                         focus: _inputFocus,
@@ -497,14 +573,15 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         _Composer(
           controller: _input,
           focus: _inputFocus,
-          enabled: _canInteract,
+          enabled: _canType,
+          canSend: _canInteract,
           remaining: _quota.remaining,
           draft: _draft,
           listening: _listening,
           onSubmit: () => _send(),
           onMic: _toggleSpeechInput,
-          onGallery: () => _pickAndSendImage(ImageSource.gallery),
-          onCamera: () => _pickAndSendImage(ImageSource.camera),
+          onAttach: _openAttachSheet,
+          onQuotaTap: _openQuotaSheet,
         ),
       ],
     );
@@ -531,13 +608,13 @@ class CoachSpeechInput {
       }
       if (code.contains('unavailable')) {
         throw const CoachSpeechException(
-          'Spracherkennung ist auf diesem Geraet gerade nicht verfuegbar.',
+          'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.',
         );
       }
       throw CoachSpeechException(e.message ?? 'Spracherkennung fehlgeschlagen.');
     } on MissingPluginException {
       throw const CoachSpeechException(
-        'Spracherkennung ist auf diesem Geraet gerade nicht verfuegbar.',
+        'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.',
       );
     }
   }
@@ -642,11 +719,19 @@ class _TopChip extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Greeting: grosses Gradient-Hi auf leerer Session.
+// Greeting: grosses Gradient-Hi auf leerer Session + Vorschlag-Chips, die den
+// Text ins Feld legen (Einstiegshuerde senken, ohne Quota zu verbrauchen).
 // ---------------------------------------------------------------------------
 class _Greeting extends StatelessWidget {
-  const _Greeting({required this.name});
+  const _Greeting({required this.name, required this.onSuggestion});
   final String name;
+  final ValueChanged<String> onSuggestion;
+
+  static const List<String> _suggestions = [
+    'Was soll ich heute noch essen?',
+    'Erstell mir ein kurzes Workout',
+    'Wie schlafe ich besser?',
+  ];
 
   String get _timeGreeting {
     final h = DateTime.now().hour;
@@ -668,16 +753,69 @@ class _Greeting extends StatelessWidget {
       key: const ValueKey('coach-empty'),
       alignment: const Alignment(0, -0.2),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: _GradientText(
-          '$_timeGreeting, $_firstName',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white, // wird vom ShaderMask ueberschrieben
-            fontSize: 36,
-            fontWeight: FontWeight.w500,
-            letterSpacing: -0.9,
-            height: 1.06,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _GradientText(
+              '$_timeGreeting, $_firstName',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white, // wird vom ShaderMask ueberschrieben
+                fontSize: 36,
+                fontWeight: FontWeight.w500,
+                letterSpacing: -0.9,
+                height: 1.06,
+              ),
+            ),
+            const SizedBox(height: 26),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (var i = 0; i < _suggestions.length; i++)
+                  _SuggestionChip(
+                    key: ValueKey('coach-suggestion-$i'),
+                    text: _suggestions[i],
+                    onTap: () => onSuggestion(_suggestions[i]),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionChip extends StatelessWidget {
+  const _SuggestionChip({super.key, required this.text, required this.onTap});
+
+  final String text;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: surface,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: hairline),
+        borderRadius: BorderRadius.circular(rControl),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.1,
+            ),
           ),
         ),
       ),
@@ -984,110 +1122,216 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Composer: pill-shaped, Text + (Mic, Foto, Kamera) bzw. Send.
+// Composer: pill-shaped, "+"-Attach links, Text, Mic <-> Send rechts.
+// Fokus zieht einen Lime-Rahmen + hellt die Flaeche an; bei knapper Quota
+// sitzt ein tappbarer Hinweis-Pill darueber.
 // ---------------------------------------------------------------------------
-class _Composer extends StatelessWidget {
+class _Composer extends StatefulWidget {
   const _Composer({
     required this.controller,
     required this.focus,
     required this.enabled,
+    required this.canSend,
     required this.remaining,
     required this.draft,
     required this.listening,
     required this.onSubmit,
     required this.onMic,
-    required this.onGallery,
-    required this.onCamera,
+    required this.onAttach,
+    required this.onQuotaTap,
   });
 
   final TextEditingController controller;
   final FocusNode focus;
+
+  /// Tippen erlaubt (Session geladen, Quota uebrig).
   final bool enabled;
+
+  /// Aktionen erlaubt (zusaetzlich: gerade kein Send unterwegs).
+  final bool canSend;
   final int remaining;
   final String draft;
   final bool listening;
   final VoidCallback onSubmit;
   final VoidCallback onMic;
-  final VoidCallback onGallery;
-  final VoidCallback onCamera;
+  final VoidCallback onAttach;
+  final VoidCallback onQuotaTap;
+
+  @override
+  State<_Composer> createState() => _ComposerState();
+}
+
+class _ComposerState extends State<_Composer> {
+  late bool _focused = widget.focus.hasFocus;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.focus.addListener(_handleFocusChange);
+  }
+
+  @override
+  void dispose() {
+    widget.focus.removeListener(_handleFocusChange);
+    super.dispose();
+  }
+
+  void _handleFocusChange() {
+    if (_focused != widget.focus.hasFocus) {
+      setState(() => _focused = widget.focus.hasFocus);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final hasText = draft.trim().isNotEmpty;
+    final hasText = widget.draft.trim().isNotEmpty;
+    final showQuotaHint = widget.remaining > 0 && widget.remaining <= 2;
     return SafeArea(
       top: false,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-        constraints: const BoxConstraints(minHeight: 52, maxHeight: 160),
-        padding: const EdgeInsets.fromLTRB(18, 4, 6, 4),
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(rSheet),
-          border: Border.all(color: hairline),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: TextField(
-                key: const ValueKey('coach-input'),
-                controller: controller,
-                focusNode: focus,
-                enabled: enabled,
-                maxLines: 5,
-                minLines: 1,
-                textInputAction: TextInputAction.newline,
-                style: const TextStyle(
-                  color: textPrimary,
-                  fontSize: 15.5,
-                  height: 1.3,
-                  letterSpacing: -0.1,
-                ),
-                cursorColor: lime,
-                decoration: InputDecoration(
-                  isCollapsed: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                  hintText: remaining <= 0
-                      ? 'Limit fuer heute erreicht'
-                      : listening
-                          ? 'Ich hoere zu...'
-                          : 'Frag den Coach',
-                  hintStyle: const TextStyle(
-                    color: textMuted,
-                    fontSize: 15.5,
-                    letterSpacing: -0.1,
-                  ),
-                  border: InputBorder.none,
-                ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showQuotaHint)
+            _QuotaHint(remaining: widget.remaining, onTap: widget.onQuotaTap),
+          AnimatedContainer(
+            duration: motionDuration(context, const Duration(milliseconds: 200)),
+            curve: Curves.easeOutCubic,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            constraints: const BoxConstraints(minHeight: 52, maxHeight: 160),
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+            decoration: BoxDecoration(
+              color: _focused ? surfaceSoft : surface,
+              borderRadius: BorderRadius.circular(rSheet),
+              border: Border.all(
+                color: _focused ? lime.withValues(alpha: 0.55) : hairline,
               ),
             ),
-            const SizedBox(width: 4),
-            if (!hasText) ...[
-              _ComposerIcon(
-                key: const ValueKey('coach-mic'),
-                icon: Icons.mic_none_rounded,
-                enabled: enabled,
-                active: listening,
-                onTap: onMic,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _ComposerIcon(
+                  key: const ValueKey('coach-attach'),
+                  icon: Icons.add_rounded,
+                  iconSize: 22,
+                  enabled: widget.canSend,
+                  onTap: widget.onAttach,
+                ),
+                const SizedBox(width: 2),
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('coach-input'),
+                    controller: widget.controller,
+                    focusNode: widget.focus,
+                    enabled: widget.enabled,
+                    maxLines: 5,
+                    minLines: 1,
+                    textInputAction: TextInputAction.newline,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: const TextStyle(
+                      color: textPrimary,
+                      fontSize: 15.5,
+                      height: 1.3,
+                      letterSpacing: -0.1,
+                    ),
+                    cursorColor: lime,
+                    decoration: InputDecoration(
+                      isCollapsed: true,
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                      hintText: widget.remaining <= 0
+                          ? 'Limit für heute erreicht'
+                          : widget.listening
+                              ? 'Ich höre zu…'
+                              : 'Frag den Coach',
+                      hintStyle: const TextStyle(
+                        color: textMuted,
+                        fontSize: 15.5,
+                        letterSpacing: -0.1,
+                      ),
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                AnimatedSwitcher(
+                  duration:
+                      motionDuration(context, const Duration(milliseconds: 180)),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: ScaleTransition(
+                      scale: Tween<double>(begin: 0.75, end: 1).animate(anim),
+                      child: child,
+                    ),
+                  ),
+                  child: hasText
+                      ? _SendButton(enabled: widget.canSend, onTap: widget.onSubmit)
+                      : _MicButton(
+                          enabled: widget.canSend,
+                          listening: widget.listening,
+                          onTap: widget.onMic,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dezenter Status-Pill ueber dem Composer, sobald nur noch 1–2 Coach-Fragen
+/// uebrig sind. Tap oeffnet das Quota-Sheet.
+class _QuotaHint extends StatelessWidget {
+  const _QuotaHint({required this.remaining, required this.onTap});
+
+  final int remaining;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Center(
+        child: Material(
+          key: const ValueKey('coach-quota-hint'),
+          color: surface,
+          shape: const StadiumBorder(side: BorderSide(color: hairline)),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: lime,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    remaining == 1
+                        ? 'Noch 1 Frage heute'
+                        : 'Noch $remaining Fragen heute',
+                    style: const TextStyle(
+                      color: textMuted,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.1,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
               ),
-              _ComposerIcon(
-                key: const ValueKey('coach-gallery'),
-                icon: Icons.photo_outlined,
-                enabled: enabled,
-                onTap: onGallery,
-              ),
-              _ComposerIcon(
-                key: const ValueKey('coach-camera'),
-                icon: Icons.photo_camera_outlined,
-                enabled: enabled,
-                onTap: onCamera,
-              ),
-            ] else
-              _SendButton(
-                enabled: enabled,
-                onTap: onSubmit,
-              ),
-          ],
+            ),
+          ),
         ),
       ),
     );
@@ -1100,21 +1344,20 @@ class _ComposerIcon extends StatelessWidget {
     required this.icon,
     required this.enabled,
     required this.onTap,
-    this.active = false,
+    this.iconSize = 20,
   });
 
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
-  final bool active;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? lime : (enabled ? textPrimary : textMuted);
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
-        color: active ? lime.withValues(alpha: 0.14) : Colors.transparent,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(rControl),
         child: InkWell(
           onTap: enabled ? onTap : null,
@@ -1122,7 +1365,115 @@ class _ComposerIcon extends StatelessWidget {
           child: SizedBox(
             width: 38,
             height: 44,
-            child: Icon(icon, color: color, size: 20),
+            child: Icon(
+              icon,
+              color: enabled ? textPrimary : textMuted,
+              size: iconSize,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Mic-Button rechts im Composer. Waehrend [listening] pulsiert ein weicher
+/// Lime-Ring hinter dem Icon (unter "Bewegung reduzieren": statisch getoent).
+class _MicButton extends StatefulWidget {
+  const _MicButton({
+    required this.enabled,
+    required this.listening,
+    required this.onTap,
+  });
+
+  final bool enabled;
+  final bool listening;
+  final VoidCallback onTap;
+
+  @override
+  State<_MicButton> createState() => _MicButtonState();
+}
+
+class _MicButtonState extends State<_MicButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncPulse();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MicButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncPulse();
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  void _syncPulse() {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (widget.listening && !reduce) {
+      if (!_pulse.isAnimating) _pulse.repeat();
+    } else {
+      if (_pulse.isAnimating) _pulse.stop();
+      _pulse.value = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final color =
+        widget.listening ? lime : (widget.enabled ? textPrimary : textMuted);
+    return Padding(
+      key: const ValueKey('coach-mic'),
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: widget.listening
+            ? lime.withValues(alpha: 0.14)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(rControl),
+        child: InkWell(
+          onTap: widget.enabled ? widget.onTap : null,
+          borderRadius: BorderRadius.circular(rControl),
+          child: SizedBox(
+            width: 42,
+            height: 44,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (widget.listening && !reduce)
+                  RepaintBoundary(
+                    child: AnimatedBuilder(
+                      animation: _pulse,
+                      builder: (_, __) {
+                        final t = _pulse.value;
+                        return Container(
+                          width: 24 + 14 * t,
+                          height: 24 + 14 * t,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: lime.withValues(alpha: 0.5 * (1 - t)),
+                              width: 1.5,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                Icon(Icons.mic_none_rounded, color: color, size: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -1162,6 +1513,58 @@ class _SendButton extends StatelessWidget {
             // Dark glyph on the light lime CTA (WCAG contrast).
             color: enabled ? bg : textMuted,
             size: 18,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Zeile im Attach-Sheet ("+"): Icon-Kachel + Label, Sheet-Pattern der App.
+class _AttachTile extends StatelessWidget {
+  const _AttachTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(rCard),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rCard),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: surfaceSoft,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: Icon(icon, size: 18, color: textPrimary),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1291,7 +1694,7 @@ class _SessionsSheet extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: surface,
-        title: const Text('Session loeschen?',
+        title: const Text('Session löschen?',
             style: TextStyle(color: textPrimary, fontSize: 16)),
         content: Text(
           '"${s.title}" und alle Nachrichten darin werden entfernt.',
@@ -1307,7 +1710,7 @@ class _SessionsSheet extends StatelessWidget {
               Navigator.of(ctx).pop();
               onDelete(s.id);
             },
-            child: const Text('Loeschen', style: TextStyle(color: danger)),
+            child: const Text('Löschen', style: TextStyle(color: danger)),
           ),
         ],
       ),
@@ -1380,7 +1783,7 @@ class _SessionTile extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'Loeschen',
+                tooltip: 'Löschen',
                 onPressed: onDelete,
                 icon: const Icon(Icons.delete_outline_rounded,
                     size: 18, color: textMuted),
