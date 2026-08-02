@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
 import '../../models/logged_meal.dart';
@@ -573,6 +574,8 @@ class MealsTodayCard extends StatelessWidget {
       ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
 
     final header = Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
         const Text(
           'Verlauf',
@@ -584,16 +587,26 @@ class MealsTodayCard extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        if (sorted.isNotEmpty)
+        if (sorted.isNotEmpty) ...[
           Text(
-            '${_formatThousands(overallTotal)} kcal',
+            _formatThousands(overallTotal),
             style: const TextStyle(
-              color: textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+              color: textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
               fontFeatures: [FontFeature.tabularFigures()],
             ),
           ),
+          const SizedBox(width: 3),
+          const Text(
+            'kcal',
+            style: TextStyle(
+              color: textMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ],
     );
 
@@ -608,57 +621,73 @@ class MealsTodayCard extends StatelessWidget {
           Expanded(
             child: sorted.isEmpty
                 ? const _HistoryEmptyState()
-                : SlidableAutoCloseBehavior(
-                    child: ListView.separated(
-                      key: const ValueKey('food-history'),
-                      padding: EdgeInsets.zero,
-                      itemCount: sorted.length,
-                      // Haarlinie ab dem Icon eingerueckt — trennt die Zeilen,
-                      // ohne die Liste in ein Gitter zu zerlegen.
-                      separatorBuilder: (context, _) => const Padding(
-                        padding: EdgeInsets.only(left: 54),
-                        child: Divider(
-                          height: 1,
-                          thickness: 1,
-                          color: hairline,
-                        ),
-                      ),
-                      itemBuilder: (context, index) {
-                        final meal = sorted[index];
-                        final entry = _HistoryEntry(
-                          key: ValueKey('food-history-entry-$index'),
-                          meal: meal,
-                          onTap: onMealTap == null
-                              ? null
-                              : () => onMealTap!(meal.slot),
-                        );
-                        // Ohne Lösch-Callback: schlichte Zeile (kein Swipe).
-                        if (onRemoveMeal == null) return entry;
-                        // Rechts-nach-links-Swipe enthüllt die Lösch-Aktion;
-                        // Tap darauf -> sofortiges onRemoveMeal (entfernt den
-                        // Eintrag + rechnet Kalorien/Makros direkt neu).
-                        return Slidable(
-                          key: ValueKey('slide-${meal.id}'),
-                          groupTag: 'food-history',
-                          endActionPane: ActionPane(
-                            motion: const DrawerMotion(),
-                            extentRatio: 0.28,
-                            children: [
-                              SlidableAction(
-                                key: ValueKey('food-history-delete-$index'),
-                                onPressed: (_) => onRemoveMeal!(meal.id),
-                                backgroundColor: danger,
-                                foregroundColor: bg,
-                                icon: Icons.delete_outline_rounded,
-                                label: 'Löschen',
-                                borderRadius: BorderRadius.circular(rControl),
-                                padding: EdgeInsets.zero,
-                              ),
-                            ],
+                // Weicher Fade an der Unterkante statt harter Schnittlinie,
+                // wenn die Liste laenger als die Karte ist.
+                : ShaderMask(
+                    shaderCallback: (rect) => const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.white, Colors.white, Colors.transparent],
+                      stops: [0.0, 0.93, 1.0],
+                    ).createShader(rect),
+                    blendMode: BlendMode.dstIn,
+                    child: SlidableAutoCloseBehavior(
+                      child: ListView.separated(
+                        key: const ValueKey('food-history'),
+                        padding: const EdgeInsets.only(bottom: 8),
+                        itemCount: sorted.length,
+                        // Haarlinie ab dem Icon eingerueckt — trennt die
+                        // Zeilen, ohne die Liste in ein Gitter zu zerlegen.
+                        separatorBuilder: (context, _) => const Padding(
+                          padding: EdgeInsets.only(left: 48),
+                          child: Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: hairline,
                           ),
-                          child: entry,
-                        );
-                      },
+                        ),
+                        itemBuilder: (context, index) {
+                          final meal = sorted[index];
+                          final entry = _HistoryEntry(
+                            key: ValueKey('food-history-entry-$index'),
+                            meal: meal,
+                            index: index,
+                            onTap: onMealTap == null
+                                ? null
+                                : () => onMealTap!(meal.slot),
+                          );
+                          // Ohne Lösch-Callback: schlichte Zeile (kein Swipe).
+                          if (onRemoveMeal == null) return entry;
+                          // Links-Swipe: Zeile + Lösch-Button laufen gemeinsam
+                          // (ScrollMotion), ClipRRect haelt alles in der
+                          // Zeilenbreite statt aus der Karte zu ragen. Ganz
+                          // durchwischen loescht direkt (DismissiblePane);
+                          // Tap auf den Button animiert die Zeile erst raus
+                          // und entfernt sie dann aus dem Store.
+                          return ClipRRect(
+                            key: ValueKey('food-history-clip-${meal.id}'),
+                            borderRadius: BorderRadius.circular(rControl),
+                            child: Slidable(
+                              key: ValueKey('slide-${meal.id}'),
+                              groupTag: 'food-history',
+                              endActionPane: ActionPane(
+                                motion: const ScrollMotion(),
+                                extentRatio: _deleteExtent,
+                                dismissible: DismissiblePane(
+                                  onDismissed: () => onRemoveMeal!(meal.id),
+                                ),
+                                children: [
+                                  _DeleteMealAction(
+                                    key: ValueKey('food-history-delete-$index'),
+                                    onDelete: () => onRemoveMeal!(meal.id),
+                                  ),
+                                ],
+                              ),
+                              child: entry,
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
           ),
@@ -716,97 +745,236 @@ class _HistoryEmptyState extends StatelessWidget {
   }
 }
 
-class _HistoryEntry extends StatelessWidget {
+/// Anteil der Zeilenbreite, den die aufgezogene Lösch-Aktion einnimmt.
+/// Auch das Fenster der Reveal-Animation: der SlidableController laeuft beim
+/// Aufziehen von 0 bis genau zu diesem Wert (und beim Dismiss weiter bis 1).
+const double _deleteExtent = 0.26;
+
+class _DeleteMealAction extends StatelessWidget {
+  const _DeleteMealAction({super.key, required this.onDelete});
+
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Slidable.of(context);
+    final reveal = controller == null
+        ? const AlwaysStoppedAnimation<double>(1)
+        : CurvedAnimation(
+            parent: controller.animation,
+            curve: const Interval(0.0, _deleteExtent, curve: Curves.easeOutCubic),
+          );
+    return CustomSlidableAction(
+      // Kein autoClose: das wuerde direkt nach dem Tap ein close() feuern und
+      // die dismiss()-Animation abwuergen -> onDelete liefe nie.
+      autoClose: false,
+      onPressed: (actionContext) {
+        HapticFeedback.mediumImpact();
+        final slidable = Slidable.of(actionContext);
+        if (slidable == null) {
+          onDelete();
+          return;
+        }
+        // Erst die Zeile rausschieben + Luecke zusammenziehen, dann loeschen —
+        // sonst springt die Liste hart, sobald der Store neu baut.
+        slidable.dismiss(
+          ResizeRequest(const Duration(milliseconds: 220), onDelete),
+        );
+      },
+      backgroundColor: Colors.transparent,
+      foregroundColor: danger,
+      padding: EdgeInsets.zero,
+      child: FadeTransition(
+        opacity: reveal,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.6, end: 1).animate(reveal),
+          child: Semantics(
+            button: true,
+            label: 'Eintrag löschen',
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: danger.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: danger.withValues(alpha: 0.25)),
+              ),
+              child: const Icon(
+                Icons.delete_outline_rounded,
+                color: danger,
+                size: 20,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryEntry extends StatefulWidget {
   const _HistoryEntry({
     super.key,
     required this.meal,
+    required this.index,
     required this.onTap,
   });
 
   final LoggedMeal meal;
+  final int index;
   final VoidCallback? onTap;
 
   @override
+  State<_HistoryEntry> createState() => _HistoryEntryState();
+}
+
+class _HistoryEntryState extends State<_HistoryEntry>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+  );
+  late final CurvedAnimation _in =
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+
+  @override
+  void initState() {
+    super.initState();
+    // Sanfter Stagger beim Listenaufbau; einzelne neue Eintraege sliden ohne
+    // spuerbare Wartezeit rein. Ueber die id-Keys der Slidable-Wrapper bleibt
+    // der State pro Mahlzeit erhalten -> kein Re-Play beim Loeschen anderer.
+    final delay = Duration(milliseconds: 40 * math.min(widget.index, 5));
+    Future<void>.delayed(delay, () {
+      if (mounted) _controller.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _in.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final meal = widget.meal;
     final grams = meal.result.estimatedGrams;
     final amount = grams > 0 ? '~$grams g' : '1 Portion';
     // Icon + Farbe kommen aus der gemeinsamen Slot-Zuordnung, damit eine
     // Mahlzeit im Verlauf genauso aussieht wie im Add-Sheet.
     final accent = meal.slot.accent;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(rControl),
-              ),
-              child: Icon(meal.slot.icon, color: accent, size: 19),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    meal.result.mealName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: textPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${meal.slot.label} • $amount',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
+    return FadeTransition(
+      opacity: _in,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.20),
+          end: Offset.zero,
+        ).animate(_in),
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(rControl),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
               children: [
-                Text(
-                  '${meal.result.caloriesKcal}',
-                  style: const TextStyle(
-                    color: forgeLime,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(rControl),
+                  ),
+                  child: Icon(meal.slot.icon, color: accent, size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        meal.result.mealName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: textPrimary,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${meal.slot.label} · $amount',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: textMuted,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const Text(
-                  'kcal',
-                  style: TextStyle(
-                    color: textMuted,
-                    fontSize: 11,
-                  ),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${meal.result.caloriesKcal}',
+                          style: const TextStyle(
+                            color: textPrimary,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        const Text(
+                          'kcal',
+                          style: TextStyle(
+                            color: textMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _formatTime(meal.loggedAt),
+                      style: const TextStyle(
+                        color: textMuted,
+                        fontSize: 11,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+}
+
+/// Lokale Wanduhr-Zeit `HH:mm` einer Mahlzeit fuer die Verlaufszeile.
+String _formatTime(DateTime dt) {
+  final local = dt.toLocal();
+  final h = local.hour.toString().padLeft(2, '0');
+  final m = local.minute.toString().padLeft(2, '0');
+  return '$h:$m';
 }
 
 String _formatThousands(int n) {
