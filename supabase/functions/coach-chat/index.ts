@@ -568,6 +568,39 @@ async function userIdFromJwt(
 }
 
 // ---------------------------------------------------------------------------
+// Body-Lesen mit hartem serverseitigem Byte-Limit.
+//
+// Der Content-Length-Header ist Client-kontrolliert (weglassbar/faelschbar)
+// und taugt nur als billiger Fast-Path. Hier wird der Stream selbst gekappt:
+// sobald mehr als maxBytes angekommen sind, brechen wir ab (null = zu gross),
+// bevor ein uebergrosser Body vollstaendig im Speicher landet.
+// ---------------------------------------------------------------------------
+async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const buf = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buf.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(buf);
+}
+
+// ---------------------------------------------------------------------------
 // HTTP-Handler
 // ---------------------------------------------------------------------------
 function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
@@ -591,6 +624,8 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Edge function not configured" }, 500);
   }
 
+  // Nur Fast-Path fuer ehrliche Clients (413 ohne Body-Read). Der harte,
+  // nicht umgehbare Cap sitzt in readBodyLimited() beim eigentlichen Lesen.
   const contentLength = Number(req.headers.get("content-length") ?? "0");
   if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > MAX_CONTENT_LENGTH) {
     return json({ error: "payload_too_large" }, 413);
@@ -639,9 +674,12 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // 2) Body lesen
+  // 2) Body lesen — hart serverseitig gekappt statt dem Content-Length-Header
+  // zu vertrauen (der ist Client-kontrolliert; siehe readBodyLimited).
+  const rawBody = await readBodyLimited(req, MAX_CONTENT_LENGTH);
+  if (rawBody === null) return json({ error: "payload_too_large" }, 413);
   let body: any;
-  try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  try { body = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON" }, 400); }
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const imageBase64Raw = typeof body?.image_base64 === "string" ? body.image_base64.trim() : "";
   const imageBase64 = imageBase64Raw.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
