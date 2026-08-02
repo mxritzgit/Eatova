@@ -2,15 +2,23 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY') ?? '';
-// Vision-/Analyse-Modell (Bild rein, JSON-Text raus). Zwei Footguns vermeiden:
-//  1) NICHT gpt-5-image* — die "image"-Familie ist Bild-GENERIERUNG (Output
-//     image) und liefert keine Foto→JSON-Analyse.
-//  2) NICHT die gpt-5-Reasoning-Modelle (gpt-5, gpt-5-mini, …): die lehnen
+// Vision-/Analyse-Modell (Bild rein, JSON-Text raus). Aktuell:
+// google/gemini-3.5-flash-lite — echtes Vision→Text-Modell (input: image,
+// output: text), unterstützt response_format/json_object + temperature +
+// reasoning_effort; günstig & schnell. Das OPENROUTER_MODEL-Secret übersteuert
+// diesen Default (Code + Secret bewusst gleich halten, sonst Drift wie 2026-05).
+//
+// Drei Footguns vermeiden:
+//  1) KEINE "-image"-Modelle (gpt-5-image*, gemini-*-flash-image / "Nano Banana"):
+//     die "image"-Familie ist Bild-GENERIERUNG (Output = image) und liefert
+//     keine Foto→JSON-Analyse → provider_invalid_json / 502.
+//  2) KEINE reinen Reasoning-Modelle (gpt-5, gpt-5-mini, …): die lehnen
 //     'temperature' ab ("Unsupported parameter") UND verbrauchen das
 //     max_tokens-Budget mit Reasoning → leerer Output → provider_invalid_json.
-// gpt-4o-mini: echtes Vision-Modell, unterstützt temperature + max_tokens +
-// json_object (passt zur Request-Form unten), schnell & günstig.
-const OPENROUTER_MODEL = Deno.env.get('OPENROUTER_MODEL') ?? 'openai/gpt-4o-mini';
+//  3) Gemini-3.x-flash-lite kann "thinking" — deshalb unten reasoning.effort
+//     'minimal', damit Reasoning nicht das max_tokens-Budget frisst (gleiche
+//     Leerer-Output-Falle wie 2).
+const OPENROUTER_MODEL = Deno.env.get('OPENROUTER_MODEL') ?? 'google/gemini-3.5-flash-lite';
 const ALLOWED_ORIGINS = (Deno.env.get('FITPILOT_ALLOWED_ORIGINS') ?? '')
   .split(',')
   .map((origin) => origin.trim())
@@ -399,9 +407,13 @@ async function callOpenRouter(body: ParsedBody, prompt: string, requestId: strin
       ],
       response_format: { type: 'json_object' },
       temperature: 0.1,
+      // Gemini-3.x-flash-lite kann "thinking": auf 'minimal' halten, sonst frisst
+      // Reasoning das max_tokens-Budget -> leerer content -> provider_empty_response.
+      // Für OpenAI-Modelle (gpt-4o-mini) ist der Parameter ein harmloser No-Op.
+      reasoning: { effort: 'minimal' },
       // 4096: ein realer, voll itemisierter Teller (viele items[] + lange explanation)
       // sprengte 1400/2048 -> abgeschnittenes JSON -> provider_invalid_json (502) ->
-      // Client wirft -> "Analyse fehlgeschlagen". gpt-4o-mini kann 16k out, 4096 ist günstig.
+      // Client wirft -> "Analyse fehlgeschlagen". 4096 out ist günstig & reicht.
       max_tokens: 4096,
     }),
   });
