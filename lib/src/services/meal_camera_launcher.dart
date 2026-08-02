@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/logged_meal.dart' show MealSlot;
 import '../models/meal_analysis_request.dart';
-import '../screens/meal_camera_screen.dart';
+import '../screens/meal_camera_sheet.dart';
 
 /// Ergebnis der In-App-Kamera: das Analyse-Request-Objekt (Bild), eine
 /// Vorschau fuer das Ergebnis-Sheet und der vom Nutzer im Kamera-Screen
@@ -31,9 +31,9 @@ abstract class MealCameraLauncher {
   });
 }
 
-/// Produktions-Implementierung: schiebt den In-App-Kamera-Screen als
-/// Vollbild-Route und liefert dessen [MealCameraCapture] zurueck (null bei
-/// Abbruch).
+/// Produktions-Implementierung: zeigt die In-App-Kamera als animiertes
+/// Bottom-Panel (~60% Hoehe, gleitet von unten ein — kein Vollbild-Wechsel)
+/// und liefert dessen [MealCameraCapture] zurueck (null bei Abbruch/Swipe).
 class InAppMealCameraLauncher implements MealCameraLauncher {
   const InAppMealCameraLauncher();
 
@@ -42,11 +42,12 @@ class InAppMealCameraLauncher implements MealCameraLauncher {
     BuildContext context, {
     required MealSlot initialSlot,
   }) {
-    return Navigator.of(context).push<MealCameraCapture>(
-      MaterialPageRoute<MealCameraCapture>(
-        fullscreenDialog: true,
-        builder: (_) => MealCameraScreen(initialSlot: initialSlot),
-      ),
+    return showModalBottomSheet<MealCameraCapture>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      builder: (_) => MealCameraSheet(initialSlot: initialSlot),
     );
   }
 }

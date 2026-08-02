@@ -14,6 +14,10 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
   final MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     formats: const [BarcodeFormat.ean8, BarcodeFormat.ean13, BarcodeFormat.upcA],
+    // autoZoom holt den Barcode heran, statt ihn im weitwinkligen Sensorbild
+    // klein zu lassen — behebt den „zu weit weg / Weitwinkel"-Eindruck und
+    // macht das Scannen zuverlaessiger.
+    autoZoom: true,
   );
   bool hasReturned = false;
 
@@ -57,7 +61,12 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
       ),
       body: Stack(
         children: [
-          MobileScanner(controller: controller, onDetect: handleDetect),
+          MobileScanner(
+            controller: controller,
+            onDetect: handleDetect,
+            // Formatfuellend + verzerrungsfrei (croppt statt zu stauchen).
+            fit: BoxFit.cover,
+          ),
           Align(
             alignment: Alignment.topCenter,
             child: Container(
