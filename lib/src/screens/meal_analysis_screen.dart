@@ -6,6 +6,7 @@ import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/user_profile.dart';
 import '../services/meal_analyzer.dart';
+import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/fallback_product_service.dart';
 import '../services/meilisearch_product_service.dart';
@@ -14,6 +15,8 @@ import '../config/search_config.dart';
 import '../theme/app_colors.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/calories_overview_card.dart';
+import '../widgets/kcal/meal_analysis_sheet.dart';
+import 'barcode_scanner_screen.dart';
 
 class MealAnalysisScreen extends StatelessWidget {
   MealAnalysisScreen({
@@ -21,6 +24,7 @@ class MealAnalysisScreen extends StatelessWidget {
     MealAnalyzer? analyzer,
     ProductLookupService? productService,
     MealPhotoInput? photoInput,
+    MealCameraLauncher? cameraLauncher,
     required this.dailyConsumedKcal,
     this.macroProgress = MacroProgress.empty,
     this.profile = const UserProfile(),
@@ -39,6 +43,7 @@ class MealAnalysisScreen extends StatelessWidget {
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
+       cameraLauncher = cameraLauncher ?? const InAppMealCameraLauncher(),
        selectedDate = DateUtils.dateOnly(selectedDate ?? DateTime.now()),
        onDateSelected = onDateSelected ?? _noopDate,
        onAddMeal = onAddMeal ?? _noopAdd,
@@ -65,6 +70,7 @@ class MealAnalysisScreen extends StatelessWidget {
   final MealAnalyzer analyzer;
   final ProductLookupService productService;
   final MealPhotoInput photoInput;
+  final MealCameraLauncher cameraLauncher;
   final int dailyConsumedKcal;
   final MacroProgress macroProgress;
   final UserProfile profile;
@@ -121,6 +127,48 @@ class MealAnalysisScreen extends StatelessWidget {
     return MealSlot.snack;
   }
 
+  // KI-Scan: In-App-Kamera mit Slot-Auswahl -> Foto -> KI-Analyse -> das
+  // Ergebnis-Sheet im gewaehlten Slot. Kein generisches Add-Sheet mehr.
+  Future<void> _scanWithCamera(BuildContext context) async {
+    final capture =
+        await cameraLauncher.launch(context, initialSlot: _heuristicSlot());
+    if (capture == null || !context.mounted) return;
+    await showMealAnalysisSheet(
+      context,
+      slot: capture.slot,
+      resultFuture: analyzer.analyze(capture.request),
+      previewImage: capture.previewBytes,
+      onAdd: onAddMeal,
+      onUpdateMeal: onUpdateMeal,
+      isFavorite: isFavorite,
+      onToggleFavorite: onToggleFavorite,
+      failureMessage:
+          'Analyse fehlgeschlagen. Prüfe Internet, Supabase und OpenRouter.',
+    );
+  }
+
+  // Barcode: der bestehende In-App-Scanner (mobile_scanner) -> OFF-Lookup ->
+  // Ergebnis-Sheet. Direkt, nicht mehr ueber das generische Add-Sheet.
+  Future<void> _scanBarcode(BuildContext context) async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => const BarcodeScannerScreen()),
+    );
+    final trimmed = code?.trim();
+    if (trimmed == null || trimmed.isEmpty || !context.mounted) return;
+    await showMealAnalysisSheet(
+      context,
+      slot: _heuristicSlot(),
+      resultFuture: productService.lookupBarcode(trimmed),
+      previewImage: null,
+      onAdd: onAddMeal,
+      onUpdateMeal: onUpdateMeal,
+      isFavorite: isFavorite,
+      onToggleFavorite: onToggleFavorite,
+      failureMessage:
+          'Barcode $trimmed nicht gefunden oder OpenFoodFacts nicht erreichbar.',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -163,9 +211,8 @@ class MealAnalysisScreen extends StatelessWidget {
           _FoodAddBlock(
             onSearch: () => _openAddSheet(context, _heuristicSlot(),
                 searchMode: true),
-            onBarcode: () => _openAddSheet(context, _heuristicSlot()),
-            onAiScan: () => _openAddSheet(context, _heuristicSlot()),
-            onQuick: () => _openAddSheet(context, _heuristicSlot()),
+            onBarcode: () => _scanBarcode(context),
+            onAiScan: () => _scanWithCamera(context),
           ),
           const SizedBox(height: 12),
           // Verlauf: einzige unten wachsende Sektion.
@@ -190,21 +237,19 @@ class MealAnalysisScreen extends StatelessWidget {
   }
 }
 
-/// Add-Block (feste Hoehe): readonly Such-Launcher + 3 Action-Buttons.
-/// Alle Tap-Ziele oeffnen NUR das bestehende AddMealSheet (keine Inline-
-/// Ergebnisse, kein FAB). Keine Entrance-Opacity/Transform -> hit-testbar.
+/// Add-Block (feste Hoehe): readonly Such-Launcher + 2 Action-Buttons.
+/// Suche/Barcode oeffnen ihre Flows (Sheet bzw. In-App-Scanner), KI-Scan die
+/// In-App-Kamera. Keine Entrance-Opacity/Transform -> hit-testbar.
 class _FoodAddBlock extends StatelessWidget {
   const _FoodAddBlock({
     required this.onSearch,
     required this.onBarcode,
     required this.onAiScan,
-    required this.onQuick,
   });
 
   final VoidCallback onSearch;
   final VoidCallback onBarcode;
   final VoidCallback onAiScan;
-  final VoidCallback onQuick;
 
   @override
   Widget build(BuildContext context) {
@@ -233,16 +278,6 @@ class _FoodAddBlock extends StatelessWidget {
                 label: 'KI-Scan',
                 filled: true,
                 onTap: onAiScan,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _FoodActionButton(
-                key: const ValueKey('food-action-quick'),
-                icon: Icons.bolt_rounded,
-                label: 'Schnell',
-                filled: false,
-                onTap: onQuick,
               ),
             ),
           ],

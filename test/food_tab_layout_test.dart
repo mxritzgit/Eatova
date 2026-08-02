@@ -109,7 +109,6 @@ void main() {
     for (final key in const [
       ValueKey('food-action-barcode'),
       ValueKey('food-action-ai'),
-      ValueKey('food-action-quick'),
     ]) {
       final label = tester.widget<Text>(
         find.descendant(of: find.byKey(key), matching: find.byType(Text)),

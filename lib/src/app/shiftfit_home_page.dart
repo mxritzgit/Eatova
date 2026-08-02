@@ -8,6 +8,7 @@ import '../services/health_service.dart';
 import '../services/kcal_calculator.dart';
 import '../services/local_cache.dart';
 import '../services/meal_analyzer.dart';
+import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
@@ -37,6 +38,7 @@ class ShiftFitHomePage extends StatefulWidget {
     this.mealAnalyzer,
     this.productService,
     this.photoInput,
+    this.mealCameraLauncher,
     this.healthService,
     this.notificationService = const NoopNotificationService(),
     this.initialUserName = 'Moritz',
@@ -49,6 +51,7 @@ class ShiftFitHomePage extends StatefulWidget {
   final MealAnalyzer? mealAnalyzer;
   final ProductLookupService? productService;
   final MealPhotoInput? photoInput;
+  final MealCameraLauncher? mealCameraLauncher;
   final HealthService? healthService;
 
   /// On-device-Notification-Schicht (PROD-1). Default ist
@@ -389,6 +392,7 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
             analyzer: widget.mealAnalyzer,
             productService: widget.productService,
             photoInput: widget.photoInput,
+            cameraLauncher: widget.mealCameraLauncher,
             selectedDate: _store.selectedFoodDate,
             onDateSelected: (date) => _store.setFoodDate(date),
             dailyConsumedKcal:

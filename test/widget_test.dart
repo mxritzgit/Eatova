@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image_picker/image_picker.dart';
 
 import 'package:shiftfit/main.dart';
 import 'package:shiftfit/src/auth/auth_repository.dart';
+import 'package:shiftfit/src/models/logged_meal.dart';
 import 'package:shiftfit/src/models/meal_analysis_request.dart';
 import 'package:shiftfit/src/models/meal_analysis_result.dart';
 import 'package:shiftfit/src/models/meal_component.dart';
 import 'package:shiftfit/src/services/meal_analyzer.dart';
-import 'package:shiftfit/src/services/meal_photo_input.dart';
+import 'package:shiftfit/src/services/meal_camera_launcher.dart';
 import 'package:shiftfit/src/services/open_food_facts_product_service.dart';
 
 // Wrapper um testWidgets fuer das CI-Setup:
@@ -213,7 +213,8 @@ void main() {
     expect(find.byKey(const ValueKey('food-search')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-barcode')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-ai')), findsOneWidget);
-    expect(find.byKey(const ValueKey('food-action-quick')), findsOneWidget);
+    // "Schnell" wurde entfernt (KI-Scan/Barcode haben eigene Flows).
+    expect(find.byKey(const ValueKey('food-action-quick')), findsNothing);
     expect(find.byKey(const ValueKey('analyse-camera-button')), findsNothing);
     expect(find.byKey(const ValueKey('kcal-product-search-card')), findsNothing);
     expect(find.text('Demo-Fotoanalyse'), findsNothing);
@@ -298,7 +299,7 @@ void main() {
     await tester.pumpWidget(
       ShiftFitApp(
         mealAnalyzer: _FakeMealAnalyzer(),
-        photoInput: _FakeMealPhotoInput(),
+        mealCameraLauncher: _FakeMealCameraLauncher(),
       ),
     );
 
@@ -308,13 +309,9 @@ void main() {
     expect(find.byKey(const ValueKey('analyse-daily-kcal-total')), findsOneWidget);
     expect(find.text('0 kcal'), findsOneWidget);
 
+    // KI-Scan öffnet die (gefakte) In-App-Kamera -> liefert das Foto -> das
+    // Analyse-Sheet öffnet direkt (kein generisches Add-Sheet mehr).
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('analyse-camera-button')));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('analyse-loading')), findsOneWidget);
-
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('analyse-result-card')), findsOneWidget);
     expect(find.text('Kartoffeln'), findsOneWidget);
@@ -380,7 +377,7 @@ void main() {
     await tester.pumpWidget(
       ShiftFitApp(
         mealAnalyzer: _MacroMealAnalyzer(),
-        photoInput: _FakeMealPhotoInput(),
+        mealCameraLauncher: _FakeMealCameraLauncher(),
       ),
     );
 
@@ -391,8 +388,6 @@ void main() {
     expect(find.text('0/130g'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('analyse-camera-button')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('analyse-result-card')), findsOneWidget);
 
@@ -434,15 +429,13 @@ void main() {
     await tester.pumpWidget(
       ShiftFitApp(
         mealAnalyzer: _MacroMealAnalyzer(),
-        photoInput: _FakeMealPhotoInput(),
+        mealCameraLauncher: _FakeMealCameraLauncher(),
       ),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('analyse-camera-button')));
     await tester.pumpAndSettle();
 
     // Das Herz rendert (onToggleFavorite ist verdrahtet).
@@ -460,10 +453,9 @@ void main() {
     await tester.ensureVisible(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.tap(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.pumpAndSettle();
-    // Analyse-Sheet schliessen (liegt oben), danach das Add-Sheet.
+    // Nur das Analyse-Sheet ist offen (KI-Scan öffnet kein Add-Sheet mehr),
+    // danach über die Suche das Add-Sheet zum Prüfen der Favoriten öffnen.
     await tester.tap(find.byKey(const ValueKey('analyse-sheet-close')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('food-search')));
@@ -878,12 +870,19 @@ class _MacroMealAnalyzer implements MealAnalyzer {
   }
 }
 
-class _FakeMealPhotoInput implements MealPhotoInput {
+// Ersetzt die echte In-App-Kamera (camera-Package, nicht test-bar): liefert
+// sofort ein kanned Foto im uebergebenen Slot zurueck, damit der KI-Scan-Flow
+// (Kamera -> Analyse-Sheet) ohne Hardware getestet werden kann.
+class _FakeMealCameraLauncher implements MealCameraLauncher {
   @override
-  Future<MealPhotoSelection?> pick(ImageSource source) async {
-    return const MealPhotoSelection(
-      request: MealAnalysisRequest(imageId: 'test-photo'),
+  Future<MealCameraCapture?> launch(
+    BuildContext context, {
+    required MealSlot initialSlot,
+  }) async {
+    return MealCameraCapture(
+      request: const MealAnalysisRequest(imageId: 'test-photo'),
       previewBytes: null,
+      slot: initialSlot,
     );
   }
 }

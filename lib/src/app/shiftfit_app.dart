@@ -5,6 +5,7 @@ import '../auth/auth_repository.dart';
 import '../services/fitpilot_sync.dart';
 import '../services/health_service.dart';
 import '../services/meal_analyzer.dart';
+import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
@@ -18,6 +19,7 @@ class ShiftFitApp extends StatelessWidget {
     this.mealAnalyzer,
     this.productService,
     this.photoInput,
+    this.mealCameraLauncher,
     this.healthService,
     this.authRepository,
     this.notificationService,
@@ -26,6 +28,7 @@ class ShiftFitApp extends StatelessWidget {
   final MealAnalyzer? mealAnalyzer;
   final ProductLookupService? productService;
   final MealPhotoInput? photoInput;
+  final MealCameraLauncher? mealCameraLauncher;
   final HealthService? healthService;
   final AuthRepository? authRepository;
 
@@ -64,6 +67,7 @@ class ShiftFitApp extends StatelessWidget {
           mealAnalyzer: mealAnalyzer,
           productService: productService,
           photoInput: photoInput,
+          mealCameraLauncher: mealCameraLauncher,
           healthService: healthService,
           notificationService:
               notificationService ?? const NoopNotificationService(),

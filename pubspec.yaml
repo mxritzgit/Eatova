@@ -65,6 +65,7 @@ dependencies:
   # tz.getLocation nicht aufloesen kann. Der Lookup ist in try/catch gekapselt,
   # damit Tests / nicht unterstuetzte Plattformen weiter auf UTC zurueckfallen.
   flutter_timezone: ^5.1.0
+  camera: ^0.12.0+2
 
 dev_dependencies:
   flutter_test:
