@@ -19,8 +19,8 @@ import '../widgets/common/motion.dart';
 /// Gradient-Dot. Mehrere Sessions sind ueber das Listen-Icon oben rechts
 /// erreichbar; die Quota liegt hinter dem (i)-Icon oben links und meldet sich
 /// bei <= 2 Restfragen als dezenter Pill ueber dem Composer. Der Composer:
-/// "+"-Attach links (Kamera/Galerie via Sheet), Mic <-> Send animiert rechts,
-/// Lime-Fokusrahmen.
+/// rahmenlose Soft-Kapsel (cardShadow), "+"-Attach links (Kamera/Galerie via
+/// Sheet), Mic <-> Send animiert rechts.
 class CoachChatScreen extends StatefulWidget {
   const CoachChatScreen({
     super.key,
@@ -798,9 +798,8 @@ class _SuggestionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: surface,
+      color: surfaceSoft,
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: hairline),
         borderRadius: BorderRadius.circular(rControl),
       ),
       child: InkWell(
@@ -1122,9 +1121,9 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Composer: pill-shaped, "+"-Attach links, Text, Mic <-> Send rechts.
-// Fokus zieht einen Lime-Rahmen + hellt die Flaeche an; bei knapper Quota
-// sitzt ein tappbarer Hinweis-Pill darueber.
+// Composer: rahmenlose Soft-Kapsel (surfaceSoft + cardShadow), "+"-Attach
+// links, Text, Mic <-> Send rechts. Fokus hellt die Flaeche dezent auf; bei
+// knapper Quota sitzt ein tappbarer Hinweis-Pill darueber.
 // ---------------------------------------------------------------------------
 class _Composer extends StatefulWidget {
   const _Composer({
@@ -1198,13 +1197,19 @@ class _ComposerState extends State<_Composer> {
             curve: Curves.easeOutCubic,
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
             constraints: const BoxConstraints(minHeight: 52, maxHeight: 160),
-            padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+            padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
             decoration: BoxDecoration(
-              color: _focused ? surfaceSoft : surface,
+              // Rahmenlos: weiche, erhabene Kapsel im Premium-Dark-Stil
+              // (cardShadow statt Stroke). Fokus hellt die Flaeche dezent auf,
+              // statt einen Ring zu ziehen.
+              color: _focused
+                  ? Color.alphaBlend(
+                      Colors.white.withValues(alpha: 0.045),
+                      surfaceSoft,
+                    )
+                  : surfaceSoft,
               borderRadius: BorderRadius.circular(rSheet),
-              border: Border.all(
-                color: _focused ? lime.withValues(alpha: 0.55) : hairline,
-              ),
+              boxShadow: cardShadow,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -1212,7 +1217,6 @@ class _ComposerState extends State<_Composer> {
                 _ComposerIcon(
                   key: const ValueKey('coach-attach'),
                   icon: Icons.add_rounded,
-                  iconSize: 22,
                   enabled: widget.canSend,
                   onTap: widget.onAttach,
                 ),
@@ -1297,8 +1301,8 @@ class _QuotaHint extends StatelessWidget {
       child: Center(
         child: Material(
           key: const ValueKey('coach-quota-hint'),
-          color: surface,
-          shape: const StadiumBorder(side: BorderSide(color: hairline)),
+          color: surfaceSoft,
+          shape: const StadiumBorder(),
           child: InkWell(
             customBorder: const StadiumBorder(),
             onTap: onTap,
@@ -1344,13 +1348,11 @@ class _ComposerIcon extends StatelessWidget {
     required this.icon,
     required this.enabled,
     required this.onTap,
-    this.iconSize = 20,
   });
 
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
-  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1358,17 +1360,29 @@ class _ComposerIcon extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(rControl),
+        shape: const CircleBorder(),
         child: InkWell(
           onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(rControl),
+          customBorder: const CircleBorder(),
           child: SizedBox(
-            width: 38,
+            width: 40,
             height: 44,
-            child: Icon(
-              icon,
-              color: enabled ? textPrimary : textMuted,
-              size: iconSize,
+            child: Center(
+              // Dunkler Kreis-Chip im helleren Kapsel-Fill: gibt dem "+" Tiefe
+              // ohne Stroke (gleiche Logik wie das runde Send-Pendant rechts).
+              child: Container(
+                width: 30,
+                height: 30,
+                decoration: const BoxDecoration(
+                  color: surface,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  color: enabled ? textPrimary : textMuted,
+                  size: 19,
+                ),
+              ),
             ),
           ),
         ),
@@ -1441,10 +1455,10 @@ class _MicButtonState extends State<_MicButton>
         color: widget.listening
             ? lime.withValues(alpha: 0.14)
             : Colors.transparent,
-        borderRadius: BorderRadius.circular(rControl),
+        shape: const CircleBorder(),
         child: InkWell(
           onTap: widget.enabled ? widget.onTap : null,
-          borderRadius: BorderRadius.circular(rControl),
+          customBorder: const CircleBorder(),
           child: SizedBox(
             width: 42,
             height: 44,
