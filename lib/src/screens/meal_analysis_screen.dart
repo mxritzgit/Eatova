@@ -5,9 +5,12 @@ import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/user_profile.dart';
+import '../config/search_config.dart';
+import '../services/fallback_product_service.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
+import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
@@ -41,8 +44,7 @@ class MealAnalysisScreen extends StatelessWidget {
     this.onProfilePressed,
     this.profileInitial,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
-       // Suche laeuft direkt ueber OpenFoodFacts.
-       productService = productService ?? const OpenFoodFactsProductService(),
+       productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
        cameraLauncher = cameraLauncher ?? const InAppMealCameraLauncher(),
        selectedDate = DateUtils.dateOnly(selectedDate ?? DateTime.now()),
@@ -51,6 +53,15 @@ class MealAnalysisScreen extends StatelessWidget {
        onUpdateMeal = onUpdateMeal ?? _noopUpdate,
        onRemoveFavorite = onRemoveFavorite ?? _noopString,
        onRemoveMeal = onRemoveMeal ?? _noopString;
+
+  // Eigener Suchindex (Meilisearch auf dem vServer) mit Live-OFF als
+  // Fallback fuer neue Produkte, Barcode-Lookups und Mirror-Ausfaelle.
+  // Kill-Switch: --dart-define=OFF_MIRROR_URL= (leer) -> direkt OFF.
+  static ProductLookupService _defaultProductService() {
+    const off = OpenFoodFactsProductService();
+    if (!SearchConfig.mirrorEnabled) return off;
+    return const FallbackProductService(MeilisearchProductService(), off);
+  }
 
   // Default-onAddMeal liefert eine leere id zurueck (Preview/Test ohne echte
   // Persistenz). Eine spaetere Um-Portionierung trifft dann den No-op-Update.
