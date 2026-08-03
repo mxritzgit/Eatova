@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/lifetime_stats.dart';
 import '../models/user_profile.dart';
-import 'daily_log_sync.dart';
 
 /// Minimaler async Key-Value-Store hinter [LocalCache]. Abstrahiert
 /// SharedPreferences, damit der Cache OHNE Plugin-Channel unit-getestet werden
@@ -63,8 +62,8 @@ class InMemoryKeyValueStore implements KeyValueStore {
   }
 }
 
-/// Duenner Write-Through-Cache (JSON in SharedPreferences) fuer Profil,
-/// heutiges daily_logs und lifetime_stats EINES Users (DATA-3).
+/// Duenner Write-Through-Cache (JSON in SharedPreferences) fuer Profil und
+/// lifetime_stats EINES Users (DATA-3).
 ///
 /// Zweck: ein Kaltstart OHNE Netz darf nicht die nackten Ctor-Defaults
 /// (78 kg / 178 cm) zeigen — und ein anschliessender Save darf die echte
@@ -99,7 +98,11 @@ class LocalCache {
   // Versions-Prefix erlaubt spaetere Schema-Migrationen ohne Crash auf alten
   // Eintraegen (unbekannte Keys werden einfach ignoriert).
   String get _profileKey => 'fitpilot.v1.profile.$_userId';
-  String get _dailyKey => 'fitpilot.v1.daily.$_userId';
+
+  /// Legacy-Slot des frueheren Heute-Tabs (daily_logs-Snapshot inkl. Mood-
+  /// Notiz). Wird nicht mehr geschrieben/gelesen, aber in [clear] weiterhin
+  /// geraeumt, damit Alt-Installationen beim Logout keine PII behalten (M-1).
+  String get _legacyDailyKey => 'fitpilot.v1.daily.$_userId';
   String get _statsKey => 'fitpilot.v1.stats.$_userId';
   String get _notificationsKey => 'fitpilot.v1.notifications_enabled.$_userId';
 
@@ -139,33 +142,6 @@ class LocalCache {
     }
   }
 
-  // ---- Heutiges daily_logs ------------------------------------------------
-
-  /// Cached das daily_logs nur, wenn es das HEUTIGE Datum betrifft — der Cache
-  /// haelt bewusst genau einen Tag (den aktuellen), aelterer Stand wird beim
-  /// Tageswechsel still verworfen (readDailyLog gibt dann null zurueck).
-  Future<void> writeDailyLog(DailyLog log) =>
-      _writeJson(_dailyKey, _dailyToJson(log));
-
-  /// Liest den gecachten Tagesstand NUR wenn er auf [today] (date-only) faellt.
-  /// Bei Tageswechsel (gecachter Stand ist von gestern) -> null, damit der
-  /// neue Tag frisch bei 0 startet statt gestrige Werte zu zeigen.
-  Future<DailyLog?> readDailyLog(DateTime today) async {
-    final json = await _readJson(_dailyKey);
-    if (json == null) return null;
-    try {
-      final log = _dailyFromJson(json);
-      final cached = DateTime(log.date.year, log.date.month, log.date.day);
-      final t = DateTime(today.year, today.month, today.day);
-      if (cached != t) return null;
-      return log;
-    } catch (e) {
-      dev.log('LocalCache.readDailyLog parse failed', error: e,
-          name: 'local_cache');
-      return null;
-    }
-  }
-
   // ---- lifetime_stats -----------------------------------------------------
 
   Future<void> writeLifetimeStats(LifetimeStats stats) =>
@@ -185,7 +161,7 @@ class LocalCache {
 
   Future<void> clear() async {
     await _store.remove(_profileKey);
-    await _store.remove(_dailyKey);
+    await _store.remove(_legacyDailyKey);
     await _store.remove(_statsKey);
     await _store.remove(_notificationsKey);
   }
@@ -258,28 +234,6 @@ class LocalCache {
         onboardingCompleted: j['onboarding_completed'] == true,
       );
 
-  static Map<String, dynamic> _dailyToJson(DailyLog d) => <String, dynamic>{
-        'log_date': _dateOnly(d.date),
-        'water_ml': d.waterMl,
-        'steps': d.steps,
-        'mood_score': d.moodScore,
-        'mood_note': d.moodNote,
-        'completed_block_ids': d.completedBlockIds.toList(),
-        'completed_habit_ids': d.completedHabitIds.toList(),
-        'workout_completed': d.workoutCompleted,
-      };
-
-  static DailyLog _dailyFromJson(Map<String, dynamic> j) => DailyLog(
-        date: DateTime.parse(j['log_date'] as String),
-        waterMl: _int(j['water_ml'], 0),
-        steps: _int(j['steps'], 0),
-        moodScore: _int(j['mood_score'], 0),
-        moodNote: j['mood_note']?.toString() ?? '',
-        completedBlockIds: _stringSet(j['completed_block_ids']),
-        completedHabitIds: _stringSet(j['completed_habit_ids']),
-        workoutCompleted: j['workout_completed'] == true,
-      );
-
   static Map<String, dynamic> _statsToJson(LifetimeStats s) => <String, dynamic>{
         'workouts_completed': s.workoutsCompleted,
         'meals_logged': s.mealsLogged,
@@ -305,13 +259,6 @@ class LocalCache {
       if (v.name == raw) return v;
     }
     return fallback;
-  }
-
-  static Set<String> _stringSet(Object? raw) {
-    if (raw is List) {
-      return raw.map((e) => e.toString()).toSet();
-    }
-    return <String>{};
   }
 
   static String _dateOnly(DateTime d) {

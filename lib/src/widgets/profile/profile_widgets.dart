@@ -8,7 +8,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../models/lifetime_stats.dart';
-import '../../models/shift_fit_plan.dart';
 import '../../models/user_profile.dart';
 import '../../models/weight_log.dart';
 import '../../services/health_service.dart';

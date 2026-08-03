@@ -15,10 +15,10 @@ import 'package:shiftfit/src/theme/app_theme.dart';
 //    State-Wechsel (hier: ein Health-Steps-Refresh) auf die OFFENE
 //    ProfileScreen durchreicht. Test 1 beweist, dass diese Bruecke intakt
 //    geblieben ist (sonst zeigte die offene ProfileScreen die alten Schritte).
-//  * Test 2 (Scoping-Sanity): nach dem Schliessen der Route bumpt setState das
-//    _profileRefresh nicht mehr — ein Quick-Log auf dem Today-Tab bleibt
-//    crash-frei und der Today-Stand stimmt; die geschlossene Profil-Bruecke
-//    wird nicht laenger pro setState mitgeschleift.
+//  * Test 2 (Scoping-Sanity): nach dem Schliessen der Route bumpt ein
+//    Store-Notify das _profileRefresh nicht mehr — eine Mutation auf dem
+//    Food-Tab (Datum wechseln) bleibt crash-frei; die geschlossene
+//    Profil-Bruecke wird nicht laenger pro Notify mitgeschleift.
 //
 // Bewusst sync == null: dann landet die Page sofort auf dem Home (kein
 // Onboarding-/Boot-Gate) und _logWeight/_refreshHealthSteps laufen ohne
@@ -52,14 +52,6 @@ class _StepsHealthService implements HealthService {
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async => true;
-
-  @override
-  Future<bool> writeWorkout({
-    required DateTime start,
-    required DateTime end,
-    String? type,
-  }) async =>
-      true;
 
   @override
   Future<List<WeightSample>> readWeightSamples({
@@ -136,8 +128,8 @@ void main() {
   });
 
   testWidgets(
-      'Nach Schliessen der ProfileScreen bleibt ein Today-Quick-Log crash-frei '
-      'und korrekt (Scoping-Sanity: geschlossene Profil-Bruecke)', (tester) async {
+      'Nach Schliessen der ProfileScreen bleibt eine Food-Tab-Mutation '
+      'crash-frei (Scoping-Sanity: geschlossene Profil-Bruecke)', (tester) async {
     _pinViewport(tester);
     final health = _StepsHealthService(2000);
 
@@ -156,28 +148,13 @@ void main() {
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('profile-close')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
-    // Ein Quick-Log auf dem Today-Tab (Wasser) loest jetzt einen setState aus,
+    // Eine Store-Mutation (Food-Datum wechseln) loest jetzt ein Notify aus,
     // OHNE dass eine Profil-Route offen ist -> _profileRefresh wird nicht mehr
-    // gebumpt. Das muss crash-frei bleiben und den Today-Stand korrekt zeigen.
-    // Die Wasser-Kachel liegt in der DailyTrackerCard unterhalb der gepinnten
-    // Viewport-Hoehe (852 logisch) — erst sichtbar scrollen, sonst trifft der
-    // tap() den off-screen-Hit-Test nicht und das Quick-Add-Sheet oeffnet nie.
-    final waterStat = find.byKey(const ValueKey('tracker-stat-water'));
-    await tester.ensureVisible(waterStat);
+    // gebumpt. Das muss crash-frei bleiben und der Tab neu rendern.
+    await tester.tap(find.byKey(const ValueKey('food-date-chip-0')));
     await tester.pumpAndSettle();
-    await tester.tap(waterStat);
-    await tester.pumpAndSettle();
-    // Im Wasser-Quick-Add-Sheet einen Preset waehlen — der Tap popt das Sheet
-    // mit dem Betrag (kein separater Bestaetigen-Button) und ruft onAddWater.
-    final preset = find.byKey(const ValueKey('water-quick-add-330'));
-    expect(preset, findsOneWidget);
-    await tester.tap(preset);
-    await tester.pumpAndSettle();
-
-    // Zurueck auf dem Today-Tab, der Wasser-Stand wurde uebernommen (0.3L).
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
-    expect(find.text('0.3L'), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
   });
 }

@@ -145,29 +145,6 @@ class AppleHealthService implements HealthService {
   }
 
   @override
-  Future<bool> writeWorkout({
-    required DateTime start,
-    required DateTime end,
-    String? type,
-  }) async {
-    if (!Platform.isIOS) return false;
-    // Defensiv: kein invalides Intervall an HealthKit reichen.
-    if (end.isBefore(start)) return false;
-    try {
-      await _ensureConfigured();
-      if (!await _ensureAuthorized()) return false;
-      return await _health.writeWorkoutData(
-        activityType: _mapWorkoutType(type),
-        start: start,
-        end: end,
-        recordingMethod: RecordingMethod.manual,
-      );
-    } catch (_) {
-      return false;
-    }
-  }
-
-  @override
   Future<List<WeightSample>> readWeightSamples({
     required DateTime from,
     required DateTime to,
@@ -232,26 +209,4 @@ class AppleHealthService implements HealthService {
     }
   }
 
-  /// Mappt einen freien App-Hinweis (z.B. ein Shift-/Workout-Name) best-effort
-  /// auf einen HealthKit-Workout-Typ. Unbekannt/null -> generisches
-  /// Krafttraining (die App ist primaer eine Kraft-/Fitness-App).
-  static HealthWorkoutActivityType _mapWorkoutType(String? type) {
-    final t = type?.toLowerCase().trim() ?? '';
-    if (t.contains('lauf') || t.contains('run') || t.contains('cardio')) {
-      return HealthWorkoutActivityType.RUNNING;
-    }
-    if (t.contains('geh') || t.contains('walk') || t.contains('spazier')) {
-      return HealthWorkoutActivityType.WALKING;
-    }
-    if (t.contains('rad') || t.contains('bike') || t.contains('cycl')) {
-      return HealthWorkoutActivityType.BIKING;
-    }
-    if (t.contains('hiit') ||
-        t.contains('intervall') ||
-        t.contains('interval')) {
-      return HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING;
-    }
-    // Default: Kraft/Muskelaufbau -> traditionelles Krafttraining.
-    return HealthWorkoutActivityType.TRADITIONAL_STRENGTH_TRAINING;
-  }
 }

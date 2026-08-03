@@ -14,9 +14,6 @@ class ShiftFitBottomNav extends StatelessWidget {
   final ValueChanged<int> onSelected;
 
   static const _items = [
-    (Icons.home_rounded, 'Heute'),
-    (Icons.fitness_center_rounded, 'Training'),
-    (Icons.insights_rounded, 'Trends'),
     (Icons.restaurant_rounded, 'Food'),
     (Icons.menu_book_rounded, 'Rezepte'),
     (Icons.chat_bubble_outline_rounded, 'Coach'),

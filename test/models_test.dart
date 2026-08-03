@@ -4,17 +4,16 @@ import 'package:shiftfit/src/models/fitness_recipe.dart';
 import 'package:shiftfit/src/models/macro_progress.dart';
 import 'package:shiftfit/src/models/meal_analysis_result.dart';
 import 'package:shiftfit/src/models/meal_component.dart';
-import 'package:shiftfit/src/models/sleep_entry.dart';
 import 'package:shiftfit/src/models/weight_log.dart';
 import 'package:shiftfit/src/services/open_food_facts_product_service.dart';
 
 // Reine Logik-Unit-Tests für bislang ungetestete, korrektheitskritische Pfade:
 // die Foto-/Barcode-Parser (fromEdgeFunction/fromOpenFoodFacts), die Portions-
 // Mathematik (adjustedToGrams/adjustedToItems), Makro-Komponenten, die Rezept-
-// Match-Heuristik, Schlafdauer (Mitternachts-Wrap), Gewichts-Log-Ringpuffer und
-// den Produkt-Such-Mapper. Deterministisch, netz-/UI-frei. Ergänzt logic_test.dart
-// (das Slot-Heuristik, Streak, Makro-Aggregation, JSON-Roundtrip + Auto-Split
-// bereits abdeckt — hier NICHT dupliziert).
+// Match-Heuristik, Gewichts-Log-Ringpuffer und den Produkt-Such-Mapper.
+// Deterministisch, netz-/UI-frei. Ergänzt logic_test.dart (das Slot-Heuristik,
+// Streak, Makro-Aggregation, JSON-Roundtrip + Auto-Split bereits abdeckt —
+// hier NICHT dupliziert).
 
 FitnessRecipe _recipe({
   int caloriesKcal = 500,
@@ -299,32 +298,6 @@ void main() {
     });
   });
 
-  group('SleepEntry.duration (Mitternachts-Wrap)', () {
-    test('über Mitternacht: 23:00 -> 07:00 = 8h', () {
-      final e = SleepEntry(
-        date: _fixedDate,
-        bedtimeMinutes: 23 * 60,
-        wakeMinutes: 7 * 60,
-        quality: 4,
-      );
-      expect(e.duration.inMinutes, 8 * 60);
-      expect(e.durationLabel, '8h 00m');
-      expect(e.bedtimeLabel, '23:00');
-      expect(e.wakeLabel, '07:00');
-    });
-
-    test('selber Tag: 13:00 -> 14:30 = 1h 30m', () {
-      final e = SleepEntry(
-        date: _fixedDate,
-        bedtimeMinutes: 13 * 60,
-        wakeMinutes: 14 * 60 + 30,
-        quality: 3,
-      );
-      expect(e.duration.inMinutes, 90);
-      expect(e.durationLabel, '1h 30m');
-    });
-  });
-
   group('WeightLog (Ringpuffer + Trend)', () {
     test('add ignoriert 0 / negativ', () {
       const log = WeightLog();
@@ -387,5 +360,3 @@ void main() {
     });
   });
 }
-
-final DateTime _fixedDate = DateTime(2026, 6, 2);

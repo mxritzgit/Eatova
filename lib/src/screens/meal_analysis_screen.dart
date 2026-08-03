@@ -40,6 +40,9 @@ class MealAnalysisScreen extends StatelessWidget {
     this.onToggleFavorite,
     ValueChanged<String>? onRemoveFavorite,
     ValueChanged<String>? onRemoveMeal,
+    this.onSettingsPressed,
+    this.onProfilePressed,
+    this.profileInitial,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
@@ -90,6 +93,13 @@ class MealAnalysisScreen extends StatelessWidget {
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final ValueChanged<String> onRemoveFavorite;
   final ValueChanged<String> onRemoveMeal;
+
+  /// Einstieg zu Settings-Sheet + Profil-Screen. Lebte frueher in der TopBar
+  /// der entfernten Heute-/Training-/Trends-Tabs; seit deren Entfernen ist der
+  /// Food-Header der einzige Zugang. Null (Preview/Test) -> Icons verborgen.
+  final VoidCallback? onSettingsPressed;
+  final VoidCallback? onProfilePressed;
+  final String? profileInitial;
 
   void _openAddSheet(BuildContext context, MealSlot slot,
       {bool searchMode = false}) {
@@ -188,7 +198,11 @@ class MealAnalysisScreen extends StatelessWidget {
         );
 
         final children = <Widget>[
-          const _KcalHeader(),
+          _KcalHeader(
+            onSettingsPressed: onSettingsPressed,
+            onProfilePressed: onProfilePressed,
+            profileInitial: profileInitial,
+          ),
           SizedBox(height: boundedHeight ? 10 : 8),
           _FoodDateStrip(
             selectedDate: selectedDate,
@@ -388,19 +402,87 @@ class _FoodActionButton extends StatelessWidget {
 }
 
 class _KcalHeader extends StatelessWidget {
-  const _KcalHeader();
+  const _KcalHeader({
+    this.onSettingsPressed,
+    this.onProfilePressed,
+    this.profileInitial,
+  });
+
+  final VoidCallback? onSettingsPressed;
+  final VoidCallback? onProfilePressed;
+  final String? profileInitial;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(2, 0, 0, 0),
-      child: Text(
-        'Ernährung',
-        style: TextStyle(
-          color: textPrimary,
-          fontSize: 22,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.5,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 0, 0, 0),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Ernährung',
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ),
+          if (onSettingsPressed != null)
+            IconButton(
+              key: const ValueKey('topbar-settings'),
+              onPressed: onSettingsPressed,
+              tooltip: 'Einstellungen',
+              icon: const Icon(Icons.tune_rounded, size: 20, color: textMuted),
+              visualDensity: VisualDensity.compact,
+            ),
+          if (onProfilePressed != null) ...[
+            const SizedBox(width: 4),
+            _ProfileBadge(initial: profileInitial, onTap: onProfilePressed!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Kompakter Profil-Einstieg: weiche Lime-Kapsel mit Initial (rahmenlos,
+/// wie die uebrigen tippbaren Flaechen des Tabs).
+class _ProfileBadge extends StatelessWidget {
+  const _ProfileBadge({required this.onTap, this.initial});
+
+  final VoidCallback onTap;
+  final String? initial;
+
+  @override
+  Widget build(BuildContext context) {
+    final showInitial = initial != null && initial!.isNotEmpty;
+    return Material(
+      key: const ValueKey('topbar-profile'),
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: lime.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(rControl),
+          ),
+          alignment: Alignment.center,
+          child: showInitial
+              ? Text(
+                  initial!,
+                  style: const TextStyle(
+                    color: lime,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                )
+              : const Icon(Icons.person_rounded, color: lime, size: 17),
         ),
       ),
     );

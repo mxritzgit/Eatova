@@ -132,7 +132,7 @@ class WeightLineChartPainter extends CustomPainter {
   void _drawEmptyHint(Canvas canvas, Size size) {
     final tp = TextPainter(
       text: const TextSpan(
-        text: 'Logge dein Gewicht regelmäßig\nfür eine Verlaufslinie.',
+        text: 'Logge dein Gewicht regelmÃ¤ÃŸig\nfÃ¼r eine Verlaufslinie.',
         style: TextStyle(
           color: textMuted,
           fontSize: 12,
@@ -273,70 +273,14 @@ class BMIGaugePainter extends CustomPainter {
   static String labelFor(double v) {
     if (v < 18.5) return 'Untergewicht';
     if (v < 25.0) return 'Normal';
-    if (v < 30.0) return 'Übergewicht';
-    return 'Adipös';
+    if (v < 30.0) return 'Ãœbergewicht';
+    return 'AdipÃ¶s';
   }
 
   static Color colorFor(double v) => _colorFor(v);
 
   @override
   bool shouldRepaint(covariant BMIGaugePainter old) => old.bmi != bmi;
-}
-
-class ShiftDonutPainter extends CustomPainter {
-  ShiftDonutPainter({required this.counts, this.gap = 0.04});
-
-  final Map<String, int> counts;
-  final double gap;
-
-  static const Map<String, Color> _colors = {
-    'Kraft': lime,
-    'Muskelaufbau': lime,
-    'Ausdauer': orange,
-    'Recovery': cyan,
-    'Mobility': cyan,
-    'Frei': macroCarbs,
-  };
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const stroke = 14.0;
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2 - stroke;
-    if (radius <= 0) return;
-    final rect = Rect.fromCircle(center: center, radius: radius);
-
-    final total = counts.values.fold<int>(0, (a, b) => a + b);
-    if (total == 0) {
-      final empty = Paint()
-        ..color = surfaceSoft
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke;
-      canvas.drawArc(rect, 0, math.pi * 2, false, empty);
-      return;
-    }
-
-    final nonZero = counts.entries.where((e) => e.value > 0).toList();
-    final totalGap = nonZero.length > 1 ? gap * nonZero.length : 0.0;
-    final available = math.pi * 2 - totalGap;
-    double start = -math.pi / 2;
-    if (nonZero.length > 1) start += gap / 2;
-
-    for (final entry in nonZero) {
-      final sweep = available * (entry.value / total);
-      final paint = Paint()
-        ..color = _colors[entry.key] ?? textPrimary
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..strokeCap = StrokeCap.round;
-      canvas.drawArc(rect, start, sweep, false, paint);
-      start += sweep + (nonZero.length > 1 ? gap : 0);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant ShiftDonutPainter old) =>
-      old.counts != counts || old.gap != gap;
 }
 
 class MiniRingPainter extends CustomPainter {

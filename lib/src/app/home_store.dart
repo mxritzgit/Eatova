@@ -4,26 +4,18 @@ import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/caffeine_entry.dart';
-import '../models/daily_mood.dart';
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
-import '../models/habit.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
-import '../models/shift_fit_plan.dart';
-import '../models/sleep_entry.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
-import '../models/workout_set.dart';
-import '../services/daily_log_sync.dart';
 import '../services/fitpilot_sync.dart';
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
 import '../services/meal_totals.dart' as totals;
-import '../services/notification_content_engine.dart';
 import '../services/notification_service.dart';
 import '../services/uuid.dart';
 import '../theme/app_colors.dart';
@@ -74,39 +66,25 @@ class HomeStore extends ChangeNotifier {
   bool _disposed = false;
 
   // --- State (vormals Felder von _ShiftFitHomePageState) --------------------
-  String selectedShift = 'Muskelaufbau';
-  String selectedEnergy = 'Normal';
-  String selectedStress = 'Mittel';
+  // Tab-Indizes nach dem Entfernen von Heute/Training/Trends:
+  // 0 = Food, 1 = Rezepte, 2 = Coach.
   int selectedTab = 0;
   int dailyConsumedKcal = 0;
-  int dailyWaterMl = 0;
   int dailySteps = 0;
   DateTime selectedFoodDate = DateUtils.dateOnly(DateTime.now());
   UserProfile profile = const UserProfile();
   MacroProgress macroProgress = MacroProgress.empty;
-  SleepEntry? lastSleep;
-  Set<String> completedBlockIds = <String>{};
-  int workoutStreak = 0;
   List<FavoriteMeal> favorites = <FavoriteMeal>[];
   List<LoggedMeal> loggedMeals = <LoggedMeal>[];
   List<FitnessRecipe> _userRecipes = const <FitnessRecipe>[];
-  CaffeineDay caffeineDay = const CaffeineDay();
-  DailyMood mood = DailyMood.empty;
-  HabitState habits = const HabitState();
   WeightLog weightLog = const WeightLog();
   HealthAuthState healthAuthState = HealthAuthState.unknown;
   DateTime? healthLastFetch;
   bool healthSyncing = false;
   LifetimeStats lifetimeStats = LifetimeStats();
-  bool workoutCompletedToday = false;
-  List<DailyLog> _trendsHistory = const <DailyLog>[];
-  List<WorkoutSet> _workoutHistory = <WorkoutSet>[];
   Timer? _statsSaveDebounce;
 
   bool _notificationsEnabled = false;
-  Timer? _notificationDebounce;
-  int _pendingWaterDelta = 0;
-  int _pendingStepsDelta = 0;
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
   bool _statsFlushInFlight = false;
@@ -117,30 +95,10 @@ class HomeStore extends ChangeNotifier {
   LocalCache? _cache;
   bool _hydratedFromRealSource = false;
 
-  final List<String> weekPlan = [
-    'Kraft',
-    'Muskelaufbau',
-    'Ausdauer',
-    'Mobility',
-    'Kraft',
-    'Recovery',
-    'Frei',
-  ];
-
   // --- Read-only Sichten fuer die UI-Schale --------------------------------
   List<FitnessRecipe> get userRecipes => _userRecipes;
-  List<DailyLog> get trendsHistory => _trendsHistory;
-  List<WorkoutSet> get workoutHistory => _workoutHistory;
   bool get notificationsEnabled => _notificationsEnabled;
   Future<void> get profileReady => _profileReadyCompleter.future;
-
-  int get stepsGoal => profile.dailyStepsGoal;
-
-  ShiftFitPlan get plan => ShiftFitPlan.from(
-        shift: selectedShift,
-        energy: selectedEnergy,
-        stress: selectedStress,
-      );
 
   /// Onboarding ist Pflicht, sobald ein echter Supabase-Sync existiert und das
   /// Profil noch nicht durchlaufen wurde. Ohne Sync (Test/Preview) nie.
@@ -167,7 +125,6 @@ class HomeStore extends ChangeNotifier {
           '(noch $remKcal kcal übrig).',
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
           'Fett $remFat g.',
-      'Aktueller Workout-Streak: $workoutStreak Tage.',
     ];
     // Konkrete Lebensmittel-Namen zuletzt anhängen, damit der Coach auf „was
     // habe ich heute gegessen?" antworten kann. Bewusst als LETZTE Zeile: der
@@ -263,18 +220,16 @@ class HomeStore extends ChangeNotifier {
     if (cache == null) return;
     final today = DateTime.now();
     UserProfile? cachedProfile;
-    DailyLog? cachedDaily;
     LifetimeStats? cachedStats;
     try {
       cachedProfile = await cache.readProfile();
-      cachedDaily = await cache.readDailyLog(today);
       cachedStats = await cache.readLifetimeStats();
     } catch (e, st) {
       dev.log('LocalCache hydrate failed',
           error: e, stackTrace: st, name: 'local_cache');
     }
     if (_disposed) return;
-    if (cachedProfile == null && cachedDaily == null && cachedStats == null) {
+    if (cachedProfile == null && cachedStats == null) {
       return;
     }
     _mutate(() {
@@ -282,17 +237,8 @@ class HomeStore extends ChangeNotifier {
         profile = cachedProfile;
         _hydratedFromRealSource = true;
       }
-      if (cachedDaily != null) {
-        dailyWaterMl = cachedDaily.waterMl;
-        if (cachedDaily.steps > 0) dailySteps = cachedDaily.steps;
-        mood = cachedDaily.mood;
-        habits = cachedDaily.habitState;
-        completedBlockIds = cachedDaily.completedBlockIds;
-        workoutCompletedToday = cachedDaily.workoutCompleted;
-      }
       if (cachedStats != null) {
         lifetimeStats = cachedStats;
-        workoutStreak = cachedStats.currentStreak;
       }
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
@@ -301,22 +247,14 @@ class HomeStore extends ChangeNotifier {
 
   Future<void> _bootFromSupabase() async {
     final s = sync!;
-    s.dailyLog.onError = _onDailyLogSyncError;
     final today = DateTime.now();
     final results = await Future.wait<Object?>([
       _safeLoad(() => s.profile.load()),
       _safeLoad(() => s.meals.loadLoggedMeals()),
       _safeLoad(() => s.meals.loadFavorites()),
-      _safeLoad(() => s.dailyLog.loadForDate(today)),
       _safeLoad(() => s.tracking.loadWeightLog()),
-      _safeLoad(() => s.tracking.loadCaffeineDay(today)),
-      _safeLoad(() => s.tracking.loadLatestSleep()),
       _safeLoad(() => s.lifetimeStats.load()),
-      _safeLoad(() => s.weeklyPlan.load()),
-      _safeLoad(() => s.dailyLog
-          .loadRange(today.subtract(const Duration(days: 29)), today)),
       _safeLoad(() => s.userRecipes.load()),
-      _safeLoad(() => s.workoutLog.loadRecent()),
     ]);
     if (_disposed) return;
     _mutate(() {
@@ -334,48 +272,16 @@ class HomeStore extends ChangeNotifier {
       final loadedFavorites = results[2] as List<FavoriteMeal>?;
       if (loadedFavorites != null) favorites = loadedFavorites;
 
-      final loadedDailyLog = results[3] as DailyLog?;
-      if (loadedDailyLog != null) {
-        dailyWaterMl = loadedDailyLog.waterMl;
-        if (loadedDailyLog.steps > 0) {
-          dailySteps = loadedDailyLog.steps;
-        }
-        mood = loadedDailyLog.mood;
-        habits = loadedDailyLog.habitState;
-        completedBlockIds = loadedDailyLog.completedBlockIds;
-        workoutCompletedToday = loadedDailyLog.workoutCompleted;
-      }
-
-      final loadedWeightLog = results[4] as WeightLog?;
+      final loadedWeightLog = results[3] as WeightLog?;
       if (loadedWeightLog != null) weightLog = loadedWeightLog;
 
-      final loadedCaffeine = results[5] as CaffeineDay?;
-      if (loadedCaffeine != null) caffeineDay = loadedCaffeine;
-
-      final loadedSleep = results[6] as SleepEntry?;
-      if (loadedSleep != null) lastSleep = loadedSleep;
-
-      final loadedStats = results[7] as LifetimeStats?;
+      final loadedStats = results[4] as LifetimeStats?;
       if (loadedStats != null) {
         lifetimeStats = loadedStats;
-        workoutStreak = loadedStats.currentStreak;
       }
 
-      final loadedWeek = results[8] as List<String>?;
-      if (loadedWeek != null && loadedWeek.length == 7) {
-        weekPlan
-          ..clear()
-          ..addAll(loadedWeek);
-      }
-
-      final loadedHistory = results[9] as List<DailyLog>?;
-      if (loadedHistory != null) _trendsHistory = loadedHistory;
-
-      final loadedRecipes = results[10] as List<FitnessRecipe>?;
+      final loadedRecipes = results[5] as List<FitnessRecipe>?;
       if (loadedRecipes != null) _userRecipes = loadedRecipes;
-
-      final loadedWorkoutSets = results[11] as List<WorkoutSet>?;
-      if (loadedWorkoutSets != null) _workoutHistory = loadedWorkoutSets;
 
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
@@ -422,29 +328,6 @@ class HomeStore extends ChangeNotifier {
     future?.catchError((Object e) {
       _reportSyncError(operation, e);
       if (!_disposed) _mutate(restore);
-    });
-  }
-
-  void _onDailyLogSyncError(Object error) {
-    _reportSyncError('Tagesziel', error);
-    final s = sync;
-    if (s == null) return;
-    final today = DateTime.now();
-    s.dailyLog.loadForDate(today).then((loaded) {
-      if (_disposed || loaded == null) return;
-      _mutate(() {
-        dailyWaterMl = loaded.waterMl;
-        if (loaded.steps > 0) {
-          dailySteps = loaded.steps;
-        }
-        mood = loaded.mood;
-        habits = loaded.habitState;
-        completedBlockIds = loaded.completedBlockIds;
-        workoutCompletedToday = loaded.workoutCompleted;
-      });
-    }).catchError((Object e, StackTrace st) {
-      dev.log('Tagesziel Re-Sync fehlgeschlagen',
-          error: e, stackTrace: st, name: 'fitpilot_sync');
     });
   }
 
@@ -497,37 +380,10 @@ class HomeStore extends ChangeNotifier {
 
   // --- Persistenz-Helfer ----------------------------------------------------
 
-  void _queueDailyLogSync() {
-    final s = sync;
-    if (s == null) return;
-    final log = DailyLog(
-      date: DateTime.now(),
-      waterMl: dailyWaterMl,
-      steps: dailySteps,
-      moodScore: mood.score,
-      moodNote: mood.note,
-      completedBlockIds: completedBlockIds,
-      completedHabitIds: habits.completedIds,
-      workoutCompleted: workoutCompletedToday,
-    );
-    s.dailyLog.queueUpsert(log);
-    unawaited(_cache?.writeDailyLog(log) ?? Future<void>.value());
-  }
-
   Future<void> _writeCacheSnapshot() async {
     final cache = _cache;
     if (cache == null) return;
     await cache.writeProfile(profile);
-    await cache.writeDailyLog(DailyLog(
-      date: DateTime.now(),
-      waterMl: dailyWaterMl,
-      steps: dailySteps,
-      moodScore: mood.score,
-      moodNote: mood.note,
-      completedBlockIds: completedBlockIds,
-      completedHabitIds: habits.completedIds,
-      workoutCompleted: workoutCompletedToday,
-    ));
     await cache.writeLifetimeStats(lifetimeStats);
   }
 
@@ -535,30 +391,11 @@ class HomeStore extends ChangeNotifier {
     unawaited(_cache?.writeLifetimeStats(lifetimeStats) ?? Future<void>.value());
   }
 
-  // --- Nudge-Scheduling -----------------------------------------------------
-
-  Future<void> _pushSchedule() async {
-    if (!_notificationsEnabled) return;
-    final specs = const NotificationContentEngine().buildSchedule(
-      now: DateTime.now(),
-      shift: selectedShift,
-      dailyWaterMl: dailyWaterMl,
-      waterGoalMl: profile.dailyWaterGoalMl,
-      caffeineDay: caffeineDay,
-      lastBedtimeMinutes: lastSleep?.bedtimeMinutes,
-      sleepGoalMinutes: profile.dailySleepGoalMinutes,
-      stats: lifetimeStats,
-    );
-    await notificationService.scheduleAll(specs);
-  }
-
-  void _rescheduleNotifications() {
-    if (!_notificationsEnabled) return;
-    _notificationDebounce?.cancel();
-    _notificationDebounce = Timer(const Duration(milliseconds: 700), () {
-      unawaited(_pushSchedule());
-    });
-  }
+  // --- Erinnerungen (PROD-1) ------------------------------------------------
+  // Die Nudge-Inhalte (Hydration/Koffein/Schlaf/Streak) lebten in der
+  // NotificationContentEngine und sind mit dem Heute-Tab entfernt worden.
+  // Der Opt-in-Toggle + die Permission-Strecke bleiben, damit kuenftige
+  // Erinnerungen (Rework) direkt andocken koennen.
 
   Future<void> _initNotificationsFromCache() async {
     final cache = _cache;
@@ -568,7 +405,6 @@ class HomeStore extends ChangeNotifier {
     if (!enabled) return;
     _mutate(() => _notificationsEnabled = true);
     await notificationService.init();
-    await _pushSchedule();
   }
 
   Future<void> _setNotificationsEnabled(bool enabled) async {
@@ -582,9 +418,7 @@ class HomeStore extends ChangeNotifier {
     if (enabled) {
       await notificationService.init();
       await notificationService.requestPermission();
-      await _pushSchedule();
     } else {
-      _notificationDebounce?.cancel();
       await notificationService.cancelAll();
     }
   }
@@ -597,14 +431,10 @@ class HomeStore extends ChangeNotifier {
   // --- Lifetime-Stats-Deltas ------------------------------------------------
 
   void _queueStatsDelta({
-    int water = 0,
-    int steps = 0,
     int meals = 0,
     int weightLogs = 0,
   }) {
     if (sync == null) return;
-    _pendingWaterDelta += water;
-    _pendingStepsDelta += steps;
     _pendingMealsDelta += meals;
     _pendingWeightLogsDelta += weightLogs;
     _cacheLifetimeStats();
@@ -618,34 +448,25 @@ class HomeStore extends ChangeNotifier {
     final s = sync;
     if (s == null) return;
     if (_statsFlushInFlight) return;
-    final water = _pendingWaterDelta;
-    final steps = _pendingStepsDelta;
     final meals = _pendingMealsDelta;
     final weightLogs = _pendingWeightLogsDelta;
-    if (water == 0 && steps == 0 && meals == 0 && weightLogs == 0) return;
-    _pendingWaterDelta = 0;
-    _pendingStepsDelta = 0;
+    if (meals == 0 && weightLogs == 0) return;
     _pendingMealsDelta = 0;
     _pendingWeightLogsDelta = 0;
     _statsFlushInFlight = true;
     final prevStats = lifetimeStats;
     try {
       final fresh = await s.lifetimeStats.increment(
-        water: water,
-        steps: steps,
         meals: meals,
         weightLogs: weightLogs,
       );
       if (!_disposed) {
         _mutate(() {
           lifetimeStats = fresh;
-          workoutStreak = fresh.currentStreak;
         });
       }
       _cacheLifetimeStats();
     } catch (e) {
-      _pendingWaterDelta += water;
-      _pendingStepsDelta += steps;
       _pendingMealsDelta += meals;
       _pendingWeightLogsDelta += weightLogs;
       _reportSyncError('Statistik', e);
@@ -655,12 +476,6 @@ class HomeStore extends ChangeNotifier {
     }
   }
 
-  void _saveWeeklyPlan() {
-    sync?.weeklyPlan
-        .save(weekPlan)
-        .catchError((Object e) => _reportSyncError('Wochenplan', e));
-  }
-
   /// Schreibt ausstehende debounced Writes sofort weg (App-Backgrounding).
   void flushPendingWrites() {
     final s = sync;
@@ -668,7 +483,6 @@ class HomeStore extends ChangeNotifier {
     _statsSaveDebounce?.cancel();
     _statsSaveDebounce = null;
     unawaited(_flushStatsDelta());
-    s.dailyLog.flush();
   }
 
   // --- Health ---------------------------------------------------------------
@@ -701,24 +515,7 @@ class HomeStore extends ChangeNotifier {
     });
   }
 
-  // --- Tages-Mutationen -----------------------------------------------------
-
-  void addWater(int ml) {
-    HapticFeedback.selectionClick();
-    _mutate(() {
-      dailyWaterMl = (dailyWaterMl + ml).clamp(0, 15000);
-      if (ml > 0) lifetimeStats = lifetimeStats.addWater(ml);
-    });
-    _queueDailyLogSync();
-    if (ml > 0) _queueStatsDelta(water: ml);
-    _rescheduleNotifications();
-  }
-
-  void toggleHabit(String id) {
-    HapticFeedback.selectionClick();
-    _mutate(() => habits = habits.toggle(id));
-    _queueDailyLogSync();
-  }
+  // --- Koerperdaten (Profil) ------------------------------------------------
 
   void logWeight(double kg) {
     HapticFeedback.lightImpact();
@@ -743,131 +540,6 @@ class HomeStore extends ChangeNotifier {
         });
       }
     });
-  }
-
-  void addCaffeine(int mg) {
-    final ts = DateTime.now();
-    final prev = caffeineDay;
-    _mutate(() => caffeineDay = caffeineDay.add(mg));
-    _syncWithRollback(
-      'Koffein',
-      sync?.tracking.insertCaffeine(mg, ts),
-      () => caffeineDay = prev,
-    );
-    _rescheduleNotifications();
-  }
-
-  void resetCaffeine() {
-    final prev = caffeineDay;
-    _mutate(() => caffeineDay = caffeineDay.reset());
-    _syncWithRollback(
-      'Koffein-Reset',
-      sync?.tracking.resetCaffeineDay(DateTime.now()),
-      () => caffeineDay = prev,
-    );
-    _rescheduleNotifications();
-  }
-
-  void setSteps(int amount) {
-    _mutate(() => dailySteps = amount.clamp(0, 100000));
-    _queueDailyLogSync();
-  }
-
-  void setMoodScore(int score) {
-    _mutate(() => mood = DailyMood(score: score, note: mood.note));
-    _queueDailyLogSync();
-  }
-
-  /// Uebernimmt eine im Sheet eingegebene Mood-Notiz (das Sheet selbst lebt in
-  /// der context-tragenden Schale).
-  void setMoodNote(String note) {
-    _mutate(() => mood = DailyMood(score: mood.score, note: note));
-    _queueDailyLogSync();
-  }
-
-  /// Uebernimmt einen im Sheet erfassten Schlaf-Eintrag.
-  void logSleep(SleepEntry entry) {
-    final prev = lastSleep;
-    _mutate(() => lastSleep = entry);
-    _syncWithRollback(
-      'Schlaf',
-      sync?.tracking.upsertSleep(entry),
-      () => lastSleep = prev,
-    );
-    _rescheduleNotifications();
-  }
-
-  void toggleBlock(String id) {
-    HapticFeedback.selectionClick();
-    final next = {...completedBlockIds};
-    if (next.contains(id)) {
-      next.remove(id);
-    } else {
-      next.add(id);
-    }
-    final allDone = plan.blocks.isNotEmpty &&
-        plan.blocks.asMap().entries.every(
-              (e) => next.contains('${e.key + 1}:${e.value.title}'),
-            );
-
-    final bool wasCompletedToday = workoutCompletedToday;
-    final prevStats = lifetimeStats;
-    final prevStreak = workoutStreak;
-    _mutate(() {
-      if (allDone) {
-        if (!wasCompletedToday) {
-          lifetimeStats = lifetimeStats
-              .incrementWorkouts()
-              .recordWorkoutDay(DateTime.now());
-          workoutStreak = lifetimeStats.currentStreak;
-          workoutCompletedToday = true;
-        }
-        completedBlockIds = <String>{};
-      } else {
-        completedBlockIds = next;
-      }
-    });
-    _queueDailyLogSync();
-    if (allDone && !wasCompletedToday) _cacheLifetimeStats();
-    if (allDone && !wasCompletedToday) _rescheduleNotifications();
-    if (allDone && !wasCompletedToday) {
-      final end = DateTime.now();
-      final minutes = plan.totalMinutes > 0 ? plan.totalMinutes : 45;
-      final start = end.subtract(Duration(minutes: minutes));
-      unawaited(health.writeWorkout(
-        start: start,
-        end: end,
-        type: 'functionalStrengthTraining',
-      ));
-    }
-
-    if (allDone && !wasCompletedToday) {
-      final s = sync;
-      if (s != null) {
-        s.lifetimeStats.recordWorkoutDay(DateTime.now()).then((fresh) {
-          if (_disposed) return;
-          _mutate(() {
-            lifetimeStats = fresh;
-            workoutStreak = fresh.currentStreak;
-          });
-          _cacheLifetimeStats();
-        }).catchError((Object e) {
-          _reportSyncError('Workout-Streak', e);
-          if (!_disposed) {
-            _mutate(() {
-              lifetimeStats = prevStats;
-              workoutStreak = prevStreak;
-              workoutCompletedToday = wasCompletedToday;
-            });
-          }
-        });
-      }
-      _emitSnack(
-        'Plan abgehakt · Streak: $workoutStreak',
-        icon: Icons.local_fire_department_rounded,
-        accent: forgeLime,
-      );
-    }
   }
 
   // --- Mahlzeiten -----------------------------------------------------------
@@ -1165,10 +837,6 @@ class HomeStore extends ChangeNotifier {
               '(kein Server-/Cache-Hydrate) — Clobber-Schutz',
               name: 'fitpilot_sync');
         }
-        if (resetDay) {
-          await s.dailyLog.flush();
-          _queueDailyLogSync();
-        }
       } catch (e) {
         if (!_disposed) {
           _emitSnack('Profil-Sync: $e',
@@ -1182,20 +850,13 @@ class HomeStore extends ChangeNotifier {
       _emitSnack('Tagesdaten zurückgesetzt.',
           icon: Icons.restart_alt_rounded, accent: orange);
     }
-    _rescheduleNotifications();
   }
 
   void _clearTodayState() {
     dailyConsumedKcal = 0;
-    dailyWaterMl = 0;
     dailySteps = 0;
     macroProgress = MacroProgress.empty;
-    completedBlockIds = <String>{};
-    caffeineDay = const CaffeineDay();
-    mood = DailyMood.empty;
-    habits = const HabitState();
     loggedMeals = <LoggedMeal>[];
-    workoutCompletedToday = false;
     selectedFoodDate = DateUtils.dateOnly(DateTime.now());
   }
 
@@ -1227,41 +888,17 @@ class HomeStore extends ChangeNotifier {
     }
   }
 
-  // --- Tab / Datum / Plan ---------------------------------------------------
+  // --- Tab / Datum ----------------------------------------------------------
 
   void setTab(int index) => _mutate(() => selectedTab = index);
 
   void setFoodDate(DateTime date) =>
       _mutate(() => selectedFoodDate = DateUtils.dateOnly(date));
 
-  void setShift(String value) {
-    _mutate(() => selectedShift = value);
-    _rescheduleNotifications();
-  }
-
-  void setEnergy(String value) => _mutate(() => selectedEnergy = value);
-
-  void setStress(String value) => _mutate(() => selectedStress = value);
-
-  void setWeekPlanDay(int dayIndex, String shift) {
-    _mutate(() => weekPlan[dayIndex] = shift);
-    _saveWeeklyPlan();
-  }
-
-  void saveWeeklyPlan() => _saveWeeklyPlan();
-
-  Future<void> logWorkoutSet(WorkoutSet set) async {
-    await sync!.workoutLog.insert(set);
-    if (!_disposed) {
-      _mutate(() => _workoutHistory = [set, ..._workoutHistory]);
-    }
-  }
-
   @override
   void dispose() {
     _disposed = true;
     _statsSaveDebounce?.cancel();
-    _notificationDebounce?.cancel();
     sync?.dispose();
     super.dispose();
   }

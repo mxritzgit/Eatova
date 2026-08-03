@@ -2,18 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:shiftfit/src/models/lifetime_stats.dart';
 import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/daily_log_sync.dart';
 import 'package:shiftfit/src/services/local_cache.dart';
 
-// DATA-3: LocalCache ist der durable Write-Through-Cache (JSON) fuer Profil,
-// heutiges daily_logs und lifetime_stats. Diese Tests treiben ihn ueber den
-// InMemoryKeyValueStore (kein SharedPreferences-Channel noetig) und sichern:
-//   1. Profil/Tageslog/Stats roundtrippen verlustfrei.
-//   2. readDailyLog gibt bei Tageswechsel null zurueck (kein Gestern-Leak).
-//   3. Korrupte/teilweise Eintraege liefern null statt zu crashen.
-//   4. Ein leerer Cache liefert ueberall null (Kaltstart ohne Vorstand).
-//   5. clear() entfernt alle drei Eintraege.
-//   6. Der Cache ist pro userId getrennt (kein Cross-User-Leak).
+// DATA-3: LocalCache ist der durable Write-Through-Cache (JSON) fuer Profil
+// und lifetime_stats. Diese Tests treiben ihn ueber den InMemoryKeyValueStore
+// (kein SharedPreferences-Channel noetig) und sichern:
+//   1. Profil/Stats roundtrippen verlustfrei.
+//   2. Korrupte/teilweise Eintraege liefern null statt zu crashen.
+//   3. Ein leerer Cache liefert ueberall null (Kaltstart ohne Vorstand).
+//   4. clear() entfernt alle Eintraege inkl. des Legacy-daily-Slots (M-1).
+//   5. Der Cache ist pro userId getrennt (kein Cross-User-Leak).
 
 LocalCache _cache(InMemoryKeyValueStore store, [String userId = 'user-1']) =>
     LocalCache(store, userId);
@@ -90,50 +88,6 @@ void main() {
     });
   });
 
-  group('LocalCache daily_logs', () {
-    DailyLog log(DateTime date) => DailyLog(
-          date: date,
-          waterMl: 1500,
-          steps: 8200,
-          moodScore: 4,
-          moodNote: 'solide',
-          completedBlockIds: const <String>{'1:Warm-up', '2:Kraft'},
-          completedHabitIds: const <String>{'wasser'},
-          workoutCompleted: true,
-        );
-
-    test('roundtrippt den heutigen Tagesstand verlustfrei', () async {
-      final store = InMemoryKeyValueStore();
-      final cache = _cache(store);
-      final today = DateTime.now();
-
-      await cache.writeDailyLog(log(today));
-      final back = await cache.readDailyLog(today);
-
-      expect(back, isNotNull);
-      expect(back!.waterMl, 1500);
-      expect(back.steps, 8200);
-      expect(back.moodScore, 4);
-      expect(back.moodNote, 'solide');
-      expect(back.completedBlockIds, {'1:Warm-up', '2:Kraft'});
-      expect(back.completedHabitIds, {'wasser'});
-      expect(back.workoutCompleted, isTrue);
-    });
-
-    test('Tageswechsel: gestriger Stand wird NICHT als heute geliefert',
-        () async {
-      final store = InMemoryKeyValueStore();
-      final cache = _cache(store);
-      final yesterday = DateTime.now().subtract(const Duration(days: 1));
-
-      await cache.writeDailyLog(log(yesterday));
-      // Lesen fuer HEUTE -> null (frischer Tag startet bei 0, kein Gestern-Leak).
-      expect(await cache.readDailyLog(DateTime.now()), isNull);
-      // Lesen fuer GESTERN -> Treffer.
-      expect(await cache.readDailyLog(yesterday), isNotNull);
-    });
-  });
-
   group('LocalCache lifetime_stats', () {
     test('roundtrippt inkl. Streak-Felder', () async {
       final store = InMemoryKeyValueStore();
@@ -169,18 +123,21 @@ void main() {
   });
 
   group('LocalCache Housekeeping', () {
-    test('clear() entfernt Profil + Tageslog + Stats', () async {
-      final store = InMemoryKeyValueStore();
+    test('clear() entfernt Profil + Stats + Legacy-daily-Slot (M-1)', () async {
+      // Legacy-Eintrag des frueheren Heute-Tabs (inkl. Mood-Notiz = PII):
+      // wird nicht mehr geschrieben, muss beim Logout aber weiter verschwinden.
+      final store = InMemoryKeyValueStore({
+        'fitpilot.v1.daily.user-1': '{"mood_note":"privat"}',
+      });
       final cache = _cache(store);
       await cache.writeProfile(const UserProfile(weightKg: 90));
-      await cache.writeDailyLog(DailyLog(date: DateTime.now(), waterMl: 500));
       await cache.writeLifetimeStats(LifetimeStats(mealsLogged: 3));
 
       await cache.clear();
 
       expect(await cache.readProfile(), isNull);
-      expect(await cache.readDailyLog(DateTime.now()), isNull);
       expect(await cache.readLifetimeStats(), isNull);
+      expect(store.snapshot.containsKey('fitpilot.v1.daily.user-1'), isFalse);
     });
 
     test('Cache ist pro userId getrennt (kein Cross-User-Leak)', () async {

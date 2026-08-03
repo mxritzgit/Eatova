@@ -83,7 +83,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
     await authRepository.signOut();
     await tester.pumpAndSettle();
@@ -100,7 +100,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
   });
 
   testWidgetsRobust('Auth screen supports OAuth buttons', (WidgetTester tester) async {
@@ -113,96 +113,16 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-google-oauth')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
   });
 
-  testWidgetsRobust('FitPilot today screen is focused and iOS-polished', (
+  testWidgetsRobust('Bottom navigation switches between Food, Rezepte and Coach', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const ShiftFitApp());
 
-    expect(find.text('FitPilot'), findsOneWidget);
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
-    expect(find.byKey(const ValueKey('today-ios-hero')), findsOneWidget);
-    expect(find.byKey(const ValueKey('today-micro-checkin')), findsOneWidget);
-    expect(find.byKey(const ValueKey('daily-tracker-card')), findsOneWidget);
-    expect(find.byKey(const ValueKey('today-session-card')), findsOneWidget);
-    expect(find.byKey(const ValueKey('fitpilot-hub-grid')), findsOneWidget);
-    expect(find.byKey(const ValueKey('weekly-challenge-card')), findsOneWidget);
-    expect(find.text('Heute'), findsWidgets);
-    expect(find.text('Hypertrophy Plan'), findsOneWidget);
-    expect(find.text('Plan starten'), findsOneWidget);
-    expect(find.text('Körpergefühl'), findsOneWidget);
-    expect(find.text('Tageswerte'), findsOneWidget);
-    expect(find.text('Session'), findsOneWidget);
-    expect(find.text('Dein Fitness-Hub'), findsOneWidget);
-    expect(find.text('Strong Start Week'), findsOneWidget);
-    expect(find.text('Dein FitnessPlan\nfür heute.'), findsNothing);
-    expect(find.text('Trainingsfokus'), findsNothing);
-    expect(find.text('Coach Tools'), findsNothing);
-    expect(find.text('Wochen Split'), findsNothing);
-  });
-
-  testWidgetsRobust('Check-in updates recommendation for fatigue, endurance and strong strength', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const ShiftFitApp());
-
-    await tester.ensureVisible(find.byKey(const ValueKey('option-Müde')));
-    await tester.tap(find.byKey(const ValueKey('option-Müde')));
-    await tester.pumpAndSettle();
-    expect(find.text('Recovery & Mobility'), findsOneWidget);
-    expect(find.text('Deload statt durchziehen'), findsOneWidget);
-
-    await tester.ensureVisible(find.byKey(const ValueKey('option-Normal')));
-    await tester.tap(find.byKey(const ValueKey('option-Normal')));
-    await tester.ensureVisible(find.byKey(const ValueKey('option-Ausdauer')));
-    await tester.tap(find.byKey(const ValueKey('option-Ausdauer')));
-    await tester.pumpAndSettle();
-    expect(find.text('Cardio Engine'), findsOneWidget);
-
-    await tester.ensureVisible(find.byKey(const ValueKey('option-Kraft')));
-    await tester.tap(find.byKey(const ValueKey('option-Kraft')));
-    await tester.ensureVisible(find.byKey(const ValueKey('option-Stark')));
-    await tester.tap(find.byKey(const ValueKey('option-Stark')));
-    await tester.pumpAndSettle();
-    expect(find.text('Strength Builder'), findsOneWidget);
-  });
-
-  testWidgetsRobust('Plan sheet can be opened from today card', (WidgetTester tester) async {
-    await tester.pumpWidget(const ShiftFitApp());
-
-    await tester.ensureVisible(find.byKey(const ValueKey('today-open-plan')));
-    await tester.tap(find.byKey(const ValueKey('today-open-plan')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Für heute starten'), findsOneWidget);
-    expect(find.textContaining('Warm-up'), findsWidgets);
-  });
-
-  testWidgetsRobust('Bottom navigation switches between Heute, Training, Trends, Food and Rezepte', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const ShiftFitApp());
-
-    expect(find.text('Hypertrophy Plan'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('nav-Training')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-week')), findsOneWidget);
-    expect(find.text('Trainingswoche,\nsmart geplant.'), findsOneWidget);
-    expect(find.text('Trainingssplit'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('nav-Trends')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-trends')), findsOneWidget);
-    expect(find.text('Fortschritt bleibt\nsichtbar.'), findsOneWidget);
-    expect(find.text('Progress Verlauf'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('tab-fixed-3')), findsOneWidget);
-    expect(find.byKey(const ValueKey('tab-scroll-3')), findsNothing);
+    // Food ist der Default-Tab (Index 0).
+    expect(find.byKey(const ValueKey('tab-fixed-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
     expect(find.byKey(const ValueKey('kcal-page-fill')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-strip')), findsOneWidget);
@@ -239,10 +159,13 @@ void main() {
     expect(putenTile, findsOneWidget);
     expect(find.text('Putenbällchen mit Reis & Gemüse'), findsWidgets);
 
-    await tester.tap(find.byKey(const ValueKey('nav-Heute')));
+    await tester.tap(find.byKey(const ValueKey('nav-Coach')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
-    expect(find.text('Hypertrophy Plan'), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
   });
 
   testWidgetsRobust('Recipe detail can add a meal into kcal and macro tracker', (
@@ -789,23 +712,6 @@ void main() {
     );
   });
 
-  testWidgetsRobust('Training tab updates weekly split and summaries', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const ShiftFitApp());
-
-    await tester.tap(find.byKey(const ValueKey('nav-Training')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('3 Krafttage'), findsOneWidget);
-    expect(find.text('3 Recovery'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('week-Mo-Mobility')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('2 Krafttage'), findsOneWidget);
-    expect(find.text('4 Recovery'), findsOneWidget);
-  });
 }
 
 class _FakeMealAnalyzer implements MealAnalyzer {

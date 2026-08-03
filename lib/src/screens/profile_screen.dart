@@ -4,8 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../config/legal_links.dart';
 import '../models/lifetime_stats.dart';
-import '../models/shift_fit_plan.dart';
-import '../models/sleep_entry.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/health_service.dart';
@@ -21,13 +19,8 @@ class ProfileScreen extends StatelessWidget {
     required this.profile,
     required this.weightLog,
     required this.stats,
-    required this.plan,
-    required this.weekPlan,
-    required this.workoutStreak,
     required this.dailyConsumedKcal,
-    required this.dailyWaterMl,
     required this.dailySteps,
-    required this.lastSleep,
     required this.healthAuthState,
     required this.healthLastFetch,
     required this.favoritesCount,
@@ -44,13 +37,8 @@ class ProfileScreen extends StatelessWidget {
   final UserProfile profile;
   final WeightLog weightLog;
   final LifetimeStats stats;
-  final ShiftFitPlan plan;
-  final List<String> weekPlan;
-  final int workoutStreak;
   final int dailyConsumedKcal;
-  final int dailyWaterMl;
   final int dailySteps;
-  final SleepEntry? lastSleep;
   final HealthAuthState healthAuthState;
   final DateTime? healthLastFetch;
   final int favoritesCount;
@@ -64,7 +52,6 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sleepMinutes = lastSleep?.duration.inMinutes ?? 0;
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
@@ -99,12 +86,7 @@ class ProfileScreen extends StatelessWidget {
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ProfileHero(
-                name: name,
-                plan: plan,
-                weekPlan: weekPlan,
-                workoutStreak: workoutStreak,
-              ),
+              ProfileHero(name: name),
               const SizedBox(height: 14),
               GoalPlanCard(profile: profile, onEdit: onEditProfile),
               const SizedBox(height: 14),
@@ -114,24 +96,20 @@ class ProfileScreen extends StatelessWidget {
                 onLogWeight: onLogWeight,
               ),
               const SizedBox(height: 14),
-              WeightHistoryCard(log: weightLog, accent: plan.accent),
+              WeightHistoryCard(log: weightLog, accent: lime),
               const SizedBox(height: 14),
               GoalsOverviewCard(
                 profile: profile,
                 dailyKcal: dailyConsumedKcal,
-                dailyWater: dailyWaterMl,
                 dailySteps: dailySteps,
-                sleepMinutes: sleepMinutes,
                 onEdit: onEditProfile,
               ),
-              const SizedBox(height: 14),
-              ShiftDistributionCard(weekPlan: weekPlan),
               const SizedBox(height: 14),
               LifetimeStatsCard(stats: stats),
               const SizedBox(height: 14),
               AchievementsGrid(
                 stats: stats,
-                workoutStreak: workoutStreak,
+                workoutStreak: stats.currentStreak,
                 weightLogs: weightLog.entries.length,
                 favoritesCount: favoritesCount,
               ),
@@ -241,9 +219,7 @@ class ProfileScreen extends StatelessWidget {
       ..writeln('  },')
       ..writeln('  "today": {')
       ..writeln('    "kcal": $dailyConsumedKcal,')
-      ..writeln('    "waterMl": $dailyWaterMl,')
-      ..writeln('    "steps": $dailySteps,')
-      ..writeln('    "workoutStreak": $workoutStreak')
+      ..writeln('    "steps": $dailySteps')
       ..writeln('  },')
       ..writeln('  "weightLog": [');
     for (var i = 0; i < weightLog.entries.length; i++) {
@@ -256,7 +232,6 @@ class ProfileScreen extends StatelessWidget {
     }
     buffer
       ..writeln('  ],')
-      ..writeln('  "weekPlan": ${weekPlan.map((e) => '"$e"').toList()},')
       ..writeln('  "stats": {')
       ..writeln('    "workouts": ${stats.workoutsCompleted},')
       ..writeln('    "meals": ${stats.mealsLogged},')

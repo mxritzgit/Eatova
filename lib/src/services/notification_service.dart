@@ -6,7 +6,46 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
-import 'notification_content_engine.dart';
+/// Ein vollstaendig aufgeloester, plan-fertiger Notification-Spec. Reiner
+/// Wert-Typ (immutable, mit Gleichheit), den der NotificationService 1:1 an
+/// zonedSchedule weiterreichen kann. Keine Flutter-/IO-Abhaengigkeit.
+///
+/// Lebte frueher in der NotificationContentEngine (Heute-Tab-Nudges); die
+/// Engine ist mit dem Heute-Tab entfernt, der Spec bleibt als Wire-Format
+/// fuer kuenftige Erinnerungen.
+class NotificationSpec {
+  const NotificationSpec({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.scheduledFor,
+  });
+
+  /// Stabile, deterministische Plattform-ID. Gleiche Eingaben -> gleiche IDs,
+  /// damit ein erneutes scheduleAll alte Eintraege ueberschreibt statt zu
+  /// duplizieren.
+  final int id;
+  final String title;
+  final String body;
+
+  /// Wandzeit (lokale Zone), zu der der Nudge feuern soll.
+  final DateTime scheduledFor;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NotificationSpec &&
+      other.id == id &&
+      other.title == title &&
+      other.body == body &&
+      other.scheduledFor == scheduledFor;
+
+  @override
+  int get hashCode => Object.hash(id, title, body, scheduledFor);
+
+  @override
+  String toString() =>
+      'NotificationSpec(id: $id, scheduledFor: $scheduledFor, title: "$title")';
+}
 
 /// Abstrakte Notification-Schicht (PROD-1, on-device-Retention).
 ///
@@ -25,8 +64,8 @@ abstract class NotificationService {
   Future<bool> requestPermission();
 
   /// Loescht alle bisher geplanten Nudges und plant [specs] neu.
-  /// Aufrufer soll IMMER die volle Liste der Engine uebergeben — die alten
-  /// Eintraege werden zuvor verworfen, damit nichts dupliziert/verwaist.
+  /// Aufrufer soll IMMER die volle Liste uebergeben — die alten Eintraege
+  /// werden zuvor verworfen, damit nichts dupliziert/verwaist.
   Future<void> scheduleAll(List<NotificationSpec> specs);
 
   /// Verwirft alle geplanten/angezeigten Nudges (z.B. bei Logout oder wenn der
@@ -176,8 +215,8 @@ class LocalNotificationService implements NotificationService {
         spec.scheduledFor.minute,
         spec.scheduledFor.second,
       );
-      // Defensive: nie in die Vergangenheit planen (die Engine garantiert das
-      // bereits, aber Plattform-zonedSchedule wuerde sonst sofort feuern).
+      // Defensive: nie in die Vergangenheit planen (Plattform-zonedSchedule
+      // wuerde sonst sofort feuern).
       if (!when.isAfter(now)) continue;
       await _plugin.zonedSchedule(
         id: spec.id,

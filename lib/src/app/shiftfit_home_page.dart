@@ -17,10 +17,6 @@ import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/recipes_screen.dart';
-import '../screens/today_dashboard.dart';
-import '../screens/today_dashboard_models.dart';
-import '../screens/trends_screen.dart';
-import '../screens/week_planner_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_shell/shiftfit_bottom_nav.dart';
 import '../widgets/auth/welcome_screen.dart';
@@ -28,8 +24,6 @@ import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/common/store_selector.dart';
 import '../widgets/shared/settings_sheet.dart';
-import '../widgets/today/mood_card.dart';
-import '../widgets/today/wellness_widgets.dart';
 import 'home_store.dart';
 
 class ShiftFitHomePage extends StatefulWidget {
@@ -171,20 +165,6 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
 
   // --- context-tragende Flows (Sheets / Navigation) ------------------------
 
-  Future<void> _editMoodNote() async {
-    final result = await showMoodNoteSheet(context, initial: _store.mood.note);
-    if (result != null && mounted) {
-      _store.setMoodNote(result);
-    }
-  }
-
-  Future<void> _logSleep() async {
-    final entry = await showSleepLogSheet(context, initial: _store.lastSleep);
-    if (entry != null && mounted) {
-      _store.logSleep(entry);
-    }
-  }
-
   Future<void> _openSettings() async {
     final result = await showSettingsSheet(
       context,
@@ -231,13 +211,8 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
               profile: _store.profile,
               weightLog: _store.weightLog,
               stats: _store.lifetimeStats,
-              plan: _store.plan,
-              weekPlan: _store.weekPlan,
-              workoutStreak: _store.workoutStreak,
               dailyConsumedKcal: _store.dailyConsumedKcal,
-              dailyWaterMl: _store.dailyWaterMl,
               dailySteps: _store.dailySteps,
-              lastSleep: _store.lastSleep,
               healthAuthState: _store.healthAuthState,
               healthLastFetch: _store.healthLastFetch,
               favoritesCount: _store.favorites.length,
@@ -273,9 +248,8 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
     }
 
     // PERF-2: nur (Tab, Onboarding-Gate) treiben einen Rebuild der Home-Schale.
-    // Daten-Slices (Wasser, Mood, …) rebuilden gezielt ihre Tab-Inhalte
-    // (Today via Sektions-Selektoren, andere Tabs via eigenem ListenableBuilder),
-    // nicht mehr den ganzen Baum wie das frühere monolithische setState.
+    // Daten-Slices rebuilden gezielt ihre Tab-Inhalte (via eigenem
+    // ListenableBuilder), nicht den ganzen Baum wie ein monolithisches setState.
     return StoreSelector(
       store: _store,
       selector: () => (_store.selectedTab, _store.needsOnboarding),
@@ -291,30 +265,23 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
           );
         }
 
-        // Tab 3 (Food), Tab 4 (Rezepte) und Tab 5 (Coach) haben eigene
-        // scroll-faehige Inhalte + fixierte Eingabe-Bereiche - die brauchen
-        // feste Hoehe und keinen aeusseren SingleChildScrollView.
+        // Alle Tabs (Food/Rezepte/Coach) haben eigene scroll-faehige Inhalte +
+        // fixierte Eingabe-Bereiche - die brauchen feste Hoehe und keinen
+        // aeusseren SingleChildScrollView.
         final tab = _store.selectedTab;
-        final fixedHeightTab = tab == 3 || tab == 4 || tab == 5;
-        final body = fixedHeightTab
-            ? Padding(
-                key: ValueKey('tab-fixed-$tab'),
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: buildSelectedScreen(),
-              )
-            : SingleChildScrollView(
-                key: ValueKey('tab-scroll-$tab'),
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                child: buildSelectedScreen(),
-              );
+        final body = Padding(
+          key: ValueKey('tab-fixed-$tab'),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          child: buildSelectedScreen(),
+        );
 
         return Scaffold(
           backgroundColor: bg,
-          // Food-Tab (3): Eingabe läuft nur über das modale AddMealSheet, das
+          // Food-Tab (0): Eingabe läuft nur über das modale AddMealSheet, das
           // seine Tastatur-Anpassung selbst macht. Würde der Home-Scaffold
           // zusätzlich resizen, schöbe sich der Hintergrund sichtbar hinter dem
           // halbtransparenten Barrier. Andere Tabs behalten das Default-Verhalten.
-          resizeToAvoidBottomInset: tab != 3,
+          resizeToAvoidBottomInset: tab != 0,
           bottomNavigationBar: ShiftFitBottomNav(
             selectedIndex: tab,
             onSelected: (index) => _store.setTab(index),
@@ -333,93 +300,11 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
   }
 
   Widget buildSelectedScreen() {
-    // Nicht-Today-Tabs behalten ihr gröberes Rebuild-Verhalten: ein eigener
-    // ListenableBuilder zieht sie bei jeder Store-Mutation nach (wie vorher das
-    // globale setState). Today (Default) liest den Store direkt und scoped seine
-    // Sektionen selbst (PERF-2).
+    // Alle Tabs haengen per eigenem ListenableBuilder am Store und rebuilden
+    // bei jeder Store-Mutation (wie vorher das globale setState).
+    // Tab-Indizes: 0 = Food (Default), 1 = Rezepte, 2 = Coach.
     return switch (_store.selectedTab) {
       1 => ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => WeekPlannerScreen(
-            plan: _store.plan,
-            weekPlan: _store.weekPlan,
-            onShiftChanged: (dayIndex, shift) =>
-                _store.setWeekPlanDay(dayIndex, shift),
-            onSavePlan: widget.sync == null ? null : _store.saveWeeklyPlan,
-            // PROD-5: Set-Logger nur mit echtem Sync (Test/Preview: sync == null
-            // -> Karte bleibt verborgen). onLogSet persistiert idempotent und
-            // haengt den Satz optimistisch vorn an die lokale History.
-            workoutHistory: _store.workoutHistory,
-            onLogSet: widget.sync == null ? null : _store.logWorkoutSet,
-            onSettingsPressed: _openSettings,
-            onProfilePressed: _openProfile,
-            profileInitial: _store.profileInitial,
-          ),
-        ),
-      2 => ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => TrendsScreen(
-            plan: _store.plan,
-            weekPlan: _store.weekPlan,
-            dailyWaterMl: _store.dailyWaterMl,
-            waterGoalMl: _store.profile.dailyWaterGoalMl,
-            lastSleep: _store.lastSleep,
-            sleepGoalMinutes: _store.profile.dailySleepGoalMinutes,
-            workoutStreak: _store.workoutStreak,
-            completedTodayCount: _store.completedBlockIds.length,
-            totalBlocksToday: _store.plan.blocks.length,
-            dailySteps: _store.dailySteps,
-            stepsGoal: _store.stepsGoal,
-            dailyConsumedKcal: _store.dailyConsumedKcal,
-            kcalGoal: _store.profile.dailyKcalGoal,
-            history: _store.trendsHistory,
-            onSettingsPressed: _openSettings,
-            onProfilePressed: _openProfile,
-            profileInitial: _store.profileInitial,
-          ),
-        ),
-      5 => ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => CoachChatScreen(
-            service: widget.sync?.coachChat,
-            userName: _store.userName,
-            userContext: widget.sync != null ? _store.coachContext : null,
-          ),
-        ),
-      3 => ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => MealAnalysisScreen(
-            analyzer: widget.mealAnalyzer,
-            productService: widget.productService,
-            photoInput: widget.photoInput,
-            cameraLauncher: widget.mealCameraLauncher,
-            selectedDate: _store.selectedFoodDate,
-            onDateSelected: (date) => _store.setFoodDate(date),
-            dailyConsumedKcal:
-                _store.consumedKcalForFoodDate(_store.selectedFoodDate),
-            macroProgress:
-                _store.macroProgressForFoodDate(_store.selectedFoodDate),
-            profile: _store.profile,
-            favorites: _store.favorites,
-            loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
-            burnedKcal: _store.selectedFoodDateIsToday
-                ? estimateKcalBurnedFromSteps(
-                    steps: _store.dailySteps,
-                    weightKg: _store.profile.weightKg,
-                    heightCm: _store.profile.heightCm,
-                    sex: _store.profile.sex,
-                  )
-                : 0,
-            onAddMeal: (result, slot) =>
-                _store.addResultToDailyTotal(result, slot: slot),
-            onUpdateMeal: _store.updateLoggedMealResult,
-            isFavorite: _store.isFavorite,
-            onToggleFavorite: _store.toggleFavorite,
-            onRemoveFavorite: _store.removeFavorite,
-            onRemoveMeal: _store.removeLoggedMeal,
-          ),
-        ),
-      4 => ListenableBuilder(
           listenable: _store,
           builder: (context, _) => RecipesScreen(
             onAddMeal: (result, slot) => _store.addResultToDailyTotal(
@@ -451,31 +336,49 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
             ),
           ),
         ),
-      _ => TodayDashboard(
-          store: _store,
-          // ARCH-3: Callbacks gebuendelt.
-          actions: TodayActions(
-            onShiftSelected: _store.setShift,
-            onEnergySelected: _store.setEnergy,
-            onStressSelected: _store.setStress,
-            onToggleBlock: _store.toggleBlock,
-            onConnectHealth: _store.connectHealth,
-            onRefreshHealth: _store.refreshHealthSteps,
-            onAddWater: _store.addWater,
-            onSetSteps: _store.setSteps,
-            onLogSleep: _logSleep,
-            onMoodScore: _store.setMoodScore,
-            onEditMoodNote: _editMoodNote,
-            onToggleHabit: _store.toggleHabit,
-            onAddCaffeine: _store.addCaffeine,
-            onResetCaffeine: _store.resetCaffeine,
-            onLogWeight: _store.logWeight,
-            onOpenTraining: () => _store.setTab(1),
-            onOpenFood: () => _store.setTab(3),
+      2 => ListenableBuilder(
+          listenable: _store,
+          builder: (context, _) => CoachChatScreen(
+            service: widget.sync?.coachChat,
+            userName: _store.userName,
+            userContext: widget.sync != null ? _store.coachContext : null,
           ),
-          onSettingsPressed: _openSettings,
-          onProfilePressed: _openProfile,
-          profileInitial: _store.profileInitial,
+        ),
+      _ => ListenableBuilder(
+          listenable: _store,
+          builder: (context, _) => MealAnalysisScreen(
+            analyzer: widget.mealAnalyzer,
+            productService: widget.productService,
+            photoInput: widget.photoInput,
+            cameraLauncher: widget.mealCameraLauncher,
+            selectedDate: _store.selectedFoodDate,
+            onDateSelected: (date) => _store.setFoodDate(date),
+            dailyConsumedKcal:
+                _store.consumedKcalForFoodDate(_store.selectedFoodDate),
+            macroProgress:
+                _store.macroProgressForFoodDate(_store.selectedFoodDate),
+            profile: _store.profile,
+            favorites: _store.favorites,
+            loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
+            burnedKcal: _store.selectedFoodDateIsToday
+                ? estimateKcalBurnedFromSteps(
+                    steps: _store.dailySteps,
+                    weightKg: _store.profile.weightKg,
+                    heightCm: _store.profile.heightCm,
+                    sex: _store.profile.sex,
+                  )
+                : 0,
+            onAddMeal: (result, slot) =>
+                _store.addResultToDailyTotal(result, slot: slot),
+            onUpdateMeal: _store.updateLoggedMealResult,
+            isFavorite: _store.isFavorite,
+            onToggleFavorite: _store.toggleFavorite,
+            onRemoveFavorite: _store.removeFavorite,
+            onRemoveMeal: _store.removeLoggedMeal,
+            onSettingsPressed: _openSettings,
+            onProfilePressed: _openProfile,
+            profileInitial: _store.profileInitial,
+          ),
         ),
     };
   }

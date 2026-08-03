@@ -8,10 +8,9 @@
 /// der lokale Kalendertag (Jahr-Monat-Tag der lokalen Wanduhr), unabhaengig
 /// von der Zone, in der er spaeter betrachtet wird.
 ///
-/// Das Format (`YYYY-MM-DD`) ist byte-genau identisch zu dem, das
-/// `DailyLogSync._dateOnly` / `TrackingSync._dateOnly` bereits fuer
-/// `daily_logs.log_date` und `sleep_entries.sleep_date` verwenden — die
-/// Spalte `local_day date` in Postgres parst exakt diesen String.
+/// Das Format (`YYYY-MM-DD`) ist byte-genau das, was serverseitig in
+/// `logged_meals.local_day` steht — die Spalte `local_day date` in Postgres
+/// parst exakt diesen String.
 library;
 
 /// Liefert den naiven lokalen Kalendertag von [dateTime] als `YYYY-MM-DD`.

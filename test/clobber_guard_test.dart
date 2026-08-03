@@ -235,7 +235,7 @@ void main() {
     // Das Onboarding-Gate ist dank gecachtem onboarding_completed=true weg —
     // der User landet direkt im Home (kein Onboarding-Screen).
     expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
-    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
     // Settings oeffnen, Gewicht auf 81 setzen, speichern. Da _hydratedFromReal
     // Source dank Cache-Hydration true ist, DARF (und soll) der Save laufen —

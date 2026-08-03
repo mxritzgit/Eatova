@@ -58,17 +58,6 @@ abstract class HealthService {
   /// nicht autorisiert / Fehler. Off-iOS immer no-op -> false.
   Future<bool> writeWeight(double kg, DateTime when);
 
-  /// Schreibt einen abgeschlossenen Workout-Block ([start]..[end]) in den
-  /// Health-Store. [type] ist ein freier Hinweis (z.B. ein App-Shift-Name),
-  /// der best-effort auf einen HealthKit-Workout-Typ gemappt wird; null/
-  /// unbekannt faellt auf einen generischen Krafttraining-Typ zurueck. Liefert
-  /// true bei Erfolg. Off-iOS immer no-op -> false.
-  Future<bool> writeWorkout({
-    required DateTime start,
-    required DateTime end,
-    String? type,
-  });
-
   /// Liest Gewichts-Samples im Fenster [from]..[to] (fuer den Import-Pfad).
   /// Leere Liste wenn nicht unterstuetzt / nicht autorisiert / keine Daten.
   Future<List<WeightSample>> readWeightSamples({
@@ -96,14 +85,6 @@ class NoopHealthService implements HealthService {
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async => false;
-
-  @override
-  Future<bool> writeWorkout({
-    required DateTime start,
-    required DateTime end,
-    String? type,
-  }) async =>
-      false;
 
   @override
   Future<List<WeightSample>> readWeightSamples({

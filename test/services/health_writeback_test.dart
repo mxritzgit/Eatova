@@ -8,7 +8,7 @@ import 'package:shiftfit/src/services/health_service.dart';
 //  1) Off-iOS / Test == NoopHealthService -> alle neuen Methoden no-op-pen
 //     sicher (false / leer), kein Crash.
 //  2) Ein aufzeichnender Fake beweist, dass der Aufrufer die Write-Payloads
-//     korrekt formt (Gewicht: value+date; Workout: start/end/type).
+//     korrekt formt (Gewicht: value+date).
 
 class _RecordedWeight {
   const _RecordedWeight(this.kg, this.when);
@@ -16,19 +16,11 @@ class _RecordedWeight {
   final DateTime when;
 }
 
-class _RecordedWorkout {
-  const _RecordedWorkout(this.start, this.end, this.type);
-  final DateTime start;
-  final DateTime end;
-  final String? type;
-}
-
 /// Aufzeichnender Fake: merkt sich die exakten Write-Payloads und liefert
 /// vorbefuellbare Read-Daten fuer den Import-Pfad.
 class _RecordingHealthService implements HealthService {
   HealthAuthState _state = HealthAuthState.granted;
   final List<_RecordedWeight> weightWrites = [];
-  final List<_RecordedWorkout> workoutWrites = [];
   List<WeightSample> weightSamples = const [];
   SleepSample? lastSleep;
   bool writeReturns = true;
@@ -58,16 +50,6 @@ class _RecordingHealthService implements HealthService {
   }
 
   @override
-  Future<bool> writeWorkout({
-    required DateTime start,
-    required DateTime end,
-    String? type,
-  }) async {
-    workoutWrites.add(_RecordedWorkout(start, end, type));
-    return writeReturns;
-  }
-
-  @override
   Future<List<WeightSample>> readWeightSamples({
     required DateTime from,
     required DateTime to,
@@ -90,17 +72,6 @@ void main() {
 
     test('writeWeight no-ops to false', () async {
       expect(await noop.writeWeight(80.5, DateTime(2026, 6, 4)), isFalse);
-    });
-
-    test('writeWorkout no-ops to false', () async {
-      expect(
-        await noop.writeWorkout(
-          start: DateTime(2026, 6, 4, 18),
-          end: DateTime(2026, 6, 4, 19),
-          type: 'Kraft',
-        ),
-        isFalse,
-      );
     });
 
     test('read groundwork no-ops to empty/null', () async {
@@ -126,27 +97,6 @@ void main() {
       expect(svc.weightWrites, hasLength(1));
       expect(svc.weightWrites.single.kg, 79.3);
       expect(svc.weightWrites.single.when, when);
-    });
-
-    test('writeWorkout reicht start/end/type 1:1 durch', () async {
-      final svc = _RecordingHealthService();
-      final start = DateTime(2026, 6, 4, 18, 0);
-      final end = DateTime(2026, 6, 4, 18, 52);
-
-      final ok = await svc.writeWorkout(
-        start: start,
-        end: end,
-        type: 'Muskelaufbau',
-      );
-
-      expect(ok, isTrue);
-      expect(svc.workoutWrites, hasLength(1));
-      final w = svc.workoutWrites.single;
-      expect(w.start, start);
-      expect(w.end, end);
-      expect(w.type, 'Muskelaufbau');
-      // End nach Start — der Aufrufer darf kein invalides Intervall bilden.
-      expect(w.end.isAfter(w.start), isTrue);
     });
 
     test('fehlgeschlagener Write wird als false durchgereicht', () async {

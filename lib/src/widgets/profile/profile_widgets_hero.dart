@@ -1,18 +1,9 @@
 part of 'profile_widgets.dart';
 
 class ProfileHero extends StatelessWidget {
-  const ProfileHero({
-    super.key,
-    required this.name,
-    required this.plan,
-    required this.weekPlan,
-    required this.workoutStreak,
-  });
+  const ProfileHero({super.key, required this.name});
 
   final String name;
-  final ShiftFitPlan plan;
-  final List<String> weekPlan;
-  final int workoutStreak;
 
   String get _initials {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -22,137 +13,45 @@ class ProfileHero extends StatelessWidget {
         .toUpperCase();
   }
 
-  String get _trainingPattern {
-    final unique = <String>{};
-    final order = <String>[];
-    for (final s in weekPlan) {
-      if (unique.add(s)) order.add(s);
-    }
-    return order.join(' · ');
-  }
-
   @override
   Widget build(BuildContext context) {
     return AppCard(
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      plan.accent.withValues(alpha: 0.28),
-                      plan.accent.withValues(alpha: 0.08),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(rSheet),
-                  border: Border.all(color: plan.accent.withValues(alpha: 0.4)),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  _initials,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: plan.accent,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.6,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _trainingPattern.isEmpty
-                          ? 'Trainingssplit anlegen'
-                          : _trainingPattern,
-                      style: const TextStyle(
-                        color: textMuted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Flexible(
-                child: _HeroTag(
-                  icon: Icons.local_fire_department_outlined,
-                  label: workoutStreak == 0
-                      ? 'Streak startet heute'
-                      : '$workoutStreak Tage Streak',
-                  color: workoutStreak == 0 ? textMuted : orange,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: _HeroTag(
-                  icon: Icons.bolt_rounded,
-                  label: plan.recommendation,
-                  color: plan.accent,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeroTag extends StatelessWidget {
-  const _HeroTag({required this.icon, required this.label, required this.color});
-
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(rControl),
-      ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 13),
-          const SizedBox(width: 6),
-          Flexible(
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  lime.withValues(alpha: 0.28),
+                  lime.withValues(alpha: 0.08),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(rSheet),
+            ),
+            alignment: Alignment.center,
             child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.2,
-                fontFeatures: const [FontFeature.tabularFigures()],
+              _initials,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: lime,
+                letterSpacing: -0.4,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.6,
               ),
             ),
           ),
