@@ -54,17 +54,31 @@ class ProductSearchResult {
   }
 }
 
+/// Direkter OpenFoodFacts-Zugriff — seit dem GCP-Aus (2026-08-03) der einzige
+/// Such-/Lookup-Pfad (der Cloud-Run-Mirror ist komplett entfernt).
+///
+///  * Barcode: Kern-API **v3** (`/api/v3/product/{code}.json`). v2 ist laut
+///    Doku deprecated. v3 antwortet bei unbekanntem Barcode mit HTTP 404 UND
+///    einem JSON-Body — massgeblich ist `result.id == "product_found"`.
+///  * Textsuche: **Search-a-licious** (`search.openfoodfacts.org/search`) —
+///    die offiziell empfohlene Such-API. Eine v3-Textsuche existiert im
+///    Kern-API nicht; das alte `cgi/search.pl` ist als Legacy markiert.
+///    `langs=de` boostet deutsche Produktnamen im Ranking.
+///
+/// Beide Pfade normalisieren die Produkt-Map vor dem Parser:
+/// `product_name_de` gewinnt ueber `product_name`, und `brands` (in
+/// Search-a-licious ein Array, im Product-Read ein String) wird auf einen
+/// String vereinheitlicht — der unit-getestete Parser bleibt unangetastet.
 class OpenFoodFactsProductService implements ProductLookupService {
   const OpenFoodFactsProductService();
 
-  static const String _productBaseUrl = 'https://world.openfoodfacts.org/api/v2/product';
-  static const List<String> _searchBaseUrls = <String>[
-    'https://de.openfoodfacts.org/cgi/search.pl',
-    'https://world.openfoodfacts.org/cgi/search.pl',
-  ];
-  static const String _fields = 'code,product_name,generic_name,brands,quantity,serving_size,'
-      'serving_quantity,nutriments,image_front_small_url,image_front_url,'
-      'image_small_url,image_url';
+  static const String _productBaseUrl =
+      'https://world.openfoodfacts.org/api/v3/product';
+  static const String _searchUrl = 'https://search.openfoodfacts.org/search';
+  static const String _fields =
+      'code,product_name,product_name_de,generic_name,brands,quantity,'
+      'serving_size,serving_quantity,nutriments,image_front_small_url,'
+      'image_front_url,image_small_url,image_url';
 
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) async {
@@ -75,23 +89,34 @@ class OpenFoodFactsProductService implements ProductLookupService {
 
     final client = HttpClient();
     try {
-      final uri = Uri.parse('$_productBaseUrl/$cleanBarcode.json?fields=$_fields');
+      final uri =
+          Uri.parse('$_productBaseUrl/$cleanBarcode.json?fields=$_fields');
       final request = await client.getUrl(uri);
       _setUserAgent(request);
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException('OpenFoodFacts lookup failed: $body');
+      // v3 liefert "nicht gefunden" als 404 MIT JSON-Body — erst parsen,
+      // dann entscheiden. Nur echte Transportfehler (5xx, kein JSON) werfen
+      // eine HttpException.
+      final Map<String, dynamic> decoded;
+      try {
+        decoded = jsonDecode(body) as Map<String, dynamic>;
+      } catch (_) {
+        throw HttpException(
+            'OpenFoodFacts lookup failed: ${response.statusCode}');
       }
 
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      if (decoded['status'] != 1 || decoded['product'] is! Map<String, dynamic>) {
+      final result = decoded['result'];
+      final found = result is Map<String, dynamic> &&
+          result['id'] == 'product_found' &&
+          decoded['product'] is Map<String, dynamic>;
+      if (!found) {
         throw const FormatException('Product not found in OpenFoodFacts.');
       }
 
       return MealAnalysisResult.fromOpenFoodFacts(
-        decoded['product'] as Map<String, dynamic>,
+        _normalizeProduct(decoded['product'] as Map<String, dynamic>),
         cleanBarcode,
       );
     } finally {
@@ -108,74 +133,76 @@ class OpenFoodFactsProductService implements ProductLookupService {
 
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
-      Object? lastError;
-
-      for (final baseUrl in _searchBaseUrls) {
-        try {
-          final results = await _searchProductsFromEndpoint(
-            client: client,
-            baseUrl: baseUrl,
-            query: cleanQuery,
+      final uri = Uri.parse(_searchUrl).replace(
+        queryParameters: <String, String>{
+          'q': cleanQuery,
+          'langs': 'de',
+          'page_size': '12',
+          'fields': _fields,
+        },
+      );
+      final request =
+          await client.getUrl(uri).timeout(const Duration(seconds: 8));
+      _setUserAgent(request);
+      final response = await request.close().timeout(
+            const Duration(seconds: 12),
           );
-          if (results.isNotEmpty) {
-            return results;
-          }
-        } catch (error) {
-          lastError = error;
-        }
+      final body = await response.transform(utf8.decoder).join().timeout(
+            const Duration(seconds: 12),
+          );
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException(
+            'OpenFoodFacts search failed: ${response.statusCode}');
       }
 
-      if (lastError != null) {
-        throw lastError;
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final hits = decoded['hits'];
+      if (hits is! List) {
+        return const <ProductSearchResult>[];
       }
 
-      return const <ProductSearchResult>[];
+      return hits
+          .whereType<Map>()
+          .map(
+            (product) => ProductSearchResult.fromOpenFoodFacts(
+              _normalizeProduct(
+                product.map((key, value) => MapEntry(key.toString(), value)),
+              ),
+            ),
+          )
+          .where((product) => product.title.trim().isNotEmpty)
+          .toList(growable: false);
     } finally {
       client.close(force: true);
     }
   }
 
-  static Future<List<ProductSearchResult>> _searchProductsFromEndpoint({
-    required HttpClient client,
-    required String baseUrl,
-    required String query,
-  }) async {
-    final uri = Uri.parse(baseUrl).replace(
-      queryParameters: <String, String>{
-        'search_terms': query,
-        'search_simple': '1',
-        'action': 'process',
-        'json': '1',
-        'page_size': '12',
-        'fields': _fields,
-      },
-    );
-    final request = await client.getUrl(uri).timeout(const Duration(seconds: 8));
-    _setUserAgent(request);
-    final response = await request.close().timeout(const Duration(seconds: 12));
-    final body = await response.transform(utf8.decoder).join().timeout(
-      const Duration(seconds: 12),
-    );
+  /// Gleicht die Format-Unterschiede zwischen Product-Read (v3) und
+  /// Search-a-licious aus, damit der bestehende Parser beide versteht:
+  ///  * `product_name_de` (falls befuellt) gewinnt ueber `product_name` —
+  ///    deutsche Namen fuer eine deutsche App, statt der Hauptsprache des
+  ///    Produkts.
+  ///  * `brands` kommt aus Search-a-licious als Array, aus dem Product-Read
+  ///    als String -> immer zu einem String gejoint.
+  static Map<String, dynamic> _normalizeProduct(Map<String, dynamic> raw) {
+    final product = Map<String, dynamic>.of(raw);
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('OpenFoodFacts search failed: ${response.statusCode}');
+    final nameDe = product['product_name_de']?.toString().trim();
+    if (nameDe != null && nameDe.isNotEmpty) {
+      product['product_name'] = nameDe;
     }
 
-    final decoded = jsonDecode(body) as Map<String, dynamic>;
-    final products = decoded['products'];
-    if (products is! List) {
-      return const <ProductSearchResult>[];
+    final brands = product['brands'];
+    if (brands is List) {
+      final joined = brands
+          .map((b) => b.toString().trim())
+          .where((b) => b.isNotEmpty)
+          .join(', ');
+      product['brands'] = joined.isEmpty ? null : joined;
     }
 
-    return products
-        .whereType<Map>()
-        .map(
-          (product) => ProductSearchResult.fromOpenFoodFacts(
-            product.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-        )
-        .where((product) => product.title.trim().isNotEmpty)
-        .toList(growable: false);
+    return product;
   }
 
   static void _setUserAgent(HttpClientRequest request) {

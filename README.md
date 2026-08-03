@@ -37,7 +37,7 @@ real application, not a demo — treat the `main` branch as shippable.
 - **Food tracking** — calorie and macro tracking with:
   - **AI photo analysis** — snap a meal, get an estimated nutrition breakdown.
   - **Barcode scanning** — product nutrition from Open Food Facts.
-  - **Product search** — fast lookup backed by a self-hosted search mirror.
+  - **Product search** — text search directly against Open Food Facts.
 - **Recipes** — browse and manage recipes.
 - **AI Coach** — an in-app chat coach for training and nutrition questions,
   with a daily quota and layered safety filtering.
@@ -53,7 +53,7 @@ real application, not a demo — treat the `main` branch as shippable.
 | App              | [Flutter](https://flutter.dev) / Dart (SDK `^3.11.5`)             |
 | Backend          | [Supabase](https://supabase.com) — Auth, Postgres + RLS           |
 | Serverless       | Supabase Edge Functions (Deno / TypeScript)                       |
-| Nutrition data   | [Open Food Facts](https://world.openfoodfacts.org) + search mirror |
+| Nutrition data   | [Open Food Facts](https://world.openfoodfacts.org)               |
 | AI meal analysis | Vision LLM via [OpenRouter](https://openrouter.ai)                |
 | AI coach         | LLM chat backend                                                  |
 | Health           | Apple HealthKit (`package:health`)                                |

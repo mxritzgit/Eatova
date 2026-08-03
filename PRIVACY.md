@@ -52,9 +52,8 @@ contains no third-party analytics or ad SDKs.
   Grok**, and the photo you submit for AI meal analysis is processed by **OpenAI's
   GPT-4o-mini**. These requests run through our server (Supabase Edge Functions);
   your API traffic is not used to train models under the configured API terms.
-- **OpenFoodFacts** (and our self-hosted search mirror) is queried for public
-  product/nutrition data when you search or scan a barcode. Your identity is not
-  sent with these queries.
+- **OpenFoodFacts** is queried for public product/nutrition data when you
+  search or scan a barcode. Your identity is not sent with these queries.
 - **Apple Speech Recognition** converts your spoken coach questions to text if you
   use voice input. To do so Apple may process the audio on its servers; see Apple's
   privacy policy. Only the resulting transcript reaches our systems, never the audio.
