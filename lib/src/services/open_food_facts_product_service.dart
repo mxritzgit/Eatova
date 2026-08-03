@@ -60,21 +60,30 @@ class ProductSearchResult {
 ///  * Barcode: Kern-API **v3** (`/api/v3/product/{code}.json`). v2 ist laut
 ///    Doku deprecated. v3 antwortet bei unbekanntem Barcode mit HTTP 404 UND
 ///    einem JSON-Body — massgeblich ist `result.id == "product_found"`.
-///  * Textsuche: **Search-a-licious** (`search.openfoodfacts.org/search`) —
-///    die offiziell empfohlene Such-API. Eine v3-Textsuche existiert im
-///    Kern-API nicht; das alte `cgi/search.pl` ist als Legacy markiert.
-///    `langs=de` boostet deutsche Produktnamen im Ranking.
+///  * Textsuche: BEWUSST das klassische `cgi/search.pl` (de -> world
+///    Fallback). Der Versuch, auf Search-a-licious umzustellen (2026-08-03),
+///    wurde zurueckgedreht: SaL matcht Mehrwort-Queries als ODER
+///    (im ES-Debug verifiziert; ein AND in `q` wird vom Parser geschluckt),
+///    wodurch bei Eingaben wie "Pizza Salami dr" Karteileichen ohne
+///    Naehrwerte und fremdsprachige Treffer vor den erwarteten Produkten
+///    ranken. search.pl macht Wort-UND + Popularitaets-Ranking und liefert
+///    im direkten Vergleich exakt die erwarteten Treffer. Deprecated fuer
+///    Neu-Integrationen, aber offiziell in Betrieb — bei Abschaltung muss
+///    SaL mit client-seitigem Re-Ranking nachgebaut werden.
 ///
 /// Beide Pfade normalisieren die Produkt-Map vor dem Parser:
-/// `product_name_de` gewinnt ueber `product_name`, und `brands` (in
-/// Search-a-licious ein Array, im Product-Read ein String) wird auf einen
-/// String vereinheitlicht — der unit-getestete Parser bleibt unangetastet.
+/// `product_name_de` gewinnt ueber `product_name`, und ein `brands`-Array
+/// wird auf einen String vereinheitlicht — der unit-getestete Parser bleibt
+/// unangetastet.
 class OpenFoodFactsProductService implements ProductLookupService {
   const OpenFoodFactsProductService();
 
   static const String _productBaseUrl =
       'https://world.openfoodfacts.org/api/v3/product';
-  static const String _searchUrl = 'https://search.openfoodfacts.org/search';
+  static const List<String> _searchBaseUrls = <String>[
+    'https://de.openfoodfacts.org/cgi/search.pl',
+    'https://world.openfoodfacts.org/cgi/search.pl',
+  ];
   static const String _fields =
       'code,product_name,product_name_de,generic_name,brands,quantity,'
       'serving_size,serving_quantity,nutriments,image_front_small_url,'
@@ -133,49 +142,79 @@ class OpenFoodFactsProductService implements ProductLookupService {
 
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
-      final uri = Uri.parse(_searchUrl).replace(
-        queryParameters: <String, String>{
-          'q': cleanQuery,
-          'langs': 'de',
-          'page_size': '12',
-          'fields': _fields,
-        },
-      );
-      final request =
-          await client.getUrl(uri).timeout(const Duration(seconds: 8));
-      _setUserAgent(request);
-      final response = await request.close().timeout(
-            const Duration(seconds: 12),
-          );
-      final body = await response.transform(utf8.decoder).join().timeout(
-            const Duration(seconds: 12),
-          );
+      Object? lastError;
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-            'OpenFoodFacts search failed: ${response.statusCode}');
+      for (final baseUrl in _searchBaseUrls) {
+        try {
+          final results = await _searchProductsFromEndpoint(
+            client: client,
+            baseUrl: baseUrl,
+            query: cleanQuery,
+          );
+          if (results.isNotEmpty) {
+            return results;
+          }
+        } catch (error) {
+          lastError = error;
+        }
       }
 
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      final hits = decoded['hits'];
-      if (hits is! List) {
-        return const <ProductSearchResult>[];
+      if (lastError != null) {
+        throw lastError;
       }
 
-      return hits
-          .whereType<Map>()
-          .map(
-            (product) => ProductSearchResult.fromOpenFoodFacts(
-              _normalizeProduct(
-                product.map((key, value) => MapEntry(key.toString(), value)),
-              ),
-            ),
-          )
-          .where((product) => product.title.trim().isNotEmpty)
-          .toList(growable: false);
+      return const <ProductSearchResult>[];
     } finally {
       client.close(force: true);
     }
+  }
+
+  static Future<List<ProductSearchResult>> _searchProductsFromEndpoint({
+    required HttpClient client,
+    required String baseUrl,
+    required String query,
+  }) async {
+    final uri = Uri.parse(baseUrl).replace(
+      queryParameters: <String, String>{
+        'search_terms': query,
+        'search_simple': '1',
+        'action': 'process',
+        'json': '1',
+        'page_size': '16',
+        'fields': _fields,
+      },
+    );
+    final request = await client.getUrl(uri).timeout(const Duration(seconds: 8));
+    _setUserAgent(request);
+    final response = await request.close().timeout(const Duration(seconds: 12));
+    final body = await response.transform(utf8.decoder).join().timeout(
+          const Duration(seconds: 12),
+        );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw HttpException('OpenFoodFacts search failed: ${response.statusCode}');
+    }
+
+    final decoded = jsonDecode(body) as Map<String, dynamic>;
+    final products = decoded['products'];
+    if (products is! List) {
+      return const <ProductSearchResult>[];
+    }
+
+    return products
+        .whereType<Map>()
+        .map(
+          (product) => ProductSearchResult.fromOpenFoodFacts(
+            _normalizeProduct(
+              product.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          ),
+        )
+        .where((product) => product.title.trim().isNotEmpty)
+        // Kalorien-Tracker: Eintraege ohne Energie-Angabe sind nicht loggbar
+        // und wuerden als "0 kcal"-Karteileichen die Liste verstopfen.
+        .where((product) => product.kcalPer100G > 0)
+        .toList(growable: false);
   }
 
   /// Gleicht die Format-Unterschiede zwischen Product-Read (v3) und
