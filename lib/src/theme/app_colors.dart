@@ -34,6 +34,14 @@ const Color forgeGlassFill = Color(0x992A2A2A);
 // Hairline-Rand der Glass-Karte (~rgba(255,255,255,0.05)).
 const Color forgeGlassBorder = Color(0x0DFFFFFF);
 
+// --- COACH-TAB ACCENT (coach-tab-scoped) -------------------------------------
+// Indigo aus dem "AI Coach v2"-Entwurf (2026-08-03). Bricht BEWUSST den
+// app-weiten Lime-Lock NUR im Coach-Tab (User-freigegeben, gleiches Muster
+// wie forgeLime im Food-Tab). Der warme Zweitton existiert nur fuer den
+// Sweep-Verlauf des Coach-Orbs.
+const Color coachAccent = Color(0xFF4A63C9);
+const Color coachAccentWarm = Color(0xFFF4D8A8);
+
 // --- DATA ENCODING ----------------------------------------------------------
 // Reserved EXCLUSIVELY for macro/metric coding. Never an interaction color,
 // never decoration. One macro, one color, everywhere.

@@ -159,9 +159,14 @@ void main() {
     expect(putenTile, findsOneWidget);
     expect(find.text('Putenbällchen mit Reis & Gemüse'), findsWidgets);
 
+    // Coach-Tab: der CoachOrb im Hero animiert endlos (Spin/Breathe) —
+    // pumpAndSettle wuerde nie settlen, daher begrenzte Frames pumpen.
     await tester.tap(find.byKey(const ValueKey('nav-Coach')));
-    await tester.pumpAndSettle();
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
     expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);
+    expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();

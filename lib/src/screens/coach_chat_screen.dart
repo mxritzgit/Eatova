@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,18 +15,19 @@ import '../widgets/common/motion.dart';
 
 /// Coach-Chat: Grok-basierter Fitness-/Ernaehrungs-Coach.
 ///
-/// Design ist bewusst dezent: kleiner zentrierter Titel, gradient Greeting im
-/// Empty State (+ Vorschlag-Chips), User-Bubble + Coach-Plain-Text mit
-/// Gradient-Dot. Mehrere Sessions sind ueber das Listen-Icon oben rechts
-/// erreichbar; die Quota liegt hinter dem (i)-Icon oben links und meldet sich
-/// bei <= 2 Restfragen als dezenter Pill ueber dem Composer. Der Composer:
-/// rahmenlose Soft-Kapsel (cardShadow), "+"-Attach links (Kamera/Galerie via
-/// Sheet), Mic <-> Send animiert rechts.
+/// Design nach dem "AI Coach v2"-Entwurf: radialer coachAccent-Schein hinter
+/// dem oberen Bereich, Streak-Pill oben links + Sessions/(i) oben rechts.
+/// Empty State = animierter [CoachOrb] mit Zeit-Begruessung + volle
+/// Vorschlags-Zeilen; im Verlauf User-Bubbles in coachAccent, Coach als
+/// Plain-Text mit Tipp-Punkten. Der Composer: rahmenlose Soft-Pill
+/// (cardShadow), "+"-Attach links (Kamera/Galerie via Sheet), Mic + runder
+/// Send-Kreis rechts (faerbt sich mit Draft in coachAccent).
 class CoachChatScreen extends StatefulWidget {
   const CoachChatScreen({
     super.key,
     required this.service,
     this.userName = 'Moritz',
+    this.streak = 0,
     this.userContext,
     this.imagePicker,
     this.speechInput = const CoachSpeechInput(),
@@ -33,6 +35,9 @@ class CoachChatScreen extends StatefulWidget {
 
   final CoachChatService? service;
   final String userName;
+
+  /// Aktueller Streak (lifetimeStats.currentStreak) fuer die Pill oben links.
+  final int streak;
 
   /// Kompakter Snapshot von Profil + Tagesbilanz (Restmakros/kcal/Gewicht/
   /// Streak), den der Coach als Kontext erhält, damit er konkret beraten kann
@@ -534,56 +539,67 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      key: const ValueKey('screen-coach'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _CoachTopBar(
-          onInfoTap: _openQuotaSheet,
-          onSessionsTap: _openSessionsSheet,
+    final isHero = !_loading && _messages.isEmpty;
+    return DecoratedBox(
+      // Radialer Akzent-Schein hinter dem oberen Bereich (AI Coach v2).
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: const Alignment(0, -0.45),
+          radius: 1.1,
+          colors: [coachAccent.withValues(alpha: 0.09), Colors.transparent],
         ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: _loading
-                ? const Center(
-                    key: ValueKey('coach-loading'),
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: lime),
-                    ),
-                  )
-                : _messages.isEmpty
-                    ? _Greeting(
-                        name: widget.userName,
-                        onSuggestion: _applySuggestion,
-                      )
-                    : _Conversation(
-                        controller: _scroll,
-                        focus: _inputFocus,
-                        messages: _messages,
-                        sending: _sending,
-                      ),
+      ),
+      child: Column(
+        key: const ValueKey('screen-coach'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _CoachTopBar(
+            streak: widget.streak,
+            onInfoTap: _openQuotaSheet,
+            onSessionsTap: _openSessionsSheet,
           ),
-        ),
-        if (_error != null) _ErrorBanner(text: _error!),
-        const SizedBox(height: 8),
-        _Composer(
-          controller: _input,
-          focus: _inputFocus,
-          enabled: _canType,
-          canSend: _canInteract,
-          remaining: _quota.remaining,
-          draft: _draft,
-          listening: _listening,
-          onSubmit: () => _send(),
-          onMic: _toggleSpeechInput,
-          onAttach: _openAttachSheet,
-          onQuotaTap: _openQuotaSheet,
-        ),
-      ],
+          const SizedBox(height: 4),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: _loading
+                  ? const Center(
+                      key: ValueKey('coach-loading'),
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: coachAccent),
+                      ),
+                    )
+                  : isHero
+                      ? _CoachHero(name: widget.userName)
+                      : _Conversation(
+                          controller: _scroll,
+                          focus: _inputFocus,
+                          messages: _messages,
+                          sending: _sending,
+                        ),
+            ),
+          ),
+          if (isHero) _SuggestionList(onSuggestion: _applySuggestion),
+          if (_error != null) _ErrorBanner(text: _error!),
+          const SizedBox(height: 8),
+          _Composer(
+            controller: _input,
+            focus: _inputFocus,
+            enabled: _canType,
+            canSend: _canInteract,
+            remaining: _quota.remaining,
+            draft: _draft,
+            listening: _listening,
+            onSubmit: () => _send(),
+            onMic: _toggleSpeechInput,
+            onAttach: _openAttachSheet,
+            onQuotaTap: _openQuotaSheet,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -635,11 +651,17 @@ class CoachSpeechException implements Exception {
 }
 
 // ---------------------------------------------------------------------------
-// Top-Bar: kleiner zentrierter Titel + (i) links + Sessions rechts.
+// Top-Bar (AI Coach v2): Streak-Pill oben LINKS, Wortmarke mittig, (i) +
+// Sessions rechts. Die Pill zeigt den echten Streak aus lifetimeStats.
 // ---------------------------------------------------------------------------
 class _CoachTopBar extends StatelessWidget {
-  const _CoachTopBar({required this.onInfoTap, required this.onSessionsTap});
+  const _CoachTopBar({
+    required this.streak,
+    required this.onInfoTap,
+    required this.onSessionsTap,
+  });
 
+  final int streak;
   final VoidCallback onInfoTap;
   final VoidCallback onSessionsTap;
 
@@ -651,46 +673,99 @@ class _CoachTopBar extends StatelessWidget {
         children: [
           const Center(
             child: Text(
-              'FitPilot Coach',
+              'FitPilot',
               style: TextStyle(
                 color: textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
                 letterSpacing: -0.2,
               ),
             ),
           ),
           Positioned(
-            left: 8,
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _StreakPill(streak: streak)),
+          ),
+          Positioned(
+            right: 0,
             top: 0,
             bottom: 0,
             child: Center(
-              child: _TopChip(
-                key: const ValueKey('coach-info'),
-                onTap: onInfoTap,
-                child: const Icon(
-                  Icons.info_outline_rounded,
-                  size: 18,
-                  color: textPrimary,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _TopChip(
+                    key: const ValueKey('coach-info'),
+                    onTap: onInfoTap,
+                    child: const Icon(
+                      Icons.info_outline_rounded,
+                      size: 18,
+                      color: textPrimary,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  _TopChip(
+                    key: const ValueKey('coach-sessions-open'),
+                    onTap: onSessionsTap,
+                    child: const Icon(
+                      Icons.forum_outlined,
+                      size: 18,
+                      color: textPrimary,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          Positioned(
-            right: 8,
-            top: 0,
-            bottom: 0,
-            child: Center(
-              child: _TopChip(
-                key: const ValueKey('coach-sessions-open'),
-                onTap: onSessionsTap,
-                child: const Icon(
-                  Icons.forum_outlined,
-                  size: 18,
-                  color: textPrimary,
-                ),
-              ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Streak-Pill (oben links): Akzent-Punkt + Tages-Zahl. Rahmenlos wie die
+/// uebrigen Soft-Flaechen der App.
+class _StreakPill extends StatelessWidget {
+  const _StreakPill({required this.streak});
+
+  final int streak;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('coach-streak'),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(rPill),
+        color: surfaceSoft.withValues(alpha: 0.7),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+              color: coachAccent,
+              shape: BoxShape.circle,
             ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '$streak',
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: textPrimary,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            streak == 1 ? 'Tag' : 'Tage',
+            style: const TextStyle(fontSize: 11.5, color: textMuted),
           ),
         ],
       ),
@@ -719,19 +794,11 @@ class _TopChip extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Greeting: grosses Gradient-Hi auf leerer Session + Vorschlag-Chips, die den
-// Text ins Feld legen (Einstiegshuerde senken, ohne Quota zu verbrauchen).
+// Hero (AI Coach v2): animierter Orb + Zeit-Begruessung mit echtem Vornamen.
 // ---------------------------------------------------------------------------
-class _Greeting extends StatelessWidget {
-  const _Greeting({required this.name, required this.onSuggestion});
+class _CoachHero extends StatelessWidget {
+  const _CoachHero({required this.name});
   final String name;
-  final ValueChanged<String> onSuggestion;
-
-  static const List<String> _suggestions = [
-    'Was soll ich heute noch essen?',
-    'Erstell mir ein kurzes Workout',
-    'Wie schlafe ich besser?',
-  ];
 
   String get _timeGreeting {
     final h = DateTime.now().hour;
@@ -749,102 +816,218 @@ class _Greeting extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
+    return Center(
       key: const ValueKey('coach-empty'),
-      alignment: const Alignment(0, -0.2),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _GradientText(
-              '$_timeGreeting, $_firstName',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white, // wird vom ShaderMask ueberschrieben
-                fontSize: 36,
-                fontWeight: FontWeight.w500,
-                letterSpacing: -0.9,
-                height: 1.06,
-              ),
-            ),
-            const SizedBox(height: 26),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < _suggestions.length; i++)
-                  _SuggestionChip(
-                    key: ValueKey('coach-suggestion-$i'),
-                    text: _suggestions[i],
-                    onTap: () => onSuggestion(_suggestions[i]),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SuggestionChip extends StatelessWidget {
-  const _SuggestionChip({super.key, required this.text, required this.onTap});
-
-  final String text;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: surfaceSoft,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rControl),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-          child: Text(
-            text,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CoachOrb(size: 92),
+          const SizedBox(height: 22),
+          Text(
+            '$_timeGreeting, $_firstName',
+            textAlign: TextAlign.center,
             style: const TextStyle(
+              fontSize: 25,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
               color: textPrimary,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              letterSpacing: -0.1,
             ),
           ),
-        ),
+          const SizedBox(height: 6),
+          const Text(
+            'Wie kann ich dir helfen?',
+            style: TextStyle(fontSize: 15, color: textMuted),
+          ),
+        ],
       ),
-    );
-  }
-}
-
-class _GradientText extends StatelessWidget {
-  const _GradientText(this.text, {required this.style, this.textAlign});
-
-  final String text;
-  final TextStyle style;
-  final TextAlign? textAlign;
-
-  @override
-  Widget build(BuildContext context) {
-    return ShaderMask(
-      blendMode: BlendMode.srcIn,
-      shaderCallback: (rect) => const LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: [lime, limeBright],
-      ).createShader(rect),
-      child: Text(text, textAlign: textAlign, style: style),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Konversation: User = surfaceSoft Pill, Coach = plain text + gradient dot.
+// Vorschlags-Zeilen (nur im Hero-State, ueber dem Composer): volle Breite mit
+// Pfeil. Legen den Text ins Feld statt direkt zu senden — die Quota ist knapp,
+// der User behaelt die Kontrolle vor dem Abschicken.
+// ---------------------------------------------------------------------------
+class _SuggestionList extends StatelessWidget {
+  const _SuggestionList({required this.onSuggestion});
+
+  final ValueChanged<String> onSuggestion;
+
+  static const List<String> _suggestions = [
+    'Was soll ich heute noch essen?',
+    'Wie komme ich auf meine restlichen Proteine?',
+    'Wann sollte ich heute schlafen gehen?',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Column(
+        children: [
+          for (var i = 0; i < _suggestions.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: surfaceSoft.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(rCard),
+                child: InkWell(
+                  key: ValueKey('coach-suggestion-$i'),
+                  onTap: () => onSuggestion(_suggestions[i]),
+                  borderRadius: BorderRadius.circular(rCard),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 15, vertical: 13),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _suggestions[i],
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: textPrimary,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 14,
+                          color: textPrimary.withValues(alpha: 0.4),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Animierter Coach-Orb (rotierender Sweep + atmender Kern). Unter "Bewegung
+// reduzieren" statisch (kein Spin/Breathe), der Look bleibt erhalten.
+// ---------------------------------------------------------------------------
+class CoachOrb extends StatefulWidget {
+  const CoachOrb({super.key, this.size = 92});
+  final double size;
+
+  @override
+  State<CoachOrb> createState() => _CoachOrbState();
+}
+
+class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
+  late final AnimationController _spin =
+      AnimationController(vsync: this, duration: const Duration(seconds: 7));
+  late final AnimationController _breathe = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 3600));
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduce) {
+      _spin.stop();
+      _breathe.stop();
+    } else {
+      if (!_spin.isAnimating) _spin.repeat();
+      if (!_breathe.isAnimating) _breathe.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    _breathe.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.size;
+    final warm = Color.lerp(coachAccent, coachAccentWarm, 0.6)!;
+    return SizedBox(
+      width: s,
+      height: s,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Glow
+          Positioned(
+            left: -18,
+            top: -18,
+            right: -18,
+            bottom: -18,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: coachAccent.withValues(alpha: 0.3),
+                    blurRadius: 40,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Rotierender Ring
+          RepaintBoundary(
+            child: AnimatedBuilder(
+              animation: _spin,
+              builder: (_, __) => Transform.rotate(
+                angle: _spin.value * 2 * math.pi,
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: SweepGradient(
+                          colors: [coachAccent, warm, coachAccent]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // Atmender Kern
+          Positioned.fill(
+            left: 6,
+            top: 6,
+            right: 6,
+            bottom: 6,
+            child: ScaleTransition(
+              scale: Tween(begin: 1.0, end: 1.06).animate(
+                  CurvedAnimation(parent: _breathe, curve: Curves.easeInOut)),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    center: const Alignment(-0.36, -0.4),
+                    colors: [
+                      Color.lerp(coachAccent, Colors.white, 0.45)!,
+                      coachAccent,
+                    ],
+                    stops: const [0, 0.75],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Konversation (AI Coach v2): User = coachAccent-Bubble rechts, Coach =
+// Plain-Text links ohne Label.
 // ---------------------------------------------------------------------------
 class _Conversation extends StatelessWidget {
   const _Conversation({
@@ -897,17 +1080,17 @@ class _MessageView extends StatelessWidget {
             Flexible(
               child: Container(
                 padding: EdgeInsets.fromLTRB(
-                  16,
-                  imageBytes == null ? 11 : 8,
-                  16,
-                  12,
+                  15,
+                  imageBytes == null ? 10 : 8,
+                  15,
+                  10,
                 ),
                 constraints: BoxConstraints(
                   maxWidth: MediaQuery.of(context).size.width * 0.78,
                 ),
                 decoration: BoxDecoration(
-                  color: surfaceSoft,
-                  borderRadius: BorderRadius.circular(rSheet),
+                  color: coachAccent,
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -939,9 +1122,9 @@ class _MessageView extends StatelessWidget {
                     Text(
                       message.content,
                       style: const TextStyle(
-                        color: textPrimary,
-                        fontSize: 15.5,
-                        height: 1.35,
+                        color: Colors.white,
+                        fontSize: 15,
+                        height: 1.5,
                         letterSpacing: -0.1,
                       ),
                     ),
@@ -953,30 +1136,19 @@ class _MessageView extends StatelessWidget {
         ),
       );
     }
-    // Coach: ohne Bubble, mit kleinem Gradient-Dot + Label.
+    // Coach: Plain-Text ohne Bubble/Label (AI Coach v2); nur ein Refusal
+    // bekommt eine kleine Hinweis-Zeile darueber.
     return Padding(
       padding: const EdgeInsets.only(top: 22, bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const _GradientDot(size: 8),
-              const SizedBox(width: 8),
-              const Text(
-                'FitPilot Coach',
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.1,
-                ),
-              ),
-              if (message.refusal) ...[
-                const SizedBox(width: 8),
-                const Icon(Icons.info_outline_rounded, size: 12, color: warning),
-                const SizedBox(width: 3),
-                const Text(
+          if (message.refusal) ...[
+            const Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 12, color: warning),
+                SizedBox(width: 5),
+                Text(
                   'Hinweis',
                   style: TextStyle(
                     color: warning,
@@ -986,15 +1158,15 @@ class _MessageView extends StatelessWidget {
                   ),
                 ),
               ],
-            ],
-          ),
-          const SizedBox(height: 8),
+            ),
+            const SizedBox(height: 6),
+          ],
           Text(
             message.content,
             style: const TextStyle(
               color: textPrimary,
-              fontSize: 15.5,
-              height: 1.45,
+              fontSize: 15,
+              height: 1.5,
               letterSpacing: -0.1,
             ),
           ),
@@ -1033,8 +1205,6 @@ class _ThinkingRowState extends State<_ThinkingRow>
       padding: const EdgeInsets.only(top: 22, bottom: 4),
       child: Row(
         children: [
-          const _GradientDot(size: 8),
-          const SizedBox(width: 8),
           // RepaintBoundary: die Dauer-Animation (1,2s ..repeat()) haelt ihren
           // Re-Paint in einem eigenen Layer und invalidiert nicht die Chat-Liste.
           RepaintBoundary(
@@ -1063,22 +1233,6 @@ class _ThinkingRowState extends State<_ThinkingRow>
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _GradientDot extends StatelessWidget {
-  const _GradientDot({this.size = 8});
-  final double size;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(colors: [lime, limeBright]),
       ),
     );
   }
@@ -1121,9 +1275,10 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Composer: rahmenlose Soft-Kapsel (surfaceSoft + cardShadow), "+"-Attach
-// links, Text, Mic <-> Send rechts. Fokus hellt die Flaeche dezent auf; bei
-// knapper Quota sitzt ein tappbarer Hinweis-Pill darueber.
+// Composer (AI Coach v2): rahmenlose Soft-Pill (surfaceSoft + cardShadow),
+// "+"-Attach links, Text, Mic + runder Send-Kreis rechts (faerbt sich mit
+// Draft in coachAccent). Fokus hellt die Flaeche dezent auf; bei knapper
+// Quota sitzt ein tappbarer Hinweis-Pill darueber.
 // ---------------------------------------------------------------------------
 class _Composer extends StatefulWidget {
   const _Composer({
@@ -1208,7 +1363,7 @@ class _ComposerState extends State<_Composer> {
                       surfaceSoft,
                     )
                   : surfaceSoft,
-              borderRadius: BorderRadius.circular(rSheet),
+              borderRadius: BorderRadius.circular(26),
               boxShadow: cardShadow,
             ),
             child: Row(
@@ -1237,7 +1392,7 @@ class _ComposerState extends State<_Composer> {
                       height: 1.3,
                       letterSpacing: -0.1,
                     ),
-                    cursorColor: lime,
+                    cursorColor: coachAccent,
                     decoration: InputDecoration(
                       isCollapsed: true,
                       contentPadding:
@@ -1246,7 +1401,7 @@ class _ComposerState extends State<_Composer> {
                           ? 'Limit für heute erreicht'
                           : widget.listening
                               ? 'Ich höre zu…'
-                              : 'Frag den Coach',
+                              : 'Frag FitPilot…',
                       hintStyle: const TextStyle(
                         color: textMuted,
                         fontSize: 15.5,
@@ -1256,26 +1411,17 @@ class _ComposerState extends State<_Composer> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                AnimatedSwitcher(
-                  duration:
-                      motionDuration(context, const Duration(milliseconds: 180)),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: ScaleTransition(
-                      scale: Tween<double>(begin: 0.75, end: 1).animate(anim),
-                      child: child,
-                    ),
-                  ),
-                  child: hasText
-                      ? _SendButton(enabled: widget.canSend, onTap: widget.onSubmit)
-                      : _MicButton(
-                          enabled: widget.canSend,
-                          listening: widget.listening,
-                          onTap: widget.onMic,
-                        ),
+                const SizedBox(width: 2),
+                _MicButton(
+                  enabled: widget.canSend,
+                  listening: widget.listening,
+                  onTap: widget.onMic,
+                ),
+                const SizedBox(width: 2),
+                _SendButton(
+                  active: hasText,
+                  enabled: widget.canSend && hasText,
+                  onTap: widget.onSubmit,
                 ),
               ],
             ),
@@ -1316,7 +1462,7 @@ class _QuotaHint extends StatelessWidget {
                     height: 6,
                     decoration: const BoxDecoration(
                       shape: BoxShape.circle,
-                      color: lime,
+                      color: coachAccent,
                     ),
                   ),
                   const SizedBox(width: 7),
@@ -1365,23 +1511,15 @@ class _ComposerIcon extends StatelessWidget {
           onTap: enabled ? onTap : null,
           customBorder: const CircleBorder(),
           child: SizedBox(
-            width: 40,
+            width: 38,
             height: 44,
             child: Center(
-              // Dunkler Kreis-Chip im helleren Kapsel-Fill: gibt dem "+" Tiefe
-              // ohne Stroke (gleiche Logik wie das runde Send-Pendant rechts).
-              child: Container(
-                width: 30,
-                height: 30,
-                decoration: const BoxDecoration(
-                  color: surface,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  icon,
-                  color: enabled ? textPrimary : textMuted,
-                  size: 19,
-                ),
+              // Schlichtes Glyph ohne Chip (AI Coach v2) — die Pill selbst
+              // traegt die Flaeche.
+              child: Icon(
+                icon,
+                color: enabled ? textMuted : textMuted.withValues(alpha: 0.5),
+                size: 20,
               ),
             ),
           ),
@@ -1392,7 +1530,7 @@ class _ComposerIcon extends StatelessWidget {
 }
 
 /// Mic-Button rechts im Composer. Waehrend [listening] pulsiert ein weicher
-/// Lime-Ring hinter dem Icon (unter "Bewegung reduzieren": statisch getoent).
+/// Akzent-Ring hinter dem Icon (unter "Bewegung reduzieren": statisch getoent).
 class _MicButton extends StatefulWidget {
   const _MicButton({
     required this.enabled,
@@ -1446,14 +1584,15 @@ class _MicButtonState extends State<_MicButton>
   @override
   Widget build(BuildContext context) {
     final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    final color =
-        widget.listening ? lime : (widget.enabled ? textPrimary : textMuted);
+    final color = widget.listening
+        ? coachAccent
+        : (widget.enabled ? textMuted : textMuted.withValues(alpha: 0.5));
     return Padding(
       key: const ValueKey('coach-mic'),
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
         color: widget.listening
-            ? lime.withValues(alpha: 0.14)
+            ? coachAccent.withValues(alpha: 0.14)
             : Colors.transparent,
         shape: const CircleBorder(),
         child: InkWell(
@@ -1477,7 +1616,7 @@ class _MicButtonState extends State<_MicButton>
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: lime.withValues(alpha: 0.5 * (1 - t)),
+                              color: coachAccent.withValues(alpha: 0.5 * (1 - t)),
                               width: 1.5,
                             ),
                           ),
@@ -1495,8 +1634,16 @@ class _MicButtonState extends State<_MicButton>
   }
 }
 
+/// Runder Send-Kreis (AI Coach v2): faerbt sich mit vorhandenem Draft in
+/// coachAccent, sonst dezente Ruhe-Flaeche.
 class _SendButton extends StatelessWidget {
-  const _SendButton({required this.enabled, required this.onTap});
+  const _SendButton({
+    required this.active,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final bool active;
   final bool enabled;
   final VoidCallback onTap;
 
@@ -1508,24 +1655,20 @@ class _SendButton extends StatelessWidget {
         key: const ValueKey('coach-send'),
         onTap: enabled ? onTap : null,
         behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: 40,
-          height: 40,
+        child: AnimatedContainer(
+          duration: motionDuration(context, const Duration(milliseconds: 200)),
+          curve: Curves.easeOutCubic,
+          width: 38,
+          height: 38,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: enabled
-                ? const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [lime, limeBright],
-                  )
-                : null,
-            color: enabled ? null : surfaceSoft,
+            color: active && enabled
+                ? coachAccent
+                : textPrimary.withValues(alpha: 0.08),
           ),
           child: Icon(
             Icons.arrow_upward_rounded,
-            // Dark glyph on the light lime CTA (WCAG contrast).
-            color: enabled ? bg : textMuted,
+            color: active && enabled ? Colors.white : textMuted,
             size: 18,
           ),
         ),
@@ -1645,17 +1788,18 @@ class _SessionsSheet extends StatelessWidget {
                     TextButton.icon(
                       key: const ValueKey('coach-sessions-new'),
                       onPressed: onNew,
-                      icon: const Icon(Icons.add_rounded, size: 18, color: lime),
+                      icon: const Icon(Icons.add_rounded,
+                          size: 18, color: coachAccent),
                       label: const Text(
                         'Neu',
                         style: TextStyle(
-                          color: lime,
+                          color: coachAccent,
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       style: TextButton.styleFrom(
-                        backgroundColor: lime.withValues(alpha: 0.08),
+                        backgroundColor: coachAccent.withValues(alpha: 0.10),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(rPill),
@@ -1762,14 +1906,14 @@ class _SessionTile extends StatelessWidget {
                 height: 32,
                 decoration: BoxDecoration(
                   color: isActive
-                      ? lime.withValues(alpha: 0.14)
+                      ? coachAccent.withValues(alpha: 0.16)
                       : surfaceSoft,
                   borderRadius: BorderRadius.circular(rControl),
                 ),
                 child: Icon(
                   Icons.chat_bubble_outline_rounded,
                   size: 16,
-                  color: isActive ? lime : textMuted,
+                  color: isActive ? coachAccent : textMuted,
                 ),
               ),
               const SizedBox(width: 12),
@@ -1842,9 +1986,7 @@ class _QuotaBar extends StatelessWidget {
                 widthFactor: pct.clamp(0.0, 1.0),
                 child: Container(
                   height: 6,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(colors: [lime, limeBright]),
-                  ),
+                  decoration: const BoxDecoration(color: coachAccent),
                 ),
               ),
             ],

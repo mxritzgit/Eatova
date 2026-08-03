@@ -341,6 +341,7 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
           builder: (context, _) => CoachChatScreen(
             service: widget.sync?.coachChat,
             userName: _store.userName,
+            streak: _store.lifetimeStats.currentStreak,
             userContext: widget.sync != null ? _store.coachContext : null,
           ),
         ),
