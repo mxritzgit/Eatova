@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../models/favorite_meal.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
-import '../../screens/barcode_scanner_screen.dart';
+import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/open_food_facts_product_service.dart';
@@ -361,9 +361,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
   }
 
   Future<void> _scanBarcode() async {
-    final barcode = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const BarcodeScannerScreen()),
-    );
+    // Bottom-Panel (~60% Hoehe) wie beim KI-Scan statt Vollbild-Wechsel.
+    final barcode = await showBarcodeScannerSheet(context);
     final trimmed = barcode?.trim();
     if (trimmed == null || trimmed.isEmpty || !mounted) return;
 

@@ -16,7 +16,7 @@ import '../theme/app_colors.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/calories_overview_card.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
-import 'barcode_scanner_screen.dart';
+import 'barcode_scanner_sheet.dart';
 
 class MealAnalysisScreen extends StatelessWidget {
   MealAnalysisScreen({
@@ -147,12 +147,10 @@ class MealAnalysisScreen extends StatelessWidget {
     );
   }
 
-  // Barcode: der bestehende In-App-Scanner (mobile_scanner) -> OFF-Lookup ->
-  // Ergebnis-Sheet. Direkt, nicht mehr ueber das generische Add-Sheet.
+  // Barcode: In-App-Scanner als Bottom-Panel (wie der KI-Scan) -> OFF-Lookup
+  // -> Ergebnis-Sheet. Direkt, nicht mehr ueber das generische Add-Sheet.
   Future<void> _scanBarcode(BuildContext context) async {
-    final code = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(builder: (_) => const BarcodeScannerScreen()),
-    );
+    final code = await showBarcodeScannerSheet(context);
     final trimmed = code?.trim();
     if (trimmed == null || trimmed.isEmpty || !context.mounted) return;
     await showMealAnalysisSheet(
