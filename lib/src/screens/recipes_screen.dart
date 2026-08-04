@@ -353,6 +353,7 @@ class _RecipeSearchField extends StatelessWidget {
       ),
       child: TextField(
         key: const ValueKey('recipes-search-input'),
+        cursorOpacityAnimates: false,
         onChanged: onChanged,
         style: const TextStyle(color: textPrimary, fontSize: 14),
         cursorColor: lime,
@@ -1705,6 +1706,7 @@ class _Field extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       key: fieldKey,
+      cursorOpacityAnimates: false,
       controller: controller,
       maxLines: maxLines,
       keyboardType: numeric ? TextInputType.number : TextInputType.text,

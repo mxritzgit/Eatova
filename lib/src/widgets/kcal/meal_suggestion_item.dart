@@ -569,6 +569,7 @@ class _GramsField extends StatelessWidget {
           SizedBox(
             width: 56,
             child: TextField(
+              cursorOpacityAnimates: false,
               controller: controller,
               onChanged: onChanged,
               keyboardType: const TextInputType.numberWithOptions(

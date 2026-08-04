@@ -1379,6 +1379,7 @@ class _ComposerState extends State<_Composer> {
                 Expanded(
                   child: TextField(
                     key: const ValueKey('coach-input'),
+                    cursorOpacityAnimates: false,
                     controller: widget.controller,
                     focusNode: widget.focus,
                     enabled: widget.enabled,

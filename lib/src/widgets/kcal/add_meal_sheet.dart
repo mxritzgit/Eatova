@@ -910,6 +910,10 @@ class _SearchBar extends StatelessWidget {
                 key: const ValueKey('kcal-product-search-input'),
                 controller: controller,
                 autofocus: true,
+                // iOS-Default ist ein Dauer-Fade des Cursors -> haelt die App
+                // bei offenem Sheet auf ~60fps Dauer-Rendering. Diskretes
+                // Blinken repaintet nur ~2x/s (gilt app-weit fuer alle Felder).
+                cursorOpacityAnimates: false,
                 onChanged: onChanged,
                 onSubmitted: onSubmitted,
                 textInputAction: TextInputAction.search,

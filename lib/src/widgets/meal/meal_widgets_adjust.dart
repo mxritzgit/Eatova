@@ -76,6 +76,7 @@ class _MealWeightAdjustmentSheetState extends State<_MealWeightAdjustmentSheet> 
           const SizedBox(height: 18),
           TextField(
             key: const ValueKey('analyse-weight-input'),
+            cursorOpacityAnimates: false,
             controller: _controller,
             autofocus: true,
             keyboardType: TextInputType.number,
@@ -470,6 +471,7 @@ class _ItemEditCard extends StatelessWidget {
             padding: const EdgeInsets.only(right: 6),
             child: TextField(
               key: ValueKey('analyse-item-weight-input-$index'),
+              cursorOpacityAnimates: false,
               controller: controller,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -656,6 +658,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
             const SizedBox(height: 14),
             TextField(
               key: const ValueKey('analyse-add-item-name'),
+              cursorOpacityAnimates: false,
               controller: _name,
               autofocus: true,
               textCapitalization: TextCapitalization.sentences,
@@ -671,6 +674,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 Expanded(
                   child: TextField(
                     key: const ValueKey('analyse-add-item-grams'),
+                    cursorOpacityAnimates: false,
                     controller: _grams,
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -685,6 +689,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 Expanded(
                   child: TextField(
                     key: const ValueKey('analyse-add-item-kcal'),
+                    cursorOpacityAnimates: false,
                     controller: _kcal,
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],

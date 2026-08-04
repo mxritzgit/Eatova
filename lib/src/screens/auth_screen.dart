@@ -670,6 +670,7 @@ class _AuthFieldState extends State<_AuthField> {
               Expanded(
                 child: TextField(
                   key: widget.fieldKey,
+                  cursorOpacityAnimates: false,
                   controller: widget.controller,
                   focusNode: _focus,
                   enabled: widget.enabled,

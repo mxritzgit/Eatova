@@ -902,6 +902,7 @@ class _SettingsField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       key: keyValue,
+      cursorOpacityAnimates: false,
       controller: controller,
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],

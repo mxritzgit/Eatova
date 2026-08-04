@@ -331,6 +331,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
           const SizedBox(height: 16),
           TextField(
             key: const ValueKey('profile-weight-input'),
+            cursorOpacityAnimates: false,
             controller: _controller,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
