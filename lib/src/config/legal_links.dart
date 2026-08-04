@@ -7,7 +7,7 @@ library;
 
 /// Datenschutzerklaerung (im oeffentlichen Repo gepflegt, MIT-Lizenz).
 const String kPrivacyUrl =
-    'https://github.com/mxritzgit/shiftfit/blob/main/PRIVACY.md';
+    'https://github.com/mxritzgit/eatova/blob/main/PRIVACY.md';
 
 // Hinweis: Eine separate Nutzungsbedingungen-URL existiert noch nicht.
 // Sobald `TERMS.md` o.ae. veroeffentlicht ist, hier `kTermsUrl` ergaenzen

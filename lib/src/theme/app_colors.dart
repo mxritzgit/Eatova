@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
-// FitPilot Design Tokens
+// Eatova Design Tokens
 //
 // Three locks govern this file (anti-slop discipline):
 //   1. COLOR  – lime is the ONE brand/interaction color. Data colors encode

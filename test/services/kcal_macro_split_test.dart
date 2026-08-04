@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/kcal_calculator.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/kcal_calculator.dart';
 
 // TEST-1: Makro-Aufteilung in KcalCalculator.calculate (1.6 g Protein/kg,
 // 25% kcal aus Fett, Rest Kohlenhydrate). logic_test.dart deckt den Happy

@@ -5,9 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:shiftfit/src/models/logged_meal.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/services/meals_sync.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/meals_sync.dart';
 
 // INT-1 / DATA-4: insertLoggedMeal ist ein idempotenter upsert(onConflict:'id').
 // Folge: ein Retry nach unklarem Netzwerk-Timeout ODER ein delete→undo

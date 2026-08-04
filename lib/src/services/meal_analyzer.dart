@@ -14,8 +14,8 @@ abstract class MealAnalyzer {
 class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   const EdgeFunctionMealAnalyzer();
 
-  static const String _supabaseUrl = FitPilotSupabaseConfig.url;
-  static const String _supabaseAnonKey = FitPilotSupabaseConfig.anonKey;
+  static const String _supabaseUrl = EatovaSupabaseConfig.url;
+  static const String _supabaseAnonKey = EatovaSupabaseConfig.anonKey;
   static const String _functionPath = '/functions/v1/analyze-meal';
   static const int _maxImageBytes = 5 * 1000 * 1000;
 

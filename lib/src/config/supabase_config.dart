@@ -1,10 +1,10 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart' show closeInAppWebView;
 
-class FitPilotSupabaseConfig {
-  const FitPilotSupabaseConfig._();
+class EatovaSupabaseConfig {
+  const EatovaSupabaseConfig._();
 
-  static const String oauthRedirectUrl = 'fitpilot://login-callback/';
+  static const String oauthRedirectUrl = 'eatova://login-callback/';
 
   // Supabase Anon-Key ist by-design im Client-Bundle extrahierbar
   // (JWT mit role:anon). Defaults im Source sind daher KEIN Secret-Leak

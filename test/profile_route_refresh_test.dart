@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/app/shiftfit_home_page.dart';
-import 'package:shiftfit/src/services/health_service.dart';
-import 'package:shiftfit/src/theme/app_theme.dart';
+import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
-// INT-B / ARCH-1+PERF-2 Tests fuer shiftfit_home_page.dart:
+// INT-B / ARCH-1+PERF-2 Tests fuer eatova_home_page.dart:
 //
 //  * Der setState-Override bumpt _profileRefresh nicht mehr UNBEDINGT, sondern
 //    NUR solange die via _openProfile gepushte ProfileScreen-Route offen ist
@@ -88,8 +88,8 @@ void main() {
     final health = _StepsHealthService(1000);
 
     await tester.pumpWidget(MaterialApp(
-      theme: buildShiftFitTheme(),
-      home: ShiftFitHomePage(
+      theme: buildEatovaTheme(),
+      home: EatovaHomePage(
         initialUserName: 'Moritz',
         healthService: health,
       ),
@@ -134,8 +134,8 @@ void main() {
     final health = _StepsHealthService(2000);
 
     await tester.pumpWidget(MaterialApp(
-      theme: buildShiftFitTheme(),
-      home: ShiftFitHomePage(
+      theme: buildEatovaTheme(),
+      home: EatovaHomePage(
         initialUserName: 'Moritz',
         healthService: health,
       ),

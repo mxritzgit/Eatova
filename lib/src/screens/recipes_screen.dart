@@ -738,7 +738,7 @@ class RecipeDetailScreen extends StatelessWidget {
                     const SizedBox(width: 10),
                   ],
                   _GlassBadge(
-                    text: recipe.userCreated ? 'Eigenes Rezept' : 'FitPilot Rezept',
+                    text: recipe.userCreated ? 'Eigenes Rezept' : 'Eatova Rezept',
                     dark: true,
                   ),
                 ],

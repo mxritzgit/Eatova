@@ -19,7 +19,7 @@ const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY') ?? '';
 //     'minimal', damit Reasoning nicht das max_tokens-Budget frisst (gleiche
 //     Leerer-Output-Falle wie 2).
 const OPENROUTER_MODEL = Deno.env.get('OPENROUTER_MODEL') ?? 'google/gemini-3.5-flash-lite';
-const ALLOWED_ORIGINS = (Deno.env.get('FITPILOT_ALLOWED_ORIGINS') ?? '')
+const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -33,7 +33,7 @@ const USER_WINDOW_SECONDS = Number(Deno.env.get('ANALYZE_MEAL_USER_WINDOW_SECOND
 const IP_LIMIT = Number(Deno.env.get('ANALYZE_MEAL_IP_LIMIT') ?? '60');
 const IP_WINDOW_SECONDS = Number(Deno.env.get('ANALYZE_MEAL_IP_WINDOW_SECONDS') ?? '600');
 
-const BASE_PROMPT = `FitPilot Foto-Kalorienanalyse. Du bist ein präziser Ernährungsschätzer.
+const BASE_PROMPT = `Eatova Foto-Kalorienanalyse. Du bist ein präziser Ernährungsschätzer.
 
 STRENGE ITEMIZATION — ABSOLUT PFLICHT:
 - Jedes sichtbar getrennte Lebensmittel ist ein EIGENER Eintrag in items[].
@@ -388,8 +388,8 @@ async function callOpenRouter(body: ParsedBody, prompt: string, requestId: strin
     headers: {
       authorization: `Bearer ${OPENROUTER_API_KEY}`,
       'content-type': 'application/json',
-      'http-referer': 'https://fitpilot.app',
-      'x-title': 'FitPilot',
+      'http-referer': 'https://eatova.app',
+      'x-title': 'Eatova',
     },
     body: JSON.stringify({
       model: OPENROUTER_MODEL,

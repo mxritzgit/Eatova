@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/macro_progress.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/models/meal_component.dart';
+import 'package:eatova/src/models/macro_progress.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/meal_component.dart';
 
 // TEST-1: MacroProgress.add/subtract — Aggregation der Tages-Makros aus den
 // Makro-Strings der Mahlzeiten. logic_test.dart deckt den Happy Path ab;

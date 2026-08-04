@@ -203,8 +203,8 @@ class FitnessRecipe {
       fat: '$fatG g',
       confidence: 'Rezept',
       portionNotes: '$portion · $description $professionalHint',
-      sourceLabel: 'FitPilot Rezept',
-      brand: 'FitPilot',
+      sourceLabel: 'Eatova Rezept',
+      brand: 'Eatova',
     );
   }
 }

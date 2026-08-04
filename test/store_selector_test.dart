@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiftfit/src/widgets/common/store_selector.dart';
+import 'package:eatova/src/widgets/common/store_selector.dart';
 
 /// Minimaler Store mit zwei unabhaengigen Slices.
 class _TwoSliceStore extends ChangeNotifier {

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/services/local_day.dart';
+import 'package:eatova/src/services/local_day.dart';
 
 // DATA-6: Kanonischer lokaler Tages-Schluessel.
 //

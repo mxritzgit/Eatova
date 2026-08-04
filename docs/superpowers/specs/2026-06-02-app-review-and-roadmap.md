@@ -1,4 +1,4 @@
-# FitPilot — Komplett-Review & Roadmap „von gut zu richtig gut"
+# Eatova — Komplett-Review & Roadmap „von gut zu richtig gut"
 
 **Datum:** 2026-06-02
 **Methode:** 6 parallele Read-only-Review-Agenten (Architektur, Produkt, UX/A11y,
@@ -7,7 +7,7 @@ Tests, Security, Backend/Sync), jeder Befund gegen den echten Code verifiziert
 
 ## Gesamturteil
 
-FitPilot ist **handwerklich überraschend stark** für seine Größe (~28,5k Dart-Z.):
+Eatova ist **handwerklich überraschend stark** für seine Größe (~28,5k Dart-Z.):
 - **Backend-Security ist exzellent** — RLS lückenlos auf allen User-Tabellen, Edge
   Functions mit JWT-Auth + atomarem Quota-RPC + striktem CORS/CSP, keine echten
   Secrets in 137 Commits (nur der by-design-public Anon-Key).
@@ -74,7 +74,7 @@ oder Remote-Flag → direkt OFF statt Timeout. Aufwand: S.
 
 **#1 — Push-/Scheduled-Notifications (P0, größter Hebel).** Es gibt **kein**
 Notification-Paket (kein `flutter_local_notifications`/`workmanager`). Die
-`SmartRemindersCard` ist rein in-App → wirkungslos, sobald die App zu ist. FitPilot
+`SmartRemindersCard` ist rein in-App → wirkungslos, sobald die App zu ist. Eatova
 trackt bereits alles (Wasser, Streak, Mahlzeiten, Schlaf, Trainingstag) — aber ohne
 Push bricht der Streak still ab und der User vergisst zu loggen. **Der einzige Hebel,
 der die vorhandene Daten-Tiefe in tägliche Nutzung übersetzt** und Streak/Gamification/

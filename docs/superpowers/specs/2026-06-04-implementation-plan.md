@@ -1,4 +1,4 @@
-# FitPilot — Umsetzungs-Brief (Deep-Dive 2026-06-04)
+# Eatova — Umsetzungs-Brief (Deep-Dive 2026-06-04)
 
 Master-Hand-off für die parallele Umsetzung aller verifizierten Befunde aus
 `2026-06-04-deepdive-followup.md`. Partitioniert nach **Datei-Eigentum**, damit

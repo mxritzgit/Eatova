@@ -41,7 +41,7 @@ extension ActivityLevelInfo on ActivityLevel {
       };
 }
 
-/// Ernährungspräferenz des Users. Steuert, welche Rezepte FitPilot aktiv
+/// Ernährungspräferenz des Users. Steuert, welche Rezepte Eatova aktiv
 /// empfiehlt (Rezept-Empfehlungen + „Passt zu deinem Ziel"). Default [none]
 /// empfiehlt alles, damit Bestands-Profile und Tests unverändert bleiben.
 /// Keine medizinische Allergie-Garantie — eine Empfehlungs-Filterung, der User
@@ -191,7 +191,7 @@ class UserProfile {
   final DietPreference diet;
 
   /// True sobald der User das verpflichtende Onboarding durchlaufen hat.
-  /// Steuert das Gate in [ShiftFitHomePage] — gespiegelt nach
+  /// Steuert das Gate in [EatovaHomePage] — gespiegelt nach
   /// public.profiles.onboarding_completed.
   final bool onboardingCompleted;
 

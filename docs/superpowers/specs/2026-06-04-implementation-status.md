@@ -1,4 +1,4 @@
-# FitPilot — Umsetzungs-Status (Deep-Dive 2026-06-04, Abschluss)
+# Eatova — Umsetzungs-Status (Deep-Dive 2026-06-04, Abschluss)
 
 Ausführung des Deep-Dive (`2026-06-04-deepdive-followup.md`) nach dem Wellen-Plan
 (`2026-06-04-implementation-plan.md`). Parallele Subagenten pro Welle auf disjunkten

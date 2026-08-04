@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>FitPilot</string>
+	<string>Eatova</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>FitPilot</string>
+	<string>Eatova</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -28,10 +28,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>fitpilot-auth</string>
+			<string>eatova-auth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>fitpilot</string>
+				<string>eatova</string>
 			</array>
 		</dict>
 	</array>
@@ -40,17 +40,17 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>FitPilot braucht Kamerazugriff, damit du Mahlzeiten, Training oder Coach-Bilder aufnehmen und analysieren kannst.</string>
+	<string>Eatova braucht Kamerazugriff, damit du Mahlzeiten, Training oder Coach-Bilder aufnehmen und analysieren kannst.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>FitPilot braucht Mikrofonzugriff, damit du deinem Coach Fragen per Sprache stellen kannst.</string>
+	<string>Eatova braucht Mikrofonzugriff, damit du deinem Coach Fragen per Sprache stellen kannst.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>FitPilot nutzt Spracherkennung, um deine gesprochenen Coach-Fragen in Text umzuwandeln.</string>
+	<string>Eatova nutzt Spracherkennung, um deine gesprochenen Coach-Fragen in Text umzuwandeln.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FitPilot braucht Zugriff auf deine Fotobibliothek, damit du Mahlzeiten, Training oder Coach-Bilder aus der Galerie analysieren kannst.</string>
+	<string>Eatova braucht Zugriff auf deine Fotobibliothek, damit du Mahlzeiten, Training oder Coach-Bilder aus der Galerie analysieren kannst.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>FitPilot liest deine Schritte, dein Gewicht und deine Schlafdaten aus Apple Health, damit Tagesziel und Logbuch automatisch aktuell bleiben.</string>
+	<string>Eatova liest deine Schritte, dein Gewicht und deine Schlafdaten aus Apple Health, damit Tagesziel und Logbuch automatisch aktuell bleiben.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>FitPilot schreibt optional dein eingetragenes Gewicht und abgeschlossene Workouts nach Apple Health zurück.</string>
+	<string>Eatova schreibt optional dein eingetragenes Gewicht und abgeschlossene Workouts nach Apple Health zurück.</string>
 	<!-- PROD-1 (flutter_local_notifications, on-device): Lokale Notifications
 	     brauchen KEINEN eigenen Usage-Description-Key — der iOS-Permission-
 	     Dialog ist systemgeneriert und wird ueber requestPermissions() (alert/

@@ -1,8 +1,8 @@
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/logged_meal.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
 
 // TEST-4: Slot-Heuristik flake-frei machen. currentMealSlot() liest clock.now()
 // statt der nackten Wanduhr, daher koennen wir die Zeit per withClock fest

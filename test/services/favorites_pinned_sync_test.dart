@@ -5,9 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:shiftfit/src/models/favorite_meal.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/services/meals_sync.dart';
+import 'package:eatova/src/models/favorite_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/meals_sync.dart';
 
 // INT-2 / PROD-4: favorite_meals trennt jetzt angeheftete Favoriten (pinned)
 // von Auto-Recents (pinned=false). Diese Tests verifizieren ueber die PUBLIC

@@ -1,4 +1,4 @@
-# FitPilot — Deep-Dive-Follow-up „von gut zu richtig gut" (Stand nach Welle-A/B-Ausführung)
+# Eatova — Deep-Dive-Follow-up „von gut zu richtig gut" (Stand nach Welle-A/B-Ausführung)
 
 **Datum:** 2026-06-04
 **Methode:** 6 parallele Read-only-Audit-Agenten (Produkt/Retention, Architektur,
@@ -11,7 +11,7 @@ bereits umgesetzt sind.
 
 ## Gesamturteil
 
-FitPilot ist **echt „gut"** — die 2026-06-02-Wellen haben verifizierbar gewirkt:
+Eatova ist **echt „gut"** — die 2026-06-02-Wellen haben verifizierbar gewirkt:
 der AI-Coach bekommt jetzt sicheren User-Kontext (data-not-instructions,
 Control-Char-Strip, 600-Zeichen-Cap), DSGVO-Account-Löschung ist end-to-end
 verdrahtet, optimistische Writes für Mahlzeiten/Gewicht/Koffein/Schlaf haben

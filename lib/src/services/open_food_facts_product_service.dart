@@ -247,7 +247,7 @@ class OpenFoodFactsProductService implements ProductLookupService {
   static void _setUserAgent(HttpClientRequest request) {
     request.headers.set(
       HttpHeaders.userAgentHeader,
-      'ShiftFit/1.0 (OpenFoodFacts nutrition lookup; mxritzgit/shiftfit)',
+      'Eatova/1.0 (OpenFoodFacts nutrition lookup; mxritzgit/eatova)',
     );
   }
 }

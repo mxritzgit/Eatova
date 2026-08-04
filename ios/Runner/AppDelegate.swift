@@ -28,20 +28,20 @@ import UserNotifications
   // einhaengen koennen.
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "FitPilotSpeechPlugin") {
-      FitPilotSpeechPlugin.register(with: registrar)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "EatovaSpeechPlugin") {
+      EatovaSpeechPlugin.register(with: registrar)
     }
   }
 }
 
 // ---------------------------------------------------------------------------
-// FitPilotSpeechPlugin: nativer Sprach-Eingabe-Bruecke fuer den Coach-Chat.
+// EatovaSpeechPlugin: nativer Sprach-Eingabe-Bruecke fuer den Coach-Chat.
 //
 // Holt sich Mikrofon- + Speech-Recognition-Berechtigung (loest die iOS-
 // Permission-Popups aus), startet AVAudioEngine + SFSpeechRecognizer und
 // liefert das erkannte Transkript an Flutter zurueck.
 // ---------------------------------------------------------------------------
-public final class FitPilotSpeechPlugin: NSObject, FlutterPlugin {
+public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private let audioEngine = AVAudioEngine()
   private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
   private var recognitionTask: SFSpeechRecognitionTask?
@@ -52,10 +52,10 @@ public final class FitPilotSpeechPlugin: NSObject, FlutterPlugin {
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(
-      name: "fitpilot/speech",
+      name: "eatova/speech",
       binaryMessenger: registrar.messenger()
     )
-    let instance = FitPilotSpeechPlugin()
+    let instance = EatovaSpeechPlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
   }
 

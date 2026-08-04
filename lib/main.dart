@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'src/app/shiftfit_app.dart';
+import 'src/app/eatova_app.dart';
 import 'src/config/supabase_config.dart';
 import 'src/services/apple_health_service.dart';
 import 'src/services/notification_service.dart';
 
-export 'src/app/shiftfit_app.dart';
+export 'src/app/eatova_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,20 +16,20 @@ Future<void> main() async {
   // setPreferredOrientations ohnehin (No-Op).
   SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
   try {
-    await FitPilotSupabaseConfig.initialize();
+    await EatovaSupabaseConfig.initialize();
   } catch (error, stack) {
     // Ohne den Catch wuerde ein Boot-Fehler (fehlende --dart-define-Werte,
     // unerreichbares Supabase, …) vor runApp landen und iOS bliebe auf dem
     // weissen Launch-Screen haengen. Lieber sichtbar fehlschlagen.
-    debugPrint('FitPilot boot failed: $error\n$stack');
+    debugPrint('Eatova boot failed: $error\n$stack');
     runApp(_BootErrorApp(error: error));
     return;
   }
   // PROD-1: echte on-device-Notification-Schicht nur in Production injizieren.
   // LocalNotificationService ist plattform-gegated (Noop ausserhalb iOS/Android),
   // ein Konstruktor-Aufruf hier ist also auch auf Desktop/Web gefahrlos. Tests
-  // konstruieren ShiftFitApp ohne diesen Parameter -> NoopNotificationService.
-  runApp(ShiftFitApp(
+  // konstruieren EatovaApp ohne diesen Parameter -> NoopNotificationService.
+  runApp(EatovaApp(
     healthService: AppleHealthService(),
     notificationService: LocalNotificationService(),
   ));
@@ -44,7 +44,7 @@ class _BootErrorApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'FitPilot',
+      title: 'Eatova',
       home: Scaffold(
         backgroundColor: const Color(0xFF111114),
         body: SafeArea(
@@ -60,7 +60,7 @@ class _BootErrorApp extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'FitPilot konnte nicht starten',
+                  'Eatova konnte nicht starten',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 22,

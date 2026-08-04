@@ -1,4 +1,4 @@
-# FitPilot — Snackbar-Toasts kürzen & polieren
+# Eatova — Snackbar-Toasts kürzen & polieren
 
 **Datum:** 2026-06-02
 **Status:** Genehmigt (autonom, im Auftrag des Users — Goal-Modus, „lass dir was

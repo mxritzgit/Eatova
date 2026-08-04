@@ -6,7 +6,7 @@ import '../models/meal_analysis_result.dart';
 import 'local_day.dart';
 
 /// Reine Aggregations-Helfer für die Tages-Ernährungswerte. Aus dem Home-State
-/// (`_ShiftFitHomePageState`) extrahiert, damit die kcal-/Makro-Mathematik ohne
+/// (`_EatovaHomePageState`) extrahiert, damit die kcal-/Makro-Mathematik ohne
 /// UI deterministisch unit-testbar ist und nicht im God-Object versteckt liegt.
 
 /// Alle für [date] geloggten Mahlzeiten — tag-genau, die Uhrzeit wird ignoriert.

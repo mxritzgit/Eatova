@@ -40,7 +40,7 @@ class CaloriesOverviewCard extends StatelessWidget {
 
     // Die Karte laeuft im Food-Tab in einer festen Flex-Hoehe. Die Stufen
     // muessen daher mit der Systemschrift mitwandern: bei 1.3x (App-Cap, s.
-    // ShiftFitApp) braucht derselbe Inhalt ~30 % mehr Hoehe, sonst kippt die
+    // EatovaApp) braucht derselbe Inhalt ~30 % mehr Hoehe, sonst kippt die
     // Karte in einen Bottom-Overflow.
     final textScale = MediaQuery.textScalerOf(context).scale(100) / 100;
 

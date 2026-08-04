@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:shiftfit/src/services/lifetime_stats_sync.dart';
+import 'package:eatova/src/services/lifetime_stats_sync.dart';
 
 // INT-1 / DATA-1: LifetimeStatsSync schreibt seit dem Audit 2026-06-04 NICHT
 // mehr absolut (read-modify-write upsert), sondern ueber zwei atomare RPCs:

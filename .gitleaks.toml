@@ -5,7 +5,7 @@
 # Der ist RLS-geschützt und kein Secret. Ein service_role-Key (role:service_role)
 # oder ein OpenRouter-/sb_secret_-Key würde NICHT matchen und bleibt ein Treffer.
 
-title = "FitPilot gitleaks config"
+title = "Eatova gitleaks config"
 
 [extend]
 useDefault = true

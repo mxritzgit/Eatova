@@ -1,8 +1,8 @@
-# Privacy Policy — FitPilot
+# Privacy Policy — Eatova
 
 _Last updated: 2026-06-09_
 
-FitPilot ("the app") is a fitness, recovery, and nutrition tracker. This policy
+Eatova ("the app") is a fitness, recovery, and nutrition tracker. This policy
 explains what data the app processes, why, and the rights you have over it. It is
 written to satisfy GDPR (Art. 13/15–20) and the Apple App Store / Google Play
 health-data requirements.
@@ -89,7 +89,7 @@ so you can revisit conversations; you can delete individual chat sessions in-app
 
 ## Children
 
-FitPilot is not directed at children under 16 and should not be used by them.
+Eatova is not directed at children under 16 and should not be used by them.
 
 ## Changes
 

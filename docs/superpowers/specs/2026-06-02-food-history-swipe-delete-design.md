@@ -1,4 +1,4 @@
-# FitPilot — Verlauf im Food-Tab per Swipe löschen
+# Eatova — Verlauf im Food-Tab per Swipe löschen
 
 **Datum:** 2026-06-02
 **Status:** Genehmigt (autonom, im Auftrag des Users freigegeben — User ist AFK,

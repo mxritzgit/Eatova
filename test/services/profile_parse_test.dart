@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/profile_sync.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/profile_sync.dart';
 
 // Table-Tests fuer die reinen Profil-Parser aus profile_sync.dart.
 // parseProfileGoal ist korrektheitskritisch: jede falsche Branch ist ein

@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/logged_meal.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/services/meal_totals.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/meal_totals.dart';
 
-// Tests für die aus dem God-Object (_ShiftFitHomePageState) extrahierte reine
+// Tests für die aus dem God-Object (_EatovaHomePageState) extrahierte reine
 // Tages-Aggregation. Stellt sicher, dass die kcal-/Makro-Summen tag-genau
 // filtern und das kcal-Override Felder erhält.
 

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/services/health_service.dart';
+import 'package:eatova/src/services/health_service.dart';
 
 // PROD-7 Two-Way-Health-Sync: testet die HealthService-Abstraktion (den Seam),
 // NICHT den echten HealthKit-Plugin-Channel (der liefert im Test null/

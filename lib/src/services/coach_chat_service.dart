@@ -37,7 +37,7 @@ class CoachChatService {
         'CoachChatService.loadSessions failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
       return const <ChatSession>[];
     }
@@ -55,7 +55,7 @@ class CoachChatService {
         'CoachChatService.ensureDefaultSession failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
       return null;
     }
@@ -75,7 +75,7 @@ class CoachChatService {
         'CoachChatService.createSession failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
       return null;
     }
@@ -92,7 +92,7 @@ class CoachChatService {
         'CoachChatService.renameSession failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
     }
   }
@@ -107,7 +107,7 @@ class CoachChatService {
         'CoachChatService.deleteSession failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
     }
   }
@@ -139,7 +139,7 @@ class CoachChatService {
         'CoachChatService.loadHistory failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
       return const <ChatMessage>[];
     }
@@ -165,7 +165,7 @@ class CoachChatService {
         'CoachChatService.loadQuotaToday failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
       return ChatQuotaSnapshot.unknown;
     }
@@ -232,7 +232,7 @@ class CoachChatService {
         'CoachChatService.send failed',
         error: e,
         stackTrace: stack,
-        name: 'fitpilot.coach',
+        name: 'eatova.coach',
       );
       throw CoachChatException(e.toString());
     }

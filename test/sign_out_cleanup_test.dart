@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/app/home_store.dart';
-import 'package:shiftfit/src/models/lifetime_stats.dart';
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/health_service.dart';
-import 'package:shiftfit/src/services/local_cache.dart';
-import 'package:shiftfit/src/services/notification_service.dart';
+import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/notification_service.dart';
 
 // Audit 2026-06-09, M-1: der lokale Klartext-PII-Cache (Profil, Mood-Notiz,
 // Lifetime-Stats, Notification-Flag) wurde bisher NUR bei der Konto-Löschung

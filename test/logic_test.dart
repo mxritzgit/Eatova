@@ -1,14 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/lifetime_stats.dart';
-import 'package:shiftfit/src/models/logged_meal.dart';
-import 'package:shiftfit/src/models/macro_progress.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/models/meal_component.dart';
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/food_kcal_db.dart';
-import 'package:shiftfit/src/services/kcal_calculator.dart';
-import 'package:shiftfit/src/services/meals_sync.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/macro_progress.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/food_kcal_db.dart';
+import 'package:eatova/src/services/kcal_calculator.dart';
+import 'package:eatova/src/services/meals_sync.dart';
 
 // Reine Logik-Tests für bislang ungetestete, geld-/datenkritische Funktionen
 // (Slot-Heuristik, Streak, Makro-Aggregation, JSON-Roundtrip der Food-History,

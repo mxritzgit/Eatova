@@ -5,8 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:shiftfit/src/models/fitness_recipe.dart';
-import 'package:shiftfit/src/services/user_recipes_sync.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/services/user_recipes_sync.dart';
 
 // INT-2 / PROD-2: UserRecipesSync wird jetzt verdrahtet (Boot-Load + Create +
 // Delete). Diese Tests verifizieren ueber die PUBLIC API (echter SupabaseClient

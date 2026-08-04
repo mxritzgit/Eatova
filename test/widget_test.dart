@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/main.dart';
-import 'package:shiftfit/src/auth/auth_repository.dart';
-import 'package:shiftfit/src/models/logged_meal.dart';
-import 'package:shiftfit/src/models/meal_analysis_request.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/models/meal_component.dart';
-import 'package:shiftfit/src/services/meal_analyzer.dart';
-import 'package:shiftfit/src/services/meal_camera_launcher.dart';
-import 'package:shiftfit/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/main.dart';
+import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_request.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/services/meal_analyzer.dart';
+import 'package:eatova/src/services/meal_camera_launcher.dart';
+import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 // Wrapper um testWidgets fuer das CI-Setup:
 //
@@ -53,7 +53,7 @@ void main() {
     final authRepository = InMemoryAuthRepository();
     addTearDown(authRepository.dispose);
 
-    await tester.pumpWidget(ShiftFitApp(authRepository: authRepository));
+    await tester.pumpWidget(EatovaApp(authRepository: authRepository));
     await tester.pump();
 
     expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
@@ -78,7 +78,7 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const ValueKey('auth-password-field')),
-      'fitpilot123',
+      'eatova123',
     );
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
@@ -95,7 +95,7 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const ValueKey('auth-password-field')),
-      'fitpilot123',
+      'eatova123',
     );
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
@@ -107,7 +107,7 @@ void main() {
     final authRepository = InMemoryAuthRepository();
     addTearDown(authRepository.dispose);
 
-    await tester.pumpWidget(ShiftFitApp(authRepository: authRepository));
+    await tester.pumpWidget(EatovaApp(authRepository: authRepository));
     await tester.pump();
 
     await tester.tap(find.byKey(const ValueKey('auth-google-oauth')));
@@ -119,7 +119,7 @@ void main() {
   testWidgetsRobust('Bottom navigation switches between Food, Rezepte and Coach', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const ShiftFitApp());
+    await tester.pumpWidget(const EatovaApp());
 
     // Food ist der Default-Tab (Index 0).
     expect(find.byKey(const ValueKey('tab-fixed-0')), findsOneWidget);
@@ -176,7 +176,7 @@ void main() {
   testWidgetsRobust('Recipe detail can add a meal into kcal and macro tracker', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const ShiftFitApp());
+    await tester.pumpWidget(const EatovaApp());
 
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
     await tester.pumpAndSettle();
@@ -225,7 +225,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(
+      EatovaApp(
         mealAnalyzer: _FakeMealAnalyzer(),
         mealCameraLauncher: _FakeMealCameraLauncher(),
       ),
@@ -303,7 +303,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(
+      EatovaApp(
         mealAnalyzer: _MacroMealAnalyzer(),
         mealCameraLauncher: _FakeMealCameraLauncher(),
       ),
@@ -355,7 +355,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(
+      EatovaApp(
         mealAnalyzer: _MacroMealAnalyzer(),
         mealCameraLauncher: _FakeMealCameraLauncher(),
       ),
@@ -396,7 +396,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(productService: _FakeProductLookupService()),
+      EatovaApp(productService: _FakeProductLookupService()),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
@@ -439,7 +439,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(productService: _FakeProductLookupService()),
+      EatovaApp(productService: _FakeProductLookupService()),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
@@ -498,7 +498,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(productService: _FakeProductLookupService()),
+      EatovaApp(productService: _FakeProductLookupService()),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
@@ -561,7 +561,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(productService: _FakeProductLookupService()),
+      EatovaApp(productService: _FakeProductLookupService()),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
@@ -631,7 +631,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(productService: _FakeProductLookupService()),
+      EatovaApp(productService: _FakeProductLookupService()),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
@@ -655,7 +655,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(productService: _FlakyProductLookupService()),
+      EatovaApp(productService: _FlakyProductLookupService()),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
@@ -685,7 +685,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ShiftFitApp(productService: _EmptyThenSuccessProductLookupService()),
+      EatovaApp(productService: _EmptyThenSuccessProductLookupService()),
     );
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));

@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.shiftfit"
+    namespace = "com.eatova.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -24,11 +24,12 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.shiftfit"
+        applicationId = "com.eatova.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // minSdk 26 (Android 8.0) statt Flutter-Default: package:health verlangt
+        // mindestens 26, sonst bricht der Manifest-Merge ab.
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

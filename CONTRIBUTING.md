@@ -1,11 +1,11 @@
-# Contributing to FitPilot
+# Contributing to Eatova
 
-Thanks for your interest in improving FitPilot! This document describes how to
+Thanks for your interest in improving Eatova! This document describes how to
 set up the project, the conventions we follow, and how to get a change merged.
 
-> The Dart package and repository are named `shiftfit` for historical reasons;
-> the app itself is **FitPilot**. Don't rename the package — it would break
-> every import and test.
+> The Dart package is named `eatova`, matching the app name **Eatova**
+> (formerly ShiftFit/FitPilot). Don't rename the package again without a very
+> good reason — it would break every import and test.
 
 ## Getting set up
 

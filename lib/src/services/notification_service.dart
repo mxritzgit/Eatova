@@ -100,8 +100,8 @@ class LocalNotificationService implements NotificationService {
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;
 
-  static const String _androidChannelId = 'fitpilot_nudges';
-  static const String _androidChannelName = 'FitPilot Erinnerungen';
+  static const String _androidChannelId = 'eatova_nudges';
+  static const String _androidChannelName = 'Eatova Erinnerungen';
   static const String _androidChannelDescription =
       'Tägliche Streak-Erinnerung am Abend.';
 

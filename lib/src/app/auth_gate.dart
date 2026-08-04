@@ -20,7 +20,7 @@ class AuthGate extends StatefulWidget {
   /// nicht bei jedem Kaltstart mit gueltiger Session.
   final Widget Function(
     BuildContext context,
-    FitPilotUser user,
+    EatovaUser user,
     bool freshLogin,
   ) builder;
 
@@ -29,8 +29,8 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
-  StreamSubscription<FitPilotUser?>? _subscription;
-  FitPilotUser? _user;
+  StreamSubscription<EatovaUser?>? _subscription;
+  EatovaUser? _user;
   bool _freshLogin = false;
 
   @override
@@ -43,7 +43,7 @@ class _AuthGateState extends State<AuthGate> {
     _subscription = widget.authRepository.authStateChanges.listen(_onAuthEvent);
   }
 
-  void _onAuthEvent(FitPilotUser? user) {
+  void _onAuthEvent(EatovaUser? user) {
     if (!mounted) return;
     final wasLoggedOut = _user == null;
     final isLoggedIn = user != null;

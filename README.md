@@ -1,4 +1,4 @@
-# FitPilot
+# Eatova
 
 > A polished Flutter app for fitness, recovery, and nutrition — short, evidence-based plans instead of an overloaded tracker.
 
@@ -7,19 +7,19 @@
 [![Backend](https://img.shields.io/badge/backend-Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-FitPilot helps you steer training, regeneration, and nutrition in everyday life:
+Eatova helps you steer training, regeneration, and nutrition in everyday life:
 a clear "Today" check-in, a weekly training split, a readiness/trends view, and
 fast food logging via AI photo analysis or barcode scan — backed by an AI coach.
 
-> **Note on the name:** the app is **FitPilot**. The Dart package and Git
-> repository are still named `shiftfit` for historical reasons; renaming the
-> package would break every import and test pin, so the internal name stays.
+> **Note on the name:** the app is **Eatova** (formerly ShiftFit/FitPilot).
+> The Dart package is now named `eatova` as well, so package name, app name,
+> and branding are consistent throughout the repository.
 
 ---
 
 ## Project status
 
-FitPilot is **in production**. This repository is open-sourced under the MIT
+Eatova is **in production**. This repository is open-sourced under the MIT
 license so the implementation can be studied, reused, and improved. It is a
 real application, not a demo — treat the `main` branch as shippable.
 
@@ -89,7 +89,7 @@ Edge Functions so API keys never ship in the client bundle.
 
 ```text
 lib/
-├── main.dart                 # Entry point; exports ShiftFitApp for tests
+├── main.dart                 # Entry point; exports EatovaApp for tests
 └── src/
     ├── app/                  # MaterialApp, theme wiring, home shell + routing
     ├── auth/                 # Auth repository
@@ -218,6 +218,6 @@ Released under the [MIT License](LICENSE). © 2026 Moritz Gietl.
 
 ---
 
-> **Disclaimer:** FitPilot provides general fitness and nutrition information
+> **Disclaimer:** Eatova provides general fitness and nutrition information
 > and is **not** medical advice. Consult a qualified professional before making
 > significant changes to your training, diet, or health routine.

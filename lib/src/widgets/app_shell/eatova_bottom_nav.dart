@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../common/motion.dart';
 
-class ShiftFitBottomNav extends StatelessWidget {
-  const ShiftFitBottomNav({
+class EatovaBottomNav extends StatelessWidget {
+  const EatovaBottomNav({
     super.key,
     required this.selectedIndex,
     required this.onSelected,

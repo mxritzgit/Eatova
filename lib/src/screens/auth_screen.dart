@@ -8,7 +8,7 @@ import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
 import '../theme/app_colors.dart';
 
-/// FitPilot Auth - ruhiger, immersiver Dark-Screen.
+/// Eatova Auth - ruhiger, immersiver Dark-Screen.
 ///
 /// Bewusst minimal: tiefes Schwarz mit einer einzigen weichen Lime-Aurora,
 /// kompakter Brand-Mark, große Headline und Google-OAuth als prominente
@@ -35,7 +35,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isRegister = false;
   bool _loading = false;
   bool _passwordVisible = false;
-  FitPilotOAuthProvider? _oauthLoading;
+  EatovaOAuthProvider? _oauthLoading;
   String? _message;
   String? _error;
 
@@ -49,7 +49,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool get _busy => _loading || _oauthLoading != null;
 
-  Future<void> _startOAuth(FitPilotOAuthProvider provider) async {
+  Future<void> _startOAuth(EatovaOAuthProvider provider) async {
     setState(() {
       _error = null;
       _message = null;
@@ -173,8 +173,8 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 18),
                     _GoogleButton(
                       enabled: !_busy,
-                      loading: _oauthLoading == FitPilotOAuthProvider.google,
-                      onTap: () => _startOAuth(FitPilotOAuthProvider.google),
+                      loading: _oauthLoading == EatovaOAuthProvider.google,
+                      onTap: () => _startOAuth(EatovaOAuthProvider.google),
                     ),
                     const SizedBox(height: 14),
                     const _OrDivider(),
@@ -266,7 +266,7 @@ class _BrandMark extends StatelessWidget {
         ),
         const SizedBox(width: 11),
         const Text(
-          'FitPilot',
+          'Eatova',
           style: TextStyle(
             fontSize: 21,
             fontWeight: FontWeight.w700,

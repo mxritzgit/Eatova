@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/app/home_store.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/services/health_service.dart';
-import 'package:shiftfit/src/services/notification_service.dart';
+import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/services/notification_service.dart';
 
 // REGRESSION (2026-08-04): Nach dem Training-Tab-Aus (a267e15) hatte die
 // Streak keinen Schreiber mehr — sie blieb trotz taeglichem Essens-Logging

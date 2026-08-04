@@ -1,4 +1,4 @@
-# FitPilot — Mahlzeit-Slot im Food-Add-Flow wählbar machen
+# Eatova — Mahlzeit-Slot im Food-Add-Flow wählbar machen
 
 **Datum:** 2026-06-02
 **Status:** Genehmigt (autonom, im Auftrag des Users freigegeben — User ist AFK,

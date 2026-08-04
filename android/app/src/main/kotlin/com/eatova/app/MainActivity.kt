@@ -1,4 +1,4 @@
-package com.example.shiftfit
+package com.eatova.app
 
 import io.flutter.embedding.android.FlutterActivity
 

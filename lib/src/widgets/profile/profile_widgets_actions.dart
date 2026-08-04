@@ -178,7 +178,7 @@ class ProfileActionsCard extends StatelessWidget {
           _ActionRow(
             icon: Icons.info_outline_rounded,
             color: textMuted,
-            title: 'Über FitPilot',
+            title: 'Über Eatova',
             subtitle: 'Version & Mitwirkende',
             onTap: onAbout,
             keyValue: const ValueKey('profile-action-about'),

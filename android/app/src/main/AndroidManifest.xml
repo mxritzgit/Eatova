@@ -14,7 +14,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:label="FitPilot"
+        android:label="Eatova"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
@@ -46,7 +46,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="fitpilot"
+                    android:scheme="eatova"
                     android:host="login-callback" />
             </intent-filter>
         </activity>

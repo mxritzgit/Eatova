@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/logged_meal.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/services/local_day.dart';
-import 'package:shiftfit/src/services/meal_totals.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/local_day.dart';
+import 'package:eatova/src/services/meal_totals.dart';
 
 // DATA-6: Der eigentliche Bug, den diese Welle killt.
 //

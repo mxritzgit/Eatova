@@ -370,7 +370,7 @@ class _AboutSheet extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'FitPilot',
+                    'Eatova',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
@@ -500,7 +500,7 @@ class _FooterCredit extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Text(
-        'FitPilot · v1.0.0',
+        'Eatova · v1.0.0',
         style: TextStyle(
           color: textMuted.withValues(alpha: 0.6),
           fontSize: 11,

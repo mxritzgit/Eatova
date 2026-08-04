@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/lifetime_stats.dart';
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/local_cache.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/local_cache.dart';
 
 // DATA-3: LocalCache ist der durable Write-Through-Cache (JSON) fuer Profil
 // und lifetime_stats. Diese Tests treiben ihn ueber den InMemoryKeyValueStore
@@ -67,14 +67,14 @@ void main() {
 
     test('korrupter Eintrag -> null statt Crash', () async {
       final store = InMemoryKeyValueStore({
-        'fitpilot.v1.profile.user-1': '{ das ist kein json',
+        'eatova.v1.profile.user-1': '{ das ist kein json',
       });
       expect(await _cache(store).readProfile(), isNull);
     });
 
     test('unbekannte enum-Strings fallen auf Defaults (kein Crash)', () async {
       final store = InMemoryKeyValueStore({
-        'fitpilot.v1.profile.user-1':
+        'eatova.v1.profile.user-1':
             '{"sex":"divers","activity_level":"couch","weight_goal":"hyperbulk"}',
       });
       final back = await _cache(store).readProfile();
@@ -127,7 +127,7 @@ void main() {
       // Legacy-Eintrag des frueheren Heute-Tabs (inkl. Mood-Notiz = PII):
       // wird nicht mehr geschrieben, muss beim Logout aber weiter verschwinden.
       final store = InMemoryKeyValueStore({
-        'fitpilot.v1.daily.user-1': '{"mood_note":"privat"}',
+        'eatova.v1.daily.user-1': '{"mood_note":"privat"}',
       });
       final cache = _cache(store);
       await cache.writeProfile(const UserProfile(weightKg: 90));
@@ -137,7 +137,7 @@ void main() {
 
       expect(await cache.readProfile(), isNull);
       expect(await cache.readLifetimeStats(), isNull);
-      expect(store.snapshot.containsKey('fitpilot.v1.daily.user-1'), isFalse);
+      expect(store.snapshot.containsKey('eatova.v1.daily.user-1'), isFalse);
     });
 
     test('Cache ist pro userId getrennt (kein Cross-User-Leak)', () async {

@@ -97,14 +97,14 @@ class LocalCache {
 
   // Versions-Prefix erlaubt spaetere Schema-Migrationen ohne Crash auf alten
   // Eintraegen (unbekannte Keys werden einfach ignoriert).
-  String get _profileKey => 'fitpilot.v1.profile.$_userId';
+  String get _profileKey => 'eatova.v1.profile.$_userId';
 
   /// Legacy-Slot des frueheren Heute-Tabs (daily_logs-Snapshot inkl. Mood-
   /// Notiz). Wird nicht mehr geschrieben/gelesen, aber in [clear] weiterhin
   /// geraeumt, damit Alt-Installationen beim Logout keine PII behalten (M-1).
-  String get _legacyDailyKey => 'fitpilot.v1.daily.$_userId';
-  String get _statsKey => 'fitpilot.v1.stats.$_userId';
-  String get _notificationsKey => 'fitpilot.v1.notifications_enabled.$_userId';
+  String get _legacyDailyKey => 'eatova.v1.daily.$_userId';
+  String get _statsKey => 'eatova.v1.stats.$_userId';
+  String get _notificationsKey => 'eatova.v1.notifications_enabled.$_userId';
 
   // ---- Erinnerungen (PROD-1) ----------------------------------------------
   // Opt-in-Flag fuer die lokalen Retention-Nudges. Persistiert pro User, damit

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/services/fallback_product_service.dart';
-import 'package:shiftfit/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/fallback_product_service.dart';
+import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 class _FakeService implements ProductLookupService {
   _FakeService({

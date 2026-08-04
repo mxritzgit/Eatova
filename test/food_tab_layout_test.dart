@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/screens/meal_analysis_screen.dart';
-import 'package:shiftfit/src/theme/app_colors.dart';
-import 'package:shiftfit/src/theme/app_theme.dart';
-import 'package:shiftfit/src/widgets/app_shell/shiftfit_bottom_nav.dart';
+import 'package:eatova/src/screens/meal_analysis_screen.dart';
+import 'package:eatova/src/theme/app_colors.dart';
+import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/widgets/app_shell/eatova_bottom_nav.dart';
 
 // Layout-Tests fuer den Food-Tab.
 //
@@ -21,7 +21,7 @@ import 'package:shiftfit/src/widgets/app_shell/shiftfit_bottom_nav.dart';
 /// Area hier schon abgezogen.
 const _usableSize = Size(402, 781); // iPhone 16 Pro
 
-/// Baut den Food-Tab in derselben Huelle wie ShiftFitHomePage: Scaffold mit
+/// Baut den Food-Tab in derselben Huelle wie EatovaHomePage: Scaffold mit
 /// Bottom-Nav, SafeArea und dem festen 20/12-Padding des fixed-height-Tabs.
 Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
   tester.view.devicePixelRatio = 3.0;
@@ -39,16 +39,16 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildShiftFitTheme(),
+      theme: buildEatovaTheme(),
       home: MediaQuery(
-        // Spiegelt den Textscaler-Deckel aus ShiftFitApp.
+        // Spiegelt den Textscaler-Deckel aus EatovaApp.
         data: MediaQueryData(
           textScaler: TextScaler.linear(textScale).clamp(maxScaleFactor: 1.3),
           size: _usableSize,
         ),
         child: Scaffold(
           backgroundColor: bg,
-          bottomNavigationBar: ShiftFitBottomNav(
+          bottomNavigationBar: EatovaBottomNav(
             selectedIndex: 3,
             onSelected: (_) {},
           ),

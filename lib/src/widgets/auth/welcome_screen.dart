@@ -9,7 +9,7 @@ import '../common/motion.dart';
 /// Boot-/Welcome-Gate der App. Waehrend ProfileSync.load() laeuft, "laedt"
 /// das Bolt-Logo sichtbar auf: ein Lime-Komet wandert um den Kapsel-Rahmen
 /// (der Rahmen IST der Ladeindikator, kein separater Spinner), der Glow
-/// atmet, das "FitPilot"-Wortmark trackt sich ein. Bei frischem Login folgt
+/// atmet, das "Eatova"-Wortmark trackt sich ein. Bei frischem Login folgt
 /// Check-Morph + "Willkommen, X", bei Session-Restore direkt der Fade-out
 /// in die HomePage.
 class WelcomeScreen extends StatefulWidget {
@@ -480,7 +480,7 @@ class _CheckPainter extends CustomPainter {
   bool shouldRepaint(covariant _CheckPainter old) => old.progress != progress;
 }
 
-/// "FitPilot"-Wortmark, das sich beim Intro eintrackt: Letter-Spacing
+/// "Eatova"-Wortmark, das sich beim Intro eintrackt: Letter-Spacing
 /// zieht sich von weit auf eng zusammen, waehrend es einfadet und
 /// leicht aufsteigt. Kein separater Spinner — das Laden zeigt der Ring.
 class _BootWordmark extends StatelessWidget {
@@ -496,7 +496,7 @@ class _BootWordmark extends StatelessWidget {
       child: Transform.translate(
         offset: Offset(0, 10 * (1 - reveal)),
         child: Text(
-          'FitPilot',
+          'Eatova',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w800,

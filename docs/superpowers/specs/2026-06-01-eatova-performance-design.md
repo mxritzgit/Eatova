@@ -1,4 +1,4 @@
-# FitPilot — Performance-Härtung (60 FPS, saubere Übergänge, robuste Listen)
+# Eatova — Performance-Härtung (60 FPS, saubere Übergänge, robuste Listen)
 
 **Datum:** 2026-06-01
 **Status:** Genehmigt (autonom, im Auftrag des Users freigegeben — User ist AFK, hat

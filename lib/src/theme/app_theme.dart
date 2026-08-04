@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
 
-/// Premium-Dark Theme für FitPilot.
+/// Premium-Dark Theme für Eatova.
 ///
 /// Eine Schrift (SF Pro – Apples System-Font) trägt die gesamte App — Hierarchie entsteht über
 /// Gewicht, Größe und Tracking, nicht über Font-Wechsel. Komponenten-Themes
 /// setzen Tiefe (getönte Schatten statt Schwarz), die gelockte Radius-Skala
 /// und Lime als einzige Interaktionsfarbe zentral, damit jeder Screen ohne
 /// lokale Sonderfälle konsistent wirkt.
-ThemeData buildShiftFitTheme() {
+ThemeData buildEatovaTheme() {
   // SF Pro über Apples System-Font: 'CupertinoSystemText' löst auf iOS/macOS zu
   // San Francisco (SF Pro) auf; andere Plattformen nutzen ihren Default-Sans.
   // SF Pro liegt nicht auf Google Fonts und ist für Nicht-Apple-Plattformen

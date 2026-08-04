@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/fitness_recipe.dart';
-import 'package:shiftfit/src/models/macro_progress.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/models/meal_component.dart';
-import 'package:shiftfit/src/models/weight_log.dart';
-import 'package:shiftfit/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/macro_progress.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/models/weight_log.dart';
+import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 // Reine Logik-Unit-Tests für bislang ungetestete, korrektheitskritische Pfade:
 // die Foto-/Barcode-Parser (fromEdgeFunction/fromOpenFoodFacts), die Portions-

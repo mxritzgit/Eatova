@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/macro_progress.dart';
-import '../services/fitpilot_sync.dart';
+import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/kcal_calculator.dart';
 import '../services/local_cache.dart';
@@ -18,7 +18,7 @@ import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/recipes_screen.dart';
 import '../theme/app_colors.dart';
-import '../widgets/app_shell/shiftfit_bottom_nav.dart';
+import '../widgets/app_shell/eatova_bottom_nav.dart';
 import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
@@ -26,8 +26,8 @@ import '../widgets/common/store_selector.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'home_store.dart';
 
-class ShiftFitHomePage extends StatefulWidget {
-  ShiftFitHomePage({
+class EatovaHomePage extends StatefulWidget {
+  EatovaHomePage({
     super.key,
     this.mealAnalyzer,
     this.productService,
@@ -56,7 +56,7 @@ class ShiftFitHomePage extends StatefulWidget {
 
   final String initialUserName;
   final Future<void> Function()? onSignOut;
-  final FitPilotSync? sync;
+  final EatovaSync? sync;
 
   /// Test-Seam (DATA-3): erlaubt es, den durablen Cache direkt zu injizieren,
   /// statt ihn ueber den SharedPreferences-Channel + auth.currentUser.id zu
@@ -72,7 +72,7 @@ class ShiftFitHomePage extends StatefulWidget {
   final bool showWelcome;
 
   @override
-  State<ShiftFitHomePage> createState() => _ShiftFitHomePageState();
+  State<EatovaHomePage> createState() => _EatovaHomePageState();
 }
 
 /// ARCH-4: Duenne, context-tragende Schale um den [HomeStore]. Sie haelt nur
@@ -80,7 +80,7 @@ class ShiftFitHomePage extends StatefulWidget {
 /// Sheets, Snackbars und den Widget-Lifecycle — und delegiert allen State + alle
 /// Mutationen an den Store. Der Home-Baum haengt per [ListenableBuilder] am
 /// Store; eine Mutation `notifyListeners()` statt eines monolithischen setState.
-class _ShiftFitHomePageState extends State<ShiftFitHomePage>
+class _EatovaHomePageState extends State<EatovaHomePage>
     with WidgetsBindingObserver {
   late final HomeStore _store;
 
@@ -291,7 +291,7 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
           // zusätzlich resizen, schöbe sich der Hintergrund sichtbar hinter dem
           // halbtransparenten Barrier. Andere Tabs behalten das Default-Verhalten.
           resizeToAvoidBottomInset: tab != 0,
-          bottomNavigationBar: ShiftFitBottomNav(
+          bottomNavigationBar: EatovaBottomNav(
             selectedIndex: tab,
             onSelected: (index) => _store.setTab(index),
           ),

@@ -608,7 +608,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 class CoachSpeechInput {
   const CoachSpeechInput();
 
-  static const MethodChannel _channel = MethodChannel('fitpilot/speech');
+  static const MethodChannel _channel = MethodChannel('eatova/speech');
 
   Future<String?> listen({String localeId = 'de_DE'}) async {
     try {
@@ -673,7 +673,7 @@ class _CoachTopBar extends StatelessWidget {
         children: [
           const Center(
             child: Text(
-              'FitPilot',
+              'Eatova',
               style: TextStyle(
                 color: textPrimary,
                 fontSize: 15,
@@ -1402,7 +1402,7 @@ class _ComposerState extends State<_Composer> {
                           ? 'Limit für heute erreicht'
                           : widget.listening
                               ? 'Ich höre zu…'
-                              : 'Frag FitPilot…',
+                              : 'Frag Eatova…',
                       hintStyle: const TextStyle(
                         color: textMuted,
                         fontSize: 15.5,

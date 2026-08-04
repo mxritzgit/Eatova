@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/kcal_calculator.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/kcal_calculator.dart';
 
 void main() {
   group('estimateKcalBurnedFromSteps', () {

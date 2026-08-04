@@ -6,16 +6,16 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:shiftfit/src/app/shiftfit_home_page.dart';
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/services/fitpilot_sync.dart';
-import 'package:shiftfit/src/services/local_cache.dart';
+import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/eatova_sync.dart';
+import 'package:eatova/src/services/local_cache.dart';
 
 // DATA-3 Clobber-Guard: ein Offline-Kaltstart (ProfileSync.load() wirft) darf
 // die echte Server-Profilzeile NIEMALS mit den nackten Ctor-Defaults
 // (78 kg / 178 cm) ueberschreiben.
 //
-// Diese Tests treiben die ECHTE ShiftFitHomePage mit einem echten FitPilotSync
+// Diese Tests treiben die ECHTE EatovaHomePage mit einem echten EatovaSync
 // ueber einen aufzeichnenden MockClient:
 //   * Jedes GET auf /profiles antwortet 500 -> ProfileSync.load() wirft ->
 //     KEINE Server-Hydration.
@@ -100,7 +100,7 @@ class _Recorder {
       profileWrites.any((r) => _weightOf(r) == kg);
 }
 
-FitPilotSync _sync(WidgetTester tester, http.Client client) {
+EatovaSync _sync(WidgetTester tester, http.Client client) {
   final supa = SupabaseClient(
     'https://example.supabase.co',
     'test-anon-key',
@@ -118,12 +118,12 @@ FitPilotSync _sync(WidgetTester tester, http.Client client) {
   // Ticker via autoRefreshToken:false aus ist, bleibt KEIN pendender Timer
   // zurueck; der Client wird einfach GC'd. (Verifiziert: ohne dispose-Teardown
   // laufen beide Tests sauber durch, kein "Timer still pending".)
-  return FitPilotSync.forUser(supa, 'user-clobber');
+  return EatovaSync.forUser(supa, 'user-clobber');
 }
 
 Future<void> _pumpHome(
   WidgetTester tester, {
-  required FitPilotSync sync,
+  required EatovaSync sync,
   LocalCache? debugCache,
 }) async {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -155,7 +155,7 @@ Future<void> _pumpHome(
   addTearDown(() => FlutterError.onError = prior);
 
   await tester.pumpWidget(MaterialApp(
-    home: ShiftFitHomePage(
+    home: EatovaHomePage(
       sync: sync,
       debugCache: debugCache,
       showWelcome: false,

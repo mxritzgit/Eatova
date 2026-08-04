@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:shiftfit/src/services/coach_chat_service.dart';
+import 'package:eatova/src/services/coach_chat_service.dart';
 
 // TEST-3: Fehlerpfade von CoachChatService.send() ueber die PUBLIC API.
 // coach_chat_service.dart wird NICHT editiert. Wir treiben den echten

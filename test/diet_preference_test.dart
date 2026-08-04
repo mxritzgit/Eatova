@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/fitness_recipe.dart';
-import 'package:shiftfit/src/models/logged_meal.dart';
-import 'package:shiftfit/src/models/macro_progress.dart';
-import 'package:shiftfit/src/models/meal_analysis_result.dart';
-import 'package:shiftfit/src/models/user_profile.dart';
-import 'package:shiftfit/src/screens/recipes_screen.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/macro_progress.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/recipes_screen.dart';
 
 // PROD-6: Diät-/Präferenz-Personalisierung. Ein vegetarisches/veganes Profil
 // darf NIE ein fleisch-/fischhaltiges Rezept aktiv empfohlen bekommen

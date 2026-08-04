@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
 
 // TEST-7: LifetimeStats.recordTrackedDay — Streak-Uebergaenge.
 // logic_test.dart deckt die Basisfaelle (erster Tag / gestern / idempotent /

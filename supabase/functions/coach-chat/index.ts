@@ -1,4 +1,4 @@
-// FitPilot Coach-Chat Edge Function
+// Eatova Coach-Chat Edge Function
 //
 // 3-Schichten-Safety, damit Grok ausschliesslich Fitness/Ernaehrungs-Coach
 // spielt und nicht fuer Hausaufgaben, medizinischen Missbrauch (Steroide
@@ -36,7 +36,7 @@ const REQUEST_IP_LIMIT       = 120;
 const SESSION_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const ALLOWED_ORIGINS = (Deno.env.get("FITPILOT_ALLOWED_ORIGINS") ?? "")
+const ALLOWED_ORIGINS = (Deno.env.get("EATOVA_ALLOWED_ORIGINS") ?? "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -101,7 +101,7 @@ function preFilter(message: string, hasImage = false): { ok: true } | { ok: fals
 // ---------------------------------------------------------------------------
 // Layer 3 - System-Prompt fuer die eigentliche Antwort
 // ---------------------------------------------------------------------------
-const ANSWER_SYSTEM_PROMPT = `You are FitPilot Coach - a friendly fitness and nutrition coach inside a mobile app. The app's primary user-language is German but you must adapt.
+const ANSWER_SYSTEM_PROMPT = `You are Eatova Coach - a friendly fitness and nutrition coach inside a mobile app. The app's primary user-language is German but you must adapt.
 
 LANGUAGE RULE (very important):
 - Detect the user's message language and ALWAYS reply in that same language.
@@ -178,8 +178,8 @@ async function classify(
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://fitpilot.app",
-      "X-Title": "FitPilot Coach",
+      "HTTP-Referer": "https://eatova.app",
+      "X-Title": "Eatova Coach",
     },
     body: JSON.stringify({
       model: MODEL_CLASSIFIER,
@@ -267,8 +267,8 @@ async function answer(
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://fitpilot.app",
-      "X-Title": "FitPilot Coach",
+      "HTTP-Referer": "https://eatova.app",
+      "X-Title": "Eatova Coach",
     },
     body: JSON.stringify({
       model: MODEL_ANSWER,
@@ -322,7 +322,7 @@ function refusalForReason(reason: string): string {
       return "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.";
     case "off_topic_homework":
     case "off_topic":
-      return "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in FitPilot. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.";
+      return "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in Eatova. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.";
     case "prompt_injection":
     case "injection":
       return "Schoener Versuch. Ich bleibe dein Fitness- und Ernaehrungs-Coach. Was willst du zu Training oder Ernaehrung wissen?";

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/models/lifetime_stats.dart';
-import 'package:shiftfit/src/services/streak_reminder_planner.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/services/streak_reminder_planner.dart';
 
 // Streak-Retter-Planner: pure Funktion (now, stats) -> Specs fuer die
 // naechsten 7 Abende um 20:00. Kernfaelle: heute-schon-getrackt und

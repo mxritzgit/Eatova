@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-FitPilot is an actively developed, in-production application. Security fixes
+Eatova is an actively developed, in-production application. Security fixes
 are applied to the latest state of the `main` branch.
 
 | Version            | Supported |
@@ -44,4 +44,4 @@ before any public disclosure.
   across users, authentication or authorization bypasses, injection flaws, and
   leakage of any genuine secret.
 
-Thank you for helping keep FitPilot and its users safe.
+Thank you for helping keep Eatova and its users safe.

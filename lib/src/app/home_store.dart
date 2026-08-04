@@ -12,7 +12,7 @@ import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
-import '../services/fitpilot_sync.dart';
+import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
 import '../services/meal_totals.dart' as totals;
@@ -24,7 +24,7 @@ import '../widgets/common/app_snack.dart';
 
 /// Vom [HomeStore] ausgesendete, context-FREIE Snackbar-Anforderung. Der Store
 /// haelt bewusst nie einen BuildContext (ARCH-4 Store-Seam) — er signalisiert
-/// nur „zeige diese Meldung", die `_ShiftFitHomePageState` uebersetzt das in ein
+/// nur „zeige diese Meldung", die `_EatovaHomePageState` uebersetzt das in ein
 /// echtes [showAppSnack]. So bleibt die gesamte Sync-/Rollback-Logik testbar und
 /// vom Widget-Baum entkoppelt.
 typedef SnackEmitter = void Function(
@@ -36,7 +36,7 @@ typedef SnackEmitter = void Function(
 });
 
 /// ARCH-4: Single source of truth fuer den Home-State. Frueher lebten diese ~40
-/// Felder + ~50 Mutationen als God-Object direkt im `_ShiftFitHomePageState`, wo
+/// Felder + ~50 Mutationen als God-Object direkt im `_EatovaHomePageState`, wo
 /// jede Mutation ueber `setState` den GANZEN Home-Baum neu baute (Wurzel der
 /// PERF-2-Rebuild-Schulden). Jetzt ist der State ein [ChangeNotifier]: die UI
 /// haengt sich per `ListenableBuilder`/Slice-Selector dran und rebuildet gezielt.
@@ -57,7 +57,7 @@ class HomeStore extends ChangeNotifier {
     userName = initialUserName;
   }
 
-  final FitPilotSync? sync;
+  final EatovaSync? sync;
   final HealthService health;
   final NotificationService notificationService;
   final String initialUserName;
@@ -66,7 +66,7 @@ class HomeStore extends ChangeNotifier {
 
   bool _disposed = false;
 
-  // --- State (vormals Felder von _ShiftFitHomePageState) --------------------
+  // --- State (vormals Felder von _EatovaHomePageState) --------------------
   // Tab-Indizes nach dem Entfernen von Heute/Training/Trends:
   // 0 = Food, 1 = Rezepte, 2 = Coach.
   int selectedTab = 0;
@@ -304,8 +304,8 @@ class HomeStore extends ChangeNotifier {
     try {
       return await loader();
     } catch (e, st) {
-      dev.log('FitPilot load failed',
-          error: e, stackTrace: st, name: 'fitpilot_sync');
+      dev.log('Eatova load failed',
+          error: e, stackTrace: st, name: 'eatova_sync');
       return null;
     }
   }
@@ -313,7 +313,7 @@ class HomeStore extends ChangeNotifier {
   // --- Fehler-/Sync-Routing -------------------------------------------------
 
   void _reportSyncError(String operation, Object error) {
-    dev.log('$operation failed', error: error, name: 'fitpilot_sync');
+    dev.log('$operation failed', error: error, name: 'eatova_sync');
     if (_disposed) return;
     final msg = error.toString();
     final short = msg.length > 140 ? '${msg.substring(0, 140)}…' : msg;
@@ -954,7 +954,7 @@ class HomeStore extends ChangeNotifier {
           dev.log(
               'ProfileSync.save uebersprungen: profile basiert auf Ctor-Defaults '
               '(kein Server-/Cache-Hydrate) — Clobber-Schutz',
-              name: 'fitpilot_sync');
+              name: 'eatova_sync');
         }
       } catch (e) {
         if (!_disposed) {

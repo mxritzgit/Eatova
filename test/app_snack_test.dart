@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:shiftfit/src/widgets/common/app_snack.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Regression: Snackbars (z. B. "Mahlzeit gelöscht / Rückgängig") blieben auf
 // dem Gerät stehen und mussten manuell weggewischt werden. Ursache: bei

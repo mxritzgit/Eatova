@@ -8,14 +8,14 @@ import 'tracking_sync.dart';
 import 'user_recipes_sync.dart';
 
 /// Bundles alle Supabase-Sync-Services fuer einen einzelnen authentifizierten
-/// User. Wird in ShiftFitApp pro User aufgebaut, an die HomePage uebergeben
+/// User. Wird in EatovaApp pro User aufgebaut, an die HomePage uebergeben
 /// und beim Dispose der Page wieder freigegeben.
 ///
 /// Mit dem Entfernen der Heute-/Training-/Trends-Tabs sind dailyLog,
 /// weeklyPlan und workoutLog aus dem Bundle geflogen (Rework spaeter);
 /// die Server-Tabellen bleiben unangetastet.
-class FitPilotSync {
-  FitPilotSync._({
+class EatovaSync {
+  EatovaSync._({
     required this.client,
     required this.profile,
     required this.meals,
@@ -25,8 +25,8 @@ class FitPilotSync {
     required this.userRecipes,
   });
 
-  factory FitPilotSync.forUser(SupabaseClient client, String userId) {
-    return FitPilotSync._(
+  factory EatovaSync.forUser(SupabaseClient client, String userId) {
+    return EatovaSync._(
       client: client,
       profile: ProfileSync(client, userId),
       meals: MealsSync(client, userId),

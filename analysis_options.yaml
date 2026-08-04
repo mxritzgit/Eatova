@@ -11,7 +11,7 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   # Top-Level-Drafts (User-Uploads aus dem Web-Editor, z.B.
-  # auth_screens.dart, rezepte_screen.dart, fitpilot_chat(*).dart)
+  # auth_screens.dart, rezepte_screen.dart, eatova_chat(*).dart)
   # sind Skizzen, kein Production-Code — werden weder von lib/ noch
   # von tests importiert. Aus dem Analyzer ausgeschlossen damit
   # `flutter analyze` nicht rot wird.
@@ -22,7 +22,7 @@ analyzer:
   errors:
     # ARCH-2: Der globale unused_element/unused_field-Ignore versteckte frisch
     # entstandenen toten Code (z.B. _addSteps/_resetWater in
-    # shiftfit_home_page.dart). Die Leichen sind entfernt, der frueher als
+    # eatova_home_page.dart). Die Leichen sind entfernt, der frueher als
     # "Halde" deklarierte Rest (Wasser/Koffein/Schlaf-Handler) ist inzwischen
     # via Today-Log-Sheet verdrahtet. Zurueck auf `warning`, damit kuenftiger
     # toter Code wieder im Analyzer auftaucht statt still liegenzubleiben.

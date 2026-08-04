@@ -4,8 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
 
-class FitPilotUser {
-  const FitPilotUser({required this.id, this.email, this.displayName});
+class EatovaUser {
+  const EatovaUser({required this.id, this.email, this.displayName});
 
   final String id;
   final String? email;
@@ -24,30 +24,30 @@ class FitPilotUser {
   }
 }
 
-enum FitPilotOAuthProvider { apple, google }
+enum EatovaOAuthProvider { apple, google }
 
-extension FitPilotOAuthProviderLabel on FitPilotOAuthProvider {
+extension EatovaOAuthProviderLabel on EatovaOAuthProvider {
   OAuthProvider get supabaseProvider => switch (this) {
-    FitPilotOAuthProvider.apple => OAuthProvider.apple,
-    FitPilotOAuthProvider.google => OAuthProvider.google,
+    EatovaOAuthProvider.apple => OAuthProvider.apple,
+    EatovaOAuthProvider.google => OAuthProvider.google,
   };
 
   String get displayName => switch (this) {
-    FitPilotOAuthProvider.apple => 'Apple',
-    FitPilotOAuthProvider.google => 'Google',
+    EatovaOAuthProvider.apple => 'Apple',
+    EatovaOAuthProvider.google => 'Google',
   };
 }
 
 abstract class AuthRepository {
-  FitPilotUser? get currentUser;
-  Stream<FitPilotUser?> get authStateChanges;
+  EatovaUser? get currentUser;
+  Stream<EatovaUser?> get authStateChanges;
   Future<void> signIn({required String email, required String password});
   Future<void> signUp({
     required String email,
     required String password,
     required String displayName,
   });
-  Future<void> signInWithOAuth(FitPilotOAuthProvider provider);
+  Future<void> signInWithOAuth(EatovaOAuthProvider provider);
   Future<void> signOut();
 }
 
@@ -57,10 +57,10 @@ class SupabaseAuthRepository implements AuthRepository {
   final SupabaseClient _client;
 
   @override
-  FitPilotUser? get currentUser => _mapUser(_client.auth.currentUser);
+  EatovaUser? get currentUser => _mapUser(_client.auth.currentUser);
 
   @override
-  Stream<FitPilotUser?> get authStateChanges async* {
+  Stream<EatovaUser?> get authStateChanges async* {
     yield currentUser;
     yield* _client.auth.onAuthStateChange.map(
       (event) => _mapUser(event.session?.user),
@@ -82,22 +82,22 @@ class SupabaseAuthRepository implements AuthRepository {
     required String displayName,
   }) async {
     // emailRedirectTo landet im Confirmation-Mail-Link. Sobald der User
-    // den Confirm-Button drueckt, kehrt Supabase ueber das fitpilot://
+    // den Confirm-Button drueckt, kehrt Supabase ueber das eatova://
     // Deep-Link-Scheme in die App zurueck - dann ist die Session sofort
     // gueltig und der AuthGate-Stream feuert wasLoggedOut->loggedIn.
     await _client.auth.signUp(
       email: email.trim(),
       password: password,
-      emailRedirectTo: FitPilotSupabaseConfig.oauthRedirectUrl,
+      emailRedirectTo: EatovaSupabaseConfig.oauthRedirectUrl,
       data: {'display_name': displayName.trim()},
     );
   }
 
   @override
-  Future<void> signInWithOAuth(FitPilotOAuthProvider provider) async {
+  Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {
     // inAppBrowserView oeffnet SFSafariViewController (iOS) bzw. Chrome
     // Custom Tabs (Android) - ein Sheet das ueber der App liegt und sich
-    // automatisch schliesst sobald das fitpilot://login-callback/ Scheme
+    // automatisch schliesst sobald das eatova://login-callback/ Scheme
     // greift. Fuehlt sich an wie "in der App geblieben", waehrend die
     // Cookie- und Auth-Logik des echten System-Browsers benutzt wird.
     //
@@ -106,7 +106,7 @@ class SupabaseAuthRepository implements AuthRepository {
     // seit 2017).
     final launched = await _client.auth.signInWithOAuth(
       provider.supabaseProvider,
-      redirectTo: FitPilotSupabaseConfig.oauthRedirectUrl,
+      redirectTo: EatovaSupabaseConfig.oauthRedirectUrl,
       authScreenLaunchMode: LaunchMode.inAppBrowserView,
     );
     if (!launched) {
@@ -117,14 +117,14 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> signOut() => _client.auth.signOut();
 
-  FitPilotUser? _mapUser(User? user) {
+  EatovaUser? _mapUser(User? user) {
     if (user == null) return null;
     final metadata = user.userMetadata ?? <String, dynamic>{};
     final rawName = metadata['display_name'] ??
         metadata['full_name'] ??
         metadata['name'] ??
         metadata['user_name'];
-    return FitPilotUser(
+    return EatovaUser(
       id: user.id,
       email: user.email,
       displayName: rawName is String ? rawName : null,
@@ -135,17 +135,17 @@ class SupabaseAuthRepository implements AuthRepository {
 class PreviewAuthRepository implements AuthRepository {
   const PreviewAuthRepository();
 
-  static const _previewUser = FitPilotUser(
+  static const _previewUser = EatovaUser(
     id: 'preview-user',
     email: 'moritz@example.com',
     displayName: 'Moritz',
   );
 
   @override
-  FitPilotUser? get currentUser => _previewUser;
+  EatovaUser? get currentUser => _previewUser;
 
   @override
-  Stream<FitPilotUser?> get authStateChanges async* {
+  Stream<EatovaUser?> get authStateChanges async* {
     yield _previewUser;
   }
 
@@ -160,31 +160,31 @@ class PreviewAuthRepository implements AuthRepository {
   }) async {}
 
   @override
-  Future<void> signInWithOAuth(FitPilotOAuthProvider provider) async {}
+  Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {}
 
   @override
   Future<void> signOut() async {}
 }
 
 class InMemoryAuthRepository implements AuthRepository {
-  InMemoryAuthRepository({FitPilotUser? initialUser}) : _user = initialUser;
+  InMemoryAuthRepository({EatovaUser? initialUser}) : _user = initialUser;
 
-  FitPilotUser? _user;
-  final StreamController<FitPilotUser?> _controller =
-      StreamController<FitPilotUser?>.broadcast();
-
-  @override
-  FitPilotUser? get currentUser => _user;
+  EatovaUser? _user;
+  final StreamController<EatovaUser?> _controller =
+      StreamController<EatovaUser?>.broadcast();
 
   @override
-  Stream<FitPilotUser?> get authStateChanges async* {
+  EatovaUser? get currentUser => _user;
+
+  @override
+  Stream<EatovaUser?> get authStateChanges async* {
     yield _user;
     yield* _controller.stream;
   }
 
   @override
   Future<void> signIn({required String email, required String password}) async {
-    _user = FitPilotUser(id: 'test-user', email: email, displayName: 'Test Pilot');
+    _user = EatovaUser(id: 'test-user', email: email, displayName: 'Test Pilot');
     _controller.add(_user);
   }
 
@@ -194,13 +194,13 @@ class InMemoryAuthRepository implements AuthRepository {
     required String password,
     required String displayName,
   }) async {
-    _user = FitPilotUser(id: 'test-user', email: email, displayName: displayName);
+    _user = EatovaUser(id: 'test-user', email: email, displayName: displayName);
     _controller.add(_user);
   }
 
   @override
-  Future<void> signInWithOAuth(FitPilotOAuthProvider provider) async {
-    _user = FitPilotUser(
+  Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {
+    _user = EatovaUser(
       id: 'oauth-test-user',
       email: '${provider.displayName.toLowerCase()}@example.com',
       displayName: '${provider.displayName} Pilot',
