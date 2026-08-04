@@ -9,12 +9,14 @@ class LifetimeStatsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final duration = stats.sessionDuration;
     final since = _formatSession(duration);
+    // Anzeige-Streak: gerissene Kette zaehlt als 0, nicht der alte Stand.
+    final streak = stats.effectiveStreakOn(DateTime.now());
     final items = <_LifetimeTile>[
       _LifetimeTile(
-        icon: Icons.fitness_center,
+        icon: Icons.local_fire_department_rounded,
         color: lime,
-        value: stats.workoutsCompleted.toString(),
-        label: 'Workouts',
+        value: streak.toString(),
+        label: 'Streak',
       ),
       _LifetimeTile(
         icon: Icons.restaurant_menu_rounded,
@@ -23,10 +25,13 @@ class LifetimeStatsCard extends StatelessWidget {
         label: 'Mahlzeiten',
       ),
       _LifetimeTile(
-        icon: Icons.water_drop_outlined,
+        // Cyan statt orange: orange traegt schon "Mahlzeiten", und der
+        // Streak-Meilenstein ("7er Streak"-Badge unten) ist ebenfalls cyan —
+        // so bleibt jede Kachel eindeutig codiert.
+        icon: Icons.emoji_events_rounded,
         color: cyan,
-        value: _formatWater(stats.waterTotalMl),
-        label: 'Wasser',
+        value: stats.longestStreak.toString(),
+        label: 'Rekord',
       ),
       _LifetimeTile(
         icon: Icons.monitor_weight_outlined,
@@ -96,11 +101,6 @@ class LifetimeStatsCard extends StatelessWidget {
     final rest = d.inMinutes % 60;
     if (rest == 0) return '${h}h';
     return '${h}h $rest Min';
-  }
-
-  static String _formatWater(int ml) {
-    if (ml < 1000) return '$ml ml';
-    return '${(ml / 1000).toStringAsFixed(1)} L';
   }
 }
 
@@ -219,13 +219,13 @@ class AchievementsGrid extends StatelessWidget {
         unlocked: stats.mealsLogged >= 5,
       ),
       _Achievement(
-        icon: Icons.water_drop_rounded,
-        title: 'Hydration',
-        subtitle: stats.waterTotalMl >= 2000
-            ? '${(stats.waterTotalMl / 1000).toStringAsFixed(1)} L erreicht'
-            : '2 L Wasser tracken',
+        icon: Icons.workspace_premium_rounded,
+        title: '7er Streak',
+        subtitle: trackingStreak >= 7
+            ? 'Sieben Tage am Stück'
+            : '${(7 - trackingStreak).clamp(1, 7)} bis zum Badge',
         color: cyan,
-        unlocked: stats.waterTotalMl >= 2000,
+        unlocked: trackingStreak >= 7,
       ),
       _Achievement(
         icon: Icons.monitor_weight_rounded,

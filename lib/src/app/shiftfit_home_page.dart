@@ -142,6 +142,15 @@ class _ShiftFitHomePageState extends State<ShiftFitHomePage>
         state == AppLifecycleState.detached) {
       _store.flushPendingWrites();
     }
+    // App kommt zurueck in den Vordergrund: Schritte neu lesen, sonst bleiben
+    // sie (und die "Verbrannt"-kcal im Ring) den ganzen Tag auf dem Stand des
+    // Kaltstarts. Guard hier am Callsite: refreshHealthSteps prueft selbst
+    // NICHT auf "verbunden" und wuerde ohne Health-Freigabe nur sinnlos
+    // healthSyncing togglen.
+    if (state == AppLifecycleState.resumed &&
+        _store.healthAuthState == HealthAuthState.granted) {
+      unawaited(_store.refreshHealthSteps());
+    }
   }
 
   /// Context-Bruecke fuer den Store: uebersetzt eine context-FREIE Snack-

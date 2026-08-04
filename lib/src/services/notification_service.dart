@@ -103,7 +103,7 @@ class LocalNotificationService implements NotificationService {
   static const String _androidChannelId = 'fitpilot_nudges';
   static const String _androidChannelName = 'FitPilot Erinnerungen';
   static const String _androidChannelDescription =
-      'Hydration, Koffein-Stopp, Schlaf-Runway und Streak-Erinnerungen.';
+      'Tägliche Streak-Erinnerung am Abend.';
 
   bool get _supported => !kIsWeb && (Platform.isIOS || Platform.isAndroid);
 

@@ -439,7 +439,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
             _GroupCard(
               icon: Icons.notifications_active_rounded,
               title: 'Erinnerungen',
-              subtitle: 'Wasser, Koffein-Stopp, Schlaf & Streak — lokal, '
+              subtitle: 'Tägliche Streak-Erinnerung am Abend — lokal, '
                   'ohne Server.',
               trailing: _NotificationsToggle(
                 value: _notificationsEnabled,

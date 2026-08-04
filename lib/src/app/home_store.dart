@@ -17,6 +17,7 @@ import '../services/health_service.dart';
 import '../services/local_cache.dart';
 import '../services/meal_totals.dart' as totals;
 import '../services/notification_service.dart';
+import '../services/streak_reminder_planner.dart';
 import '../services/uuid.dart';
 import '../theme/app_colors.dart';
 import '../widgets/common/app_snack.dart';
@@ -81,6 +82,13 @@ class HomeStore extends ChangeNotifier {
   HealthAuthState healthAuthState = HealthAuthState.unknown;
   DateTime? healthLastFetch;
   bool healthSyncing = false;
+
+  /// In-Memory-Dedup fuer das HealthKit-Gewichts-Angebot: refreshHealthSteps()
+  /// laeuft bei Kaltstart UND jedem App-Resume — ohne Dedup wuerde der
+  /// „uebernehmen?"-Snack bei jedem Resume erneut aufpoppen. Merkt sich den
+  /// zuletzt ANGEBOTENEN Wert; bewusst nicht persistiert (nach App-Neustart
+  /// darf einmal erneut angeboten werden).
+  double? _lastOfferedHealthWeightKg;
   LifetimeStats lifetimeStats = LifetimeStats();
   Timer? _statsSaveDebounce;
 
@@ -408,10 +416,9 @@ class HomeStore extends ChangeNotifier {
   }
 
   // --- Erinnerungen (PROD-1) ------------------------------------------------
-  // Die Nudge-Inhalte (Hydration/Koffein/Schlaf/Streak) lebten in der
-  // NotificationContentEngine und sind mit dem Heute-Tab entfernt worden.
-  // Der Opt-in-Toggle + die Permission-Strecke bleiben, damit kuenftige
-  // Erinnerungen (Rework) direkt andocken koennen.
+  // Einziger Inhalt seit dem Heute-Tab-Aus: der abendliche Streak-Retter
+  // (streak_reminder_planner.dart). Der Opt-in-Toggle + die Permission-Strecke
+  // bleiben der Andock-Punkt fuer alles Weitere.
 
   Future<void> _initNotificationsFromCache() async {
     final cache = _cache;
@@ -421,6 +428,9 @@ class HomeStore extends ChangeNotifier {
     if (!enabled) return;
     _mutate(() => _notificationsEnabled = true);
     await notificationService.init();
+    // Boot mit aktiviertem Opt-in: Reminder-Fenster frisch aufziehen (die
+    // Permission wurde beim Einschalten bereits erteilt, kein Re-Prompt).
+    await _rescheduleStreakReminder();
   }
 
   Future<void> _setNotificationsEnabled(bool enabled) async {
@@ -433,10 +443,23 @@ class HomeStore extends ChangeNotifier {
         _cache?.writeNotificationsEnabled(enabled) ?? Future<void>.value());
     if (enabled) {
       await notificationService.init();
-      await notificationService.requestPermission();
+      final granted = await notificationService.requestPermission();
+      // Nur nach erteilter Permission planen — ohne sie wuerde zonedSchedule
+      // ins Leere laufen (bzw. auf Android 13+ still verpuffen).
+      if (granted) await _rescheduleStreakReminder();
     } else {
       await notificationService.cancelAll();
     }
+  }
+
+  /// Plant die abendlichen Streak-Reminder fuer die naechsten 7 Tage neu.
+  /// scheduleAll arbeitet cancel-first, daher immer die volle Planner-Liste —
+  /// kein Duplikat-Risiko bei wiederholten Aufrufen (Boot, Toggle, jeder Log).
+  /// Guard: ohne Opt-in wird nie geplant.
+  Future<void> _rescheduleStreakReminder() async {
+    if (!_notificationsEnabled) return;
+    await notificationService
+        .scheduleAll(planStreakReminders(DateTime.now(), lifetimeStats));
   }
 
   /// Schaltet Erinnerungen ein/aus (Settings-Toggle). Oeffentliche Fassade fuer
@@ -529,11 +552,61 @@ class HomeStore extends ChangeNotifier {
         healthAuthState = HealthAuthState.granted;
       }
     });
+    // Gewichts-Import-Pfad: das Snapshot-Gewicht nicht laenger wegwerfen,
+    // sondern (dedupliziert) zum Uebernehmen anbieten.
+    if (snapshot != null) {
+      _maybeOfferHealthWeight(snapshot.latestWeightKg);
+    }
+  }
+
+  /// Bietet ein aus Apple Health gelesenes Gewicht per Snack zum Uebernehmen
+  /// an. Angeboten wird nur, wenn
+  ///  * ueberhaupt ein Wert im Snapshot steckt,
+  ///  * er sinnvoll vom letzten geloggten Gewicht abweicht (>= 0.1 kg) ODER
+  ///    noch nie gewogen wurde,
+  ///  * derselbe Wert nicht schon einmal angeboten wurde (In-Memory-Dedup,
+  ///    siehe [_lastOfferedHealthWeightKg]).
+  /// Nach einem Import greift die 0.1-kg-Schwelle von selbst, weil
+  /// weightLog.latest dann == kg ist — kein erneutes Angebot.
+  void _maybeOfferHealthWeight(double? kg) {
+    if (_disposed || kg == null || kg <= 0) return;
+    final lastLogged = weightLog.latest?.weightKg;
+    if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
+    if (_lastOfferedHealthWeightKg == kg) return;
+    _lastOfferedHealthWeightKg = kg;
+    // Deutsche Formatierung: Komma, eine Nachkommastelle (z.B. "82,4").
+    final label = kg.toStringAsFixed(1).replaceAll('.', ',');
+    _emitSnack(
+      'Apple Health: $label kg übernehmen?',
+      icon: Icons.monitor_weight_outlined,
+      accent: lime,
+      // Unaufgefordertes Angebot beim Resume/Kaltstart: etwas laenger sichtbar
+      // als Standard-Action-Snacks (kSnackAction), damit der Tap realistisch
+      // treffbar ist, bevor der Toast von selbst verschwindet.
+      duration: const Duration(milliseconds: 3500),
+      action: SnackBarAction(
+        label: 'Übernehmen',
+        onPressed: () => importHealthWeight(kg),
+      ),
+    );
   }
 
   // --- Koerperdaten (Profil) ------------------------------------------------
 
-  void logWeight(double kg) {
+  /// Manuelles Wiegen (User tippt den Wert ein): loggt lokal + synct + spiegelt
+  /// den Wert per Write-Back nach HealthKit.
+  void logWeight(double kg) => _logWeightInternal(kg, writeToHealth: true);
+
+  /// Import AUS Apple Health (Tap auf die „Übernehmen"-Snack-Aktion): identisch
+  /// zu [logWeight], aber OHNE `health.writeWeight` — der Wert stammt ja aus
+  /// HealthKit, ein Write-Back wuerde dort ein Echo-Duplikat anlegen.
+  void importHealthWeight(double kg) =>
+      _logWeightInternal(kg, writeToHealth: false);
+
+  /// Gemeinsamer Kern von [logWeight] und [importHealthWeight]. Die leichte
+  /// Haptik laeuft bewusst in BEIDEN Pfaden: auch der Import wird durch einen
+  /// User-Tap (Snack-Aktion) ausgeloest, die Bestaetigung ist also konsistent.
+  void _logWeightInternal(double kg, {required bool writeToHealth}) {
     HapticFeedback.lightImpact();
     final ts = DateTime.now();
     final prevWeightLog = weightLog;
@@ -542,7 +615,9 @@ class HomeStore extends ChangeNotifier {
       weightLog = weightLog.add(kg);
       lifetimeStats = lifetimeStats.incrementWeightLogs();
     });
-    unawaited(health.writeWeight(kg, ts));
+    if (writeToHealth) {
+      unawaited(health.writeWeight(kg, ts));
+    }
     final s = sync;
     if (s == null) return;
     s.tracking.insertWeight(kg, ts).then((_) {
@@ -554,6 +629,14 @@ class HomeStore extends ChangeNotifier {
           weightLog = prevWeightLog;
           lifetimeStats = prevStats;
         });
+        // Import-Rollback: Dedup-Marker wieder freigeben. Der Wert wurde NICHT
+        // uebernommen — ohne Reset wuerde _maybeOfferHealthWeight ihn fuer den
+        // Rest der Session nie wieder anbieten. Nur im Import-Pfad relevant:
+        // beim manuellen Wiegen ist ein frueheres Angebot bewusst abgelehnt
+        // worden und soll nicht erneut nerven.
+        if (!writeToHealth && _lastOfferedHealthWeightKg == kg) {
+          _lastOfferedHealthWeightKg = null;
+        }
       }
     });
   }
@@ -592,6 +675,13 @@ class HomeStore extends ChangeNotifier {
         macroProgress = macroProgressForFoodDate(DateTime.now());
       }
     });
+    if (targetIsToday) {
+      // Heute ist jetzt getrackt -> heutigen 20-Uhr-Reminder fallen lassen
+      // und das 7-Tage-Fenster ab morgen neu aufziehen. Der optimistische
+      // recordTrackedDay-Stand oben reicht dem Planner; der spaetere
+      // Server-Refresh via _recordTrackingDay aendert am Plan nichts mehr.
+      unawaited(_rescheduleStreakReminder());
+    }
     final s = sync;
     if (s == null) return entry.id;
     s.meals.insertLoggedMeal(entry).then((_) {
@@ -606,6 +696,13 @@ class HomeStore extends ChangeNotifier {
           dailyConsumedKcal = prevKcal;
           macroProgress = prevMacros;
         });
+        if (targetIsToday) {
+          // Rollback macht heute wieder "ungetrackt" — den oben bereits
+          // gecancelten heutigen 20-Uhr-Reminder zurueckholen, sonst bliebe
+          // ausgerechnet der Abend ohne Streak-Retter, an dem der Log
+          // fehlgeschlagen ist.
+          unawaited(_rescheduleStreakReminder());
+        }
       }
     });
     return entry.id;
