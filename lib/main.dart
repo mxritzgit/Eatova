@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'src/app/shiftfit_app.dart';
 import 'src/config/supabase_config.dart';
@@ -9,6 +10,11 @@ export 'src/app/shiftfit_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Die Layouts sind nur fuer Hochformat ausgelegt — Rotation ist deshalb
+  // app-weit deaktiviert (Handy UND Tablet). Auf iOS greift zusaetzlich das
+  // Portrait-only-Set in ios/Runner/Info.plist; Desktop/Web ignorieren
+  // setPreferredOrientations ohnehin (No-Op).
+  SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
   try {
     await FitPilotSupabaseConfig.initialize();
   } catch (error, stack) {
