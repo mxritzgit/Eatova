@@ -10,15 +10,14 @@ import 'package:shiftfit/src/services/lifetime_stats_sync.dart';
 // INT-1 / DATA-1: LifetimeStatsSync schreibt seit dem Audit 2026-06-04 NICHT
 // mehr absolut (read-modify-write upsert), sondern ueber zwei atomare RPCs:
 //   * increment_lifetime_stats(p_water,p_steps,p_meals,p_weight_logs,p_workouts)
-//   * record_workout_day(p_day)
+//   * record_tracking_day(p_day) — Logging-Streak (seit 2026-08-04; ersetzt
+//     record_workout_day nach dem Training-Tab-Aus)
 // Beide geben die frische public.lifetime_stats-Zeile zurueck. Diese Tests
 // treiben den echten SupabaseClient mit einem MockClient (package:http/testing)
 // und verifizieren das beobachtbare Verhalten ueber die PUBLIC API:
 //   1. increment schickt die DELTAS als RPC-Params (nicht absolute Summen).
 //   2. increment parst die zurueckgegebene Zeile in LifetimeStats.
-//   3. recordWorkoutDay schickt p_day als yyyy-MM-dd und parst die Zeile.
-//   4. workouts wird NICHT ueber increment hochgezaehlt (Param p_workouts fehlt
-//      bzw. 0) — das macht record_workout_day serverseitig selbst.
+//   3. recordTrackingDay schickt p_day als yyyy-MM-dd und parst die Zeile.
 
 LifetimeStatsSync _sync(
   Future<http.Response> Function(http.Request request) handler,
@@ -48,7 +47,7 @@ Map<String, dynamic> _statsRow({
   int weightLogs = 0,
   int currentStreak = 0,
   int longestStreak = 0,
-  String? lastWorkoutDate,
+  String? lastTrackedDate,
 }) {
   return <String, dynamic>{
     'workouts_completed': workouts,
@@ -58,7 +57,7 @@ Map<String, dynamic> _statsRow({
     'weight_logs': weightLogs,
     'current_streak': currentStreak,
     'longest_streak': longestStreak,
-    'last_workout_date': lastWorkoutDate,
+    'last_workout_date': lastTrackedDate,
     'session_start': '2026-06-01T00:00:00Z',
   };
 }
@@ -117,7 +116,7 @@ void main() {
     });
   });
 
-  group('LifetimeStatsSync.recordWorkoutDay', () {
+  group('LifetimeStatsSync.recordTrackingDay', () {
     test('schickt p_day als yyyy-MM-dd und parst Streak-Felder', () async {
       Map<String, dynamic>? sentBody;
       String? sentPath;
@@ -129,22 +128,22 @@ void main() {
             workouts: 12,
             currentStreak: 4,
             longestStreak: 9,
-            lastWorkoutDate: '2026-06-04',
+            lastTrackedDate: '2026-06-04',
           ),
           request: req,
         );
       });
 
-      final result = await sync.recordWorkoutDay(DateTime(2026, 6, 4, 18, 30));
+      final result = await sync.recordTrackingDay(DateTime(2026, 6, 4, 18, 30));
 
-      expect(sentPath, contains('rpc/record_workout_day'));
+      expect(sentPath, contains('rpc/record_tracking_day'));
       // Uhrzeit wird gestrippt → reines Datum.
       expect(sentBody, containsPair('p_day', '2026-06-04'));
 
       expect(result.workoutsCompleted, 12);
       expect(result.currentStreak, 4);
       expect(result.longestStreak, 9);
-      expect(result.lastWorkoutDate, DateTime(2026, 6, 4));
+      expect(result.lastTrackedDate, DateTime(2026, 6, 4));
     });
   });
 }

@@ -243,7 +243,7 @@ class LocalCache {
         'current_streak': s.currentStreak,
         'longest_streak': s.longestStreak,
         'last_workout_date':
-            s.lastWorkoutDate == null ? null : _dateOnly(s.lastWorkoutDate!),
+            s.lastTrackedDate == null ? null : _dateOnly(s.lastTrackedDate!),
       };
 
   static int _int(Object? v, int fallback) {

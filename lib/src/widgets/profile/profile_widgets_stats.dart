@@ -178,13 +178,15 @@ class AchievementsGrid extends StatelessWidget {
   const AchievementsGrid({
     super.key,
     required this.stats,
-    required this.workoutStreak,
+    required this.trackingStreak,
     required this.weightLogs,
     required this.favoritesCount,
   });
 
   final LifetimeStats stats;
-  final int workoutStreak;
+
+  /// Logging-Streak (effectiveStreakOn): Tage in Folge mit >= 1 Mahlzeit.
+  final int trackingStreak;
   final int weightLogs;
   final int favoritesCount;
 
@@ -194,18 +196,18 @@ class AchievementsGrid extends StatelessWidget {
       _Achievement(
         icon: Icons.local_fire_department_rounded,
         title: 'Erster Streak',
-        subtitle: workoutStreak >= 1 ? 'Erreicht' : '1 Workout durchziehen',
+        subtitle: trackingStreak >= 1 ? 'Erreicht' : '1 Tag Essen loggen',
         color: orange,
-        unlocked: workoutStreak >= 1,
+        unlocked: trackingStreak >= 1,
       ),
       _Achievement(
         icon: Icons.calendar_view_week_rounded,
         title: '3er Streak',
-        subtitle: workoutStreak >= 3
+        subtitle: trackingStreak >= 3
             ? 'Drei Tage am Stück'
-            : '${(3 - workoutStreak).clamp(1, 3)} bis zum Badge',
+            : '${(3 - trackingStreak).clamp(1, 3)} bis zum Badge',
         color: lime,
-        unlocked: workoutStreak >= 3,
+        unlocked: trackingStreak >= 3,
       ),
       _Achievement(
         icon: Icons.restaurant_rounded,

@@ -109,7 +109,7 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 14),
               AchievementsGrid(
                 stats: stats,
-                workoutStreak: stats.currentStreak,
+                trackingStreak: stats.effectiveStreakOn(DateTime.now()),
                 weightLogs: weightLog.entries.length,
                 favoritesCount: favoritesCount,
               ),

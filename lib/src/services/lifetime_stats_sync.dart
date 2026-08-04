@@ -14,10 +14,11 @@ import '../models/lifetime_stats.dart';
 ///   * increment_lifetime_stats(p_water,p_steps,p_meals,p_weight_logs,
 ///     p_workouts) — addiert die uebergebenen Deltas atomar (col = col + p_x)
 ///     und gibt die frische Zeile zurueck.
-///   * record_workout_day(p_day) — fuehrt die Streak persistent fort (liest
-///     last_workout_date aus der DB statt aus In-Memory) und zaehlt dabei
-///     workouts_completed selbst +1 hoch. Gibt die frische Zeile zurueck.
-/// Siehe Migration 20260604120000_lifetime_increment_rpcs.sql.
+///   * record_tracking_day(p_day) — fuehrt die Logging-Streak persistent
+///     fort (liest last_workout_date aus der DB statt aus In-Memory).
+///     Gibt die frische Zeile zurueck.
+/// Siehe Migrationen 20260604120000_lifetime_increment_rpcs.sql +
+/// 20260804120000_tracking_streak.sql.
 class LifetimeStatsSync {
   LifetimeStatsSync(this._client, this._userId);
 
@@ -48,9 +49,8 @@ class LifetimeStatsSync {
   /// Zaehlt die uebergebenen Deltas serverseitig-atomar hoch und liefert die
   /// frische public.lifetime_stats-Zeile zurueck. Nur die gesetzten Felder
   /// (water/steps/meals/weightLogs) werden addiert; die uebrigen RPC-Parameter
-  /// defaulten serverseitig auf 0. workouts wird bewusst NICHT hier
-  /// hochgezaehlt — dafuer ist [recordWorkoutDay] zustaendig (zaehlt
-  /// workouts_completed zusammen mit der Streak in EINEM atomaren Call hoch).
+  /// defaulten serverseitig auf 0. Die Streak laeuft bewusst NICHT hier —
+  /// dafuer ist [recordTrackingDay] zustaendig (idempotent pro Tag).
   ///
   /// Negative oder 0-Deltas sind erlaubt (Server clampt mit greatest(x,0));
   /// ein leeres bzw. komplett-0 Delta ist ein No-op-Call, der einfach die
@@ -79,20 +79,20 @@ class LifetimeStatsSync {
     }
   }
 
-  /// Verbucht einen abgeschlossenen Workout-Tag serverseitig: schreibt die
-  /// Streak (current/longest/last_workout_date) persistent fort UND zaehlt
-  /// workouts_completed +1 (im idempotenten „heute schon gezaehlt"-Fall passiert
-  /// nichts). Gibt die frische Zeile zurueck — current_streak/longest_streak/
-  /// last_workout_date sind jetzt Server-Wahrheit.
-  Future<LifetimeStats> recordWorkoutDay(DateTime day) async {
+  /// Verbucht einen getrackten Tag (>= 1 geloggte Mahlzeit) serverseitig:
+  /// schreibt die Logging-Streak (current/longest/last_workout_date)
+  /// persistent fort. Idempotent pro Tag; Tage VOR dem letzten gezaehlten
+  /// Tag sind serverseitig ein No-op (Food-Kalender-Nachtraege). Gibt die
+  /// frische Zeile zurueck — die Streak-Felder sind jetzt Server-Wahrheit.
+  Future<LifetimeStats> recordTrackingDay(DateTime day) async {
     try {
       final row = await _client.rpc(
-        'record_workout_day',
+        'record_tracking_day',
         params: <String, dynamic>{'p_day': _dateOnly(day)},
       ).select().single();
       return LifetimeStats.fromRow(row);
     } catch (e, stack) {
-      dev.log('LifetimeStatsSync.recordWorkoutDay failed',
+      dev.log('LifetimeStatsSync.recordTrackingDay failed',
           error: e, stackTrace: stack, name: 'lifetime_stats_sync');
       rethrow;
     }

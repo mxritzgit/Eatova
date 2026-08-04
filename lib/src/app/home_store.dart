@@ -391,6 +391,22 @@ class HomeStore extends ChangeNotifier {
     unawaited(_cache?.writeLifetimeStats(lifetimeStats) ?? Future<void>.value());
   }
 
+  /// Schreibt den heutigen Logging-Tag serverseitig in die Streak
+  /// (record_tracking_day, idempotent pro Tag) und adoptiert die frische
+  /// Server-Zeile. Fehler bleiben still — der optimistische lokale
+  /// recordTrackedDay-Stand gilt dann bis zum naechsten Load/Log weiter.
+  void _recordTrackingDay() {
+    final s = sync;
+    if (s == null) return;
+    s.lifetimeStats.recordTrackingDay(DateTime.now()).then((fresh) {
+      if (_disposed) return;
+      _mutate(() => lifetimeStats = fresh);
+      _cacheLifetimeStats();
+    }).catchError((Object e) {
+      dev.log('recordTrackingDay failed', error: e, name: 'home_store');
+    });
+  }
+
   // --- Erinnerungen (PROD-1) ------------------------------------------------
   // Die Nudge-Inhalte (Hydration/Koffein/Schlaf/Streak) lebten in der
   // NotificationContentEngine und sind mit dem Heute-Tab entfernt worden.
@@ -564,6 +580,11 @@ class HomeStore extends ChangeNotifier {
     final prevStats = lifetimeStats;
     _mutate(() {
       lifetimeStats = lifetimeStats.incrementMeals();
+      if (targetIsToday) {
+        // Logging-Streak: der heutige Log-Tag zaehlt sofort (optimistisch,
+        // idempotent pro Tag). Nachtraege fuer vergangene Tage zaehlen nicht.
+        lifetimeStats = lifetimeStats.recordTrackedDay(DateTime.now());
+      }
       _rememberRecent(result);
       loggedMeals = [entry, ...loggedMeals];
       if (targetIsToday) {
@@ -575,6 +596,7 @@ class HomeStore extends ChangeNotifier {
     if (s == null) return entry.id;
     s.meals.insertLoggedMeal(entry).then((_) {
       _queueStatsDelta(meals: 1);
+      if (targetIsToday) _recordTrackingDay();
     }).catchError((Object e) {
       _reportSyncError('Mahlzeit', e);
       if (!_disposed) {

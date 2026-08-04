@@ -1,10 +1,9 @@
 /// Kumulierte Lebenszeit-Zaehler eines Users (1:1 public.lifetime_stats).
 ///
-/// Additiv erweitert um Streak-Felder (currentStreak/longestStreak/
-/// lastWorkoutDate), damit der Workout-Streak app-Neustarts ueberlebt.
-/// Alle bestehenden Felder + increment-Methoden bleiben unveraendert,
-/// damit Aufrufer (Home, ProfileScreen, kcal-Logik) byte-genau gleich
-/// funktionieren.
+/// Die Streak ist seit dem Training-Tab-Aus (2026-08-03) eine LOGGING-Streak:
+/// jeder Kalendertag mit mindestens einer geloggten Mahlzeit zaehlt. Die
+/// DB-Spalten heissen historisch weiter current_streak/longest_streak/
+/// last_workout_date — nur die Bedeutung (und die Dart-Namen) sind neu.
 class LifetimeStats {
   LifetimeStats({
     this.workoutsCompleted = 0,
@@ -14,7 +13,7 @@ class LifetimeStats {
     this.weightLogs = 0,
     this.currentStreak = 0,
     this.longestStreak = 0,
-    this.lastWorkoutDate,
+    this.lastTrackedDate,
     DateTime? sessionStart,
   }) : sessionStart = sessionStart ?? DateTime.now();
 
@@ -24,14 +23,15 @@ class LifetimeStats {
   final int stepsRecorded;
   final int weightLogs;
 
-  /// Aktuelle Workout-Streak in aufeinanderfolgenden Tagen.
+  /// Aktuelle Logging-Streak in aufeinanderfolgenden Tagen.
   final int currentStreak;
 
   /// Hoechste je erreichte Streak (Highscore, nie absteigend).
   final int longestStreak;
 
-  /// Datum (date-only) des letzten gezaehlten Workout-Tages, oder null.
-  final DateTime? lastWorkoutDate;
+  /// Datum (date-only) des letzten gezaehlten Logging-Tages, oder null.
+  /// Persistiert in der historisch benannten Spalte last_workout_date.
+  final DateTime? lastTrackedDate;
 
   final DateTime sessionStart;
 
@@ -45,7 +45,7 @@ class LifetimeStats {
     int? weightLogs,
     int? currentStreak,
     int? longestStreak,
-    DateTime? lastWorkoutDate,
+    DateTime? lastTrackedDate,
   }) {
     return LifetimeStats(
       workoutsCompleted: workoutsCompleted ?? this.workoutsCompleted,
@@ -55,7 +55,7 @@ class LifetimeStats {
       weightLogs: weightLogs ?? this.weightLogs,
       currentStreak: currentStreak ?? this.currentStreak,
       longestStreak: longestStreak ?? this.longestStreak,
-      lastWorkoutDate: lastWorkoutDate ?? this.lastWorkoutDate,
+      lastTrackedDate: lastTrackedDate ?? this.lastTrackedDate,
       sessionStart: sessionStart,
     );
   }
@@ -75,27 +75,34 @@ class LifetimeStats {
   LifetimeStats incrementWeightLogs() =>
       copyWith(weightLogs: weightLogs + 1);
 
-  /// Verbucht einen abgeschlossenen Workout-Tag und fuehrt den Streak fort.
+  /// Verbucht einen getrackten Tag (>= 1 geloggte Mahlzeit) und fuehrt die
+  /// Streak fort.
   ///
-  /// - War das letzte Workout *gestern* (relativ zu [day]), zaehlt der
-  ///   Streak +1 weiter.
-  /// - War das letzte Workout *heute* (selber Tag), bleibt der Streak
-  ///   unveraendert (idempotent — doppeltes Abhaken am gleichen Tag zaehlt
-  ///   nicht doppelt), nur lastWorkoutDate wird auf [day] normalisiert.
-  /// - Sonst (Luecke ≥ 1 Tag oder erster Workout) Reset auf 1.
+  /// - War der letzte getrackte Tag *gestern* (relativ zu [day]), zaehlt
+  ///   die Streak +1 weiter.
+  /// - Selber Tag: idempotent (doppeltes Loggen am gleichen Tag zaehlt
+  ///   nicht doppelt), nur lastTrackedDate wird auf [day] normalisiert.
+  /// - [day] liegt VOR lastTrackedDate: No-op — der Food-Kalender erlaubt
+  ///   Nachtraege fuer vergangene Tage, die duerfen die laufende Streak
+  ///   weder resetten noch fortschreiben.
+  /// - Sonst (Luecke >= 1 Tag oder erster Log) Reset auf 1.
   /// longestStreak = max(longestStreak, currentStreak danach).
-  LifetimeStats recordWorkoutDay(DateTime day) {
+  LifetimeStats recordTrackedDay(DateTime day) {
     final today = DateTime(day.year, day.month, day.day);
     int nextStreak;
-    if (lastWorkoutDate == null) {
+    if (lastTrackedDate == null) {
       nextStreak = 1;
     } else {
       final last = DateTime(
-        lastWorkoutDate!.year,
-        lastWorkoutDate!.month,
-        lastWorkoutDate!.day,
+        lastTrackedDate!.year,
+        lastTrackedDate!.month,
+        lastTrackedDate!.day,
       );
       final diffDays = today.difference(last).inDays;
+      if (diffDays < 0) {
+        // Nachtrag fuer einen vergangenen Tag — Streak unangetastet.
+        return this;
+      }
       if (diffDays == 0) {
         // Schon heute gezaehlt — idempotent, Streak haelt.
         nextStreak = currentStreak < 1 ? 1 : currentStreak;
@@ -110,8 +117,22 @@ class LifetimeStats {
     return copyWith(
       currentStreak: nextStreak,
       longestStreak: nextLongest,
-      lastWorkoutDate: today,
+      lastTrackedDate: today,
     );
+  }
+
+  /// Streak fuer die ANZEIGE: currentStreak solange die Kette noch lebt
+  /// (letzter getrackter Tag ist heute oder gestern relativ zu [now]),
+  /// sonst 0. currentStreak selbst bleibt bis zum naechsten Log stehen —
+  /// ohne diesen Check wuerde eine laengst gerissene Kette weiter ihren
+  /// alten Wert zeigen.
+  int effectiveStreakOn(DateTime now) {
+    final last = lastTrackedDate;
+    if (last == null) return 0;
+    final today = DateTime(now.year, now.month, now.day);
+    final lastDay = DateTime(last.year, last.month, last.day);
+    final diffDays = today.difference(lastDay).inDays;
+    return diffDays <= 1 ? currentStreak : 0;
   }
 
   /// Baut LifetimeStats aus einer public.lifetime_stats-Zeile. Defensiv:
@@ -126,7 +147,7 @@ class LifetimeStats {
       weightLogs: _toInt(row['weight_logs']),
       currentStreak: _toInt(row['current_streak']),
       longestStreak: _toInt(row['longest_streak']),
-      lastWorkoutDate: _toDate(row['last_workout_date']),
+      lastTrackedDate: _toDate(row['last_workout_date']),
       sessionStart: _toDate(row['session_start']),
     );
   }
@@ -144,7 +165,7 @@ class LifetimeStats {
       'current_streak': currentStreak,
       'longest_streak': longestStreak,
       'last_workout_date':
-          lastWorkoutDate == null ? null : _dateOnly(lastWorkoutDate!),
+          lastTrackedDate == null ? null : _dateOnly(lastTrackedDate!),
     };
   }
 

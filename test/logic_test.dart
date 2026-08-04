@@ -76,30 +76,30 @@ void main() {
     });
   });
 
-  group('LifetimeStats.recordWorkoutDay (Streak)', () {
+  group('LifetimeStats.recordTrackedDay (Logging-Streak)', () {
     final day1 = DateTime(2026, 6, 1);
     final day2 = DateTime(2026, 6, 2);
     final day4 = DateTime(2026, 6, 4);
 
-    test('erster Workout -> Streak 1', () {
-      final s = LifetimeStats().recordWorkoutDay(day1);
+    test('erster Log-Tag -> Streak 1', () {
+      final s = LifetimeStats().recordTrackedDay(day1);
       expect(s.currentStreak, 1);
       expect(s.longestStreak, 1);
     });
     test('gestern -> +1', () {
-      final s = LifetimeStats().recordWorkoutDay(day1).recordWorkoutDay(day2);
+      final s = LifetimeStats().recordTrackedDay(day1).recordTrackedDay(day2);
       expect(s.currentStreak, 2);
       expect(s.longestStreak, 2);
     });
     test('selber Tag erneut -> idempotent (kein Doppel-Zählen)', () {
-      final s = LifetimeStats().recordWorkoutDay(day1).recordWorkoutDay(day1);
+      final s = LifetimeStats().recordTrackedDay(day1).recordTrackedDay(day1);
       expect(s.currentStreak, 1);
     });
     test('Lücke ≥ 1 Tag -> Reset auf 1, longestStreak bleibt', () {
       final s = LifetimeStats()
-          .recordWorkoutDay(day1)
-          .recordWorkoutDay(day2) // Streak 2
-          .recordWorkoutDay(day4); // Lücke (day3 fehlt)
+          .recordTrackedDay(day1)
+          .recordTrackedDay(day2) // Streak 2
+          .recordTrackedDay(day4); // Lücke (day3 fehlt)
       expect(s.currentStreak, 1);
       expect(s.longestStreak, 2);
     });
@@ -110,7 +110,7 @@ void main() {
         waterTotalMl: 12000,
         currentStreak: 3,
         longestStreak: 9,
-        lastWorkoutDate: day2,
+        lastTrackedDate: day2,
       );
       final back = LifetimeStats.fromRow(s.toRow());
       expect(back.workoutsCompleted, 7);
@@ -118,7 +118,7 @@ void main() {
       expect(back.waterTotalMl, 12000);
       expect(back.currentStreak, 3);
       expect(back.longestStreak, 9);
-      expect(back.lastWorkoutDate, day2);
+      expect(back.lastTrackedDate, day2);
     });
     test('fromRow ist defensiv bei fehlenden/falschen Spalten', () {
       final back = LifetimeStats.fromRow(<String, dynamic>{
@@ -128,7 +128,7 @@ void main() {
       expect(back.workoutsCompleted, 5);
       expect(back.mealsLogged, 0);
       expect(back.currentStreak, 0);
-      expect(back.lastWorkoutDate, isNull);
+      expect(back.lastTrackedDate, isNull);
     });
   });
 

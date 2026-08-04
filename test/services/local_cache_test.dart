@@ -100,7 +100,7 @@ void main() {
         weightLogs: 9,
         currentStreak: 4,
         longestStreak: 11,
-        lastWorkoutDate: DateTime(2026, 6, 3),
+        lastTrackedDate: DateTime(2026, 6, 3),
       );
 
       await cache.writeLifetimeStats(stats);
@@ -114,7 +114,7 @@ void main() {
       expect(back.weightLogs, 9);
       expect(back.currentStreak, 4);
       expect(back.longestStreak, 11);
-      expect(back.lastWorkoutDate, DateTime(2026, 6, 3));
+      expect(back.lastTrackedDate, DateTime(2026, 6, 3));
     });
 
     test('leerer Cache -> null', () async {
