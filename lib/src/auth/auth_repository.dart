@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import 'google_id_token_provider.dart';
 
 class EatovaUser {
   const EatovaUser({required this.id, this.email, this.displayName});
@@ -52,9 +53,14 @@ abstract class AuthRepository {
 }
 
 class SupabaseAuthRepository implements AuthRepository {
-  const SupabaseAuthRepository(this._client);
+  const SupabaseAuthRepository(
+    this._client, {
+    GoogleIdTokenProvider? googleIdTokenProvider,
+  }) : _googleIdTokenProvider =
+           googleIdTokenProvider ?? const GoogleSignInIdTokenProvider();
 
   final SupabaseClient _client;
+  final GoogleIdTokenProvider _googleIdTokenProvider;
 
   @override
   EatovaUser? get currentUser => _mapUser(_client.auth.currentUser);
@@ -95,15 +101,37 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {
-    // inAppBrowserView oeffnet SFSafariViewController (iOS) bzw. Chrome
-    // Custom Tabs (Android) - ein Sheet das ueber der App liegt und sich
-    // automatisch schliesst sobald das eatova://login-callback/ Scheme
-    // greift. Fuehlt sich an wie "in der App geblieben", waehrend die
-    // Cookie- und Auth-Logik des echten System-Browsers benutzt wird.
-    //
-    // Wichtig: kein inAppWebView - das waere ein embedded WKWebView,
-    // den Google explizit fuer OAuth blockt (Account-Hijacking-Policy
-    // seit 2017).
+    if (provider == EatovaOAuthProvider.google) {
+      final nativeOk = await runNativeGoogleSignIn(
+        tokenProvider: _googleIdTokenProvider,
+        exchangeIdToken: (idToken) async {
+          await _client.auth.signInWithIdToken(
+            provider: OAuthProvider.google,
+            idToken: idToken,
+          );
+        },
+      );
+      if (nativeOk) return;
+      // Technischer Fehler im nativen Flow (keine Play Services, Client
+      // noch nicht propagiert, ...) - Login soll nie kaputter sein als
+      // frueher, also runter in den bewaehrten Web-Flow.
+    }
+    await _signInWithWebOAuth(provider);
+  }
+
+  /// Web-OAuth via Browser-Sheet - Standardweg fuer Apple, Fallback fuer
+  /// Google (dort zeigt Google zwangsweise die Supabase-Domain an).
+  ///
+  /// inAppBrowserView oeffnet SFSafariViewController (iOS) bzw. Chrome
+  /// Custom Tabs (Android) - ein Sheet das ueber der App liegt und sich
+  /// automatisch schliesst sobald das eatova://login-callback/ Scheme
+  /// greift. Fuehlt sich an wie "in der App geblieben", waehrend die
+  /// Cookie- und Auth-Logik des echten System-Browsers benutzt wird.
+  ///
+  /// Wichtig: kein inAppWebView - das waere ein embedded WKWebView,
+  /// den Google explizit fuer OAuth blockt (Account-Hijacking-Policy
+  /// seit 2017).
+  Future<void> _signInWithWebOAuth(EatovaOAuthProvider provider) async {
     final launched = await _client.auth.signInWithOAuth(
       provider.supabaseProvider,
       redirectTo: EatovaSupabaseConfig.oauthRedirectUrl,
