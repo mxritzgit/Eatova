@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
 import '../theme/app_colors.dart';
+import '../widgets/shared/eatova_wordmark.dart';
 
 /// Eatova Auth - ruhiger, immersiver Dark-Screen.
 ///
@@ -237,7 +238,7 @@ class _AuroraBackdrop extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Brand-Mark - Lime-Kachel mit Bolt + Wortmarke.
+// Brand-Mark - Eatova-Wortmarke mit Fokusring-o (Logo 2026-08).
 // ═════════════════════════════════════════════════════════════════════
 
 class _BrandMark extends StatelessWidget {
@@ -245,36 +246,9 @@ class _BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return const Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: lime,
-            borderRadius: BorderRadius.circular(rControl),
-            boxShadow: [
-              BoxShadow(
-                color: lime.withValues(alpha: 0.40),
-                blurRadius: 22,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: const Icon(Icons.bolt_rounded, color: _ink, size: 24),
-        ),
-        const SizedBox(width: 11),
-        const Text(
-          'Eatova',
-          style: TextStyle(
-            fontSize: 21,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.6,
-            color: textPrimary,
-          ),
-        ),
-      ],
+      children: [EatovaWordmark(fontSize: 26)],
     );
   }
 }
@@ -881,14 +855,24 @@ class _InlineNote extends StatelessWidget {
   }
 }
 
-/// Datenschutz-Hinweis + tappbarer Link zur Policy (DSGVO Art. 13 / App-Store).
+/// Rechts-Hinweis + tappbare Links auf AGB und Datenschutzerklärung
+/// (DSGVO Art. 13 / App-Store); beide liegen auf eatova.de.
 class _ConsentNotice extends StatelessWidget {
   const _ConsentNotice();
 
-  static final Uri _privacyUrl = Uri.parse(kPrivacyUrl);
+  static Future<void> _open(String url) async {
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
 
-  Future<void> _openPrivacy() async {
-    await launchUrl(_privacyUrl, mode: LaunchMode.externalApplication);
+  TextSpan _link(String text, String url) {
+    return TextSpan(
+      text: text,
+      style: const TextStyle(
+        color: forgeLime,
+        fontWeight: FontWeight.w700,
+      ),
+      recognizer: TapGestureRecognizer()..onTap = () => _open(url),
+    );
   }
 
   @override
@@ -905,18 +889,13 @@ class _ConsentNotice extends StatelessWidget {
             fontWeight: FontWeight.w500,
           ),
           children: [
+            const TextSpan(text: 'Mit der Anmeldung akzeptierst du unsere '),
+            _link('AGB', kTermsUrl),
             const TextSpan(
-              text: 'Mit der Anmeldung stimmst du der Verarbeitung deiner '
-                  'Gesundheits- und Ernährungsdaten gemäß der ',
+              text: ' und stimmst der Verarbeitung deiner Gesundheits- und '
+                  'Ernährungsdaten gemäß der ',
             ),
-            TextSpan(
-              text: 'Datenschutzerklärung',
-              style: const TextStyle(
-                color: forgeLime,
-                fontWeight: FontWeight.w700,
-              ),
-              recognizer: TapGestureRecognizer()..onTap = _openPrivacy,
-            ),
+            _link('Datenschutzerklärung', kPrivacyUrl),
             const TextSpan(text: ' zu.'),
           ],
         ),
