@@ -496,26 +496,79 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               ),
             ),
             const SizedBox(height: 8),
-            // DSGVO Art. 13 / App-Store: Datenschutz auch in den Settings
-            // erreichbar (nach dem Login), nicht nur auf dem Auth-Screen.
-            Center(
-              child: TextButton.icon(
-                key: const ValueKey('settings-privacy-link'),
-                onPressed: () => launchUrl(
-                  Uri.parse(kPrivacyUrl),
-                  mode: LaunchMode.externalApplication,
-                ),
-                icon: const Icon(Icons.shield_outlined, size: 15),
-                label: const Text(
-                  'Datenschutzerklärung',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                ),
-                style: TextButton.styleFrom(foregroundColor: textMuted),
+            // DSGVO Art. 13 / § 5 DDG / App-Store: Rechtsseiten auch in den
+            // Settings erreichbar (nach dem Login), nicht nur auf dem
+            // Auth-Screen. Alle drei liegen auf eatova.de.
+            const Center(
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  _LegalLink(
+                    key: ValueKey('settings-privacy-link'),
+                    label: 'Datenschutz',
+                    url: kPrivacyUrl,
+                  ),
+                  _LegalDot(),
+                  _LegalLink(
+                    key: ValueKey('settings-terms-link'),
+                    label: 'AGB',
+                    url: kTermsUrl,
+                  ),
+                  _LegalDot(),
+                  _LegalLink(
+                    key: ValueKey('settings-imprint-link'),
+                    label: 'Impressum',
+                    url: kImprintUrl,
+                  ),
+                ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rechts-Links (Datenschutz / AGB / Impressum -> eatova.de)
+// ---------------------------------------------------------------------------
+
+class _LegalLink extends StatelessWidget {
+  const _LegalLink({super.key, required this.label, required this.url});
+
+  final String label;
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: () => launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      ),
+      style: TextButton.styleFrom(
+        foregroundColor: textMuted,
+        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+}
+
+class _LegalDot extends StatelessWidget {
+  const _LegalDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Text(
+      '·',
+      style: TextStyle(color: textMuted, fontSize: 12),
     );
   }
 }
