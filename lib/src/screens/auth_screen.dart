@@ -128,7 +128,10 @@ class _AuthScreenState extends State<AuthScreen> {
     if (raw.contains('redirect') || raw.contains('callback')) {
       return 'OAuth Redirect ist noch nicht korrekt eingetragen.';
     }
-    if (raw.contains('cancel')) {
+    // 'cancel' faengt englische SDK-Fehler, 'abgebrochen' unsere eigenen
+    // deutschen AuthExceptions (z. B. Google-Abbruch im nativen Flow) -
+    // sonst landet ein simpler User-Abbruch in der Generik-Meldung.
+    if (raw.contains('cancel') || raw.contains('abgebrochen')) {
       return 'Login wurde abgebrochen.';
     }
     return 'Das hat gerade nicht geklappt. Bitte nochmal versuchen.';
