@@ -66,6 +66,12 @@ dependencies:
   # damit Tests / nicht unterstuetzte Plattformen weiter auf UTC zurueckfallen.
   flutter_timezone: ^5.1.0
   camera: ^0.12.0+2
+  # google_sign_in traegt den NATIVEN Google-Login (Credential-Manager-Sheet
+  # auf Android, Google-SDK-Dialog auf iOS). Das Sheet zeigt den Consent-
+  # Screen-App-Namen "Eatova" statt der Supabase-Domain - der Web-OAuth-Flow
+  # zeigt zwangsweise "to continue to <ref>.supabase.co" (Phishing-Schutz,
+  # nicht abstellbar). Das ID-Token wird per signInWithIdToken eingetauscht.
+  google_sign_in: ^7.2.0
 
 dev_dependencies:
   flutter_test:

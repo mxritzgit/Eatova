@@ -22,6 +22,22 @@ class EatovaSupabaseConfig {
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0b296enZtZHVwdHJ2cnJyc2hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4NDEyOTAsImV4cCI6MjA5MzQxNzI5MH0.5kx8LowjRc8q8uWqJmUGU8ZjCnplSRDC1NGhm-oG7to',
   );
 
+  // Google-OAuth-Client-IDs (GCP-Projekt inlaid-marker-469401-v6, siehe
+  // docs/superpowers/specs/2026-08-05-google-native-signin-design.md).
+  // Client-IDs sind oeffentlich (im Bundle extrahierbar), KEINE Secrets -
+  // gleiches Muster wie SUPABASE_URL oben.
+  static const String googleWebClientId = String.fromEnvironment(
+    'GOOGLE_WEB_CLIENT_ID',
+    defaultValue:
+        '534676906581-fi1vr2d0qvhsabh6hmbcvlap5i8t5557.apps.googleusercontent.com',
+  );
+
+  static const String googleIosClientId = String.fromEnvironment(
+    'GOOGLE_IOS_CLIENT_ID',
+    defaultValue:
+        '534676906581-h9no9hlboqtm3mfn56r95sg5c7n8no0u.apps.googleusercontent.com',
+  );
+
   static Future<void> initialize() async {
     // supabase_flutter 2.14 hat den Init-Parameter `anonKey` zugunsten von
     // `publishableKey` deprecatet (akzeptiert weiterhin den Legacy-anon-JWT).
