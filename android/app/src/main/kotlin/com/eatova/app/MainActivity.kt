@@ -1,5 +1,8 @@
 package com.eatova.app
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FlutterFragmentActivity (statt FlutterActivity), weil das health-Plugin
+// eine ComponentActivity braucht - mit FlutterActivity schlug seine
+// Registrierung mit ClassCastException fehl (Health-Sync auf Android tot).
+class MainActivity : FlutterFragmentActivity()
