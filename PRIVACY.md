@@ -1,13 +1,18 @@
 # Privacy Policy — Eatova
 
-_Last updated: 2026-06-09_
+_Last updated: 2026-08-05_
+
+> The authoritative, always-current version of this policy (in German, covering
+> both the app and the website) lives at
+> **[eatova.de/datenschutz](https://eatova.de/datenschutz)**.
 
 Eatova ("the app") is a fitness, recovery, and nutrition tracker. This policy
 explains what data the app processes, why, and the rights you have over it. It is
 written to satisfy GDPR (Art. 13/15–20) and the Apple App Store / Google Play
 health-data requirements.
 
-**Controller:** Moritz Gietl · moritz.gietl@gmail.com
+**Controller:** Moritz Gietl, Zellweg 6a, 92540 Altendorf, Germany ·
+support@eatova.de
 
 ## What data we process
 
@@ -49,9 +54,10 @@ contains no third-party analytics or ad SDKs.
 - **OpenRouter** routes your AI requests to the underlying model providers, solely
   to generate the response: coach-chat messages — together with the profile/progress
   snapshot and any photo you attach, as described above — are answered by **xAI's
-  Grok**, and the photo you submit for AI meal analysis is processed by **OpenAI's
-  GPT-4o-mini**. These requests run through our server (Supabase Edge Functions);
-  your API traffic is not used to train models under the configured API terms.
+  Grok**, and the photo you submit for AI meal analysis is processed by a model of
+  **Google's Gemini family**. These requests run through our server (Supabase Edge
+  Functions); your API traffic is not used to train models under the configured
+  API terms.
 - **OpenFoodFacts** is queried for public product/nutrition data when you
   search or scan a barcode. Your identity is not sent with these queries.
 - **Apple Speech Recognition** converts your spoken coach questions to text if you
@@ -79,7 +85,7 @@ You can, at any time:
 - **Withdraw consent** for Apple Health or voice input (in iOS Settings → Privacy)
   or AI features (by not using them).
 
-To exercise a right or ask a question, contact **moritz.gietl@gmail.com**. You also
+To exercise a right or ask a question, contact **support@eatova.de**. You also
 have the right to lodge a complaint with your data-protection authority.
 
 ## Retention
