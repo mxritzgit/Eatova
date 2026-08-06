@@ -28,8 +28,10 @@ class ExistingMealsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalKcal =
-        meals.fold<int>(0, (sum, m) => sum + m.result.caloriesKcal);
+    final totalKcal = meals.fold<int>(
+      0,
+      (sum, m) => sum + m.result.caloriesKcal,
+    );
     return Container(
       key: const ValueKey('analyse-existing-meals'),
       decoration: BoxDecoration(
@@ -48,8 +50,10 @@ class ExistingMealsList extends StatelessWidget {
                 Container(
                   width: 6,
                   height: 6,
-                  decoration:
-                      BoxDecoration(color: _accent, shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                    color: _accent,
+                    shape: BoxShape.circle,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 const Text(
@@ -82,7 +86,11 @@ class ExistingMealsList extends StatelessWidget {
                 indent: 14,
                 endIndent: 14,
               ),
-            _ExistingMealRow(meal: meals[i], onRemove: onRemove, onEdit: onEdit),
+            _ExistingMealRow(
+              meal: meals[i],
+              onRemove: onRemove,
+              onEdit: onEdit,
+            ),
           ],
         ],
       ),
@@ -149,11 +157,17 @@ class _ExistingMealRow extends StatelessWidget {
       ),
     );
     if (onEdit == null) return row;
-    return InkWell(
-      key: ValueKey('analyse-existing-edit-${meal.id}'),
-      onTap: () => onEdit!(meal),
-      borderRadius: BorderRadius.circular(rControl),
-      child: row,
+    // A11y: die Zeile sieht aus wie reine Anzeige — als Button mit klarer
+    // Aktion ansagen, sonst bleibt der Edit-Tap unentdeckbar.
+    return Semantics(
+      button: true,
+      hint: 'Mahlzeit bearbeiten',
+      child: InkWell(
+        key: ValueKey('analyse-existing-edit-${meal.id}'),
+        onTap: () => onEdit!(meal),
+        borderRadius: BorderRadius.circular(rControl),
+        child: row,
+      ),
     );
   }
 }

@@ -96,6 +96,9 @@ so you can revisit conversations; you can delete individual chat sessions in-app
 ## Children
 
 Eatova is not directed at children under 16 and should not be used by them.
+The app enforces this age limit technically: a profile age below 16 cannot be
+entered in the app, and the database rejects such values as well (minimum age
+16, in line with Art. 8 GDPR for consent involving health data under Art. 9).
 
 ## Changes
 

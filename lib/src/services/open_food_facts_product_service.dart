@@ -1,8 +1,8 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import '../models/meal_analysis_result.dart';
+import 'eatova_http.dart';
 
 abstract class ProductLookupService {
   Future<MealAnalysisResult> lookupBarcode(String barcode);
@@ -96,28 +96,35 @@ class OpenFoodFactsProductService implements ProductLookupService {
       throw const FormatException('Empty barcode.');
     }
 
-    final client = HttpClient();
+    final client = createHttpClient(HttpTimeoutPolicy.openFoodFacts);
     try {
-      final uri =
-          Uri.parse('$_productBaseUrl/$cleanBarcode.json?fields=$_fields');
-      final request = await client.getUrl(uri);
-      _setUserAgent(request);
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
+      final uri = Uri.parse(
+        '$_productBaseUrl/$cleanBarcode.json?fields=$_fields',
+      );
+      final response = await sendTextRequest(
+        client,
+        method: 'GET',
+        uri: uri,
+        policy: HttpTimeoutPolicy.openFoodFacts,
+        operation: 'off.lookupBarcode',
+        configure: _setUserAgent,
+      );
 
       // v3 liefert "nicht gefunden" als 404 MIT JSON-Body — erst parsen,
       // dann entscheiden. Nur echte Transportfehler (5xx, kein JSON) werfen
       // eine HttpException.
       final Map<String, dynamic> decoded;
       try {
-        decoded = jsonDecode(body) as Map<String, dynamic>;
+        decoded = jsonDecode(response.body) as Map<String, dynamic>;
       } catch (_) {
         throw HttpException(
-            'OpenFoodFacts lookup failed: ${response.statusCode}');
+          'OpenFoodFacts lookup failed: ${response.statusCode}',
+        );
       }
 
       final result = decoded['result'];
-      final found = result is Map<String, dynamic> &&
+      final found =
+          result is Map<String, dynamic> &&
           result['id'] == 'product_found' &&
           decoded['product'] is Map<String, dynamic>;
       if (!found) {
@@ -140,7 +147,7 @@ class OpenFoodFactsProductService implements ProductLookupService {
       return const <ProductSearchResult>[];
     }
 
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    final client = createHttpClient(HttpTimeoutPolicy.openFoodFacts);
     try {
       Object? lastError;
 
@@ -184,18 +191,22 @@ class OpenFoodFactsProductService implements ProductLookupService {
         'fields': _fields,
       },
     );
-    final request = await client.getUrl(uri).timeout(const Duration(seconds: 8));
-    _setUserAgent(request);
-    final response = await request.close().timeout(const Duration(seconds: 12));
-    final body = await response.transform(utf8.decoder).join().timeout(
-          const Duration(seconds: 12),
-        );
+    final response = await sendTextRequest(
+      client,
+      method: 'GET',
+      uri: uri,
+      policy: HttpTimeoutPolicy.openFoodFacts,
+      operation: 'off.searchProducts',
+      configure: _setUserAgent,
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HttpException('OpenFoodFacts search failed: ${response.statusCode}');
+      throw HttpException(
+        'OpenFoodFacts search failed: ${response.statusCode}',
+      );
     }
 
-    final decoded = jsonDecode(body) as Map<String, dynamic>;
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final products = decoded['products'];
     if (products is! List) {
       return const <ProductSearchResult>[];

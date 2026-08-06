@@ -208,6 +208,12 @@ jobs:
             deno check "$fn" || exit 1
             echo "::endgroup::"
           done
+      # Unit-Tests der Edge Functions (aktuell: Layer-1-Blocklist von
+      # coach-chat, prefilter_test.ts). Reine Regex-/Logik-Tests ohne
+      # externe Dependencies -> keine --allow-* Flags noetig.
+      - name: deno test
+        working-directory: supabase/functions
+        run: deno test
 
   supabase-migration-drift:
     name: Supabase migration drift (Management API)

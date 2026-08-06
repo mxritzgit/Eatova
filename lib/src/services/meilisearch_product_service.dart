@@ -1,9 +1,9 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import '../config/search_config.dart';
 import '../models/meal_analysis_result.dart';
+import 'eatova_http.dart';
 import 'open_food_facts_product_service.dart';
 
 /// Textsuche gegen den eigenen Meilisearch-Index (OFF-Dump, DE/AT/CH,
@@ -31,7 +31,8 @@ class MeilisearchProductService implements ProductLookupService {
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) {
     throw UnsupportedError(
-        'Barcode-Lookup laeuft ueber die OFF-Live-API (Fallback).');
+      'Barcode-Lookup laeuft ueber die OFF-Live-API (Fallback).',
+    );
   }
 
   @override
@@ -41,33 +42,31 @@ class MeilisearchProductService implements ProductLookupService {
       return const <ProductSearchResult>[];
     }
 
-    // Knackige Timeouts: der Mirror ist entweder schnell oder der
-    // FallbackProductService soll zuegig zu OpenFoodFacts weiterziehen.
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    // Knackige Timeouts (HttpTimeoutPolicy.mirror): der Mirror ist entweder
+    // schnell oder der FallbackProductService soll zuegig zu OpenFoodFacts
+    // weiterziehen.
+    final client = createHttpClient(HttpTimeoutPolicy.mirror);
     try {
       final uri = Uri.parse('$baseUrl/indexes/products/search');
-      final request = await client.postUrl(uri).timeout(
-            const Duration(seconds: 4),
-          );
-      request.headers
-        ..set(HttpHeaders.authorizationHeader, 'Bearer $searchKey')
-        ..contentType = ContentType.json;
-      request.write(jsonEncode(<String, Object>{
-        'q': cleanQuery,
-        'limit': 12,
-      }));
-      final response = await request.close().timeout(
-            const Duration(seconds: 6),
-          );
-      final body = await response.transform(utf8.decoder).join().timeout(
-            const Duration(seconds: 6),
-          );
+      final response = await sendTextRequest(
+        client,
+        method: 'POST',
+        uri: uri,
+        policy: HttpTimeoutPolicy.mirror,
+        operation: 'mirror.search',
+        configure: (request) {
+          request.headers
+            ..set(HttpHeaders.authorizationHeader, 'Bearer $searchKey')
+            ..contentType = ContentType.json;
+        },
+        body: jsonEncode(<String, Object>{'q': cleanQuery, 'limit': 12}),
+      );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('Mirror search failed: ${response.statusCode}');
       }
 
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final hits = decoded['hits'];
       if (hits is! List) {
         return const <ProductSearchResult>[];

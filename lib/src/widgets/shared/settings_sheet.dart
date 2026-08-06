@@ -6,6 +6,7 @@ import '../../config/legal_links.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../theme/app_colors.dart';
+import 'target_bmi_hint.dart';
 
 Future<SettingsResult?> showSettingsSheet(
   BuildContext context, {
@@ -127,12 +128,14 @@ class _SettingsSheetState extends State<_SettingsSheet> {
 
   /// Profil nur mit den kalorien-relevanten Feldern — Basis für die
   /// Live-Berechnung (Energie-Felder fließen NICHT in calculate() ein).
+  /// Alter wird auf 16–100 geclampt: Mindestalter 16 (Art. 8 DSGVO,
+  /// Gesundheitsdaten) — dieselbe Grenze wie Onboarding und DB-Constraint.
   UserProfile _draftForCalc() {
     final p = widget.initial;
     return p.copyWith(
       weightKg: _parseInt(_weight, p.weightKg),
       heightCm: _parseInt(_height, p.heightCm),
-      ageYears: _parseInt(_age, p.ageYears),
+      ageYears: _parseInt(_age, p.ageYears).clamp(16, 100).toInt(),
       sex: _sex,
       activityLevel: _activity,
       targetWeightKg: _parseInt(_targetWeight, p.targetWeightKg),
@@ -328,6 +331,17 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                         ),
                       ),
                     ],
+                  ),
+                  // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze
+                  // wie im Onboarding-Zielschritt (unter 18,5 / über 35).
+                  TargetBmiHint(
+                    margin: const EdgeInsets.only(top: 10),
+                    heightCm:
+                        _parseInt(_height, widget.initial.heightCm),
+                    targetWeightKg: _parseInt(
+                      _targetWeight,
+                      widget.initial.targetWeightKg,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   _WeightGoalField(

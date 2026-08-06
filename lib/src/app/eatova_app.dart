@@ -59,15 +59,17 @@ class EatovaApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      // A11y: System-Großschrift respektieren, aber deckeln. Die App nutzt
-      // viele feste fontSize in fixen Containern (Kalorienring, Bottom-Nav);
-      // ungebremste Skalierung (iOS bis 235%) würde sie zerbrechen. 1.3x ist
-      // ein verträglicher Kompromiss zwischen Lesbarkeit und Layout-Stabilität.
+      // A11y: System-Großschrift respektieren, aber deckeln. Cap bei 2.0
+      // (WCAG 1.4.4 erwartet Lesbarkeit bis 200 %): die Kern-Screens (Auth,
+      // Food-Tab) sind per Stress-Test (test/text_scale_stress_test.dart)
+      // bei 2.0 overflow-frei; nur ungebremste Skalierung (iOS bis 235 %)
+      // bleibt gedeckelt, weil feste Container (Kalorienring, Bottom-Nav)
+      // jenseits von 2.0 zerbrechen.
       builder: (context, child) {
         final mq = MediaQuery.of(context);
         return MediaQuery(
           data: mq.copyWith(
-            textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
+            textScaler: mq.textScaler.clamp(maxScaleFactor: 2.0),
           ),
           child: child ?? const SizedBox.shrink(),
         );

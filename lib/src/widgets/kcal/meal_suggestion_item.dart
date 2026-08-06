@@ -377,10 +377,7 @@ class _Trailing extends StatelessWidget {
       ),
     );
     if (onRemove == null) {
-      return Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: chevron,
-      );
+      return Padding(padding: const EdgeInsets.only(right: 8), child: chevron);
     }
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -445,6 +442,7 @@ class _ExpandedBody extends StatelessWidget {
             children: [
               _StepperButton(
                 icon: Icons.remove_rounded,
+                semanticLabel: 'Menge verringern',
                 onTap: () => onBump(-step),
                 onLongPress: () => onBump(-step * 5),
               ),
@@ -458,6 +456,7 @@ class _ExpandedBody extends StatelessWidget {
               const SizedBox(width: 10),
               _StepperButton(
                 icon: Icons.add_rounded,
+                semanticLabel: 'Menge erhöhen',
                 onTap: () => onBump(step),
                 onLongPress: () => onBump(step * 5),
               ),
@@ -518,38 +517,44 @@ class _ExpandedBody extends StatelessWidget {
 class _StepperButton extends StatelessWidget {
   const _StepperButton({
     required this.icon,
+    required this.semanticLabel,
     required this.onTap,
     required this.onLongPress,
   });
 
   final IconData icon;
+
+  /// A11y: das +/-Icon allein sagt einem Screenreader nichts.
+  final String semanticLabel;
+
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: surfaceSoft,
-          borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(color: hairline),
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: surfaceSoft,
+            borderRadius: BorderRadius.circular(rControl),
+            border: Border.all(color: hairline),
+          ),
+          child: Icon(icon, size: 20, color: textPrimary),
         ),
-        child: Icon(icon, size: 20, color: textPrimary),
       ),
     );
   }
 }
 
 class _GramsField extends StatelessWidget {
-  const _GramsField({
-    required this.controller,
-    required this.onChanged,
-  });
+  const _GramsField({required this.controller, required this.onChanged});
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;

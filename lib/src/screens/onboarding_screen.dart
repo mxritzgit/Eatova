@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/user_profile.dart';
 import '../services/kcal_calculator.dart';
 import '../theme/app_colors.dart';
+import '../widgets/shared/target_bmi_hint.dart';
 
 /// Verpflichtendes Onboarding: erhebt Körperdaten, Aktivität und Ziel und
 /// berechnet daraus ein genaues Tagesziel (Mifflin-St Jeor BMR × Aktivitäts-PAL
@@ -11,7 +12,9 @@ import '../theme/app_colors.dart';
 ///
 /// Bewusst ohne Texteingaben: Slider + Stepper sind auf dem Phone schneller,
 /// vermeiden Tastatur-Sprünge und liefern immer Werte innerhalb der
-/// DB-Constraints (weight 30–300, height 100–250, age 13–100).
+/// DB-Constraints (weight 30–300, height 100–250, age 16–100).
+/// Mindestalter 16: Einwilligungsfähigkeit nach Art. 8 DSGVO bei
+/// Gesundheitsdaten (Art. 9) — konsistent mit PRIVACY.md und DB-Constraint.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -54,7 +57,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.initState();
     final p = widget.initialProfile;
     _sex = p.sex;
-    _age = p.ageYears.clamp(14, 99).toInt();
+    _age = p.ageYears.clamp(16, 99).toInt();
     _height = p.heightCm.clamp(120, 220).toInt();
     _weight = p.weightKg.clamp(40, 200).toInt();
     _activity = p.activityLevel;
@@ -237,7 +240,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: _NumberPicker(
             field: 'age',
             value: _age,
-            min: 14,
+            min: 16,
             max: 99,
             unit: 'Jahre',
             onChanged: (v) => setState(() => _age = v),
@@ -288,15 +291,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           subtitle: _direction == _GoalDirection.lose
               ? 'Wohin willst du abnehmen?'
               : 'Wohin willst du aufbauen?',
-          child: _NumberPicker(
-            field: 'target',
-            value: _target,
-            min: _targetMin,
-            max: _targetMax,
-            unit: 'kg',
-            onChanged: (v) => setState(() => _target = v),
-            footnote: '${(_weight - _target).abs()} kg '
-                '${_direction == _GoalDirection.lose ? 'abnehmen' : 'zunehmen'}',
+          child: Column(
+            children: [
+              _NumberPicker(
+                field: 'target',
+                value: _target,
+                min: _targetMin,
+                max: _targetMax,
+                unit: 'kg',
+                onChanged: (v) => setState(() => _target = v),
+                footnote: '${(_weight - _target).abs()} kg '
+                    '${_direction == _GoalDirection.lose ? 'abnehmen' : 'zunehmen'}',
+              ),
+              // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze wie
+              // im Settings-Sheet (unter 18,5 / über 35).
+              TargetBmiHint(
+                margin: const EdgeInsets.only(top: 16),
+                heightCm: _height,
+                targetWeightKg: _safeClamp(_target, _targetMin, _targetMax),
+              ),
+            ],
           ),
         ),
       _Step.pace => _StepFrame(

@@ -129,8 +129,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // abgefragter Begriff liefert beim erneuten Tippen sofort "nichts gefunden",
   // statt wieder den vollen Retry-Zyklus zu durchlaufen.
   final Set<String> _emptyQueryCache = <String>{};
-  List<ProductSearchResult> _productSuggestions =
-      const <ProductSearchResult>[];
+  List<ProductSearchResult> _productSuggestions = const <ProductSearchResult>[];
   bool _isSearchingProducts = false;
   String? _productSearchMessage;
 
@@ -144,10 +143,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
   late List<LoggedMeal> _existing;
   late List<FavoriteMeal> _favorites;
 
-  static const Duration _productSearchDebounceDelay =
-      Duration(milliseconds: 1000);
-  static const Duration _productSearchRetryDelay =
-      Duration(milliseconds: 600);
+  static const Duration _productSearchDebounceDelay = Duration(
+    milliseconds: 1000,
+  );
+  static const Duration _productSearchRetryDelay = Duration(milliseconds: 600);
   static const int _productSearchMaxAttempts = 3;
   static const Duration _justAddedFadeDelay = Duration(seconds: 2);
 
@@ -204,16 +203,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
       onRemoveMeal: widget.onRemoveMeal == null ? null : _removeExisting,
     );
     if (!mounted || outcome == null) return;
-    if (outcome.deleted) return; // _removeExisting hat die Liste schon gepflegt.
+    if (outcome.deleted) {
+      return; // _removeExisting hat die Liste schon gepflegt.
+    }
     final updated = outcome.meal;
     if (updated == null) return;
     setState(() {
       if (updated.effectiveLocalDay != meal.effectiveLocalDay) {
         _existing = _existing.where((m) => m.id != meal.id).toList();
       } else {
-        _existing = [
-          for (final m in _existing) m.id == meal.id ? updated : m,
-        ];
+        _existing = [for (final m in _existing) m.id == meal.id ? updated : m];
       }
     });
   }
@@ -283,7 +282,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _productSuggestions = const <ProductSearchResult>[];
         _isSearchingProducts = false;
-        _productSearchMessage = 'Keine passenden Produkte gefunden. Versuche Marke + Produktname.';
+        _productSearchMessage =
+            'Keine passenden Produkte gefunden. Versuche Marke + Produktname.';
       });
       return;
     }
@@ -633,19 +633,24 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  Widget _favoriteItem(FavoriteMeal favorite, int index,
-      {required bool pinned}) {
+  Widget _favoriteItem(
+    FavoriteMeal favorite,
+    int index, {
+    required bool pinned,
+  }) {
     final key = 'favorite:${favorite.id}';
     // Stabile, sektionsweise Keys: angeheftete -> favorite-pinned-*, Recents
     // behalten den bestehenden favorite-tile-* Key (Test-Pin) bei.
     final tileKey = pinned ? 'favorite-pinned-$index' : 'favorite-tile-$index';
-    final addKey =
-        pinned ? 'favorite-pinned-add-$index' : 'favorite-tile-add-$index';
+    final addKey = pinned
+        ? 'favorite-pinned-add-$index'
+        : 'favorite-tile-add-$index';
     return MealSuggestionItem(
       key: ValueKey(tileKey),
       result: favorite.result,
-      fallbackIcon:
-          pinned ? Icons.favorite_rounded : Icons.bookmark_outline_rounded,
+      fallbackIcon: pinned
+          ? Icons.favorite_rounded
+          : Icons.bookmark_outline_rounded,
       accent: orange,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
@@ -671,7 +676,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
       if (idx == -1) {
         _favorites = [
           FavoriteMeal(
-              id: id, result: result, addedAt: DateTime.now(), pinned: true),
+            id: id,
+            result: result,
+            addedAt: DateTime.now(),
+            pinned: true,
+          ),
           ..._favorites,
         ];
       } else {
@@ -892,6 +901,7 @@ class _SearchBar extends StatelessWidget {
             ),
             IconButton(
               key: const ValueKey('kcal-product-search-button'),
+              tooltip: 'Suchen',
               onPressed: isSearching ? null : onSearchPressed,
               icon: isSearching
                   ? const SizedBox(
@@ -902,8 +912,11 @@ class _SearchBar extends StatelessWidget {
                         color: lime,
                       ),
                     )
-                  : const Icon(Icons.arrow_forward_rounded,
-                      size: 18, color: lime),
+                  : const Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 18,
+                      color: lime,
+                    ),
             ),
           ],
         ),
@@ -999,4 +1012,3 @@ class _EmptyState extends StatelessWidget {
     );
   }
 }
-

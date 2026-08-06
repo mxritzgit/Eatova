@@ -98,8 +98,10 @@ class _AuthScreenState extends State<AuthScreen> {
           displayName: name,
         );
         if (!mounted) return;
-        setState(() => _message =
-            'Bestätigungs-Mail unterwegs an $email. Klick den Link, dann bist du drin.');
+        setState(
+          () => _message =
+              'Bestätigungs-Mail unterwegs an $email. Klick den Link, dann bist du drin.',
+        );
       } else {
         await widget.authRepository.signIn(email: email, password: password);
       }
@@ -193,9 +195,8 @@ class _AuthScreenState extends State<AuthScreen> {
                       passwordController: _passwordController,
                       error: _error,
                       message: _message,
-                      onTogglePassword: () => setState(
-                        () => _passwordVisible = !_passwordVisible,
-                      ),
+                      onTogglePassword: () =>
+                          setState(() => _passwordVisible = !_passwordVisible),
                       onSubmit: _submit,
                     ),
                     const SizedBox(height: 14),
@@ -354,17 +355,25 @@ class _GoogleButton extends StatelessWidget {
                 height: 20,
                 child: loading
                     ? const CircularProgressIndicator(
-                        strokeWidth: 2.2, color: _ink)
+                        strokeWidth: 2.2,
+                        color: _ink,
+                      )
                     : const CustomPaint(painter: _GoogleGPainter()),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'Mit Google anmelden',
-                style: TextStyle(
-                  fontSize: 15.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1C1E),
-                  letterSpacing: -0.1,
+              // Flexible + ellipsis: bei 200%-Systemschrift (textScale-Cap
+              // 2.0) sprengt das Label sonst die Button-Breite.
+              const Flexible(
+                child: Text(
+                  'Mit Google anmelden',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A1C1E),
+                    letterSpacing: -0.1,
+                  ),
                 ),
               ),
             ],
@@ -425,13 +434,19 @@ class _OrDivider extends StatelessWidget {
       children: [
         const Expanded(child: Divider(color: hairline, height: 1)),
         const SizedBox(width: 12),
-        Text(
-          'oder mit E-Mail',
-          style: TextStyle(
-            fontSize: 12,
-            color: textMuted.withValues(alpha: 0.85),
-            letterSpacing: 0.2,
-            fontWeight: FontWeight.w600,
+        // Flexible + ellipsis: bei grosser Systemschrift darf der Text die
+        // Divider-Zeile nicht sprengen.
+        Flexible(
+          child: Text(
+            'oder mit E-Mail',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: textMuted.withValues(alpha: 0.85),
+              letterSpacing: 0.2,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -741,13 +756,19 @@ class _PrimaryCta extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2.2, color: _ink),
               )
             else ...[
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 15.5,
-                  fontWeight: FontWeight.w700,
-                  color: disabled ? textMuted : _ink,
-                  letterSpacing: -0.1,
+              // Flexible + ellipsis: bei 200%-Systemschrift bleibt der
+              // Pfeil sichtbar statt die Zeile zu sprengen.
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    color: disabled ? textMuted : _ink,
+                    letterSpacing: -0.1,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -782,8 +803,13 @@ class _ModeToggle extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        // Wrap statt Row: bei 200%-Systemschrift brechen die beiden Texte
+        // untereinander um, statt rechts aus dem Screen zu laufen — beide
+        // bleiben vollstaendig lesbar (WCAG 1.4.4).
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
           children: [
             Text(
               isRegister ? 'Schon dabei?' : 'Noch kein Konto?',
@@ -793,7 +819,6 @@ class _ModeToggle extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(width: 6),
             Text(
               isRegister ? 'Einloggen' : 'Registrieren',
               style: const TextStyle(
@@ -870,10 +895,7 @@ class _ConsentNotice extends StatelessWidget {
   TextSpan _link(String text, String url) {
     return TextSpan(
       text: text,
-      style: const TextStyle(
-        color: forgeLime,
-        fontWeight: FontWeight.w700,
-      ),
+      style: const TextStyle(color: forgeLime, fontWeight: FontWeight.w700),
       recognizer: TapGestureRecognizer()..onTap = () => _open(url),
     );
   }
@@ -895,7 +917,8 @@ class _ConsentNotice extends StatelessWidget {
             const TextSpan(text: 'Mit der Anmeldung akzeptierst du unsere '),
             _link('AGB', kTermsUrl),
             const TextSpan(
-              text: ' und stimmst der Verarbeitung deiner Gesundheits- und '
+              text:
+                  ' und stimmst der Verarbeitung deiner Gesundheits- und '
                   'Ernährungsdaten gemäß der ',
             ),
             _link('Datenschutzerklärung', kPrivacyUrl),

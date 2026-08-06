@@ -1,7 +1,10 @@
+import 'dart:async';
+import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:health/health.dart';
 
+import 'crash_reporter.dart';
 import 'health_service.dart';
 
 class AppleHealthService implements HealthService {
@@ -37,6 +40,19 @@ class AppleHealthService implements HealthService {
     _configured = true;
   }
 
+  /// HealthKit-Fehler bleiben fuer den USER weiterhin still (die Aufrufer
+  /// liefern Fallback-Werte), gehen aber an dev.log + CrashReporter, statt
+  /// spurlos zu verschwinden (Muster wie home_store._reportSyncError).
+  static void _reportError(String operation, Object e, StackTrace st) {
+    dev.log(
+      'health.$operation failed',
+      error: e,
+      stackTrace: st,
+      name: 'health',
+    );
+    unawaited(CrashReporter.capture(e, st, context: 'health.$operation'));
+  }
+
   @override
   HealthAuthState get authState => _authState;
 
@@ -53,7 +69,7 @@ class AppleHealthService implements HealthService {
       await _ensureConfigured();
       final hasPermissions =
           await _health.hasPermissions(_types, permissions: _permissions) ??
-              false;
+          false;
       if (hasPermissions) {
         _authState = HealthAuthState.granted;
         return _authState;
@@ -64,10 +80,10 @@ class AppleHealthService implements HealthService {
         _types,
         permissions: _permissions,
       );
-      _authState =
-          granted ? HealthAuthState.granted : HealthAuthState.denied;
+      _authState = granted ? HealthAuthState.granted : HealthAuthState.denied;
       return _authState;
-    } catch (_) {
+    } catch (e, st) {
+      _reportError('requestAuthorization', e, st);
       _authState = HealthAuthState.unsupported;
       return _authState;
     }
@@ -79,7 +95,7 @@ class AppleHealthService implements HealthService {
     if (_authState == HealthAuthState.granted) return true;
     final hasPermissions =
         await _health.hasPermissions(_types, permissions: _permissions) ??
-            false;
+        false;
     if (!hasPermissions) return false;
     _authState = HealthAuthState.granted;
     return true;
@@ -106,13 +122,17 @@ class AppleHealthService implements HealthService {
           to: now,
         );
         if (weights.isNotEmpty) latestWeight = weights.last.kg;
-      } catch (_) {}
+      } catch (e, st) {
+        _reportError('readSnapshot.weight', e, st);
+      }
 
       int? sleepMinutes;
       try {
         final sleep = await readLastSleep(before: now);
         if (sleep != null) sleepMinutes = sleep.minutesAsleep;
-      } catch (_) {}
+      } catch (e, st) {
+        _reportError('readSnapshot.sleep', e, st);
+      }
 
       return HealthSnapshot(
         stepsToday: steps,
@@ -120,7 +140,8 @@ class AppleHealthService implements HealthService {
         latestWeightKg: latestWeight,
         lastSleepMinutes: sleepMinutes,
       );
-    } catch (_) {
+    } catch (e, st) {
+      _reportError('readSnapshot', e, st);
       return null;
     }
   }
@@ -139,7 +160,8 @@ class AppleHealthService implements HealthService {
         endTime: when,
         recordingMethod: RecordingMethod.manual,
       );
-    } catch (_) {
+    } catch (e, st) {
+      _reportError('writeWeight', e, st);
       return false;
     }
   }
@@ -163,16 +185,14 @@ class AppleHealthService implements HealthService {
         final v = p.value;
         if (v is NumericHealthValue) {
           samples.add(
-            WeightSample(
-              kg: v.numericValue.toDouble(),
-              measuredAt: p.dateTo,
-            ),
+            WeightSample(kg: v.numericValue.toDouble(), measuredAt: p.dateTo),
           );
         }
       }
       samples.sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
       return samples;
-    } catch (_) {
+    } catch (e, st) {
+      _reportError('readWeightSamples', e, st);
       return const <WeightSample>[];
     }
   }
@@ -204,9 +224,9 @@ class AppleHealthService implements HealthService {
       }
       if (minutes <= 0) return null;
       return SleepSample(minutesAsleep: minutes, end: lastEnd);
-    } catch (_) {
+    } catch (e, st) {
+      _reportError('readLastSleep', e, st);
       return null;
     }
   }
-
 }

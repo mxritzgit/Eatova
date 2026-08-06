@@ -12,12 +12,13 @@ import 'slot_selector.dart';
 /// Store-Callback fuer das Bearbeiten-Sheet: aendert Portion/Bestandteile,
 /// Slot und/oder Tag einer geloggten Mahlzeit (null = unveraendert) und
 /// liefert den neuen Stand zurueck (null, wenn die id nicht mehr existiert).
-typedef UpdateMealDetails = LoggedMeal? Function(
-  String id, {
-  MealAnalysisResult? result,
-  MealSlot? slot,
-  DateTime? day,
-});
+typedef UpdateMealDetails =
+    LoggedMeal? Function(
+      String id, {
+      MealAnalysisResult? result,
+      MealSlot? slot,
+      DateTime? day,
+    });
 
 /// Stellt die Edit-Callbacks des HomeStore unterhalb des Food-Tabs bereit.
 ///
@@ -55,9 +56,7 @@ class MealEditScope extends InheritedWidget {
 /// Ergebnis) heisst: geschlossen ohne Aenderung.
 class MealEditOutcome {
   const MealEditOutcome.saved(LoggedMeal this.meal) : deleted = false;
-  const MealEditOutcome.deleted()
-      : meal = null,
-        deleted = true;
+  const MealEditOutcome.deleted() : meal = null, deleted = true;
 
   final LoggedMeal? meal;
   final bool deleted;
@@ -130,8 +129,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
 
   bool get _slotChanged => _slot != widget.meal.slot;
 
-  bool get _dayChanged =>
-      localDayKey(_day) != widget.meal.effectiveLocalDay;
+  bool get _dayChanged => localDayKey(_day) != widget.meal.effectiveLocalDay;
 
   bool get _dirty => _resultChanged || _slotChanged || _dayChanged;
 
@@ -186,8 +184,9 @@ class _EditMealSheetState extends State<EditMealSheet> {
       day: _dayChanged ? _day : null,
     );
     if (!mounted) return;
-    Navigator.of(context)
-        .pop(updated == null ? null : MealEditOutcome.saved(updated));
+    Navigator.of(
+      context,
+    ).pop(updated == null ? null : MealEditOutcome.saved(updated));
   }
 
   void _delete() {
@@ -300,8 +299,10 @@ class _EditMealSheetState extends State<EditMealSheet> {
                         key: const ValueKey('edit-meal-delete-button'),
                         onPressed: _delete,
                         style: TextButton.styleFrom(foregroundColor: danger),
-                        icon:
-                            const Icon(Icons.delete_outline_rounded, size: 16),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 16,
+                        ),
                         label: const Text(
                           'Mahlzeit löschen',
                           style: TextStyle(
@@ -428,8 +429,11 @@ class _SummaryCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.local_fire_department_outlined,
-              color: orange, size: 18),
+          const Icon(
+            Icons.local_fire_department_outlined,
+            color: orange,
+            size: 18,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -529,48 +533,53 @@ class _DayPicker extends StatelessWidget {
           }
           final date = days[index];
           final isSelected = DateUtils.isSameDay(date, selected);
-          return InkWell(
-            key: ValueKey('edit-day-chip-$index'),
-            onTap: () => onSelected(date),
-            borderRadius: BorderRadius.circular(rControl),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOut,
-              width: 64,
-              padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
-              decoration: BoxDecoration(
-                color: isSelected ? forgeLime : surfaceSoft,
-                borderRadius: BorderRadius.circular(rControl),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _chipLabel(today, date),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isSelected ? bg : textMuted,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.1,
+          // A11y-Muster wie die Datums-Chips im Food-Tab: Button + Zustand.
+          return Semantics(
+            button: true,
+            selected: isSelected,
+            child: InkWell(
+              key: ValueKey('edit-day-chip-$index'),
+              onTap: () => onSelected(date),
+              borderRadius: BorderRadius.circular(rControl),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                width: 64,
+                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+                decoration: BoxDecoration(
+                  color: isSelected ? forgeLime : surfaceSoft,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _chipLabel(today, date),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isSelected ? bg : textMuted,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.1,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${date.day}.${date.month}.',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isSelected
-                          ? bg.withValues(alpha: 0.68)
-                          : textPrimary,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+                    const SizedBox(height: 3),
+                    Text(
+                      '${date.day}.${date.month}.',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isSelected
+                            ? bg.withValues(alpha: 0.68)
+                            : textPrimary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -589,43 +598,49 @@ class _CalendarChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      key: const ValueKey('edit-day-calendar'),
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: Container(
-        width: 72,
-        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
-        decoration: BoxDecoration(
-          color: surfaceSoft,
-          borderRadius: BorderRadius.circular(rControl),
-        ),
-        child: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Anderes',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: textMuted,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.1,
+    // A11y: "Anderes / Datum…" liest sich zerhackt — als ein Button mit
+    // klarer Aktion ansagen.
+    return Semantics(
+      button: true,
+      label: 'Anderes Datum im Kalender wählen',
+      child: InkWell(
+        key: const ValueKey('edit-day-calendar'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: Container(
+          width: 72,
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+          decoration: BoxDecoration(
+            color: surfaceSoft,
+            borderRadius: BorderRadius.circular(rControl),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Anderes',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: textMuted,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.1,
+                ),
               ),
-            ),
-            SizedBox(height: 3),
-            Text(
-              'Datum…',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: textPrimary,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
+              SizedBox(height: 3),
+              Text(
+                'Datum…',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: textPrimary,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

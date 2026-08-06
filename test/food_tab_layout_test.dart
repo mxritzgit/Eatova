@@ -41,9 +41,10 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
     MaterialApp(
       theme: buildEatovaTheme(),
       home: MediaQuery(
-        // Spiegelt den Textscaler-Deckel aus EatovaApp.
+        // Spiegelt den Textscaler-Deckel aus EatovaApp (seit dem
+        // A11y-Pass 2.0 statt 1.3, s. text_scale_stress_test.dart).
         data: MediaQueryData(
-          textScaler: TextScaler.linear(textScale).clamp(maxScaleFactor: 1.3),
+          textScaler: TextScaler.linear(textScale).clamp(maxScaleFactor: 2.0),
           size: _usableSize,
         ),
         child: Scaffold(

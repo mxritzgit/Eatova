@@ -4,6 +4,11 @@
 /// `--dart-define=OFF_MIRROR_URL=` (leer) schaltet den Mirror ab ->
 /// die App sucht direkt live bei OpenFoodFacts.
 ///
+/// Seit 2026-08-07 laeuft der Zugriff ueber die eigene Domain
+/// (`eatova.de/meili/*`, Caddy-Route mit Rate-Limit 120 req/min pro IP)
+/// statt der Roh-IP; die alte sslip.io-Route bleibt fuer Bestands-Builds
+/// serverseitig aktiv.
+///
 /// Der Key ist ein Meilisearch **Search-only** Key (actions: [search],
 /// index: products) — er kann ausschliesslich lesen/suchen und darf
 /// deshalb im Client stecken.
@@ -12,7 +17,7 @@ class SearchConfig {
 
   static const String mirrorBaseUrl = String.fromEnvironment(
     'OFF_MIRROR_URL',
-    defaultValue: 'https://88-218-227-227.sslip.io',
+    defaultValue: 'https://eatova.de/meili',
   );
 
   static const String mirrorSearchKey = String.fromEnvironment(

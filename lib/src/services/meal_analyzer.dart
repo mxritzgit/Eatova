@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../models/meal_analysis_request.dart';
 import '../models/meal_analysis_result.dart';
+import 'eatova_http.dart';
 
 abstract class MealAnalyzer {
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request);
@@ -20,15 +20,9 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   static const String _functionPath = '/functions/v1/analyze-meal';
   static const int _maxImageBytes = 5 * 1000 * 1000;
 
-  // Explizite Timeouts auf JEDER Phase (Muster aus MeilisearchProductService):
-  // connectionTimeout deckt nur den TCP-Aufbau — haengt der LLM-Provider hinter
-  // der Edge Function, wuerde close() sonst endlos warten und der Spinner
-  // draehte fuer immer. Grosszuegig bemessen, weil im close() der komplette
-  // Upload + die LLM-Antwortzeit steckt (Edge Function bricht ihrerseits nach
-  // 45 s ab — der Client haelt bewusst laenger durch als der Server).
-  static const Duration _connectTimeout = Duration(seconds: 15);
-  static const Duration _responseTimeout = Duration(seconds: 60);
-  static const Duration _bodyTimeout = Duration(seconds: 15);
+  // Explizite Timeouts auf JEDER Phase: HttpTimeoutPolicy.mealAnalysis
+  // (15 s connect / 60 s response / 15 s body) — Begruendung der Werte
+  // steht bei der Policy in eatova_http.dart.
 
   @override
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {
@@ -51,25 +45,28 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
     }
 
     final freeTextHint = _cleanHint(request.freeTextHint);
-    final client = HttpClient()..connectionTimeout = _connectTimeout;
+    final client = createHttpClient(HttpTimeoutPolicy.mealAnalysis);
     try {
       final uri = Uri.parse('$_supabaseUrl$_functionPath');
-      final httpRequest = await client.postUrl(uri).timeout(_connectTimeout);
-      httpRequest.headers.contentType = ContentType.json;
-      httpRequest.headers.set('apikey', _supabaseAnonKey);
-      httpRequest.headers.set('Authorization', 'Bearer $accessToken');
-      httpRequest.write(
-        jsonEncode({
+      final response = await sendTextRequest(
+        client,
+        method: 'POST',
+        uri: uri,
+        policy: HttpTimeoutPolicy.mealAnalysis,
+        operation: 'analyze-meal',
+        configure: (httpRequest) {
+          httpRequest.headers.contentType = ContentType.json;
+          httpRequest.headers.set('apikey', _supabaseAnonKey);
+          httpRequest.headers.set('Authorization', 'Bearer $accessToken');
+        },
+        body: jsonEncode({
           'imageBase64': base64Encode(imageBytes),
-          'portionHint': request.portionHint?.name ?? MealPortionHint.normal.name,
+          'portionHint':
+              request.portionHint?.name ?? MealPortionHint.normal.name,
           if (freeTextHint != null) 'freeTextHint': freeTextHint,
         }),
       );
-
-      final response = await httpRequest.close().timeout(_responseTimeout);
-      final responseBody =
-          await response.transform(utf8.decoder).join().timeout(_bodyTimeout);
-      final decoded = _decodeResponse(responseBody);
+      final decoded = _decodeResponse(response.body);
 
       if (response.statusCode == 401 || response.statusCode == 403) {
         throw const AuthException(
@@ -82,7 +79,8 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
         );
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        final message = decoded['message']?.toString() ??
+        final message =
+            decoded['message']?.toString() ??
             'Meal analysis failed with HTTP ${response.statusCode}.';
         throw HttpException(message);
       }

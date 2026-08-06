@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/legal_links.dart';
@@ -343,8 +345,27 @@ class _ExportSheet extends StatelessWidget {
   }
 }
 
+/// App-Metadaten zur Laufzeit (Version/Build aus pubspec via Plattform-API)
+/// statt hartkodierter Strings, die beim Version-Bump auseinanderlaufen.
+/// Lazy top-level Future: wird erst beim ersten Oeffnen des Ueber-Sheets
+/// angefragt und danach wiederverwendet. In Widget-Tests (Channel nicht
+/// gemockt) schlaegt die Future fehl — die UI faellt dann auf '—' zurueck.
+final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+
 class _AboutSheet extends StatelessWidget {
   const _AboutSheet();
+
+  /// Datenquellen ehrlich + plattformgerecht: Produktdaten kommen aus
+  /// OpenFoodFacts bzw. dem eigenen Suchindex; Schritte liefert Apple Health
+  /// (nur iOS — auf Android ist der Health-Pfad ein No-op, also dort nicht
+  /// nennen). "wger" war nie angebunden und ist raus.
+  static String get _sources {
+    const base = 'OpenFoodFacts · Eigener Suchindex';
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return '$base · Apple Health';
+    }
+    return base;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -379,7 +400,7 @@ class _AboutSheet extends StatelessWidget {
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'FitnessPlan. Training. Recovery.',
+                    'Ernährung. Tracking. Coach.',
                     style: TextStyle(
                       color: textMuted,
                       fontSize: 12,
@@ -392,8 +413,8 @@ class _AboutSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           const Text(
-            'Ein moderner Fitness-Coach für klare Pläne, bessere Recovery '
-            'und nachhaltigen Fortschritt.',
+            'Kalorien und Makros ohne Reibung tracken — per KI-Foto-Scan, '
+            'Barcode und Produktsuche, mit einem persönlichen Ernährungs-Coach.',
             style: TextStyle(
               color: textMuted,
               fontSize: 13,
@@ -401,11 +422,22 @@ class _AboutSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          const _AboutRow(label: 'Version', value: '1.0.0'),
+          FutureBuilder<PackageInfo>(
+            future: _packageInfo,
+            builder: (context, snapshot) {
+              final info = snapshot.data;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _AboutRow(label: 'Version', value: info?.version ?? '—'),
+                  const SizedBox(height: 6),
+                  _AboutRow(label: 'Build', value: info?.buildNumber ?? '—'),
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 6),
-          const _AboutRow(label: 'Build', value: '1'),
-          const SizedBox(height: 6),
-          const _AboutRow(label: 'Quellen', value: 'OpenFoodFacts · HealthKit · wger'),
+          _AboutRow(label: 'Quellen', value: _sources),
           const SizedBox(height: 14),
           // DSGVO Art. 13 / App-Store: Datenschutz auch nach dem Login
           // erreichbar, nicht nur auf dem Auth-Screen.
@@ -498,15 +530,24 @@ class _FooterCredit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Gleiche PackageInfo-Future wie das Ueber-Sheet: kein zweiter
+    // Plattform-Roundtrip, und die Versionsnummer kann nie mehr von der
+    // pubspec abweichen. Ohne Daten (laufende Future/Test) nur die Wortmarke.
     return Center(
-      child: Text(
-        'Eatova · v1.0.0',
-        style: TextStyle(
-          color: textMuted.withValues(alpha: 0.6),
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 0.4,
-        ),
+      child: FutureBuilder<PackageInfo>(
+        future: _packageInfo,
+        builder: (context, snapshot) {
+          final version = snapshot.data?.version;
+          return Text(
+            version == null ? 'Eatova' : 'Eatova · v$version',
+            style: TextStyle(
+              color: textMuted.withValues(alpha: 0.6),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.4,
+            ),
+          );
+        },
       ),
     );
   }

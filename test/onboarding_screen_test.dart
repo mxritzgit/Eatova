@@ -158,4 +158,101 @@ void main() {
     expect(captured!.diet, DietPreference.none); // Default unverändert
     expect(captured!.onboardingCompleted, isTrue);
   });
+
+  // Viewport-Pinning + Overflow-Toleranz wie in runFullFlow, für Tests die
+  // nicht den kompletten Flow fahren.
+  Future<void> pumpOnboarding(
+    WidgetTester tester, {
+    required UserProfile initialProfile,
+    ValueChanged<UserProfile>? onComplete,
+  }) async {
+    tester.view.physicalSize = const Size(1179, 2556);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final prior = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exception.toString().contains('overflowed')) return;
+      prior?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = prior);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnboardingScreen(
+          firstName: 'Moritz',
+          initialProfile: initialProfile,
+          onComplete: onComplete ?? (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('age is clamped to a minimum of 16 (DSGVO Art. 8)',
+      (tester) async {
+    // Profil mit zu niedrigem Alter (z.B. Altbestand) → Onboarding hebt auf 16.
+    await pumpOnboarding(
+      tester,
+      initialProfile: const UserProfile(ageYears: 13),
+    );
+
+    Future<void> next() async {
+      await tester.tap(find.byKey(const ValueKey('onboarding-next')));
+      await tester.pumpAndSettle();
+    }
+
+    await next(); // intro → sex
+    await next(); // sex → age
+
+    String ageValue() => tester
+        .widget<Text>(find.byKey(const ValueKey('onboarding-age-value')))
+        .data!;
+    expect(ageValue(), '16');
+
+    // Der Stepper kommt nicht unter das Minimum.
+    await tester.tap(find.byKey(const ValueKey('onboarding-age-dec')));
+    await tester.pumpAndSettle();
+    expect(ageValue(), '16');
+  });
+
+  testWidgets(
+      'target step shows gentle BMI hint below 18.5 and hides it again',
+      (tester) async {
+    // Gewicht 60 kg / Größe 178 cm: Default-Ziel beim Abnehmen = 55 kg
+    // → Ziel-BMI 17,4 (< 18,5) → Hinweis sichtbar.
+    await pumpOnboarding(
+      tester,
+      initialProfile: const UserProfile(weightKg: 60),
+    );
+
+    Future<void> next() async {
+      await tester.tap(find.byKey(const ValueKey('onboarding-next')));
+      await tester.pumpAndSettle();
+    }
+
+    await next(); // intro → sex
+    await next(); // sex → age
+    await next(); // age → height
+    await next(); // height → weight
+    await next(); // weight → activity
+    await next(); // activity → goal
+    await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
+    await tester.pumpAndSettle();
+    await next(); // goal → target
+
+    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
+    expect(find.byKey(const ValueKey('target-bmi-hint')), findsOneWidget);
+    expect(find.textContaining('unterhalb'), findsOneWidget);
+
+    // Ziel auf 59 kg anheben → BMI 18,6 → Hinweis verschwindet.
+    for (var i = 0; i < 4; i++) {
+      await tester.tap(find.byKey(const ValueKey('onboarding-target-inc')));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('target-bmi-hint')), findsNothing);
+    expect(find.textContaining('unterhalb'), findsNothing);
+  });
 }

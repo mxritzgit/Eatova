@@ -116,8 +116,11 @@ class MealAnalysisScreen extends StatelessWidget {
   /// der Konstruktor selbst fasst Supabase nie an (Preview/Tests sicher).
   final TrendTotalsLoader? trendTotalsLoader;
 
-  void _openAddSheet(BuildContext context, MealSlot slot,
-      {bool searchMode = false}) {
+  void _openAddSheet(
+    BuildContext context,
+    MealSlot slot, {
+    bool searchMode = false,
+  }) {
     // Alle Eintraege des angezeigten Tages - das Sheet filtert die Anzeige
     // selbst nach dem im Selector gewaehlten Slot (bleibt so synchron, wenn
     // der User den Slot im Sheet wechselt). `slot` ist nur der Default-Slot.
@@ -155,8 +158,10 @@ class MealAnalysisScreen extends StatelessWidget {
   // KI-Scan: In-App-Kamera mit Slot-Auswahl -> Foto -> KI-Analyse -> das
   // Ergebnis-Sheet im gewaehlten Slot. Kein generisches Add-Sheet mehr.
   Future<void> _scanWithCamera(BuildContext context) async {
-    final capture =
-        await cameraLauncher.launch(context, initialSlot: _heuristicSlot());
+    final capture = await cameraLauncher.launch(
+      context,
+      initialSlot: _heuristicSlot(),
+    );
     if (capture == null || !context.mounted) return;
     await showMealAnalysisSheet(
       context,
@@ -200,10 +205,8 @@ class MealAnalysisScreen extends StatelessWidget {
     final loader = trendTotalsLoader ?? _supabaseTrendLoader;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => TrendsScreen(
-          kcalGoal: profile.dailyKcalGoal,
-          loadTotals: loader,
-        ),
+        builder: (_) =>
+            TrendsScreen(kcalGoal: profile.dailyKcalGoal, loadTotals: loader),
       ),
     );
   }
@@ -258,16 +261,13 @@ class MealAnalysisScreen extends StatelessWidget {
           // Glass-Kalorienkarte mit inline-Makros (hoehen-begrenzt im Tab).
           // Weniger Flex als der Verlauf: die Karte hat eine feste Menge an
           // Inhalt, die Liste darunter profitiert von jeder zusaetzlichen Zeile.
-          if (boundedHeight)
-            Expanded(flex: 40, child: calsCard)
-          else
-            calsCard,
+          if (boundedHeight) Expanded(flex: 40, child: calsCard) else calsCard,
           const SizedBox(height: 12),
           // Add-Block: FESTE Hoehe, NICHT Expanded -> sitzt klar oben,
           // damit Such-Launcher + Action-Buttons ohne Scroll hit-testbar sind.
           _FoodAddBlock(
-            onSearch: () => _openAddSheet(context, _heuristicSlot(),
-                searchMode: true),
+            onSearch: () =>
+                _openAddSheet(context, _heuristicSlot(), searchMode: true),
             onBarcode: () => _scanBarcode(context),
             onAiScan: () => _scanWithCamera(context),
           ),
@@ -352,37 +352,43 @@ class _FoodSearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      key: const ValueKey('food-search'),
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: Container(
-        height: 46,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        // Randlos: der Fill traegt die Form. Im Tab sind Suche, Chips und
-        // Aktionen dieselbe Klasse „tippbare Flaeche" und teilen ihn sich.
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(rControl),
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.search_rounded, size: 18, color: textMuted),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Lebensmittel oder Mahlzeiten suchen…',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: -0.2,
+    // A11y: der Launcher sieht aus wie ein Textfeld, ist aber ein Knopf —
+    // fuer Screenreader explizit als solcher markiert (das sichtbare
+    // Platzhalter-Label uebernimmt die Beschriftung).
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: const ValueKey('food-search'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: Container(
+          height: 46,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          // Randlos: der Fill traegt die Form. Im Tab sind Suche, Chips und
+          // Aktionen dieselbe Klasse „tippbare Flaeche" und teilen ihn sich.
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(rControl),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.search_rounded, size: 18, color: textMuted),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Lebensmittel oder Mahlzeiten suchen…',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: -0.2,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -408,38 +414,41 @@ class _FoodActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color fg = filled ? bg : textPrimary;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: Container(
-        // Icon + einzeiliges Label nebeneinander statt uebereinander: liest
-        // sich als eine Beschriftung, braucht knapp die halbe Hoehe des alten
-        // zweizeiligen Blocks und bleibt bei 1.3x-Systemschrift stabil.
-        height: 46,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: filled ? forgeLime : surface,
-          borderRadius: BorderRadius.circular(rControl),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 17, color: fg),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: fg,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2,
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: Container(
+          // Icon + einzeiliges Label nebeneinander statt uebereinander: liest
+          // sich als eine Beschriftung, braucht knapp die halbe Hoehe des alten
+          // zweizeiligen Blocks und bleibt bei grosser Systemschrift stabil.
+          height: 46,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: filled ? forgeLime : surface,
+            borderRadius: BorderRadius.circular(rControl),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 17, color: fg),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.2,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -482,7 +491,11 @@ class _KcalHeader extends StatelessWidget {
             key: const ValueKey('topbar-trends'),
             onPressed: onTrendsPressed,
             tooltip: 'Trends',
-            icon: const Icon(Icons.insights_rounded, size: 20, color: textMuted),
+            icon: const Icon(
+              Icons.insights_rounded,
+              size: 20,
+              color: textMuted,
+            ),
             visualDensity: VisualDensity.compact,
           ),
           if (onSettingsPressed != null)
@@ -514,31 +527,37 @@ class _ProfileBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final showInitial = initial != null && initial!.isNotEmpty;
-    return Material(
-      key: const ValueKey('topbar-profile'),
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
-        child: Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: lime.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(rControl),
+    // A11y: die Kapsel zeigt nur ein Initial/Icon — ohne Label wuesste ein
+    // Screenreader-Nutzer nicht, dass hier das Profil haengt.
+    return Semantics(
+      button: true,
+      label: 'Profil öffnen',
+      child: Material(
+        key: const ValueKey('topbar-profile'),
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(rControl),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: lime.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(rControl),
+            ),
+            alignment: Alignment.center,
+            child: showInitial
+                ? Text(
+                    initial!,
+                    style: const TextStyle(
+                      color: lime,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
+                  )
+                : const Icon(Icons.person_rounded, color: lime, size: 17),
           ),
-          alignment: Alignment.center,
-          child: showInitial
-              ? Text(
-                  initial!,
-                  style: const TextStyle(
-                    color: lime,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
-                )
-              : const Icon(Icons.person_rounded, color: lime, size: 17),
         ),
       ),
     );
@@ -576,8 +595,11 @@ class _FoodDateStrip extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
           child: Row(
             children: [
-              const Icon(Icons.calendar_today_rounded,
-                  size: 12, color: textMuted),
+              const Icon(
+                Icons.calendar_today_rounded,
+                size: 12,
+                color: textMuted,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -682,46 +704,52 @@ class _FoodDateChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
-        decoration: BoxDecoration(
-          color: selected ? forgeLime : surface,
-          borderRadius: BorderRadius.circular(rControl),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Wochentag tritt zurueck, das Datum traegt die Zeile — beim
-            // gewaehlten Chip kehrt sich das um, weil dort der Kontext zaehlt.
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? bg : textMuted,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.1,
+    // A11y-Muster wie der Zeitraum-Umschalter der Trend-Ansicht: Chip als
+    // Button mit Auswahl-Zustand ansagen.
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+          decoration: BoxDecoration(
+            color: selected ? forgeLime : surface,
+            borderRadius: BorderRadius.circular(rControl),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Wochentag tritt zurueck, das Datum traegt die Zeile — beim
+              // gewaehlten Chip kehrt sich das um, weil dort der Kontext zaehlt.
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? bg : textMuted,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.1,
+                ),
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              '${date.day}.${date.month}.',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? bg.withValues(alpha: 0.68) : textPrimary,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                fontFeatures: const [FontFeature.tabularFigures()],
+              const SizedBox(height: 3),
+              Text(
+                '${date.day}.${date.month}.',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? bg.withValues(alpha: 0.68) : textPrimary,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -745,22 +773,28 @@ class _CalendarDayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        width: 44,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? forgeLime : surface,
-          borderRadius: BorderRadius.circular(rControl),
-        ),
-        child: Icon(
-          Icons.calendar_month_rounded,
-          size: 18,
-          color: selected ? bg : textMuted,
+    // A11y: reiner Icon-Knopf — ohne Label bliebe er fuer Screenreader stumm.
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: 'Anderen Tag im Kalender wählen',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          width: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? forgeLime : surface,
+            borderRadius: BorderRadius.circular(rControl),
+          ),
+          child: Icon(
+            Icons.calendar_month_rounded,
+            size: 18,
+            color: selected ? bg : textMuted,
+          ),
         ),
       ),
     );

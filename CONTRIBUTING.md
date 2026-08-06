@@ -49,7 +49,8 @@ deno check supabase/functions/**/*.ts
   - Keep `lib/main.dart` small
 - **Add-flows**: prefer slot/entity tap → bottom sheet over inline forms or
   global floating action buttons.
-- **Test pins**: `Key` values and label strings in `test/widget_test.dart` are
+- **Test pins**: `Key` values and label strings in the widget tests (end-to-end
+  flows in `test/flows/`, plus the suites in `test/` and `test/widgets/`) are
   load-bearing. If you change UI that a test targets, update the test in the
   same commit.
 - **Lints**: the project uses `flutter_lints`. Keep `flutter analyze` clean.

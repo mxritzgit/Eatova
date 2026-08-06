@@ -89,6 +89,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
         elevation: 0,
         leading: IconButton(
           key: const ValueKey('trends-close'),
+          tooltip: 'Zurück',
           icon: const Icon(
             Icons.arrow_back_rounded,
             color: textPrimary,
@@ -554,27 +555,35 @@ class _MacroAvg extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
+        // Flexible + ellipsis: bei 200%-Systemschrift sprengt
+        // "Kohlenhydrate" sonst das Spalten-Drittel der Makro-Karte.
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: textMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
-            Text(
-              value,
-              style: const TextStyle(
-                color: textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );

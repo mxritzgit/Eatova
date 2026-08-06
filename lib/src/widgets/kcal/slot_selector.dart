@@ -66,41 +66,44 @@ class _SlotSegment extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = slot.accent;
-    return InkWell(
-      key: keyValue,
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.16) : surfaceSoft,
-          borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(color: selected ? color : hairline),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              slot.icon,
-              size: 18,
-              color: selected ? color : textMuted,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              slot.shortLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? textPrimary : textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.1,
+    // A11y: Segment als Button mit Auswahl-Zustand und vollem Slot-Namen
+    // (das sichtbare Kurz-Label allein waere z.B. nur "Früh").
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: slot.label,
+      child: InkWell(
+        key: keyValue,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rControl),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? color.withValues(alpha: 0.16) : surfaceSoft,
+            borderRadius: BorderRadius.circular(rControl),
+            border: Border.all(color: selected ? color : hairline),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(slot.icon, size: 18, color: selected ? color : textMuted),
+              const SizedBox(height: 4),
+              Text(
+                slot.shortLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? textPrimary : textMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.1,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

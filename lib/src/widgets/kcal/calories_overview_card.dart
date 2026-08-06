@@ -40,9 +40,9 @@ class CaloriesOverviewCard extends StatelessWidget {
     final remainingColor = remaining >= 0 ? forgeLime : danger;
 
     // Die Karte laeuft im Food-Tab in einer festen Flex-Hoehe. Die Stufen
-    // muessen daher mit der Systemschrift mitwandern: bei 1.3x (App-Cap, s.
-    // EatovaApp) braucht derselbe Inhalt ~30 % mehr Hoehe, sonst kippt die
-    // Karte in einen Bottom-Overflow.
+    // muessen daher mit der Systemschrift mitwandern: bei 2.0x (App-Cap, s.
+    // EatovaApp) braucht derselbe Inhalt entsprechend mehr Hoehe, sonst kippt
+    // die Karte in einen Bottom-Overflow.
     final textScale = MediaQuery.textScalerOf(context).scale(100) / 100;
 
     return LayoutBuilder(
@@ -106,7 +106,7 @@ class CaloriesOverviewCard extends StatelessWidget {
                                 height: 1.0,
                                 letterSpacing: compact ? -1.4 : -1.8,
                                 fontFeatures: const [
-                                  FontFeature.tabularFigures()
+                                  FontFeature.tabularFigures(),
                                 ],
                               ),
                             ),
@@ -132,21 +132,29 @@ class CaloriesOverviewCard extends StatelessWidget {
                 SizedBox(
                   width: ringSize,
                   height: ringSize,
-                  child: _ProgressRing(
-                    progress: progress,
-                    strokeWidth: compact ? 8 : 10,
-                    // Nur die Prozentzahl im Ring. Das fruehere „des Ziels"
-                    // darunter passte nie in den Innenkreis und schnitt den
-                    // Ring optisch an — und der Bezug steht ohnehin links
-                    // („VERBLEIBENDE KCAL") und in der ZIEL-Statistik.
-                    child: Text(
-                      '${(progress * 100).round()}%',
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: textPrimary,
-                        fontSize: tight ? 17 : (compact ? 20 : 24),
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.5,
+                  // A11y: der Ring ist nur gezeichnet — Fortschritt als
+                  // Sprachwert (Muster wie das Trend-Chart).
+                  child: Semantics(
+                    label: 'Kalorienfortschritt',
+                    value:
+                        '${(progress * 100).round()} Prozent des '
+                        'Tagesziels gegessen',
+                    child: _ProgressRing(
+                      progress: progress,
+                      strokeWidth: compact ? 8 : 10,
+                      // Nur die Prozentzahl im Ring. Das fruehere „des Ziels"
+                      // darunter passte nie in den Innenkreis und schnitt den
+                      // Ring optisch an — und der Bezug steht ohnehin links
+                      // („VERBLEIBENDE KCAL") und in der ZIEL-Statistik.
+                      child: Text(
+                        '${(progress * 100).round()}%',
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: textPrimary,
+                          fontSize: tight ? 17 : (compact ? 20 : 24),
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.5,
+                        ),
                       ),
                     ),
                   ),
@@ -237,10 +245,27 @@ class CaloriesOverviewCard extends StatelessWidget {
           ],
         );
 
+        // A11y-Sicherung fuer Systemschrift bis 200 % (textScale-Cap 2.0):
+        // passt der Inhalt in die Flex-Hoehe, erzwingt minHeight exakt das
+        // bisherige spaceBetween-Layout (pixel-identisch); wird er hoeher,
+        // scrollt die Karte statt mit RenderFlex-Overflow abzuschneiden
+        // (WCAG 1.4.4: Inhalt bleibt erreichbar).
+        final body = constraints.hasBoundedHeight
+            ? SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: math.max(0, maxHeight - padding.vertical),
+                  ),
+                  child: content,
+                ),
+              )
+            : content;
+
         return _GlassPanel(
           key: const ValueKey('analyse-daily-kcal-card'),
           padding: padding,
-          child: content,
+          child: body,
         );
       },
     );
@@ -251,11 +276,7 @@ class CaloriesOverviewCard extends StatelessWidget {
 /// oben-rechts, darüber ein BackdropFilter-Blur und ein transluzenter Fill mit
 /// Hairline-Rand. Ersetzt die solide [AppCard] NUR für die Kalorienkarte.
 class _GlassPanel extends StatelessWidget {
-  const _GlassPanel({
-    super.key,
-    required this.child,
-    required this.padding,
-  });
+  const _GlassPanel({super.key, required this.child, required this.padding});
 
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -307,10 +328,7 @@ class _GlassPanel extends StatelessWidget {
                 ),
               ),
               // 3) Inhalt.
-              Padding(
-                padding: padding,
-                child: child,
-              ),
+              Padding(padding: padding, child: child),
             ],
           ),
         ),
@@ -508,7 +526,8 @@ class _RingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final stroke = strokeWidth;
-    final rect = Offset(stroke / 2, stroke / 2) &
+    final rect =
+        Offset(stroke / 2, stroke / 2) &
         Size(size.width - stroke, size.height - stroke);
     final center = rect.center;
     final radius = rect.width / 2;
@@ -528,7 +547,12 @@ class _RingPainter extends CustomPainter {
       endAngle: 2 * math.pi,
       transform: const GradientRotation(-math.pi / 2),
       // Energy ring is a single brand metric: forgeLime only, soft fade-in start.
-      colors: [forgeLime.withValues(alpha: 0.45), forgeLime, forgeLime, forgeLime],
+      colors: [
+        forgeLime.withValues(alpha: 0.45),
+        forgeLime,
+        forgeLime,
+        forgeLime,
+      ],
       stops: const [0.0, 0.45, 0.85, 1.0],
     );
 
@@ -568,8 +592,10 @@ class MealsTodayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final overallTotal =
-        meals.fold<int>(0, (sum, m) => sum + m.result.caloriesKcal);
+    final overallTotal = meals.fold<int>(
+      0,
+      (sum, m) => sum + m.result.caloriesKcal,
+    );
     // Kopie absteigend nach Zeitpunkt sortieren — Original nicht mutieren.
     final sorted = List<LoggedMeal>.of(meals)
       ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
@@ -658,11 +684,11 @@ class MealsTodayCard extends StatelessWidget {
                           final VoidCallback? tap;
                           if (editScope != null) {
                             tap = () => showEditMealSheet(
-                                  context,
-                                  meal: meal,
-                                  onUpdateMeal: editScope.onUpdateMeal,
-                                  onRemoveMeal: editScope.onRemoveMeal,
-                                );
+                              context,
+                              meal: meal,
+                              onUpdateMeal: editScope.onUpdateMeal,
+                              onRemoveMeal: editScope.onRemoveMeal,
+                            );
                           } else if (onMealTap != null) {
                             tap = () => onMealTap!(meal.slot);
                           } else {
@@ -720,44 +746,45 @@ class _HistoryEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // SingleChildScrollView: bei 200%-Systemschrift ist der Empty-State
+    // hoeher als die Verlaufs-Karte — dann scrollt er, statt zu overflowen.
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: surfaceSoft,
-              borderRadius: BorderRadius.circular(rPill),
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: surfaceSoft,
+                borderRadius: BorderRadius.circular(rPill),
+              ),
+              child: const Icon(
+                Icons.restaurant_rounded,
+                color: textMuted,
+                size: 20,
+              ),
             ),
-            child: const Icon(
-              Icons.restaurant_rounded,
-              color: textMuted,
-              size: 20,
+            const SizedBox(height: 12),
+            const Text(
+              'Noch nichts geloggt',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Noch nichts geloggt',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+            const SizedBox(height: 4),
+            const Text(
+              'Tippe oben auf KI-Scan, Barcode oder Suche.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: textMuted, fontSize: 12, height: 1.3),
             ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Tippe oben auf KI-Scan, Barcode oder Suche.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 12,
-              height: 1.3,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -780,7 +807,11 @@ class _DeleteMealAction extends StatelessWidget {
         ? const AlwaysStoppedAnimation<double>(1)
         : CurvedAnimation(
             parent: controller.animation,
-            curve: const Interval(0.0, _deleteExtent, curve: Curves.easeOutCubic),
+            curve: const Interval(
+              0.0,
+              _deleteExtent,
+              curve: Curves.easeOutCubic,
+            ),
           );
     return CustomSlidableAction(
       // Kein autoClose: das wuerde direkt nach dem Tap ein close() feuern und
@@ -852,8 +883,10 @@ class _HistoryEntryState extends State<_HistoryEntry>
     vsync: this,
     duration: const Duration(milliseconds: 280),
   );
-  late final CurvedAnimation _in =
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+  late final CurvedAnimation _in = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutCubic,
+  );
 
   @override
   void initState() {
@@ -890,95 +923,101 @@ class _HistoryEntryState extends State<_HistoryEntry>
           begin: const Offset(0, 0.20),
           end: Offset.zero,
         ).animate(_in),
-        child: InkWell(
-          onTap: widget.onTap,
-          borderRadius: BorderRadius.circular(rControl),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(rControl),
+        // A11y: die Verlaufszeile oeffnet das Bearbeiten-Sheet — als Button
+        // mit Hint ansagen (nur wenn ueberhaupt ein Tap verdrahtet ist).
+        child: Semantics(
+          button: widget.onTap != null,
+          hint: widget.onTap == null ? null : 'Mahlzeit bearbeiten',
+          child: InkWell(
+            onTap: widget.onTap,
+            borderRadius: BorderRadius.circular(rControl),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(rControl),
+                    ),
+                    child: Icon(meal.slot.icon, color: accent, size: 18),
                   ),
-                  child: Icon(meal.slot.icon, color: accent, size: 18),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        meal.result.mealName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: textPrimary,
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.1,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${meal.slot.label} · $amount',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: textMuted,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          '${meal.result.caloriesKcal}',
+                          meal.result.mealName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: textPrimary,
-                            fontSize: 15.5,
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: [FontFeature.tabularFigures()],
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1,
                           ),
                         ),
-                        const SizedBox(width: 3),
-                        const Text(
-                          'kcal',
-                          style: TextStyle(
+                        const SizedBox(height: 3),
+                        Text(
+                          '${meal.slot.label} · $amount',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
                             color: textMuted,
-                            fontSize: 11,
+                            fontSize: 11.5,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _formatTime(meal.loggedAt),
-                      style: const TextStyle(
-                        color: textMuted,
-                        fontSize: 11,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${meal.result.caloriesKcal}',
+                            style: const TextStyle(
+                              color: textPrimary,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          const Text(
+                            'kcal',
+                            style: TextStyle(
+                              color: textMuted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(height: 3),
+                      Text(
+                        _formatTime(meal.loggedAt),
+                        style: const TextStyle(
+                          color: textMuted,
+                          fontSize: 11,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
