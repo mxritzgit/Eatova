@@ -165,11 +165,12 @@ jobs:
       # mehr am Scanner-Step: ein bekannter CVE in den Deps failt den Build
       # jetzt sichtbar, statt im Log eines gruenen Jobs zu verschwinden
       # (Audit 2026-06-09, M4).
+      # v2-Migration: --skip-git wurde in osv-scanner v2 entfernt (Git-Commit-
+      # Scanning ist dort kein Default mehr) — Flag ersatzlos gestrichen.
       - uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
             --recursive
-            --skip-git
             --format=sarif
             --output=osv-results.sarif
             ./
