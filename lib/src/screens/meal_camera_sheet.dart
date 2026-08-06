@@ -1,4 +1,7 @@
+import 'dart:developer' as dev;
+
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/logged_meal.dart';
 import '../models/meal_analysis_request.dart';
 import '../services/meal_camera_launcher.dart';
+import '../services/meal_photo_compressor.dart';
 import '../theme/app_colors.dart';
 import '../theme/meal_slot_style.dart';
 
@@ -121,7 +125,16 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     try {
       HapticFeedback.mediumImpact();
       final file = await controller.takePicture();
-      final bytes = await file.readAsBytes();
+      final raw = await file.readAsBytes();
+      // Rohes Kamera-JPEG vor dem Versand auf Galerie-Niveau bringen
+      // (laengste Kante 1600 px, q85): Base64 macht +33%, der Server kappt
+      // bei 5 MB — unkomprimiert rissen gute Kameras das Limit sporadisch.
+      // compute(): Dekodieren+Re-Encoden blockiert sonst den UI-Isolate.
+      final bytes = await compute(compressMealPhoto, raw);
+      dev.log(
+        'meal photo compressed: ${raw.lengthInBytes} -> ${bytes.lengthInBytes} bytes',
+        name: 'meal_camera',
+      );
       _returnCapture(path: file.path, bytes: bytes);
     } catch (_) {
       if (!mounted) return;

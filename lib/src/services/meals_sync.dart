@@ -17,15 +17,43 @@ class MealsSync {
   final SupabaseClient _client;
   final String _userId;
 
+  /// Boot-Fenster fuer das Tagebuch (Tage zurueck ab jetzt). Die UI zeigt
+  /// maximal ~5 Tage Historie (Datums-Chips, visiblePastDays in
+  /// meal_analysis_screen.dart); Streak-/Lifetime-Zahlen kommen serverseitig
+  /// aus lifetime_stats bzw. record_tracking_day — NICHT aus dieser Liste.
+  /// 35 Tage liegen also grosszuegig ueber dem UI-Bedarf. Ohne Fenster lud
+  /// jeder Kaltstart ALLE jemals geloggten Mahlzeiten inkl. JSONB-Payload.
+  static const int loggedMealsWindowDays = 35;
+
+  /// Defensiver Zeilen-Deckel obendrauf (~28 Logs/Tag im Fenster): PostgREST
+  /// kappt bei gesetztem db-max-rows STILL — mit explizitem Limit ist die
+  /// Obergrenze stattdessen deterministisch und dank order desc verschwinden
+  /// hoechstens die AELTESTEN Eintraege des Fensters, nie aktuelle.
+  static const int loggedMealsMaxRows = 1000;
+
+  /// Favoriten-Deckel: client-seitig existieren ohnehin nur 5 Auto-Recents
+  /// plus angeheftete Favoriten (home_store._cappedFavorites) — 200 liegt
+  /// weit ueber jedem realistischen Pin-Bestand.
+  static const int favoritesLimit = 200;
+
   // ---------- logged_meals ----------
 
   Future<List<LoggedMeal>> loadLoggedMeals() async {
     try {
+      // Fenster auf logged_at (timestamptz, Index user_id+logged_at desc) statt
+      // local_day: aeltere Zeilen koennen local_day=null tragen und wuerden bei
+      // einem local_day-Filter kommentarlos fehlen.
+      final cutoffIso = DateTime.now()
+          .toUtc()
+          .subtract(const Duration(days: loggedMealsWindowDays))
+          .toIso8601String();
       final rows = await _client
           .from('logged_meals')
           .select('id, logged_at, forced_slot, local_day, payload')
           .eq('user_id', _userId)
-          .order('logged_at', ascending: false);
+          .gte('logged_at', cutoffIso)
+          .order('logged_at', ascending: false)
+          .limit(loggedMealsMaxRows);
       return rows.map<LoggedMeal>((row) {
         return LoggedMeal(
           id: row['id'] as String,
@@ -128,7 +156,8 @@ class MealsSync {
           .from('favorite_meals')
           .select('favorite_key, added_at, payload, pinned')
           .eq('user_id', _userId)
-          .order('added_at', ascending: false);
+          .order('added_at', ascending: false)
+          .limit(favoritesLimit);
       return rows.map<FavoriteMeal>((row) {
         return FavoriteMeal(
           id: row['favorite_key'] as String,

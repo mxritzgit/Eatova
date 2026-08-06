@@ -3,8 +3,12 @@ import 'dart:developer' as dev;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/favorite_meal.dart';
 import '../models/lifetime_stats.dart';
+import '../models/logged_meal.dart';
 import '../models/user_profile.dart';
+import '../models/weight_log.dart';
+import 'sync_outbox.dart';
 
 /// Minimaler async Key-Value-Store hinter [LocalCache]. Abstrahiert
 /// SharedPreferences, damit der Cache OHNE Plugin-Channel unit-getestet werden
@@ -106,6 +110,17 @@ class LocalCache {
   String get _statsKey => 'eatova.v1.stats.$_userId';
   String get _notificationsKey => 'eatova.v1.notifications_enabled.$_userId';
 
+  // DATA-7 Offline-Persistenz: Tagebuch, Favoriten und Gewichts-Log werden
+  // gespiegelt, damit ein Kaltstart ohne Netz nicht mit leerem Tagebuch
+  // startet. Dazu die Write-Outbox (noch nicht synchronisierte Operationen)
+  // und die pendenden Lifetime-Stats-Deltas — beides muss einen App-Kill
+  // ueberleben. ALLE Slots sind PII und werden in [clear] geraeumt.
+  String get _loggedMealsKey => 'eatova.v1.logged_meals.$_userId';
+  String get _favoritesKey => 'eatova.v1.favorites.$_userId';
+  String get _weightLogKey => 'eatova.v1.weight_log.$_userId';
+  String get _outboxKey => 'eatova.v1.outbox.$_userId';
+  String get _pendingStatsKey => 'eatova.v1.pending_stats.$_userId';
+
   // ---- Erinnerungen (PROD-1) ----------------------------------------------
   // Opt-in-Flag fuer die lokalen Retention-Nudges. Persistiert pro User, damit
   // ein Kaltstart die geplanten Nudges nur dann wieder aufsetzt, wenn der User
@@ -159,11 +174,121 @@ class LocalCache {
     }
   }
 
+  // ---- Tagebuch / Favoriten / Gewicht (DATA-7) ----------------------------
+  // Listen werden als {'items': [...]} verpackt, damit der defensive
+  // Map-basierte Wire-Pfad (_readJson/_writeJson) unveraendert traegt.
+
+  Future<void> writeLoggedMeals(List<LoggedMeal> meals) =>
+      _writeJson(_loggedMealsKey, <String, dynamic>{
+        'items': meals.map(loggedMealToJson).toList(),
+      });
+
+  Future<List<LoggedMeal>?> readLoggedMeals() async {
+    final items = await _readItems(_loggedMealsKey);
+    if (items == null) return null;
+    try {
+      return items.map(loggedMealFromJson).toList();
+    } catch (e) {
+      dev.log('LocalCache.readLoggedMeals parse failed', error: e,
+          name: 'local_cache');
+      return null;
+    }
+  }
+
+  Future<void> writeFavorites(List<FavoriteMeal> favorites) =>
+      _writeJson(_favoritesKey, <String, dynamic>{
+        'items': favorites.map(favoriteMealToJson).toList(),
+      });
+
+  Future<List<FavoriteMeal>?> readFavorites() async {
+    final items = await _readItems(_favoritesKey);
+    if (items == null) return null;
+    try {
+      return items.map(favoriteMealFromJson).toList();
+    } catch (e) {
+      dev.log('LocalCache.readFavorites parse failed', error: e,
+          name: 'local_cache');
+      return null;
+    }
+  }
+
+  Future<void> writeWeightLog(WeightLog log) =>
+      _writeJson(_weightLogKey, <String, dynamic>{
+        'items': log.entries
+            .map((e) => <String, dynamic>{
+                  't': e.timestamp.toIso8601String(),
+                  'kg': e.weightKg,
+                })
+            .toList(),
+      });
+
+  Future<WeightLog?> readWeightLog() async {
+    final items = await _readItems(_weightLogKey);
+    if (items == null) return null;
+    try {
+      final entries = items
+          .map((j) => WeightLogEntry(
+                timestamp: DateTime.parse(j['t'] as String),
+                weightKg: (j['kg'] as num).toDouble(),
+              ))
+          .toList();
+      return WeightLog(entries: entries);
+    } catch (e) {
+      dev.log('LocalCache.readWeightLog parse failed', error: e,
+          name: 'local_cache');
+      return null;
+    }
+  }
+
+  // ---- Write-Outbox + pendende Stats-Deltas (DATA-7) ----------------------
+
+  Future<void> writeOutbox(List<SyncOp> ops) =>
+      _writeJson(_outboxKey, <String, dynamic>{
+        'items': ops.map((o) => o.toJson()).toList(),
+      });
+
+  /// Liest die persistierte Outbox. Einzelne korrupte/unbekannte Ops werden
+  /// uebersprungen (SyncOp.tryFromJson) statt die ganze Queue zu verwerfen —
+  /// die uebrigen Writes des Users sollen den einen kaputten nicht mitreissen.
+  Future<List<SyncOp>?> readOutbox() async {
+    final items = await _readItems(_outboxKey);
+    if (items == null) return null;
+    final ops = <SyncOp>[];
+    for (final item in items) {
+      final op = SyncOp.tryFromJson(item);
+      if (op != null) ops.add(op);
+    }
+    return ops;
+  }
+
+  Future<void> writePendingStatsDeltas({
+    required int meals,
+    required int weightLogs,
+  }) =>
+      _writeJson(_pendingStatsKey, <String, dynamic>{
+        'meals': meals,
+        'weight_logs': weightLogs,
+      });
+
+  Future<({int meals, int weightLogs})?> readPendingStatsDeltas() async {
+    final json = await _readJson(_pendingStatsKey);
+    if (json == null) return null;
+    return (
+      meals: _int(json['meals'], 0),
+      weightLogs: _int(json['weight_logs'], 0),
+    );
+  }
+
   Future<void> clear() async {
     await _store.remove(_profileKey);
     await _store.remove(_legacyDailyKey);
     await _store.remove(_statsKey);
     await _store.remove(_notificationsKey);
+    await _store.remove(_loggedMealsKey);
+    await _store.remove(_favoritesKey);
+    await _store.remove(_weightLogKey);
+    await _store.remove(_outboxKey);
+    await _store.remove(_pendingStatsKey);
   }
 
   // ---- Low-level ----------------------------------------------------------
@@ -176,6 +301,19 @@ class LocalCache {
       // fuer den naechsten Kaltstart. Bei Fehler still verwerfen.
       dev.log('LocalCache write failed ($key)', error: e, name: 'local_cache');
     }
+  }
+
+  /// Liest eine als {'items': [...]} verpackte Listen-Slot-Zeile und liefert
+  /// die Map-Eintraege. Fehlt der Slot oder ist er strukturell kaputt -> null
+  /// (Aufrufer behandelt das wie "kein Cache").
+  Future<List<Map<String, dynamic>>?> _readItems(String key) async {
+    final json = await _readJson(key);
+    final items = json?['items'];
+    if (items is! List) return null;
+    return items
+        .whereType<Map>()
+        .map((m) => m.cast<String, dynamic>())
+        .toList();
   }
 
   Future<Map<String, dynamic>?> _readJson(String key) async {

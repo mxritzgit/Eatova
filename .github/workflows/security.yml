@@ -22,9 +22,9 @@ jobs:
     name: Flutter analyze + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - uses: subosito/flutter-action@f2c4f6686ca8e8d6e6d0f28410eeef506ed66aff # v2.18.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: 3.44.0
@@ -87,12 +87,45 @@ jobs:
           fi
           echo "::notice::Coverage-Floor erfuellt: ${PCT}% >= ${COVERAGE_FLOOR}%."
 
+  build-android:
+    name: Android Debug-Build (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # Temurin 21 explizit pinnen: Gradle 8.14 des Projekts bricht mit dem
+      # Java 25, das neuere Runner-Images als Default setzen.
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.44.0
+          cache: true
+
+      - name: pub get
+        run: flutter pub get
+
+      # Bewusst NUR der Debug-Build: er braucht keine Signing-Secrets (Release
+      # haengt noch am Debug-Keystore, das fixt ein spaeteres Signing-Projekt)
+      # und faengt trotzdem Manifest-Merge-/Gradle-/Plugin-Brueche ab, die
+      # analyze + test nicht sehen. Defines sind dieselben CI-Dummies wie im
+      # Test-Job; kein Artefakt-Upload, es geht nur um "baut es?".
+      - name: build apk (debug)
+        run: |
+          flutter build apk --debug \
+            --dart-define=SUPABASE_URL=https://ci.invalid \
+            --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+
   pub-outdated:
     name: Flutter pub outdated (Info)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: subosito/flutter-action@f2c4f6686ca8e8d6e6d0f28410eeef506ed66aff # v2.18.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: 3.44.0
@@ -109,7 +142,7 @@ jobs:
     name: Secret scanning (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           # Volle History scannen, nicht nur den HEAD-Commit, damit ein
           # versehentlich (auch in einem aelteren Commit) committetes Secret
@@ -126,13 +159,13 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       # Scannt pubspec.lock (Pub-Ecosystem) und deno.lock falls vorhanden.
       # SARIF-Upload landet im Security-Tab des Repos. KEIN continue-on-error
       # mehr am Scanner-Step: ein bekannter CVE in den Deps failt den Build
       # jetzt sichtbar, statt im Log eines gruenen Jobs zu verschwinden
       # (Audit 2026-06-09, M4).
-      - uses: google/osv-scanner-action/osv-scanner-action@daa2c68f50d845057895a9c300e42478481c1d26 # v1.9.1
+      - uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
             --recursive
@@ -148,7 +181,7 @@ jobs:
       - name: Upload SARIF
         if: always() && hashFiles('osv-results.sarif') != ''
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: osv-results.sarif
 
@@ -156,8 +189,8 @@ jobs:
     name: Deno lint + check (Edge Functions)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: denoland/setup-deno@909cc5acb0fdd60627fb858598759246509fa755 # v2.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
         with:
           # Deno 1.x ist EOL; die Edge-Runtime ist auf Deno 2. Die Functions
           # sind dependency-frei, der Umstieg ist risikoarm (Audit 2026-06-09, L7).
@@ -185,7 +218,7 @@ jobs:
     # sauber uebersprungen, damit Forks/PRs ohne Secret-Zugriff den Build nicht
     # rot machen. Nutzt die Management-API (kein DB-Passwort/CLI-Login noetig).
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       # Verfuegbarkeit der Secrets EINMAL als Output festhalten. Secrets duerfen
       # nicht direkt in `if:`-Job-Conditions stehen, daher der Umweg ueber einen

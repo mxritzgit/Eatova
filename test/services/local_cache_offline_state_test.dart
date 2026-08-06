@@ -1,0 +1,183 @@
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:eatova/src/models/favorite_meal.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/weight_log.dart';
+import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
+
+// DATA-7: der LocalCache spiegelt jetzt auch Tagebuch (loggedMeals),
+// Favoriten, Gewichts-Log, die Write-Outbox und die pendenden Lifetime-
+// Stats-Deltas — damit ein Kaltstart ohne Netz nicht mit leerem Tagebuch
+// startet und kein Write einen App-Kill verliert. Diese Tests sichern die
+// Roundtrips, die defensive Korrupt-Behandlung und dass clear() ALLE neuen
+// Slots (PII!) mit raeumt.
+
+MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
+    MealAnalysisResult(
+      mealName: name,
+      caloriesKcal: kcal,
+      estimatedGrams: 350,
+      kcalPer100G: 85.7,
+      protein: '30 g',
+      carbs: '40 g',
+      fat: '10 g',
+      confidence: 'Hoch',
+      portionNotes: 'Testportion.',
+      sourceLabel: 'Foto-KI',
+    );
+
+LoggedMeal _meal(String id) => LoggedMeal(
+      id: id,
+      result: _result(),
+      loggedAt: DateTime(2026, 8, 5, 12, 30),
+      forcedSlot: MealSlot.lunch,
+      localDay: '2026-08-05',
+    );
+
+LocalCache _cache(InMemoryKeyValueStore store, [String userId = 'user-1']) =>
+    LocalCache(store, userId);
+
+void main() {
+  group('LocalCache Tagebuch/Favoriten/Gewicht', () {
+    test('loggedMeals roundtrippen verlustfrei (Slot, localDay, Result)',
+        () async {
+      final cache = _cache(InMemoryKeyValueStore());
+      await cache.writeLoggedMeals([_meal('m-1'), _meal('m-2')]);
+
+      final back = await cache.readLoggedMeals();
+      expect(back, hasLength(2));
+      expect(back![0].id, 'm-1');
+      expect(back[0].forcedSlot, MealSlot.lunch);
+      expect(back[0].localDay, '2026-08-05');
+      expect(back[0].loggedAt, DateTime(2026, 8, 5, 12, 30));
+      expect(back[0].result.caloriesKcal, 300);
+      expect(back[0].result.mealName, 'Bowl');
+    });
+
+    test('favorites roundtrippen inkl. pinned', () async {
+      final cache = _cache(InMemoryKeyValueStore());
+      await cache.writeFavorites([
+        FavoriteMeal(
+          id: 'name:bowl',
+          result: _result(),
+          addedAt: DateTime(2026, 8, 5, 13),
+          pinned: true,
+        ),
+      ]);
+
+      final back = await cache.readFavorites();
+      expect(back, hasLength(1));
+      expect(back!.single.id, 'name:bowl');
+      expect(back.single.pinned, isTrue);
+      expect(back.single.addedAt, DateTime(2026, 8, 5, 13));
+    });
+
+    test('weightLog roundtrippt in Reihenfolge', () async {
+      final cache = _cache(InMemoryKeyValueStore());
+      final log = WeightLog(entries: [
+        WeightLogEntry(timestamp: DateTime(2026, 8, 1, 7), weightKg: 82.0),
+        WeightLogEntry(timestamp: DateTime(2026, 8, 5, 7), weightKg: 81.4),
+      ]);
+      await cache.writeWeightLog(log);
+
+      final back = await cache.readWeightLog();
+      expect(back, isNotNull);
+      expect(back!.entries, hasLength(2));
+      expect(back.latest!.weightKg, 81.4);
+      expect(back.entries.first.timestamp, DateTime(2026, 8, 1, 7));
+    });
+
+    test('leerer Cache -> ueberall null', () async {
+      final cache = _cache(InMemoryKeyValueStore());
+      expect(await cache.readLoggedMeals(), isNull);
+      expect(await cache.readFavorites(), isNull);
+      expect(await cache.readWeightLog(), isNull);
+      expect(await cache.readOutbox(), isNull);
+      expect(await cache.readPendingStatsDeltas(), isNull);
+    });
+
+    test('korrupter Eintrag -> null statt Crash', () async {
+      final store = InMemoryKeyValueStore({
+        'eatova.v1.logged_meals.user-1': '{ kein json',
+        'eatova.v1.weight_log.user-1': '{"items":[{"t":"quatsch"}]}',
+      });
+      final cache = _cache(store);
+      expect(await cache.readLoggedMeals(), isNull);
+      expect(await cache.readWeightLog(), isNull);
+    });
+  });
+
+  group('LocalCache Outbox + Stats-Deltas', () {
+    test('Outbox roundtrippt; korrupte Einzel-Ops werden uebersprungen',
+        () async {
+      final cache = _cache(InMemoryKeyValueStore());
+      await cache.writeOutbox([
+        SyncOp.mealInsert(_meal('m-1'), trackDay: true),
+        SyncOp.mealDelete('m-2'),
+      ]);
+
+      final back = await cache.readOutbox();
+      expect(back, hasLength(2));
+      expect(back![0].kind, SyncOpKind.mealInsert);
+      expect(back[0].trackDay, isTrue);
+      expect(back[0].meal!.id, 'm-1');
+      expect(back[1].kind, SyncOpKind.mealDelete);
+
+      // Ein unbekannter Op-Kind in der Mitte reisst die Queue nicht mit.
+      final store = InMemoryKeyValueStore({
+        'eatova.v1.outbox.user-1':
+            '{"items":[{"kind":"zeitmaschine","entity_id":"x"},'
+                '{"kind":"mealDelete","entity_id":"m-9","payload":{}}]}',
+      });
+      final partial = await _cache(store).readOutbox();
+      expect(partial, hasLength(1));
+      expect(partial!.single.entityId, 'm-9');
+    });
+
+    test('pendende Stats-Deltas roundtrippen', () async {
+      final cache = _cache(InMemoryKeyValueStore());
+      await cache.writePendingStatsDeltas(meals: 3, weightLogs: 1);
+
+      final back = await cache.readPendingStatsDeltas();
+      expect(back, isNotNull);
+      expect(back!.meals, 3);
+      expect(back.weightLogs, 1);
+    });
+  });
+
+  group('LocalCache Housekeeping (DATA-7)', () {
+    test('clear() raeumt auch Tagebuch, Favoriten, Gewicht, Outbox und Deltas',
+        () async {
+      final store = InMemoryKeyValueStore();
+      final cache = _cache(store);
+      await cache.writeLoggedMeals([_meal('m-1')]);
+      await cache.writeFavorites([
+        FavoriteMeal(
+            id: 'name:bowl', result: _result(), addedAt: DateTime(2026, 8, 5)),
+      ]);
+      await cache.writeWeightLog(WeightLog(entries: [
+        WeightLogEntry(timestamp: DateTime(2026, 8, 5, 7), weightKg: 81.4),
+      ]));
+      await cache.writeOutbox([SyncOp.mealDelete('m-2')]);
+      await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
+
+      await cache.clear();
+
+      expect(await cache.readLoggedMeals(), isNull);
+      expect(await cache.readFavorites(), isNull);
+      expect(await cache.readWeightLog(), isNull);
+      expect(await cache.readOutbox(), isNull);
+      expect(await cache.readPendingStatsDeltas(), isNull);
+      expect(store.snapshot, isEmpty,
+          reason: 'kein PII-Rest in den SharedPreferences');
+    });
+
+    test('Slots sind pro userId getrennt', () async {
+      final store = InMemoryKeyValueStore();
+      await _cache(store, 'user-a').writeLoggedMeals([_meal('m-1')]);
+      expect(await _cache(store, 'user-b').readLoggedMeals(), isNull);
+    });
+  });
+}

@@ -12,12 +12,15 @@ import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import '../services/crash_reporter.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
 import '../services/meal_totals.dart' as totals;
 import '../services/notification_service.dart';
 import '../services/streak_reminder_planner.dart';
+import '../services/sync_error_messages.dart';
+import '../services/sync_outbox.dart';
 import '../services/uuid.dart';
 import '../theme/app_colors.dart';
 import '../widgets/common/app_snack.dart';
@@ -25,7 +28,7 @@ import '../widgets/common/app_snack.dart';
 /// Vom [HomeStore] ausgesendete, context-FREIE Snackbar-Anforderung. Der Store
 /// haelt bewusst nie einen BuildContext (ARCH-4 Store-Seam) — er signalisiert
 /// nur „zeige diese Meldung", die `_EatovaHomePageState` uebersetzt das in ein
-/// echtes [showAppSnack]. So bleibt die gesamte Sync-/Rollback-Logik testbar und
+/// echtes [showAppSnack]. So bleibt die gesamte Sync-/Outbox-Logik testbar und
 /// vom Widget-Baum entkoppelt.
 typedef SnackEmitter = void Function(
   String message, {
@@ -96,6 +99,23 @@ class HomeStore extends ChangeNotifier {
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
   bool _statsFlushInFlight = false;
+
+  // --- DATA-7 Write-Outbox --------------------------------------------------
+  // Fehlgeschlagene Sync-Writes rollen den lokalen State NICHT mehr zurueck,
+  // sondern landen als persistierte [SyncOp]s hier und werden idempotent
+  // nachgespielt: beim Boot, beim Lifecycle-Flush (flushPendingWrites), nach
+  // der naechsten erfolgreichen Operation und ueber den Backoff-Timer.
+  List<SyncOp> _outbox = <SyncOp>[];
+  bool _outboxReplayInFlight = false;
+  Timer? _outboxRetryTimer;
+  int _outboxRetryAttempt = 0;
+
+  /// Der dezente Queue-Hinweis (Offline ODER "wird automatisch erneut
+  /// versucht") wird pro Fehler-Episode nur EINMAL gezeigt (Reset beim
+  /// naechsten Sync-Erfolg) — sonst wuerde jede weitere Aktion erneut toasten.
+  /// Welcher der beiden Texte kommt, entscheidet der ERSTE Fehler der Episode
+  /// (Klassifizierung: [isNetworkSyncError]).
+  bool _syncHintShown = false;
   String userName = 'Moritz';
   bool _onboardingDone = false;
   final Completer<void> _profileReadyCompleter = Completer<void>();
@@ -105,6 +125,9 @@ class HomeStore extends ChangeNotifier {
 
   // --- Read-only Sichten fuer die UI-Schale --------------------------------
   List<FitnessRecipe> get userRecipes => _userRecipes;
+
+  /// Noch nicht synchronisierte Write-Operationen (Sicht fuer Tests/Debug).
+  List<SyncOp> get pendingOutbox => List.unmodifiable(_outbox);
   bool get notificationsEnabled => _notificationsEnabled;
   Future<void> get profileReady => _profileReadyCompleter.future;
 
@@ -219,7 +242,18 @@ class HomeStore extends ChangeNotifier {
     if (_cache != null) {
       await _hydrateFromCache();
     }
+    // Outbox VOR dem Server-Load nachspielen (best effort): so enthaelt der
+    // folgende Refresh die nachgeholten Writes bereits. Offline scheitert der
+    // Replay einfach — die Ops bleiben liegen und werden beim Boot-Merge
+    // (_applyPendingOpsToState) ueber die Server-Daten gelegt.
+    await _replayOutbox();
     await _bootFromSupabase();
+    // Beim letzten Lauf haengengebliebene (persistierte) Stats-Deltas jetzt
+    // nachreichen — der Boot-Load hat lifetimeStats gerade frisch gesetzt,
+    // increment_lifetime_stats addiert serverseitig-atomar obendrauf.
+    if (_pendingMealsDelta != 0 || _pendingWeightLogsDelta != 0) {
+      unawaited(_flushStatsDelta());
+    }
     await _initNotificationsFromCache();
   }
 
@@ -229,15 +263,38 @@ class HomeStore extends ChangeNotifier {
     final today = DateTime.now();
     UserProfile? cachedProfile;
     LifetimeStats? cachedStats;
+    List<LoggedMeal>? cachedMeals;
+    List<FavoriteMeal>? cachedFavorites;
+    WeightLog? cachedWeightLog;
+    List<SyncOp>? cachedOutbox;
+    ({int meals, int weightLogs})? cachedDeltas;
     try {
       cachedProfile = await cache.readProfile();
       cachedStats = await cache.readLifetimeStats();
+      cachedMeals = await cache.readLoggedMeals();
+      cachedFavorites = await cache.readFavorites();
+      cachedWeightLog = await cache.readWeightLog();
+      cachedOutbox = await cache.readOutbox();
+      cachedDeltas = await cache.readPendingStatsDeltas();
     } catch (e, st) {
       dev.log('LocalCache hydrate failed',
           error: e, stackTrace: st, name: 'local_cache');
+      unawaited(CrashReporter.capture(e, st, context: 'cache-hydrate'));
     }
     if (_disposed) return;
-    if (cachedProfile == null && cachedStats == null) {
+    // Outbox + Stats-Deltas IMMER uebernehmen — das ist der kill-sichere Teil
+    // des Sync-Zustands, unabhaengig davon, ob sonst etwas gecacht war.
+    if (cachedOutbox != null) _outbox = cachedOutbox;
+    if (cachedDeltas != null) {
+      _pendingMealsDelta += cachedDeltas.meals;
+      _pendingWeightLogsDelta += cachedDeltas.weightLogs;
+    }
+    if (cachedProfile == null &&
+        cachedStats == null &&
+        cachedMeals == null &&
+        cachedFavorites == null &&
+        cachedWeightLog == null &&
+        _outbox.isEmpty) {
       return;
     }
     _mutate(() {
@@ -248,6 +305,10 @@ class HomeStore extends ChangeNotifier {
       if (cachedStats != null) {
         lifetimeStats = cachedStats;
       }
+      if (cachedMeals != null) loggedMeals = cachedMeals;
+      if (cachedFavorites != null) favorites = cachedFavorites;
+      if (cachedWeightLog != null) weightLog = cachedWeightLog;
+      _applyPendingOpsToState();
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
@@ -257,12 +318,12 @@ class HomeStore extends ChangeNotifier {
     final s = sync!;
     final today = DateTime.now();
     final results = await Future.wait<Object?>([
-      _safeLoad(() => s.profile.load()),
-      _safeLoad(() => s.meals.loadLoggedMeals()),
-      _safeLoad(() => s.meals.loadFavorites()),
-      _safeLoad(() => s.tracking.loadWeightLog()),
-      _safeLoad(() => s.lifetimeStats.load()),
-      _safeLoad(() => s.userRecipes.load()),
+      _safeLoad('boot-profile', () => s.profile.load()),
+      _safeLoad('boot-meals', () => s.meals.loadLoggedMeals()),
+      _safeLoad('boot-favorites', () => s.meals.loadFavorites()),
+      _safeLoad('boot-weight-log', () => s.tracking.loadWeightLog()),
+      _safeLoad('boot-lifetime-stats', () => s.lifetimeStats.load()),
+      _safeLoad('boot-user-recipes', () => s.userRecipes.load()),
     ]);
     if (_disposed) return;
     _mutate(() {
@@ -291,6 +352,12 @@ class HomeStore extends ChangeNotifier {
       final loadedRecipes = results[5] as List<FitnessRecipe>?;
       if (loadedRecipes != null) _userRecipes = loadedRecipes;
 
+      // Cache-then-network-Merge: Server-Daten gewinnen fuer synchronisierte
+      // Eintraege, aber noch nicht synchronisierte Outbox-Writes bleiben
+      // sichtbar (sonst wuerde der frische Server-Load z.B. eine offline
+      // geloggte Mahlzeit wieder aus dem Tagebuch werfen).
+      _applyPendingOpsToState();
+
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
@@ -300,43 +367,284 @@ class HomeStore extends ChangeNotifier {
     }
   }
 
-  Future<T?> _safeLoad<T>(Future<T?> Function() loader) async {
+  Future<T?> _safeLoad<T>(
+      String operation, Future<T?> Function() loader) async {
     try {
       return await loader();
     } catch (e, st) {
-      dev.log('Eatova load failed',
+      dev.log('Eatova load failed ($operation)',
           error: e, stackTrace: st, name: 'eatova_sync');
+      unawaited(CrashReporter.capture(e, st, context: operation));
       return null;
     }
   }
 
   // --- Fehler-/Sync-Routing -------------------------------------------------
 
-  void _reportSyncError(String operation, Object error) {
+  /// Fehler einer Operation OHNE Outbox-Netz (z.B. Konto-Löschung): roter
+  /// Snack mit freundlicher, klassifizierter Meldung — NIE der rohe
+  /// Exception-Text (Schema-Leakage, unlesbar). Die Roh-Exception geht an
+  /// dev.log + CrashReporter.
+  void _reportSyncError(String operation, Object error, StackTrace stack) {
     dev.log('$operation failed', error: error, name: 'eatova_sync');
+    unawaited(CrashReporter.capture(error, stack, context: operation));
     if (_disposed) return;
-    final msg = error.toString();
-    final short = msg.length > 140 ? '${msg.substring(0, 140)}…' : msg;
     _emitSnack(
-      'Sync ($operation): $short',
+      directSyncErrorMessage(error),
       icon: Icons.error_outline_rounded,
       accent: danger,
       duration: kSnackError,
     );
   }
 
-  /// Fire-and-forget Sync-Write MIT Rollback: schlägt der Write fehl, wird der
-  /// Fehler sichtbar gemeldet UND der optimistische lokale State via [restore]
-  /// zurückgerollt — sonst driften lokal und Remote auseinander.
-  void _syncWithRollback(
+  /// Fire-and-forget Sync-Write OHNE Rollback (DATA-7): schlaegt der Write
+  /// fehl, bleibt der optimistische lokale State stehen und die Operation
+  /// wandert als persistierter Outbox-Eintrag in die Retry-Queue. Frueher
+  /// wurde hier zurueckgerollt — der Eintrag des Nutzers war dann bei jedem
+  /// Netz-Schluckauf weg.
+  ///
+  /// Haengt fuer dieselbe Entitaet bereits eine Op in der Outbox, wird die
+  /// neue Operation direkt DAHINTER eingereiht statt live zu schreiben: ein
+  /// Live-Write wuerde die pendende Op ueberholen (z.B. ein Update, dessen
+  /// Insert noch aussteht, traefe serverseitig 0 Zeilen und der Replay
+  /// schriebe danach den alten Stand).
+  void _syncOrQueue(
     String operation,
-    Future<void>? future,
-    VoidCallback restore,
+    Future<void> Function() action,
+    SyncOp Function() buildOp,
   ) {
-    future?.catchError((Object e) {
-      _reportSyncError(operation, e);
-      if (!_disposed) _mutate(restore);
+    if (sync == null) return;
+    final op = buildOp();
+    if (_outbox.any((o) => o.entityKey == op.entityKey)) {
+      _enqueueOp(op);
+      _notifyQueued(null);
+      _scheduleOutboxRetry();
+      return;
+    }
+    action().then((_) => _onSyncSuccess()).catchError((Object e, StackTrace st) {
+      _handleSyncFailure(operation, e, st, op);
     });
+  }
+
+  /// Sync-Write fehlgeschlagen: Op persistiert einreihen, dezent hinweisen,
+  /// Retry planen. KEIN Rollback, KEIN roter Fehler-Toast mehr.
+  void _handleSyncFailure(
+      String operation, Object error, StackTrace stack, SyncOp op) {
+    dev.log('$operation failed — Op wandert in die Outbox',
+        error: error, name: 'eatova_sync');
+    unawaited(CrashReporter.capture(error, stack, context: operation));
+    _enqueueOp(op);
+    if (_disposed) return;
+    _notifyQueued(error);
+    _scheduleOutboxRetry();
+  }
+
+  void _enqueueOp(SyncOp op) {
+    // Waehrend eines laufenden Replays nur anhaengen — der Replay koennte
+    // gerade genau die Op abspielen, deren Payload sonst koalesziert (und beim
+    // Entfernen verworfen) wuerde.
+    _outbox = enqueueCoalesced(_outbox, op, appendOnly: _outboxReplayInFlight);
+    _persistOutbox();
+  }
+
+  /// Dezenter Hinweis, dass ein Write in der Outbox gelandet ist. Der Text
+  /// kommt aus dem puren Mapping (sync_error_messages.dart): Netzwerkfehler ->
+  /// "Offline …", alles andere -> freundliche Retry-Meldung OHNE
+  /// Exception-Details. [error] ist null, wenn die Op ohne Live-Versuch hinter
+  /// eine bereits pendende Op eingereiht wurde (kein frischer Fehler) — dann
+  /// gilt der neutrale Retry-Text.
+  void _notifyQueued(Object? error) {
+    if (_disposed || _syncHintShown) return;
+    _syncHintShown = true;
+    final offline = error != null && isNetworkSyncError(error);
+    _emitSnack(
+      queuedSyncHint(error),
+      icon: offline ? Icons.cloud_off_rounded : Icons.sync_problem_rounded,
+      accent: textMuted,
+    );
+  }
+
+  /// Nach einem erfolgreichen Sync-Write: Fehler-Episode beenden, Backoff
+  /// zuruecksetzen und liegengebliebene Ops direkt nachspielen.
+  void _onSyncSuccess() {
+    if (_disposed) return;
+    _syncHintShown = false;
+    _outboxRetryAttempt = 0;
+    if (_outbox.isNotEmpty && !_outboxReplayInFlight) {
+      unawaited(_replayOutbox());
+    }
+  }
+
+  /// Plant den naechsten Outbox-/Stats-Retry mit exponentiellem Backoff
+  /// (30s -> 1m -> 2m -> 4m Cap; Reset bei Erfolg). Bewusst ohne
+  /// connectivity-Paket: der Timer ist der einzige Waechter, zusaetzlich
+  /// stossen Boot, Lifecycle-Flush und der naechste Erfolg den Replay an.
+  void _scheduleOutboxRetry() {
+    if (_disposed || sync == null) return;
+    if (_outbox.isEmpty &&
+        _pendingMealsDelta == 0 &&
+        _pendingWeightLogsDelta == 0) {
+      return;
+    }
+    _outboxRetryTimer?.cancel();
+    final delay = Duration(seconds: 30 * (1 << _outboxRetryAttempt));
+    if (_outboxRetryAttempt < 3) _outboxRetryAttempt++;
+    _outboxRetryTimer = Timer(delay, () {
+      unawaited(_replayOutbox());
+      unawaited(_flushStatsDelta());
+    });
+  }
+
+  /// Spielt die persistierte Outbox strikt FIFO gegen Supabase ab. Pro
+  /// Entitaet bleibt die Reihenfolge erhalten (insert vor update vor delete);
+  /// schlaegt eine Op fehl, blockiert sie nur ihre EIGENE Entitaet fuer diesen
+  /// Lauf — Ops anderer Entitaeten laufen weiter. Jede erfolgreiche Op wird
+  /// sofort entfernt und der Rest persistiert (kill-sicher: ein Abbruch
+  /// mittendrin wiederholt hoechstens bereits bestaetigte, idempotente Ops).
+  Future<void> _replayOutbox() async {
+    final s = sync;
+    if (s == null || _outboxReplayInFlight || _outbox.isEmpty) return;
+    _outboxReplayInFlight = true;
+    final blocked = <String>{};
+    var anySuccess = false;
+    try {
+      var i = 0;
+      while (i < _outbox.length) {
+        final op = _outbox[i];
+        if (blocked.contains(op.entityKey)) {
+          i++;
+          continue;
+        }
+        try {
+          await _performOp(s, op);
+        } catch (e, st) {
+          dev.log('Outbox-Replay: ${op.kind.name} bleibt liegen',
+              error: e, name: 'eatova_sync');
+          unawaited(CrashReporter.capture(e, st,
+              context: 'outbox-replay-${op.kind.name}'));
+          blocked.add(op.entityKey);
+          i++;
+          continue;
+        }
+        anySuccess = true;
+        _outbox = [..._outbox]..removeAt(i);
+        _persistOutbox();
+      }
+    } finally {
+      _outboxReplayInFlight = false;
+    }
+    if (_disposed) return;
+    if (blocked.isEmpty) {
+      _outboxRetryAttempt = 0;
+      _outboxRetryTimer?.cancel();
+      if (anySuccess) _syncHintShown = false;
+    } else {
+      _scheduleOutboxRetry();
+    }
+  }
+
+  /// Fuehrt EINE Outbox-Op gegen den Server aus. Wirft bei Sync-Fehler (der
+  /// Replay-Loop behaelt die Op dann). Nachgelagerte Zaehler laufen wie im
+  /// jeweiligen Online-Erfolgspfad.
+  Future<void> _performOp(EatovaSync s, SyncOp op) async {
+    switch (op.kind) {
+      case SyncOpKind.mealInsert:
+        final meal = op.meal;
+        if (meal == null) return; // korrupter Payload -> Op verfaellt still
+        await s.meals.insertLoggedMeal(meal);
+        _queueStatsDelta(meals: 1);
+        // Streak-Tag der MAHLZEIT verbuchen, nicht "heute" — der Replay kann
+        // Tage spaeter laufen. record_tracking_day ist idempotent pro Tag und
+        // fuer Tage vor dem letzten gezaehlten Tag ein Server-No-op.
+        if (op.trackDay) {
+          _recordTrackingDay(day: DateTime.parse(meal.effectiveLocalDay));
+        }
+      case SyncOpKind.mealUpsert:
+        final meal = op.meal;
+        if (meal == null) return;
+        await s.meals.insertLoggedMeal(meal);
+      case SyncOpKind.mealDelete:
+        await s.meals.deleteLoggedMeal(op.entityId);
+      case SyncOpKind.weightInsert:
+        final kg = op.weightKg;
+        final ts = op.recordedAt;
+        if (kg == null || ts == null) return;
+        await s.tracking.insertWeight(kg, ts, id: op.entityId);
+        _queueStatsDelta(weightLogs: 1);
+      case SyncOpKind.favoriteUpsert:
+        final fav = op.favorite;
+        if (fav == null) return;
+        await s.meals.upsertFavorite(fav);
+      case SyncOpKind.favoriteDelete:
+        await s.meals.deleteFavorite(op.entityId);
+      case SyncOpKind.recipeUpsert:
+        final recipe = op.recipe;
+        if (recipe == null) return;
+        await s.userRecipes.upsert(recipe);
+      case SyncOpKind.recipeDelete:
+        await s.userRecipes.delete(op.entityId);
+    }
+  }
+
+  /// Spiegelt noch nicht synchronisierte Outbox-Ops in den (gecachten oder
+  /// frisch geladenen) State. Idempotent — mehrfaches Anwenden aendert nichts:
+  /// Upserts ersetzen vorhandene Eintraege bzw. fuegen fehlende ein, Deletes
+  /// entfernen. Muss innerhalb eines _mutate-Blocks laufen.
+  void _applyPendingOpsToState() {
+    if (_outbox.isEmpty) return;
+    var mealsTouched = false;
+    for (final op in _outbox) {
+      switch (op.kind) {
+        case SyncOpKind.mealInsert:
+        case SyncOpKind.mealUpsert:
+          final meal = op.meal;
+          if (meal == null) break;
+          final index = loggedMeals.indexWhere((m) => m.id == meal.id);
+          if (index >= 0) {
+            final next = [...loggedMeals];
+            next[index] = meal;
+            loggedMeals = next;
+          } else {
+            loggedMeals = [meal, ...loggedMeals];
+          }
+          mealsTouched = true;
+        case SyncOpKind.mealDelete:
+          loggedMeals = loggedMeals.where((m) => m.id != op.entityId).toList();
+        case SyncOpKind.weightInsert:
+          final kg = op.weightKg;
+          final ts = op.recordedAt;
+          if (kg == null || ts == null) break;
+          if (weightLog.entries.any((e) => e.timestamp.isAtSameMomentAs(ts))) {
+            break;
+          }
+          final entries = [
+            ...weightLog.entries,
+            WeightLogEntry(timestamp: ts, weightKg: kg),
+          ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+          weightLog = WeightLog(entries: entries);
+        case SyncOpKind.favoriteUpsert:
+          final fav = op.favorite;
+          if (fav == null) break;
+          favorites = [fav, ...favorites.where((f) => f.id != fav.id)];
+        case SyncOpKind.favoriteDelete:
+          favorites = favorites.where((f) => f.id != op.entityId).toList();
+        case SyncOpKind.recipeUpsert:
+          final recipe = op.recipe;
+          if (recipe == null) break;
+          _userRecipes = [
+            recipe,
+            ..._userRecipes.where((r) => r.slug != recipe.slug),
+          ];
+        case SyncOpKind.recipeDelete:
+          _userRecipes =
+              _userRecipes.where((r) => r.slug != op.entityId).toList();
+      }
+    }
+    if (mealsTouched) {
+      // Server-Sortierung (logged_at absteigend) nach dem Merge wiederherstellen.
+      loggedMeals = [...loggedMeals]
+        ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+    }
   }
 
   void _showUndoSnackBar(String label, VoidCallback onUndo) {
@@ -355,8 +663,8 @@ class HomeStore extends ChangeNotifier {
   Future<bool> deleteAccount() async {
     try {
       await sync?.deleteAccount();
-    } catch (e) {
-      _reportSyncError('Konto-Löschung', e);
+    } catch (e, st) {
+      _reportSyncError('Konto-Löschung', e, st);
       return false;
     }
     await _clearCache();
@@ -393,25 +701,59 @@ class HomeStore extends ChangeNotifier {
     if (cache == null) return;
     await cache.writeProfile(profile);
     await cache.writeLifetimeStats(lifetimeStats);
+    await cache.writeLoggedMeals(loggedMeals);
+    await cache.writeFavorites(favorites);
+    await cache.writeWeightLog(weightLog);
   }
 
   void _cacheLifetimeStats() {
     unawaited(_cache?.writeLifetimeStats(lifetimeStats) ?? Future<void>.value());
   }
 
-  /// Schreibt den heutigen Logging-Tag serverseitig in die Streak
+  // Write-Through fuer die Offline-Slots (DATA-7): jede lokale Mutation
+  // spiegelt sich sofort in den Cache, damit ein Kaltstart ohne Netz den
+  // letzten Stand zeigt. Fire-and-forget — ein Cache-Write darf nie den
+  // UI-Pfad blockieren.
+  void _cacheLoggedMeals() {
+    unawaited(_cache?.writeLoggedMeals(loggedMeals) ?? Future<void>.value());
+  }
+
+  void _cacheFavorites() {
+    unawaited(_cache?.writeFavorites(favorites) ?? Future<void>.value());
+  }
+
+  void _cacheWeightLog() {
+    unawaited(_cache?.writeWeightLog(weightLog) ?? Future<void>.value());
+  }
+
+  void _persistOutbox() {
+    unawaited(_cache?.writeOutbox(_outbox) ?? Future<void>.value());
+  }
+
+  void _persistPendingStatsDeltas() {
+    unawaited(_cache?.writePendingStatsDeltas(
+          meals: _pendingMealsDelta,
+          weightLogs: _pendingWeightLogsDelta,
+        ) ??
+        Future<void>.value());
+  }
+
+  /// Schreibt einen Logging-Tag serverseitig in die Streak
   /// (record_tracking_day, idempotent pro Tag) und adoptiert die frische
-  /// Server-Zeile. Fehler bleiben still — der optimistische lokale
-  /// recordTrackedDay-Stand gilt dann bis zum naechsten Load/Log weiter.
-  void _recordTrackingDay() {
+  /// Server-Zeile. Default ist "heute"; ein Outbox-Replay uebergibt den Tag
+  /// der nachgeholten Mahlzeit. Fehler bleiben still — der optimistische
+  /// lokale recordTrackedDay-Stand gilt dann bis zum naechsten Load/Log
+  /// weiter.
+  void _recordTrackingDay({DateTime? day}) {
     final s = sync;
     if (s == null) return;
-    s.lifetimeStats.recordTrackingDay(DateTime.now()).then((fresh) {
+    s.lifetimeStats.recordTrackingDay(day ?? DateTime.now()).then((fresh) {
       if (_disposed) return;
       _mutate(() => lifetimeStats = fresh);
       _cacheLifetimeStats();
-    }).catchError((Object e) {
+    }).catchError((Object e, StackTrace st) {
       dev.log('recordTrackingDay failed', error: e, name: 'home_store');
+      unawaited(CrashReporter.capture(e, st, context: 'record-tracking-day'));
     });
   }
 
@@ -476,6 +818,10 @@ class HomeStore extends ChangeNotifier {
     if (sync == null) return;
     _pendingMealsDelta += meals;
     _pendingWeightLogsDelta += weightLogs;
+    // Pendende Deltas kill-sicher machen (DATA-7): ein App-Kill im Debounce-
+    // Fenster oder nach fehlgeschlagenem Flush verliert sie nicht mehr — der
+    // naechste Boot hydriert und flusht sie nach.
+    _persistPendingStatsDeltas();
     _cacheLifetimeStats();
     _statsSaveDebounce?.cancel();
     _statsSaveDebounce = Timer(const Duration(milliseconds: 600), () {
@@ -492,8 +838,12 @@ class HomeStore extends ChangeNotifier {
     if (meals == 0 && weightLogs == 0) return;
     _pendingMealsDelta = 0;
     _pendingWeightLogsDelta = 0;
+    // In-Flight-Stand sofort persistieren: ein Kill WAEHREND des RPCs zaehlt
+    // die Deltas schlimmstenfalls nicht — besser als ein Doppel-Increment
+    // beim naechsten Boot (der Server ADDIERT, ein Replay eines bereits
+    // verbuchten Deltas wuerde die Lebenszeit-Zaehler permanent verfaelschen).
+    _persistPendingStatsDeltas();
     _statsFlushInFlight = true;
-    final prevStats = lifetimeStats;
     try {
       final fresh = await s.lifetimeStats.increment(
         meals: meals,
@@ -505,23 +855,34 @@ class HomeStore extends ChangeNotifier {
         });
       }
       _cacheLifetimeStats();
-    } catch (e) {
+      _onSyncSuccess();
+    } catch (e, st) {
+      // DATA-7: kein roter Fehler-Toast, kein Rollback — die Deltas gehen
+      // zurueck in die (persistierte) Queue und laufen ueber die Retry-Pfade.
+      dev.log('Statistik-Sync failed — Deltas bleiben gequeued',
+          error: e, name: 'eatova_sync');
+      unawaited(CrashReporter.capture(e, st, context: 'lifetime-stats-flush'));
       _pendingMealsDelta += meals;
       _pendingWeightLogsDelta += weightLogs;
-      _reportSyncError('Statistik', e);
-      if (!_disposed) _mutate(() => lifetimeStats = prevStats);
+      _persistPendingStatsDeltas();
+      if (!_disposed) {
+        _notifyQueued(e);
+        _scheduleOutboxRetry();
+      }
     } finally {
       _statsFlushInFlight = false;
     }
   }
 
-  /// Schreibt ausstehende debounced Writes sofort weg (App-Backgrounding).
+  /// Schreibt ausstehende debounced Writes sofort weg (App-Backgrounding)
+  /// und spielt liegengebliebene Outbox-Ops nach.
   void flushPendingWrites() {
     final s = sync;
     if (s == null) return;
     _statsSaveDebounce?.cancel();
     _statsSaveDebounce = null;
     unawaited(_flushStatsDelta());
+    unawaited(_replayOutbox());
   }
 
   // --- Health ---------------------------------------------------------------
@@ -609,35 +970,33 @@ class HomeStore extends ChangeNotifier {
   void _logWeightInternal(double kg, {required bool writeToHealth}) {
     HapticFeedback.lightImpact();
     final ts = DateTime.now();
-    final prevWeightLog = weightLog;
-    final prevStats = lifetimeStats;
     _mutate(() {
       weightLog = weightLog.add(kg);
       lifetimeStats = lifetimeStats.incrementWeightLogs();
     });
+    _cacheWeightLog();
     if (writeToHealth) {
       unawaited(health.writeWeight(kg, ts));
     }
     final s = sync;
     if (s == null) return;
-    s.tracking.insertWeight(kg, ts).then((_) {
+    // Client-UUID fuer die Server-Zeile: Live-Write und ein spaeterer
+    // Outbox-Retry teilen dieselbe id -> Upsert statt Insert, ein Retry nach
+    // unklarem Timeout erzeugt kein Duplikat (DATA-7-Idempotenz).
+    final rowId = uuidV4();
+    s.tracking.insertWeight(kg, ts, id: rowId).then((_) {
       _queueStatsDelta(weightLogs: 1);
-    }).catchError((Object e) {
-      _reportSyncError('Gewicht', e);
-      if (!_disposed) {
-        _mutate(() {
-          weightLog = prevWeightLog;
-          lifetimeStats = prevStats;
-        });
-        // Import-Rollback: Dedup-Marker wieder freigeben. Der Wert wurde NICHT
-        // uebernommen — ohne Reset wuerde _maybeOfferHealthWeight ihn fuer den
-        // Rest der Session nie wieder anbieten. Nur im Import-Pfad relevant:
-        // beim manuellen Wiegen ist ein frueheres Angebot bewusst abgelehnt
-        // worden und soll nicht erneut nerven.
-        if (!writeToHealth && _lastOfferedHealthWeightKg == kg) {
-          _lastOfferedHealthWeightKg = null;
-        }
-      }
+      _onSyncSuccess();
+    }).catchError((Object e, StackTrace st) {
+      // Kein Rollback mehr: das Gewicht bleibt geloggt (damit bleibt auch der
+      // Health-Import-Dedup-Marker korrekt gesetzt) und wird per Outbox
+      // nachgeholt.
+      _handleSyncFailure(
+        'Gewicht',
+        e,
+        st,
+        SyncOp.weightInsert(id: rowId, weightKg: kg, recordedAt: ts),
+      );
     });
   }
 
@@ -657,10 +1016,6 @@ class HomeStore extends ChangeNotifier {
     );
     final targetIsToday = _isSameFoodDate(targetDate, DateTime.now());
     HapticFeedback.lightImpact();
-    final prevMeals = loggedMeals;
-    final prevKcal = dailyConsumedKcal;
-    final prevMacros = macroProgress;
-    final prevStats = lifetimeStats;
     _mutate(() {
       lifetimeStats = lifetimeStats.incrementMeals();
       if (targetIsToday) {
@@ -682,28 +1037,25 @@ class HomeStore extends ChangeNotifier {
       // Server-Refresh via _recordTrackingDay aendert am Plan nichts mehr.
       unawaited(_rescheduleStreakReminder());
     }
+    _cacheLoggedMeals();
+    _cacheFavorites(); // _rememberRecent hat die Favoriten/Recents mutiert
     final s = sync;
     if (s == null) return entry.id;
     s.meals.insertLoggedMeal(entry).then((_) {
       _queueStatsDelta(meals: 1);
       if (targetIsToday) _recordTrackingDay();
-    }).catchError((Object e) {
-      _reportSyncError('Mahlzeit', e);
-      if (!_disposed) {
-        _mutate(() {
-          loggedMeals = prevMeals;
-          lifetimeStats = prevStats;
-          dailyConsumedKcal = prevKcal;
-          macroProgress = prevMacros;
-        });
-        if (targetIsToday) {
-          // Rollback macht heute wieder "ungetrackt" — den oben bereits
-          // gecancelten heutigen 20-Uhr-Reminder zurueckholen, sonst bliebe
-          // ausgerechnet der Abend ohne Streak-Retter, an dem der Log
-          // fehlgeschlagen ist.
-          unawaited(_rescheduleStreakReminder());
-        }
-      }
+      _onSyncSuccess();
+    }).catchError((Object e, StackTrace st) {
+      // DATA-7: KEIN Rollback mehr — die Mahlzeit bleibt im Tagebuch stehen
+      // und wird als Outbox-Op nachgeholt (inkl. Stats-/Streak-Zaehlung beim
+      // Replay-Erfolg). Der Streak-Reminder-Plan von oben bleibt damit
+      // ebenfalls korrekt.
+      _handleSyncFailure(
+        'Mahlzeit',
+        e,
+        st,
+        SyncOp.mealInsert(entry, trackDay: targetIsToday),
+      );
     });
     return entry.id;
   }
@@ -712,9 +1064,6 @@ class HomeStore extends ChangeNotifier {
     final index = loggedMeals.indexWhere((m) => m.id == id);
     if (index == -1) return;
     final target = loggedMeals[index];
-    final prevMeals = loggedMeals;
-    final prevKcal = dailyConsumedKcal;
-    final prevMacros = macroProgress;
     final updated = target.copyWith(result: scaled);
     _mutate(() {
       final nextMeals = [...loggedMeals];
@@ -725,14 +1074,14 @@ class HomeStore extends ChangeNotifier {
         macroProgress = macroProgressForFoodDate(DateTime.now());
       }
     });
-    _syncWithRollback(
+    _cacheLoggedMeals();
+    // Im Outbox-Fall laeuft das Update als voller Upsert derselben Client-UUID
+    // — landet auch dann korrekt, wenn der urspruengliche Insert selbst noch
+    // in der Queue haengt (Koaleszenz bzw. FIFO pro Entitaet).
+    _syncOrQueue(
       'Mahlzeit-Update',
-      sync?.meals.updateLoggedMeal(updated),
-      () {
-        loggedMeals = prevMeals;
-        dailyConsumedKcal = prevKcal;
-        macroProgress = prevMacros;
-      },
+      () => sync!.meals.updateLoggedMeal(updated),
+      () => SyncOp.mealUpsert(updated),
     );
   }
 
@@ -740,9 +1089,6 @@ class HomeStore extends ChangeNotifier {
     final matches = loggedMeals.where((m) => m.id == id);
     final removed = matches.isEmpty ? null : matches.first;
     HapticFeedback.lightImpact();
-    final prevMeals = loggedMeals;
-    final prevKcal = dailyConsumedKcal;
-    final prevMacros = macroProgress;
     _mutate(() {
       loggedMeals = loggedMeals.where((m) => m.id != id).toList();
       if (selectedFoodDateIsToday) {
@@ -750,14 +1096,11 @@ class HomeStore extends ChangeNotifier {
         macroProgress = macroProgressForFoodDate(DateTime.now());
       }
     });
-    _syncWithRollback(
+    _cacheLoggedMeals();
+    _syncOrQueue(
       'Mahlzeit-Delete',
-      sync?.meals.deleteLoggedMeal(id),
-      () {
-        loggedMeals = prevMeals;
-        dailyConsumedKcal = prevKcal;
-        macroProgress = prevMacros;
-      },
+      () => sync!.meals.deleteLoggedMeal(id),
+      () => SyncOp.mealDelete(id),
     );
     if (removed != null) {
       _showUndoSnackBar('Mahlzeit gelöscht', () => _restoreLoggedMeal(removed));
@@ -773,16 +1116,14 @@ class HomeStore extends ChangeNotifier {
         macroProgress = macroProgressForFoodDate(DateTime.now());
       }
     });
-    _syncWithRollback(
+    _cacheLoggedMeals();
+    // Restore zaehlt (wie bisher) KEINE Stats erneut -> mealUpsert, nicht
+    // mealInsert. Haengt der Delete noch in der Outbox, sortiert sich der
+    // Upsert per FIFO dahinter ein — Endzustand: Zeile existiert wieder.
+    _syncOrQueue(
       'Mahlzeit-Restore',
-      sync?.meals.insertLoggedMeal(meal),
-      () {
-        loggedMeals = loggedMeals.where((m) => m.id != meal.id).toList();
-        if (selectedFoodDateIsToday) {
-          dailyConsumedKcal = consumedKcalForFoodDate(DateTime.now());
-          macroProgress = macroProgressForFoodDate(DateTime.now());
-        }
-      },
+      () => sync!.meals.insertLoggedMeal(meal),
+      () => SyncOp.mealUpsert(meal),
     );
   }
 
@@ -800,9 +1141,11 @@ class HomeStore extends ChangeNotifier {
     );
     favorites =
         _cappedFavorites([entry, ...favorites.where((f) => f.id != id)]);
-    sync?.meals
-        .upsertFavorite(entry)
-        .catchError((e) => _reportSyncError('Favorit', e));
+    _syncOrQueue(
+      'Favorit',
+      () => sync!.meals.upsertFavorite(entry),
+      () => SyncOp.favoriteUpsert(entry),
+    );
   }
 
   List<FavoriteMeal> _cappedFavorites(List<FavoriteMeal> source) {
@@ -823,7 +1166,6 @@ class HomeStore extends ChangeNotifier {
     final id = FavoriteMeal.idFor(result);
     final existing = favorites.where((f) => f.id == id);
     final isPinned = existing.isNotEmpty && existing.first.pinned;
-    final prev = favorites;
 
     if (isPinned) {
       final downgraded = existing.first.copyWith(pinned: false);
@@ -833,17 +1175,18 @@ class HomeStore extends ChangeNotifier {
       );
       final survived = next.any((f) => f.id == id);
       _mutate(() => favorites = next);
+      _cacheFavorites();
       if (survived) {
-        _syncWithRollback(
+        _syncOrQueue(
           'Favorit',
-          sync?.meals.upsertFavorite(downgraded),
-          () => favorites = prev,
+          () => sync!.meals.upsertFavorite(downgraded),
+          () => SyncOp.favoriteUpsert(downgraded),
         );
       } else {
-        _syncWithRollback(
+        _syncOrQueue(
           'Favorit-Delete',
-          sync?.meals.deleteFavorite(id),
-          () => favorites = prev,
+          () => sync!.meals.deleteFavorite(id),
+          () => SyncOp.favoriteDelete(id),
         );
       }
     } else {
@@ -854,10 +1197,11 @@ class HomeStore extends ChangeNotifier {
       _mutate(() {
         favorites = [entry, ...favorites.where((f) => f.id != id)];
       });
-      _syncWithRollback(
+      _cacheFavorites();
+      _syncOrQueue(
         'Favorit',
-        sync?.meals.upsertFavorite(entry),
-        () => favorites = prev,
+        () => sync!.meals.upsertFavorite(entry),
+        () => SyncOp.favoriteUpsert(entry),
       );
     }
   }
@@ -865,14 +1209,14 @@ class HomeStore extends ChangeNotifier {
   void removeFavorite(String id) {
     final matches = favorites.where((f) => f.id == id);
     final removed = matches.isEmpty ? null : matches.first;
-    final prev = favorites;
     _mutate(() {
       favorites = favorites.where((f) => f.id != id).toList();
     });
-    _syncWithRollback(
+    _cacheFavorites();
+    _syncOrQueue(
       'Favorit-Delete',
-      sync?.meals.deleteFavorite(id),
-      () => favorites = prev,
+      () => sync!.meals.deleteFavorite(id),
+      () => SyncOp.favoriteDelete(id),
     );
     if (removed != null) {
       _showUndoSnackBar('Favorit entfernt', () => _restoreFavorite(removed));
@@ -886,39 +1230,38 @@ class HomeStore extends ChangeNotifier {
           ? [fav, ...favorites]
           : _cappedFavorites([fav, ...favorites]);
     });
-    _syncWithRollback(
+    _cacheFavorites();
+    _syncOrQueue(
       'Favorit-Restore',
-      sync?.meals.upsertFavorite(fav),
-      () => favorites = favorites.where((f) => f.id != fav.id).toList(),
+      () => sync!.meals.upsertFavorite(fav),
+      () => SyncOp.favoriteUpsert(fav),
     );
   }
 
   // --- Eigen-Rezepte --------------------------------------------------------
 
   void createUserRecipe(FitnessRecipe recipe) {
-    final prev = _userRecipes;
     _mutate(() {
       _userRecipes = [
         recipe,
         ..._userRecipes.where((r) => r.slug != recipe.slug)
       ];
     });
-    _syncWithRollback(
+    _syncOrQueue(
       'Rezept',
-      sync?.userRecipes.upsert(recipe),
-      () => _userRecipes = prev,
+      () => sync!.userRecipes.upsert(recipe),
+      () => SyncOp.recipeUpsert(recipe),
     );
   }
 
   void deleteUserRecipe(String slug) {
-    final prev = _userRecipes;
     _mutate(() {
       _userRecipes = _userRecipes.where((r) => r.slug != slug).toList();
     });
-    _syncWithRollback(
+    _syncOrQueue(
       'Rezept-Delete',
-      sync?.userRecipes.delete(slug),
-      () => _userRecipes = prev,
+      () => sync!.userRecipes.delete(slug),
+      () => SyncOp.recipeDelete(slug),
     );
   }
 
@@ -956,9 +1299,14 @@ class HomeStore extends ChangeNotifier {
               '(kein Server-/Cache-Hydrate) — Clobber-Schutz',
               name: 'eatova_sync');
         }
-      } catch (e) {
+      } catch (e, st) {
+        // Kein Outbox-Netz fuer den Profil-Save: freundliche Meldung OHNE
+        // Exception-Details (frueher stand hier der rohe Postgrest-Text im
+        // Snack), Roh-Fehler geht an dev.log/CrashReporter.
+        dev.log('Profil-Sync failed', error: e, name: 'eatova_sync');
+        unawaited(CrashReporter.capture(e, st, context: 'profil-settings'));
         if (!_disposed) {
-          _emitSnack('Profil-Sync: $e',
+          _emitSnack(profileSyncErrorMessage(e),
               icon: Icons.error_outline_rounded,
               accent: danger,
               duration: kSnackError);
@@ -997,9 +1345,13 @@ class HomeStore extends ChangeNotifier {
     unawaited(_setNotificationsEnabled(true));
     try {
       await s.profile.save(finished);
-    } catch (e) {
+    } catch (e, st) {
+      // Wie in applySettings: klassifizierte, freundliche Meldung statt des
+      // rohen Exception-Texts; Diagnose laeuft ueber dev.log/CrashReporter.
+      dev.log('Profil-Sync (Onboarding) failed', error: e, name: 'eatova_sync');
+      unawaited(CrashReporter.capture(e, st, context: 'profil-onboarding'));
       if (!_disposed) {
-        _emitSnack('Profil-Sync: $e',
+        _emitSnack(profileSyncErrorMessage(e),
             icon: Icons.error_outline_rounded,
             accent: danger,
             duration: kSnackError);
@@ -1018,6 +1370,7 @@ class HomeStore extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _statsSaveDebounce?.cancel();
+    _outboxRetryTimer?.cancel();
     sync?.dispose();
     super.dispose();
   }

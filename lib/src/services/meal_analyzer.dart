@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -18,6 +19,16 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   static const String _supabaseAnonKey = EatovaSupabaseConfig.anonKey;
   static const String _functionPath = '/functions/v1/analyze-meal';
   static const int _maxImageBytes = 5 * 1000 * 1000;
+
+  // Explizite Timeouts auf JEDER Phase (Muster aus MeilisearchProductService):
+  // connectionTimeout deckt nur den TCP-Aufbau — haengt der LLM-Provider hinter
+  // der Edge Function, wuerde close() sonst endlos warten und der Spinner
+  // draehte fuer immer. Grosszuegig bemessen, weil im close() der komplette
+  // Upload + die LLM-Antwortzeit steckt (Edge Function bricht ihrerseits nach
+  // 45 s ab — der Client haelt bewusst laenger durch als der Server).
+  static const Duration _connectTimeout = Duration(seconds: 15);
+  static const Duration _responseTimeout = Duration(seconds: 60);
+  static const Duration _bodyTimeout = Duration(seconds: 15);
 
   @override
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {
@@ -40,10 +51,10 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
     }
 
     final freeTextHint = _cleanHint(request.freeTextHint);
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final client = HttpClient()..connectionTimeout = _connectTimeout;
     try {
       final uri = Uri.parse('$_supabaseUrl$_functionPath');
-      final httpRequest = await client.postUrl(uri);
+      final httpRequest = await client.postUrl(uri).timeout(_connectTimeout);
       httpRequest.headers.contentType = ContentType.json;
       httpRequest.headers.set('apikey', _supabaseAnonKey);
       httpRequest.headers.set('Authorization', 'Bearer $accessToken');
@@ -55,8 +66,9 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
         }),
       );
 
-      final response = await httpRequest.close();
-      final responseBody = await response.transform(utf8.decoder).join();
+      final response = await httpRequest.close().timeout(_responseTimeout);
+      final responseBody =
+          await response.transform(utf8.decoder).join().timeout(_bodyTimeout);
       final decoded = _decodeResponse(responseBody);
 
       if (response.statusCode == 401 || response.statusCode == 403) {

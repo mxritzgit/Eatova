@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_linux
   flutter_timezone
   gtk
+  sentry_flutter
   url_launcher_linux
 )
 

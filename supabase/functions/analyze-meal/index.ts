@@ -25,6 +25,12 @@ const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
   .filter(Boolean);
 
 const MAX_CONTENT_LENGTH = 7_000_000;
+// Haengt der LLM-Provider, soll die Function mit sauberem Fehler-JSON
+// antworten statt bis zum Plattform-Kill zu warten. Bewusst UNTER dem
+// Client-Timeout (60 s auf request.close() in meal_analyzer.dart), damit der
+// Nutzer die konkrete provider_timeout-Antwort sieht und nicht in den
+// generischen Client-Timeout laeuft.
+const OPENROUTER_TIMEOUT_MS = 45_000;
 const MAX_IMAGE_BYTES = 5_000_000;
 const MIN_IMAGE_BYTES = 128;
 const MAX_HINT_CHARS = 400;
@@ -383,42 +389,64 @@ async function callOpenRouter(body: ParsedBody, prompt: string, requestId: strin
   // Modellname (KEIN Key) loggen — damit ein falsch gesetztes OPENROUTER_MODEL-Secret
   // (z. B. ein Reasoning-Modell, das leeren Content liefert) sofort sichtbar ist.
   console.log('analyze-meal openrouter request', { requestId, model: OPENROUTER_MODEL });
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'content-type': 'application/json',
-      'http-referer': 'https://eatova.app',
-      'x-title': 'Eatova',
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            {
-              type: 'image_url',
-              image_url: { url: `data:${body.mimeType};base64,${body.imageBase64}` },
-            },
-          ],
-        },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.1,
-      // Gemini-3.x-flash-lite kann "thinking": auf 'minimal' halten, sonst frisst
-      // Reasoning das max_tokens-Budget -> leerer content -> provider_empty_response.
-      // Für OpenAI-Modelle (gpt-4o-mini) ist der Parameter ein harmloser No-Op.
-      reasoning: { effort: 'minimal' },
-      // 4096: ein realer, voll itemisierter Teller (viele items[] + lange explanation)
-      // sprengte 1400/2048 -> abgeschnittenes JSON -> provider_invalid_json (502) ->
-      // Client wirft -> "Analyse fehlgeschlagen". 4096 out ist günstig & reicht.
-      max_tokens: 4096,
-    }),
-  });
-
-  const text = await response.text();
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        'content-type': 'application/json',
+        'http-referer': 'https://eatova.app',
+        'x-title': 'Eatova',
+      },
+      // Harte Obergrenze für den gesamten Provider-Roundtrip (inkl. Body-Read
+      // unten — ein Abort bricht auch den Response-Stream ab). Ohne Signal
+      // hinge die Function bis zum Plattform-Kill, der Client sähe nur einen
+      // Verbindungsabriss statt eines sauberen Fehler-JSONs.
+      signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              {
+                type: 'image_url',
+                image_url: { url: `data:${body.mimeType};base64,${body.imageBase64}` },
+              },
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        // Gemini-3.x-flash-lite kann "thinking": auf 'minimal' halten, sonst frisst
+        // Reasoning das max_tokens-Budget -> leerer content -> provider_empty_response.
+        // Für OpenAI-Modelle (gpt-4o-mini) ist der Parameter ein harmloser No-Op.
+        reasoning: { effort: 'minimal' },
+        // 4096: ein realer, voll itemisierter Teller (viele items[] + lange explanation)
+        // sprengte 1400/2048 -> abgeschnittenes JSON -> provider_invalid_json (502) ->
+        // Client wirft -> "Analyse fehlgeschlagen". 4096 out ist günstig & reicht.
+        max_tokens: 4096,
+      }),
+    });
+    text = await response.text();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      console.error('OpenRouter timeout', {
+        requestId,
+        model: OPENROUTER_MODEL,
+        timeoutMs: OPENROUTER_TIMEOUT_MS,
+      });
+      throw new HttpError(
+        504,
+        'provider_timeout',
+        'Analyse hat zu lange gedauert. Bitte erneut versuchen.',
+      );
+    }
+    throw error;
+  }
   if (!response.ok) {
     console.error('OpenRouter error', { requestId, status: response.status, body: text.slice(0, 500) });
     throw new HttpError(502, 'provider_error', 'Analyse konnte nicht abgeschlossen werden.');

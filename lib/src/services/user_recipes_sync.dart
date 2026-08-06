@@ -14,6 +14,11 @@ class UserRecipesSync {
   final SupabaseClient _client;
   final String _userId;
 
+  /// Grosszuegiger Deckel fuer selbst angelegte Rezepte (neueste zuerst).
+  /// Rezepte entstehen einzeln von Hand — 200 liegt weit ueber jedem
+  /// realistischen Bestand, verhindert aber den unbounded Boot-Read.
+  static const int userRecipesLimit = 200;
+
   Future<List<FitnessRecipe>> load() async {
     try {
       final rows = await _client
@@ -24,7 +29,8 @@ class UserRecipesSync {
             'estimated_g, categories',
           )
           .eq('user_id', _userId)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .limit(userRecipesLimit);
       return rows
           .map<FitnessRecipe>(
             (row) => FitnessRecipe.fromRow((row as Map).cast<String, dynamic>()),

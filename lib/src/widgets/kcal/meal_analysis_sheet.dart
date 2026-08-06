@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,19 @@ import '../../theme/app_colors.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
 import '../meal/meal_widgets.dart';
+
+/// Mappt einen Analyse-/Lookup-Fehler auf die Snack-Meldung fuer den Nutzer.
+/// Timeouts (Analyzer + Produkt-Lookups werfen [TimeoutException], seit alle
+/// HTTP-Phasen explizite `.timeout(...)` tragen) bekommen eine eigene,
+/// freundliche Meldung — die generische [fallback]-Meldung des jeweiligen
+/// Flows ("Prüfe Internet, Supabase und OpenRouter") waere hier irrefuehrend,
+/// denn die Verbindung stand, nur die Antwort blieb aus.
+String mealAnalysisErrorMessage(Object error, String fallback) {
+  if (error is TimeoutException) {
+    return 'Das dauert gerade zu lange. Bitte versuch es gleich nochmal.';
+  }
+  return fallback;
+}
 
 /// Sub-Sheet fuer die Foto-/Barcode-Analyse. Wird vom AddMealSheet
 /// gestartet sobald ein Bild aufgenommen oder ein Barcode gescannt wurde.
@@ -122,10 +136,11 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
         _result = value;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      showAppSnack(context, widget.failureMessage,
+      showAppSnack(
+          context, mealAnalysisErrorMessage(error, widget.failureMessage),
           icon: Icons.error_outline_rounded,
           accent: danger,
           duration: kSnackError);

@@ -153,6 +153,15 @@ flutter run --dart-define-from-file=dart_defines.json
 
 `--dart-define` values take precedence over the source defaults.
 
+### Crash reporting (optional)
+
+Release builds can ship crash reporting via [Sentry](https://sentry.io). Set
+`SENTRY_DSN` in `dart_defines.json` (see `dart_defines.example.json`) — with an
+empty or missing DSN, Sentry is never initialized and the app runs exactly as
+before, so dev builds and CI are unaffected. The configuration is deliberately
+conservative (no PII, no screenshots, no replay, no performance tracing);
+app code reports handled errors through `lib/src/services/crash_reporter.dart`.
+
 ---
 
 ## Backend

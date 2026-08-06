@@ -142,6 +142,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         state == AppLifecycleState.detached) {
       _store.flushPendingWrites();
     }
+    // App kommt zurueck in den Vordergrund: liegengebliebene Outbox-Ops /
+    // Stats-Deltas nachspielen (DATA-7) — der Resume ist der typische Moment,
+    // in dem das Netz wieder da ist.
+    if (state == AppLifecycleState.resumed) {
+      _store.flushPendingWrites();
+    }
     // App kommt zurueck in den Vordergrund: Schritte neu lesen, sonst bleiben
     // sie (und die "Verbrannt"-kcal im Ring) den ganzen Tag auf dem Stand des
     // Kaltstarts. Guard hier am Callsite: refreshHealthSteps prueft selbst
