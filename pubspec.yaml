@@ -77,6 +77,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # Beide nur fuer den MealCameraSheet-Kameratest: ein Fake von CameraPlatform
+  # (camera_platform_interface) ersetzt die echte Geraete-Kamera; der
+  # MockPlatformInterfaceMixin (plugin_platform_interface) erlaubt das
+  # Ueberschreiben von CameraPlatform.instance im Test.
+  camera_platform_interface: ^2.13.1
+  plugin_platform_interface: ^2.1.8
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your

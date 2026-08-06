@@ -80,6 +80,21 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
+      // iOS rotiert sonst Vorschau- und Foto-Buffer bei jeder physischen
+      // Drehung mit: camera_avfoundation hoert auf UIDevice-Orientation-
+      // Notifications, die trotz Portrait-Lock der UI feuern, und setzt
+      // connection.videoOrientation um — das Bild dreht sich dann sichtbar
+      // im starren Portrait-Layout. Der Lock pinnt beide Outputs auf
+      // portraitUp; die Vorschau verhaelt sich damit wie der Barcode-Scanner
+      // (Fenster-Verhalten) und das Foto ist deckungsgleich mit der Vorschau.
+      // Android feuert unter dem Portrait-Lock keine Orientation-Events —
+      // dort aendert der Lock nichts.
+      try {
+        await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
+      } on CameraException {
+        // Ohne Lock laeuft die Kamera weiter — schlimmstenfalls mit dem
+        // alten Dreh-Verhalten. Kein Grund, sie als ausgefallen zu melden.
+      }
       if (!mounted) {
         await controller.dispose();
         return;
