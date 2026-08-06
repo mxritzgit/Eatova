@@ -30,6 +30,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Deutsche Material-/Widgets-Lokalisierung (GlobalMaterialLocalizations):
+  # die App ist durchgehend deutsch, aber SDK-Dialoge (showTimePicker im
+  # Settings-Sheet, showDatePicker im Food-Tab/Edit-Sheet) fielen ohne die
+  # Delegates auf Englisch + AM/PM zurueck. Verdrahtet in eatova_app.dart
+  # (localizationsDelegates + supportedLocales/locale de).
+  flutter_localizations:
+    sdk: flutter
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

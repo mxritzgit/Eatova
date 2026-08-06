@@ -1,8 +1,22 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release-Signing: android/key.properties haelt Keystore-Pfad und Passwoerter
+// und ist bewusst NICHT im Repo (siehe android/.gitignore). Fehlt die Datei
+// (z. B. im CI, das nur Debug baut), faellt der Release-Buildtype unten auf
+// Debug-Signing zurueck, statt den Build zu brechen.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
 }
 
 android {
@@ -35,11 +49,38 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                // Relativer storeFile-Pfad wird gegen android/app/ aufgeloest.
+                storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
+                storePassword = keystoreProperties.getProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "WARNUNG: android/key.properties fehlt - Release wird mit dem " +
+                        "DEBUG-Key signiert und ist NICHT fuer den Play Store geeignet."
+                )
+                signingConfigs.getByName("debug")
+            }
+
+            // R8: Code-Shrinking/Obfuskation + Ressourcen-Shrinking.
+            // Keep-Rules fuer Plugins liegen in proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }

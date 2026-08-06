@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/favorite_meal.dart';
 import '../models/logged_meal.dart';
@@ -12,11 +13,13 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/trend_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/calories_overview_card.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import 'barcode_scanner_sheet.dart';
+import 'trends_screen.dart';
 
 class MealAnalysisScreen extends StatelessWidget {
   MealAnalysisScreen({
@@ -34,6 +37,7 @@ class MealAnalysisScreen extends StatelessWidget {
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
     this.visiblePastDays = 4,
+    this.dayLoading = false,
     String Function(MealAnalysisResult, MealSlot)? onAddMeal,
     void Function(String id, MealAnalysisResult scaled)? onUpdateMeal,
     this.isFavorite,
@@ -43,6 +47,7 @@ class MealAnalysisScreen extends StatelessWidget {
     this.onSettingsPressed,
     this.onProfilePressed,
     this.profileInitial,
+    this.trendTotalsLoader,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
@@ -83,6 +88,11 @@ class MealAnalysisScreen extends StatelessWidget {
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateSelected;
   final int visiblePastDays;
+
+  /// True, waehrend ein per Kalender gewaehlter Alt-Tag (ausserhalb des
+  /// 35-Tage-Fensters) nachgeladen wird — der Verlauf zeigt dann einen
+  /// Spinner statt eines faelschlich leeren Tages.
+  final bool dayLoading;
   final String Function(MealAnalysisResult, MealSlot) onAddMeal;
   final void Function(String id, MealAnalysisResult scaled) onUpdateMeal;
 
@@ -100,6 +110,11 @@ class MealAnalysisScreen extends StatelessWidget {
   final VoidCallback? onSettingsPressed;
   final VoidCallback? onProfilePressed;
   final String? profileInitial;
+
+  /// Daten-Lader fuer die Trend-Ansicht (Test-Injektion). Null -> beim
+  /// Oeffnen wird lazily ein TrendService auf Supabase.instance gebaut;
+  /// der Konstruktor selbst fasst Supabase nie an (Preview/Tests sicher).
+  final TrendTotalsLoader? trendTotalsLoader;
 
   void _openAddSheet(BuildContext context, MealSlot slot,
       {bool searchMode = false}) {
@@ -177,6 +192,33 @@ class MealAnalysisScreen extends StatelessWidget {
     );
   }
 
+  // Trend-Ansicht als volle Seite. Das Kalorienziel wird aus dem bereits
+  // durchgereichten Profil weitergegeben (KEIN Store-Zugriff); der Daten-
+  // Lader kommt injiziert oder lazily aus Supabase.instance — erst beim
+  // Oeffnen, damit Konstruktion/Preview ohne initialisiertes Supabase laeuft.
+  void _openTrends(BuildContext context) {
+    final loader = trendTotalsLoader ?? _supabaseTrendLoader;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TrendsScreen(
+          kcalGoal: profile.dailyKcalGoal,
+          loadTotals: loader,
+        ),
+      ),
+    );
+  }
+
+  static Future<List<TrendDayTotals>> _supabaseTrendLoader() {
+    // Wirft bei fehlender Initialisierung/Session synchron — TrendsScreen
+    // faengt das in seinen Fehler-/Retry-Zustand, kein Crash.
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) {
+      throw StateError('Kein angemeldeter Nutzer für die Trend-Ansicht.');
+    }
+    return TrendService(client, userId).loadDailyTotals();
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -191,14 +233,17 @@ class MealAnalysisScreen extends StatelessWidget {
           profile: profile,
         );
 
-        final historyCard = MealsTodayCard(
-          meals: loggedMeals,
-          onMealTap: (slot) => _openAddSheet(context, slot),
-          onRemoveMeal: onRemoveMeal,
-        );
+        final historyCard = dayLoading
+            ? const _DayLoadingCard()
+            : MealsTodayCard(
+                meals: loggedMeals,
+                onMealTap: (slot) => _openAddSheet(context, slot),
+                onRemoveMeal: onRemoveMeal,
+              );
 
         final children = <Widget>[
           _KcalHeader(
+            onTrendsPressed: () => _openTrends(context),
             onSettingsPressed: onSettingsPressed,
             onProfilePressed: onProfilePressed,
             profileInitial: profileInitial,
@@ -403,11 +448,15 @@ class _FoodActionButton extends StatelessWidget {
 
 class _KcalHeader extends StatelessWidget {
   const _KcalHeader({
+    required this.onTrendsPressed,
     this.onSettingsPressed,
     this.onProfilePressed,
     this.profileInitial,
   });
 
+  /// Einstieg in die Trend-Ansicht (Kalorien-/Makro-Verlauf). Immer sichtbar:
+  /// die Trend-Seite haengt nicht am Store, sondern laedt selbst.
+  final VoidCallback onTrendsPressed;
   final VoidCallback? onSettingsPressed;
   final VoidCallback? onProfilePressed;
   final String? profileInitial;
@@ -428,6 +477,13 @@ class _KcalHeader extends StatelessWidget {
                 letterSpacing: -0.5,
               ),
             ),
+          ),
+          IconButton(
+            key: const ValueKey('topbar-trends'),
+            onPressed: onTrendsPressed,
+            tooltip: 'Trends',
+            icon: const Icon(Icons.insights_rounded, size: 20, color: textMuted),
+            visualDensity: VisualDensity.compact,
           ),
           if (onSettingsPressed != null)
             IconButton(
@@ -540,24 +596,55 @@ class _FoodDateStrip extends StatelessWidget {
             ],
           ),
         ),
-        Row(
-          children: [
-            for (var index = 0; index < days.length; index++) ...[
-              Expanded(
-                child: _FoodDateChip(
-                  key: ValueKey('food-date-chip-$index'),
-                  date: days[index],
-                  label: _chipLabel(index, today, days[index]),
-                  selected: DateUtils.isSameDay(days[index], selected),
-                  onTap: () => onSelected(days[index]),
+        // IntrinsicHeight + stretch: der Kalender-Knopf uebernimmt exakt die
+        // Chip-Hoehe, ohne sie zu hartkodieren.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var index = 0; index < days.length; index++) ...[
+                Expanded(
+                  child: _FoodDateChip(
+                    key: ValueKey('food-date-chip-$index'),
+                    date: days[index],
+                    label: _chipLabel(index, today, days[index]),
+                    selected: DateUtils.isSameDay(days[index], selected),
+                    onTap: () => onSelected(days[index]),
+                  ),
                 ),
+                const SizedBox(width: 6),
+              ],
+              _CalendarDayButton(
+                key: const ValueKey('food-date-calendar'),
+                // Liegt die Auswahl ausserhalb der Chips (aelterer Tag aus dem
+                // Kalender), traegt der Knopf den Selected-Zustand — die
+                // Auswahl bleibt damit immer sichtbar.
+                selected: !days.any((d) => DateUtils.isSameDay(d, selected)),
+                onTap: () => _pickFromCalendar(context),
               ),
-              if (index != days.length - 1) const SizedBox(width: 6),
             ],
-          ],
+          ),
         ),
       ],
     );
+  }
+
+  /// Kalender-Zugriff auf aeltere Tage (jenseits der Chips). Der Dialog
+  /// rendert dank der de-Lokalisierung in eatova_app.dart deutsch; die
+  /// Auswahl laeuft ueber denselben [onSelected]-Pfad wie die Chips
+  /// (setFoodDate-Kette, inkl. On-Demand-Nachladen im Store).
+  Future<void> _pickFromCalendar(BuildContext context) async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final firstDate = DateTime(today.year - 2, today.month, today.day);
+    final selectedDay = DateUtils.dateOnly(selectedDate);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDay.isBefore(firstDate) ? firstDate : selectedDay,
+      firstDate: firstDate,
+      lastDate: today,
+      helpText: 'Tag wählen',
+    );
+    if (picked != null) onSelected(picked);
   }
 
   // Chip-Kopfzeile. Fuer aeltere Tage der Wochentag statt nochmal des Datums —
@@ -636,6 +723,84 @@ class _FoodDateChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Quadratischer Kalender-Knopf am Ende der Datums-Chips: oeffnet den
+/// (deutschen) showDatePicker fuer Tage jenseits der Chip-Leiste. Gleiche
+/// Formensprache wie die Chips — weiche Flaeche, kein Hairline-Rahmen;
+/// [selected] (Auswahl liegt ausserhalb der Chips) fuellt ihn wie einen
+/// aktiven Chip.
+class _CalendarDayButton extends StatelessWidget {
+  const _CalendarDayButton({
+    super.key,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(rControl),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        width: 44,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? forgeLime : surface,
+          borderRadius: BorderRadius.circular(rControl),
+        ),
+        child: Icon(
+          Icons.calendar_month_rounded,
+          size: 18,
+          color: selected ? bg : textMuted,
+        ),
+      ),
+    );
+  }
+}
+
+/// Lade-Zustand des Verlaufs, waehrend ein Alt-Tag on-demand nachgeladen
+/// wird — Spinner statt eines faelschlich leeren Tages.
+class _DayLoadingCard extends StatelessWidget {
+  const _DayLoadingCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('food-day-loading'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(rCard),
+      ),
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.4),
+          ),
+          SizedBox(height: 10),
+          Text(
+            'Tag wird geladen…',
+            style: TextStyle(
+              color: textMuted,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

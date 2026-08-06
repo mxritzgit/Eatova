@@ -162,6 +162,39 @@ before, so dev builds and CI are unaffected. The configuration is deliberately
 conservative (no PII, no screenshots, no replay, no performance tracing);
 app code reports handled errors through `lib/src/services/crash_reporter.dart`.
 
+### Release build (Android)
+
+Play Store builds are signed with a dedicated upload keystore. Both the
+keystore (`android/app/upload-keystore.jks`) and its credentials
+(`android/key.properties`) are git-ignored and must never be committed.
+`android/key.properties` has this format (`storeFile` is resolved relative to
+`android/app/`):
+
+```properties
+storePassword=<store password>
+keyPassword=<key password>
+keyAlias=upload
+storeFile=upload-keystore.jks
+```
+
+Build the Play Store bundle (or an installable APK) with:
+
+```bash
+flutter build appbundle --release --dart-define-from-file=dart_defines.json
+flutter build apk --release --dart-define-from-file=dart_defines.json
+```
+
+If `android/key.properties` is missing (e.g. in CI, which only builds debug),
+release builds fall back to the debug key with a Gradle warning — such builds
+are not uploadable to the Play Store. Release builds run R8
+(minify + resource shrinking); plugin keep rules live in
+`android/app/proguard-rules.pro`.
+
+> **Warning:** Back up the keystore and its passwords outside the repository
+> (password manager + offline copy). If the upload key is lost, the only
+> recovery is requesting an upload-key reset through Google Play App Signing
+> support, which takes days and blocks releases.
+
 ---
 
 ## Backend

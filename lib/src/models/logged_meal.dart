@@ -66,13 +66,14 @@ class LoggedMeal {
 
   LoggedMeal copyWith({
     MealAnalysisResult? result,
+    DateTime? loggedAt,
     MealSlot? forcedSlot,
     String? localDay,
   }) {
     return LoggedMeal(
       id: id,
       result: result ?? this.result,
-      loggedAt: loggedAt,
+      loggedAt: loggedAt ?? this.loggedAt,
       forcedSlot: forcedSlot ?? this.forcedSlot,
       localDay: localDay ?? this.localDay,
     );

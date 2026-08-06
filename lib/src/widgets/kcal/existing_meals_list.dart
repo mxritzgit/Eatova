@@ -5,18 +5,24 @@ import '../../theme/app_colors.dart';
 import '../../theme/meal_slot_style.dart';
 
 /// Zeigt die bereits geloggten Mahlzeiten fuer den aktuellen Slot+Tag
-/// oben im AddMealSheet — mit X-Button zum Entfernen.
+/// oben im AddMealSheet — mit X-Button zum Entfernen und (wenn [onEdit]
+/// verdrahtet ist) Tap auf die Zeile zum Bearbeiten.
 class ExistingMealsList extends StatelessWidget {
   const ExistingMealsList({
     super.key,
     required this.meals,
     required this.slot,
     required this.onRemove,
+    this.onEdit,
   });
 
   final List<LoggedMeal> meals;
   final MealSlot slot;
   final ValueChanged<String>? onRemove;
+
+  /// Tap auf eine Zeile oeffnet das Bearbeiten-Sheet. Null -> Zeile nicht
+  /// tippbar (bisheriges Verhalten).
+  final ValueChanged<LoggedMeal>? onEdit;
 
   Color get _accent => slot.accent;
 
@@ -76,7 +82,7 @@ class ExistingMealsList extends StatelessWidget {
                 indent: 14,
                 endIndent: 14,
               ),
-            _ExistingMealRow(meal: meals[i], onRemove: onRemove),
+            _ExistingMealRow(meal: meals[i], onRemove: onRemove, onEdit: onEdit),
           ],
         ],
       ),
@@ -85,14 +91,19 @@ class ExistingMealsList extends StatelessWidget {
 }
 
 class _ExistingMealRow extends StatelessWidget {
-  const _ExistingMealRow({required this.meal, required this.onRemove});
+  const _ExistingMealRow({
+    required this.meal,
+    required this.onRemove,
+    required this.onEdit,
+  });
 
   final LoggedMeal meal;
   final ValueChanged<String>? onRemove;
+  final ValueChanged<LoggedMeal>? onEdit;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
       child: Row(
         children: [
@@ -136,6 +147,13 @@ class _ExistingMealRow extends StatelessWidget {
             ),
         ],
       ),
+    );
+    if (onEdit == null) return row;
+    return InkWell(
+      key: ValueKey('analyse-existing-edit-${meal.id}'),
+      onTap: () => onEdit!(meal),
+      borderRadius: BorderRadius.circular(rControl),
+      child: row,
     );
   }
 }

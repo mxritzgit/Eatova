@@ -31,6 +31,12 @@ class MealsSync {
   /// hoechstens die AELTESTEN Eintraege des Fensters, nie aktuelle.
   static const int loggedMealsMaxRows = 1000;
 
+  /// Zeilen-Deckel fuer den On-Demand-Tages-Query ([loadLoggedMealsForDay]):
+  /// ~50 Logs an EINEM Tag liegen weit jenseits realistischer Nutzung, und
+  /// ein explizites Limit haelt die Obergrenze (wie beim Fenster-Query)
+  /// deterministisch statt vom stillen db-max-rows abzuhaengen.
+  static const int loggedMealsDayMaxRows = 50;
+
   /// Favoriten-Deckel: client-seitig existieren ohnehin nur 5 Auto-Recents
   /// plus angeheftete Favoriten (home_store._cappedFavorites) — 200 liegt
   /// weit ueber jedem realistischen Pin-Bestand.
@@ -54,25 +60,63 @@ class MealsSync {
           .gte('logged_at', cutoffIso)
           .order('logged_at', ascending: false)
           .limit(loggedMealsMaxRows);
-      return rows.map<LoggedMeal>((row) {
-        return LoggedMeal(
-          id: row['id'] as String,
-          loggedAt: DateTime.parse(row['logged_at'] as String).toLocal(),
-          forcedSlot: _parseSlot(row['forced_slot']?.toString()),
-          // DATA-6: kanonischen lokalen Tages-Schluessel mitfuehren wenn die
-          // Zeile ihn hat. Aeltere Zeilen ohne Spalte/null -> Bucketing faellt
-          // auf isSameDay(.toLocal()) zurueck (siehe meal_totals).
-          localDay: row['local_day']?.toString(),
-          result: mealResultFromJson(
-            (row['payload'] as Map).cast<String, dynamic>(),
-          ),
-        );
-      }).toList();
+      return rows.map<LoggedMeal>(_mealFromRow).toList();
     } catch (e, stack) {
       dev.log('MealsSync.loadLoggedMeals failed',
           error: e, stackTrace: stack, name: 'meals_sync');
       rethrow;
     }
+  }
+
+  /// Laedt die Mahlzeiten EINES lokalen Kalendertags — der On-Demand-Pfad
+  /// fuer Tage ausserhalb des [loggedMealsWindowDays]-Boot-Fensters
+  /// (Kalender-Auswahl im Food-Tab). Halboffenes Fenster
+  /// [Tag 00:00, Folgetag 00:00) der LOKALEN Wanduhr, nach UTC uebersetzt auf
+  /// logged_at — analog zum Fenster-Query, weil Alt-Zeilen local_day=null
+  /// tragen koennen und bei einem local_day-Filter kommentarlos fehlten.
+  Future<List<LoggedMeal>> loadLoggedMealsForDay(DateTime day) async {
+    try {
+      final start = DateTime(day.year, day.month, day.day);
+      // day+1 statt +Duration(days: 1): der Konstruktor normalisiert auf die
+      // naechste lokale Mitternacht, auch ueber eine DST-Kante hinweg.
+      final end = DateTime(day.year, day.month, day.day + 1);
+      final rows = await _client
+          .from('logged_meals')
+          .select('id, logged_at, forced_slot, local_day, payload')
+          .eq('user_id', _userId)
+          .gte('logged_at', start.toUtc().toIso8601String())
+          .lt('logged_at', end.toUtc().toIso8601String())
+          .order('logged_at', ascending: false)
+          .limit(loggedMealsDayMaxRows)
+          // Kein postgrest-Auto-Retry (Default: 3 Versuche mit 1s/2s/4s
+          // Backoff): dieser Query laeuft interaktiv hinter einem Spinner —
+          // die stille Retry-Kaskade wuerde den Fehler-Hinweis ~7s
+          // verzoegern. Der Store zeigt sofort die klassifizierte Meldung,
+          // und ein erneuter Tap auf den Tag laedt erneut.
+          .retry(enabled: false);
+      return rows.map<LoggedMeal>(_mealFromRow).toList();
+    } catch (e, stack) {
+      dev.log('MealsSync.loadLoggedMealsForDay failed',
+          error: e, stackTrace: stack, name: 'meals_sync');
+      rethrow;
+    }
+  }
+
+  /// Gemeinsames Zeilen-Mapping von [loadLoggedMeals] und
+  /// [loadLoggedMealsForDay] (identisches Select in beiden Queries).
+  static LoggedMeal _mealFromRow(dynamic row) {
+    return LoggedMeal(
+      id: row['id'] as String,
+      loggedAt: DateTime.parse(row['logged_at'] as String).toLocal(),
+      forcedSlot: _parseSlot(row['forced_slot']?.toString()),
+      // DATA-6: kanonischen lokalen Tages-Schluessel mitfuehren wenn die
+      // Zeile ihn hat. Aeltere Zeilen ohne Spalte/null -> Bucketing faellt
+      // auf isSameDay(.toLocal()) zurueck (siehe meal_totals).
+      localDay: row['local_day']?.toString(),
+      result: mealResultFromJson(
+        (row['payload'] as Map).cast<String, dynamic>(),
+      ),
+    );
   }
 
   Future<void> insertLoggedMeal(LoggedMeal meal) async {
@@ -113,6 +157,12 @@ class MealsSync {
       await _client
           .from('logged_meals')
           .update({
+            // Seit dem Bearbeiten-Sheet kann ein Update auch Tag/Slot einer
+            // bestehenden Zeile verschieben — logged_at + local_day laufen
+            // daher (wie beim Insert-Upsert) immer mit. Fuer reine
+            // Portions-Updates schreiben sie unveraendert denselben Wert.
+            'logged_at': meal.loggedAt.toUtc().toIso8601String(),
+            'local_day': meal.effectiveLocalDay,
             'forced_slot': meal.forcedSlot?.name,
             'meal_name': meal.result.mealName,
             'calories_kcal': meal.result.caloriesKcal,

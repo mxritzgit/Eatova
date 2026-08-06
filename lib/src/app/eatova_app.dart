@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/auth_repository.dart';
@@ -45,6 +46,19 @@ class EatovaApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Eatova',
       theme: buildEatovaTheme(),
+      // Deutsche Material-Lokalisierung: die App-Texte sind durchgehend
+      // deutsch, aber SDK-Dialoge zogen bislang die englischen Defaults —
+      // showTimePicker (Schlafziel im Settings-Sheet) rendert erst mit
+      // de-Locale 24h (HH:mm) statt AM/PM, showDatePicker deutsche Monats-/
+      // Wochentagsnamen. Locale fest auf de gepinnt (einzige supportedLocale),
+      // damit das Verhalten nicht von der Geraete-Sprache abhaengt.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       // A11y: System-Großschrift respektieren, aber deckeln. Die App nutzt
       // viele feste fontSize in fixen Containern (Kalorienring, Bottom-Nav);
       // ungebremste Skalierung (iOS bis 235%) würde sie zerbrechen. 1.3x ist

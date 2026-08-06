@@ -95,6 +95,36 @@ void main() {
     });
   });
 
+  group('MealsSync.loadLoggedMealsForDay', () {
+    test(
+        'sendet halboffenes Tagesfenster (gte/lt auf logged_at), order desc '
+        'und kleines Limit', () async {
+      final c = _recordingClient(const <dynamic>[]);
+      await MealsSync(c.client, 'user-1')
+          .loadLoggedMealsForDay(DateTime(2026, 3, 14, 15, 30));
+
+      final req = c.requests.single;
+      expect(req.url.path, endsWith('/logged_meals'));
+      final params = req.url.queryParameters;
+      expect(params['user_id'], 'eq.user-1');
+      expect(params['order'], startsWith('logged_at.desc'));
+      expect(params['limit'], '${MealsSync.loggedMealsDayMaxRows}');
+
+      // gte + lt teilen sich den Query-Key logged_at -> queryParametersAll.
+      final bounds = req.url.queryParametersAll['logged_at'] ?? const [];
+      final gte = bounds
+          .singleWhere((f) => f.startsWith('gte.'))
+          .substring('gte.'.length);
+      final lt = bounds
+          .singleWhere((f) => f.startsWith('lt.'))
+          .substring('lt.'.length);
+      // Lokale Mitternacht des Tages bzw. des Folgetags, nach UTC uebersetzt —
+      // die Uhrzeit des uebergebenen DateTime ist egal.
+      expect(DateTime.parse(gte), DateTime(2026, 3, 14).toUtc());
+      expect(DateTime.parse(lt), DateTime(2026, 3, 15).toUtc());
+    });
+  });
+
   test('MealsSync.loadFavorites: order desc + grosszuegiges Limit', () async {
     final c = _recordingClient(const <dynamic>[]);
     await MealsSync(c.client, 'user-1').loadFavorites();

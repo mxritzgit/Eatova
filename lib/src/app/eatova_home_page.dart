@@ -23,6 +23,7 @@ import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/common/store_selector.dart';
+import '../widgets/kcal/edit_meal_sheet.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'home_store.dart';
 
@@ -322,10 +323,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       1 => ListenableBuilder(
           listenable: _store,
           builder: (context, _) => RecipesScreen(
+            // Kein hartes foodDate mehr: addResultToDailyTotal faellt auf das
+            // im Store gewaehlte selectedFoodDate zurueck (Closure liest den
+            // Store erst beim Aufruf — reaktiv). „Zum Tracker hinzufügen"
+            // landet damit auf dem im Food-Tab gewaehlten Tag, wie der
+            // Food-Tab-Pfad selbst.
             onAddMeal: (result, slot) => _store.addResultToDailyTotal(
               result,
               slot: slot,
-              foodDate: DateTime.now(),
             ),
             initialUserRecipes: _store.userRecipes,
             // Persistenz nur mit echtem Sync (Test/Preview: nur Session-lokal).
@@ -360,40 +365,48 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             userContext: widget.sync != null ? _store.coachContext : null,
           ),
         ),
+      // MealEditScope reicht die Bearbeiten-Callbacks des Stores an der
+      // Screen-Signatur VORBEI an Verlaufskarte + Add-Sheet (dort oeffnet ein
+      // Tap auf eine geloggte Mahlzeit das Bearbeiten-Sheet).
       _ => ListenableBuilder(
           listenable: _store,
-          builder: (context, _) => MealAnalysisScreen(
-            analyzer: widget.mealAnalyzer,
-            productService: widget.productService,
-            photoInput: widget.photoInput,
-            cameraLauncher: widget.mealCameraLauncher,
-            selectedDate: _store.selectedFoodDate,
-            onDateSelected: (date) => _store.setFoodDate(date),
-            dailyConsumedKcal:
-                _store.consumedKcalForFoodDate(_store.selectedFoodDate),
-            macroProgress:
-                _store.macroProgressForFoodDate(_store.selectedFoodDate),
-            profile: _store.profile,
-            favorites: _store.favorites,
-            loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
-            burnedKcal: _store.selectedFoodDateIsToday
-                ? estimateKcalBurnedFromSteps(
-                    steps: _store.dailySteps,
-                    weightKg: _store.profile.weightKg,
-                    heightCm: _store.profile.heightCm,
-                    sex: _store.profile.sex,
-                  )
-                : 0,
-            onAddMeal: (result, slot) =>
-                _store.addResultToDailyTotal(result, slot: slot),
-            onUpdateMeal: _store.updateLoggedMealResult,
-            isFavorite: _store.isFavorite,
-            onToggleFavorite: _store.toggleFavorite,
-            onRemoveFavorite: _store.removeFavorite,
+          builder: (context, _) => MealEditScope(
+            onUpdateMeal: _store.updateLoggedMealDetails,
             onRemoveMeal: _store.removeLoggedMeal,
-            onSettingsPressed: _openSettings,
-            onProfilePressed: _openProfile,
-            profileInitial: _store.profileInitial,
+            child: MealAnalysisScreen(
+              analyzer: widget.mealAnalyzer,
+              productService: widget.productService,
+              photoInput: widget.photoInput,
+              cameraLauncher: widget.mealCameraLauncher,
+              selectedDate: _store.selectedFoodDate,
+              onDateSelected: (date) => _store.setFoodDate(date),
+              dayLoading: _store.isLoadingFoodDay(_store.selectedFoodDate),
+              dailyConsumedKcal:
+                  _store.consumedKcalForFoodDate(_store.selectedFoodDate),
+              macroProgress:
+                  _store.macroProgressForFoodDate(_store.selectedFoodDate),
+              profile: _store.profile,
+              favorites: _store.favorites,
+              loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
+              burnedKcal: _store.selectedFoodDateIsToday
+                  ? estimateKcalBurnedFromSteps(
+                      steps: _store.dailySteps,
+                      weightKg: _store.profile.weightKg,
+                      heightCm: _store.profile.heightCm,
+                      sex: _store.profile.sex,
+                    )
+                  : 0,
+              onAddMeal: (result, slot) =>
+                  _store.addResultToDailyTotal(result, slot: slot),
+              onUpdateMeal: _store.updateLoggedMealResult,
+              isFavorite: _store.isFavorite,
+              onToggleFavorite: _store.toggleFavorite,
+              onRemoveFavorite: _store.removeFavorite,
+              onRemoveMeal: _store.removeLoggedMeal,
+              onSettingsPressed: _openSettings,
+              onProfilePressed: _openProfile,
+              profileInitial: _store.profileInitial,
+            ),
           ),
         ),
     };

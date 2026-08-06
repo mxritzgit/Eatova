@@ -7,10 +7,12 @@ import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meals_sync.dart' show mealResultToJson;
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
@@ -513,5 +515,81 @@ void main() {
     await _settle();
     expect(s.store.pendingOutbox, isEmpty);
     expect(s.server.mealRows.keys, contains(mealId));
+  });
+
+  test(
+      'Bearbeiten (Slot+Tag) offline: Aenderung landet als mealUpsert in der '
+      'Outbox, der Replay schreibt logged_at/local_day/forced_slot — und '
+      'zaehlt KEINE neue Mahlzeit', () async {
+    final s = _setup();
+    await _boot(s.store);
+
+    final id = s.store.addResultToDailyTotal(_result('Bowl'));
+    await _settle();
+    expect(s.server.mealRows.keys, contains(id));
+
+    // Netz weg — dann im Bearbeiten-Sheet Slot + Tag aendern.
+    s.server.offline = true;
+    final yesterday =
+        DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 1));
+    s.store.updateLoggedMealDetails(id, slot: MealSlot.snack, day: yesterday);
+    await _settle();
+
+    // Kein Rollback: der lokale Stand traegt die Aenderung sofort.
+    final local = s.store.loggedMeals.singleWhere((m) => m.id == id);
+    expect(local.forcedSlot, MealSlot.snack);
+    expect(local.localDay, localDayKey(yesterday));
+
+    // Genau EINE mealUpsert-Op mit dem vollen neuen Stand haengt in der Queue.
+    final ops = s.store.pendingOutbox
+        .where((o) => o.entityKey == 'meal:$id')
+        .toList();
+    expect(ops, hasLength(1));
+    expect(ops.single.kind, SyncOpKind.mealUpsert);
+    final queued = ops.single.meal!;
+    expect(queued.forcedSlot, MealSlot.snack);
+    expect(queued.localDay, localDayKey(yesterday));
+
+    // Wieder online: Replay schreibt die verschobene Zeile idempotent.
+    s.server.offline = false;
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.store.pendingOutbox, isEmpty);
+    final row = s.server.mealRows[id]!;
+    expect(row['forced_slot'], 'snack');
+    expect(row['local_day'], localDayKey(yesterday));
+    final loggedAt = DateTime.parse(row['logged_at'] as String).toLocal();
+    expect(DateUtils.isSameDay(loggedAt, yesterday), isTrue);
+
+    // Ein Edit ist KEIN neuer Log: die Lifetime-Stats zaehlen weiterhin 1.
+    s.store.flushPendingWrites();
+    await _settle();
+    expect(s.server.mealsCounted, 1);
+  });
+
+  test(
+      'Bearbeiten online: der PATCH traegt logged_at + local_day — die '
+      'Tag-Verschiebung erreicht den Server auch ohne Outbox', () async {
+    final s = _setup();
+    await _boot(s.store);
+    final id = s.store.addResultToDailyTotal(_result('Bowl'));
+    await _settle();
+
+    final yesterday =
+        DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 1));
+    s.store.updateLoggedMealDetails(id, day: yesterday);
+    await _settle();
+
+    expect(s.store.pendingOutbox, isEmpty);
+    final patches = s.server.requests
+        .where((r) =>
+            r.method == 'PATCH' && r.url.path.contains('/logged_meals'))
+        .toList();
+    expect(patches, hasLength(1));
+    final row = s.server.mealRows[id]!;
+    expect(row['local_day'], localDayKey(yesterday));
+    final loggedAt = DateTime.parse(row['logged_at'] as String).toLocal();
+    expect(DateUtils.isSameDay(loggedAt, yesterday), isTrue);
   });
 }

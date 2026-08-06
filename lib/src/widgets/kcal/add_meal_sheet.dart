@@ -14,9 +14,11 @@ import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
+import 'edit_meal_sheet.dart';
 import 'existing_meals_list.dart';
 import 'meal_analysis_sheet.dart';
 import 'meal_suggestion_item.dart';
+import 'slot_selector.dart';
 
 Future<void> showAddMealSheet(
   BuildContext context, {
@@ -33,7 +35,14 @@ Future<void> showAddMealSheet(
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
   List<LoggedMeal> existingMeals = const <LoggedMeal>[],
   ValueChanged<String>? onRemoveMeal,
+  UpdateMealDetails? onUpdateMealDetails,
 }) {
+  // Bearbeiten-Callback VOR dem Route-Wechsel aus dem Scope aufloesen: der
+  // Builder-Context des Bottom-Sheets haengt am Navigator und sieht den
+  // MealEditScope der Home-Seite nicht mehr. Ohne Scope (Preview/Tests)
+  // bleibt die „Schon hinzugefuegt"-Liste wie bisher ohne Tap-Bearbeitung.
+  final resolvedUpdateDetails =
+      onUpdateMealDetails ?? MealEditScope.maybeOf(context)?.onUpdateMeal;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -54,6 +63,7 @@ Future<void> showAddMealSheet(
         isFavorite: isFavorite,
         onToggleFavorite: onToggleFavorite,
         onRemoveMeal: onRemoveMeal,
+        onUpdateMealDetails: resolvedUpdateDetails,
       );
     },
   );
@@ -75,6 +85,7 @@ class AddMealSheet extends StatefulWidget {
     this.onToggleFavorite,
     this.existingMeals = const <LoggedMeal>[],
     this.onRemoveMeal,
+    this.onUpdateMealDetails,
   });
 
   final MealSlot slot;
@@ -99,6 +110,10 @@ class AddMealSheet extends StatefulWidget {
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final List<LoggedMeal> existingMeals;
   final ValueChanged<String>? onRemoveMeal;
+
+  /// Details-Update fuer das Bearbeiten-Sheet (Portion/Slot/Tag). Null ->
+  /// „Schon hinzugefuegt"-Zeilen sind nicht tippbar (bisheriges Verhalten).
+  final UpdateMealDetails? onUpdateMealDetails;
 
   @override
   State<AddMealSheet> createState() => _AddMealSheetState();
@@ -173,6 +188,34 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _existing = _existing.where((m) => m.id != id).toList();
     });
     widget.onRemoveMeal?.call(id);
+  }
+
+  /// Tap auf eine „Schon hinzugefuegt"-Zeile: Bearbeiten-Sheet oeffnen und
+  /// danach die LOKALE Tagesliste des Sheets nachziehen (das Sheet haelt eine
+  /// Kopie und rebuildet nicht am Store). Ein Tag-Wechsel entfernt den
+  /// Eintrag aus der Liste — sie zeigt nur den Tag dieses Sheets.
+  Future<void> _editExisting(LoggedMeal meal) async {
+    final update = widget.onUpdateMealDetails;
+    if (update == null) return;
+    final outcome = await showEditMealSheet(
+      context,
+      meal: meal,
+      onUpdateMeal: update,
+      onRemoveMeal: widget.onRemoveMeal == null ? null : _removeExisting,
+    );
+    if (!mounted || outcome == null) return;
+    if (outcome.deleted) return; // _removeExisting hat die Liste schon gepflegt.
+    final updated = outcome.meal;
+    if (updated == null) return;
+    setState(() {
+      if (updated.effectiveLocalDay != meal.effectiveLocalDay) {
+        _existing = _existing.where((m) => m.id != meal.id).toList();
+      } else {
+        _existing = [
+          for (final m in _existing) m.id == meal.id ? updated : m,
+        ];
+      }
+    });
   }
 
   void _removeFavorite(String id) {
@@ -445,9 +488,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
               onSubmitted: (_) => _searchProducts(),
               onSearchPressed: _searchProducts,
             ),
-            _SlotSelector(
-              selected: _selectedSlot,
-              onSelected: _selectSlot,
+            Padding(
+              key: const ValueKey('add-meal-slot-select'),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+              child: SlotSelector(
+                selected: _selectedSlot,
+                onSelected: _selectSlot,
+              ),
             ),
             Flexible(
               child: SingleChildScrollView(
@@ -468,6 +515,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
                         onRemove: widget.onRemoveMeal == null
                             ? null
                             : _removeExisting,
+                        onEdit: widget.onUpdateMealDetails == null
+                            ? null
+                            : _editExisting,
                       ),
                       const SizedBox(height: 16),
                     ],
@@ -631,101 +681,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _favorites = next;
       }
     });
-  }
-}
-
-// ─── Slot-Selector ──────────────────────────────────────────────────────
-
-/// Segmented-Control: legt fest, in welchen Slot der nächste Eintrag wandert.
-/// Default ist der (Uhrzeit-)Vorschlag, bleibt aber jederzeit änderbar.
-class _SlotSelector extends StatelessWidget {
-  const _SlotSelector({required this.selected, required this.onSelected});
-
-  final MealSlot selected;
-  final ValueChanged<MealSlot> onSelected;
-
-  static const List<MealSlot> _slots = <MealSlot>[
-    MealSlot.breakfast,
-    MealSlot.lunch,
-    MealSlot.dinner,
-    MealSlot.snack,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      key: const ValueKey('add-meal-slot-select'),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-      child: Row(
-        children: [
-          for (var i = 0; i < _slots.length; i++) ...[
-            Expanded(
-              child: _SlotSegment(
-                slot: _slots[i],
-                selected: _slots[i] == selected,
-                onTap: () => onSelected(_slots[i]),
-              ),
-            ),
-            if (i != _slots.length - 1) const SizedBox(width: 8),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SlotSegment extends StatelessWidget {
-  const _SlotSegment({
-    required this.slot,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final MealSlot slot;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = slot.accent;
-    return InkWell(
-      key: ValueKey('slot-select-${slot.name}'),
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.16) : surfaceSoft,
-          borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(color: selected ? color : hairline),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              slot.icon,
-              size: 18,
-              color: selected ? color : textMuted,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              slot.shortLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? textPrimary : textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.1,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

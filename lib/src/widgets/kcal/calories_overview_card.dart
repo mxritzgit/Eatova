@@ -11,6 +11,7 @@ import '../../models/user_profile.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/basic_widgets.dart';
+import 'edit_meal_sheet.dart';
 
 class CaloriesOverviewCard extends StatelessWidget {
   const CaloriesOverviewCard({
@@ -648,13 +649,30 @@ class MealsTodayCard extends StatelessWidget {
                         ),
                         itemBuilder: (context, index) {
                           final meal = sorted[index];
+                          // Bearbeiten-Sheet, wenn die Home-Schale den
+                          // MealEditScope bereitstellt: Tap auf den Eintrag
+                          // editiert GENAU DIESE Mahlzeit (Portion/Slot/Tag).
+                          // Ohne Scope (Preview/Standalone) bleibt das alte
+                          // Verhalten: Tap oeffnet das Add-Sheet des Slots.
+                          final editScope = MealEditScope.maybeOf(context);
+                          final VoidCallback? tap;
+                          if (editScope != null) {
+                            tap = () => showEditMealSheet(
+                                  context,
+                                  meal: meal,
+                                  onUpdateMeal: editScope.onUpdateMeal,
+                                  onRemoveMeal: editScope.onRemoveMeal,
+                                );
+                          } else if (onMealTap != null) {
+                            tap = () => onMealTap!(meal.slot);
+                          } else {
+                            tap = null;
+                          }
                           final entry = _HistoryEntry(
                             key: ValueKey('food-history-entry-$index'),
                             meal: meal,
                             index: index,
-                            onTap: onMealTap == null
-                                ? null
-                                : () => onMealTap!(meal.slot),
+                            onTap: tap,
                           );
                           // Ohne Lösch-Callback: schlichte Zeile (kein Swipe).
                           if (onRemoveMeal == null) return entry;
