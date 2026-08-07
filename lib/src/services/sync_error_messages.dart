@@ -5,7 +5,9 @@ import 'dart:io';
 // depend_on_referenced_packages ist dafuer in analysis_options.yaml demotet.
 import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart'
-    show AuthRetryableFetchException;
+    show AuthRetryableFetchException, PostgrestException;
+
+import 'sync_outbox.dart' show kOutboxMaxAttempts;
 
 /// UI-Fehlertexte fuer fehlgeschlagene Sync-/Profil-Writes (pur, unit-testbar).
 ///
@@ -58,3 +60,119 @@ String profileSyncErrorMessage(Object error) => isNetworkSyncError(error)
 String directSyncErrorMessage(Object error) => isNetworkSyncError(error)
     ? 'Offline — das hat gerade nicht geklappt. Bitte versuch es mit Internetverbindung erneut.'
     : 'Das hat gerade nicht geklappt. Bitte versuch es später erneut.';
+
+/// Hinweis, dass die Outbox Ops ENDGUELTIG verworfen hat (Gift-Op, aufgebrauchtes
+/// Versuchs-Budget oder Queue-Cap). Echter Datenverlust — der User erfaehrt
+/// davon, aber wie ueberall hier OHNE technische Details: kein SQLSTATE, kein
+/// Tabellen-/Constraint-Name, kein Exception-Typ (Schema-Leakage).
+const String outboxLossHint =
+    'Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.';
+
+/// Was mit einer fehlgeschlagenen Outbox-Op passieren soll.
+enum OutboxVerdict {
+  /// Endgueltig verwerfen — ein Retry kann nicht klappen bzw. das Budget ist
+  /// aufgebraucht.
+  drop,
+
+  /// Liegen lassen und einen Zustellversuch verbuchen.
+  retryCounted,
+
+  /// Liegen lassen, OHNE einen Versuch zu verbuchen.
+  retryFree,
+}
+
+/// Klassifiziert einen fehlgeschlagenen Outbox-Write.
+///
+/// WICHTIGSTE REGEL ZUERST: Netzwerkfehler sind [OutboxVerdict.retryFree].
+/// Boot, Lifecycle-Flush und der Backoff-Timer koennen offline innerhalb
+/// weniger Sekunden alle drei feuern; wuerden Netzfehler das Versuchs-Budget
+/// verbrennen, wuerde ein Offline-Wochenende gueltige Nutzerdaten vernichten —
+/// der Fix waere schlimmer als der Bug.
+///
+/// Danach entscheidet der Fehlercode. Achtung, hier liegt die Falle: eine
+/// [PostgrestException] hat KEIN statusCode-Feld, und `fromJson` schreibt den
+/// HTTP-Status nur dann nach `code`, wenn der Antwort-Body selbst keinen
+/// `code` traegt. Eine echte PostgREST-Fehlerantwort traegt aber immer einen —
+/// eine Check-Constraint-Verletzung kommt also als SQLSTATE `'23514'` an, NIE
+/// als `'400'`. Die drei Code-Familien sind nur an ihrer FORM unterscheidbar:
+/// SQLSTATEs sind exakt 5 Zeichen, PostgREST-Codes beginnen mit `PGRST`,
+/// HTTP-Status sind 3 Ziffern.
+///
+/// Im Zweifel wird IMMER behalten ([OutboxVerdict.retryCounted]) — unbekannte
+/// Codes und unbekannte Exception-Typen sind kein Grund, Nutzerdaten
+/// wegzuwerfen. Das Versuchs-Budget begrenzt den Schaden ohnehin.
+OutboxVerdict classifyOutboxFailure(Object error, int attempts) {
+  if (isNetworkSyncError(error)) return OutboxVerdict.retryFree;
+  final verdict = _verdictForCode(error);
+  if (verdict == OutboxVerdict.drop) return OutboxVerdict.drop;
+  // Budget aufgebraucht: auch ein prinzipiell retrybarer Fehler endet hier.
+  return attempts + 1 >= kOutboxMaxAttempts ? OutboxVerdict.drop : verdict;
+}
+
+OutboxVerdict _verdictForCode(Object error) {
+  // Alles, was kein PostgREST-Fehler ist (StateError, FormatException,
+  // AuthException, …), ist unklassifiziert -> behalten.
+  if (error is! PostgrestException) return OutboxVerdict.retryCounted;
+  final code = error.code;
+  if (code == null || code.isEmpty) return OutboxVerdict.retryCounted;
+
+  // --- PostgREST-eigene Codes ---------------------------------------------
+  if (code.startsWith('PGRST')) {
+    // PGRST301 = JWT abgelaufen. Heilt beim naechsten Token-Refresh von
+    // selbst, also behalten. Alle anderen PGRST*-Codes beschreiben eine
+    // strukturell kaputte Anfrage (Schema-Cache, Parser, Singular-Verletzung)
+    // — identische Bytes erneut zu senden hilft nie.
+    return code == 'PGRST301'
+        ? OutboxVerdict.retryCounted
+        : OutboxVerdict.drop;
+  }
+
+  // --- Roher HTTP-Status (Body ohne `code`, z.B. Proxy/Gateway) ------------
+  final status = code.length == 3 ? int.tryParse(code) : null;
+  if (status != null) {
+    if (status == 429 || status >= 500) return OutboxVerdict.retryCounted;
+    // 401/403: fast immer ein abgelaufener Token — der Refresh heilt das.
+    if (status == 401 || status == 403) return OutboxVerdict.retryCounted;
+    if (status >= 400) return OutboxVerdict.drop;
+    return OutboxVerdict.retryCounted;
+  }
+
+  // --- SQLSTATE (immer exakt 5 Zeichen) ------------------------------------
+  if (code.length == 5) {
+    // 22 = data exception (Wert zu lang, Zahl ausserhalb des Bereichs,
+    // kaputtes Datumsformat …). Rein payload-determiniert: dieselben Bytes
+    // werden nie akzeptiert.
+    if (code.startsWith('22')) return OutboxVerdict.drop;
+    if (code.startsWith('23')) {
+      // Klasse 23 = integrity constraint violation. NICHT die ganze Klasse
+      // sofort verwerfen: 23503 (foreign_key_violation) kann waehrend eines
+      // Migrations-Fensters oder eines Signup-Rennens transient sein, und ein
+      // falscher Sofort-Drop ist unwiderruflicher Nutzer-Datenverlust.
+      // Verworfen wird nur, was garantiert payload-determiniert ist:
+      //   23502 not_null_violation, 23514 check_violation.
+      // (23505 unique_violation ist unerreichbar — jeder Write ist ein Upsert
+      // mit onConflict auf die Client-UUID bzw. den natuerlichen Schluessel.)
+      // Der Rest laeuft ins Versuchs-Budget und endet dort ebenfalls.
+      return code == '23502' || code == '23514'
+          ? OutboxVerdict.drop
+          : OutboxVerdict.retryCounted;
+    }
+    switch (code.substring(0, 2)) {
+      // 08 connection_exception, 40 transaction rollback/deadlock,
+      // 53 insufficient_resources, 57 operator_intervention (Shutdown),
+      // 58 system_error — allesamt Zustaende, die vorbeigehen.
+      case '08':
+      case '40':
+      case '53':
+      case '57':
+      case '58':
+        return OutboxVerdict.retryCounted;
+      // 42 syntax_error_or_access_rule_violation, inkl. 42501 (RLS-Ablehnung).
+      // Bewusst retrybar: ein abgelaufener/noch nicht gesetzter Token laesst
+      // RLS greifen, und das heilt sich beim naechsten Refresh.
+      case '42':
+        return OutboxVerdict.retryCounted;
+    }
+  }
+  return OutboxVerdict.retryCounted;
+}

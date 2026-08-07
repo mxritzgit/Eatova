@@ -8,6 +8,7 @@ import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import 'secure_cache_store.dart';
 import 'sync_outbox.dart';
 
 /// Minimaler async Key-Value-Store hinter [LocalCache]. Abstrahiert
@@ -85,19 +86,44 @@ class LocalCache {
   final KeyValueStore _store;
   final String _userId;
 
-  /// Baut den Production-Cache auf SharedPreferences. Gibt bei Plugin-Fehler
-  /// (z.B. fehlender Channel im Test ohne Mock) null zurueck, damit der Aufrufer
-  /// einfach ohne Cache weiterlaeuft statt zu crashen.
+  /// Baut den Production-Cache auf SharedPreferences, verschluesselt mit dem
+  /// OS-Keystore-DEK (SEC-1, siehe secure_cache_store.dart). Gibt bei
+  /// Plugin-Fehler (z.B. fehlender Channel im Test ohne Mock) ODER wenn der
+  /// DEK weder gelesen noch angelegt werden kann null zurueck, damit der
+  /// Aufrufer einfach ohne Cache weiterlaeuft statt zu crashen. KEIN
+  /// Klartext-Fallback — lieber kein Cache als ein unverschluesselter.
+  ///
+  /// Der Dekorator wird bewusst NUR hier eingezogen: der oeffentliche
+  /// Konstruktor nimmt weiter einen nackten [KeyValueStore], damit die
+  /// bestehenden Tests ihn unveraendert mit [InMemoryKeyValueStore] und rohen
+  /// Klartext-Werten treiben koennen.
   static Future<LocalCache?> create(String userId) async {
     try {
-      final store = await SharedPreferencesStore.create();
-      return LocalCache(store, userId);
+      final base = await SharedPreferencesStore.create();
+      final store = await EncryptedKeyValueStore.create(base);
+      if (store == null) return null;
+      final cache = LocalCache(store, userId);
+      await cache.dropLegacySlots();
+      return cache;
     } catch (e, s) {
       dev.log('LocalCache.create failed', error: e, stackTrace: s,
           name: 'local_cache');
       return null;
     }
   }
+
+  /// Loescht Slots, die es nur noch in Alt-Installationen gibt.
+  ///
+  /// Aktuell [_legacyDailyKey] (`eatova.v1.daily.<uid>`): wird nie gelesen und
+  /// nie geschrieben, bisher nur in [clear] geraeumt. Eine Installation von
+  /// VOR der Entfernung des Heute-Tabs traegt dort weiterhin einen
+  /// daily_logs-Snapshot INKLUSIVE der Mood-Freitextnotiz — und der
+  /// Verschluesselungs-Dekorator wuerde ihn NIE anfassen, weil er nur beim
+  /// Schreiben verschluesselt und beim Lesen migriert. Der Slot muss also
+  /// ersatzlos weg statt verschluesselt zu werden.
+  ///
+  /// Oeffentlich, damit das ueber den einfachen Konstruktor testbar ist.
+  Future<void> dropLegacySlots() => _store.remove(_legacyDailyKey);
 
   // Versions-Prefix erlaubt spaetere Schema-Migrationen ohne Crash auf alten
   // Eintraegen (unbekannte Keys werden einfach ignoriert).

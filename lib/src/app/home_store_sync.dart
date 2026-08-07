@@ -23,6 +23,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// (Klassifizierung: [isNetworkSyncError]).
   bool _syncHintShown = false;
 
+  /// Wie [_syncHintShown], aber fuer den SCHWEREN Fall: die Outbox hat Ops
+  /// endgueltig verworfen (Gift-Op, aufgebrauchtes Versuchs-Budget oder
+  /// Queue-Cap). Auch das wird pro Episode nur EINMAL gemeldet und beim
+  /// naechsten Sync-Erfolg zurueckgesetzt.
+  bool _outboxLossNotified = false;
+
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
   bool _statsFlushInFlight = false;
@@ -101,6 +107,26 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // gerade genau die Op abspielen, deren Payload sonst koalesziert (und beim
     // Entfernen verworfen) wuerde.
     _outbox = enqueueCoalesced(_outbox, op, appendOnly: _outboxReplayInFlight);
+    // Cap NUR ausserhalb eines laufenden Replays: der Replay-Loop laeuft ueber
+    // Indizes: ein Kopf-Trim wuerde seinen Cursor unter ihm wegziehen. Die
+    // Queue kann waehrend eines Replays hoechstens um die paar Ops ueber den
+    // Cap wachsen, die der User in dieser Zeit erzeugt — der naechste Enqueue
+    // danach zieht sie wieder gerade.
+    if (!_outboxReplayInFlight) {
+      final capped = capOutbox(_outbox);
+      if (capped.dropped.isNotEmpty) {
+        dev.log(
+            'Outbox-Cap erreicht: ${capped.dropped.length} aelteste Op(s) '
+            'verworfen (Queue > $kOutboxMaxOps)',
+            name: 'eatova_sync');
+        // Nur technische Angaben ins Reporting — NIE op.payload (Mahlzeiten,
+        // Gewichte = Gesundheitsdaten, s. crash_reporter.dart).
+        CrashReporter.breadcrumb(
+            'outbox-cap: ${capped.dropped.length} ops dropped');
+        _outbox = capped.queue;
+        _notifyOutboxLoss();
+      }
+    }
     _persistOutbox();
   }
 
@@ -121,11 +147,28 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
+  /// Meldet ENDGUELTIG verworfene Ops — anders als [_notifyQueued] ist das
+  /// echter Datenverlust und keine Warteschleife. Der Text kommt aus dem puren
+  /// Mapping und traegt bewusst KEINE technischen Details (kein SQLSTATE, kein
+  /// Tabellen-/Constraint-Name, kein Exception-Typ); die Roh-Exception geht
+  /// nur an dev.log + CrashReporter. Einmal pro Episode.
+  void _notifyOutboxLoss() {
+    if (_disposed || _outboxLossNotified) return;
+    _outboxLossNotified = true;
+    _emitSnack(
+      outboxLossHint,
+      icon: Icons.sync_problem_rounded,
+      accent: danger,
+      duration: kSnackError,
+    );
+  }
+
   /// Nach einem erfolgreichen Sync-Write: Fehler-Episode beenden, Backoff
   /// zuruecksetzen und liegengebliebene Ops direkt nachspielen.
   void _onSyncSuccess() {
     if (_disposed) return;
     _syncHintShown = false;
+    _outboxLossNotified = false;
     _outboxRetryAttempt = 0;
     if (_outbox.isNotEmpty && !_outboxReplayInFlight) {
       unawaited(_replayOutbox());
@@ -158,12 +201,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Lauf — Ops anderer Entitaeten laufen weiter. Jede erfolgreiche Op wird
   /// sofort entfernt und der Rest persistiert (kill-sicher: ein Abbruch
   /// mittendrin wiederholt hoechstens bereits bestaetigte, idempotente Ops).
+  ///
+  /// Fehlschlaege werden ueber [classifyOutboxFailure] einsortiert:
+  ///  * [OutboxVerdict.drop] — die Op wird endgueltig verworfen (sonst wuerde
+  ///    sie ewig retryt und, weil [_syncOrQueue] ihre Entitaet vom Server
+  ///    abschneidet, diese Entitaet dauerhaft blockieren).
+  ///  * [OutboxVerdict.retryCounted] — bleibt liegen, verbraucht aber einen
+  ///    Zustellversuch.
+  ///  * [OutboxVerdict.retryFree] — bleibt liegen, ohne Budget zu verbrauchen
+  ///    (Netzfehler; offline duerfen Boot + Flush + Timer nicht das Budget
+  ///    leerlaufen lassen).
   Future<void> _replayOutbox() async {
     final s = sync;
     if (s == null || _outboxReplayInFlight || _outbox.isEmpty) return;
     _outboxReplayInFlight = true;
     final blocked = <String>{};
     var anySuccess = false;
+    var anyDropped = false;
     try {
       var i = 0;
       while (i < _outbox.length) {
@@ -175,6 +229,38 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         try {
           await _performOp(s, op);
         } catch (e, st) {
+          // Die Liste kann sich waehrend des await geaendert haben (ein
+          // appendOnly-Enqueue ersetzt sie) — deshalb die Op ueber Identitaet
+          // wiederfinden statt dem Index zu trauen.
+          final at = _outbox.indexWhere((o) => identical(o, op));
+          final verdict = classifyOutboxFailure(e, op.attempts);
+          if (verdict == OutboxVerdict.drop) {
+            dev.log(
+                'Outbox-Replay: ${op.kind.name} endgueltig verworfen '
+                '(Versuch ${op.attempts + 1})',
+                error: e,
+                name: 'eatova_sync');
+            // NUR Kind + Roh-Exception ins Reporting — niemals op.payload:
+            // der traegt Mahlzeiten-Namen und Gewichte, also Gesundheitsdaten
+            // (Regel dokumentiert in crash_reporter.dart).
+            unawaited(CrashReporter.capture(e, st,
+                context: 'outbox-drop-${op.kind.name}'));
+            anyDropped = true;
+            if (at >= 0) {
+              _outbox = [..._outbox]..removeAt(at);
+              _persistOutbox();
+              // Die nachgerueckte Op steht jetzt an dieser Position und muss
+              // als naechste geprueft werden.
+              i = at;
+            } else {
+              i++;
+            }
+            continue;
+          }
+          if (verdict == OutboxVerdict.retryCounted && at >= 0) {
+            _outbox = [..._outbox]..[at] = op.incrementAttempt();
+            _persistOutbox();
+          }
           dev.log('Outbox-Replay: ${op.kind.name} bleibt liegen',
               error: e, name: 'eatova_sync');
           unawaited(CrashReporter.capture(e, st,
@@ -191,10 +277,17 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _outboxReplayInFlight = false;
     }
     if (_disposed) return;
-    if (blocked.isEmpty) {
+    if (anyDropped) _notifyOutboxLoss();
+    // Eine leere Queue ist „fertig", auch wenn Ops blockiert WAREN: sie sind
+    // dann alle verworfen worden, und ein Backoff-Timer haette nichts mehr zu
+    // tun.
+    if (blocked.isEmpty || _outbox.isEmpty) {
       _outboxRetryAttempt = 0;
       _outboxRetryTimer?.cancel();
-      if (anySuccess) _syncHintShown = false;
+      if (anySuccess) {
+        _syncHintShown = false;
+        _outboxLossNotified = false;
+      }
     } else {
       _scheduleOutboxRetry();
     }

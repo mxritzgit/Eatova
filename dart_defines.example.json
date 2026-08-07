@@ -1,5 +1,7 @@
 {
   "SUPABASE_URL": "https://<dein-projekt-ref>.supabase.co",
   "SUPABASE_ANON_KEY": "<dein-anon-key-aus-dem-supabase-dashboard>",
-  "SENTRY_DSN": ""
+  "SENTRY_DSN": "",
+  "OFF_MIRROR_URL": "https://eatova.de/meili",
+  "OFF_MIRROR_SEARCH_KEY": ""
 }

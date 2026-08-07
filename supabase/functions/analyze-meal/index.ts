@@ -1,3 +1,6 @@
+import { clientIpSubject } from '../_shared/client_ip.ts';
+import { positiveIntFromEnv } from '../_shared/env.ts';
+
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -34,10 +37,15 @@ const OPENROUTER_TIMEOUT_MS = 45_000;
 const MAX_IMAGE_BYTES = 5_000_000;
 const MIN_IMAGE_BYTES = 128;
 const MAX_HINT_CHARS = 400;
-const USER_LIMIT = Number(Deno.env.get('ANALYZE_MEAL_USER_LIMIT') ?? '20');
-const USER_WINDOW_SECONDS = Number(Deno.env.get('ANALYZE_MEAL_USER_WINDOW_SECONDS') ?? '3600');
-const IP_LIMIT = Number(Deno.env.get('ANALYZE_MEAL_IP_LIMIT') ?? '60');
-const IP_WINDOW_SECONDS = Number(Deno.env.get('ANALYZE_MEAL_IP_WINDOW_SECONDS') ?? '600');
+// Defensiv geparst (positiveIntFromEnv statt Number()): ein nicht-numerisches
+// Secret ergaebe sonst NaN -> JSON `null` -> der SQL-Guard von
+// consume_edge_rate_limit wirft -> die RPC antwortet 500 -> JEDER Request der
+// Function scheitert mit `rate_limit_unavailable`. Ein Tippfehler im Secret
+// haette also einen Totalausfall ausgeloest.
+const USER_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_USER_LIMIT', 20);
+const USER_WINDOW_SECONDS = positiveIntFromEnv('ANALYZE_MEAL_USER_WINDOW_SECONDS', 3600);
+const IP_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_IP_LIMIT', 60);
+const IP_WINDOW_SECONDS = positiveIntFromEnv('ANALYZE_MEAL_IP_WINDOW_SECONDS', 600);
 
 const BASE_PROMPT = `Eatova Foto-Kalorienanalyse. Du bist ein präziser Ernährungsschätzer.
 
@@ -125,7 +133,10 @@ Deno.serve(async (request) => {
     enforceContentLength(request);
 
     const user = await authenticateUser(request);
-    const ipSubject = clientIp(request);
+    // Nicht mehr `.split(",")[0]` des x-forwarded-for: Cloudflare HAENGT an,
+    // der linkeste Eintrag ist also der vom Client selbst gesetzte und damit
+    // frei waehlbar. Begruendung + Fallback: ../_shared/client_ip.ts.
+    const ipSubject = clientIpSubject(request, user.id);
 
     const ipLimit = await consumeRateLimit('analyze-meal:ip', ipSubject, IP_LIMIT, IP_WINDOW_SECONDS);
     if (!ipLimit.allowed) {
@@ -556,11 +567,6 @@ function clampNumber(value: unknown, min: number, max: number): number {
   const number = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(number)) return min;
   return Math.min(max, Math.max(min, number));
-}
-
-function clientIp(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return request.headers.get('cf-connecting-ip') ?? forwarded ?? 'unknown';
 }
 
 function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId: string): Response {

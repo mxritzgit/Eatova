@@ -61,10 +61,16 @@ class MealAnalysisScreen extends StatelessWidget {
 
   // Eigener Suchindex (Meilisearch auf dem vServer) mit Live-OFF als
   // Fallback fuer neue Produkte, Barcode-Lookups und Mirror-Ausfaelle.
-  // Kill-Switch: --dart-define=OFF_MIRROR_URL= (leer) -> direkt OFF.
+  //
+  // Laeuft bei JEDEM Rebuild (der Screen haengt in einem ListenableBuilder am
+  // HomeStore), deshalb strikt synchron und allokationsfrei: kein `await`,
+  // kein SharedPreferences-Zugriff, kein `Supabase.instance`. Ob der Mirror
+  // ueberhaupt Credentials hat, entscheidet erst der Such-Request selbst
+  // (SearchCredentialsStore) — hier steht nur der HARTE, lokale Kill-Switch
+  // `--dart-define=OFF_MIRROR_URL=` (leer), den kein Server ueberstimmen darf.
   static ProductLookupService _defaultProductService() {
     const off = OpenFoodFactsProductService();
-    if (!SearchConfig.mirrorEnabled) return off;
+    if (SearchConfig.mirrorHardDisabled) return off;
     return const FallbackProductService(MeilisearchProductService(), off);
   }
 

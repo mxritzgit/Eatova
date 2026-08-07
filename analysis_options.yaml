@@ -10,13 +10,16 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
-  # Top-Level-Drafts (User-Uploads aus dem Web-Editor, z.B.
-  # auth_screens.dart, rezepte_screen.dart, eatova_chat(*).dart)
-  # sind Skizzen, kein Production-Code — werden weder von lib/ noch
-  # von tests importiert. Aus dem Analyzer ausgeschlossen damit
-  # `flutter analyze` nicht rot wird.
+  # Ausgeschlossen bleibt nur, was uns nicht gehoert: generierter Code
+  # (`*.g.dart` wird von build_runner erzeugt, Lints dort waeren nicht
+  # fixbar) und die Build-Artefakte unter `build/`.
+  #
+  # Das fruehere pauschale `"*.dart"` ist raus: es stammt aus der Zeit der
+  # Web-Editor-Drafts im Repo-Root, die laengst geloescht sind. Der Glob
+  # matcht ausschliesslich Dateien direkt im Repo-Root (`*` matcht kein `/`),
+  # haette also jede kuenftige Root-Datei still vor `flutter analyze`
+  # versteckt, statt irgendetwas Sinnvolles zu filtern.
   exclude:
-    - "*.dart"
     - "**/*.g.dart"
     - "build/**"
   errors:

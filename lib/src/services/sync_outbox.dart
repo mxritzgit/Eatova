@@ -10,6 +10,38 @@ import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
 /// die (reine, unit-testbare) Einreih-Logik — Replay + Trigger leben im
 /// HomeStore, die Persistenz im LocalCache.
 
+/// Harte Obergrenze der persistierten Outbox.
+///
+/// Warum ueberhaupt ein Cap: im systemischen Fehlerfall (z.B. eine neue
+/// Check-Constraint lehnt JEDEN logged_meals-Write ab) traegt jede weitere
+/// Nutzer-Aktion eine eigene Entitaet (frische Meal-UUID) — die Koaleszenz
+/// greift dort nicht, es haengt sich also pro Aktion eine volle Payload-Op an,
+/// und der SharedPreferences-Blob waechst unbegrenzt (JSON-Encode/Decode bei
+/// JEDEM Write, irgendwann ein ANR bzw. ein nicht mehr lesbarer Cache).
+///
+/// Warum 500: eine Meal-Op wiegt ~0,3–1 kB JSON, 500 Ops sind also ein
+/// Blob im niedrigen dreistelligen kB-Bereich — das schreibt sich noch in
+/// Millisekunden. Gleichzeitig sind 500 pendende Writes weit mehr, als ein
+/// Nutzer in einer realistischen Offline-Phase erzeugt (ein Vielfaches von
+/// „drei Wochen Urlaub ohne Netz, fuenf Mahlzeiten am Tag"). Wer den Cap
+/// erreicht, steckt nicht in einer Offline-Phase, sondern in einem
+/// systemischen Fehler — und dafuer ist der Cap die Notbremse.
+const int kOutboxMaxOps = 500;
+
+/// Maximale Zustellversuche pro Op, bevor sie endgueltig verworfen wird.
+///
+/// Zaehlt NUR Versuche, die der Server aktiv abgelehnt hat (5xx, 429, unklare
+/// Codes) — Netzfehler sind gratis (siehe classifyOutboxFailure), sonst wuerde
+/// ein Offline-Wochenende das Budget verbrennen und gueltige Nutzerdaten
+/// vernichten.
+///
+/// Warum 8: der Backoff laeuft 30s → 1m → 2m → 4m (Cap). Acht gezaehlte
+/// Versuche ueberdauern damit locker eine halbe Stunde Server-Ausfall bzw.
+/// (weil Boot und Lifecycle-Flush ebenfalls zaehlen) mehrere App-Starts —
+/// genug, dass ein echter Ausfall sich erholt, aber klein genug, dass eine
+/// wirklich unschreibbare Op nicht Monate lang Akku und Traffic frisst.
+const int kOutboxMaxAttempts = 8;
+
 /// Art der nachzuholenden Operation. Jede Op ist fuer sich idempotent
 /// wiederholbar (siehe Doku an den Sync-Methoden):
 ///  * mealInsert/mealUpsert -> MealsSync.insertLoggedMeal ist ein Upsert auf
@@ -39,6 +71,7 @@ class SyncOp {
     required this.entityId,
     required this.payload,
     DateTime? queuedAt,
+    this.attempts = 0,
   }) : queuedAt = queuedAt ?? DateTime.now();
 
   final SyncOpKind kind;
@@ -49,6 +82,23 @@ class SyncOp {
   final String entityId;
   final DateTime queuedAt;
   final Map<String, dynamic> payload;
+
+  /// Wie oft der Server DIESE Payload bereits aktiv abgelehnt hat. Alle
+  /// Factories starten bei 0; hochgezaehlt wird ausschliesslich im
+  /// Replay-Loop, und auch dort nur bei einem gezaehlten Verdikt
+  /// (classifyOutboxFailure) — Netzfehler sind gratis. Erreicht der Zaehler
+  /// [kOutboxMaxAttempts], wird die Op verworfen.
+  final int attempts;
+
+  /// Kopie mit einem verbrauchten Zustellversuch. Alles andere — insbesondere
+  /// [queuedAt], die FIFO-Position der Entitaet — bleibt erhalten.
+  SyncOp incrementAttempt() => SyncOp._(
+        kind: kind,
+        entityId: entityId,
+        payload: payload,
+        queuedAt: queuedAt,
+        attempts: attempts + 1,
+      );
 
   factory SyncOp.mealInsert(LoggedMeal meal, {required bool trackDay}) =>
       SyncOp._(kind: SyncOpKind.mealInsert, entityId: meal.id, payload: {
@@ -164,11 +214,16 @@ class SyncOp {
 
   // ---- Wire-Format ---------------------------------------------------------
 
+  /// [attempts] wird NUR geschrieben, wenn es > 0 ist. Der Normalfall (frisch
+  /// eingereihte Op) bleibt damit byte-identisch zum alten 4-Key-Format:
+  /// ein Downgrade auf einen aelteren Build liest die Queue unveraendert
+  /// weiter, und der persistierte Blob waechst nicht ohne Not.
   Map<String, dynamic> toJson() => <String, dynamic>{
         'kind': kind.name,
         'entity_id': entityId,
         'queued_at': queuedAt.toIso8601String(),
         'payload': payload,
+        if (attempts > 0) 'attempts': attempts,
       };
 
   /// Defensiv: unbekannte Kinds / kaputte Eintraege liefern null, damit EINE
@@ -191,12 +246,20 @@ class SyncOp {
         ? rawPayload.cast<String, dynamic>()
         : <String, dynamic>{};
     final queuedAt = json['queued_at'];
+    // Fehlend (Legacy-Eintrag eines alten Builds), nicht-numerisch oder
+    // negativ -> 0. Das ist bewusst die SICHERE Richtung: ein zu niedriger
+    // Zaehler kostet hoechstens ein paar zusaetzliche Zustellversuche, ein
+    // aufgeblaehter wuerde gueltige Nutzer-Writes sofort verwerfen.
+    final rawAttempts = json['attempts'];
+    final attempts =
+        rawAttempts is num && rawAttempts > 0 ? rawAttempts.toInt() : 0;
     return SyncOp._(
       kind: kind,
       entityId: entityId,
       payload: payload,
       queuedAt:
           queuedAt is String ? DateTime.tryParse(queuedAt) : null,
+      attempts: attempts,
     );
   }
 }
@@ -212,6 +275,20 @@ class SyncOp {
 /// [appendOnly] MUSS gesetzt sein, solange ein Replay laeuft: der koennte
 /// gerade genau die Op abspielen, deren Payload sonst ersetzt (und beim
 /// Entfernen verloren) wuerde.
+///
+/// Beim Koaleszieren startet [SyncOp.attempts] wieder bei 0 — der Zaehler
+/// misst, wie oft der Server GENAU DIESE Payload abgelehnt hat, und die
+/// Payload ist gerade eine andere geworden. Konkret: tippt jemand 200000 kcal
+/// (Check-Constraint, Zaehler klettert) und korrigiert das dann auf 500,
+/// wuerde ein uebernommener Zaehler die korrigierte, voellig gueltige
+/// Aenderung sofort wegwerfen. [SyncOp.queuedAt] bleibt dagegen erhalten: das
+/// ist die FIFO-Position der Entitaet und hat mit der Payload-Gueltigkeit
+/// nichts zu tun.
+/// Bewusst in Kauf genommen: eine dauerhaft kaputte Entitaet, die der Nutzer
+/// immer wieder anfasst, wird nie verworfen. Das ist in Ordnung — die
+/// Koaleszenz haelt sie bei GENAU EINEM Slot (kein Queue-Wachstum), und der
+/// Nutzer arbeitet aktiv daran. Das NICHT durch Uebernehmen des Zaehlers
+/// „reparieren".
 List<SyncOp> enqueueCoalesced(
   List<SyncOp> queue,
   SyncOp op, {
@@ -229,14 +306,53 @@ List<SyncOp> enqueueCoalesced(
               entityId: op.entityId,
               payload: {...op.payload, 'track_day': existing.trackDay},
               queuedAt: existing.queuedAt,
+              // attempts bleibt beim Default 0 — NICHT existing.attempts,
+              // siehe Doku oben.
             )
-          : op;
+          : op; // kommt aus einer Factory, hat also ebenfalls attempts == 0.
       final next = [...queue];
       next[i] = merged;
       return next;
     }
   }
   return [...queue, op];
+}
+
+/// Deckelt die Outbox auf [maxOps] und liefert Queue UND Verworfenes getrennt
+/// zurueck.
+///
+/// Bewusst eine eigene, reine Funktion statt eines Parameters an
+/// [enqueueCoalesced]: der Aufrufer MUSS sehen, was verlorengegangen ist (er
+/// meldet es dem Nutzer und loggt es), und der Cap muss auch auf dem
+/// Hydrations-Pfad laufen — eine von einem aelteren, ungedeckelten Build
+/// gewachsene Queue kommt aus dem Cache zurueck, ohne je durch das Einreihen
+/// zu laufen.
+///
+/// Verworfen werden die AELTESTEN Ops (Kopf der Queue). Begruendung:
+///  (a) Drop-Newest wuerde eine volle Queue in einen dauerhaften Total-
+///      Schreibausfall verwandeln: eine volle Queue leert sich per Definition
+///      gerade nicht, also kaeme ab da NIE wieder ein Write durch.
+///  (b) Die neueste Op ist genau das, worauf der Nutzer gerade schaut — der
+///      lokale State wird VOR dem Write mutiert, ein Drop-Newest liesse die
+///      eben eingetragene Mahlzeit beim naechsten Kaltstart verschwinden.
+///  (c) Die aeltesten Ops einer vollen Queue scheitern am laengsten, sind also
+///      die wahrscheinlichsten Gift-Kandidaten.
+///  (d) Die Korrektheit pro Entitaet ueberlebt einen Kopf-Trim: jeder Write
+///      ist ein VOLLER Zeilen-Upsert auf eine Client-UUID (keine Deltas), und
+///      jeder Delete ist idempotent. Verloren geht einzig der Stats-/Streak-
+///      Seiteneffekt eines mealInsert — ein Zaehler, kein Nutzer-Inhalt.
+({List<SyncOp> queue, List<SyncOp> dropped}) capOutbox(
+  List<SyncOp> queue, {
+  int maxOps = kOutboxMaxOps,
+}) {
+  if (queue.length <= maxOps) {
+    return (queue: queue, dropped: const <SyncOp>[]);
+  }
+  final overflow = queue.length - maxOps;
+  return (
+    queue: queue.sublist(overflow),
+    dropped: queue.sublist(0, overflow),
+  );
 }
 
 // ---- (De)Serialisierung LoggedMeal / FavoriteMeal ---------------------------

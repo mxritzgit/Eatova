@@ -15,23 +15,24 @@ class AppleHealthService implements HealthService {
   bool _configured = false;
 
   // Typen + per-Typ-Permission laufen als PARALLELE Listen (package:health
-  // erwartet permissions[i] passend zu types[i]). Steps + Sleep sind READ-only,
-  // Gewicht ist READ_WRITE (Import vorbefuellen + Write-Back nach Wiegen),
-  // Workout ist WRITE (wir schreiben abgeschlossene Sessions zurueck).
+  // erwartet permissions[i] passend zu types[i]) — ein Eintrag darf also nie
+  // einzeln entfernt werden, sonst verrutscht die Autorisierung still.
+  // Steps + Sleep sind READ-only, Gewicht ist READ_WRITE (Import vorbefuellen
+  // + Write-Back nach dem Wiegen).
+  //
+  // WORKOUT ist bewusst NICHT mehr dabei: geschrieben haben wir nie ein
+  // Workout (es gab und gibt keinen writeWorkout-Pfad), und seit dem Aus des
+  // Training-Tabs (a267e15) kann es auch keinen mehr geben. Der HealthKit-
+  // Dialog fragt damit keinen Scope mehr an, den die App nie nutzt.
   static const List<HealthDataType> _types = [
     HealthDataType.STEPS,
     HealthDataType.WEIGHT,
     HealthDataType.SLEEP_ASLEEP,
-    HealthDataType.WORKOUT,
   ];
   static const List<HealthDataAccess> _permissions = [
     HealthDataAccess.READ,
     HealthDataAccess.READ_WRITE,
     HealthDataAccess.READ,
-    // Workout ist WRITE-only (wir schreiben abgeschlossene Sessions zurueck,
-    // lesen aber nie Workouts) — so fragt der HealthKit-Dialog keinen
-    // ueberfluessigen Workout-LESE-Zugriff an (Audit 2026-06-09, L-1).
-    HealthDataAccess.WRITE,
   ];
 
   Future<void> _ensureConfigured() async {

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SEC-1 — Backup/Transfer-Ausschluss des verschluesselten LocalCache.
+
+  WARUM ueberhaupt, obwohl android:allowBackup="false" gesetzt ist:
+  allowBackup="false" schaltet Cloud-Backup (Google Drive) und adb-Backup ab,
+  aber auf Android 12+ NICHT die Geraet-zu-Geraet-Uebertragung. Die offizielle
+  Doku (https://developer.android.com/guide/topics/data/autobackup) sagt dazu:
+
+    "On devices from some device manufacturers, specifying
+     android:allowBackup="false" disables cloud-based backup and restore
+     (such as Google Drive backups) but doesn't disable device-to-device
+     transfers for the app."
+
+  Bei einem D2D-Transfer wandern die SharedPreferences-Dateien auf das neue
+  Geraet — der nicht-exportierbare AndroidKeyStore-Key aber nicht. Jeder
+  Cache-Slot waere dort unentschluesselbar, und die Outbox (die der Server
+  NICHT rekonstruieren kann) waere zerstoert. Wir wollen den Zustand also
+  sauber ABWESEND statt kaputt: nach einem Transfer startet die App wie eine
+  Neuinstallation, laedt vom Server und legt einen frischen DEK an.
+
+  Ebenfalls aus der Doku, deshalb sind BEIDE Sektionen ausbuchstabiert:
+
+    "If there are no rules for a particular backup mode, such as if the
+     <device-transfer> section is missing, that mode is fully enabled for all
+     content except for no-backup and cache directories"
+
+  Was ausgeschlossen wird:
+    * domain="sharedpref" path="."
+        - shared_prefs/FlutterSharedPreferences.xml  (shared_preferences,
+          also LocalCache + die gotrue-Session)
+        - shared_prefs/FlutterSecureStorage.xml      (flutter_secure_storage,
+          der gewrappte DEK — ohne den KeyStore-Key ohnehin wertlos)
+    * domain="file" path="datastore"
+        - files/datastore/FlutterSharedPreferences.preferences_pb, der
+          DataStore-Pfad der neueren shared_preferences-Android-Backends.
+          Heute laeuft SharedPreferences.getInstance() ueber den Legacy-
+          XML-Pfad; der Ausschluss haelt eine kuenftige Plugin-Umstellung
+          davon ab, die Luecke still wieder aufzureissen.
+
+  android:fullBackupContent fuer Android 11 und aelter ist bewusst NICHT
+  gesetzt: dort deckt allowBackup="false" auch die lokale Uebertragung ab.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="datastore" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="file" path="datastore" />
+    </device-transfer>
+</data-extraction-rules>

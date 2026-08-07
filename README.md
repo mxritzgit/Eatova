@@ -55,8 +55,10 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
   returns; a cold start offline shows the last known state.
 - **Reminders** — local, on-device notifications (hydration, caffeine cut-off,
   sleep runway, streak-at-risk). No push infrastructure required.
-- **Health integration** — reads daily steps from Apple HealthKit on iOS and
-  estimates calories burned (no-op on Android).
+- **Health integration** — reads daily steps, body-weight history, and sleep
+  duration from Apple HealthKit on iOS, and writes back a body-weight entry
+  when you log a weigh-in; the step count drives the calories-burned estimate.
+  No-op on Android (no Health Connect integration).
 - **Auth** — Supabase e-mail auth plus native Google Sign-In (Credential
   Manager on Android, Google SDK on iOS) with a web-OAuth fallback.
 - **Crash reporting (opt-in)** — Sentry, only active when a DSN is provided.
@@ -73,7 +75,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
 | Product search   | Self-hosted [Meilisearch](https://www.meilisearch.com) index of [Open Food Facts](https://world.openfoodfacts.org), OFF API fallback |
 | AI meal analysis | Gemini vision model via [OpenRouter](https://openrouter.ai)       |
 | AI coach         | Grok via OpenRouter, with server-side quota + safety layers       |
-| Health           | Apple HealthKit (`package:health`, iOS only)                      |
+| Health           | Apple HealthKit (`package:health`, iOS only) — read: steps, weight, sleep · write: weight |
 | Crash reporting  | [Sentry](https://sentry.io) (optional, DSN via dart-define)       |
 
 Key Flutter packages: `supabase_flutter`, `camera`, `image_picker`,
@@ -98,7 +100,7 @@ Key Flutter packages: `supabase_flutter`, `camera`, `image_picker`,
                │
                ├── Meilisearch product index (self-hosted, search-only key)
                ├── Open Food Facts API (barcode + search fallback)
-               ├── Apple HealthKit (steps, iOS only)
+               ├── Apple HealthKit (read: steps/weight/sleep · write: weight; iOS only)
                ├── Local notifications (on-device, no push backend)
                └── Sentry (crashes only, opt-in via SENTRY_DSN)
 ```
@@ -250,6 +252,45 @@ The Supabase project is fully versioned in `supabase/`:
 To work against your own project, apply the migrations with the Supabase CLI
 and deploy the Edge Functions. Each function requires its own provider API key
 configured as a function secret — keys are never stored in the repo.
+
+### Product-search key rotation
+
+The Meilisearch search-only key used by the product search is resolved at
+**runtime**, not baked into the binary. The client walks this chain:
+
+1. **Cache** — last key fetched, in SharedPreferences under
+   `eatova.v1.search_credentials` (12 h TTL). Deliberately *not* keyed per
+   user: it is device-global config, not PII, and sign-out must not throw a
+   working key away. Expired entries are still **used** (served immediately,
+   refreshed in the background) so a user offline for a week keeps searching.
+2. **Fetch** — the `search-key` edge function returns base URL + key together,
+   so relocating the mirror is a single secret update.
+3. **Compile-time default** — `--dart-define=OFF_MIRROR_URL` /
+   `OFF_MIRROR_SEARCH_KEY`. Covers a fresh install with no network.
+4. **Mirror off** — empty credentials, search goes straight to Open Food Facts.
+
+Search never hard-fails because the key endpoint is unreachable; the worst case
+is the Open Food Facts fallback.
+
+**To rotate the key:** create the new search-only key in Meilisearch, run
+`supabase secrets set EATOVA_MIRROR_SEARCH_KEY=<new key>`, then revoke the old
+one. Installed builds recover on their next search: the mirror answers the dead
+key with `403`, the client drops it from memory and disk, fetches the
+replacement and retries the same query once. No app update, no user action.
+
+Rotation is driven by the 403 path, not by the TTL — the TTL only exists to
+propagate a **base-URL** change, which surfaces as a connection error rather
+than a 403 and therefore cannot self-heal. Refetching after a rejection is
+single-flight with a 1-minute per-process cooldown, so a mirror returning 403
+for an unrelated reason cannot burn the 20/h user rate limit. A successful
+rotation logs once under the `search_credentials` log name.
+
+`--dart-define=OFF_MIRROR_URL=` (empty) is a **hard local kill switch**: that
+build never touches the mirror and no server setting can turn it back on. The
+server-side kill switch is `EATOVA_MIRROR_SEARCH_KEY=disabled`, which makes the
+function return empty credentials. A *missing* secret is a misconfiguration
+(HTTP 500), not a kill switch — clients then keep their working compile-time
+default instead of silently losing mirror search.
 
 ---
 

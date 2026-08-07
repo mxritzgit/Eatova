@@ -60,7 +60,7 @@
 	<key>NSHealthShareUsageDescription</key>
 	<string>Eatova liest deine Schritte, dein Gewicht und deine Schlafdaten aus Apple Health, damit Tagesziel und Logbuch automatisch aktuell bleiben.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Eatova schreibt optional dein eingetragenes Gewicht und abgeschlossene Workouts nach Apple Health zurück.</string>
+	<string>Eatova schreibt optional dein eingetragenes Gewicht nach Apple Health zurück.</string>
 	<!-- PROD-1 (flutter_local_notifications, on-device): Lokale Notifications
 	     brauchen KEINEN eigenen Usage-Description-Key — der iOS-Permission-
 	     Dialog ist systemgeneriert und wird ueber requestPermissions() (alert/

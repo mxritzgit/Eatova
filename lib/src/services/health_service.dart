@@ -44,7 +44,7 @@ abstract class HealthService {
   HealthAuthState get authState;
 
   /// Triggers the system permission prompt. Returns the resulting auth state.
-  /// Fragt READ (Steps/Weight/Sleep) UND WRITE (Weight/Workout) in einem Zug an,
+  /// Fragt READ (Steps/Weight/Sleep) UND WRITE (Weight) in einem Zug an,
   /// sodass der Write-Back-Pfad nach einem erfolgreichen Connect sofort nutzbar
   /// ist — kein zweiter Permission-Dialog spaeter.
   Future<HealthAuthState> requestAuthorization();

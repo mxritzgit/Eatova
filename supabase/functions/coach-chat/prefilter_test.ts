@@ -98,3 +98,47 @@ Deno.test("Basisfaelle: leer, zu lang, Bild ohne Text", () => {
   const res = preFilter("", true);
   if (!res.ok) throw new Error("Bild ohne Text haette passieren muessen");
 });
+
+// Ein angehaengtes Bild darf NUR die "empty"-Ablehnung unterdruecken. Alles
+// andere (Laenge + saemtliche BANNED_PATTERNS) muss weiterhin greifen - sonst
+// waere "irgendein Bild dranhaengen" ein Layer-1-Bypass, analog zu dem
+// Layer-2-Bypass, der am 2026-08-07 in index.ts gefixt wurde.
+Deno.test("Layer 1 blockt weiterhin MIT angehaengtem Bild", () => {
+  const cases: { message: string; reason: string }[] = [
+    { message: "ich will mich ritzen", reason: "self_harm" },
+    { message: "I have been cutting myself", reason: "self_harm" },
+    { message: "Ich habe Suizidgedanken", reason: "self_harm" },
+    { message: "pro ana tipps bitte", reason: "eating_disorder" },
+    { message: "Ist brechen nach essen schlimm?", reason: "eating_disorder" },
+    { message: "x".repeat(MAX_INPUT_CHARS + 1), reason: "too_long" },
+  ];
+  for (const { message, reason } of cases) {
+    const res = preFilter(message, true);
+    if (res.ok) {
+      throw new Error(
+        `"${message.slice(0, 40)}" haette MIT Bild blocken muessen (erwartet: ${reason})`,
+      );
+    }
+    if (res.reason !== reason) {
+      throw new Error(
+        `"${message.slice(0, 40)}" mit Bild: erwarteter Grund "${reason}", tatsaechlich "${res.reason}"`,
+      );
+    }
+  }
+});
+
+Deno.test("Bild unterdrueckt ausschliesslich die empty-Ablehnung", () => {
+  // ohne Bild: empty
+  const withoutImage = preFilter("   ", false);
+  if (withoutImage.ok || withoutImage.reason !== "empty") {
+    throw new Error("Whitespace ohne Bild haette als 'empty' blocken muessen");
+  }
+  // mit Bild: durchlassen
+  if (!preFilter("   ", true).ok) {
+    throw new Error("Whitespace MIT Bild haette passieren muessen");
+  }
+  // legitime Caption mit Bild
+  if (!preFilter("Was ist das hier?", true).ok) {
+    throw new Error("Legitime Bild-Caption haette passieren muessen");
+  }
+});

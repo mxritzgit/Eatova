@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/services/sync_outbox.dart'
+    show kOutboxMaxAttempts;
 
 // Pures Fehlertext-Mapping fuer Sync-/Profil-Fehler: Netzwerkfehler werden als
 // solche erkannt (-> ehrlicher Offline-Hinweis), alles andere bekommt eine
@@ -106,6 +108,123 @@ void main() {
       expect(msg, 'Das hat gerade nicht geklappt. Bitte versuch es später erneut.');
       expect(msg, isNot(contains('profiles')));
       expect(msg, isNot(contains('permission')));
+    });
+  });
+
+  group('classifyOutboxFailure (Retry vs. endgueltig verwerfen)', () {
+    // Achtung: PostgrestException hat KEIN statusCode-Feld. Der HTTP-Status
+    // landet nur dann in `code`, wenn der Antwort-Body selbst keinen `code`
+    // traegt — eine echte PostgREST-Fehlerantwort tut das aber immer. Eine
+    // Check-Constraint-Verletzung kommt also als SQLSTATE an, NIE als '400'.
+    PostgrestException pg(String code) =>
+        PostgrestException(message: 'irgendwas Technisches', code: code);
+
+    test('payload-determinierte Constraint-Fehler werden SOFORT verworfen',
+        () {
+      // 23514 check_violation — der reale Fall (z.B. kcal ausserhalb des
+      // erlaubten Bereichs). Dieselben Bytes werden nie akzeptiert.
+      expect(classifyOutboxFailure(pg('23514'), 0), OutboxVerdict.drop);
+      // 23502 not_null_violation.
+      expect(classifyOutboxFailure(pg('23502'), 0), OutboxVerdict.drop);
+      // Klasse 22 (data exception), hier numeric_value_out_of_range.
+      expect(classifyOutboxFailure(pg('22003'), 0), OutboxVerdict.drop);
+      expect(classifyOutboxFailure(pg('22P02'), 0), OutboxVerdict.drop);
+    });
+
+    test('23503 (Fremdschluessel) bleibt retrybar — waehrend einer Migration '
+        'bzw. eines Signup-Rennens ist das transient', () {
+      expect(classifyOutboxFailure(pg('23503'), 0), OutboxVerdict.retryCounted);
+    });
+
+    test('500 verbrennt Versuche und faellt erst am Budget-Rand raus', () {
+      expect(classifyOutboxFailure(pg('500'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 2),
+          OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 1),
+          OutboxVerdict.drop,
+          reason: 'dieser Versuch ist der letzte des Budgets');
+      expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts + 99),
+          OutboxVerdict.drop);
+    });
+
+    test('429/5xx sind retrybar, uebrige 4xx nicht', () {
+      expect(classifyOutboxFailure(pg('429'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('503'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('502'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('404'), 0), OutboxVerdict.drop);
+      expect(classifyOutboxFailure(pg('400'), 0), OutboxVerdict.drop);
+      expect(classifyOutboxFailure(pg('422'), 0), OutboxVerdict.drop);
+      // 401/403: fast immer ein abgelaufener Token, der Refresh heilt das.
+      expect(classifyOutboxFailure(pg('401'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('403'), 0), OutboxVerdict.retryCounted);
+    });
+
+    test('42501 (RLS) und PGRST301 (JWT abgelaufen) sind retrybar', () {
+      expect(classifyOutboxFailure(pg('42501'), 0), OutboxVerdict.retryCounted);
+      expect(
+          classifyOutboxFailure(pg('PGRST301'), 0), OutboxVerdict.retryCounted);
+      // Andere PGRST-Codes beschreiben eine strukturell kaputte Anfrage.
+      expect(classifyOutboxFailure(pg('PGRST204'), 0), OutboxVerdict.drop);
+      expect(classifyOutboxFailure(pg('PGRST100'), 0), OutboxVerdict.drop);
+    });
+
+    test('transiente SQLSTATE-Klassen bleiben liegen', () {
+      expect(classifyOutboxFailure(pg('08006'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('40001'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('53300'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('57P03'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('58030'), 0), OutboxVerdict.retryCounted);
+    });
+
+    test(
+        'JEDER Netzwerkfehler ist retryFree — auch bei absurd vielen '
+        'Versuchen (sonst wuerde ein Offline-Wochenende Daten vernichten)',
+        () {
+      final networkErrors = <Object>[
+        const SocketException('host lookup failed'),
+        const HttpException('connection closed'),
+        TimeoutException('timeout', const Duration(seconds: 8)),
+        http.ClientException('offline'),
+        AuthRetryableFetchException(),
+      ];
+      for (final error in networkErrors) {
+        expect(classifyOutboxFailure(error, 0), OutboxVerdict.retryFree,
+            reason: '$error');
+        expect(classifyOutboxFailure(error, 999), OutboxVerdict.retryFree,
+            reason: '$error darf das Budget nie verbrennen');
+      }
+    });
+
+    test('unbekannter Code / unbekannter Typ -> behalten (retryCounted)', () {
+      expect(classifyOutboxFailure(pg('99999'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg(''), 0), OutboxVerdict.retryCounted);
+      expect(
+          classifyOutboxFailure(
+              const PostgrestException(message: 'ohne code'), 0),
+          OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(StateError('bug'), 0),
+          OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(const FormatException('kaputt'), 0),
+          OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(const AuthException('invalid login'), 0),
+          OutboxVerdict.retryCounted);
+    });
+  });
+
+  group('outboxLossHint (endgueltiger Verlust)', () {
+    test('sagt es klar, leakt aber nichts Technisches', () {
+      expect(outboxLossHint, isNotEmpty);
+      for (final leak in const <String>[
+        '23514',
+        'logged_meals',
+        'check constraint',
+        'PostgrestException',
+        'PGRST',
+        'SQLSTATE',
+        'Sync (',
+      ]) {
+        expect(outboxLossHint, isNot(contains(leak)));
+      }
     });
   });
 }

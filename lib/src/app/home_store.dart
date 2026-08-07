@@ -20,6 +20,7 @@ import '../services/local_day.dart';
 import '../services/meal_totals.dart' as totals;
 import '../services/meals_sync.dart' show MealsSync;
 import '../services/notification_service.dart';
+import '../services/search_credentials.dart';
 import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
@@ -226,6 +227,11 @@ class HomeStore extends _HomeStoreBase
       if (!_profileReadyCompleter.isCompleted) _profileReadyCompleter.complete();
       return;
     }
+    // Such-Credentials im Hintergrund warmlaufen lassen: Platte lesen, bei
+    // Bedarf frisch holen. Wirft nie und blockiert den Boot nicht. Bewusst
+    // NACH dem sync-Guard, damit Test/Preview weder SharedPreferences noch
+    // Supabase anfassen.
+    unawaited(SearchCredentialsStore.instance.warmUp());
     unawaited(_hydrateThenBoot());
   }
 
@@ -285,7 +291,24 @@ class HomeStore extends _HomeStoreBase
     if (_disposed) return;
     // Outbox + Stats-Deltas IMMER uebernehmen — das ist der kill-sichere Teil
     // des Sync-Zustands, unabhaengig davon, ob sonst etwas gecacht war.
-    if (cachedOutbox != null) _outbox = cachedOutbox;
+    if (cachedOutbox != null) {
+      // Zweiter, am Einreihen vorbeifuehrender Eingang: eine Queue, die ein
+      // aelterer (ungedeckelter) Build hat wachsen lassen, kommt hier
+      // ungeprueft zurueck. Der Cap MUSS deshalb auch hier laufen — sonst
+      // bliebe der Blob fuer immer ueber der Grenze.
+      final capped = capOutbox(cachedOutbox);
+      _outbox = capped.queue;
+      if (capped.dropped.isNotEmpty) {
+        dev.log(
+            'Outbox-Hydration: ${capped.dropped.length} aelteste Op(s) '
+            'verworfen (Queue > $kOutboxMaxOps)',
+            name: 'eatova_sync');
+        CrashReporter.breadcrumb(
+            'outbox-hydrate-cap: ${capped.dropped.length} ops dropped');
+        _persistOutbox();
+        _notifyOutboxLoss();
+      }
+    }
     if (cachedDeltas != null) {
       _pendingMealsDelta += cachedDeltas.meals;
       _pendingWeightLogsDelta += cachedDeltas.weightLogs;

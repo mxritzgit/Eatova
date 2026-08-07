@@ -99,6 +99,19 @@ dependencies:
   # zur Laufzeit aus PackageInfo liest statt sie hart zu kodieren (die
   # hartkodierten "1.0.0"/"1" liefen beim Version-Bump sofort auseinander).
   package_info_plus: ^9.0.1
+  # SEC-1 Cache-Verschluesselung (siehe secure_cache_store.dart): haelt NUR den
+  # 32-Byte-DEK im OS-Keystore (Android Keystore / iOS Keychain). Die
+  # eigentlichen JSON-Blobs bleiben in SharedPreferences, AES-256-GCM-
+  # verschluesselt mit diesem DEK — Envelope-Verschluesselung.
+  # Bewusst 10.x und NICHT 11.x: 11.0.0 ist erst wenige Tage alt, die 10er-
+  # Linie ist die abgehangene. 10.x verlangt Android minSdk 23; das Projekt
+  # steht auf 26 (android/app/build.gradle.kts), passt also ohne Anhebung.
+  flutter_secure_storage: ^10.3.1
+  # Liegt bereits transitiv im Lockfile (4.0.0, ueber die Supabase-/Sentry-
+  # Kette) — hier wie schon bei package_info_plus als DIREKTE Dependency
+  # deklariert, weil secure_cache_store.dart GCMBlockCipher(AESEngine())
+  # direkt benutzt. Zieht KEIN zusaetzliches Paket nach.
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:

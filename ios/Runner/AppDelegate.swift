@@ -3,6 +3,7 @@ import Flutter
 import Speech
 import UIKit
 import UserNotifications
+import os.log
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -50,6 +51,10 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private var isFinishing = false
   private var tapInstalled = false
 
+  /// Diagnose-Log fuer den Erkennungs-Modus. Bewusst nur ein Bool + Locale-ID
+  /// (%{public}@) - kein Audio, kein Transkript, keine PII.
+  private static let speechLog = OSLog(subsystem: "com.eatova.app", category: "speech")
+
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(
       name: "eatova/speech",
@@ -69,7 +74,11 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       stop()
       result(nil)
     case "available":
-      let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "de_DE"))
+      // Gleiche Locale-Logik wie bei "listen": der Aufrufer darf die Sprache
+      // mitgeben, ohne Argument bleibt es beim bisherigen Default de_DE.
+      let args = call.arguments as? [String: Any]
+      let localeId = args?["localeId"] as? String ?? "de_DE"
+      let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeId))
       result(recognizer?.isAvailable ?? false)
     default:
       result(FlutterMethodNotImplemented)
@@ -142,6 +151,23 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
 
       let request = SFSpeechAudioBufferRecognitionRequest()
       request.shouldReportPartialResults = true
+      // Datenschutz: Wenn Apple fuer GENAU DIESE Locale ein On-Device-Modell
+      // bereithaelt, bleibt das Audio komplett auf dem Geraet: keine
+      // Drittlandsuebermittlung an Apple-Server. Ist das Modell nicht da
+      // (Locale ohne On-Device-Support, Asset noch nicht geladen, Simulator,
+      // aeltere Hardware), bleibt der Default `false` und die Erkennung laeuft
+      // wie bisher server-seitig. NIE hart failen: Fallback ist der Alt-Zustand.
+      // `supportsOnDeviceRecognition` ist eine INSTANZ-Property und wird
+      // bewusst erst hier gelesen, also nach dem isAvailable-Guard oben.
+      let usesOnDevice = recognizer.supportsOnDeviceRecognition
+      request.requiresOnDeviceRecognition = usesOnDevice
+      os_log(
+        "recognition mode=%{public}@ locale=%{public}@",
+        log: Self.speechLog,
+        type: .info,
+        usesOnDevice ? "on-device" : "server",
+        localeId
+      )
       recognitionRequest = request
 
       let inputNode = audioEngine.inputNode

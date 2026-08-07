@@ -18,7 +18,8 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
-        tools:replace="android:allowBackup">
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        tools:replace="android:allowBackup,android:dataExtractionRules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

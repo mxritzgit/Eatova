@@ -15,6 +15,8 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meals_sync.dart' show mealResultToJson;
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/services/sync_error_messages.dart'
+    show outboxLossHint;
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/theme/app_colors.dart';
 
@@ -38,6 +40,10 @@ import 'package:eatova/src/theme/app_colors.dart';
 //   8. Server-Fehler (500/Constraint — KEIN Netzfehler) queuen genauso, zeigen
 //      aber die neutrale Retry-Meldung statt "Offline" und leaken nie
 //      Roh-Fehlertext (Schema-Details) in die UI.
+//   9. Gift-Ops (Check-Constraint) werden beim ersten Replay verworfen statt
+//      ewig retryt; 500er verbrennen nur Budget; Netzfehler kosten NICHTS;
+//      attempts ueberleben den App-Neustart.
+//  10. Die Queue ist gedeckelt — beim Einreihen UND beim Hydrieren.
 
 /// Zustandsbehafteter Fake-PostgREST: zeichnet Requests auf, fuehrt Upserts/
 /// Deletes auf In-Memory-Tabellen aus und laesst sich offline schalten.
@@ -49,8 +55,16 @@ class _FakeServer {
   /// Nur increment_lifetime_stats faellt aus (Stats-Delta-Szenarien).
   bool statsOffline = false;
 
-  /// Nur logged_meals-Writes fallen aus (Poison-Entity-Szenario).
+  /// Nur logged_meals-Writes fallen aus (Poison-Entity-Szenario) — als 500,
+  /// also ein RETRYBARER Fehler.
   bool rejectMealWrites = false;
+
+  /// logged_meals-Writes werden dauerhaft und aussichtslos abgelehnt:
+  /// Check-Constraint-Verletzung. Realistische Wire-Form — HTTP 400, aber im
+  /// Body steht der SQLSTATE, und GENAU DER landet in
+  /// `PostgrestException.code` (der Status ist dort NICHT sichtbar, weil
+  /// `fromJson` `json['code'] ?? '$statusCode'` macht).
+  bool poisonMealWrites = false;
 
   /// Unklarer Ausgang: der Write wird serverseitig ANGEWENDET, die Antwort
   /// ist aber ein 500 (Timeout-Simulation) — der Klassiker, der frueher
@@ -79,6 +93,22 @@ class _FakeServer {
     http.Response fail() => http.Response(
         jsonEncode({'message': 'kaputt'}), 500,
         headers: const {'Content-Type': 'application/json'}, request: req);
+    // Check-Constraint: der Body traegt den SQLSTATE, deshalb ist
+    // PostgrestException.code hinterher '23514' und NICHT '400'.
+    // (Body bewusst rein ASCII — http.Response kodiert den String nach der
+    // Charset-Angabe des Content-Type, Default latin1, und wirft sonst
+    // ArgumentError statt die Antwort zu liefern.)
+    http.Response poison() => http.Response(
+        jsonEncode({
+          'code': '23514',
+          'message': 'new row for relation "logged_meals" violates check '
+              'constraint "logged_meals_calories_kcal_check"',
+          'details': 'Failing row contains (...).',
+          'hint': null,
+        }),
+        400,
+        headers: const {'Content-Type': 'application/json'},
+        request: req);
 
     if (path.contains('/rpc/increment_lifetime_stats')) {
       if (statsOffline) return fail();
@@ -91,6 +121,7 @@ class _FakeServer {
       return ok(_statsRow());
     }
     if (path.contains('/logged_meals')) {
+      if (poisonMealWrites && req.method != 'GET') return poison();
       if (req.method == 'POST') {
         if (rejectMealWrites) return fail();
         for (final row in _rowsOf(req.body)) {
@@ -592,4 +623,203 @@ void main() {
     final loggedAt = DateTime.parse(row['logged_at'] as String).toLocal();
     expect(DateUtils.isSameDay(loggedAt, yesterday), isTrue);
   });
+
+  // --- Gift-Ops, Versuchs-Budget, Queue-Cap ---------------------------------
+
+  test(
+      'Gift-Op (Check-Constraint 23514) wird beim ERSTEN Replay verworfen, '
+      'verschwindet aus der persistierten Queue und meldet sich GENAU EINMAL',
+      () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.poisonMealWrites = true;
+
+    final id = s.store.addResultToDailyTotal(_result('Kaputt-Bowl'));
+    await _settle();
+
+    // Der Live-Write klassifiziert nicht — die Op landet erstmal in der Queue.
+    expect(s.store.pendingOutbox.map((o) => o.entityKey),
+        contains('meal:$id'));
+
+    s.store.flushPendingWrites();
+    await _settle();
+
+    // EIN Replay reicht: die Op ist weg, aus dem Speicher UND vom Blob.
+    expect(s.store.pendingOutbox.where((o) => o.entityKey == 'meal:$id'),
+        isEmpty);
+    final persisted = await s.cache.readOutbox();
+    expect(persisted!.where((o) => o.entityKey == 'meal:$id'), isEmpty);
+
+    // Genau EIN Verlust-Hinweis, auch nach weiteren Flush-Runden.
+    s.store.flushPendingWrites();
+    await _settle();
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+
+    // Schema-Leakage-Guard: kein Snack traegt SQLSTATE, Tabellen-/
+    // Constraint-Namen oder Exception-Typen.
+    for (final m in s.snacks.messages) {
+      expect(m, isNot(contains('23514')));
+      expect(m, isNot(contains('logged_meals')));
+      expect(m, isNot(contains('check constraint')));
+      expect(m, isNot(contains('PostgrestException')));
+    }
+  });
+
+  test(
+      '500 verbrennt Versuche, wird aber NICHT vorzeitig verworfen — '
+      'Erholung vor dem Budget-Ende synchronisiert normal', () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.rejectMealWrites = true;
+
+    final id = s.store.addResultToDailyTotal(_result('Flaky-Bowl'));
+    await _settle();
+    expect(
+        s.store.pendingOutbox
+            .singleWhere((o) => o.entityKey == 'meal:$id')
+            .attempts,
+        0,
+        reason: 'der Live-Versuch zaehlt nicht, erst der Replay');
+
+    for (var i = 0; i < 3; i++) {
+      s.store.flushPendingWrites();
+      await _settle();
+    }
+
+    final op =
+        s.store.pendingOutbox.singleWhere((o) => o.entityKey == 'meal:$id');
+    expect(op.attempts, 3);
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty,
+        reason: 'ein 500 ist kein Grund, Nutzerdaten wegzuwerfen');
+
+    // Server erholt sich rechtzeitig -> ganz normaler Sync.
+    s.server.rejectMealWrites = false;
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.store.pendingOutbox, isEmpty);
+    expect(s.server.mealRows.keys, contains(id));
+  });
+
+  test(
+      'Netzwerkfehler verbrennen NIE Versuche: 3x das ganze Budget offline '
+      'durchspielen laesst die Op unangetastet', () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.offline = true;
+
+    final id = s.store.addResultToDailyTotal(_result('Offline-Bowl'));
+    await _settle();
+
+    for (var i = 0; i < kOutboxMaxAttempts * 3; i++) {
+      s.store.flushPendingWrites();
+      await _settle();
+    }
+
+    final op =
+        s.store.pendingOutbox.singleWhere((o) => o.entityKey == 'meal:$id');
+    expect(op.attempts, 0,
+        reason: 'ein Offline-Wochenende darf kein Budget kosten');
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty);
+
+    // Wieder online -> die Mahlzeit ist vollstaendig da.
+    s.server.offline = false;
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.store.pendingOutbox, isEmpty);
+    expect(s.server.mealRows.keys, contains(id));
+  });
+
+  test('attempts ueberleben den App-Neustart (sonst waere Gift unsterblich)',
+      () async {
+    final kv = InMemoryKeyValueStore();
+
+    // Session 1: zwei Replays gegen einen 500er -> Zaehler steht auf 2.
+    final a = _setup(kv: kv);
+    await _boot(a.store);
+    a.server.rejectMealWrites = true;
+    final id = a.store.addResultToDailyTotal(_result('Zaeh-Bowl'));
+    await _settle();
+    for (var i = 0; i < 2; i++) {
+      a.store.flushPendingWrites();
+      await _settle();
+    }
+    expect(
+        a.store.pendingOutbox
+            .singleWhere((o) => o.entityKey == 'meal:$id')
+            .attempts,
+        2);
+    expect(
+        (await a.cache.readOutbox())!
+            .singleWhere((o) => o.entityKey == 'meal:$id')
+            .attempts,
+        2,
+        reason: 'der Zaehler muss PERSISTIERT sein');
+
+    // Session 2 (Neustart, Server weiter kaputt): der Boot-Replay zaehlt
+    // WEITER statt bei 0 zu beginnen — ein Crash-Loop macht Gift sonst
+    // unsterblich.
+    final b = _setup(kv: kv);
+    b.server.rejectMealWrites = true;
+    await _boot(b.store);
+
+    expect(
+        b.store.pendingOutbox
+            .singleWhere((o) => o.entityKey == 'meal:$id')
+            .attempts,
+        3);
+  });
+
+  test(
+      'Queue-Cap: eine Offline-Flut sprengt die persistierte Outbox nicht — '
+      'das Neueste bleibt, das Aelteste faellt raus', () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.offline = true;
+
+    final ids = <String>[];
+    for (var i = 0; i < kOutboxMaxOps + 5; i++) {
+      ids.add(s.store.addResultToDailyTotal(_result('Bowl')));
+    }
+    await pumpEventQueue(times: 200);
+
+    expect(s.store.pendingOutbox.length, lessThanOrEqualTo(kOutboxMaxOps));
+    final keys = s.store.pendingOutbox.map((o) => o.entityKey).toSet();
+    expect(keys, contains('meal:${ids.last}'),
+        reason: 'worauf der User gerade schaut, bleibt');
+    expect(keys, isNot(contains('meal:${ids.first}')),
+        reason: 'die aelteste Op ist die wahrscheinlichste Leiche');
+
+    final persisted = await s.cache.readOutbox();
+    expect(persisted!.length, lessThanOrEqualTo(kOutboxMaxOps));
+
+    // Der Verlust wird gemeldet — aber nur EINMAL, nicht 5x.
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+  }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test(
+      'Hydrations-Cap: eine von einem alten, ungedeckelten Build gewachsene '
+      'Queue wird beim Boot gekappt', () async {
+    final kv = InMemoryKeyValueStore();
+    // Direkt in den Cache schreiben — dieser Pfad laeuft NIE durch das
+    // Einreihen, der Cap muss hier trotzdem greifen.
+    final seed = LocalCache(kv, 'user-outbox');
+    await seed.writeOutbox(<SyncOp>[
+      for (var i = 0; i < kOutboxMaxOps + 100; i++)
+        SyncOp.mealDelete('legacy-$i'),
+    ]);
+
+    final s = _setup(kv: kv);
+    // Offline, damit der Boot-Replay die Queue nicht einfach leerraeumt und
+    // der Test dadurch vakuum-gruen wird.
+    s.server.offline = true;
+    await _boot(s.store);
+
+    expect(s.store.pendingOutbox, hasLength(kOutboxMaxOps));
+    expect(s.store.pendingOutbox.map((o) => o.entityId),
+        isNot(contains('legacy-0')));
+    expect(s.store.pendingOutbox.last.entityId,
+        'legacy-${kOutboxMaxOps + 99}');
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }

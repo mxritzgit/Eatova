@@ -23,21 +23,23 @@ You enter and the app stores the following, tied to your account:
   water, sleep).
 - **Nutrition log:** meals you log (name, calories, macros, portion, barcode/brand
   where applicable), favorites, and your own recipes.
-- **Health & wellness log:** weight history, sleep entries, caffeine intake, mood,
-  habits, water and step counts, and your completed workout days / streak.
+- **Health & wellness log:** weight history, sleep entries, caffeine intake,
+  water and step counts, and your logging streak (the run of consecutive days on
+  which you logged a meal).
 - **Coach chat:** the messages you send to the in-app AI coach and its replies.
   You may optionally attach a photo to a coach message (for example a meal or a
   progress picture); it is sent to the AI provider only to generate that reply and
   is not stored afterwards. So the coach can give specific rather than generic
   advice, each coach message is automatically accompanied by a short snapshot of
   your current targets and progress — your body weight and goal weight, today's
-  calorie balance and remaining macros, and your workout streak.
+  calorie balance and remaining macros, and a short list of the meals you logged
+  today (meal slot, name and calories, truncated to fit a fixed length limit).
 - **Apple Health (optional, iOS only):** if you grant permission, the app reads
   your step count, body-weight history, and sleep duration from Apple Health to
   fill in and keep your targets and logs current. With the same permission it
-  also writes back to Apple Health: a body-weight entry when you record a weigh-in,
-  and a workout entry when you complete a training session. It reads and writes
-  only these categories and accesses no other Apple Health data.
+  also writes back to Apple Health: a body-weight entry when you record a
+  weigh-in. It reads and writes only these categories and accesses no other
+  Apple Health data.
 - **Voice input (optional, iOS only):** if you use the coach's microphone button,
   audio is captured only while the microphone is active (tap to start, tap again
   to stop) and is converted to text by Apple's speech recognition. Only the resulting text is sent to the coach — the
@@ -61,8 +63,11 @@ contains no third-party analytics or ad SDKs.
 - **OpenFoodFacts** is queried for public product/nutrition data when you
   search or scan a barcode. Your identity is not sent with these queries.
 - **Apple Speech Recognition** converts your spoken coach questions to text if you
-  use voice input. To do so Apple may process the audio on its servers; see Apple's
-  privacy policy. Only the resulting transcript reaches our systems, never the audio.
+  use voice input. The app requests on-device recognition, so on devices where Apple
+  provides an offline model for your language the audio never leaves your phone.
+  Where no on-device model is available, Apple processes the audio on its servers
+  instead; see Apple's privacy policy. In either case only the resulting transcript
+  reaches our systems, never the audio.
 
 API keys for these services live only on our server, never in the app.
 
