@@ -6,7 +6,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/screens/recipes_screen.dart';
+import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 
 // PROD-6: Diät-/Präferenz-Personalisierung. Ein vegetarisches/veganes Profil
 // darf NIE ein fleisch-/fischhaltiges Rezept aktiv empfohlen bekommen

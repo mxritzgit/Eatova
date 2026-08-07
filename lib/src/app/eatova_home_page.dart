@@ -16,7 +16,7 @@ import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
-import '../screens/recipes_screen.dart';
+import '../screens/recipes/recipes_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_shell/eatova_bottom_nav.dart';
 import '../widgets/auth/welcome_screen.dart';
