@@ -117,6 +117,13 @@ class _BootErrorApp extends StatelessWidget {
 
   final Object error;
 
+  /// Debug/Profile: roher Fehlertext + dart-define-Hinweis (Entwickler-Gold).
+  /// Release: generische Meldung — '$error' kann interne URLs oder
+  /// Stacktrace-Fragmente enthalten, das gehoert nicht auf Nutzer-Screens.
+  /// Der Fehler selbst ist zu diesem Zeitpunkt bereits via
+  /// CrashReporter.capture(context: 'boot') gemeldet.
+  static const bool showDetails = !kReleaseMode;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -145,17 +152,25 @@ class _BootErrorApp extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                SelectableText(
-                  '$error',
-                  style: const TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Build braucht SUPABASE_URL + SUPABASE_ANON_KEY via\n'
-                  '--dart-define-from-file=dart_defines.json.\n'
-                  'Vorlage: dart_defines.example.json, Details: README.md.',
-                  style: TextStyle(color: Colors.white54, fontSize: 13),
-                ),
+                if (showDetails) ...[
+                  SelectableText(
+                    '$error',
+                    style: const TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Build braucht SUPABASE_URL + SUPABASE_ANON_KEY via\n'
+                    '--dart-define-from-file=dart_defines.json.\n'
+                    'Vorlage: dart_defines.example.json, Details: README.md.',
+                    style: TextStyle(color: Colors.white54, fontSize: 13),
+                  ),
+                ] else
+                  const Text(
+                    'Beim Start ist ein Fehler aufgetreten. Bitte starte die '
+                    'App neu.\nWenn das Problem bleibt, erreichst du uns unter '
+                    'support@eatova.de.',
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
               ],
             ),
           ),
