@@ -1,0 +1,34 @@
+{
+  "code": "4008400290117",
+  "errors": [],
+  "product": {
+    "brands": "Ferrero",
+    "code": "4008400290117",
+    "generic_name": "Milchschnitte",
+    "nutriments": {
+      "carbohydrates_100g": 42.8,
+      "energy": 1611,
+      "energy-kj": 1611,
+      "energy-kj_100g": 1611,
+      "energy-kj_unit": "kJ",
+      "energy_100g": 1611,
+      "energy_unit": "kJ",
+      "fat_100g": 20.8,
+      "proteins_100g": 6.6,
+      "salt_100g": 0.24,
+      "sugars_100g": 32.1
+    },
+    "nutrition_data_per": "100g",
+    "product_name": "Kinder Riegel",
+    "quantity": "21 g",
+    "serving_quantity": 21,
+    "serving_size": "21 g"
+  },
+  "result": {
+    "id": "product_found",
+    "lc_name": "Produkt gefunden",
+    "name": "Product found"
+  },
+  "status": "success",
+  "warnings": []
+}

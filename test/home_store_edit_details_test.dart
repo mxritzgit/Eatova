@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -188,5 +189,51 @@ void main() {
     expect(s.store.updateLoggedMealDetails('gibt-es-nicht',
         slot: MealSlot.snack), isNull);
     expect(s.store.dailyConsumedKcal, 300);
+  });
+
+  // B5: _moveDayLabel rechnete den Abstand zum Zieltag mit
+  // `today.difference(target).inDays` — Absolutzeit. Ueber die
+  // Fruehjahrsumstellung (Europe/Berlin, Sonntag 29.03.2026, 23 Stunden)
+  // misst das 23h und meldet 0 Tage: die Bestaetigung behauptete „auf heute
+  // verschoben", waehrend die Mahlzeit auf gestern liegt.
+  //
+  // Der Test nagelt die Uhr per withClock fest (der Store liest sie ueber
+  // clock.now()). Auf einer UTC-Maschine gibt es den 23-Stunden-Tag nicht, dort
+  // war der Altcode zufaellig richtig — die Assertions sind aber in JEDER Zone
+  // die korrekte Erwartung und halten die Regression fest.
+  group('B5 — Verschiebe-Label ueber die Fruehjahrsumstellung 29.03.2026', () {
+    test('vom 30.03. auf den 29.03. meldet „gestern", nicht „heute"', () {
+      withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () {
+        final s = _setup();
+        final id = s.store.addResultToDailyTotal(_meal('Bowl'));
+
+        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 29));
+
+        expect(s.snacks.messages.last, 'Mahlzeit auf gestern verschoben.');
+      });
+    });
+
+    test('vom 30.03. auf den 28.03. meldet das Datum, nicht „gestern"', () {
+      withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () {
+        final s = _setup();
+        final id = s.store.addResultToDailyTotal(_meal('Bowl'));
+
+        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 28));
+
+        expect(s.snacks.messages.last, 'Mahlzeit auf den 28.3. verschoben.');
+      });
+    });
+
+    test('auf den laufenden Tag selbst meldet weiterhin „heute"', () {
+      withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () {
+        final s = _setup();
+        final id = s.store.addResultToDailyTotal(_meal('Bowl'),
+            foodDate: DateTime(2026, 3, 28));
+
+        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
+
+        expect(s.snacks.messages.last, 'Mahlzeit auf heute verschoben.');
+      });
+    });
   });
 }

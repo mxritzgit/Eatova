@@ -1,0 +1,28 @@
+{
+  "code": "0000000000000",
+  "errors": [
+    {
+      "field": {
+        "id": "code",
+        "value": "0000000000000"
+      },
+      "impact": {
+        "id": "failure",
+        "lc_name": "Fehler",
+        "name": "Failure"
+      },
+      "message": {
+        "id": "product_does_not_exist",
+        "lc_name": "Das Produkt existiert nicht.",
+        "name": "Product does not exist."
+      }
+    }
+  ],
+  "result": {
+    "id": "product_not_found",
+    "lc_name": "Produkt nicht gefunden",
+    "name": "Product not found"
+  },
+  "status": "failure",
+  "warnings": []
+}

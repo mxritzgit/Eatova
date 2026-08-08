@@ -1,0 +1,30 @@
+{
+  "code": "4260049370019",
+  "errors": [],
+  "product": {
+    "brands": "Rapunzel",
+    "code": "4260049370019",
+    "generic_name": "Haferflocken zart",
+    "nutriments": {
+      "carbohydrates_100g": 58.7,
+      "energy-kcal": 372,
+      "energy-kcal_unit": "kcal",
+      "energy-kcal_value": 372,
+      "fat_100g": 7.0,
+      "proteins_100g": 13.5,
+      "salt_100g": 0.02
+    },
+    "nutrition_data_per": "100g",
+    "product_name": "Haferflocken",
+    "quantity": "500 g",
+    "serving_quantity": 50,
+    "serving_size": "50 g"
+  },
+  "result": {
+    "id": "product_found",
+    "lc_name": "Produkt gefunden",
+    "name": "Product found"
+  },
+  "status": "success",
+  "warnings": []
+}

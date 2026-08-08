@@ -1,4 +1,12 @@
-enum HealthAuthState { unknown, granted, denied, unsupported }
+/// Zustand der Health-Freigabe.
+///
+/// [unverified] ist der Zwischenzustand aus Review B3: HealthKit hat das
+/// Berechtigungs-Sheet fehlerfrei angezeigt (Apples `success == true`), aber
+/// nichts belegt, dass wirklich Daten fliessen. Auf iOS ist das der Normalfall,
+/// wenn der Nutzer im Sheet keinen Schalter umgelegt hat — er darf NICHT als
+/// [granted] durchgehen, sonst zeigt die App „Synchronisiert" und rechnet
+/// dauerhaft mit 0 Schritten.
+enum HealthAuthState { unknown, granted, unverified, denied, unsupported }
 
 /// Ein einzelnes Gewichts-Sample aus dem Health-Store (Apple Health). Wird fuer
 /// den (spaeteren) Import-Pfad gebraucht: beim Connect koennen wir das letzte
@@ -43,6 +51,21 @@ class HealthSnapshot {
 abstract class HealthService {
   HealthAuthState get authState;
 
+  /// Trennt die Health-Verbindung prozesslokal (Logout, Kontoloeschung).
+  ///
+  /// Der Health-Zustand kennt keinen User: er lebt im Service-Objekt, nicht im
+  /// namensraumgetrennten Cache. Ohne diesen Aufruf zeigt Nutzer B auf einem
+  /// geteilten Geraet weiter As „Apple Health · Synchronisiert" — dieselbe
+  /// Fehlerklasse wie D9 bei den geplanten Benachrichtigungen.
+  ///
+  /// Muss ALLE ueberlebenden Zustaende raeumen. In `AppleHealthService` sind
+  /// das zwei: der `HealthAuthVerifier` und das gecachte `_authState`. Ein
+  /// reiner Verifier-Reset bliebe unsichtbar, weil `refreshHealthSteps`
+  /// `health.authState` liest.
+  ///
+  /// Synchron und wurffrei — der Logout-Pfad darf daran nicht haengenbleiben.
+  void reset();
+
   /// Triggers the system permission prompt. Returns the resulting auth state.
   /// Fragt READ (Steps/Weight/Sleep) UND WRITE (Weight) in einem Zug an,
   /// sodass der Write-Back-Pfad nach einem erfolgreichen Connect sofort nutzbar
@@ -75,6 +98,9 @@ class NoopHealthService implements HealthService {
 
   @override
   HealthAuthState get authState => HealthAuthState.unsupported;
+
+  @override
+  void reset() {}
 
   @override
   Future<HealthAuthState> requestAuthorization() async =>

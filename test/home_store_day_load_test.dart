@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -436,5 +437,55 @@ void main() {
     await _settle();
     expect(b.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1']);
     expect(b.store.loggedMeals.where((m) => m.id == 'old-1'), hasLength(1));
+  });
+
+  // B5 (2026-08-08): _isOutsideBootWindow rechnete die Fenstergrenze mit
+  // `dateOnly(now).difference(dateOnly(day)).inDays` — Absolutzeit. Ueber die
+  // Fruehjahrsumstellung (Europe/Berlin, Sonntag 29.03.2026, 23 Stunden) fehlt
+  // in jedem Zeitraum, der sie enthaelt, eine Stunde: der Randtag des
+  // 35-Tage-Fensters zaehlt nur als 34 und gilt faelschlich als „im Fenster"
+  // geladen. Er wurde deshalb NIE nachgeladen und blieb dauerhaft leer, obwohl
+  // der Boot-Query (Zeitstempel-Cutoff) ihn hoechstens partiell mitbringt.
+  //
+  // Nachgerechnet auf dieser Maschine (Europe/Berlin):
+  //   DateTime(2026,4,20).difference(DateTime(2026,3,16)).inDays == 34
+  group('B5 — Fenstergrenze ueber die Fruehjahrsumstellung', () {
+    test(
+        'der Randtag (35 Kalendertage zurueck) wird nachgeladen, auch wenn '
+        'die Umstellung dazwischen liegt', () async {
+      final s = _setup();
+      await _boot(s.store);
+      expect(s.server.dayReads, isEmpty);
+
+      await withClock(Clock.fixed(DateTime(2026, 4, 20, 10)), () async {
+        s.store.setFoodDate(DateTime(2026, 3, 16));
+        await _settle();
+      });
+
+      expect(s.server.dayReads, hasLength(1),
+          reason: 'der Randtag muss on-demand nachgeladen werden');
+      final bounds =
+          s.server.dayReads.single.url.queryParametersAll['logged_at']!;
+      final gte = DateTime.parse(
+          bounds.singleWhere((f) => f.startsWith('gte.')).substring(4));
+      final lt = DateTime.parse(
+          bounds.singleWhere((f) => f.startsWith('lt.')).substring(3));
+      expect(gte, DateTime(2026, 3, 16).toUtc());
+      expect(lt, DateTime(2026, 3, 17).toUtc());
+    });
+
+    test('ein Tag INNERHALB des Fensters loest weiterhin keinen Load aus',
+        () async {
+      final s = _setup();
+      await _boot(s.store);
+
+      await withClock(Clock.fixed(DateTime(2026, 4, 20, 10)), () async {
+        // 34 Kalendertage zurueck — der Boot-Query deckt ihn ab.
+        s.store.setFoodDate(DateTime(2026, 3, 17));
+        await _settle();
+      });
+
+      expect(s.server.dayReads, isEmpty);
+    });
   });
 }

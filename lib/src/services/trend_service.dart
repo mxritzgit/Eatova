@@ -2,6 +2,7 @@ import 'dart:developer' as dev;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'day_math.dart';
 import 'local_day.dart';
 
 /// Laedt Tagesaggregate (kcal + Makros) fuer die Trend-Ansicht direkt aus
@@ -41,6 +42,13 @@ class TrendService {
   /// faengt sie und zeigt einen Retry-Zustand.
   Future<List<TrendDayTotals>> loadDailyTotals() async {
     try {
+      // B5: Hier steht bewusst Absolutzeit, KEINE Kalenderarithmetik. Der
+      // Cutoff ist eine grosszuegige Server-Grenze auf `logged_at` (einem
+      // Instant), kein Kalendertag — 90x24h ist genau die gemeinte Semantik,
+      // und ein um eine DST-Stunde verschobener Rand aendert nichts am
+      // Ergebnis, weil das Fenster ohnehin weiter reicht als jede UI-Ansicht
+      // (laengster Zeitraum: 90 Tage). Tagesgrenzen entstehen erst
+      // clientseitig in aggregateDailyTotals/denseTrendWindow.
       final cutoffIso = DateTime.now()
           .toUtc()
           .subtract(const Duration(days: trendWindowDays))
@@ -128,7 +136,10 @@ List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
     if (day == null) continue; // defensiv: kaputter Tages-Schluessel
     totals.add(
       TrendDayTotals(
-        day: DateTime(day.year, day.month, day.day),
+        // startOfDay statt DateTime(y, m, d): identischer Wert, aber es ist
+        // dieselbe Kalender-Normalisierung, die day_math.dart ueberall sonst
+        // im Projekt liefert (B5).
+        day: startOfDay(day),
         kcal: entry.value.kcal,
         proteinG: entry.value.p,
         carbsG: entry.value.c,
@@ -143,6 +154,11 @@ List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
 /// Dichtes Fenster der letzten [days] Kalendertage (aeltester zuerst, letzter
 /// Eintrag = [today]): pro Tag entweder die Tagessumme oder `null` fuer
 /// Luecken-Tage ohne Logs. Tage ausserhalb des Fensters werden verworfen.
+///
+/// Dass der LETZTE Eintrag [today] ist, ist eine zugesicherte Eigenschaft —
+/// [completedDaysOf] verlaesst sich darauf.
+///
+/// Ein [days] von 0 oder weniger liefert ein leeres Fenster (statt zu werfen).
 List<TrendDayTotals?> denseTrendWindow(
   List<TrendDayTotals> totals, {
   required DateTime today,
@@ -151,13 +167,55 @@ List<TrendDayTotals?> denseTrendWindow(
   final byKey = <String, TrendDayTotals>{
     for (final t in totals) localDayKey(t.day): t,
   };
-  return List<TrendDayTotals?>.generate(days, (i) {
-    // Kalender-Arithmetik statt Duration-Subtraktion: ueber eine DST-Kante
-    // hinweg wuerde `subtract(days: n)` auf 23:00 des Vortags rutschen und
-    // Tage doppeln/ueberspringen — der Day-Overflow im Konstruktor nicht.
-    final day = DateTime(today.year, today.month, today.day - (days - 1 - i));
-    return byKey[localDayKey(day)];
-  });
+  // B5: dayStrip rechnet in Kalendertagen (Day-Overflow im Konstruktor). Eine
+  // Duration-Subtraktion wuerde ueber eine DST-Kante hinweg auf 23:00 des
+  // Vortags rutschen und Tage doppeln/ueberspringen — nach der
+  // Fruehjahrsumstellung faellt sonst ein ganzer Tag aus dem Chart.
+  return [
+    for (final day in dayStrip(today: today, pastDays: days - 1))
+      byKey[localDayKey(day)],
+  ];
+}
+
+/// B6: Der Kennzahlen-Ausschnitt eines [denseTrendWindow] — alle Tage AUSSER
+/// dem laufenden (dem letzten Eintrag).
+///
+/// Warum: `averageKcalOf`/`goalHitsOf`/`averageMacrosOf` behandeln jeden Tag
+/// mit mindestens einem Eintrag als vollstaendig. Der laufende Tag ist das per
+/// Definition nicht. Wer morgens um 08:30 ein 350-kcal-Fruehstueck loggt und
+/// direkt auf Trends tippt, saehe sonst bei sechs perfekten Vortagen a 2200
+/// kcal einen Schnitt von (6 x 2200 + 350) / 7 = 1936 kcal „pro getracktem
+/// Tag" und eine Trefferquote von 6 von 7 Tagen — der Fehler ist am groessten
+/// genau dann, wenn der Nutzer am ehesten hinschaut.
+///
+/// **Der Preis:** Wer abends um 23:50 schaut, hat einen praktisch
+/// vollstaendigen Tag, der trotzdem nicht mitzaehlt. Das ist bewusst so: eine
+/// Uhrzeit-Heuristik („ab 20 Uhr zaehlt heute mit") waere willkuerlich, waere
+/// vom Essrhythmus des Nutzers abhaengig und liesse sich nicht sinnvoll
+/// testen. „Abgeschlossen heisst: der Tag ist vorbei" ist die einzige Regel,
+/// die ohne Annahmen ueber den Nutzer auskommt.
+///
+/// Das CHART bekommt weiterhin das volle [denseTrendWindow] — die Kurve soll
+/// den laufenden Tag zeigen, nur die Kennzahlen-Kacheln rechnen ohne ihn. Die
+/// Kacheln muessen das beschriften (`trends_screen.dart`).
+///
+/// Ein leeres Fenster bleibt leer; ein Fenster mit nur einem Tag (heute) wird
+/// leer — der Aufrufer bekommt dann `null` aus den Durchschnitten und
+/// `tracked == 0` aus [goalHitsOf] und muss daraus einen Leerzustand bauen,
+/// statt 0/0 zu rechnen.
+List<TrendDayTotals?> completedDaysOf(List<TrendDayTotals?> window) {
+  if (window.isEmpty) return const <TrendDayTotals?>[];
+  return window.sublist(0, window.length - 1);
+}
+
+/// Anzahl der Tage mit mindestens einem Eintrag (Luecken zaehlen nicht).
+/// Ein Tag mit 0 kcal ist getrackt — „nicht getrackt" ist kein 0-kcal-Tag.
+int trackedDaysOf(Iterable<TrendDayTotals?> window) {
+  var tracked = 0;
+  for (final day in window) {
+    if (day != null) tracked++;
+  }
+  return tracked;
 }
 
 /// Durchschnitts-kcal ueber die GETRACKTEN Tage des Fensters (Luecken-Tage

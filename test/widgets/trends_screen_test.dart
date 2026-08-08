@@ -78,9 +78,10 @@ void main() {
   testWidgets('rendert Kennzahlen (Ø kcal, Treffer-Quote, Ø Makros)', (
     tester,
   ) async {
-    // Drei getrackte Tage: heute 2200 (Hit), gestern 2000 (Hit, Korridor
+    // Drei getrackte Tage: heute 2200, gestern 2000 (Hit, Korridor
     // 1980-2420), vor 10 Tagen 1000 (Miss). Luecken dazwischen duerfen den
-    // Schnitt NICHT auf 0 ziehen.
+    // Schnitt NICHT auf 0 ziehen — und heute zaehlt als Teiltag gar nicht
+    // erst mit (B6), bleibt aber im Chart.
     final totals = [
       _day(0, kcal: 2200, p: 120, c: 200, f: 60),
       _day(1, kcal: 2000, p: 100, c: 180, f: 80),
@@ -90,13 +91,13 @@ void main() {
     await tester.pump();
     await tester.pumpAndSettle();
 
-    // Default-Zeitraum 30 Tage: Schnitt (2200+2000+1000)/3 = 1733.
-    expect(find.text('1.733 kcal'), findsOneWidget);
-    expect(find.text('67 %'), findsOneWidget);
-    expect(find.text('2 von 3 Tagen (±10 %)'), findsOneWidget);
-    // Ø Makros: P (120+100+80)/3, C (200+180+100)/3, F (60+80+40)/3.
-    expect(find.text('100 g'), findsOneWidget);
-    expect(find.text('160 g'), findsOneWidget);
+    // Default-Zeitraum 30 Tage, ohne heute: Schnitt (2000+1000)/2 = 1500.
+    expect(find.text('1.500 kcal'), findsOneWidget);
+    expect(find.text('50 %'), findsOneWidget);
+    expect(find.text('1 von 2 Tagen (±10 %)'), findsOneWidget);
+    // Ø Makros ohne heute: P (100+80)/2, C (180+100)/2, F (80+40)/2.
+    expect(find.text('90 g'), findsOneWidget);
+    expect(find.text('140 g'), findsOneWidget);
     expect(find.text('60 g'), findsOneWidget);
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
   });
@@ -111,16 +112,71 @@ void main() {
     await tester.pump();
     await tester.pumpAndSettle();
 
-    expect(find.text('1.733 kcal'), findsOneWidget);
+    // 30 Tage ohne heute: (2000+1000)/2 = 1500.
+    expect(find.text('1.500 kcal'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('trends-range-7')));
     await tester.pumpAndSettle();
 
-    // Nur noch heute + gestern: Schnitt 2100, beide im Korridor.
-    expect(find.text('2.100 kcal'), findsOneWidget);
+    // 7 Tage: der 10-Tage-alte Wert faellt raus, heute zaehlt nicht mit ->
+    // bleibt gestern allein, im Korridor.
+    expect(find.text('2.000 kcal'), findsOneWidget);
     expect(find.text('100 %'), findsOneWidget);
-    expect(find.text('2 von 2 Tagen (±10 %)'), findsOneWidget);
+    expect(find.text('1 von 1 Tag (±10 %)'), findsOneWidget);
   });
+
+  testWidgets('B6: der laufende Teiltag verwaessert die Kennzahlen nicht', (
+    tester,
+  ) async {
+    // Review-Szenario: sechs abgeschlossene Tage mit exakt dem Ziel, dann
+    // heute Morgen ein 350-kcal-Fruehstueck. Vorher zeigte die Ansicht
+    // 1.936 kcal / 86 % / „6 von 7 Tagen".
+    final totals = [
+      _day(0, kcal: 350, p: 10, c: 40, f: 8),
+      for (var d = 1; d <= 6; d++) _day(d, kcal: 2200, p: 120, c: 200, f: 60),
+    ];
+    await _pumpTrends(tester, loader: () => Future.value(totals));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('trends-range-7')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2.200 kcal'), findsOneWidget);
+    expect(find.text('100 %'), findsOneWidget);
+    expect(find.text('6 von 6 Tagen (±10 %)'), findsOneWidget);
+    // Ø Makros ebenfalls unverduennt.
+    expect(find.text('120 g'), findsOneWidget);
+    expect(find.text('200 g'), findsOneWidget);
+    expect(find.text('60 g'), findsOneWidget);
+    // Das Chart behaelt den laufenden Tag.
+    expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+    // Und die Beschriftung sagt, dass heute nicht mitzaehlt.
+    expect(find.byKey(const ValueKey('trends-metrics-note')), findsOneWidget);
+  });
+
+  testWidgets(
+    'B6: nur heute im Fenster -> Kennzahlen leer statt NaN, Chart bleibt',
+    (tester) async {
+      // Zwei Tagessummen (der Empty-State greift also nicht), aber im
+      // 7-Tage-Fenster liegt nur der laufende Tag.
+      final totals = [_day(0, kcal: 1800), _day(40, kcal: 2000)];
+      await _pumpTrends(tester, loader: () => Future.value(totals));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('trends-range-7')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+      // Beide Kennzahlen-Kacheln zeigen den Gedankenstrich, keine 0 und
+      // kein NaN aus einer 0/0-Division.
+      expect(find.text('–'), findsNWidgets(5)); // 2 Kacheln + 3 Makros
+      expect(find.text('noch kein abgeschlossener Tag'), findsNWidgets(2));
+      expect(find.textContaining('NaN'), findsNothing);
+      expect(find.text('0 von 0 Tagen (±10 %)'), findsNothing);
+    },
+  );
 
   testWidgets('Fehler-Zustand mit funktionierendem Retry', (tester) async {
     var calls = 0;

@@ -29,6 +29,9 @@ class _RecordingHealthService implements HealthService {
   HealthAuthState get authState => _state;
 
   @override
+  void reset() => _state = HealthAuthState.unknown;
+
+  @override
   Future<HealthAuthState> requestAuthorization() async {
     _state = HealthAuthState.granted;
     return _state;

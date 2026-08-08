@@ -127,6 +127,113 @@ void main() {
     });
   });
 
+  group('completedDaysOf — B6: der laufende Tag zaehlt nicht mit', () {
+    test('schneidet genau den letzten Eintrag (= heute) ab', () {
+      final window = denseTrendWindow(
+        [
+          _day(DateTime(2026, 8, 5), kcal: 2200),
+          _day(DateTime(2026, 8, 6), kcal: 2100),
+          _day(DateTime(2026, 8, 7), kcal: 350),
+        ],
+        today: DateTime(2026, 8, 7, 8, 30),
+        days: 3,
+      );
+
+      expect(window, hasLength(3));
+      expect(window.last?.kcal, 350); // heute ist im Fenster
+      final completed = completedDaysOf(window);
+      expect(completed, hasLength(2));
+      expect(completed.map((d) => d?.kcal).toList(), [2200, 2100]);
+    });
+
+    test(
+      'Review-Szenario: das 350-kcal-Fruehstueck verwaessert nichts mehr',
+      () {
+        // Ziel 2200 kcal, 01.-06.08. je exakt 2200 geloggt. Am 07.08. um 08:30
+        // loggt der Nutzer ein 350-kcal-Fruehstueck und oeffnet Trends.
+        final totals = [
+          for (var d = 1; d <= 6; d++) _day(DateTime(2026, 8, d), kcal: 2200),
+          _day(DateTime(2026, 8, 7), kcal: 350),
+        ];
+        final window = denseTrendWindow(
+          totals,
+          today: DateTime(2026, 8, 7, 8, 30),
+          days: 7,
+        );
+
+        // Der dokumentierte Fehler, als Beleg: heute mitgerechnet ergibt
+        // (6 x 2200 + 350) / 7 = 1935,71 und 6 von 7 Tagen.
+        expect(averageKcalOf(window), closeTo(1935.714, 0.001));
+        expect(goalHitsOf(window, goalKcal: 2200).tracked, 7);
+
+        // Ohne den laufenden Tag stimmen alle drei Kennzahlen wieder.
+        final completed = completedDaysOf(window);
+        expect(averageKcalOf(completed), closeTo(2200, 0.001));
+        final hits = goalHitsOf(completed, goalKcal: 2200);
+        expect(hits.hit, 6);
+        expect(hits.tracked, 6);
+      },
+    );
+
+    test('Ø Makros werden ebenfalls nicht mehr vom Teiltag verduennt', () {
+      final totals = [
+        for (var d = 1; d <= 6; d++)
+          _day(DateTime(2026, 8, d), kcal: 2200, p: 120, c: 200, f: 60),
+        _day(DateTime(2026, 8, 7), kcal: 350, p: 10, c: 40, f: 8),
+      ];
+      final completed = completedDaysOf(
+        denseTrendWindow(totals, today: DateTime(2026, 8, 7, 8, 30), days: 7),
+      );
+      final macros = averageMacrosOf(completed);
+      expect(macros, isNotNull);
+      expect(macros!.proteinG, closeTo(120, 0.001));
+      expect(macros.carbsG, closeTo(200, 0.001));
+      expect(macros.fatG, closeTo(60, 0.001));
+    });
+
+    test(
+      'nur heute geloggt: leere Kennzahlen statt NaN oder Division durch 0',
+      () {
+        final window = denseTrendWindow(
+          [_day(DateTime(2026, 8, 7), kcal: 350)],
+          today: DateTime(2026, 8, 7, 8, 30),
+          days: 7,
+        );
+        // Das Chart zeigt den laufenden Tag weiterhin.
+        expect(trackedDaysOf(window), 1);
+
+        final completed = completedDaysOf(window);
+        expect(averageKcalOf(completed), isNull);
+        expect(averageMacrosOf(completed), isNull);
+        final hits = goalHitsOf(completed, goalKcal: 2200);
+        expect(hits.hit, 0);
+        expect(hits.tracked, 0);
+        // Keine Quote bilden — 0/0 waere NaN. Der Aufrufer muss auf tracked == 0
+        // pruefen; hier wird nur belegt, dass der Nenner sauber 0 ist.
+        expect(trackedDaysOf(completed), 0);
+      },
+    );
+
+    test('leeres Fenster bleibt leer (kein RangeError)', () {
+      expect(completedDaysOf(const <TrendDayTotals?>[]), isEmpty);
+      expect(completedDaysOf(<TrendDayTotals?>[null]), isEmpty);
+    });
+  });
+
+  group('trackedDaysOf', () {
+    test('zaehlt nur Tage mit Eintraegen, Luecken zaehlen nicht', () {
+      expect(
+        trackedDaysOf(<TrendDayTotals?>[
+          _day(DateTime(2026, 8, 1), kcal: 1200),
+          null,
+          _day(DateTime(2026, 8, 3), kcal: 0), // 0 kcal ist ein getrackter Tag
+        ]),
+        2,
+      );
+      expect(trackedDaysOf(const <TrendDayTotals?>[]), 0);
+    });
+  });
+
   group('averageKcalOf', () {
     test('mittelt nur getrackte Tage — Luecken ziehen nicht auf 0', () {
       final window = <TrendDayTotals?>[

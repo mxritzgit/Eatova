@@ -1,13 +1,51 @@
 part of 'home_store.dart';
 
+/// Der Zustand der abendlichen Erinnerungen. **Drei** Zustaende, nicht zwei —
+/// das ist der Kern von D11 (Review 2026-08-08).
+///
+/// Vorher gab es nur ein `bool`, das der Nutzerabsicht folgte und nie mit der
+/// OS-Ebene abgeglichen wurde. Wer im Systemdialog „Nicht zulassen" tippte,
+/// sah den Schalter fuer immer auf AN mit dem Text „Aktiv. Du bekommst gezielte
+/// Nudges zur passenden Zeit." — und bekam nie etwas.
+///
+/// Uebergabe an die Schale (settings_sheet.dart):
+///  * [off] — Schalter AUS. „Aus. Schalter umlegen, um lokale Erinnerungen zu
+///    aktivieren."
+///  * [active] — Schalter AN. „Aktiv. Jeden Abend um 20 Uhr, wenn du noch
+///    nichts geloggt hast."
+///  * [blocked] — Schalter AUS (es wird nachweislich nichts zugestellt), aber
+///    mit eigenem Hinweis UND einer Handlung, die weiterfuehrt: „Vom System
+///    blockiert. Eatova darf keine Mitteilungen senden — erlaube sie in den
+///    Systemeinstellungen." plus Button „Systemeinstellungen oeffnen". Kein
+///    „Fehler", kein erneutes Umlegen des Schalters: auf Android 13+ zeigt das
+///    System nach zwei Ablehnungen gar keinen Dialog mehr, der Schalter kaeme
+///    also sofort wieder zurueck.
+///
+/// Nur [active] heisst, dass wirklich etwas geplant ist.
+enum ReminderState {
+  /// Der Nutzer will keine Erinnerungen.
+  off,
+
+  /// Der Nutzer will Erinnerungen UND das OS liefert sie aus.
+  active,
+
+  /// Der Nutzer will Erinnerungen, das OS verweigert sie.
+  blocked,
+}
+
 /// Profil-Part von [HomeStore]: Profil/Settings, Onboarding und die
 /// Erinnerungen (PROD-1, abendlicher Streak-Retter). Reine Datei-Aufteilung —
 /// Verhalten und Member sind 1:1 aus home_store.dart uebernommen.
 mixin _HomeStoreProfilePart on _HomeStoreBase {
-  bool _notificationsEnabled = false;
+  ReminderState _reminderState = ReminderState.off;
   bool _onboardingDone = false;
 
-  bool get notificationsEnabled => _notificationsEnabled;
+  /// Ob abends wirklich etwas kommt. Bewusst NUR bei [ReminderState.active]
+  /// true — „blockiert" ist kein „an" (D11).
+  bool get notificationsEnabled => _reminderState == ReminderState.active;
+
+  /// Der volle Zustand fuer die Schale (Text + Handlung, s. [ReminderState]).
+  ReminderState get reminderState => _reminderState;
 
   /// Onboarding ist Pflicht, sobald ein echter Supabase-Sync existiert und das
   /// Profil noch nicht durchlaufen wurde. Ohne Sync (Test/Preview) nie.
@@ -19,44 +57,109 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
   // (streak_reminder_planner.dart). Der Opt-in-Toggle + die Permission-Strecke
   // bleiben der Andock-Punkt fuer alles Weitere.
 
+  /// Der Cache im Boot-Pfad. `_cache` steht erst nach [_hydrateThenBoot]; im
+  /// Test (und beim frueh angestossenen Boot) faellt es auf den injizierten
+  /// [debugCache] zurueck — dasselbe Muster wie `_clearCache`.
+  LocalCache? get _notificationCache => _cache ?? debugCache;
+
+  /// Kaltstart-Pfad der Erinnerungen.
+  ///
+  /// D11: Der Cache haelt nur, was beim Einschalten galt. Die Berechtigung kann
+  /// seither in den Systemeinstellungen entzogen worden sein, ohne dass die App
+  /// je davon erfahren haette. Also GEGENLESEN — und zwar mit
+  /// [NotificationPermissionProbe.hasPermission] (still), NICHT mit
+  /// `requestPermission()`: ein Systemdialog beim Kaltstart ueberfaellt den
+  /// Nutzer und ist auf Android 13+ nach zwei Ablehnungen ohnehin wirkungslos.
   Future<void> _initNotificationsFromCache() async {
-    final cache = _cache;
+    final cache = _notificationCache;
     if (cache == null) return;
     final enabled = await cache.readNotificationsEnabled() ?? false;
     if (_disposed) return;
+    // Kein Opt-in -> das OS wird gar nicht erst gefragt.
     if (!enabled) return;
-    _mutate(() => _notificationsEnabled = true);
+
     await notificationService.init();
-    // Boot mit aktiviertem Opt-in: Reminder-Fenster frisch aufziehen (die
-    // Permission wurde beim Einschalten bereits erteilt, kein Re-Prompt).
-    await _rescheduleStreakReminder();
+    await _applyOsPermission(cache);
+  }
+
+  /// Liest die OS-Ebene gegen und zieht State + Cache nach. Hier laeuft
+  /// bewusst NIE ein Dialog — der einzige Ort, an dem gefragt werden darf, ist
+  /// die explizite Nutzergeste in [_setNotificationsEnabled].
+  Future<void> _applyOsPermission(LocalCache cache) async {
+    final granted = await _osDeliversNotifications();
+    if (_disposed) return;
+
+    if (granted) {
+      _setReminderState(ReminderState.active);
+      await cache.writeNotificationsEnabled(true);
+      await _rescheduleStreakReminder();
+      return;
+    }
+
+    // Dritter Zustand: der Nutzer WILL Erinnerungen, das OS gibt sie nicht.
+    // Das persistierte Flag bedeutet „aktiv" und ist damit nachweislich
+    // falsch — es faellt, sonst plant der naechste Kaltstart wieder ins Leere.
+    _setReminderState(ReminderState.blocked);
+    await cache.writeNotificationsEnabled(false);
+    await notificationService.cancelAll();
+  }
+
+  /// Ob das OS aktuell zustellt. Dienste ohne [NotificationPermissionProbe]
+  /// (fremde/aeltere Test-Doubles) koennen es nicht sagen; sie sollen den Boot
+  /// nicht schlechter stellen als vorher und gelten deshalb als erlaubt.
+  Future<bool> _osDeliversNotifications() async {
+    // Der Cast ist noetig, weil [NotificationPermissionProbe] bewusst KEIN
+    // Subtyp von [NotificationService] ist (sonst braeche jedes bestehende
+    // `implements NotificationService`-Double) — Dart promotet deshalb nicht.
+    final Object service = notificationService;
+    if (service is! NotificationPermissionProbe) return true;
+    return service.hasPermission();
+  }
+
+  void _setReminderState(ReminderState state) {
+    if (_disposed) {
+      _reminderState = state;
+      return;
+    }
+    if (state == _reminderState) return;
+    _mutate(() => _reminderState = state);
   }
 
   Future<void> _setNotificationsEnabled(bool enabled) async {
-    if (!_disposed) {
-      _mutate(() => _notificationsEnabled = enabled);
-    } else {
-      _notificationsEnabled = enabled;
-    }
-    unawaited(
-        _cache?.writeNotificationsEnabled(enabled) ?? Future<void>.value());
-    if (enabled) {
-      await notificationService.init();
-      final granted = await notificationService.requestPermission();
-      // Nur nach erteilter Permission planen — ohne sie wuerde zonedSchedule
-      // ins Leere laufen (bzw. auf Android 13+ still verpuffen).
-      if (granted) await _rescheduleStreakReminder();
-    } else {
+    final cache = _notificationCache;
+
+    if (!enabled) {
+      _setReminderState(ReminderState.off);
+      await cache?.writeNotificationsEnabled(false);
       await notificationService.cancelAll();
+      return;
     }
+
+    await notificationService.init();
+    // D11: erst fragen, DANN persistieren. Vorher stand `true` schon im Cache
+    // (und im State), bevor der Systemdialog ueberhaupt beantwortet war — bei
+    // „Nicht zulassen" blieb es dort fuer immer stehen.
+    final granted = await notificationService.requestPermission();
+    if (_disposed) return;
+
+    if (!granted) {
+      _setReminderState(ReminderState.blocked);
+      await cache?.writeNotificationsEnabled(false);
+      return;
+    }
+
+    _setReminderState(ReminderState.active);
+    await cache?.writeNotificationsEnabled(true);
+    await _rescheduleStreakReminder();
   }
 
-  /// Plant die abendlichen Streak-Reminder fuer die naechsten 7 Tage neu.
+  /// Plant die abendlichen Streak-Reminder fuer den vollen Horizont neu
+  /// (4 Wochen, s. streak_reminder_planner.dart).
   /// scheduleAll arbeitet cancel-first, daher immer die volle Planner-Liste —
   /// kein Duplikat-Risiko bei wiederholten Aufrufen (Boot, Toggle, jeder Log).
-  /// Guard: ohne Opt-in wird nie geplant.
+  /// Guard: ohne erteilte Berechtigung wird nie geplant.
   Future<void> _rescheduleStreakReminder() async {
-    if (!_notificationsEnabled) return;
+    if (_reminderState != ReminderState.active) return;
     await notificationService
         .scheduleAll(planStreakReminders(DateTime.now(), lifetimeStats));
   }
@@ -65,6 +168,29 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
   /// die Schale.
   Future<void> setNotificationsEnabled(bool enabled) =>
       _setNotificationsEnabled(enabled);
+
+  /// Liest die OS-Berechtigung erneut gegen und korrigiert den Zustand — OHNE
+  /// Dialog.
+  ///
+  /// Der Rueckweg aus [ReminderState.blocked]: die Schale ruft das auf, wenn
+  /// die App aus dem Hintergrund zurueckkommt (der Nutzer war gerade in den
+  /// Systemeinstellungen). Ohne diesen Pfad muesste er die App neu starten,
+  /// damit der Schalter wieder die Wahrheit sagt.
+  ///
+  /// Bei [ReminderState.off] passiert nichts — wer keine Erinnerungen will,
+  /// soll durch eine Systemeinstellung nicht welche bekommen.
+  Future<void> refreshNotificationPermission() async {
+    if (_reminderState == ReminderState.off) return;
+    final cache = _notificationCache;
+    if (cache == null) return;
+    await notificationService.init();
+    await _applyOsPermission(cache);
+  }
+
+  /// Kaltstart-Pfad als oeffentliche Fassade — der Boot ruft ihn aus
+  /// `_hydrateThenBoot`, Tests ohne Supabase-Sync direkt.
+  @visibleForTesting
+  Future<void> initNotificationsFromCache() => _initNotificationsFromCache();
 
   // --- Settings / Reset / Onboarding ---------------------------------------
 
@@ -76,7 +202,11 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
     required bool notificationsEnabled,
     required bool resetDay,
   }) async {
-    if (notificationsEnabled != _notificationsEnabled) {
+    // `this.` ist noetig, weil der Parameter den Getter verdeckt. Vergleich
+    // gegen den TATSAECHLICHEN Zustand: in [ReminderState.blocked] ist
+    // `notificationsEnabled` false, ein erneutes Umlegen auf AN laeuft also
+    // wieder durch die Berechtigungsstrecke (statt still nichts zu tun).
+    if (notificationsEnabled != this.notificationsEnabled) {
       unawaited(_setNotificationsEnabled(notificationsEnabled));
     }
     final canPersistProfile = _hydratedFromRealSource;

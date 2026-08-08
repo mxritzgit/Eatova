@@ -17,22 +17,36 @@ class HealthConnectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isGranted = state == HealthAuthState.granted;
+    // Review B3: „verbunden, aber es kommen keine Daten". Apple meldet das
+    // Berechtigungs-Sheet als Erfolg, sobald es angezeigt wurde — auch wenn der
+    // Nutzer keinen Schalter umgelegt hat. Dieser Zustand darf deshalb NICHT
+    // wie „granted" aussehen, sondern muss zur richtigen Handlung führen.
+    final isUnverified = state == HealthAuthState.unverified;
     final isDenied = state == HealthAuthState.denied;
     final isUnsupported = state == HealthAuthState.unsupported;
+    final needsAttention = isUnverified || isDenied;
     final color = isGranted
         ? lime
-        : isDenied
+        : needsAttention
             ? orange
             : textMuted;
     final subtitle = isGranted
         ? lastFetch != null
             ? 'Synchronisiert · ${_formatTime(lastFetch!)}'
             : 'Verbunden'
-        : isDenied
-            ? 'Berechtigung verweigert'
-            : isUnsupported
-                ? 'Auf diesem Gerät nicht aktiv'
-                : 'Apple Health einrichten';
+        : isUnverified
+            ? 'Keine Daten — in Einstellungen › Health › Datenzugriff & '
+                'Geräte › Eatova alle Kategorien einschalten'
+            : isDenied
+                ? 'Zugriff entzogen — in Einstellungen › Health › Datenzugriff '
+                    '& Geräte › Eatova wieder freigeben'
+                : isUnsupported
+                    ? 'Auf diesem Gerät nicht aktiv'
+                    : 'Apple Health einrichten';
+    // „Prüfen" statt „Verbinden", sobald wir schon einmal gefragt haben: iOS
+    // zeigt das Sheet kein zweites Mal, der Tap re-verifiziert stattdessen die
+    // Signale — genau das, was nach einem Besuch in den Einstellungen zählt.
+    final actionLabel = needsAttention ? 'Prüfen' : 'Verbinden';
 
     return AppCard(
       padding: const EdgeInsets.all(18),
@@ -63,7 +77,9 @@ class HealthConnectionCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  maxLines: 2,
+                  // 3 Zeilen, weil der Einstellungs-Pfad im unverifizierten /
+                  // entzogenen Fall vollständig lesbar bleiben muss.
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: color,
@@ -104,9 +120,12 @@ class HealthConnectionCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(rControl),
                 ),
               ),
-              child: const Text(
-                'Verbinden',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              child: Text(
+                actionLabel,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
         ],

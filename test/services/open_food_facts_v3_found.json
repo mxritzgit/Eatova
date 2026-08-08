@@ -1,0 +1,50 @@
+{
+  "code": "3017624010701",
+  "errors": [],
+  "product": {
+    "brands": "Ferrero",
+    "code": "3017624010701",
+    "generic_name": "Brotaufstrich mit Haselnüssen und Kakao",
+    "image_front_small_url": "https://images.openfoodfacts.org/images/products/301/762/401/0701/front_de.579.200.jpg",
+    "image_front_url": "https://images.openfoodfacts.org/images/products/301/762/401/0701/front_de.579.400.jpg",
+    "image_small_url": "https://images.openfoodfacts.org/images/products/301/762/401/0701/front_de.579.200.jpg",
+    "image_url": "https://images.openfoodfacts.org/images/products/301/762/401/0701/front_de.579.400.jpg",
+    "nutriments": {
+      "carbohydrates": 57.5,
+      "carbohydrates_100g": 57.5,
+      "carbohydrates_unit": "g",
+      "energy": 2255,
+      "energy-kcal": 539,
+      "energy-kcal_100g": 539,
+      "energy-kcal_unit": "kcal",
+      "energy-kcal_value": 539,
+      "energy-kcal_value_computed": 538.9,
+      "energy-kj": 2255,
+      "energy-kj_100g": 2255,
+      "energy-kj_unit": "kJ",
+      "energy_100g": 2255,
+      "energy_unit": "kJ",
+      "fat": 30.9,
+      "fat_100g": 30.9,
+      "fat_unit": "g",
+      "proteins": 6.3,
+      "proteins_100g": 6.3,
+      "proteins_unit": "g",
+      "salt_100g": 0.107,
+      "sugars_100g": 56.3
+    },
+    "nutrition_data_per": "100g",
+    "product_name": "Nutella",
+    "product_name_de": "Nutella",
+    "quantity": "400 g",
+    "serving_quantity": 15,
+    "serving_size": "15 g"
+  },
+  "result": {
+    "id": "product_found",
+    "lc_name": "Produkt gefunden",
+    "name": "Product found"
+  },
+  "status": "success",
+  "warnings": []
+}

@@ -525,6 +525,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // diesen Aufruf feuern sie nach der Löschung weiter, während der Dialog
     // „unwiderruflich gelöscht" verspricht.
     await notificationService.cancelAll();
+    // B3: derselbe Grund — der Health-Zustand lebt im Service-Objekt, nicht im
+    // namensraumgetrennten Cache, und überlebt sonst die Kontolöschung.
+    _resetHealthConnection();
     // Kein preserveOutbox: das Konto ist weg, es gibt kein Ziel mehr, gegen
     // das die Ops je zugestellt werden könnten.
     await _clearCache();
@@ -562,7 +565,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // Ohne diesen Aufruf zeigt das Familien-Tablet der neu angemeldeten
     // Person abends die Streak-Erinnerung der vorherigen.
     await notificationService.cancelAll();
+    // B3: der Health-Zustand ist prozesslokal und kennt keinen User. Ohne
+    // diesen Aufruf zeigt Bs Profilkarte weiter As „Synchronisiert".
+    _resetHealthConnection();
     await _clearCache(preserveOutbox: remaining > 0);
+  }
+
+  /// Trennt Apple Health beim Nutzerwechsel — Service UND Store-Feld.
+  ///
+  /// Beides ist nötig: `health.reset()` räumt Verifier und gecachtes
+  /// `authState` im Service, `healthAuthState` ist die Kopie, die die
+  /// Profilkarte rendert. Ohne die zweite Zuweisung bliebe die grüne
+  /// „Synchronisiert"-Karte bis zum nächsten `refreshHealthSteps()` stehen.
+  void _resetHealthConnection() {
+    health.reset();
+    healthAuthState = health.authState;
   }
 
   /// Löscht den lokalen Cache. Bevorzugt den bereits gebooteten [_cache], im

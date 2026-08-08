@@ -28,6 +28,9 @@ class _FakeHealthService implements HealthService {
   HealthAuthState get authState => HealthAuthState.granted;
 
   @override
+  void reset() {}
+
+  @override
   Future<HealthAuthState> requestAuthorization() async =>
       HealthAuthState.granted;
 

@@ -73,9 +73,33 @@ abstract class NotificationService {
   Future<void> cancelAll();
 }
 
+/// Zusatz-Naht zu [NotificationService]: liest die Berechtigung auf OS-Ebene
+/// GEGEN — ohne einen Systemdialog auszuloesen.
+///
+/// **Pruefen ist nicht Anfragen.** [NotificationService.requestPermission]
+/// zeigt dem Nutzer einen Dialog und darf nur auf eine explizite Geste hin
+/// laufen (Settings-Schalter, Onboarding). [hasPermission] ist still und darf
+/// jederzeit laufen — insbesondere beim Kaltstart, wo ein Dialog den Nutzer
+/// ueberfallen wuerde (D11, Review 2026-08-08).
+///
+/// Bewusst ein EIGENES Interface statt eines weiteren Members von
+/// [NotificationService]: bestehende Test-Doubles implementieren das
+/// Basis-Interface per `implements` und wuerden von einem neuen abstrakten
+/// Member gebrochen. Aufrufer pruefen deshalb per `is` und behandeln das
+/// Fehlen als „unbekannt" (siehe `home_store_profile.dart`).
+abstract class NotificationPermissionProbe {
+  /// Ob das OS Benachrichtigungen dieser App aktuell ausliefert.
+  ///
+  /// Fragt NICHT nach — der Nutzer sieht keinen Dialog. Der Wert kann sich
+  /// jederzeit ohne Zutun der App aendern (Systemeinstellungen), er ist also
+  /// nie cachebar.
+  Future<bool> hasPermission();
+}
+
 /// No-op-Implementierung fuer Plattformen ohne lokale Notifications (Web/Test)
 /// oder als sichere Default-Injection. Tut nichts, crasht nie.
-class NoopNotificationService implements NotificationService {
+class NoopNotificationService
+    implements NotificationService, NotificationPermissionProbe {
   const NoopNotificationService();
 
   @override
@@ -83,6 +107,10 @@ class NoopNotificationService implements NotificationService {
 
   @override
   Future<bool> requestPermission() async => false;
+
+  /// Ehrlich `false`: diese Implementierung stellt nie etwas zu.
+  @override
+  Future<bool> hasPermission() async => false;
 
   @override
   Future<void> scheduleAll(List<NotificationSpec> specs) async {}
@@ -93,7 +121,8 @@ class NoopNotificationService implements NotificationService {
 
 /// Echte, plattform-gestuetzte Implementierung. Nur iOS/Android werden bedient;
 /// auf allen anderen Plattformen no-op-pt sie hart (statt zu crashen).
-class LocalNotificationService implements NotificationService {
+class LocalNotificationService
+    implements NotificationService, NotificationPermissionProbe {
   LocalNotificationService({FlutterLocalNotificationsPlugin? plugin})
       : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
@@ -194,6 +223,47 @@ class LocalNotificationService implements NotificationService {
     return false;
   }
 
+  /// Liest die Berechtigung still gegen. Die Wahrheit steht pro Plattform in
+  /// einer ANDEREN Plugin-Methode:
+  ///
+  ///  * Android: `AndroidFlutterLocalNotificationsPlugin.areNotificationsEnabled()`
+  ///    (`flutter_local_notifications-22.2.0/lib/src/platform_flutter_local_notifications.dart:624`).
+  ///    Ab Android 13 (API 33) ist das der Stand von `POST_NOTIFICATIONS`,
+  ///    davor der Schalter „Benachrichtigungen zulassen" (Default an). Eine
+  ///    `checkPermissions()`-Variante gibt es auf Android NICHT.
+  ///  * iOS: `IOSFlutterLocalNotificationsPlugin.checkPermissions()`
+  ///    (dieselbe Datei, Zeile 770) liefert ein
+  ///    [NotificationsEnabledOptions]; `isEnabled` ist nativ
+  ///    `authorizationStatus == UNAuthorizationStatusAuthorized`
+  ///    (`ios/.../FlutterLocalNotificationsPlugin.m:552`). „Noch nie gefragt"
+  ///    zaehlt damit korrekt als NICHT erlaubt. Ein `areNotificationsEnabled()`
+  ///    gibt es auf iOS nicht.
+  ///
+  /// Defensiv: schlaegt der Plattform-Call fehl (kein Channel im Test,
+  /// unbekannte Plattform), gilt „nicht erlaubt" — lieber der ehrliche
+  /// blockiert-Zustand als ein Schalter, der wieder luegt.
+  @override
+  Future<bool> hasPermission() async {
+    if (!_supported) return false;
+    await init();
+    try {
+      if (Platform.isIOS) {
+        final ios = _plugin.resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+        final options = await ios?.checkPermissions();
+        return options?.isEnabled ?? false;
+      }
+      if (Platform.isAndroid) {
+        final android = _plugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+        return await android?.areNotificationsEnabled() ?? false;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
+
   @override
   Future<void> scheduleAll(List<NotificationSpec> specs) async {
     if (!_supported) return;
@@ -218,6 +288,22 @@ class LocalNotificationService implements NotificationService {
       // Defensive: nie in die Vergangenheit planen (Plattform-zonedSchedule
       // wuerde sonst sofort feuern).
       if (!when.isAfter(now)) continue;
+      // BEWUSST OHNE matchDateTimeComponents (D10, Review 2026-08-08).
+      // Das naheliegende `DateTimeComponents.time` waere hier ein Bug: beide
+      // Plattformen verwerfen dann den DATUMS-Anteil und behalten nur die
+      // Uhrzeit —
+      //   Android: `zonedSchedule` ueberschreibt scheduledDateTime mit
+      //     getNextFireDateMatchingDateTimeComponents(...)
+      //     (android/.../FlutterLocalNotificationsPlugin.java:1687-1692 bzw.
+      //     :1369-1410), das nur Stunde/Minute/Sekunde uebernimmt;
+      //   iOS: `Time` baut NSDateComponents ausschliesslich aus
+      //     hour/minute/second und triggert `repeats:YES`
+      //     (ios/.../FlutterLocalNotificationsPlugin.m:835-844).
+      // Eine Liste aus n Specs zur selben Wandzeit wuerde damit zu n taeglich
+      // wiederkehrenden Benachrichtigungen kollabieren — jeden Abend n Stueck,
+      // fuer immer. Der Planner loest den Horizont deshalb in datierte
+      // Einzeltermine auf; das ist zugleich der einzige Ausstieg, der ohne
+      // laufende App greift (siehe streak_reminder_planner.dart).
       await _plugin.zonedSchedule(
         id: spec.id,
         title: spec.title,

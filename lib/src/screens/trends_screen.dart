@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../services/day_math.dart';
 import '../services/trend_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/common/basic_widgets.dart';
@@ -152,9 +153,15 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
     final today = DateTime.now();
     final window = denseTrendWindow(_totals, today: today, days: _rangeDays);
-    final avgKcal = averageKcalOf(window);
-    final hits = goalHitsOf(window, goalKcal: widget.kcalGoal);
-    final macros = averageMacrosOf(window);
+    // B6: Das CHART bekommt das volle Fenster inklusive des laufenden Tages —
+    // die Kurve soll zeigen, wo man heute steht. Die KENNZAHLEN rechnen ohne
+    // ihn, weil ein Teiltag sonst als vollstaendiger Tag in den Schnitt und
+    // in die Trefferquote eingeht (siehe completedDaysOf). Die Kacheln
+    // beschriften das unten mit einer Fussnote.
+    final completed = completedDaysOf(window);
+    final avgKcal = averageKcalOf(completed);
+    final hits = goalHitsOf(completed, goalKcal: widget.kcalGoal);
+    final macros = averageMacrosOf(completed);
 
     return [
       _ChartCard(
@@ -162,13 +169,11 @@ class _TrendsScreenState extends State<TrendsScreen> {
         rangeDays: _rangeDays,
         kcalGoal: widget.kcalGoal,
         avgKcal: avgKcal,
-        trackedDays: hits.tracked,
-        // Kalender-Arithmetik (DST-sicher), analog zu denseTrendWindow.
-        firstDay: DateTime(
-          today.year,
-          today.month,
-          today.day - (_rangeDays - 1),
-        ),
+        // Zaehlt die gezeichneten Balken (inkl. heute), damit die A11y-Ansage
+        // zum Chart passt und nicht zu den Kennzahlen-Kacheln.
+        trackedDays: trackedDaysOf(window),
+        // B5: Kalender-Arithmetik (DST-sicher), analog zu denseTrendWindow.
+        firstDay: addDays(startOfDay(today), -(_rangeDays - 1)),
       ),
       const SizedBox(height: 14),
       // IntrinsicHeight statt CrossAxisAlignment.stretch: im ScrollView ist
@@ -185,7 +190,9 @@ class _TrendsScreenState extends State<TrendsScreen> {
                 value: avgKcal == null
                     ? '–'
                     : '${formatKcalDe(avgKcal.round())} kcal',
-                sub: 'pro getracktem Tag',
+                sub: avgKcal == null
+                    ? 'noch kein abgeschlossener Tag'
+                    : 'pro getracktem Tag',
               ),
             ),
             const SizedBox(width: 12),
@@ -193,10 +200,15 @@ class _TrendsScreenState extends State<TrendsScreen> {
               child: _StatCard(
                 key: const ValueKey('trends-goal-rate'),
                 label: 'ZIEL GETROFFEN',
+                // tracked == 0 ist der einzige Weg zu einer 0/0-Division —
+                // hier abgefangen, damit nie ein NaN ins Widget geraet.
                 value: hits.tracked == 0
                     ? '–'
                     : '${(hits.hit / hits.tracked * 100).round()} %',
-                sub: '${hits.hit} von ${hits.tracked} Tagen (±10 %)',
+                sub: hits.tracked == 0
+                    ? 'noch kein abgeschlossener Tag'
+                    : '${hits.hit} von ${hits.tracked} '
+                          '${hits.tracked == 1 ? 'Tag' : 'Tagen'} (±10 %)',
               ),
             ),
           ],
@@ -204,7 +216,37 @@ class _TrendsScreenState extends State<TrendsScreen> {
       ),
       const SizedBox(height: 12),
       _MacroAveragesCard(macros: macros),
+      const SizedBox(height: 10),
+      // B6: Die Beschriftung muss zur Rechnung passen — die drei Kennzahlen
+      // oben zaehlen den laufenden Tag nicht mit, das Chart schon.
+      const _MetricsNote(),
     ];
+  }
+}
+
+/// Fussnote unter den Kennzahlen: benennt, dass der laufende Tag aus den
+/// Durchschnitten und der Trefferquote herausfaellt (B6). Eine Zeile fuer alle
+/// drei Kacheln — in den 11-px-Sublabels der schmalen Karten waere derselbe
+/// Hinweis dreimal umgebrochen.
+class _MetricsNote extends StatelessWidget {
+  const _MetricsNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      key: ValueKey('trends-metrics-note'),
+      padding: EdgeInsets.symmetric(horizontal: 4),
+      child: Text(
+        'Kennzahlen zählen nur abgeschlossene Tage. Heute läuft noch und '
+        'ist nur im Verlauf oben enthalten.',
+        style: TextStyle(
+          color: textMuted,
+          fontSize: 11,
+          height: 1.4,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
   }
 }
 
@@ -318,10 +360,19 @@ class _ChartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // A11y: das Chart ist nur gezeichnet -> Kennwerte als Sprachwert.
+    // [avgKcal] kommt aus den abgeschlossenen Tagen und kann null sein,
+    // waehrend das Chart schon einen Balken zeigt (nur heute geloggt). Dann
+    // faellt der Schnitt-Teilsatz weg — `?? 0` haette „im Schnitt 0
+    // Kilokalorien" angesagt, was schlicht falsch waere.
+    final avg = avgKcal;
     final semanticsValue = trackedDays == 0
         ? 'Keine Einträge in diesem Zeitraum'
+        : avg == null
+        ? '$trackedDays von $rangeDays Tagen mit Einträgen, '
+              'noch kein abgeschlossener Tag für den Durchschnitt, '
+              'Tagesziel $kcalGoal Kilokalorien'
         : '$trackedDays von $rangeDays Tagen mit Einträgen, '
-              'im Schnitt ${avgKcal?.round() ?? 0} Kilokalorien pro Tag, '
+              'im Schnitt ${avg.round()} Kilokalorien pro abgeschlossenem Tag, '
               'Tagesziel $kcalGoal Kilokalorien';
     return AppCard(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
@@ -825,7 +876,9 @@ class _KcalTrendPainter extends CustomPainter {
     // 7-Tage-Ansicht: Wochentags-Kuerzel unter jedem Slot als X-Beschriftung.
     if (showWeekdays) {
       for (var i = 0; i < n; i++) {
-        final day = DateTime(firstDay.year, firstDay.month, firstDay.day + i);
+        // B5: Kalendertag-Verschiebung; eine Duration-Addition wuerde die
+        // Wochentags-Kuerzel nach einer DST-Kante um einen Tag verschieben.
+        final day = addDays(firstDay, i);
         _drawText(
           canvas,
           _weekdays[day.weekday - 1],

@@ -299,6 +299,15 @@ Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
               'grams': c.grams,
               'caloriesKcal': c.caloriesKcal,
               if (c.kcalPer100G != null) 'kcalPer100G': c.kcalPer100G,
+              // B8: Makros pro Posten. `!= null` und nicht `> 0` — 0 g ist
+              // eine Aussage (Olivenoel hat 0 g Protein), `null` heisst
+              // „unbekannt". Nur wenn ALLE Posten Makros tragen, summiert
+              // adjustedToItems exakt statt nach Masse zu skalieren; ein
+              // verlorenes Feld liesse die gerade korrigierten Werte beim
+              // naechsten Kaltstart still auf `-` zurueckfallen.
+              if (c.proteinG != null) 'proteinG': c.proteinG,
+              if (c.carbsG != null) 'carbsG': c.carbsG,
+              if (c.fatG != null) 'fatG': c.fatG,
             })
         .toList(),
     'isAdjusted': r.isAdjusted,
@@ -320,6 +329,11 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
               grams: (item['grams'] as num?)?.toInt() ?? 0,
               caloriesKcal: (item['caloriesKcal'] as num?)?.toInt() ?? 0,
               kcalPer100G: (item['kcalPer100G'] as num?)?.toDouble(),
+              // Fehlender Schluessel bleibt `null` = „unbekannt". Alt-Zeilen
+              // von vor Welle 2 laden damit unveraendert.
+              proteinG: (item['proteinG'] as num?)?.toDouble(),
+              carbsG: (item['carbsG'] as num?)?.toDouble(),
+              fatG: (item['fatG'] as num?)?.toDouble(),
             );
           })
           .toList()

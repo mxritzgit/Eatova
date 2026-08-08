@@ -1,3 +1,5 @@
+import '../services/day_math.dart';
+
 /// Kumulierte Lebenszeit-Zaehler eines Users (1:1 public.lifetime_stats).
 ///
 /// Die Streak ist seit dem Training-Tab-Aus (2026-08-03) eine LOGGING-Streak:
@@ -17,10 +19,32 @@ class LifetimeStats {
     DateTime? sessionStart,
   }) : sessionStart = sessionStart ?? DateTime.now();
 
+  /// DEPRECATED (C7, 2026-08-08) — eingefrorener Legacy-Zaehler ohne
+  /// Schreiber. `incrementWorkouts()` hatte seit dem Training-Tab-Aus
+  /// (a267e15) keinen Aufrufer mehr und ist entfernt; der Wert ist fuer neue
+  /// Konten dauerhaft 0.
+  ///
+  /// Das FELD bleibt bewusst stehen: `workouts_completed` ist eine
+  /// `not null`-Spalte mit `>= 0`-Check in public.lifetime_stats, steht im
+  /// expliziten select von [LifetimeStatsSync.load], ist ein Parameter der
+  /// increment_lifetime_stats-RPC und liegt im LocalCache-JSON bestehender
+  /// Installationen. Ein Entfernen aus dem Wire-Format wuerde beides brechen.
+  /// Nicht per `@Deprecated` annotiert, weil das an jeder Lesestelle
+  /// (LocalCache-Serialisierung, Profil-Export) `flutter analyze` vollschreiben
+  /// wuerde, ohne dass die Stellen etwas anders machen koennten.
   final int workoutsCompleted;
+
   final int mealsLogged;
+
+  /// DEPRECATED (C7) — wie [workoutsCompleted]: `addWater()` verschwand mit
+  /// den Wasser-Kacheln des Heute-Tabs, die Spalte `water_total_ml` bleibt.
   final int waterTotalMl;
+
+  /// DEPRECATED (C7) — wie [workoutsCompleted]: `addSteps()` verschwand mit
+  /// dem Heute-Tab, die Spalte `steps_recorded` bleibt. Der aktuelle
+  /// Schrittstand lebt als `HomeStore.dailySteps` und kommt aus HealthKit.
   final int stepsRecorded;
+
   final int weightLogs;
 
   /// Aktuelle Logging-Streak in aufeinanderfolgenden Tagen.
@@ -37,21 +61,23 @@ class LifetimeStats {
 
   Duration get sessionDuration => DateTime.now().difference(sessionStart);
 
+  /// C7: die eingefrorenen Legacy-Zaehler ([workoutsCompleted], [waterTotalMl],
+  /// [stepsRecorded]) sind hier bewusst NICHT mehr aenderbar — sie haben
+  /// keinen Schreiber mehr und werden nur noch durchgereicht. Der Konstruktor
+  /// nimmt sie weiterhin entgegen, damit [fromRow] und der LocalCache die
+  /// bestehenden Werte rekonstruieren koennen.
   LifetimeStats copyWith({
-    int? workoutsCompleted,
     int? mealsLogged,
-    int? waterTotalMl,
-    int? stepsRecorded,
     int? weightLogs,
     int? currentStreak,
     int? longestStreak,
     DateTime? lastTrackedDate,
   }) {
     return LifetimeStats(
-      workoutsCompleted: workoutsCompleted ?? this.workoutsCompleted,
+      workoutsCompleted: workoutsCompleted,
       mealsLogged: mealsLogged ?? this.mealsLogged,
-      waterTotalMl: waterTotalMl ?? this.waterTotalMl,
-      stepsRecorded: stepsRecorded ?? this.stepsRecorded,
+      waterTotalMl: waterTotalMl,
+      stepsRecorded: stepsRecorded,
       weightLogs: weightLogs ?? this.weightLogs,
       currentStreak: currentStreak ?? this.currentStreak,
       longestStreak: longestStreak ?? this.longestStreak,
@@ -60,17 +86,8 @@ class LifetimeStats {
     );
   }
 
-  LifetimeStats incrementWorkouts() =>
-      copyWith(workoutsCompleted: workoutsCompleted + 1);
-
   LifetimeStats incrementMeals() =>
       copyWith(mealsLogged: mealsLogged + 1);
-
-  LifetimeStats addWater(int ml) =>
-      copyWith(waterTotalMl: waterTotalMl + ml);
-
-  LifetimeStats addSteps(int amount) =>
-      copyWith(stepsRecorded: stepsRecorded + amount);
 
   LifetimeStats incrementWeightLogs() =>
       copyWith(weightLogs: weightLogs + 1);
@@ -98,7 +115,10 @@ class LifetimeStats {
         lastTrackedDate!.month,
         lastTrackedDate!.day,
       );
-      final diffDays = today.difference(last).inDays;
+      // B5: Kalendertage, NICHT `.difference().inDays` — letzteres misst
+      // Absolutzeit und meldet ueber die Fruehjahrsumstellung (23-Stunden-Tag)
+      // fuer den Folgetag 0 statt 1. Die Streak stand dadurch am 30.03. still.
+      final diffDays = daysBetween(today, last);
       if (diffDays < 0) {
         // Nachtrag fuer einen vergangenen Tag — Streak unangetastet.
         return this;
@@ -131,7 +151,10 @@ class LifetimeStats {
     if (last == null) return 0;
     final today = DateTime(now.year, now.month, now.day);
     final lastDay = DateTime(last.year, last.month, last.day);
-    final diffDays = today.difference(lastDay).inDays;
+    // B5: siehe recordTrackedDay. Ueber die Fruehjahrsumstellung lieferte
+    // `.difference().inDays` fuer 47 Stunden eine 1 — eine gerissene Kette
+    // wurde am 31.03. noch als lebendig angezeigt.
+    final diffDays = daysBetween(today, lastDay);
     return diffDays <= 1 ? currentStreak : 0;
   }
 

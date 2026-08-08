@@ -1,5 +1,6 @@
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { positiveIntFromEnv } from '../_shared/env.ts';
+import { isRecord, kcalPer100GMismatch, normalizeMealResult } from './normalize.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -154,11 +155,39 @@ Deno.serve(async (request) => {
     const body = await parseBody(request);
     const prompt = buildPrompt(body.portionHint, body.freeTextHint);
     const providerResult = await callOpenRouter(body, prompt, requestId);
+    const result = normalizeMealResult(providerResult);
+
+    // caloriesKcal, estimatedGrams und kcalPer100G kommen unabhaengig aus dem
+    // Modell und koennen sich widersprechen (Review 2026-08-08, B1: 260 * 300
+    // / 100 = 780, behauptet werden 850). Der Server MELDET das nur:
+    //
+    //  - Welche der drei Zahlen falsch ist, ist hier nicht entscheidbar.
+    //  - kcalPer100G einfach wegzulassen wuerde die Dart-Seite zuerst in
+    //    _knownKcalPer100G(mealName) schicken (meal_analysis_result.dart:118)
+    //    — eine namensbasierte DB-Schaetzung, die zu diesem Foto gar nichts
+    //    zu sagen hat und zu caloriesKcal genauso schlecht passen kann.
+    //  - Den Wert serverseitig neu zu berechnen wuerde eine Zahl erfinden,
+    //    die das Modell nie geliefert hat, und dem Client die Information
+    //    nehmen, dass es ueberhaupt einen Widerspruch gab.
+    //
+    // Der Abgleich gehoert an die Stelle, die die Zahl benutzt (adjustedToGrams)
+    // — die muss ihn ohnehin fuer OpenFoodFacts/Favoriten/Recents koennen, die
+    // diese Function nie sehen. Hier zaehlen wir nur, wie oft es passiert.
+    const mismatch = kcalPer100GMismatch(result.caloriesKcal, result.estimatedGrams, result.kcalPer100G);
+    if (mismatch) {
+      console.warn('analyze-meal kcalPer100G widerspricht caloriesKcal/estimatedGrams', {
+        requestId,
+        model: OPENROUTER_MODEL,
+        reported: mismatch.reported,
+        implied: Math.round(mismatch.implied * 10) / 10,
+        deviationPct: Math.round(mismatch.deviationPct * 10) / 10,
+      });
+    }
 
     return jsonResponse(
       request,
       {
-        result: normalizeMealResult(providerResult),
+        result,
         requestId,
         rateLimit: {
           user: userLimit,
@@ -521,54 +550,6 @@ function extractJson(raw: string): string {
   return trimmed;
 }
 
-function normalizeMealResult(raw: Record<string, unknown>): Record<string, unknown> {
-  const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
-  const items = itemsRaw
-    .filter(isRecord)
-    .slice(0, 20)
-    .map((item) => ({
-      name: clampString(item.name, 'Lebensmittel', 80),
-      grams: clampInt(item.grams, 0, 10000),
-      caloriesKcal: clampInt(item.caloriesKcal, 0, 10000),
-      kcalPer100G: clampNumber(item.kcalPer100G, 0, 1000),
-    }));
-
-  return {
-    mealName: clampString(raw.mealName, 'Mahlzeit', 160),
-    caloriesKcal: clampInt(raw.caloriesKcal, 0, 10000),
-    estimatedGrams: clampInt(raw.estimatedGrams, 0, 10000),
-    kcalPer100G: clampNumber(raw.kcalPer100G, 0, 1000),
-    proteinG: nullableInt(raw.proteinG, 0, 1000),
-    carbsG: nullableInt(raw.carbsG, 0, 1000),
-    fatG: nullableInt(raw.fatG, 0, 1000),
-    confidence: ['high', 'medium', 'low'].includes(String(raw.confidence)) ? raw.confidence : 'medium',
-    explanation: clampString(raw.explanation, '', 500),
-    items,
-  };
-}
-
-function clampString(value: unknown, fallback: string, maxLength: number): string {
-  const text = typeof value === 'string' ? value.trim() : fallback;
-  return (text || fallback).slice(0, maxLength);
-}
-
-function clampInt(value: unknown, min: number, max: number): number {
-  const number = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(number)) return min;
-  return Math.round(Math.min(max, Math.max(min, number)));
-}
-
-function nullableInt(value: unknown, min: number, max: number): number | null {
-  if (value == null) return null;
-  return clampInt(value, min, max);
-}
-
-function clampNumber(value: unknown, min: number, max: number): number {
-  const number = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(number)) return min;
-  return Math.min(max, Math.max(min, number));
-}
-
 function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId: string): Response {
   const resetAt = new Date(limit.resetAt).getTime();
   const retryAfter = Number.isFinite(resetAt)
@@ -623,10 +604,6 @@ function responseHeaders(request: Request): Headers {
   }
 
   return headers;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 class HttpError extends Error {

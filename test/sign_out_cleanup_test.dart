@@ -54,10 +54,55 @@ class _SpyNotificationService implements NotificationService {
   Future<void> cancelAll() async => cancelAllCalls++;
 }
 
-HomeStore _storeWith(LocalCache cache, {NotificationService? notifications}) =>
+/// Zählt [reset] mit — B3 (Review 2026-08-08): der Health-Zustand ist
+/// prozesslokal und kennt keinen User. Ohne Reset zeigt Nutzer B auf einem
+/// geteilten Gerät weiter As „Apple Health · Synchronisiert". Dieselbe
+/// Fehlerklasse wie D9 bei den Benachrichtigungen.
+///
+/// Zurückgesetzt werden MUSS beides: der Verifier UND das gecachte
+/// [authState] in `AppleHealthService` — `refreshHealthSteps` liest genau
+/// letzteres, ein reiner Verifier-Reset bliebe also unsichtbar.
+class _SpyHealthService implements HealthService {
+  int resetCalls = 0;
+  HealthAuthState _state = HealthAuthState.granted;
+
+  @override
+  HealthAuthState get authState => _state;
+
+  @override
+  void reset() {
+    resetCalls++;
+    _state = HealthAuthState.unknown;
+  }
+
+  @override
+  Future<HealthAuthState> requestAuthorization() async => _state;
+
+  @override
+  Future<HealthSnapshot?> readSnapshot() async => null;
+
+  @override
+  Future<bool> writeWeight(double kg, DateTime when) async => false;
+
+  @override
+  Future<List<WeightSample>> readWeightSamples({
+    required DateTime from,
+    required DateTime to,
+  }) async =>
+      const <WeightSample>[];
+
+  @override
+  Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
+}
+
+HomeStore _storeWith(
+  LocalCache cache, {
+  NotificationService? notifications,
+  HealthService? health,
+}) =>
     HomeStore(
       sync: null,
-      health: const NoopHealthService(),
+      health: health ?? const NoopHealthService(),
       notificationService: notifications ?? const NoopNotificationService(),
       initialUserName: 'Test',
       emitSnack: _noopSnack,
@@ -153,6 +198,36 @@ void main() {
     expect(await _storeWith(cache, notifications: spy).deleteAccount(), isTrue);
 
     expect(spy.cancelAllCalls, 1);
+  });
+
+  test(
+      'B3: signOutCleanup trennt Apple Health — sonst zeigt Nutzer B auf dem '
+      'geteilten Gerät As „Synchronisiert"', () async {
+    final health = _SpyHealthService();
+    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+    final store = _storeWith(cache, health: health);
+    expect(health.authState, HealthAuthState.granted,
+        reason: 'Ausgangslage: A ist verbunden');
+
+    await store.signOutCleanup();
+
+    expect(health.resetCalls, 1);
+    expect(health.authState, HealthAuthState.unknown);
+    expect(store.healthAuthState, HealthAuthState.unknown,
+        reason: 'der Store-Zustand speist die Profilkarte und muss mitziehen');
+  });
+
+  test(
+      'B3: deleteAccount trennt Apple Health — der Dialog verspricht '
+      '„unwiderruflich gelöscht"', () async {
+    final health = _SpyHealthService();
+    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+    final store = _storeWith(cache, health: health);
+
+    expect(await store.deleteAccount(), isTrue);
+
+    expect(health.resetCalls, 1);
+    expect(store.healthAuthState, HealthAuthState.unknown);
   });
 
   test('signOutCleanup ist ohne Cache ein gefahrloses No-Op', () async {

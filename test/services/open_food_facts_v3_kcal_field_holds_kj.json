@@ -1,0 +1,35 @@
+{
+  "code": "7622210449283",
+  "errors": [],
+  "product": {
+    "brands": "Milka",
+    "code": "7622210449283",
+    "generic_name": "Butterkeks mit Alpenmilchschokolade",
+    "nutriments": {
+      "carbohydrates_100g": 62.0,
+      "energy": 2180,
+      "energy-kcal": 2180,
+      "energy-kcal_100g": 2180,
+      "energy-kcal_unit": "kcal",
+      "energy-kcal_value": 2180,
+      "energy_100g": 2180,
+      "energy_unit": "kcal",
+      "fat_100g": 26.0,
+      "proteins_100g": 6.1,
+      "salt_100g": 0.62,
+      "sugars_100g": 36.0
+    },
+    "nutrition_data_per": "100g",
+    "product_name": "Choco Wafer",
+    "quantity": "180 g",
+    "serving_quantity": 30,
+    "serving_size": "30 g"
+  },
+  "result": {
+    "id": "product_found",
+    "lc_name": "Produkt gefunden",
+    "name": "Product found"
+  },
+  "status": "success",
+  "warnings": []
+}

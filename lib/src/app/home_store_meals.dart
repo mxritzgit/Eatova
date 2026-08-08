@@ -36,11 +36,15 @@ mixin _HomeStoreMealsPart
   /// (jetzt − 35 Tage), der Grenztag ist also nur PARTIELL geladen — er
   /// zaehlt deshalb bewusst als „ausserhalb" und wird on-demand vollstaendig
   /// nachgeladen (der Merge ist duplikat-sicher per id).
+  ///
+  /// B5: gerechnet in KALENDERTAGEN ([daysBetween]), nicht ueber
+  /// `.difference().inDays`. Letzteres ist Absolutzeit: in jedem Zeitraum, der
+  /// eine Fruehjahrsumstellung enthaelt, fehlt eine Stunde, der Randtag zaehlte
+  /// dadurch nur als 34 und galt faelschlich als „im Fenster geladen" — er
+  /// wurde nach jeder Umstellung fuer fuenf Wochen nie nachgeladen und blieb
+  /// dauerhaft leer.
   bool _isOutsideBootWindow(DateTime day) =>
-      DateUtils.dateOnly(DateTime.now())
-          .difference(DateUtils.dateOnly(day))
-          .inDays >=
-      MealsSync.loggedMealsWindowDays;
+      daysBetween(clock.now(), day) >= MealsSync.loggedMealsWindowDays;
 
   /// Laedt einen Alt-Tag (ausserhalb des Boot-Fensters) on-demand nach und
   /// merged ihn in [loggedMeals]. Pro Session genau einmal pro Tag
@@ -108,20 +112,20 @@ mixin _HomeStoreMealsPart
       loggedAt: _timestampForFoodDate(targetDate),
       forcedSlot: slot,
     );
-    final targetIsToday = _isSameFoodDate(targetDate, DateTime.now());
+    final targetIsToday = _isSameFoodDate(targetDate, clock.now());
     HapticFeedback.lightImpact();
     _mutate(() {
       lifetimeStats = lifetimeStats.incrementMeals();
       if (targetIsToday) {
         // Logging-Streak: der heutige Log-Tag zaehlt sofort (optimistisch,
         // idempotent pro Tag). Nachtraege fuer vergangene Tage zaehlen nicht.
-        lifetimeStats = lifetimeStats.recordTrackedDay(DateTime.now());
+        lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
       }
       _rememberRecent(result);
       loggedMeals = [entry, ...loggedMeals];
       if (targetIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(DateTime.now());
-        macroProgress = macroProgressForFoodDate(DateTime.now());
+        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+        macroProgress = macroProgressForFoodDate(clock.now());
       }
     });
     if (targetIsToday) {
@@ -164,8 +168,8 @@ mixin _HomeStoreMealsPart
       nextMeals[index] = updated;
       loggedMeals = nextMeals;
       if (selectedFoodDateIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(DateTime.now());
-        macroProgress = macroProgressForFoodDate(DateTime.now());
+        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+        macroProgress = macroProgressForFoodDate(clock.now());
       }
     });
     _cacheLoggedMeals();
@@ -226,7 +230,7 @@ mixin _HomeStoreMealsPart
           localDay: targetKey,
         );
         dayChanged = true;
-        movedToToday = _isSameFoodDate(targetDay, DateTime.now());
+        movedToToday = _isSameFoodDate(targetDay, clock.now());
       }
     }
     if (result == null && slot == null && !dayChanged) return previous;
@@ -269,12 +273,12 @@ mixin _HomeStoreMealsPart
       next[index] = updated;
       next.sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
       loggedMeals = next;
-      dailyConsumedKcal = consumedKcalForFoodDate(DateTime.now());
-      macroProgress = macroProgressForFoodDate(DateTime.now());
+      dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+      macroProgress = macroProgressForFoodDate(clock.now());
       if (recordToday) {
         // Optimistisch wie beim frischen Log; der Server-Refresh via
         // _recordTrackingDay adoptiert danach die autoritative Zeile.
-        lifetimeStats = lifetimeStats.recordTrackedDay(DateTime.now());
+        lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
       }
     });
     _cacheLoggedMeals();
@@ -290,10 +294,15 @@ mixin _HomeStoreMealsPart
   }
 
   /// Deutsches Kurzlabel fuer den Zieltag der Verschiebe-Bestaetigung.
+  ///
+  /// B5: [daysBetween] statt `.difference().inDays` — ueber die
+  /// Fruehjahrsumstellung (23-Stunden-Tag) meldete die Absolutzeit-Rechnung 0
+  /// Tage fuer den Vortag, die Bestaetigung behauptete also „auf heute
+  /// verschoben", waehrend die Mahlzeit auf gestern lag.
   String _moveDayLabel(DateTime day) {
-    final today = DateUtils.dateOnly(DateTime.now());
+    final today = DateUtils.dateOnly(clock.now());
     final target = DateUtils.dateOnly(day);
-    final offset = today.difference(target).inDays;
+    final offset = daysBetween(today, target);
     if (offset == 0) return 'heute';
     if (offset == 1) return 'gestern';
     return 'den ${target.day}.${target.month}.';
@@ -306,8 +315,8 @@ mixin _HomeStoreMealsPart
     _mutate(() {
       loggedMeals = loggedMeals.where((m) => m.id != id).toList();
       if (selectedFoodDateIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(DateTime.now());
-        macroProgress = macroProgressForFoodDate(DateTime.now());
+        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+        macroProgress = macroProgressForFoodDate(clock.now());
       }
     });
     _cacheLoggedMeals();
@@ -326,8 +335,8 @@ mixin _HomeStoreMealsPart
     _mutate(() {
       loggedMeals = [meal, ...loggedMeals];
       if (selectedFoodDateIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(DateTime.now());
-        macroProgress = macroProgressForFoodDate(DateTime.now());
+        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+        macroProgress = macroProgressForFoodDate(clock.now());
       }
     });
     _cacheLoggedMeals();
@@ -352,7 +361,7 @@ mixin _HomeStoreMealsPart
     final entry = FavoriteMeal(
       id: id,
       result: result,
-      addedAt: DateTime.now(),
+      addedAt: clock.now(),
       pinned: wasPinned,
     );
     favorites =
@@ -409,7 +418,7 @@ mixin _HomeStoreMealsPart
       final entry = existing.isNotEmpty
           ? existing.first.copyWith(pinned: true)
           : FavoriteMeal(
-              id: id, result: result, addedAt: DateTime.now(), pinned: true);
+              id: id, result: result, addedAt: clock.now(), pinned: true);
       _mutate(() {
         favorites = [entry, ...favorites.where((f) => f.id != id)];
       });

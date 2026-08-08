@@ -5,7 +5,10 @@ part of 'home_store.dart';
 /// (record_tracking_day). Reine Datei-Aufteilung — Verhalten und Member sind
 /// 1:1 aus home_store.dart uebernommen.
 mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
-  HealthAuthState healthAuthState = HealthAuthState.unknown;
+  // healthAuthState liegt in _HomeStoreBase neben dailySteps: der Logout-Pfad
+  // in _HomeStoreSyncPart muss es beim Nutzerwechsel zuruecksetzen (B3), und
+  // dieser Mixin haengt VON Sync ab, nicht umgekehrt — Sync saehe ein Feld
+  // hier also nie.
   DateTime? healthLastFetch;
   bool healthSyncing = false;
 
@@ -38,11 +41,20 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (_disposed) return;
     _mutate(() {
       healthSyncing = false;
+      // B3 (Uebergabe W2-04): der Service verifiziert die Berechtigung bei
+      // JEDEM Refresh neu und kann von granted auf unverified/denied
+      // zurueckfallen. Den Zustand deshalb in BEIDEN Zweigen adoptieren statt
+      // ihn nur bei Erfolg auf `granted` hochzustufen — sonst behauptet die
+      // Profilkarte weiter „Synchronisiert", waehrend readSnapshot() dauerhaft
+      // null liefert und der Ring mit 0 verbrannten kcal rechnet.
+      healthAuthState = health.authState;
       if (snapshot != null) {
         dailySteps = snapshot.stepsToday;
         healthLastFetch = snapshot.fetchedAt;
-        healthAuthState = HealthAuthState.granted;
       }
+      // Kein `else { dailySteps = 0; }`: ein nicht-verifizierter Zustand
+      // liefert seit B3 null statt „0 Schritte" — der zuletzt gemessene Wert
+      // ist dann die bessere Auskunft als eine erfundene Null.
     });
     // Gewichts-Import-Pfad: das Snapshot-Gewicht nicht laenger wegwerfen,
     // sondern (dedupliziert) zum Uebernehmen anbieten.
@@ -100,7 +112,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// User-Tap (Snack-Aktion) ausgeloest, die Bestaetigung ist also konsistent.
   void _logWeightInternal(double kg, {required bool writeToHealth}) {
     HapticFeedback.lightImpact();
-    final ts = DateTime.now();
+    final ts = clock.now();
     _mutate(() {
       weightLog = weightLog.add(kg);
       lifetimeStats = lifetimeStats.incrementWeightLogs();
@@ -143,7 +155,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   void _recordTrackingDay({DateTime? day}) {
     final s = sync;
     if (s == null) return;
-    s.lifetimeStats.recordTrackingDay(day ?? DateTime.now()).then((fresh) {
+    s.lifetimeStats.recordTrackingDay(day ?? clock.now()).then((fresh) {
       if (_disposed) return;
       _mutate(() => lifetimeStats = fresh);
       _cacheLifetimeStats();

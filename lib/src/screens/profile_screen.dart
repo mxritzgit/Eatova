@@ -235,9 +235,13 @@ class ProfileScreen extends StatelessWidget {
     buffer
       ..writeln('  ],')
       ..writeln('  "stats": {')
-      ..writeln('    "workouts": ${stats.workoutsCompleted},')
+      // C7: "workouts" und "waterMl" sind seit a267e15 tote Zaehler — ihre
+      // Mutatoren wurden mit dem Training- und dem Heute-Tab entfernt, sie
+      // stehen dauerhaft auf 0. Ein Export, der dem Nutzer "0 Trainings"
+      // meldet, behauptet etwas ueber ein Feature, das es nicht gibt.
+      // Die Spalten bleiben in der DB und im Modell (Wire-Kompatibilitaet),
+      // nur der Export liest sie nicht mehr.
       ..writeln('    "meals": ${stats.mealsLogged},')
-      ..writeln('    "waterMl": ${stats.waterTotalMl},')
       ..writeln('    "weightLogs": ${stats.weightLogs}')
       ..writeln('  }')
       ..writeln('}');

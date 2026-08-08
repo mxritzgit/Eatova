@@ -64,10 +64,35 @@ extension DietPreferenceInfo on DietPreference {
       };
 }
 
+/// Energiegehalt von einem Kilogramm Körpermasse (Faustregel nach Wishnofsky).
+///
+/// **Einzige Quelle** für die Umrechnung kcal ↔ kg im Projekt: sowohl
+/// [WeightGoalInfo.weeklyRateKg] (das *versprochene* Tempo) als auch
+/// `KcalTargets.effectiveWeeklyRateKg` (das *tatsächlich erreichbare*) rechnen
+/// hierüber. Zwei verschiedene Zahlen an zwei Stellen waren genau der Kern von
+/// B2 (docs/REVIEW-2026-08-08.md).
+const int kcalPerKgBodyMass = 7700;
+
+/// Unterhalb dieser Wochenrate ist eine Differenz reines Rundungsrauschen.
+///
+/// `KcalCalculator` rundet das Tagesziel auf 50 kcal — das verschiebt die
+/// Rate um bis zu 25 kcal/Tag ≙ 0,023 kg/Woche. 0,05 kg/Woche (≙ 55 kcal/Tag)
+/// liegt sicher darüber und zugleich weit unter dem kleinsten echten Tempo
+/// ([WeightGoal.lose025kg] = 0,25 kg/Woche). Wird für drei Entscheidungen
+/// benutzt: „Gewicht stabil"-Label, „Versprechen gehalten?" und „Prognose
+/// überhaupt sinnvoll?".
+const double weeklyRateNoiseKg = 0.05;
+
 /// Gewichtsziel des Users — als wöchentliche Rate gedacht (kg/Woche). Bestimmt
 /// den kcal-Auf-/Abschlag auf den Erhaltungsbedarf (BMR × Aktivitäts-PAL).
 /// Schritte werden davon getrennt als "Verbrannt" angerechnet — siehe
 /// [KcalCalculator]. Annahme: ~7700 kcal pro kg → 1100 kcal/Tag ≙ 1 kg/Woche.
+///
+/// **Achtung:** Das hier ist der *Wunsch*. Ob er erreichbar ist, entscheidet
+/// erst `KcalCalculator.calculate` — die Sicherheitsgrenze von 1200 kcal kappt
+/// das Defizit für die Mehrheit der sitzenden Nutzer. Für alles, was dem
+/// Nutzer ein Tempo oder einen Zeitraum *anzeigt*, ist
+/// `KcalTargets.effectiveWeeklyRateKg` die richtige Größe, nicht [kcalDelta].
 enum WeightGoal {
   lose1kg,
   lose075kg,
@@ -108,7 +133,12 @@ extension WeightGoalInfo on WeightGoal {
   bool get isGain => kcalDelta > 0;
 
   /// Wöchentliche kg-Veränderung (≈ 7700 kcal pro kg). Vorzeichenlos.
-  double get weeklyRateKg => kcalDelta.abs() * 7 / 7700;
+  double get weeklyRateKg => kcalDelta.abs() * 7 / kcalPerKgBodyMass;
+
+  /// Dieselbe Rate mit Vorzeichen: negativ beim Abnehmen, positiv beim
+  /// Zunehmen. Gegenstück zu `KcalTargets.effectiveWeeklyRateKg`, damit sich
+  /// Versprechen und Wirklichkeit direkt vergleichen lassen.
+  double get signedWeeklyRateKg => kcalDelta * 7 / kcalPerKgBodyMass;
 
   /// Richtungs-Label ohne Tempo.
   String get label {
@@ -117,11 +147,12 @@ extension WeightGoalInfo on WeightGoal {
   }
 
   /// Vorzeichenbehaftetes Tempo, z.B. "−1 kg/Woche", "+0,5 kg/Woche".
-  String get paceLabel {
-    if (kcalDelta == 0) return 'Gewicht stabil';
-    final sign = isGain ? '+' : '−';
-    return '$sign${_formatRateKg(weeklyRateKg)} kg/Woche';
-  }
+  ///
+  /// Das ist das **gewählte** Tempo — für Picker und Menüs richtig. Wo ein
+  /// konkretes Profil im Spiel ist (Plan-Karten, Zusammenfassungen), gehört
+  /// `KcalTargets.effectivePaceLabel` hin: nur das kennt die
+  /// Sicherheitsgrenze.
+  String get paceLabel => paceLabelForWeeklyRateKg(signedWeeklyRateKg);
 
   /// Kombiniertes Menü-Label, z.B. "Abnehmen · −1 kg/Woche".
   String get menuLabel =>
@@ -135,13 +166,34 @@ extension WeightGoalInfo on WeightGoal {
   }
 }
 
-/// Formatiert eine kg-Rate deutsch: 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75".
+/// Label für eine **tatsächliche** Wochenrate (vorzeichenbehaftet, negativ =
+/// abnehmen), z.B. −0,7245 → "−0,72 kg/Woche".
+///
+/// Alles unterhalb von [weeklyRateNoiseKg] heißt "Gewicht stabil" — sonst
+/// würde die 50er-Rundung des Tagesziels beim Ziel „halten" ein Tempo von
+/// "+0 kg/Woche" ausweisen. Nicht-endliche Werte können hier nicht ankommen
+/// (die Rate entsteht aus zwei Ganzzahlen), werden aber trotzdem abgefangen,
+/// damit kein "NaN kg/Woche" in ein Widget gelangt.
+String paceLabelForWeeklyRateKg(double signedRateKg) {
+  if (!signedRateKg.isFinite || signedRateKg.abs() < weeklyRateNoiseKg) {
+    return 'Gewicht stabil';
+  }
+  final sign = signedRateKg > 0 ? '+' : '−';
+  return '$sign${_formatRateKg(signedRateKg.abs())} kg/Woche';
+}
+
+/// Formatiert eine kg-Rate deutsch auf höchstens zwei Nachkommastellen:
+/// 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.7245 → "0,72".
+///
+/// Erwartet einen vorzeichenlosen Wert; das Vorzeichen setzt der Aufrufer.
+/// Erst runden, dann formatieren: `1.0009.toStringAsFixed(2)` ergibt "1.00",
+/// und das alte Abschneiden der Nullen hätte daraus "1," gemacht.
 String _formatRateKg(double kg) {
-  if (kg == kg.roundToDouble()) return kg.toStringAsFixed(0);
-  return kg
-      .toStringAsFixed(2)
-      .replaceAll(RegExp(r'0+$'), '')
-      .replaceAll('.', ',');
+  final gerundet = (kg.abs() * 100).round() / 100;
+  if (gerundet == gerundet.roundToDouble()) return gerundet.toStringAsFixed(0);
+  var text = gerundet.toStringAsFixed(2);
+  if (text.endsWith('0')) text = text.substring(0, text.length - 1);
+  return text.replaceAll('.', ',');
 }
 
 class UserProfile {

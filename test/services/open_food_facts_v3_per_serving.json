@@ -1,0 +1,28 @@
+{
+  "code": "4009233003204",
+  "errors": [],
+  "product": {
+    "brands": "Dr. Oetker",
+    "code": "4009233003204",
+    "generic_name": "Tiefkühlpizza",
+    "nutriments": {
+      "carbohydrates_value": 96.0,
+      "energy-kcal": 900,
+      "energy-kcal_unit": "kcal",
+      "energy-kcal_value": 900,
+      "fat_value": 33.0,
+      "proteins_value": 38.0
+    },
+    "nutrition_data_per": "serving",
+    "product_name": "Ristorante Pizza Salame",
+    "quantity": "330 g",
+    "serving_size": "1 Pizza"
+  },
+  "result": {
+    "id": "product_found",
+    "lc_name": "Produkt gefunden",
+    "name": "Product found"
+  },
+  "status": "success",
+  "warnings": []
+}

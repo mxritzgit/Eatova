@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as dev;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -13,6 +14,7 @@ import '../models/meal_analysis_result.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
+import '../services/day_math.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
@@ -46,6 +48,30 @@ typedef SnackEmitter = void Function(
   SnackBarAction? action,
 });
 
+/// Absolutzeit-Abstand von [now] bis zum Beginn des naechsten Kalendertages in
+/// der lokalen Zone — die Wartezeit fuer den Mitternachts-Timer (B4).
+///
+/// Die naechste Mitternacht liegt NICHT immer 24 Stunden entfernt, deshalb
+/// laeuft die Zielbestimmung ueber [addDays] (Kalenderarithmetik) und nicht
+/// ueber `Duration(days: 1)`. Nachgerechnet in Europe/Berlin:
+///
+/// ```text
+/// DateTime(2026, 3, 29).add(Duration(days: 1)) -> 2026-03-30 01:00  // 1 h zu spaet
+/// DateTime(2026,10, 25).add(Duration(days: 1)) -> 2026-10-25 23:00  // in der Vergangenheit
+/// ```
+///
+/// Der zweite Fall waere fatal: ab 23:00 des 25.10. haette der sich selbst neu
+/// setzende Timer eine nicht-positive Restdauer bekommen und in einer
+/// Endlosschleife gefeuert. Die Dauer BIS zum berechneten Kalender-Ziel ist
+/// dagegen bewusst wieder Absolutzeit — genau die will ein Timer.
+Duration durationUntilNextLocalMidnight(DateTime now) {
+  final delta = addDays(startOfDay(now), 1).difference(now);
+  // Defensiv fuer Zonen, die um Mitternacht umstellen (dort normalisiert
+  // startOfDay auf den ersten existierenden Moment des Tages): nie <= 0
+  // liefern, sonst laeuft der Timer trotzdem heiss.
+  return delta > Duration.zero ? delta : const Duration(minutes: 1);
+}
+
 /// Gemeinsamer Kern der [HomeStore]-Parts: Konstruktor-Dependencies, der von
 /// mehreren Parts geteilte State sowie die kleinen puren Helfer/Sichten
 /// darauf. Die Part-Mixins haengen per `on`-Klausel hieran (bzw. aneinander),
@@ -77,7 +103,11 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   int selectedTab = 0;
   int dailyConsumedKcal = 0;
   int dailySteps = 0;
-  DateTime selectedFoodDate = DateUtils.dateOnly(DateTime.now());
+  // Gehoert hierher und nicht in _HomeStoreTrackingPart: der Logout-Pfad in
+  // _HomeStoreSyncPart setzt es beim Nutzerwechsel zurueck (B3), und Tracking
+  // haengt von Sync ab, nicht umgekehrt.
+  HealthAuthState healthAuthState = HealthAuthState.unknown;
+  DateTime selectedFoodDate = DateUtils.dateOnly(clock.now());
   UserProfile profile = const UserProfile();
   MacroProgress macroProgress = MacroProgress.empty;
   List<FavoriteMeal> favorites = <FavoriteMeal>[];
@@ -89,6 +119,18 @@ abstract class _HomeStoreBase extends ChangeNotifier {
 
   LocalCache? _cache;
   bool _hydratedFromRealSource = false;
+
+  /// B4: der Kalendertag, den der Store zuletzt als „heute" gesehen hat.
+  ///
+  /// Referenzpunkt fuer [HomeStore.maybeRollOverToToday]: nur wenn
+  /// [selectedFoodDate] auf GENAU diesem Tag steht, war die Auswahl der bis
+  /// eben aktuelle Tag und darf mitwandern. Ein bewusst aufgeschlagener
+  /// Archivtag steht nie darauf und bleibt deshalb stehen.
+  ///
+  /// Bewusst ein Datum statt eines „folgt heute"-Flags: ein Flag muessten alle
+  /// Schreiber von [selectedFoodDate] mitpflegen — auch `_clearTodayState` im
+  /// Profil-Part. Der Datumsvergleich kommt ohne diese Kooperation aus.
+  DateTime _lastKnownToday = DateUtils.dateOnly(clock.now());
 
   // --- Read-only Sichten fuer die UI-Schale --------------------------------
   List<FitnessRecipe> get userRecipes => _userRecipes;
@@ -130,7 +172,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// gekürzte Liste.
   String? _todaysFoodSummary() {
     const maxFoods = 10;
-    final meals = mealsForFoodDate(DateTime.now());
+    final meals = mealsForFoodDate(clock.now());
     if (meals.isEmpty) return null;
     final shown = meals.take(maxFoods).map((m) {
       final raw = m.result.mealName.trim();
@@ -144,7 +186,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   }
 
   bool get selectedFoodDateIsToday =>
-      _isSameFoodDate(selectedFoodDate, DateTime.now());
+      _isSameFoodDate(selectedFoodDate, clock.now());
 
   // Reine Aggregation lebt in services/meal_totals.dart (unit-getestet) — hier
   // nur dünne Wrapper, die den aktuellen loggedMeals-Stand binden.
@@ -168,7 +210,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   bool _isSameFoodDate(DateTime a, DateTime b) => DateUtils.isSameDay(a, b);
 
   DateTime _timestampForFoodDate(DateTime date) {
-    final now = DateTime.now();
+    final now = clock.now();
     final day = DateUtils.dateOnly(date);
     return DateTime(day.year, day.month, day.day, now.hour, now.minute);
   }
@@ -232,6 +274,12 @@ class HomeStore extends _HomeStoreBase
     // NACH dem sync-Guard, damit Test/Preview weder SharedPreferences noch
     // Supabase anfassen.
     unawaited(SearchCredentialsStore.instance.warmUp());
+    // B4: Mitternachts-Timer fuer die geoeffnete App. Ebenfalls bewusst NACH
+    // dem sync-Guard — dieselbe Grenze, die Boot/Hydration ziehen: eine
+    // Preview-/Test-Instanz ohne Sync soll keine langlaufenden Timer hinter
+    // sich herziehen. Der Resume-Pfad ([maybeRollOverToToday]) greift dort
+    // trotzdem, er haengt an keinem Timer.
+    _scheduleMidnightRollover();
     unawaited(_hydrateThenBoot());
   }
 
@@ -267,7 +315,7 @@ class HomeStore extends _HomeStoreBase
   Future<void> _hydrateFromCache() async {
     final cache = _cache;
     if (cache == null) return;
-    final today = DateTime.now();
+    final today = clock.now();
     UserProfile? cachedProfile;
     LifetimeStats? cachedStats;
     List<LoggedMeal>? cachedMeals;
@@ -340,7 +388,7 @@ class HomeStore extends _HomeStoreBase
 
   Future<void> _bootFromSupabase() async {
     final s = sync!;
-    final today = DateTime.now();
+    final today = clock.now();
     final results = await Future.wait<Object?>([
       _safeLoad('boot-profile', () => s.profile.load()),
       _safeLoad('boot-meals', () => s.meals.loadLoggedMeals()),
@@ -430,11 +478,98 @@ class HomeStore extends _HomeStoreBase
     }
   }
 
+  // --- Tageswechsel (B4) ----------------------------------------------------
+
+  /// Sicherheitsaufschlag auf die Timer-Wartezeit: der Callback soll sicher
+  /// NACH Mitternacht laufen und nicht in der letzten Millisekunde davor
+  /// (Timer-Drift/Rundung wuerden sonst zu einem No-op fuehren, der sich
+  /// sofort erneut auf dieselbe Sekunde setzt).
+  static const Duration _midnightSafetyMargin = Duration(seconds: 2);
+
+  /// Einmaliger Timer auf die naechste lokale Mitternacht — kein
+  /// `Timer.periodic` (repo-weit gibt es keinen einzigen, und ein 24-h-Raster
+  /// liefe ueber jede Sommerzeit-Umstellung aus dem Tritt). Der Callback setzt
+  /// den Timer selbst neu.
+  Timer? _midnightTimer;
+
+  /// Laeuft der Mitternachts-Timer gerade? Nur fuer Tests — die Produktion
+  /// interessiert sich nicht dafuer.
+  @visibleForTesting
+  bool get debugMidnightTimerIsActive => _midnightTimer?.isActive ?? false;
+
+  /// B4: rueckt den Store auf den heutigen Kalendertag vor, wenn seit dem
+  /// letzten Blick auf die Uhr Mitternacht vergangen ist. Liefert `true`, wenn
+  /// ein Tageswechsel verarbeitet wurde (sonst `false`, ohne jede Mutation).
+  ///
+  /// Zwei Aufrufer, weil einer nicht reicht:
+  ///  * der Mitternachts-Timer, solange die App offen liegt,
+  ///  * `didChangeAppLifecycleState(resumed)` in `eatova_home_page.dart` — eine
+  ///    im Hintergrund suspendierte App bekommt keinen Timer-Tick, der Wechsel
+  ///    faellt dort sonst komplett aus.
+  ///
+  /// [selectedFoodDate] wandert NUR mit, wenn sie exakt auf dem bis eben
+  /// aktuellen Tag stand ([_lastKnownToday]). Ein bewusst aufgeschlagener
+  /// Archivtag bleibt stehen — sonst spraenge dem Nutzer die Ansicht unter den
+  /// Fingern weg.
+  ///
+  /// [dailyConsumedKcal] und [macroProgress] werden dagegen IMMER neu
+  /// gerechnet, auch auf einem Archivtag: sie beschreiben stets HEUTE, nicht
+  /// [selectedFoodDate]. Genau daran haengen die Profil-Kacheln und
+  /// [coachContext] — ohne den Neuaufbau behauptete der Coach nach dem
+  /// Tageswechsel „Heute gegessen: 2100 kcal" zu einer leeren Essensliste.
+  ///
+  /// [dailySteps] bleibt bewusst unberuehrt: der Schrittstand gehoert dem
+  /// Health-Pfad, und `readSnapshot()` liefert im nicht-verifizierten Zustand
+  /// seit B3 `null` statt „0 Schritte" — eine hier zementierte Null waere die
+  /// schlechtere Auskunft als der letzte gemessene Wert. Der Resume ruft
+  /// ohnehin `refreshHealthSteps()`.
+  bool maybeRollOverToToday() {
+    if (_disposed) return false;
+    final today = DateUtils.dateOnly(clock.now());
+    final previousToday = _lastKnownToday;
+    if (_isSameFoodDate(previousToday, today)) return false;
+
+    final folgteHeute = _isSameFoodDate(selectedFoodDate, previousToday);
+    _lastKnownToday = today;
+    _mutate(() {
+      if (folgteHeute) selectedFoodDate = today;
+      dailyConsumedKcal = consumedKcalForFoodDate(today);
+      macroProgress = macroProgressForFoodDate(today);
+    });
+    // Ein Suspend haelt Timer an; nach einem verarbeiteten Wechsel steht der
+    // Timer also womoeglich auf einer laengst vergangenen Mitternacht. Neu
+    // setzen — aber nur, wenn er ueberhaupt armiert ist, damit ein Resume in
+    // einer Instanz ohne Sync keinen Timer aus dem Nichts erzeugt.
+    if (_midnightTimer != null) _scheduleMidnightRollover();
+    return true;
+  }
+
+  void _scheduleMidnightRollover() {
+    _midnightTimer?.cancel();
+    _midnightTimer = null;
+    if (_disposed) return;
+    _midnightTimer = Timer(
+      durationUntilNextLocalMidnight(clock.now()) + _midnightSafetyMargin,
+      () {
+        // Vor dem Rollover leeren: [maybeRollOverToToday] setzt den Timer nur
+        // neu, wenn er noch armiert ist — hier zieht ihn stattdessen die
+        // Zeile darunter nach, unabhaengig davon, ob es einen Wechsel gab
+        // (z.B. wenn der Timer eine Sekunde zu frueh gefeuert hat).
+        _midnightTimer = null;
+        if (_disposed) return;
+        maybeRollOverToToday();
+        _scheduleMidnightRollover();
+      },
+    );
+  }
+
   @override
   void dispose() {
     _disposed = true;
     _statsSaveDebounce?.cancel();
     _outboxRetryTimer?.cancel();
+    _midnightTimer?.cancel();
+    _midnightTimer = null;
     sync?.dispose();
     super.dispose();
   }

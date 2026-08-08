@@ -158,21 +158,43 @@ void main() {
     const calc = KcalCalculator();
     const base = UserProfile();
 
-    test('projects weeks from weight gap and goal pace', () {
-      // 78 → 68 kg = 10 kg bei −0,5 kg/Woche → 20 Wochen.
+    test('Prognose folgt der EFFEKTIVEN Rate, nicht dem Wunsch-Delta', () {
+      // B2: Frueher wurde stur `kcalDelta / 7700` gerechnet — also das
+      // Tempo, das der Nutzer gewaehlt hat, nicht das, was sein Tagesziel
+      // hergibt.
+      //
+      // 78 → 68 kg = 10 kg. Erhaltung 1997.
+      //   −0,5 kg/Woche → Ziel 1450 kcal (50er-Rundung) → real 547 kcal/Tag
+      //     ≙ 0,4973 kg/Woche → 10 / 0,4973 = 20,1 → 21 Wochen (frueher 20).
       final profile = base.copyWith(
         targetWeightKg: 68,
         weightGoal: WeightGoal.lose05kg,
       );
-      expect(calc.weeksToGoal(profile), 20);
+      expect(calc.weeksToGoal(profile), 21);
 
-      // Bei −1 kg/Woche entsprechend halb so lang.
+      // −1 kg/Woche waere 897 kcal; die Untergrenze hebt auf 1200 an. Real
+      // bleiben 797 kcal/Tag ≙ 0,7245 kg/Woche → 13,8 → 14 Wochen
+      // (frueher versprach die App 10).
       expect(
         calc.weeksToGoal(base.copyWith(
           targetWeightKg: 68,
           weightGoal: WeightGoal.lose1kg,
         )),
-        10,
+        14,
+      );
+    });
+
+    test('gleiches Tagesziel ⇒ gleiche Prognose (lose075kg vs. lose1kg)', () {
+      // Beide Tempi landen fuer dieses Profil auf 1200 kcal. Zwei
+      // verschiedene Wochenzahlen fuer denselben Plan waren der Kern von B2.
+      final ziel = base.copyWith(targetWeightKg: 68);
+      expect(
+        calc.calculate(ziel.copyWith(weightGoal: WeightGoal.lose1kg)).kcal,
+        calc.calculate(ziel.copyWith(weightGoal: WeightGoal.lose075kg)).kcal,
+      );
+      expect(
+        calc.weeksToGoal(ziel.copyWith(weightGoal: WeightGoal.lose1kg)),
+        calc.weeksToGoal(ziel.copyWith(weightGoal: WeightGoal.lose075kg)),
       );
     });
 
