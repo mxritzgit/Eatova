@@ -88,6 +88,9 @@ function installFetch(options: StubOptions = {}) {
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) {
       return jsonRes(options.quotaBody ?? [{ used: 1, remaining: 4 }]);
     }
+    if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
+      return new Response(null, { status: 204 });
+    }
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;
       if (parsed.max_tokens === 50) {
@@ -190,6 +193,8 @@ Deno.test("E10: der Erfolgs-Response traegt daily_limit (Client rechnet sonst ge
     assertEquals(res.status, 200, "Status");
     assertEquals(typeof body.daily_limit, "number", "daily_limit ist eine Zahl");
     assertEquals(body.remaining, 4, "remaining aus dem RPC");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0,
+      "im Erfolgsfall wird NICHT refundiert — sonst waere das Limit wirkungslos");
   } finally {
     stub.restore();
   }
@@ -209,6 +214,9 @@ Deno.test("E2: Provider-Fehler -> ehrlicher 502 statt erfundener Coach-Antwort m
     // Die User-Message ist gespeichert (sie ist echt), aber KEINE erfundene
     // Assistant-Zeile.
     assertEquals(stub.postsTo("chat_messages").length, 1, "nur die User-Message persistiert");
+    // Migrations-Runde: der geclaimte Slot wird zurueckgegeben — ein Abend
+    // mit Provider-Ausfall darf nicht alle Tages-Slots verbrennen.
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Slot refundiert");
   } finally {
     stub.restore();
   }
@@ -269,6 +277,8 @@ Deno.test("E5: User-Message nicht speicherbar -> Fehler statt Antwort auf eine N
       stub.calls.every((c) => !c.url.includes("openrouter.ai") || JSON.parse(c.body).max_tokens === 50),
       "kein teurer Answer-Call fuer eine Nachricht, die nicht persistiert ist",
     );
+    // Migrations-Runde: auch hier geht der geclaimte Slot zurueck.
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Slot refundiert");
   } finally {
     stub.restore();
   }
