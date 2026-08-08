@@ -113,6 +113,43 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  Future<void> _forgotPassword() async {
+    final email = _emailController.text.trim();
+    setState(() {
+      _error = null;
+      _message = null;
+    });
+    if (!email.contains('@') || !email.contains('.')) {
+      setState(() => _error =
+          'Gib oben deine E-Mail ein, dann schicken wir dir einen Reset-Link.');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await widget.authRepository.sendPasswordReset(email);
+    } catch (error) {
+      // Auch der Fehlerfall bleibt neutral formuliert — nur echte
+      // Infrastruktur-Probleme (offline) unterscheiden sich fuer den Nutzer
+      // sichtbar von „Mail ist unterwegs".
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = _friendlyError(error);
+      });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      // Bewusst NEUTRAL: ob zur E-Mail ein Konto existiert (oder ein reines
+      // Google-Konto ohne Passwort), verraet die App nicht —
+      // Konto-Enumeration. Google-Konten melden sich weiter ueber Google an.
+      _message = 'Falls ein Konto mit dieser E-Mail existiert, ist gerade '
+          'eine Mail mit dem Reset-Link unterwegs. Google-Konten haben kein '
+          'Passwort — dort meldest du dich einfach wieder mit Google an.';
+    });
+  }
+
   String _friendlyError(Object error) {
     final raw = error.toString().toLowerCase();
     if (raw.contains('invalid login') || raw.contains('invalid credentials')) {
@@ -198,6 +235,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       onTogglePassword: () =>
                           setState(() => _passwordVisible = !_passwordVisible),
                       onSubmit: _submit,
+                      onForgotPassword: _forgotPassword,
                     ),
                     const SizedBox(height: 14),
                     _ModeToggle(
@@ -473,6 +511,7 @@ class _EmailForm extends StatelessWidget {
     required this.message,
     required this.onTogglePassword,
     required this.onSubmit,
+    required this.onForgotPassword,
   });
 
   final bool isRegister;
@@ -486,6 +525,7 @@ class _EmailForm extends StatelessWidget {
   final String? message;
   final VoidCallback onTogglePassword;
   final VoidCallback onSubmit;
+  final VoidCallback onForgotPassword;
 
   @override
   Widget build(BuildContext context) {
@@ -555,6 +595,30 @@ class _EmailForm extends StatelessWidget {
             ),
           ),
         ),
+        if (!isRegister) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: GestureDetector(
+              key: const ValueKey('auth-forgot-password'),
+              onTap: busy ? null : onForgotPassword,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                child: Text(
+                  'Passwort vergessen?',
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    decorationColor: textMuted.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
         if (error != null) ...[
           const SizedBox(height: 14),
           _InlineNote(text: error!, isError: true),

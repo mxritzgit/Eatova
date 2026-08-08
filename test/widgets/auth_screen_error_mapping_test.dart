@@ -15,6 +15,15 @@ class _CancelingAuthRepository implements AuthRepository {
   Stream<EatovaUser?> get authStateChanges => const Stream.empty();
 
   @override
+  Future<void> sendPasswordReset(String email) => throw UnimplementedError();
+
+  @override
+  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+
+  @override
+  Future<void> updatePassword(String newPassword) => throw UnimplementedError();
+
+  @override
   Future<void> signIn({required String email, required String password}) =>
       throw UnimplementedError();
 

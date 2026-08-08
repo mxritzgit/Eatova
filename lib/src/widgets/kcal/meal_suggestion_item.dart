@@ -183,23 +183,23 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     // haelt also nie ein veraltetes Ergebnis.
     final angepasst = _adjusted;
 
+    // Soft-Kapsel statt Akzent-Rahmen (Design-Vorgabe „keine Hairlines"):
+    // aufgeklappt hebt sich die Karte ueber Flaechen-Aufhellung + cardShadow
+    // und einen weichen Akzent-Schein ab — nicht ueber eine 1.2-px-Linie.
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: widget.expanded ? surface : surfaceSoft,
+        color: widget.expanded
+            ? Color.alphaBlend(Colors.white.withValues(alpha: 0.035), surface)
+            : surfaceSoft,
         borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(
-          color: widget.expanded
-              ? widget.accent.withValues(alpha: 0.55)
-              : Colors.transparent,
-          width: widget.expanded ? 1.2 : 0,
-        ),
         boxShadow: widget.expanded
             ? [
+                ...cardShadow,
                 BoxShadow(
-                  color: widget.accent.withValues(alpha: 0.08),
-                  blurRadius: 14,
+                  color: widget.accent.withValues(alpha: 0.10),
+                  blurRadius: 18,
                   offset: const Offset(0, 6),
                 ),
               ]
@@ -498,12 +498,13 @@ class _ExpandedBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Divider(color: hairline, height: 12),
+          const SizedBox(height: 4),
           Row(
             children: [
               _StepperButton(
                 icon: Icons.remove_rounded,
                 semanticLabel: 'Menge verringern',
+                accent: accent,
                 onTap: () => onBump(-step),
                 onLongPress: () => onBump(-step * 5),
               ),
@@ -518,6 +519,7 @@ class _ExpandedBody extends StatelessWidget {
               _StepperButton(
                 icon: Icons.add_rounded,
                 semanticLabel: 'Menge erhöhen',
+                accent: accent,
                 onTap: () => onBump(step),
                 onLongPress: () => onBump(step * 5),
               ),
@@ -543,7 +545,7 @@ class _ExpandedBody extends StatelessWidget {
               inactiveTrackColor: hairline,
               thumbColor: accent,
               overlayColor: accent.withValues(alpha: 0.15),
-              trackHeight: 3,
+              trackHeight: 4,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
             ),
@@ -588,10 +590,13 @@ class _ExpandedBody extends StatelessWidget {
   }
 }
 
+/// Runde Soft-Kapsel statt Hairline-Quadrat: die Flaeche traegt den Knopf,
+/// das Icon traegt den Akzent. Kein Rahmen (Design-Vorgabe).
 class _StepperButton extends StatelessWidget {
   const _StepperButton({
     required this.icon,
     required this.semanticLabel,
+    required this.accent,
     required this.onTap,
     required this.onLongPress,
   });
@@ -601,6 +606,7 @@ class _StepperButton extends StatelessWidget {
   /// A11y: das +/-Icon allein sagt einem Screenreader nichts.
   final String semanticLabel;
 
+  final Color accent;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
@@ -613,44 +619,76 @@ class _StepperButton extends StatelessWidget {
         onTap: onTap,
         onLongPress: onLongPress,
         child: Container(
-          width: 44,
-          height: 44,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
-            color: surfaceSoft,
-            borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: hairline),
+            color: Color.alphaBlend(
+                Colors.white.withValues(alpha: 0.05), surfaceSoft),
+            borderRadius: BorderRadius.circular(rPill),
           ),
-          child: Icon(icon, size: 20, color: textPrimary),
+          child: Icon(icon, size: 21, color: accent),
         ),
       ),
     );
   }
 }
 
-class _GramsField extends StatelessWidget {
+/// Rahmenlose Gramm-Kapsel nach dem Coach-Composer-Muster: kein Hairline,
+/// kein Fokusring — Fokus ist eine Flaechen-Aufhellung, die Zahl ist der
+/// Held (18 pt, tabular).
+class _GramsField extends StatefulWidget {
   const _GramsField({required this.controller, required this.onChanged});
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
 
   @override
+  State<_GramsField> createState() => _GramsFieldState();
+}
+
+class _GramsFieldState extends State<_GramsField> {
+  final FocusNode _focus = FocusNode();
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      if (_focused != _focus.hasFocus) {
+        setState(() => _focused = _focus.hasFocus);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 44,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOutCubic,
+      height: 48,
       decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rControl),
-        border: Border.all(color: hairline),
+        color: Color.alphaBlend(
+          Colors.white.withValues(alpha: _focused ? 0.065 : 0.035),
+          surfaceSoft,
+        ),
+        borderRadius: BorderRadius.circular(rPill),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           SizedBox(
-            width: 56,
+            width: 64,
             child: TextField(
               cursorOpacityAnimates: false,
-              controller: controller,
-              onChanged: onChanged,
+              controller: widget.controller,
+              focusNode: _focus,
+              onChanged: widget.onChanged,
               keyboardType: const TextInputType.numberWithOptions(
                 signed: false,
                 decimal: false,
@@ -666,19 +704,24 @@ class _GramsField extends StatelessWidget {
               ],
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 18,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
               decoration: const InputDecoration(
+                // Theme-Borders explizit ausnullen: das globale
+                // inputDecorationTheme traegt Hairline + Lime-Fokusring.
                 border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
                 isCollapsed: true,
                 contentPadding: EdgeInsets.zero,
               ),
             ),
           ),
-          const SizedBox(width: 2),
+          const SizedBox(width: 3),
           const Text(
             'g',
             style: TextStyle(
