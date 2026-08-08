@@ -23,6 +23,24 @@ LocalCache _cache(InMemoryKeyValueStore store, [String userId = 'user-1']) =>
 String _snake(String camel) =>
     camel.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m[0]!.toLowerCase()}');
 
+/// Vollstaendiger Zahlen-Teil eines Profil-Blobs. Seit Sentinel-Fund 3 ist
+/// ein Blob ohne lesbare Zahlenfelder ALS GANZES keine Hydrationsquelle mehr
+/// — die Enum-Nachsicht wird deshalb auf zahlen-vollstaendigen Blobs
+/// getestet.
+Map<String, dynamic> _zahlenVollstaendig() => <String, dynamic>{
+      'weight_kg': 82,
+      'height_cm': 181,
+      'age_years': 34,
+      'target_weight_kg': 77,
+      'daily_steps_goal': 9000,
+      'daily_kcal_goal': 2450,
+      'daily_water_goal_ml': 3000,
+      'daily_sleep_goal_minutes': 480,
+      'protein_goal_g': 160,
+      'carbs_goal_g': 250,
+      'fat_goal_g': 80,
+    };
+
 void main() {
   group('LocalCache Profil', () {
     test('roundtrippt ein vollstaendiges Profil verlustfrei', () async {
@@ -72,6 +90,52 @@ void main() {
       expect(back.onboardingCompleted, isTrue);
     });
 
+    test(
+        'Legacy-Blob ohne Zahlen-Schluessel liefert null statt erfundener '
+        'Werte (Sentinel-Fund 3)', () async {
+      // Ein Blob aus einem aelteren Build, dem ein Zahlenfeld fehlt, wurde
+      // bisher mit erfundenen Werten aufgefuellt (hier: protein_goal_g ->
+      // 130 g) und setzte als Cache-Hydration die Clobber-Sperre
+      // (_hydratedFromRealSource) — der naechste profile.save() schrieb die
+      // Fantasie dauerhaft auf den Server, exakt der A7-Mechanismus. Ein
+      // unvollstaendiger Blob ist deshalb ALS GANZES keine Hydrationsquelle:
+      // null, der Server-Load direkt danach liefert die Wahrheit.
+      final store = InMemoryKeyValueStore();
+      final cache = _cache(store);
+      final blob = <String, dynamic>{
+        'weight_kg': 82,
+        'height_cm': 181,
+        'age_years': 34,
+        'sex': 'male',
+        'activity_level': 'active',
+        'target_weight_kg': 77,
+        'daily_steps_goal': 9000,
+        'daily_kcal_goal': 2450,
+        'daily_water_goal_ml': 3000,
+        'daily_sleep_goal_minutes': 480,
+        // protein_goal_g fehlt — wie ein Blob von vor der Makro-Erweiterung.
+        'carbs_goal_g': 250,
+        'fat_goal_g': 80,
+        'weight_goal': 'lose05kg',
+        'diet_preference': 'vegan',
+        'onboarding_completed': true,
+      };
+      await store.setString('eatova.v1.profile.user-1', jsonEncode(blob));
+
+      expect(await cache.readProfile(), isNull,
+          reason: 'aufgefuellte 130 g Protein wuerden beim naechsten Save '
+              'als echte Daten auf den Server geschrieben');
+    });
+
+    test('Zahlen-Muell im Blob liefert null statt erfundener Werte', () async {
+      final store = InMemoryKeyValueStore();
+      final cache = _cache(store);
+      final blob = <String, dynamic>{'weight_kg': 'kaputt'};
+      await store.setString('eatova.v1.profile.user-1', jsonEncode(blob));
+
+      expect(await cache.readProfile(), isNull);
+    });
+
     test('Wire-Format deckt JEDES UserProfile-Feld ab (neue Felder -> rot)',
         () async {
       // A7 strukturell abgesichert: wer ein Feld an UserProfile haengt, ohne
@@ -109,7 +173,8 @@ void main() {
 
     test('unbekannte diet_preference faellt auf none (kein Crash)', () async {
       final store = InMemoryKeyValueStore({
-        'eatova.v1.profile.user-1': '{"diet_preference":"karnivor"}',
+        'eatova.v1.profile.user-1':
+            jsonEncode(_zahlenVollstaendig()..['diet_preference'] = 'karnivor'),
       });
       final back = await _cache(store).readProfile();
       expect(back, isNotNull);
@@ -130,17 +195,22 @@ void main() {
 
     test('unbekannte enum-Strings fallen auf Defaults (kein Crash)', () async {
       final store = InMemoryKeyValueStore({
-        'eatova.v1.profile.user-1':
-            '{"sex":"divers","activity_level":"couch","weight_goal":"hyperbulk"}',
+        'eatova.v1.profile.user-1': jsonEncode(_zahlenVollstaendig()
+          ..['sex'] = 'divers'
+          ..['activity_level'] = 'couch'
+          ..['weight_goal'] = 'hyperbulk'),
       });
       final back = await _cache(store).readProfile();
       expect(back, isNotNull);
       expect(back!.sex, BiologicalSex.neutral);
       expect(back.activityLevel, ActivityLevel.sedentary);
       expect(back.weightGoal, WeightGoal.maintain);
-      // Fehlende Zahlen-Spalten fallen auf die Ctor-Defaults.
-      expect(back.weightKg, 78);
-      expect(back.heightCm, 178);
+      // Die Zahlen kommen aus dem Blob. Die erste Fassung dieses Tests
+      // schrieb hier „fehlende Zahlen-Spalten fallen auf 78/178" als Soll
+      // fest — genau der Sentinel, den Fund 3 entfernt hat: erfundene
+      // Messwerte gelten nicht mehr als Hydrationsquelle.
+      expect(back.weightKg, 82);
+      expect(back.heightCm, 181);
     });
   });
 
