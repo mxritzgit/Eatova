@@ -91,22 +91,39 @@ class ProfileSync {
             name: 'profile_sync');
         return null;
       }
-      final weightKg = _toInt(row['weight_kg']) ?? 78;
+      // Sentinel-Fund 3 (Nachverifikation 2026-08-08): unlesbare Zahlenfelder
+      // wurden hier mit erfundenen Werten aufgefuellt (78 kg, 178 cm, 2200
+      // kcal, ...) und das Ergebnis galt dem Boot als echte Hydrationsquelle
+      // (_hydratedFromRealSource) — der naechste save() schrieb die Fantasie
+      // dauerhaft auf den Server. Die Spalten sind serverseitig NOT NULL;
+      // unlesbar heisst Parse-Muell oder Schema-Drift, und dann ist Werfen
+      // richtig: _safeLoad im Boot faengt es, es gibt keine Hydration, der
+      // Clobber-Schutz bleibt geschlossen. Die Enum-Felder bleiben bewusst
+      // nachsichtig (A7: Vorwaertskompatibilitaet mit kuenftigen Enum-Werten
+      // — sie erfinden Einordnungen, keine Messwerte).
+      int leseZahl(String spalte) {
+        final wert = _toInt(row[spalte]);
+        if (wert == null) {
+          throw FormatException(
+              'profiles.$spalte unlesbar (${row[spalte]?.runtimeType})');
+        }
+        return wert;
+      }
+
       return UserProfile(
-        weightKg: weightKg,
-        heightCm: _toInt(row['height_cm']) ?? 178,
-        ageYears: _toInt(row['age_years']) ?? 30,
+        weightKg: leseZahl('weight_kg'),
+        heightCm: leseZahl('height_cm'),
+        ageYears: leseZahl('age_years'),
         sex: _parseSex(row['sex']?.toString()),
         activityLevel: _parseActivity(row['activity_level']?.toString()),
-        targetWeightKg: _toInt(row['target_weight_kg']) ?? weightKg,
-        dailyStepsGoal: _toInt(row['daily_steps_goal']) ?? 8000,
-        dailyKcalGoal: _toInt(row['daily_kcal_goal']) ?? 2200,
-        dailyWaterGoalMl: _toInt(row['daily_water_goal_ml']) ?? 2500,
-        dailySleepGoalMinutes:
-            _toInt(row['daily_sleep_goal_minutes']) ?? 7 * 60 + 30,
-        proteinGoalG: _toInt(row['protein_goal_g']) ?? 130,
-        carbsGoalG: _toInt(row['carbs_goal_g']) ?? 240,
-        fatGoalG: _toInt(row['fat_goal_g']) ?? 70,
+        targetWeightKg: leseZahl('target_weight_kg'),
+        dailyStepsGoal: leseZahl('daily_steps_goal'),
+        dailyKcalGoal: leseZahl('daily_kcal_goal'),
+        dailyWaterGoalMl: leseZahl('daily_water_goal_ml'),
+        dailySleepGoalMinutes: leseZahl('daily_sleep_goal_minutes'),
+        proteinGoalG: leseZahl('protein_goal_g'),
+        carbsGoalG: leseZahl('carbs_goal_g'),
+        fatGoalG: leseZahl('fat_goal_g'),
         weightGoal: _parseGoal(row['weight_goal']?.toString()),
         diet: _parseDiet(row['diet_preference']?.toString()),
         onboardingCompleted: row['onboarding_completed'] == true,

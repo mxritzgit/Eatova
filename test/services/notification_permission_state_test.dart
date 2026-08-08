@@ -260,17 +260,33 @@ void main() {
       expect(await noop.hasPermission(), isFalse);
     });
 
-    test('ein Dienst OHNE Probe bricht den Kaltstart nicht', () async {
-      // Aeltere/fremde Implementierungen des Basis-Interfaces duerfen den
-      // Boot nicht zum Absturz bringen — unbekannt heisst „nicht schlechter
-      // stellen als vorher": planen, aber nichts entwerten.
+    test(
+        'ein Dienst OHNE Probe: Kaltstart laeuft durch, behauptet aber nichts '
+        'und entwertet nichts', () async {
+      // Sentinel-Fund 2 (Nachverifikation 2026-08-08): die erste Fassung
+      // dieses Tests schrieb das Raten als Soll fest — „unbekannt" wurde als
+      // ReminderState.active behauptet. Genau die Klasse, die D11 gefixt hat:
+      // gruener Schalter ohne Beleg, dass je etwas zugestellt wird.
+      //
+      // Neuer Vertrag fuer „nicht feststellbar": NICHTS behaupten (kein
+      // active), NICHTS planen (der active-Pfad waere die einzige Quelle)
+      // und NICHTS entwerten — der persistierte Opt-in bleibt stehen, damit
+      // der naechste Boot mit einem probe-faehigen Dienst den echten Zustand
+      // wiederherstellen kann. Kein cancelAll aus Unwissen.
       final cache = newCache();
       await cache.writeNotificationsEnabled(true);
-      final store = _storeWith(cache, _ProbelessNotificationService());
+      final svc = _ProbelessNotificationService();
+      final store = _storeWith(cache, svc);
 
       await expectLater(store.initNotificationsFromCache(), completes);
-      expect(store.reminderState, ReminderState.active);
-      expect(await cache.readNotificationsEnabled(), isTrue);
+      expect(store.reminderState, isNot(ReminderState.active),
+          reason: 'aus „ich weiss es nicht" darf kein „aktiv" werden');
+      expect(await cache.readNotificationsEnabled(), isTrue,
+          reason: 'der Opt-in des Nutzers wird nicht aus Unwissen geloescht');
+      expect(svc.scheduled, isEmpty,
+          reason: 'geplant wird nur im belegten active-Zustand');
+      expect(svc.cancelAllCalls, 0,
+          reason: 'Bestehendes wird nicht aus Unwissen verworfen');
     });
   });
 }
@@ -278,6 +294,9 @@ void main() {
 /// Implementiert NUR das Basis-Interface (keine Probe) — so wie es bestehende
 /// Test-Doubles im Projekt tun.
 class _ProbelessNotificationService implements NotificationService {
+  int cancelAllCalls = 0;
+  final List<List<NotificationSpec>> scheduled = <List<NotificationSpec>>[];
+
   @override
   Future<void> init() async {}
 
@@ -285,8 +304,9 @@ class _ProbelessNotificationService implements NotificationService {
   Future<bool> requestPermission() async => false;
 
   @override
-  Future<void> scheduleAll(List<NotificationSpec> specs) async {}
+  Future<void> scheduleAll(List<NotificationSpec> specs) async =>
+      scheduled.add(specs);
 
   @override
-  Future<void> cancelAll() async {}
+  Future<void> cancelAll() async => cancelAllCalls++;
 }

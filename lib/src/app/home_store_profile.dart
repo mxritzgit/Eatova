@@ -89,6 +89,15 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
     final granted = await _osDeliversNotifications();
     if (_disposed) return;
 
+    if (granted == null) {
+      // Unbekannt (Dienst ohne Probe): nichts behaupten und nichts entwerten.
+      // Kein `active` (das waere ein gruener Schalter ohne Beleg — exakt die
+      // D11-Klasse), kein Umschreiben des Opt-ins (der naechste Boot mit
+      // probe-faehigem Dienst stellt den echten Zustand wieder her), kein
+      // cancelAll (Bestehendes nicht aus Unwissen zerstoeren).
+      return;
+    }
+
     if (granted) {
       _setReminderState(ReminderState.active);
       await cache.writeNotificationsEnabled(true);
@@ -104,15 +113,19 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
     await notificationService.cancelAll();
   }
 
-  /// Ob das OS aktuell zustellt. Dienste ohne [NotificationPermissionProbe]
-  /// (fremde/aeltere Test-Doubles) koennen es nicht sagen; sie sollen den Boot
-  /// nicht schlechter stellen als vorher und gelten deshalb als erlaubt.
-  Future<bool> _osDeliversNotifications() async {
+  /// Ob das OS aktuell zustellt — dreiwertig, null heisst „nicht
+  /// feststellbar". Dienste ohne [NotificationPermissionProbe] (fremde/
+  /// aeltere Test-Doubles; beide Produktions-Implementierungen tragen die
+  /// Probe) koennen die Frage nicht beantworten. Frueher galten sie als
+  /// erlaubt — derselbe Sentinel wie D11: aus „ich weiss es nicht" wurde die
+  /// persistierte Behauptung „aktiv". Unbekannt behauptet jetzt nichts mehr,
+  /// die Auswertung steht in [_applyOsPermission].
+  Future<bool?> _osDeliversNotifications() async {
     // Der Cast ist noetig, weil [NotificationPermissionProbe] bewusst KEIN
     // Subtyp von [NotificationService] ist (sonst braeche jedes bestehende
     // `implements NotificationService`-Double) — Dart promotet deshalb nicht.
     final Object service = notificationService;
-    if (service is! NotificationPermissionProbe) return true;
+    if (service is! NotificationPermissionProbe) return null;
     return service.hasPermission();
   }
 

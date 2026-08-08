@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../services/crash_reporter.dart';
 import 'google_id_token_provider.dart';
 
 class EatovaUser {
@@ -245,10 +247,73 @@ class InMemoryAuthRepository implements AuthRepository {
   void dispose() => _controller.close();
 }
 
-AuthRepository defaultAuthRepository() {
+/// Auth-Schicht nicht verfuegbar (`Supabase.instance` warf beim App-Build).
+///
+/// Der ehrliche Gegenpol zu [PreviewAuthRepository]: KEIN Nutzer statt eines
+/// erfundenen. AuthGate zeigt damit den Login statt der Home-Page, und ein
+/// Anmeldeversuch scheitert laut statt still ins Leere zu laufen.
+class UnavailableAuthRepository implements AuthRepository {
+  const UnavailableAuthRepository(this.cause);
+
+  /// Woran der Aufbau des echten Repositories gescheitert ist. Steht im
+  /// Crash-Report (Capture passiert beim Aufbau); die Nutzer-Meldung unten
+  /// bleibt bewusst generisch — '$cause' kann interne URLs oder
+  /// Assertion-Texte enthalten, das gehoert nicht auf Nutzer-Screens.
+  final Object cause;
+
+  static Future<Never> _fail() => Future.error(const AuthException(
+      'Anmeldung derzeit nicht möglich. Bitte starte die App neu.'));
+
+  @override
+  EatovaUser? get currentUser => null;
+
+  @override
+  Stream<EatovaUser?> get authStateChanges async* {
+    yield null;
+  }
+
+  @override
+  Future<void> signIn({required String email, required String password}) =>
+      _fail();
+
+  @override
+  Future<void> signUp({
+    required String email,
+    required String password,
+    required String displayName,
+  }) =>
+      _fail();
+
+  @override
+  Future<void> signInWithOAuth(EatovaOAuthProvider provider) => _fail();
+
+  /// Bewusst gefahrlos: der Profil-Screen ruft signOut auch in Fehlerpfaden.
+  @override
+  Future<void> signOut() async {}
+}
+
+AuthRepository defaultAuthRepository() => buildDefaultAuthRepository();
+
+/// Sentinel-Fund 1 (Nachverifikation 2026-08-08): vorher fing der Fallback
+/// JEDEN Fehler und antwortete mit [PreviewAuthRepository] — deren
+/// `currentUser` nie null ist. Aus „ich weiss nicht, ob jemand angemeldet
+/// ist" wurde damit die positive Behauptung „angemeldet als preview-user",
+/// gerendert als eingeloggte Ansicht ohne Anmeldung.
+///
+/// [allowPreview] haelt den gewollten Teil am Leben: In Debug/Test (Default
+/// kDebugMode) bleibt der Preview-Komfort erhalten — die Flow-Tests pumpen
+/// `EatovaApp()` ohne Repository und ohne Supabase und landen direkt auf der
+/// Home-Page. Im Release-/Profile-Build gibt es stattdessen
+/// [UnavailableAuthRepository] (Login-Screen, laute Fehler) und der wahre
+/// Grund geht an den CrashReporter.
+@visibleForTesting
+AuthRepository buildDefaultAuthRepository({bool allowPreview = kDebugMode}) {
   try {
     return SupabaseAuthRepository(Supabase.instance.client);
-  } catch (_) {
-    return const PreviewAuthRepository();
+  } catch (error, stack) {
+    if (allowPreview) return const PreviewAuthRepository();
+    unawaited(
+        CrashReporter.capture(error, stack, context: 'auth-default-repository'));
+    return UnavailableAuthRepository(error);
   }
 }

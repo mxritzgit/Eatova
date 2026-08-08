@@ -176,7 +176,14 @@ class LocalCache {
     final json = await _readJson(_profileKey);
     if (json == null) return null;
     try {
-      return _profileFromJson(json);
+      final profile = _profileFromJson(json);
+      if (profile == null) {
+        dev.log(
+            'LocalCache.readProfile: Blob unvollstaendig (Zahlenfeld fehlt/'
+            'unlesbar) — verworfen, Server-Load liefert die Wahrheit',
+            name: 'local_cache');
+      }
+      return profile;
     } catch (e) {
       dev.log('LocalCache.readProfile parse failed', error: e,
           name: 'local_cache');
@@ -498,29 +505,66 @@ class LocalCache {
         'onboarding_completed': p.onboardingCompleted,
       };
 
-  static UserProfile _profileFromJson(Map<String, dynamic> j) => UserProfile(
-        weightKg: _int(j['weight_kg'], 78),
-        heightCm: _int(j['height_cm'], 178),
-        ageYears: _int(j['age_years'], 30),
-        sex: _enumByName(BiologicalSex.values, j['sex'], BiologicalSex.neutral),
-        activityLevel: _enumByName(
-            ActivityLevel.values, j['activity_level'], ActivityLevel.sedentary),
-        targetWeightKg: _int(j['target_weight_kg'], 78),
-        dailyStepsGoal: _int(j['daily_steps_goal'], 8000),
-        dailyKcalGoal: _int(j['daily_kcal_goal'], 2200),
-        dailyWaterGoalMl: _int(j['daily_water_goal_ml'], 2500),
-        dailySleepGoalMinutes: _int(j['daily_sleep_goal_minutes'], 7 * 60 + 30),
-        proteinGoalG: _int(j['protein_goal_g'], 130),
-        carbsGoalG: _int(j['carbs_goal_g'], 240),
-        fatGoalG: _int(j['fat_goal_g'], 70),
-        weightGoal:
-            _enumByName(WeightGoal.values, j['weight_goal'], WeightGoal.maintain),
-        // Gegenstueck zu 'diet_preference' oben. Unbekannte/fehlende Werte
-        // (Alt-Eintrag vor A7, kuenftige Enum-Werte) fallen auf none.
-        diet: _enumByName(
-            DietPreference.values, j['diet_preference'], DietPreference.none),
-        onboardingCompleted: j['onboarding_completed'] == true,
-      );
+  /// Sentinel-Fund 3 (Nachverifikation 2026-08-08): fehlende/unlesbare
+  /// Zahlenfelder wurden hier mit erfundenen Werten aufgefuellt (78 kg,
+  /// 178 cm, 2200 kcal, ...) — und die Cache-Hydration setzte damit die
+  /// Clobber-Sperre (_hydratedFromRealSource), der naechste profile.save()
+  /// schrieb die Fantasie dauerhaft auf den Server: der A7-Mechanismus fuer
+  /// die Zahlenfelder. Ein Blob, dem Zahlen fehlen (Alt-Build vor einer
+  /// Felderweiterung, korrupte Zeile), ist deshalb ALS GANZES keine
+  /// Hydrationsquelle: null — der Server-Load direkt nach der Cache-Hydration
+  /// liefert die Wahrheit. Die Enum-Felder bleiben bewusst nachsichtig (A7:
+  /// kuenftige Enum-Werte fallen lesbar zurueck — sie erfinden Einordnungen,
+  /// keine Messwerte).
+  static UserProfile? _profileFromJson(Map<String, dynamic> j) {
+    final weightKg = _intOrNull(j['weight_kg']);
+    final heightCm = _intOrNull(j['height_cm']);
+    final ageYears = _intOrNull(j['age_years']);
+    final targetWeightKg = _intOrNull(j['target_weight_kg']);
+    final dailyStepsGoal = _intOrNull(j['daily_steps_goal']);
+    final dailyKcalGoal = _intOrNull(j['daily_kcal_goal']);
+    final dailyWaterGoalMl = _intOrNull(j['daily_water_goal_ml']);
+    final dailySleepGoalMinutes = _intOrNull(j['daily_sleep_goal_minutes']);
+    final proteinGoalG = _intOrNull(j['protein_goal_g']);
+    final carbsGoalG = _intOrNull(j['carbs_goal_g']);
+    final fatGoalG = _intOrNull(j['fat_goal_g']);
+    if (weightKg == null ||
+        heightCm == null ||
+        ageYears == null ||
+        targetWeightKg == null ||
+        dailyStepsGoal == null ||
+        dailyKcalGoal == null ||
+        dailyWaterGoalMl == null ||
+        dailySleepGoalMinutes == null ||
+        proteinGoalG == null ||
+        carbsGoalG == null ||
+        fatGoalG == null) {
+      return null;
+    }
+    return UserProfile(
+      weightKg: weightKg,
+      heightCm: heightCm,
+      ageYears: ageYears,
+      sex: _enumByName(BiologicalSex.values, j['sex'], BiologicalSex.neutral),
+      activityLevel: _enumByName(
+          ActivityLevel.values, j['activity_level'], ActivityLevel.sedentary),
+      targetWeightKg: targetWeightKg,
+      dailyStepsGoal: dailyStepsGoal,
+      dailyKcalGoal: dailyKcalGoal,
+      dailyWaterGoalMl: dailyWaterGoalMl,
+      dailySleepGoalMinutes: dailySleepGoalMinutes,
+      proteinGoalG: proteinGoalG,
+      carbsGoalG: carbsGoalG,
+      fatGoalG: fatGoalG,
+      weightGoal:
+          _enumByName(WeightGoal.values, j['weight_goal'], WeightGoal.maintain),
+      // Gegenstueck zu 'diet_preference' oben. Unbekannte/fehlende Werte
+      // (Alt-Eintrag vor A7, kuenftige Enum-Werte) fallen auf none.
+      diet: _enumByName(
+          DietPreference.values, j['diet_preference'], DietPreference.none),
+      onboardingCompleted: j['onboarding_completed'] == true,
+    );
+  }
 
   static Map<String, dynamic> _statsToJson(LifetimeStats s) => <String, dynamic>{
         'workouts_completed': s.workoutsCompleted,
@@ -534,11 +578,13 @@ class LocalCache {
             s.lastTrackedDate == null ? null : _dateOnly(s.lastTrackedDate!),
       };
 
-  static int _int(Object? v, int fallback) {
+  static int _int(Object? v, int fallback) => _intOrNull(v) ?? fallback;
+
+  static int? _intOrNull(Object? v) {
     if (v is int) return v;
     if (v is num) return v.toInt();
-    if (v is String) return int.tryParse(v) ?? fallback;
-    return fallback;
+    if (v is String) return int.tryParse(v);
+    return null;
   }
 
   static T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
