@@ -37,7 +37,11 @@ class MealAnalysisScreen extends StatelessWidget {
     this.burnedKcal = 0,
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
-    this.visiblePastDays = 4,
+    // 30 Tage manuell erreichbar (scrollbare Chip-Leiste, Heute zuerst);
+    // alles davor laeuft ueber den Kalender. Bleibt unter dem
+    // 35-Tage-Boot-Fenster von MealsSync — Chips treffen also immer
+    // bereits geladene Tage.
+    this.visiblePastDays = 30,
     this.dayLoading = false,
     String Function(MealAnalysisResult, MealSlot)? onAddMeal,
     void Function(String id, MealAnalysisResult scaled)? onUpdateMeal,
@@ -623,7 +627,7 @@ String foodDateSelectedLabel(DateTime today, DateTime selected) {
   return 'Vor $offset Tagen';
 }
 
-class _FoodDateStrip extends StatelessWidget {
+class _FoodDateStrip extends StatefulWidget {
   const _FoodDateStrip({
     required this.selectedDate,
     required this.pastDays,
@@ -635,14 +639,70 @@ class _FoodDateStrip extends StatelessWidget {
   final ValueChanged<DateTime> onSelected;
 
   @override
+  State<_FoodDateStrip> createState() => _FoodDateStripState();
+}
+
+class _FoodDateStripState extends State<_FoodDateStrip> {
+  static const double _chipWidth = 66;
+  static const double _chipGap = 6;
+
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Auswahl beim Aufbau sichtbar machen (z. B. Restore auf einem Alt-Tag).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
+  }
+
+  @override
+  void didUpdateWidget(covariant _FoodDateStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!DateUtils.isSameDay(oldWidget.selectedDate, widget.selectedDate)) {
+      // Der gewaehlte Tag (auch aus dem Kalender) scrollt sich selbst ins
+      // Bild — vorher sprang der Fokus nur zurueck auf den Kalender-Knopf
+      // und die Auswahl blieb unsichtbar.
+      _scrollToSelected();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scrollToSelected() {
+    if (!mounted || !_scroll.hasClients) return;
+    final today = DateUtils.dateOnly(DateTime.now());
+    final selected = DateUtils.dateOnly(widget.selectedDate);
+    final index = daysBetween(today, selected);
+    if (index < 0 || index > widget.pastDays) return;
+    final ziel = (index * (_chipWidth + _chipGap) - 2 * _chipWidth)
+        .clamp(0.0, _scroll.position.maxScrollExtent);
+    _scroll.animateTo(
+      ziel,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final today = DateUtils.dateOnly(DateTime.now());
-    final selected = DateUtils.dateOnly(selectedDate);
-    final days = foodDateStripDays(today: today, pastDays: pastDays);
+    final selected = DateUtils.dateOnly(widget.selectedDate);
+    // Absteigend (Heute zuerst, wie der Tages-Picker im Edit-Sheet): bei 31
+    // scrollbaren Chips muss der relevante Rand — heute — vorn stehen.
+    // Chip-Index == Tages-Offset (chip-0 = Heute, chip-1 = Gestern, ...).
+    final days = foodDateStripDays(today: today, pastDays: widget.pastDays)
+        .reversed
+        .toList(growable: false);
+    final imStreifen = days.any((d) => DateUtils.isSameDay(d, selected));
 
-    // Keine umschliessende Karte mehr: die Chips tragen ihre Form selbst, ein
-    // Rahmen um den Rahmen ist genau die Verschachtelung, die den Tab schwer
-    // wirken liess. Uebrig bleibt eine leise Kopfzeile mit dem gewaehlten Tag.
+    // Keine umschliessende Karte: die Chips tragen ihre Form selbst. Die
+    // Kopfzeile benennt den gewaehlten Tag, der Kalender-Knopf rechts bleibt
+    // fix stehen und wird bei einer Auswahl jenseits der Chips zur
+    // Datums-Pill — die Auswahl ist damit IMMER sichtbar.
     return Column(
       key: const ValueKey('food-date-strip'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -674,30 +734,41 @@ class _FoodDateStrip extends StatelessWidget {
             ],
           ),
         ),
-        // IntrinsicHeight + stretch: der Kalender-Knopf uebernimmt exakt die
-        // Chip-Hoehe, ohne sie zu hartkodieren.
-        IntrinsicHeight(
+        SizedBox(
+          // Mit der System-Schriftgroesse wachsen (A11y bis 200 %): die
+          // fruehere IntrinsicHeight-Row skalierte automatisch, eine fixe
+          // ListView-Hoehe wuerde bei textScale 2.0 ueberlaufen.
+          height: 52 *
+              (MediaQuery.textScalerOf(context).scale(12) / 12)
+                  .clamp(1.0, 2.0),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (var index = 0; index < days.length; index++) ...[
-                Expanded(
-                  child: _FoodDateChip(
-                    key: ValueKey('food-date-chip-$index'),
-                    date: days[index],
-                    label: foodDateChipLabel(today, days[index]),
-                    selected: DateUtils.isSameDay(days[index], selected),
-                    onTap: () => onSelected(days[index]),
+              Expanded(
+                child: ListView.separated(
+                  controller: _scroll,
+                  scrollDirection: Axis.horizontal,
+                  itemCount: days.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: _chipGap),
+                  itemBuilder: (context, index) => SizedBox(
+                    width: _chipWidth,
+                    child: _FoodDateChip(
+                      key: ValueKey('food-date-chip-$index'),
+                      date: days[index],
+                      label: foodDateChipLabel(today, days[index]),
+                      selected: DateUtils.isSameDay(days[index], selected),
+                      onTap: () => widget.onSelected(days[index]),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 6),
-              ],
+              ),
+              const SizedBox(width: _chipGap),
               _CalendarDayButton(
                 key: const ValueKey('food-date-calendar'),
-                // Liegt die Auswahl ausserhalb der Chips (aelterer Tag aus dem
-                // Kalender), traegt der Knopf den Selected-Zustand — die
-                // Auswahl bleibt damit immer sichtbar.
-                selected: !days.any((d) => DateUtils.isSameDay(d, selected)),
+                // Auswahl jenseits der 30 Chip-Tage: der Knopf wird zur
+                // aktiven Pill mit dem gewaehlten Datum.
+                selected: !imStreifen,
+                date: imStreifen ? null : selected,
                 onTap: () => _pickFromCalendar(context),
               ),
             ],
@@ -714,7 +785,7 @@ class _FoodDateStrip extends StatelessWidget {
   Future<void> _pickFromCalendar(BuildContext context) async {
     final today = DateUtils.dateOnly(DateTime.now());
     final firstDate = DateTime(today.year - 2, today.month, today.day);
-    final selectedDay = DateUtils.dateOnly(selectedDate);
+    final selectedDay = DateUtils.dateOnly(widget.selectedDate);
     final picked = await showDatePicker(
       context: context,
       initialDate: selectedDay.isBefore(firstDate) ? firstDate : selectedDay,
@@ -722,9 +793,8 @@ class _FoodDateStrip extends StatelessWidget {
       lastDate: today,
       helpText: 'Tag wählen',
     );
-    if (picked != null) onSelected(picked);
+    if (picked != null) widget.onSelected(picked);
   }
-
 }
 
 class _FoodDateChip extends StatelessWidget {
@@ -805,13 +875,27 @@ class _CalendarDayButton extends StatelessWidget {
     super.key,
     required this.selected,
     required this.onTap,
+    this.date,
   });
 
   final bool selected;
+
+  /// Gesetzt, wenn die Auswahl JENSEITS der Chip-Tage liegt: der Knopf wird
+  /// dann zur aktiven Datums-Pill — man sieht, dass man wirklich auf diesem
+  /// Tag steht, statt nur eines gefuellten Kalender-Icons.
+  final DateTime? date;
+
   final VoidCallback onTap;
+
+  String _dateLabel(DateTime d) {
+    final heute = DateTime.now();
+    final jahr = d.year == heute.year ? '' : '${d.year % 100}';
+    return jahr.isEmpty ? '${d.day}.${d.month}.' : '${d.day}.${d.month}.$jahr';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final d = date;
     // A11y: reiner Icon-Knopf — ohne Label bliebe er fuer Screenreader stumm.
     return Semantics(
       button: true,
@@ -823,17 +907,42 @@ class _CalendarDayButton extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
-          width: 44,
+          width: d == null ? 44 : null,
+          padding: d == null
+              ? EdgeInsets.zero
+              : const EdgeInsets.symmetric(horizontal: 12),
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? forgeLime : surface,
             borderRadius: BorderRadius.circular(rControl),
           ),
-          child: Icon(
-            Icons.calendar_month_rounded,
-            size: 18,
-            color: selected ? bg : textMuted,
-          ),
+          child: d == null
+              ? Icon(
+                  Icons.calendar_month_rounded,
+                  size: 18,
+                  color: selected ? bg : textMuted,
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.calendar_month_rounded,
+                      size: 16,
+                      color: selected ? bg : textMuted,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _dateLabel(d),
+                      key: const ValueKey('food-date-calendar-label'),
+                      style: TextStyle(
+                        color: selected ? bg : textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );

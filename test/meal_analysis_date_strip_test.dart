@@ -226,30 +226,33 @@ void main() {
         await _pumpFoodTab(tester, onDateSelected: (d) => gewaehlt = d);
 
         final heute = startOfDay(DateTime.now());
-        final erwartet = dayStrip(today: heute, pastDays: 4);
-
-        // Jeder Chip zeigt „T.M." seines Tages — in der Reihenfolge der Leiste.
-        for (var i = 0; i < erwartet.length; i++) {
+        // Seit der scrollbaren 30-Tage-Leiste laeuft der Streifen ABSTEIGEND
+        // (Heute zuerst, wie der Tages-Picker im Edit-Sheet): der Chip-Index
+        // IST der Tages-Offset (chip-0 = Heute, chip-1 = Gestern, ...).
+        // Geprueft werden die ersten fuenf — mehr baut der Test-Viewport
+        // einer horizontalen ListView ohnehin nicht auf.
+        for (var i = 0; i < 5; i++) {
+          final tag = heute.subtract(Duration(days: i));
           expect(
             find.descendant(
               of: find.byKey(ValueKey('food-date-chip-$i')),
-              matching: find.text('${erwartet[i].day}.${erwartet[i].month}.'),
+              matching: find.text('${tag.day}.${tag.month}.'),
             ),
             findsOneWidget,
-            reason: 'Chip $i zeigt nicht ${ymd(erwartet[i])}',
+            reason: 'Chip $i zeigt nicht ${ymd(tag)}',
           );
         }
 
-        // Der Chip vor „Heute" ist „Gestern" — und liefert beim Tap einen
+        // Der Chip nach „Heute" ist „Gestern" — und liefert beim Tap einen
         // Tag, der genau EINEN Kalendertag zurueckliegt.
         expect(
           find.descendant(
-            of: find.byKey(const ValueKey('food-date-chip-3')),
+            of: find.byKey(const ValueKey('food-date-chip-1')),
             matching: find.text('Gestern'),
           ),
           findsOneWidget,
         );
-        await tester.tap(find.byKey(const ValueKey('food-date-chip-3')));
+        await tester.tap(find.byKey(const ValueKey('food-date-chip-1')));
         await tester.pumpAndSettle();
         expect(gewaehlt, isNotNull);
         expect(daysBetween(heute, gewaehlt!), 1);
