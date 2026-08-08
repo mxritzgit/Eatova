@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
 
@@ -239,14 +240,17 @@ class LocalCache {
   }
 
   Future<void> writeWeightLog(WeightLog log) =>
-      _writeJson(_weightLogKey, <String, dynamic>{
+      _writeJson(_weightLogKey, _weightLogToJson(log));
+
+  static Map<String, dynamic> _weightLogToJson(WeightLog log) =>
+      <String, dynamic>{
         'items': log.entries
             .map((e) => <String, dynamic>{
                   't': e.timestamp.toIso8601String(),
                   'kg': e.weightKg,
                 })
             .toList(),
-      });
+      };
 
   Future<WeightLog?> readWeightLog() async {
     final items = await _readItems(_weightLogKey);
@@ -305,7 +309,22 @@ class LocalCache {
     );
   }
 
-  Future<void> clear() async {
+  /// Raeumt die User-Slots.
+  ///
+  /// [preserveOutbox] `true` laesst GENAU [_outboxKey] und [_pendingStatsKey]
+  /// stehen und loescht alles andere (A2): beim Sign-out duerfen ungesyncte
+  /// Mahlzeiten nicht vernichtet werden — sie spielen beim naechsten Login
+  /// desselben Users nach. Die beiden Slots sind seit `7f895f9` verschluesselt
+  /// und per User-ID namensraumgetrennt, die urspruengliche PII-Begruendung
+  /// (Audit M-1) traegt fuer sie also nicht mehr.
+  ///
+  /// Default `false` = Verhalten wie bisher (Konto-Loeschung raeumt restlos).
+  Future<void> clear({bool preserveOutbox = false}) async {
+    // Ausstehende entprellte Writes verwerfen, BEVOR geraeumt wird — sonst
+    // schriebe ein noch laufender Debounce-Timer die gerade geloeschte PII
+    // gleich wieder zurueck (G9b).
+    _discardPendingWrites();
+
     await _store.remove(_profileKey);
     await _store.remove(_legacyDailyKey);
     await _store.remove(_statsKey);
@@ -313,13 +332,101 @@ class LocalCache {
     await _store.remove(_loggedMealsKey);
     await _store.remove(_favoritesKey);
     await _store.remove(_weightLogKey);
+    if (preserveOutbox) return;
     await _store.remove(_outboxKey);
     await _store.remove(_pendingStatsKey);
+  }
+
+  // ---- Entprellte Blob-Writes (G9b) ---------------------------------------
+  // Tagebuch, Favoriten und Gewichts-Log sind reine Spiegel des Server-Stands
+  // und werden bei JEDER Mutation komplett neu geschrieben — jedes Mal der
+  // ganze Blob durch jsonEncode + AES-GCM + base64. Gemessen: 91,5 ms bei 210
+  // Mahlzeiten auf Desktop-JIT, mobiles AOT-ARM 2-4x langsamer. Eine
+  // Fuenfer-Serie (hinzufuegen, korrigieren, loeschen, ...) kostete das
+  // fuenfmal, weil jeder Aufruf sofort schrieb.
+  //
+  // Die entprellten Varianten fassen alle Aufrufe innerhalb von
+  // [writeDebounce] zu EINEM Write pro Slot zusammen.
+  //
+  // BEWUSST NICHT entprellt sind die Outbox und die pendenden Stats-Deltas:
+  // die SIND der Kill-Sicherungs-Mechanismus (DATA-7) und muessen sofort auf
+  // der Platte liegen. Ein Verlust der drei Spiegel-Slots kostet dagegen nur
+  // einen Netz-Load beim naechsten Kaltstart — die zugehoerigen Writes leben
+  // ohnehin in der (sofort persistierten) Outbox. Profil und lifetime_stats
+  // bleiben ebenfalls sofort: kleine Maps, vernachlaessigbare Krypto-Kosten.
+
+  /// Fenster, in dem mehrere entprellte Writes zu einem zusammenfallen.
+  /// Laeuft ab dem ERSTEN Aufruf (kein cancel+restart), damit eine lange
+  /// Serie den Write nicht unbegrenzt vor sich herschiebt.
+  static const Duration writeDebounce = Duration(milliseconds: 400);
+
+  final Map<String, Map<String, dynamic>> _pendingWrites =
+      <String, Map<String, dynamic>>{};
+  Timer? _debounceTimer;
+
+  /// True, solange mindestens ein entprellter Write aussteht.
+  bool get hasPendingWrites => _pendingWrites.isNotEmpty;
+
+  /// Entprellter Write-Through fuers Tagebuch. Ersetzt [writeLoggedMeals] auf
+  /// dem heissen Mutations-Pfad.
+  void writeLoggedMealsDebounced(List<LoggedMeal> meals) =>
+      _scheduleWrite(_loggedMealsKey, <String, dynamic>{
+        'items': meals.map(loggedMealToJson).toList(),
+      });
+
+  /// Entprellter Write-Through fuer die Favoriten.
+  void writeFavoritesDebounced(List<FavoriteMeal> favorites) =>
+      _scheduleWrite(_favoritesKey, <String, dynamic>{
+        'items': favorites.map(favoriteMealToJson).toList(),
+      });
+
+  /// Entprellter Write-Through fuers Gewichts-Log.
+  void writeWeightLogDebounced(WeightLog log) =>
+      _scheduleWrite(_weightLogKey, _weightLogToJson(log));
+
+  /// Schreibt alle ausstehenden entprellten Writes SOFORT weg.
+  ///
+  /// MUSS beim App-Pause/Hidden/Detach laufen (und vor jedem Logout, den
+  /// [clear] selbst nicht abdeckt) — sonst verliert ein Kill innerhalb des
+  /// [writeDebounce]-Fensters den letzten Spiegel-Stand.
+  Future<void> flush() async {
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    await _drainPendingWrites();
+  }
+
+  void _scheduleWrite(String key, Map<String, dynamic> value) {
+    // Letzter Stand gewinnt: der Slot wird ohnehin immer als Ganzes
+    // geschrieben, ein aelterer Blob desselben Slots ist wertlos.
+    _pendingWrites[key] = value;
+    _debounceTimer ??= Timer(writeDebounce, () {
+      _debounceTimer = null;
+      unawaited(_drainPendingWrites());
+    });
+  }
+
+  Future<void> _drainPendingWrites() async {
+    if (_pendingWrites.isEmpty) return;
+    final batch = Map<String, Map<String, dynamic>>.of(_pendingWrites);
+    _pendingWrites.clear();
+    for (final entry in batch.entries) {
+      await _writeJson(entry.key, entry.value);
+    }
+  }
+
+  void _discardPendingWrites() {
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+    _pendingWrites.clear();
   }
 
   // ---- Low-level ----------------------------------------------------------
 
   Future<void> _writeJson(String key, Map<String, dynamic> value) async {
+    // Ein sofortiger Write auf denselben Slot macht einen noch ausstehenden
+    // entprellten Write ungueltig — sonst ueberschriebe der spaeter den
+    // frischeren Stand.
+    _pendingWrites.remove(key);
     try {
       await _store.setString(key, jsonEncode(value));
     } catch (e) {
@@ -343,6 +450,11 @@ class LocalCache {
   }
 
   Future<Map<String, dynamic>?> _readJson(String key) async {
+    // Ein noch ausstehender entprellter Write ist der aktuellste Stand — ohne
+    // diesen Durchgriff haette der Slot zwischen Schedule und Write ein
+    // Read-after-Write-Loch (Boot-Hydration, Test, Diagnose).
+    final pending = _pendingWrites[key];
+    if (pending != null) return pending;
     try {
       final raw = await _store.getString(key);
       if (raw == null || raw.isEmpty) return null;
@@ -375,6 +487,14 @@ class LocalCache {
         'carbs_goal_g': p.carbsGoalG,
         'fat_goal_g': p.fatGoalG,
         'weight_goal': p.weightGoal.name,
+        // A7: MUSS mitgeschrieben werden. Der Cache ist die ERSTE
+        // Hydrationsquelle und setzt dabei die Clobber-Sperre
+        // (_hydratedFromRealSource). Fehlte der Schluessel, fiel `diet` beim
+        // Kaltstart still auf den Ctor-Default none zurueck — und der naechste
+        // profile.save() schrieb dieses none dauerhaft auf den Server, ohne
+        // dass der User es ueber die UI je wieder haette reparieren koennen.
+        // Schluesselname wie serverseitig: profiles.diet_preference.
+        'diet_preference': p.diet.name,
         'onboarding_completed': p.onboardingCompleted,
       };
 
@@ -395,6 +515,10 @@ class LocalCache {
         fatGoalG: _int(j['fat_goal_g'], 70),
         weightGoal:
             _enumByName(WeightGoal.values, j['weight_goal'], WeightGoal.maintain),
+        // Gegenstueck zu 'diet_preference' oben. Unbekannte/fehlende Werte
+        // (Alt-Eintrag vor A7, kuenftige Enum-Werte) fallen auf none.
+        diet: _enumByName(
+            DietPreference.values, j['diet_preference'], DietPreference.none),
         onboardingCompleted: j['onboarding_completed'] == true,
       );
 

@@ -16,7 +16,10 @@ import 'package:eatova/src/services/sync_outbox.dart';
 //   4. Der Zustellversuchs-Zaehler (attempts) roundtrippt, bleibt
 //      abwaertskompatibel (fehlt im Legacy-JSON -> 0) und wird beim
 //      Koaleszieren bewusst ZURUECKGESETZT.
-//   5. capOutbox deckelt die Queue und verwirft dabei die AELTESTEN Ops.
+//   5. capOutbox deckelt die Queue und verwirft dabei die AELTESTEN Ops —
+//      aber NIE eine *Delete-Op: deren Verlust ist der einzige, den der
+//      naechste Kaltstart nicht heilt, sondern rueckgaengig macht (die
+//      Serverzeile ueberlebt, der lokale Zustand nicht).
 
 MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
     MealAnalysisResult(
@@ -195,6 +198,52 @@ void main() {
         SyncOp.recipeDelete('user_123'),
       ];
       expect(ops.map((o) => o.attempts), everyElement(0));
+    });
+
+    test(
+        'Delete-Ops verbrauchen KEIN Budget — incrementAttempt laesst sie '
+        'unveraendert', () {
+      // Ein verworfener Delete ist der einzige Verlust, den der naechste
+      // Kaltstart nicht nur nicht heilt, sondern aktiv rueckgaengig macht:
+      // die geloeschte Mahlzeit kommt vom Server zurueck und zaehlt erneut.
+      // Deletes sind idempotent und winzig — sie duerfen ewig retryen, also
+      // wird fuer sie auch nichts gezaehlt (und nichts persistiert, das ein
+      // aelterer Build als aufgebrauchtes Budget lesen wuerde).
+      final deletes = <SyncOp>[
+        SyncOp.mealDelete('m-1'),
+        SyncOp.favoriteDelete('barcode:4001234'),
+        SyncOp.recipeDelete('user_123'),
+      ];
+      for (final op in deletes) {
+        expect(op.incrementAttempt().incrementAttempt().attempts, 0,
+            reason: '${op.kind.name} darf kein Budget verbrennen');
+        expect(op.incrementAttempt().toJson().containsKey('attempts'), isFalse,
+            reason: '${op.kind.name}: kein Zaehler im Wire-Format');
+      }
+      // Gegenprobe: Schreib-Ops zaehlen unveraendert weiter.
+      expect(SyncOp.mealUpsert(_meal('m-1')).incrementAttempt().attempts, 1);
+    });
+
+    test('isDelete erkennt genau die drei Loesch-Familien', () {
+      expect(SyncOp.mealDelete('m-1').isDelete, isTrue);
+      expect(SyncOp.favoriteDelete('fav-1').isDelete, isTrue);
+      expect(SyncOp.recipeDelete('user_123').isDelete, isTrue);
+
+      expect(SyncOp.mealInsert(_meal('m-1'), trackDay: true).isDelete, isFalse);
+      expect(SyncOp.mealUpsert(_meal('m-1')).isDelete, isFalse);
+      expect(
+          SyncOp.weightInsert(
+                  id: 'w-1', weightKg: 80, recordedAt: DateTime(2026, 8, 6))
+              .isDelete,
+          isFalse);
+      expect(
+          SyncOp.favoriteUpsert(FavoriteMeal(
+            id: 'fav-1',
+            result: _result(),
+            addedAt: DateTime(2026, 8, 5),
+          )).isDelete,
+          isFalse);
+      expect(SyncOp.recipeUpsert(_recipe()).isDelete, isFalse);
     });
 
     test('incrementAttempt zaehlt hoch und behaelt alles andere', () {
@@ -383,9 +432,10 @@ void main() {
       expect(capOutbox(queue, maxOps: 2).dropped, isEmpty);
     });
 
-    test('ueber dem Cap fliegen die AELTESTEN raus (Kopf-Trim)', () {
+    test('ueber dem Cap fliegen die AELTESTEN Schreib-Ops raus (Kopf-Trim)',
+        () {
       final queue = <SyncOp>[
-        for (var i = 0; i < 6; i++) SyncOp.mealDelete('m-$i'),
+        for (var i = 0; i < 6; i++) SyncOp.mealUpsert(_meal('m-$i')),
       ];
       final capped = capOutbox(queue, maxOps: 4);
 
@@ -396,16 +446,60 @@ void main() {
           <String>['m-0', 'm-1']);
     });
 
+    test(
+        'Deletes ueberleben den Kopf-Trim — sonst kehrt die geloeschte '
+        'Mahlzeit beim naechsten Kaltstart vom Server zurueck', () {
+      final queue = <SyncOp>[
+        SyncOp.mealUpsert(_meal('m-0')),
+        SyncOp.mealDelete('m-del'),
+        SyncOp.mealUpsert(_meal('m-1')),
+        SyncOp.favoriteDelete('barcode:4001234'),
+        SyncOp.mealUpsert(_meal('m-2')),
+        SyncOp.recipeDelete('user_123'),
+        SyncOp.mealUpsert(_meal('m-3')),
+      ];
+      final capped = capOutbox(queue, maxOps: 4);
+
+      // Gekappt wird ausschliesslich in der Anlege-Richtung, aeltestes zuerst.
+      expect(capped.dropped.map((o) => o.entityId).toList(),
+          <String>['m-0', 'm-1', 'm-2']);
+      expect(capped.dropped.map((o) => o.isDelete), everyElement(isFalse));
+      expect(
+          capped.queue.map((o) => o.entityKey).toList(),
+          <String>[
+            'meal:m-del',
+            'favorite:barcode:4001234',
+            'recipe:user_123',
+            'meal:m-3',
+          ],
+          reason: 'FIFO-Reihenfolge bleibt, alle drei Loeschungen bleiben');
+    });
+
+    test(
+        'eine reine Loesch-Queue ueber dem Cap wird gar nicht gekappt — '
+        'Deletes sind winzig und ihr Verlust ist nicht heilbar', () {
+      final queue = <SyncOp>[
+        for (var i = 0; i < 6; i++) SyncOp.mealDelete('m-$i'),
+      ];
+      final capped = capOutbox(queue, maxOps: 4);
+
+      expect(capped.dropped, isEmpty);
+      expect(capped.queue.map((o) => o.entityId).toList(),
+          <String>['m-0', 'm-1', 'm-2', 'm-3', 'm-4', 'm-5']);
+    });
+
     test('massiv uebergrosse Legacy-Queue kollabiert in EINEM Durchlauf', () {
       final queue = <SyncOp>[
-        for (var i = 0; i < kOutboxMaxOps * 3; i++) SyncOp.mealDelete('m-$i'),
+        for (var i = 0; i < kOutboxMaxOps * 3; i++)
+          SyncOp.weightInsert(
+              id: 'w-$i', weightKg: 80, recordedAt: DateTime(2026, 8, 6)),
       ];
       final capped = capOutbox(queue);
 
       expect(capped.queue, hasLength(kOutboxMaxOps));
       expect(capped.dropped, hasLength(kOutboxMaxOps * 2));
-      expect(capped.queue.first.entityId, 'm-${kOutboxMaxOps * 2}');
-      expect(capped.queue.last.entityId, 'm-${kOutboxMaxOps * 3 - 1}');
+      expect(capped.queue.first.entityId, 'w-${kOutboxMaxOps * 2}');
+      expect(capped.queue.last.entityId, 'w-${kOutboxMaxOps * 3 - 1}');
       // Idempotent: ein zweiter Durchlauf findet nichts mehr zu kappen.
       expect(capOutbox(capped.queue).dropped, isEmpty);
     });

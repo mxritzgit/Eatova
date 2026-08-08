@@ -35,10 +35,30 @@ void _noopSnack(
   SnackBarAction? action,
 }) {}
 
-HomeStore _storeWith(LocalCache cache) => HomeStore(
+/// Zählt [cancelAll] mit — D9 (Review 2026-08-08): geplante Erinnerungen sind
+/// OS-Zustand und kennen keinen User, überleben also Logout UND Kontolöschung,
+/// solange sie niemand verwirft.
+class _SpyNotificationService implements NotificationService {
+  int cancelAllCalls = 0;
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<bool> requestPermission() async => false;
+
+  @override
+  Future<void> scheduleAll(List<NotificationSpec> specs) async {}
+
+  @override
+  Future<void> cancelAll() async => cancelAllCalls++;
+}
+
+HomeStore _storeWith(LocalCache cache, {NotificationService? notifications}) =>
+    HomeStore(
       sync: null,
       health: const NoopHealthService(),
-      notificationService: const NoopNotificationService(),
+      notificationService: notifications ?? const NoopNotificationService(),
       initialUserName: 'Test',
       emitSnack: _noopSnack,
       debugCache: cache,
@@ -111,6 +131,28 @@ void main() {
     expect(await cache.readPendingStatsDeltas(), isNull);
     expect(store.snapshot, isEmpty,
         reason: 'kein PII-Rest (Essverhalten/Gewicht) nach dem Sign-Out');
+  });
+
+  test(
+      'D9: signOutCleanup verwirft die geplanten Erinnerungen — sonst zeigt '
+      'das Familien-Tablet der nächsten Person die fremde Streak', () async {
+    final spy = _SpyNotificationService();
+    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+
+    await _storeWith(cache, notifications: spy).signOutCleanup();
+
+    expect(spy.cancelAllCalls, 1);
+  });
+
+  test(
+      'D9: deleteAccount verwirft die geplanten Erinnerungen — der Dialog '
+      'verspricht „unwiderruflich gelöscht"', () async {
+    final spy = _SpyNotificationService();
+    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+
+    expect(await _storeWith(cache, notifications: spy).deleteAccount(), isTrue);
+
+    expect(spy.cancelAllCalls, 1);
   });
 
   test('signOutCleanup ist ohne Cache ein gefahrloses No-Op', () async {

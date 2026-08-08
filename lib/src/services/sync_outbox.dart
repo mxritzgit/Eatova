@@ -33,7 +33,9 @@ const int kOutboxMaxOps = 500;
 /// Zaehlt NUR Versuche, die der Server aktiv abgelehnt hat (5xx, 429, unklare
 /// Codes) — Netzfehler sind gratis (siehe classifyOutboxFailure), sonst wuerde
 /// ein Offline-Wochenende das Budget verbrennen und gueltige Nutzerdaten
-/// vernichten.
+/// vernichten. Loesch-Ops ([SyncOp.isDelete]) haben ueberhaupt kein Budget:
+/// ihr Verwurf laesst die geloeschte Zeile beim naechsten Boot vom Server
+/// zurueckkehren.
 ///
 /// Warum 8: der Backoff laeuft 30s → 1m → 2m → 4m (Cap). Acht gezaehlte
 /// Versuche ueberdauern damit locker eine halbe Stunde Server-Ausfall bzw.
@@ -92,13 +94,22 @@ class SyncOp {
 
   /// Kopie mit einem verbrauchten Zustellversuch. Alles andere — insbesondere
   /// [queuedAt], die FIFO-Position der Entitaet — bleibt erhalten.
-  SyncOp incrementAttempt() => SyncOp._(
-        kind: kind,
-        entityId: entityId,
-        payload: payload,
-        queuedAt: queuedAt,
-        attempts: attempts + 1,
-      );
+  ///
+  /// Ausnahme: [isDelete]-Ops zaehlen NICHT. Sie haben kein Versuchs-Budget
+  /// (ein verworfener Delete laesst die geloeschte Mahlzeit beim naechsten
+  /// Kaltstart vom Server zurueckkehren, siehe [isDelete]), also waere der
+  /// Zaehler reine Buchhaltung — und eine gefaehrliche dazu: persistiert
+  /// laege in der Queue ein Wert, den jeder Build ohne diese Regel (Downgrade,
+  /// alter Replay-Pfad) sofort als aufgebrauchtes Budget liest und verwirft.
+  SyncOp incrementAttempt() => isDelete
+      ? this
+      : SyncOp._(
+          kind: kind,
+          entityId: entityId,
+          payload: payload,
+          queuedAt: queuedAt,
+          attempts: attempts + 1,
+        );
 
   factory SyncOp.mealInsert(LoggedMeal meal, {required bool trackDay}) =>
       SyncOp._(kind: SyncOpKind.mealInsert, entityId: meal.id, payload: {
@@ -156,6 +167,19 @@ class SyncOp {
         SyncOpKind.recipeDelete =>
           'recipe:$entityId',
       };
+
+  /// True fuer die drei Loesch-Familien.
+  ///
+  /// Sonderstellung im Verwurfs-Pfad: der Verlust eines Deletes ist der
+  /// einzige, den ein Kaltstart nicht nur nicht heilt, sondern aktiv
+  /// RUECKGAENGIG macht — die Serverzeile ueberlebt, der lokale Zustand nicht,
+  /// und der naechste Boot liest vom Server. Deshalb darf ein Delete weder am
+  /// Versuchs-Budget noch am Queue-Cap sterben (siehe [capOutbox],
+  /// [incrementAttempt], classifyOutboxFailure).
+  bool get isDelete =>
+      kind == SyncOpKind.mealDelete ||
+      kind == SyncOpKind.favoriteDelete ||
+      kind == SyncOpKind.recipeDelete;
 
   /// True fuer Upsert-artige Ops — nur die duerfen beim Einreihen koalesziert
   /// (Payload ersetzt) werden.
@@ -328,7 +352,8 @@ List<SyncOp> enqueueCoalesced(
 /// gewachsene Queue kommt aus dem Cache zurueck, ohne je durch das Einreihen
 /// zu laufen.
 ///
-/// Verworfen werden die AELTESTEN Ops (Kopf der Queue). Begruendung:
+/// Verworfen werden die aeltesten SCHREIB-Ops (Kopf der Queue); [SyncOp.isDelete]
+/// wird uebersprungen. Begruendung:
 ///  (a) Drop-Newest wuerde eine volle Queue in einen dauerhaften Total-
 ///      Schreibausfall verwandeln: eine volle Queue leert sich per Definition
 ///      gerade nicht, also kaeme ab da NIE wieder ein Write durch.
@@ -337,10 +362,18 @@ List<SyncOp> enqueueCoalesced(
 ///      eben eingetragene Mahlzeit beim naechsten Kaltstart verschwinden.
 ///  (c) Die aeltesten Ops einer vollen Queue scheitern am laengsten, sind also
 ///      die wahrscheinlichsten Gift-Kandidaten.
-///  (d) Die Korrektheit pro Entitaet ueberlebt einen Kopf-Trim: jeder Write
-///      ist ein VOLLER Zeilen-Upsert auf eine Client-UUID (keine Deltas), und
-///      jeder Delete ist idempotent. Verloren geht einzig der Stats-/Streak-
-///      Seiteneffekt eines mealInsert — ein Zaehler, kein Nutzer-Inhalt.
+///  (d) In der ANLEGE-Richtung ueberlebt die Korrektheit pro Entitaet einen
+///      Kopf-Trim: jeder Write ist ein VOLLER Zeilen-Upsert auf eine
+///      Client-UUID (keine Deltas), verloren geht einzig der Stats-/Streak-
+///      Seiteneffekt eines mealInsert — ein Zaehler, kein Nutzer-Inhalt. Fuer
+///      Deletes gilt das ausdruecklich NICHT: „idempotent" heisst nur, dass
+///      ein Retry schadlos ist, nicht dass ein Verwurf folgenlos waere. Beim
+///      Delete ueberlebt die Serverzeile, der lokale Zustand nicht — der
+///      naechste Boot liest vom Server, und die geloeschte 1800-kcal-Mahlzeit
+///      ist wieder da und zaehlt erneut. Deletes werden deshalb nie gekappt;
+///      sie kosten fast nichts (leere Payload, ~120 Byte JSON), und eine
+///      Queue, die nur noch aus ihnen besteht, darf lieber ueber dem Cap
+///      liegen als Nutzer-Loeschungen zurueckzudrehen.
 ({List<SyncOp> queue, List<SyncOp> dropped}) capOutbox(
   List<SyncOp> queue, {
   int maxOps = kOutboxMaxOps,
@@ -348,11 +381,18 @@ List<SyncOp> enqueueCoalesced(
   if (queue.length <= maxOps) {
     return (queue: queue, dropped: const <SyncOp>[]);
   }
-  final overflow = queue.length - maxOps;
-  return (
-    queue: queue.sublist(overflow),
-    dropped: queue.sublist(0, overflow),
-  );
+  var overflow = queue.length - maxOps;
+  final kept = <SyncOp>[];
+  final dropped = <SyncOp>[];
+  for (final op in queue) {
+    if (overflow > 0 && !op.isDelete) {
+      dropped.add(op);
+      overflow--;
+    } else {
+      kept.add(op);
+    }
+  }
+  return (queue: kept, dropped: dropped);
 }
 
 // ---- (De)Serialisierung LoggedMeal / FavoriteMeal ---------------------------

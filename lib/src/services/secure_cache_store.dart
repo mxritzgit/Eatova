@@ -4,12 +4,13 @@ import 'dart:developer' as dev;
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/api.dart'
     show AEADParameters, InvalidCipherTextException, KeyParameter;
 import 'package:pointycastle/block/aes.dart';
 import 'package:pointycastle/block/modes/gcm.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'crash_reporter.dart';
 import 'local_cache.dart';
@@ -56,15 +57,40 @@ const String cacheCipherMagic = 'EATOVA1:';
 ///
 /// [key] ist der SharedPreferences-Schluessel des Slots und geht als AAD in
 /// die Verschluesselung ein — Implementierungen MUESSEN ihn binden.
+///
+/// PERF-G9: bewusst `Future`-wertig, obwohl AES-GCM eine reine Rechnung ist.
+/// Die Produktionsimplementierung schiebt die Rechnung ueber `compute()` in
+/// einen Isolate; eine synchrone Signatur wuerde das verbieten und die
+/// Verschluesselung im Tap-Handler festnageln (gemessen 91,5 ms bei 210
+/// Mahlzeiten auf Desktop-JIT, mobil AOT 2-4x davon).
 abstract class CacheCipher {
   /// Verschluesselt [plaintext] gebunden an [key]. Liefert das armored
   /// Wire-Format (siehe [cacheCipherMagic]).
-  String encrypt(String key, String plaintext);
+  Future<String> encrypt(String key, String plaintext);
 
   /// Entschluesselt [armored] gebunden an [key]. Wirft bei falschem Key,
   /// falschem Slot (AAD) oder manipuliertem Ciphertext.
-  String decrypt(String key, String armored);
+  Future<String> decrypt(String key, String armored);
 }
+
+/// Transportobjekt fuer den Isolate-Hop. Nur einfache Daten (Uint8List +
+/// zwei Strings) — keine Closures, keine Ports, keine nativen Handles.
+class _CipherJob {
+  const _CipherJob(this.dek, this.key, this.payload);
+
+  final Uint8List dek;
+  final String key;
+  final String payload;
+}
+
+// `compute()` verlangt eine TOP-LEVEL- oder statische Funktion: die
+// Referenz wird als Code-Zeiger in den Isolate geschickt, eine Closure haette
+// einen eingefangenen Kontext, den es dort nicht gibt.
+String _encryptInIsolate(_CipherJob job) =>
+    AesGcmCacheCipher.encryptSync(job.dek, job.key, job.payload);
+
+String _decryptInIsolate(_CipherJob job) =>
+    AesGcmCacheCipher.decryptSync(job.dek, job.key, job.payload);
 
 /// AES-256-GCM ueber pointycastle, mit dem DEK aus [CacheKeyProvider].
 class AesGcmCacheCipher implements CacheCipher {
@@ -91,8 +117,45 @@ class AesGcmCacheCipher implements CacheCipher {
   /// aus dem OS-CSPRNG.
   static final Random _rng = Random.secure();
 
+  // --- PERF-G9: der Isolate-Hop -------------------------------------------
+  //
+  // Beide Richtungen laufen ueber `compute()`. KEINE Schwelle "kleine Blobs
+  // synchron", und das ist gemessen und nicht geraten (Dart 3.11 JIT,
+  // flutter test, 40 Durchlaeufe je Groesse, verschraenkt gemessen):
+  //
+  //   Blob     sync      compute   Delta
+  //     64 B   0,286 ms  0,397 ms  0,111 ms
+  //    256 B   0,343 ms  0,485 ms  0,142 ms
+  //    512 B   0,597 ms  0,665 ms  0,067 ms
+  //   1024 B   0,916 ms  1,045 ms  0,130 ms
+  //   2048 B   1,789 ms  1,925 ms  0,137 ms
+  //   4096 B   3,524 ms  3,664 ms  0,140 ms
+  //
+  // Der Isolate-Overhead ist eine KONSTANTE von ~0,13 ms und waechst nicht
+  // mit der Blobgroesse (Isolate.run spawnt in derselben Isolate-Group, der
+  // Heap wird geteilt). Schon der kleinste reale Slot kostet synchron 0,29 ms
+  // Krypto — also mehr als der Hop. Eine Schwelle wuerde damit einen zweiten
+  // Codepfad einfuehren, der auf KEINER Groesse gewinnt. Die 0,13 ms sind
+  // ausserdem Wanduhrzeit; auf dem Main-Isolate bleibt davon nur das
+  // Verschicken der Nachricht.
   @override
-  String encrypt(String key, String plaintext) {
+  Future<String> encrypt(String key, String plaintext) => compute(
+        _encryptInIsolate,
+        _CipherJob(_dek, key, plaintext),
+        debugLabel: 'cache-encrypt',
+      );
+
+  @override
+  Future<String> decrypt(String key, String armored) => compute(
+        _decryptInIsolate,
+        _CipherJob(_dek, key, armored),
+        debugLabel: 'cache-decrypt',
+      );
+
+  /// Die eigentliche Rechnung — REIN (kein Feldzugriff, keine IO), damit sie
+  /// im Isolate laufen kann. Wire-Format unveraendert gegenueber der
+  /// synchronen Fassung; der Golden-Blob im Test haelt das fest.
+  static String encryptSync(Uint8List dek, String key, String plaintext) {
     // NONCE: 12 FRISCHE Zufallsbytes pro Verschluesselung — niemals aus dem
     // Key abgeleitet, niemals ein Zaehler, niemals konstant. Eine
     // Nonce-Wiederverwendung unter demselben GCM-Key gibt den
@@ -108,7 +171,7 @@ class AesGcmCacheCipher implements CacheCipher {
       ..init(
         true,
         AEADParameters(
-            KeyParameter(_dek), tagLengthBits, nonce, _associatedData(key)),
+            KeyParameter(dek), tagLengthBits, nonce, _associatedData(key)),
       );
     // process() liefert bei GCM ciphertext ‖ tag.
     final sealed = cipher.process(_bytes(plaintext));
@@ -119,8 +182,8 @@ class AesGcmCacheCipher implements CacheCipher {
     return '$cacheCipherMagic${base64.encode(framed)}';
   }
 
-  @override
-  String decrypt(String key, String armored) {
+  /// Gegenstueck zu [encryptSync], ebenfalls rein und isolate-tauglich.
+  static String decryptSync(Uint8List dek, String key, String armored) {
     if (!armored.startsWith(cacheCipherMagic)) {
       throw const FormatException('Cache-Slot ohne EATOVA1-Magic');
     }
@@ -143,7 +206,7 @@ class AesGcmCacheCipher implements CacheCipher {
       ..init(
         false,
         AEADParameters(
-            KeyParameter(_dek), tagLengthBits, nonce, _associatedData(key)),
+            KeyParameter(dek), tagLengthBits, nonce, _associatedData(key)),
       );
     // Wirft InvalidCipherTextException, wenn der Tag nicht passt — also bei
     // falschem DEK, falschem Slot (AAD) oder manipuliertem Blob.
@@ -164,16 +227,32 @@ class AesGcmCacheCipher implements CacheCipher {
 abstract class SecureKeyStore {
   Future<String?> read(String key);
   Future<void> write(String key, String value);
+  Future<void> delete(String key);
 }
 
 /// Production-Implementierung: flutter_secure_storage.
 class PluginSecureKeyStore implements SecureKeyStore {
   const PluginSecureKeyStore();
 
-  // Diese beiden Options-Zeilen sind wichtiger als die Krypto darueber —
-  // sie entscheiden, ob der DEK einen normalen Geraete-Alltag ueberlebt.
-  static const FlutterSecureStorage _storage = FlutterSecureStorage(
-    // ANDROID: bewusst die PLUGIN-DEFAULTS (AES-GCM-Daten, RSA-OAEP-
+  // Diese Options-Zeilen sind wichtiger als die Krypto darueber — sie
+  // entscheiden, ob der DEK einen normalen Geraete-Alltag ueberlebt.
+  // Oeffentlich, weil der Session-Storage (supabase_config.dart, C5) exakt
+  // dieselbe Haltung braucht und sie nicht neu erfinden soll.
+  static const AndroidOptions androidOptions = AndroidOptions(
+    // SEC/A1: `resetOnError` ist in flutter_secure_storage 10.x per Default
+    // TRUE (in 9.x war es false). Die Java-Seite faengt damit JEDEN
+    // Keystore-Fehler ab, ruft `delete(key)` bzw. `deleteAll()` und meldet
+    // Erfolg — auf dem Read-Pfad kommt bei Dart ein blankes `null` an,
+    // ununterscheidbar von einem Erststart. Genau daraus wuerde der Bootstrap
+    // einen frischen DEK praegen und ALLE `EATOVA1:`-Slots (inkl. der Outbox
+    // mit bis zu 500 nicht quittierten Writes) unlesbar und damit
+    // loeschungsreif machen.
+    //
+    // Mit `false` wirft der Fehler durch, und der `catch` in
+    // [CacheKeyProvider._bootstrap] tut das einzig Richtige: aufgeben, den
+    // Ciphertext liegen lassen, naechster Start versucht neu.
+    resetOnError: false,
+    // ANDROID sonst: bewusst die PLUGIN-DEFAULTS (AES-GCM-Daten, RSA-OAEP-
     // Key-Wrapping, enforceBiometrics = false => setUserAuthenticationRequired
     // (false)). KEINE `AndroidOptions.biometric()`-Variante, KEIN
     // enforceBiometrics: true.
@@ -190,13 +269,25 @@ class PluginSecureKeyStore implements SecureKeyStore {
     // Datenverlust beim Fingerabdruck-Anlegen, kein Sicherheitsgewinn. Der
     // Schutzzweck ist Extraktion vom RUHENDEN Geraet, nicht Schutz gegen den
     // eingeloggten Nutzer selbst.
-    aOptions: AndroidOptions(),
-    // iOS: `first_unlock` (nicht `unlocked`), damit Lifecycle- und
-    // Notification-Pfade den DEK auch nach einem Reboot ohne aktive
-    // Entsperrung lesen koennen. `_this_device`, damit der DEK NIE in die
-    // iCloud-Keychain synchronisiert und nie auf ein anderes Geraet migriert
-    // (dort laege der Ciphertext dann ohne Key — bzw. der Key ohne Geraet).
-    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+  );
+
+  /// iOS: `first_unlock` (nicht `unlocked`), damit Lifecycle- und
+  /// Notification-Pfade den DEK auch nach einem Reboot ohne aktive
+  /// Entsperrung lesen koennen. `_this_device`, damit der DEK NIE in die
+  /// iCloud-Keychain synchronisiert und nie auf ein anderes Geraet migriert
+  /// (dort laege der Ciphertext dann ohne Key — bzw. der Key ohne Geraet).
+  ///
+  /// Ein `resetOnError`-Aequivalent gibt es auf Apple NICHT: `AppleOptions`
+  /// (flutter_secure_storage 10.3.1, `lib/options/apple_options.dart`) kennt
+  /// kein solches Feld, und die Swift-Seite loescht bei einem
+  /// Keychain-Fehler nichts, sondern reicht den OSStatus durch. Auf iOS ist
+  /// der Sentinel unten also die einzige — und ausreichende — Absicherung.
+  static const IOSOptions iosOptions =
+      IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device);
+
+  static const FlutterSecureStorage _storage = FlutterSecureStorage(
+    aOptions: androidOptions,
+    iOptions: iosOptions,
   );
 
   @override
@@ -205,6 +296,67 @@ class PluginSecureKeyStore implements SecureKeyStore {
   @override
   Future<void> write(String key, String value) =>
       _storage.write(key: key, value: value);
+
+  @override
+  Future<void> delete(String key) => _storage.delete(key: key);
+}
+
+/// A1: Klartext-Marker "auf diesem Geraet wurde schon einmal ein DEK
+/// gepraegt".
+///
+/// Der Marker traegt kein Geheimnis — nur ein Bit. Sein einziger Zweck ist,
+/// die beiden Zustaende auseinanderzuhalten, die der Keystore auf `null`
+/// abbildet:
+///   (a) Erststart / frische Installation  -> DEK praegen ist richtig
+///   (b) Der Keystore hat den Eintrag verloren -> DEK praegen zerstoert Daten
+abstract class DekSentinelStore {
+  Future<bool> isProvisioned();
+  Future<void> markProvisioned();
+}
+
+/// Production-Implementierung: SharedPreferences.
+///
+/// WARUM NICHT im selben Secure Storage? Weil der Sentinel genau den Vorfall
+/// ueberleben MUSS, den er meldet. Ein `deleteAll()` aus `handleStorageError`
+/// oder ein invalidierter Keystore-Key raeumt den gesamten
+/// flutter_secure_storage-Namensraum mit ab — ein Sentinel dort waere im
+/// Ernstfall exakt gleichzeitig weg und wuerde nie feuern.
+///
+/// SharedPreferences ist der richtige Ort, weil dort ohnehin schon die
+/// verschluesselten Blobs liegen, deren Wiederverwendbarkeit der Sentinel
+/// behauptet: beide gehen nur gemeinsam verloren (App-Daten loeschen,
+/// Deinstallation). Genau dann ist ein frischer DEK auch wieder korrekt, die
+/// App heilt sich also von selbst — waehrend "Keystore kaputt, Blobs noch da"
+/// zuverlaessig erkannt wird.
+///
+/// Der Marker ist ein blankes `true` ohne Kennung: nichts, was ein Angreifer
+/// mit Dateizugriff nicht ohnehin aus der Existenz der Ciphertexte ablesen
+/// koennte.
+class PrefsDekSentinelStore implements DekSentinelStore {
+  const PrefsDekSentinelStore();
+
+  @override
+  Future<bool> isProvisioned() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(CacheKeyProvider.dekProvisionedKey) ?? false;
+  }
+
+  @override
+  Future<void> markProvisioned() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(CacheKeyProvider.dekProvisionedKey, true);
+  }
+}
+
+/// Bereinigtes Fehlerobjekt fuer den Crash-Report, wenn der DEK verschwunden
+/// ist, obwohl der Sentinel steht. Traegt bewusst KEINE Kennung.
+class VanishedCacheKey implements Exception {
+  const VanishedCacheKey();
+
+  @override
+  String toString() =>
+      'VanishedCacheKey: DEK fehlt trotz gesetztem Sentinel — Bootstrap '
+      'abgebrochen statt neu gepraegt';
 }
 
 /// Bootstrap des Data-Encryption-Key (DEK) — memoisiert und single-flight.
@@ -216,6 +368,10 @@ class CacheKeyProvider {
   /// GERAETE-Ebene — ein Key pro User wuerde dagegen nichts zusaetzlich
   /// schuetzen, aber den Bootstrap pro Login-Wechsel verdoppeln.
   static const String dekStorageKey = 'eatova.v1.cache_dek';
+
+  /// A1-Sentinel. Liegt in SharedPreferences, NICHT im Secure Storage —
+  /// Begruendung siehe [PrefsDekSentinelStore].
+  static const String dekProvisionedKey = 'eatova.v1.dek_provisioned';
 
   /// Memoisierter Bootstrap. MUSS synchron gesetzt werden, bevor irgendein
   /// `await` laufen kann — siehe [obtain].
@@ -238,8 +394,14 @@ class CacheKeyProvider {
   /// [_bootstrap] gestartet wird. Zwischen Lesen und Schreiben kann also kein
   /// zweiter Aufrufer dazwischenkommen — der erste `await` liegt erst INNEN in
   /// [_bootstrap], lange nach der Memoisierung.
-  static Future<Uint8List?> obtain({SecureKeyStore? keyStore}) {
-    final started = _pending ??= _bootstrap(keyStore ?? const PluginSecureKeyStore());
+  static Future<Uint8List?> obtain({
+    SecureKeyStore? keyStore,
+    DekSentinelStore? sentinelStore,
+  }) {
+    final started = _pending ??= _bootstrap(
+      keyStore ?? const PluginSecureKeyStore(),
+      sentinelStore ?? const PrefsDekSentinelStore(),
+    );
     // Ein GESCHEITERTER Bootstrap (null) wird nicht dauerhaft gemerkt: sonst
     // bliebe der Cache nach EINEM transienten Keystore-Fehler fuer den Rest
     // des Prozesses tot. Das ist race-frei, weil im Null-Fall garantiert kein
@@ -256,7 +418,10 @@ class CacheKeyProvider {
   @visibleForTesting
   static void debugReset() => _pending = null;
 
-  static Future<Uint8List?> _bootstrap(SecureKeyStore keyStore) async {
+  static Future<Uint8List?> _bootstrap(
+    SecureKeyStore keyStore,
+    DekSentinelStore sentinel,
+  ) async {
     final String? stored;
     try {
       stored = await keyStore.read(dekStorageKey);
@@ -266,6 +431,10 @@ class CacheKeyProvider {
       // vorhandenen, nur gerade unlesbaren ueberschreiben und damit den
       // kompletten Cache (inkl. Outbox) endgueltig verwaisen lassen. Also:
       // aufgeben, Cache bleibt diese Session aus, naechster Start versucht neu.
+      //
+      // Dieser Zweig ist erst durch `resetOnError: false` ueberhaupt
+      // erreichbar — mit dem 10.x-Default hatte die Java-Seite den Eintrag
+      // vorher geloescht und `null` zurueckgemeldet.
       dev.log('CacheKeyProvider: DEK-Read fehlgeschlagen',
           error: e, stackTrace: s, name: 'secure_cache_store');
       return null;
@@ -273,13 +442,47 @@ class CacheKeyProvider {
 
     if (stored != null && stored.isNotEmpty) {
       final decoded = _tryDecodeDek(stored);
-      if (decoded != null) return decoded;
+      if (decoded != null) {
+        // Bestandsinstallationen von VOR dem Sentinel nachziehen: ohne diese
+        // Zeile waere jedes bereits installierte Geraet dauerhaft
+        // ungeschuetzt, weil der Sentinel erst beim naechsten (nie
+        // stattfindenden) Erst-Praegen entstuende.
+        await _markProvisioned(sentinel);
+        return decoded;
+      }
       // Ein vorhandener, aber strukturell kaputter DEK-Eintrag: die damit
       // geschriebenen Daten sind ohnehin verloren. Neu erzeugen laesst die
       // App sich selbst heilen (jeder Slot faellt beim naechsten Read in den
       // Undecryptable-Pfad und wird geraeumt).
+      //
+      // Der Sentinel greift hier BEWUSST nicht: er unterscheidet "Key weg" von
+      // "Erststart", und hier ist der Key nachweislich DA, nur unbrauchbar.
       dev.log('CacheKeyProvider: DEK-Eintrag korrupt, wird neu erzeugt',
           name: 'secure_cache_store');
+    } else if (await _wasProvisioned(sentinel)) {
+      // A1, der eigentliche Schutz. Der Keystore meldet "kein Key", aber auf
+      // diesem Geraet wurde schon einmal einer gepraegt — also wurde er
+      // geloescht (resetOnError, invalidierter Key, Backup-Restore ohne
+      // Keychain). Ein frischer DEK wuerde jetzt alle `EATOVA1:`-Slots
+      // unentschluesselbar machen, `_onUndecryptable` wuerde sie raeumen, und
+      // die Outbox-Ops waeren endgueltig weg — der Server kann sie nicht
+      // rekonstruieren.
+      //
+      // Stattdessen: aufgeben. Die Ciphertexte bleiben unangetastet liegen.
+      // Kehrt der Schluessel je zurueck (Restore der Keychain, Downgrade),
+      // sind sie wieder lesbar. Loescht der Nutzer die App-Daten, verschwindet
+      // der Sentinel mit den Blobs und der naechste Start praegt wieder
+      // regulaer — die App bleibt also nicht dauerhaft klemmt.
+      dev.log(
+          'CacheKeyProvider: DEK fehlt trotz Sentinel — kein Neu-Praegen '
+          '(sonst Totalverlust des Caches inkl. Outbox)',
+          name: 'secure_cache_store');
+      unawaited(CrashReporter.capture(
+        const VanishedCacheKey(),
+        StackTrace.current,
+        context: 'cache_dek_vanished',
+      ));
+      return null;
     }
 
     final fresh = _generateDek();
@@ -293,7 +496,38 @@ class CacheKeyProvider {
       // funktionieren. Lieber gar kein Cache.
       return null;
     }
+    // REIHENFOLGE: erst der DEK, dann der Sentinel. Andersherum wuerde ein
+    // gescheiterter DEK-Write einen Sentinel ohne Key hinterlassen — und der
+    // naechste Start liefe in den Abbruch-Zweig oben, dauerhaft.
+    await _markProvisioned(sentinel);
     return fresh;
+  }
+
+  /// Sentinel lesen. Faellt FAIL-CLOSED aus: wer nicht sagen kann, ob schon
+  /// ein DEK existierte, darf keinen neuen praegen. Der Preis ist "diese
+  /// Session ohne Cache" — der Preis der Gegenrichtung waere Datenverlust.
+  /// Praktisch ist das folgenlos: SharedPreferences ist ohnehin der Speicher
+  /// des Caches, faellt es aus, gibt es auch nichts zu cachen.
+  static Future<bool> _wasProvisioned(DekSentinelStore sentinel) async {
+    try {
+      return await sentinel.isProvisioned();
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Sentinel-Read fehlgeschlagen — fail closed',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+      return true;
+    }
+  }
+
+  /// Best effort: schlaegt das Setzen fehl, degradiert das Verhalten auf den
+  /// Stand VOR dieser Aenderung (naechster Keystore-Reset praegt neu) — es
+  /// wird dadurch nie schlimmer, also kein Grund den Bootstrap abzubrechen.
+  static Future<void> _markProvisioned(DekSentinelStore sentinel) async {
+    try {
+      await sentinel.markProvisioned();
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Sentinel-Write fehlgeschlagen',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+    }
   }
 
   static Uint8List _generateDek() {
@@ -342,11 +576,28 @@ class EncryptedKeyValueStore implements KeyValueStore {
   static Future<EncryptedKeyValueStore?> create(
     KeyValueStore inner, {
     SecureKeyStore? keyStore,
+    DekSentinelStore? sentinelStore,
   }) async {
-    final dek = await CacheKeyProvider.obtain(keyStore: keyStore);
+    final dek = await CacheKeyProvider.obtain(
+      keyStore: keyStore,
+      sentinelStore: sentinelStore,
+    );
     if (dek == null) return null;
     return EncryptedKeyValueStore(inner, AesGcmCacheCipher(dek));
   }
+
+  /// PERF-G9: Seit die Verschluesselung im Isolate laeuft, ist [setString]
+  /// zwischen Aufruf und Persistierung unterbrechbar. Ohne Serialisierung
+  /// koennten zwei ueberlappende Writes auf DENSELBEN Slot in umgekehrter
+  /// Reihenfolge landen — der Header dieser Datei haelt fest, dass genau das
+  /// passiert (`_cacheLoggedMeals()` schreibt den ganzen Blob bei jeder
+  /// Aenderung, mehrere Writes laufen `unawaited`).
+  ///
+  /// Vorher war das durch Zufall sicher: `setString` lief bis zum
+  /// `_inner.setString` synchron, die Aufrufreihenfolge war also die
+  /// Schreibreihenfolge. Diese Garantie wird hier explizit wiederhergestellt —
+  /// PRO KEY, damit verschiedene Slots weiter parallel rechnen duerfen.
+  final Map<String, Future<void>> _writeQueue = <String, Future<void>>{};
 
   @override
   Future<String?> getString(String key) async {
@@ -355,7 +606,7 @@ class EncryptedKeyValueStore implements KeyValueStore {
 
     if (raw.startsWith(cacheCipherMagic)) {
       try {
-        return _cipher.decrypt(key, raw);
+        return await _cipher.decrypt(key, raw);
       } catch (e, s) {
         await _onUndecryptable(key, e, s);
         return null;
@@ -369,7 +620,13 @@ class EncryptedKeyValueStore implements KeyValueStore {
     // Ereignissen geschrieben und laegen sonst womoeglich wochenlang weiter im
     // Klartext.
     try {
-      await _inner.setString(key, _cipher.encrypt(key, raw));
+      await _enqueueWrite(key, () async {
+        // Der Isolate-Hop macht ein Fenster auf, in dem ein regulaerer
+        // setString denselben Slot schon neu geschrieben haben kann. Dann ist
+        // der Klartext von oben veraltet und darf ihn NICHT ueberschreiben.
+        if (await _inner.getString(key) != raw) return;
+        await _inner.setString(key, await _cipher.encrypt(key, raw));
+      });
     } catch (e) {
       // Eigener try/catch: ein Migrations-Fehler degradiert zu "bleibt
       // Klartext, naechster Read versucht es erneut" — NIEMALS zu einem
@@ -384,10 +641,39 @@ class EncryptedKeyValueStore implements KeyValueStore {
 
   @override
   Future<void> setString(String key, String value) =>
-      _inner.setString(key, _cipher.encrypt(key, value));
+      _enqueueWrite(key, () async {
+        await _inner.setString(key, await _cipher.encrypt(key, value));
+      });
 
+  /// Haengt [task] an das Ende der Kette fuer [key] und liefert dessen
+  /// Ergebnis. Ein Fehler eines Vorgaengers blockiert die Nachfolger NICHT
+  /// (sonst wuerde ein einzelner Plugin-Fehler den Slot fuer den Rest des
+  /// Prozesses stilllegen) — er wird aber weiterhin an dessen eigenen
+  /// Aufrufer gemeldet.
+  Future<void> _enqueueWrite(String key, Future<void> Function() task) {
+    final previous = _writeQueue[key];
+    final Future<void> queued = previous == null
+        ? task()
+        : previous.then<void>((_) => task(),
+            onError: (Object _, StackTrace __) => task());
+    _writeQueue[key] = queued;
+    unawaited(queued.then<void>(
+      (_) => _releaseWriteSlot(key, queued),
+      onError: (Object _, StackTrace __) => _releaseWriteSlot(key, queued),
+    ));
+    return queued;
+  }
+
+  void _releaseWriteSlot(String key, Future<void> queued) {
+    if (identical(_writeQueue[key], queued)) _writeQueue.remove(key);
+  }
+
+  /// Laeuft ueber DIESELBE Kette wie [setString]. Sonst koennte ein `remove`
+  /// eine noch im Isolate rechnende Verschluesselung ueberholen und der Wert
+  /// nach dem Loeschen wieder auftauchen — bei `LocalCache.clear()` (Logout)
+  /// waere das PII, die den Logout ueberlebt.
   @override
-  Future<void> remove(String key) => _inner.remove(key);
+  Future<void> remove(String key) => _enqueueWrite(key, () => _inner.remove(key));
 
   /// Ein Slot ist nicht entschluesselbar (invalidierter Keystore-Key,
   /// zurueckgespieltes Backup, Manipulation).

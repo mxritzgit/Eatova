@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/favorite_meal.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
@@ -172,6 +174,64 @@ void main() {
       expect(await cache.readPendingStatsDeltas(), isNull);
       expect(store.snapshot, isEmpty,
           reason: 'kein PII-Rest in den SharedPreferences');
+    });
+
+    test('clear(preserveOutbox: true) haelt genau Outbox + Stats-Deltas',
+        () async {
+      // A2: Ausloggen darf ungesyncte Mahlzeiten nicht vernichten. Die beiden
+      // Sync-Slots ueberleben den Logout und spielen beim naechsten Login
+      // DESSELBEN Users nach; alles andere (PII-Spiegel) muss weg.
+      final store = InMemoryKeyValueStore();
+      final cache = _cache(store);
+      await cache.writeProfile(const UserProfile(weightKg: 90));
+      await cache.writeLifetimeStats(LifetimeStats(mealsLogged: 3));
+      await cache.writeNotificationsEnabled(true);
+      await cache.writeLoggedMeals([_meal('m-1')]);
+      await cache.writeFavorites([
+        FavoriteMeal(
+            id: 'name:bowl', result: _result(), addedAt: DateTime(2026, 8, 5)),
+      ]);
+      await cache.writeWeightLog(WeightLog(entries: [
+        WeightLogEntry(timestamp: DateTime(2026, 8, 5, 7), weightKg: 81.4),
+      ]));
+      await cache.writeOutbox([SyncOp.mealInsert(_meal('m-2'), trackDay: true)]);
+      await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
+
+      await cache.clear(preserveOutbox: true);
+
+      // Die zwei Sync-Slots stehen noch — inklusive Inhalt.
+      final outbox = await cache.readOutbox();
+      expect(outbox, hasLength(1));
+      expect(outbox!.single.entityId, 'm-2');
+      expect((await cache.readPendingStatsDeltas())!.meals, 1);
+
+      // Alles andere ist geraeumt.
+      expect(await cache.readProfile(), isNull);
+      expect(await cache.readLifetimeStats(), isNull);
+      expect(await cache.readNotificationsEnabled(), isNull);
+      expect(await cache.readLoggedMeals(), isNull);
+      expect(await cache.readFavorites(), isNull);
+      expect(await cache.readWeightLog(), isNull);
+      expect(
+        store.snapshot.keys.toSet(),
+        {'eatova.v1.outbox.user-1', 'eatova.v1.pending_stats.user-1'},
+        reason: 'genau die zwei Sync-Slots, kein PII-Rest',
+      );
+    });
+
+    test('clear() ohne Argument raeumt weiterhin auch die Outbox', () async {
+      // Der Default darf sich NICHT aendern — bestehende Aufrufer
+      // (Konto-Loeschung) verlassen sich darauf.
+      final store = InMemoryKeyValueStore();
+      final cache = _cache(store);
+      await cache.writeOutbox([SyncOp.mealDelete('m-2')]);
+      await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
+
+      await cache.clear();
+
+      expect(await cache.readOutbox(), isNull);
+      expect(await cache.readPendingStatsDeltas(), isNull);
+      expect(store.snapshot, isEmpty);
     });
 
     test('Slots sind pro userId getrennt', () async {

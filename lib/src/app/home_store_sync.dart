@@ -1,5 +1,52 @@
 part of 'home_store.dart';
 
+/// Mindestalter einer Op, bevor ein aufgebrauchtes Versuchs-Budget sie
+/// verwerfen darf (Review 2026-08-08, A4).
+///
+/// [SyncOp.attempts] zaehlt Durchlaeufe, nicht Zeit — und Durchlaeufe kommen
+/// nicht nur vom Backoff-Timer, sondern auch von Boot, `_onSyncSuccess` und
+/// [flushPendingWrites]. Letzteres feuert bei `paused|hidden|detached` UND bei
+/// `resumed`; Flutter sendet `inactive -> hidden -> paused` beim Wegschalten
+/// und `hidden -> inactive -> resumed` zurueck, ein einziger App-Wechsel sind
+/// also bis zu VIER Durchlaeufe. Drei, vier Wechsel zwischen Eatova und
+/// WhatsApp waehrend eines fuenfminuetigen Server-Ausfalls haben so das ganze
+/// Budget in Sekunden verbrannt und eine gueltige Mahlzeit dauerhaft
+/// verworfen.
+///
+/// Deshalb ist das Budget ab jetzt eine UND-Bedingung: verworfen wird erst,
+/// wenn die Versuche aufgebraucht sind UND die Op seit mindestens 24 h in der
+/// Queue liegt. Lifecycle-Churn kann den Zaehler weiterhin hochtreiben — er
+/// kann damit aber nichts mehr wegwerfen, weil die Wanduhr nicht mitspielt.
+/// Unberuehrt bleibt der SOFORT-Verwurf aus dem Fehler selbst (Gift-Op,
+/// korrupte Payload): der haengt nicht am Budget und braucht kein Alter.
+///
+/// Warum 24 h: das ist laenger als jeder Server-Ausfall, den ein Retry
+/// ueberdauern soll, und kurz genug, dass eine wirklich unschreibbare Op nicht
+/// wochenlang Akku und Traffic frisst.
+const Duration kOutboxMinAgeBeforeDrop = Duration(hours: 24);
+
+/// Die Payload einer Outbox-Op ist nicht lesbar (Review 2026-08-08, A8).
+///
+/// Erreichbar, weil [SyncOp.tryFromJson] eine Op mit nicht-Map-Payload BEHAELT
+/// und `{}` einsetzt — die typisierten Zugriffe (`op.meal` & Co.) liefern dann
+/// null. Frueher kehrte `_performOp` in diesem Fall einfach frueh zurueck, und
+/// der Replay-Loop verbuchte das als Zustellung: `anySuccess = true`, Op
+/// entfernt, Queue persistiert. Der einzige Verlustpfad ohne Snack, ohne
+/// Breadcrumb, ohne Crash-Report. Jetzt ist es ein Wurf, der im selben
+/// Verwurfs-Pfad landet wie eine Gift-Op.
+///
+/// [toString] traegt bewusst NUR das Op-Kind — die Payload selbst enthaelt
+/// Mahlzeiten-Namen und Gewichte, also Gesundheitsdaten (Regel dokumentiert in
+/// crash_reporter.dart), und dieses Objekt geht an den CrashReporter.
+class _CorruptOpPayload implements Exception {
+  const _CorruptOpPayload(this.kind);
+
+  final SyncOpKind kind;
+
+  @override
+  String toString() => 'CorruptOpPayload(${kind.name})';
+}
+
 /// Sync-Part von [HomeStore] (DATA-7): die persistierte Write-Outbox mit
 /// Replay + Backoff, die Lifetime-Stats-Deltas, das Cache-Write-Through in
 /// den [LocalCache] sowie die Fehler-/Snack-Pfade. Dazu der Konto-/Cache-
@@ -28,6 +75,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Queue-Cap). Auch das wird pro Episode nur EINMAL gemeldet und beim
   /// naechsten Sync-Erfolg zurueckgesetzt.
   bool _outboxLossNotified = false;
+
+  /// Entitaeten, deren Op endgueltig verworfen wurde (Review 2026-08-08, A6).
+  ///
+  /// Sie sind serverseitig moeglicherweise gar nicht vorhanden, lokal aber
+  /// weiterhin sichtbar. Ein spaeterer Live-Write auf so eine Entitaet waere
+  /// fuer Mahlzeiten ein PATCH — und ein PATCH ohne Treffer ist ein 204, also
+  /// kein Fehler: [_onSyncSuccess] feuerte, der Nutzer sah nichts, und die
+  /// Mahlzeit existierte weiterhin nicht. Deshalb laufen Writes auf diese
+  /// Entitaeten ueber die Outbox, wo jede Op ein voller Upsert auf die
+  /// Client-UUID ist ([_syncOrQueue]) — das REPARIERT die Entitaet, statt sie
+  /// (die Alternative) aus dem lokalen Zustand zu loeschen.
+  ///
+  /// Bewusst NICHT persistiert: nach einem Kaltstart ersetzt der Server-Load
+  /// die Mahlzeitenliste ohnehin komplett, die verwaiste Zeile ist dann aus
+  /// dem Zustand verschwunden und es gibt nichts mehr zu reparieren. Der
+  /// Merker gilt genau fuer die Sitzung, in der der Verlust gemeldet wurde.
+  final Set<String> _orphanedEntities = <String>{};
 
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
@@ -71,6 +135,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Live-Write wuerde die pendende Op ueberholen (z.B. ein Update, dessen
   /// Insert noch aussteht, traefe serverseitig 0 Zeilen und der Replay
   /// schriebe danach den alten Stand).
+  ///
+  /// Dasselbe gilt fuer Entitaeten, deren Op einmal VERWORFEN wurde
+  /// ([_orphanedEntities], A6): auch die existieren serverseitig womoeglich
+  /// nicht, und der Live-Pfad (PATCH auf 0 Zeilen = 204 = „Erfolg") wuerde das
+  /// nie bemerken.
   void _syncOrQueue(
     String operation,
     Future<void> Function() action,
@@ -78,7 +147,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ) {
     if (sync == null) return;
     final op = buildOp();
-    if (_outbox.any((o) => o.entityKey == op.entityKey)) {
+    if (_orphanedEntities.contains(op.entityKey) ||
+        _outbox.any((o) => o.entityKey == op.entityKey)) {
       _enqueueOp(op);
       _notifyQueued(null);
       _scheduleOutboxRetry();
@@ -202,10 +272,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// sofort entfernt und der Rest persistiert (kill-sicher: ein Abbruch
   /// mittendrin wiederholt hoechstens bereits bestaetigte, idempotente Ops).
   ///
-  /// Fehlschlaege werden ueber [classifyOutboxFailure] einsortiert:
+  /// Fehlschlaege werden ueber [_verdictFor] (= [classifyOutboxFailure] plus
+  /// die beiden zustandsabhaengigen Regeln aus dem Review 2026-08-08)
+  /// einsortiert:
   ///  * [OutboxVerdict.drop] — die Op wird endgueltig verworfen (sonst wuerde
   ///    sie ewig retryt und, weil [_syncOrQueue] ihre Entitaet vom Server
-  ///    abschneidet, diese Entitaet dauerhaft blockieren).
+  ///    abschneidet, diese Entitaet dauerhaft blockieren). Ihre Entitaet
+  ///    landet dabei in [_orphanedEntities].
   ///  * [OutboxVerdict.retryCounted] — bleibt liegen, verbraucht aber einen
   ///    Zustellversuch.
   ///  * [OutboxVerdict.retryFree] — bleibt liegen, ohne Budget zu verbrauchen
@@ -233,7 +306,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           // appendOnly-Enqueue ersetzt sie) — deshalb die Op ueber Identitaet
           // wiederfinden statt dem Index zu trauen.
           final at = _outbox.indexWhere((o) => identical(o, op));
-          final verdict = classifyOutboxFailure(e, op.attempts);
+          final verdict = _verdictFor(e, op);
           if (verdict == OutboxVerdict.drop) {
             dev.log(
                 'Outbox-Replay: ${op.kind.name} endgueltig verworfen '
@@ -246,6 +319,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             unawaited(CrashReporter.capture(e, st,
                 context: 'outbox-drop-${op.kind.name}'));
             anyDropped = true;
+            // A6: die Entitaet ist ab jetzt potenziell verwaist (lokal da,
+            // serverseitig nicht). Kuenftige Writes muessen deshalb ueber die
+            // Outbox laufen, wo sie als voller Upsert ankommen.
+            _orphanedEntities.add(op.entityKey);
             if (at >= 0) {
               _outbox = [..._outbox]..removeAt(at);
               _persistOutbox();
@@ -270,6 +347,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           continue;
         }
         anySuccess = true;
+        // Die Entitaet ist wieder serverseitig vorhanden — der Live-Pfad darf
+        // sie wieder anfassen (A6).
+        _orphanedEntities.remove(op.entityKey);
         _outbox = [..._outbox]..removeAt(i);
         _persistOutbox();
       }
@@ -293,14 +373,38 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
+  /// Entscheidet, was mit einer fehlgeschlagenen Op passiert. Duennes Vorwerk
+  /// um [classifyOutboxFailure] — die reine Klassifizierung bleibt dort, hier
+  /// kommen die zwei Regeln dazu, die den Op-Zustand brauchen:
+  ///
+  ///  * A8 — eine nicht lesbare Payload ist unzustellbar. Sie laeuft ueber den
+  ///    VERWURFS-Pfad (Snack + Crash-Report), nicht mehr ueber den Erfolgspfad.
+  ///  * A4 — ein Verwurf, der nur am aufgebrauchten Versuchs-Budget haengt,
+  ///    braucht zusaetzlich Wanduhrzeit ([kOutboxMinAgeBeforeDrop]). Ob das
+  ///    Budget der Grund war, verraet die Gegenprobe mit `attempts: 0`: sagt
+  ///    die Klassifizierung auch ohne verbrauchtes Budget „drop", kam der
+  ///    Verwurf aus dem Fehler selbst (Gift-Op) und bleibt sofort wirksam.
+  OutboxVerdict _verdictFor(Object error, SyncOp op) {
+    if (error is _CorruptOpPayload) return OutboxVerdict.drop;
+    final verdict = classifyOutboxFailure(error, op.attempts, kind: op.kind);
+    if (verdict != OutboxVerdict.drop) return verdict;
+    if (classifyOutboxFailure(error, 0, kind: op.kind) == OutboxVerdict.drop) {
+      return OutboxVerdict.drop;
+    }
+    return DateTime.now().difference(op.queuedAt) >= kOutboxMinAgeBeforeDrop
+        ? OutboxVerdict.drop
+        : OutboxVerdict.retryCounted;
+  }
+
   /// Fuehrt EINE Outbox-Op gegen den Server aus. Wirft bei Sync-Fehler (der
-  /// Replay-Loop behaelt die Op dann). Nachgelagerte Zaehler laufen wie im
-  /// jeweiligen Online-Erfolgspfad.
+  /// Replay-Loop behaelt die Op dann) und bei nicht lesbarer Payload
+  /// ([_CorruptOpPayload] — die Op wird dann verworfen, A8). Nachgelagerte
+  /// Zaehler laufen wie im jeweiligen Online-Erfolgspfad.
   Future<void> _performOp(EatovaSync s, SyncOp op) async {
     switch (op.kind) {
       case SyncOpKind.mealInsert:
         final meal = op.meal;
-        if (meal == null) return; // korrupter Payload -> Op verfaellt still
+        if (meal == null) throw _CorruptOpPayload(op.kind);
         await s.meals.insertLoggedMeal(meal);
         _queueStatsDelta(meals: 1);
         // Streak-Tag der MAHLZEIT verbuchen, nicht "heute" — der Replay kann
@@ -311,25 +415,25 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         }
       case SyncOpKind.mealUpsert:
         final meal = op.meal;
-        if (meal == null) return;
+        if (meal == null) throw _CorruptOpPayload(op.kind);
         await s.meals.insertLoggedMeal(meal);
       case SyncOpKind.mealDelete:
         await s.meals.deleteLoggedMeal(op.entityId);
       case SyncOpKind.weightInsert:
         final kg = op.weightKg;
         final ts = op.recordedAt;
-        if (kg == null || ts == null) return;
+        if (kg == null || ts == null) throw _CorruptOpPayload(op.kind);
         await s.tracking.insertWeight(kg, ts, id: op.entityId);
         _queueStatsDelta(weightLogs: 1);
       case SyncOpKind.favoriteUpsert:
         final fav = op.favorite;
-        if (fav == null) return;
+        if (fav == null) throw _CorruptOpPayload(op.kind);
         await s.meals.upsertFavorite(fav);
       case SyncOpKind.favoriteDelete:
         await s.meals.deleteFavorite(op.entityId);
       case SyncOpKind.recipeUpsert:
         final recipe = op.recipe;
-        if (recipe == null) return;
+        if (recipe == null) throw _CorruptOpPayload(op.kind);
         await s.userRecipes.upsert(recipe);
       case SyncOpKind.recipeDelete:
         await s.userRecipes.delete(op.entityId);
@@ -417,25 +521,60 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _reportSyncError('Konto-Löschung', e, st);
       return false;
     }
+    // D9: geplante Erinnerungen liegen im OS, nicht in unserem Cache — ohne
+    // diesen Aufruf feuern sie nach der Löschung weiter, während der Dialog
+    // „unwiderruflich gelöscht" verspricht.
+    await notificationService.cancelAll();
+    // Kein preserveOutbox: das Konto ist weg, es gibt kein Ziel mehr, gegen
+    // das die Ops je zugestellt werden könnten.
     await _clearCache();
     return true;
   }
 
-  /// Räumt den lokalen Klartext-PII-Cache (Profil, Mood-Notiz, Lifetime-Stats,
-  /// Notification-Flag) beim Sign-Out — anders als [deleteAccount] OHNE
-  /// Server-RPC. Ohne diesen Schritt überlebten Gesundheits-/Profildaten den
-  /// Logout unverschlüsselt in den SharedPreferences (Audit 2026-06-09, M-1).
-  /// Muss VOR dem eigentlichen `signOut()` laufen, solange der User noch der
-  /// aktuelle ist — der defensive Pfad braucht dessen ID.
-  Future<void> signOutCleanup() => _clearCache();
+  /// Räumt den lokalen PII-Cache (Profil, Lifetime-Stats, Tagebuch,
+  /// Favoriten, Gewicht, Notification-Flag) beim Sign-Out — anders als
+  /// [deleteAccount] OHNE Server-RPC. Ohne diesen Schritt überlebten
+  /// Gesundheits-/Profildaten den Logout in den SharedPreferences (Audit
+  /// 2026-06-09, M-1). Muss VOR dem eigentlichen `signOut()` laufen, solange
+  /// der User noch der aktuelle ist — der defensive Pfad braucht dessen ID.
+  ///
+  /// Ungesyncte Writes werden dabei NICHT mehr mitvernichtet (Review
+  /// 2026-08-08, A2). Vorher hieß Ausloggen: sechs im Flugzeug geloggte
+  /// Mahlzeiten sind weg — nicht eingereiht, nicht wiederherstellbar, nie
+  /// erwähnt. Jetzt läuft zuerst ein Zustellversuch; bleibt danach etwas
+  /// liegen, überlebt die Outbox (und mit ihr die pendenden Stats-Deltas) den
+  /// Logout und spielt beim nächsten Login desselben Users nach.
+  ///
+  /// Die alte Begründung (PII darf den Logout nicht überleben) trägt für
+  /// diesen einen Slot nicht mehr: der Cache ist seit `7f895f9`
+  /// AES-256-GCM-verschlüsselt, und JEDER Slot-Schlüssel trägt die User-ID
+  /// (`eatova.v1.outbox.<uid>`, siehe local_cache.dart) — ein anderer Nutzer
+  /// auf demselben Gerät liest seinen eigenen, leeren Namensraum, nie diesen.
+  Future<void> signOutCleanup() async {
+    // Zustellversuch VOR dem Verwerfen: online ist die Queue danach leer und
+    // es bleibt beim vollständigen Räumen wie bisher.
+    await _replayOutbox();
+    // Nur was die Zustellung nicht losgeworden ist, rechtfertigt einen
+    // überlebenden Slot. Maßgeblich ist die Queue des Stores — sie ist der
+    // Spiegel des persistierten Blobs, sobald der Boot gelaufen ist.
+    final remaining = _outbox.length;
+    // D9: die geplanten Erinnerungen sind OS-Zustand und kennen keinen User.
+    // Ohne diesen Aufruf zeigt das Familien-Tablet der neu angemeldeten
+    // Person abends die Streak-Erinnerung der vorherigen.
+    await notificationService.cancelAll();
+    await _clearCache(preserveOutbox: remaining > 0);
+  }
 
   /// Löscht den lokalen Cache. Bevorzugt den bereits gebooteten [_cache], im
   /// Test den injizierten [debugCache]; kommt der Logout vor dem Boot-Ende
   /// (noch kein _cache), wird er defensiv aus der aktuellen Session-User-ID
   /// gebaut, damit auch dann nichts liegen bleibt.
-  Future<void> _clearCache() async {
+  ///
+  /// [preserveOutbox] hält `_outboxKey`/`_pendingStatsKey` zurück (A2) — alles
+  /// andere fällt so oder so.
+  Future<void> _clearCache({bool preserveOutbox = false}) async {
     final cache = _cache ?? debugCache ?? await _resolveCacheForCurrentUser();
-    await cache?.clear();
+    await cache?.clear(preserveOutbox: preserveOutbox);
   }
 
   Future<LocalCache?> _resolveCacheForCurrentUser() async {
@@ -480,17 +619,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   // letzten Stand zeigt. Fire-and-forget — ein Cache-Write darf nie den
   // UI-Pfad blockieren. Gefiltert auf das Boot-Fenster (s.
   // _cacheableLoggedMeals) — Alt-Tage blaehen den Cache nicht auf.
+  // Entprellt (G9b): eine Fuenfer-Serie verschluesselte den ganzen Blob sonst
+  // fuenfmal — bei 210 Mahlzeiten sind das 5x91 ms AES-GCM. Ausstehende Writes
+  // gehen nicht verloren: flushPendingWrites() haengt am Lifecycle und
+  // erzwingt sie, clear() verwirft sie bewusst (sonst schriebe ein laufender
+  // Timer die beim Logout geraeumte PII zurueck).
   void _cacheLoggedMeals() {
-    unawaited(_cache?.writeLoggedMeals(_cacheableLoggedMeals()) ??
-        Future<void>.value());
+    _cache?.writeLoggedMealsDebounced(_cacheableLoggedMeals());
   }
 
   void _cacheFavorites() {
-    unawaited(_cache?.writeFavorites(favorites) ?? Future<void>.value());
+    _cache?.writeFavoritesDebounced(favorites);
   }
 
   void _cacheWeightLog() {
-    unawaited(_cache?.writeWeightLog(weightLog) ?? Future<void>.value());
+    _cache?.writeWeightLogDebounced(weightLog);
   }
 
   void _persistOutbox() {
@@ -573,6 +716,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Schreibt ausstehende debounced Writes sofort weg (App-Backgrounding)
   /// und spielt liegengebliebene Outbox-Ops nach.
   void flushPendingWrites() {
+    // Vor dem sync-Guard: die entprellten Cache-Writes (G9b) haengen nicht am
+    // Sync-Client. Ohne diese Zeile verliert ein Backgrounding waehrend des
+    // 400-ms-Fensters den letzten Tagebuch-Stand.
+    unawaited(_cache?.flush() ?? Future<void>.value());
     final s = sync;
     if (s == null) return;
     _statsSaveDebounce?.cancel();

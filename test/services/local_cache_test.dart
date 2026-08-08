@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/lifetime_stats.dart';
@@ -7,7 +10,7 @@ import 'package:eatova/src/services/local_cache.dart';
 // DATA-3: LocalCache ist der durable Write-Through-Cache (JSON) fuer Profil
 // und lifetime_stats. Diese Tests treiben ihn ueber den InMemoryKeyValueStore
 // (kein SharedPreferences-Channel noetig) und sichern:
-//   1. Profil/Stats roundtrippen verlustfrei.
+//   1. Profil/Stats roundtrippen verlustfrei — JEDES Feld, siehe A7.
 //   2. Korrupte/teilweise Eintraege liefern null statt zu crashen.
 //   3. Ein leerer Cache liefert ueberall null (Kaltstart ohne Vorstand).
 //   4. clear() entfernt alle Eintraege inkl. des Legacy-daily-Slots (M-1).
@@ -15,6 +18,10 @@ import 'package:eatova/src/services/local_cache.dart';
 
 LocalCache _cache(InMemoryKeyValueStore store, [String userId = 'user-1']) =>
     LocalCache(store, userId);
+
+/// camelCase -> snake_case, die Namenskonvention des Cache-Wire-Formats.
+String _snake(String camel) =>
+    camel.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m[0]!.toLowerCase()}');
 
 void main() {
   group('LocalCache Profil', () {
@@ -36,6 +43,7 @@ void main() {
         carbsGoalG: 250,
         fatGoalG: 80,
         weightGoal: WeightGoal.lose05kg,
+        diet: DietPreference.vegan,
         onboardingCompleted: true,
       );
 
@@ -57,7 +65,55 @@ void main() {
       expect(back.carbsGoalG, 250);
       expect(back.fatGoalG, 80);
       expect(back.weightGoal, WeightGoal.lose05kg);
+      // A7: diet fehlte im Wire-Format komplett — der Cache lieferte still
+      // DietPreference.none zurueck und der naechste profile.save() schrieb
+      // das dauerhaft auf den Server.
+      expect(back.diet, DietPreference.vegan);
       expect(back.onboardingCompleted, isTrue);
+    });
+
+    test('Wire-Format deckt JEDES UserProfile-Feld ab (neue Felder -> rot)',
+        () async {
+      // A7 strukturell abgesichert: wer ein Feld an UserProfile haengt, ohne
+      // es in _profileToJson aufzunehmen, macht diesen Test rot. Reflection
+      // gibt es in Flutter nicht (kein dart:mirrors), deshalb lesen wir die
+      // Felddeklarationen direkt aus der Modellquelle.
+      final quelle =
+          File('lib/src/models/user_profile.dart').readAsStringSync();
+      final klassenRumpf =
+          quelle.substring(quelle.indexOf('class UserProfile {'));
+      final felder = RegExp(r'^\s+final\s+[\w<>?]+\s+(\w+);', multiLine: true)
+          .allMatches(klassenRumpf)
+          .map((m) => m.group(1)!)
+          .toList();
+      expect(felder, hasLength(16),
+          reason: 'Feldliste aus lib/src/models/user_profile.dart gelesen');
+
+      // Feldname -> Cache-Schluessel. Regel ist camelCase -> snake_case; die
+      // einzige Ausnahme ist `diet`, das (wie serverseitig) `diet_preference`
+      // heisst.
+      const aliase = <String, String>{'diet': 'diet_preference'};
+      final erwarteteSchluessel =
+          felder.map((f) => aliase[f] ?? _snake(f)).toSet();
+
+      final store = InMemoryKeyValueStore();
+      await _cache(store).writeProfile(const UserProfile());
+      final geschriebeneSchluessel =
+          (jsonDecode(store.snapshot['eatova.v1.profile.user-1']!)
+                  as Map<String, dynamic>)
+              .keys
+              .toSet();
+
+      expect(geschriebeneSchluessel, erwarteteSchluessel);
+    });
+
+    test('unbekannte diet_preference faellt auf none (kein Crash)', () async {
+      final store = InMemoryKeyValueStore({
+        'eatova.v1.profile.user-1': '{"diet_preference":"karnivor"}',
+      });
+      final back = await _cache(store).readProfile();
+      expect(back, isNotNull);
+      expect(back!.diet, DietPreference.none);
     });
 
     test('leerer Cache -> null (kein Default-Profil aus dem Nichts)', () async {

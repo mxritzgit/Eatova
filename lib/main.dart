@@ -47,6 +47,11 @@ Future<void> main() async {
       // Defaults sind aus. Fokus: ausschliesslich Crashes.
       options.sendDefaultPii = false;
       options.attachScreenshot = false;
+      // C1, zweite Haelfte: CrashReporter.capture sanitisiert nur, was durch
+      // die Facade laeuft. FlutterErrorIntegration, OnErrorIntegration und
+      // RunZonedGuardedIntegration greifen unbehandelte Fehler DIREKT ab und
+      // laufen daran vorbei. sanitizeSentryEvent schliesst genau diese Luecke.
+      options.beforeSend = sanitizeSentryEvent;
       options.environment = kReleaseMode
           ? 'production'
           : kProfileMode

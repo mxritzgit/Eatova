@@ -7,7 +7,7 @@ import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart'
     show AuthRetryableFetchException, PostgrestException;
 
-import 'sync_outbox.dart' show kOutboxMaxAttempts;
+import 'sync_outbox.dart' show SyncOpKind, kOutboxMaxAttempts;
 
 /// UI-Fehlertexte fuer fehlgeschlagene Sync-/Profil-Writes (pur, unit-testbar).
 ///
@@ -23,17 +23,32 @@ import 'sync_outbox.dart' show kOutboxMaxAttempts;
 
 /// True bei Verbindungs-/Netzwerkfehlern — alles, was von selbst verschwindet,
 /// sobald das Geraet wieder Netz hat. In den Sync-Pfaden kommen real an:
-///  * [SocketException]/[HttpException] direkt aus dart:io,
-///  * [ClientException] — package:http (IOClient) wickelt Socket-Fehler ein;
-///    auch der MockClient der Tests wirft diesen Typ,
+///  * [IOException] — die GANZE dart:io-Familie, nicht nur
+///    [SocketException]/[HttpException]. Entscheidend ist der TLS-Zweig:
+///    `class HandshakeException extends TlsException` und
+///    `class TlsException implements IOException` — eine Einzelaufzaehlung
+///    von Socket/Http laesst also ausgerechnet das Cafe-WLAN hinter dem
+///    Captive Portal (CERTIFICATE_VERIFY_FAILED) durchrutschen, obwohl das
+///    Geraet den Server nie erreicht hat. package:http wickelt NUR
+///    Socket-/HttpException in [ClientException], postgrest rethrowt den Rest
+///    unveraendert — der TLS-Fehler kaeme roh und unklassifiziert an. Auf die
+///    Oberklasse zu pruefen deckt zugleich kuenftige dart:io-Typen ab; der
+///    Preis ist, dass auch ein (in diesen Pfaden unerwartetes)
+///    [FileSystemException] als "Netz" gilt: die sichere Richtung, denn sie
+///    kostet nur Retries statt Nutzerdaten.
+///  * [ClientException] — package:http; auch der MockClient der Tests wirft
+///    diesen Typ (implementiert KEIN IOException),
 ///  * [TimeoutException] aus `.timeout(...)`-Kaskaden,
 ///  * [AuthRetryableFetchException] — gotrues "retryable fetch"-Huelle fuer
 ///    Netzfehler waehrend Auth-/Token-Refresh-Calls.
 /// Server-Antworten mit Fehlerstatus (PostgrestException & Co.) sind bewusst
 /// NICHT dabei: der Server war erreichbar, "Offline" waere gelogen.
+///
+/// dart:io ist hier unbedenklich: Eatova baut nur fuer Android und iOS (kein
+/// web/-Verzeichnis, kein Web-Target in der CI). Kaeme je ein Web-Build dazu,
+/// muesste dieser Arm hinter eine bedingte Import-Weiche.
 bool isNetworkSyncError(Object error) =>
-    error is SocketException ||
-    error is HttpException ||
+    error is IOException ||
     error is TimeoutException ||
     error is ClientException ||
     error is AuthRetryableFetchException;
@@ -101,13 +116,35 @@ enum OutboxVerdict {
 /// Im Zweifel wird IMMER behalten ([OutboxVerdict.retryCounted]) — unbekannte
 /// Codes und unbekannte Exception-Typen sind kein Grund, Nutzerdaten
 /// wegzuwerfen. Das Versuchs-Budget begrenzt den Schaden ohnehin.
-OutboxVerdict classifyOutboxFailure(Object error, int attempts) {
+///
+/// [kind] ist optional, sollte aber IMMER mitgegeben werden, wenn der Aufrufer
+/// die Op kennt: Loesch-Ops haben kein Versuchs-Budget. Ihr Verwurf ist der
+/// einzige, den ein Kaltstart nicht nur nicht heilt, sondern aktiv
+/// rueckgaengig macht — die Serverzeile ueberlebt, der lokale Zustand nicht,
+/// und der naechste Boot liest vom Server: die geloeschte Mahlzeit ist wieder
+/// da und zaehlt erneut. Deletes sind idempotent und billig, sie duerfen ewig
+/// retryen. Das Code-Verdikt bleibt fuer sie unveraendert gueltig (ein Delete
+/// gegen ein kaputtes Schema kann nie klappen und wird sofort verworfen) —
+/// ausgesetzt ist NUR die Budget-Grenze.
+OutboxVerdict classifyOutboxFailure(
+  Object error,
+  int attempts, {
+  SyncOpKind? kind,
+}) {
   if (isNetworkSyncError(error)) return OutboxVerdict.retryFree;
   final verdict = _verdictForCode(error);
   if (verdict == OutboxVerdict.drop) return OutboxVerdict.drop;
+  if (kind != null && _isDeleteKind(kind)) return verdict;
   // Budget aufgebraucht: auch ein prinzipiell retrybarer Fehler endet hier.
   return attempts + 1 >= kOutboxMaxAttempts ? OutboxVerdict.drop : verdict;
 }
+
+/// Lokale Kopie von `SyncOp.isDelete` auf der Enum-Ebene: [classifyOutboxFailure]
+/// bekommt nur den [SyncOpKind], nicht die Op.
+bool _isDeleteKind(SyncOpKind kind) =>
+    kind == SyncOpKind.mealDelete ||
+    kind == SyncOpKind.favoriteDelete ||
+    kind == SyncOpKind.recipeDelete;
 
 OutboxVerdict _verdictForCode(Object error) {
   // Alles, was kein PostgREST-Fehler ist (StateError, FormatException,
@@ -148,14 +185,30 @@ OutboxVerdict _verdictForCode(Object error) {
       // sofort verwerfen: 23503 (foreign_key_violation) kann waehrend eines
       // Migrations-Fensters oder eines Signup-Rennens transient sein, und ein
       // falscher Sofort-Drop ist unwiderruflicher Nutzer-Datenverlust.
-      // Verworfen wird nur, was garantiert payload-determiniert ist:
-      //   23502 not_null_violation, 23514 check_violation.
+      //
+      // Sofort verworfen wird nur 23502 (not_null_violation): eine fehlende
+      // Pflichtspalte erzeugt keine Nutzereingabe, das ist ein Client-Bug,
+      // und dieselben Bytes werden nie akzeptiert.
+      //
+      // 23514 (check_violation) ist BEWUSST kein Sofort-Verwurf: solange die
+      // Clamps an den Modellgrenzen fehlen, ist eine Check-Verletzung nicht
+      // das Signal korrupter Daten, sondern das erwartbare Ergebnis einer
+      // Nutzereingabe („75,5" ins Gewichtsfeld -> Komma weggefiltert ->
+      // 755 kg; langes OFF-Etikett; 2000 g Portion). Der Sofort-Verwurf naehme
+      // genau das Korrekturfenster weg, mit dem die Attempts-Ruecksetzung in
+      // sync_outbox.dart begruendet ist — der Nutzer tippt 200000 kcal,
+      // korrigiert auf 500, und die korrigierte Payload kaeme nie zum Zug,
+      // weil die Op laengst weg ist. Das Versuchs-Budget bleibt die Notbremse.
+      // TODO(clamps): zurueck auf OutboxVerdict.drop, sobald die Clamps an den
+      // Modellgrenzen sitzen (lib/src/models/model_limits.dart + Anwendung in
+      // fromOpenFoodFacts/adjustedToGrams/toMealResult/KcalCalculator/
+      // _buildProfile). Dann ist ein 23514 wieder das, was diese Regel
+      // annimmt: ein Bug, keine Eingabe.
+      //
       // (23505 unique_violation ist unerreichbar — jeder Write ist ein Upsert
       // mit onConflict auf die Client-UUID bzw. den natuerlichen Schluessel.)
       // Der Rest laeuft ins Versuchs-Budget und endet dort ebenfalls.
-      return code == '23502' || code == '23514'
-          ? OutboxVerdict.drop
-          : OutboxVerdict.retryCounted;
+      return code == '23502' ? OutboxVerdict.drop : OutboxVerdict.retryCounted;
     }
     switch (code.substring(0, 2)) {
       // 08 connection_exception, 40 transaction rollback/deadlock,

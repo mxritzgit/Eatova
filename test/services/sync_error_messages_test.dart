@@ -7,7 +7,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/sync_outbox.dart'
-    show kOutboxMaxAttempts;
+    show SyncOpKind, kOutboxMaxAttempts;
 
 // Pures Fehlertext-Mapping fuer Sync-/Profil-Fehler: Netzwerkfehler werden als
 // solche erkannt (-> ehrlicher Offline-Hinweis), alles andere bekommt eine
@@ -29,6 +29,29 @@ void main() {
       expect(isNetworkSyncError(http.ClientException('offline')), isTrue);
       // gotrues "retryable fetch"-Huelle fuer Netzfehler im Auth-Stack.
       expect(isNetworkSyncError(AuthRetryableFetchException()), isTrue);
+    });
+
+    test(
+        'TLS-Fehler sind Netzfehler — Captive Portal / MITM-Proxy erreichen '
+        'den Server NIE', () {
+      // dart:io: `class HandshakeException extends TlsException` und
+      // `class TlsException implements IOException` — also KEINER der oben
+      // gelisteten Typen. package:http wickelt nur SocketException und
+      // HttpException in ClientException, postgrest rethrowt den Rest roh:
+      // ohne diesen Arm kommt CERTIFICATE_VERIFY_FAILED unklassifiziert an
+      // und verbrennt das Verwurfs-Budget.
+      expect(
+        isNetworkSyncError(
+            const HandshakeException('Handshake error in client')),
+        isTrue,
+      );
+      expect(
+        isNetworkSyncError(
+            const TlsException('CERTIFICATE_VERIFY_FAILED(ssl_client.cc)')),
+        isTrue,
+      );
+      expect(isNetworkSyncError(const CertificateException('bad certificate')),
+          isTrue);
     });
 
     test('Server-Fehler und Programmfehler sind KEINE Netzwerk-Fehler', () {
@@ -121,14 +144,28 @@ void main() {
 
     test('payload-determinierte Constraint-Fehler werden SOFORT verworfen',
         () {
-      // 23514 check_violation — der reale Fall (z.B. kcal ausserhalb des
-      // erlaubten Bereichs). Dieselben Bytes werden nie akzeptiert.
-      expect(classifyOutboxFailure(pg('23514'), 0), OutboxVerdict.drop);
-      // 23502 not_null_violation.
+      // 23502 not_null_violation — das erzeugt keine Nutzereingabe, das ist
+      // ein Client-Bug.
       expect(classifyOutboxFailure(pg('23502'), 0), OutboxVerdict.drop);
       // Klasse 22 (data exception), hier numeric_value_out_of_range.
       expect(classifyOutboxFailure(pg('22003'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('22P02'), 0), OutboxVerdict.drop);
+    });
+
+    test(
+        '23514 (Check-Constraint) ist KEIN Sofort-Verwurf — das ist der '
+        'Normalfall einer Nutzereingabe, nicht korrupte Daten', () {
+      // „75,5" ins Gewichtsfeld (Komma wird weggefiltert -> 755 kg), ein
+      // langes OFF-Etikett, 2000 g Portion: reproduzierbar, nicht zuordenbar
+      // und genau das Korrekturfenster, mit dem die Attempts-Ruecksetzung in
+      // sync_outbox.dart begruendet ist. Solange die Clamps an den
+      // Modellgrenzen fehlen, laeuft 23514 ins Budget statt in den Muell.
+      expect(classifyOutboxFailure(pg('23514'), 0), OutboxVerdict.retryCounted);
+      expect(classifyOutboxFailure(pg('23514'), kOutboxMaxAttempts - 2),
+          OutboxVerdict.retryCounted);
+      // Das Budget bleibt die Notbremse: ewig kreist auch ein 23514 nicht.
+      expect(classifyOutboxFailure(pg('23514'), kOutboxMaxAttempts - 1),
+          OutboxVerdict.drop);
     });
 
     test('23503 (Fremdschluessel) bleibt retrybar — waehrend einer Migration '
@@ -186,6 +223,12 @@ void main() {
         TimeoutException('timeout', const Duration(seconds: 8)),
         http.ClientException('offline'),
         AuthRetryableFetchException(),
+        // TLS-Familie: Captive Portal / MITM-Proxy. Das Geraet hat den Server
+        // nie erreicht — acht Backoff-Durchlaeufe duerfen hier nichts
+        // verwerfen.
+        const HandshakeException('Handshake error in client'),
+        const TlsException('CERTIFICATE_VERIFY_FAILED(ssl_client.cc)'),
+        const CertificateException('bad certificate'),
       ];
       for (final error in networkErrors) {
         expect(classifyOutboxFailure(error, 0), OutboxVerdict.retryFree,
@@ -193,6 +236,62 @@ void main() {
         expect(classifyOutboxFailure(error, 999), OutboxVerdict.retryFree,
             reason: '$error darf das Budget nie verbrennen');
       }
+    });
+
+    test(
+        'Delete-Ops sterben NIE am Versuchs-Budget — ein verworfener Delete '
+        'holt die geloeschte Mahlzeit vom Server zurueck', () {
+      // Die Serverzeile ueberlebt den Verwurf, der lokale Zustand nicht: beim
+      // naechsten Kaltstart ist die geloeschte 1800-kcal-Mahlzeit wieder da
+      // und zaehlt erneut. Deletes sind idempotent und billig — sie duerfen
+      // ewig retryen. (attempts kann trotz incrementAttempt > 0 sein: eine
+      // Queue aus einem aelteren Build bringt den Zaehler mit.)
+      for (final kind in const <SyncOpKind>[
+        SyncOpKind.mealDelete,
+        SyncOpKind.favoriteDelete,
+        SyncOpKind.recipeDelete,
+      ]) {
+        expect(
+            classifyOutboxFailure(pg('500'), kOutboxMaxAttempts + 99,
+                kind: kind),
+            OutboxVerdict.retryCounted,
+            reason: '${kind.name} bei aufgebrauchtem Budget');
+        expect(
+            classifyOutboxFailure(pg('23503'), kOutboxMaxAttempts - 1,
+                kind: kind),
+            OutboxVerdict.retryCounted,
+            reason: '${kind.name} am Budget-Rand');
+      }
+
+      // Gegenprobe: Schreib-Ops laufen unveraendert ins Budget.
+      for (final kind in const <SyncOpKind>[
+        SyncOpKind.mealInsert,
+        SyncOpKind.mealUpsert,
+        SyncOpKind.weightInsert,
+        SyncOpKind.favoriteUpsert,
+        SyncOpKind.recipeUpsert,
+      ]) {
+        expect(
+            classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 1,
+                kind: kind),
+            OutboxVerdict.drop,
+            reason: '${kind.name} behaelt sein Budget');
+      }
+      // Ohne kind (Aufrufer ohne Op-Kontext) bleibt es beim alten Verhalten.
+      expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 1),
+          OutboxVerdict.drop);
+    });
+
+    test(
+        'ein strukturell unmoeglicher Delete wird weiterhin sofort verworfen',
+        () {
+      // Der Schutz gilt dem BUDGET, nicht dem Code-Verdikt: ein Delete gegen
+      // ein kaputtes Schema (PGRST204) bzw. eine 404-Route kann nie klappen
+      // und wuerde sonst ewig Akku und Traffic kosten.
+      expect(classifyOutboxFailure(pg('PGRST204'), 0, kind: SyncOpKind.mealDelete),
+          OutboxVerdict.drop);
+      expect(classifyOutboxFailure(pg('404'), 0, kind: SyncOpKind.recipeDelete),
+          OutboxVerdict.drop);
     });
 
     test('unbekannter Code / unbekannter Typ -> behalten (retryCounted)', () {

@@ -60,11 +60,17 @@ class _FakeServer {
   bool rejectMealWrites = false;
 
   /// logged_meals-Writes werden dauerhaft und aussichtslos abgelehnt:
-  /// Check-Constraint-Verletzung. Realistische Wire-Form — HTTP 400, aber im
-  /// Body steht der SQLSTATE, und GENAU DER landet in
+  /// payload-determinierte Constraint-Verletzung. Realistische Wire-Form —
+  /// HTTP 400, aber im Body steht der SQLSTATE, und GENAU DER landet in
   /// `PostgrestException.code` (der Status ist dort NICHT sichtbar, weil
   /// `fromJson` `json['code'] ?? '$statusCode'` macht).
   bool poisonMealWrites = false;
+
+  /// SQLSTATE der Gift-Antwort. Default 23502 (not_null_violation) — der
+  /// bleibt ein SOFORT-Verwurf. 23514 (check_violation) taugt dafuer bewusst
+  /// nicht mehr: das ist der Normalfall einer Nutzereingabe und laeuft seit
+  /// dem Review 2026-08-08 ins Versuchs-Budget statt in den Muell.
+  String poisonCode = '23502';
 
   /// Unklarer Ausgang: der Write wird serverseitig ANGEWENDET, die Antwort
   /// ist aber ein 500 (Timeout-Simulation) — der Klassiker, der frueher
@@ -93,16 +99,16 @@ class _FakeServer {
     http.Response fail() => http.Response(
         jsonEncode({'message': 'kaputt'}), 500,
         headers: const {'Content-Type': 'application/json'}, request: req);
-    // Check-Constraint: der Body traegt den SQLSTATE, deshalb ist
-    // PostgrestException.code hinterher '23514' und NICHT '400'.
+    // Constraint-Verletzung: der Body traegt den SQLSTATE, deshalb ist
+    // PostgrestException.code hinterher '$poisonCode' und NICHT '400'.
     // (Body bewusst rein ASCII — http.Response kodiert den String nach der
     // Charset-Angabe des Content-Type, Default latin1, und wirft sonst
     // ArgumentError statt die Antwort zu liefern.)
     http.Response poison() => http.Response(
         jsonEncode({
-          'code': '23514',
-          'message': 'new row for relation "logged_meals" violates check '
-              'constraint "logged_meals_calories_kcal_check"',
+          'code': poisonCode,
+          'message': 'null value in column "payload" of relation '
+              '"logged_meals" violates not-null constraint',
           'details': 'Failing row contains (...).',
           'hint': null,
         }),
@@ -446,6 +452,14 @@ void main() {
     await _boot(a.store);
     a.store.addResultToDailyTotal(_result('Gestern-online-Bowl'));
     await _settle();
+    // App wird beendet. Seit G9b sind die Tagebuch-Writes entprellt (400 ms),
+    // damit eine Fuenfer-Serie den Blob nicht fuenfmal verschluesselt. Der
+    // Lifecycle-Uebergang paused|hidden|detached ruft flushPendingWrites()
+    // (eatova_home_page.dart) und erzwingt sie — genau das wird hier
+    // modelliert. Ohne diese Zeile prueft der Test nicht "Cache ueberlebt den
+    // Neustart", sondern "Cache ist innerhalb von 400 ms schon geschrieben".
+    a.store.flushPendingWrites();
+    await _settle();
 
     // Session 2 (Kaltstart offline): Tagebuch ist sofort da statt leer.
     final b = _setup(kv: kv);
@@ -627,7 +641,7 @@ void main() {
   // --- Gift-Ops, Versuchs-Budget, Queue-Cap ---------------------------------
 
   test(
-      'Gift-Op (Check-Constraint 23514) wird beim ERSTEN Replay verworfen, '
+      'Gift-Op (23502 not_null_violation) wird beim ERSTEN Replay verworfen, '
       'verschwindet aus der persistierten Queue und meldet sich GENAU EINMAL',
       () async {
     final s = _setup();
@@ -658,9 +672,9 @@ void main() {
     // Schema-Leakage-Guard: kein Snack traegt SQLSTATE, Tabellen-/
     // Constraint-Namen oder Exception-Typen.
     for (final m in s.snacks.messages) {
-      expect(m, isNot(contains('23514')));
+      expect(m, isNot(contains('23502')));
       expect(m, isNot(contains('logged_meals')));
-      expect(m, isNot(contains('check constraint')));
+      expect(m, isNot(contains('not-null constraint')));
       expect(m, isNot(contains('PostgrestException')));
     }
   });
@@ -805,9 +819,17 @@ void main() {
     // Direkt in den Cache schreiben — dieser Pfad laeuft NIE durch das
     // Einreihen, der Cap muss hier trotzdem greifen.
     final seed = LocalCache(kv, 'user-outbox');
+    // Bewusst SCHREIB-Ops: Deletes sind seit dem Review 2026-08-08 vom Cap
+    // ausgenommen (ein verworfener Delete laesst die geloeschte Mahlzeit beim
+    // naechsten Boot vom Server zurueckkehren), eine reine Delete-Queue wuerde
+    // hier also gar nicht gekappt.
     await seed.writeOutbox(<SyncOp>[
       for (var i = 0; i < kOutboxMaxOps + 100; i++)
-        SyncOp.mealDelete('legacy-$i'),
+        SyncOp.weightInsert(
+          id: 'legacy-$i',
+          weightKg: 80,
+          recordedAt: DateTime(2026, 8, 1).add(Duration(minutes: i)),
+        ),
     ]);
 
     final s = _setup(kv: kv);
@@ -822,4 +844,202 @@ void main() {
     expect(s.store.pendingOutbox.last.entityId,
         'legacy-${kOutboxMaxOps + 99}');
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  // --- Review 2026-08-08: A4 (Budget), A6 (Waise), A8 (korrupte Payload),
+  //     A2 (Logout) -----------------------------------------------------------
+
+  test(
+      'A4: Lifecycle-Churn frisst das Versuchs-Budget nicht mehr auf — 12 '
+      'Durchlaeufe in Sekunden lassen die Op stehen', () async {
+    final s = _setup();
+    await _boot(s.store);
+    // Kurzer Server-Ausfall mit schnellen 500ern.
+    s.server.rejectMealWrites = true;
+
+    final id = s.store.addResultToDailyTotal(_result('Ausfall-Bowl'));
+    await _settle();
+
+    // Ein App-Wechsel loest bis zu 4 flushPendingWrites aus (inactive ->
+    // hidden -> paused beim Wegschalten, hidden -> inactive -> resumed
+    // zurueck). Drei App-Wechsel waehrend eines 5-Minuten-Ausfalls = 12
+    // Durchlaeufe in wenigen Sekunden. Frueher war die Mahlzeit ab dem 8.
+    // Durchlauf DAUERHAFT weg.
+    for (var i = 0; i < 12; i++) {
+      s.store.flushPendingWrites();
+      await _settle();
+    }
+
+    expect(
+      s.store.pendingOutbox.where((o) => o.entityKey == 'meal:$id'),
+      hasLength(1),
+      reason: 'Wanduhrzeit entscheidet, nicht die Zahl der Durchlaeufe',
+    );
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty);
+
+    // Der Ausfall geht vorbei — die Mahlzeit landet ganz normal.
+    s.server.rejectMealWrites = false;
+    s.store.flushPendingWrites();
+    await _settle();
+    expect(s.store.pendingOutbox, isEmpty);
+    expect(s.server.mealRows.keys, contains(id));
+  });
+
+  test(
+      'A4: das Budget ist trotzdem eine Notbremse — eine seit ueber 24 h '
+      'abgelehnte Op wird verworfen', () async {
+    final kv = InMemoryKeyValueStore();
+    final meal = LoggedMeal(
+      id: 'm-uralt',
+      result: _result('Uralt-Bowl'),
+      loggedAt: DateTime.now(),
+    );
+    await _seedRawOutbox(kv, [
+      SyncOp.mealInsert(meal, trackDay: false).toJson()
+        ..['queued_at'] = DateTime.now()
+            .subtract(const Duration(hours: 25))
+            .toIso8601String()
+        ..['attempts'] = kOutboxMaxAttempts - 1,
+    ]);
+
+    final s = _setup(kv: kv);
+    s.server.rejectMealWrites = true;
+    await _boot(s.store);
+
+    expect(s.store.pendingOutbox.where((o) => o.entityKey == 'meal:m-uralt'),
+        isEmpty);
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+  });
+
+  test(
+      'A6: nach einem Verwurf ist die Entitaet nicht verwaist — die naechste '
+      'Aenderung laeuft als frischer Upsert statt als 0-Zeilen-PATCH',
+      () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.poisonMealWrites = true;
+
+    final id = s.store.addResultToDailyTotal(_result('Waisen-Bowl'));
+    await _settle();
+    s.store.flushPendingWrites();
+    await _settle();
+
+    // Vorbedingung: Op verworfen, Mahlzeit lokal noch sichtbar, serverseitig
+    // existiert sie NICHT.
+    expect(
+        s.store.pendingOutbox.where((o) => o.entityKey == 'meal:$id'), isEmpty);
+    expect(s.store.loggedMeals.map((m) => m.id), contains(id));
+    expect(s.server.mealRows.keys, isNot(contains(id)));
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+
+    // Server ist wieder gesund, der Nutzer korrigiert die Portion.
+    s.server.poisonMealWrites = false;
+    s.store.updateLoggedMealResult(id, _result('Waisen-Bowl', kcal: 500));
+    await _settle();
+
+    // Frueher: ein PATCH auf 0 Zeilen. Der ist ein 204, also KEIN Fehler —
+    // _onSyncSuccess feuerte, der Nutzer sah nichts, und die Mahlzeit war beim
+    // naechsten Kaltstart weg.
+    expect(
+      s.server.requests.where(
+          (r) => r.method == 'PATCH' && r.url.path.contains('/logged_meals')),
+      isEmpty,
+      reason: 'kein PATCH auf eine Zeile, die es serverseitig nicht gibt',
+    );
+
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.server.mealRows.keys, contains(id),
+        reason: 'der Upsert-Weg repariert die Entitaet');
+    expect(s.server.mealRows[id]!['calories_kcal'], 500);
+    expect(s.store.pendingOutbox, isEmpty);
+  });
+
+  test(
+      'A8: eine korrupte Payload verschwindet nicht als "Erfolg", sondern '
+      'laeuft ueber den Verwurfs-Pfad', () async {
+    final kv = InMemoryKeyValueStore();
+    await _seedRawOutbox(kv, [
+      <String, dynamic>{
+        'kind': 'mealInsert',
+        'entity_id': 'm-korrupt',
+        'queued_at': DateTime.now().toIso8601String(),
+        // Nicht-Map-Payload: SyncOp.tryFromJson BEHAELT die Op und setzt {}
+        // ein — genau so ist der Pfad erreichbar.
+        'payload': 'kaputt',
+      },
+    ]);
+
+    final s = _setup(kv: kv);
+    await _boot(s.store);
+
+    // Die Op ist weg (sie ist unzustellbar) …
+    expect(s.store.pendingOutbox, isEmpty);
+    // … sie hat den Server nie erreicht …
+    expect(
+      s.server.requests.where(
+          (r) => r.method == 'POST' && r.url.path.contains('/logged_meals')),
+      isEmpty,
+    );
+    // … und der Nutzer erfaehrt davon. Frueher war das der EINZIGE Verlustpfad
+    // ohne Snack, ohne Breadcrumb, ohne Crash-Report.
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+  });
+
+  test(
+      'A2: Ausloggen mit ungesyncten Ops — was der Zustellversuch nicht '
+      'losgeworden ist, ueberlebt den Logout', () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.offline = true;
+
+    final id = s.store.addResultToDailyTotal(_result('Flugzeug-Bowl'));
+    await _settle();
+    expect((await s.cache.readOutbox())!, isNotEmpty);
+    expect(await s.cache.readProfile(), isNotNull);
+
+    await s.store.signOutCleanup();
+
+    // Die sechs Mahlzeiten aus dem Flugzeug sind NICHT weg …
+    final surviving = await s.cache.readOutbox();
+    expect(surviving, isNotNull);
+    expect(surviving!.map((o) => o.entityKey), contains('meal:$id'));
+    // … der uebrige PII-Cache dagegen schon (Audit M-1 bleibt erfuellt).
+    expect(await s.cache.readProfile(), isNull);
+    expect(await s.cache.readLoggedMeals(), isNull);
+    expect(await s.cache.readWeightLog(), isNull);
+    expect(await s.cache.readFavorites(), isNull);
+  });
+
+  test(
+      'A2: Ausloggen online — der Zustellversuch raeumt die Queue leer, danach '
+      'faellt auch die Outbox', () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.offline = true;
+    final id = s.store.addResultToDailyTotal(_result('Landung-Bowl'));
+    await _settle();
+
+    // Nach der Landung: Netz ist zurueck, DANN erst der Logout.
+    s.server.offline = false;
+    await s.store.signOutCleanup();
+
+    expect(s.server.mealRows.keys, contains(id),
+        reason: 'Zustellversuch VOR dem Verwerfen');
+    expect(await s.cache.readOutbox(), isNull);
+    expect(await s.cache.readProfile(), isNull);
+  });
 }
+
+/// Schreibt Outbox-Zeilen ROH in den Key-Value-Store, vorbei an
+/// [LocalCache.writeOutbox] und den [SyncOp]-Factories. Nur so lassen sich
+/// Wire-Formen erzeugen, die kein Produktionspfad baut: eine nicht lesbare
+/// Payload (A8) und ein uraltes `queued_at` (A4). Der Slot-Name ist das
+/// dokumentierte Cache-Format `eatova.v1.outbox.<user-id>`, die User-ID die
+/// aus [_setup].
+Future<void> _seedRawOutbox(
+  InMemoryKeyValueStore kv,
+  List<Map<String, dynamic>> items,
+) =>
+    kv.setString('eatova.v1.outbox.user-outbox',
+        jsonEncode(<String, dynamic>{'items': items}));
