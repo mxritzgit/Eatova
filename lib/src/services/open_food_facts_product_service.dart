@@ -365,6 +365,15 @@ class OpenFoodFactsProductService implements ProductLookupService {
     final rohUnmoeglich = roh != null && !isPlausibleKcalPer100G(roh);
 
     if (!isLoggableKcalPer100G(geparst)) {
+      // Echte 0-kcal-Produkte (Wasser, Zero-Getraenke): die Datenquelle SAGT
+      // ausdruecklich 0, die 0 ist Messung, nicht Parser-Sentinel — loggbar.
+      // Ohne diese Weiche hiess es fuer Wasser "ohne Naehrwerte — bitte
+      // manuell eintragen", obwohl der Datensatz vollstaendig war.
+      if (geparst == 0 &&
+          !rohUnmoeglich &&
+          MealAnalysisResult.offMeldetExplizitNullKcal(product)) {
+        return null;
+      }
       return ProductWithoutNutritionException(
         barcode: barcode,
         productName: analyse.mealName,

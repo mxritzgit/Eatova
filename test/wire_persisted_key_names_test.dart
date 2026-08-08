@@ -40,6 +40,18 @@ void main() {
               'Keystore-Eintrag praegt wieder still einen frischen DEK');
     });
 
+    test('Strike-Zaehler und Reset-Hinweis (Welle 6)', () {
+      expect(
+          CacheKeyProvider.dekVanishStrikesKey, 'eatova.v1.dek_vanish_strikes',
+          reason: 'umbenannt = ein laufender Strike-Zyklus beginnt still von '
+              'vorn, die Cache-Erholung verschiebt sich um bis zu '
+              '${CacheKeyProvider.vanishStrikeBudget} weitere Kaltstarts');
+      expect(
+          CacheKeyProvider.cacheResetNoticeKey, 'eatova.v1.cache_reset_notice',
+          reason: 'umbenannt = ein bereits anstehender Nutzerhinweis zum '
+              'Cache-Verlust wird nie angezeigt');
+    });
+
     test('Suchzugangsdaten', () {
       expect(SearchCredentialsStore.cacheKey, 'eatova.v1.search_credentials');
     });

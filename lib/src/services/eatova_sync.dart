@@ -17,6 +17,7 @@ import 'user_recipes_sync.dart';
 class EatovaSync {
   EatovaSync._({
     required this.client,
+    required this.userId,
     required this.profile,
     required this.meals,
     required this.tracking,
@@ -28,6 +29,7 @@ class EatovaSync {
   factory EatovaSync.forUser(SupabaseClient client, String userId) {
     return EatovaSync._(
       client: client,
+      userId: userId,
       profile: ProfileSync(client, userId),
       meals: MealsSync(client, userId),
       tracking: TrackingSync(client, userId),
@@ -38,6 +40,10 @@ class EatovaSync {
   }
 
   final SupabaseClient client;
+
+  /// Der User, fuer den dieses Bundle gebaut wurde — dieselbe Kennung, die
+  /// alle Sub-Services als RLS-Filter verwenden (u.a. fuer DataExportService).
+  final String userId;
   final ProfileSync profile;
   final MealsSync meals;
   final TrackingSync tracking;

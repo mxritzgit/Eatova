@@ -189,7 +189,7 @@ class ProfileActionsCard extends StatelessWidget {
             icon: Icons.ios_share_rounded,
             color: cyan,
             title: 'Daten exportieren',
-            subtitle: 'JSON Snapshot',
+            subtitle: 'Kopie deiner Daten als JSON',
             onTap: onExport,
             keyValue: const ValueKey('profile-action-export'),
           ),

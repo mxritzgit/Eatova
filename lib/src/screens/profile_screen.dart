@@ -33,6 +33,7 @@ class ProfileScreen extends StatelessWidget {
     required this.onRefreshHealth,
     this.onSignOut,
     this.onDeleteAccount,
+    this.onBuildFullExport,
   });
 
   final String name;
@@ -51,6 +52,12 @@ class ProfileScreen extends StatelessWidget {
   final VoidCallback onRefreshHealth;
   final Future<void> Function()? onSignOut;
   final Future<void> Function()? onDeleteAccount;
+
+  /// Liefert die VOLLSTAENDIGE Datenauskunft als JSON (DataExportService,
+  /// direkt aus den Server-Tabellen). `null` im Preview-Betrieb ohne Sync —
+  /// dann zeigt das Export-Sheet weiterhin nur den Session-Snapshot und
+  /// sagt das auch (C7).
+  final Future<String> Function()? onBuildFullExport;
 
   @override
   Widget build(BuildContext context) {
@@ -186,13 +193,21 @@ class ProfileScreen extends StatelessWidget {
   }
 
   void _showExportSheet(BuildContext context) {
-    final snapshot = _buildSnapshot();
+    final voll = onBuildFullExport;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: surface,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => _ExportSheet(snapshot: snapshot),
+      builder: (_) => _ExportSheet(
+        // Mit Sync kommt die vollstaendige Server-Auskunft; ohne (Preview)
+        // bleibt der Session-Snapshot. Der Fallback deckt zusaetzlich den
+        // Offline-Fall ab — dann sagt das Sheet ehrlich, dass es nur die
+        // Session zeigt.
+        snapshot: voll != null ? voll() : Future.value(_buildSnapshot()),
+        fallbackSnapshot: _buildSnapshot(),
+        vollstaendig: voll != null,
+      ),
     );
   }
 
@@ -250,9 +265,21 @@ class ProfileScreen extends StatelessWidget {
 }
 
 class _ExportSheet extends StatelessWidget {
-  const _ExportSheet({required this.snapshot});
+  const _ExportSheet({
+    required this.snapshot,
+    required this.fallbackSnapshot,
+    required this.vollstaendig,
+  });
 
-  final String snapshot;
+  /// Die (asynchron geladene) Auskunft — mit Sync die vollstaendige
+  /// Server-Kopie, ohne der Session-Snapshot als bereits erfuellte Future.
+  final Future<String> snapshot;
+
+  /// Wird gezeigt, wenn [snapshot] fehlschlaegt (offline) — zusammen mit
+  /// einem Hinweis, dass es sich dann NUR um die Session handelt.
+  final String fallbackSnapshot;
+
+  final bool vollstaendig;
 
   @override
   Widget build(BuildContext context) {
@@ -262,87 +289,124 @@ class _ExportSheet extends StatelessWidget {
       maxChildSize: 0.95,
       expand: false,
       builder: (context, controller) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        return FutureBuilder<String>(
+          future: snapshot,
+          builder: (context, snap) {
+            final laedt = snap.connectionState != ConnectionState.done;
+            final fehler = snap.hasError;
+            final text = snap.data ?? fallbackSnapshot;
+            final untertitel = laedt
+                ? 'Deine Daten werden vom Server geladen …'
+                : fehler
+                    ? 'Server nicht erreichbar — das hier ist nur der '
+                        'Teil-Snapshot deiner aktuellen Session. Für die '
+                        'vollständige Kopie bitte mit Internet erneut öffnen.'
+                    : vollstaendig
+                        ? 'Vollständige Kopie deiner gespeicherten Daten als '
+                            'JSON — alle Tabellen, direkt vom Server geladen '
+                            '(Art. 15/20 DSGVO).'
+                        : 'In-Memory Snapshot deiner aktuellen Session als '
+                            'JSON.';
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Expanded(
-                    child: Text(
-                      'Daten Snapshot',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.4,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          vollstaendig ? 'Datenauskunft' : 'Daten Snapshot',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.4,
+                          ),
+                        ),
                       ),
+                      OutlinedButton.icon(
+                        key: const ValueKey('profile-export-copy'),
+                        onPressed: laedt
+                            ? null
+                            : () async {
+                                await Clipboard.setData(
+                                    ClipboardData(text: text));
+                                if (context.mounted) {
+                                  showAppSnack(
+                                      context, 'Export in Zwischenablage',
+                                      icon: Icons.content_copy_rounded,
+                                      accent: cyan);
+                                }
+                              },
+                        icon: const Icon(Icons.copy_rounded, size: 14),
+                        label: const Text(
+                          'Kopieren',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: lime,
+                          side: BorderSide(color: lime.withValues(alpha: 0.4)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(rControl),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    untertitel,
+                    style: const TextStyle(
+                      color: textMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  OutlinedButton.icon(
-                    key: const ValueKey('profile-export-copy'),
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: snapshot));
-                      if (context.mounted) {
-                        showAppSnack(context, 'Snapshot in Zwischenablage',
-                            icon: Icons.content_copy_rounded, accent: cyan);
-                      }
-                    },
-                    icon: const Icon(Icons.copy_rounded, size: 14),
-                    label: const Text(
-                      'Kopieren',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: lime,
-                      side: BorderSide(color: lime.withValues(alpha: 0.4)),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: surfaceSoft,
+                        borderRadius: BorderRadius.circular(rCard),
+                        border: Border.all(color: hairline),
                       ),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(rControl),
-                      ),
+                      child: laedt
+                          ? const Center(
+                              child: SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2.5),
+                              ),
+                            )
+                          : SingleChildScrollView(
+                              controller: controller,
+                              child: SelectableText(
+                                text,
+                                style: const TextStyle(
+                                  color: textPrimary,
+                                  fontSize: 11.5,
+                                  fontFeatures: [
+                                    FontFeature.tabularFigures()
+                                  ],
+                                  height: 1.45,
+                                ),
+                              ),
+                            ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'In-Memory Snapshot deiner aktuellen Session als JSON.',
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: surfaceSoft,
-                    borderRadius: BorderRadius.circular(rCard),
-                    border: Border.all(color: hairline),
-                  ),
-                  child: SingleChildScrollView(
-                    controller: controller,
-                    child: SelectableText(
-                      snapshot,
-                      style: const TextStyle(
-                        color: textPrimary,
-                        fontSize: 11.5,
-                        fontFeatures: [FontFeature.tabularFigures()],
-                        height: 1.45,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );

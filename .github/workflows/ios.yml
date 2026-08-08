@@ -148,6 +148,18 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Der regenerierte Lock als Artefakt: damit geht der Nachtrag ins Repo
+      # OHNE Mac — Artefakt aus dem gruenen Lauf herunterladen,
+      # ios/Podfile.lock committen, die Dauerwarnung oben erlischt. Die CI ist
+      # der Mac (siehe Memory eatova-ci-gate); vorher war der einzige Weg das
+      # Abtippen des Diffs aus der Job-Summary.
+      - name: Podfile.lock als Artefakt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: podfile-lock
+          path: ios/Podfile.lock
+          if-no-files-found: error
+
       # Der eigentliche Gate. --no-codesign, weil im CI kein Apple-Zertifikat
       # und kein Provisioning-Profil liegt (und keins hingehoert): der Job soll
       # Kompilier- und Konfigurationsfehler finden, nicht ein signiertes IPA

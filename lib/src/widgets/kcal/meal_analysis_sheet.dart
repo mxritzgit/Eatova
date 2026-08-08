@@ -181,7 +181,11 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     // Bewusst KEIN stiller Abbruch und kein deaktivierter Knopf: der Nutzer
     // erfaehrt den Grund und den Weg heraus ("Anpassen" -> Bestandteile
     // eintragen), und der Knopf wirkt danach ganz normal.
-    if (result.caloriesKcal <= 0) {
+    //
+    // explicitZeroKcal: eine GEMESSENE 0 (Wasser, Zero) traegt ihren Marker
+    // aus der Produktdatenbank und darf ins Tagebuch — die Bremse gilt dem
+    // Sentinel „0 = unbekannt", nicht dem Produkt.
+    if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
       showAppSnack(
         context,
         kMealWithoutCaloriesMessage,
