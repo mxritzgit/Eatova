@@ -532,9 +532,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
 
-    // Heute: kein Verlaufseintrag mehr. Gestern (Datums-Chip 3): Eintrag da.
+    // Heute: kein Verlaufseintrag mehr. Gestern (chip-1 — die Leiste laeuft
+    // seit dem 30-Tage-Umbau absteigend, Index = Tages-Offset): Eintrag da.
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('food-date-chip-3')));
+    await tester.tap(find.byKey(const ValueKey('food-date-chip-1')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
   });

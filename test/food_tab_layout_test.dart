@@ -70,12 +70,13 @@ void main() {
   testWidgets('Food date chips do not repeat the date twice', (tester) async {
     await _pumpFoodTab(tester);
 
-    // Chip 0 ist der aelteste sichtbare Tag: Kopfzeile = Wochentag,
-    // Unterzeile = Datum. Beide duerfen nicht identisch sein.
+    // Seit der absteigenden 30-Tage-Leiste ist chip-0 „Heute"; der erste
+    // Chip mit Wochentags-Kopfzeile ist chip-2 (Vor 2 Tagen): Kopfzeile =
+    // Wochentag, Unterzeile = Datum. Beide duerfen nicht identisch sein.
     final texts = tester
         .widgetList<Text>(
           find.descendant(
-            of: find.byKey(const ValueKey('food-date-chip-0')),
+            of: find.byKey(const ValueKey('food-date-chip-2')),
             matching: find.byType(Text),
           ),
         )

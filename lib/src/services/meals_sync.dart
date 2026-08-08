@@ -20,7 +20,7 @@ class MealsSync {
   final String _userId;
 
   /// Boot-Fenster fuer das Tagebuch (Tage zurueck ab jetzt). Die UI zeigt
-  /// maximal ~5 Tage Historie (Datums-Chips, visiblePastDays in
+  /// bis zu 31 Tage Historie (scrollbare Datums-Chips, visiblePastDays in
   /// meal_analysis_screen.dart); Streak-/Lifetime-Zahlen kommen serverseitig
   /// aus lifetime_stats bzw. record_tracking_day — NICHT aus dieser Liste.
   /// 35 Tage liegen also grosszuegig ueber dem UI-Bedarf. Ohne Fenster lud

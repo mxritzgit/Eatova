@@ -111,7 +111,33 @@ ThemeData buildEatovaTheme() {
       circularTrackColor: surfaceSoft,
     ),
     iconTheme: const IconThemeData(color: textPrimary, size: 22),
-    chipTheme: ChipThemeData(
+    // Kalender-Dialog (Datumsauswahl im Food-Tab/Edit-Sheet) im App-Stil:
+    // dunkle Flaeche, kein Header-Block, Lime nur fuer Heute/Auswahl.
+    // Bewusst die Standard-Widgets (DatePickerDialog) — nur Toene.
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: surface,
+      surfaceTintColor: Colors.transparent,
+      headerBackgroundColor: Colors.transparent,
+      headerForegroundColor: textPrimary,
+      headerHelpStyle: const TextStyle(
+        color: textMuted,
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 1.1,
+      ),
+      weekdayStyle: const TextStyle(
+        color: textMuted,
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+      ),
+      dayStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      todayBorder: const BorderSide(color: lime, width: 1.2),
+      dividerColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
+      ),
+    ),
+    chipTheme:ChipThemeData(
       backgroundColor: surfaceSoft,
       selectedColor: lime,
       side: BorderSide.none,
