@@ -72,6 +72,21 @@ class RecipesScreen extends StatefulWidget {
 
 class _RecipesScreenState extends State<RecipesScreen> {
   String selectedFilter = 'Alle';
+
+  /// Suchtext. Haengt bewusst an einem eigenen Controller statt am internen
+  /// State des [TextField]s (D6, Review 2026-08-08): der Screen ist eine lazy
+  /// [ListView], das Suchfeld liegt darin ganz oben. Scrollt der User weit
+  /// genug nach unten und ist das Feld nicht mehr fokussiert (die Liste nimmt
+  /// den Fokus beim Ziehen selbst weg, `keyboardDismissBehavior`), raeumt die
+  /// Liste das Element ab — mit ihm den `EditableText`-State und damit den
+  /// getippten Text. Der Filter lief danach weiter, das Feld war aber leer.
+  /// Mit eigenem Controller ueberlebt der Text das Recycling; zusammen mit
+  /// einem am Leben gehaltenen Teilbaum (IndexedStack der Home-Schale) auch
+  /// den Tab-Wechsel.
+  final TextEditingController _searchController = TextEditingController();
+
+  /// Spiegel von [_searchController].text, damit [filteredRecipes] den Wert
+  /// synchron lesen kann.
   String query = '';
 
   /// Eigen-Rezepte: beim Boot aus user_recipes geladen + in dieser Session
@@ -88,6 +103,20 @@ class _RecipesScreenState extends State<RecipesScreen> {
   void initState() {
     super.initState();
     _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// Der Controller meldet auch reine Cursor-/Auswahl-Aenderungen — nur echte
+  /// Textaenderungen sollen die Liste neu filtern.
+  void _onSearchChanged() {
+    if (_searchController.text == query) return;
+    setState(() => query = _searchController.text);
   }
 
   @override
@@ -201,85 +230,97 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ? const <FitnessRecipe>[]
         : _goalMatches(remaining);
 
-    return ListView(
-      key: const ValueKey('screen-recipes'),
-      padding: const EdgeInsets.only(bottom: 28),
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      children: [
-        _RecipesHeader(onCreate: _openCreateSheet),
-        const SizedBox(height: 18),
-        _RecipeSearchField(onChanged: (value) => setState(() => query = value)),
-        const SizedBox(height: 16),
-        _RecipeFilterChips(
-          selected: selectedFilter,
-          onSelected: (filter) => setState(() => selectedFilter = filter),
-        ),
-        const SizedBox(height: 24),
-        _SectionHeader(
-          title: 'Empfehlungen',
-          subtitle: '${_allRecipes.length} Fitness-Gerichte',
-        ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 256,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            clipBehavior: Clip.none,
-            itemCount: recommended.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final recipe = recommended[index];
-              return _RecipeHeroCard(
-                recipe: recipe,
-                onTap: () => _openRecipe(recipe),
-              );
-            },
+    // D6: Der PageStorageKey gibt der Liste eine stabile Identitaet im
+    // PageStorage der Route. Die Scrollposition wird damit beim Verlassen des
+    // Tabs gesichert und beim Zurueckkehren wiederhergestellt — auch dann,
+    // wenn die Home-Schale den Teilbaum komplett neu aufbaut. Er sitzt auf
+    // einem KeyedSubtree statt auf der ListView selbst, weil deren
+    // ValueKey('screen-recipes') Testeinstieg mehrerer Suiten ist.
+    return KeyedSubtree(
+      key: const PageStorageKey<String>('recipes-list'),
+      child: ListView(
+        key: const ValueKey('screen-recipes'),
+        padding: const EdgeInsets.only(bottom: 28),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        children: [
+          _RecipesHeader(onCreate: _openCreateSheet),
+          const SizedBox(height: 18),
+          _RecipeSearchField(
+            controller: _searchController,
+            onClear: _searchController.clear,
           ),
-        ),
-        const SizedBox(height: 26),
-        _SectionHeader(
-          title: selectedFilter == 'Alle' ? 'Alle Rezepte' : selectedFilter,
-          subtitle: '${visibleRecipes.length} Treffer',
-        ),
-        const SizedBox(height: 12),
-        for (var i = 0; i < visibleRecipes.length; i++) ...[
-          _RecipeListTile(
-            key: ValueKey('recipe-tile-${visibleRecipes[i].slug}'),
-            recipe: visibleRecipes[i],
-            onTap: () => _openRecipe(visibleRecipes[i]),
+          const SizedBox(height: 16),
+          _RecipeFilterChips(
+            selected: selectedFilter,
+            onSelected: (filter) => setState(() => selectedFilter = filter),
           ),
-          if (i != visibleRecipes.length - 1) const SizedBox(height: 10),
-        ],
-        if (visibleRecipes.isEmpty) const _RecipeEmptyState(),
-        // Steht bewusst NACH der Hauptliste: so bleibt die erste Rezept-Kachel
-        // im initialen Viewport (Test nutzt ensureVisible ohne vorheriges Scrollen).
-        if (goalMatches.isNotEmpty) ...[
-          const SizedBox(height: 26),
-          const _SectionHeader(
-            title: 'Passt zu deinem Ziel',
-            subtitle: 'nach Restmakros',
+          const SizedBox(height: 24),
+          _SectionHeader(
+            title: 'Empfehlungen',
+            subtitle: '${_allRecipes.length} Fitness-Gerichte',
           ),
           const SizedBox(height: 12),
           SizedBox(
             height: 256,
             child: ListView.separated(
-              key: const ValueKey('recipe-goal-matches'),
               scrollDirection: Axis.horizontal,
               clipBehavior: Clip.none,
-              itemCount: goalMatches.length,
+              itemCount: recommended.length,
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
-                final recipe = goalMatches[index];
+                final recipe = recommended[index];
                 return _RecipeHeroCard(
                   recipe: recipe,
-                  badgeText: 'Match',
                   onTap: () => _openRecipe(recipe),
                 );
               },
             ),
           ),
+          const SizedBox(height: 26),
+          _SectionHeader(
+            title: selectedFilter == 'Alle' ? 'Alle Rezepte' : selectedFilter,
+            subtitle: '${visibleRecipes.length} Treffer',
+          ),
+          const SizedBox(height: 12),
+          for (var i = 0; i < visibleRecipes.length; i++) ...[
+            _RecipeListTile(
+              key: ValueKey('recipe-tile-${visibleRecipes[i].slug}'),
+              recipe: visibleRecipes[i],
+              onTap: () => _openRecipe(visibleRecipes[i]),
+            ),
+            if (i != visibleRecipes.length - 1) const SizedBox(height: 10),
+          ],
+          if (visibleRecipes.isEmpty) const _RecipeEmptyState(),
+          // Steht bewusst NACH der Hauptliste: so bleibt die erste Rezept-Kachel
+          // im initialen Viewport (Test nutzt ensureVisible ohne vorheriges Scrollen).
+          if (goalMatches.isNotEmpty) ...[
+            const SizedBox(height: 26),
+            const _SectionHeader(
+              title: 'Passt zu deinem Ziel',
+              subtitle: 'nach Restmakros',
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 256,
+              child: ListView.separated(
+                key: const ValueKey('recipe-goal-matches'),
+                scrollDirection: Axis.horizontal,
+                clipBehavior: Clip.none,
+                itemCount: goalMatches.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final recipe = goalMatches[index];
+                  return _RecipeHeroCard(
+                    recipe: recipe,
+                    badgeText: 'Match',
+                    onTap: () => _openRecipe(recipe),
+                  );
+                },
+              ),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

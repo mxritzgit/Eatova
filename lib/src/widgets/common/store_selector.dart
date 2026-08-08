@@ -12,6 +12,15 @@ import 'package:flutter/widgets.dart';
 /// Tipp: einen **Record** als Slice zurueckgeben (`() => (store.a, store.b)`)
 /// nutzt dessen strukturelle Gleichheit; Objekt-Slices ohne `==` vergleichen per
 /// Identitaet, was korrekt ist, solange der Store sie bei Aenderung neu zuweist.
+///
+/// **Regel (aus G11):** in den Selektor gehoeren die EINGANGSgroessen, nicht die
+/// abgeleiteten Werte. Ein Getter wie `mealsForFoodDate(date)` filtert bei jedem
+/// Aufruf in eine NEUE Liste — als Slice waere er per Identitaet immer
+/// „geaendert" (der Selektor liefe also leer) und allokierte obendrein bei jedem
+/// Notify. Die Store-Liste selbst (`loggedMeals`) wird dagegen bei jeder
+/// Mutation neu zugewiesen: ihre Identitaet ist ein exakter, O(1)-billiger
+/// Fingerabdruck derselben Information. Faustregel: der Selektor darf nichts
+/// allokieren ausser dem Record.
 class StoreSelector extends StatefulWidget {
   const StoreSelector({
     super.key,

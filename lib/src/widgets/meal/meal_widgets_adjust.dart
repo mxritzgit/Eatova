@@ -13,131 +13,6 @@ Future<Object?> showWeightAdjustmentSheet(
   );
 }
 
-class _MealWeightAdjustmentSheet extends StatefulWidget {
-  const _MealWeightAdjustmentSheet({required this.result});
-
-  final MealAnalysisResult result;
-
-  @override
-  State<_MealWeightAdjustmentSheet> createState() =>
-      _MealWeightAdjustmentSheetState();
-}
-
-class _MealWeightAdjustmentSheetState extends State<_MealWeightAdjustmentSheet> {
-  late final TextEditingController _controller;
-  late int _grams;
-
-  @override
-  void initState() {
-    super.initState();
-    _grams = widget.result.estimatedGrams;
-    _controller = TextEditingController(text: _grams.toString());
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final result = widget.result;
-    final kcal = (result.kcalPer100G * _grams / 100).round();
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        4,
-        20,
-        24 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Portion anpassen',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${result.mealName} · ${result.kcalPer100Label}',
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 18),
-          TextField(
-            key: const ValueKey('analyse-weight-input'),
-            cursorOpacityAnimates: false,
-            controller: _controller,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              labelText: 'Gewicht in Gramm',
-              suffixText: 'g',
-            ),
-            onChanged: (value) {
-              setState(() {
-                _grams = int.tryParse(value) ?? widget.result.estimatedGrams;
-              });
-            },
-          ),
-          const SizedBox(height: 14),
-          Container(
-            key: const ValueKey('analyse-adjusted-kcal-preview'),
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: surfaceSoft,
-              borderRadius: BorderRadius.circular(rControl),
-              border: Border.all(color: orange.withValues(alpha: 0.18)),
-            ),
-            child: Text(
-              '$_grams g ≈ $kcal kcal',
-              style: const TextStyle(
-                color: orange,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              key: const ValueKey('analyse-save-weight-button'),
-              onPressed: _grams <= 0 ? null : () => Navigator.pop(context, _grams),
-              icon: const Icon(Icons.check_rounded, size: 17),
-              label: const Text(
-                'Übernehmen',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: orange,
-                foregroundColor: bg,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _MealItemAdjustmentSheet extends StatefulWidget {
   const _MealItemAdjustmentSheet({required this.result});
 
@@ -202,27 +77,58 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     });
   }
 
+  /// Tragen ALLE Posten, die uebrig bleiben, vollstaendige Makros?
+  ///
+  /// Genau diese Bedingung entscheidet in
+  /// [MealAnalysisResult.adjustedToItems], ob die Makros der Mahlzeit exakt
+  /// aufsummiert werden oder als "unbekannt" gelten. Der Dialog braucht sie,
+  /// um dem Nutzer die Folge seiner Eingabe **vorher** sagen zu koennen.
+  /// Leere Auswahl ergibt bewusst `true` — genau wie `every` auf einer leeren
+  /// Liste. Wer alle Posten entfernt und einen neuen mit Makros anlegt, hat
+  /// danach eine Mahlzeit, deren einziger Posten Makros traegt; die Summe
+  /// greift dann sehr wohl.
+  bool get _restTraegtMakros {
+    for (var index = 0; index < _items.length; index++) {
+      if (_removed.contains(index)) continue;
+      if (!_items[index].hasMacros) return false;
+    }
+    return true;
+  }
+
   Future<void> _addItemDialog() async {
     final newItem = await showDialog<MealComponent>(
       context: context,
-      builder: (context) => const _AddItemDialog(),
+      builder: (context) =>
+          _AddItemDialog(restTraegtMakros: _restTraegtMakros),
     );
     if (newItem != null) {
       _appendItem(newItem);
     }
   }
 
+  /// Der Posten [index], umgerechnet auf das aktuell eingetippte Gewicht.
+  ///
+  /// **Eine** Rechnung fuer Vorschau, Gesamtzeile und Speicherpfad. Genau die
+  /// Doppelung war B1: `_itemKcalFor` bevorzugte `kcalPer100G`, waehrend
+  /// [MealComponent.adjustedToGrams] seit Welle 2 `caloriesKcal` als
+  /// autoritativ behandelt und die Dichte nur als Rueckfallebene nimmt. Bei
+  /// einem Posten, dessen Dichte nicht zu Gramm und Kalorien passt
+  /// ({100 g, 521 kcal, 2180 kcal/100 g}), zeigte die Zeile auf 30 g deshalb
+  /// 654 kcal, gespeichert wurden 156.
+  ///
+  /// Delegieren statt die Formel abzuschreiben: eine Kopie kann wieder
+  /// auseinanderlaufen, und `adjustedToGrams` bringt zusaetzlich die Clamps
+  /// (1..10000 g, 0..10000 kcal) mit — ohne sie zeigte die Zeile bei einer
+  /// abwegigen Eingabe erneut etwas anderes als die Summe darunter.
+  MealComponent _adjustedItem(int index) =>
+      _items[index].adjustedToGrams(_grams[index]);
+
   int _itemKcalFor(int index) {
-    final item = _items[index];
-    final grams = _grams[index];
-    final per100 = item.kcalPer100G;
-    if (per100 != null && per100 > 0) {
-      return (per100 * grams / 100).round();
-    }
-    if (item.grams > 0) {
-      return (item.caloriesKcal * grams / item.grams).round();
-    }
-    return item.caloriesKcal;
+    // 0 g ist ein ungueltiger Zwischenstand (das Uebernehmen ist dann
+    // gesperrt). `adjustedToGrams` wuerde auf die Mindestportion 1 g klemmen
+    // und damit neben der getippten 0 eine Kalorienzahl zeigen.
+    if (_grams[index] <= 0) return 0;
+    return _adjustedItem(index).caloriesKcal;
   }
 
   String _statusLine(int addedCount) {
@@ -239,8 +145,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
   Widget build(BuildContext context) {
     final adjustedItems = <MealComponent>[
       for (var index = 0; index < _items.length; index++)
-        if (!_removed.contains(index))
-          _items[index].adjustedToGrams(_grams[index]),
+        if (!_removed.contains(index)) _adjustedItem(index),
     ];
     final totalGrams = adjustedItems.fold<int>(
       0,
@@ -585,8 +490,54 @@ class _RemovedItemCard extends StatelessWidget {
   }
 }
 
+/// Obergrenze fuer ein Makro eines einzelnen Postens, in Gramm.
+///
+/// Spiegelt `LoggedMealLimits.macroGMax` aus `models/model_limits.dart`.
+/// Bewusst als lokale Konstante: diese Datei ist ein `part of
+/// 'meal_widgets.dart'` und kann selbst nichts importieren, und die
+/// Bibliotheks-Datei mit den Importen gehoert einem anderen Arbeitsstrang.
+/// Getippte Werte werden hier **abgelehnt statt geklemmt** — so will es die
+/// Doku in `model_limits.dart` fuer alles, was der Nutzer selbst eingibt.
+const double _makroMaxG = 1000;
+
+/// Ein Makro-Eingabefeld: optional, Gramm, Dezimaltrennung per Komma ODER
+/// Punkt. Bewusst nicht `digitsOnly` — 0,5 g Fett muss eingebbar sein.
+class _MacroField extends StatelessWidget {
+  const _MacroField({
+    required this.fieldKey,
+    required this.controller,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final Key fieldKey;
+  final TextEditingController controller;
+  final String label;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      key: fieldKey,
+      cursorOpacityAnimates: false,
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      inputFormatters: [
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+      ],
+      decoration: InputDecoration(labelText: label, suffixText: 'g'),
+      onChanged: (_) => onChanged(),
+    );
+  }
+}
+
 class _AddItemDialog extends StatefulWidget {
-  const _AddItemDialog();
+  const _AddItemDialog({required this.restTraegtMakros});
+
+  /// Tragen die uebrigen Posten der Mahlzeit bereits vollstaendige Makros?
+  /// Nur dann kann die Mahlzeit ihre Makros ueberhaupt behalten, wenn dieser
+  /// Posten welche mitbringt — sonst waere jedes Versprechen hier gelogen.
+  final bool restTraegtMakros;
 
   @override
   State<_AddItemDialog> createState() => _AddItemDialogState();
@@ -596,27 +547,79 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   final _name = TextEditingController();
   final _grams = TextEditingController();
   final _kcal = TextEditingController();
+  final _protein = TextEditingController();
+  final _carbs = TextEditingController();
+  final _fat = TextEditingController();
+
+  /// Die Makro-Felder sind eingeklappt. Der haeufige Fall ("ich hab noch Brot
+  /// dazu") bleibt damit drei Felder lang; wer genauer sein will, klappt auf.
+  bool _makrosOffen = false;
 
   @override
   void dispose() {
     _name.dispose();
     _grams.dispose();
     _kcal.dispose();
+    _protein.dispose();
+    _carbs.dispose();
+    _fat.dispose();
     super.dispose();
+  }
+
+  /// Liest ein Makro-Feld: leer -> `null` ("unbekannt"), sonst die Zahl.
+  ///
+  /// `null` und `0` sind ausdruecklich **nicht** dasselbe. Wer das Feld leer
+  /// laesst, sagt "weiss ich nicht"; wer 0 eintippt, sagt "davon ist nichts
+  /// drin". [MealComponent.hasMacros] unterscheidet genau daran.
+  static double? _makro(TextEditingController controller) {
+    final text = controller.text.trim();
+    if (text.isEmpty) return null;
+    return double.tryParse(text.replaceAll(',', '.'));
+  }
+
+  /// `true`, wenn das Feld leer ist ODER eine Zahl im erlaubten Bereich traegt.
+  static bool _makroFeldOk(TextEditingController controller) {
+    if (controller.text.trim().isEmpty) return true;
+    final wert = _makro(controller);
+    return wert != null && wert.isFinite && wert >= 0 && wert <= _makroMaxG;
+  }
+
+  bool get _alleMakrosGesetzt =>
+      _makro(_protein) != null &&
+      _makro(_carbs) != null &&
+      _makro(_fat) != null;
+
+  bool get _makrosGueltig =>
+      _makroFeldOk(_protein) && _makroFeldOk(_carbs) && _makroFeldOk(_fat);
+
+  /// Was die Eingabe fuer die Makros der GANZEN Mahlzeit bedeutet — sichtbar,
+  /// bevor der Nutzer auf "Hinzufügen" tippt (B8). Der Wortlaut deckt sich mit
+  /// dem, was danach in `portionNotes` steht.
+  String get _makroHinweis {
+    if (!_alleMakrosGesetzt) {
+      return 'Ohne alle drei Angaben werden Protein, Kohlenhydrate und Fett '
+          'für die ganze Mahlzeit als „–" ausgewiesen.';
+    }
+    if (!widget.restTraegtMakros) {
+      return 'Andere Bestandteile tragen keine Makros — die Mahlzeit weist '
+          'Protein, Kohlenhydrate und Fett weiterhin als „–" aus.';
+    }
+    return 'Protein, Kohlenhydrate und Fett werden für die Mahlzeit exakt '
+        'aufsummiert.';
   }
 
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
     final g = int.tryParse(_grams.text.trim());
     final k = int.tryParse(_kcal.text.trim());
-    return g != null && g > 0 && k != null && k >= 0;
+    return g != null && g > 0 && k != null && k >= 0 && _makrosGueltig;
   }
 
   void _submit() {
     final name = _name.text.trim();
     final grams = int.tryParse(_grams.text.trim()) ?? 0;
     final kcal = int.tryParse(_kcal.text.trim()) ?? 0;
-    if (name.isEmpty || grams <= 0) return;
+    if (name.isEmpty || grams <= 0 || !_makrosGueltig) return;
     final per100 = grams > 0 ? kcal * 100 / grams : null;
     Navigator.pop(
       context,
@@ -625,6 +628,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
         grams: grams,
         caloriesKcal: kcal,
         kcalPer100G: per100,
+        proteinG: _makro(_protein),
+        carbsG: _makro(_carbs),
+        fatG: _makro(_fat),
       ),
     );
   }
@@ -701,6 +707,91 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 4),
+            // Aufklappbar statt drei weiterer Pflichtfelder: der schnelle Pfad
+            // bleibt Name + Gramm + Kalorien.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('analyse-add-item-macros-toggle'),
+                onPressed: () =>
+                    setState(() => _makrosOffen = !_makrosOffen),
+                style: TextButton.styleFrom(
+                  foregroundColor: cyan,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: Icon(
+                  _makrosOffen
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  size: 16,
+                ),
+                label: const Text(
+                  'Makros ergänzen (optional)',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            if (_makrosOffen) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _MacroField(
+                      fieldKey: const ValueKey('analyse-add-item-protein'),
+                      controller: _protein,
+                      label: 'Protein',
+                      onChanged: () => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _MacroField(
+                      fieldKey: const ValueKey('analyse-add-item-carbs'),
+                      controller: _carbs,
+                      label: 'Carbs',
+                      onChanged: () => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _MacroField(
+                      fieldKey: const ValueKey('analyse-add-item-fat'),
+                      controller: _fat,
+                      label: 'Fett',
+                      onChanged: () => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              if (!_makrosGueltig) ...[
+                const SizedBox(height: 6),
+                const Text(
+                  'Makros in Gramm, jeweils zwischen 0 und 1000.',
+                  style: TextStyle(
+                    color: warning,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+            const SizedBox(height: 10),
+            Text(
+              _makroHinweis,
+              key: const ValueKey('analyse-add-item-macro-hint'),
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 11,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),

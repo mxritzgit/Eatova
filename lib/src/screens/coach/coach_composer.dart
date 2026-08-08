@@ -124,11 +124,14 @@ class _ComposerState extends State<_Composer> {
                       isCollapsed: true,
                       contentPadding:
                           const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                      // C8: der Platzhalter nennt die KI — im Leerzustand
+                      // steht der Hinweis im Hero, im laufenden Chat ist der
+                      // Composer die einzige Stelle, die immer sichtbar ist.
                       hintText: widget.remaining <= 0
                           ? 'Limit für heute erreicht'
                           : widget.listening
                               ? 'Ich höre zu…'
-                              : 'Frag Eatova…',
+                              : 'Frag den KI-Coach…',
                       hintStyle: const TextStyle(
                         color: textMuted,
                         fontSize: 15.5,
@@ -451,6 +454,160 @@ class _AttachTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+/// Sheet hinter dem (i) in der Top-Bar und hinter dem Hinweis im Leerzustand.
+///
+/// C8: vorher stand hier NUR das Tageskontingent — dass jede Nachricht einen
+/// Tages-Snapshot (Gewicht, Ziel, Kalorien, offene Makros, Namen der heute
+/// geloggten Mahlzeiten) an einen Drittanbieter in den USA mitschickt, war nur
+/// in der Datenschutzerklaerung nachlesbar. Jetzt steht die Offenlegung oben
+/// und das Kontingent darunter.
+class _CoachInfoSheet extends StatelessWidget {
+  const _CoachInfoSheet({required this.remaining, required this.dailyLimit});
+
+  final int remaining;
+  final int dailyLimit;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            key: const ValueKey('coach-info-sheet'),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: hairline,
+                    borderRadius: BorderRadius.circular(rPill),
+                  ),
+                ),
+              ),
+              const Text(
+                'KI-Coach',
+                style: TextStyle(
+                  color: textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Hier antwortet eine KI, keine echte Person. Die Antworten '
+                'sind eine Schätzung und ersetzen keinen ärztlichen Rat.',
+                style: TextStyle(color: textMuted, fontSize: 13, height: 1.45),
+              ),
+              const SizedBox(height: 18),
+              const _InfoLabel('Das schickt jede Frage mit'),
+              const SizedBox(height: 8),
+              const _InfoBullet('Dein Gewicht und dein Zielgewicht'),
+              const _InfoBullet(
+                  'Deine heutigen Kalorien und die offenen Makros'),
+              const _InfoBullet(
+                  'Die Namen der Mahlzeiten, die du heute geloggt hast'),
+              const SizedBox(height: 12),
+              const Text(
+                'Das geht zusammen mit deiner Frage an unseren KI-Anbieter '
+                '(OpenRouter, Modell Grok von xAI) auf Servern in den USA — '
+                'nur, um die Antwort zu erzeugen. Mehr dazu steht in der '
+                'Datenschutzerklärung.',
+                style: TextStyle(color: textMuted, fontSize: 13, height: 1.45),
+              ),
+              const SizedBox(height: 20),
+              Container(height: 1, color: hairline),
+              const SizedBox(height: 18),
+              const _InfoLabel('Coach-Limit'),
+              const SizedBox(height: 6),
+              Text(
+                '$remaining von $dailyLimit Fragen heute frei. '
+                'Reset um Mitternacht (UTC).',
+                style: const TextStyle(
+                  color: textMuted,
+                  fontSize: 13,
+                  height: 1.45,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(height: 14),
+              _QuotaBar(remaining: remaining, total: dailyLimit),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Abschnitts-Ueberschrift im Info-Sheet.
+class _InfoLabel extends StatelessWidget {
+  const _InfoLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        color: textPrimary,
+        fontSize: 13.5,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.2,
+      ),
+    );
+  }
+}
+
+/// Aufzaehlungszeile im Info-Sheet (Akzent-Punkt + Text).
+class _InfoBullet extends StatelessWidget {
+  const _InfoBullet(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            margin: const EdgeInsets.only(top: 7, right: 9),
+            decoration: const BoxDecoration(
+              color: coachAccent,
+              shape: BoxShape.circle,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: textPrimary,
+                fontSize: 13,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

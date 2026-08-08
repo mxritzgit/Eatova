@@ -36,39 +36,88 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   bool _busy = false;
   bool _cameraFailed = false;
 
+  /// Serialisiert Auf- und Abbau der Kamera. Lifecycle-Events feuern schneller
+  /// als `initialize()` laeuft (Galerie-Picker auf/zu, iOS-Benachrichtigungs-
+  /// banner): ohne diese Kette entstuenden zwei Controller nebeneinander, oder
+  /// ein Pause-Event wuerde von einer noch laufenden Initialisierung ueberholt
+  /// und liesse die Kamera im Hintergrund offen.
+  Future<void> _cameraQueue = Future<void>.value();
+
+  void _enqueueCameraOp(Future<void> Function() op) {
+    _cameraQueue = _cameraQueue
+        .then((_) => op())
+        // Ein gescheiterter Auf-/Abbau darf die Kette nicht abreissen lassen,
+        // sonst kaeme die Kamera nach dem naechsten Resume nie wieder.
+        .catchError((Object _) {});
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _slot = widget.initialSlot;
-    _initCamera();
+    _enqueueCameraOp(_initCamera);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    final controller = _controller;
+    // Erst abhaengen, dann freigeben: eine noch laufende Queue-Operation soll
+    // den entsorgten Controller nicht mehr finden.
+    _controller = null;
+    controller?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Bewusst OHNE den frueheren `_controller == null`-Guard (Review D3): der
+    // Pause-Zweig nullte genau das Feld, auf das der Guard prueft — damit war
+    // der resumed-Zweig ab der ersten Unterbrechung unerreichbar und die
+    // Vorschau blieb bis zum Neu-Oeffnen des Sheets ein Dauer-Spinner.
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _enqueueCameraOp(_teardownCamera);
+      case AppLifecycleState.resumed:
+        _enqueueCameraOp(_initCamera);
+    }
+  }
+
+  /// Gibt die Kamera frei. Das Feld wird VOR dem `dispose()` und innerhalb von
+  /// `setState` genullt: sonst rendert `build` weiter die Texture eines
+  /// entsorgten Controllers, der Ausloeser sieht aktiv aus, und ein Tap darauf
+  /// laeuft still in den Null-Check von [_capture].
+  Future<void> _teardownCamera() async {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) return;
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      controller.dispose();
+    if (controller == null) return;
+    if (mounted) {
+      setState(() => _controller = null);
+    } else {
       _controller = null;
-    } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
+    }
+    try {
+      await controller.dispose();
+    } catch (_) {
+      // Ein bereits gestorbener Controller ist kein Fehlerfall fuer die UI.
     }
   }
 
   Future<void> _initCamera() async {
+    if (!mounted) return;
+    // Es laeuft bereits eine Kamera: ein zweites `initialize()` erzeugte einen
+    // zweiten Controller und liesse den ersten unentsorgt liegen.
+    if (_controller != null) return;
+
+    CameraController? controller;
     try {
       final cameras = await availableCameras();
+      if (!mounted) return;
       if (cameras.isEmpty) {
-        if (mounted) setState(() => _cameraFailed = true);
+        setState(() => _cameraFailed = true);
         return;
       }
       final back = cameras.firstWhere(
@@ -77,13 +126,19 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       );
       // veryHigh (1080p): scharfes Analyse-Foto, aber klein genug fuer das
       // 5-MB-Bildlimit der Edge Function. high (720p) wirkte unscharf.
-      final controller = CameraController(
+      controller = CameraController(
         back,
         ResolutionPreset.veryHigh,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
+      // Sheet zwischenzeitlich geschlossen: der frisch gebaute Controller darf
+      // nicht als Leiche zurueckbleiben.
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
       // iOS rotiert sonst Vorschau- und Foto-Buffer bei jeder physischen
       // Drehung mit: camera_avfoundation hoert auf UIDevice-Orientation-
       // Notifications, die trotz Portrait-Lock der UI feuern, und setzt
@@ -108,8 +163,39 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         _cameraFailed = false;
       });
     } catch (_) {
+      // Berechtigung waehrenddessen entzogen, keine Kamera, Plugin-Fehler:
+      // sauber in der Fehlerflaeche landen statt im Dauer-Spinner haengen.
+      final partial = controller;
+      if (partial != null && !identical(_controller, partial)) {
+        try {
+          await partial.dispose();
+        } catch (_) {
+          // Ein nie fertig aufgebauter Controller hat nichts freizugeben.
+        }
+      }
       if (mounted) setState(() => _cameraFailed = true);
     }
+  }
+
+  /// Einziger Ausgang fuer Bild-Bytes aus diesem Sheet: Kamera **und** Galerie
+  /// laufen hier durch. [compressMealPhoto] verkleinert (Base64 macht +33%,
+  /// der Server kappt bei 5 MB) und leert den EXIF-Container (Review C4).
+  ///
+  /// `compute()`: Dekodieren + Re-Encoden blockiert sonst den UI-Isolate.
+  /// Scheitert der Isolate-Start, wird im UI-Isolate komprimiert — lieber ein
+  /// kurzer Ruckler als ein Upload mit Koordinaten.
+  Future<Uint8List> _compress(Uint8List raw) async {
+    Uint8List bytes;
+    try {
+      bytes = await compute(compressMealPhoto, raw);
+    } catch (_) {
+      bytes = compressMealPhoto(raw);
+    }
+    dev.log(
+      'meal photo compressed: ${raw.lengthInBytes} -> ${bytes.lengthInBytes} bytes',
+      name: 'meal_camera',
+    );
+    return bytes;
   }
 
   void _selectSlot(MealSlot slot) {
@@ -127,14 +213,9 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       final file = await controller.takePicture();
       final raw = await file.readAsBytes();
       // Rohes Kamera-JPEG vor dem Versand auf Galerie-Niveau bringen
-      // (laengste Kante 1600 px, q85): Base64 macht +33%, der Server kappt
-      // bei 5 MB — unkomprimiert rissen gute Kameras das Limit sporadisch.
-      // compute(): Dekodieren+Re-Encoden blockiert sonst den UI-Isolate.
-      final bytes = await compute(compressMealPhoto, raw);
-      dev.log(
-        'meal photo compressed: ${raw.lengthInBytes} -> ${bytes.lengthInBytes} bytes',
-        name: 'meal_camera',
-      );
+      // (laengste Kante 1600 px, q85) und die Metadaten strippen.
+      final bytes = await _compress(raw);
+      if (!mounted) return;
       _returnCapture(path: file.path, bytes: bytes);
     } catch (_) {
       if (!mounted) return;
@@ -156,7 +237,14 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         if (mounted) setState(() => _busy = false);
         return;
       }
-      final bytes = await image.readAsBytes();
+      final raw = await image.readAsBytes();
+      // Review C4: `image_picker` skaliert zwar, kopiert danach aber ueber
+      // ImageResizer.copyExif() die Metadaten inklusive GPS-Sub-IFD zurueck.
+      // Ein aus der Galerie gewaehltes Systemkamera-Foto traegt damit die
+      // Koordinaten des Restaurants. compressMealPhoto leert den Container —
+      // derselbe Weg wie beim Kamera-Pfad, deshalb hier ebenfalls zwingend.
+      final bytes = await _compress(raw);
+      if (!mounted) return;
       _returnCapture(path: image.path, bytes: bytes);
     } on PlatformException catch (_) {
       if (!mounted) return;

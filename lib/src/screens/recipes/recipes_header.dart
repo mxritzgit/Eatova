@@ -74,9 +74,15 @@ class _RecipesHeader extends StatelessWidget {
 }
 
 class _RecipeSearchField extends StatelessWidget {
-  const _RecipeSearchField({required this.onChanged});
+  const _RecipeSearchField({required this.controller, required this.onClear});
 
-  final ValueChanged<String> onChanged;
+  /// Gehoert dem [_RecipesScreenState] (dort erzeugt und entsorgt). Ohne
+  /// eigenen Controller laege der Text nur im `EditableText`-State und waere
+  /// weg, sobald die lazy Liste das Feld beim Scrollen abraeumt (D6).
+  final TextEditingController controller;
+
+  /// Leert Suchtext und damit den Textfilter.
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
@@ -89,16 +95,42 @@ class _RecipeSearchField extends StatelessWidget {
       ),
       child: TextField(
         key: const ValueKey('recipes-search-input'),
+        controller: controller,
         cursorOpacityAnimates: false,
-        onChanged: onChanged,
         style: const TextStyle(color: textPrimary, fontSize: 14),
         cursorColor: lime,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           border: InputBorder.none,
-          prefixIcon: Icon(Icons.search_rounded, color: textMuted, size: 20),
+          prefixIcon:
+              const Icon(Icons.search_rounded, color: textMuted, size: 20),
           hintText: 'Gericht, Ziel oder Kategorie suchen',
-          hintStyle: TextStyle(color: textMuted, fontSize: 13),
-          contentPadding: EdgeInsets.symmetric(vertical: 14),
+          hintStyle: const TextStyle(color: textMuted, fontSize: 13),
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          // Der Suchtext bleibt jetzt ueber Scrollen und Tab-Wechsel stehen —
+          // dann muss der User ihn auch sichtbar wieder loswerden koennen.
+          // (Der Kategorie-Filter hat dafuer seinen „Alle"-Chip.)
+          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) {
+              if (value.text.isEmpty) return const SizedBox.shrink();
+              return IconButton(
+                key: const ValueKey('recipes-search-clear'),
+                onPressed: onClear,
+                tooltip: 'Suche leeren',
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(
+                  minWidth: 44,
+                  minHeight: 44,
+                ),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: textMuted,
+                  size: 18,
+                ),
+              );
+            },
+          ),
         ),
       ),
     );

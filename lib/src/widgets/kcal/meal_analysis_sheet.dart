@@ -6,20 +6,39 @@ import 'package:flutter/material.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
+import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
 import '../meal/meal_widgets.dart';
 
+/// Meldung, wenn eine Mahlzeit ohne Kalorienangabe geloggt werden soll.
+/// Als Konstante, damit Tests denselben Wortlaut pruefen wie die Oberflaeche.
+const String kMealWithoutCaloriesMessage =
+    'Ohne Kalorienangabe lässt sich nichts loggen. Trag die Bestandteile über '
+    '„Anpassen" ein.';
+
 /// Mappt einen Analyse-/Lookup-Fehler auf die Snack-Meldung fuer den Nutzer.
-/// Timeouts (Analyzer + Produkt-Lookups werfen [TimeoutException], seit alle
-/// HTTP-Phasen explizite `.timeout(...)` tragen) bekommen eine eigene,
-/// freundliche Meldung — die generische [fallback]-Meldung des jeweiligen
-/// Flows ("Prüfe Internet, Supabase und OpenRouter") waere hier irrefuehrend,
-/// denn die Verbindung stand, nur die Antwort blieb aus.
+///
+/// Zwei Faelle sind praeziser als die generische [fallback]-Meldung des
+/// jeweiligen Flows:
+///
+///  * [TimeoutException] — Analyzer und Produkt-Lookups werfen den, seit alle
+///    HTTP-Phasen explizite `.timeout(...)` tragen. "Prüfe Internet, Supabase
+///    und OpenRouter" waere hier irrefuehrend: die Verbindung stand, nur die
+///    Antwort blieb aus.
+///  * [ProductWithoutNutritionException] — der Service hat das Produkt
+///    gefunden, es traegt nur keine loggbare Energieangabe. Die
+///    Barcode-Fallback-Meldung ("nicht gefunden oder OpenFoodFacts nicht
+///    erreichbar") waere schlicht falsch: der Nutzer haelt das Produkt in der
+///    Hand. Der Fehler bringt seine Meldung inklusive Produktname und
+///    gemessenem Wert bereits mit.
 String mealAnalysisErrorMessage(Object error, String fallback) {
   if (error is TimeoutException) {
     return 'Das dauert gerade zu lange. Bitte versuch es gleich nochmal.';
+  }
+  if (error is ProductWithoutNutritionException) {
+    return error.userMessage;
   }
   return fallback;
 }
@@ -151,6 +170,28 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   void _addToDaily() {
     final result = _result;
     if (result == null || _addedToDailyTotal) return;
+
+    // Letzte Bremse vor dem Tagebuch (B7). Suche und Barcode liefern seit
+    // Welle 2 nichts Unloggbares mehr — dort wirft
+    // [ProductWithoutNutritionException] schon im Service. Der Foto-KI-Pfad
+    // laeuft an diesem Filter vorbei, und ein 0-kcal-Eintrag ist im Tagebuch
+    // nicht als "unbekannt" erkennbar: er sieht aus wie eine Mahlzeit ohne
+    // Kalorien und verfaelscht die Tagesbilanz still.
+    //
+    // Bewusst KEIN stiller Abbruch und kein deaktivierter Knopf: der Nutzer
+    // erfaehrt den Grund und den Weg heraus ("Anpassen" -> Bestandteile
+    // eintragen), und der Knopf wirkt danach ganz normal.
+    if (result.caloriesKcal <= 0) {
+      showAppSnack(
+        context,
+        kMealWithoutCaloriesMessage,
+        icon: Icons.error_outline_rounded,
+        accent: danger,
+        duration: kSnackError,
+      );
+      return;
+    }
+
     final id = widget.onAdd(result, widget.slot);
     setState(() {
       _addedToDailyTotal = true;

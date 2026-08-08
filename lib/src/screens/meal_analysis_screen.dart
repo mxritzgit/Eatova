@@ -7,6 +7,7 @@ import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/user_profile.dart';
 import '../config/search_config.dart';
+import '../services/day_math.dart';
 import '../services/fallback_product_service.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
@@ -570,6 +571,58 @@ class _ProfileBadge extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// B5: Kalenderarithmetik der Datumsleiste
+// ---------------------------------------------------------------------------
+//
+// `Duration` ist Absolutzeit, kein Kalender. Am Montag 30.03.2026 in
+// Europe/Berlin (Fruehjahrsumstellung am Sonntag 29.03., ein 23-Stunden-Tag)
+// lieferte `today.subtract(Duration(days: 1))` den `2026-03-28 23:00`. Die
+// Leiste rendete dann
+//
+//   Mi 25.3. | Do 26.3. | Fr 27.3. | Gestern 28.3. | Heute 30.3.
+//
+// Sonntag der 29.3. war nicht erreichbar, und der Chip „Gestern" trug den
+// 28.3.: ein Tap darauf waehlte den falschen Tag, und jede von dort geloggte
+// Mahlzeit bekam `local_day = 2026-03-28`. Spiegelbildlich verrechnete sich
+// `.difference(...).inDays` auf zwei lokalen Mitternachten (23 h -> 0 Tage).
+//
+// Beides rechnet jetzt `day_math.dart`. Als freie Funktionen herausgezogen,
+// weil sie sonst nur ueber `DateTime.now()` erreichbar waeren — an einem
+// beliebigen Anker (etwa dem 30.03.2026) liessen sie sich dann gar nicht
+// pruefen.
+
+const _weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+/// Die Tage der Leiste: [pastDays] zurueckliegende plus [today], aufsteigend.
+@visibleForTesting
+List<DateTime> foodDateStripDays({
+  required DateTime today,
+  required int pastDays,
+}) {
+  return dayStrip(today: today, pastDays: pastDays);
+}
+
+/// Kopfzeile eines Chips. Fuer aeltere Tage der Wochentag statt nochmal des
+/// Datums — darunter steht bereits „23.7.", zweimal dasselbe sah nach Fehler
+/// aus.
+@visibleForTesting
+String foodDateChipLabel(DateTime today, DateTime date) {
+  final offset = daysBetween(today, date);
+  if (offset == 0) return 'Heute';
+  if (offset == 1) return 'Gestern';
+  return _weekdays[date.weekday - 1];
+}
+
+/// Die Zeile ueber den Chips, die den gewaehlten Tag benennt.
+@visibleForTesting
+String foodDateSelectedLabel(DateTime today, DateTime selected) {
+  final offset = daysBetween(today, selected);
+  if (offset == 0) return 'Heute';
+  if (offset == 1) return 'Gestern';
+  return 'Vor $offset Tagen';
+}
+
 class _FoodDateStrip extends StatelessWidget {
   const _FoodDateStrip({
     required this.selectedDate,
@@ -585,10 +638,7 @@ class _FoodDateStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final today = DateUtils.dateOnly(DateTime.now());
     final selected = DateUtils.dateOnly(selectedDate);
-    final days = List<DateTime>.generate(
-      pastDays + 1,
-      (index) => today.subtract(Duration(days: pastDays - index)),
-    );
+    final days = foodDateStripDays(today: today, pastDays: pastDays);
 
     // Keine umschliessende Karte mehr: die Chips tragen ihre Form selbst, ein
     // Rahmen um den Rahmen ist genau die Verschachtelung, die den Tab schwer
@@ -609,7 +659,7 @@ class _FoodDateStrip extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  _selectedLabel(today, selected),
+                  foodDateSelectedLabel(today, selected),
                   key: const ValueKey('food-date-selected-label'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -635,7 +685,7 @@ class _FoodDateStrip extends StatelessWidget {
                   child: _FoodDateChip(
                     key: ValueKey('food-date-chip-$index'),
                     date: days[index],
-                    label: _chipLabel(index, today, days[index]),
+                    label: foodDateChipLabel(today, days[index]),
                     selected: DateUtils.isSameDay(days[index], selected),
                     onTap: () => onSelected(days[index]),
                   ),
@@ -675,23 +725,6 @@ class _FoodDateStrip extends StatelessWidget {
     if (picked != null) onSelected(picked);
   }
 
-  // Chip-Kopfzeile. Fuer aeltere Tage der Wochentag statt nochmal des Datums —
-  // darunter steht bereits „23.7.", zweimal dasselbe sah nach Fehler aus.
-  static const _weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-
-  static String _chipLabel(int index, DateTime today, DateTime date) {
-    final offset = today.difference(date).inDays;
-    if (offset == 0) return 'Heute';
-    if (offset == 1) return 'Gestern';
-    return _weekdays[date.weekday - 1];
-  }
-
-  static String _selectedLabel(DateTime today, DateTime selected) {
-    final offset = today.difference(selected).inDays;
-    if (offset == 0) return 'Heute';
-    if (offset == 1) return 'Gestern';
-    return 'Vor $offset Tagen';
-  }
 }
 
 class _FoodDateChip extends StatelessWidget {

@@ -2,25 +2,56 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/home_store.dart' show ReminderState;
 import '../../config/legal_links.dart';
+import '../../models/model_limits.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../theme/app_colors.dart';
 import 'target_bmi_hint.dart';
 
+/// Oeffnet „Profil & Ziele".
+///
+/// [reminderState] ist der volle Zustand der Erinnerungen (D11). Aufrufer, die
+/// ihn nicht kennen, uebergeben weiterhin nur [notificationsEnabled]; daraus
+/// wird [ReminderState.off] bzw. [ReminderState.active] abgeleitet — „vom
+/// System blockiert" laesst sich so allerdings nie anzeigen.
+///
+/// [onOpenSystemSettings] ist der Weg in die System-Benachrichtigungs-
+/// einstellungen. Fehlt er, zeigt der blockierte Zustand nur den Hinweistext
+/// und KEINEN Button: ein Button, der nichts oeffnet, waere dieselbe Sorte
+/// Luege wie der Schalter, der D11 ausgeloest hat. Das Projekt hat aktuell
+/// keinen solchen Weg — `url_launcher` startet auf Android ausschliesslich
+/// ACTION_VIEW-Intents (url_launcher_android, UrlLauncher.java:88) und erreicht
+/// `Settings.ACTION_APP_NOTIFICATION_SETTINGS` damit nicht; dafuer braeuchte es
+/// `app_settings`/`permission_handler` oder einen eigenen Platform-Channel.
 Future<SettingsResult?> showSettingsSheet(
   BuildContext context, {
   required UserProfile profile,
   bool notificationsEnabled = false,
+  ReminderState? reminderState,
+  VoidCallback? onOpenSystemSettings,
 }) {
   return showModalBottomSheet<SettingsResult>(
     context: context,
     backgroundColor: surface,
-    showDragHandle: true,
+    // Ziehen und Barriere-Tap bleiben erlaubt; abgefangen wird erst, wenn
+    // wirklich etwas eingetippt ist (D5) — [PopScope] fuer den Barriere-Tap
+    // und die Zurueck-Taste, [_DiscardDragGuard] fuer das Ziehen.
+    //
+    // Den Griff zeichnet deshalb das Sheet selbst ([_SheetGrabber]) statt der
+    // Route: der Route-Griff liegt als Stack-Geschwister NEBEN dem
+    // `builder`-Kind (bottom_sheet.dart:397-410) und damit ausserhalb des
+    // Guards — ein Zug genau am Griff, also die naheliegendste Wegwisch-Geste,
+    // liefe sonst weiter ungefragt durch. `enableDrag` bleibt an: ohne
+    // Aenderungen soll sich das Sheet wie gewohnt wegziehen lassen.
+    showDragHandle: false,
     isScrollControlled: true,
     builder: (context) => _SettingsSheet(
       initial: profile,
-      notificationsEnabled: notificationsEnabled,
+      reminderState: reminderState ??
+          (notificationsEnabled ? ReminderState.active : ReminderState.off),
+      onOpenSystemSettings: onOpenSystemSettings,
     ),
   );
 }
@@ -44,11 +75,13 @@ class SettingsResult {
 class _SettingsSheet extends StatefulWidget {
   const _SettingsSheet({
     required this.initial,
-    required this.notificationsEnabled,
+    required this.reminderState,
+    this.onOpenSystemSettings,
   });
 
   final UserProfile initial;
-  final bool notificationsEnabled;
+  final ReminderState reminderState;
+  final VoidCallback? onOpenSystemSettings;
 
   @override
   State<_SettingsSheet> createState() => _SettingsSheetState();
@@ -76,14 +109,21 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   /// bleiben manuelle Werte erhalten.
   late bool _manualEnergy;
 
-  /// Lokaler Schalterzustand fuer die Erinnerungen (PROD-1). Beim Speichern
-  /// landet er in [SettingsResult.notificationsEnabled].
-  late bool _notificationsEnabled;
+  /// Lokaler Zustand der Erinnerungen (PROD-1 / D11). Beim Speichern wird
+  /// daraus [SettingsResult.notificationsEnabled] — und zwar nur bei
+  /// [ReminderState.active], „blockiert" ist kein „an".
+  late ReminderState _reminder;
+
+  // --- Ausgangsstand fuer die Verwerf-Rueckfrage (D5) ------------------------
+  late final ReminderState _reminderStart;
+  late final bool _manualStart;
+  late final Map<TextEditingController, String> _textStart;
 
   @override
   void initState() {
     super.initState();
-    _notificationsEnabled = widget.notificationsEnabled;
+    _reminder = widget.reminderState;
+    _reminderStart = widget.reminderState;
     final p = widget.initial;
     _weight = TextEditingController(text: p.weightKg.toString());
     _height = TextEditingController(text: p.heightCm.toString());
@@ -105,7 +145,22 @@ class _SettingsSheetState extends State<_SettingsSheet> {
         p.proteinGoalG != computed.proteinG ||
         p.carbsGoalG != computed.carbsG ||
         p.fatGoalG != computed.fatG;
+    _manualStart = _manualEnergy;
+    _textStart = {for (final c in _alleFelder) c: c.text};
   }
+
+  List<TextEditingController> get _alleFelder => [
+        _weight,
+        _height,
+        _age,
+        _steps,
+        _kcal,
+        _water,
+        _protein,
+        _carbs,
+        _fat,
+        _targetWeight,
+      ];
 
   @override
   void dispose() {
@@ -122,23 +177,120 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     super.dispose();
   }
 
-  int _parseInt(TextEditingController c, int fallback) {
-    return int.tryParse(c.text.trim()) ?? fallback;
+  // --- Feldpruefung (C1) ----------------------------------------------------
+  //
+  // `FilteringTextInputFormatter.digitsOnly` ist ein TYP-Guard, kein
+  // WERTEBEREICHS-Guard. Wer „75,5" tippt, verliert das Komma und schickt 755
+  // an `profiles.weight_kg` (`between 30 and 300`) — PostgreSQL antwortet mit
+  // 23514, und dessen Meldung traegt die komplette fehlgeschlagene Zeile
+  // inklusive E-Mail. Genau das war der Ausloeser des Sentry-Leaks C1.
+  //
+  // Gegen Nutzereingaben ist ABLEHNEN richtig, nicht Klemmen: 755 auf 300 zu
+  // klemmen schriebe eine Zahl ins Profil, die der Nutzer nie gemeint hat.
+  // Die Grenzen stammen aus den echten SQL-Migrationen (model_limits.dart).
+
+  static const String _bereichKg =
+      '${ProfileLimits.weightKgMin}–${ProfileLimits.weightKgMax} kg '
+      '(ganze Zahl)';
+  static const String _bereichCm =
+      '${ProfileLimits.heightCmMin}–${ProfileLimits.heightCmMax} cm';
+  static const String _bereichAlter =
+      '${ProfileLimits.ageYearsMin}–${ProfileLimits.ageYearsMax} Jahre';
+  static const String _bereichSchritte =
+      '${ProfileLimits.dailyStepsGoalMin}–${ProfileLimits.dailyStepsGoalMax}';
+  static const String _bereichWasser =
+      '${ProfileLimits.dailyWaterGoalMlMin}–'
+      '${ProfileLimits.dailyWaterGoalMlMax} ml';
+  static const String _bereichKcal =
+      '${ProfileLimits.dailyKcalGoalMin}–${ProfileLimits.dailyKcalGoalMax} kcal';
+  static const String _bereichProtein =
+      '${ProfileLimits.proteinGoalGMin}–${ProfileLimits.proteinGoalGMax} g';
+  static const String _bereichCarbs =
+      '${ProfileLimits.carbsGoalGMin}–${ProfileLimits.carbsGoalGMax} g';
+  static const String _bereichFett =
+      '${ProfileLimits.fatGoalGMin}–${ProfileLimits.fatGoalGMax} g';
+
+  /// Fehlertext des Feldes oder `null`, wenn der Wert so in die DB darf.
+  String? _fehler(
+    TextEditingController c,
+    bool Function(num) gueltig,
+    String bereich,
+  ) {
+    final text = c.text.trim();
+    if (text.isEmpty) return 'Bitte ausfüllen';
+    final wert = int.tryParse(text);
+    if (wert == null || !gueltig(wert)) return bereich;
+    return null;
+  }
+
+  String? get _weightError =>
+      _fehler(_weight, isValidProfileWeightKg, _bereichKg);
+  String? get _heightError =>
+      _fehler(_height, isValidProfileHeightCm, _bereichCm);
+  String? get _ageError => _fehler(_age, isValidProfileAgeYears, _bereichAlter);
+  String? get _targetWeightError =>
+      _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
+  String? get _stepsError =>
+      _fehler(_steps, isValidDailyStepsGoal, _bereichSchritte);
+  String? get _waterError =>
+      _fehler(_water, isValidDailyWaterGoalMl, _bereichWasser);
+
+  // Der Manuell-Pfad misst an den DB-Grenzen (800..7000), NICHT an der
+  // engeren 1200er-Untergrenze des Rechners: wer bewusst 1000 setzt, darf das.
+  String? get _kcalError => _fehler(_kcal, isValidDailyKcalGoal, _bereichKcal);
+  String? get _proteinError =>
+      _fehler(_protein, isValidProteinGoalG, _bereichProtein);
+  String? get _carbsError => _fehler(_carbs, isValidCarbsGoalG, _bereichCarbs);
+  String? get _fatError => _fehler(_fat, isValidFatGoalG, _bereichFett);
+
+  /// Versteckte Felder zaehlen nicht: im Live-Modus kommen kcal und Makros aus
+  /// der Rechnung, die ihre Grenzen selbst einhaelt.
+  bool get _hatFehler => <String?>[
+        _weightError,
+        _heightError,
+        _ageError,
+        _targetWeightError,
+        _stepsError,
+        _waterError,
+        if (_manualEnergy) ...[
+          _kcalError,
+          _proteinError,
+          _carbsError,
+          _fatError,
+        ],
+      ].any((f) => f != null);
+
+  /// Der Feldwert, sofern er gueltig ist — sonst [fallback].
+  ///
+  /// Fuer die Live-Rechnung: waehrend der Nutzer einen ungueltigen Wert stehen
+  /// hat, zeigt die Plan-Karte weiter den letzten sinnvollen Plan statt eines
+  /// Phantasie-Ziels fuer 755 kg. Auf dem Speicherpfad kann der Fallback nicht
+  /// greifen — dort ist [_hatFehler] bereits false.
+  int _wertOder(
+    TextEditingController c,
+    bool Function(num) gueltig,
+    int fallback,
+  ) {
+    final wert = int.tryParse(c.text.trim());
+    return (wert != null && gueltig(wert)) ? wert : fallback;
   }
 
   /// Profil nur mit den kalorien-relevanten Feldern — Basis für die
   /// Live-Berechnung (Energie-Felder fließen NICHT in calculate() ein).
-  /// Alter wird auf 16–100 geclampt: Mindestalter 16 (Art. 8 DSGVO,
-  /// Gesundheitsdaten) — dieselbe Grenze wie Onboarding und DB-Constraint.
   UserProfile _draftForCalc() {
     final p = widget.initial;
     return p.copyWith(
-      weightKg: _parseInt(_weight, p.weightKg),
-      heightCm: _parseInt(_height, p.heightCm),
-      ageYears: _parseInt(_age, p.ageYears).clamp(16, 100).toInt(),
+      weightKg: _wertOder(_weight, isValidProfileWeightKg, p.weightKg),
+      heightCm: _wertOder(_height, isValidProfileHeightCm, p.heightCm),
+      // Mindestalter 16 (Art. 8 DSGVO, Gesundheitsdaten) — dieselbe Grenze wie
+      // Onboarding und DB-Constraint. Frueher wurde hier still auf 16
+      // geklemmt; das schrieb einem 12-Jaehrigen ein erfundenes Alter ins
+      // Profil. Jetzt lehnt das Feld ab und der Nutzer korrigiert.
+      ageYears: _wertOder(_age, isValidProfileAgeYears, p.ageYears),
       sex: _sex,
       activityLevel: _activity,
-      targetWeightKg: _parseInt(_targetWeight, p.targetWeightKg),
+      targetWeightKg:
+          _wertOder(_targetWeight, isValidProfileTargetWeightKg, p.targetWeightKg),
       weightGoal: _goal,
     );
   }
@@ -153,15 +305,67 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     // onboardingCompleted (sonst landet der User beim Speichern wieder im
     // Onboarding).
     return _draftForCalc().copyWith(
-      dailyStepsGoal: _parseInt(_steps, p.dailyStepsGoal),
-      dailyWaterGoalMl: _parseInt(_water, p.dailyWaterGoalMl),
+      dailyStepsGoal: _wertOder(_steps, isValidDailyStepsGoal, p.dailyStepsGoal),
+      dailyWaterGoalMl:
+          _wertOder(_water, isValidDailyWaterGoalMl, p.dailyWaterGoalMl),
       dailySleepGoalMinutes: _sleepGoalMinutes,
-      dailyKcalGoal: _manualEnergy ? _parseInt(_kcal, t.kcal) : t.kcal,
-      proteinGoalG: _manualEnergy ? _parseInt(_protein, t.proteinG) : t.proteinG,
-      carbsGoalG: _manualEnergy ? _parseInt(_carbs, t.carbsG) : t.carbsG,
-      fatGoalG: _manualEnergy ? _parseInt(_fat, t.fatG) : t.fatG,
+      dailyKcalGoal:
+          _manualEnergy ? _wertOder(_kcal, isValidDailyKcalGoal, t.kcal) : t.kcal,
+      proteinGoalG: _manualEnergy
+          ? _wertOder(_protein, isValidProteinGoalG, t.proteinG)
+          : t.proteinG,
+      carbsGoalG: _manualEnergy
+          ? _wertOder(_carbs, isValidCarbsGoalG, t.carbsG)
+          : t.carbsG,
+      fatGoalG:
+          _manualEnergy ? _wertOder(_fat, isValidFatGoalG, t.fatG) : t.fatG,
     );
   }
+
+  // --- Verwerf-Rueckfrage (D5) ---------------------------------------------
+
+  /// Hat der Nutzer irgendetwas angefasst? Sieben Zahlenfelder, vier Auswahl-
+  /// felder und zwei Schalter — nichts davon darf kommentarlos verschwinden.
+  bool get _dirty {
+    final p = widget.initial;
+    if (_sex != p.sex ||
+        _activity != p.activityLevel ||
+        _goal != p.weightGoal ||
+        _sleepGoalMinutes != p.dailySleepGoalMinutes) {
+      return true;
+    }
+    if (_manualEnergy != _manualStart) return true;
+    if (_reminder != _reminderStart) return true;
+    return _textStart.entries.any((e) => e.key.text != e.value);
+  }
+
+  /// Laeuft fuer JEDEN abgefangenen Dismiss-Versuch: Barriere-Tap und
+  /// System-Zurueck kommen ueber [PopScope], das Ziehen ueber
+  /// [_DiscardDragGuard]. Mehrfach-Versuche stapeln keine Dialoge.
+  bool _discardDialogOpen = false;
+
+  Future<void> _askDiscard() async {
+    if (_discardDialogOpen) return;
+    _discardDialogOpen = true;
+    final verwerfen = await _confirmDiscardChanges(context);
+    _discardDialogOpen = false;
+    if (!mounted || !verwerfen) return;
+    // Der Dialog ist hier bereits gepoppt — oberste Route ist wieder das
+    // Sheet. Bewusst ohne Ergebnis: verworfen ist nicht gespeichert.
+    Navigator.of(context).pop();
+  }
+
+  /// Text zum aktuellen Erinnerungs-Zustand (D11). Drei Zustaende, drei Saetze
+  /// — „blockiert" ist ausdruecklich kein Fehler, sondern eine Systemeinstellung.
+  String get _reminderText => switch (_reminder) {
+        ReminderState.off =>
+          'Aus. Schalter umlegen, um lokale Erinnerungen zu aktivieren.',
+        ReminderState.active =>
+          'Aktiv. Jeden Abend um 20 Uhr, wenn du noch nichts geloggt hast.',
+        ReminderState.blocked =>
+          'Vom System blockiert. Eatova darf keine Mitteilungen senden — '
+              'erlaube sie in den Systemeinstellungen.',
+      };
 
   /// Bei Live-Modus die Energie-Felder mit der frischen Berechnung füllen,
   /// damit das Sheet konsistent bleibt; danach neu zeichnen.
@@ -195,7 +399,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
       SettingsResult(
         profile: _buildProfile(),
         resetDay: resetDay,
-        notificationsEnabled: _notificationsEnabled,
+        // D11: nur „aktiv" heisst, dass abends wirklich etwas kommt.
+        notificationsEnabled: _reminder == ReminderState.active,
       ),
     );
   }
@@ -203,343 +408,601 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final t = _liveTargets;
-    final heroKcal = _manualEnergy ? _parseInt(_kcal, t.kcal) : t.kcal;
-    final heroProtein = _manualEnergy ? _parseInt(_protein, t.proteinG) : t.proteinG;
-    final heroCarbs = _manualEnergy ? _parseInt(_carbs, t.carbsG) : t.carbsG;
-    final heroFat = _manualEnergy ? _parseInt(_fat, t.fatG) : t.fatG;
+    final heroKcal =
+        _manualEnergy ? _wertOder(_kcal, isValidDailyKcalGoal, t.kcal) : t.kcal;
+    final heroProtein = _manualEnergy
+        ? _wertOder(_protein, isValidProteinGoalG, t.proteinG)
+        : t.proteinG;
+    final heroCarbs =
+        _manualEnergy ? _wertOder(_carbs, isValidCarbsGoalG, t.carbsG) : t.carbsG;
+    final heroFat =
+        _manualEnergy ? _wertOder(_fat, isValidFatGoalG, t.fatG) : t.fatG;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        4,
-        20,
-        24 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Profil & Ziele',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.6,
-                height: 1.08,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Wir berechnen dein Tagesziel aus Körper, Aktivität und Ziel.',
-              style: TextStyle(
-                color: textMuted,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 18),
-            _PlanHero(
-              kcal: heroKcal,
-              protein: heroProtein,
-              carbs: heroCarbs,
-              fat: heroFat,
-              maintenanceKcal: t.maintenanceKcal,
-              goal: _goal,
-              manual: _manualEnergy,
-            ),
-            const SizedBox(height: 14),
-            _GroupCard(
-              icon: Icons.straighten_rounded,
-              title: 'Körper',
-              child: Column(
-                children: [
-                  Row(
+    return PopScope<SettingsResult>(
+      // D5, Weg 1: Barriere-Tap und Zurueck-Taste — beide laufen ueber
+      // Navigator.maybePop und fragen damit die Pop-Disposition.
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _askDiscard();
+      },
+      // D5, Weg 2: das Ziehen. Das laeuft an PopScope vorbei und braucht die
+      // Gesten-Arena — siehe [_DiscardDragGuard].
+      child: _DiscardDragGuard(
+        active: _dirty,
+        onDismissAttempt: _askDiscard,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            24 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _SheetGrabber(),
+                const Text(
+                  'Profil & Ziele',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.6,
+                    height: 1.08,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Wir berechnen dein Tagesziel aus Körper, Aktivität und Ziel.',
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _PlanHero(
+                  kcal: heroKcal,
+                  protein: heroProtein,
+                  carbs: heroCarbs,
+                  fat: heroFat,
+                  targets: t,
+                  manual: _manualEnergy,
+                ),
+                const SizedBox(height: 14),
+                _GroupCard(
+                  icon: Icons.straighten_rounded,
+                  title: 'Körper',
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: _SettingsField(
-                          label: 'Gewicht',
-                          suffix: 'kg',
-                          controller: _weight,
-                          keyValue: const ValueKey('settings-weight'),
-                          onChanged: (_) => _recompute(),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SettingsField(
+                              label: 'Gewicht',
+                              suffix: 'kg',
+                              controller: _weight,
+                              keyValue: const ValueKey('settings-weight'),
+                              errorText: _weightError,
+                              onChanged: (_) => _recompute(),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _SettingsField(
+                              label: 'Größe',
+                              suffix: 'cm',
+                              controller: _height,
+                              keyValue: const ValueKey('settings-height'),
+                              errorText: _heightError,
+                              onChanged: (_) => _recompute(),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SettingsField(
-                          label: 'Größe',
-                          suffix: 'cm',
-                          controller: _height,
-                          keyValue: const ValueKey('settings-height'),
-                          onChanged: (_) => _recompute(),
-                        ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SettingsField(
+                              label: 'Alter',
+                              suffix: 'J.',
+                              controller: _age,
+                              keyValue: const ValueKey('settings-age'),
+                              errorText: _ageError,
+                              onChanged: (_) => _recompute(),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _SexField(
+                              value: _sex,
+                              onChanged: (v) {
+                                _sex = v;
+                                _recompute();
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Row(
+                ),
+                const SizedBox(height: 12),
+                _GroupCard(
+                  icon: Icons.flag_rounded,
+                  title: 'Aktivität & Ziel',
+                  subtitle: 'Bestimmt deinen Kalorienbedarf.',
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: _SettingsField(
-                          label: 'Alter',
-                          suffix: 'J.',
-                          controller: _age,
-                          keyValue: const ValueKey('settings-age'),
-                          onChanged: (_) => _recompute(),
+                      _ActivityField(
+                        value: _activity,
+                        onChanged: (v) {
+                          _activity = v;
+                          _recompute();
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SettingsField(
+                              label: 'Wunschgewicht',
+                              suffix: 'kg',
+                              controller: _targetWeight,
+                              keyValue: const ValueKey('settings-target-weight'),
+                              errorText: _targetWeightError,
+                              onChanged: (_) => _recompute(),
+                            ),
+                          ),
+                        ],
+                      ),
+                      // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze
+                      // wie im Onboarding-Zielschritt (unter 18,5 / über 35).
+                      TargetBmiHint(
+                        margin: const EdgeInsets.only(top: 10),
+                        heightCm: _wertOder(
+                          _height,
+                          isValidProfileHeightCm,
+                          widget.initial.heightCm,
+                        ),
+                        targetWeightKg: _wertOder(
+                          _targetWeight,
+                          isValidProfileTargetWeightKg,
+                          widget.initial.targetWeightKg,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SexField(
-                          value: _sex,
-                          onChanged: (v) {
-                            _sex = v;
-                            _recompute();
-                          },
-                        ),
+                      const SizedBox(height: 10),
+                      _WeightGoalField(
+                        value: _goal,
+                        onChanged: (v) {
+                          _goal = v;
+                          _recompute();
+                        },
                       ),
                     ],
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _GroupCard(
-              icon: Icons.flag_rounded,
-              title: 'Aktivität & Ziel',
-              subtitle: 'Bestimmt deinen Kalorienbedarf.',
-              child: Column(
-                children: [
-                  _ActivityField(
-                    value: _activity,
-                    onChanged: (v) {
-                      _activity = v;
-                      _recompute();
-                    },
+                ),
+                const SizedBox(height: 12),
+                _GroupCard(
+                  icon: Icons.local_fire_department_rounded,
+                  title: 'Energie & Makros',
+                  trailing: _ManualToggle(
+                    value: _manualEnergy,
+                    onChanged: _toggleManual,
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _SettingsField(
-                          label: 'Wunschgewicht',
-                          suffix: 'kg',
-                          controller: _targetWeight,
-                          keyValue: const ValueKey('settings-target-weight'),
-                          onChanged: (_) => _recompute(),
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze
-                  // wie im Onboarding-Zielschritt (unter 18,5 / über 35).
-                  TargetBmiHint(
-                    margin: const EdgeInsets.only(top: 10),
-                    heightCm:
-                        _parseInt(_height, widget.initial.heightCm),
-                    targetWeightKg: _parseInt(
-                      _targetWeight,
-                      widget.initial.targetWeightKg,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _WeightGoalField(
-                    value: _goal,
-                    onChanged: (v) {
-                      _goal = v;
-                      _recompute();
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _GroupCard(
-              icon: Icons.local_fire_department_rounded,
-              title: 'Energie & Makros',
-              trailing: _ManualToggle(
-                value: _manualEnergy,
-                onChanged: _toggleManual,
-              ),
-              child: _manualEnergy
-                  ? Column(
-                      children: [
-                        _SettingsField(
-                          label: 'Kcal Ziel',
-                          suffix: 'kcal',
-                          controller: _kcal,
-                          keyValue: const ValueKey('settings-kcal'),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
+                  child: _manualEnergy
+                      ? Column(
                           children: [
-                            Expanded(
-                              child: _SettingsField(
-                                label: 'Protein',
-                                suffix: 'g',
-                                controller: _protein,
-                                keyValue: const ValueKey('settings-protein'),
-                                onChanged: (_) => setState(() {}),
-                              ),
+                            _SettingsField(
+                              label: 'Kcal Ziel',
+                              suffix: 'kcal',
+                              controller: _kcal,
+                              keyValue: const ValueKey('settings-kcal'),
+                              errorText: _kcalError,
+                              onChanged: (_) => setState(() {}),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _SettingsField(
-                                label: 'Carbs',
-                                suffix: 'g',
-                                controller: _carbs,
-                                keyValue: const ValueKey('settings-carbs'),
-                                onChanged: (_) => setState(() {}),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _SettingsField(
-                                label: 'Fett',
-                                suffix: 'g',
-                                controller: _fat,
-                                keyValue: const ValueKey('settings-fat'),
-                                onChanged: (_) => setState(() {}),
-                              ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _SettingsField(
+                                    label: 'Protein',
+                                    suffix: 'g',
+                                    controller: _protein,
+                                    keyValue: const ValueKey('settings-protein'),
+                                    errorText: _proteinError,
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _SettingsField(
+                                    label: 'Carbs',
+                                    suffix: 'g',
+                                    controller: _carbs,
+                                    keyValue: const ValueKey('settings-carbs'),
+                                    errorText: _carbsError,
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _SettingsField(
+                                    label: 'Fett',
+                                    suffix: 'g',
+                                    controller: _fat,
+                                    keyValue: const ValueKey('settings-fat'),
+                                    errorText: _fatError,
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
+                        )
+                      : const _InfoNote(
+                          'Automatisch aus deinem Ziel berechnet. Schalter umlegen, '
+                          'um kcal und Makros von Hand zu setzen.',
                         ),
-                      ],
-                    )
-                  : const _InfoNote(
-                      'Automatisch aus deinem Ziel berechnet. Schalter umlegen, '
-                      'um kcal und Makros von Hand zu setzen.',
-                    ),
-            ),
-            const SizedBox(height: 12),
-            _GroupCard(
-              icon: Icons.track_changes_rounded,
-              title: 'Tagesziele',
-              subtitle: 'Nur fürs Tracking – ändert deine Kalorien nicht.',
-              child: Column(
-                children: [
-                  Row(
+                ),
+                const SizedBox(height: 12),
+                _GroupCard(
+                  icon: Icons.track_changes_rounded,
+                  title: 'Tagesziele',
+                  subtitle: 'Nur fürs Tracking – ändert deine Kalorien nicht.',
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: _SettingsField(
-                          label: 'Schritte',
-                          suffix: '/Tag',
-                          controller: _steps,
-                          keyValue: const ValueKey('settings-steps-goal'),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SettingsField(
+                              label: 'Schritte',
+                              suffix: '/Tag',
+                              controller: _steps,
+                              keyValue: const ValueKey('settings-steps-goal'),
+                              errorText: _stepsError,
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _SettingsField(
+                              label: 'Wasser',
+                              suffix: 'ml',
+                              controller: _water,
+                              keyValue: const ValueKey('settings-water'),
+                              errorText: _waterError,
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SettingsField(
-                          label: 'Wasser',
-                          suffix: 'ml',
-                          controller: _water,
-                          keyValue: const ValueKey('settings-water'),
+                      const SizedBox(height: 10),
+                      _SleepGoalField(
+                        minutes: _sleepGoalMinutes,
+                        // Der Time-Picker laesst 0:00 bis 23:59 zu,
+                        // `daily_sleep_goal_minutes` nur 180..900. Hier wird
+                        // geklemmt statt abgelehnt — der Wert kommt aus einem
+                        // Picker, und das Feld zeigt anschliessend genau den Wert,
+                        // der gespeichert wird (sichtbar, nicht still).
+                        onChanged: (v) => setState(
+                          () => _sleepGoalMinutes = clampDailySleepGoalMinutes(v),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  _SleepGoalField(
-                    minutes: _sleepGoalMinutes,
-                    onChanged: (v) => setState(() => _sleepGoalMinutes = v),
+                ),
+                const SizedBox(height: 12),
+                _GroupCard(
+                  icon: Icons.notifications_active_rounded,
+                  title: 'Erinnerungen',
+                  subtitle: 'Tägliche Streak-Erinnerung am Abend — lokal, '
+                      'ohne Server.',
+                  trailing: _NotificationsToggle(
+                    value: _reminder == ReminderState.active,
+                    // D11: im blockierten Zustand NICHT erneut umlegen lassen. Auf
+                    // Android 13+ zeigt das System nach zwei Ablehnungen gar keinen
+                    // Dialog mehr — der Schalter spraenge sofort zurueck und die
+                    // App saehe wieder aus, als laege es an ihr.
+                    onChanged: _reminder == ReminderState.blocked
+                        ? null
+                        : (v) => setState(
+                              () => _reminder =
+                                  v ? ReminderState.active : ReminderState.off,
+                            ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _InfoNote(
+                        _reminderText,
+                        key: const ValueKey('settings-reminder-note'),
+                        tone: _reminder == ReminderState.blocked
+                            ? warning
+                            : textMuted,
+                        icon: _reminder == ReminderState.blocked
+                            ? Icons.notifications_off_outlined
+                            : Icons.info_outline_rounded,
+                      ),
+                      if (_reminder == ReminderState.blocked &&
+                          widget.onOpenSystemSettings != null) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            key: const ValueKey('settings-open-system-settings'),
+                            onPressed: widget.onOpenSystemSettings,
+                            icon: const Icon(Icons.settings_outlined, size: 17),
+                            label: const Text(
+                              'Systemeinstellungen öffnen',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: warning,
+                              side: BorderSide(
+                                color: warning.withValues(alpha: 0.45),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(rControl),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (_hatFehler) ...[
+                  const SizedBox(height: 12),
+                  const _InfoNote(
+                    'Bitte die rot markierten Felder korrigieren — solange sie '
+                    'außerhalb des erlaubten Bereichs liegen, lässt sich nicht '
+                    'speichern.',
+                    key: ValueKey('settings-validation-note'),
+                    tone: danger,
+                    icon: Icons.error_outline_rounded,
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _GroupCard(
-              icon: Icons.notifications_active_rounded,
-              title: 'Erinnerungen',
-              subtitle: 'Tägliche Streak-Erinnerung am Abend — lokal, '
-                  'ohne Server.',
-              trailing: _NotificationsToggle(
-                value: _notificationsEnabled,
-                onChanged: (v) => setState(() => _notificationsEnabled = v),
-              ),
-              child: _InfoNote(
-                _notificationsEnabled
-                    ? 'Aktiv. Du bekommst gezielte Nudges zur passenden Zeit. '
-                        'Erteile beim ersten Mal die Mitteilungs-Berechtigung.'
-                    : 'Aus. Schalter umlegen, um lokale Erinnerungen zu '
-                        'aktivieren.',
-              ),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: const ValueKey('settings-reset-day'),
-                onPressed: () => _save(resetDay: true),
-                icon: const Icon(Icons.restart_alt_rounded, size: 17),
-                label: const Text(
-                  'Tagesdaten zurücksetzen',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: orange,
-                  side: BorderSide(color: orange.withValues(alpha: 0.45)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(rControl),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    key: const ValueKey('settings-reset-day'),
+                    // Auch dieser Weg schreibt das Profil — er muss an derselben
+                    // Feldpruefung haengen wie „Speichern".
+                    onPressed: _hatFehler ? null : () => _save(resetDay: true),
+                    icon: const Icon(Icons.restart_alt_rounded, size: 17),
+                    label: const Text(
+                      'Tagesdaten zurücksetzen',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: orange,
+                      disabledForegroundColor: textMuted,
+                      side: BorderSide(color: orange.withValues(alpha: 0.45)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(rControl),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                key: const ValueKey('settings-save'),
-                onPressed: () => _save(resetDay: false),
-                icon: const Icon(Icons.check_rounded, size: 17),
-                label: const Text(
-                  'Speichern',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: lime,
-                  foregroundColor: bg,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(rControl),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: const ValueKey('settings-save'),
+                    onPressed: _hatFehler ? null : () => _save(resetDay: false),
+                    icon: const Icon(Icons.check_rounded, size: 17),
+                    label: const Text(
+                      'Speichern',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: lime,
+                      foregroundColor: bg,
+                      disabledBackgroundColor: surfaceSoft,
+                      disabledForegroundColor: textMuted,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(rControl),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                // DSGVO Art. 13 / § 5 DDG / App-Store: Rechtsseiten auch in den
+                // Settings erreichbar (nach dem Login), nicht nur auf dem
+                // Auth-Screen. Alle drei liegen auf eatova.de.
+                const Center(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _LegalLink(
+                        key: ValueKey('settings-privacy-link'),
+                        label: 'Datenschutz',
+                        url: kPrivacyUrl,
+                      ),
+                      _LegalDot(),
+                      _LegalLink(
+                        key: ValueKey('settings-terms-link'),
+                        label: 'AGB',
+                        url: kTermsUrl,
+                      ),
+                      _LegalDot(),
+                      _LegalLink(
+                        key: ValueKey('settings-imprint-link'),
+                        label: 'Impressum',
+                        url: kImprintUrl,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            // DSGVO Art. 13 / § 5 DDG / App-Store: Rechtsseiten auch in den
-            // Settings erreichbar (nach dem Login), nicht nur auf dem
-            // Auth-Screen. Alle drei liegen auf eatova.de.
-            const Center(
-              child: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  _LegalLink(
-                    key: ValueKey('settings-privacy-link'),
-                    label: 'Datenschutz',
-                    url: kPrivacyUrl,
-                  ),
-                  _LegalDot(),
-                  _LegalLink(
-                    key: ValueKey('settings-terms-link'),
-                    label: 'AGB',
-                    url: kTermsUrl,
-                  ),
-                  _LegalDot(),
-                  _LegalLink(
-                    key: ValueKey('settings-imprint-link'),
-                    label: 'Impressum',
-                    url: kImprintUrl,
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// D5: Verwerf-Rueckfrage + Drag-Guard
+// ---------------------------------------------------------------------------
+
+/// Der Griff des Sheets — bewusst hier statt an der Route gezeichnet.
+///
+/// Der Route-Griff (`showDragHandle: true`) liegt als Stack-Geschwister neben
+/// dem `builder`-Kind und damit ausserhalb von [_DiscardDragGuard]; ein Zug
+/// genau am Griff liefe an der Rueckfrage vorbei. Ziehbar bleibt er trotzdem:
+/// solange der Guard inaktiv ist, greift der Drag-Detector der Route.
+class _SheetGrabber extends StatelessWidget {
+  const _SheetGrabber();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ExcludeSemantics(
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.only(top: 8, bottom: 14),
+          child: SizedBox(
+            width: 32,
+            height: 4,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: textMuted,
+                borderRadius: BorderRadius.all(Radius.circular(rPill)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// „Aenderungen verwerfen?" — die gemeinsame Bestaetigung fuer JEDEN Weg, ein
+/// ausgefuelltes Sheet zu schliessen.
+///
+/// `barrierDismissible: true` (Default) ist Absicht: ein Tap neben den Dialog
+/// ist „Abbrechen", also die harmlose Antwort. Der Dialog liegt auf dem
+/// Root-Navigator und damit UEBER der Sheet-Route — sein eigener Barrier
+/// schluckt den Tap, das Sheet darunter sieht ihn nie.
+///
+/// **Doppelt vorhanden:** dieselbe Bestaetigung samt [_DiscardDragGuard] steht
+/// in `edit_meal_sheet.dart` und `recipe_create_sheet.dart` (Letzteres ist ein
+/// `part of` ohne eigene Imports). Die drei Kopien gehoeren zusammengefuehrt.
+///
+/// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
+Future<bool> _confirmDiscardChanges(BuildContext context) async {
+  final verwerfen = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const ValueKey('discard-changes-dialog'),
+      backgroundColor: surface,
+      title: const Text(
+        'Änderungen verwerfen?',
+        style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+      ),
+      content: const Text(
+        'Deine Eingaben in „Profil & Ziele" sind noch nicht gespeichert.',
+        style: TextStyle(color: textMuted),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('discard-changes-cancel'),
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Weiter bearbeiten'),
+        ),
+        TextButton(
+          key: const ValueKey('discard-changes-confirm'),
+          style: TextButton.styleFrom(foregroundColor: danger),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Verwerfen'),
+        ),
+      ],
+    ),
+  );
+  return verwerfen ?? false;
+}
+
+/// Faengt das Nach-unten-Ziehen eines modalen Bottom-Sheets ab.
+///
+/// **Warum das noetig ist:** ein `PopScope` deckt nur die halbe Miete ab. Die
+/// beiden Dismiss-Wege laufen im Framework verschieden:
+///
+///  * Barriere-Tap → `ModalBarrier.handleDismiss` → `Navigator.maybePop`
+///    (`modal_barrier.dart:225-230`) — fragt die Pop-Disposition, also
+///    `PopScope`.
+///  * Ziehen → `BottomSheet._handleDragEnd` → `onClosing` → **`Navigator.pop`**
+///    (`bottom_sheet.dart:769-771`) — fragt sie **nicht**. Ein `PopScope` sieht
+///    diesen Weg nie. (Und `enableDrag: false` reicht auch nicht: solange die
+///    Route den Griff zeichnet, traegt der Griff selbst einen Drag-Detector,
+///    `bottom_sheet.dart:377`.)
+///
+/// Von innerhalb des Sheets gibt es dafuer genau einen Hebel: die Gesten-Arena.
+/// Der `_BottomSheetGestureDetector` sitzt ueber dem `builder`-Kind; ein
+/// eigener Vertikal-Drag-Erkenner IM Kind liegt tiefer und gewinnt die Arena —
+/// dasselbe Prinzip, aus dem eine ScrollView im Sheet das Ziehen schluckt. Die
+/// `SingleChildScrollView` dieses Sheets liegt wiederum tiefer als der Guard
+/// und scrollt deshalb weiter normal.
+///
+/// Ist [active] false (nichts geaendert), wird gar kein Erkenner registriert —
+/// das Sheet laesst sich dann wie gewohnt wegziehen.
+///
+/// **Doppelt vorhanden**, siehe [_confirmDiscardChanges].
+class _DiscardDragGuard extends StatefulWidget {
+  const _DiscardDragGuard({
+    required this.active,
+    required this.onDismissAttempt,
+    required this.child,
+  });
+
+  final bool active;
+  final VoidCallback onDismissAttempt;
+  final Widget child;
+
+  @override
+  State<_DiscardDragGuard> createState() => _DiscardDragGuardState();
+}
+
+class _DiscardDragGuardState extends State<_DiscardDragGuard> {
+  /// Mindeststrecke nach unten, ab der ein Zug als „zumachen" gilt. Bewusst
+  /// klein: der Guard schluckt die Geste ohnehin, die Frage ist nur, ob der
+  /// Nutzer dazu eine Antwort bekommt.
+  static const double _closeIntentPx = 32;
+
+  /// Flick-Schwelle, gespiegelt an `_kMinFlingVelocity` aus bottom_sheet.dart.
+  static const double _flingVelocity = 700;
+
+  double _dy = 0;
+
+  void _onStart(DragStartDetails details) => _dy = 0;
+
+  void _onUpdate(DragUpdateDetails details) => _dy += details.primaryDelta ?? 0;
+
+  void _onEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (_dy > _closeIntentPx || velocity > _flingVelocity) {
+      widget.onDismissAttempt();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return widget.child;
+    return GestureDetector(
+      // Ohne translucent bleiben Luecken zwischen den Kindern unbedeckt.
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragStart: _onStart,
+      onVerticalDragUpdate: _onUpdate,
+      onVerticalDragEnd: _onEnd,
+      child: widget.child,
     );
   }
 }
@@ -597,8 +1060,7 @@ class _PlanHero extends StatelessWidget {
     required this.protein,
     required this.carbs,
     required this.fat,
-    required this.maintenanceKcal,
-    required this.goal,
+    required this.targets,
     required this.manual,
   });
 
@@ -606,9 +1068,30 @@ class _PlanHero extends StatelessWidget {
   final int protein;
   final int carbs;
   final int fat;
-  final int maintenanceKcal;
-  final WeightGoal goal;
+  final KcalTargets targets;
   final bool manual;
+
+  /// Ob die Karte das gerechnete Ziel zeigt. Sobald der Nutzer eine eigene
+  /// Zahl setzt, beschreibt [targets] nicht mehr das, was gross auf der Karte
+  /// steht — Tempo und Hinweis muessen dann von der gezeigten Zahl kommen,
+  /// sonst entsteht derselbe Widerspruch nur andersherum.
+  bool get _zeigtRechnung => kcal == targets.kcal;
+
+  /// Tempo aus der Zahl, die tatsaechlich auf der Karte steht.
+  ///
+  /// B2: Hier stand frueher `goal.paceLabel` — das *gewaehlte* Tempo. Fuer das
+  /// Standardprofil ergab das „Erhaltung 1997 · −1 kg/Woche" direkt ueber
+  /// „1200"; 1997 − 1200 = 797 kcal, also −0,72 kg/Woche. Die 1200er-Klemme
+  /// greift fuer jeden sitzenden Nutzer mit einer Erhaltung unter ~2275 kcal.
+  String get _paceLabel => _zeigtRechnung
+      ? targets.effectivePaceLabel
+      : paceLabelForWeeklyRateKg(
+          (kcal - targets.maintenanceKcal) * 7 / kcalPerKgBodyMass,
+        );
+
+  /// Der fertige Erklaersatz der Sicherheitsklemme — nur wenn die Karte auch
+  /// das gerechnete Ziel zeigt.
+  String? get _paceWarning => _zeigtRechnung ? targets.paceWarning : null;
 
   @override
   Widget build(BuildContext context) {
@@ -658,7 +1141,7 @@ class _PlanHero extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Erhaltung $maintenanceKcal · ${goal.paceLabel}',
+                      'Erhaltung ${targets.maintenanceKcal} · $_paceLabel',
                       style: const TextStyle(
                         color: textMuted,
                         fontSize: 12,
@@ -711,6 +1194,15 @@ class _PlanHero extends StatelessWidget {
               _MacroChip(label: 'Fett', value: '$fat g', color: orange),
             ],
           ),
+          if (_paceWarning != null) ...[
+            const SizedBox(height: 12),
+            _InfoNote(
+              _paceWarning!,
+              key: const ValueKey('settings-pace-warning'),
+              tone: warning,
+              icon: Icons.health_and_safety_outlined,
+            ),
+          ],
         ],
       ),
     );
@@ -888,14 +1380,18 @@ class _NotificationsToggle extends StatelessWidget {
   const _NotificationsToggle({required this.value, required this.onChanged});
 
   final bool value;
-  final ValueChanged<bool> onChanged;
+
+  /// `null` = der Schalter ist gesperrt ([ReminderState.blocked]).
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
     // A11y: 0.8 skaliert nur die Optik; volle Tap-Flaeche bleibt. Eigenes
     // Semantics-Label fuer Screenreader.
     return Semantics(
-      label: 'Lokale Erinnerungen aktivieren',
+      label: onChanged == null
+          ? 'Lokale Erinnerungen — vom System blockiert'
+          : 'Lokale Erinnerungen aktivieren',
       child: Transform.scale(
         scale: 0.8,
         child: Switch(
@@ -915,9 +1411,19 @@ class _NotificationsToggle extends StatelessWidget {
 }
 
 class _InfoNote extends StatelessWidget {
-  const _InfoNote(this.text);
+  const _InfoNote(
+    this.text, {
+    super.key,
+    this.tone = textMuted,
+    this.icon = Icons.info_outline_rounded,
+  });
 
   final String text;
+
+  /// Farbe von Icon und Text. Standard ist der ruhige [textMuted]; [warning]
+  /// und [danger] heben Hinweise heraus, die eine Handlung nach sich ziehen.
+  final Color tone;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -926,18 +1432,20 @@ class _InfoNote extends StatelessWidget {
       decoration: BoxDecoration(
         color: surfaceSoft,
         borderRadius: BorderRadius.circular(rControl),
-        border: Border.all(color: hairline),
+        border: Border.all(
+          color: tone == textMuted ? hairline : tone.withValues(alpha: 0.35),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, size: 15, color: textMuted),
+          Icon(icon, size: 15, color: tone),
           const SizedBox(width: 9),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                color: textMuted,
+              style: TextStyle(
+                color: tone,
                 fontSize: 12,
                 height: 1.4,
                 fontWeight: FontWeight.w500,
@@ -956,6 +1464,7 @@ class _SettingsField extends StatelessWidget {
     required this.suffix,
     required this.controller,
     required this.keyValue,
+    this.errorText,
     this.onChanged,
   });
 
@@ -963,6 +1472,11 @@ class _SettingsField extends StatelessWidget {
   final String suffix;
   final TextEditingController controller;
   final Key keyValue;
+
+  /// C1: Der erlaubte Bereich, sobald der getippte Wert ihn verlaesst. Der
+  /// `digitsOnly`-Formatter filtert nur Zeichen — den Wertebereich pruefen
+  /// muss dieses Feld.
+  final String? errorText;
   final ValueChanged<String>? onChanged;
 
   @override
@@ -974,7 +1488,12 @@ class _SettingsField extends StatelessWidget {
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       onChanged: onChanged,
-      decoration: InputDecoration(labelText: label, suffixText: suffix),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: suffix,
+        errorText: errorText,
+        errorMaxLines: 2,
+      ),
     );
   }
 }

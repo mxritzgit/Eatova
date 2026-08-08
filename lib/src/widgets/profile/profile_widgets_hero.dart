@@ -74,7 +74,19 @@ class GoalPlanCard extends StatelessWidget {
     final goal = profile.weightGoal;
     final isMaintain = goal == WeightGoal.maintain;
     final gap = (profile.weightKg - profile.targetWeightKg).abs();
-    final weeks = const KcalCalculator().weeksToGoal(profile);
+    // B2: Hier liegt ein konkretes Profil vor, also gehoert die EFFEKTIVE
+    // Rechnung auf die Karte und nicht das gewaehlte Wunsch-Tempo. Fuer das
+    // Standardprofil (78/178/30, sitzend, Ziel 68, −1 kg/Woche) kappt die
+    // 1200er-Sicherheitsgrenze das Defizit von 1100 auf 797 kcal: real sind
+    // das −0,72 kg/Woche und 14 Wochen, nicht −1 und 10.
+    //
+    // targets einmal berechnen und an weeksToGoal durchreichen — sonst rechnet
+    // calculate() zweimal, und die Karte koennte im Extremfall zwei
+    // Ergebnisse mischen.
+    final targets = const KcalCalculator().calculate(profile);
+    final weeks = const KcalCalculator().weeksToGoal(profile, targets: targets);
+    // Fertig formulierter Satz aus KcalTargets, sonst null.
+    final paceWarning = isMaintain ? null : targets.paceWarning;
     final accent = goal.isGain ? orange : (goal.isLoss ? lime : cyan);
 
     return Container(
@@ -177,11 +189,21 @@ class GoalPlanCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _PlanChip(
-                  icon: Icons.speed_rounded,
-                  label: 'Tempo',
-                  value: isMaintain ? 'stabil' : goal.paceLabel,
-                  color: accent,
+                // Den fertigen paceWarning-Satz haengt die Karte NICHT als
+                // eigenen Textblock an: W3-04 zeigt ihn im Einstellungs-Sheet,
+                // und derselbe Dreizeiler ein zweites Mal wuerde die
+                // Zwei-Chip-Zeile hier erschlagen. Als Tooltip/Semantics am
+                // Tempo-Chip erklaert er die Zahl auf Abruf, ohne sie zu
+                // wiederholen — und Screenreader bekommen ihn ohne Umweg.
+                child: _MaybeTooltip(
+                  message: paceWarning,
+                  child: _PlanChip(
+                    icon: Icons.speed_rounded,
+                    label: 'Tempo',
+                    value:
+                        isMaintain ? 'stabil' : targets.effectivePaceLabel,
+                    color: accent,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -229,6 +251,24 @@ class GoalPlanCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Haengt [message] als Tooltip an [child] — oder reicht [child] unveraendert
+/// durch, wenn nichts zu erklaeren ist. Vermeidet ein `Tooltip` mit leerer
+/// Nachricht (das faenge Long-Press ab und kuendigte Screenreadern eine
+/// Beschreibung an, die es nicht gibt).
+class _MaybeTooltip extends StatelessWidget {
+  const _MaybeTooltip({required this.message, required this.child});
+
+  final String? message;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = message;
+    if (text == null || text.isEmpty) return child;
+    return Tooltip(message: text, child: child);
   }
 }
 

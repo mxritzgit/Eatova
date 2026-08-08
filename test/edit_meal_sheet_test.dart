@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/main.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
@@ -145,8 +146,9 @@ void main() {
     expect(capture.id, 'meal-1');
     expect(capture.slot, MealSlot.lunch);
     expect(capture.result, isNull, reason: 'Portion wurde nicht angefasst');
-    final yesterday =
-        DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 1));
+    // B5: Kalender-, keine Duration-Arithmetik — sonst ist der Test selbst
+    // an der Fruehjahrsumstellung falsch.
+    final yesterday = addDays(startOfDay(DateTime.now()), -1);
     expect(DateUtils.isSameDay(capture.day!, yesterday), isTrue);
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
   });
@@ -223,6 +225,222 @@ void main() {
     expect(capture.slot, isNull, reason: 'Slot wurde nicht angefasst');
     expect(capture.result, isNull, reason: 'Portion wurde nicht angefasst');
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
+  });
+
+  // ─── D5: ausgefuelltes Formular wird nicht mehr kommentarlos verworfen ───
+  //
+  // Beide Dismiss-Wege eines modalen Bottom-Sheets werden geprueft, weil sie
+  // im Framework VERSCHIEDEN laufen:
+  //   * Barriere-Tap  -> ModalBarrier.handleDismiss -> Navigator.maybePop
+  //     (fragt PopScope) — modal_barrier.dart:225-230
+  //   * Nach-unten-Ziehen -> BottomSheet._handleDragEnd -> onClosing ->
+  //     Navigator.pop (fragt PopScope NICHT!) — bottom_sheet.dart:769-771
+  // Ein reines PopScope deckt also nur die Haelfte ab.
+
+  testWidgetsRobust(
+      'D5: Barriere-Tap bei ungespeicherter Aenderung fragt nach, statt zu '
+      'verwerfen', (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+
+    // Oben links liegt die Barriere, nicht das Sheet.
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
+    expect(capture.updateCalls, 0);
+  });
+
+  testWidgetsRobust(
+      'D5: Sheet nach unten ziehen bei ungespeicherter Aenderung fragt nach',
+      (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+
+    // Auf dem Kopfbereich ziehen (oberhalb der Scroll-Flaeche, dort greift
+    // der Drag-to-dismiss des BottomSheet).
+    await tester.drag(find.text('Mahlzeit bearbeiten'), const Offset(0, 600));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
+    expect(capture.updateCalls, 0);
+  });
+
+  testWidgetsRobust(
+      'D5: „Abbrechen" im Verwerfen-Dialog laesst das Sheet mit der Aenderung '
+      'offen', (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('discard-changes-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
+    // Die Aenderung ist noch da: Speichern bleibt aktiv.
+    expect(
+      tester
+          .widget<FilledButton>(
+              find.byKey(const ValueKey('edit-meal-save-button')))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgetsRobust(
+      'D5: „Verwerfen" schliesst das Sheet ohne Store-Aufruf',
+      (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
+    expect(capture.updateCalls, 0);
+    expect(capture.removed, isEmpty);
+  });
+
+  testWidgetsRobust(
+      'D5: ein Tap neben den Dialog ist „Abbrechen" — der Dialog wird nicht '
+      'vom Sheet-Dismiss verschluckt', (WidgetTester tester) async {
+    // Der Dialog liegt auf dem Root-Navigator und damit ueber der
+    // Sheet-Route; sein eigener Barrier faengt den Tap ab.
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
+
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
+  });
+
+  testWidgetsRobust(
+      'D5: der Drag-Guard blockiert weder Taps noch die Auswahl im Sheet',
+      (WidgetTester tester) async {
+    // Der Guard registriert nur einen Vertikal-Drag-Erkenner; Taps und die
+    // horizontalen Listen (Slot-Auswahl, Tag-Chips) muessen weiter durchgehen,
+    // auch waehrend das Sheet „dirty" ist.
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+    // Ab hier ist der Guard aktiv.
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-dinner')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('edit-day-chip-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(capture.updateCalls, 1);
+    expect(capture.slot, MealSlot.dinner);
+    expect(
+      DateUtils.isSameDay(
+        capture.day!,
+        addDays(startOfDay(DateTime.now()), -2),
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgetsRobust(
+      'D5: ohne Aenderung schliesst der Barriere-Tap sofort — kein Dialog',
+      (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
+  });
+
+  testWidgetsRobust(
+      'D5: ohne Aenderung schliesst auch das Ziehen sofort — kein Dialog',
+      (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.drag(find.text('Mahlzeit bearbeiten'), const Offset(0, 600));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
+  });
+
+  testWidgetsRobust(
+      'D5: das Schliessen-Kreuz fragt bei ungespeicherter Aenderung ebenfalls',
+      (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('edit-meal-sheet-close')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
+  });
+
+  testWidgetsRobust(
+      'D5: Speichern laeuft ohne Verwerfen-Dialog durch',
+      (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
+    expect(capture.updateCalls, 1);
+  });
+
+  testWidgetsRobust(
+      'D5: Loeschen laeuft ohne Verwerfen-Dialog durch, auch mit Aenderung',
+      (WidgetTester tester) async {
+    final capture = _EditCapture();
+    await _openSheet(tester, capture);
+
+    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('edit-meal-delete-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
+    expect(capture.removed, ['meal-1']);
   });
 
   testWidgetsRobust('Loeschen nutzt den Remove-Pfad und schliesst das Sheet', (

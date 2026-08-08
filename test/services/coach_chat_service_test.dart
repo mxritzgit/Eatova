@@ -13,11 +13,23 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 // Edge-Function-Antwort fuer `coach-chat` faked. Verifiziert das beobachtbare
 // Verhalten: Quota-Exhaustion, Server-/HTTP-Fehler und leere Antwort.
 //
-// Wichtig fuer die Erwartungen: functions.invoke wirft bei non-2xx-Status
-// selbst eine FunctionException (functions_client). send() faengt das im
-// generischen catch und verpackt es als CoachChatException. Die
-// quota_exceeded-Semantik kommt daher als 200 mit error-Feld zurueck (so wie
-// die Edge Function antwortet), nicht als roher 429.
+// KORREKTUR (Review D2/G1, 2026-08-08) — dieser Kopf stand hier vorher:
+//
+//   "Wichtig fuer die Erwartungen: functions.invoke wirft bei non-2xx-Status
+//    selbst eine FunctionException (functions_client). send() faengt das im
+//    generischen catch und verpackt es als CoachChatException. Die
+//    quota_exceeded-Semantik kommt daher als 200 mit error-Feld zurueck (so
+//    wie die Edge Function antwortet), nicht als roher 429."
+//
+// Der erste Satz stimmt, die Schlussfolgerung war falsch. Die Edge Function
+// antwortet auf ein erschoepftes Tageskontingent mit *429* und JSON-Body
+// (handler.ts:814-821: {error, reply, remaining, daily_limit}). Ein 200 mit
+// error-Feld sendet der Server nie — der alte Test hat eine erfundene Form
+// geprueft und damit den Produktionsbug abgesichert, statt ihn zu finden:
+// dass jeder Fehler im generischen catch als CoachChatException(e.toString())
+// endete, war kein Naturgesetz des Pakets, sondern die fehlende
+// Fehlerbehandlung in send(). Die Erwartungen unten pruefen jetzt die Form,
+// die der Server wirklich schickt.
 
 /// Baut einen echten SupabaseClient, dessen HTTP-Schicht durch [handler]
 /// ersetzt ist, und gibt einen CoachChatService darauf zurueck. Nur der
@@ -43,14 +55,19 @@ http.Response _json(Object body, int status) => http.Response(
 
 void main() {
   group('CoachChatService.send Fehlerpfade', () {
-    test('quota_exceeded (200 + error-Feld) -> CoachQuotaExceeded mit Limit', () async {
+    // Frueher: "quota_exceeded (200 + error-Feld) -> CoachQuotaExceeded mit
+    // Limit". Die 200er-Form war erfunden; handler.ts:814-821 antwortet mit
+    // 429, und genau dabei ist der Quota-Pfad frueher durchgefallen.
+    test('quota_exceeded (429 + error-Feld, echte Server-Form) -> '
+        'CoachQuotaExceeded mit Limit', () async {
       final svc = _service((req) async {
         expect(req.url.path, contains('coach-chat'));
         return _json({
           'error': 'quota_exceeded',
           'reply': 'Tageslimit erreicht. Morgen geht es weiter.',
+          'remaining': 0,
           'daily_limit': 5,
-        }, 200);
+        }, 429);
       });
 
       await expectLater(
@@ -63,28 +80,54 @@ void main() {
       );
     });
 
-    test('roher 429-Status -> CoachChatException (invoke wirft FunctionException)',
-        () async {
+    // Frueher behauptete dieser Test woertlich: "roher 429-Status ->
+    // CoachChatException (invoke wirft FunctionException)" — mit dem Body
+    // {'error': 'quota_exceeded', 'daily_limit': 5}. Das war die
+    // Bug-Beschreibung als Zusage: der Nutzer bekam beim Tageslimit einen
+    // Exception-Dump im Banner statt der Quota-Sperre. Was bleibt, ist die
+    // Unterscheidung, die es wirklich braucht: nicht jeder 429 ist die Quota.
+    test('429 ohne quota_exceeded (rate_limited) -> CoachChatException, '
+        'kein Quota-Lock', () async {
       final svc = _service((req) async {
-        return _json({'error': 'quota_exceeded', 'daily_limit': 5}, 429);
+        return _json({
+          'error': 'rate_limited',
+          'reply': 'Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen.',
+        }, 429);
       });
 
-      // Non-2xx wird vom functions_client als FunctionException geworfen und
-      // landet im generischen catch -> CoachChatException (kein Crash).
+      // rate_limited traegt kein daily_limit (handler.ts:669-672, 686-689).
+      // Als CoachQuotaExceeded gemappt wuerde der Composer bis Mitternacht
+      // sperren, obwohl der Nutzer gleich wieder senden darf.
       await expectLater(
         svc.send('Hi', sessionId: 's1'),
-        throwsA(isA<CoachChatException>()),
+        throwsA(
+          allOf(
+            isA<CoachChatException>(),
+            isNot(isA<CoachQuotaExceeded>()),
+            isA<CoachChatException>()
+                .having((e) => e.message, 'message', contains('Zu viele')),
+          ),
+        ),
       );
     });
 
-    test('Server-Fehler 500 -> CoachChatException', () async {
+    test('Server-Fehler 500 -> CoachChatException ohne Roh-Dump', () async {
       final svc = _service((req) async {
         return _json({'error': 'internal'}, 500);
       });
 
       await expectLater(
         svc.send('Hallo', sessionId: 's1'),
-        throwsA(isA<CoachChatException>()),
+        throwsA(
+          isA<CoachChatException>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              isNot(contains('FunctionsHttpException')),
+              isNot(contains('internal')),
+            ),
+          ),
+        ),
       );
     });
 

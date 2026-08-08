@@ -137,6 +137,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _index--);
   }
 
+  /// Android-Systemzurueck (Button oder Randgeste) — muss dasselbe tun wie der
+  /// Header-Pfeil (D4).
+  ///
+  /// [OnboardingScreen] ist der Inhalt der **Root-Route** (EatovaHomePage im
+  /// AuthGate), kein gepushter Screen. Ohne diesen Handler scheitert
+  /// `Navigator.maybePop` mangels zweiter Route, die Engine faellt auf
+  /// `SystemNavigator.pop()` zurueck und beendet die Activity — mitten im Flow
+  /// waren damit alle bereits gegebenen Antworten weg, weil erst `_finish()`
+  /// etwas persistiert.
+  ///
+  /// Ab Schritt 1 wird der Pop deshalb abgefangen und in einen Schritt zurueck
+  /// uebersetzt. Auf Schritt 0 (Intro) bleibt `canPop` bewusst `true`: dort hat
+  /// der Nutzer nichts investiert, und die Alternative — zurueck zum
+  /// Auth-Screen — hiesse abmelden. Eine Randgeste darf keine Session beenden;
+  /// „Zurueck auf dem ersten Screen schliesst die App" ist die erwartete
+  /// Android-Konvention.
+  void _onPopInvoked(bool didPop, Object? result) {
+    if (didPop) return;
+    _back();
+  }
+
   void _onDirectionChosen(_GoalDirection dir) {
     setState(() {
       _direction = dir;
@@ -169,54 +190,60 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final progress = (_index + 1) / _steps.length;
     final isSummary = step == _Step.summary;
 
-    return Scaffold(
-      key: const ValueKey('screen-onboarding'),
-      backgroundColor: bg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _Header(
-                progress: progress,
-                showBack: _index > 0,
-                onBack: _back,
-              ),
-              const SizedBox(height: 24),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 240),
-                  switchInCurve: Curves.easeOutCubic,
-                  transitionBuilder: (child, anim) {
-                    return FadeTransition(
-                      opacity: anim,
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(0.06, 0),
-                          end: Offset.zero,
-                        ).animate(anim),
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: SingleChildScrollView(
-                    key: ValueKey('onboarding-step-${step.name}'),
-                    child: _buildStep(step),
+    return PopScope<Object?>(
+      // Nur der Intro-Schritt gibt den Pop frei — siehe [_onPopInvoked].
+      canPop: _index == 0,
+      onPopInvokedWithResult: _onPopInvoked,
+      child: Scaffold(
+        key: const ValueKey('screen-onboarding'),
+        backgroundColor: bg,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Header(
+                  progress: progress,
+                  showBack: _index > 0,
+                  onBack: _back,
+                ),
+                const SizedBox(height: 24),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 240),
+                    switchInCurve: Curves.easeOutCubic,
+                    transitionBuilder: (child, anim) {
+                      return FadeTransition(
+                        opacity: anim,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.06, 0),
+                            end: Offset.zero,
+                          ).animate(anim),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: SingleChildScrollView(
+                      key: ValueKey('onboarding-step-${step.name}'),
+                      child: _buildStep(step),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              _PrimaryButton(
-                keyValue: ValueKey(isSummary ? 'onboarding-finish' : 'onboarding-next'),
-                label: switch (step) {
-                  _Step.intro => 'Los geht\'s',
-                  _Step.summary => 'Plan aktivieren',
-                  _ => 'Weiter',
-                },
-                onTap: _next,
-              ),
-            ],
+                const SizedBox(height: 16),
+                _PrimaryButton(
+                  keyValue:
+                      ValueKey(isSummary ? 'onboarding-finish' : 'onboarding-next'),
+                  label: switch (step) {
+                    _Step.intro => 'Los geht\'s',
+                    _Step.summary => 'Plan aktivieren',
+                    _ => 'Weiter',
+                  },
+                  onTap: _next,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1066,14 +1093,21 @@ class _SummaryStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final weeks = const KcalCalculator().weeksToGoal(profile);
+    // [targets] ist aus genau diesem Profil berechnet — durchreichen statt
+    // `calculate` ein zweites Mal laufen zu lassen.
+    final weeks = const KcalCalculator().weeksToGoal(profile, targets: targets);
     final goal = profile.weightGoal;
 
+    // `weeks == null` heisst: es gibt keine ehrliche Prognose (Wunschgewicht
+    // erreicht, Rate im Rundungsrauschen, oder die 1200er-Klemme dreht die
+    // Richtung um — dann isst der Nutzer trotz „abnehmen" im Ueberschuss).
+    // Dann lieber gar keine Zahl als eine erfundene; das Warum steht direkt
+    // darueber in [KcalTargets.paceWarning].
     final timeline = switch (goal) {
       WeightGoal.maintain => 'Du hältst dein Gewicht von ${profile.weightKg} kg.',
       _ when weeks != null =>
         '${profile.targetWeightKg} kg in ca. $weeks Wochen erreichbar.',
-      _ => 'Dein persönliches Tempo ist gesetzt.',
+      _ => 'Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.',
     };
 
     return Column(
@@ -1188,17 +1222,59 @@ class _SummaryStep extends StatelessWidget {
               _BreakdownRow(
                 label: 'Erhaltungsbedarf · ${profile.activityLevel.label}',
                 value: '${targets.maintenanceKcal} kcal',
+                valueKey: const ValueKey('onboarding-summary-maintenance'),
               ),
               const _BreakdownDivider(),
+              // B2: hier steht der **Plan**, nicht der Wunsch. `goal.paceLabel`
+              // / `goal.deltaLabel` versprechen −1 kg/Woche und −1100 kcal,
+              // auch wenn die 1200er-Sicherheitsklemme daraus −0,72 kg/Woche
+              // und −797 kcal gemacht hat. Mit der effektiven Rate geht die
+              // Karte auch arithmetisch auf: Erhaltung − Tagesziel = Delta.
               _BreakdownRow(
-                label: 'Ziel · ${goal.paceLabel}',
-                value: goal.deltaLabel,
-                highlight: goal.kcalDelta != 0,
-                positive: goal.kcalDelta > 0,
+                key: const ValueKey('onboarding-summary-goal-row'),
+                label: 'Ziel · ${targets.effectivePaceLabel}',
+                value: _signedKcalLabel(targets.effectiveKcalDelta),
+                highlight: targets.effectiveKcalDelta != 0,
+                positive: targets.effectiveKcalDelta > 0,
               ),
             ],
           ),
         ),
+        // Sichtbarer Hinweis, wenn Tagesziel und gewaehltes Tempo auseinander
+        // liegen — sonst bliebe der Widerspruch unerklaert.
+        if (targets.paceWarning != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: orange.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(rCard),
+              border: Border.all(color: orange.withValues(alpha: 0.30)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Icon(Icons.info_outline_rounded, color: orange, size: 18),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    targets.paceWarning!,
+                    key: const ValueKey('onboarding-summary-pace-warning'),
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1211,6 +1287,7 @@ class _SummaryStep extends StatelessWidget {
             Expanded(
               child: Text(
                 timeline,
+                key: const ValueKey('onboarding-summary-timeline'),
                 style: const TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
@@ -1280,16 +1357,32 @@ class _MacroChip extends StatelessWidget {
   }
 }
 
+/// Vorzeichenbehaftetes kcal-Label für eine **berechnete** Differenz, z.B.
+/// "−797 kcal" / "+88 kcal" / "±0".
+///
+/// Gegenstück zu [WeightGoalInfo.deltaLabel], nur eben für
+/// [KcalTargets.effectiveKcalDelta] statt für das gewählte Ziel — gleiche
+/// Schreibweise inkl. echtem Minuszeichen (U+2212), damit auf der Karte kein
+/// Zeichenmix entsteht.
+String _signedKcalLabel(int kcal) {
+  if (kcal == 0) return '±0';
+  final sign = kcal > 0 ? '+' : '−';
+  return '$sign${kcal.abs()} kcal';
+}
+
 class _BreakdownRow extends StatelessWidget {
   const _BreakdownRow({
+    super.key,
     required this.label,
     required this.value,
+    this.valueKey,
     this.highlight = false,
     this.positive = false,
   });
 
   final String label;
   final String value;
+  final Key? valueKey;
   final bool highlight;
   final bool positive;
 
@@ -1309,6 +1402,7 @@ class _BreakdownRow extends StatelessWidget {
         ),
         Text(
           value,
+          key: valueKey,
           style: TextStyle(
             fontSize: 13.5,
             fontWeight: FontWeight.w700,

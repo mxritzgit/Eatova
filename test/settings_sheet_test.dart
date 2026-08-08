@@ -5,8 +5,13 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
 // Settings-Sheet: sanfter BMI-Hinweis am Wunschgewicht (erscheint/verschwindet
-// live beim Tippen) und Alters-Clamp auf das DSGVO-Mindestalter 16 beim
-// Speichern — dieselben Grenzen wie Onboarding und DB-Constraint.
+// live beim Tippen) und das DSGVO-Mindestalter 16 — dieselben Grenzen wie
+// Onboarding und DB-Constraint.
+//
+// Das Alter wurde frueher beim Speichern still auf 16 geklemmt. Das schrieb
+// einem 12-Jaehrigen ein erfundenes Alter ins Profil (und in den
+// Kalorienbedarf), ohne dass er es je erfahren haette. Seit C1 gilt fuer
+// getippte Werte durchgaengig: ablehnen, nicht verbiegen.
 void main() {
   Future<Future<SettingsResult?>> openSheet(
     WidgetTester tester, {
@@ -85,7 +90,7 @@ void main() {
     expect(find.byKey(const ValueKey('target-bmi-hint')), findsNothing);
   });
 
-  testWidgets('age input below 16 is clamped on save (DSGVO Art. 8)',
+  testWidgets('Alter unter 16 blockiert das Speichern (DSGVO Art. 8)',
       (tester) async {
     final resultFuture = await openSheet(
       tester,
@@ -98,6 +103,23 @@ void main() {
     );
     await tester.pump();
 
+    // Kein stiller Clamp mehr: das Feld sagt, was erlaubt ist, und „Speichern"
+    // ist so lange aus.
+    expect(find.text('16–100 Jahre'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('settings-save')))
+          .onPressed,
+      isNull,
+    );
+
+    // Nach der Korrektur geht es weiter — und zwar mit dem Wert des Nutzers.
+    await tester.enterText(
+      find.byKey(const ValueKey('settings-age')),
+      '31',
+    );
+    await tester.pump();
+
     await tester.ensureVisible(find.byKey(const ValueKey('settings-save')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-save')));
@@ -105,6 +127,6 @@ void main() {
 
     final result = await resultFuture;
     expect(result, isNotNull);
-    expect(result!.profile.ageYears, 16);
+    expect(result!.profile.ageYears, 31);
   });
 }

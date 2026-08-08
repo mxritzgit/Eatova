@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -19,6 +20,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../services/coach_chat_service.dart';
+import '../../services/meal_photo_compressor.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/common/motion.dart';
 
@@ -104,6 +106,34 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     _bootstrap();
   }
 
+  /// Seit D6 haengt dieser Screen im `IndexedStack` und bleibt dauerhaft
+  /// gemountet — `_bootstrap()` laeuft also nur noch EINMAL pro App-Lauf.
+  /// Der Tageszaehler wurde danach ausschliesslich aus `send()`-Antworten
+  /// fortgeschrieben, und bei erschoepftem Kontingent ist der Composer
+  /// deaktiviert: es gibt dann gar keine `send()` mehr, die ihn korrigieren
+  /// koennte. Wer die App ueber die UTC-Mitternacht offen liess, blieb bis
+  /// zum Kaltstart ausgesperrt.
+  ///
+  /// `TickerMode` ist der Hebel: W3-01 schaltet den Ticker des unsichtbaren
+  /// Tabs stumm, ein Wechsel auf den Coach-Tab flippt ihn also auf `true` und
+  /// loest genau hier aus — der Moment, in dem der Nutzer die Zahl sieht.
+  /// Kein Timer, kein Aufruf beim Verlassen, kein Request im Hintergrund.
+  bool _sichtbar = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final sichtbar = TickerMode.valuesOf(context).enabled;
+    final wurdeSichtbar = sichtbar && !_sichtbar;
+    _sichtbar = sichtbar;
+    final svc = widget.service;
+    // Nur beim Wiedersichtbarwerden und nur, wenn der Bootstrap durch ist —
+    // sonst laufen zwei Quota-Aufrufe gegeneinander.
+    if (wurdeSichtbar && svc != null && !_loading) {
+      unawaited(_refreshQuota(svc));
+    }
+  }
+
   @override
   void dispose() {
     _input.dispose();
@@ -147,6 +177,23 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       _loading = false;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  /// Holt den Tageszaehler neu und uebernimmt ihn in die Anzeige.
+  ///
+  /// Gibt den frischen Stand auch dann zurueck, wenn das Widget zwischenzeitlich
+  /// entsorgt wurde — der Aufrufer entscheidet selbst, ob er noch rendert.
+  /// Scheitert der Aufruf (offline), bleibt der bekannte Stand stehen: eine
+  /// Netzstoerung darf das Kontingent weder verbrauchen noch verschenken.
+  Future<ChatQuotaSnapshot> _refreshQuota(CoachChatService svc) async {
+    ChatQuotaSnapshot frisch;
+    try {
+      frisch = await svc.loadQuotaToday();
+    } catch (_) {
+      return _quota;
+    }
+    if (mounted) setState(() => _quota = frisch);
+    return frisch;
   }
 
   Future<void> _refreshSessions() async {
@@ -313,24 +360,89 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
 
+  /// Base64 blaeht um +33% auf; die Edge Function kappt bei 6.000.000 Zeichen
+  /// (handler.ts:47) und antwortet mit 413. Wir stoppen vorher, damit der
+  /// Nutzer nicht erst Megabyte hochlaedt, um dann eine Absage zu lesen.
+  static const int _maxImageBytes = 4400000;
+
+  /// Einziger Ausgang fuer Bild-Bytes aus dem Coach (Review C4).
+  ///
+  /// [compressMealPhoto] backt die Orientierung ein, verkleinert auf 1600 px
+  /// und leert danach den kompletten EXIF-Container. Ohne diesen Schritt gehen
+  /// Breitengrad, Laengengrad, Hoehe, Aufnahmezeit, Geraetemodell und
+  /// Seriennummer an OpenRouter in den USA: `image_picker` skaliert zwar,
+  /// kopiert die Tags ueber ImageResizer.copyExif() aber wieder zurueck.
+  ///
+  /// `compute()`: Dekodieren + Re-Encoden blockiert sonst den UI-Isolate.
+  /// Scheitert der Isolate-Start, wird im UI-Isolate komprimiert — lieber ein
+  /// kurzer Ruckler als ein Upload mit Koordinaten.
+  Future<Uint8List> _scrubImage(Uint8List raw) async {
+    try {
+      return await compute(compressMealPhoto, raw);
+    } catch (_) {
+      return compressMealPhoto(raw);
+    }
+  }
+
+  /// MIME-Typ aus den TATSAECHLICHEN Bytes statt aus dem Dateinamen: nach dem
+  /// Scrub ist das Bild immer JPEG, auch wenn die Quelle PNG oder WebP hiess.
+  /// Nur wenn [compressMealPhoto] nicht dekodieren konnte und die Bytes
+  /// unveraendert durchreicht, zaehlt wieder der Typ der Datei.
+  String _mimeForBytes(Uint8List bytes, XFile file) {
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'image/jpeg';
+    }
+    if (bytes.length >= 4 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return 'image/png';
+    }
+    if (bytes.length >= 12 &&
+        bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
+      return 'image/webp';
+    }
+    return _mimeTypeFor(file);
+  }
+
   Future<void> _pickAndSendImage(ImageSource source) async {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
     try {
       final image = await _picker.pickImage(
         source: source,
+        // imageQuality/maxWidth duerfen NICHT entfallen: ohne sie reicht iOS
+        // die HEIC-Originaldatei durch, die package:image nicht dekodieren
+        // kann — [_scrubImage] gaebe sie dann ungescrubbt zurueck.
         imageQuality: 80,
         maxWidth: 1600,
       );
       if (image == null) return;
-      final bytes = await image.readAsBytes();
+      final raw = await image.readAsBytes();
+      final bytes = await _scrubImage(raw);
       if (!mounted) return;
+      if (bytes.lengthInBytes > _maxImageBytes) {
+        setState(() => _error =
+            'Das Bild ist zu groß für den Coach. Bitte schick ein kleineres.');
+        return;
+      }
       await _send(
         textOverride: _input.text.trim().isEmpty
             ? 'Analysiere dieses Bild im Fitness-Kontext.'
             : _input.text.trim(),
         imageBytes: bytes,
-        imageMimeType: _mimeTypeFor(image),
+        imageMimeType: _mimeForBytes(bytes, image),
       );
     } on PlatformException catch (e) {
       if (!mounted) return;
@@ -501,55 +613,21 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     );
   }
 
-  void _openQuotaSheet() {
+  /// (i)-Sheet: KI-Offenlegung (C8) + Tageskontingent. Erreichbar ueber das
+  /// (i) in der Top-Bar, den Hinweis im Leerzustand und den Quota-Pill.
+  void _openCoachInfoSheet() {
     HapticFeedback.selectionClick();
     final remaining = _quota.remaining.clamp(0, _quota.dailyLimit);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: surface,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 14),
-                decoration: BoxDecoration(
-                  color: hairline,
-                  borderRadius: BorderRadius.circular(rPill),
-                ),
-              ),
-            ),
-            const Text(
-              'Coach-Limit',
-              style: TextStyle(
-                color: textPrimary,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '$remaining von ${_quota.dailyLimit} Fragen heute frei. Reset um Mitternacht (UTC).',
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 13,
-                height: 1.45,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-            const SizedBox(height: 14),
-            _QuotaBar(remaining: remaining, total: _quota.dailyLimit),
-          ],
-        ),
+      builder: (_) => _CoachInfoSheet(
+        remaining: remaining,
+        dailyLimit: _quota.dailyLimit,
       ),
     );
   }
@@ -572,7 +650,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         children: [
           _CoachTopBar(
             streak: widget.streak,
-            onInfoTap: _openQuotaSheet,
+            onInfoTap: _openCoachInfoSheet,
             onSessionsTap: _openSessionsSheet,
           ),
           const SizedBox(height: 4),
@@ -590,7 +668,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                       ),
                     )
                   : isHero
-                      ? _CoachHero(name: widget.userName)
+                      ? _CoachHero(
+                          name: widget.userName,
+                          onDisclosureTap: _openCoachInfoSheet,
+                        )
                       : _Conversation(
                           controller: _scroll,
                           focus: _inputFocus,
@@ -613,7 +694,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
             onSubmit: () => _send(),
             onMic: _toggleSpeechInput,
             onAttach: _openAttachSheet,
-            onQuotaTap: _openQuotaSheet,
+            onQuotaTap: _openCoachInfoSheet,
           ),
         ],
       ),

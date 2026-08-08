@@ -273,8 +273,8 @@ class CaloriesOverviewCard extends StatelessWidget {
 }
 
 /// Translucent „Glass"-Panel im Stitch-„FORGE"-Stil: weicher forgeLime-Glow
-/// oben-rechts, darüber ein BackdropFilter-Blur und ein transluzenter Fill mit
-/// Hairline-Rand. Ersetzt die solide [AppCard] NUR für die Kalorienkarte.
+/// oben-rechts, darüber ein transluzenter Fill mit Hairline-Rand. Ersetzt die
+/// solide [AppCard] NUR für die Kalorienkarte.
 class _GlassPanel extends StatelessWidget {
   const _GlassPanel({super.key, required this.child, required this.padding});
 
@@ -283,9 +283,9 @@ class _GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // RepaintBoundary: das doppelte Blur (BackdropFilter sigma 20 +
-    // ImageFiltered sigma 40) ist teuer. Eigener Layer -> kein erneutes Blur-
-    // Re-Raster, nur weil ein umgebender Repaint stattfindet.
+    // RepaintBoundary: der ImageFiltered-Glow (sigma 40) ist teuer. Eigener
+    // Layer -> kein erneutes Blur-Re-Raster, nur weil ein umgebender Repaint
+    // stattfindet.
     return RepaintBoundary(
       child: DecoratedBox(
         decoration: const BoxDecoration(
@@ -314,16 +314,40 @@ class _GlassPanel extends StatelessWidget {
                   ),
                 ),
               ),
-              // 2) Transluzentes Panel: Backdrop-Blur + Glass-Fill + Hairline.
+              // 2) Transluzentes Panel: Glass-Fill + Hairline.
+              //
+              // KEIN BackdropFilter mehr (G10). Hinter dem Panel liegt nichts
+              // ausser Scaffold(backgroundColor: bg) — Header, Datumsleiste,
+              // Add-Block und Verlauf sind nicht ueberlappende Geschwister
+              // derselben Column (meal_analysis_screen.dart:253-286), und der
+              // Food-Tab ist der einzige Ort, an dem die Karte laeuft. Ein
+              // Blur ueber einheitlichem #0B0D11 gibt #0B0D11 zurueck, der
+              // Fill komponiert also unveraendert.
+              //
+              // Der Pass war trotzdem nicht gratis: Backdrop-Filter-Layer sind
+              // nicht raster-cachebar (das RepaintBoundary oben cacht den
+              // INHALT, nicht den Backdrop-Pass), er lief also in jedem Frame,
+              // in dem der Food-Tab rastert — LivelyEntrance bei jedem
+              // Tab-Wechsel, jeder Scroll-Frame des Tagebuchs, jede
+              // Datumschip-Animation.
+              //
+              // „Pixelidentisch" stimmt dabei NICHT ganz — nachgemessen am
+              // gerenderten Food-Tab (402x781, Rohpixel-Vergleich vorher/
+              // nachher): ein sigma-20-Kern reicht ~3 sigma weit und sammelt
+              // damit auch Pixel AUSSERHALB der Panelflaeche ein. Der
+              // ausgewaehlte forgeLime-Datumschip 12 px darueber warf so einen
+              // Gruenschimmer in die obersten ~13 px der Karte
+              // (Spitze (55,60,42) statt (45,46,43), also 14/255) — ein
+              // Artefakt, das mit dem gewaehlten Tag die Position wechselte,
+              // nicht Gestaltung. Der Rest der Karte weicht um <= 4/255 ab
+              // (der dekorative Glow oben wurde bisher ein zweites Mal
+              // verwaschen: effektiv sigma 44.7 statt 40).
               Positioned.fill(
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: forgeGlassFill,
-                      borderRadius: BorderRadius.circular(rCard),
-                      border: Border.all(color: forgeGlassBorder),
-                    ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: forgeGlassFill,
+                    borderRadius: BorderRadius.circular(rCard),
+                    border: Border.all(color: forgeGlassBorder),
                   ),
                 ),
               ),

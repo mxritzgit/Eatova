@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../models/macro_progress.dart';
@@ -76,13 +77,29 @@ class EatovaHomePage extends StatefulWidget {
   State<EatovaHomePage> createState() => _EatovaHomePageState();
 }
 
+/// Test-Seam: gibt den privaten [HomeStore] der Schale frei.
+///
+/// Die Resume-Uebergaben (Tageswechsel B4, Health-Heilung B3, Berechtigungs-
+/// Heilung D11) mutieren ausschliesslich Store-State, den die Schale nicht
+/// rendert — von aussen waeren sie sonst nur ueber Umwege (Datums-Chips,
+/// Settings-Sheet) beobachtbar. Gleiches Muster wie [EatovaHomePage.debugCache]
+/// und `HomeStore.initNotificationsFromCache`.
+@visibleForTesting
+abstract interface class HomePageDebugAccess {
+  HomeStore get debugStore;
+}
+
 /// ARCH-4: Duenne, context-tragende Schale um den [HomeStore]. Sie haelt nur
 /// noch das, was wirklich einen BuildContext braucht — Navigation, modale
 /// Sheets, Snackbars und den Widget-Lifecycle — und delegiert allen State + alle
-/// Mutationen an den Store. Der Home-Baum haengt per [ListenableBuilder] am
-/// Store; eine Mutation `notifyListeners()` statt eines monolithischen setState.
+/// Mutationen an den Store. Der Home-Baum haengt per [StoreSelector] am Store;
+/// eine Mutation `notifyListeners()` statt eines monolithischen setState.
 class _EatovaHomePageState extends State<EatovaHomePage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver
+    implements HomePageDebugAccess {
+  @override
+  HomeStore get debugStore => _store;
+
   late final HomeStore _store;
 
   // ARCH-1/PERF-2: treibt die AnimatedBuilder-Bruecke in [_openProfile]. Die
@@ -125,11 +142,56 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     super.dispose();
   }
 
-  /// Store hat einen Mutations-Notify abgesetzt. Der [ListenableBuilder] in
-  /// [build] rebuildet den Home-Baum bereits; hier nur die Profil-Bruecke
-  /// nachziehen, falls die ProfileScreen-Route gerade offen ist.
+  /// Store hat einen Mutations-Notify abgesetzt.
+  ///
+  /// Der [StoreSelector] in [build] rebuildet die betroffenen Teilbaeume
+  /// bereits; hier haengen nur die beiden Dinge, die kein Widget beobachtet:
+  /// die Profil-Bruecke in eine gepushte Route und der Kalendertag-Waechter
+  /// fuer den Schrittstand (B3b).
   void _onStoreChanged() {
     if (_profileRouteOpen && mounted) _profileRefresh.value++;
+    // B3b: Liegt die App ueber Mitternacht offen, feuert der Mitternachts-
+    // Timer im Store `maybeRollOverToToday()` — der laesst `dailySteps`
+    // bewusst stehen (eine erfundene 0 waere die schlechtere Auskunft, s.
+    // home_store.dart). Damit GESTERN gemessene Schritte aber nicht den ganzen
+    // neuen Tag ueber `burnedKcal`/`adjustedGoal` speisen, zieht die Schale
+    // hier genau einen Refresh pro Kalendertag nach. Der Rollover-Notify ist
+    // dafuer der frueheste verlaessliche Anlass; ein eigener Timer waere ein
+    // zweiter, der mit dem des Stores auseinanderlaufen kann.
+    if (!DateUtils.isSameDay(_healthDay, clock.now())) _refreshHealthSteps();
+  }
+
+  /// Kalendertag, fuer den zuletzt ein Health-Refresh angestossen wurde
+  /// (Waechter fuer [_onStoreChanged], s. dort).
+  DateTime _healthDay = DateUtils.dateOnly(clock.now());
+
+  /// Darf ein Refresh laufen, ohne nur sinnlos `healthSyncing` zu toggeln?
+  ///
+  /// `refreshHealthSteps()` prueft selbst NICHT auf „verbunden", der Guard
+  /// sitzt hier am Callsite.
+  ///
+  /// `granted` **und** `unverified` **und** `denied` (B3): `readSnapshot()`
+  /// verifiziert die Berechtigung bei jedem Aufruf neu und zeigt dabei keinen
+  /// Dialog (apple_health_service.dart:319-334) — der Refresh ist also der
+  /// einzige Weg zurueck, wenn der Nutzer in den iOS-Einstellungen nachtraeglich
+  /// freigibt. Ohne `unverified`/`denied` koennten diese Zustaende nie heilen
+  /// und der Nutzer muesste die App neu starten.
+  ///
+  /// `unknown` bleibt draussen: das ist der Zustand VOR dem ersten Connect,
+  /// und dort gehoert der Uebergang `connectHealth()` (mit Sheet), nicht einem
+  /// stillen Resume-Refresh. `unsupported` sowieso (Noop-Service/Android).
+  bool get _healthMayRefresh => switch (_store.healthAuthState) {
+        HealthAuthState.granted ||
+        HealthAuthState.unverified ||
+        HealthAuthState.denied =>
+          true,
+        HealthAuthState.unknown || HealthAuthState.unsupported => false,
+      };
+
+  void _refreshHealthSteps() {
+    _healthDay = DateUtils.dateOnly(clock.now());
+    if (!_healthMayRefresh) return;
+    unawaited(_store.refreshHealthSteps());
   }
 
   @override
@@ -143,21 +205,32 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         state == AppLifecycleState.detached) {
       _store.flushPendingWrites();
     }
-    // App kommt zurueck in den Vordergrund: liegengebliebene Outbox-Ops /
-    // Stats-Deltas nachspielen (DATA-7) — der Resume ist der typische Moment,
-    // in dem das Netz wieder da ist.
-    if (state == AppLifecycleState.resumed) {
-      _store.flushPendingWrites();
-    }
-    // App kommt zurueck in den Vordergrund: Schritte neu lesen, sonst bleiben
-    // sie (und die "Verbrannt"-kcal im Ring) den ganzen Tag auf dem Stand des
-    // Kaltstarts. Guard hier am Callsite: refreshHealthSteps prueft selbst
-    // NICHT auf "verbunden" und wuerde ohne Health-Freigabe nur sinnlos
-    // healthSyncing togglen.
-    if (state == AppLifecycleState.resumed &&
-        _store.healthAuthState == HealthAuthState.granted) {
-      unawaited(_store.refreshHealthSteps());
-    }
+    if (state != AppLifecycleState.resumed) return;
+
+    // Der Resume refresht Health am Ende dieses Blocks ohnehin — den
+    // Tages-Waechter deshalb VORHER auf heute stellen, sonst loest der
+    // Rollover-Notify gleich darunter einen zweiten, identischen Refresh aus.
+    _healthDay = DateUtils.dateOnly(clock.now());
+
+    // B4: Eine suspendierte App bekommt keinen Timer-Tick — der Tageswechsel
+    // faellt ohne diesen Aufruf komplett aus. Reihenfolge ist Absicht: erst den
+    // Tag vorruecken, DANN flushen, damit ein durch den Flush ausgeloester
+    // Refresh schon den neuen Tag traegt. Ohne Tageswechsel ein reiner No-op
+    // (kein notifyListeners()).
+    _store.maybeRollOverToToday();
+
+    // Liegengebliebene Outbox-Ops / Stats-Deltas nachspielen (DATA-7) — der
+    // Resume ist der typische Moment, in dem das Netz wieder da ist.
+    _store.flushPendingWrites();
+
+    // D11: Der Nutzer war womoeglich gerade in den Systemeinstellungen. Liest
+    // die OS-Berechtigung still gegen (kein Dialog) und holt ihn aus
+    // `ReminderState.blocked` zurueck — ohne App-Neustart.
+    unawaited(_store.refreshNotificationPermission());
+
+    // Schritte neu lesen, sonst bleiben sie (und die „Verbrannt"-kcal im Ring)
+    // den ganzen Tag auf dem Stand des Kaltstarts.
+    _refreshHealthSteps();
   }
 
   /// Context-Bruecke fuer den Store: uebersetzt eine context-FREIE Snack-
@@ -186,6 +259,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       context,
       profile: _store.profile,
       notificationsEnabled: _store.notificationsEnabled,
+      // D11: ohne diese Zeile erreicht der dritte Zustand `blocked` das Sheet
+      // nie — der Schalter zeigte weiter „Aktiv. Du bekommst gezielte Nudges",
+      // waehrend das OS gar nichts zustellt. `onOpenSystemSettings` bleibt
+      // offen, solange das Projekt keinen Weg dorthin hat (url_launcher baut
+      // nur ACTION_VIEW, Settings.ACTION_APP_NOTIFICATION_SETTINGS ist eine
+      // Action ohne URI); das Sheet zeigt dann nur den Text.
+      reminderState: _store.reminderState,
     );
     if (result == null || !mounted) return;
     await _store.applySettings(
@@ -265,7 +345,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
     // PERF-2: nur (Tab, Onboarding-Gate) treiben einen Rebuild der Home-Schale.
     // Daten-Slices rebuilden gezielt ihre Tab-Inhalte (via eigenem
-    // ListenableBuilder), nicht den ganzen Baum wie ein monolithisches setState.
+    // StoreSelector), nicht den ganzen Baum wie ein monolithisches setState.
     return StoreSelector(
       store: _store,
       selector: () => (_store.selectedTab, _store.needsOnboarding),
@@ -273,6 +353,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // Verpflichtendes Onboarding: jeder echte User (mit Supabase-Sync) muss
         // es einmal durchlaufen. Im Test/Preview (sync == null) übersprungen,
         // damit die bestehenden Widget-Tests direkt auf dem Home landen.
+        //
+        // D7: Der Early-Return steht VOR dem PopScope der Schale — und muss
+        // dort bleiben. Die OnboardingScreen bringt seit D4 ein eigenes
+        // PopScope mit (onboarding_screen.dart), und
+        // `ModalRoute.onPopInvokedWithResult` ruft ALLE in der Route
+        // registrierten PopScopes auf: stuenden beide gleichzeitig im Baum,
+        // ginge ein Systemzurueck einen Onboarding-Schritt zurueck UND
+        // wechselte gleichzeitig den Tab.
         if (_store.needsOnboarding) {
           return OnboardingScreen(
             firstName: _store.userName,
@@ -281,33 +369,40 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           );
         }
 
-        // Alle Tabs (Food/Rezepte/Coach) haben eigene scroll-faehige Inhalte +
-        // fixierte Eingabe-Bereiche - die brauchen feste Hoehe und keinen
-        // aeusseren SingleChildScrollView.
         final tab = _store.selectedTab;
-        final body = Padding(
-          key: ValueKey('tab-fixed-$tab'),
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: buildSelectedScreen(),
-        );
 
-        return Scaffold(
-          backgroundColor: bg,
-          // Food-Tab (0): Eingabe läuft nur über das modale AddMealSheet, das
-          // seine Tastatur-Anpassung selbst macht. Würde der Home-Scaffold
-          // zusätzlich resizen, schöbe sich der Hintergrund sichtbar hinter dem
-          // halbtransparenten Barrier. Andere Tabs behalten das Default-Verhalten.
-          resizeToAvoidBottomInset: tab != 0,
-          bottomNavigationBar: EatovaBottomNav(
-            selectedIndex: tab,
-            onSelected: (index) => _store.setTab(index),
-          ),
-          // Sanfter Auftritt pro Tab-Wechsel — Key auf den Tab gepinnt, damit
-          // der Effekt bei jedem Wechsel erneut abspielt.
-          body: SafeArea(
-            child: LivelyEntrance(
-              key: ValueKey('lively-tab-$tab'),
-              child: body,
+        // D7: Aus einem Nicht-Food-Tab schloss die Zurueck-Taste die App. Jetzt
+        // faengt die Schale den Pop ab und schaltet erst auf Food zurueck.
+        // `canPop: tab == 0` heisst: auf Food gibt die Schale den Pop frei —
+        // dort gehoert die App wirklich zu, statt zu klemmen. Liegt eine
+        // gepushte Route (Profil, Rezept-Detail) darueber, sieht dieses
+        // PopScope den Pop gar nicht erst: es gehoert der Home-Route.
+        return PopScope<Object?>(
+          canPop: tab == 0,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) return;
+            _store.setTab(0);
+          },
+          child: Scaffold(
+            backgroundColor: bg,
+            // Food-Tab (0): Eingabe läuft nur über das modale AddMealSheet, das
+            // seine Tastatur-Anpassung selbst macht. Würde der Home-Scaffold
+            // zusätzlich resizen, schöbe sich der Hintergrund sichtbar hinter
+            // dem halbtransparenten Barrier. Andere Tabs behalten das
+            // Default-Verhalten.
+            resizeToAvoidBottomInset: tab != 0,
+            bottomNavigationBar: EatovaBottomNav(
+              selectedIndex: tab,
+              onSelected: (index) => _store.setTab(index),
+            ),
+            // Alle Tabs (Food/Rezepte/Coach) haben eigene scroll-faehige
+            // Inhalte + fixierte Eingabe-Bereiche - die brauchen feste Hoehe
+            // und keinen aeusseren SingleChildScrollView.
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                child: _buildTabStack(tab),
+              ),
             ),
           ),
         );
@@ -315,62 +410,113 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     );
   }
 
-  Widget buildSelectedScreen() {
-    // Alle Tabs haengen per eigenem ListenableBuilder am Store und rebuilden
-    // bei jeder Store-Mutation (wie vorher das globale setState).
-    // Tab-Indizes: 0 = Food (Default), 1 = Rezepte, 2 = Coach.
-    return switch (_store.selectedTab) {
-      1 => ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => RecipesScreen(
-            // Kein hartes foodDate mehr: addResultToDailyTotal faellt auf das
-            // im Store gewaehlte selectedFoodDate zurueck (Closure liest den
-            // Store erst beim Aufruf — reaktiv). „Zum Tracker hinzufügen"
-            // landet damit auf dem im Food-Tab gewaehlten Tag, wie der
-            // Food-Tab-Pfad selbst.
-            onAddMeal: (result, slot) => _store.addResultToDailyTotal(
-              result,
-              slot: slot,
-            ),
-            initialUserRecipes: _store.userRecipes,
-            // Persistenz nur mit echtem Sync (Test/Preview: nur Session-lokal).
-            onCreateRecipe:
-                widget.sync == null ? null : _store.createUserRecipe,
-            onDeleteRecipe:
-                widget.sync == null ? null : _store.deleteUserRecipe,
-            // Restmakros des Tages (Ziel − verbraucht) → „Passt zu deinem Ziel".
-            remainingMacros: MacroProgress(
-              proteinG:
-                  (_store.profile.proteinGoalG - _store.macroProgress.proteinG)
-                      .clamp(0.0, double.infinity)
-                      .toDouble(),
-              carbsG: (_store.profile.carbsGoalG - _store.macroProgress.carbsG)
-                  .clamp(0.0, double.infinity)
-                  .toDouble(),
-              fatG: (_store.profile.fatGoalG - _store.macroProgress.fatG)
-                  .clamp(0.0, double.infinity)
-                  .toDouble(),
-              kcal: (_store.profile.dailyKcalGoal - _store.macroProgress.kcal)
-                  .clamp(0, 1 << 30)
-                  .toInt(),
-            ),
-          ),
+  // --- Tabs (D6) ------------------------------------------------------------
+
+  /// Zahl der Tabs: 0 = Food (Default), 1 = Rezepte, 2 = Coach.
+  static const int _tabCount = 3;
+
+  /// Tabs, die schon einmal sichtbar waren (D6, Lazy-Building).
+  final Set<int> _mountedTabs = <int>{};
+
+  /// Gecachte Widget-INSTANZEN der gemounteten Tabs.
+  ///
+  /// Der Cache ist nicht Bequemlichkeit, sondern der halbe Fix: der
+  /// Shell-Rebuild beim Tab-Wechsel reicht so exakt dieselbe Instanz erneut
+  /// ein, und Flutters `Element.updateChild` ueberspringt den Teilbaum, weil
+  /// `identical(newWidget, oldWidget)`. Ohne den Cache rebuildete jeder
+  /// Tab-Wechsel ALLE gemounteten Tabs — im [IndexedStack] waeren das mehr
+  /// Rebuilds als vorher, nicht weniger (G11).
+  final List<Widget?> _tabViews = List<Widget?>.filled(_tabCount, null);
+
+  @override
+  void didUpdateWidget(EatovaHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Neue Widget-Konfiguration (andere injizierte Dienste/Callbacks): die
+    // gecachten Instanzen haengen an der alten — verwerfen. Der Element-Baum
+    // bleibt dabei stehen (gleiche Typen + Keys an gleicher Stelle), der
+    // Zustand der Tabs geht also nicht verloren.
+    _tabViews.fillRange(0, _tabCount, null);
+  }
+
+  /// D6: [IndexedStack] statt `switch` — jeder je besuchte Tab bleibt
+  /// gemountet, ein Wechsel wirft seinen Zustand nicht mehr weg.
+  ///
+  /// **Lazy:** ein Tab wird erst gebaut, wenn er zum ersten Mal sichtbar wird,
+  /// und danach behalten. Ein eager [IndexedStack] baute beim Kaltstart auch
+  /// den Coach — und dessen `initState` feuert `loadSessions` + `loadHistory` +
+  /// `loadQuotaToday`, drei Netzaufrufe fuer einen Tab, den viele Nutzer in der
+  /// Session nie oeffnen. Der Kaltstart bleibt damit exakt so teuer wie vorher:
+  /// genau ein Teilbaum (Food).
+  ///
+  /// **[TickerMode]:** [IndexedStack] haelt versteckte Kinder mit
+  /// `maintainAnimation: true` am Leben — der endlos rotierende CoachOrb liefe
+  /// also im Hintergrund weiter (Akku; und in Widget-Tests settlet dann kein
+  /// `pumpAndSettle` mehr). Der Ticker des nicht sichtbaren Tabs wird deshalb
+  /// stummgeschaltet.
+  Widget _buildTabStack(int tab) {
+    _mountedTabs.add(tab);
+    return IndexedStack(
+      key: const ValueKey('home-tab-stack'),
+      index: tab,
+      // Wie vorher: der sichtbare Tab bekommt die volle Flaeche der Padding-Box
+      // (StackFit.loose wuerde ihn shrink-wrappen).
+      sizing: StackFit.expand,
+      children: <Widget>[
+        for (var i = 0; i < _tabCount; i++)
+          if (_mountedTabs.contains(i))
+            TickerMode(enabled: i == tab, child: _tabAt(i))
+          else
+            const SizedBox.shrink(),
+      ],
+    );
+  }
+
+  Widget _tabAt(int index) => _tabViews[index] ??= KeyedSubtree(
+        key: ValueKey('tab-fixed-$index'),
+        // G10 (Teil „Ausloeser"): der Auftritt spielt jetzt einmal pro Tab —
+        // beim ersten Besuch — statt bei JEDEM Wechsel. Vorher pinnte ein
+        // `ValueKey('lively-tab-$tab')` ueber dem GANZEN Body die Animation an
+        // den ausgewaehlten Tab und erzwang damit genau das Unmounten, das D6
+        // beklagt; nebenbei rasterte es 320 ms lang jeden Frame der
+        // Kalorienkarte neu (deren BackdropFilter ist nicht raster-cachebar,
+        // das RepaintBoundary in LivelyEntrance schuetzt nur den Inhalt, nicht
+        // den Backdrop-Pass). Der Key bleibt statisch pro Tab — es gibt keinen
+        // Wechsel mehr, der ihn aendern koennte.
+        child: LivelyEntrance(
+          key: ValueKey('lively-tab-$index'),
+          child: switch (index) {
+            1 => _recipesTab(),
+            2 => _coachTab(),
+            _ => _foodTab(),
+          },
         ),
-      2 => ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => CoachChatScreen(
-            service: widget.sync?.coachChat,
-            userName: _store.userName,
-            streak: _store.lifetimeStats.effectiveStreakOn(DateTime.now()),
-            userContext: widget.sync != null ? _store.coachContext : null,
-          ),
+      );
+
+  // MealEditScope reicht die Bearbeiten-Callbacks des Stores an der
+  // Screen-Signatur VORBEI an Verlaufskarte + Add-Sheet (dort oeffnet ein
+  // Tap auf eine geloggte Mahlzeit das Bearbeiten-Sheet).
+  Widget _foodTab() => StoreSelector(
+        store: _store,
+        // G11: gefasste Slice statt eines blanken ListenableBuilder. Bewusst
+        // nur EINGANGSgroessen, keine abgeleiteten Werte: `mealsForFoodDate`
+        // & Co. filtern `loggedMeals` bei jedem Aufruf in eine NEUE Liste, ein
+        // Selektor darauf waere per Identitaet immer „geaendert" (und
+        // allokierte pro Notify drei Listen ueber 210 Mahlzeiten). Die
+        // Store-Listen werden bei jeder Mutation neu zugewiesen, ihre
+        // Identitaet ist also ein exakter und O(1)-billiger Fingerabdruck.
+        selector: () => (
+          _store.selectedFoodDate,
+          _store.loggedMeals,
+          _store.favorites,
+          _store.profile,
+          _store.dailySteps,
+          _store.userName,
+          _store.isLoadingFoodDay(_store.selectedFoodDate),
+          _store.selectedFoodDateIsToday,
         ),
-      // MealEditScope reicht die Bearbeiten-Callbacks des Stores an der
-      // Screen-Signatur VORBEI an Verlaufskarte + Add-Sheet (dort oeffnet ein
-      // Tap auf eine geloggte Mahlzeit das Bearbeiten-Sheet).
-      _ => ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => MealEditScope(
+        builder: (context) {
+          assert(_countTabBuild(0));
+          return MealEditScope(
             onUpdateMeal: _store.updateLoggedMealDetails,
             onRemoveMeal: _store.removeLoggedMeal,
             child: MealAnalysisScreen(
@@ -407,8 +553,100 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onProfilePressed: _openProfile,
               profileInitial: _store.profileInitial,
             ),
-          ),
+          );
+        },
+      );
+
+  Widget _recipesTab() => StoreSelector(
+        store: _store,
+        // Nur was die Rezepte-Ansicht wirklich liest: die eigenen Rezepte und
+        // (fuer „Passt zu deinem Ziel") Ziele + Tagesfortschritt. Ein
+        // Mahlzeit-Log auf dem Food-Tab aendert `macroProgress` — genau dann
+        // soll die Restmakro-Rechnung mitziehen, sonst nie.
+        selector: () => (
+          _store.userRecipes,
+          _store.profile,
+          _store.macroProgress,
         ),
-    };
-  }
+        builder: (context) {
+          assert(_countTabBuild(1));
+          return RecipesScreen(
+            // Kein hartes foodDate mehr: addResultToDailyTotal faellt auf das
+            // im Store gewaehlte selectedFoodDate zurueck (Closure liest den
+            // Store erst beim Aufruf — reaktiv). „Zum Tracker hinzufügen"
+            // landet damit auf dem im Food-Tab gewaehlten Tag, wie der
+            // Food-Tab-Pfad selbst.
+            onAddMeal: (result, slot) => _store.addResultToDailyTotal(
+              result,
+              slot: slot,
+            ),
+            initialUserRecipes: _store.userRecipes,
+            // Persistenz nur mit echtem Sync (Test/Preview: nur Session-lokal).
+            onCreateRecipe:
+                widget.sync == null ? null : _store.createUserRecipe,
+            onDeleteRecipe:
+                widget.sync == null ? null : _store.deleteUserRecipe,
+            // Restmakros des Tages (Ziel − verbraucht) → „Passt zu deinem Ziel".
+            remainingMacros: MacroProgress(
+              proteinG:
+                  (_store.profile.proteinGoalG - _store.macroProgress.proteinG)
+                      .clamp(0.0, double.infinity)
+                      .toDouble(),
+              carbsG: (_store.profile.carbsGoalG - _store.macroProgress.carbsG)
+                  .clamp(0.0, double.infinity)
+                  .toDouble(),
+              fatG: (_store.profile.fatGoalG - _store.macroProgress.fatG)
+                  .clamp(0.0, double.infinity)
+                  .toDouble(),
+              kcal: (_store.profile.dailyKcalGoal - _store.macroProgress.kcal)
+                  .clamp(0, 1 << 30)
+                  .toInt(),
+            ),
+          );
+        },
+      );
+
+  Widget _coachTab() => StoreSelector(
+        store: _store,
+        // Die EINGANGSgroessen von `coachContext` (Profil, Tagesbilanz,
+        // geloggte Mahlzeiten) plus Name und Streak. `coachContext` selbst
+        // gehoert NICHT in den Selektor: der Getter baut bei jedem Aufruf einen
+        // frischen String samt Mahlzeiten-Liste.
+        selector: () => (
+          _store.userName,
+          _store.lifetimeStats,
+          _store.profile,
+          _store.dailyConsumedKcal,
+          _store.macroProgress,
+          _store.loggedMeals,
+        ),
+        builder: (context) {
+          assert(_countTabBuild(2));
+          // C8 (KI-Offenlegung) liegt vollstaendig in den Coach-Screens: der
+          // Composer-Platzhalter nennt die KI durchgaengig, der Leerzustand
+          // traegt einen antippbaren Hinweis, und das (i)-Sheet listet auf,
+          // welche Daten mitgehen und an wen. Eine zusaetzliche Zeile im
+          // Tab-Rahmen waere dieselbe Aussage ein zweites Mal — im
+          // Leerzustand direkt uebereinander.
+          return CoachChatScreen(
+            service: widget.sync?.coachChat,
+            userName: _store.userName,
+            streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
+            userContext: widget.sync != null ? _store.coachContext : null,
+          );
+        },
+      );
 }
+
+/// Test-Seam (G11): zaehlt pro Tab-Index, wie oft sein Teilbaum gebaut wurde.
+///
+/// Wird ausschliesslich unter `assert` gepflegt — im Release-Build faellt der
+/// Zaehler samt Aufrufen weg. Tests raeumen ihn selbst per `clear()`.
+@visibleForTesting
+final Map<int, int> debugTabBuilds = <int, int>{};
+
+bool _countTabBuild(int tab) {
+  debugTabBuilds.update(tab, (value) => value + 1, ifAbsent: () => 1);
+  return true;
+}
+

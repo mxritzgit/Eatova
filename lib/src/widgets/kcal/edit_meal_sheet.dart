@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
+import '../../services/day_math.dart';
 import '../../services/local_day.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/meal_slot_style.dart';
@@ -84,6 +85,121 @@ Future<MealEditOutcome?> showEditMealSheet(
       );
     },
   );
+}
+
+/// D5: „Aenderungen verwerfen?" — die gemeinsame Bestaetigung fuer JEDEN
+/// Weg, ein ausgefuelltes Sheet zu schliessen.
+///
+/// `barrierDismissible: true` ist Absicht: ein Tap neben den Dialog ist
+/// „Abbrechen", also die harmlose Antwort. Der Dialog liegt dabei auf dem
+/// Root-Navigator und damit UEBER der Sheet-Route — sein eigener Barrier
+/// schluckt den Tap, das Sheet darunter bekommt ihn nie zu sehen. Der Dialog
+/// kann sich also nicht selbst mitsamt dem Sheet wegklicken.
+///
+/// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
+Future<bool> _confirmDiscardChanges(BuildContext context) async {
+  final verwerfen = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const ValueKey('discard-changes-dialog'),
+      backgroundColor: surface,
+      title: const Text(
+        'Änderungen verwerfen?',
+        style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+      ),
+      content: const Text(
+        'Deine Änderungen an dieser Mahlzeit sind noch nicht gespeichert.',
+        style: TextStyle(color: textMuted),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('discard-changes-cancel'),
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Weiter bearbeiten'),
+        ),
+        TextButton(
+          key: const ValueKey('discard-changes-confirm'),
+          style: TextButton.styleFrom(foregroundColor: danger),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Verwerfen'),
+        ),
+      ],
+    ),
+  );
+  return verwerfen ?? false;
+}
+
+/// D5: faengt das Nach-unten-Ziehen eines modalen Bottom-Sheets ab.
+///
+/// **Warum das noetig ist:** ein `PopScope` deckt nur die halbe Miete ab. Die
+/// beiden Dismiss-Wege laufen im Framework verschieden:
+///
+///  * Barriere-Tap → `ModalBarrier.handleDismiss` → `Navigator.maybePop`
+///    (`modal_barrier.dart:225-230`) — fragt die Pop-Disposition, also
+///    `PopScope`.
+///  * Ziehen → `BottomSheet._handleDragEnd` → `onClosing` → **`Navigator.pop`**
+///    (`bottom_sheet.dart:769-771`) — fragt sie **nicht**. Ein `PopScope` sieht
+///    diesen Weg nie.
+///
+/// Von innerhalb des Sheets gibt es dafuer genau einen Hebel: die
+/// Gesten-Arena. Der `_BottomSheetGestureDetector` sitzt ueber dem
+/// `builder`-Kind; ein eigener Vertikal-Drag-Erkenner IM Kind liegt tiefer und
+/// gewinnt die Arena — dasselbe Prinzip, aus dem eine ScrollView im Sheet das
+/// Ziehen schluckt. Scrollbare Bereiche liegen wiederum tiefer als dieser
+/// Guard und bleiben unberuehrt.
+///
+/// Ist [active] false (nichts geaendert), wird gar kein Erkenner registriert —
+/// das Sheet laesst sich dann wie gewohnt wegziehen. Ein Sheet, das man ohne
+/// Dialog nicht mehr zubekommt, waere schlimmer als der Bug.
+class _DiscardDragGuard extends StatefulWidget {
+  const _DiscardDragGuard({
+    required this.active,
+    required this.onDismissAttempt,
+    required this.child,
+  });
+
+  final bool active;
+  final VoidCallback onDismissAttempt;
+  final Widget child;
+
+  @override
+  State<_DiscardDragGuard> createState() => _DiscardDragGuardState();
+}
+
+class _DiscardDragGuardState extends State<_DiscardDragGuard> {
+  /// Mindeststrecke nach unten, ab der ein Zug als „zumachen" gilt. Bewusst
+  /// klein: der Guard schluckt die Geste ohnehin, die Frage ist nur, ob der
+  /// Nutzer dazu eine Antwort bekommt.
+  static const double _closeIntentPx = 32;
+
+  /// Flick-Schwelle, gespiegelt an `_kMinFlingVelocity` aus bottom_sheet.dart.
+  static const double _flingVelocity = 700;
+
+  double _dy = 0;
+
+  void _onStart(DragStartDetails details) => _dy = 0;
+
+  void _onUpdate(DragUpdateDetails details) => _dy += details.primaryDelta ?? 0;
+
+  void _onEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (_dy > _closeIntentPx || velocity > _flingVelocity) {
+      widget.onDismissAttempt();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return widget.child;
+    return GestureDetector(
+      // Ohne translucent bleiben Luecken zwischen den Kindern unbedeckt.
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragStart: _onStart,
+      onVerticalDragUpdate: _onUpdate,
+      onVerticalDragEnd: _onEnd,
+      child: widget.child,
+    );
+  }
 }
 
 class EditMealSheet extends StatefulWidget {
@@ -195,11 +311,45 @@ class _EditMealSheetState extends State<EditMealSheet> {
     Navigator.of(context).pop(const MealEditOutcome.deleted());
   }
 
+  /// D5: laeuft fuer jeden abgefangenen Dismiss-Versuch — Barriere-Tap,
+  /// System-Zurueck und Schliessen-Kreuz kommen ueber [PopScope], das Ziehen
+  /// ueber [_DiscardDragGuard]. Mehrfach-Versuche stapeln keine Dialoge.
+  bool _discardDialogOpen = false;
+
+  Future<void> _askDiscard() async {
+    if (_discardDialogOpen) return;
+    _discardDialogOpen = true;
+    final verwerfen = await _confirmDiscardChanges(context);
+    _discardDialogOpen = false;
+    if (!mounted || !verwerfen) return;
+    // Der Dialog ist zu diesem Zeitpunkt bereits gepoppt — die oberste Route
+    // ist wieder das Sheet. Bewusst ohne Ergebnis: verworfen ist nicht
+    // gespeichert.
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final maxHeight = mediaQuery.size.height * 0.92;
 
+    return PopScope<MealEditOutcome?>(
+      // Nur solange wirklich etwas offen ist. Ohne Aenderung schliesst das
+      // Sheet wie bisher sofort.
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _askDiscard();
+      },
+      child: _DiscardDragGuard(
+        active: _dirty,
+        onDismissAttempt: _askDiscard,
+        child: _buildSheet(mediaQuery, maxHeight),
+      ),
+    );
+  }
+
+  Widget _buildSheet(MediaQueryData mediaQuery, double maxHeight) {
     return Container(
       key: const ValueKey('edit-meal-sheet'),
       constraints: BoxConstraints(maxHeight: maxHeight),
@@ -479,6 +629,60 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+/// `DateTime.weekday`: 1 = Montag.
+const List<String> _weekdayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+/// B5: die Tage des Chip-Pickers — [count] Kalendertage abwaerts ab [today]
+/// (heute zuerst), plus [selected], falls dieser Tag ausserhalb des Fensters
+/// liegt (Altbestand am Fensterrand soll sichtbar bleiben).
+///
+/// Frueher stand hier
+/// `[for (var i = 0; i < pastDays; i++) today.subtract(Duration(days: i))]`.
+/// `Duration` ist Absolutzeit: am Montag 30.03.2026 in Europe/Berlin
+/// (Fruehjahrsumstellung am Sonntag 29.03., ein 23-Stunden-Tag) liefert
+/// `subtract(Duration(days: 1))` den `2026-03-28 23:00`. Der Sonntag war aus
+/// dem Picker **nicht erreichbar**, der Chip „Gestern" trug den 28.03., und
+/// eine bewusst auf Sonntag verschobene Mahlzeit landete dauerhaft auf Samstag
+/// — serverseitig, ueber `local_day`. Bei [_EditMealSheetState._pickerDays]
+/// = 35 betraf das ein Fuenf-Wochen-Fenster nach jeder Umstellung.
+///
+/// [count] ist die **Anzahl** der Tage, nicht der Offset zum aeltesten. Wer
+/// dafuer `dayStrip` nimmt, muss `pastDays: count - 1` schreiben und
+/// `.reversed` anhaengen — `dayStrip(pastDays: count).reversed` liefert einen
+/// Tag zu viel. [recentDaysDescending] nimmt die Anzahl direkt entgegen und
+/// kann sich deshalb gar nicht verzaehlen.
+@visibleForTesting
+List<DateTime> editMealPickerDays({
+  required DateTime today,
+  required int count,
+  DateTime? selected,
+}) {
+  final days = List<DateTime>.of(
+    recentDaysDescending(today: today, count: count),
+  );
+  if (selected != null && !days.any((d) => DateUtils.isSameDay(d, selected))) {
+    days.add(startOfDay(selected));
+  }
+  return days;
+}
+
+/// B5: die Beschriftung eines Tag-Chips.
+///
+/// Frueher `today.difference(date).inDays`. Auf zwei lokalen Mitternachten
+/// ueber die Fruehjahrsumstellung sind das 23 Stunden → `inDays == 0`, der
+/// Vortag hiess also „Heute". [daysBetween] rechnet ueber `(y, m, d)`-Tripel
+/// in UTC und kennt darum keine Sommerzeit.
+@visibleForTesting
+String editMealDayChipLabel({
+  required DateTime today,
+  required DateTime date,
+}) {
+  final offset = daysBetween(today, date);
+  if (offset == 0) return 'Heute';
+  if (offset == 1) return 'Gestern';
+  return _weekdayLabels[date.weekday - 1];
+}
+
 /// Horizontaler Chip-Picker ueber die letzten [pastDays] Tage (heute zuerst),
 /// gespiegelt an den Datums-Chips des Food-Tabs. Als letzter Eintrag haengt
 /// „Anderes Datum…" ([onCalendarTap]) — der oeffnet den seit der
@@ -496,28 +700,15 @@ class _DayPicker extends StatelessWidget {
   final ValueChanged<DateTime> onSelected;
   final VoidCallback onCalendarTap;
 
-  static const List<String> _weekdays = [
-    'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So', // DateTime.weekday: 1 = Montag
-  ];
-
-  static String _chipLabel(DateTime today, DateTime date) {
-    final offset = today.difference(date).inDays;
-    if (offset == 0) return 'Heute';
-    if (offset == 1) return 'Gestern';
-    return _weekdays[date.weekday - 1];
-  }
-
   @override
   Widget build(BuildContext context) {
-    final today = DateUtils.dateOnly(DateTime.now());
-    final days = [
-      for (var i = 0; i < pastDays; i++) today.subtract(Duration(days: i)),
-    ];
-    // Liegt der aktuelle Tag der Mahlzeit ausserhalb des Fensters (Altbestand
-    // am Fensterrand), haengt er hinten an, damit die Auswahl sichtbar bleibt.
-    if (!days.any((d) => DateUtils.isSameDay(d, selected))) {
-      days.add(DateUtils.dateOnly(selected));
-    }
+    final today = startOfDay(DateTime.now());
+    // B5: Kalender-, keine Absolutzeitarithmetik — siehe [editMealPickerDays].
+    final days = editMealPickerDays(
+      today: today,
+      count: pastDays,
+      selected: selected,
+    );
 
     return SizedBox(
       key: const ValueKey('edit-meal-day-picker'),
@@ -554,7 +745,7 @@ class _DayPicker extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _chipLabel(today, date),
+                      editMealDayChipLabel(today: today, date: date),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

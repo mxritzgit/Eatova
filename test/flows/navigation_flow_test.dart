@@ -1,6 +1,13 @@
 // Tab-Navigation (aus test/widget_test.dart aufgeteilt): Bottom-Nav wechselt
 // zwischen den drei Tabs Food, Rezepte und Coach; prueft die Kern-Pins der
 // jeweiligen Screens.
+//
+// Seit D6 (2026-08-08) liegen die Tabs in einem lazy [IndexedStack]: ein einmal
+// besuchter Tab bleibt GEMOUNTET (nur unsichtbar). Die Standard-Finder
+// (`skipOffstage: true`) sehen ihn nicht — bestehende `findsNothing`-Aussagen
+// bleiben also gueltig; wer den gemounteten, unsichtbaren Baum pruefen will,
+// braucht `skipOffstage: false`. Welcher Tab sichtbar ist, sagt der Index des
+// Stacks (`home-tab-stack`).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,8 +22,14 @@ void main() {
   ) async {
     await tester.pumpWidget(const EatovaApp());
 
-    // Food ist der Default-Tab (Index 0).
+    // Food ist der Default-Tab (Index 0) — und beim Kaltstart der EINZIGE
+    // gebaute Tab (D6-Lazy-Building).
     expect(find.byKey(const ValueKey('tab-fixed-0')), findsOneWidget);
+    expect(_sichtbarerTab(tester), 0);
+    expect(find.byKey(const ValueKey('tab-fixed-1'), skipOffstage: false),
+        findsNothing);
+    expect(find.byKey(const ValueKey('tab-fixed-2'), skipOffstage: false),
+        findsNothing);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
     expect(find.byKey(const ValueKey('kcal-page-fill')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-strip')), findsOneWidget);
@@ -36,6 +49,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
     await tester.pumpAndSettle();
+    expect(_sichtbarerTab(tester), 1);
     expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipes-search-input')), findsOneWidget);
     expect(find.text('Hähnchen mit Reis & Brokkoli'), findsWidgets);
@@ -59,11 +73,30 @@ void main() {
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
+    expect(_sichtbarerTab(tester), 2);
     expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);
     expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
+    // Der CoachOrb tickt weiter, solange sein Tab sichtbar ist — nach dem
+    // Wechsel schaltet ihn der TickerMode stumm, danach settlet es wieder.
     await tester.pumpAndSettle();
+    expect(_sichtbarerTab(tester), 0);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
+
+    // D6: die besuchten Tabs sind noch da (nur unsichtbar) — genau das haelt
+    // Coach-Entwurf, Rezept-Suchtext und Scrollpositionen am Leben. Fuer die
+    // normalen Finder bleiben sie unsichtbar.
+    expect(find.byKey(const ValueKey('tab-fixed-1'), skipOffstage: false),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-fixed-2'), skipOffstage: false),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-recipes')), findsNothing);
+    expect(find.byKey(const ValueKey('screen-coach')), findsNothing);
   });
 }
+
+/// Index des sichtbaren Tabs, gelesen am [IndexedStack] der Home-Schale.
+int? _sichtbarerTab(WidgetTester tester) => tester
+    .widget<IndexedStack>(find.byKey(const ValueKey('home-tab-stack')))
+    .index;
