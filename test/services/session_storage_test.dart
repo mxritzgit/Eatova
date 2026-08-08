@@ -202,12 +202,23 @@ void main() {
   test(
       'C5: der Storage-Key ist byte-gleich mit dem Supabase-Default '
       '(sonst findet die Migration nichts)', () {
-    // supabase_flutter-2.17.1/lib/src/supabase.dart:132-133
+    // supabase_flutter-2.17.1/lib/src/supabase.dart:132-133 — die Formel ist
+    // hier unabhaengig aus der Paketquelle nachgebaut, nicht aus unserem Code
+    // abgeschrieben. Aendert jemand `sessionPersistKey` (etwa auf den vollen
+    // Host), faellt diese Zusicherung.
     final erwartet =
         'sb-${Uri.parse(EatovaSupabaseConfig.url).host.split('.').first}'
         '-auth-token';
     expect(EatovaSupabaseConfig.sessionPersistKey, erwartet);
-    expect(EatovaSupabaseConfig.sessionPersistKey,
-        'sb-ftoozzvmduptrvrrrshb-auth-token');
+
+    // Bewusst KEIN Literal mit der Projekt-Kennung mehr. Hier stand
+    // 'sb-ftoozzvmduptrvrrrshb-auth-token' — das ist lokal richtig (dort
+    // greift der Default aus supabase_config.dart:23) und in der CI falsch,
+    // weil dort `--dart-define=SUPABASE_URL=https://ci.invalid` gesetzt wird.
+    // Der Test war damit umgebungsabhaengig und ist genau daran zuerst in der
+    // CI gescheitert. Rahmen und Endung sind dagegen unabhaengig von der URL
+    // und fangen eine Praefix-/Suffix-Aenderung trotzdem.
+    expect(EatovaSupabaseConfig.sessionPersistKey, startsWith('sb-'));
+    expect(EatovaSupabaseConfig.sessionPersistKey, endsWith('-auth-token'));
   });
 }

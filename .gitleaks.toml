@@ -11,10 +11,24 @@ title = "Eatova gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Supabase Anon-JWT ist by-design öffentlich (role:anon, RLS-geschützt)."
+description = """Zwei by-design öffentliche Muster: der Supabase-Anon-JWT und \
+die eatova.v1.*-Slotnamen der lokalen Speicher."""
 regexTarget = "match"
 regexes = [
   # JWT-Header (HS256) + Payload-Prefix mit iss=supabase, ref=ftoozz…, role=anon.
   # iat/exp/Signatur variabel -> der Rest bleibt offen gematcht.
   '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0b296enZtZHVwdHJ2cnJyc2hiIiwicm9sZSI6ImFub24i[A-Za-z0-9_.\-]+''',
+
+  # Slotnamen von SharedPreferences und Keychain, z.B. 'eatova.v1.cache_dek'
+  # oder 'eatova.v1.dek_vanish_strikes'. Das sind ADRESSEN, kein Schluessel-
+  # material — sie stehen auf jedem Geraet und sind in
+  # test/wire_persisted_key_names_test.dart bewusst als Literale festgenagelt,
+  # weil eine Umbenennung bestehende Installationen von ihren Daten trennt.
+  #
+  # Die generic-api-key-Regel feuert darauf, weil die Konstanten auf `Key`
+  # enden und der Wert lang genug ist — zuerst aufgeschlagen bei
+  # `dekVanishStrikesKey` (Welle 6). Bewusst eng gefasst: nur der eigene
+  # Namensraum, nur Kleinbuchstaben, Ziffern, Punkt und Unterstrich. Ein
+  # echter Schluessel (base64, sb_secret_, sk-or-v1-, ein JWT) matcht das nicht.
+  '''eatova\.v1\.[a-z0-9_.]+''',
 ]
