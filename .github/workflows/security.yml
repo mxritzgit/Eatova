@@ -109,16 +109,152 @@ jobs:
       - name: pub get
         run: flutter pub get
 
-      # Bewusst NUR der Debug-Build: er braucht keine Signing-Secrets (Release
-      # haengt noch am Debug-Keystore, das fixt ein spaeteres Signing-Projekt)
-      # und faengt trotzdem Manifest-Merge-/Gradle-/Plugin-Brueche ab, die
-      # analyze + test nicht sehen. Defines sind dieselben CI-Dummies wie im
-      # Test-Job; kein Artefakt-Upload, es geht nur um "baut es?".
+      # Schneller Vorab-Check: Debug baut in Minuten und faengt Manifest-Merge-,
+      # Gradle- und Plugin-Brueche ab, bevor der teure Release-Job unten
+      # ueberhaupt anlaeuft. Er ersetzt ihn NICHT - Debug fuehrt weder R8 noch
+      # den AOT-Dart-Compiler aus (Review 2026-08-08, G6). Der Release-Job
+      # `build-android-release` deckt genau das ab.
+      # Defines sind dieselben CI-Dummies wie im Test-Job; kein Artefakt-Upload,
+      # es geht nur um "baut es?".
       - name: build apk (debug)
         run: |
           flutter build apk --debug \
             --dart-define=SUPABASE_URL=https://ci.invalid \
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+
+  # --- G6 (Review 2026-08-08): die CI baut jetzt auch das ausgelieferte -------
+  # Artefakt. Vorher lief ausschliesslich `flutter build apk --debug`. Debug ist
+  # ein anderer Build-Typ (kein R8, kein isShrinkResources, keine
+  # proguard-rules.pro) und ein anderer Dart-Kompilationsmodus (JIT statt AOT
+  # mit Tree-Shaking). Die 51 handgepflegten Keep-Rules und der gesamte
+  # Shrinking-Pfad wurden in der CI nie ausgefuehrt - der erste Durchlauf
+  # passierte auf einer Entwicklermaschine waehrend des Releases.
+  #
+  # SIGNING - und warum die E5-Wache hier NICHT aufgeweicht wird:
+  # android/app/build.gradle.kts bricht seit E5 jeden Release-Task ab, wenn
+  # android/key.properties fehlt (Regex ^(assemble|bundle|package)[A-Za-z0-9]*
+  # Release$ ueber gradle.taskGraph.whenReady). Der Grund ist gut: ohne die
+  # Datei faellt buildTypes.release auf den universellen Android-DEBUG-Key
+  # zurueck, Play lehnt den Upload ab und ein sideloadetes Build laesst Google
+  # Sign-In still fehlschlagen.
+  #
+  # Der Job umgeht die Wache nicht - er erfuellt ihre Bedingung ehrlich:
+  # er erzeugt pro Lauf einen WEGWERF-Keystore mit zufaelligem Passwort in
+  # $RUNNER_TEMP (ausserhalb des Workspace, verschwindet mit dem Runner) und
+  # schreibt eine key.properties, die darauf zeigt. Damit ist die Invariante,
+  # die E5 schuetzt - "kein Release-Artefakt traegt den Debug-Key" - erfuellt
+  # und nicht umgangen. Verworfene Alternativen:
+  #   - Keystore aus GitHub-Secrets: die Secrets existieren nicht
+  #     (/actions/secrets -> total_count 0). Ein Job, der sich hinter
+  #     `if: secrets != ''` versteckt, waere derselbe gruene No-Op wie der
+  #     Migrations-Drift-Check (G7).
+  #   - Nur den R8-Task direkt fahren (`:app:minifyReleaseWithR8` matcht die
+  #     E5-Regex nicht): haengt an AGP-internen Tasknamen und liesse Packaging,
+  #     Resource-Shrinking und den AAB-Split ungeprueft.
+  #
+  # Das Artefakt wird bewusst NICHT hochgeladen. Es ist mit einem Wegwerfschluessel
+  # signiert und darf nirgendwo landen, wo es jemand fuer auslieferbar haelt.
+  build-android-release:
+    name: Android Release-Build (AAB + R8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # Gleiche Begruendung wie im Debug-Job: Gradle 8.14 bricht mit Java 25.
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.44.0
+          cache: true
+
+      - name: pub get
+        run: flutter pub get
+
+      # Wegwerf-Keystore. Passwort ist pro Lauf zufaellig und wird nirgends
+      # ausgegeben; der Keystore liegt in $RUNNER_TEMP, nicht im Workspace, und
+      # ueberlebt den Job nicht. Kein Secret - deshalb auch kein ::add-mask::
+      # noetig, es gibt nichts Wiederverwendbares zu schuetzen.
+      - name: Wegwerf-Keystore fuer den Release-Build erzeugen
+        run: |
+          set -euo pipefail
+          if [ -f android/key.properties ]; then
+            echo "::error::android/key.properties liegt im Checkout — die Datei gehoert nicht ins Repo (android/.gitignore)."
+            exit 1
+          fi
+          KS="$RUNNER_TEMP/eatova-ci-throwaway.p12"
+          PW="$(openssl rand -hex 24)"
+          keytool -genkeypair \
+            -keystore "$KS" \
+            -storetype PKCS12 \
+            -keyalg RSA -keysize 2048 -validity 1 \
+            -alias ci-throwaway \
+            -storepass "$PW" -keypass "$PW" \
+            -dname "CN=Eatova CI Throwaway, OU=CI, O=Eatova, C=DE" >/dev/null
+          # storeFile wird in build.gradle.kts ueber file() aufgeloest — mit
+          # absolutem Pfad eindeutig (relativ waere es android/app/).
+          {
+            echo "storePassword=$PW"
+            echo "keyPassword=$PW"
+            echo "keyAlias=ci-throwaway"
+            echo "storeFile=$KS"
+          } > android/key.properties
+          echo "Wegwerf-Keystore angelegt: $KS"
+
+      # Das ist der Befehl, der auch das Play-Artefakt erzeugt: bundleRelease,
+      # buildTypes.release, R8 + Resource-Shrinking, Dart-AOT mit Tree-Shaking.
+      # Defines sind dieselben CI-Dummies wie in den anderen Jobs — dart_defines
+      # .json ist gitignored (enthaelt echte Keys) und steht der CI nicht zur
+      # Verfuegung.
+      #
+      # Wenn dieser Schritt mit einem OutOfMemoryError des Gradle- oder
+      # R8-Prozesses abbricht: android/gradle.properties setzt
+      # org.gradle.jvmargs=-Xmx8G -XX:MaxMetaspaceSize=4G. Das ist auf einer
+      # Entwicklermaschine unproblematisch, auf einem ubuntu-latest-Runner
+      # (4 vCPU / 16 GB) zusammen mit dem Kotlin-Daemon aber knapp. Abhilfe dann:
+      #   echo "org.gradle.jvmargs=-Xmx5g" >> ~/.gradle/gradle.properties
+      # als eigener Schritt davor (Benutzer-Properties schlagen die des Projekts,
+      # ohne dass die lokale Konfiguration angefasst werden muss).
+      - name: build appbundle (release, R8 + AOT)
+        run: |
+          flutter build appbundle --release \
+            --dart-define=SUPABASE_URL=https://ci.invalid \
+            --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+
+      # Beleg, dass R8 wirklich gelaufen ist und nicht still uebersprungen wurde
+      # (isMinifyEnabled koennte jemand versehentlich rausnehmen — dann faellt
+      # der Build nicht, es entstuende nur kein mapping.txt mehr).
+      - name: R8-Beleg pruefen
+        run: |
+          set -euo pipefail
+          MAP=build/app/outputs/mapping/release/mapping.txt
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          if [ ! -s "$MAP" ]; then
+            echo "::error::$MAP fehlt oder ist leer — R8 ist NICHT gelaufen. Steht isMinifyEnabled in buildTypes.release noch auf true?"
+            exit 1
+          fi
+          if [ ! -s "$AAB" ]; then
+            echo "::error::$AAB fehlt — der Release-Bundle-Task hat kein Artefakt erzeugt."
+            exit 1
+          fi
+          {
+            echo "### Android Release-Build (G6)"
+            echo ""
+            echo "| Artefakt | Groesse |"
+            echo "| --- | --- |"
+            echo "| \`app-release.aab\` | $(du -h "$AAB" | cut -f1) |"
+            echo "| \`mapping.txt\` (R8) | $(du -h "$MAP" | cut -f1) |"
+            echo ""
+            echo "R8 + Resource-Shrinking + Dart-AOT sind durchgelaufen."
+            echo "Das Artefakt ist mit einem Wegwerfschluessel signiert und wird bewusst **nicht** hochgeladen."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Kein upload-artifact: siehe Job-Kommentar.
 
   pub-outdated:
     name: Flutter pub outdated (Info)
@@ -210,11 +346,16 @@ jobs:
             echo "::endgroup::"
           done
       # Unit-Tests der Edge Functions. Weiterhin ohne externe Dependencies:
-      #   coach-chat/prefilter_test.ts   - Layer-1-Blocklist (rein)
-      #   coach-chat/guardrails_test.ts  - Layer-2-Weichen (rein)
-      #   coach-chat/handler_test.ts     - End-to-End ueber handleRequest,
-      #                                    fetch ist im Test gestubbt
-      #   _shared/client_ip_test.ts      - IP-Normalisierung/Subject-Bildung
+      #   coach-chat/prefilter_test.ts   -  9 Tests, Layer-1-Blocklist (rein)
+      #   coach-chat/guardrails_test.ts  -  7 Tests, Layer-2-Weichen (rein)
+      #   coach-chat/handler_test.ts     - 12 Tests, End-to-End ueber
+      #                                    handleRequest, fetch ist gestubbt
+      #   _shared/client_ip_test.ts      - 15 Tests, IP-Normalisierung/Subject
+      #   analyze-meal/normalize_test.ts - 10 Tests, Normalisierung der
+      #                                    Modell-Antwort (Welle 2, 2026-08-08)
+      # Summe: 53 Tests. `deno test` ohne Pfadfilter sammelt alle fuenf Dateien
+      # automatisch ein - der Aufruf unten musste fuer normalize_test.ts NICHT
+      # angepasst werden, nur diese Aufzaehlung hinkte hinterher.
       #
       # --allow-env ist noetig (frueher liefen die Tests flaglos): handler.ts
       # liest Modell-/Limit-Secrets bereits beim Modul-Load und handler_test.ts
@@ -234,10 +375,34 @@ jobs:
     name: Supabase migration drift (Management API)
     runs-on: ubuntu-latest
     # Faellt nur, wenn eine Repo-Migration NICHT in der Live-Migrationshistorie
-    # (supabase_migrations.schema_migrations) registriert ist. Gegated hinter
-    # Secrets: ohne SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF wird der Check
-    # sauber uebersprungen, damit Forks/PRs ohne Secret-Zugriff den Build nicht
-    # rot machen. Nutzt die Management-API (kein DB-Passwort/CLI-Login noetig).
+    # (supabase_migrations.schema_migrations) registriert ist. Nutzt die
+    # Management-API (kein DB-Passwort/CLI-Login noetig).
+    #
+    # --- G7 (Review 2026-08-08): der Check war ein dauerhaft gruener No-Op ----
+    # SUPABASE_ACCESS_TOKEN und SUPABASE_PROJECT_REF wurden nie gesetzt
+    # (/actions/secrets -> total_count 0). Schrittdaten des letzten Laufs:
+    # "Check Supabase secrets" success, "Migration drift check" SKIPPED, Job
+    # success. Der einzige automatische Abgleich zwischen Repo-Migrationen und
+    # Live-DB ist damit noch nie gelaufen — bei voll gruener Pipeline.
+    #
+    # Ein uebersprungener Schritt, der den Job gruen laesst, ist eine Luege.
+    # Ein Job, der bei jedem Fork-PR rot wird, ist die naechste Luege in die
+    # andere Richtung. Deshalb wird jetzt unterschieden:
+    #
+    #   Secrets da              -> Check laeuft (wie bisher)
+    #   Secrets fehlen, aber
+    #   der Lauf kann sie
+    #   strukturell nicht haben -> sauberer Skip + Hinweis, Job bleibt gruen
+    #   Secrets fehlen im
+    #   Upstream-Repo           -> Job FAELLT, mit den Setz-Befehlen im Summary
+    #
+    # "kann sie strukturell nicht haben" ist genau dreierlei:
+    #   1. PR aus einem Fork  - GitHub liefert Secrets an Fork-PRs grundsaetzlich
+    #                           nicht aus.
+    #   2. Dependabot         - laeuft gegen einen eigenen Secret-Store; die
+    #                           Actions-Secrets sind dort nicht sichtbar.
+    #   3. Fremdes Repo       - jemand hat das Projekt geforkt und pusht auf sein
+    #                           eigenes main. Kein Supabase-Projekt, kein Fehler.
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -249,13 +414,49 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          # Die `&&`-Kurzschluesse sind wichtig: bei einem push-Event existiert
+          # github.event.pull_request gar nicht, der Vergleich allein wuerde
+          # dann faelschlich "Fork" ergeben.
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          IS_DEPENDABOT: ${{ github.actor == 'dependabot[bot]' }}
+          IS_UPSTREAM: ${{ github.repository == 'mxritzgit/Eatova' }}
         run: |
-          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then
+          set -euo pipefail
+          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] && [ -n "${SUPABASE_PROJECT_REF:-}" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF nicht gesetzt — Migration-Drift-Check uebersprungen."
+            exit 0
           fi
+          echo "available=false" >> "$GITHUB_OUTPUT"
+
+          if [ "$IS_FORK_PR" = "true" ] || [ "$IS_DEPENDABOT" = "true" ] || [ "$IS_UPSTREAM" != "true" ]; then
+            REASON="Fork-PR/Dependabot/fremdes Repo — Secrets sind hier strukturell nicht verfuegbar."
+            echo "::notice::Migration-Drift-Check uebersprungen: $REASON"
+            {
+              echo "### Supabase Migration-Drift: uebersprungen"
+              echo ""
+              echo "$REASON Das ist **kein** Konfigurationsfehler und faerbt den Lauf bewusst nicht rot."
+              echo ""
+              echo "Im Upstream-Repo (\`mxritzgit/Eatova\`) faellt dieser Job, solange die Secrets fehlen."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "### Supabase Migration-Drift: NICHT konfiguriert"
+            echo ""
+            echo "\`SUPABASE_ACCESS_TOKEN\` und/oder \`SUPABASE_PROJECT_REF\` fehlen im Upstream-Repo."
+            echo "Der einzige automatische Abgleich zwischen \`supabase/migrations/\` und der Live-Datenbank"
+            echo "laeuft damit nicht. Frueher hat dieser Job das still uebersprungen und war trotzdem gruen."
+            echo ""
+            echo "Setzen (einmalig, mit der GitHub CLI):"
+            echo ""
+            echo '```sh'
+            echo 'gh secret set SUPABASE_ACCESS_TOKEN --repo mxritzgit/Eatova   # Token aus https://supabase.com/dashboard/account/tokens'
+            echo 'gh secret set SUPABASE_PROJECT_REF  --repo mxritzgit/Eatova   # Project-Ref aus der Supabase-Projekt-URL'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF sind im Upstream-Repo nicht gesetzt — der Migration-Drift-Check kann nicht laufen. Details und Setz-Befehle stehen in der Job-Summary."
+          exit 1
 
       # Fragt die registrierte Migrationshistorie der Live-DB ueber die
       # Management-API ab und vergleicht sie gegen die Dateinamen in
@@ -296,7 +497,22 @@ jobs:
             esac
           done
           if [ -n "$MISSING" ]; then
+            {
+              echo "### Supabase Migration-Drift: DRIFT"
+              echo ""
+              echo "Nicht in \`supabase_migrations.schema_migrations\` registriert:"
+              echo ""
+              for v in $MISSING; do echo "- \`$v\`"; done
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "::error::Nicht in supabase_migrations.schema_migrations registrierte Repo-Migration(en):$MISSING — Live-DB weicht vom Repo ab. Migration anwenden + Historie nachziehen. Siehe supabase/SCHEMA_STATE_2026-06-07.md."
             exit 1
           fi
-          echo "Keine Migration-Drift — alle $(ls supabase/migrations/*.sql | wc -l) Repo-Migrationen sind auf der Live-DB registriert."
+          COUNT="$(ls supabase/migrations/*.sql | wc -l)"
+          echo "Keine Migration-Drift — alle ${COUNT} Repo-Migrationen sind auf der Live-DB registriert."
+          # Auch der Gutfall landet im Summary: nur so ist von aussen sichtbar,
+          # dass der Check wirklich gelaufen ist und nicht wieder still schlaeft.
+          {
+            echo "### Supabase Migration-Drift: OK"
+            echo ""
+            echo "Alle **${COUNT}** Repo-Migrationen sind auf der Live-DB registriert."
+          } >> "$GITHUB_STEP_SUMMARY"

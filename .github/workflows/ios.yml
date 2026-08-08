@@ -1,0 +1,192 @@
+name: ios
+
+# --- G8 (Review 2026-08-08): bis heute gab es KEINE iOS-Abdeckung -----------
+# Kein macos-Job, kein `flutter build ios`, kein `pod install`-Check. Podfile-/
+# Plugin-Konflikte, Info.plist- und Entitlement-Regressionen und Swift-
+# Kompilierfehler erreichten main unsichtbar.
+#
+# ERWARTUNG FUER DEN ERSTEN LAUF: dieser Job wird ROT sein. Das ist kein Fehler
+# des Jobs, das ist sein Zweck. Bekannter Ausgangsstand (Review F2/G8):
+#   - ios/Podfile.lock stammt nachweislich nicht aus einem echten `pod install`:
+#     alle zehn SPEC CHECKSUMS weichen von den SHA1 der tatsaechlichen Podspecs
+#     ab, und vier Pods fehlen ganz.
+#   - Das Deployment-Target wurde in Welle 4 auf 14.0 angehoben (Podfile plus
+#     drei Configs in project.pbxproj), weil `health` es erzwingt.
+#   - ios/Runner/PrivacyInfo.xcprivacy ist neu und als Resource eingetragen.
+#   - Die iOS-App wurde vermutlich nie gebaut.
+# Dieser Job ist der erste Ort ueberhaupt, an dem sie gebaut wird. Die erste
+# rote Ausgabe ist die Arbeitsliste, nicht der Defekt.
+#
+# --- Ausloeser und Kosten ----------------------------------------------------
+# macOS-Runner kosten auf GitHub das Zehnfache eines Linux-Runners (10 Minuten
+# Faktor gegen 1). Ein Lauf bei jedem Push waere dauerhaft der teuerste Posten
+# der Pipeline, obwohl der weit ueberwiegende Teil der Commits reiner Dart-Code
+# ist, den die ubuntu-Jobs schon vollstaendig abdecken (analyze, test, Android
+# Debug + Release). Deshalb:
+#
+#   push/pull_request auf main NUR bei Aenderungen unter
+#     ios/**            - Swift, Podfile, Entitlements, Info.plist, pbxproj
+#     pubspec.yaml      - neue/entfernte Plugins
+#     pubspec.lock      - Plugin-Versionsspruenge (aendern Podspecs + Targets)
+#     .github/workflows/ios.yml - dieser Job selbst
+#   schedule (woechentlich) - faengt Drift, den keine dieser Dateien anzeigt:
+#     Xcode-/Runner-Image-Wechsel bei GitHub, zurueckgezogene Pod-Versionen.
+#   workflow_dispatch - vor jedem Release manuell, ohne auf einen Push zu warten.
+#
+# lib/** steht bewusst NICHT in der Liste: Dart-Fehler faengt der ubuntu-Job in
+# einem Zehntel der Kosten. Nur der Weg von Dart nach iOS-Binary ist hier neu.
+#
+# ACHTUNG bei Branch-Protection (G5): einen paths-gefilterten Workflow NICHT als
+# "required status check" eintragen. Ein PR, der ios/ nicht anfasst, meldet den
+# Check dann nie und bleibt fuer immer blockiert.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/ios.yml'
+  schedule:
+    # Montags 07:00 UTC, eine Stunde nach dem security-Workflow, damit sich die
+    # beiden woechentlichen Laeufe nicht in derselben Minute draengeln.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+# Gleiche Linie wie security.yml: Minimal-Default, keine job-lokale Erhoehung
+# noetig (kein SARIF-Upload, kein Kommentar-Schreiben).
+permissions:
+  contents: read
+
+# Kostenbremse: schiebt jemand zwei Commits kurz hintereinander, wird der
+# aeltere macOS-Lauf abgebrochen statt zu Ende bezahlt. Auf main NICHT
+# abbrechen — dort will man das Ergebnis jedes Stands sehen.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build-ios:
+    name: iOS Build (no codesign)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.44.0
+          cache: true
+
+      # Diagnose zuerst und ohne Abbruch. Der erste rote Lauf soll auswertbar
+      # sein, ohne dass jemand raten muss, welches Xcode auf dem Image lag —
+      # die Xcode-Version des macos-latest-Images wandert, und ein zu neues
+      # Xcode kann ein Deployment-Target von 14.0 bereits verwarnen.
+      - name: Toolchain-Diagnose
+        run: |
+          sw_vers
+          xcodebuild -version
+          pod --version
+          flutter --version
+
+      # Reihenfolge ist bindend: `pod install` liest ios/Flutter/Generated
+      # .xcconfig (FLUTTER_ROOT) und .flutter-plugins-dependencies. Beide
+      # erzeugt erst `flutter pub get`. Die im Arbeitsverzeichnis liegende
+      # Generated.xcconfig ist gitignored und zeigt lokal noch auf einen
+      # Vor-Rebranding-Pfad — im CI existiert sie vor diesem Schritt gar nicht.
+      - name: pub get
+        run: flutter pub get
+
+      # Laedt die iOS-Engine-Artefakte, die podhelper fuer den Flutter-Pod
+      # braucht. Ohne das schlaegt ein manuelles `pod install` je nach
+      # Cache-Zustand des Runners fehl.
+      - name: precache iOS-Artefakte
+        run: flutter precache --ios
+
+      # Eigener Schritt statt nur implizit im Xcode-Build: so ist ein
+      # Pod-Aufloesungskonflikt (Deployment-Target, inkompatible Podspecs) als
+      # eigener roter Schritt erkennbar und nicht in 2000 Zeilen xcodebuild
+      # vergraben.
+      - name: pod install
+        working-directory: ios
+        run: pod install --repo-update
+
+      # Podfile.lock-Drift ist bewusst nur eine WARNUNG, kein Fehlschlag.
+      # Begruendung: die Lock-Datei im Repo ist nachweislich nicht aus einem
+      # echten `pod install` entstanden, und niemand im Projekt hat einen Mac.
+      # Ein harter Fehlschlag wuerde jeden pubspec-Bump so lange rot halten, bis
+      # jemand mit Mac-Zugang die Datei nachtraegt — waehrend der eigentliche
+      # Gate (baut die App?) unten steht. Die Ausgabe hier ist die
+      # kopierfertige Vorlage fuer genau diesen Nachtrag.
+      - name: Podfile.lock-Drift melden
+        if: always()
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- ios/Podfile.lock; then
+            echo "ios/Podfile.lock ist unveraendert — der Lock im Repo entspricht dem, was pod install aufloest."
+            echo "### Podfile.lock: unveraendert" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::warning file=ios/Podfile.lock::pod install hat ios/Podfile.lock veraendert — der eingecheckte Lock ist nicht der aufgeloeste Stand. Diff steht in der Job-Summary."
+          {
+            echo "### Podfile.lock: DRIFT (Warnung, kein Fehlschlag)"
+            echo ""
+            echo "\`pod install\` hat den eingecheckten Lock veraendert. Den Diff unten uebernehmen"
+            echo "und \`ios/Podfile.lock\` committen."
+            echo ""
+            echo '```diff'
+            git diff -- ios/Podfile.lock
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Der eigentliche Gate. --no-codesign, weil im CI kein Apple-Zertifikat
+      # und kein Provisioning-Profil liegt (und keins hingehoert): der Job soll
+      # Kompilier- und Konfigurationsfehler finden, nicht ein signiertes IPA
+      # bauen. Defines sind dieselben CI-Dummies wie in security.yml —
+      # dart_defines.json ist gitignored (echte Keys inkl. Sentry-DSN) und steht
+      # der CI nicht zur Verfuegung; die App baut ohne die optionalen Defines,
+      # der ubuntu-Debug-Build tut das seit Monaten mit denselben zweien.
+      - name: build ios (--no-codesign)
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL=https://ci.invalid \
+            --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+
+      - name: Ergebnis zusammenfassen
+        if: always()
+        run: |
+          set -euo pipefail
+          APP=build/ios/iphoneos/Runner.app
+          if [ -d "$APP" ]; then
+            echo "### iOS-Build: OK" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`$APP\` erzeugt ($(du -sh "$APP" | cut -f1), unsigniert)." >> "$GITHUB_STEP_SUMMARY"
+            # PrivacyInfo.xcprivacy muss im gebauten Bundle landen, nicht nur im
+            # pbxproj stehen — Apple lehnt den Upload sonst ab. Nur ein Hinweis:
+            # der Build selbst ist der Gate, das hier faellt nicht.
+            if [ -f "$APP/PrivacyInfo.xcprivacy" ]; then
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "PrivacyInfo.xcprivacy liegt im Bundle." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::PrivacyInfo.xcprivacy fehlt im gebauten Runner.app — als Resource im Runner-Target eingetragen?"
+            fi
+          else
+            {
+              echo "### iOS-Build: FEHLGESCHLAGEN"
+              echo ""
+              echo "Beim ersten Lauf dieses Workflows ist das erwartet — die iOS-App wurde vor"
+              echo "diesem Job nie gebaut. Bekannte Baustellen: \`ios/Podfile.lock\` stammt nicht"
+              echo "aus einem echten \`pod install\`, das Deployment-Target ist frisch auf 14.0"
+              echo "angehoben, und \`PrivacyInfo.xcprivacy\` ist neu. Die Log-Ausgabe oben ist die"
+              echo "Arbeitsliste."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
