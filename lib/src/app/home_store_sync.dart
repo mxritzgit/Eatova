@@ -25,6 +25,24 @@ part of 'home_store.dart';
 /// wochenlang Akku und Traffic frisst.
 const Duration kOutboxMinAgeBeforeDrop = Duration(hours: 24);
 
+/// Dasselbe fuer LOESCH-Ops ([SyncOp.isDelete]) — nur viel laenger, und ohne
+/// die Ausnahme fuer den Sofort-Verwurf.
+///
+/// Ein Delete kennt keinen „strukturell unmoeglichen" Fehler: seine Payload ist
+/// LEER, eine Datenverletzung (Klasse 22/23) kann sie gar nicht ausloesen, und
+/// PGRST20x/404 beschreiben einen kalten Schema-Cache bzw. eine Route waehrend
+/// eines Deploys — beides geht vorbei. Deshalb ist fuer Deletes JEDER
+/// Server-Fehler behandelbar wie ein transienter, und begrenzt wird nur ueber
+/// Zeit: verworfen wird erst, wenn [kOutboxDeleteMaxAttempts] aktive
+/// Ablehnungen verbucht sind UND die Op seit mindestens dieser Spanne liegt.
+///
+/// Warum 7 Tage: laenger als jedes Migrations-/Ausfallfenster, das ein Retry
+/// ueberdauern soll, und deutlich laenger als die 24 h der Schreib-Ops — der
+/// Verlust ist hier ja der schwerere. Kuerzer als „unendlich" muss es sein,
+/// siehe [kOutboxDeleteMaxAttempts]. Offline-Zeit kostet dabei nichts: ein
+/// Netzfehler ist retryFree und laeuft nie in diese Pruefung.
+const Duration kOutboxDeleteMinAge = Duration(days: 7);
+
 /// Die Payload einer Outbox-Op ist nicht lesbar (Review 2026-08-08, A8).
 ///
 /// Erreichbar, weil [SyncOp.tryFromJson] eine Op mit nicht-Map-Payload BEHAELT
@@ -75,6 +93,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Queue-Cap). Auch das wird pro Episode nur EINMAL gemeldet und beim
   /// naechsten Sync-Erfolg zurueckgesetzt.
   bool _outboxLossNotified = false;
+
+  /// Wie [_outboxLossNotified], aber fuer den Verlust einer LOESCHUNG. Bewusst
+  /// ein zweiter Merker: die beiden Meldungen sagen Gegenteiliges („etwas
+  /// fehlt" vs. „etwas ist wieder da") und haben unterschiedliche Folgen fuer
+  /// den Nutzer. Mit nur einem Merker haette die erste die zweite
+  /// verschluckt — und die Mahlzeit waere kommentarlos wieder aufgetaucht.
+  bool _outboxDeleteLossNotified = false;
 
   /// Entitaeten, deren Op endgueltig verworfen wurde (Review 2026-08-08, A6).
   ///
@@ -194,7 +219,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         CrashReporter.breadcrumb(
             'outbox-cap: ${capped.dropped.length} ops dropped');
         _outbox = capped.queue;
-        _notifyOutboxLoss();
+        // Der Cap kappt Deletes zuletzt, aber er kappt sie (harte Obergrenze,
+        // s. capOutbox) — dann gilt derselbe Weg wie im Replay: Eintraege
+        // zurueckholen, Verlust als Loeschungs-Verlust melden.
+        final lostDeletes = capped.dropped.where((o) => o.isDelete).toList();
+        if (lostDeletes.isNotEmpty) {
+          unawaited(_restoreDroppedDeletes(lostDeletes));
+        }
+        _notifyOutboxLoss(deletesLost: lostDeletes.isNotEmpty);
       }
     }
     _persistOutbox();
@@ -222,15 +254,134 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Mapping und traegt bewusst KEINE technischen Details (kein SQLSTATE, kein
   /// Tabellen-/Constraint-Name, kein Exception-Typ); die Roh-Exception geht
   /// nur an dev.log + CrashReporter. Einmal pro Episode.
-  void _notifyOutboxLoss() {
-    if (_disposed || _outboxLossNotified) return;
-    _outboxLossNotified = true;
+  ///
+  /// [deletesLost] waehlt den Text fuer den umgekehrten Fall: bei einem
+  /// verworfenen Write FEHLT etwas, bei einer verworfenen Loeschung ist etwas
+  /// WIEDER DA. Die beiden Meldungen zaehlen getrennt — steht beides an, sagt
+  /// die Episode beides genau einmal. Ein gemeinsamer Merker haette die
+  /// Loeschung verschluckt, sobald im selben Replay auch ein Write starb, und
+  /// die Mahlzeit waere kommentarlos wieder aufgetaucht.
+  void _notifyOutboxLoss({bool deletesLost = false}) {
+    if (_disposed) return;
+    if (deletesLost) {
+      if (_outboxDeleteLossNotified) return;
+      _outboxDeleteLossNotified = true;
+    } else {
+      if (_outboxLossNotified) return;
+      _outboxLossNotified = true;
+    }
     _emitSnack(
-      outboxLossHint,
+      deletesLost ? outboxDeleteLossHint : outboxLossHint,
       icon: Icons.sync_problem_rounded,
       accent: danger,
       duration: kSnackError,
     );
+  }
+
+  /// Holt die Eintraege verworfener LOESCH-Ops in den lokalen Zustand zurueck
+  /// (A5, Wiedereinblendung).
+  ///
+  /// Warum ueberhaupt: ein verworfener Delete ist der einzige Verlust, der sich
+  /// von selbst RUECKGAENGIG macht. Lokal ist die Zeile weg, serverseitig
+  /// nicht — und weil danach kein weiterer Write auf diese Entitaet kommt,
+  /// greift auch [_orphanedEntities] nicht. Ohne diesen Schritt merkt der
+  /// Nutzer nichts, bis Tage spaeter ein Kaltstart die geloeschte
+  /// 1800-kcal-Mahlzeit wieder mitzaehlt. GENAU das macht die endliche Frist
+  /// aus [kOutboxDeleteMinAge] ueberhaupt vertretbar: der Verwurf endet
+  /// sichtbar und reparierbar (der Nutzer loescht erneut, mit frischem Budget
+  /// und frischer Frist) statt still.
+  ///
+  /// Der Inhalt liegt nur noch auf dem Server — eine Delete-Op traegt eine
+  /// leere Payload —, also kostet das einen Read pro betroffener Sammlung.
+  /// Vertretbar: der Pfad feuert erst, wenn eine Loeschung tage- und
+  /// dutzendfach abgelehnt wurde. Findet der Read die Zeile NICHT, war die
+  /// Loeschung serverseitig laengst angekommen und es gibt nichts
+  /// einzublenden — der Read ist damit zugleich die Gegenprobe.
+  ///
+  /// Jede Sammlung laeuft in ihrem eigenen try: ein fehlgeschlagener Read darf
+  /// die anderen nicht mitreissen.
+  Future<void> _restoreDroppedDeletes(List<SyncOp> ops) async {
+    final s = sync;
+    if (s == null || _disposed) return;
+    final mealIds = <String>{}, favoriteIds = <String>{}, recipeSlugs = <String>{};
+    for (final op in ops) {
+      switch (op.kind) {
+        case SyncOpKind.mealDelete:
+          mealIds.add(op.entityId);
+        case SyncOpKind.favoriteDelete:
+          favoriteIds.add(op.entityId);
+        case SyncOpKind.recipeDelete:
+          recipeSlugs.add(op.entityId);
+        default:
+          break;
+      }
+    }
+    if (mealIds.isNotEmpty) {
+      try {
+        final rows = await s.meals.loadLoggedMeals();
+        final back = rows.where((m) => mealIds.contains(m.id)).toList();
+        if (back.isNotEmpty && !_disposed) {
+          _mutate(() {
+            final known = loggedMeals.map((m) => m.id).toSet();
+            loggedMeals = <LoggedMeal>[
+              ...loggedMeals,
+              ...back.where((m) => !known.contains(m.id)),
+            ]..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+            final today = clock.now();
+            dailyConsumedKcal = consumedKcalForFoodDate(today);
+            macroProgress = macroProgressForFoodDate(today);
+          });
+          _cacheLoggedMeals();
+        }
+      } catch (e, st) {
+        _reportRestoreFailure('meals', e, st);
+      }
+    }
+    if (favoriteIds.isNotEmpty) {
+      try {
+        final rows = await s.meals.loadFavorites();
+        final back = rows.where((f) => favoriteIds.contains(f.id)).toList();
+        if (back.isNotEmpty && !_disposed) {
+          _mutate(() {
+            final known = favorites.map((f) => f.id).toSet();
+            favorites = <FavoriteMeal>[
+              ...favorites,
+              ...back.where((f) => !known.contains(f.id)),
+            ];
+          });
+          _cacheFavorites();
+        }
+      } catch (e, st) {
+        _reportRestoreFailure('favorites', e, st);
+      }
+    }
+    if (recipeSlugs.isNotEmpty) {
+      try {
+        final rows = await s.userRecipes.load();
+        final back = rows.where((r) => recipeSlugs.contains(r.slug)).toList();
+        if (back.isNotEmpty && !_disposed) {
+          _mutate(() {
+            final known = _userRecipes.map((r) => r.slug).toSet();
+            _userRecipes = <FitnessRecipe>[
+              ..._userRecipes,
+              ...back.where((r) => !known.contains(r.slug)),
+            ];
+          });
+        }
+      } catch (e, st) {
+        _reportRestoreFailure('recipes', e, st);
+      }
+    }
+  }
+
+  /// Die Wiedereinblendung ist selbst nur best effort: schlaegt der Read fehl
+  /// (offline im selben Moment), bleibt der Eintrag bis zum naechsten Boot
+  /// unsichtbar — der holt ihn dann ohnehin vom Server. Gemeldet ist der
+  /// Verlust so oder so, der Snack laeuft unabhaengig davon.
+  void _reportRestoreFailure(String what, Object e, StackTrace st) {
+    dev.log('Outbox: Wiedereinblendung nach verworfenem Delete '
+        'fehlgeschlagen ($what)', error: e, name: 'eatova_sync');
+    unawaited(CrashReporter.capture(e, st, context: 'outbox-restore-$what'));
   }
 
   /// Nach einem erfolgreichen Sync-Write: Fehler-Episode beenden, Backoff
@@ -239,6 +390,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (_disposed) return;
     _syncHintShown = false;
     _outboxLossNotified = false;
+    _outboxDeleteLossNotified = false;
     _outboxRetryAttempt = 0;
     if (_outbox.isNotEmpty && !_outboxReplayInFlight) {
       unawaited(_replayOutbox());
@@ -290,7 +442,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _outboxReplayInFlight = true;
     final blocked = <String>{};
     var anySuccess = false;
-    var anyDropped = false;
+    var droppedWrites = false;
+    final droppedDeletes = <SyncOp>[];
     try {
       var i = 0;
       while (i < _outbox.length) {
@@ -318,7 +471,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             // (Regel dokumentiert in crash_reporter.dart).
             unawaited(CrashReporter.capture(e, st,
                 context: 'outbox-drop-${op.kind.name}'));
-            anyDropped = true;
+            // A5: ein verworfener Delete darf nicht still bleiben — der
+            // Eintrag existiert serverseitig weiter und wird nach dem Replay
+            // lokal wieder eingeblendet. Getrennt gezaehlt, weil die beiden
+            // Verluste dem Nutzer Gegenteiliges bedeuten.
+            if (op.isDelete) {
+              droppedDeletes.add(op);
+            } else {
+              droppedWrites = true;
+            }
             // A6: die Entitaet ist ab jetzt potenziell verwaist (lokal da,
             // serverseitig nicht). Kuenftige Writes muessen deshalb ueber die
             // Outbox laufen, wo sie als voller Upsert ankommen.
@@ -357,7 +518,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _outboxReplayInFlight = false;
     }
     if (_disposed) return;
-    if (anyDropped) _notifyOutboxLoss();
+    // Erst die Eintraege zurueckholen, DANN melden: der Snack behauptet „der
+    // Eintrag ist wieder da", und wenn der Nutzer hinsieht, soll er das auch
+    // sein. Der Server ist der einzige Ort, an dem der Inhalt noch liegt (die
+    // Delete-Op traegt eine leere Payload), also kostet das einen Read.
+    if (droppedDeletes.isNotEmpty) await _restoreDroppedDeletes(droppedDeletes);
+    if (_disposed) return;
+    // Beide Meldungen, wenn beides passiert ist — sie widersprechen sich nicht,
+    // sie beschreiben zwei verschiedene Verluste.
+    if (droppedWrites) _notifyOutboxLoss();
+    if (droppedDeletes.isNotEmpty) _notifyOutboxLoss(deletesLost: true);
     // Eine leere Queue ist „fertig", auch wenn Ops blockiert WAREN: sie sind
     // dann alle verworfen worden, und ein Backoff-Timer haette nichts mehr zu
     // tun.
@@ -367,6 +537,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       if (anySuccess) {
         _syncHintShown = false;
         _outboxLossNotified = false;
+        _outboxDeleteLossNotified = false;
       }
     } else {
       _scheduleOutboxRetry();
@@ -384,17 +555,35 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///    Budget der Grund war, verraet die Gegenprobe mit `attempts: 0`: sagt
   ///    die Klassifizierung auch ohne verbrauchtes Budget „drop", kam der
   ///    Verwurf aus dem Fehler selbst (Gift-Op) und bleibt sofort wirksam.
+  ///  * A5 — fuer [SyncOp.isDelete] gibt es keinen Sofort-Verwurf (die
+  ///    Klassifizierung liefert fuer sie „drop" ausschliesslich am Ende des
+  ///    Delete-Budgets), und die Frist ist die lange [kOutboxDeleteMinAge].
+  ///    Beide Bedingungen muessen erfuellt sein — das Budget allein waere von
+  ///    Lifecycle-Churn in Sekunden verbrannt, die Wanduhr allein wuerde eine
+  ///    lange offline liegende Op an der ersten Server-Ablehnung verwerfen.
+  ///
+  /// Die Wanduhr laeuft ueber `clock.now()`: die Frist ist damit mit einer
+  /// injizierten Uhr pruefbar, und ein Rueckwaertssprung der Systemzeit macht
+  /// keine Op mehr unverwerfbar.
   OutboxVerdict _verdictFor(Object error, SyncOp op) {
     if (error is _CorruptOpPayload) return OutboxVerdict.drop;
     final verdict = classifyOutboxFailure(error, op.attempts, kind: op.kind);
     if (verdict != OutboxVerdict.drop) return verdict;
+    if (op.isDelete) {
+      return _agedOut(op, kOutboxDeleteMinAge)
+          ? OutboxVerdict.drop
+          : OutboxVerdict.retryCounted;
+    }
     if (classifyOutboxFailure(error, 0, kind: op.kind) == OutboxVerdict.drop) {
       return OutboxVerdict.drop;
     }
-    return DateTime.now().difference(op.queuedAt) >= kOutboxMinAgeBeforeDrop
+    return _agedOut(op, kOutboxMinAgeBeforeDrop)
         ? OutboxVerdict.drop
         : OutboxVerdict.retryCounted;
   }
+
+  bool _agedOut(SyncOp op, Duration minAge) =>
+      clock.now().difference(op.queuedAt) >= minAge;
 
   /// Fuehrt EINE Outbox-Op gegen den Server aus. Wirft bei Sync-Fehler (der
   /// Replay-Loop behaelt die Op dann) und bei nicht lesbarer Payload
@@ -545,8 +734,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// 2026-08-08, A2). Vorher hieß Ausloggen: sechs im Flugzeug geloggte
   /// Mahlzeiten sind weg — nicht eingereiht, nicht wiederherstellbar, nie
   /// erwähnt. Jetzt läuft zuerst ein Zustellversuch; bleibt danach etwas
-  /// liegen, überlebt die Outbox (und mit ihr die pendenden Stats-Deltas) den
-  /// Logout und spielt beim nächsten Login desselben Users nach.
+  /// liegen, überleben Outbox UND pendende Stats-Deltas den Logout und spielen
+  /// beim nächsten Login desselben Users nach.
+  ///
+  /// „Etwas" heißt ausdrücklich BEIDE Kanäle. Die Deltas hängen nicht an der
+  /// Outbox: der Mahlzeiten-Write kann gelingen, während
+  /// `increment_lifetime_stats` (eigener RPC, [_flushStatsDelta]) scheitert —
+  /// dann ist die Queue leer und die Zähler stehen trotzdem aus. Hinge
+  /// `preserveOutbox` allein an `_outbox.length`, nähme genau diese
+  /// Kombination dem Nutzer die Lebenszeit-Zähler und damit die
+  /// Streak-Grundlage (kein Mahlzeiteninhalt, aber auch nicht nichts).
   ///
   /// Die alte Begründung (PII darf den Logout nicht überleben) trägt für
   /// diesen einen Slot nicht mehr: der Cache ist seit `7f895f9`
@@ -557,10 +754,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // Zustellversuch VOR dem Verwerfen: online ist die Queue danach leer und
     // es bleibt beim vollständigen Räumen wie bisher.
     await _replayOutbox();
+    // Die pendenden Lifetime-Deltas sind ein EIGENER Zustand, kein Teil der
+    // Outbox: der Mahlzeiten-Write kann gelingen, während
+    // `increment_lifetime_stats` (eigener RPC) scheitert. Dann ist die Queue
+    // leer und die Deltas stehen — also braucht auch dieser Kanal seinen
+    // Zustellversuch, sonst zieht der Logout die Streak-Grundlage weg.
+    // Nach dem Replay, weil ein nachgeholter mealInsert selbst ein Delta
+    // erzeugt (_queueStatsDelta).
+    await _flushStatsDelta();
     // Nur was die Zustellung nicht losgeworden ist, rechtfertigt einen
-    // überlebenden Slot. Maßgeblich ist die Queue des Stores — sie ist der
-    // Spiegel des persistierten Blobs, sobald der Boot gelaufen ist.
-    final remaining = _outbox.length;
+    // überlebenden Slot. Maßgeblich ist der Store-Zustand — er ist der
+    // Spiegel des persistierten Blobs, sobald der Boot gelaufen ist. Beide
+    // Kanäle zählen: `preserveOutbox` hält _outboxKey UND _pendingStatsKey.
+    final remaining = _outbox.length +
+        _pendingMealsDelta.abs() +
+        _pendingWeightLogsDelta.abs();
     // D9: die geplanten Erinnerungen sind OS-Zustand und kennen keinen User.
     // Ohne diesen Aufruf zeigt das Familien-Tablet der neu angemeldeten
     // Person abends die Streak-Erinnerung der vorherigen.

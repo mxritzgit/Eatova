@@ -280,8 +280,19 @@ class PluginSecureKeyStore implements SecureKeyStore {
   /// Ein `resetOnError`-Aequivalent gibt es auf Apple NICHT: `AppleOptions`
   /// (flutter_secure_storage 10.3.1, `lib/options/apple_options.dart`) kennt
   /// kein solches Feld, und die Swift-Seite loescht bei einem
-  /// Keychain-Fehler nichts, sondern reicht den OSStatus durch. Auf iOS ist
-  /// der Sentinel unten also die einzige — und ausreichende — Absicherung.
+  /// Keychain-Fehler nichts, sondern reicht den OSStatus durch
+  /// (`FlutterSecureStorage.swift:469`: alles ausser `errSecItemNotFound`
+  /// wird zur PlatformException).
+  ///
+  /// PREIS DIESER WAHL — und der Grund fuer die Aufgabe-Logik in
+  /// [CacheKeyProvider]: `ThisDeviceOnly`-Keychain-Items sind von iCloud- UND
+  /// von verschluesselten iTunes-Backups AUSGESCHLOSSEN. Auf einem
+  /// wiederhergestellten Geraet ist der DEK also weg — waehrend
+  /// NSUserDefaults (= SharedPreferences, wo die `EATOVA1:`-Blobs und der
+  /// Sentinel liegen) mitwandert. Das Android-Gegenstueck dazu ist
+  /// `android/app/src/main/res/xml/data_extraction_rules.xml`, das genau
+  /// deshalb ALLE SharedPreferences von Backup und D2D-Transfer ausnimmt;
+  /// eine iOS-Entsprechung dafuer gibt es im Repo nicht.
   static const IOSOptions iosOptions =
       IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device);
 
@@ -309,9 +320,76 @@ class PluginSecureKeyStore implements SecureKeyStore {
 /// abbildet:
 ///   (a) Erststart / frische Installation  -> DEK praegen ist richtig
 ///   (b) Der Keystore hat den Eintrag verloren -> DEK praegen zerstoert Daten
+/// Traegt daneben zwei weitere Bits, die denselben Vorfall ueberleben muessen
+/// wie der Sentinel selbst: den Strike-Zaehler des Aufgabe-Budgets und den
+/// Nutzerhinweis. Beide gehoeren fachlich zum Sentinel — sie beschreiben
+/// dessen Nachspiel — und teilen seine Haltbarkeitszusage (gehen NUR gemeinsam
+/// mit den Blobs verloren). Ein eigener Speicher waere ein zweiter Ort mit
+/// derselben Anforderung.
 abstract class DekSentinelStore {
   Future<bool> isProvisioned();
   Future<void> markProvisioned();
+
+  /// Anzahl bisheriger App-Starts, die den DEK vermisst haben, obwohl der
+  /// Sentinel steht. 0 = kein laufender Vorfall.
+  Future<int> vanishStrikes();
+
+  /// Setzt den Zaehler. `<= 0` loescht den Eintrag.
+  Future<void> setVanishStrikes(int value);
+
+  /// Hinterlegt "der lokale Cache musste aufgegeben werden" fuer die UI.
+  /// Wird von [CacheKeyProvider.consumeCacheResetNotice] gelesen und geloescht.
+  Future<void> raiseCacheResetNotice();
+}
+
+/// A1/iOS: Blick auf die verschluesselten Cache-Slots, OHNE den DEK zu
+/// brauchen.
+///
+/// Der Bootstrap muss vor dem Praegen wissen, ob ueberhaupt etwas da ist, das
+/// ein frischer DEK verwaisen lassen wuerde. Das geht nicht ueber
+/// [KeyValueStore]: der kann nur nach EINEM bekannten Key fragen, kennt keine
+/// Aufzaehlung — und `local_cache.dart` gehoert nicht dieser Datei. Deshalb
+/// eine eigene, schmale Naht direkt auf SharedPreferences.
+///
+/// Die Zugehoerigkeit wird ausschliesslich am [cacheCipherMagic] festgemacht,
+/// NICHT am Key-Namen: das Magic schreibt nur [EncryptedKeyValueStore], es ist
+/// damit die einzige Aussage, die tatsaechlich "nur unser DEK oeffnet das"
+/// bedeutet. Ein zusaetzlicher `eatova.v1.`-Namensfilter waere eine zweite,
+/// schwaechere Wahrheit, die auseinanderlaufen kann.
+abstract class CacheCiphertextProbe {
+  /// Storage-Keys, deren Wert mit [cacheCipherMagic] beginnt.
+  Future<List<String>> encryptedKeys();
+
+  /// Loescht GENAU [keys]. Wird nur mit dem Ergebnis von [encryptedKeys]
+  /// aufgerufen, raeumt also nie einen Klartext- oder Fremd-Slot.
+  Future<void> purge(Iterable<String> keys);
+}
+
+/// Production-Implementierung: SharedPreferences.
+class PrefsCacheCiphertextProbe implements CacheCiphertextProbe {
+  const PrefsCacheCiphertextProbe();
+
+  @override
+  Future<List<String>> encryptedKeys() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hits = <String>[];
+    for (final key in prefs.getKeys()) {
+      // `get` statt `getString`: im selben Namensraum liegen auch bool-, int-
+      // und List-Werte (unser Sentinel z.B.), und `getString` wuerde darauf
+      // einen TypeError werfen.
+      final value = prefs.get(key);
+      if (value is String && value.startsWith(cacheCipherMagic)) hits.add(key);
+    }
+    return hits;
+  }
+
+  @override
+  Future<void> purge(Iterable<String> keys) async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in keys) {
+      await prefs.remove(key);
+    }
+  }
 }
 
 /// Production-Implementierung: SharedPreferences.
@@ -346,17 +424,67 @@ class PrefsDekSentinelStore implements DekSentinelStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(CacheKeyProvider.dekProvisionedKey, true);
   }
+
+  @override
+  Future<int> vanishStrikes() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(CacheKeyProvider.dekVanishStrikesKey) ?? 0;
+  }
+
+  @override
+  Future<void> setVanishStrikes(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    // 0 als Abwesenheit speichern statt als Wert: der Normalfall (kein
+    // Vorfall) hinterlaesst dann gar keinen Eintrag.
+    if (value <= 0) {
+      await prefs.remove(CacheKeyProvider.dekVanishStrikesKey);
+      return;
+    }
+    await prefs.setInt(CacheKeyProvider.dekVanishStrikesKey, value);
+  }
+
+  @override
+  Future<void> raiseCacheResetNotice() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(CacheKeyProvider.cacheResetNoticeKey, true);
+  }
 }
 
 /// Bereinigtes Fehlerobjekt fuer den Crash-Report, wenn der DEK verschwunden
-/// ist, obwohl der Sentinel steht. Traegt bewusst KEINE Kennung.
+/// ist, obwohl der Sentinel steht — der Bootstrap hat abgebrochen und die
+/// Ciphertexte liegen lassen. Traegt bewusst KEINE Kennung.
 class VanishedCacheKey implements Exception {
-  const VanishedCacheKey();
+  const VanishedCacheKey({required this.strike, required this.budget});
+
+  /// Der wievielte App-Start in Folge das war.
+  final int strike;
+
+  /// Ab wie vielen Strikes aufgegeben wird ([CacheKeyProvider.vanishStrikeBudget]).
+  final int budget;
 
   @override
   String toString() =>
-      'VanishedCacheKey: DEK fehlt trotz gesetztem Sentinel — Bootstrap '
-      'abgebrochen statt neu gepraegt';
+      'VanishedCacheKey($strike/$budget): DEK fehlt trotz gesetztem Sentinel — '
+      'Bootstrap abgebrochen statt neu gepraegt';
+}
+
+/// Bereinigtes Fehlerobjekt fuer den Crash-Report, wenn das Strike-Budget
+/// aufgebraucht ist: der DEK gilt als endgueltig verloren, die toten
+/// Ciphertexte wurden geraeumt und ein frischer DEK gepraegt.
+///
+/// Das ist der Zustand, in dem die App auf iOS nach einem Geraete-Restore
+/// landet — und der einzige Weg zurueck zu einem funktionierenden Cache samt
+/// Outbox. Traegt nur eine Anzahl, keinen Key und keinen Ciphertext.
+class AbandonedCacheKey implements Exception {
+  const AbandonedCacheKey({required this.purgedSlots, required this.budget});
+
+  final int purgedSlots;
+  final int budget;
+
+  @override
+  String toString() =>
+      'AbandonedCacheKey: DEK nach $budget Starts als verloren behandelt — '
+      '$purgedSlots tote Slots geraeumt, frischer DEK gepraegt';
 }
 
 /// Bootstrap des Data-Encryption-Key (DEK) — memoisiert und single-flight.
@@ -373,9 +501,48 @@ class CacheKeyProvider {
   /// Begruendung siehe [PrefsDekSentinelStore].
   static const String dekProvisionedKey = 'eatova.v1.dek_provisioned';
 
+  /// Zaehler der App-Starts, die den DEK trotz Sentinel vermisst haben.
+  static const String dekVanishStrikesKey = 'eatova.v1.dek_vanish_strikes';
+
+  /// Flag fuer die UI: der lokale Cache musste aufgegeben werden.
+  /// Wird von [consumeCacheResetNotice] gelesen und dabei geloescht.
+  static const String cacheResetNoticeKey = 'eatova.v1.cache_reset_notice';
+
+  /// Wie viele App-Starts in Folge abgebrochen wird, bevor der DEK als
+  /// ENDGUELTIG verloren gilt.
+  ///
+  /// Warum ueberhaupt ein Budget — und warum genau dieses:
+  ///
+  /// Seit `resetOnError: false` ist ein `null` aus dem Keystore KEIN
+  /// Fehlersignal mehr. Beide Plattformen melden jeden echten Fehler als
+  /// Exception (Android: `FlutterSecureStoragePlugin.java:240` ruft ohne
+  /// `shouldDeleteOnFailure` direkt `result.error`; Apple:
+  /// `FlutterSecureStorage.swift:466-470` mappt nur `errSecItemNotFound` auf
+  /// nil und reicht jeden anderen OSStatus als Fehler durch). Der Zweig hier
+  /// sieht also immer ein definitives "diesen Eintrag gibt es nicht" — und
+  /// dafuer gibt es keinen Rueckweg: `ThisDeviceOnly` ist in keinem iOS-Backup,
+  /// und ein Android-Keystore-Key ist nicht exportierbar. Ein Warten auf die
+  /// Rueckkehr des DEK wartet auf etwas, das nicht passieren kann.
+  ///
+  /// Trotzdem 3 statt 1: das ist eine Aussage ueber ZWEI Plugin-Quelltexte und
+  /// zwei Hersteller-Dokus, nicht ueber ein Naturgesetz. Ein neues
+  /// Plugin-Release, eine OEM-Eigenheit oder der Secure-Enclave-Fallback
+  /// koennten irgendwann doch einmal ein transientes nil liefern. Der Preis
+  /// des Budgets ist im schlimmsten Fall zwei zusaetzliche Kaltstarts ohne
+  /// Cache (Minuten, nicht Tage) — der Preis eines Fehlurteils in der
+  /// Gegenrichtung waere ein geraeumter Outbox-Blob. Damit muss die Analyse
+  /// oben nicht stimmen, damit die App richtig handelt.
+  static const int vanishStrikeBudget = 3;
+
   /// Memoisierter Bootstrap. MUSS synchron gesetzt werden, bevor irgendein
   /// `await` laufen kann — siehe [obtain].
   static Future<Uint8List?>? _pending;
+
+  /// Ein Strike ist ein APP-START, kein [obtain]-Aufruf. `LocalCache.create`
+  /// ist aus zwei Stellen erreichbar (Boot, Logout) und ein gescheiterter
+  /// Bootstrap wird bewusst NICHT memoisiert — ohne dieses Flag waere das
+  /// Budget nach einer einzigen Session aufgebraucht.
+  static bool _vanishStrikeCounted = false;
 
   /// Liefert den DEK (32 Bytes) oder null, wenn er weder gelesen noch angelegt
   /// werden konnte.
@@ -397,10 +564,12 @@ class CacheKeyProvider {
   static Future<Uint8List?> obtain({
     SecureKeyStore? keyStore,
     DekSentinelStore? sentinelStore,
+    CacheCiphertextProbe? probe,
   }) {
     final started = _pending ??= _bootstrap(
       keyStore ?? const PluginSecureKeyStore(),
       sentinelStore ?? const PrefsDekSentinelStore(),
+      probe ?? const PrefsCacheCiphertextProbe(),
     );
     // Ein GESCHEITERTER Bootstrap (null) wird nicht dauerhaft gemerkt: sonst
     // bliebe der Cache nach EINEM transienten Keystore-Fehler fuer den Rest
@@ -414,13 +583,37 @@ class CacheKeyProvider {
     return started;
   }
 
-  /// Setzt die Memoisierung zurueck (nur Tests).
+  /// Liest den Hinweis "der lokale Cache musste aufgegeben werden" und loescht
+  /// ihn dabei — der Aufrufer zeigt ihn genau einmal.
+  ///
+  /// NOCH NICHT VERDRAHTET: die UI-Seite (ein Hinweis beim ersten Frame nach
+  /// dem Boot) liegt ausserhalb dieser Datei. Bis dahin ist der Hinweis
+  /// persistiert und geht nicht verloren — er wartet nur.
+  static Future<bool> consumeCacheResetNotice() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(cacheResetNoticeKey) != true) return false;
+      await prefs.remove(cacheResetNoticeKey);
+      return true;
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Cache-Reset-Hinweis nicht lesbar',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+      return false;
+    }
+  }
+
+  /// Setzt die Memoisierung zurueck (nur Tests). Simuliert einen App-Start:
+  /// auch der Pro-Prozess-Strike faellt weg.
   @visibleForTesting
-  static void debugReset() => _pending = null;
+  static void debugReset() {
+    _pending = null;
+    _vanishStrikeCounted = false;
+  }
 
   static Future<Uint8List?> _bootstrap(
     SecureKeyStore keyStore,
     DekSentinelStore sentinel,
+    CacheCiphertextProbe probe,
   ) async {
     final String? stored;
     try {
@@ -448,6 +641,10 @@ class CacheKeyProvider {
         // ungeschuetzt, weil der Sentinel erst beim naechsten (nie
         // stattfindenden) Erst-Praegen entstuende.
         await _markProvisioned(sentinel);
+        // Der Vorfall (falls einer lief) ist vorbei. Ohne diesen Reset
+        // summierten sich unabhaengige Aussetzer ueber Monate, und irgendwann
+        // gaebe EIN einzelner sofort auf.
+        await _clearVanishStrikes(sentinel);
         return decoded;
       }
       // Ein vorhandener, aber strukturell kaputter DEK-Eintrag: die damit
@@ -460,29 +657,10 @@ class CacheKeyProvider {
       dev.log('CacheKeyProvider: DEK-Eintrag korrupt, wird neu erzeugt',
           name: 'secure_cache_store');
     } else if (await _wasProvisioned(sentinel)) {
-      // A1, der eigentliche Schutz. Der Keystore meldet "kein Key", aber auf
-      // diesem Geraet wurde schon einmal einer gepraegt — also wurde er
-      // geloescht (resetOnError, invalidierter Key, Backup-Restore ohne
-      // Keychain). Ein frischer DEK wuerde jetzt alle `EATOVA1:`-Slots
-      // unentschluesselbar machen, `_onUndecryptable` wuerde sie raeumen, und
-      // die Outbox-Ops waeren endgueltig weg — der Server kann sie nicht
-      // rekonstruieren.
-      //
-      // Stattdessen: aufgeben. Die Ciphertexte bleiben unangetastet liegen.
-      // Kehrt der Schluessel je zurueck (Restore der Keychain, Downgrade),
-      // sind sie wieder lesbar. Loescht der Nutzer die App-Daten, verschwindet
-      // der Sentinel mit den Blobs und der naechste Start praegt wieder
-      // regulaer — die App bleibt also nicht dauerhaft klemmt.
-      dev.log(
-          'CacheKeyProvider: DEK fehlt trotz Sentinel — kein Neu-Praegen '
-          '(sonst Totalverlust des Caches inkl. Outbox)',
-          name: 'secure_cache_store');
-      unawaited(CrashReporter.capture(
-        const VanishedCacheKey(),
-        StackTrace.current,
-        context: 'cache_dek_vanished',
-      ));
-      return null;
+      // A1: der Keystore meldet "kein Key", aber auf diesem Geraet wurde schon
+      // einmal einer gepraegt. Ob das ein Grund zum Abbrechen ist, haengt
+      // davon ab, ob ueberhaupt etwas da ist, das verwaisen koennte.
+      if (!await _mayMintAfterVanishedDek(sentinel, probe)) return null;
     }
 
     final fresh = _generateDek();
@@ -501,6 +679,170 @@ class CacheKeyProvider {
     // naechste Start liefe in den Abbruch-Zweig oben, dauerhaft.
     await _markProvisioned(sentinel);
     return fresh;
+  }
+
+  /// Entscheidet den Zustand "Sentinel steht, aber der Keystore hat keinen DEK
+  /// mehr". `true` = praegen ist jetzt richtig, `false` = abbrechen.
+  ///
+  /// --- Warum der urspruengliche Dauer-Abbruch falsch war -------------------
+  ///
+  /// Er wurde gegen "der DEK ist nur GERADE weg und kommt zurueck" gebaut.
+  /// Dieses Szenario ist seit `resetOnError: false` in einem anderen Zweig
+  /// (der `catch` um `keyStore.read`) — hier unten kommt nur noch ein
+  /// definitives "gibt es nicht" an, siehe [vanishStrikeBudget].
+  ///
+  /// Real erreichen diesen Punkt zwei Zustaende:
+  ///
+  ///   (a) DEK weg, Sentinel da, KEIN `EATOVA1:`-Slot.
+  ///       "App-Daten teilweise geloescht" bzw. ein Restore, bei dem auch die
+  ///       Blobs fehlen. Es gibt nichts zu verwaisen — der ganze Abbruchgrund
+  ///       existiert nicht. Sofort praegen.
+  ///
+  ///   (b) DEK weg, Sentinel da, `EATOVA1:`-Slots da.
+  ///       Der iOS-Restore-Fall (siehe [PluginSecureKeyStore.iosOptions]).
+  ///       Diese Blobs sind UNENTSCHLUESSELBAR UND BLEIBEN ES: der DEK
+  ///       existiert nirgends mehr, auch nicht im Backup. Sie festzuhalten
+  ///       schuetzt kein einziges Byte — es blockiert nur den Cache, und damit
+  ///       die persistierte Outbox, in JEDER kuenftigen Session. Der Abbruch
+  ///       taeuscht also totes Datum gegen alle zukuenftigen ein: die
+  ///       gerettete Mahlzeit von gestern gibt es nicht, die verlorene von
+  ///       morgen schon.
+  ///
+  /// Deshalb: in (b) abbrechen, aber MITZAEHLEN, und nach
+  /// [vanishStrikeBudget] Starts aufgeben — Ciphertexte raeumen, frisch
+  /// praegen, Nutzerhinweis hinterlegen. Ein sichtbarer Neuanfang ist besser
+  /// als ein stiller, und beides ist besser als dauerhaft klemmt.
+  static Future<bool> _mayMintAfterVanishedDek(
+    DekSentinelStore sentinel,
+    CacheCiphertextProbe probe,
+  ) async {
+    // null = Probe unbrauchbar. FAIL CLOSED wie ueberall hier: unbekannt wird
+    // wie "Blobs vorhanden" behandelt.
+    final List<String>? orphans = await _encryptedSlots(probe);
+
+    if (orphans != null && orphans.isEmpty) {
+      await _clearVanishStrikes(sentinel);
+      dev.log(
+          'CacheKeyProvider: DEK fehlt trotz Sentinel, aber kein EATOVA1-Slot '
+          '— Praegen ist gefahrlos',
+          name: 'secure_cache_store');
+      return true;
+    }
+
+    final int? strike = await _recordVanishStrike(sentinel);
+    // Schon in diesem Prozess entschieden — nicht doppelt zaehlen und nicht
+    // doppelt melden.
+    if (strike == null) return false;
+
+    if (strike < vanishStrikeBudget) {
+      dev.log(
+          'CacheKeyProvider: DEK fehlt trotz Sentinel (Start $strike von '
+          '$vanishStrikeBudget) — kein Neu-Praegen, Ciphertexte bleiben liegen',
+          name: 'secure_cache_store');
+      unawaited(CrashReporter.capture(
+        VanishedCacheKey(strike: strike, budget: vanishStrikeBudget),
+        StackTrace.current,
+        context: 'cache_dek_vanished',
+      ));
+      return false;
+    }
+
+    // Budget aufgebraucht: der DEK kommt nicht zurueck.
+    //
+    // Die toten Ciphertexte werden hier AKTIV geraeumt statt sie
+    // `_onUndecryptable` zu ueberlassen. Zwei Gruende: sie sind zwar
+    // unlesbare, aber echte Gesundheitsdaten, und `_onUndecryptable` erwischt
+    // nur die neun Slots, die [LocalCache] beim aktuellen User wirklich liest
+    // — Slots eines frueheren Users im selben Namensraum blieben sonst fuer
+    // immer liegen.
+    final int purged = orphans?.length ?? 0;
+    if (orphans != null) await _purgeSlots(probe, orphans);
+    await _raiseCacheResetNotice(sentinel);
+    await _clearVanishStrikes(sentinel);
+    dev.log(
+        'CacheKeyProvider: DEK nach $vanishStrikeBudget Starts als verloren '
+        'behandelt — $purged tote Slots geraeumt, praege neu',
+        name: 'secure_cache_store');
+    unawaited(CrashReporter.capture(
+      AbandonedCacheKey(purgedSlots: purged, budget: vanishStrikeBudget),
+      StackTrace.current,
+      context: 'cache_dek_given_up',
+    ));
+    return true;
+  }
+
+  /// Erhoeht den Strike-Zaehler — HOECHSTENS EINMAL pro Prozess. Liefert den
+  /// neuen Stand, oder null, wenn dieser Prozess schon gezaehlt hat.
+  static Future<int?> _recordVanishStrike(DekSentinelStore sentinel) async {
+    if (_vanishStrikeCounted) return null;
+    _vanishStrikeCounted = true;
+    final int next = await _vanishStrikes(sentinel) + 1;
+    await _setVanishStrikes(sentinel, next);
+    return next;
+  }
+
+  /// Verschluesselte Slots ermitteln. null = konnte nicht ermittelt werden.
+  static Future<List<String>?> _encryptedSlots(
+      CacheCiphertextProbe probe) async {
+    try {
+      return await probe.encryptedKeys();
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Ciphertext-Probe fehlgeschlagen — fail closed',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+      return null;
+    }
+  }
+
+  static Future<void> _purgeSlots(
+      CacheCiphertextProbe probe, List<String> keys) async {
+    try {
+      await probe.purge(keys);
+    } catch (e, s) {
+      // Nicht schlimm: was liegen bleibt, faellt beim naechsten Read in
+      // `_onUndecryptable` und wird dort geraeumt.
+      dev.log('CacheKeyProvider: Purge toter Slots fehlgeschlagen',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+    }
+  }
+
+  /// Strike-Zaehler lesen. Bei Fehler 0 — dann bleibt der Zaehler stehen und
+  /// das Budget laeuft nie ab. Das ist genau dann der Fall, wenn
+  /// SharedPreferences als Ganzes nicht funktioniert; dort liegen aber auch
+  /// die Blobs, es gibt also weder etwas zu verlieren noch zu cachen.
+  static Future<int> _vanishStrikes(DekSentinelStore sentinel) async {
+    try {
+      return await sentinel.vanishStrikes();
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Strike-Zaehler nicht lesbar',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+      return 0;
+    }
+  }
+
+  static Future<void> _setVanishStrikes(
+      DekSentinelStore sentinel, int value) async {
+    try {
+      await sentinel.setVanishStrikes(value);
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Strike-Zaehler nicht schreibbar',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+    }
+  }
+
+  /// Nur schreiben, wenn es etwas zu loeschen gibt — der Erfolgspfad laeuft
+  /// bei JEDEM Kaltstart hier durch.
+  static Future<void> _clearVanishStrikes(DekSentinelStore sentinel) async {
+    if (await _vanishStrikes(sentinel) == 0) return;
+    await _setVanishStrikes(sentinel, 0);
+  }
+
+  static Future<void> _raiseCacheResetNotice(DekSentinelStore sentinel) async {
+    try {
+      await sentinel.raiseCacheResetNotice();
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Cache-Reset-Hinweis nicht schreibbar',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+    }
   }
 
   /// Sentinel lesen. Faellt FAIL-CLOSED aus: wer nicht sagen kann, ob schon
@@ -577,10 +919,12 @@ class EncryptedKeyValueStore implements KeyValueStore {
     KeyValueStore inner, {
     SecureKeyStore? keyStore,
     DekSentinelStore? sentinelStore,
+    CacheCiphertextProbe? probe,
   }) async {
     final dek = await CacheKeyProvider.obtain(
       keyStore: keyStore,
       sentinelStore: sentinelStore,
+      probe: probe,
     );
     if (dek == null) return null;
     return EncryptedKeyValueStore(inner, AesGcmCacheCipher(dek));

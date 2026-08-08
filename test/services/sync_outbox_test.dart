@@ -16,10 +16,11 @@ import 'package:eatova/src/services/sync_outbox.dart';
 //   4. Der Zustellversuchs-Zaehler (attempts) roundtrippt, bleibt
 //      abwaertskompatibel (fehlt im Legacy-JSON -> 0) und wird beim
 //      Koaleszieren bewusst ZURUECKGESETZT.
-//   5. capOutbox deckelt die Queue und verwirft dabei die AELTESTEN Ops —
-//      aber NIE eine *Delete-Op: deren Verlust ist der einzige, den der
+//   5. capOutbox deckelt die Queue und verwirft dabei die AELTESTEN Ops.
+//      *Delete-Ops fallen ZULETZT — deren Verlust ist der einzige, den der
 //      naechste Kaltstart nicht heilt, sondern rueckgaengig macht (die
-//      Serverzeile ueberlebt, der lokale Zustand nicht).
+//      Serverzeile ueberlebt, der lokale Zustand nicht). Sie fallen aber:
+//      der Cap ist eine harte Obergrenze, sonst waechst der Blob unbegrenzt.
 
 MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
     MealAnalysisResult(
@@ -201,24 +202,27 @@ void main() {
     });
 
     test(
-        'Delete-Ops verbrauchen KEIN Budget — incrementAttempt laesst sie '
-        'unveraendert', () {
+        'Delete-Ops zaehlen ihre Versuche MIT — ohne Zaehler waeren sie '
+        'unsterblich und die Outbox nie leer', () {
       // Ein verworfener Delete ist der einzige Verlust, den der naechste
       // Kaltstart nicht nur nicht heilt, sondern aktiv rueckgaengig macht:
       // die geloeschte Mahlzeit kommt vom Server zurueck und zaehlt erneut.
-      // Deletes sind idempotent und winzig — sie duerfen ewig retryen, also
-      // wird fuer sie auch nichts gezaehlt (und nichts persistiert, das ein
-      // aelterer Build als aufgebrauchtes Budget lesen wuerde).
+      // Deletes bekommen deshalb ein VIEL groesseres Budget
+      // ([kOutboxDeleteMaxAttempts]) — aber eben ein endliches. Ein Delete
+      // ohne Zaehler haette die Queue dauerhaft gefuellt gehalten: 4-Minuten-
+      // Retry-Timer ohne Ende, `preserveOutbox` fuer immer true (Audit M-1)
+      // und ein Queue-Cap, der den Ueberlauf nicht mehr abbauen kann.
       final deletes = <SyncOp>[
         SyncOp.mealDelete('m-1'),
         SyncOp.favoriteDelete('barcode:4001234'),
         SyncOp.recipeDelete('user_123'),
       ];
       for (final op in deletes) {
-        expect(op.incrementAttempt().incrementAttempt().attempts, 0,
-            reason: '${op.kind.name} darf kein Budget verbrennen');
-        expect(op.incrementAttempt().toJson().containsKey('attempts'), isFalse,
-            reason: '${op.kind.name}: kein Zaehler im Wire-Format');
+        expect(op.incrementAttempt().incrementAttempt().attempts, 2,
+            reason: '${op.kind.name} muss zaehlbar sein');
+        expect(op.incrementAttempt().toJson()['attempts'], 1,
+            reason: '${op.kind.name}: der Zaehler ueberlebt den App-Neustart');
+        expect(op.attempts, 0, reason: 'das Original bleibt unangetastet');
       }
       // Gegenprobe: Schreib-Ops zaehlen unveraendert weiter.
       expect(SyncOp.mealUpsert(_meal('m-1')).incrementAttempt().attempts, 1);
@@ -476,16 +480,47 @@ void main() {
     });
 
     test(
-        'eine reine Loesch-Queue ueber dem Cap wird gar nicht gekappt — '
-        'Deletes sind winzig und ihr Verlust ist nicht heilbar', () {
+        'der Cap ist eine HARTE Obergrenze — auch eine reine Loesch-Queue '
+        'wird gekappt, sobald keine Schreib-Op mehr da ist', () {
+      // Zielkollision: „Deletes nie kappen" haette den Cap fuer eine Queue
+      // aus lauter unzustellbaren Deletes komplett ausgehebelt — genau das
+      // unbegrenzte Wachstum des SharedPreferences-Blobs (JSON-Encode/Decode
+      // bei JEDEM Write, irgendwann ANR), gegen das der Cap geschrieben
+      // wurde. Aufloesung: Deletes sind die LETZTEN, die fallen, aber sie
+      // fallen. Der Store blendet die betroffenen Eintraege danach wieder ein
+      // und meldet es.
       final queue = <SyncOp>[
         for (var i = 0; i < 6; i++) SyncOp.mealDelete('m-$i'),
       ];
       final capped = capOutbox(queue, maxOps: 4);
 
-      expect(capped.dropped, isEmpty);
+      expect(capped.queue, hasLength(4));
+      expect(capped.dropped.map((o) => o.entityId).toList(),
+          <String>['m-0', 'm-1'],
+          reason: 'aeltestes zuerst, wie bei den Schreib-Ops');
       expect(capped.queue.map((o) => o.entityId).toList(),
-          <String>['m-0', 'm-1', 'm-2', 'm-3', 'm-4', 'm-5']);
+          <String>['m-2', 'm-3', 'm-4', 'm-5']);
+    });
+
+    test(
+        'gemischte Queue ueber dem Cap: erst fallen ALLE Schreib-Ops, '
+        'Deletes erst danach', () {
+      final queue = <SyncOp>[
+        SyncOp.mealUpsert(_meal('m-0')),
+        SyncOp.mealDelete('d-0'),
+        SyncOp.mealUpsert(_meal('m-1')),
+        SyncOp.mealDelete('d-1'),
+        SyncOp.mealDelete('d-2'),
+      ];
+      final capped = capOutbox(queue, maxOps: 2);
+
+      expect(capped.dropped.map((o) => o.entityId).toList(),
+          <String>['m-0', 'm-1', 'd-0'],
+          reason: 'die zwei Schreib-Ops zuerst, dann der aelteste Delete');
+      expect(capped.queue.map((o) => o.entityId).toList(),
+          <String>['d-1', 'd-2']);
+      expect(capped.queue.length + capped.dropped.length, queue.length,
+          reason: 'nichts geht unterwegs verloren');
     });
 
     test('massiv uebergrosse Legacy-Queue kollabiert in EINEM Durchlauf', () {

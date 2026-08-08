@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -16,7 +17,7 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meals_sync.dart' show mealResultToJson;
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart'
-    show outboxLossHint;
+    show outboxDeleteLossHint, outboxLossHint;
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/theme/app_colors.dart';
 
@@ -1009,6 +1010,252 @@ void main() {
     expect(await s.cache.readLoggedMeals(), isNull);
     expect(await s.cache.readWeightLog(), isNull);
     expect(await s.cache.readFavorites(), isNull);
+  });
+
+  // --- Verifikation V1 (Welle 6): Restluecken aus A2/A4/A5 ------------------
+
+  test(
+      'L1: ein Delete gegen einen kalten Schema-Cache (400/SQLSTATE) wird '
+      'NICHT sofort verworfen — die Mahlzeit bleibt geloescht', () async {
+    final s = _setup();
+    await _boot(s.store);
+    final id = s.store.addResultToDailyTotal(_result('Fehlscan-Bowl'));
+    await _settle();
+    expect(s.server.mealRows.keys, contains(id),
+        reason: 'Vorbedingung: die Zeile steht auf dem Server');
+
+    // Migration laeuft, der Schema-Cache ist kalt: JEDER logged_meals-Write —
+    // auch der DELETE — kommt als 400 mit SQLSTATE im Body zurueck.
+    s.server.poisonMealWrites = true;
+    s.store.removeLoggedMeal(id);
+    await _settle();
+    for (var i = 0; i < 5; i++) {
+      s.store.flushPendingWrites();
+      await _settle();
+    }
+
+    // Frueher: Sofort-Verwurf beim ersten Replay. Die Serverzeile blieb, der
+    // lokale Zustand nicht — der naechste Kaltstart holte die 1800 kcal
+    // zurueck, ohne dass irgendetwas davon erzaehlt haette.
+    expect(s.store.pendingOutbox.map((o) => o.entityKey), contains('meal:$id'),
+        reason: 'die Loeschung darf nicht am Code-Verdikt sterben');
+    expect(s.server.mealRows.keys, contains(id));
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty);
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint), isEmpty);
+
+    // Die Migration ist durch: die Loeschung geht ganz normal raus.
+    s.server.poisonMealWrites = false;
+    s.store.flushPendingWrites();
+    await _settle();
+    expect(s.store.pendingOutbox, isEmpty);
+    expect(s.server.mealRows.keys, isNot(contains(id)));
+  });
+
+  test(
+      'L2: ein endgueltig gescheiterter Delete blendet die Mahlzeit lokal '
+      'wieder ein und sagt es — statt sie still auferstehen zu lassen',
+      () async {
+    final kv = InMemoryKeyValueStore();
+    // Ein Delete am Ende seines (grossen) Budgets und seiner Frist.
+    await _seedRawOutbox(kv, [
+      SyncOp.mealDelete('m-geist').toJson()
+        ..['queued_at'] = DateTime.now()
+            .subtract(kOutboxDeleteMinAge + const Duration(hours: 1))
+            .toIso8601String()
+        ..['attempts'] = kOutboxDeleteMaxAttempts - 1,
+    ]);
+
+    final s = _setup(kv: kv);
+    // Boot offline: der Replay ist gratis (Netzfehler), die Op bleibt liegen,
+    // und der Boot-Load bringt die Mahlzeit NICHT mit — nur so beweist der
+    // Test hinterher die Wiedereinblendung und nicht den Boot.
+    s.server.offline = true;
+    await _boot(s.store);
+    expect(s.store.pendingOutbox, hasLength(1));
+    expect(s.store.loggedMeals, isEmpty);
+
+    // Netz zurueck, die Zeile steht serverseitig weiterhin (1800 kcal), und
+    // der Delete scheitert weiter.
+    s.server.offline = false;
+    s.server.mealRows['m-geist'] = _serverMealRow('m-geist', kcal: 1800);
+    s.server.poisonMealWrites = true;
+    s.store.flushPendingWrites();
+    await _settle();
+
+    // Die Op ist weg — die Queue laeuft wieder leer (sonst: 4-Minuten-Timer
+    // ohne Ende, Cap ausgehebelt, preserveOutbox fuer immer true).
+    expect(s.store.pendingOutbox, isEmpty);
+    expect((await s.cache.readOutbox())!, isEmpty);
+    // … und die Mahlzeit ist wieder sichtbar, samt ihrer Kalorien.
+    expect(s.store.loggedMeals.map((m) => m.id), contains('m-geist'));
+    expect(s.store.dailyConsumedKcal, 1800,
+        reason: 'die Kalorien zaehlen wieder — das darf nicht unsichtbar sein');
+    // … und der Nutzer erfaehrt, was zu tun ist.
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+        hasLength(1));
+    for (final m in s.snacks.messages) {
+      expect(m, isNot(contains('logged_meals')));
+      expect(m, isNot(contains('23502')));
+      expect(m, isNot(contains('PostgrestException')));
+    }
+  });
+
+  test(
+      'L2: der Nutzer kann die wieder eingeblendete Mahlzeit erneut loeschen '
+      '— frisches Budget, frische Frist', () async {
+    final kv = InMemoryKeyValueStore();
+    await _seedRawOutbox(kv, [
+      SyncOp.mealDelete('m-geist').toJson()
+        ..['queued_at'] = DateTime.now()
+            .subtract(kOutboxDeleteMinAge + const Duration(hours: 1))
+            .toIso8601String()
+        ..['attempts'] = kOutboxDeleteMaxAttempts - 1,
+    ]);
+    final s = _setup(kv: kv);
+    s.server.offline = true;
+    await _boot(s.store);
+    s.server.offline = false;
+    s.server.mealRows['m-geist'] = _serverMealRow('m-geist', kcal: 1800);
+    s.server.poisonMealWrites = true;
+    s.store.flushPendingWrites();
+    await _settle();
+    expect(s.store.loggedMeals.map((m) => m.id), contains('m-geist'));
+
+    // Migration durch — der Nutzer loescht erneut, diesmal klappt es.
+    s.server.poisonMealWrites = false;
+    s.store.removeLoggedMeal('m-geist');
+    await _settle();
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.store.loggedMeals, isEmpty);
+    expect(s.server.mealRows.keys, isNot(contains('m-geist')));
+    expect(s.store.pendingOutbox, isEmpty);
+  });
+
+  test(
+      'L2: verlorener Write UND verlorene Loeschung im selben Replay — beide '
+      'Meldungen kommen, die Loeschung wird nicht verschluckt', () async {
+    final kv = InMemoryKeyValueStore();
+    await _seedRawOutbox(kv, [
+      SyncOp.mealDelete('m-geist').toJson()
+        ..['queued_at'] = DateTime.now()
+            .subtract(kOutboxDeleteMinAge + const Duration(hours: 1))
+            .toIso8601String()
+        ..['attempts'] = kOutboxDeleteMaxAttempts - 1,
+    ]);
+    final s = _setup(kv: kv);
+    s.server.offline = true;
+    await _boot(s.store);
+
+    // Online, Server vergiftet: der frische Write stirbt als Gift-Op (23502),
+    // der alte Delete an Budget + Frist — beides in EINEM Replay.
+    s.server.offline = false;
+    s.server.mealRows['m-geist'] = _serverMealRow('m-geist', kcal: 1800);
+    s.server.poisonMealWrites = true;
+    s.store.addResultToDailyTotal(_result('Gift-Bowl'));
+    await _settle();
+    s.store.flushPendingWrites();
+    await _settle();
+
+    // Der Episoden-Merker darf die zweite, ANDERE Nachricht nicht schlucken:
+    // beim Write fehlt etwas, bei der Loeschung ist etwas wieder da.
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+        hasLength(1));
+    expect(s.store.loggedMeals.map((m) => m.id), contains('m-geist'));
+  });
+
+  test(
+      'Nebenbefund: die 24-h-Frist haengt an der injizierten Uhr, nicht an '
+      'DateTime.now() — vorher war sie ueberhaupt nicht pruefbar', () async {
+    // Referenz-Zeitpunkt weit weg von der echten Systemzeit: laeuft die Regel
+    // gegen DateTime.now(), waere die Op hier IMMER 24 h alt und beide Faelle
+    // fielen zusammen.
+    final queuedAt = DateTime(2030, 5, 17, 8);
+    Future<List<SyncOp>> runAt(DateTime now) async {
+      final kv = InMemoryKeyValueStore();
+      await _seedRawOutbox(kv, [
+        SyncOp.mealInsert(
+                LoggedMeal(
+                    id: 'm-uhr', result: _result('Uhr-Bowl'), loggedAt: queuedAt),
+                trackDay: false)
+            .toJson()
+          ..['queued_at'] = queuedAt.toIso8601String()
+          ..['attempts'] = kOutboxMaxAttempts - 1,
+      ]);
+      return withClock(Clock.fixed(now), () async {
+        final s = _setup(kv: kv);
+        s.server.rejectMealWrites = true;
+        await _boot(s.store);
+        return s.store.pendingOutbox.toList();
+      });
+    }
+
+    // 23 h nach dem Einreihen: das Budget ist aufgebraucht, die Wanduhr sagt
+    // nein — die Mahlzeit bleibt.
+    expect(
+      (await runAt(queuedAt.add(const Duration(hours: 23))))
+          .map((o) => o.entityKey),
+      contains('meal:m-uhr'),
+    );
+    // 25 h: jetzt greift die Notbremse.
+    expect(
+      (await runAt(queuedAt.add(const Duration(hours: 25))))
+          .map((o) => o.entityKey),
+      isNot(contains('meal:m-uhr')),
+    );
+  });
+
+  test(
+      'L3: Ausloggen mit LEERER Outbox, aber pendenden Stats-Deltas — die '
+      'Lebenszeit-Zaehler ueberleben den Logout', () async {
+    final s = _setup();
+    await _boot(s.store);
+    // Der Mahlzeiten-Write gelingt, nur increment_lifetime_stats faellt aus:
+    // eigener RPC, eigener Zustand. Die Outbox bleibt dabei LEER.
+    s.server.statsOffline = true;
+    s.store.addResultToDailyTotal(_result('Streak-Bowl'));
+    await _settle();
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.store.pendingOutbox, isEmpty,
+        reason: 'genau die Kombination, die A2 uebersehen hat');
+    expect((await s.cache.readPendingStatsDeltas())!.meals, 1);
+
+    await s.store.signOutCleanup();
+
+    // Frueher haing preserveOutbox allein an _outbox.length — die Deltas
+    // (Streak-Grundlage) fielen still weg.
+    final surviving = await s.cache.readPendingStatsDeltas();
+    expect(surviving, isNotNull);
+    expect(surviving!.meals, 1);
+    // Der uebrige PII-Cache faellt weiterhin (Audit M-1).
+    expect(await s.cache.readProfile(), isNull);
+    expect(await s.cache.readLoggedMeals(), isNull);
+  });
+
+  test(
+      'L3: Ausloggen online mit pendenden Deltas — der Zustellversuch verbucht '
+      'sie, danach faellt der ganze Cache (Audit M-1)', () async {
+    final s = _setup();
+    await _boot(s.store);
+    s.server.statsOffline = true;
+    s.store.addResultToDailyTotal(_result('Streak-Bowl'));
+    await _settle();
+    s.store.flushPendingWrites();
+    await _settle();
+    expect((await s.cache.readPendingStatsDeltas())!.meals, 1);
+
+    // RPC ist wieder gesund, DANN erst der Logout.
+    s.server.statsOffline = false;
+    await s.store.signOutCleanup();
+
+    expect(s.server.mealsCounted, 1, reason: 'Zustellversuch VOR dem Verwerfen');
+    expect(await s.cache.readPendingStatsDeltas(), isNull);
+    expect(await s.cache.readOutbox(), isNull);
+    expect(await s.cache.readProfile(), isNull);
   });
 
   test(

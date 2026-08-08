@@ -298,6 +298,53 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   KcalTargets get _liveTargets =>
       const KcalCalculator().calculate(_draftForCalc());
 
+  // --- Tempo: Auswahl vs. Plan (B2, Reststelle im Gewichtsziel-Feld) --------
+  //
+  // Die Plan-Karte zeigt seit Welle 2 das effektive Tempo („−0,72 kg/Woche").
+  // Zwei Karten weiter unten stand im selben Scroll weiter das versprochene
+  // („−1 kg/Woche") — derselbe Widerspruch, nur verschoben. Anders als in einem
+  // nackten Picker liegt hier zwangslaeufig ein vollstaendiges Profil vor: das
+  // Sheet rechnet aus genau diesen Feldern live das Tagesziel.
+  //
+  // Aufgeloest wird das NICHT, indem das Bedienelement die effektive Rate
+  // anzeigt — der Nutzer saehe dann nach dem Tippen etwas anderes, als er
+  // getippt hat, und zwei Optionen waeren nicht mehr unterscheidbar. Die Regel
+  // ist stattdessen: **Steht auf einem Bildschirm mehr als eine
+  // Tempo-Zeichenkette, muss eine dritte sie verbinden.** Die Auswahl bleibt
+  // oben, die Folge steht darunter.
+
+  /// Untertitel einer Option im Gewichtsziel-Picker: der Plan, den sie mit den
+  /// Koerperdaten ergibt, die gerade im Sheet stehen.
+  ///
+  /// Fuer das Standardprofil liefern „−0,75 kg/Woche" und „−1 kg/Woche" beide
+  /// 1200 kcal; hier steht die Gleichheit wortgleich da, **vor** der Auswahl.
+  ///
+  /// Im Manuell-Modus haengt das Tagesziel nicht mehr am Tempo — dann waere
+  /// jede gerechnete Zahl eine Behauptung ueber etwas, das der Schalter gerade
+  /// abgeschaltet hat.
+  String _zielFolge(WeightGoal option) {
+    if (_manualEnergy) return 'Ändert dein manuelles Tagesziel nicht';
+    final t = const KcalCalculator()
+        .calculate(_draftForCalc().copyWith(weightGoal: option));
+    return 'Ergibt ${t.kcal} kcal/Tag · ${t.effectivePaceLabel}';
+  }
+
+  /// Die Zeile unter dem Gewichtsziel-Feld — `null`, solange dort dieselbe
+  /// Tempo-Beschriftung steht wie auf der Plan-Karte.
+  ///
+  /// Verglichen werden bewusst die **Zeichenketten**, nicht die Zahlen: der
+  /// Nutzer sieht Text, und genau dann, wenn zwei verschiedene Texte auf dem
+  /// Bildschirm stehen, braucht es die Erklaerung. Eine Rausch-Schwelle waere
+  /// hier die falsche Frage — „−0,75" neben „−0,72" ist ebenso erklaerungs-
+  /// beduerftig wie „−1" neben „−0,72".
+  String? _zielAbweichung({required int tagesziel, required KcalTargets t}) {
+    final label = paceLabelForWeeklyRateKg(
+      _wochenrateKg(tagesziel: tagesziel, erhaltung: t.maintenanceKcal),
+    );
+    if (label == _goal.paceLabel) return null;
+    return 'Ergibt $tagesziel kcal/Tag · $label';
+  }
+
   UserProfile _buildProfile() {
     final p = widget.initial;
     final t = _liveTargets;
@@ -581,6 +628,13 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           _goal = v;
                           _recompute();
                         },
+                        outcomeFor: _zielFolge,
+                        // heroKcal ist die Zahl, die oben gross auf der
+                        // Plan-Karte steht — im Manuell-Modus die eigene, sonst
+                        // die gerechnete. Beide Karten reden damit ueber
+                        // dasselbe Tagesziel.
+                        effectiveNote:
+                            _zielAbweichung(tagesziel: heroKcal, t: t),
                       ),
                     ],
                   ),
@@ -866,8 +920,17 @@ class _SheetGrabber extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ExcludeSemantics(
-      child: Center(
+    // Nicht ExcludeSemantics: das Sheet hat KEINEN Schliessen-Knopf, und die
+    // Barriere bietet auf Android keine Dismiss-Semantik an
+    // (modal_barrier.dart, platformSupportsDismissingBarrier == false).
+    // Ohne eine Aktion hier kaeme ein Screenreader-Nutzer nur noch ueber die
+    // Systemgeste heraus. Die Aktion laeuft ueber maybePop, also durch die
+    // Verwerfen-Rueckfrage hindurch — genau wie der Barriere-Tap.
+    return Semantics(
+      button: true,
+      label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      onTap: () => Navigator.of(context).maybePop(),
+      child: const Center(
         child: Padding(
           padding: EdgeInsets.only(top: 8, bottom: 14),
           child: SizedBox(
@@ -1054,6 +1117,17 @@ class _LegalDot extends StatelessWidget {
 // Live-Plan-Hero
 // ---------------------------------------------------------------------------
 
+/// Wochenrate in kg, die ein konkretes [tagesziel] gegenueber der [erhaltung]
+/// hergibt — negativ heisst abnehmen.
+///
+/// **Die einzige Stelle im Sheet, an der aus kcal ein Tempo wird.** Plan-Karte
+/// und Gewichtsziel-Feld muessen zwingend dieselbe Zahl zeigen, sonst hat B2
+/// nur den Ort gewechselt. Fuer das gerechnete Ziel ist das Ergebnis identisch
+/// mit [KcalTargets.effectiveWeeklyRateKg]; im Manuell-Modus zaehlt die Zahl,
+/// die der Nutzer selbst gesetzt hat.
+double _wochenrateKg({required int tagesziel, required int erhaltung}) =>
+    (tagesziel - erhaltung) * 7 / kcalPerKgBodyMass;
+
 class _PlanHero extends StatelessWidget {
   const _PlanHero({
     required this.kcal,
@@ -1083,11 +1157,13 @@ class _PlanHero extends StatelessWidget {
   /// Standardprofil ergab das „Erhaltung 1997 · −1 kg/Woche" direkt ueber
   /// „1200"; 1997 − 1200 = 797 kcal, also −0,72 kg/Woche. Die 1200er-Klemme
   /// greift fuer jeden sitzenden Nutzer mit einer Erhaltung unter ~2275 kcal.
-  String get _paceLabel => _zeigtRechnung
-      ? targets.effectivePaceLabel
-      : paceLabelForWeeklyRateKg(
-          (kcal - targets.maintenanceKcal) * 7 / kcalPerKgBodyMass,
-        );
+  ///
+  /// Solange [_zeigtRechnung] gilt, ist das per Definition
+  /// [KcalTargets.effectivePaceLabel] — beides ist dieselbe Formel auf
+  /// derselben Zahl.
+  String get _paceLabel => paceLabelForWeeklyRateKg(
+        _wochenrateKg(tagesziel: kcal, erhaltung: targets.maintenanceKcal),
+      );
 
   /// Der fertige Erklaersatz der Sicherheitsklemme — nur wenn die Karte auch
   /// das gerechnete Ziel zeigt.
@@ -1651,10 +1727,24 @@ class _ActivityField extends StatelessWidget {
 }
 
 class _WeightGoalField extends StatelessWidget {
-  const _WeightGoalField({required this.value, required this.onChanged});
+  const _WeightGoalField({
+    required this.value,
+    required this.onChanged,
+    required this.outcomeFor,
+    this.effectiveNote,
+  });
 
   final WeightGoal value;
   final ValueChanged<WeightGoal> onChanged;
+
+  /// Was eine Option mit den aktuellen Koerperdaten ergibt — Untertitel jeder
+  /// Zeile im Auswahl-Sheet. Siehe `_SettingsSheetState._zielFolge`.
+  final String Function(WeightGoal) outcomeFor;
+
+  /// Zeile unter dem Feld, wenn das gewaehlte Tempo nicht das ist, was der
+  /// Plan hergibt. `null` heisst: beide Beschriftungen sind gleich, dann waere
+  /// die Zeile nur Laerm.
+  final String? effectiveNote;
 
   @override
   Widget build(BuildContext context) {
@@ -1687,8 +1777,12 @@ class _WeightGoalField extends StatelessWidget {
                   for (final option in WeightGoal.values)
                     ListTile(
                       key: ValueKey('settings-weight-goal-${option.name}'),
+                      // Titel = die Auswahl (das gewaehlte Tempo ist der Name
+                      // der Option), Untertitel = ihre Folge. Vorher stand hier
+                      // `option.deltaLabel`, also „−1100 kcal" — ein Delta, das
+                      // die 1200er-Klemme fuer die Mehrheit nie erreicht.
                       title: Text(option.menuLabel),
-                      subtitle: Text(option.deltaLabel),
+                      subtitle: Text(outcomeFor(option)),
                       trailing: value == option
                           ? const Icon(Icons.check_rounded, color: lime)
                           : null,
@@ -1731,9 +1825,26 @@ class _WeightGoalField extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                  if (effectiveNote != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      effectiveNote!,
+                      key: const ValueKey('settings-weight-goal-effective'),
+                      style: const TextStyle(
+                        color: textMuted,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                        height: 1.3,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
+            const SizedBox(width: 10),
+            // Bleibt das GEWAEHLTE Tempo: das Feld muss zeigen, was der Nutzer
+            // getippt hat. Was daraus wird, steht in [effectiveNote] darunter.
             Text(
               value.paceLabel,
               style: TextStyle(

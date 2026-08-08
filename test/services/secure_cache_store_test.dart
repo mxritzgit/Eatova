@@ -404,6 +404,13 @@ void main() {
     test(
         'geloeschter DEK bei gesetztem Sentinel praegt KEINEN neuen '
         '(sonst sind bis zu 500 nicht quittierte Writes weg)', () async {
+      // Die Outbox, um die es in diesem Test geht, muss auch DA sein: der
+      // Schutz haengt daran, dass ein frischer DEK etwas verwaisen laesst.
+      // Ohne Blob im Store wuerde der Bootstrag zu Recht durchpraegen
+      // (siehe secure_cache_store_dek_recovery_test.dart).
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'eatova.v1.outbox.user-1': '${cacheCipherMagic}bmljaHQgcXVpdHRpZXJ0',
+      });
       final keyStore = _ResettingKeyStore();
 
       // 1. Erststart: DEK wird angelegt, Sentinel wandert nach SharedPreferences.

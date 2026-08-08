@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/model_limits.dart';
 import '../models/user_profile.dart';
 import '../services/kcal_calculator.dart';
 import '../theme/app_colors.dart';
@@ -12,9 +13,31 @@ import '../widgets/shared/target_bmi_hint.dart';
 ///
 /// Bewusst ohne Texteingaben: Slider + Stepper sind auf dem Phone schneller,
 /// vermeiden Tastatur-Sprünge und liefern immer Werte innerhalb der
-/// DB-Constraints (weight 30–300, height 100–250, age 16–100).
-/// Mindestalter 16: Einwilligungsfähigkeit nach Art. 8 DSGVO bei
-/// Gesundheitsdaten (Art. 9) — konsistent mit PRIVACY.md und DB-Constraint.
+/// DB-Constraints.
+///
+/// ## Wertebereiche kommen aus [ProfileLimits], nicht aus Literalen
+///
+/// Bis Welle 6 standen hier `16..99` Jahre, `40..200` kg und `120..220` cm als
+/// Zahlen im Code, während `public.profiles` `16..100` / `30..300` /
+/// `100..250` erlaubt — und `model_limits.dart` war gar nicht importiert. Zwei
+/// getrennte Probleme:
+///
+/// * **Rechtlich.** Das Mindestalter 16 ist keine UI-Vorliebe, sondern die
+///   Einwilligungsfähigkeit nach Art. 8 DSGVO bei Gesundheitsdaten (Art. 9).
+///   Es steht mit eigenem Kommentar in [ProfileLimits.ageYearsMin] und wurde
+///   mit Migration `20260807090000` bereits einmal verschoben (13 → 16). Eine
+///   gespiegelte Kopie, die beim nächsten Mal nicht mitwandert, ist ein
+///   Rechtsverstoß mit Ansage.
+/// * **Fachlich.** Die engeren Kopien waren keine bewusste Plausibilitäts-
+///   grenze, sondern eine stille Klemme in `initState`: wer 210 kg wog oder
+///   115 cm groß ist, konnte sein Onboarding gar nicht wahrheitsgemäß
+///   ausfüllen — sein Wert wurde beim Start auf 200 bzw. 120 gezogen, obwohl
+///   die Datenbank ihn akzeptiert hätte.
+///
+/// Es bleibt deshalb **keine** numerische Verengung übrig. Enger als die DB
+/// wird nur noch das Wunschgewicht, und zwar dynamisch: [_targetMin] /
+/// [_targetMax] halten es auf der Seite der gewählten Richtung. Das ist eine
+/// Konsistenz-, keine Wertebereichsgrenze und kann nicht driften.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -57,9 +80,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.initState();
     final p = widget.initialProfile;
     _sex = p.sex;
-    _age = p.ageYears.clamp(16, 99).toInt();
-    _height = p.heightCm.clamp(120, 220).toInt();
-    _weight = p.weightKg.clamp(40, 200).toInt();
+    // Geklemmt wird nur noch auf die DB-Grenze selbst: alles andere hätte dem
+    // Nutzer beim Start still einen Wert untergeschoben, den er nie angegeben
+    // hat (siehe Klassendoku).
+    _age = p.ageYears
+        .clamp(ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax)
+        .toInt();
+    _height = p.heightCm
+        .clamp(ProfileLimits.heightCmMin, ProfileLimits.heightCmMax)
+        .toInt();
+    _weight = p.weightKg
+        .clamp(ProfileLimits.weightKgMin, ProfileLimits.weightKgMax)
+        .toInt();
     _activity = p.activityLevel;
     if (p.weightGoal.isLoss) {
       _direction = _GoalDirection.lose;
@@ -70,7 +102,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     } else {
       _direction = _GoalDirection.maintain;
     }
-    _target = p.targetWeightKg.clamp(40, 200).toInt();
+    _target = p.targetWeightKg
+        .clamp(
+          ProfileLimits.targetWeightKgMin,
+          ProfileLimits.targetWeightKgMax,
+        )
+        .toInt();
     _diet = p.diet;
   }
 
@@ -99,8 +136,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   /// Wunschgewicht passend zur Richtung begrenzen, damit es nie der aktuellen
   /// Richtung widerspricht (Abnehmen → unter, Zunehmen → über).
-  int get _targetMin => _direction == _GoalDirection.gain ? _weight + 1 : 40;
-  int get _targetMax => _direction == _GoalDirection.lose ? _weight - 1 : 200;
+  ///
+  /// Das ist die einzige verbliebene Verengung gegenüber der DB — und die
+  /// einzige, die sich nicht spiegeln lässt, weil sie am aktuellen Gewicht
+  /// hängt statt an einer Konstanten.
+  int get _targetMin => _direction == _GoalDirection.gain
+      ? _weight + 1
+      : ProfileLimits.targetWeightKgMin;
+  int get _targetMax => _direction == _GoalDirection.lose
+      ? _weight - 1
+      : ProfileLimits.targetWeightKgMax;
 
   /// clamp ohne Assert-Crash bei invertierten Grenzen (Gewicht am Extrem).
   static int _safeClamp(int v, int lo, int hi) =>
@@ -123,6 +168,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   KcalTargets get _targets => const KcalCalculator().calculate(_draftProfile());
+
+  /// Was [option] mit den bereits erhobenen Körperdaten wirklich ergibt —
+  /// Untertitel jeder Zeile im Tempo-Schritt.
+  ///
+  /// **B2.** Der Tempo-Schritt ist Nummer 9 von 11 ([_Step]: intro, sex, age,
+  /// height, weight, activity, goal, target, **pace**, diet, summary). Gewicht,
+  /// Größe, Alter, Geschlecht und Aktivität stehen hier alle schon fest —
+  /// `calculate` braucht nichts weiter, das Ergebnis ist also ohne jeden
+  /// Vorbehalt berechenbar. Vorher stand hier `goal.deltaLabel`, also
+  /// „−1100 kcal / Tag": für das Standardprofil (78 kg / 178 cm / 30 J. /
+  /// neutral / sitzend, Erhaltung 1997) hebt die 1200er-Sicherheitsklemme das
+  /// Ziel aber auf 1200 kcal an — real sind es −797 kcal ≙ −0,72 kg/Woche, und
+  /// „Zügig" und „Ambitioniert" landen **beide** dort. Der Picker versprach
+  /// damit zwei verschiedene Tempi für denselben Plan, und erst der nächste
+  /// Schritt korrigierte.
+  ///
+  /// Der Titel behält bewusst das gewählte Tempo: er ist der *Name* der Option
+  /// („Ambitioniert · −1 kg/Woche"), und zwei Zeilen mit derselben effektiven
+  /// Rate wären nicht mehr auseinanderzuhalten. Die Folge gehört in den
+  /// Untertitel — Auswahl oben, Konsequenz darunter.
+  String _tempoFolge(WeightGoal option) {
+    final t = const KcalCalculator()
+        .calculate(_draftProfile().copyWith(weightGoal: option));
+    return 'Ergibt ${t.kcal} kcal/Tag · ${t.effectivePaceLabel}';
+  }
 
   void _next() {
     if (_index >= _steps.length - 1) {
@@ -163,9 +233,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _direction = dir;
       // Sinnvolles Default-Wunschgewicht je Richtung setzen.
       if (dir == _GoalDirection.lose) {
-        _target = _safeClamp(_weight - 5, 40, _weight - 1);
+        _target = _safeClamp(
+          _weight - 5,
+          ProfileLimits.targetWeightKgMin,
+          _weight - 1,
+        );
       } else if (dir == _GoalDirection.gain) {
-        _target = _safeClamp(_weight + 5, _weight + 1, 200);
+        _target = _safeClamp(
+          _weight + 5,
+          _weight + 1,
+          ProfileLimits.targetWeightKgMax,
+        );
       } else {
         _target = _weight;
       }
@@ -267,8 +345,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: _NumberPicker(
             field: 'age',
             value: _age,
-            min: 16,
-            max: 99,
+            min: ProfileLimits.ageYearsMin,
+            max: ProfileLimits.ageYearsMax,
             unit: 'Jahre',
             onChanged: (v) => setState(() => _age = v),
           ),
@@ -279,8 +357,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: _NumberPicker(
             field: 'height',
             value: _height,
-            min: 120,
-            max: 220,
+            min: ProfileLimits.heightCmMin,
+            max: ProfileLimits.heightCmMax,
             unit: 'cm',
             onChanged: (v) => setState(() => _height = v),
           ),
@@ -291,8 +369,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: _NumberPicker(
             field: 'weight',
             value: _weight,
-            min: 40,
-            max: 200,
+            min: ProfileLimits.weightKgMin,
+            max: ProfileLimits.weightKgMax,
             unit: 'kg',
             onChanged: (v) => setState(() => _weight = v),
           ),
@@ -350,6 +428,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ? lossPaceGoals
                 : gainPaceGoals,
             value: _direction == _GoalDirection.lose ? _losePace : _gainPace,
+            outcomeFor: _tempoFolge,
             onChanged: (v) => setState(() {
               if (_direction == _GoalDirection.lose) {
                 _losePace = v;
@@ -753,11 +832,17 @@ class _PacePicker extends StatelessWidget {
   const _PacePicker({
     required this.options,
     required this.value,
+    required this.outcomeFor,
     required this.onChanged,
   });
 
   final List<WeightGoal> options;
   final WeightGoal value;
+
+  /// Untertitel einer Option: der Plan, den sie mit den bisherigen Antworten
+  /// ergibt. Siehe `_OnboardingScreenState._tempoFolge`.
+  final String Function(WeightGoal) outcomeFor;
+
   final ValueChanged<WeightGoal> onChanged;
 
   static const _paceNames = {
@@ -779,7 +864,7 @@ class _PacePicker extends StatelessWidget {
             selected: value == goal,
             onTap: () => onChanged(goal),
             title: '${_paceNames[goal] ?? 'Tempo'} · ${goal.paceLabel}',
-            subtitle: '${goal.deltaLabel} / Tag',
+            subtitle: outcomeFor(goal),
           ),
           if (goal != options.last) const SizedBox(height: 10),
         ],

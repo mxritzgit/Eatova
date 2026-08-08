@@ -1,10 +1,12 @@
 # Privacy Policy — Eatova
 
-_Last updated: 2026-08-05_
+_Last updated: 2026-08-08_
 
 > The authoritative, always-current version of this policy (in German, covering
 > both the app and the website) lives at
-> **[eatova.de/datenschutz](https://eatova.de/datenschutz)**.
+> **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This file is the
+> repository mirror of that policy; where the two differ, the published German
+> version governs.
 
 Eatova ("the app") is a fitness, recovery, and nutrition tracker. This policy
 explains what data the app processes, why, and the rights you have over it. It is
@@ -18,6 +20,9 @@ support@eatova.de
 
 You enter and the app stores the following, tied to your account:
 
+- **Account / sign-in:** your email address, and either a password or — if you
+  choose "Continue with Google" or "Sign in with Apple" — the identity token
+  that provider issues for you (see "Google Sign-In" and "Apple" below).
 - **Profile / body metrics:** name, email, weight, height, age, biological sex,
   activity level, goal weight, and your daily targets (calories, macros, steps,
   water, sleep).
@@ -45,8 +50,31 @@ You enter and the app stores the following, tied to your account:
   to stop) and is converted to text by Apple's speech recognition. Only the resulting text is sent to the coach — the
   app neither stores the audio recording nor sends it to our servers.
 
-We do **not** collect advertising identifiers, location, or contacts, and the app
-contains no third-party analytics or ad SDKs.
+In addition, and **not** tied to your account:
+
+- **Crash diagnostics:** the builds we publish contain the Sentry crash-reporting
+  SDK. When the app hits an error it sends a technical report — the error type,
+  an allow-listed technical detail such as a database status code, the Dart stack
+  trace, and standard device/app context (device model, OS version, app version,
+  build environment). Before anything leaves the device it passes a filter that
+  works as an allow-list: unknown error objects are reduced to their type name
+  alone. Your name, email address, body metrics, meals, weight history and coach
+  messages are not part of a crash report. See "Sentry" below.
+- **Technical request data:** our server endpoints (Supabase Edge Functions) and
+  our product-search index receive the IP address your device connects from, as
+  every internet service does. We store it only for abuse and cost protection —
+  see "Retention".
+
+We do **not** collect advertising identifiers, location data, or contacts, and
+the app contains **no advertising SDK and no product-analytics or tracking SDK**.
+The only third-party telemetry component in the app is the crash reporter named
+above; it reports errors, not usage.
+
+**Photos:** every photo the app sends out — whether taken in-app or picked from
+your gallery, for meal analysis or for the coach — is re-encoded on your device
+first and its entire metadata container is discarded. GPS coordinates, capture
+time and camera/device identifiers written by the system camera are removed on
+the device, before the photo is uploaded.
 
 ## Where it is stored and who processes it
 
@@ -60,8 +88,29 @@ contains no third-party analytics or ad SDKs.
   **Google's Gemini family**. These requests run through our server (Supabase Edge
   Functions); your API traffic is not used to train models under the configured
   API terms.
+- **Google Sign-In** (optional). If you sign in with Google, Google processes
+  your Google account identifier, email address, name and the device/connection
+  data involved in the sign-in in order to issue the identity token we exchange
+  for an Eatova session. If you sign in with email and password, or with Apple,
+  Google is not involved at all.
+- **Our own product-search index** (Meilisearch, `eatova.de/meili`, on a server
+  we operate in Germany) answers product and barcode searches from a copy of the
+  public Open Food Facts database. It receives the search term or barcode and the
+  IP address of your device; **no account identifier and no profile data are
+  sent.** If the index is unavailable or switched off, the same query goes
+  straight to Open Food Facts instead.
 - **OpenFoodFacts** is queried for public product/nutrition data when you
-  search or scan a barcode. Your identity is not sent with these queries.
+  search or scan a barcode, and whenever our own index is not used. Your identity
+  is not sent with these queries.
+- **Sentry** (`ingest.de.sentry.io`, EU region — reports are sent to and stored
+  in the EU) receives the crash diagnostics described above. The SDK is
+  configured to send no personal data by default (`sendDefaultPii = false`), to
+  attach neither screenshots nor the on-screen view hierarchy, and to run
+  neither session replay nor performance tracing; only errors are reported.
+  Every report and every diagnostic breadcrumb additionally passes the
+  allow-list filter described above before it is sent.
+- **Sign in with Apple** (optional, iOS). If you use it, Apple processes the
+  sign-in and issues the identity token we exchange for an Eatova session.
 - **Apple Speech Recognition** converts your spoken coach questions to text if you
   use voice input. The app requests on-device recognition, so on devices where Apple
   provides an offline model for your language the audio never leaves your phone.
@@ -69,7 +118,37 @@ contains no third-party analytics or ad SDKs.
   instead; see Apple's privacy policy. In either case only the resulting transcript
   reaches our systems, never the audio.
 
-API keys for these services live only on our server, never in the app.
+The API keys that can write, spend money or read other people's data live only on
+our server, never in the app. The one key shipped with the app is the
+**search-only** key for our product-search index: it can run searches against the
+public product index and nothing else. It is resolved at runtime so it can be
+rotated without breaking installed builds.
+
+## Transfers outside the EU/EEA
+
+Most of the processing above stays in the EU: Supabase runs in an EU region, the
+crash reports go to Sentry's EU ingest endpoint, and our product-search index
+runs on a server in Germany.
+
+Three recipients are, or route to, the United States:
+
+- **OpenRouter, Inc.** (San Francisco, USA) — the router your AI requests pass
+  through,
+- **xAI** (USA) — the provider of the Grok model that answers coach messages,
+- **Google** (USA) — the provider of the Gemini model that analyses meal photos.
+  This entry is about the Gemini model only; Google Sign-In is a separate service
+  provided to users in the EU by Google's European entity.
+
+These transfers only happen when you use an AI feature (coach chat or AI meal
+scan). They are based on the **Standard Contractual Clauses** adopted by the EU
+Commission (Art. 46(2)(c) GDPR). Despite these safeguards, a residual risk
+remains that US authorities can access data held by US providers, and that your
+rights may be harder to enforce there than in the EU. If you do not want this,
+simply do not use the coach and the AI meal scan; every other feature of the app
+works without them.
+
+Apple's speech recognition may also process audio on Apple's servers where no
+on-device model is available for your language (see above).
 
 ## Why (legal basis)
 
@@ -78,14 +157,20 @@ the service you signed up for (GDPR Art. 6(1)(b)), and, for the optional Apple H
 read/write, voice input, and AI features, on the basis of the explicit permission you
 grant in-app (Art. 6(1)(a), Art. 9 for health data).
 
+Crash diagnostics and the short-lived storage of your IP address for rate limiting
+rest on our legitimate interest in a stable app and in protecting our servers from
+abuse and runaway cost (Art. 6(1)(f)).
+
 ## Your rights
 
 You can, at any time:
 
-- **Access / export** your data (see in-app export, and you may request a full copy
-  by email).
+- **Access / export** your data. The in-app export (Profile → Daten exportieren)
+  gives you a JSON snapshot of the data the app currently has loaded, not of
+  everything stored on our servers — for a complete copy under Art. 15/20, ask us
+  by email and we will send it to you.
 - **Correct** any value directly in the app.
-- **Delete** your account and all associated data — in-app via Profile → Account
+- **Delete** your account and all associated data — in-app via Profile → Konto
   löschen, which removes your auth record and cascades to every table.
 - **Withdraw consent** for Apple Health or voice input (in iOS Settings → Privacy)
   or AI features (by not using them).
@@ -97,6 +182,12 @@ have the right to lodge a complaint with your data-protection authority.
 
 Data is kept until you delete it or delete your account. Coach-chat history is kept
 so you can revisit conversations; you can delete individual chat sessions in-app.
+
+Two exceptions with a fixed, short life:
+
+- the **rate-limit records** that hold your IP address are deleted after two days;
+- **crash reports** are kept only as long as needed to diagnose and fix the error,
+  and are subject to the retention period of the crash-reporting service.
 
 ## Children
 

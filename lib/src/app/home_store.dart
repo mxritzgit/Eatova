@@ -23,6 +23,7 @@ import '../services/meal_totals.dart' as totals;
 import '../services/meals_sync.dart' show MealsSync;
 import '../services/notification_service.dart';
 import '../services/search_credentials.dart';
+import '../services/secure_cache_store.dart';
 import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
@@ -297,6 +298,27 @@ class HomeStore extends _HomeStoreBase
     if (_cache != null) {
       await _hydrateFromCache();
     }
+    // A1/Welle 6: hat der DEK-Wiederanlauf den unlesbaren Cache verworfen,
+    // liegt ein persistierter Merker vor. Ein stiller Neuanfang liesse den
+    // Nutzer glauben, sein Offline-Tagebuch sei noch da — es ist aber weg
+    // (der Ciphertext war ohne Schluessel nicht mehr zu retten).
+    //
+    // BEWUSST nicht awaited: der Hinweis ist Information, kein Boot-Schritt.
+    // Ein haengender Prefs-Zugriff (Widget-Test ohne gemockte Plattform, oder
+    // ein blockierter Plattform-Kanal auf dem Geraet) wuerde den Start sonst
+    // vor dem ersten Frame anhalten — genau das ist beim Einbau passiert.
+    // Der Merker ist persistiert, er geht also nicht verloren, wenn der Snack
+    // eine Sekunde spaeter kommt oder erst beim naechsten Start.
+    unawaited(CacheKeyProvider.consumeCacheResetNotice().then((liegtAn) {
+      if (!liegtAn || _disposed) return;
+      _emitSnack(
+        'Der Offline-Speicher musste neu angelegt werden. Deine Daten auf dem '
+        'Server sind unberuehrt — nur noch nicht synchronisierte Eintraege '
+        'sind verloren.',
+        icon: Icons.info_outline_rounded,
+        duration: const Duration(seconds: 6),
+      );
+    }));
     // Outbox VOR dem Server-Load nachspielen (best effort): so enthaelt der
     // folgende Refresh die nachgeholten Writes bereits. Offline scheitert der
     // Replay einfach — die Ops bleiben liegen und werden beim Boot-Merge
@@ -354,7 +376,12 @@ class HomeStore extends _HomeStoreBase
         CrashReporter.breadcrumb(
             'outbox-hydrate-cap: ${capped.dropped.length} ops dropped');
         _persistOutbox();
-        _notifyOutboxLoss();
+        // deletesLost: seit Welle 6 kann der Cap auch Delete-Ops treffen (er
+        // trimmt Schreib-Ops zuerst, aber eine Queue aus lauter Loeschungen
+        // faellt zuletzt eben doch). Ohne das Flag kaeme der generische
+        // Verlust-Text, obwohl der Nutzer eine geloeschte Mahlzeit wiedersieht.
+        _notifyOutboxLoss(
+            deletesLost: capped.dropped.any((op) => op.isDelete));
       }
     }
     if (cachedDeltas != null) {

@@ -20,6 +20,22 @@ import 'meal_analysis_sheet.dart';
 import 'meal_suggestion_item.dart';
 import 'slot_selector.dart';
 
+/// Meldung, wenn eine Zeile aus Suche, Favoriten oder Recents ohne
+/// Kalorienangabe geloggt werden soll.
+///
+/// Bewusst **nicht** [kMealWithoutCaloriesMessage] aus dem Analyse-Sheet: der
+/// dortige Wortlaut verweist auf „Anpassen" → Bestandteile eintragen, und
+/// genau diesen Weg gibt es hier nicht. Das aufgeklappte Kaertchen hat nur
+/// einen Portionsregler, und 0 kcal bleiben bei jeder Portion 0. Der einzige
+/// Ausweg ist, den Bestandseintrag zu ersetzen — das steht hier deshalb auch
+/// so drin. Zwei Saetze mit verschiedenem Inhalt sind keine gespiegelte
+/// Konstante; als Konstante steht der Text hier nur, damit Tests denselben
+/// Wortlaut pruefen wie die Oberflaeche.
+const String kSuggestionWithoutCaloriesMessage =
+    'Ohne Kalorienangabe lässt sich nichts loggen. Der Eintrag stammt noch '
+    'aus einer älteren Version — entferne ihn und leg ihn über Suche oder '
+    'Barcode neu an.';
+
 Future<void> showAddMealSheet(
   BuildContext context, {
   required MealSlot slot,
@@ -426,6 +442,28 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // ─── Hinzufuegen ──────────────────────────────────────────────────────
 
   void _handleAdd(String itemKey, MealAnalysisResult result) {
+    // Letzte Bremse vor dem Tagebuch (B1/B7) — dieselbe Rolle, die
+    // `MealAnalysisSheet._addToDaily` fuer den Foto-Pfad spielt. Ohne sie
+    // liessen sich Bestandszeilen in `favorite_meals` mit
+    // `calories_kcal = 0` (die Constraint erlaubt `>= 0`, der Vor-Fix-Code
+    // hat sie erzeugt) weiterhin loggen — bestaetigt mit einem Snack, der
+    // woertlich „0 kcal … hinzugefügt." sagte.
+    //
+    // Die Zeile wird bewusst NICHT aus Favoriten/Recents herausgefiltert:
+    // unsichtbar waere sie auch nicht mehr ueber das X der Zeile loeschbar,
+    // und der Nutzer wuesste nicht, warum sein Favorit verschwunden ist.
+    // Sichtbar, nicht loggbar, mit Begruendung ist die ehrlichere Variante.
+    if (result.caloriesKcal <= 0) {
+      showAppSnack(
+        context,
+        kSuggestionWithoutCaloriesMessage,
+        icon: Icons.error_outline_rounded,
+        accent: danger,
+        duration: kSnackError,
+      );
+      return;
+    }
+
     widget.onAdd(result, _selectedSlot);
     if (mounted) {
       showAppSnack(

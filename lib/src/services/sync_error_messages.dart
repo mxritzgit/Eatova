@@ -7,7 +7,8 @@ import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart'
     show AuthRetryableFetchException, PostgrestException;
 
-import 'sync_outbox.dart' show SyncOpKind, kOutboxMaxAttempts;
+import 'sync_outbox.dart'
+    show SyncOpKind, kOutboxDeleteMaxAttempts, kOutboxMaxAttempts;
 
 /// UI-Fehlertexte fuer fehlgeschlagene Sync-/Profil-Writes (pur, unit-testbar).
 ///
@@ -83,6 +84,18 @@ String directSyncErrorMessage(Object error) => isNetworkSyncError(error)
 const String outboxLossHint =
     'Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.';
 
+/// Hinweis fuer den Sonderfall einer endgueltig gescheiterten LOESCHUNG.
+///
+/// Braucht einen eigenen Text, weil die Folge eine andere ist: bei einem
+/// verworfenen Write fehlt etwas, bei einem verworfenen Delete ist etwas
+/// WIEDER DA. Der Store blendet den betroffenen Eintrag im selben Zug lokal
+/// wieder ein (sonst kaeme er beim naechsten Kaltstart still vom Server
+/// zurueck und zaehlte erneut mit) — die Meldung sagt genau das und nennt die
+/// eine Handlung, die hilft. Wie ueberall hier ohne technische Details.
+const String outboxDeleteLossHint =
+    'Eine Löschung ließ sich nicht speichern — der Eintrag ist wieder da. '
+    'Bitte lösch ihn noch einmal.';
+
 /// Was mit einer fehlgeschlagenen Outbox-Op passieren soll.
 enum OutboxVerdict {
   /// Endgueltig verwerfen — ein Retry kann nicht klappen bzw. das Budget ist
@@ -118,23 +131,39 @@ enum OutboxVerdict {
 /// wegzuwerfen. Das Versuchs-Budget begrenzt den Schaden ohnehin.
 ///
 /// [kind] ist optional, sollte aber IMMER mitgegeben werden, wenn der Aufrufer
-/// die Op kennt: Loesch-Ops haben kein Versuchs-Budget. Ihr Verwurf ist der
-/// einzige, den ein Kaltstart nicht nur nicht heilt, sondern aktiv
-/// rueckgaengig macht — die Serverzeile ueberlebt, der lokale Zustand nicht,
-/// und der naechste Boot liest vom Server: die geloeschte Mahlzeit ist wieder
-/// da und zaehlt erneut. Deletes sind idempotent und billig, sie duerfen ewig
-/// retryen. Das Code-Verdikt bleibt fuer sie unveraendert gueltig (ein Delete
-/// gegen ein kaputtes Schema kann nie klappen und wird sofort verworfen) —
-/// ausgesetzt ist NUR die Budget-Grenze.
+/// die Op kennt: fuer LOESCH-Ops gilt eine eigene Regel.
+///
+/// Ihr Verwurf ist der einzige, den ein Kaltstart nicht nur nicht heilt,
+/// sondern aktiv rueckgaengig macht — die Serverzeile ueberlebt, der lokale
+/// Zustand nicht, und der naechste Boot liest vom Server: die geloeschte
+/// 1800-kcal-Mahlzeit ist wieder da und zaehlt erneut. Deshalb ist fuer sie
+/// BEIDES ausgesetzt, das Schreib-Budget UND das Sofort-Verwurfs-Verdikt aus
+/// dem Fehlercode. Letzteres ist keine Grosszuegigkeit, sondern Logik: die
+/// Payload eines Deletes ist LEER. Eine payload-determinierte Verletzung
+/// (Klasse 22, 23502) kann sie gar nicht ausloesen, und PGRST20x/404
+/// beschreiben einen kalten Schema-Cache bzw. eine Route waehrend eines
+/// Deploys — beides geht vorbei. Ein Sofort-Verwurf traefe hier also nie eine
+/// wirklich unmoegliche Anfrage, sondern eine voruebergehend abgewiesene.
+///
+/// Begrenzt werden Deletes stattdessen durch [kOutboxDeleteMaxAttempts] — ein
+/// Vielfaches des Schreib-Budgets, aber eben endlich (Begruendung dort: eine
+/// unsterbliche Op haelt Retry-Timer, Queue-Cap und den Logout-Cleanup dauerhaft
+/// in Geiselhaft). Der Store legt darueber zusaetzlich eine Wanduhr-Frist
+/// (`kOutboxDeleteMinAge`) und blendet einen verworfenen Delete lokal wieder
+/// ein — der Verlust ist damit sichtbar und vom Nutzer reparierbar.
 OutboxVerdict classifyOutboxFailure(
   Object error,
   int attempts, {
   SyncOpKind? kind,
 }) {
   if (isNetworkSyncError(error)) return OutboxVerdict.retryFree;
+  if (kind != null && _isDeleteKind(kind)) {
+    return attempts + 1 >= kOutboxDeleteMaxAttempts
+        ? OutboxVerdict.drop
+        : OutboxVerdict.retryCounted;
+  }
   final verdict = _verdictForCode(error);
   if (verdict == OutboxVerdict.drop) return OutboxVerdict.drop;
-  if (kind != null && _isDeleteKind(kind)) return verdict;
   // Budget aufgebraucht: auch ein prinzipiell retrybarer Fehler endet hier.
   return attempts + 1 >= kOutboxMaxAttempts ? OutboxVerdict.drop : verdict;
 }

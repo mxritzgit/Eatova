@@ -77,7 +77,14 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   List<ChatMessage> _messages = const <ChatMessage>[];
   List<ChatSession> _sessions = const <ChatSession>[];
-  ChatQuotaSnapshot _quota = ChatQuotaSnapshot.unknown;
+
+  /// `null` heisst „ich weiss es nicht" — nicht „voll" und nicht „leer".
+  ///
+  /// Frueher stand hier `ChatQuotaSnapshot.unknown`, das mit `remaining: 5`
+  /// belegt war. Jeder gescheiterte RPC hat damit ein erschoepftes Kontingent
+  /// wieder aufgefuellt und die Sperre aufgehoben (Review D2). Ein Snapshot
+  /// liegt jetzt nur vor, wenn der Server tatsaechlich Zahlen genannt hat.
+  ChatQuotaSnapshot? _quota;
   String? _activeSessionId;
   bool _loading = true;
   bool _sending = false;
@@ -87,13 +94,35 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
+  /// Nur ein *bekanntermassen* leeres Kontingent sperrt.
+  ///
+  /// Ein unbekannter Stand (Kaltstart ohne Netz) sperrt ausdruecklich nicht:
+  /// der Nutzer hat vielleicht noch Fragen frei, und ueber das Limit
+  /// entscheidet ohnehin der Server — er antwortet mit 429, wenn nicht.
+  /// Die Unterscheidung ist nicht „gesperrt vs. frei", sondern „was weiss ich".
+  bool get _kontingentErschoepft {
+    final quota = _quota;
+    return quota != null && quota.remaining <= 0;
+  }
+
+  /// Rest-Zahl fuer die Anzeige. Widgets brauchen zwingend eine Zahl; bei
+  /// unbekanntem Stand steht hier bewusst das Standardlimit, damit weder
+  /// „Limit fuer heute erreicht" noch „Noch N Fragen heute" behauptet wird.
+  /// Sperr-Entscheidungen laufen NIE ueber diesen Wert, sondern ueber
+  /// [_kontingentErschoepft].
+  int get _restFuerAnzeige =>
+      _quota?.remaining ?? ChatQuotaSnapshot.standardTageslimit;
+
+  int get _limitFuerAnzeige =>
+      _quota?.dailyLimit ?? ChatQuotaSnapshot.standardTageslimit;
+
   /// Tippen ist auch WAEHREND einer laufenden Antwort erlaubt (sonst wuerde
   /// das disabled-TextField mitten im Flow die Tastatur schliessen) —
   /// nur Aktionen (Senden/Mic/Attach) warten auf [_canInteract].
   bool get _canType =>
       widget.service != null &&
       !_loading &&
-      _quota.remaining > 0 &&
+      !_kontingentErschoepft &&
       _activeSessionId != null;
   bool get _canInteract => _canType && !_sending;
 
@@ -108,16 +137,21 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   /// Seit D6 haengt dieser Screen im `IndexedStack` und bleibt dauerhaft
   /// gemountet — `_bootstrap()` laeuft also nur noch EINMAL pro App-Lauf.
-  /// Der Tageszaehler wurde danach ausschliesslich aus `send()`-Antworten
-  /// fortgeschrieben, und bei erschoepftem Kontingent ist der Composer
-  /// deaktiviert: es gibt dann gar keine `send()` mehr, die ihn korrigieren
-  /// koennte. Wer die App ueber die UTC-Mitternacht offen liess, blieb bis
-  /// zum Kaltstart ausgesperrt.
+  /// Damit ist jeder einmalige Fehlausgang dauerhaft: der Tageszaehler wurde
+  /// nur noch aus `send()`-Antworten fortgeschrieben (und bei erschoepftem
+  /// Kontingent gibt es keine `send()` mehr, die ihn korrigieren koennte), ein
+  /// Fehlerbanner blieb bis zum Kaltstart stehen, und eine beim ersten Besuch
+  /// gescheiterte Session wurde nie wieder nachgeholt.
   ///
   /// `TickerMode` ist der Hebel: W3-01 schaltet den Ticker des unsichtbaren
   /// Tabs stumm, ein Wechsel auf den Coach-Tab flippt ihn also auf `true` und
-  /// loest genau hier aus — der Moment, in dem der Nutzer die Zahl sieht.
-  /// Kein Timer, kein Aufruf beim Verlassen, kein Request im Hintergrund.
+  /// loest [_beiRueckkehr] aus — der Moment, in dem der Nutzer den Screen
+  /// wieder ansieht. Kein Timer, kein Aufruf beim Verlassen, kein Request im
+  /// Hintergrund.
+  ///
+  /// ACHTUNG: das haengt an der Verdrahtung in `eatova_home_page.dart`
+  /// (`TickerMode(enabled: i == tab, …)` im Tab-Stack). Faellt das `TickerMode`
+  /// dort weg, faellt alles hier still aus.
   bool _sichtbar = true;
 
   @override
@@ -128,10 +162,32 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     _sichtbar = sichtbar;
     final svc = widget.service;
     // Nur beim Wiedersichtbarwerden und nur, wenn der Bootstrap durch ist —
-    // sonst laufen zwei Quota-Aufrufe gegeneinander.
-    if (wurdeSichtbar && svc != null && !_loading) {
-      unawaited(_refreshQuota(svc));
+    // sonst laufen zwei Aufrufe gegeneinander.
+    if (!wurdeSichtbar || svc == null || _loading) return;
+    // Nach dem Frame: [_beiRueckkehr] darf setState rufen, und
+    // didChangeDependencies laeuft mitten in der Build-Phase.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_beiRueckkehr(svc));
+    });
+  }
+
+  /// Alles, was frueher der Tab-Wechsel nebenbei erledigte, weil der Screen
+  /// unmountete und komplett neu hochfuhr. Seit D6 bleibt er gemountet — was
+  /// hier nicht steht, passiert bis zum Kaltstart nicht mehr.
+  Future<void> _beiRueckkehr(CoachChatService svc) async {
+    // Heilungspfad: ging der erste Bootstrap ohne Session aus (offline beim
+    // ersten Coach-Besuch), blieb `_activeSessionId` bisher fuer den REST DES
+    // APP-LAUFS null — der Composer war dauerhaft tot, weil hier nur die Quota
+    // nachgezogen wurde, nie die Session.
+    if (_activeSessionId == null) {
+      await _bootstrap();
+      return;
     }
+    await _refreshQuota(svc);
+    // Das Fehlerbanner ist Rueckmeldung auf eine Aktion, kein Dauerzustand.
+    // Vor D6 raeumte der Tab-Wechsel es mit dem Screen ab; danach stand ein
+    // einmal gesetzter Fehler bis zum Kaltstart im Bild.
+    if (mounted && _error != null) setState(() => _error = null);
   }
 
   @override
@@ -142,7 +198,22 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     super.dispose();
   }
 
+  /// Laeuft nie zweimal gleichzeitig: seit der Heilungspfad in
+  /// [_beiRueckkehr] den Bootstrap erneut anstossen kann, ist das kein
+  /// theoretischer Fall mehr.
+  bool _bootstrapLaeuft = false;
+
   Future<void> _bootstrap() async {
+    if (_bootstrapLaeuft) return;
+    _bootstrapLaeuft = true;
+    try {
+      await _bootstrapIntern();
+    } finally {
+      _bootstrapLaeuft = false;
+    }
+  }
+
+  Future<void> _bootstrapIntern() async {
     final svc = widget.service;
     if (svc == null) {
       setState(() {
@@ -151,11 +222,27 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       });
       return;
     }
-    final sessions = await svc.loadSessions();
-    String? activeId = sessions.isNotEmpty ? sessions.first.id : null;
-    if (activeId == null) {
-      activeId = await svc.ensureDefaultSession();
+    // Nur im Wiederholungslauf: Spinner zeigen, altes Banner abraeumen. Beim
+    // ersten Lauf aus initState ist `_loading` schon true — dort duerfte gar
+    // kein setState fallen.
+    if (!_loading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
     }
+
+    List<ChatSession> sessions;
+    try {
+      sessions = await svc.loadSessions();
+    } on CoachDataUnavailable {
+      // Offline: „keine Liste bekommen" ist nicht „keine Sessions vorhanden".
+      // Der naechste Schritt fragt ohnehin nach einer Default-Session.
+      sessions = const <ChatSession>[];
+    }
+    final activeId = sessions.isNotEmpty
+        ? sessions.first.id
+        : await svc.ensureDefaultSession();
     if (activeId == null) {
       if (!mounted) return;
       setState(() {
@@ -165,9 +252,22 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
     final history = await svc.loadHistory(activeId);
-    final quota = await svc.loadQuotaToday();
-    final refreshedSessions =
-        sessions.isEmpty ? await svc.loadSessions() : sessions;
+    // Unbekannt bleibt unbekannt: der zuletzt bekannte Stand (beim Kaltstart
+    // keiner) ueberlebt, statt durch eine Vermutung ersetzt zu werden.
+    ChatQuotaSnapshot? quota = _quota;
+    try {
+      quota = await svc.loadQuotaToday();
+    } on CoachDataUnavailable {
+      // absichtlich leer — `quota` behaelt den bekannten Stand.
+    }
+    var refreshedSessions = sessions;
+    if (sessions.isEmpty) {
+      try {
+        refreshedSessions = await svc.loadSessions();
+      } on CoachDataUnavailable {
+        refreshedSessions = _sessions;
+      }
+    }
     if (!mounted) return;
     setState(() {
       _sessions = refreshedSessions;
@@ -181,25 +281,36 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   /// Holt den Tageszaehler neu und uebernimmt ihn in die Anzeige.
   ///
-  /// Gibt den frischen Stand auch dann zurueck, wenn das Widget zwischenzeitlich
-  /// entsorgt wurde — der Aufrufer entscheidet selbst, ob er noch rendert.
-  /// Scheitert der Aufruf (offline), bleibt der bekannte Stand stehen: eine
-  /// Netzstoerung darf das Kontingent weder verbrauchen noch verschenken.
-  Future<ChatQuotaSnapshot> _refreshQuota(CoachChatService svc) async {
-    ChatQuotaSnapshot frisch;
+  /// Der `catch` ist seit W6-07 erreichbarer Code: [CoachChatService
+  /// .loadQuotaToday] wirft, statt einen erfundenen Snapshot zu liefern.
+  /// Vorher fing dieser Block etwas ab, das nie geworfen wurde — waehrend der
+  /// Schaden (ein erschoepftes Kontingent wird von einer Netzstoerung wieder
+  /// aufgefuellt) eine Zeile weiter unten ungehindert passierte.
+  ///
+  /// Regel: eine Netzstoerung darf das Kontingent weder verbrauchen noch
+  /// verschenken. Wir wissen dann schlicht nichts Neues.
+  Future<void> _refreshQuota(CoachChatService svc) async {
+    final ChatQuotaSnapshot frisch;
     try {
       frisch = await svc.loadQuotaToday();
-    } catch (_) {
-      return _quota;
+    } on CoachDataUnavailable {
+      return;
     }
     if (mounted) setState(() => _quota = frisch);
-    return frisch;
   }
 
   Future<void> _refreshSessions() async {
     final svc = widget.service;
     if (svc == null) return;
-    final sessions = await svc.loadSessions();
+    final List<ChatSession> sessions;
+    try {
+      sessions = await svc.loadSessions();
+    } on CoachDataUnavailable {
+      // Der letzte bekannte Stand bleibt stehen: eine Netzstoerung darf das
+      // Sessions-Sheet nicht leerraeumen und damit behaupten, es gaebe keine
+      // Unterhaltungen.
+      return;
+    }
     if (!mounted) return;
     setState(() => _sessions = sessions);
   }
@@ -279,9 +390,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     final text = typedText.trim();
     final hasImage = imageBytes != null && imageBytes.isNotEmpty;
     if (svc == null || sessionId == null || _sending || (text.isEmpty && !hasImage)) return;
-    if (_quota.remaining <= 0) {
+    // Nur ein bekanntermassen leeres Kontingent blockt hier. Ist der Stand
+    // unbekannt, laeuft der Versuch bewusst zum Server — der weiss es genau
+    // und antwortet notfalls mit 429 (-> CoachQuotaExceeded weiter unten).
+    if (_kontingentErschoepft) {
       setState(() => _error =
-          'Tageslimit erreicht (${_quota.dailyLimit} Coach-Fragen pro Tag). Morgen geht\'s weiter.');
+          'Tageslimit erreicht ($_limitFuerAnzeige Coach-Fragen pro Tag). Morgen geht\'s weiter.');
       return;
     }
 
@@ -327,10 +441,16 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
             refusal: res.refusal,
           ),
         ];
-        if (res.remaining != null) {
-          _quota = _quota.copyWith(
-            remaining: res.remaining,
-            used: _quota.dailyLimit - res.remaining!.clamp(0, _quota.dailyLimit),
+        final rest = res.remaining;
+        if (rest != null) {
+          // Der Server hat gerade Zahlen genannt — ab hier ist der Stand
+          // bekannt, auch wenn er es vorher nicht war.
+          final limit = _limitFuerAnzeige;
+          final frei = rest.clamp(0, limit);
+          _quota = ChatQuotaSnapshot(
+            used: limit - frei,
+            remaining: frei,
+            dailyLimit: limit,
           );
         }
         _sending = false;
@@ -342,9 +462,11 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     } on CoachQuotaExceeded catch (e) {
       if (!mounted) return;
       setState(() {
-        _quota = _quota.copyWith(
-          remaining: 0,
+        // Der Server hat das Limit ausdruecklich genannt — belastbarer geht es
+        // nicht, also ersetzt das jeden vorherigen Stand.
+        _quota = ChatQuotaSnapshot(
           used: e.dailyLimit,
+          remaining: 0,
           dailyLimit: e.dailyLimit,
         );
         _error = e.message;
@@ -617,7 +739,8 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// (i) in der Top-Bar, den Hinweis im Leerzustand und den Quota-Pill.
   void _openCoachInfoSheet() {
     HapticFeedback.selectionClick();
-    final remaining = _quota.remaining.clamp(0, _quota.dailyLimit);
+    final limit = _limitFuerAnzeige;
+    final remaining = _restFuerAnzeige.clamp(0, limit);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: surface,
@@ -627,7 +750,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       ),
       builder: (_) => _CoachInfoSheet(
         remaining: remaining,
-        dailyLimit: _quota.dailyLimit,
+        dailyLimit: limit,
       ),
     );
   }
@@ -688,7 +811,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
             focus: _inputFocus,
             enabled: _canType,
             canSend: _canInteract,
-            remaining: _quota.remaining,
+            // Anzeige-Wert, keine Zustandsangabe: bei unbekanntem Stand steht
+            // hier das Standardlimit, damit der Composer weder „Limit fuer
+            // heute erreicht" noch „Noch N Fragen heute" behauptet.
+            remaining: _restFuerAnzeige,
             draft: _draft,
             listening: _listening,
             onSubmit: () => _send(),

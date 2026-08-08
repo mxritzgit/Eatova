@@ -24,14 +24,17 @@ class CoachChatService {
   // -------------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------------
+  /// Die Sessions des Nutzers.
+  ///
+  /// Wirft [CoachDataUnavailable], statt bei einem Fehler eine leere Liste zu
+  /// liefern: „offline" und „du hast noch keine Unterhaltung" sind zwei
+  /// verschiedene Aussagen, und die leere Liste hat die zweite behauptet,
+  /// wenn nur die erste zutraf — das Sessions-Sheet raeumte sich dann selbst
+  /// leer.
   Future<List<ChatSession>> loadSessions() async {
+    final dynamic res;
     try {
-      final res = await _client.rpc('list_chat_sessions');
-      if (res is! List) return const <ChatSession>[];
-      return res
-          .map<ChatSession>((row) =>
-              ChatSession.fromRow((row as Map).cast<String, dynamic>()))
-          .toList();
+      res = await _client.rpc('list_chat_sessions');
     } catch (e, stack) {
       dev.log(
         'CoachChatService.loadSessions failed',
@@ -39,8 +42,19 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
-      return const <ChatSession>[];
+      throw CoachDataUnavailable('Sessionliste nicht abrufbar', e);
     }
+    if (res is! List) {
+      dev.log(
+        'CoachChatService.loadSessions: unerwartete Form ${res.runtimeType}',
+        name: 'eatova.coach',
+      );
+      throw const CoachDataUnavailable('Sessionliste in unerwarteter Form');
+    }
+    return res
+        .map<ChatSession>((row) =>
+            ChatSession.fromRow((row as Map).cast<String, dynamic>()))
+        .toList();
   }
 
   /// Liefert die Default-Session-ID; legt bei Bedarf eine an.
@@ -145,20 +159,20 @@ class CoachChatService {
     }
   }
 
+  /// Der Tageszaehler, wie ihn der Server nennt.
+  ///
+  /// Wirft [CoachDataUnavailable], wenn der RPC scheitert ODER keine
+  /// verwertbaren Zahlen liefert. Beides hiess frueher „5 von 5 frei":
+  /// der `catch` gab `ChatQuotaSnapshot.unknown` zurueck, die `?? 5` im Parser
+  /// erfanden dieselben Zahlen aus einer leeren Zeile. Der Aufrufer konnte das
+  /// nicht von einer echten Serverantwort unterscheiden und hat damit eine
+  /// bestehende Sperre aufgehoben.
   Future<ChatQuotaSnapshot> loadQuotaToday() async {
+    final dynamic res;
     try {
-      final res = await _client.rpc(
+      res = await _client.rpc(
         'get_chat_quota_today',
-        params: {'p_daily_limit': 5},
-      );
-      // RPC liefert table-return als Liste.
-      final row = res is List && res.isNotEmpty
-          ? (res.first as Map).cast<String, dynamic>()
-          : (res is Map ? res.cast<String, dynamic>() : const <String, dynamic>{});
-      return ChatQuotaSnapshot(
-        used: (row['used'] as num?)?.toInt() ?? 0,
-        remaining: (row['remaining'] as num?)?.toInt() ?? 5,
-        dailyLimit: (row['daily_limit'] as num?)?.toInt() ?? 5,
+        params: {'p_daily_limit': ChatQuotaSnapshot.standardTageslimit},
       );
     } catch (e, stack) {
       dev.log(
@@ -167,8 +181,30 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
-      return ChatQuotaSnapshot.unknown;
+      throw CoachDataUnavailable('Tageszaehler nicht abrufbar', e);
     }
+    // RPC liefert table-return als Liste.
+    var row = const <String, dynamic>{};
+    if (res is List && res.isNotEmpty && res.first is Map) {
+      row = (res.first as Map).cast<String, dynamic>();
+    } else if (res is Map) {
+      row = res.cast<String, dynamic>();
+    }
+    final used = (row['used'] as num?)?.toInt();
+    final remaining = (row['remaining'] as num?)?.toInt();
+    final dailyLimit = (row['daily_limit'] as num?)?.toInt();
+    if (used == null || remaining == null || dailyLimit == null) {
+      dev.log(
+        'CoachChatService.loadQuotaToday: Antwort ohne verwertbare Zahlen',
+        name: 'eatova.coach',
+      );
+      throw const CoachDataUnavailable('Tageszaehler ohne verwertbare Zahlen');
+    }
+    return ChatQuotaSnapshot(
+      used: used,
+      remaining: remaining,
+      dailyLimit: dailyLimit,
+    );
   }
 
   /// Schickt die User-Nachricht an die Edge Function.
@@ -357,6 +393,27 @@ class CoachChatException implements Exception {
   final String message;
   @override
   String toString() => 'CoachChatException: $message';
+}
+
+/// „Ich weiss es nicht" — der Server hat keinen belastbaren Stand geliefert
+/// (offline, abgelaufener Token, kaputter RPC, Antwort ohne Zahlen).
+///
+/// Bewusst eine Exception und kein Sentinel-Wert: ein Platzhalter-Objekt sieht
+/// im Aufrufer aus wie eine echte Serverantwort und wird auch so behandelt.
+/// Genau daran ist die Quota-Sperre gescheitert. Wer das hier faengt, muss
+/// entscheiden, ob er seinen letzten bekannten Stand behaelt (Regel: ja) —
+/// er darf ihn nicht durch eine Vermutung ersetzen.
+///
+/// Kein Anzeigetext: das ist kein Fehler, den der Nutzer lesen muss, sondern
+/// eine fehlende Information.
+class CoachDataUnavailable implements Exception {
+  const CoachDataUnavailable(this.reason, [this.cause]);
+
+  final String reason;
+  final Object? cause;
+
+  @override
+  String toString() => 'CoachDataUnavailable: $reason';
 }
 
 class CoachQuotaExceeded implements Exception {

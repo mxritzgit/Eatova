@@ -177,14 +177,30 @@ class BodyStatsCard extends StatelessWidget {
     );
   }
 
+  /// **D5, bewusst OHNE Verwerf-Rueckfrage.**
+  ///
+  /// Das Sheet haelt genau ein Feld, und das ist beim Oeffnen bereits mit dem
+  /// zuletzt geloggten Gewicht gefuellt — derselbe Wert steht gross auf der
+  /// Karte dahinter. Wer versehentlich schliesst, verliert das Eintippen von
+  /// zwei, drei Ziffern, deren Ausgangswert er direkt vor sich sieht. Eine
+  /// Rueckfrage kostet hier bei JEDEM Schliessen einen Extra-Tap und schuetzt
+  /// dafuer fast nichts; sie waere mehr Stoerung als Schutz. Die Sheets mit
+  /// Rueckfrage (Bestandteile, Bearbeiten, Rezept anlegen, Einstellungen)
+  /// halten dagegen vielteilige Formulare, deren Inhalt nirgends sonst steht.
+  ///
+  /// Was hier trotzdem faellt, ist `showDragHandle: true`: `app_theme.dart:95`
+  /// setzt global `false`, und der Griff der Route liegt als Stack-Geschwister
+  /// NEBEN dem builder-Kind (`bottom_sheet.dart:397-410`) — ein Ort, an dem
+  /// kein Sheet ihn je erreichen kann. Gezeichnet wird er jetzt wie ueberall
+  /// sonst IM Sheet, siehe [_ProfileSheetGrabber].
   Future<void> _promptWeight(BuildContext context) async {
     final result = await showModalBottomSheet<double>(
       context: context,
       backgroundColor: surface,
-      showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) =>
-          _ProfileWeightInputSheet(initial: log.latest?.weightKg ?? profile.weightKg.toDouble()),
+      builder: (_) => _ProfileWeightInputSheet(
+        initial: log.latest?.weightKg ?? profile.weightKg.toDouble(),
+      ),
     );
     if (result != null) onLogWeight(result);
   }
@@ -193,8 +209,44 @@ class BodyStatsCard extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: surface,
-      showDragHandle: true,
       builder: (_) => const _BmiInfoSheet(),
+    );
+  }
+}
+
+/// Der Griff der Profil-Sheets — im Sheet gezeichnet statt an der Route.
+///
+/// Die Dismiss-Semantik muss dabei mitwandern: der Route-Griff bot
+/// TalkBack/VoiceOver eine Tap-Aktion an (`bottom_sheet.dart:368`), und beide
+/// Sheets hier haben keinen Schliessen-Knopf. Auf Android bietet auch die
+/// Barriere keine Dismiss-Semantik an (`modal_barrier.dart`,
+/// `platformSupportsDismissingBarrier`) — ohne diese Aktion saesse ein
+/// Screenreader-Nutzer fest.
+class _ProfileSheetGrabber extends StatelessWidget {
+  const _ProfileSheetGrabber();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      onTap: () => Navigator.of(context).maybePop(),
+      child: const SizedBox(
+        width: double.infinity,
+        height: 26,
+        child: Center(
+          child: SizedBox(
+            width: 32,
+            height: 4,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: textMuted,
+                borderRadius: BorderRadius.all(Radius.circular(rPill)),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -211,11 +263,12 @@ class _BmiInfoSheet extends StatelessWidget {
       ('Adipös', '≥ 30.0', danger),
     ];
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Center(child: _ProfileSheetGrabber()),
           const Text(
             'BMI Orientierung',
             style: TextStyle(
@@ -312,7 +365,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
-        4,
+        0,
         20,
         24 + MediaQuery.viewInsetsOf(context).bottom,
       ),
@@ -320,6 +373,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Center(child: _ProfileSheetGrabber()),
           const Text(
             'Gewicht loggen',
             style: TextStyle(

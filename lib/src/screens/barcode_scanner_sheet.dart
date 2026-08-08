@@ -36,17 +36,6 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   );
   bool hasReturned = false;
 
-  /// Analysefehler seit dem letzten erfolgreichen Frame.
-  ///
-  /// Kein bool: ein einzelner Ausrutscher (unscharfes Bild) soll den Nutzer
-  /// nicht behelligen. Erst wenn mehrere in Folge kommen, steht der Analyzer
-  /// wirklich still.
-  int _detectErrors = 0;
-
-  /// Ab wann der Hinweis erscheint. Bei laufendem Analyzer kaeme nach einem
-  /// Fehlframe wieder ein guter; bleibt es dabei, haengt er.
-  static const int _fehlerSchwelle = 3;
-
   bool _analyzerHaengt = false;
 
   @override
@@ -57,14 +46,27 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
 
   /// Macht Analysefehler sichtbar, statt sie zu verschlucken.
   ///
-  /// Der Neustart des Controllers ist noetig, weil der Analyzer sich nach
-  /// einem Fehlframe nicht selbst erholt (fehlendes `imageProxy.close()` in
-  /// `MobileScanner.kt:225-229`, mobile_scanner 7.4.0). Ohne ihn bliebe das
-  /// Bild live und der Scanner trotzdem tot.
+  /// **Der ERSTE Fehler zaehlt.** Das war zunaechst anders gebaut (Schwelle 3,
+  /// „ein einzelner Ausrutscher soll den Nutzer nicht behelligen") — die
+  /// Annahme war falsch, und zwar in beide Richtungen:
+  ///
+  /// * Ein unscharfes Bild erzeugt **gar keinen Fehler**. Es laeuft ueber den
+  ///   Erfolgspfad mit leerer Barcode-Liste, der den `ImageProxy` ordentlich
+  ///   schliesst. `onDetectError` feuert ausschliesslich bei einem ML-Kit-
+  ///   *Verarbeitungs*fehler — fehlendes Modell, Decoder-Fehler.
+  /// * Genau dieser Zweig (`MobileScanner.kt:225-229`, mobile_scanner 7.4.0)
+  ///   ruft **kein** `imageProxy.close()`. Mit `STRATEGY_KEEP_ONLY_LATEST`
+  ///   (`:425`) reicht CameraX dann keinen weiteren Frame durch — die Zahl der
+  ///   ueberhaupt zustellbaren Fehlframes ist durch die Reader-Tiefe begrenzt
+  ///   und erreicht die 3 in keinem Fall garantiert.
+  ///
+  /// Eine Schwelle > 1 machte das Overlay also genau in dem Szenario
+  /// unerreichbar, fuer das es gebaut wurde.
+  ///
+  /// Der Neustart ist noetig, weil der Analyzer sich aus demselben Grund nicht
+  /// selbst erholt: ohne ihn bliebe das Bild live und der Scanner trotzdem tot.
   void handleDetectError(Object error, StackTrace stackTrace) {
-    if (hasReturned || !mounted) return;
-    _detectErrors++;
-    if (_detectErrors < _fehlerSchwelle || _analyzerHaengt) return;
+    if (hasReturned || !mounted || _analyzerHaengt) return;
     setState(() => _analyzerHaengt = true);
     CrashReporter.capture(error, stackTrace, context: 'barcode-detect');
   }
@@ -72,7 +74,6 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   Future<void> _neuStarten() async {
     setState(() {
       _analyzerHaengt = false;
-      _detectErrors = 0;
     });
     try {
       await controller.stop();
@@ -90,10 +91,7 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     }
 
     // Ein guter Frame heisst: der Analyzer laeuft wieder.
-    if (_detectErrors != 0 || _analyzerHaengt) {
-      _detectErrors = 0;
-      if (_analyzerHaengt) setState(() => _analyzerHaengt = false);
-    }
+    if (_analyzerHaengt) setState(() => _analyzerHaengt = false);
 
     for (final barcode in capture.barcodes) {
       final rawValue = barcode.rawValue;

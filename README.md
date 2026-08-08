@@ -223,11 +223,15 @@ flutter build appbundle --release --dart-define-from-file=dart_defines.json
 flutter build apk --release --dart-define-from-file=dart_defines.json
 ```
 
-If `android/key.properties` is missing (e.g. in CI, which only builds debug),
-release builds fall back to the debug key with a Gradle warning — such builds
-are not uploadable to the Play Store. Release builds run R8
-(minify + resource shrinking); plugin keep rules live in
-`android/app/proguard-rules.pro`.
+If `android/key.properties` is missing, any release *assemble*/*bundle*/*package*
+task **fails** with a `GradleException` naming the offending tasks
+(`android/app/build.gradle.kts:118-143`). This is deliberate: without the file the
+artifact would be signed with the universal Android **debug** key — Play rejects
+the upload, and a sideloaded build silently breaks Google Sign-In because the
+SHA-1 fingerprint no longer matches. Create `android/key.properties` as shown
+above; for a pure compile check, build `--debug` instead. Debug builds (which is
+all CI builds) are unaffected. Release builds run R8 (minify + resource
+shrinking); plugin keep rules live in `android/app/proguard-rules.pro`.
 
 > **Warning:** Back up the keystore and its passwords outside the repository
 > (password manager + offline copy). If the upload key is lost, the only

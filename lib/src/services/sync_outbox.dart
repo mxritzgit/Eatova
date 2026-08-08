@@ -1,3 +1,5 @@
+import 'package:clock/clock.dart';
+
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/logged_meal.dart';
@@ -33,8 +35,9 @@ const int kOutboxMaxOps = 500;
 /// Zaehlt NUR Versuche, die der Server aktiv abgelehnt hat (5xx, 429, unklare
 /// Codes) — Netzfehler sind gratis (siehe classifyOutboxFailure), sonst wuerde
 /// ein Offline-Wochenende das Budget verbrennen und gueltige Nutzerdaten
-/// vernichten. Loesch-Ops ([SyncOp.isDelete]) haben ueberhaupt kein Budget:
-/// ihr Verwurf laesst die geloeschte Zeile beim naechsten Boot vom Server
+/// vernichten. Loesch-Ops ([SyncOp.isDelete]) laufen NICHT hier hinein,
+/// sondern in ihr eigenes, viel groesseres [kOutboxDeleteMaxAttempts]: ihr
+/// Verwurf laesst die geloeschte Zeile beim naechsten Boot vom Server
 /// zurueckkehren.
 ///
 /// Warum 8: der Backoff laeuft 30s → 1m → 2m → 4m (Cap). Acht gezaehlte
@@ -43,6 +46,34 @@ const int kOutboxMaxOps = 500;
 /// genug, dass ein echter Ausfall sich erholt, aber klein genug, dass eine
 /// wirklich unschreibbare Op nicht Monate lang Akku und Traffic frisst.
 const int kOutboxMaxAttempts = 8;
+
+/// Maximale Zustellversuche einer LOESCH-Op ([SyncOp.isDelete]).
+///
+/// Deletes bekommen ein eigenes Budget, weil ihr Verwurf teurer ist als der
+/// eines Writes: der naechste Kaltstart HEILT einen verworfenen Write nicht,
+/// aber er macht einen verworfenen Delete aktiv rueckgaengig — die Serverzeile
+/// ueberlebt, der lokale Zustand nicht, die geloeschte 1800-kcal-Mahlzeit ist
+/// wieder da und zaehlt erneut.
+///
+/// Warum ueberhaupt eines (und nicht „nie verwerfen"): eine Op ohne Budget ist
+/// unsterblich, und daran haengt mehr, als es zunaechst aussieht — der
+/// 4-Minuten-Retry-Timer feuert dann dauerhaft ueber alle Sessions, die Outbox
+/// wird nie leer (also nagelt `signOutCleanup` `preserveOutbox` fuer immer auf
+/// true und die Audit-M-1-Eigenschaft „PII ueberlebt den Logout nicht" ist
+/// aufgehoben), und [capOutbox] kann einen Ueberlauf aus lauter Deletes nicht
+/// mehr abbauen. Die Zielkollision „Deletes nie verwerfen" vs. „harte
+/// Obergrenze" ist damit zugunsten einer sehr langen, aber endlichen Frist
+/// entschieden — tragbar nur, weil der Store einen verworfenen Delete lokal
+/// wieder EINBLENDET und meldet (siehe `_restoreDroppedDeletes`), der Verlust
+/// also sichtbar und vom Nutzer reparierbar ist statt still.
+///
+/// Warum 64 (8x das Schreib-Budget): gezaehlt werden nur aktive
+/// Server-Ablehnungen (Netzfehler sind gratis), und der Backoff steht bei 4
+/// Minuten — 64 gezaehlte Ablehnungen sind also mindestens ein halber
+/// Arbeitstag ununterbrochener Server-Ablehnung. Wirksam wird das Budget
+/// ohnehin erst zusammen mit `kOutboxDeleteMinAge` (UND-Bedingung im Store),
+/// weil Lifecycle-Churn den Zaehler sonst in Sekunden hochtreiben koennte.
+const int kOutboxDeleteMaxAttempts = 64;
 
 /// Art der nachzuholenden Operation. Jede Op ist fuer sich idempotent
 /// wiederholbar (siehe Doku an den Sync-Methoden):
@@ -74,7 +105,11 @@ class SyncOp {
     required this.payload,
     DateTime? queuedAt,
     this.attempts = 0,
-  }) : queuedAt = queuedAt ?? DateTime.now();
+    // clock.now() statt DateTime.now(): [queuedAt] ist die eine Haelfte der
+    // Verwurfs-Frist (kOutboxMinAgeBeforeDrop / kOutboxDeleteMinAge), und die
+    // war mit der System-Uhr ueberhaupt nicht mit einer kontrollierten Uhr
+    // pruefbar. Der Rest des Stores haengt ohnehin an package:clock.
+  }) : queuedAt = queuedAt ?? clock.now();
 
   final SyncOpKind kind;
 
@@ -95,21 +130,27 @@ class SyncOp {
   /// Kopie mit einem verbrauchten Zustellversuch. Alles andere — insbesondere
   /// [queuedAt], die FIFO-Position der Entitaet — bleibt erhalten.
   ///
-  /// Ausnahme: [isDelete]-Ops zaehlen NICHT. Sie haben kein Versuchs-Budget
-  /// (ein verworfener Delete laesst die geloeschte Mahlzeit beim naechsten
-  /// Kaltstart vom Server zurueckkehren, siehe [isDelete]), also waere der
-  /// Zaehler reine Buchhaltung — und eine gefaehrliche dazu: persistiert
-  /// laege in der Queue ein Wert, den jeder Build ohne diese Regel (Downgrade,
-  /// alter Replay-Pfad) sofort als aufgebrauchtes Budget liest und verwirft.
-  SyncOp incrementAttempt() => isDelete
-      ? this
-      : SyncOp._(
-          kind: kind,
-          entityId: entityId,
-          payload: payload,
-          queuedAt: queuedAt,
-          attempts: attempts + 1,
-        );
+  /// Gilt auch fuer [isDelete]-Ops. Die zaehlten eine Zeit lang bewusst NICHT
+  /// („Deletes duerfen ewig retryen"), und genau das hat eine unsterbliche Op
+  /// erzeugt: ohne Zaehler wird sie nie verworfen, die Queue laeuft nie leer,
+  /// der Backoff-Timer feuert alle vier Minuten ueber alle Sessions hinweg,
+  /// `signOutCleanup` nagelt `preserveOutbox` dauerhaft auf true (Audit M-1
+  /// ausgehebelt) und [capOutbox] kann den Ueberlauf nicht mehr abbauen.
+  /// Deletes zaehlen deshalb wieder — nur gegen ein viel groesseres Budget
+  /// ([kOutboxDeleteMaxAttempts]).
+  ///
+  /// Der Zaehler wird damit auch fuer Deletes persistiert. Das ist der Preis:
+  /// ein Downgrade auf einen Build ohne die Delete-Regel liest ihn als
+  /// Schreib-Budget und verwirft frueher. Hinnehmbar, weil genau dieser Build
+  /// den Delete ohnehin nach acht eigenen Durchlaeufen verwirft — persistiert
+  /// wird der Verwurf nur vorgezogen, nicht ueberhaupt erst ermoeglicht.
+  SyncOp incrementAttempt() => SyncOp._(
+        kind: kind,
+        entityId: entityId,
+        payload: payload,
+        queuedAt: queuedAt,
+        attempts: attempts + 1,
+      );
 
   factory SyncOp.mealInsert(LoggedMeal meal, {required bool trackDay}) =>
       SyncOp._(kind: SyncOpKind.mealInsert, entityId: meal.id, payload: {
@@ -173,9 +214,13 @@ class SyncOp {
   /// Sonderstellung im Verwurfs-Pfad: der Verlust eines Deletes ist der
   /// einzige, den ein Kaltstart nicht nur nicht heilt, sondern aktiv
   /// RUECKGAENGIG macht — die Serverzeile ueberlebt, der lokale Zustand nicht,
-  /// und der naechste Boot liest vom Server. Deshalb darf ein Delete weder am
-  /// Versuchs-Budget noch am Queue-Cap sterben (siehe [capOutbox],
-  /// [incrementAttempt], classifyOutboxFailure).
+  /// und der naechste Boot liest vom Server. Deshalb ist ein Delete an jeder
+  /// Verwurfsstelle die LETZTE Wahl: kein Sofort-Verwurf aus dem Fehlercode,
+  /// ein Vielfaches an Zustellversuchen ([kOutboxDeleteMaxAttempts]), im Store
+  /// zusaetzlich eine Wanduhr-Frist, und beim Queue-Cap faellt er erst, wenn
+  /// keine Schreib-Op mehr da ist (siehe [capOutbox], classifyOutboxFailure).
+  /// Unverwerfbar ist er aber NICHT — das waere eine unsterbliche Op; wo er
+  /// faellt, blendet der Store den Eintrag lokal wieder ein und meldet es.
   bool get isDelete =>
       kind == SyncOpKind.mealDelete ||
       kind == SyncOpKind.favoriteDelete ||
@@ -352,8 +397,14 @@ List<SyncOp> enqueueCoalesced(
 /// gewachsene Queue kommt aus dem Cache zurueck, ohne je durch das Einreihen
 /// zu laufen.
 ///
-/// Verworfen werden die aeltesten SCHREIB-Ops (Kopf der Queue); [SyncOp.isDelete]
-/// wird uebersprungen. Begruendung:
+/// Verworfen werden die aeltesten Ops (Kopf der Queue), SCHREIB-Ops zuerst;
+/// [SyncOp.isDelete] kommt erst dran, wenn keine Schreib-Op mehr uebrig ist.
+/// Der Cap bleibt damit eine HARTE Obergrenze — eine Queue aus lauter
+/// unzustellbaren Deletes haette ihn sonst vollstaendig ausgehebelt und genau
+/// das unbegrenzte Blob-Wachstum erzeugt, gegen das er geschrieben wurde.
+/// Tragbar ist das nur, weil der Store einen verworfenen Delete lokal wieder
+/// einblendet und meldet (`_restoreDroppedDeletes`, `outboxDeleteLossHint`).
+/// Begruendung fuer die Reihenfolge:
 ///  (a) Drop-Newest wuerde eine volle Queue in einen dauerhaften Total-
 ///      Schreibausfall verwandeln: eine volle Queue leert sich per Definition
 ///      gerade nicht, also kaeme ab da NIE wieder ein Write durch.
@@ -370,10 +421,11 @@ List<SyncOp> enqueueCoalesced(
 ///      ein Retry schadlos ist, nicht dass ein Verwurf folgenlos waere. Beim
 ///      Delete ueberlebt die Serverzeile, der lokale Zustand nicht — der
 ///      naechste Boot liest vom Server, und die geloeschte 1800-kcal-Mahlzeit
-///      ist wieder da und zaehlt erneut. Deletes werden deshalb nie gekappt;
-///      sie kosten fast nichts (leere Payload, ~120 Byte JSON), und eine
-///      Queue, die nur noch aus ihnen besteht, darf lieber ueber dem Cap
-///      liegen als Nutzer-Loeschungen zurueckzudrehen.
+///      ist wieder da und zaehlt erneut. Deletes kosten ausserdem fast nichts
+///      (leere Payload, ~120 Byte JSON). Sie fallen deshalb ZULETZT — aber sie
+///      fallen: eine Queue, die nur noch aus ihnen besteht, waechst sonst
+///      unbegrenzt weiter, und ein ANR beim Cache-Write kostet mehr als die
+///      aelteste von 500 haengenden Loeschungen.
 ({List<SyncOp> queue, List<SyncOp> dropped}) capOutbox(
   List<SyncOp> queue, {
   int maxOps = kOutboxMaxOps,
@@ -382,8 +434,9 @@ List<SyncOp> enqueueCoalesced(
     return (queue: queue, dropped: const <SyncOp>[]);
   }
   var overflow = queue.length - maxOps;
-  final kept = <SyncOp>[];
+  var kept = <SyncOp>[];
   final dropped = <SyncOp>[];
+  // 1. Durchgang: Schreib-Ops, aelteste zuerst.
   for (final op in queue) {
     if (overflow > 0 && !op.isDelete) {
       dropped.add(op);
@@ -391,6 +444,20 @@ List<SyncOp> enqueueCoalesced(
     } else {
       kept.add(op);
     }
+  }
+  // 2. Durchgang: die Queue besteht jetzt nur noch aus Deletes und liegt
+  // immer noch ueber dem Cap. Auch hier aelteste zuerst.
+  if (overflow > 0) {
+    final survivors = <SyncOp>[];
+    for (final op in kept) {
+      if (overflow > 0) {
+        dropped.add(op);
+        overflow--;
+      } else {
+        survivors.add(op);
+      }
+    }
+    kept = survivors;
   }
   return (queue: kept, dropped: dropped);
 }

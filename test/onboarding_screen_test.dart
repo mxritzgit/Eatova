@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 
@@ -522,10 +523,32 @@ void main() {
     );
   });
 
-  testWidgets('der Tempo-Picker zeigt weiter das gewaehlte Tempo',
+  /// Der Untertitel einer Tempo-Option — innerhalb ihrer eigenen Zeile gesucht.
+  Finder paceOptionText(String goalName, String text) => find.descendant(
+        of: find.byKey(ValueKey('onboarding-pace-$goalName')),
+        matching: find.text(text),
+      );
+
+  // Diese Erwartung hiess bis Welle 6 „der Tempo-Picker zeigt weiter das
+  // gewaehlte Tempo" und nagelte fest, dass im Picker '−1100 kcal / Tag' steht.
+  // Die Begruendung dafuer lautete: „dort gibt es noch kein Profil-Ergebnis".
+  //
+  // Das war fuer den Onboarding-Picker falsch. Der Tempo-Schritt ist Nummer 9
+  // von 11 (_Step: intro, sex, age, height, weight, activity, goal, target,
+  // PACE, diet, summary) — Gewicht, Groesse, Alter, Geschlecht und Aktivitaet
+  // stehen zu diesem Zeitpunkt alle fest, `KcalCalculator.calculate` braucht
+  // nichts weiter. Fuer das Standardprofil ergeben „Zuegig" (−825 kcal) und
+  // „Ambitioniert" (−1100 kcal) beide dasselbe Tagesziel von 1200 kcal; der
+  // Picker versprach zwei verschiedene Tempi fuer denselben Plan und erst der
+  // NAECHSTE Schritt korrigierte auf −0,72 kg/Woche. Genau das nennt der
+  // Review woertlich „identischer Plan, zwei verschiedene Versprechen".
+  //
+  // Der Titel bleibt das Versprechen — er ist der Name der Option, und zwei
+  // Zeilen „Ambitioniert · −0,72 kg/Woche" waeren nicht unterscheidbar. Neu
+  // ist der Untertitel: er nennt statt des ungedeckten kcal-Deltas den Plan,
+  // den die Option mit DIESEM Koerper ergibt.
+  testWidgets('der Tempo-Picker nennt den Plan, den jede Option ergibt',
       (tester) async {
-    // Im Picker gibt es noch kein Profil-Ergebnis — dort ist das versprochene
-    // Tempo die richtige Beschriftung, nicht die effektive Rate.
     await pumpOnboarding(
       tester,
       initialProfile: const UserProfile(
@@ -536,8 +559,153 @@ void main() {
     await advance(tester, 8);
     expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
 
+    // Titel = Auswahl. Bleibt.
     expect(find.text('Ambitioniert · −1 kg/Woche'), findsOneWidget);
     expect(find.text('Zügig · −0,75 kg/Woche'), findsOneWidget);
-    expect(find.text('−1100 kcal / Tag'), findsOneWidget);
+
+    // Untertitel = Folge. Beide Optionen ergeben denselben Plan, und das steht
+    // jetzt wortgleich da — vor der Auswahl, nicht erst danach.
+    expect(
+      paceOptionText('lose1kg', 'Ergibt 1200 kcal/Tag · −0,72 kg/Woche'),
+      findsOneWidget,
+    );
+    expect(
+      paceOptionText('lose075kg', 'Ergibt 1200 kcal/Tag · −0,72 kg/Woche'),
+      findsOneWidget,
+    );
+
+    // Wo die 1200er-Klemme nicht greift, steht dieselbe Zeile mit den Zahlen,
+    // die das gewaehlte Tempo auch wirklich liefert.
+    expect(
+      paceOptionText('lose05kg', 'Ergibt 1450 kcal/Tag · −0,5 kg/Woche'),
+      findsOneWidget,
+    );
+
+    // Das ungedeckte Versprechen ist weg.
+    expect(find.text('−1100 kcal / Tag'), findsNothing);
+    expect(find.text('−825 kcal / Tag'), findsNothing);
+  });
+
+  // -------------------------------------------------------------------------
+  // Gespiegelte Grenzen — das Onboarding hatte 16..99 / 40..200 / 120..220 als
+  // Literale im Code, waehrend `profiles` 16..100 / 30..300 / 100..250 zulaesst
+  // (ProfileLimits). model_limits.dart wurde gar nicht importiert, die Kopien
+  // konnten also unbemerkt auseinanderlaufen.
+  // -------------------------------------------------------------------------
+
+  /// Springt vom Intro zum Schritt [field] und liest dessen grosse Zahl.
+  Future<String> pickerValue(
+    WidgetTester tester,
+    UserProfile initialProfile, {
+    required String field,
+    required int steps,
+  }) async {
+    await pumpOnboarding(
+      tester,
+      initialProfile: initialProfile,
+      screenKey: UniqueKey(),
+    );
+    await advance(tester, steps);
+    return tester
+        .widget<Text>(find.byKey(ValueKey('onboarding-$field-value')))
+        .data!;
+  }
+
+  testWidgets(
+      'ein Gewicht von 210 kg ueberlebt das Onboarding — die DB erlaubt bis 300',
+      (tester) async {
+    // Vorher wurde in initState still auf 200 geklemmt: ein Nutzer mit 210 kg
+    // konnte sein Gewicht gar nicht wahrheitsgemaess angeben, obwohl
+    // profiles.weight_kg (30..300) es akzeptiert haette.
+    expect(
+      await pickerValue(
+        tester,
+        const UserProfile(weightKg: 210),
+        field: 'weight',
+        steps: 4,
+      ),
+      '210',
+    );
+  });
+
+  testWidgets(
+      'eine Groesse von 115 cm ueberlebt das Onboarding — die DB erlaubt ab 100',
+      (tester) async {
+    expect(
+      await pickerValue(
+        tester,
+        const UserProfile(heightCm: 115),
+        field: 'height',
+        steps: 3,
+      ),
+      '115',
+    );
+  });
+
+  testWidgets('das Alter reicht bis 100, genau wie die DB-Constraint',
+      (tester) async {
+    expect(
+      await pickerValue(
+        tester,
+        const UserProfile(ageYears: 100),
+        field: 'age',
+        steps: 2,
+      ),
+      '100',
+    );
+  });
+
+  testWidgets(
+      'die Regler-Grenzen stammen aus ProfileLimits, nicht aus Literalen',
+      (tester) async {
+    // Der eigentliche Fund ist nicht die einzelne Zahl, sondern dass die
+    // Kopien driften koennen. Die 16 ist Art. 8 DSGVO (Gesundheitsdaten nach
+    // Art. 9) und wurde mit Migration 20260807090000 schon einmal von 13 auf
+    // 16 verschoben — eine Kopie, die beim naechsten Mal stehen bleibt, ist
+    // ein Rechtsverstoss mit Ansage. Deshalb pruefen die Erwartungen gegen die
+    // Konstanten, nicht gegen Zahlen: verschiebt jemand ProfileLimits, wandert
+    // das Onboarding mit.
+    Future<double> sliderRange(
+      WidgetTester tester, {
+      required String field,
+      required int steps,
+      required bool min,
+    }) async {
+      await pumpOnboarding(
+        tester,
+        initialProfile: const UserProfile(),
+        screenKey: UniqueKey(),
+      );
+      await advance(tester, steps);
+      final slider =
+          tester.widget<Slider>(find.byKey(ValueKey('onboarding-$field-slider')));
+      return min ? slider.min : slider.max;
+    }
+
+    expect(
+      await sliderRange(tester, field: 'age', steps: 2, min: true),
+      ProfileLimits.ageYearsMin.toDouble(),
+      reason: 'Mindestalter ist Art. 8 DSGVO, keine UI-Vorliebe.',
+    );
+    expect(
+      await sliderRange(tester, field: 'age', steps: 2, min: false),
+      ProfileLimits.ageYearsMax.toDouble(),
+    );
+    expect(
+      await sliderRange(tester, field: 'height', steps: 3, min: true),
+      ProfileLimits.heightCmMin.toDouble(),
+    );
+    expect(
+      await sliderRange(tester, field: 'height', steps: 3, min: false),
+      ProfileLimits.heightCmMax.toDouble(),
+    );
+    expect(
+      await sliderRange(tester, field: 'weight', steps: 4, min: true),
+      ProfileLimits.weightKgMin.toDouble(),
+    );
+    expect(
+      await sliderRange(tester, field: 'weight', steps: 4, min: false),
+      ProfileLimits.weightKgMax.toDouble(),
+    );
   });
 }

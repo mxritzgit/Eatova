@@ -7,7 +7,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/sync_outbox.dart'
-    show SyncOpKind, kOutboxMaxAttempts;
+    show SyncOpKind, kOutboxMaxAttempts, kOutboxDeleteMaxAttempts;
 
 // Pures Fehlertext-Mapping fuer Sync-/Profil-Fehler: Netzwerkfehler werden als
 // solche erkannt (-> ehrlicher Offline-Hinweis), alles andere bekommt eine
@@ -239,28 +239,27 @@ void main() {
     });
 
     test(
-        'Delete-Ops sterben NIE am Versuchs-Budget — ein verworfener Delete '
+        'Delete-Ops sterben nicht am SCHREIB-Budget — ein verworfener Delete '
         'holt die geloeschte Mahlzeit vom Server zurueck', () {
       // Die Serverzeile ueberlebt den Verwurf, der lokale Zustand nicht: beim
       // naechsten Kaltstart ist die geloeschte 1800-kcal-Mahlzeit wieder da
-      // und zaehlt erneut. Deletes sind idempotent und billig — sie duerfen
-      // ewig retryen. (attempts kann trotz incrementAttempt > 0 sein: eine
-      // Queue aus einem aelteren Build bringt den Zaehler mit.)
+      // und zaehlt erneut. Deletes sind idempotent und billig — sie bekommen
+      // deshalb ihr eigenes, viel groesseres Budget.
       for (final kind in const <SyncOpKind>[
         SyncOpKind.mealDelete,
         SyncOpKind.favoriteDelete,
         SyncOpKind.recipeDelete,
       ]) {
         expect(
-            classifyOutboxFailure(pg('500'), kOutboxMaxAttempts + 99,
+            classifyOutboxFailure(pg('500'), kOutboxMaxAttempts * 4,
                 kind: kind),
             OutboxVerdict.retryCounted,
-            reason: '${kind.name} bei aufgebrauchtem Budget');
+            reason: '${kind.name} weit jenseits des SCHREIB-Budgets');
         expect(
             classifyOutboxFailure(pg('23503'), kOutboxMaxAttempts - 1,
                 kind: kind),
             OutboxVerdict.retryCounted,
-            reason: '${kind.name} am Budget-Rand');
+            reason: '${kind.name} am Schreib-Budget-Rand');
       }
 
       // Gegenprobe: Schreib-Ops laufen unveraendert ins Budget.
@@ -283,15 +282,85 @@ void main() {
     });
 
     test(
-        'ein strukturell unmoeglicher Delete wird weiterhin sofort verworfen',
-        () {
-      // Der Schutz gilt dem BUDGET, nicht dem Code-Verdikt: ein Delete gegen
-      // ein kaputtes Schema (PGRST204) bzw. eine 404-Route kann nie klappen
-      // und wuerde sonst ewig Akku und Traffic kosten.
-      expect(classifyOutboxFailure(pg('PGRST204'), 0, kind: SyncOpKind.mealDelete),
-          OutboxVerdict.drop);
-      expect(classifyOutboxFailure(pg('404'), 0, kind: SyncOpKind.recipeDelete),
-          OutboxVerdict.drop);
+        'ein strukturell unmoeglicher Delete wird NICHT sofort verworfen — '
+        'sonst kehrt die geloeschte Mahlzeit still vom Server zurueck', () {
+      // Frueher stand das Code-Verdikt VOR der Delete-Ausnahme, die galt also
+      // nur dem Budget. Damit blieb der Schaden offen, den A5 schliessen
+      // wollte: der Nutzer loescht eine fehlgescannte 1800-kcal-Mahlzeit, der
+      // Delete trifft einen kalten Schema-Cache (PGRST202/204 nach einer
+      // Migration) oder eine 404 vom Gateway — Sofort-Verwurf. Lokal ist die
+      // Zeile weg, es kommt kein weiterer Write, der naechste Kaltstart liest
+      // die Serverzeile: 1800 kcal zaehlen erneut.
+      //
+      // Beide Codes sind transient-verdaechtig, nicht payload-determiniert:
+      // eine leere Delete-Payload KANN keine Datenverletzung ausloesen. Der
+      // Schutz gilt deshalb Code-Verdikt UND Budget; begrenzt wird ein Delete
+      // nur durch sein eigenes, viel groesseres Budget und (im Store) durch
+      // eine lange Frist — und sein Verwurf blendet die Mahlzeit lokal wieder
+      // ein, statt sie stillschweigend auferstehen zu lassen.
+      for (final code in const <String>[
+        'PGRST202', // Schema-Cache kennt die Funktion/Route (noch) nicht
+        'PGRST204',
+        'PGRST100',
+        '404', // Gateway-Route waehrend eines Deploys
+        '400',
+        '422',
+        '22003', // Klasse 22 — fuer eine LEERE Payload strukturell unmoeglich
+        '22P02',
+        '23502',
+      ]) {
+        for (final kind in const <SyncOpKind>[
+          SyncOpKind.mealDelete,
+          SyncOpKind.favoriteDelete,
+          SyncOpKind.recipeDelete,
+        ]) {
+          expect(classifyOutboxFailure(pg(code), 0, kind: kind),
+              OutboxVerdict.retryCounted,
+              reason: '${kind.name} gegen $code darf nicht sofort sterben');
+        }
+        // Gegenprobe: fuer Schreib-Ops bleibt der Sofort-Verwurf.
+        expect(classifyOutboxFailure(pg(code), 0, kind: SyncOpKind.mealInsert),
+            OutboxVerdict.drop,
+            reason: 'mealInsert gegen $code bleibt ein Sofort-Verwurf');
+      }
+    });
+
+    test(
+        'das Delete-Budget ist gross, aber ENDLICH — sonst ist die Outbox nie '
+        'leer und der Logout traegt PII weiter', () {
+      // Zielkollision aufgeloest: „Deletes nie verwerfen" haette eine Op
+      // erzeugt, die kein Budget verbraucht, nie verworfen wird, den
+      // 4-Minuten-Retry-Timer dauerhaft am Leben haelt, den Queue-Cap
+      // aushebelt und `preserveOutbox` fuer immer auf true nagelt (Audit M-1).
+      // Stattdessen: ein eigenes Budget, um ein Vielfaches groesser als das
+      // der Schreib-Ops — und im Store zusaetzlich an die Wanduhr gekoppelt.
+      expect(kOutboxDeleteMaxAttempts, greaterThan(kOutboxMaxAttempts * 4));
+      for (final kind in const <SyncOpKind>[
+        SyncOpKind.mealDelete,
+        SyncOpKind.favoriteDelete,
+        SyncOpKind.recipeDelete,
+      ]) {
+        expect(
+            classifyOutboxFailure(pg('PGRST204'), kOutboxDeleteMaxAttempts - 2,
+                kind: kind),
+            OutboxVerdict.retryCounted);
+        expect(
+            classifyOutboxFailure(pg('PGRST204'), kOutboxDeleteMaxAttempts - 1,
+                kind: kind),
+            OutboxVerdict.drop,
+            reason: 'dieser Versuch ist der letzte des Delete-Budgets');
+        expect(
+            classifyOutboxFailure(pg('500'), kOutboxDeleteMaxAttempts + 99,
+                kind: kind),
+            OutboxVerdict.drop);
+        // Netzfehler bleiben auch fuer Deletes gratis — ein Offline-Urlaub
+        // darf eine Loeschung nie kosten.
+        expect(
+            classifyOutboxFailure(const SocketException('offline'),
+                kOutboxDeleteMaxAttempts + 99,
+                kind: kind),
+            OutboxVerdict.retryFree);
+      }
     });
 
     test('unbekannter Code / unbekannter Typ -> behalten (retryCounted)', () {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/meal_analysis_result.dart';
+import '../../models/model_limits.dart';
 import '../../theme/app_colors.dart';
 
 /// Gemeinsames Item-Widget fuer Suchtreffer, Favoriten und letzte
@@ -53,18 +54,32 @@ class MealSuggestionItem extends StatefulWidget {
 }
 
 class _MealSuggestionItemState extends State<MealSuggestionItem> {
-  static const int _minGrams = 5;
-  static const int _maxGrams = 1000;
   static const int _step = 10;
 
+  /// Obergrenze des **Reglers** — eine reine Anzeigegrenze, kein Wertelimit.
+  ///
+  /// Ein Slider muss Enden haben; 1..10000 g darauf abzubilden macht ihn
+  /// unbedienbar (ein Pixel waere ~30 g). Die Zahl begrenzt deshalb nur, wie
+  /// weit der Daumen kommt. Groessere Portionen bleiben ueber Tippfeld und
+  /// Stepper erreichbar, und sobald der Wert darueber liegt, waechst das
+  /// Fenster mit (siehe [_sliderMaxGrams]) — der Regler zeigt dann eine
+  /// gueltige Position statt still zurueckzuklemmen.
+  static const int _sliderWindowGrams = 1000;
+
+  /// Der zuletzt **gueltige** Wert. Eine unplausible Tippeingabe aendert ihn
+  /// nicht (siehe [_onGramsTextChanged]).
   late int _grams;
   late TextEditingController _gramsController;
-  bool _isUserTyping = false;
+
+  /// Im Feld steht etwas, das keine plausible Portion ist. Dann ist
+  /// "Hinzufuegen" gesperrt und ein Hinweis sichtbar — abgelehnt, nicht
+  /// stillschweigend verbogen.
+  bool _gramsInvalid = false;
 
   @override
   void initState() {
     super.initState();
-    _grams = widget.result.estimatedGrams.clamp(_minGrams, _maxGrams);
+    _grams = _fromForeignSource(widget.result.estimatedGrams);
     _gramsController = TextEditingController(text: _grams.toString());
   }
 
@@ -72,7 +87,8 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
   void didUpdateWidget(covariant MealSuggestionItem oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.result.estimatedGrams != widget.result.estimatedGrams) {
-      _grams = widget.result.estimatedGrams.clamp(_minGrams, _maxGrams);
+      _grams = _fromForeignSource(widget.result.estimatedGrams);
+      _gramsInvalid = false;
       _syncControllerText();
     }
   }
@@ -83,8 +99,18 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     super.dispose();
   }
 
+  /// Die Startportion kommt aus Modellantwort, OFF oder Favoriten-Cache —
+  /// eine Fremdquelle, die niemand nachfragen kann. Dafuer ist Klemmen
+  /// richtig (`model_limits.dart`, Abschnitt "Clamp oder Ablehnung?"), und
+  /// zwar mit **derselben** Funktion, die auch `adjustedToGrams` benutzt.
+  static int _fromForeignSource(int grams) => clampPortionGrams(grams);
+
+  /// Rechtes Ende des Reglers. Waechst mit, wenn die aktuelle Portion ueber
+  /// dem Anzeigefenster liegt — sonst zeigte der Daumen bei 1200 g auf 1000.
+  int get _sliderMaxGrams =>
+      _grams > _sliderWindowGrams ? _grams : _sliderWindowGrams;
+
   void _syncControllerText() {
-    if (_isUserTyping) return;
     final next = _grams.toString();
     if (_gramsController.text != next) {
       _gramsController.value = TextEditingValue(
@@ -94,43 +120,69 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     }
   }
 
+  /// Stepper und Regler sind Flaechen mit Enden: wer dagegen zieht, hat keine
+  /// Zahl behauptet, sondern an die Kante gefasst. Klemmen ist hier also
+  /// keine stille Verfaelschung — im Gegensatz zur Tippeingabe.
   void _setGrams(int value) {
-    final clamped = value.clamp(_minGrams, _maxGrams);
-    if (clamped == _grams) return;
-    setState(() => _grams = clamped);
+    final geklemmt = clampPortionGrams(value);
+    if (geklemmt == _grams && !_gramsInvalid) return;
+    setState(() {
+      _grams = geklemmt;
+      _gramsInvalid = false;
+    });
     _syncControllerText();
   }
 
   void _bumpGrams(int delta) => _setGrams(_grams + delta);
 
+  /// Getippte Portionen werden **abgelehnt statt geklemmt**.
+  ///
+  /// `FilteringTextInputFormatter.digitsOnly` ist ein Typ-, kein
+  /// Wertebereichs-Guard. Wer 12000 tippt, bekam bisher lautlos 1000 geloggt
+  /// — genau die stille Verfaelschung, vor der der Kopf von
+  /// `model_limits.dart` warnt. Der zuletzt gueltige Wert bleibt stehen, der
+  /// Knopf wird gesperrt, und der Nutzer sieht warum.
   void _onGramsTextChanged(String value) {
     final parsed = int.tryParse(value.trim());
-    if (parsed == null) return;
-    _isUserTyping = true;
-    setState(() => _grams = parsed.clamp(_minGrams, _maxGrams));
-    _isUserTyping = false;
+    final gueltig = parsed != null && isPlausiblePortionGrams(parsed);
+    setState(() {
+      _gramsInvalid = !gueltig;
+      if (gueltig) _grams = parsed;
+    });
   }
 
-  int get _liveKcal {
-    final per100 = widget.result.kcalPer100G;
-    if (per100 <= 0) {
-      final ref = widget.result.estimatedGrams <= 0
-          ? 100
-          : widget.result.estimatedGrams;
-      return (widget.result.caloriesKcal * _grams / ref).round();
-    }
-    return (per100 * _grams / 100).round();
-  }
-
-  MealAnalysisResult _resultForCurrentGrams() {
-    if (_grams == widget.result.estimatedGrams) {
-      return widget.result;
-    }
-    return widget.result.adjustedToGrams(_grams);
-  }
+  /// Die Mahlzeit auf der aktuell eingestellten Portion — **eine** Instanz
+  /// fuer Vorschau und Speicherpfad.
+  ///
+  /// Genau hier sass B1: die Vorschau rechnete dichte-zuerst
+  /// (`kcalPer100G * g / 100`), waehrend [MealAnalysisResult.adjustedToGrams]
+  /// seit Welle 2 `caloriesKcal` als autoritativ behandelt. Bei einem
+  /// Apfelkuchen mit {420 kcal, 150 g, 52 kcal/100 g} zeigte die Zeile ueber
+  /// dem Knopf 78 kcal, geloggt wurden 420 — Faktor 5,4 zwischen Anzeige und
+  /// Tagebuch.
+  ///
+  /// Delegieren statt die Formel abzuschreiben (wie in
+  /// `meal_widgets_adjust.dart`): eine Kopie kann wieder auseinanderlaufen,
+  /// und `adjustedToGrams` bringt die Clamps (1..10000 g, 0..10000 kcal) und
+  /// die Makro-Skalierung gleich mit.
+  ///
+  /// Bei unveraenderter Portion bleibt das Original stehen — dank der
+  /// Invariante `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal`
+  /// ist das derselbe Zahlenwert, nur ohne `isAdjusted` und ohne
+  /// umgeschriebene `portionNotes`.
+  MealAnalysisResult get _adjusted => _grams == widget.result.estimatedGrams
+      ? widget.result
+      : widget.result.adjustedToGrams(_grams);
 
   @override
   Widget build(BuildContext context) {
+    // EINE Instanz pro Build: die Vorschau zeigt sie an, der Knopf reicht
+    // genau dieses Objekt weiter. Nicht zwei Aufrufe desselben Getters —
+    // dann waere "dieselbe Zahl" wieder nur eine Zusicherung statt einer
+    // Tatsache. Jede Portionsaenderung laeuft ueber setState, der Knopf
+    // haelt also nie ein veraltetes Ergebnis.
+    final angepasst = _adjusted;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
@@ -178,18 +230,18 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
                     accent: widget.accent,
                     grams: _grams,
                     gramsController: _gramsController,
-                    liveKcal: _liveKcal,
-                    minGrams: _minGrams,
-                    maxGrams: _maxGrams,
+                    preview: angepasst,
+                    gramsInvalid: _gramsInvalid,
+                    minGrams: PlausibilityLimits.portionGramsMin,
+                    maxGrams: _sliderMaxGrams,
                     step: _step,
-                    protein: widget.result.protein,
-                    carbs: widget.result.carbs,
-                    fat: widget.result.fat,
                     addButtonKey: widget.addButtonKey,
                     onBump: _bumpGrams,
                     onTextChanged: _onGramsTextChanged,
                     onSliderChanged: (v) => _setGrams(v.round()),
-                    onAdd: () => widget.onAdd(_resultForCurrentGrams()),
+                    onAdd: _gramsInvalid
+                        ? null
+                        : () => widget.onAdd(angepasst),
                   )
                 : const SizedBox.shrink(),
           ),
@@ -228,9 +280,16 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final per100 = result.kcalPer100G;
+    // Der Untertitel muss dieselbe Autoritaet nennen wie die Vorschau im
+    // aufgeklappten Koerper, sonst widerspricht sich EINE Karte: beim
+    // Apfelkuchen {420 kcal, 150 g, 52 kcal/100 g} stand hier "52 kcal /
+    // 100 g", waehrend die Karte darunter 420 kcal auf 150 g auswies.
+    // `adjustedToGrams(100).caloriesKcal` ist genau die Dichte, die aus
+    // caloriesKcal und estimatedGrams folgt — dieselbe Rechnung, die auch
+    // geloggt wird, statt des rohen Nebenfelds `kcalPer100G`.
+    final per100 = result.adjustedToGrams(100).caloriesKcal;
     final subtitle = per100 > 0
-        ? '${per100.round()} kcal / 100 g'
+        ? '$per100 kcal / 100 g'
         : '${result.caloriesKcal} kcal · ${result.estimatedGrams} g';
 
     return InkWell(
@@ -400,13 +459,11 @@ class _ExpandedBody extends StatelessWidget {
     required this.accent,
     required this.grams,
     required this.gramsController,
-    required this.liveKcal,
+    required this.preview,
+    required this.gramsInvalid,
     required this.minGrams,
     required this.maxGrams,
     required this.step,
-    required this.protein,
-    required this.carbs,
-    required this.fat,
     required this.addButtonKey,
     required this.onBump,
     required this.onTextChanged,
@@ -417,18 +474,22 @@ class _ExpandedBody extends StatelessWidget {
   final Color accent;
   final int grams;
   final TextEditingController gramsController;
-  final int liveKcal;
+
+  /// Genau die Instanz, die [onAdd] weiterreicht. Kalorien und Makros der
+  /// Vorschau kommen daraus — nicht aus einer zweiten Rechnung.
+  final MealAnalysisResult preview;
+
+  final bool gramsInvalid;
   final int minGrams;
   final int maxGrams;
   final int step;
-  final String protein;
-  final String carbs;
-  final String fat;
   final Key? addButtonKey;
   final ValueChanged<int> onBump;
   final ValueChanged<String> onTextChanged;
   final ValueChanged<double> onSliderChanged;
-  final VoidCallback onAdd;
+
+  /// `null` sperrt den Knopf — die getippte Portion ist unplausibel.
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -462,6 +523,19 @@ class _ExpandedBody extends StatelessWidget {
               ),
             ],
           ),
+          if (gramsInvalid) ...[
+            const SizedBox(height: 6),
+            const Text(
+              'Portion zwischen ${PlausibilityLimits.portionGramsMin} und '
+              '${PlausibilityLimits.portionGramsMax} g.',
+              key: ValueKey('kcal-suggestion-grams-hint'),
+              style: TextStyle(
+                color: warning,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
@@ -482,10 +556,10 @@ class _ExpandedBody extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           _LivePreview(
-            kcal: liveKcal,
-            protein: protein,
-            carbs: carbs,
-            fat: fat,
+            kcal: preview.caloriesKcal,
+            protein: preview.protein,
+            carbs: preview.carbs,
+            fat: preview.fat,
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -583,7 +657,12 @@ class _GramsField extends StatelessWidget {
               ),
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(4),
+                // Fuenf Stellen, weil die Obergrenze
+                // (PlausibilityLimits.portionGramsMax = 10000 g) fuenf hat.
+                // Mit vier war der obere Teil des gueltigen Bereichs
+                // ueberhaupt nicht eingebbar — eine unsichtbare zweite
+                // Grenze neben der eigentlichen.
+                LengthLimitingTextInputFormatter(5),
               ],
               textAlign: TextAlign.center,
               style: const TextStyle(

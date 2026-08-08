@@ -52,6 +52,19 @@ class ChatMessage {
 enum ChatRole { user, assistant }
 
 /// Snapshot der Quota fuer den Counter im UI.
+///
+/// Ein Snapshot bedeutet: *der Server hat diese Zahlen genannt*. Es gibt hier
+/// bewusst KEINEN `unknown`-Wert mehr. Der frueher an dieser Stelle stehende
+/// `ChatQuotaSnapshot.unknown` war mit `used: 0, remaining: 5, dailyLimit: 5`
+/// belegt und hiess damit nicht „unbekannt", sondern „volles Kontingent":
+/// `CoachChatService.loadQuotaToday()` lieferte ihn bei JEDEM Fehler, der
+/// Coach-Screen schrieb ihn ungeprueft in seinen Zustand. Eine Netzstoerung
+/// fuellte so ein erschoepftes Kontingent wieder auf — die Sperre fiel, und
+/// der naechste Versuch lief in den 429 des Servers.
+///
+/// „Unbekannt" ist jetzt die *Abwesenheit* eines Snapshots: der Service wirft
+/// `CoachDataUnavailable`, der Screen haelt ein `ChatQuotaSnapshot?` und
+/// behaelt bei einem Fehlschlag seinen letzten bekannten Stand.
 class ChatQuotaSnapshot {
   const ChatQuotaSnapshot({
     required this.used,
@@ -63,11 +76,14 @@ class ChatQuotaSnapshot {
   final int remaining;
   final int dailyLimit;
 
-  static const ChatQuotaSnapshot unknown = ChatQuotaSnapshot(
-    used: 0,
-    remaining: 5,
-    dailyLimit: 5,
-  );
+  /// Tageslimit, mit dem die App rechnet, solange der Server keines genannt
+  /// hat — und zugleich der Wert, den sie beim RPC anfragt.
+  ///
+  /// Reiner ANZEIGE-Ersatz fuer Widgets, die zwingend eine Zahl brauchen
+  /// (Composer-Hinweis, Info-Sheet). Ausdruecklich KEINE Zustandsangabe: ob
+  /// der Composer sperrt, haengt allein daran, ob ueberhaupt ein Snapshot
+  /// vorliegt und was darin steht — nie an dieser Konstante.
+  static const int standardTageslimit = 5;
 
   ChatQuotaSnapshot copyWith({int? used, int? remaining, int? dailyLimit}) {
     return ChatQuotaSnapshot(

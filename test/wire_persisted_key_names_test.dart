@@ -1,6 +1,12 @@
+import 'package:eatova/src/models/favorite_meal.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/search_credentials.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// G2, sechster Schalter — von Agent W5-02 gefunden.
@@ -50,11 +56,44 @@ void main() {
         cache = LocalCache(store, 'user-42');
       });
 
-      test('jeder geschriebene Slot traegt seinen erwarteten Namen', () async {
-        await cache.writeNotificationsEnabled(true);
+      /// Schreibt in JEDEN Slot, den `LocalCache` kennt.
+      ///
+      /// Die erste Fassung dieses Tests hiess „jeder geschriebene Slot traegt
+      /// seinen erwarteten Namen" und schrieb genau EINEN — der Doc-Kommentar
+      /// oben geisselt Tests, die eine Konstante gegen sich selbst pruefen,
+      /// und der Test machte dann die abgeschwaechte Variante desselben
+      /// Fehlers (Verifizierer V4). Wer hier einen Slot ergaenzt, muss ihn
+      /// unten mitnehmen — sonst faellt der Vollstaendigkeits-Test.
+      Future<void> alleSlotsFuellen(LocalCache c) async {
+        await c.writeNotificationsEnabled(true);
+        await c.writeProfile(const UserProfile());
+        await c.writeLifetimeStats(LifetimeStats());
+        await c.writeLoggedMeals(const <LoggedMeal>[]);
+        await c.writeFavorites(const <FavoriteMeal>[]);
+        await c.writeWeightLog(const WeightLog());
+        await c.writeOutbox(const <SyncOp>[]);
+        await c.writePendingStatsDeltas(meals: 1, weightLogs: 1);
+      }
 
-        expect(store.snapshot.keys,
-            contains('eatova.v1.notifications_enabled.user-42'));
+      test('jeder Slot traegt exakt seinen erwarteten Namen', () async {
+        await alleSlotsFuellen(cache);
+
+        // Ausgeschrieben, nicht aus den Gettern abgeleitet — die Zeichenkette
+        // IST der Vertrag mit jeder bestehenden Installation.
+        const erwartet = <String>{
+          'eatova.v1.notifications_enabled.user-42',
+          'eatova.v1.profile.user-42',
+          'eatova.v1.stats.user-42',
+          'eatova.v1.logged_meals.user-42',
+          'eatova.v1.favorites.user-42',
+          'eatova.v1.weight_log.user-42',
+          'eatova.v1.outbox.user-42',
+          'eatova.v1.pending_stats.user-42',
+        };
+
+        expect(store.snapshot.keys.toSet(), erwartet,
+            reason: 'ein zusaetzlicher Slot gehoert in diese Liste, ein '
+                'fehlender bedeutet eine unbeabsichtigte Umbenennung');
       });
 
       test('die User-ID ist Teil des Namens — sonst teilen sich zwei Konten '
