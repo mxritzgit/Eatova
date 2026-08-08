@@ -480,12 +480,19 @@ class _BodyMetric extends StatelessWidget {
       children: [
         Icon(icon, color: textMuted, size: 13),
         const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
+        // Flexible + Ellipsis: als starres Row-Kind mass der Text seine
+        // volle Einzeilenbreite und overflowte die schmale linke Spalte
+        // neben der BMI-Gauge (28 px bei 393 px logischer Breite).
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: textMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
       ],
