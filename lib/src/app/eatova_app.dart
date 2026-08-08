@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/auth_repository.dart';
+import '../services/crash_reporter.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/meal_analyzer.dart';
@@ -96,13 +100,27 @@ class EatovaApp extends StatelessWidget {
     );
   }
 
-  EatovaSync? _syncFor(String userId) {
-    // Im Test/Preview (kein Supabase.initialize) wirft instance.client - dann
-    // bleibt der Sync null und die Home-Page laeuft mit Defaults weiter.
-    try {
-      return EatovaSync.forUser(Supabase.instance.client, userId);
-    } catch (_) {
-      return null;
-    }
+  EatovaSync? _syncFor(String userId) => buildSyncForUser(userId);
+}
+
+/// Sentinel-Rest A2 (Sweep 2026-08-08): vorher fing der Fallback JEDEN
+/// Fehler zu `null` — dem Zustand, der sonst „Test/Preview, bewusst ohne
+/// Backend" bedeutet. Ein eingeloggter Nutzer lief damit still im
+/// Datenlos-Modus (kein Cache, keine Outbox, jeder Log nur im RAM).
+///
+/// [allowPreview] haelt den gewollten Teil am Leben: In Debug/Test (Default
+/// kDebugMode) pumpen die Flow-Tests `EatovaApp()` ohne Supabase und die
+/// Home-Page laeuft mit Defaults. Im Release-/Profile-Build fliegt der
+/// Fehler stattdessen — sichtbar via globale Handler + Sentry. Praktisch
+/// unerreichbar: der builder laeuft nur mit echtem Nutzer, also nachdem
+/// `Supabase.instance` im AuthRepository bereits funktioniert hat.
+@visibleForTesting
+EatovaSync? buildSyncForUser(String userId, {bool allowPreview = kDebugMode}) {
+  try {
+    return EatovaSync.forUser(Supabase.instance.client, userId);
+  } catch (error, stack) {
+    if (allowPreview) return null;
+    unawaited(CrashReporter.capture(error, stack, context: 'sync-for-user'));
+    Error.throwWithStackTrace(error, stack);
   }
 }

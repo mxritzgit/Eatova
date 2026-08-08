@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as dev;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,6 +7,7 @@ import '../models/favorite_meal.dart';
 import '../models/logged_meal.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/meal_component.dart';
+import 'crash_reporter.dart';
 
 /// Liest und schreibt LoggedMeal + FavoriteMeal gegen public.logged_meals
 /// und public.favorite_meals. MealAnalysisResult wandert als JSONB-
@@ -60,7 +62,7 @@ class MealsSync {
           .gte('logged_at', cutoffIso)
           .order('logged_at', ascending: false)
           .limit(loggedMealsMaxRows);
-      return rows.map<LoggedMeal>(_mealFromRow).toList();
+      return _mealsFromRows(rows);
     } catch (e, stack) {
       dev.log('MealsSync.loadLoggedMeals failed',
           error: e, stackTrace: stack, name: 'meals_sync');
@@ -86,7 +88,7 @@ class MealsSync {
           .inFilter('id', ids.toList())
           .order('logged_at', ascending: false)
           .limit(loggedMealsMaxRows);
-      return rows.map<LoggedMeal>(_mealFromRow).toList();
+      return _mealsFromRows(rows);
     } catch (e, stack) {
       dev.log('MealsSync.loadLoggedMealsByIds failed',
           error: e, stackTrace: stack, name: 'meals_sync');
@@ -120,12 +122,32 @@ class MealsSync {
           // verzoegern. Der Store zeigt sofort die klassifizierte Meldung,
           // und ein erneuter Tap auf den Tag laedt erneut.
           .retry(enabled: false);
-      return rows.map<LoggedMeal>(_mealFromRow).toList();
+      return _mealsFromRows(rows);
     } catch (e, stack) {
       dev.log('MealsSync.loadLoggedMealsForDay failed',
           error: e, stackTrace: stack, name: 'meals_sync');
       rethrow;
     }
+  }
+
+  /// Mappt Server-Zeilen und UEBERSPRINGT kaputte einzeln (Sentinel-Rest S1):
+  /// seit `mealResultFromJson` bei korruptem Payload wirft, wuerde EINE
+  /// kaputte Zeile sonst den gesamten Load reissen — das Tagebuch friere
+  /// dauerhaft auf dem Cache-Stand ein, was schlimmer waere als der Bug.
+  /// Uebersprungene Zeilen gehen an dev.log + CrashReporter, die Daten
+  /// selbst bleiben unangetastet auf dem Server liegen.
+  static List<LoggedMeal> _mealsFromRows(List<dynamic> rows) {
+    final meals = <LoggedMeal>[];
+    for (final row in rows) {
+      try {
+        meals.add(_mealFromRow(row));
+      } catch (e, stack) {
+        dev.log('MealsSync: korrupte Zeile uebersprungen (${row['id']})',
+            error: e, stackTrace: stack, name: 'meals_sync');
+        unawaited(CrashReporter.capture(e, stack, context: 'meals.row-corrupt'));
+      }
+    }
+    return meals;
   }
 
   /// Gemeinsames Zeilen-Mapping von [loadLoggedMeals] und
@@ -369,9 +391,23 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
           })
           .toList()
       : const <MealComponent>[];
+  // Sentinel-Rest S1: `caloriesKcal` ist Pflicht — mealResultToJson schreibt
+  // es seit jeher unconditional, ein Payload ohne den Schluessel ist korrupt.
+  // Die alte `?? 0`-Fuellung erzeugte exakt die Sorte 0 (ohne
+  // explicitZeroKcal), die B7 muehsam von der gemessenen 0 trennt, und der
+  // Outbox-Replay schrieb sie als `calories_kcal: 0` dauerhaft auf den
+  // Server. Der Wurf laeuft in die ehrlichen Abnehmer: SyncOp.meal -> null
+  // -> _CorruptOpPayload-Drop (A8); LocalCache faengt ihn slotweise; die
+  // Server-Loader ueberspringen die Zeile gemeldet (_mealFromRowOrNull).
+  // Gramm/Dichte behalten dagegen 0 als dokumentierte Unbekannt-Form.
+  final caloriesRoh = j['caloriesKcal'];
+  if (caloriesRoh is! num) {
+    throw FormatException(
+        'meal payload ohne lesbares caloriesKcal (${caloriesRoh.runtimeType})');
+  }
   return MealAnalysisResult(
     mealName: j['mealName']?.toString() ?? 'Mahlzeit',
-    caloriesKcal: (j['caloriesKcal'] as num?)?.toInt() ?? 0,
+    caloriesKcal: caloriesRoh.toInt(),
     estimatedGrams: (j['estimatedGrams'] as num?)?.toInt() ?? 0,
     kcalPer100G: (j['kcalPer100G'] as num?)?.toDouble() ?? 0.0,
     protein: j['protein']?.toString() ?? '-',

@@ -37,12 +37,18 @@ import 'package:image/image.dart' as img;
 /// Rein funktional (keine Plugins, kein IO) — laeuft ueber `compute()` in
 /// einem Isolate und ist in VM-Tests direkt testbar.
 ///
-/// RESTRISIKO: nicht dekodierbare Bytes gehen unveraendert (und damit
-/// ungescrubbt) raus. Beide Aufrufer schliessen das praktisch aus — der
+/// FAIL-CLOSED (Sentinel-Rest S2): nicht dekodierbare Bytes WERFEN eine
+/// [FormatException] — frueher gingen sie unveraendert (und damit
+/// ungescrubbt: GPS, Geraete-Kennung, Aufnahmezeit) raus, waehrend die
+/// veroeffentlichte Datenschutzerklaerung das Scrubbing als Eigenschaft
+/// JEDES Uploads zusichert. Praktisch bleibt der Wurf selten: der
 /// Kamera-Pfad liefert JPEG, und der Galerie-Pfad laesst `image_picker` mit
 /// `imageQuality`/`maxWidth` erst nach JPEG konvertieren (genau deshalb
 /// duerfen diese Optionen dort nicht entfallen: ohne sie reicht iOS die
 /// HEIC-Originaldatei durch, die package:image nicht dekodieren kann).
+/// Alle Aufrufer sind wurf-sicher: Kamera-/Galerie-Sheet zeigen eine
+/// Fehlermeldung, der Coach haengt kein Bild an, und der Analyzer wirft bei
+/// fehlenden Bytes ohnehin.
 Uint8List compressMealPhoto(
   Uint8List original, {
   int maxDimension = 1600,
@@ -51,10 +57,14 @@ Uint8List compressMealPhoto(
   final img.Image? decoded;
   try {
     decoded = img.decodeImage(original);
-  } catch (_) {
-    return original;
+  } catch (e) {
+    throw FormatException('Bild nicht dekodierbar — kein ungescrubbter '
+        'Upload (fail-closed): $e');
   }
-  if (decoded == null) return original;
+  if (decoded == null) {
+    throw const FormatException(
+        'Bild nicht dekodierbar — kein ungescrubbter Upload (fail-closed).');
+  }
 
   // JPEGs (Kamera-Pfad) kommen aus decodeImage bereits eingebacken zurueck:
   // der JPEG-Decoder von package:image wendet die EXIF-Orientierung beim

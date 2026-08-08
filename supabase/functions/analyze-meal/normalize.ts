@@ -32,7 +32,7 @@ export interface NormalizedMealResult {
   proteinG: number | null;
   carbsG: number | null;
   fatG: number | null;
-  confidence: string;
+  confidence: string | null;
   explanation: string;
   items: NormalizedMealItem[];
 }
@@ -59,9 +59,13 @@ export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMea
     proteinG: optionalInt(raw.proteinG, 0, 1000),
     carbsG: optionalInt(raw.carbsG, 0, 1000),
     fatG: optionalInt(raw.fatG, 0, 1000),
+    // Sentinel-Rest E7: confidence ist die Aussage des Modells ueber die
+    // eigene Sicherheit, kein Label — fehlt sie, ist sie nicht "medium",
+    // sondern fehlt (Leitsatz dieser Datei). Der Client zeigt dann
+    // "Unbekannt" statt eines erfundenen Vertrauensgrads.
     confidence: ['high', 'medium', 'low'].includes(String(raw.confidence))
       ? String(raw.confidence)
-      : 'medium',
+      : null,
     explanation: clampString(raw.explanation, '', 500),
     items,
   };

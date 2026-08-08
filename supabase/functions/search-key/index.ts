@@ -19,6 +19,7 @@
 // `verify_jwt = true` gilt bereits.
 
 import { clientIpSubject } from '../_shared/client_ip.ts';
+import { positiveIntFromEnv } from '../_shared/env.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -51,12 +52,17 @@ const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
 
 // Grosszuegig genug fuer App-Starts hinter einem Carrier-NAT, eng genug, dass
 // niemand den Endpunkt als Key-Orakel durchprobiert.
-const IP_LIMIT = Number(Deno.env.get('SEARCH_KEY_IP_LIMIT') ?? '120');
-const IP_WINDOW_SECONDS = Number(Deno.env.get('SEARCH_KEY_IP_WINDOW_SECONDS') ?? '600');
+//
+// Sentinel-Rest E8: als einzige Function nutzte search-key hier noch das
+// nackte `Number(...)`-Muster — ein Tippfehler im Secret wurde zu NaN ->
+// JSON `null` -> SQL-Guard wirft -> jeder Request `rate_limit_unavailable`
+// (genau die Klasse, die _shared/env.ts fuer die anderen schon schliesst).
+const IP_LIMIT = positiveIntFromEnv('SEARCH_KEY_IP_LIMIT', 120);
+const IP_WINDOW_SECONDS = positiveIntFromEnv('SEARCH_KEY_IP_WINDOW_SECONDS', 600);
 // 20/h/User: ein gesunder Client holt den Key ~2x taeglich (TTL 12 h) plus
 // einmal pro Rotation. Alles darueber ist eine Schleife.
-const USER_LIMIT = Number(Deno.env.get('SEARCH_KEY_USER_LIMIT') ?? '20');
-const USER_WINDOW_SECONDS = Number(Deno.env.get('SEARCH_KEY_USER_WINDOW_SECONDS') ?? '3600');
+const USER_LIMIT = positiveIntFromEnv('SEARCH_KEY_USER_LIMIT', 20);
+const USER_WINDOW_SECONDS = positiveIntFromEnv('SEARCH_KEY_USER_WINDOW_SECONDS', 3600);
 
 type AuthUser = { id: string; email?: string };
 type RateLimitResult = {
@@ -221,8 +227,16 @@ async function consumeRateLimit(
   }
 
   const data = await response.json() as Partial<RateLimitResult>;
+  // Sentinel-Rest E6: `data.allowed === true` machte aus einem kaputten
+  // Antwort-Shape (RPC-Signaturaenderung, Proxy-Body) ein `allowed: false` —
+  // ein 429 samt erfundener rateLimit-Zahlen, obwohl nie ein Limit gemessen
+  // wurde. Ein kaputter Shape ist ein Ausfall des Limiters, kein Limit.
+  if (typeof data.allowed !== 'boolean') {
+    console.error(`consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`);
+    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+  }
   return {
-    allowed: data.allowed === true,
+    allowed: data.allowed,
     limit: Number(data.limit ?? limit),
     remaining: Number(data.remaining ?? 0),
     resetAt: String(data.resetAt ?? new Date(Date.now() + windowSeconds * 1000).toISOString()),

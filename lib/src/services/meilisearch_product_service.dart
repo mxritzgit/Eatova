@@ -120,7 +120,14 @@ class MeilisearchProductService implements ProductLookupService {
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final hits = decoded['hits'];
     if (hits is! List) {
-      return const <ProductSearchResult>[];
+      // Sentinel-Rest D: ein 2xx ohne `hits`-Liste (Proxy-Fehlerseite,
+      // Schema-Aenderung) ist ein kaputter Mirror, keine leere Suche — die
+      // Antwort auf eine echte leere Suche ist `hits: []`. Werfen wie beim
+      // 5xx: der FallbackProductService klassifiziert/meldet den Fehler
+      // (_meldeWennUnerwartet) und zieht zu OpenFoodFacts weiter.
+      throw const HttpException(
+        'Mirror search returned a malformed body (no hits list).',
+      );
     }
 
     return hits

@@ -152,10 +152,20 @@ class HealthAuthVerifier {
 }
 
 class AppleHealthService implements HealthService {
-  AppleHealthService({HealthAuthVerifier? verifier})
-      : _verifier = verifier ?? HealthAuthVerifier();
+  /// [health] und [debugIsIOS] sind Test-Naehte: das Plugin haengt sonst am
+  /// MethodChannel und der Plattform-Gate am Test-Runner-OS — die
+  /// Fehlerzweige von [requestAuthorization] waeren unpruefbar (und genau
+  /// dort sass der Sentinel, s. test/services/apple_health_request_auth_test).
+  AppleHealthService({
+    HealthAuthVerifier? verifier,
+    Health? health,
+    bool? debugIsIOS,
+  })  : _verifier = verifier ?? HealthAuthVerifier(),
+        _health = health ?? Health(),
+        _isIOS = debugIsIOS ?? Platform.isIOS;
 
-  final Health _health = Health();
+  final Health _health;
+  final bool _isIOS;
   final HealthAuthVerifier _verifier;
   bool _configured = false;
   HealthAuthState _authState = HealthAuthState.unknown;
@@ -286,7 +296,7 @@ class AppleHealthService implements HealthService {
     // Defense-in-depth: HealthKit gibt es nur auf iOS. Die Auswahl Apple-vs-
     // Noop passiert zwar schon beim Aufbau, aber falls diese Instanz doch auf
     // einer anderen Plattform landet, no-op-pen wir hart statt zu crashen.
-    if (!Platform.isIOS) return _adopt(HealthAuthState.unsupported);
+    if (!_isIOS) return _adopt(HealthAuthState.unsupported);
     try {
       await _ensureConfigured();
 
@@ -301,8 +311,11 @@ class AppleHealthService implements HealthService {
       );
       if (!sheetShown) {
         // Apples `success == false` heisst: die Anfrage selbst ist gescheitert
-        // (HealthKit nicht verfuegbar / Fehler) — kein Nutzer-Nein.
-        return _adopt(HealthAuthState.denied);
+        // (HealthKit nicht verfuegbar / Fehler) — kein Nutzer-Nein. Frueher
+        // wurde hier `denied` uebernommen, und die Karte schickte den Nutzer
+        // mit „Zugriff entzogen — wieder freigeben" in Einstellungen, in
+        // denen nichts zu finden ist. Ein Fehler ist keine Antwort: unknown.
+        return _adopt(HealthAuthState.unknown);
       }
 
       // `sheetShown` beweist NUR, dass das Sheet fehlerfrei lief. Der Zustand
@@ -311,7 +324,13 @@ class AppleHealthService implements HealthService {
       return _adopt(_verifier.resolve(await _gatherEvidence(now), now: now));
     } catch (e, st) {
       _reportError('requestAuthorization', e, st);
-      return _adopt(HealthAuthState.unsupported);
+      // Sentinel-Rest, Cluster B: hier stand `unsupported` — eine positive
+      // Geraete-Behauptung aus einem Fehler, und die Health-Karte versteckt
+      // bei `unsupported` den Verbinden-Button („Auf diesem Geraet nicht
+      // aktiv"): Sackgasse bis zum App-Neustart. `unsupported` ist dem
+      // echten Plattform-Fakt oben vorbehalten; ein Fehler ist `unknown`,
+      // der Verbinden-Weg bleibt offen, der Grund steht im CrashReporter.
+      return _adopt(HealthAuthState.unknown);
     }
   }
 

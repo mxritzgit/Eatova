@@ -95,6 +95,11 @@ class CoachChatService {
     }
   }
 
+  /// Sentinel-Rest S8: rename/delete meldeten Fehler frueher nur ins Log und
+  /// kehrten normal zurueck — ein `Future<void>`, das completed, IST fuer den
+  /// Aufrufer die positive Behauptung „ist umbenannt/geloescht". Der Screen
+  /// fuhr mit dem Erfolgsfall fort. Jetzt werfen beide [CoachDataUnavailable],
+  /// dasselbe Muster wie loadSessions/loadQuotaToday/loadHistory.
   Future<void> renameSession(String sessionId, String title) async {
     try {
       await _client.rpc('rename_chat_session', params: {
@@ -108,6 +113,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      throw CoachDataUnavailable('Umbenennen fehlgeschlagen', e);
     }
   }
 
@@ -123,6 +129,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      throw CoachDataUnavailable('Loeschen fehlgeschlagen', e);
     }
   }
 
@@ -155,7 +162,12 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
-      return const <ChatMessage>[];
+      // Sentinel-Rest S3: hier stand `return const <ChatMessage>[]` — der
+      // Screen setzte die leere Liste als _messages und zeigte den
+      // Hero-Leerzustand: der Nutzer sah seinen Verlauf als geloescht, ohne
+      // Hinweis und ohne Retry. Exakt das Muster, das loadSessions und
+      // loadQuotaToday bereits abgelegt haben.
+      throw CoachDataUnavailable('Verlauf nicht abrufbar', e);
     }
   }
 
@@ -256,6 +268,9 @@ class CoachChatService {
         remaining: map['remaining'] is num
             ? (map['remaining'] as num).toInt()
             : null,
+        dailyLimit: map['daily_limit'] is num
+            ? (map['daily_limit'] as num).toInt()
+            : null,
         sessionId: map['session_id']?.toString() ?? sessionId,
       );
     } on CoachQuotaExceeded {
@@ -328,7 +343,11 @@ class CoachChatService {
         final limit = map['daily_limit'];
         return CoachQuotaExceeded(
           message: serverReply ?? 'Tageslimit erreicht. Morgen geht\'s weiter.',
-          dailyLimit: limit is num ? limit.toInt() : 5,
+          // Der 429er der Function traegt daily_limit immer (handler.ts);
+          // fehlt es (Gateway-Body), bleibt nur der Anzeige-Ersatz — dieselbe
+          // Konstante wie ueberall, kein eigenes Literal.
+          dailyLimit:
+              limit is num ? limit.toInt() : ChatQuotaSnapshot.standardTageslimit,
         );
       }
       return CoachChatException(
@@ -379,6 +398,7 @@ class CoachChatReply {
     required this.sessionId,
     this.refusalReason,
     this.remaining,
+    this.dailyLimit,
   });
 
   final String reply;
@@ -386,6 +406,12 @@ class CoachChatReply {
   final String sessionId;
   final String? refusalReason;
   final int? remaining;
+
+  /// Das Tageslimit, wie der SERVER es nennt (COACH_DAILY_LIMIT). Ohne das
+  /// Feld rechnete der Screen jeden remaining-Wert gegen sein angenommenes
+  /// Standard-Limit — mit serverseitig anderem Limit war der angezeigte
+  /// Zaehler erfunden. null nur bei aelteren Function-Deployments.
+  final int? dailyLimit;
 }
 
 class CoachChatException implements Exception {

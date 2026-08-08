@@ -68,7 +68,10 @@ class _MirrorStub {
   String get baseUrl => 'http://127.0.0.1:${_server.port}';
   int get requestCount => auths.length;
 
-  static Future<_MirrorStub> start(List<int> statuses) async {
+  static Future<_MirrorStub> start(
+    List<int> statuses, {
+    String body200 = _hitsBody,
+  }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final auths = <String>[];
     final paths = <String>[];
@@ -81,7 +84,7 @@ class _MirrorStub {
       request.response
         ..statusCode = status
         ..headers.contentType = ContentType.json
-        ..write(status == 200 ? _hitsBody : '{"message":"nein"}');
+        ..write(status == 200 ? body200 : '{"message":"nein"}');
       await request.response.close();
     });
     return _MirrorStub._(server, auths, paths);
@@ -98,6 +101,24 @@ SearchCredentials _at(String baseUrl, SearchCredentials template) =>
     );
 
 void main() {
+  test(
+      'Sentinel-Rest D: 2xx mit kaputtem Body (ohne hits) wirft statt eine '
+      'leere Trefferliste zu erfinden', () async {
+    // Ein 200 ohne `hits`-Liste (Proxy-Fehlerseite, Schema-Aenderung) hiess
+    // frueher „wirklich keine Treffer": leere Liste, kein Report. Ehrlich
+    // ist dieselbe Behandlung wie beim 5xx — werfen, der
+    // FallbackProductService klassifiziert/meldet und zieht zu OFF weiter.
+    // Eine ECHTE leere Antwort (`hits: []`) bleibt dagegen eine Antwort.
+    final stub = await _MirrorStub.start(<int>[200], body200: '{"ok":true}');
+    addTearDown(stub.close);
+    final source = _FakeSource(_at(stub.baseUrl, _oldKey));
+
+    await expectLater(
+      MeilisearchProductService(credentials: source).searchProducts('salami'),
+      throwsA(isA<HttpException>()),
+    );
+  });
+
   test('403 -> invalidate -> Retry mit dem NEUEN Key -> Erfolg', () async {
     final stub = await _MirrorStub.start(<int>[403, 200]);
     addTearDown(stub.close);

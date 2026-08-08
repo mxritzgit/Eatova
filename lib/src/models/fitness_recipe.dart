@@ -165,8 +165,18 @@ class FitnessRecipe {
     final categories = rawCategories is List
         ? rawCategories.map((c) => c.toString()).toList(growable: false)
         : const <String>[];
+    // Sentinel-Rest S4: fuer einen fehlenden Slug wurde hier ein FRISCHER
+    // erfunden (userRecipeSlug()). Der Slug ist aber der Konflikt-Schluessel
+    // des Upserts (user_id,slug) — ueber den Outbox-Replay legte jeder Retry
+    // mit korruptem Payload damit eine NEUE Serverzeile an: Duplikate.
+    // Ohne Slug ist der Payload korrupt: Wurf -> SyncOp.recipe -> null ->
+    // _CorruptOpPayload-Drop. Serverzeilen trifft das nie (slug NOT NULL).
+    final slug = row['slug']?.toString();
+    if (slug == null || slug.isEmpty) {
+      throw const FormatException('user_recipes-Zeile ohne slug');
+    }
     return FitnessRecipe(
-      slug: row['slug']?.toString() ?? userRecipeSlug(),
+      slug: slug,
       title: row['title']?.toString() ?? 'Eigenes Rezept',
       description: row['description']?.toString() ?? 'Eigenes Rezept',
       portion: row['portion']?.toString() ?? '1 Portion',

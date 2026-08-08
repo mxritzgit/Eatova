@@ -131,7 +131,17 @@ Deno.test("fehlende Schluessel erfinden keine Nullwerte", () => {
   // Labels haben weiterhin ihren Fallback — ein fehlender Name erzeugt keine
   // falsche ZAHL, nur einen generischen Text.
   assertEquals(result.mealName, "Mahlzeit", "mealName behaelt seinen Fallback");
-  assertEquals(result.confidence, "medium", "confidence behaelt seinen Fallback");
+  // Sentinel-Rest E7: confidence ist KEIN Label, sondern die Aussage des
+  // Modells ueber die eigene Sicherheit — der Nutzer bemisst daran, wie sehr
+  // er der kcal-Zahl traut. Die erste Fassung dieses Tests pinnte "medium"
+  // als Fallback und verstiess damit gegen den Leitsatz dieser Datei
+  // (Zeile 8-18: Wert des Modells oder "fehlt").
+  assertEquals(result.confidence, null, "fehlende confidence bleibt fehlend");
+});
+
+Deno.test("kaputte confidence wird nicht zu 'medium' aufgehuebscht", () => {
+  const result = normalizeMealResult({ confidence: "sehr sicher!!" });
+  assertEquals(result.confidence, null, "unlesbare confidence bleibt fehlend");
 });
 
 Deno.test("gueltige Werte werden weiterhin geklemmt (max darf nicht kaputtgehen)", () => {

@@ -82,7 +82,7 @@ function assertEquals(actual: unknown, expected: unknown, message: string): void
 }
 
 /** Antwortet auf die drei Supabase-Aufrufe, die `search-key` intern macht. */
-function installFetch(): () => void {
+function installFetch(options: { rateLimitBody?: unknown } = {}): () => void {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: string | URL | Request): Promise<Response> => {
     const url = typeof input === "string"
@@ -102,13 +102,15 @@ function installFetch(): () => void {
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
       return Promise.resolve(
         new Response(
-          JSON.stringify({
-            allowed: true,
-            limit: 120,
-            remaining: 119,
-            resetAt: new Date(Date.now() + 600_000).toISOString(),
-            windowSeconds: 600,
-          }),
+          JSON.stringify(
+            options.rateLimitBody ?? {
+              allowed: true,
+              limit: 120,
+              remaining: 119,
+              resetAt: new Date(Date.now() + 600_000).toISOString(),
+              windowSeconds: 600,
+            },
+          ),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );
@@ -332,6 +334,26 @@ Deno.test(
         `search_credentials.dart liest "${feld}" nicht mehr — Function und ` +
           "Client sind auseinandergelaufen.",
       );
+    }
+  },
+);
+
+Deno.test(
+  "Sentinel-Rest E6: kaputter Rate-Limit-Shape -> 500 rate_limit_unavailable statt erfundenem 429",
+  async () => {
+    // `data.allowed === true` machte aus einem leeren/umgeformten RPC-Body
+    // ein `allowed: false` — der Client bekam einen 429 samt erfundener
+    // rateLimit-Zahlen, obwohl nie ein Limit gemessen wurde. Ein kaputter
+    // Shape ist ein Ausfall des Limiters, kein Limit.
+    const handlerFn = await ladeHandler();
+    const restore = installFetch({ rateLimitBody: {} });
+    try {
+      const res = await handlerFn(anfrage());
+      assertEquals(res.status, 500, "Status");
+      const body = JSON.parse(await res.text()) as Record<string, unknown>;
+      assertEquals(body.error, "rate_limit_unavailable", "Fehlercode");
+    } finally {
+      restore();
     }
   },
 );
