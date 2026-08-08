@@ -106,8 +106,25 @@ abstract class SearchKeyFetcher {
 ///
 /// Rohes dart:io ueber [sendTextRequest] statt `functions.invoke` — wie
 /// [EdgeFunctionMealAnalyzer]: nur so liegt auf JEDER Phase ein Timeout.
+///
+/// Die drei optionalen Parameter sind die Testnaht fuer den Laufzeit-
+/// Wire-Test (search_key_fetcher_wire_test.dart): vorher war der komplette
+/// HTTP-Pfad (Header-Bau, Statuscode-Weichen, JSON-Vertrag) nur per
+/// Quelltext-Abgleich gedeckt, weil Basis-URL, anon-Key und Token fest an
+/// den globalen Statics hingen. Produktion nutzt weiter den argumentlosen
+/// const-Konstruktor — die Defaults loesen zur Laufzeit auf die Statics auf.
 class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
-  const EdgeFunctionSearchKeyFetcher();
+  const EdgeFunctionSearchKeyFetcher({
+    String? baseUrl,
+    String? anonKey,
+    String? Function()? tokenProvider,
+  })  : _baseUrlOverride = baseUrl,
+        _anonKeyOverride = anonKey,
+        _tokenProvider = tokenProvider;
+
+  final String? _baseUrlOverride;
+  final String? _anonKeyOverride;
+  final String? Function()? _tokenProvider;
 
   static const String _functionPath = '/functions/v1/search-key';
   static const Duration _fallbackTtl = Duration(hours: 12);
@@ -127,7 +144,9 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
       // Der KOMPLETTE Supabase-Zugriff liegt im try: ohne
       // `Supabase.initialize` (Preview/Test) wirft schon `Supabase.instance`.
       // Das ist hier kein Fehler, sondern schlicht „kein Fetch moeglich".
-      final token = Supabase.instance.client.auth.currentSession?.accessToken;
+      final token = _tokenProvider != null
+          ? _tokenProvider()
+          : Supabase.instance.client.auth.currentSession?.accessToken;
       if (token == null || token.isEmpty) {
         // Kein Token = Kaltstart-Fenster, in dem eine wiederhergestellte
         // Session gerade refresht wird. Behalten was da ist, nicht abschalten.
@@ -138,11 +157,13 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
       final response = await sendTextRequest(
         client,
         method: 'GET',
-        uri: Uri.parse('${EatovaSupabaseConfig.url}$_functionPath'),
+        uri: Uri.parse(
+            '${_baseUrlOverride ?? EatovaSupabaseConfig.url}$_functionPath'),
         policy: HttpTimeoutPolicy.mirror,
         operation: 'search-key',
         configure: (request) {
-          request.headers.set('apikey', EatovaSupabaseConfig.anonKey);
+          request.headers
+              .set('apikey', _anonKeyOverride ?? EatovaSupabaseConfig.anonKey);
           request.headers.set(
             HttpHeaders.authorizationHeader,
             'Bearer $token',

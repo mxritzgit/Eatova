@@ -112,7 +112,9 @@ HomeStore _storeWith(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('signOutCleanup räumt den gesamten PII-Cache', () async {
+  test(
+      'signOutCleanup räumt den gesamten PII-Cache — nur die nicht '
+      'zugestellten Sync-Slots überleben (A2)', () async {
     final store = InMemoryKeyValueStore();
     final cache = LocalCache(store, 'user-signout');
     await cache.writeProfile(const UserProfile(
@@ -165,17 +167,30 @@ void main() {
 
     await _storeWith(cache).signOutCleanup();
 
-    // Nach dem Logout darf nichts mehr lesbar sein.
+    // Nach dem Logout darf vom PII-Cache nichts mehr lesbar sein.
     expect(await cache.readProfile(), isNull);
     expect(await cache.readLifetimeStats(), isNull);
     expect(await cache.readNotificationsEnabled(), isNull);
     expect(await cache.readLoggedMeals(), isNull);
     expect(await cache.readFavorites(), isNull);
     expect(await cache.readWeightLog(), isNull);
-    expect(await cache.readOutbox(), isNull);
-    expect(await cache.readPendingStatsDeltas(), isNull);
-    expect(store.snapshot, isEmpty,
-        reason: 'kein PII-Rest (Essverhalten/Gewicht) nach dem Sign-Out');
+    // Die beiden Sync-Slots dagegen ueberleben: dieser Store hat nie
+    // hydriert (kein start()) und nie zugestellt (sync: null) — die geseedete
+    // Op waere sonst ohne Zustellversuch vernichtet. Genau das war das
+    // A2-Restfenster; die erste Fassung dieses Tests schrieb es als Soll fest.
+    // Die Slots sind AES-verschluesselt und per User-ID genamespaced, ein
+    // anderes Konto auf demselben Geraet liest sie nie (home_store_sync.dart,
+    // Begruendung an signOutCleanup).
+    expect(await cache.readOutbox(), isNotNull);
+    expect(await cache.readPendingStatsDeltas(), isNotNull);
+    expect(
+        store.snapshot.keys.toSet(),
+        {
+          'eatova.v1.outbox.user-signout',
+          'eatova.v1.pending_stats.user-signout',
+        },
+        reason: 'kein PII-Rest (Essverhalten/Gewicht) nach dem Sign-Out — '
+            'nur die nicht zugestellten Sync-Slots bleiben');
   });
 
   test(

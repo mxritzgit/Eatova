@@ -81,6 +81,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   Timer? _outboxRetryTimer;
   int _outboxRetryAttempt = 0;
 
+  /// Ob der persistierte Sync-Zustand (Outbox + Stats-Deltas) bereits in den
+  /// Store uebernommen wurde. Bis dahin ist ein leeres [_outbox] KEINE Aussage
+  /// ueber den Blob der Vorsession — [signOutCleanup] muss ihn dann ungesehen
+  /// erhalten, sonst raeumt ein Logout in den ersten Sekunden nach App-Start
+  /// nicht zugestellte Writes ohne Zustellversuch (A2-Restfenster). Bleibt
+  /// auch nach einem GESCHEITERTEN Hydrationsversuch false: der Blob koennte
+  /// intakt sein, nur lesbar war er gerade nicht.
+  bool _syncStateHydrated = false;
+
   /// Der dezente Queue-Hinweis (Offline ODER "wird automatisch erneut
   /// versucht") wird pro Fehler-Episode nur EINMAL gezeigt (Reset beim
   /// naechsten Sync-Erfolg) — sonst wuerde jede weitere Aktion erneut toasten.
@@ -221,12 +230,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         _outbox = capped.queue;
         // Der Cap kappt Deletes zuletzt, aber er kappt sie (harte Obergrenze,
         // s. capOutbox) — dann gilt derselbe Weg wie im Replay: Eintraege
-        // zurueckholen, Verlust als Loeschungs-Verlust melden.
+        // zurueckholen, beide Verlust-Arten getrennt melden.
         final lostDeletes = capped.dropped.where((o) => o.isDelete).toList();
         if (lostDeletes.isNotEmpty) {
           unawaited(_restoreDroppedDeletes(lostDeletes));
         }
-        _notifyOutboxLoss(deletesLost: lostDeletes.isNotEmpty);
+        _notifyDroppedOps(capped.dropped);
       }
     }
     _persistOutbox();
@@ -261,6 +270,18 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// die Episode beides genau einmal. Ein gemeinsamer Merker haette die
   /// Loeschung verschluckt, sobald im selben Replay auch ein Write starb, und
   /// die Mahlzeit waere kommentarlos wieder aufgetaucht.
+  /// Meldet die Verluste EINES Cap-Ereignisses getrennt nach Art — wie es der
+  /// Replay-Verwurf schon immer tat. Ein einzelner
+  /// `_notifyOutboxLoss(deletesLost: dropped.any(isDelete))` verschluckte im
+  /// Misch-Fall den Write-Verlust: fallen Deletes, sind per capOutbox-
+  /// Reihenfolge ALLE Writes schon gefallen, und der Nutzer verlor sie mit
+  /// der falschen Meldung („der Eintrag ist wieder da").
+  void _notifyDroppedOps(List<SyncOp> dropped) {
+    final deletes = dropped.where((o) => o.isDelete).length;
+    if (dropped.length > deletes) _notifyOutboxLoss();
+    if (deletes > 0) _notifyOutboxLoss(deletesLost: true);
+  }
+
   void _notifyOutboxLoss({bool deletesLost = false}) {
     if (_disposed) return;
     if (deletesLost) {
@@ -318,7 +339,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
     if (mealIds.isNotEmpty) {
       try {
-        final rows = await s.meals.loadLoggedMeals();
+        // Gezielt per Id, NICHT ueber den Fenster-Load: die Zeile kann aelter
+        // als das Boot-Fenster sein (Delete via Archiv-Tag-Picker), und der
+        // „wieder da"-Hinweis muss auch dann stimmen.
+        final rows = await s.meals.loadLoggedMealsByIds(mealIds);
         final back = rows.where((m) => mealIds.contains(m.id)).toList();
         if (back.isNotEmpty && !_disposed) {
           _mutate(() {
@@ -776,7 +800,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // B3: der Health-Zustand ist prozesslokal und kennt keinen User. Ohne
     // diesen Aufruf zeigt Bs Profilkarte weiter As „Synchronisiert".
     _resetHealthConnection();
-    await _clearCache(preserveOutbox: remaining > 0);
+    // Vor Abschluss der Hydration ist `remaining == 0` keine Aussage — der
+    // Blob der Vorsession haengt dann noch unbesehen im Store. Konservativ
+    // erhalten: ein faelschlich behaltener leerer Slot kostet nichts, ein
+    // faelschlich geraeumter kostet bis zu 500 nicht quittierte Writes (A2).
+    await _clearCache(preserveOutbox: remaining > 0 || !_syncStateHydrated);
   }
 
   /// Trennt Apple Health beim Nutzerwechsel — Service UND Store-Feld.

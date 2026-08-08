@@ -147,4 +147,37 @@ void main() {
       expect(session.user.id, _userId);
     },
   );
+
+  test(
+    'PKCE-Verdrahtung: der Code-Verifier landet im Keystore, nicht im '
+    'Klartext in SharedPreferences',
+    () async {
+      // `getOAuthSignInUrl` erzeugt den PKCE-Verifier und SPEICHERT ihn ueber
+      // den konfigurierten `pkceAsyncStorage` — ohne Browser, ohne Netz (die
+      // Authorize-URL wird nur lokal gebaut). Das ist derselbe Speicherpfad,
+      // den `signInWithOAuth` nimmt.
+      //
+      // Der Verifier ist kurzlebig, aber kein Pappkamerad: wer ihn UND den
+      // Callback-Link abgreift, kann den Code-Austausch selbst machen. Vor
+      // allem aber ist er der letzte Auth-Baustein, der noch im Klartext in
+      // FlutterSharedPreferences.xml lag (Default:
+      // SharedPreferencesGotrueAsyncStorage).
+      await Supabase.instance.client.auth
+          .getOAuthSignInUrl(provider: OAuthProvider.google);
+
+      final imKeystore =
+          keystore.keys.where((k) => k.contains('code-verifier'));
+      expect(imKeystore, isNotEmpty,
+          reason: 'Ohne pkceAsyncStorage-Override greift der '
+              'SharedPreferences-Default und der Keystore sieht nie einen '
+              'Verifier.');
+
+      final prefs = await SharedPreferences.getInstance();
+      final verifierInPrefs =
+          prefs.getKeys().where((k) => k.contains('code-verifier'));
+      expect(verifierInPrefs, isEmpty,
+          reason: 'Der Verifier darf nicht neben den verschluesselten Blobs '
+              'im Klartext liegen — C5 gilt fuer JEDEN Auth-Baustein.');
+    },
+  );
 }

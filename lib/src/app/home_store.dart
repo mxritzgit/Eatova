@@ -297,6 +297,10 @@ class HomeStore extends _HomeStoreBase
     }
     if (_cache != null) {
       await _hydrateFromCache();
+    } else {
+      // Ohne Cache existiert kein persistierter Sync-Zustand, den ein frueher
+      // Logout erhalten muesste — das A2-Fenster ist hier keins.
+      _syncStateHydrated = true;
     }
     // A1/Welle 6: hat der DEK-Wiederanlauf den unlesbaren Cache verworfen,
     // liegt ein persistierter Merker vor. Ein stiller Neuanfang liesse den
@@ -345,6 +349,7 @@ class HomeStore extends _HomeStoreBase
     WeightLog? cachedWeightLog;
     List<SyncOp>? cachedOutbox;
     ({int meals, int weightLogs})? cachedDeltas;
+    var leseFehler = false;
     try {
       cachedProfile = await cache.readProfile();
       cachedStats = await cache.readLifetimeStats();
@@ -354,11 +359,16 @@ class HomeStore extends _HomeStoreBase
       cachedOutbox = await cache.readOutbox();
       cachedDeltas = await cache.readPendingStatsDeltas();
     } catch (e, st) {
+      leseFehler = true;
       dev.log('LocalCache hydrate failed',
           error: e, stackTrace: st, name: 'local_cache');
       unawaited(CrashReporter.capture(e, st, context: 'cache-hydrate'));
     }
     if (_disposed) return;
+    // Ab hier spiegelt der In-Memory-Zustand den Blob (die Uebernahme unten
+    // ist synchron) — signOutCleanup darf `_outbox.length` wieder glauben.
+    // Nach einem Lesefehler bewusst NICHT: der Blob koennte intakt sein.
+    if (!leseFehler) _syncStateHydrated = true;
     // Outbox + Stats-Deltas IMMER uebernehmen — das ist der kill-sichere Teil
     // des Sync-Zustands, unabhaengig davon, ob sonst etwas gecacht war.
     if (cachedOutbox != null) {
@@ -376,12 +386,14 @@ class HomeStore extends _HomeStoreBase
         CrashReporter.breadcrumb(
             'outbox-hydrate-cap: ${capped.dropped.length} ops dropped');
         _persistOutbox();
-        // deletesLost: seit Welle 6 kann der Cap auch Delete-Ops treffen (er
-        // trimmt Schreib-Ops zuerst, aber eine Queue aus lauter Loeschungen
-        // faellt zuletzt eben doch). Ohne das Flag kaeme der generische
-        // Verlust-Text, obwohl der Nutzer eine geloeschte Mahlzeit wiedersieht.
-        _notifyOutboxLoss(
-            deletesLost: capped.dropped.any((op) => op.isDelete));
+        // Seit Welle 6 kann der Cap auch Delete-Ops treffen (er trimmt
+        // Schreib-Ops zuerst, aber eine Queue aus lauter Loeschungen faellt
+        // zuletzt eben doch). Beide Verlust-Arten getrennt melden — im
+        // Misch-Fall sind ALLE Writes gefallen, und genau deren Meldung ging
+        // frueher unter. Kein _restoreDroppedDeletes hier: direkt nach der
+        // Hydration laeuft _bootFromSupabase, dessen Fenster-Load die nie
+        // geloeschten Zeilen ohnehin frisch vom Server zurueckbringt.
+        _notifyDroppedOps(capped.dropped);
       }
     }
     if (cachedDeltas != null) {

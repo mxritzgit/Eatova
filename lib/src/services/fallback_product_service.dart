@@ -53,7 +53,8 @@ class FallbackProductService implements ProductLookupService {
       // ProductWithoutNutritionException — und die traegt den Produktnamen,
       // damit die Oberflaeche "gefunden, aber ohne Naehrwerte" sagen kann
       // statt "nicht gefunden".
-      if (isLoggableKcalPer100G(treffer.kcalPer100G)) {
+      if (isLoggableKcalPer100G(treffer.kcalPer100G) ||
+          treffer.explicitZeroKcal) {
         return treffer;
       }
     } catch (error, stack) {
@@ -62,13 +63,16 @@ class FallbackProductService implements ProductLookupService {
     return fallback.lookupBarcode(barcode);
   }
 
+  /// Loggbar ist ein Treffer mit brauchbarer Energie ODER einer GEMESSENEN 0
+  /// (Wasser, Zero — `explicitZeroKcal` kommt aus den OFF-Rohfeldern). Die
+  /// Mirror-Hits setzen den Marker nie und verhalten sich wie bisher.
   List<ProductSearchResult> _nurLoggbare(List<ProductSearchResult> treffer) {
-    if (treffer.every((t) => isLoggableKcalPer100G(t.kcalPer100G))) {
+    bool loggbar(ProductSearchResult t) =>
+        isLoggableKcalPer100G(t.kcalPer100G) || t.result.explicitZeroKcal;
+    if (treffer.every(loggbar)) {
       return treffer;
     }
-    return treffer
-        .where((t) => isLoggableKcalPer100G(t.kcalPer100G))
-        .toList(growable: false);
+    return treffer.where(loggbar).toList(growable: false);
   }
 }
 

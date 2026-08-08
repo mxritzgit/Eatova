@@ -149,8 +149,33 @@ class _FakeServer {
         mealRows.remove(_eqParam(req, 'id'));
         return ok(const <dynamic>[]);
       }
-      // GET: Zeilen in der vom Client erwarteten Select-Form.
-      return ok(mealRows.values
+      // GET: Zeilen in der vom Client erwarteten Select-Form — MIT
+      // angewandten Filtern wie bei PostgREST: das Boot-Fenster (gte/lt auf
+      // logged_at) und der id=in.(...)-Read der Wiedereinblendung. Ein Fake,
+      // der immer alle Zeilen liefert, hatte das 35-Tage-Loch der
+      // Wiedereinblendung unsichtbar gemacht (Fake bestaetigt Fake).
+      Iterable<Map<String, dynamic>> rows = mealRows.values;
+      for (final p in req.url.queryParametersAll['logged_at'] ?? const <String>[]) {
+        if (p.startsWith('gte.')) {
+          final cutoff = DateTime.parse(p.substring(4));
+          rows = rows.where((r) =>
+              !DateTime.parse(r['logged_at'] as String).isBefore(cutoff));
+        } else if (p.startsWith('lt.')) {
+          final end = DateTime.parse(p.substring(3));
+          rows = rows.where(
+              (r) => DateTime.parse(r['logged_at'] as String).isBefore(end));
+        }
+      }
+      final idParam = req.url.queryParameters['id'];
+      if (idParam != null && idParam.startsWith('in.(') && idParam.endsWith(')')) {
+        final ids = idParam
+            .substring(4, idParam.length - 1)
+            .split(',')
+            .map((s) => s.replaceAll('"', ''))
+            .toSet();
+        rows = rows.where((r) => ids.contains(r['id']));
+      }
+      return ok(rows
           .map((r) => <String, dynamic>{
                 'id': r['id'],
                 'logged_at': r['logged_at'],
@@ -1012,6 +1037,62 @@ void main() {
     expect(await s.cache.readFavorites(), isNull);
   });
 
+  test(
+      'Misch-Drop am Cap: faellt neben Deletes auch ein Write, meldet die '
+      'Episode BEIDE Verluste — nicht nur die Loeschung', () async {
+    final kv = InMemoryKeyValueStore();
+    final meal = LoggedMeal(
+      id: 'm-write-verlust',
+      result: _result('Cap-Bowl'),
+      loggedAt: DateTime.now(),
+    );
+    await _seedRawOutbox(kv, [
+      // Aeltester Eintrag: ein WRITE — der faellt am Cap zuerst.
+      SyncOp.mealInsert(meal, trackDay: false).toJson(),
+      // Danach so viele Deletes, dass der Ueberlauf (503 - 500 = 3) nach dem
+      // einzigen Write auch noch zwei Deletes mitnimmt: der Misch-Fall, in
+      // dem per capOutbox-Reihenfolge ALLE Writes gefallen sind.
+      for (var i = 0; i < 502; i++) SyncOp.mealDelete('m-del-$i').toJson(),
+    ]);
+
+    final s = _setup(kv: kv);
+    s.server.offline = true;
+    await _boot(s.store);
+
+    expect(s.store.pendingOutbox, hasLength(kOutboxMaxOps));
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+        hasLength(1),
+        reason: 'zwei Deletes sind gefallen — ihre Eintraege kommen wieder');
+    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1),
+        reason: 'der Write ist gefallen und FEHLT damit — diese Meldung '
+            'verschluckte der gemeinsame Aufruf mit deletesLost==true');
+  });
+
+  test(
+      'A2-Restfenster: Logout VOR der Boot-Hydration raeumt die persistierte '
+      'Outbox der Vorsession nicht', () async {
+    final kv = InMemoryKeyValueStore();
+    final meal = LoggedMeal(
+      id: 'm-vorsession',
+      result: _result('Vorsession-Bowl'),
+      loggedAt: DateTime.now(),
+    );
+    await _seedRawOutbox(kv, [SyncOp.mealInsert(meal, trackDay: false).toJson()]);
+
+    final s = _setup(kv: kv);
+    // BEWUSST kein _boot: der Logout kommt, bevor die Hydration den Blob in
+    // den In-Memory-Zustand uebernommen hat. `_outbox` ist dann leer — der
+    // persistierte Blob der Vorsession nicht, und nur er zaehlt.
+    await s.store.signOutCleanup();
+
+    final surviving = await s.cache.readOutbox();
+    expect(surviving, isNotNull,
+        reason: 'ein leerer In-Memory-Zustand vor der Hydration ist KEINE '
+            'Aussage ueber den persistierten Blob — er darf nicht als '
+            '"nichts zu erhalten" gelesen werden');
+    expect(surviving!.map((o) => o.entityKey), contains('meal:m-vorsession'));
+  });
+
   // --- Verifikation V1 (Welle 6): Restluecken aus A2/A4/A5 ------------------
 
   test(
@@ -1098,6 +1179,45 @@ void main() {
       expect(m, isNot(contains('23502')));
       expect(m, isNot(contains('PostgrestException')));
     }
+  });
+
+  test(
+      'L2 ausserhalb des Boot-Fensters: auch eine ALTE Mahlzeit wird nach dem '
+      'endgueltigen Delete-Verwurf wieder eingeblendet — der "wieder da"-'
+      'Hinweis muss auch fuer Alt-Tage stimmen', () async {
+    final kv = InMemoryKeyValueStore();
+    await _seedRawOutbox(kv, [
+      SyncOp.mealDelete('m-alt').toJson()
+        ..['queued_at'] = DateTime.now()
+            .subtract(kOutboxDeleteMinAge + const Duration(hours: 1))
+            .toIso8601String()
+        ..['attempts'] = kOutboxDeleteMaxAttempts - 1,
+    ]);
+    final s = _setup(kv: kv);
+    s.server.offline = true;
+    await _boot(s.store);
+
+    // Die Zeile ist 60 Tage alt — der Fenster-Load des Boots sieht sie NIE,
+    // nur ein gezielter Read auf die Id kann sie zurueckholen. (Erreichbar
+    // ist so ein Delete ueber den Archiv-Tag-Picker des Edit-Sheets.)
+    s.server.offline = false;
+    final oldRow = _serverMealRow('m-alt', kcal: 1200);
+    oldRow['logged_at'] = DateTime.now()
+        .toUtc()
+        .subtract(const Duration(days: 60))
+        .toIso8601String();
+    s.server.mealRows['m-alt'] = oldRow;
+    s.server.poisonMealWrites = true;
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.store.pendingOutbox, isEmpty);
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+        hasLength(1));
+    expect(s.store.loggedMeals.map((m) => m.id), contains('m-alt'),
+        reason: 'die Meldung verspricht die Wiedereinblendung — fuer eine '
+            'Zeile ausserhalb des 35-Tage-Fensters muss sie gezielt geladen '
+            'werden, nicht ueber den Fenster-Load');
   });
 
   test(

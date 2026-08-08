@@ -4,6 +4,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../models/macro_progress.dart';
+import '../services/data_export.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/kcal_calculator.dart';
@@ -319,6 +320,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onRefreshHealth: _store.refreshHealthSteps,
               onSignOut: widget.onSignOut != null ? _signOut : null,
               onDeleteAccount: widget.sync != null ? _deleteAccount : null,
+              // C7: die Auskunft kommt vollstaendig vom Server (alle
+              // RLS-lesbaren Tabellen), nicht mehr aus dem Session-Zustand.
+              onBuildFullExport: widget.sync != null
+                  ? () => DataExportService(
+                        widget.sync!.client,
+                        widget.sync!.userId,
+                      ).buildExportJson()
+                  : null,
             ),
           ),
         ),

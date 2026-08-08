@@ -70,6 +70,11 @@ class EatovaSupabaseConfig {
       publishableKey: anonKey,
       authOptions: FlutterAuthClientOptions(
         localStorage: buildSessionStorage(),
+        // Ohne diesen Override laege der PKCE-Code-Verifier als letzter
+        // Klartext-Auth-Baustein in SharedPreferences
+        // (SharedPreferencesGotrueAsyncStorage) — siehe
+        // [SecurePkceAsyncStorage].
+        pkceAsyncStorage: buildPkceStorage(),
       ),
     );
     _wireOAuthSheetDismiss();
@@ -88,6 +93,13 @@ class EatovaSupabaseConfig {
         legacyStore: legacyStore,
       );
 
+  /// Baut den PKCE-Verifier-Storage — analoge Naht zu [buildSessionStorage].
+  @visibleForTesting
+  static SecurePkceAsyncStorage buildPkceStorage({
+    SecureKeyStore? secureStore,
+  }) =>
+      SecurePkceAsyncStorage(secureStore: secureStore);
+
   /// SFSafariViewController (iOS) / Chrome Custom Tab (Android) wissen
   /// nicht von alleine dass der OAuth-Flow durch ist - die Sheet bleibt
   /// offen bis der User sie manuell schliesst. Hier hoeren wir auf den
@@ -103,6 +115,43 @@ class EatovaSupabaseConfig {
       }
     });
   }
+}
+
+/// C5-Nachtrag: der PKCE-Code-Verifier im OS-Keystore statt in
+/// SharedPreferences.
+///
+/// Der Verifier ist kurzlebig (lebt vom Start des OAuth-Flows bis zum
+/// Code-Austausch), aber wer ihn UND den abgefangenen Callback-Link hat, kann
+/// den Austausch selbst durchfuehren. Vor allem war er nach C5 der letzte
+/// Auth-Baustein, der noch im Klartext in `FlutterSharedPreferences.xml` lag
+/// (gotrue-Default: `SharedPreferencesGotrueAsyncStorage`).
+///
+/// Bewusst OHNE catch-Politik: die drei Methoden laufen nur waehrend eines
+/// interaktiven OAuth-Flows (nie beim Boot). Ein Keystore-Fehler soll dort
+/// als Login-Fehler sichtbar werden — ein verschluckter `setItem`-Fehler
+/// wuerde denselben Flow Minuten spaeter mit einem unverstaendlicheren
+/// „code verifier missing" scheitern lassen.
+///
+/// Keine Migration noetig: betroffen waere nur ein OAuth-Flow, der GENAU
+/// waehrend des App-Updates offen war — der Nutzer tippt dann schlicht noch
+/// einmal auf „Mit Google anmelden". Ein liegen gebliebener Alt-Verifier in
+/// den Prefs ist ohne zugehoerigen Autorisierungs-Code wertlos und verfaellt
+/// mit ihm.
+class SecurePkceAsyncStorage extends GotrueAsyncStorage {
+  SecurePkceAsyncStorage({SecureKeyStore? secureStore})
+      : _secure = secureStore ?? const PluginSecureKeyStore();
+
+  final SecureKeyStore _secure;
+
+  @override
+  Future<String?> getItem({required String key}) => _secure.read(key);
+
+  @override
+  Future<void> setItem({required String key, required String value}) =>
+      _secure.write(key, value);
+
+  @override
+  Future<void> removeItem({required String key}) => _secure.delete(key);
 }
 
 /// C5: Session-Persistenz im OS-Keystore statt in SharedPreferences.

@@ -353,9 +353,12 @@ jobs:
       #   _shared/client_ip_test.ts      - 15 Tests, IP-Normalisierung/Subject
       #   analyze-meal/normalize_test.ts - 10 Tests, Normalisierung der
       #                                    Modell-Antwort (Welle 2, 2026-08-08)
-      # Summe: 53 Tests. `deno test` ohne Pfadfilter sammelt alle fuenf Dateien
-      # automatisch ein - der Aufruf unten musste fuer normalize_test.ts NICHT
-      # angepasst werden, nur diese Aufzaehlung hinkte hinterher.
+      #   search-key/wire_response_contract_test.ts
+      #                                  -  5 Tests, Antwort-Vertrag gegen den
+      #                                    echten Handler (Welle 5, 2026-08-08)
+      # Summe: 58 Tests. `deno test` ohne Pfadfilter sammelt alle sechs Dateien
+      # automatisch ein - eine neue *_test.ts-Datei braucht nur diese
+      # Aufzaehlung nachgezogen, der Aufruf unten bleibt unveraendert.
       #
       # --allow-env ist noetig (frueher liefen die Tests flaglos): handler.ts
       # liest Modell-/Limit-Secrets bereits beim Modul-Load und handler_test.ts

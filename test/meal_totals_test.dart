@@ -78,16 +78,4 @@ void main() {
       expect(p.kcal, 750);
     });
   });
-
-  group('copyResultWithKcal', () {
-    test('überschreibt kcal, markiert angepasst, behält übrige Felder', () {
-      final original = _r(kcal: 500, protein: '30 g');
-      final copy = copyResultWithKcal(original, 250);
-      expect(copy.caloriesKcal, 250);
-      expect(copy.isAdjusted, isTrue);
-      expect(copy.protein, '30 g');
-      expect(copy.estimatedGrams, original.estimatedGrams);
-      expect(copy.mealName, original.mealName);
-    });
-  });
 }

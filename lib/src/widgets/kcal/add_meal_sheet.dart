@@ -472,7 +472,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // unsichtbar waere sie auch nicht mehr ueber das X der Zeile loeschbar,
     // und der Nutzer wuesste nicht, warum sein Favorit verschwunden ist.
     // Sichtbar, nicht loggbar, mit Begruendung ist die ehrlichere Variante.
-    if (result.caloriesKcal <= 0) {
+    //
+    // explicitZeroKcal: eine GEMESSENE 0 (Wasser, Zero — die Datenquelle
+    // sagt ausdruecklich 0 kcal) ist loggbar; die Bremse gilt dem Sentinel
+    // „0 = unbekannt" der Alt-Zeilen, nicht dem Produkt.
+    if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
       showAppSnack(
         context,
         kSuggestionWithoutCaloriesMessage,

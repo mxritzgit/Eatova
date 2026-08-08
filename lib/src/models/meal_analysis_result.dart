@@ -23,6 +23,7 @@ class MealAnalysisResult {
     this.sourceLabel = 'KI-Schätzung',
     this.barcode,
     this.brand,
+    this.explicitZeroKcal = false,
   });
 
   final String mealName;
@@ -39,6 +40,16 @@ class MealAnalysisResult {
   final String sourceLabel;
   final String? barcode;
   final String? brand;
+
+  /// `true`, wenn die 0 in [caloriesKcal]/[kcalPer100G] eine MESSUNG ist
+  /// (Wasser, Zero-Getraenk — die Datenquelle sagt ausdruecklich 0 kcal,
+  /// siehe [offMeldetExplizitNullKcal]) und nicht der Sentinel fuer
+  /// „unbekannt". Nur mit diesem Marker duerfen die Letzt-Bremsen im UI
+  /// (add_meal_sheet, meal_analysis_sheet) eine 0 durchlassen. Er wird im
+  /// Payload persistiert (mealResultToJson), damit auch der Auto-Recent-
+  /// Favorit eines Wassers loggbar bleibt — Alt-Zeilen ohne den Schluessel
+  /// lesen `false` und bleiben blockiert wie bisher.
+  final bool explicitZeroKcal;
 
   String get kcalRange => '$caloriesKcal kcal';
   String get portionLabel => '$estimatedGrams g geschätzt';
@@ -125,6 +136,7 @@ class MealAnalysisResult {
       sourceLabel: sourceLabel,
       barcode: barcode,
       brand: brand,
+      explicitZeroKcal: explicitZeroKcal,
     );
   }
 
@@ -190,6 +202,7 @@ class MealAnalysisResult {
       sourceLabel: sourceLabel,
       barcode: barcode,
       brand: brand,
+      explicitZeroKcal: explicitZeroKcal,
     );
   }
 
@@ -345,6 +358,11 @@ class MealAnalysisResult {
       sourceLabel: 'OpenFoodFacts',
       barcode: barcode,
       brand: brand,
+      // Die 0 traegt ihre Herkunft: nur eine AUSDRUECKLICH gemeldete 0
+      // (Wasser, Zero) ist eine Messung — der Parser-Fallback `?? 0` oben
+      // erfuellt die Bedingung nie, weil der Detektor die Rohfelder liest.
+      explicitZeroKcal:
+          kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
     );
   }
 
@@ -438,6 +456,41 @@ class MealAnalysisResult {
     }
 
     return null;
+  }
+
+  /// Ob die OFF-Naehrwerte die Energie EXPLIZIT mit 0 angeben (Wasser, Tee,
+  /// Zero-Getraenke). Nur dann ist eine geparste 0 eine Messung und keine
+  /// fehlende Angabe — der Energie-Filter darf sie loggen lassen, statt
+  /// faelschlich „ohne Naehrwerte" zu behaupten (Nachverifikation 2026-08-08
+  /// zu B7).
+  ///
+  /// Kandidaten und Vorrang entsprechen [_offKcalPer100G]: steht im
+  /// bevorzugten Feld ein Wert, entscheidet DER (eine 0 in einem
+  /// nachrangigen Feld neben einem befuellten kcal-Feld ist keine
+  /// 0-kcal-Angabe); `energy-kcal_value` zaehlt nur bei 100-g-Basis; die
+  /// kJ-Felder brauchen keine Umrechnung, 0 kJ sind 0 kcal. Ein nullbares
+  /// kcal-Feld quer durch Sync/Favoriten/Widgets braucht diese
+  /// Unterscheidung nicht: sie faellt am Gate, bevor die 0 ihre Herkunft
+  /// verliert.
+  static bool offMeldetExplizitNullKcal(Map<String, dynamic> product) {
+    final nutriments = product['nutriments'] is Map<String, dynamic>
+        ? product['nutriments'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final proHundert = _readDouble(nutriments, const [
+      'energy-kcal_100g',
+      'energy_kcal_100g',
+    ]);
+    if (proHundert != null) {
+      return proHundert == 0;
+    }
+    if (_offBasisIst100G(product)) {
+      final basisWert = _readDouble(nutriments, const ['energy-kcal_value']);
+      if (basisWert != null) {
+        return basisWert == 0;
+      }
+    }
+    final kj = _readDouble(nutriments, const ['energy-kj_100g', 'energy_100g']);
+    return kj != null && kj == 0;
   }
 
   static bool _offBasisIst100G(Map<String, dynamic> product) {

@@ -68,6 +68,32 @@ class MealsSync {
     }
   }
 
+  /// Laedt gezielt die Zeilen einer Id-Menge — OHNE Datumsfenster.
+  ///
+  /// Einziger Aufrufer ist die Wiedereinblendung nach einem endgueltig
+  /// verworfenen Delete (`_restoreDroppedDeletes`): die betroffene Zeile kann
+  /// beliebig alt sein (Delete via Archiv-Tag-Picker), und der Fenster-Load
+  /// [loadLoggedMeals] wuerde sie dann nicht finden — der „wieder da"-Hinweis
+  /// loege. Die Id-Menge ist klein (die verworfenen Delete-Ops EINES
+  /// Ereignisses), das Fenster-Limit reicht als Obergrenze.
+  Future<List<LoggedMeal>> loadLoggedMealsByIds(Set<String> ids) async {
+    if (ids.isEmpty) return const <LoggedMeal>[];
+    try {
+      final rows = await _client
+          .from('logged_meals')
+          .select('id, logged_at, forced_slot, local_day, payload')
+          .eq('user_id', _userId)
+          .inFilter('id', ids.toList())
+          .order('logged_at', ascending: false)
+          .limit(loggedMealsMaxRows);
+      return rows.map<LoggedMeal>(_mealFromRow).toList();
+    } catch (e, stack) {
+      dev.log('MealsSync.loadLoggedMealsByIds failed',
+          error: e, stackTrace: stack, name: 'meals_sync');
+      rethrow;
+    }
+  }
+
   /// Laedt die Mahlzeiten EINES lokalen Kalendertags — der On-Demand-Pfad
   /// fuer Tage ausserhalb des [loggedMealsWindowDays]-Boot-Fensters
   /// (Kalender-Auswahl im Food-Tab). Halboffenes Fenster
@@ -314,6 +340,11 @@ Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
     'sourceLabel': r.sourceLabel,
     if (r.barcode != null) 'barcode': r.barcode,
     if (r.brand != null) 'brand': r.brand,
+    // B7-Nachtrag: „gemessene 0 kcal" (Wasser, Zero) muss den Roundtrip
+    // ueberleben, sonst blockiert die Letzt-Bremse den Auto-Recent-Favorit
+    // desselben Produkts. Nur bei true geschrieben — Alt-Zeilen bleiben
+    // byte-identisch.
+    if (r.explicitZeroKcal) 'explicitZeroKcal': true,
   };
 }
 
@@ -353,5 +384,7 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
     sourceLabel: j['sourceLabel']?.toString() ?? 'KI-Schätzung',
     barcode: j['barcode']?.toString(),
     brand: j['brand']?.toString(),
+    // Fehlender Schluessel -> false: die 0 einer Alt-Zeile bleibt Sentinel.
+    explicitZeroKcal: (j['explicitZeroKcal'] as bool?) ?? false,
   );
 }

@@ -55,6 +55,7 @@ class _OffFixtureServer {
     '4104420030008': 'open_food_facts_v3_kcal_broken_kj_valid.json',
     '4009233003204': 'open_food_facts_v3_per_serving.json',
     '4260049370019': 'open_food_facts_v3_value_per_100g.json',
+    '3057640257773': 'open_food_facts_v3_zero_kcal.json',
   };
 
   int get port => _server.port;
@@ -202,6 +203,18 @@ void main() {
       final fields = server.requests.single.queryParameters['fields'];
       expect(fields, isNotNull);
       expect(fields!.split(','), contains('nutrition_data_per'));
+    });
+
+    test(
+      'explizite 0 kcal (Wasser) sind loggbar — die 0 heisst hier '
+      '"gemessen 0", nicht "unbekannt"', () async {
+      final ergebnis = await service.lookupBarcode('3057640257773');
+
+      expect(ergebnis.mealName, contains('Volvic'));
+      expect(ergebnis.kcalPer100G, 0);
+      expect(ergebnis.caloriesKcal, 0);
+      expect(ergebnis.estimatedGrams, 250,
+          reason: 'serving_quantity 250 ml — Wasser wird als Portion geloggt');
     });
 
     test(

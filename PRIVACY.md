@@ -166,9 +166,12 @@ abuse and runaway cost (Art. 6(1)(f)).
 You can, at any time:
 
 - **Access / export** your data. The in-app export (Profile → Daten exportieren)
-  gives you a JSON snapshot of the data the app currently has loaded, not of
-  everything stored on our servers — for a complete copy under Art. 15/20, ask us
-  by email and we will send it to you.
+  loads a complete JSON copy of your stored data directly from our servers —
+  every table that belongs to your account (profile, food diary, favorites,
+  recipes, weight log, coach-chat history, statistics), satisfying Art. 15/20.
+  If a section cannot be fetched, the export lists it by name instead of
+  silently omitting it. You can also ask us by email at any time and we will
+  send you a copy.
 - **Correct** any value directly in the app.
 - **Delete** your account and all associated data — in-app via Profile → Konto
   löschen, which removes your auth record and cascades to every table.
