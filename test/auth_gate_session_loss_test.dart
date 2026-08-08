@@ -46,6 +46,15 @@ class _ScriptedAuthRepository implements AuthRepository {
   Stream<EatovaUser?> get authStateChanges => _controller.stream;
 
   @override
+  Future<void> sendPasswordReset(String email) async {}
+
+  @override
+  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+
+  @override
+  Future<void> updatePassword(String newPassword) async {}
+
+  @override
   Future<void> signIn({required String email, required String password}) async {}
 
   @override

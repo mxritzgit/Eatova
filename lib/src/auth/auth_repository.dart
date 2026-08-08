@@ -44,6 +44,20 @@ extension EatovaOAuthProviderLabel on EatovaOAuthProvider {
 abstract class AuthRepository {
   EatovaUser? get currentUser;
   Stream<EatovaUser?> get authStateChanges;
+
+  /// Stoesst die Passwort-Reset-Mail an. Die UI bestaetigt IMMER neutral —
+  /// ob zur E-Mail ein Konto existiert (oder ein reines Google-Konto ohne
+  /// Passwort), verraet weder Server noch App: alles andere waere ein
+  /// Konto-Enumerations-Leck.
+  Future<void> sendPasswordReset(String email);
+
+  /// Feuert, wenn der Nutzer ueber den Reset-Mail-Link zurueckkommt
+  /// (AuthChangeEvent.passwordRecovery): die Session ist dann bereits
+  /// gueltig, und der AuthGate zeigt den Neues-Passwort-Dialog.
+  Stream<void> get passwordRecoveryEvents;
+
+  /// Setzt das Passwort des angemeldeten Nutzers (Recovery-Abschluss).
+  Future<void> updatePassword(String newPassword);
   Future<void> signIn({required String email, required String password});
   Future<void> signUp({
     required String email,
@@ -73,6 +87,27 @@ class SupabaseAuthRepository implements AuthRepository {
     yield* _client.auth.onAuthStateChange.map(
       (event) => _mapUser(event.session?.user),
     );
+  }
+
+  @override
+  Future<void> sendPasswordReset(String email) async {
+    // redirect_to = App-Deep-Link: der Mail-Link fuehrt zurueck in die App,
+    // supabase_flutter tauscht den Code gegen eine Session und feuert das
+    // passwordRecovery-Event — dort haengt die Neues-Passwort-UI.
+    await _client.auth.resetPasswordForEmail(
+      email.trim(),
+      redirectTo: EatovaSupabaseConfig.oauthRedirectUrl,
+    );
+  }
+
+  @override
+  Stream<void> get passwordRecoveryEvents => _client.auth.onAuthStateChange
+      .where((e) => e.event == AuthChangeEvent.passwordRecovery)
+      .map((_) {});
+
+  @override
+  Future<void> updatePassword(String newPassword) async {
+    await _client.auth.updateUser(UserAttributes(password: newPassword));
   }
 
   @override
@@ -180,6 +215,15 @@ class PreviewAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> sendPasswordReset(String email) async {}
+
+  @override
+  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+
+  @override
+  Future<void> updatePassword(String newPassword) async {}
+
+  @override
   Future<void> signIn({required String email, required String password}) async {}
 
   @override
@@ -202,6 +246,32 @@ class InMemoryAuthRepository implements AuthRepository {
   EatovaUser? _user;
   final StreamController<EatovaUser?> _controller =
       StreamController<EatovaUser?>.broadcast();
+
+  /// Fuer Tests: an welche Adressen ein Reset angestossen wurde.
+  final List<String> passwordResets = <String>[];
+
+  /// Fuer Tests: welche neuen Passwoerter gesetzt wurden.
+  final List<String> passwordUpdates = <String>[];
+
+  final StreamController<void> _recoveryController =
+      StreamController<void>.broadcast();
+
+  @override
+  Future<void> sendPasswordReset(String email) async {
+    passwordResets.add(email.trim());
+  }
+
+  @override
+  Stream<void> get passwordRecoveryEvents => _recoveryController.stream;
+
+  /// Simuliert den Klick auf den Reset-Mail-Link (Deep-Link zurueck in die
+  /// App): supabase_flutter wuerde hier das passwordRecovery-Event feuern.
+  void emitPasswordRecovery() => _recoveryController.add(null);
+
+  @override
+  Future<void> updatePassword(String newPassword) async {
+    passwordUpdates.add(newPassword);
+  }
 
   @override
   EatovaUser? get currentUser => _user;
@@ -244,7 +314,10 @@ class InMemoryAuthRepository implements AuthRepository {
     _controller.add(null);
   }
 
-  void dispose() => _controller.close();
+  void dispose() {
+    _controller.close();
+    _recoveryController.close();
+  }
 }
 
 /// Auth-Schicht nicht verfuegbar (`Supabase.instance` warf beim App-Build).
@@ -271,6 +344,15 @@ class UnavailableAuthRepository implements AuthRepository {
   Stream<EatovaUser?> get authStateChanges async* {
     yield null;
   }
+
+  @override
+  Future<void> sendPasswordReset(String email) => _fail();
+
+  @override
+  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+
+  @override
+  Future<void> updatePassword(String newPassword) => _fail();
 
   @override
   Future<void> signIn({required String email, required String password}) =>

@@ -557,11 +557,10 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: surfaceSoft,
-                          borderRadius: BorderRadius.circular(rControl),
-                          border: Border.all(
-                            color: orange.withValues(alpha: 0.18),
-                          ),
+                          // Warm getoente Soft-Flaeche statt Orange-Hairline.
+                          color: Color.alphaBlend(
+                              orange.withValues(alpha: 0.07), surfaceSoft),
+                          borderRadius: BorderRadius.circular(rCard),
                         ),
                         child: Row(
                           children: [
@@ -658,15 +657,27 @@ class _ItemEditCard extends StatelessWidget {
   final int liveGrams;
   final VoidCallback onRemove;
 
+  /// Stepper-Aenderung laeuft ueber DENSELBEN Kanal wie Tippen: der
+  /// Controller-Setter benachrichtigt den `_neuerPosten`-Listener — eine
+  /// Quelle, kein zweiter Zustand.
+  void _bump(int delta) {
+    final aktuell = int.tryParse(controller.text) ?? item.grams;
+    final neu = (aktuell + delta).clamp(1, 10000);
+    controller.text = '$neu';
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Soft-Kapsel statt Hairline-Rahmen + Formular-Label (Design-Vorgabe):
+    // die Gramm-Zeile bekommt dieselbe Bedienflaeche wie die
+    // Vorschlagskarten im Food-Tab — runde -/+ Kapseln um eine rahmenlose
+    // Wert-Kapsel, die Zahl als Held.
     return Container(
       key: ValueKey('analyse-item-card-$index'),
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
       decoration: BoxDecoration(
         color: surfaceSoft,
         borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -696,29 +707,94 @@ class _ItemEditCard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 4),
           Padding(
             padding: const EdgeInsets.only(right: 6),
-            // Kein `onChanged`: das getippte Gewicht liest der Listener aus
-            // `_neuerPosten` vom Controller. Eine zweite Quelle koennte
-            // auseinanderlaufen — und `onChanged` feuert bei programmatisch
-            // gesetztem Text gar nicht.
-            child: TextField(
-              key: ValueKey('analyse-item-weight-input-$index'),
-              cursorOpacityAnimates: false,
-              controller: controller,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(
-                labelText: 'Gewicht',
-                suffixText: 'g',
-                helperText:
-                    'Ursprünglich ${item.gramsLabel} · ${item.caloriesLabel}',
-                helperStyle: const TextStyle(
-                  color: textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  fontFeatures: [FontFeature.tabularFigures()],
+            child: Row(
+              children: [
+                _ItemStepperButton(
+                  icon: Icons.remove_rounded,
+                  semanticLabel: 'Weniger ${item.name}',
+                  onTap: () => _bump(-10),
+                  onLongPress: () => _bump(-50),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: Color.alphaBlend(
+                          Colors.white.withValues(alpha: 0.04), surfaceSoft),
+                      borderRadius: BorderRadius.circular(rPill),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 64,
+                          // Kein `onChanged`: das getippte Gewicht liest der
+                          // Listener aus `_neuerPosten` vom Controller. Eine
+                          // zweite Quelle koennte auseinanderlaufen — und
+                          // `onChanged` feuert bei programmatisch gesetztem
+                          // Text gar nicht.
+                          child: TextField(
+                            key: ValueKey('analyse-item-weight-input-$index'),
+                            cursorOpacityAnimates: false,
+                            controller: controller,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                              isCollapsed: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        const Text(
+                          'g',
+                          style: TextStyle(
+                            color: textMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _ItemStepperButton(
+                  icon: Icons.add_rounded,
+                  semanticLabel: 'Mehr ${item.name}',
+                  onTap: () => _bump(10),
+                  onLongPress: () => _bump(50),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Text(
+              'Ursprünglich ${item.gramsLabel} · ${item.caloriesLabel}',
+              style: const TextStyle(
+                color: textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
           ),
@@ -758,6 +834,44 @@ class _ItemEditCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Runde -/+ Soft-Kapsel der Posten-Zeile (Muster der Vorschlagskarten im
+/// Food-Tab, Akzent hier `orange` — die Farbe des Anpassen-Sheets).
+class _ItemStepperButton extends StatelessWidget {
+  const _ItemStepperButton({
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final IconData icon;
+  final String semanticLabel;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Color.alphaBlend(
+                Colors.white.withValues(alpha: 0.05), surfaceSoft),
+            borderRadius: BorderRadius.circular(rPill),
+          ),
+          child: Icon(icon, size: 20, color: orange),
+        ),
       ),
     );
   }
