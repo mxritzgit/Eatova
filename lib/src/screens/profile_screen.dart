@@ -95,17 +95,20 @@ class ProfileScreen extends StatelessWidget {
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ProfileHero(name: name),
-              const SizedBox(height: 14),
-              GoalPlanCard(profile: profile, onEdit: onEditProfile),
-              const SizedBox(height: 14),
-              BodyStatsCard(
-                profile: profile,
-                log: weightLog,
-                onLogWeight: onLogWeight,
+              // Identitaets-Header: Avatar + Name freistehend (keine Karte)
+              // mit Stat-Leiste — der Anker des Screens, wie ihn moderne
+              // Profil-Screens setzen. Danach gruppieren Eyebrow-Labels die
+              // Karten in Sektionen statt einer generischen Kartenliste.
+              ProfileHero(
+                name: name,
+                streak: stats.effectiveStreakOn(DateTime.now()),
+                mealsLogged: stats.mealsLogged,
+                weightKg:
+                    weightLog.latest?.weightKg ?? profile.weightKg.toDouble(),
               ),
-              const SizedBox(height: 14),
-              WeightHistoryCard(log: weightLog, accent: lime),
+              const SizedBox(height: 24),
+              const _SectionLabel('Dein Plan'),
+              GoalPlanCard(profile: profile, onEdit: onEditProfile),
               const SizedBox(height: 14),
               GoalsOverviewCard(
                 profile: profile,
@@ -113,7 +116,17 @@ class ProfileScreen extends StatelessWidget {
                 dailySteps: dailySteps,
                 onEdit: onEditProfile,
               ),
+              const SizedBox(height: 22),
+              const _SectionLabel('Körper'),
+              BodyStatsCard(
+                profile: profile,
+                log: weightLog,
+                onLogWeight: onLogWeight,
+              ),
               const SizedBox(height: 14),
+              WeightHistoryCard(log: weightLog, accent: lime),
+              const SizedBox(height: 22),
+              const _SectionLabel('Fortschritt'),
               LifetimeStatsCard(stats: stats),
               const SizedBox(height: 14),
               AchievementsGrid(
@@ -122,14 +135,16 @@ class ProfileScreen extends StatelessWidget {
                 weightLogs: weightLog.entries.length,
                 favoritesCount: favoritesCount,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 22),
+              const _SectionLabel('Verbindungen'),
               HealthConnectionCard(
                 state: healthAuthState,
                 lastFetch: healthLastFetch,
                 onConnect: onConnectHealth,
                 onRefresh: onRefreshHealth,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 22),
+              const _SectionLabel('Daten & Konto'),
               ProfileActionsCard(
                 onEditProfile: onEditProfile,
                 onResetDay: () {
@@ -589,6 +604,31 @@ class _AboutRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Eyebrow-Label einer Profil-Sektion (Stil von FieldLabel: klein,
+/// versal, gesperrte Laufweite) — die Gruppierung, die dem Screen bisher
+/// fehlte: vorher stand Karte an Karte ohne erkennbare Ordnung.
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 10),
+      child: Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          color: textMuted,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.1,
+        ),
+      ),
     );
   }
 }

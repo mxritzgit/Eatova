@@ -1,9 +1,23 @@
 part of 'profile_widgets.dart';
 
+/// Identitaets-Header des Profils: Avatar mit weichem Lime-Schein, Name
+/// zentriert darunter, dann die Stat-Leiste (Streak · Mahlzeiten · Gewicht)
+/// als drei gleichberechtigte Soft-Kacheln. Bewusst KEINE Karte — der Kopf
+/// steht frei auf dem Hintergrund, wie es moderne Profil-Screens tun; die
+/// Karten beginnen erst mit den Sektionen darunter.
 class ProfileHero extends StatelessWidget {
-  const ProfileHero({super.key, required this.name});
+  const ProfileHero({
+    super.key,
+    required this.name,
+    required this.streak,
+    required this.mealsLogged,
+    required this.weightKg,
+  });
 
   final String name;
+  final int streak;
+  final int mealsLogged;
+  final double weightKg;
 
   String get _initials {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -13,46 +27,150 @@ class ProfileHero extends StatelessWidget {
         .toUpperCase();
   }
 
+  String get _weightLabel {
+    final gerundet = (weightKg * 10).round() / 10;
+    final text = gerundet == gerundet.roundToDouble()
+        ? '${gerundet.round()}'
+        : gerundet.toStringAsFixed(1).replaceAll('.', ',');
+    return '$text kg';
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
-      child: Row(
-        children: [
-          Container(
-            width: 64,
-            height: 64,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 6),
+        Center(
+          child: Container(
+            width: 78,
+            height: 78,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  lime.withValues(alpha: 0.28),
+                  lime.withValues(alpha: 0.32),
                   lime.withValues(alpha: 0.08),
                 ],
               ),
-              borderRadius: BorderRadius.circular(rSheet),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: lime.withValues(alpha: 0.16),
+                  blurRadius: 30,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             alignment: Alignment.center,
             child: Text(
               _initials,
               style: const TextStyle(
-                fontSize: 22,
+                fontSize: 26,
                 fontWeight: FontWeight.w700,
                 color: lime,
                 letterSpacing: -0.4,
               ),
             ),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.6,
+        ),
+        const SizedBox(height: 14),
+        Text(
+          name,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.6,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _HeroStat(
+                icon: Icons.local_fire_department_rounded,
+                accent: lime,
+                value: '$streak',
+                label: 'Tage Streak',
               ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _HeroStat(
+                icon: Icons.restaurant_rounded,
+                accent: cyan,
+                value: '$mealsLogged',
+                label: 'Mahlzeiten',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _HeroStat(
+                icon: Icons.monitor_weight_rounded,
+                accent: orange,
+                value: _weightLabel,
+                label: 'Gewicht',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Eine Kachel der Hero-Stat-Leiste: rahmenlose Soft-Flaeche, Akzent nur im
+/// Icon, Zahl als Held (Soft-Kapsel-Vorgabe — keine Hairlines).
+class _HeroStat extends StatelessWidget {
+  const _HeroStat({
+    required this.icon,
+    required this.accent,
+    required this.value,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      decoration: BoxDecoration(
+        color: surfaceSoft,
+        borderRadius: BorderRadius.circular(rCard),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 17, color: accent),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: textMuted,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.7,
             ),
           ),
         ],
