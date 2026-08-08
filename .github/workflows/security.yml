@@ -350,14 +350,21 @@ jobs:
       #   coach-chat/guardrails_test.ts  -  7 Tests, Layer-2-Weichen (rein)
       #   coach-chat/handler_test.ts     - 12 Tests, End-to-End ueber
       #                                    handleRequest, fetch ist gestubbt
+      #   coach-chat/handler_sentinel_test.ts
+      #                                  -  7 Tests, Sentinel-Fehlerpfade
+      #                                    (Quota-Row, Provider, History,
+      #                                    Session-Check, Store, Rate-Limit;
+      #                                    Sentinel-Rest 2026-08-08)
       #   _shared/client_ip_test.ts      - 15 Tests, IP-Normalisierung/Subject
-      #   analyze-meal/normalize_test.ts - 10 Tests, Normalisierung der
-      #                                    Modell-Antwort (Welle 2, 2026-08-08)
+      #   analyze-meal/normalize_test.ts - 11 Tests, Normalisierung der
+      #                                    Modell-Antwort (Welle 2 +
+      #                                    confidence-Sentinel, 2026-08-08)
       #   search-key/wire_response_contract_test.ts
-      #                                  -  5 Tests, Antwort-Vertrag gegen den
-      #                                    echten Handler (Welle 5, 2026-08-08)
-      # Summe: 58 Tests. `deno test` ohne Pfadfilter sammelt alle sechs Dateien
-      # automatisch ein - eine neue *_test.ts-Datei braucht nur diese
+      #                                  -  6 Tests, Antwort-Vertrag gegen den
+      #                                    echten Handler (Welle 5 +
+      #                                    Rate-Limit-Shape, 2026-08-08)
+      # Summe: 67 Tests. `deno test` ohne Pfadfilter sammelt alle sieben
+      # Dateien automatisch ein - eine neue *_test.ts-Datei braucht nur diese
       # Aufzaehlung nachgezogen, der Aufruf unten bleibt unveraendert.
       #
       # --allow-env ist noetig (frueher liefen die Tests flaglos): handler.ts

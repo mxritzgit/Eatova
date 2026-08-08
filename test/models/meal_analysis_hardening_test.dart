@@ -218,6 +218,44 @@ void main() {
       expect(r.estimatedGrams, 400);
     });
 
+    test(
+        'Sentinel-Rest C: ohne jede Zahl und ohne Referenztreffer wird '
+        'NICHTS erfunden', () {
+      // Frueher stand am Ende der Dichte-Kette ein nacktes `: 52.0` — ein
+      // Foto, aus dem das Modell WEDER Kalorien NOCH Gramm NOCH Dichte lesen
+      // konnte und dessen Name nicht in der Referenztabelle steht, wurde
+      // damit zur loggbaren "78 kcal / 150 g"-Mahlzeit. Die etablierte
+      // Unbekannt-Form ist 0 OHNE explicitZeroKcal: die Log-Guards
+      // (add_meal_sheet/meal_analysis_sheet) blockieren sie mit Hinweis,
+      // statt Fantasie ins Tagebuch zu schreiben.
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Xyzzq',
+        'caloriesKcal': null,
+        'estimatedGrams': null,
+        'kcalPer100G': null,
+      });
+      expect(r.caloriesKcal, 0,
+          reason: 'erfundene 78 kcal wuerden als Messung geloggt');
+      expect(r.kcalPer100G, 0,
+          reason: '52.0 aus dem Nichts ist keine Dichte, sondern ein Wuerfel');
+      expect(r.explicitZeroKcal, isFalse,
+          reason: 'diese 0 ist "unbekannt", keine gemessene 0 — nur so '
+              'greifen die Log-Guards');
+    });
+
+    test('Sentinel-Rest C: fehlende confidence wird nicht zu "Mittel"', () {
+      // `confidence` ist eine Aussage DES MODELLS ueber seine eigene
+      // Sicherheit. Fehlt sie, ist sie nicht "mittel" — der Nutzer richtet
+      // danach, wie sehr er der kcal-Zahl traut.
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Apfel',
+        'caloriesKcal': 95,
+        'estimatedGrams': 150,
+        'kcalPer100G': 63,
+      });
+      expect(r.confidence, 'Unbekannt');
+    });
+
     test('DB-Grenzen werden geklemmt statt eine 23514 zu provozieren', () {
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': '',

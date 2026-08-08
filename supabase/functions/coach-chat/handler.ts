@@ -339,7 +339,7 @@ async function rpcClaimQuota(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
-): Promise<{ used: number; remaining: number } | { error: string }> {
+): Promise<{ used: number | null; remaining: number | null } | { error: string }> {
   const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/claim_chat_quota`, {
     method: "POST",
     headers: {
@@ -360,7 +360,19 @@ async function rpcClaimQuota(
   const data = await resp.json();
   // Supabase liefert Tabellen-Returns als Array zurueck.
   const row = Array.isArray(data) ? data[0] : data;
-  return { used: row?.used ?? 0, remaining: row?.remaining ?? 0 };
+  // Sentinel-Rest E1: hier stand `?? 0` — ein leeres Array / umbenannte
+  // Spalten wurden zu "remaining: 0", und der Client sperrte den Composer
+  // bis Mitternacht, direkt nach einer ERFOLGREICHEN Antwort. Unbekannt
+  // bleibt null; der Response laesst das Feld dann weg (der Client
+  // behandelt fehlendes remaining als "kein Update").
+  const used = typeof row?.used === "number" ? row.used : null;
+  const remaining = typeof row?.remaining === "number" ? row.remaining : null;
+  if (remaining === null) {
+    console.error(
+      `claim_chat_quota: 200 ohne lesbares remaining (${JSON.stringify(data).slice(0, 120)})`,
+    );
+  }
+  return { used, remaining };
 }
 
 async function rpcConsumeEdgeRateLimit(
@@ -391,8 +403,19 @@ async function rpcConsumeEdgeRateLimit(
     return { error: "rate_limit_unavailable" };
   }
   const data = await resp.json();
+  // Sentinel-Rest E6: `data?.allowed === true` machte aus einem kaputten
+  // Antwort-Shape (Signaturaenderung des RPC, Proxy-Body) ein `allowed:
+  // false` — der Client bekam einen 429 "Zu viele Anfragen" mit erfundenen
+  // Zahlen, obwohl nie ein Limit gemessen wurde. Ein kaputter Shape ist ein
+  // Ausfall des Limiters, kein Limit.
+  if (typeof data?.allowed !== "boolean") {
+    console.error(
+      `consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`,
+    );
+    return { error: "rate_limit_unavailable" };
+  }
   return {
-    allowed: data?.allowed === true,
+    allowed: data.allowed,
     remaining: Number(data?.remaining ?? 0),
     resetAt: String(data?.resetAt ?? new Date(Date.now() + windowSeconds * 1000).toISOString()),
     windowSeconds: Number(data?.windowSeconds ?? windowSeconds),
@@ -425,12 +448,16 @@ function retryAfterSeconds(resetAt: string, fallback: number): number {
   return Number.isFinite(ms) ? Math.max(1, Math.ceil(ms / 1000)) : fallback;
 }
 
+// Sentinel-Rest E3: null heisst "History nicht ladbar" — frueher wurde daraus
+// eine leere Liste, der Coach beantwortete Folgefragen ("und davon 200 g?")
+// kommentarlos ohne Kontext, und der Nutzer hielt den Kontextverlust fuer
+// Modellversagen. Eine ECHTE leere Konversation bleibt [].
 async function loadHistory(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
   sessionId: string,
-): Promise<HistoryMessage[]> {
+): Promise<HistoryMessage[] | null> {
   const url = `${supabaseUrl}/rest/v1/chat_messages?user_id=eq.${userId}&session_id=eq.${sessionId}&role=in.(user,assistant)&order=created_at.desc&limit=${HISTORY_LIMIT}`;
   const resp = await fetch(url, {
     headers: {
@@ -438,9 +465,12 @@ async function loadHistory(
       "apikey": serviceKey,
     },
   });
-  if (!resp.ok) return [];
+  if (!resp.ok) {
+    console.error(`loadHistory failed: ${resp.status}`);
+    return null;
+  }
   const data = await resp.json();
-  if (!Array.isArray(data)) return [];
+  if (!Array.isArray(data)) return null;
   return data
     .reverse()
     .map((m: any) => ({
@@ -460,8 +490,8 @@ async function storeMessage(
     refusal?: boolean;
     refusal_reason?: string | null;
   },
-): Promise<void> {
-  await fetch(`${supabaseUrl}/rest/v1/chat_messages`, {
+): Promise<boolean> {
+  const resp = await fetch(`${supabaseUrl}/rest/v1/chat_messages`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${serviceKey}`,
@@ -478,6 +508,12 @@ async function storeMessage(
       refusal_reason: row.refusal_reason ?? null,
     }),
   });
+  // Sentinel-Rest E5: der Erfolg wird gemeldet statt angenommen. Ein
+  // gescheiterter INSERT (RLS, Constraint, 5xx) hiess frueher trotzdem
+  // HTTP 200 fuer den Client — mit einer Antwort, die nach dem Reload
+  // verschwand und in der History jeder Folgefrage fehlte.
+  if (!resp.ok) console.error(`storeMessage failed: ${resp.status} (${row.role})`);
+  return resp.ok;
 }
 
 async function ensureSession(
@@ -494,11 +530,17 @@ async function ensureSession(
       `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${requestedSessionId}&user_id=eq.${userId}&select=id`,
       { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
     );
-    if (resp.ok) {
-      const data = await resp.json();
-      if (Array.isArray(data) && data.length > 0) return requestedSessionId;
+    // Sentinel-Rest E4: ein TRANSIENTER Fehler der Besitzpruefung ist kein
+    // "Session gehoert dir nicht" — frueher fiel er in denselben Fallthrough
+    // und die Nachricht landete kommentarlos in der Default-Session (einer
+    // ANDEREN Unterhaltung). null => der Handler antwortet session_unavailable.
+    if (!resp.ok) {
+      console.error(`ensureSession ownership check failed: ${resp.status}`);
+      return null;
     }
-    // Fallthrough auf default
+    const data = await resp.json();
+    if (Array.isArray(data) && data.length > 0) return requestedSessionId;
+    // Nur der belegte Fremd-/Nicht-Besitz faellt auf die Default-Session.
   }
   const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/ensure_default_chat_session`, {
     method: "POST",
@@ -807,6 +849,20 @@ export async function handleRequest(req: Request): Promise<Response> {
   }
 
   // ---------------------------------------------------------------- LAYER 3
+  // History VOR dem Quota-Claim laden (Sentinel-Rest E3): ist sie nicht
+  // ladbar, bricht der Request hier ab, BEVOR ein Tages-Slot verbrannt oder
+  // etwas halb persistiert ist — statt kommentarlos ohne Kontext zu
+  // antworten. Die aktuelle User-Message ist noch nicht gespeichert, kann
+  // hier also auch nicht enthalten sein; der pop unten bleibt als
+  // Defensiv-Netz.
+  const history = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
+  if (history === null) {
+    return json({ error: "history_unavailable" }, 500);
+  }
+  if (history.length > 0 && history[history.length - 1].role === "user") {
+    history.pop();
+  }
+
   // Erst jetzt wird die Quota reserviert - on-topic Frage, wir machen den
   // teuren Antwort-Call.
   const claim = await rpcClaimQuota(serviceKey, supabaseUrl, userId);
@@ -823,22 +879,23 @@ export async function handleRequest(req: Request): Promise<Response> {
   }
 
   // User-Message in die Historie schreiben (zaehlt zur Konversation).
-  await storeMessage(serviceKey, supabaseUrl, {
+  // Sentinel-Rest E5: der Store wird geprueft — scheitert er, gibt es keinen
+  // teuren Answer-Call auf eine Nachricht, die nirgends existiert. Der
+  // gerade geclaimte Slot ist dann leider weg (ein Refund-RPC existiert
+  // nicht); ein DB-Write, der direkt nach einem erfolgreichen DB-RPC
+  // scheitert, ist selten genug, dass Ehrlichkeit hier vorgeht.
+  const userStored = await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
+  if (!userStored) {
+    return json({ error: "store_failed" }, 500);
+  }
   // Erste echte User-Message in der Session? Dann automatisch als Titel
   // uebernehmen, damit die Session-Liste nicht nur "Neue Unterhaltung" zeigt.
   await maybeAutoTitle(serviceKey, supabaseUrl, sessionId, message);
 
-  const history = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
-  // Letzte Message in history ist bereits die aktuelle user-Message -
-  // raus damit, weil wir sie separat an answer() uebergeben.
-  if (history.length > 0 && history[history.length - 1].role === "user") {
-    history.pop();
-  }
-
   let reply: string;
-  let refusal = false;
+  let refusal: boolean;
   try {
     const out = await answer(
       openRouterKey,
@@ -849,11 +906,24 @@ export async function handleRequest(req: Request): Promise<Response> {
     );
     reply = out.reply;
     refusal = out.refusal;
-  } catch (_e) {
-    reply = "Da ging gerade was schief auf meiner Seite - probier es in einer Minute nochmal.";
-    refusal = true;
+  } catch (e) {
+    // Sentinel-Rest E2: hier wurde frueher eine ERFUNDENE Coach-Antwort
+    // ("Da ging gerade was schief...") als persistierte Assistant-Nachricht
+    // mit refusal_reason "model_refusal" und HTTP 200 zurueckgegeben. Der
+    // Client konnte das nicht von einer echten Refusal unterscheiden, und
+    // die Fake-Zeile vergiftete als History den Kontext aller Folgefragen.
+    // Ehrlich: 502, keine erfundene Zeile. Die (echte) User-Message bleibt
+    // gespeichert; der geclaimte Slot ist verloren (kein Refund-RPC) — das
+    // ist derselbe Preis wie vorher, nur ohne Luege obendrauf.
+    console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({ error: "provider_error", session_id: sessionId }, 502);
   }
 
+  // Best-effort (bewusst ungeprueft fuer den Response): die Antwort ist
+  // generiert und der Slot verbraucht — sie dem Nutzer wegen eines
+  // Persistenz-Hickups vorzuenthalten waere der groessere Schaden. Der
+  // Fehler steht in den Function-Logs (storeMessage loggt !ok).
   await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "assistant", content: reply,
     refusal, refusal_reason: refusal ? "model_refusal" : null,
@@ -864,7 +934,11 @@ export async function handleRequest(req: Request): Promise<Response> {
     reply,
     refusal,
     refusal_reason: refusal ? "model_refusal" : null,
-    remaining: claim.remaining,
+    // E1: unbekanntes remaining wird weggelassen, nie erfunden.
+    ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
+    // E10: das Limit gehoert zur Zahl — ohne sie rechnet der Client gegen
+    // sein angenommenes Standard-Limit.
+    daily_limit: DAILY_LIMIT,
     session_id: sessionId,
   }, 200);
 }

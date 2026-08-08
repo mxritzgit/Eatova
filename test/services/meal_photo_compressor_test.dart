@@ -83,10 +83,20 @@ void main() {
             'war: $orientation');
   });
 
-  test('nicht dekodierbare Bytes laufen unveraendert durch', () {
+  test(
+      'Sentinel-Rest S2: nicht dekodierbare Bytes WERFEN — ungescrubbt '
+      'verlaesst nichts das Geraet', () {
+    // Die erste Fassung dieses Tests pinnte das Gegenteil (`same(garbage)`):
+    // was der Decoder nicht lesen konnte, ging mit GPS, Geraete-Kennung und
+    // Aufnahmezeit unveraendert an die Edge Function und den US-Anbieter —
+    // waehrend PRIVACY.md und eatova.de/datenschutz das Scrubbing als
+    // Eigenschaft JEDES Uploads zusichern. Fail-closed: werfen. Die
+    // Aufrufer sind wurf-sicher (Kamera-/Galerie-Sheet zeigen eine
+    // Fehlermeldung, der Coach haengt kein Bild an, der Analyzer wirft bei
+    // fehlenden Bytes ohnehin).
     final garbage = Uint8List.fromList(List<int>.generate(64, (i) => i));
 
-    expect(compressMealPhoto(garbage), same(garbage));
+    expect(() => compressMealPhoto(garbage), throwsFormatException);
   });
 
   test('bereits kleine, stark komprimierte Bilder werden nicht aufgeblaeht',

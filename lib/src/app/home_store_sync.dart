@@ -841,6 +841,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   Future<void> _writeCacheSnapshot() async {
     final cache = _cache;
     if (cache == null) return;
+    // Sentinel-Rest A1: ohne echte Hydrationsquelle (Cache unlesbar UND
+    // Server-Boot leer) besteht der Zustand aus reinen Ctor-Defaults. Die zu
+    // schreiben hiesse, den vorhandenen (nur gerade unlesbaren) Bestand mit
+    // Fantasie zu ueberschreiben — und der NAECHSTE Boot laese sie als echte
+    // Quelle, womit die Clobber-Sperre von applySettings aufginge und die
+    // Defaults auf den Server wanderten. Kein Wissen -> kein Snapshot.
+    if (!_hydratedFromRealSource) return;
     await cache.writeProfile(profile);
     await cache.writeLifetimeStats(lifetimeStats);
     await cache.writeLoggedMeals(_cacheableLoggedMeals());

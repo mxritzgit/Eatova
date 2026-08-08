@@ -186,4 +186,53 @@ void main() {
       expect(reply.sessionId, 's1');
     });
   });
+
+  group('Sentinel-Rest: CoachDataUnavailable statt erfundener Zustaende', () {
+    test('loadHistory: DB-Fehler wirft statt „Konversation war leer"', () async {
+      // Frueher: catch -> leere Liste. Der Screen setzte sie als _messages
+      // und zeigte den Hero-Leerzustand — der Nutzer sah seinen Verlauf als
+      // geloescht, ohne Fehlerhinweis und ohne Retry. Exakt das Muster, das
+      // loadSessions und loadQuotaToday bereits abgelegt haben.
+      final svc = _service((req) async => _json({'message': 'kaputt'}, 500));
+
+      await expectLater(
+          svc.loadHistory('s1'), throwsA(isA<CoachDataUnavailable>()));
+    });
+
+    test('deleteSession: RPC-Fehler wirft statt still „geloescht" zu melden',
+        () async {
+      final svc = _service((req) async => _json({'message': 'kaputt'}, 500));
+
+      await expectLater(
+          svc.deleteSession('s1'), throwsA(isA<CoachDataUnavailable>()),
+          reason: 'ein Future<void>, das normal zurueckkehrt, IST die '
+              'positive Behauptung „ist geloescht"');
+    });
+
+    test('renameSession: RPC-Fehler wirft ebenfalls', () async {
+      final svc = _service((req) async => _json({'message': 'kaputt'}, 500));
+
+      await expectLater(svc.renameSession('s1', 'Neuer Titel'),
+          throwsA(isA<CoachDataUnavailable>()));
+    });
+
+    test('send uebernimmt das daily_limit des Servers in die Antwort',
+        () async {
+      // Ohne das Feld rechnete der Screen jeden remaining-Wert gegen sein
+      // angenommenes Standard-Limit — mit gesetztem COACH_DAILY_LIMIT != 5
+      // war der angezeigte Zaehler erfunden.
+      final svc = _service((req) async => _json({
+            'reply': 'Ok.',
+            'refusal': false,
+            'remaining': 19,
+            'daily_limit': 20,
+            'session_id': 's1',
+          }, 200));
+
+      final reply = await svc.send('Hi', sessionId: 's1');
+
+      expect(reply.dailyLimit, 20);
+      expect(reply.remaining, 19);
+    });
+  });
 }

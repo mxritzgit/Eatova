@@ -168,7 +168,9 @@ void main() {
       expect(r.protein, '-');
       expect(r.carbs, '-');
       expect(r.fat, '-');
-      expect(r.confidence, 'Mittel'); // default medium
+      // Sentinel-Rest C: fehlende confidence ist keine Aussage des Modells —
+      // frueher wurde hier 'Mittel' erfunden.
+      expect(r.confidence, 'Unbekannt');
     });
 
     test('Mehr-Komponenten-Name wird lokal aufgesplittet (>=2 Items)', () {

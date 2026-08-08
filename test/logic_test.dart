@@ -197,10 +197,22 @@ void main() {
       expect(back.items.first.grams, 200);
       expect(back.items[1].caloriesKcal, 320);
     });
-    test('leeres/teilbefülltes JSON fällt auf sichere Defaults', () {
-      final back = mealResultFromJson(<String, dynamic>{});
+    test('leeres JSON ist KORRUPT und wirft (Sentinel-Rest S1)', () {
+      // Die erste Fassung dieses Tests schrieb „sichere Defaults" als Soll
+      // fest — aber eine aus dem Nichts erfundene 0-kcal-Mahlzeit ohne
+      // explicitZeroKcal ist kein sicherer Default: sie wandert in die
+      // Tagesbilanz und ueber den Outbox-Replay als calories_kcal: 0 auf
+      // den Server. mealResultToJson schreibt caloriesKcal seit jeher
+      // unconditional; ein Payload ohne den Schluessel ist kaputt.
+      expect(() => mealResultFromJson(<String, dynamic>{}),
+          throwsFormatException);
+    });
+
+    test('teilbefuelltes JSON (caloriesKcal vorhanden) behaelt Label-Defaults',
+        () {
+      final back = mealResultFromJson(<String, dynamic>{'caloriesKcal': 300});
       expect(back.mealName, 'Mahlzeit');
-      expect(back.caloriesKcal, 0);
+      expect(back.caloriesKcal, 300);
       expect(back.items, isEmpty);
       expect(back.sourceLabel, 'KI-Schätzung');
     });

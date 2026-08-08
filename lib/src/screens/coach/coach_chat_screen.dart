@@ -22,6 +22,7 @@ import '../../models/chat_session.dart';
 import '../../services/coach_chat_service.dart';
 import '../../services/meal_photo_compressor.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
 
 part 'coach_speech.dart';
@@ -91,6 +92,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   bool _listening = false;
   String _draft = '';
   String? _error;
+
+  /// Der Verlauf der aktiven Session war beim letzten Versuch nicht ladbar —
+  /// dann darf der Hero-Leerzustand ihn nicht als „leer" praesentieren.
+  bool _historyUnavailable = false;
 
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
@@ -251,7 +256,22 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       });
       return;
     }
-    final history = await svc.loadHistory(activeId);
+    final List<ChatMessage> history;
+    try {
+      history = await svc.loadHistory(activeId);
+    } on CoachDataUnavailable {
+      // „Nicht ladbar" ist nicht „leer": ein leeres _messages zeigte den
+      // Hero-Leerzustand und praesentierte den Verlauf als geloescht.
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _historyUnavailable = true;
+        _error = 'Dein Verlauf konnte nicht geladen werden. Prüf deine '
+            'Verbindung und versuch es nochmal.';
+      });
+      return;
+    }
+    _historyUnavailable = false;
     // Unbekannt bleibt unbekannt: der zuletzt bekannte Stand (beim Kaltstart
     // keiner) ueberlebt, statt durch eine Vermutung ersetzt zu werden.
     ChatQuotaSnapshot? quota = _quota;
@@ -324,10 +344,23 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       _activeSessionId = sessionId;
       _messages = const <ChatMessage>[];
     });
-    final history = await svc.loadHistory(sessionId);
+    final List<ChatMessage> history;
+    try {
+      history = await svc.loadHistory(sessionId);
+    } on CoachDataUnavailable {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _historyUnavailable = true;
+        _error = 'Dein Verlauf konnte nicht geladen werden. Prüf deine '
+            'Verbindung und versuch es nochmal.';
+      });
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _messages = history;
+      _historyUnavailable = false;
       _loading = false;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
@@ -351,7 +384,22 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   Future<void> _deleteSession(String sessionId) async {
     final svc = widget.service;
     if (svc == null) return;
-    await svc.deleteSession(sessionId);
+    try {
+      await svc.deleteSession(sessionId);
+    } on CoachDataUnavailable {
+      // Sentinel-Rest S8: nicht geloescht ist nicht geloescht — die Session
+      // bleibt in der Liste, und der Nutzer erfaehrt es (Snackbar liegt ueber
+      // dem noch offenen Sessions-Sheet).
+      if (!mounted) return;
+      showAppSnack(
+        context,
+        'Die Unterhaltung konnte nicht gelöscht werden. Prüf deine '
+        'Verbindung und versuch es nochmal.',
+        icon: Icons.error_outline_rounded,
+        duration: kSnackError,
+      );
+      return;
+    }
     final wasActive = _activeSessionId == sessionId;
     await _refreshSessions();
     if (!mounted) return;
@@ -444,8 +492,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         final rest = res.remaining;
         if (rest != null) {
           // Der Server hat gerade Zahlen genannt — ab hier ist der Stand
-          // bekannt, auch wenn er es vorher nicht war.
-          final limit = _limitFuerAnzeige;
+          // bekannt, auch wenn er es vorher nicht war. Das Limit kommt seit
+          // E10 vom Server mit; nur aeltere Function-Deployments fallen auf
+          // den bisherigen Anzeige-Stand zurueck.
+          final limit = res.dailyLimit ?? _limitFuerAnzeige;
           final frei = rest.clamp(0, limit);
           _quota = ChatQuotaSnapshot(
             used: limit - frei,
@@ -508,8 +558,8 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   /// MIME-Typ aus den TATSAECHLICHEN Bytes statt aus dem Dateinamen: nach dem
   /// Scrub ist das Bild immer JPEG, auch wenn die Quelle PNG oder WebP hiess.
-  /// Nur wenn [compressMealPhoto] nicht dekodieren konnte und die Bytes
-  /// unveraendert durchreicht, zaehlt wieder der Typ der Datei.
+  /// Der Datei-Typ-Zweig ist seit dem fail-closed-Scrub (S2: nicht
+  /// dekodierbar => Wurf statt Durchreichen) nur noch Defensiv-Netz.
   String _mimeForBytes(Uint8List bytes, XFile file) {
     if (bytes.length >= 3 &&
         bytes[0] == 0xFF &&
@@ -757,7 +807,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isHero = !_loading && _messages.isEmpty;
+    // Kein Hero, wenn der Verlauf nur NICHT LADBAR war: der Leerzustand
+    // behauptet „noch keine Unterhaltung", waehrend der Verlauf existiert
+    // (Sentinel-Rest S3). Stattdessen leere Konversation + Fehler-Banner.
+    final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
     return DecoratedBox(
       // Radialer Akzent-Schein hinter dem oberen Bereich (AI Coach v2).
       decoration: BoxDecoration(

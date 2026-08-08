@@ -10,6 +10,7 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
@@ -1016,6 +1017,12 @@ void main() {
       'A2: Ausloggen mit ungesyncten Ops — was der Zustellversuch nicht '
       'losgeworden ist, ueberlebt den Logout', () async {
     final s = _setup();
+    // Echte PII-Basis VOR dem Boot: seit dem A1-Guard schreibt der Boot ohne
+    // echte Hydrationsquelle keinen Default-Snapshot mehr — die erste Fassung
+    // dieses Tests bezog ihr „Profil liegt im Cache" genau aus diesem
+    // Nebeneffekt (Ctor-Defaults als PII).
+    await s.cache.writeProfile(
+        const UserProfile(weightKg: 80, onboardingCompleted: true));
     await _boot(s.store);
     s.server.offline = true;
 

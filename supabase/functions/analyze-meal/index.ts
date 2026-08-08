@@ -319,8 +319,15 @@ async function consumeRateLimit(
   }
 
   const data = await response.json() as Partial<RateLimitResult>;
+  // Sentinel-Rest E6, gleicher Guard wie in search-key/index.ts und
+  // coach-chat/handler.ts (dort beide testgedeckt): ein kaputter
+  // Antwort-Shape ist ein Ausfall des Limiters, kein gemessenes Limit.
+  if (typeof data.allowed !== 'boolean') {
+    console.error(`consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`);
+    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+  }
   return {
-    allowed: data.allowed === true,
+    allowed: data.allowed,
     limit: Number(data.limit ?? limit),
     remaining: Number(data.remaining ?? 0),
     resetAt: String(data.resetAt ?? new Date(Date.now() + windowSeconds * 1000).toISOString()),

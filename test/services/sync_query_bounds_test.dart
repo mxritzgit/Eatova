@@ -73,20 +73,23 @@ void main() {
     });
 
     test('behaelt die Server-Reihenfolge (neueste zuerst) bei', () async {
+      // Seit Sentinel-Rest S1 ist ein Payload ohne caloriesKcal korrupt und
+      // die Zeile wird uebersprungen — die Fixtures tragen deshalb das
+      // Pflichtfeld (die erste Fassung nutzte leere Payloads).
       final c = _recordingClient([
         {
           'id': 'neu',
           'logged_at': '2026-08-05T12:00:00Z',
           'forced_slot': null,
           'local_day': null,
-          'payload': <String, dynamic>{},
+          'payload': <String, dynamic>{'caloriesKcal': 100},
         },
         {
           'id': 'alt',
           'logged_at': '2026-07-20T12:00:00Z',
           'forced_slot': null,
           'local_day': null,
-          'payload': <String, dynamic>{},
+          'payload': <String, dynamic>{'caloriesKcal': 200},
         },
       ]);
       final meals = await MealsSync(c.client, 'user-1').loadLoggedMeals();

@@ -262,11 +262,17 @@ class MealAnalysisResult {
         _knownKcalPer100G(mealName) ??
         ((estimatedGrams > 0 && calories > 0)
             ? calories * 100 / estimatedGrams
-            : 52.0);
+            : 0.0);
+    // Sentinel-Rest C (Nachverifikation 2026-08-08): am Ende der Kette stand
+    // `: 52.0` — eine gewuerfelte Dichte, die aus einem komplett zahlenlosen
+    // Modell-Ergebnis eine loggbare 78-kcal-Mahlzeit machte. 0 ist die
+    // etablierte Unbekannt-Form dieses Modells (ohne explicitZeroKcal), die
+    // Log-Guards blockieren sie mit Hinweis statt Fantasie zu speichern.
     final protein = json['proteinG'];
     final carbs = json['carbsG'];
     final fat = json['fatG'];
-    final confidence = json['confidence']?.toString() ?? 'medium';
+    // Fehlende/leere confidence ist keine "mittlere" — sie ist keine Aussage.
+    final confidence = json['confidence']?.toString();
     final dichte = clampKcalPer100G(kcalPer100G);
     final resolvedCalories = clampMealCaloriesKcal(
       calories > 0 ? calories : (dichte * estimatedGrams / 100).round(),
@@ -301,7 +307,9 @@ class MealAnalysisResult {
       protein: _macroTextFromRaw(protein),
       carbs: _macroTextFromRaw(carbs),
       fat: _macroTextFromRaw(fat),
-      confidence: _formatConfidence(confidence),
+      confidence: confidence == null || confidence.isEmpty
+          ? 'Unbekannt'
+          : _formatConfidence(confidence),
       portionNotes: json['explanation']?.toString() ??
           (autoSplit
               ? 'KI hat als Gesamtgericht erkannt — Bestandteile lokal aufgesplittet. Gramm und Kalorien pro Posten prüfen.'
