@@ -375,6 +375,35 @@ async function rpcClaimQuota(
   return { used, remaining };
 }
 
+// Migrations-Runde (2026-08-08): gibt einen geclaimten Tages-Slot zurueck,
+// wenn der Request NACH dem Claim scheitert (Provider-Fehler, gescheiterter
+// User-Message-Store). Best-effort: der Refund darf die Fehlerantwort nie
+// blockieren; scheitert er, steht der Grund in den Function-Logs und der
+// Slot bleibt (wie vor der Migration) verloren. Der RPC klemmt bei 0 —
+// doppelte Refunds erzeugen keine Gratis-Slots.
+async function rpcRefundQuota(
+  serviceKey: string,
+  supabaseUrl: string,
+  userId: string,
+): Promise<void> {
+  try {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/refund_chat_quota`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_user_id: userId }),
+    });
+    if (!resp.ok) {
+      console.error(`refund_chat_quota failed: ${resp.status}`);
+    }
+  } catch (e) {
+    console.error(`refund_chat_quota failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 async function rpcConsumeEdgeRateLimit(
   serviceKey: string,
   supabaseUrl: string,
@@ -888,6 +917,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
   if (!userStored) {
+    await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     return json({ error: "store_failed" }, 500);
   }
   // Erste echte User-Message in der Session? Dann automatisch als Titel
@@ -913,9 +943,11 @@ export async function handleRequest(req: Request): Promise<Response> {
     // Client konnte das nicht von einer echten Refusal unterscheiden, und
     // die Fake-Zeile vergiftete als History den Kontext aller Folgefragen.
     // Ehrlich: 502, keine erfundene Zeile. Die (echte) User-Message bleibt
-    // gespeichert; der geclaimte Slot ist verloren (kein Refund-RPC) — das
-    // ist derselbe Preis wie vorher, nur ohne Luege obendrauf.
+    // gespeichert, und der geclaimte Slot geht zurueck (refund_chat_quota,
+    // Migration 20260808210000) — ein Abend mit Provider-Ausfall darf nicht
+    // alle Tages-Slots verbrennen.
     console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
+    await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
