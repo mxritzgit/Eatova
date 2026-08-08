@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../services/crash_reporter.dart';
 import '../theme/app_colors.dart';
 
 /// Oeffnet den Barcode-Scanner als animiertes Bottom-Panel (~60% Hoehe) im
@@ -35,15 +36,63 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   );
   bool hasReturned = false;
 
+  /// Analysefehler seit dem letzten erfolgreichen Frame.
+  ///
+  /// Kein bool: ein einzelner Ausrutscher (unscharfes Bild) soll den Nutzer
+  /// nicht behelligen. Erst wenn mehrere in Folge kommen, steht der Analyzer
+  /// wirklich still.
+  int _detectErrors = 0;
+
+  /// Ab wann der Hinweis erscheint. Bei laufendem Analyzer kaeme nach einem
+  /// Fehlframe wieder ein guter; bleibt es dabei, haengt er.
+  static const int _fehlerSchwelle = 3;
+
+  bool _analyzerHaengt = false;
+
   @override
   void dispose() {
     controller.dispose();
     super.dispose();
   }
 
+  /// Macht Analysefehler sichtbar, statt sie zu verschlucken.
+  ///
+  /// Der Neustart des Controllers ist noetig, weil der Analyzer sich nach
+  /// einem Fehlframe nicht selbst erholt (fehlendes `imageProxy.close()` in
+  /// `MobileScanner.kt:225-229`, mobile_scanner 7.4.0). Ohne ihn bliebe das
+  /// Bild live und der Scanner trotzdem tot.
+  void handleDetectError(Object error, StackTrace stackTrace) {
+    if (hasReturned || !mounted) return;
+    _detectErrors++;
+    if (_detectErrors < _fehlerSchwelle || _analyzerHaengt) return;
+    setState(() => _analyzerHaengt = true);
+    CrashReporter.capture(error, stackTrace, context: 'barcode-detect');
+  }
+
+  Future<void> _neuStarten() async {
+    setState(() {
+      _analyzerHaengt = false;
+      _detectErrors = 0;
+    });
+    try {
+      await controller.stop();
+      await controller.start();
+    } catch (_) {
+      // Scheitert der Neustart, bleibt der Hinweis das Naechste, was der
+      // Nutzer sieht — ein stiller Fehlschlag waere genau der Bug von vorher.
+      if (mounted) setState(() => _analyzerHaengt = true);
+    }
+  }
+
   void handleDetect(BarcodeCapture capture) {
     if (hasReturned) {
       return;
+    }
+
+    // Ein guter Frame heisst: der Analyzer laeuft wieder.
+    if (_detectErrors != 0 || _analyzerHaengt) {
+      _detectErrors = 0;
+      if (_analyzerHaengt) setState(() => _analyzerHaengt = false);
     }
 
     for (final barcode in capture.barcodes) {
@@ -88,6 +137,21 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                         MobileScanner(
                           controller: controller,
                           onDetect: handleDetect,
+                          // Ohne diesen Handler ist der Default laut
+                          // mobile_scanner.dart:157-160 woertlich
+                          // `// Do nothing.` — jeder Analysefehler wurde also
+                          // ERSATZLOS verschluckt. `errorBuilder` haengt an
+                          // `controller.value.error`, und Analysefehler setzen
+                          // das nie; der rote Zweig erschien deshalb nie.
+                          //
+                          // Erschwerend: `MobileScanner.kt:225-229` ruft im
+                          // Fehlerpfad kein `imageProxy.close()`. Mit
+                          // STRATEGY_KEEP_ONLY_LATEST liefert CameraX dann
+                          // keinen weiteren Frame — der Analyzer steht nach dem
+                          // ERSTEN Fehlframe still und erholt sich nicht von
+                          // selbst. Der Nutzer sah: Live-Bild, Scanrahmen, nie
+                          // ein Treffer, nie eine Meldung.
+                          onDetectError: handleDetectError,
                           // Formatfuellend + verzerrungsfrei (croppt statt zu
                           // stauchen) — wie die Kamera-Vorschau im KI-Scan.
                           fit: BoxFit.cover,
@@ -152,6 +216,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                             ],
                           ),
                         ),
+                        if (_analyzerHaengt)
+                          _AnalyzerStalledLayer(onRetry: _neuStarten),
                       ],
                     ),
                   ),
@@ -348,6 +414,55 @@ class _HeaderRow extends StatelessWidget {
             onPressed: onClose,
             tooltip: 'Schließen',
             icon: const Icon(Icons.close_rounded, color: textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Der Analyzer liefert keine Frames mehr — sichtbar statt still.
+///
+/// Nicht `_ScannerFailedLayer` wiederverwendet: der beschreibt einen toten
+/// Kamerazugriff (Berechtigung, Simulator) und bietet keinen Ausweg. Hier ist
+/// die Kamera in Ordnung, nur die Erkennung haengt, und ein Neustart hilft.
+class _AnalyzerStalledLayer extends StatelessWidget {
+  const _AnalyzerStalledLayer({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('barcode-analyzer-stalled'),
+      color: Colors.black.withValues(alpha: 0.72),
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.refresh_rounded, size: 30, color: Colors.white),
+          const SizedBox(height: 10),
+          const Text(
+            'Die Erkennung hängt',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Das Bild läuft, aber es kommen keine Ergebnisse mehr an. '
+            'Ein Neustart des Scanners behebt das meistens.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, height: 1.35, color: Colors.white70),
+          ),
+          const SizedBox(height: 14),
+          FilledButton(
+            key: const ValueKey('barcode-analyzer-restart'),
+            onPressed: onRetry,
+            child: const Text('Scanner neu starten'),
           ),
         ],
       ),

@@ -1,5 +1,14 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+# Mindest-iOS-Version des Projekts. Muss gesetzt bleiben: ohne diese Zeile
+# leitet CocoaPods die Plattform aus IPHONEOS_DEPLOYMENT_TARGET des Runner-
+# Targets ab, und eine Abweichung zwischen beiden Stellen bleibt unbemerkt.
+#
+# 14.0, weil health 13.3.1 es fordert (health.podspec:19 ->
+# s.ios.deployment_target = '14.0', wegen HKElectrocardiogram/HKAudiogram).
+# Das ist das Maximum ueber alle iOS-Podspecs; die naechsthoeheren sind
+# flutter_local_notifications / google_sign_in_ios / shared_preferences_
+# foundation mit 13.0. Beim Aendern IPHONEOS_DEPLOYMENT_TARGET in
+# Runner.xcodeproj/project.pbxproj mitziehen (3 Vorkommen).
+platform :ios, '14.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

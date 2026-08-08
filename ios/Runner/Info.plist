@@ -47,16 +47,59 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- F4 · Exportkontrolle. Ohne diesen Schluessel landet JEDER Upload in App
+	     Store Connect als "Missing Compliance" und muss vor der Freigabe von
+	     Hand beantwortet werden.
+
+	     Der Schluessel fragt nach NICHT-exempter Verschluesselung. `false`
+	     heisst also NICHT "die App verschluesselt nicht", sondern: sie nutzt
+	     ausschliesslich Verschluesselung, die unter die Ausnahme faellt.
+
+	     Was die App tatsaechlich an Krypto einsetzt (Stand 7f895f9, jeweils
+	     nachgelesen, nicht vermutet):
+	       * HTTPS/TLS gegen Supabase, die Edge Functions, den Meilisearch-
+	         Mirror und Open Food Facts — durchgehend die OS-Implementierung.
+	       * AES-256-GCM ueber pointycastle (`secure_cache_store.dart:170/205`)
+	         fuer den lokalen Offline-Cache auf DIESEM Geraet.
+	       * Der DEK dazu liegt in der Keychain (flutter_secure_storage), also
+	         wieder OS-Krypto.
+	       * KEIN eigenes Krypto-Verfahren, KEINE Krypto-Funktion, die der
+	         Nutzer aufrufen oder konfigurieren kann, keine Schluesselverwaltung
+	         als Produktmerkmal. Verschluesselung ist hier reiner Selbstschutz
+	         der Nutzerdaten (Art.-9-Gesundheitsdaten), kein Leistungsmerkmal.
+
+	     Damit greift die uebliche Ausnahme: Standardalgorithmen, veroeffentlicht
+	     und unveraendert, ausschliesslich zum Schutz der eigenen Daten und der
+	     Transportsicherheit — die App exportiert keine Kryptographie als
+	     Funktion.
+
+	     ACHTUNG fuer den naechsten Menschen: Das ist eine Erklaerung nach US-
+	     Exportrecht (EAR Cat. 5 Teil 2), die rechtlich der Herausgeber abgibt.
+	     Wer zu dem Schluss kommt, dass das gebuendelte pointycastle-AES nicht
+	     unter die in App Store Connect gelisteten Ausnahmen faellt, muss hier
+	     auf `true` wechseln UND zusaetzlich `ITSEncryptionExportComplianceCode`
+	     mit der ERN/CCATS-Nummer setzen (Self-Classification Report an BIS).
+	     Wer die Krypto aendert (anderes Verfahren, Krypto als Feature, E2E
+	     zwischen Nutzern), muss diese Einstufung neu treffen. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- F6: Die Zwecktexte muessen exakt das beschreiben, was ein App-Reviewer
+	     in der App auch beobachten kann (Guideline 5.1.1). Der Training-Tab ist
+	     seit a267e15 entfernt — er darf hier nicht mehr auftauchen. Belegte
+	     Ist-Zustaende: Kamera = Mahlzeitenfoto (meal_camera_sheet.dart),
+	     Barcode-Scanner (barcode_scanner_sheet.dart, mobile_scanner) und
+	     Coach-Bild (coach_chat_screen.dart:561); Galerie = dieselben zwei
+	     Analyse-Pfade (add_meal_sheet.dart:481, coach_chat_screen.dart:571). -->
 	<key>NSCameraUsageDescription</key>
-	<string>Eatova braucht Kamerazugriff, damit du Mahlzeiten, Training oder Coach-Bilder aufnehmen und analysieren kannst.</string>
+	<string>Eatova braucht Kamerazugriff, damit du Mahlzeiten fotografieren, Produkt-Barcodes scannen und deinem Coach ein Bild schicken kannst. Die Aufnahmen werden zur Nährwert-Analyse ausgewertet.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Eatova braucht Mikrofonzugriff, damit du deinem Coach Fragen per Sprache stellen kannst.</string>
+	<string>Eatova braucht Mikrofonzugriff, damit du deinem Coach eine Frage diktieren kannst, statt sie zu tippen. Aufgenommen wird nur, solange die Sprachaufnahme im Coach-Chat aktiv ist.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Eatova nutzt Spracherkennung, um deine gesprochenen Coach-Fragen in Text umzuwandeln.</string>
+	<string>Eatova wandelt deine diktierte Coach-Frage in Text um. Hat dein iPhone das Sprachmodell für deine Sprache lokal, bleibt das Audio auf dem Gerät; sonst verarbeitet Apple es auf seinen Servern.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Eatova braucht Zugriff auf deine Fotobibliothek, damit du Mahlzeiten, Training oder Coach-Bilder aus der Galerie analysieren kannst.</string>
+	<string>Eatova braucht Zugriff auf deine Fotobibliothek, damit du ein bereits vorhandenes Foto einer Mahlzeit oder ein Coach-Bild aus der Galerie zur Analyse auswählen kannst.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Eatova liest deine Schritte, dein Gewicht und deine Schlafdaten aus Apple Health, damit Tagesziel und Logbuch automatisch aktuell bleiben.</string>
 	<key>NSHealthUpdateUsageDescription</key>
@@ -97,17 +140,24 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
-	<!-- Portrait-only auf iPhone UND iPad — die Layouts sind nicht fuer
-	     Querformat ausgelegt. UIRequiresFullScreen=true ist Pflicht dafuer:
-	     ohne den Multitasking-Opt-out verlangt die App-Store-Validierung auf
-	     iPad alle vier Orientierungen. -->
-	<key>UIRequiresFullScreen</key>
-	<true/>
+	<!-- Portrait-only. Die Layouts sind Telefon-Layouts und nicht fuer
+	     Querformat ausgelegt; app-seitig zieht main.dart:28 zusaetzlich
+	     setPreferredOrientations(portraitUp) nach.
+
+	     F7: Das Target ist seit der pbxproj-Aenderung reines iPhone
+	     (TARGETED_DEVICE_FAMILY = "1" in allen drei Runner-Configs). Damit
+	     waren `UIRequiresFullScreen` und `UISupportedInterfaceOrientations~ipad`
+	     wirkungslos geworden — beide gelten nur fuer Bundles, die iPad
+	     ueberhaupt unterstuetzen — und sind deshalb entfernt. Auf einem iPad
+	     laeuft die App im iPhone-Kompatibilitaetsmodus, dort greift das
+	     iPhone-Idiom und damit der Schluessel ohne `~ipad`-Suffix.
+
+	     Wer iPad-Unterstuetzung reaktiviert (TARGETED_DEVICE_FAMILY zurueck auf
+	     "1,2"), muss BEIDE Schluessel wieder setzen: ohne den Multitasking-
+	     Opt-out `UIRequiresFullScreen=true` verlangt die App-Store-Validierung
+	     auf iPad alle vier Orientierungen. Vorher aber pruefen, ob die Layouts
+	     und Apple Health auf iPadOS ueberhaupt tragen (Review F7). -->
 	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>

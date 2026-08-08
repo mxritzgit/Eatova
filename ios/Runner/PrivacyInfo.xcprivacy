@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  F5 · Privacy-Manifest fuer das Runner-Target.
+
+  Wozu: Xcode baut aus diesem Manifest plus den Manifesten aller Pods den
+  Datenschutzbericht (Product > Archive > Generate Privacy Report). Ohne einen
+  Eintrag fuer die App selbst ist der Bericht einer Gesundheits-App leer — und
+  sobald in Runner jemals eine Required-Reason-API angefasst wird, lehnt der
+  naechste Upload mit ITMS-91053 ab.
+
+  Die Angaben unten sind AM CODE erhoben, nicht geschaetzt. Jede Zeile hat
+  einen Beleg im Kommentar darueber. Wer den Datenfluss aendert, aendert diese
+  Datei mit — eine falsche Deklaration ist schlimmer als gar keine, weil sie
+  dem Nutzer und dem App-Store-Datenschutzlabel widerspricht.
+
+  WICHTIG: Diese Datei wirkt nur, wenn sie im Xcode-Target "Runner" als
+  Resource (Copy Bundle Resources) liegt. Das ist eine Aenderung an
+  project.pbxproj und gehoert nicht hierher.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  Tracking im Sinne der ATT: nein.
+	  Beleg: Grep ueber ios/ und lib/ nach AdSupport, advertisingIdentifier,
+	  IDFA, ATTrackingManager, AppTrackingTransparency, SKAdNetwork und
+	  NSUserTrackingUsageDescription => kein einziger Treffer. Es gibt kein
+	  Werbe-SDK, keinen Daten-Broker und keine Zusammenfuehrung mit Daten
+	  Dritter. Deshalb steht bei JEDEM Datentyp unten Tracking=false und
+	  NSPrivacyTrackingDomains bleibt leer.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	  Required-Reason-APIs: keine.
+	  Beleg: Grep ueber ios/Runner nach UserDefaults/NSUserDefaults,
+	  systemUptime/mach_absolute_time, statfs/statvfs/volumeAvailableCapacity,
+	  creationDate/modificationDate und activeInputModes => kein Treffer.
+	  Der Runner-Code besteht aus AppDelegate (Speech-Bridge + Notification-
+	  Delegate) und SceneDelegate. Die Pods bringen ihre eigenen Manifeste mit
+	  (u.a. shared_preferences_foundation mit CA92.1 fuer UserDefaults) — die
+	  duerfen hier NICHT wiederholt werden, jedes Binary deklariert fuer sich.
+	  Sobald in Runner eine dieser APIs auftaucht, muss hier ein Eintrag mit
+	  NSPrivacyAccessedAPIType + NSPrivacyAccessedAPITypeReasons hin.
+	-->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<!--
+		  Gesundheitsdaten: Gewicht, Groesse, Alter, Geschlecht, Zielgewicht und
+		  saemtliche Ernaehrungsdaten (geloggte Mahlzeiten mit kcal/Makros),
+		  dazu Schlafdauer aus HealthKit.
+		  Beleg: profile_sync.dart:122-138 (weight_kg, height_cm, age_years,
+		  sex, target_weight_kg, Makro-Ziele) => Supabase-Tabelle `profiles`;
+		  tracking_sync.dart:63-66 => `weight_log`; meals_sync => `logged_meals`;
+		  apple_health_service.dart:173-176 liest STEPS/WEIGHT/SLEEP_ASLEEP.
+		  Ausserdem geht ein Koerperdaten-Snapshot an den Coach:
+		  home_store.dart:146-166 (Gewicht, Zielgewicht, kcal, Makros, heutige
+		  Mahlzeiten) -> coach_chat_service.dart:202 -> Edge Function ->
+		  OpenRouter/xAI. Verknuepft mit der Identitaet: jede Zeile haengt an
+		  der Supabase-user_id. Zweck ist die Kernfunktion (Tagesziel,
+		  Kalorienrechnung, Coach-Antwort), keine Analyse, keine Werbung.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeHealth</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  Fitnessdaten: Schrittzahl und Aktivitaetsniveau.
+		  Beleg: apple_health_service.dart:174 (HealthDataType.STEPS),
+		  profile_sync.dart:127/129 (activity_level, daily_steps_goal),
+		  lifetime_stats_sync.dart:69 (p_steps -> lifetime_stats.steps_recorded).
+		  Verlaesst das Geraet Richtung Supabase, an die user_id gebunden.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeFitness</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  E-Mail-Adresse: Konto-Anlage und Login.
+		  Beleg: auth_repository.dart:157 (user.email aus Supabase Auth) — per
+		  Passwort-Registrierung ODER Google Sign-In (Google Ireland). Liegt
+		  dauerhaft in auth.users. Zweck: Authentifizierung = App-Funktion.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  Name: der bei der Registrierung eingegebene bzw. von Google gelieferte
+		  Anzeigename.
+		  Beleg: auth_repository.dart:98 (data: {'display_name': ...}) und
+		  :150-158 (full_name aus den Google-userMetadata); Spalte
+		  profiles.display_name (model_limits.dart:126-130). Nur zur Anrede in
+		  der App = App-Funktion.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  User ID: die Supabase-Auth-UUID.
+		  Beleg: sie ist der Fremdschluessel in JEDER synchronisierten Tabelle
+		  (profile_sync.dart:122 'id', tracking_sync.dart:63 'user_id') und der
+		  Subjekt-Schluessel der Rate-Limits (search-key/index.ts:83-94). Sie
+		  ist der Grund, warum alle Eintraege oben "Linked" sind.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  Fotos: Mahlzeitenfotos und Coach-Bilder.
+		  Beleg: meal_analyzer.dart:62-63 (imageBase64 an die Edge Function
+		  analyze-meal) und coach_chat_screen.dart:314 (imageBase64 an
+		  coach-chat). Von dort weiter an OpenRouter (US), Google Gemini (US)
+		  bzw. xAI (US) zur Bilderkennung. Kein Supabase-Storage-Bucket, kein
+		  dauerhafter Ablageort in der App — aber die Uebertragung laeuft im
+		  authentifizierten Request des Nutzers, ist also der Identitaet
+		  zuordenbar, deshalb "Linked". Zweck ist die Kernfunktion (Naehrwerte
+		  aus dem Bild), NICHT Personalisierung oder Werbung.
+		  Hinweis: EXIF-GPS wird derzeit nicht entfernt (Review C4) — wird das
+		  gefixt, aendert das an dieser Deklaration nichts.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  Sonstige Nutzerinhalte: Coach-Chatverlauf, eigene Rezepte, selbst
+		  vergebene Mahlzeitennamen und Favoriten.
+		  Beleg: Tabellen chat_messages, user_recipes, favorite_meals,
+		  logged_meals (coach_chat_service.dart, user_recipes_sync.dart). Die
+		  Chat-Nachricht selbst geht zusaetzlich an OpenRouter/xAI
+		  (coach_chat_service.dart:194-202). Alles an der user_id haengend.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  Suchverlauf: eingetippte Produktsuchbegriffe und gescannte Barcodes.
+		  Beleg: meilisearch_product_service.dart:95-104 (Suchbegriff an den
+		  eigenen Meilisearch-Mirror auf eatova.de) und
+		  open_food_facts_product_service.dart (Suchbegriff/Barcode an Open
+		  Food Facts, FR). NICHT verknuepft: die Suchanfrage traegt nur den
+		  kurzlebigen Such-Key, keine user_id (search-key/index.ts vergibt ihn,
+		  die Suche selbst laeuft ohne Nutzerbezug). Als "collected" deklariert,
+		  weil der Reverse-Proxy vor dem Mirror die Anfragen samt Client-IP
+		  protokolliert, also laenger als die Echtzeit-Bearbeitung.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeSearchHistory</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  Absturzdaten: Sentry (ingest.de.sentry.io, EU-Region).
+		  Beleg: main.dart:40-62. Bewusst eng konfiguriert: sendDefaultPii=false,
+		  attachScreenshot=false, kein Tracing, kein Session-Replay, und
+		  beforeSend=sanitizeSentryEvent (crash_reporter.dart:242 ff.) putzt
+		  Nutzdaten aus dem Event. Es wird NIRGENDS Sentry.setUser/configureScope
+		  aufgerufen (Grep: kein Treffer), das Event traegt also weder E-Mail
+		  noch user_id => "Linked" = false.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCrashData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  Produktinteraktion (App-Starts/Sessions): ebenfalls Sentry.
+		  Beleg: sentry_flutter_options.dart:42 => enableAutoSessionTracking ist
+		  per Default true und wird in main.dart nicht abgeschaltet. Damit gehen
+		  Session-Start/-Ende (also App-Starts und Vordergrundwechsel) an Sentry,
+		  dazu die technischen Breadcrumbs aus home_store.dart:354 und
+		  home_store_sync.dart:194 (nur Zaehler, ausdruecklich keine Nutzdaten).
+		  Zweck ist die Crash-Freiheitsrate, nicht Verhaltensanalyse; ohne
+		  Nutzerbezug => "Linked" = false.
+		  Wird enableAutoSessionTracking abgeschaltet, kann dieser Eintrag weg.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
+		  BEWUSST NICHT deklariert, mit Begruendung:
+
+		  * AudioData (Spracheingabe im Coach): Das Audio geht nie an uns und an
+		    keinen Dritt-SDK. AppDelegate.swift setzt requiresOnDeviceRecognition
+		    wo Apple ein lokales Modell hat; sonst verarbeitet Apples eigener
+		    Systemdienst es fuer genau diese eine Anfrage. Der Herausgeber
+		    bekommt zu keinem Zeitpunkt Zugriff auf die Aufnahme, es wird nichts
+		    gespeichert (cleanupAudio raeumt Engine, Tap und Request ab). Damit
+		    faellt es nicht unter Apples Definition von "collect". Der Zweck ist
+		    stattdessen in NSMicrophoneUsageDescription /
+		    NSSpeechRecognitionUsageDescription offengelegt.
+		  * PreciseLocation/CoarseLocation: Die App fragt keine Standort-
+		    Berechtigung an (kein NSLocation*UsageDescription, kein Geolocation-
+		    Paket). Die EXIF-GPS-Daten aus Review C4 sind Teil des Fotos und
+		    daher unter PhotosorVideos abgedeckt, nicht als eigene Standort-
+		    Erhebung — wer C4 anders bewertet, muss hier CoarseLocation
+		    ergaenzen.
+		  * SensitiveInfo: Apples Definition zaehlt Ethnie, sexuelle
+		    Orientierung, Schwangerschaft, Behinderung, Religion, Gewerkschaft,
+		    politische Meinung, Genetik und Biometrie auf. Die Ernaehrungsform
+		    (user_profile.dart:49: none/vegetarian/vegan/pescetarian) ist DSGVO-
+		    seitig heikel, faellt aber unter keinen dieser Punkte; sie ist als
+		    Gesundheits-/Ernaehrungsdatum oben mit erfasst.
+		  * DeviceID: kein IDFA, kein IDFV im Code. Sentry vergibt eine eigene
+		    Installations-ID; die ist app-lokal und pseudonym, kein Geraete-
+		    Identifikator im Sinne der Kategorie.
+		  * PurchaseHistory, PaymentInfo, Contacts, BrowsingHistory: die App hat
+		    weder Kauf- noch Adressbuch- noch Browser-Funktionen.
+		-->
+	</array>
+</dict>
+</plist>

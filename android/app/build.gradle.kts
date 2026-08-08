@@ -11,7 +11,9 @@ plugins {
 // Release-Signing: android/key.properties haelt Keystore-Pfad und Passwoerter
 // und ist bewusst NICHT im Repo (siehe android/.gitignore). Fehlt die Datei
 // (z. B. im CI, das nur Debug baut), faellt der Release-Buildtype unten auf
-// Debug-Signing zurueck, statt den Build zu brechen.
+// Debug-Signing zurueck, damit Debug-Builds weiterlaufen. Ein Release-Artefakt
+// darf daraus aber nicht entstehen - der Task-Graph-Guard am Dateiende (E5)
+// bricht genau diesen Fall ab.
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
@@ -84,6 +86,61 @@ android {
         }
     }
 }
+
+// --- E5: Release-Artefakte nie mit dem Debug-Key signieren -------------------
+// Fehlt key.properties, faellt buildTypes.release oben auf Debug-Signing
+// zurueck. Bisher blieb es bei logger.warn, das der `flutter build`-Wrapper
+// faktisch verschluckt: `flutter build appbundle` lief durch und lieferte ein
+// debug-signiertes Artefakt. Play weist den Upload ab - oder, schlimmer, ein
+// sideloadetes APK traegt den universellen Android-Debug-Key, der
+// Google-Sign-In-SHA-1 passt nicht und der native Login scheitert still.
+//
+// Warum taskGraph.whenReady und nicht afterEvaluate:
+// afterEvaluate feuert am Ende der Projekt-Evaluierung. Dort ist nur bekannt,
+// WELCHE Varianten konfiguriert sind - nicht, welche der Nutzer angefordert
+// hat. Ein Abbruch dort wuerde jeden Debug-Build und jedes `flutter analyze`
+// mitreissen, obwohl beide Release nie anfassen. Erst wenn der Task-Graph
+// steht, ist entscheidbar, ob wirklich ein Release-Assemble ausgefuehrt wird.
+// whenReady laeuft davor und bricht ab, bevor der erste Task startet.
+//
+// Bewusst NICHT betroffen:
+//  - `flutter test` und `flutter analyze` starten gar kein Gradle.
+//  - `flutter build apk --debug` (so baut .github/workflows/security.yml:119
+//    ohne Signing-Secrets) erzeugt keinen Task, der auf ...Release endet.
+//  - assembleReleaseUnitTest / assembleReleaseAndroidTest enden auf ...Test
+//    und werden von der Regex absichtlich nicht erfasst.
+// Der Abgleich laeuft ueber task.path statt task.project, damit zur
+// Ausfuehrungszeit kein Project-Objekt angefasst wird.
+// Der Action-Typ steht explizit da: whenReady ist mit Action UND mit Groovy-
+// Closure ueberladen, und Kotlin waehlt sonst die Closure-Variante, die sich
+// nicht aus einem Lambda bauen laesst. Der Action-Helfer des Kotlin-DSL nimmt
+// ein Receiver-Lambda, `this` ist hier also der TaskExecutionGraph.
+val releaseAssemblePattern = Regex("^(assemble|bundle|package)[A-Za-z0-9]*Release$")
+gradle.taskGraph.whenReady(Action<org.gradle.api.execution.TaskExecutionGraph> {
+    if (!keystorePropertiesFile.exists()) {
+        val releaseTasks = allTasks
+            .map { task -> task.path }
+            .filter { path ->
+                path.startsWith(":app:") &&
+                    releaseAssemblePattern.matches(path.removePrefix(":app:"))
+            }
+
+        if (releaseTasks.isNotEmpty()) {
+            throw GradleException(
+                "Release-Build abgebrochen: android/key.properties fehlt.\n" +
+                    "Betroffene Tasks: ${releaseTasks.joinToString(", ")}\n" +
+                    "Ohne diese Datei wuerde das Artefakt mit dem universellen " +
+                    "Android-DEBUG-Key signiert. Play lehnt den Upload ab, und " +
+                    "ein sideloadetes Build laesst Google Sign-In still " +
+                    "fehlschlagen, weil der SHA-1-Fingerabdruck nicht passt.\n" +
+                    "Abhilfe: android/key.properties mit keyAlias, keyPassword, " +
+                    "storeFile und storePassword anlegen (Vorlage und Ablage des " +
+                    "Keystores siehe Release-Dokumentation). Fuer reine " +
+                    "Kompilier-Checks stattdessen --debug bauen."
+            )
+        }
+    }
+})
 
 flutter {
     source = "../.."

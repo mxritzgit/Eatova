@@ -25,8 +25,12 @@
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.vision.** { *; }
 -dontwarn com.google.mlkit.**
-# mobile_scanner nutzt das unbundled ML-Kit-Modell; Referenzen auf die
-# gebundelte Variante existieren nur zur Compile-Zeit.
+# Korrektur (E2): mobile_scanner nutzt hier das GEBUENDELTE ML-Kit-Modell.
+# Ohne dev.steenbakker.mobile_scanner.useUnbundled=true zieht
+# mobile_scanner-7.4.0/android/build.gradle:63-69 com.google.mlkit:barcode-
+# scanning:17.3.0 samt libbarhopper_v3.so und den .tflite-Assets ins Artefakt.
+# Der frueher hier stehende Satz ("nutzt das unbundled Modell") war falsch.
+# Begruendung und Umschaltbedingung stehen in android/gradle.properties.
 -dontwarn com.google.mlkit.vision.barcode.bundled.**
 
 # --- google_sign_in (Credential Manager / Google Identity) --------------------

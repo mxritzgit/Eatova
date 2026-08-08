@@ -176,6 +176,33 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
         tapInstalled = false
       }
       let format = inputNode.outputFormat(forBus: 0)
+      // F3: `installTap` prueft das Format mit einer C++-Assertion und wirft bei
+      // 0 Hz / 0 Kanaelen eine ObjC-NSException ("required condition is false:
+      // IsFormatSampleRateAndChannelCountValid(format)"). Das ist ein SIGABRT —
+      // das `do/catch` drumherum faengt NUR Swift-Errors und sieht davon nichts,
+      // die App stirbt also mitten im Coach-Chat.
+      //
+      // Ein leeres Format ist kein Sonderfall, sondern der Normalzustand ohne
+      // nutzbare Eingaberoute: Mikro von einer anderen App belegt, laufender
+      // Anruf, Bluetooth-/CarPlay-Routenwechsel, Simulator. Die Session ist zu
+      // diesem Zeitpunkt bereits aktiv (setActive oben), 0 Hz heisst hier also
+      // wirklich "keine Route", nicht "noch nicht bereit".
+      //
+      // `unavailable` ist bewusst gewaehlt: coach_speech.dart:20 matcht genau
+      // diesen Code und zeigt "Spracherkennung ist auf diesem Gerät gerade
+      // nicht verfügbar." — `recognition_failed` fiele dort in den generischen
+      // Zweig (Zeile 25) und wuerde eine technische Meldung durchreichen.
+      //
+      // Aufraeumen uebernimmt finish -> cleanupAudio: der Tap ist hier noch
+      // nicht installiert (tapInstalled == false), die Session wird aber wieder
+      // deaktiviert, damit der naechste Versuch eine frische Route bekommt.
+      guard format.sampleRate > 0, format.channelCount > 0 else {
+        finish(
+          errorCode: "unavailable",
+          message: "Kein nutzbarer Mikrofon-Eingang. Beende laufende Anrufe oder andere Aufnahmen und versuche es erneut."
+        )
+        return
+      }
       inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
         request.append(buffer)
       }

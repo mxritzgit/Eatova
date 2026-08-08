@@ -13,6 +13,37 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- E1: camera_android_camerax deklariert RECORD_AUDIO und
+         WRITE_EXTERNAL_STORAGE (maxSdkVersion=28) fuer die Video-Aufnahme.
+         Aus WRITE_EXTERNAL_STORAGE leitet der Manifest-Merger zusaetzlich ein
+         READ_EXTERNAL_STORAGE OHNE maxSdkVersion ab — auf API 29-32 also eine
+         echte Laufzeitberechtigung.
+
+         Eatova nimmt ausschliesslich Standbilder auf (CameraController ohne
+         enableAudio-Video-Pfad) und laedt Galeriebilder ueber image_picker.
+         image_picker_android nutzt den System-Photo-Picker bzw.
+         ACTION_GET_CONTENT und braucht deshalb KEINE Storage-Berechtigung
+         (ImagePickerDelegate prueft nur Manifest.permission.CAMERA;
+         image_picker README: "no longer required to add
+         requestLegacyExternalStorage, scoped storage").
+
+         Sprache im Coach laeuft ueber den MethodChannel `eatova/speech`, der
+         NUR in ios/Runner/AppDelegate.swift registriert ist. Auf Android
+         wirft invokeMethod eine MissingPluginException, die
+         CoachSpeechInput.listen in eine "nicht verfuegbar"-Meldung uebersetzt.
+         Es gibt keinen Android-Sprachpfad, also auch keinen RECORD_AUDIO-
+         Bedarf. Die Berechtigung wuerde im Play-Store nur "Mikrofon"
+         ausweisen. -->
+    <uses-permission
+        android:name="android.permission.RECORD_AUDIO"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:node="remove" />
+
     <application
         android:label="Eatova"
         android:name="${applicationName}"
@@ -57,11 +88,24 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- D1: flutter_local_notifications liefert KEINE Komponenten mit.
+             Sein Plugin-Manifest
+             (flutter_local_notifications-22.2.0/android/src/main/AndroidManifest.xml)
+             enthaelt nur zwei uses-permission-Eintraege und null Receiver —
+             jede Komponente muss die App selbst deklarieren.
+
+             ScheduledNotificationReceiver ist das Ziel JEDES geplanten
+             Alarms (FlutterLocalNotificationsPlugin.java:590/613/639/721 und
+             1852/1875/1897). Ohne diese Zeile verwirft Android den Broadcast
+             still: kein Crash, keine Benachrichtigung, nie. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+
         <!-- flutter_local_notifications: Receiver, der nach einem Geraete-
              Neustart (BOOT_COMPLETED) die geplanten lokalen Nudges erneut
-             einplant. Die uebrigen Receiver des Plugins werden via Manifest-
-             Merge automatisch eingebunden; dieser Boot-Receiver braucht den
-             expliziten Intent-Filter, um die Reschedule-Logik zu triggern. -->
+             einplant (FlutterLocalNotificationsPlugin.rescheduleNotifications).
+             Braucht den expliziten Intent-Filter, um zu triggern. -->
         <receiver
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
             android:exported="false">
@@ -72,6 +116,38 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- Bewusst NICHT deklariert, weil die App sie nicht ansteuert:
+             * ActionBroadcastReceiver — nur noetig fuer Notification-Actions
+               (NotificationDetails.actions) oder dismissIsolate
+               (FlutterLocalNotificationsPlugin.java:303/333). NotificationService
+               _details() setzt beides nicht.
+             * ForegroundService — nur noetig fuer startForegroundService
+               (FlutterLocalNotificationsPlugin.java:2342/2364). Wird nicht
+               aufgerufen.
+             Wer eines der beiden Features nachruestet, MUSS die zugehoerige
+             Komponente hier ergaenzen — sonst schlaegt es genauso still fehl
+             wie D1. -->
+
+        <!-- E4: package:health zieht androidx.health.connect:connect-client
+             (1.2.0-alpha02) in den Android-Build und injiziert diesen Dienst
+             mit android:exported="true" OHNE android:permission — die einzige
+             ungeschuetzt exportierte Komponente der App ausser der
+             Launcher-Activity.
+
+             Health Connect ist auf Android unerreichbar: jede Methode in
+             lib/src/services/apple_health_service.dart steigt mit
+             `if (!Platform.isIOS) return` aus. Der Dienst hat also keinen
+             Aufrufer und wird entfernt.
+
+             Sauberere Alternative (nicht hier machbar, liegt in pubspec.yaml):
+             `health` per dependency_overrides/Plattform-Split ganz aus dem
+             Android-Build nehmen. Das wuerde auch compose-bom, fragment-ktx
+             und libdartjni.so sparen — und MainActivity koennte wieder von
+             FlutterActivity statt FlutterFragmentActivity erben. -->
+        <service
+            android:name="androidx.health.platform.client.impl.sdkservice.HealthDataSdkService"
+            tools:node="remove" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
