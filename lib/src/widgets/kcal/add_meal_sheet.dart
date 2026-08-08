@@ -135,6 +135,25 @@ class AddMealSheet extends StatefulWidget {
   State<AddMealSheet> createState() => _AddMealSheetState();
 }
 
+/// **Bewusst OHNE Verwerfen-Schutz (D5).** Das wurde geprueft, nicht vergessen.
+///
+/// Drei Sheets haben seit Welle 3 `PopScope` + `_DiscardDragGuard`
+/// (`recipe_create_sheet`, `edit_meal_sheet`, `settings_sheet`), ein viertes
+/// seit Welle 6 (`meal_widgets_adjust`). Das Kriterium dafuer ist **nicht**
+/// „haelt einen TextEditingController", sondern **selbst verfasster Inhalt,
+/// der Muehe gekostet hat**: acht Rezeptfelder, sieben Einstellungsfelder,
+/// Gramm-Korrekturen pro Bestandteil plus Makro-Dialog.
+///
+/// Hier liegen zwei Dinge im State: ein Suchbegriff und die Angabe, welche
+/// Karte aufgeklappt ist (die Portion selbst lebt im `MealSuggestionItem`).
+/// Beides ist eine *Anfrage*, keine Eingabe, und in wenigen Sekunden
+/// wiederhergestellt — waehrend Suchen der Hauptzweck dieses Sheets ist, der
+/// Dialog also bei praktisch jedem Schliessen kaeme.
+///
+/// Das hat einen Preis: ein Dialog, der staendig grundlos erscheint, wird
+/// reflexhaft weggetippt und verliert genau dort an Wirkung, wo er zaehlt.
+/// Aus demselben Grund traegt auch das Gewichts-Sheet
+/// (`profile_widgets_body.dart`) keinen.
 class _AddMealSheetState extends State<AddMealSheet> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _productSearchDebounce;
