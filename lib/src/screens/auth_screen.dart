@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
+import '../services/secure_screen.dart';
 import 'auth_code_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/shared/eatova_wordmark.dart';
@@ -178,7 +179,8 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     final insets = MediaQuery.viewInsetsOf(context).bottom;
 
-    return Scaffold(
+    return SecureScreenGuard(
+      child: Scaffold(
       key: const ValueKey('screen-auth'),
       backgroundColor: bg,
       body: Stack(
@@ -240,6 +242,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }

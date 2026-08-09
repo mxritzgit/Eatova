@@ -52,10 +52,14 @@ void main() {
     final body = jsonDecode(captured!.body) as Map<String, dynamic>;
     expect(body['email'], 'user@example.com',
         reason: 'getrimmt wie bei signIn');
-    expect(captured!.url.queryParameters['redirect_to'],
-        EatovaSupabaseConfig.oauthRedirectUrl,
-        reason: 'der Mail-Link muss zurueck in die App fuehren, sonst landet '
-            'der Nutzer auf einer leeren Supabase-Seite');
+    // KEIN redirect_to: der Reset laeuft ueber den 6-stelligen Code, nicht
+    // ueber einen Mail-Link. Ein redirect_to wuerde den kaperbaren
+    // eatova://-Deep-Link-Weg reaktivieren, falls das Server-Template je auf
+    // {{ .ConfirmationURL }} zurueckfaellt (Sicherheits-Audit 2026-08-09).
+    expect(captured!.url.queryParameters.containsKey('redirect_to'), isFalse,
+        reason: 'kein Deep-Link im Reset — nur der Code');
+    expect(captured!.body.contains(EatovaSupabaseConfig.oauthRedirectUrl),
+        isFalse);
   });
 
   test('UnavailableAuthRepository scheitert laut statt still zu versprechen',

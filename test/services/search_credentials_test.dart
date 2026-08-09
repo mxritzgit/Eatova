@@ -465,4 +465,41 @@ void main() {
 
     expect(fetcher.calls, 1);
   });
+
+  group('https-Zwang fuer die Mirror-URL (Sicherheits-Audit 2026-08-09)', () {
+    test('isSecureBaseUrl: nur https, getrimmt', () {
+      expect(SearchCredentials.isSecureBaseUrl('https://eatova.de/meili'),
+          isTrue);
+      expect(SearchCredentials.isSecureBaseUrl(' https://x.de '), isTrue,
+          reason: 'getrimmt');
+      expect(SearchCredentials.isSecureBaseUrl('http://eatova.de/meili'),
+          isFalse,
+          reason: 'http wuerde den Search-Key im Klartext raustragen');
+      expect(SearchCredentials.isSecureBaseUrl('ftp://eatova.de'), isFalse);
+      expect(SearchCredentials.isSecureBaseUrl('eatova.de/meili'), isFalse,
+          reason: 'ohne Schema kein Mirror');
+    });
+
+    test('persistierter http-Cache-Eintrag wird verworfen -> Default (https)',
+        () async {
+      final disk = InMemoryKeyValueStore({
+        SearchCredentialsStore.cacheKey: _entry(
+          fetchedAt: DateTime.now(),
+          baseUrl: 'http://eatova.de/meili', // manipuliert / Alt-Version
+        ),
+      });
+      final store = SearchCredentialsStore(
+        store: disk,
+        fetcher: _FakeFetcher(),
+        clock: _Clock().call,
+      );
+
+      await store.warmUp();
+
+      // Der http-Eintrag zaehlt nicht als geladen — es bleibt der
+      // Compile-Time-Default, der https ist.
+      expect(store.current.baseUrl, startsWith('https://'));
+      expect(store.current.source, SearchCredentialsOrigin.compileTime);
+    });
+  });
 }

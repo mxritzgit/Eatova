@@ -98,13 +98,13 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> sendPasswordReset(String email) async {
-    // redirect_to = App-Deep-Link: der Mail-Link fuehrt zurueck in die App,
-    // supabase_flutter tauscht den Code gegen eine Session und feuert das
-    // passwordRecovery-Event — dort haengt die Neues-Passwort-UI.
-    await _client.auth.resetPasswordForEmail(
-      email.trim(),
-      redirectTo: EatovaSupabaseConfig.oauthRedirectUrl,
-    );
+    // BEWUSST OHNE redirectTo: der Reset laeuft ueber den 6-stelligen Code
+    // ({{ .Token }}-Template, AuthCodeScreen), nicht ueber einen Mail-Link.
+    // Ein redirect_to wuerde nur dann greifen, wenn jemand das Server-Template
+    // auf {{ .ConfirmationURL }} zuruecksetzt — und reaktivierte damit still
+    // den kaperbaren eatova://-Deep-Link-Weg (Sicherheits-Audit 2026-08-09).
+    // Ohne den Parameter im Code ist diese Drift ausgeschlossen.
+    await _client.auth.resetPasswordForEmail(email.trim());
   }
 
   @override
@@ -151,14 +151,14 @@ class SupabaseAuthRepository implements AuthRepository {
     required String password,
     required String displayName,
   }) async {
-    // emailRedirectTo landet im Confirmation-Mail-Link. Sobald der User
-    // den Confirm-Button drueckt, kehrt Supabase ueber das eatova://
-    // Deep-Link-Scheme in die App zurueck - dann ist die Session sofort
-    // gueltig und der AuthGate-Stream feuert wasLoggedOut->loggedIn.
+    // BEWUSST OHNE emailRedirectTo: die Registrierung bestaetigt die E-Mail
+    // ueber den 6-stelligen Code ({{ .Token }}-Template, AuthCodeScreen im
+    // signup-Flow), nicht ueber einen Confirm-Link. Kein redirect_to =>
+    // keine stille Reaktivierung des Deep-Link-Wegs bei einem Template-
+    // Rueckfall (Sicherheits-Audit 2026-08-09).
     await _client.auth.signUp(
       email: email.trim(),
       password: password,
-      emailRedirectTo: EatovaSupabaseConfig.oauthRedirectUrl,
       data: {'display_name': displayName.trim()},
     );
   }

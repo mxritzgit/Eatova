@@ -9,6 +9,7 @@ import '../models/lifetime_stats.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/health_service.dart';
+import '../services/secure_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
@@ -61,7 +62,10 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // Gesundheitsdaten (Gewicht, BMI, Verlauf) nicht ins App-Switcher-
+    // Vorschaubild / Recents-Thumbnail leaken (Sicherheits-Audit 2026-08-09).
+    return SecureScreenGuard(
+      child: Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: bg,
@@ -170,6 +174,7 @@ class ProfileScreen extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 

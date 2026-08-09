@@ -28,9 +28,12 @@
 /// abgelehnten Key verwerfen und einen neuen holen — konvergiert innerhalb
 /// einer einzigen Suche.
 ///
-/// Der Key ist ein Meilisearch **Search-only** Key (actions: [search],
-/// index: products) — er kann ausschliesslich lesen/suchen und darf
-/// deshalb im Client stecken.
+/// Der Key ist ein Meilisearch **Search-only** Key — er kann ausschliesslich
+/// lesen/suchen und darf deshalb im Client stecken. **Am Server verifiziert
+/// (2026-08-09, `GET /keys`): der ausgelieferte Key (name
+/// "shiftfit-app-search") traegt `actions: ["search"]`, `indexes:
+/// ["products"]`** — kein Schreiben, kein Loeschen, kein Zugriff auf andere
+/// Indizes. Master-/Admin-Keys existieren nur serverseitig, nie im Client.
 class SearchConfig {
   const SearchConfig._();
 

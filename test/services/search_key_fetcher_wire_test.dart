@@ -101,6 +101,18 @@ void main() {
     expect(await fetcher().fetch(), isNull);
   });
 
+  test('non-https mirrorBaseUrl wird verworfen (Sicherheits-Audit) — kein '
+      'Klartext-Mirror, nichts wird gecacht', () async {
+    server.body = <String, dynamic>{
+      'mirrorBaseUrl': 'http://mirror.example',
+      'searchKey': 'ms-key-123',
+      'ttlSeconds': 600,
+    };
+    expect(await fetcher().fetch(), isNull,
+        reason: 'ein http-Mirror aus der Server-Antwort darf nicht uebernommen '
+            'werden — der Key ginge sonst im Klartext raus');
+  });
+
   test('fehlendes ttlSeconds faellt auf die 12-h-Default-TTL', () async {
     server.body = <String, dynamic>{
       'mirrorBaseUrl': 'https://mirror.example',

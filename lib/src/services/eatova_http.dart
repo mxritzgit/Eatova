@@ -97,6 +97,13 @@ Future<HttpTextResponse> sendTextRequest(
 }) async {
   try {
     final request = await client.openUrl(method, uri).timeout(policy.connect);
+    // Redirects NICHT folgen (Sicherheits-Audit 2026-08-09): dart:io kopiert
+    // die Request-Header — inkl. `Authorization` mit User-JWT (search-key,
+    // analyze-meal) — beim Redirect aufs Ziel. Ein von Supabase ausgeliefertes
+    // Cross-Origin-3xx wuerde den Token so an einen fremden Host tragen. Kein
+    // Aufrufer braucht Redirects (alle Endpunkte antworten direkt); ein 3xx
+    // wird damit zum Statuscode, den der Aufrufer als Fehler behandelt.
+    request.followRedirects = false;
     configure?.call(request);
     if (body != null) request.write(body);
     final response = await request.close().timeout(policy.response);
