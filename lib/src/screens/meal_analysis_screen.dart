@@ -677,9 +677,11 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
     final today = DateUtils.dateOnly(DateTime.now());
     final selected = DateUtils.dateOnly(widget.selectedDate);
     final index = daysBetween(today, selected);
-    if (index < 0 || index > widget.pastDays) return;
-    final ziel = (index * (_chipWidth + _chipGap) - 2 * _chipWidth)
-        .clamp(0.0, _scroll.position.maxScrollExtent);
+    // Jenseits der Chips sitzt der Archiv-Chip am Listenanfang.
+    final ziel = (index < 0 || index > widget.pastDays)
+        ? 0.0
+        : (index * (_chipWidth + _chipGap) - 2 * _chipWidth)
+            .clamp(0.0, _scroll.position.maxScrollExtent);
     _scroll.animateTo(
       ziel,
       duration: const Duration(milliseconds: 260),
@@ -748,27 +750,47 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
                 child: ListView.separated(
                   controller: _scroll,
                   scrollDirection: Axis.horizontal,
-                  itemCount: days.length,
+                  // Auswahl jenseits der 30 Tage: als VOLLWERTIGER Chip in
+                  // Normalbreite am Listenanfang — nicht als breite Pill am
+                  // Kalender-Knopf, die den uebrigen Chips den Platz nahm.
+                  itemCount: days.length + (imStreifen ? 0 : 1),
                   separatorBuilder: (_, __) => const SizedBox(width: _chipGap),
-                  itemBuilder: (context, index) => SizedBox(
-                    width: _chipWidth,
-                    child: _FoodDateChip(
-                      key: ValueKey('food-date-chip-$index'),
-                      date: days[index],
-                      label: foodDateChipLabel(today, days[index]),
-                      selected: DateUtils.isSameDay(days[index], selected),
-                      onTap: () => widget.onSelected(days[index]),
-                    ),
-                  ),
+                  itemBuilder: (context, index) {
+                    if (!imStreifen && index == 0) {
+                      return SizedBox(
+                        width: _chipWidth,
+                        child: _FoodDateChip(
+                          key: const ValueKey('food-date-chip-archive'),
+                          date: selected,
+                          // Kopfzeile: Jahreszahl, wenn nicht aktuelles Jahr
+                          // — sonst der Wochentag wie bei jedem Chip.
+                          label: selected.year == today.year
+                              ? foodDateChipLabel(today, selected)
+                              : '${selected.year}',
+                          selected: true,
+                          onTap: () => _pickFromCalendar(context),
+                        ),
+                      );
+                    }
+                    final tagIndex = imStreifen ? index : index - 1;
+                    return SizedBox(
+                      width: _chipWidth,
+                      child: _FoodDateChip(
+                        key: ValueKey('food-date-chip-$tagIndex'),
+                        date: days[tagIndex],
+                        label: foodDateChipLabel(today, days[tagIndex]),
+                        selected:
+                            DateUtils.isSameDay(days[tagIndex], selected),
+                        onTap: () => widget.onSelected(days[tagIndex]),
+                      ),
+                    );
+                  },
                 ),
               ),
               const SizedBox(width: _chipGap),
               _CalendarDayButton(
                 key: const ValueKey('food-date-calendar'),
-                // Auswahl jenseits der 30 Chip-Tage: der Knopf wird zur
-                // aktiven Pill mit dem gewaehlten Datum.
                 selected: !imStreifen,
-                date: imStreifen ? null : selected,
                 onTap: () => _pickFromCalendar(context),
               ),
             ],
@@ -875,27 +897,17 @@ class _CalendarDayButton extends StatelessWidget {
     super.key,
     required this.selected,
     required this.onTap,
-    this.date,
   });
 
+  /// True, wenn die Auswahl jenseits der Chips liegt — der Knopf faerbt sich
+  /// dann wie ein aktiver Chip; das Datum selbst zeigt der Archiv-Chip am
+  /// Listenanfang (fixe Breite, nimmt den anderen Chips keinen Platz).
   final bool selected;
-
-  /// Gesetzt, wenn die Auswahl JENSEITS der Chip-Tage liegt: der Knopf wird
-  /// dann zur aktiven Datums-Pill — man sieht, dass man wirklich auf diesem
-  /// Tag steht, statt nur eines gefuellten Kalender-Icons.
-  final DateTime? date;
 
   final VoidCallback onTap;
 
-  String _dateLabel(DateTime d) {
-    final heute = DateTime.now();
-    final jahr = d.year == heute.year ? '' : '${d.year % 100}';
-    return jahr.isEmpty ? '${d.day}.${d.month}.' : '${d.day}.${d.month}.$jahr';
-  }
-
   @override
   Widget build(BuildContext context) {
-    final d = date;
     // A11y: reiner Icon-Knopf — ohne Label bliebe er fuer Screenreader stumm.
     return Semantics(
       button: true,
@@ -907,42 +919,17 @@ class _CalendarDayButton extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
-          width: d == null ? 44 : null,
-          padding: d == null
-              ? EdgeInsets.zero
-              : const EdgeInsets.symmetric(horizontal: 12),
+          width: 44,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? forgeLime : surface,
             borderRadius: BorderRadius.circular(rControl),
           ),
-          child: d == null
-              ? Icon(
-                  Icons.calendar_month_rounded,
-                  size: 18,
-                  color: selected ? bg : textMuted,
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.calendar_month_rounded,
-                      size: 16,
-                      color: selected ? bg : textMuted,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _dateLabel(d),
-                      key: const ValueKey('food-date-calendar-label'),
-                      style: TextStyle(
-                        color: selected ? bg : textPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ],
-                ),
+          child: Icon(
+            Icons.calendar_month_rounded,
+            size: 18,
+            color: selected ? bg : textMuted,
+          ),
         ),
       ),
     );

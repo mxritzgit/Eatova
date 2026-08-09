@@ -46,6 +46,14 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
 
+    // Seit dem OTP-Flow folgt auf die Registrierung die Code-Seite: die
+    // E-Mail wird mit dem 6-stelligen Code aus der Mail bestaetigt (statt
+    // Link), erst danach liegt die Home-Page frei.
+    expect(find.byKey(const ValueKey('auth-code-screen')), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '123456');
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
     await authRepository.signOut();
