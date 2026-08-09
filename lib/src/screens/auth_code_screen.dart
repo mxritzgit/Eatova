@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../auth/auth_repository.dart';
+import '../services/secure_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/common/app_snack.dart';
 
@@ -157,7 +158,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return SecureScreenGuard(
+      child: Scaffold(
       key: const ValueKey('auth-code-screen'),
       backgroundColor: bg,
       appBar: AppBar(
@@ -323,6 +325,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }

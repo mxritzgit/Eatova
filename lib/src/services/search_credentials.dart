@@ -57,6 +57,21 @@ class SearchCredentials {
     source: SearchCredentialsOrigin.disabled,
   );
 
+  /// Die Mirror-Basis-URL ist der einzige App-Endpunkt, der zur Laufzeit von
+  /// aussen kommt (Edge-Function-Antwort ODER SharedPreferences-Cache). Wird
+  /// sie je auf `http://` gesetzt — versehentlich im Server-Secret oder durch
+  /// einen lokalen Schreibzugriff auf den (bewusst unverschluesselten)
+  /// Credentials-Slot — ginge die Suche samt Search-Key im Klartext raus.
+  /// Deshalb wird `https` an den beiden untrusted EINGAENGEN erzwungen
+  /// (Fetch-Parse in [EdgeFunctionSearchKeyFetcher] und Cache-Parse in
+  /// [_CachedEntry.tryParse], Sicherheits-Audit 2026-08-09): ein
+  /// non-`https`-Mirror wird gar nicht erst zu einem [SearchCredentials] und
+  /// faellt still auf OpenFoodFacts zurueck. `isUsable` bleibt bewusst der
+  /// reine Leer-Check — direkt injizierte Creds (Loopback-Tests) laufen
+  /// nicht ueber die Eingaenge und sollen nicht doppelt geprueft werden.
+  static bool isSecureBaseUrl(String url) =>
+      Uri.tryParse(url.trim())?.scheme == 'https';
+
   bool get isUsable => baseUrl.trim().isNotEmpty && searchKey.trim().isNotEmpty;
 
   @override
@@ -187,6 +202,13 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
       final baseUrl = decoded['mirrorBaseUrl'];
       final searchKey = decoded['searchKey'];
       if (baseUrl is! String || searchKey is! String) return null;
+      // Ein non-https-Mirror aus der Server-Antwort wird gar nicht erst
+      // uebernommen (kein Klartext-Key-Versand, kein Wegschreiben auf Platte).
+      if (!SearchCredentials.isSecureBaseUrl(baseUrl)) {
+        dev.log('search-key lieferte non-https mirrorBaseUrl — verworfen',
+            name: 'search_credentials');
+        return null;
+      }
       final ttlRaw = decoded['ttlSeconds'];
 
       return FetchedSearchCredentials(
@@ -598,6 +620,9 @@ class _CachedEntry {
       final ttlRaw = decoded['ttl_seconds'];
       if (baseUrl is! String || key is! String) return null;
       if (fetchedAtRaw is! String || ttlRaw is! num) return null;
+      // Ein auf Platte manipulierter (oder aus einer alten http-Version
+      // stammender) Eintrag mit non-https-Mirror ist ungueltig.
+      if (!SearchCredentials.isSecureBaseUrl(baseUrl)) return null;
       final fetchedAt = DateTime.tryParse(fetchedAtRaw);
       if (fetchedAt == null) return null;
       return _CachedEntry(

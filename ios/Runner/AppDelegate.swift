@@ -32,6 +32,95 @@ import os.log
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "EatovaSpeechPlugin") {
       EatovaSpeechPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "EatovaSecureScreenPlugin") {
+      EatovaSecureScreenPlugin.register(with: registrar)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EatovaSecureScreenPlugin: iOS-Gegenstueck zu Androids FLAG_SECURE
+// (Sicherheits-Audit 2026-08-09).
+//
+// iOS kennt kein FLAG_SECURE. Der Angriff, den es hier zu schliessen gilt,
+// ist das App-Switcher-Vorschaubild: iOS macht beim Wechsel in den
+// Hintergrund einen Snapshot des Screens. Solange ein sensibler Screen
+// (Auth-Code, Passwort, Gesundheitsdaten) aktiv ist, legen wir beim
+// Deaktivieren eine blickdichte Abdeckung ueber das Fenster und entfernen
+// sie beim Reaktivieren — der Snapshot zeigt dann nur die Abdeckung.
+// ---------------------------------------------------------------------------
+public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
+  private var secure = false
+  private var coverView: UIView?
+
+  public static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: "eatova/secure_screen",
+      binaryMessenger: registrar.messenger()
+    )
+    let instance = EatovaSecureScreenPlugin()
+    registrar.addMethodCallDelegate(instance, channel: channel)
+    NotificationCenter.default.addObserver(
+      instance,
+      selector: #selector(willResignActive),
+      name: UIApplication.willResignActiveNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      instance,
+      selector: #selector(didBecomeActive),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
+  }
+
+  public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "enable":
+      secure = true
+      result(nil)
+    case "disable":
+      secure = false
+      removeCover()
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  @objc private func willResignActive() {
+    guard secure, let window = activeWindow() else { return }
+    let cover = UIView(frame: window.bounds)
+    // Eatova-Grundton #0B0D11, damit die Abdeckung nicht als Fehler wirkt.
+    cover.backgroundColor = UIColor(red: 0.043, green: 0.051, blue: 0.067, alpha: 1)
+    cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    let blur = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+    blur.frame = cover.bounds
+    blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    cover.addSubview(blur)
+    window.addSubview(cover)
+    coverView = cover
+  }
+
+  @objc private func didBecomeActive() {
+    removeCover()
+  }
+
+  private func removeCover() {
+    coverView?.removeFromSuperview()
+    coverView = nil
+  }
+
+  private func activeWindow() -> UIWindow? {
+    let keyed = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first { $0.isKeyWindow }
+    if let keyed = keyed { return keyed }
+    return UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first
   }
 }
 

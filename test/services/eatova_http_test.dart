@@ -91,6 +91,66 @@ void main() {
     },
   );
 
+  test(
+    'sendTextRequest folgt Redirects NICHT — der Auth-Header leckt nicht ans '
+    'Redirect-Ziel (Sicherheits-Audit 2026-08-09)',
+    () async {
+      // Ziel-Server: protokolliert, ob ihn ueberhaupt ein Request erreicht,
+      // und ob er dabei den Authorization-Header traegt.
+      final ziel = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => ziel.close(force: true));
+      var zielGetroffen = false;
+      String? geleakterHeader;
+      ziel.listen((request) async {
+        zielGetroffen = true;
+        geleakterHeader =
+            request.headers.value(HttpHeaders.authorizationHeader);
+        request.response
+          ..statusCode = 200
+          ..write('{"ok":true}');
+        await request.response.close();
+      });
+
+      // Quell-Server: antwortet mit 302 auf den Ziel-Server (Cross-Origin).
+      final quelle = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => quelle.close(force: true));
+      quelle.listen((request) async {
+        request.response
+          ..statusCode = 302
+          ..headers.set(HttpHeaders.locationHeader,
+              'http://127.0.0.1:${ziel.port}/klau')
+          ..close();
+      });
+
+      const policy = HttpTimeoutPolicy(
+        connect: Duration(seconds: 5),
+        response: Duration(seconds: 5),
+        body: Duration(seconds: 5),
+      );
+      final client = createHttpClient(policy);
+      try {
+        final response = await sendTextRequest(
+          client,
+          method: 'GET',
+          uri: Uri.parse('http://127.0.0.1:${quelle.port}/start'),
+          policy: policy,
+          operation: 'test.redirect',
+          configure: (request) => request.headers
+              .set(HttpHeaders.authorizationHeader, 'Bearer geheim-jwt'),
+        );
+
+        // Der Redirect wird NICHT gefolgt: der Aufrufer sieht den 302 selbst.
+        expect(response.statusCode, 302);
+        expect(zielGetroffen, isFalse,
+            reason: 'der Token-tragende Request darf das Redirect-Ziel nie '
+                'erreichen');
+        expect(geleakterHeader, isNull);
+      } finally {
+        client.close(force: true);
+      }
+    },
+  );
+
   test('Timeout-Policies behalten die abgestimmten Werte', () {
     // Mirror bleibt aggressiv-schnell — der OFF-Fallback haengt dahinter.
     expect(HttpTimeoutPolicy.mirror.connect, const Duration(seconds: 4));
