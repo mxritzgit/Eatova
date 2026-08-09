@@ -8,6 +8,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 // W6-07 — „unbekannt" darf nicht „voll" heissen.
 //
@@ -172,7 +173,12 @@ class _TabHostState extends State<_TabHost> {
 }
 
 Future<void> _pumpHost(WidgetTester tester, CoachChatService svc) async {
-  await tester.pumpWidget(MaterialApp(home: _TabHost(service: svc)));
+  await tester.pumpWidget(MaterialApp(
+    // Ohne das Eatova-Theme wirft `AppTokens.of` — der Screen liest seine
+    // Farben seit dem Design-Refactor ueber `context.t`.
+    theme: buildEatovaTheme(Brightness.dark),
+    home: _TabHost(service: svc),
+  ));
   await tester.pump(const Duration(milliseconds: 500));
   await tester.pump(const Duration(milliseconds: 500));
 }
@@ -295,6 +301,7 @@ void main() {
       final backend = _Backend()
         ..quotaZeile = const {'used': 0, 'remaining': 5, 'daily_limit': 5};
       await tester.pumpWidget(MaterialApp(
+        theme: buildEatovaTheme(Brightness.dark),
         home: _TabHost(
           service: _service(backend),
           speechInput: const _StummesMikro(),

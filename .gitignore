@@ -52,3 +52,7 @@ app.*.map.json
 dart_defines.json
 dart_defines.*.json
 !dart_defines.example.json
+
+# Streu-Screenshots aus Design-Sitzungen (Design-Refactor 2026-08)
+p_bento_*.png
+p_hero_*.png

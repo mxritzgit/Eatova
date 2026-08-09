@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
-import 'package:eatova/src/theme/app_colors.dart';
 import 'package:eatova/src/theme/app_theme.dart';
-import 'package:eatova/src/widgets/app_shell/eatova_bottom_nav.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 // Layout-Tests fuer den Food-Tab.
 //
@@ -39,7 +38,7 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: MediaQuery(
         // Spiegelt den Textscaler-Deckel aus EatovaApp (seit dem
         // A11y-Pass 2.0 statt 1.3, s. text_scale_stress_test.dart).
@@ -48,10 +47,40 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
           size: _usableSize,
         ),
         child: Scaffold(
-          backgroundColor: bg,
-          bottomNavigationBar: EatovaBottomNav(
-            selectedIndex: 3,
-            onSelected: (_) {},
+          // Der Seitengrund kommt aus dem Theme (scaffoldBackgroundColor);
+          // eine harte Konstante haette den Hell-Modus ausgeschlossen.
+          //
+          // Verifikations-Welle 2026-08-09: Diese Huelle stand vorher auf
+          // `EatovaBottomNav` — der 3-Tab-Leiste von vor dem Refactor, die
+          // ihre Farben noch aus `app_colors.dart` las und in der App
+          // nirgends mehr vorkam (die Schale baut `AppNavBar`). Die Leiste
+          // hier traegt jetzt dieselben vier Eintraege wie EatovaHomePage,
+          // damit die Huelle das misst, was die App wirklich zeichnet.
+          bottomNavigationBar: AppNavBar(
+            index: 1,
+            onChanged: (_) {},
+            items: const <AppNavItem>[
+              AppNavItem(
+                icon: Icons.home_outlined,
+                activeIcon: Icons.home_rounded,
+                label: 'Heute',
+              ),
+              AppNavItem(
+                icon: Icons.restaurant_outlined,
+                activeIcon: Icons.restaurant_rounded,
+                label: 'Food',
+              ),
+              AppNavItem(
+                icon: Icons.menu_book_outlined,
+                activeIcon: Icons.menu_book_rounded,
+                label: 'Rezepte',
+              ),
+              AppNavItem(
+                icon: Icons.auto_awesome_outlined,
+                activeIcon: Icons.auto_awesome_rounded,
+                label: 'Coach',
+              ),
+            ],
           ),
           body: SafeArea(
             child: Padding(

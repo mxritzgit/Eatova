@@ -28,7 +28,6 @@ import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
 import '../services/uuid.dart';
-import '../theme/app_colors.dart';
 import '../widgets/common/app_snack.dart';
 
 part 'home_store_meals.dart';
@@ -44,7 +43,7 @@ part 'home_store_tracking.dart';
 typedef SnackEmitter = void Function(
   String message, {
   IconData icon,
-  Color accent,
+  SnackTone tone,
   Duration? duration,
   SnackBarAction? action,
 });

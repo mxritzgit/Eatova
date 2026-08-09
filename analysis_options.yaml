@@ -22,6 +22,17 @@ analyzer:
   exclude:
     - "**/*.g.dart"
     - "build/**"
+    # Design-Refactor 2026-08-09: `newScreen/nutrition_app(1).dart` ist die
+    # eingeschleppte Gestaltungs-VORLAGE (DESIGN_REFACTOR.md §1), kein
+    # App-Code. Sie importiert `package:google_fonts`, das nicht in der
+    # pubspec steht, und kann deshalb per Definition nie analysierbar sein —
+    # `flutter analyze` meldete darauf 5 Fehler + 2 Infos und ging lokal auf
+    # Exit 1. Damit war die Abschluss-Pflicht des Vertrags (§7.5) fuer
+    # niemanden mehr erfuellbar, und der CI-Schritt
+    # `flutter analyze --fatal-infos --fatal-warnings` (security.yml:39)
+    # waere in dem Moment rot geworden, in dem der Ordner (aktuell untracked,
+    # aber NICHT in .gitignore) versehentlich mit `git add -A` mitkommt.
+    - "newScreen/**"
   errors:
     # ARCH-2: Der globale unused_element/unused_field-Ignore versteckte frisch
     # entstandenen toten Code (z.B. _addSteps/_resetWater in

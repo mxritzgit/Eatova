@@ -21,9 +21,10 @@ import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../services/coach_chat_service.dart';
 import '../../services/meal_photo_compressor.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
+import '../../widgets/design/design.dart';
 
 part 'coach_speech.dart';
 part 'coach_top_bar.dart';
@@ -35,13 +36,12 @@ part 'coach_sessions.dart';
 
 /// Coach-Chat: Grok-basierter Fitness-/Ernaehrungs-Coach.
 ///
-/// Design nach dem "AI Coach v2"-Entwurf: radialer coachAccent-Schein hinter
-/// dem oberen Bereich, Streak-Pill oben links + Sessions/(i) oben rechts.
-/// Empty State = animierter [CoachOrb] mit Zeit-Begruessung + volle
-/// Vorschlags-Zeilen; im Verlauf User-Bubbles in coachAccent, Coach als
-/// Plain-Text mit Tipp-Punkten. Der Composer: rahmenlose Soft-Pill
-/// (cardShadow), "+"-Attach links (Kamera/Galerie via Sheet), Mic + runder
-/// Send-Kreis rechts (faerbt sich mit Draft in coachAccent).
+/// Design-Refactor 2026-08-09: Kopfzeile mit Forest-Kachel, „KI-Coach" und
+/// Zustandszeile, daneben Streak/(i)/Unterhaltungen. Leerzustand = animierter
+/// [CoachOrb] mit Zeit-Begruessung, C8-Hinweis und den Vorschlags-Zeilen; im
+/// Verlauf Blasen (Nutzer rechts auf [AppTokens.forest], Coach links auf
+/// [AppTokens.surf] mit 1-px-Rand). Der Composer ist eine Kapsel mit
+/// "+"-Attach, Mic und dem Forest/Lime-Senden-Knopf.
 class CoachChatScreen extends StatefulWidget {
   const CoachChatScreen({
     super.key,
@@ -420,11 +420,16 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   void _scrollToEnd() {
     if (!_scroll.hasClients) return;
-    _scroll.animateTo(
-      _scroll.position.maxScrollExtent + 240,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
+    final ziel = _scroll.position.maxScrollExtent + 240;
+    final dauer = motionDuration(context, const Duration(milliseconds: 260));
+    // Kein `animateTo(..., Duration.zero)`: DrivenScrollActivity haelt darauf
+    // ein `assert(duration > Duration.zero)`. Unter reduzierter Bewegung
+    // springt der Verlauf ans Ende, statt dorthin zu gleiten.
+    if (dauer == Duration.zero) {
+      _scroll.jumpTo(ziel.clamp(0.0, _scroll.position.maxScrollExtent));
+      return;
+    }
+    _scroll.animateTo(ziel, duration: dauer, curve: Curves.easeOutCubic);
   }
 
   Future<void> _send({
@@ -699,51 +704,43 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   void _openAttachSheet() {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
-      ),
-      builder: (ctx) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: hairline,
-                    borderRadius: BorderRadius.circular(rPill),
-                  ),
+    // showEatovaSheet nimmt ein fertiges Widget statt eines Builders. Der
+    // `Builder` holt den Context UNTERHALB der Sheet-Route zurueck: mit dem
+    // Screen-Context wuerde `pop()` blind die oberste Route treffen — solange
+    // das Sheet oben liegt zufaellig richtig, nach einem Wisch-Schliessen aber
+    // die Home-Route.
+    showEatovaSheet<void>(
+      context,
+      Builder(
+        builder: (sheetContext) => SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _AttachTile(
+                  key: const ValueKey('coach-camera'),
+                  icon: Icons.photo_camera_outlined,
+                  label: 'Foto aufnehmen',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _pickAndSendImage(ImageSource.camera);
+                  },
                 ),
-              ),
-              _AttachTile(
-                key: const ValueKey('coach-camera'),
-                icon: Icons.photo_camera_outlined,
-                label: 'Foto aufnehmen',
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _pickAndSendImage(ImageSource.camera);
-                },
-              ),
-              const SizedBox(height: 6),
-              _AttachTile(
-                key: const ValueKey('coach-gallery'),
-                icon: Icons.photo_outlined,
-                label: 'Aus der Galerie',
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _pickAndSendImage(ImageSource.gallery);
-                },
-              ),
-            ],
+                const SizedBox(height: 6),
+                _AttachTile(
+                  key: const ValueKey('coach-gallery'),
+                  icon: Icons.photo_outlined,
+                  label: 'Aus der Galerie',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _pickAndSendImage(ImageSource.gallery);
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -752,26 +749,21 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   void _openSessionsSheet() {
     HapticFeedback.selectionClick();
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: surface,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
-      ),
+    showEatovaSheet<void>(
+      context,
       // StatefulBuilder, damit das Sheet nach einem Delete sofort neu baut:
-      // showModalBottomSheet hängt nicht am setState der Page, deshalb sah man
-      // die gelöschte Session sonst erst nach Schließen + Neuöffnen verschwinden.
-      builder: (_) => StatefulBuilder(
-        builder: (context, setSheetState) => _SessionsSheet(
+      // das Sheet hängt nicht am setState der Page, deshalb sah man die
+      // gelöschte Session sonst erst nach Schließen + Neuöffnen verschwinden.
+      StatefulBuilder(
+        builder: (sheetContext, setSheetState) => _SessionsSheet(
           sessions: _sessions,
           activeSessionId: _activeSessionId,
           onNew: () async {
-            Navigator.of(context).pop();
+            Navigator.of(sheetContext).pop();
             await _startNewSession();
           },
           onSelect: (id) async {
-            Navigator.of(context).pop();
+            Navigator.of(sheetContext).pop();
             await _switchToSession(id);
           },
           onDelete: (id) async {
@@ -786,22 +778,14 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   }
 
   /// (i)-Sheet: KI-Offenlegung (C8) + Tageskontingent. Erreichbar ueber das
-  /// (i) in der Top-Bar, den Hinweis im Leerzustand und den Quota-Pill.
+  /// (i) im Kopf, den Hinweis im Leerzustand und den Quota-Hinweis.
   void _openCoachInfoSheet() {
     HapticFeedback.selectionClick();
     final limit = _limitFuerAnzeige;
     final remaining = _restFuerAnzeige.clamp(0, limit);
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: surface,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
-      ),
-      builder: (_) => _CoachInfoSheet(
-        remaining: remaining,
-        dailyLimit: limit,
-      ),
+    showEatovaSheet<void>(
+      context,
+      _CoachInfoSheet(remaining: remaining, dailyLimit: limit),
     );
   }
 
@@ -811,72 +795,65 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     // behauptet „noch keine Unterhaltung", waehrend der Verlauf existiert
     // (Sentinel-Rest S3). Stattdessen leere Konversation + Fehler-Banner.
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
-    return DecoratedBox(
-      // Radialer Akzent-Schein hinter dem oberen Bereich (AI Coach v2).
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          center: const Alignment(0, -0.45),
-          radius: 1.1,
-          colors: [coachAccent.withValues(alpha: 0.09), Colors.transparent],
+    return Column(
+      key: const ValueKey('screen-coach'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Der Kopf bringt seinen Abstand selbst mit (Trennlinie + 14 px).
+        _CoachTopBar(
+          streak: widget.streak,
+          onInfoTap: _openCoachInfoSheet,
+          onSessionsTap: _openSessionsSheet,
         ),
-      ),
-      child: Column(
-        key: const ValueKey('screen-coach'),
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _CoachTopBar(
-            streak: widget.streak,
-            onInfoTap: _openCoachInfoSheet,
-            onSessionsTap: _openSessionsSheet,
-          ),
-          const SizedBox(height: 4),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              child: _loading
-                  ? const Center(
-                      key: ValueKey('coach-loading'),
-                      child: SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: coachAccent),
+        Expanded(
+          child: AnimatedSwitcher(
+            duration: motionDuration(context, const Duration(milliseconds: 220)),
+            child: _loading
+                ? const Center(
+                    key: ValueKey('coach-loading'),
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      // Farbe kommt aus progressIndicatorTheme (t.accent).
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : isHero
+                    ? _CoachHero(
+                        name: widget.userName,
+                        onDisclosureTap: _openCoachInfoSheet,
+                        onSuggestion: _applySuggestion,
+                      )
+                    : _Conversation(
+                        controller: _scroll,
+                        focus: _inputFocus,
+                        messages: _messages,
+                        sending: _sending,
                       ),
-                    )
-                  : isHero
-                      ? _CoachHero(
-                          name: widget.userName,
-                          onDisclosureTap: _openCoachInfoSheet,
-                        )
-                      : _Conversation(
-                          controller: _scroll,
-                          focus: _inputFocus,
-                          messages: _messages,
-                          sending: _sending,
-                        ),
-            ),
           ),
-          if (isHero) _SuggestionList(onSuggestion: _applySuggestion),
-          if (_error != null) _ErrorBanner(text: _error!),
-          const SizedBox(height: 8),
-          _Composer(
-            controller: _input,
-            focus: _inputFocus,
-            enabled: _canType,
-            canSend: _canInteract,
-            // Anzeige-Wert, keine Zustandsangabe: bei unbekanntem Stand steht
-            // hier das Standardlimit, damit der Composer weder „Limit fuer
-            // heute erreicht" noch „Noch N Fragen heute" behauptet.
-            remaining: _restFuerAnzeige,
-            draft: _draft,
-            listening: _listening,
-            onSubmit: () => _send(),
-            onMic: _toggleSpeechInput,
-            onAttach: _openAttachSheet,
-            onQuotaTap: _openCoachInfoSheet,
-          ),
-        ],
-      ),
+        ),
+        // Die Vorschlaege haengen weiter an `isHero`, sitzen jetzt aber im
+        // Hero selbst (dort koennen sie scrollen) — Begruendung in
+        // coach_hero.dart.
+        if (_error != null) _ErrorBanner(text: _error!),
+        const SizedBox(height: 8),
+        _Composer(
+          controller: _input,
+          focus: _inputFocus,
+          enabled: _canType,
+          canSend: _canInteract,
+          // Anzeige-Wert, keine Zustandsangabe: bei unbekanntem Stand steht
+          // hier das Standardlimit, damit der Composer weder „Limit fuer
+          // heute erreicht" noch „Noch N Fragen heute" behauptet.
+          remaining: _restFuerAnzeige,
+          draft: _draft,
+          listening: _listening,
+          onSubmit: () => _send(),
+          onMic: _toggleSpeechInput,
+          onAttach: _openAttachSheet,
+          onQuotaTap: _openCoachInfoSheet,
+        ),
+      ],
     );
   }
 }

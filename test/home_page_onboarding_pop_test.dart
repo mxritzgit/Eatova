@@ -27,6 +27,7 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 HomeStore _storeOf(WidgetTester tester) =>
     (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
@@ -83,7 +84,11 @@ Future<void> _pumpOnboarding(WidgetTester tester) async {
   };
   addTearDown(() => FlutterError.onError = prior);
 
+  // theme: seit dem Design-Refactor 2026-08-09 lesen Onboarding und Schale
+  // ihre Farben ueber `context.t`; AppTokens.of wirft bewusst, wenn die
+  // ThemeExtension fehlt. Die Testlogik darunter ist unveraendert.
   await tester.pumpWidget(MaterialApp(
+    theme: buildEatovaTheme(Brightness.light),
     home: EatovaHomePage(
       sync: _sync(),
       debugCache: LocalCache(InMemoryKeyValueStore(), 'user-onboarding-pop'),

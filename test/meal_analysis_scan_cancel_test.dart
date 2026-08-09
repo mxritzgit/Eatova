@@ -90,7 +90,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          theme: buildEatovaTheme(),
+          theme: buildEatovaTheme(Brightness.dark),
           home: Scaffold(
             body: SafeArea(
               child: Padding(

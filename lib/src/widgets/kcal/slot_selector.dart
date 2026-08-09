@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../models/logged_meal.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../common/motion.dart';
 import '../../theme/meal_slot_style.dart';
 
 /// Segmented-Control fuer die Slot-Wahl (Frühstück/Mittag/Abend/Snack).
@@ -65,7 +66,8 @@ class _SlotSegment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = slot.accent;
+    final t = context.t;
+    final color = slot.accentIn(context);
     // A11y: Segment als Button mit Auswahl-Zustand und vollem Slot-Namen
     // (das sichtbare Kurz-Label allein waere z.B. nur "Früh").
     return Semantics(
@@ -77,29 +79,34 @@ class _SlotSegment extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(rControl),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: motionDuration(context, const Duration(milliseconds: 160)),
           height: 56,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
           decoration: BoxDecoration(
-            color: selected ? color.withValues(alpha: 0.16) : surfaceSoft,
+            color: selected ? color.withValues(alpha: 0.16) : t.surf2,
             borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: selected ? color : hairline),
+            border: Border.all(color: selected ? color : t.line),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(slot.icon, size: 18, color: selected ? color : textMuted),
+              // Nicht die volle Slot-Farbe auf ihrer eigenen 16-%-Tint:
+              // das traegt im Hell-Modus nur 2.15:1 (Kohlenhydrat-Amber).
+              Icon(
+                slot.icon,
+                size: 18,
+                color: selected ? t.readableOnTint(color) : t.ink2,
+              ),
               const SizedBox(height: 4),
               Text(
                 slot.shortLabel,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? textPrimary : textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.1,
+                style: AppType.ui(
+                  11,
+                  weight: FontWeight.w700,
+                  color: selected ? t.ink : t.ink2,
                 ),
               ),
             ],

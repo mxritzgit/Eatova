@@ -159,6 +159,34 @@ flutter:
   assets:
     - assets/recipes/
 
+  # Zwei gebuendelte Familien (Design-Refactor 2026-08-09): Bricolage
+  # Grotesque traegt Zahlen/Ueberschriften, Archivo alles Uebrige.
+  # BEWUSST gebuendelt statt ueber das google_fonts-Paket geladen:
+  #   * kein Laufzeit-Request an fonts.gstatic.com (die Datenschutz-
+  #     erklaerung nennt keinen Google-Font-Abruf, und sie soll stimmen),
+  #   * kein Aufblitzen der Fallback-Schrift beim Kaltstart,
+  #   * offline identisch — die App hat einen Offline-Cache, die Typo
+  #     soll ihn nicht unterlaufen.
+  # Statische Schnitte (keine Variable Fonts), damit fontWeight ohne
+  # fontVariations greift. Quelle: Google Fonts, SIL OFL 1.1.
+  fonts:
+    - family: Archivo
+      fonts:
+        - asset: assets/fonts/Archivo-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Archivo-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Archivo-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Archivo-Bold.ttf
+          weight: 700
+    - family: BricolageGrotesque
+      fonts:
+        - asset: assets/fonts/BricolageGrotesque-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/BricolageGrotesque-ExtraBold.ttf
+          weight: 800
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

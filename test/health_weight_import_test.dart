@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // HealthKit-Gewichts-Import (2026-08-04): refreshHealthSteps() wertet jetzt
 // auch snapshot.latestWeightKg aus und bietet den Wert per Snack-Aktion
@@ -68,7 +69,7 @@ class _SnackCapture {
   void call(
     String message, {
     IconData icon = Icons.info_outline,
-    Color accent = Colors.white,
+    SnackTone tone = SnackTone.positive,
     Duration? duration,
     SnackBarAction? action,
   }) {

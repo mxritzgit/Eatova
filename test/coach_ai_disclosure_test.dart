@@ -32,7 +32,7 @@ Future<void> _pumpCoach(WidgetTester tester) async {
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: const MediaQuery(
         // Orb + Composer animieren sonst endlos -> pumpAndSettle liefe aus.
         data: MediaQueryData(disableAnimations: true),

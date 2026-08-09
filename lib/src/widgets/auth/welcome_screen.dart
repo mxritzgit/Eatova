@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 
 /// Boot-/Welcome-Gate der App. Waehrend ProfileSync.load() laeuft, "laedt"
@@ -12,6 +12,19 @@ import '../common/motion.dart';
 /// atmet, das "Eatova"-Wortmark trackt sich ein. Bei frischem Login folgt
 /// Check-Morph + "Willkommen, X", bei Session-Restore direkt der Fade-out
 /// in die HomePage.
+///
+/// ABSICHT — dieser Screen folgt dem Anzeige-Modus NICHT:
+/// Er ist der erste Eindruck der Marke, nicht eine Seite des Alltags. Deshalb
+/// steht er in BEIDEN Modi auf derselben Flaeche: [AppTokens.forest] als Grund,
+/// [AppTokens.lime] fuer Komet, Glow und Kapsel, [AppTokens.onForest] fuer die
+/// Schrift. Das ist erlaubt, weil genau dieses Trio in beiden Paletten
+/// kontrast-gesichert ist (`test/theme/app_tokens_test.dart` prueft
+/// onForest/forest auf WCAG AA) — es braucht also keinen Helligkeits-Abzweig,
+/// nur einen konstanten Marken-Auftritt.
+///
+/// Bitte NICHT auf `t.bg`/`t.ink` "korrigieren". Im Hellmodus wuerde daraus ein
+/// beiger Screen mit fast unsichtbarem Lime-Kometen; der Marken-Moment waere
+/// weg. `test/widgets/welcome_screen_test.dart` haelt das fest.
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
     super.key,
@@ -129,9 +142,10 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Marken-Flaeche statt Modus-Flaeche — Begruendung am Klassenkopf.
     return Scaffold(
       key: const ValueKey('screen-welcome'),
-      backgroundColor: bg,
+      backgroundColor: context.t.forest,
       body: SafeArea(
         child: AnimatedBuilder(
           animation: _exitController,
@@ -186,12 +200,21 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       staticRing: _reduceMotion,
                     ),
                     const SizedBox(height: 26),
-                    // Feste Hoehe, damit der Logo-Block beim Wechsel
-                    // Wortmark -> Willkommens-Text nicht springt.
-                    SizedBox(
-                      height: 68,
+                    // Reservierte Hoehe, damit der Logo-Block beim Wechsel
+                    // Wortmark -> Willkommens-Text nicht springt. Bewusst eine
+                    // MINDEST-Hoehe und mit der Systemschrift skaliert: bei
+                    // textScaler 2.0 braucht der zweizeilige Willkommens-Text
+                    // mehr als 68 px, und eine feste Hoehe waere dort ein
+                    // RenderFlex-Ueberlauf statt einer ruhigen Kante.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: MediaQuery.textScalerOf(context).scale(68),
+                      ),
                       child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 260),
+                        duration: motionDuration(
+                          context,
+                          const Duration(milliseconds: 260),
+                        ),
                         switchInCurve: Curves.easeOutCubic,
                         switchOutCurve: Curves.easeIn,
                         child: _showCheck
@@ -255,9 +278,10 @@ class _BootLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final capsuleSize = 72 + 12 * morph;
     final capsuleRadius = rSheet + 2 * morph;
-    final fill = Color.lerp(lime.withValues(alpha: 0.16), lime, morph)!;
+    final fill = Color.lerp(t.lime.withValues(alpha: 0.16), t.lime, morph)!;
     final scale = (0.86 + 0.14 * pop) * (1 + 0.02 * breath);
 
     return Opacity(
@@ -274,7 +298,11 @@ class _BootLogo extends StatelessWidget {
                 opacity: ringOpacity.clamp(0.0, 1.0),
                 child: CustomPaint(
                   size: const Size(94, 94),
-                  painter: _ChargeRingPainter(t: ringT, animate: !staticRing),
+                  painter: _ChargeRingPainter(
+                    t: ringT,
+                    animate: !staticRing,
+                    comet: t.lime,
+                  ),
                 ),
               ),
               Container(
@@ -286,7 +314,7 @@ class _BootLogo extends StatelessWidget {
                   boxShadow: [
                     // Naher Glow, atmet im Takt des Rings.
                     BoxShadow(
-                      color: lime.withValues(
+                      color: t.lime.withValues(
                         alpha: 0.10 + 0.08 * breath + 0.25 * morph,
                       ),
                       blurRadius: 20 + 6 * breath + 10 * morph,
@@ -294,7 +322,7 @@ class _BootLogo extends StatelessWidget {
                     ),
                     // Weiter Ambient-Halo statt separatem Hintergrund-Layer.
                     BoxShadow(
-                      color: lime.withValues(
+                      color: t.lime.withValues(
                         alpha: 0.04 + 0.03 * breath + 0.04 * morph,
                       ),
                       blurRadius: 48,
@@ -304,7 +332,8 @@ class _BootLogo extends StatelessWidget {
                 ),
               ),
               AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
+                duration:
+                    motionDuration(context, const Duration(milliseconds: 220)),
                 transitionBuilder: (child, anim) {
                   return FadeTransition(
                     opacity: anim,
@@ -324,10 +353,10 @@ class _BootLogo extends StatelessWidget {
                         key: const ValueKey('check'),
                         controller: checkController,
                       )
-                    : const Icon(
+                    : Icon(
                         Icons.bolt_rounded,
-                        key: ValueKey('bolt'),
-                        color: lime,
+                        key: const ValueKey('bolt'),
+                        color: t.lime,
                         size: 34,
                       ),
               ),
@@ -343,13 +372,22 @@ class _BootLogo extends StatelessWidget {
 /// Lime-Komet (gedimmter Schweif, heller Kopf mit weichem Glow), der
 /// die Runde entlangwandert — das Logo "laedt auf".
 class _ChargeRingPainter extends CustomPainter {
-  const _ChargeRingPainter({required this.t, required this.animate});
+  const _ChargeRingPainter({
+    required this.t,
+    required this.animate,
+    required this.comet,
+  });
 
   /// Position des Kometen-Kopfs, 0..1 = eine volle Runde.
   final double t;
 
   /// False unter reduzierter Bewegung: dann nur die statische Spur.
   final bool animate;
+
+  /// Farbe von Spur, Schweif und Kopf. Kommt als Feld herein statt aus einer
+  /// Top-Level-Konstanten, damit ein Moduswechsel die Farbe wirklich
+  /// erreicht — und damit [shouldRepaint] ihn sehen kann.
+  final Color comet;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -362,7 +400,7 @@ class _ChargeRingPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4
-        ..color = lime.withValues(alpha: 0.10),
+        ..color = comet.withValues(alpha: 0.10),
     );
     if (!animate) return;
 
@@ -378,7 +416,7 @@ class _ChargeRingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.0
         ..strokeCap = StrokeCap.round
-        ..color = lime.withValues(alpha: 0.26),
+        ..color = comet.withValues(alpha: 0.26),
     );
     // Weicher Glow unter dem Kopf, dann der scharfe Kopf selbst.
     canvas.drawPath(
@@ -387,7 +425,7 @@ class _ChargeRingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 5
         ..strokeCap = StrokeCap.round
-        ..color = lime.withValues(alpha: 0.30)
+        ..color = comet.withValues(alpha: 0.30)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
     );
     canvas.drawPath(
@@ -396,7 +434,7 @@ class _ChargeRingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.4
         ..strokeCap = StrokeCap.round
-        ..color = lime.withValues(alpha: 0.95),
+        ..color = comet.withValues(alpha: 0.95),
     );
   }
 
@@ -415,7 +453,7 @@ class _ChargeRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ChargeRingPainter old) =>
-      old.t != t || old.animate != animate;
+      old.t != t || old.animate != animate || old.comet != comet;
 }
 
 class _AnimatedCheck extends StatelessWidget {
@@ -430,7 +468,13 @@ class _AnimatedCheck extends StatelessWidget {
       builder: (context, _) {
         return CustomPaint(
           size: const Size(34, 34),
-          painter: _CheckPainter(progress: controller.value),
+          // Der Haken liegt auf der lime gefuellten Kapsel und wirkt wie ein
+          // Ausschnitt zum Grund darunter — deshalb dieselbe Marken-Flaeche
+          // wie der Scaffold, nicht der Modus-Grund.
+          painter: _CheckPainter(
+            progress: controller.value,
+            color: context.t.forest,
+          ),
         );
       },
     );
@@ -438,13 +482,17 @@ class _AnimatedCheck extends StatelessWidget {
 }
 
 class _CheckPainter extends CustomPainter {
-  const _CheckPainter({required this.progress});
+  const _CheckPainter({required this.progress, required this.color});
   final double progress;
+
+  /// Strichfarbe. Als Feld statt Konstante, damit ein Moduswechsel neu
+  /// zeichnet (siehe [shouldRepaint]).
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
     final p = Paint()
-      ..color = bg
+      ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.6
       ..strokeCap = StrokeCap.round
@@ -477,7 +525,8 @@ class _CheckPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _CheckPainter old) => old.progress != progress;
+  bool shouldRepaint(covariant _CheckPainter old) =>
+      old.progress != progress || old.color != color;
 }
 
 /// "Eatova"-Wortmark, das sich beim Intro eintrackt: Letter-Spacing
@@ -497,11 +546,11 @@ class _BootWordmark extends StatelessWidget {
         offset: Offset(0, 10 * (1 - reveal)),
         child: Text(
           'Eatova',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
+          style: AppType.display(
+            24,
+            weight: FontWeight.w800,
             letterSpacing: 3.4 - 3.8 * reveal,
-            color: textPrimary,
+            color: context.t.onForest,
           ),
         ),
       ),
@@ -516,24 +565,30 @@ class _WelcomeText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           'Willkommen, $firstName.',
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
+          textAlign: TextAlign.center,
+          style: AppType.display(
+            22,
+            weight: FontWeight.w700,
             letterSpacing: -0.4,
+            color: t.onForest,
           ),
         ),
         const SizedBox(height: 6),
-        const Text(
+        Text(
           'Du bist drin.',
-          style: TextStyle(
-            color: textMuted,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+          textAlign: TextAlign.center,
+          style: AppType.ui(
+            14,
+            weight: FontWeight.w500,
+            // Gedaempft, aber auf der Marken-Flaeche — nicht t.ink2, das ist
+            // fuer den Modus-Grund gestimmt und liefe hier gegen forest.
+            color: t.onForest.withValues(alpha: 0.62),
           ),
         ),
       ],

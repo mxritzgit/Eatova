@@ -1,8 +1,8 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Kopfbereich der Rezeptliste: Titel + Anlegen-Button, Suchfeld,
-// Kategorie-Filter-Chips und die wiederverwendete Sektions-Überschrift.
+// Kopfbereich der Rezeptliste: Seitentitel + Anlegen-Knopf, Suchfeld und die
+// waagerechte Kategorie-Filter-Leiste.
 // ---------------------------------------------------------------------------
 class _RecipesHeader extends StatelessWidget {
   const _RecipesHeader({this.onCreate});
@@ -11,68 +11,25 @@ class _RecipesHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Rezepte',
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 28,
-                  height: 1.08,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -1.0,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Clean Meals mit echten Bildern und Tracker-Werten.',
-                style: TextStyle(
-                  color: textMuted.withValues(alpha: 0.92),
-                  fontSize: 13,
-                  height: 1.45,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (onCreate != null)
-          InkWell(
-            key: const ValueKey('recipe-create-button'),
-            onTap: onCreate,
-            borderRadius: BorderRadius.circular(rCard),
-            child: Container(
-              width: 42,
-              height: 42,
-              margin: const EdgeInsets.only(right: 10),
-              decoration: BoxDecoration(
-                color: lime.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(rCard),
-                border: Border.all(color: lime.withValues(alpha: 0.36)),
-              ),
-              child: const Icon(Icons.add_rounded, color: lime, size: 22),
+    return ScreenTitle(
+      title: 'Rezepte',
+      subtitle: 'Clean Meals mit echten Bildern und Tracker-Werten.',
+      trailing: onCreate == null
+          ? null
+          : SquareIconButton(
+              key: const ValueKey('recipe-create-button'),
+              icon: Icons.add_rounded,
+              onTap: onCreate,
+              semanticLabel: 'Eigenes Rezept anlegen',
             ),
-          ),
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.circular(rCard),
-            border: Border.all(color: hairline),
-          ),
-          child: const Icon(Icons.menu_book_rounded, color: lime, size: 21),
-        ),
-      ],
     );
   }
 }
 
+/// Suchkapsel in der Sprache der Vorlage (`SearchBarField`), hier lokal
+/// nachgebaut: die Design-Bibliothek hat das Widget (noch) nicht, und der
+/// [ValueKey] muss zwingend DIREKT auf dem [TextField] sitzen —
+/// test/home_page_tabs_test.dart castet darauf.
 class _RecipeSearchField extends StatelessWidget {
   const _RecipeSearchField({required this.controller, required this.onClear});
 
@@ -86,26 +43,38 @@ class _RecipeSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Container(
-      height: 48,
+      // Abweichung von der Vorlage (`height: 48`): eine feste Hoehe plus
+      // wachsende Schrift ist ein garantierter Overflow.
+      constraints: const BoxConstraints(minHeight: 48),
       decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
+        color: t.surf,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: t.line),
       ),
       child: TextField(
         key: const ValueKey('recipes-search-input'),
         controller: controller,
         cursorOpacityAnimates: false,
-        style: const TextStyle(color: textPrimary, fontSize: 14),
-        cursorColor: lime,
+        style: AppType.ui(14, color: t.ink),
+        // Abweichung von der Vorlage (`cursorColor: t.forest`): `forest` ist
+        // im Dunkelmodus eine dunkle FLAECHE — der Cursor waere auf `surf`
+        // praktisch unsichtbar. `accent` ist der Tinten-Zwilling dazu.
+        cursorColor: t.accent,
         decoration: InputDecoration(
+          isDense: true,
           border: InputBorder.none,
-          prefixIcon:
-              const Icon(Icons.search_rounded, color: textMuted, size: 20),
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          // Waagerechter Anteil 1:1 aus der Vorlage — ohne ihn klebte der Text
+          // an der Lupe und (mit Loesch-X) am rechten Rand.
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
+          prefixIcon: Icon(Icons.search_rounded, size: 18, color: t.ink2),
+          prefixIconConstraints: const BoxConstraints(minWidth: 44),
           hintText: 'Gericht, Ziel oder Kategorie suchen',
-          hintStyle: const TextStyle(color: textMuted, fontSize: 13),
-          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          hintStyle: AppType.ui(14, color: t.ink2),
           // Der Suchtext bleibt jetzt ueber Scrollen und Tab-Wechsel stehen —
           // dann muss der User ihn auch sichtbar wieder loswerden koennen.
           // (Der Kategorie-Filter hat dafuer seinen „Alle"-Chip.)
@@ -123,11 +92,7 @@ class _RecipeSearchField extends StatelessWidget {
                   minWidth: 44,
                   minHeight: 44,
                 ),
-                icon: const Icon(
-                  Icons.close_rounded,
-                  color: textMuted,
-                  size: 18,
-                ),
+                icon: Icon(Icons.close_rounded, color: t.ink2, size: 18),
               );
             },
           ),
@@ -149,77 +114,28 @@ class _RecipeFilterChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 38,
+      // Die Leiste waechst mit der Schrift mit, statt bei 38 px zu reissen.
+      // Gedeckelt, damit sie bei doppelter Schrift nicht den halben Screen
+      // frisst.
+      height: MediaQuery.textScalerOf(context).scale(38).clamp(38.0, 80.0),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: recipeFilters.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final filter = recipeFilters[index];
-          final active = selected == filter;
-          return InkWell(
-            key: ValueKey('recipe-filter-$filter'),
-            onTap: () => onSelected(filter),
-            borderRadius: BorderRadius.circular(rPill),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: active ? lime : surface,
-                borderRadius: BorderRadius.circular(rPill),
-                border: Border.all(color: active ? lime : hairline),
-              ),
-              child: Text(
-                filter,
-                style: TextStyle(
-                  color: active ? bg : textPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+          // Die Leiste gibt ihren Kindern eine feste Hoehe; `Center` laesst
+          // dem Chip seine natuerliche Groesse und haelt ihn mittig.
+          return Center(
+            child: FilterChipPill(
+              key: ValueKey('recipe-filter-$filter'),
+              label: filter,
+              selected: selected == filter,
+              onTap: () => onSelected(filter),
             ),
           );
         },
       ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              color: textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          subtitle,
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
     );
   }
 }

@@ -15,9 +15,10 @@ import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/user_profile.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/design/design.dart';
 
 part 'recipes_header.dart';
 part 'recipe_cards.dart';
@@ -194,16 +195,19 @@ class _RecipesScreenState extends State<RecipesScreen> {
     widget.onDeleteRecipe?.call(recipe.slug);
     if (mounted) {
       showAppSnack(context, '„${recipe.title}" gelöscht.',
-          icon: Icons.delete_outline_rounded, accent: danger);
+          icon: Icons.delete_outline_rounded, tone: SnackTone.error);
     }
   }
 
   Future<void> _openCreateSheet() async {
+    // Bewusst NICHT `showEatovaSheet`: das erzwingt `showDragHandle: true`, und
+    // ein Zug AM GRIFF laeuft ueber `BottomSheet._handleDragEnd → Navigator.pop`
+    // — also weder durch das `PopScope` noch durch den `_DiscardDragGuard` im
+    // builder-Kind. Der D5-Verwerfen-Schutz haette damit ein stilles Loch.
     final recipe = await showModalBottomSheet<FitnessRecipe>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (_) => const _CreateRecipeSheet(),
     );
     if (recipe == null || !mounted) return;
@@ -213,7 +217,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     });
     widget.onCreateRecipe?.call(recipe);
     showAppSnack(context, '„${recipe.title}" gespeichert.',
-        icon: Icons.bookmark_added_rounded, accent: forgeLime);
+        icon: Icons.bookmark_added_rounded);
   }
 
   @override
@@ -230,6 +234,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ? const <FitnessRecipe>[]
         : _goalMatches(remaining);
 
+    // Feste Karussell-Hoehe plus wachsende Schrift ist bei textScaler 2.0 ein
+    // garantierter Overflow — dieselbe Technik nutzt `MacroBar` in der
+    // Design-Bibliothek.
+    final carouselHeight =
+        MediaQuery.textScalerOf(context).scale(236).clamp(236.0, 430.0);
+
     // D6: Der PageStorageKey gibt der Liste eine stabile Identitaet im
     // PageStorage der Route. Die Scrollposition wird damit beim Verlassen des
     // Tabs gesichert und beim Zurueckkehren wiederhergestellt — auch dann,
@@ -244,24 +254,24 @@ class _RecipesScreenState extends State<RecipesScreen> {
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
           _RecipesHeader(onCreate: _openCreateSheet),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _RecipeSearchField(
             controller: _searchController,
             onClear: _searchController.clear,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _RecipeFilterChips(
             selected: selectedFilter,
             onSelected: (filter) => setState(() => selectedFilter = filter),
           ),
-          const SizedBox(height: 24),
-          _SectionHeader(
+          const SizedBox(height: 18),
+          SectionHeading(
             title: 'Empfehlungen',
-            subtitle: '${_allRecipes.length} Fitness-Gerichte',
+            trailing: '${_allRecipes.length} Fitness-Gerichte',
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 256,
+            height: carouselHeight,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               clipBehavior: Clip.none,
@@ -276,10 +286,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
               },
             ),
           ),
-          const SizedBox(height: 26),
-          _SectionHeader(
+          const SizedBox(height: 22),
+          SectionHeading(
             title: selectedFilter == 'Alle' ? 'Alle Rezepte' : selectedFilter,
-            subtitle: '${visibleRecipes.length} Treffer',
+            trailing: '${visibleRecipes.length} Treffer',
           ),
           const SizedBox(height: 12),
           for (var i = 0; i < visibleRecipes.length; i++) ...[
@@ -288,20 +298,20 @@ class _RecipesScreenState extends State<RecipesScreen> {
               recipe: visibleRecipes[i],
               onTap: () => _openRecipe(visibleRecipes[i]),
             ),
-            if (i != visibleRecipes.length - 1) const SizedBox(height: 10),
+            if (i != visibleRecipes.length - 1) const SizedBox(height: 12),
           ],
           if (visibleRecipes.isEmpty) const _RecipeEmptyState(),
           // Steht bewusst NACH der Hauptliste: so bleibt die erste Rezept-Kachel
           // im initialen Viewport (Test nutzt ensureVisible ohne vorheriges Scrollen).
           if (goalMatches.isNotEmpty) ...[
-            const SizedBox(height: 26),
-            const _SectionHeader(
+            const SizedBox(height: 22),
+            const SectionHeading(
               title: 'Passt zu deinem Ziel',
-              subtitle: 'nach Restmakros',
+              trailing: 'nach Restmakros',
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 256,
+              height: carouselHeight,
               child: ListView.separated(
                 key: const ValueKey('recipe-goal-matches'),
                 scrollDirection: Axis.horizontal,

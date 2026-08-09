@@ -243,7 +243,7 @@ mixin _HomeStoreMealsPart
     _emitSnack(
       message,
       icon: Icons.check_circle_rounded,
-      accent: lime,
+      tone: SnackTone.positive,
       action: SnackBarAction(
         label: 'Rückgängig',
         onPressed: () => _revertLoggedMealUpdate(previous),

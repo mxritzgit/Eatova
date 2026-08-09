@@ -16,6 +16,7 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/meals_sync.dart'
     show MealsSync, mealResultToJson;
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // On-Demand-Laden alter Tage (2026-08-06): der Boot laedt nur das 35-Tage-
 // Fenster (MealsSync.loggedMealsWindowDays). Waehlt der Nutzer per Kalender
@@ -169,7 +170,7 @@ class _SnackCapture {
   void call(
     String message, {
     IconData icon = Icons.info_outline,
-    Color accent = Colors.white,
+    SnackTone tone = SnackTone.positive,
     Duration? duration,
     SnackBarAction? action,
   }) {

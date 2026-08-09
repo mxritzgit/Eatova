@@ -45,8 +45,12 @@ void main() {
     await tester.pumpWidget(const EatovaApp());
     await tester.pumpAndSettle();
 
+    // Design-Refactor 2026-08: die App landet auf „Heute" (Index 0); der
+    // Food-Tab wird im lazy IndexedStack erst beim ersten Besuch gebaut.
+    // Gebraucht wird hier nur IRGENDEIN Context aus dem echten App-Baum —
+    // der Landepunkt ist der stabilste.
     final context =
-        tester.element(find.byKey(const ValueKey('screen-kcal-tracker')));
+        tester.element(find.byKey(const ValueKey('screen-today')));
     expect(Localizations.localeOf(context), const Locale('de'));
 
     final l10n = MaterialLocalizations.of(context);
@@ -67,8 +71,12 @@ void main() {
     await tester.pumpWidget(const EatovaApp());
     await tester.pumpAndSettle();
 
+    // Design-Refactor 2026-08: die App landet auf „Heute" (Index 0); der
+    // Food-Tab wird im lazy IndexedStack erst beim ersten Besuch gebaut.
+    // Gebraucht wird hier nur IRGENDEIN Context aus dem echten App-Baum —
+    // der Landepunkt ist der stabilste.
     final context =
-        tester.element(find.byKey(const ValueKey('screen-kcal-tracker')));
+        tester.element(find.byKey(const ValueKey('screen-today')));
     // Gleicher Aufruf wie das Schlafziel-Feld im Settings-Sheet
     // (settings_sheet.dart, _SleepGoalField).
     unawaited(showTimePicker(

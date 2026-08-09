@@ -91,12 +91,21 @@ void main() {
     final health = _StepsHealthService(1000);
 
     await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: EatovaHomePage(
         initialUserName: 'Moritz',
         healthService: health,
       ),
     ));
+    await tester.pumpAndSettle();
+
+    // Design-Refactor 2026-08-09: die Schale landet jetzt auf „Heute" (Tab 0),
+    // der Food-Tab ist Index 1. Der TopBar-Avatar, den dieser Test seit jeher
+    // als Einstieg benutzt, haengt am Food-Tab — also erst dorthin wechseln.
+    // Geprueft wird unveraendert die _profileRefresh-Bruecke, nicht der Weg
+    // dorthin (docs/DESIGN_REFACTOR.md §6: Ablauf geaendert -> Test
+    // umgeschrieben, keine Erwartung entfernt).
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
     // ProfileScreen oeffnen (TopBar-Avatar -> _openProfile -> _profileRouteOpen
@@ -137,12 +146,17 @@ void main() {
     final health = _StepsHealthService(2000);
 
     await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: EatovaHomePage(
         initialUserName: 'Moritz',
         healthService: health,
       ),
     ));
+    await tester.pumpAndSettle();
+
+    // Erst auf den Food-Tab (Index 1 seit dem Design-Refactor), dort haengt
+    // sowohl der TopBar-Avatar als auch der Datums-Chip unten im Test.
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
     // Oeffnen + sofort wieder schliessen -> _profileRouteOpen wieder false.

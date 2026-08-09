@@ -40,8 +40,12 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final s = widget.size;
-    final warm = Color.lerp(coachAccent, coachAccentWarm, 0.6)!;
+    // Der helle Pol des Orbs. Frueher ein warmes Zweitgelb neben dem Indigo;
+    // jetzt der Marken-Akzent selbst — Forest traegt die Flaeche, Lime das
+    // Licht darauf.
+    final kern = Color.lerp(t.forest, t.lime, 0.55)!;
     return SizedBox(
       width: s,
       height: s,
@@ -59,7 +63,7 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: coachAccent.withValues(alpha: 0.3),
+                    color: t.forest.withValues(alpha: 0.22),
                     blurRadius: 40,
                     spreadRadius: 4,
                   ),
@@ -79,7 +83,7 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: SweepGradient(
-                          colors: [coachAccent, warm, coachAccent]),
+                          colors: [t.forest, t.lime, t.forest]),
                     ),
                   ),
                 ),
@@ -100,10 +104,7 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     center: const Alignment(-0.36, -0.4),
-                    colors: [
-                      Color.lerp(coachAccent, Colors.white, 0.45)!,
-                      coachAccent,
-                    ],
+                    colors: [kern, t.forest],
                     stops: const [0, 0.75],
                   ),
                 ),

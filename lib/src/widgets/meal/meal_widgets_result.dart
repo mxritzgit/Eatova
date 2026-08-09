@@ -40,20 +40,25 @@ class _MealResultCardState extends State<MealResultCard> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final result = widget.result;
     final isBarcode = result.sourceLabel == 'OpenFoodFacts';
 
     return AppCard(
       key: const ValueKey('analyse-result-card'),
+      radius: rCard,
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
+              // Die Quelle ist kein Naehrwert und kein Zustand: sie traegt
+              // deshalb den Marken-Akzent bzw. den gedaempften Ton, nicht
+              // eine Makro-Farbe (Farb-Schloss aus dem Token-Vertrag).
               StatusPill(
                 label: result.sourceLabel,
-                color: isBarcode ? cyan : orange,
+                color: isBarcode ? t.ink2 : t.accent,
               ),
               const Spacer(),
               if (widget.onToggleFavorite != null)
@@ -69,7 +74,7 @@ class _MealResultCardState extends State<MealResultCard> {
                         ? Icons.favorite_rounded
                         : Icons.favorite_outline_rounded,
                     size: 19,
-                    color: widget.isFavorite ? lime : textMuted,
+                    color: widget.isFavorite ? t.accent : t.ink2,
                   ),
                 ),
               IconButton(
@@ -77,10 +82,10 @@ class _MealResultCardState extends State<MealResultCard> {
                 onPressed: () => _showInfo(context),
                 tooltip: 'Details',
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(
+                icon: Icon(
                   Icons.info_outline_rounded,
                   size: 18,
-                  color: textMuted,
+                  color: t.ink2,
                 ),
               ),
             ],
@@ -89,12 +94,7 @@ class _MealResultCardState extends State<MealResultCard> {
           Text(
             result.mealName,
             key: const ValueKey('analyse-meal-name'),
-            style: const TextStyle(
-              fontSize: 20,
-              height: 1.15,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-            ),
+            style: AppType.display(20, color: t.ink, height: 1.15),
           ),
           const SizedBox(height: 10),
           Row(
@@ -109,11 +109,10 @@ class _MealResultCardState extends State<MealResultCard> {
               Text(
                 result.kcalPer100Label,
                 key: const ValueKey('analyse-kcal-per-100'),
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  fontFeatures: [FontFeature.tabularFigures()],
+                style: AppType.display(
+                  12,
+                  weight: FontWeight.w500,
+                  color: t.ink2,
                 ),
               ),
             ],
@@ -133,7 +132,7 @@ class _MealResultCardState extends State<MealResultCard> {
                 child: MacroTile(
                   label: 'Protein',
                   value: result.protein,
-                  color: lime,
+                  color: t.protein,
                 ),
               ),
               const SizedBox(width: 8),
@@ -141,7 +140,7 @@ class _MealResultCardState extends State<MealResultCard> {
                 child: MacroTile(
                   label: 'Carbs',
                   value: result.carbs,
-                  color: cyan,
+                  color: t.carbs,
                 ),
               ),
               const SizedBox(width: 8),
@@ -149,7 +148,7 @@ class _MealResultCardState extends State<MealResultCard> {
                 child: MacroTile(
                   label: 'Fett',
                   value: result.fat,
-                  color: macroFat,
+                  color: t.fat,
                 ),
               ),
             ],
@@ -163,8 +162,8 @@ class _MealResultCardState extends State<MealResultCard> {
                   key: const ValueKey('analyse-adjust-button'),
                   onPressed: widget.onAdjustRequested,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: textPrimary,
-                    side: const BorderSide(color: hairline),
+                    foregroundColor: t.ink,
+                    side: BorderSide(color: t.line),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(rControl),
@@ -190,11 +189,11 @@ class _MealResultCardState extends State<MealResultCard> {
                     widget.addedToDailyTotal
                         ? 'Zu heute hinzugefügt'
                         : 'Hinzufügen',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    style: AppType.ui(14, weight: FontWeight.w700),
                   ),
                   style: FilledButton.styleFrom(
-                    backgroundColor: lime,
-                    foregroundColor: bg,
+                    backgroundColor: t.forest,
+                    foregroundColor: t.onForest,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(rControl),
@@ -210,11 +209,15 @@ class _MealResultCardState extends State<MealResultCard> {
   }
 
   void _showInfo(BuildContext context) {
+    final t = context.t;
     final result = widget.result;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: surface,
+      backgroundColor: t.bg,
       showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+      ),
       builder: (sheetContext) {
         return Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
@@ -224,11 +227,7 @@ class _MealResultCardState extends State<MealResultCard> {
             children: [
               Text(
                 result.mealName,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                ),
+                style: AppType.display(18, color: t.ink),
               ),
               const SizedBox(height: 12),
               if (result.brand != null && result.brand!.isNotEmpty)
@@ -247,27 +246,27 @@ class _MealResultCardState extends State<MealResultCard> {
               Text(
                 result.portionNotes,
                 key: const ValueKey('analyse-portion-notes'),
-                style: const TextStyle(
-                  color: textPrimary,
-                  fontSize: 13,
+                style: AppType.ui(
+                  13,
+                  weight: FontWeight.w500,
+                  color: t.ink,
                   height: 1.45,
-                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: surfaceSoft,
+                  color: t.surf2,
                   borderRadius: BorderRadius.circular(rControl),
                 ),
-                child: const Text(
+                child: Text(
                   'Schätzungen sind Näherungen. Zutaten, Öl und Portion können abweichen.',
-                  style: TextStyle(
-                    color: textMuted,
-                    fontSize: 12,
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
                     height: 1.4,
-                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
@@ -287,6 +286,7 @@ class _InfoLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -296,20 +296,16 @@ class _InfoLine extends StatelessWidget {
             width: 86,
             child: Text(
               label,
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                color: textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+              style: AppType.ui(
+                13,
+                weight: FontWeight.w600,
+                color: t.ink,
                 height: 1.3,
               ),
             ),
@@ -327,6 +323,7 @@ class _PortionLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final String label;
     if (result.hasItemizedBreakdown) {
       label = result.isAdjusted
@@ -342,12 +339,7 @@ class _PortionLine extends StatelessWidget {
       padding: const EdgeInsets.only(top: 2),
       child: Text(
         label,
-        style: const TextStyle(
-          color: textMuted,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
+        style: AppType.display(12, weight: FontWeight.w500, color: t.ink2),
       ),
     );
   }
@@ -361,22 +353,16 @@ class _AnimatedKcal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: from.toDouble(), end: to.toDouble()),
-      duration: const Duration(milliseconds: 520),
+      duration: motionDuration(context, const Duration(milliseconds: 520)),
       curve: Curves.easeOutCubic,
       builder: (context, value, _) {
         return Text(
           '${value.round()} kcal',
           key: const ValueKey('analyse-kcal-range'),
-          style: const TextStyle(
-            color: orange,
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.8,
-            height: 1.0,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
+          style: AppType.display(28, color: t.ink, height: 1.0),
         );
       },
     );
@@ -410,11 +396,12 @@ class _ItemBreakdownRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Container(
       key: ValueKey('analyse-item-row-$index'),
       padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
       decoration: BoxDecoration(
-        color: surfaceSoft,
+        color: t.surf2,
         borderRadius: BorderRadius.circular(rControl),
       ),
       child: Row(
@@ -422,30 +409,17 @@ class _ItemBreakdownRow extends StatelessWidget {
           Expanded(
             child: Text(
               item.name,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
+              style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
             ),
           ),
           Text(
             item.gramsLabel,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
+            style: AppType.display(12, weight: FontWeight.w500, color: t.ink2),
           ),
           const SizedBox(width: 10),
           Text(
             item.caloriesLabel,
-            style: const TextStyle(
-              color: orange,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
+            style: AppType.display(13, weight: FontWeight.w600, color: t.ink),
           ),
         ],
       ),
@@ -467,10 +441,11 @@ class MacroTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: surfaceSoft,
+        color: t.surf2,
         borderRadius: BorderRadius.circular(rControl),
       ),
       child: Column(
@@ -478,22 +453,17 @@ class MacroTile extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
+            style: AppType.ui(
+              11,
+              weight: FontWeight.w500,
+              color: t.ink2,
               letterSpacing: 0.4,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: TextStyle(
-              color: color,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+            style: AppType.display(13, weight: FontWeight.w700, color: color),
           ),
         ],
       ),

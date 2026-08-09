@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 
 /// Apfelkuchen wie ihn `fromEdgeFunction` aus einer Antwort ohne Gramm- und
@@ -65,6 +66,7 @@ Future<List<MealAnalysisResult>> pumpItem(
   final geloggt = <MealAnalysisResult>[];
   await tester.pumpWidget(
     MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: Center(
           child: SizedBox(

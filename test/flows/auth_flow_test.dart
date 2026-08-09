@@ -1,5 +1,10 @@
 // Auth-Flows (aus test/widget_test.dart aufgeteilt): Registrierung, Login,
 // Logout und die OAuth-Buttons auf dem Auth-Screen.
+//
+// Design-Refactor 2026-08-09: Der Landepunkt nach dem Boot ist nicht mehr der
+// Food-Tab, sondern der neue Tab „Heute" (Index 0, s. eatova_home_page.dart).
+// Die Aussage dieser Tests bleibt „nach dem Auth-Flow sind wir in der App" —
+// nur der Anker wechselt von `screen-kcal-tracker` auf `screen-today`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,7 +59,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
 
     await authRepository.signOut();
     await tester.pumpAndSettle();
@@ -71,7 +76,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
   });
 
   testWidgetsRobust('Auth screen supports OAuth buttons', (WidgetTester tester) async {
@@ -84,6 +89,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-google-oauth')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
   });
 }

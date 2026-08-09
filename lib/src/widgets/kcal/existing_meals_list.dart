@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../models/logged_meal.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
+import '../design/design.dart';
 
 /// Zeigt die bereits geloggten Mahlzeiten fuer den aktuellen Slot+Tag
 /// oben im AddMealSheet — mit X-Button zum Entfernen und (wenn [onEdit]
@@ -24,21 +25,17 @@ class ExistingMealsList extends StatelessWidget {
   /// tippbar (bisheriges Verhalten).
   final ValueChanged<LoggedMeal>? onEdit;
 
-  Color get _accent => slot.accent;
-
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    final accent = slot.accentIn(context);
     final totalKcal = meals.fold<int>(
       0,
       (sum, m) => sum + m.result.caloriesKcal,
     );
-    return Container(
+    return AppCard(
       key: const ValueKey('analyse-existing-meals'),
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
+      radius: rCard,
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -51,28 +48,22 @@ class ExistingMealsList extends StatelessWidget {
                   width: 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: _accent,
+                    color: accent,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   'Schon hinzugefügt',
-                  style: TextStyle(
-                    color: textMuted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                  ),
+                  style: AppType.eyebrow(t.ink2, size: 11),
                 ),
                 const Spacer(),
                 Text(
                   '$totalKcal kcal',
-                  style: const TextStyle(
-                    color: textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                  style: AppType.display(
+                    12,
+                    weight: FontWeight.w700,
+                    color: t.ink,
                   ),
                 ),
               ],
@@ -80,8 +71,8 @@ class ExistingMealsList extends StatelessWidget {
           ),
           for (var i = 0; i < meals.length; i++) ...[
             if (i > 0)
-              const Divider(
-                color: hairline,
+              Divider(
+                color: t.line,
                 height: 1,
                 indent: 14,
                 endIndent: 14,
@@ -111,6 +102,7 @@ class _ExistingMealRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final row = Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
       child: Row(
@@ -123,21 +115,15 @@ class _ExistingMealRow extends StatelessWidget {
                   meal.result.mealName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.1,
-                  ),
+                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '${meal.result.caloriesKcal} kcal · ${meal.result.estimatedGrams} g',
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w500,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                  style: AppType.display(
+                    11.5,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
                   ),
                 ),
               ],
@@ -150,7 +136,7 @@ class _ExistingMealRow extends StatelessWidget {
               padding: const EdgeInsets.all(8),
               constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               onPressed: () => onRemove!(meal.id),
-              icon: const Icon(Icons.close_rounded, color: textMuted),
+              icon: Icon(Icons.close_rounded, color: t.ink2),
               tooltip: 'Entfernen',
             ),
         ],

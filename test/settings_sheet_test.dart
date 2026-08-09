@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
-// Settings-Sheet: sanfter BMI-Hinweis am Wunschgewicht (erscheint/verschwindet
+// „Profil & Ziele": sanfter BMI-Hinweis am Wunschgewicht (erscheint/verschwindet
 // live beim Tippen) und das DSGVO-Mindestalter 16 — dieselben Grenzen wie
 // Onboarding und DB-Constraint.
 //
@@ -12,8 +15,11 @@ import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 // einem 12-Jaehrigen ein erfundenes Alter ins Profil (und in den
 // Kalorienbedarf), ohne dass er es je erfahren haette. Seit C1 gilt fuer
 // getippte Werte durchgaengig: ablehnen, nicht verbiegen.
+//
+// Der Dateiname bleibt, obwohl der Screen seit dem Design-Refactor 2026-08-09
+// kein Sheet mehr ist: ein Umbenennen sieht in der Historie wie Loeschen aus.
 void main() {
-  Future<Future<SettingsResult?>> openSheet(
+  Future<Future<SettingsResult?>> openSettings(
     WidgetTester tester, {
     required UserProfile profile,
   }) async {
@@ -32,13 +38,18 @@ void main() {
     late Future<SettingsResult?> result;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.light),
         home: Scaffold(
           body: Builder(
             builder: (context) => Center(
               child: FilledButton(
                 key: const ValueKey('open-settings'),
                 onPressed: () {
-                  result = showSettingsSheet(context, profile: profile);
+                  result = Navigator.of(context).push<SettingsResult>(
+                    MaterialPageRoute<SettingsResult>(
+                      builder: (_) => SettingsScreen(profile: profile),
+                    ),
+                  );
                 },
                 child: const Text('open'),
               ),
@@ -55,7 +66,7 @@ void main() {
   testWidgets(
       'BMI hint appears for a low target weight and disappears again',
       (tester) async {
-    await openSheet(
+    await openSettings(
       tester,
       profile: const UserProfile(heightCm: 178, targetWeightKg: 70),
     );
@@ -92,7 +103,7 @@ void main() {
 
   testWidgets('Alter unter 16 blockiert das Speichern (DSGVO Art. 8)',
       (tester) async {
-    final resultFuture = await openSheet(
+    final resultFuture = await openSettings(
       tester,
       profile: const UserProfile(),
     );
@@ -108,8 +119,10 @@ void main() {
     expect(find.text('16–100 Jahre'), findsOneWidget);
     expect(
       tester
-          .widget<FilledButton>(find.byKey(const ValueKey('settings-save')))
-          .onPressed,
+          .widget<PrimaryActionButton>(
+            find.byKey(const ValueKey('settings-save')),
+          )
+          .onTap,
       isNull,
     );
 

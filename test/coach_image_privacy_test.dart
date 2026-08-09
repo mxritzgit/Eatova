@@ -199,7 +199,7 @@ Future<void> _pumpCoach(
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
         child: Scaffold(

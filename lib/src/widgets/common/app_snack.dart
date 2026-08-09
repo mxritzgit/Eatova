@@ -2,14 +2,32 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import 'motion.dart';
 
 /// Standard-Toast-Dauern — bewusst kurz, damit nichts „hängen bleibt".
+///
+/// Das sind STANDZEITEN, keine Bewegung: sie laufen bewusst NICHT über
+/// [motionDuration]. Unter „Bewegung reduzieren" auf 0 gesetzt wäre der Toast
+/// weg, bevor ihn jemand lesen kann — ein Verhaltensfehler, kein A11y-Fix.
 const Duration kSnackShort = Duration(milliseconds: 1600); // einfache Bestätigung
 const Duration kSnackAction = Duration(milliseconds: 2200); // mit Aktion (Undo) —
 // kurz genug, dass der Toast klar von selbst verschwindet, lang genug um die
 // „Rückgängig"-Aktion noch zu treffen.
 const Duration kSnackError = Duration(milliseconds: 3000);
+
+/// Bedeutung statt Farbe. Der [HomeStore] und andere nicht-visuelle Schichten
+/// sagen, WAS ein Toast ist — welcher Ton dazu gehoert, entscheidet das Theme.
+/// Vorher reichten sie `Color`-Konstanten durch; das schloss den Hell-Modus
+/// aus und streute Design-Entscheidungen in die Logik.
+enum SnackTone { positive, neutral, warning, error }
+
+Color _toneColor(AppTokens t, SnackTone tone) => switch (tone) {
+      SnackTone.positive => t.lime,
+      SnackTone.neutral => t.ink2,
+      SnackTone.warning => t.warning,
+      SnackTone.error => t.danger,
+    };
 
 /// Zeigt einen kurzen, floating Toast. Entfernt IMMER zuerst den aktuellen
 /// Toast, damit sich Snackbars bei schnellen Aktionen NICHT stapeln. Optionales
@@ -27,13 +45,19 @@ void showAppSnack(
   BuildContext context,
   String message, {
   IconData? icon,
-  Color accent = lime,
+  SnackTone tone = SnackTone.positive,
+  Color? accent,
   SnackBarAction? action,
   Duration? duration,
 }) {
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
   messenger.removeCurrentSnackBar();
+  // Der Toast liegt auf der Marken-Flaeche (snackBarTheme), das Icon traegt
+  // deshalb den Lime-Akzent — nicht den Karten-Akzent, der hier unsichtbar
+  // waere. [accent] bleibt als direkte Uebersteuerung erhalten, solange noch
+  // nicht migrierte Flaechen eine Farbe durchreichen.
+  final effectiveAccent = accent ?? _toneColor(context.t, tone);
   final effective = duration ?? (action != null ? kSnackAction : kSnackShort);
   messenger.showSnackBar(
     SnackBar(
@@ -44,7 +68,7 @@ void showAppSnack(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
-              _SnackIcon(icon: icon, accent: accent),
+              _SnackIcon(icon: icon, accent: effectiveAccent),
               const SizedBox(width: 10),
             ],
             Flexible(child: Text(message)),
@@ -115,7 +139,7 @@ class _SnackIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0.5, end: 1.0),
-      duration: const Duration(milliseconds: 260),
+      duration: motionDuration(context, const Duration(milliseconds: 260)),
       curve: Curves.easeOutBack,
       builder: (context, t, child) => Transform.scale(scale: t, child: child),
       child: Container(

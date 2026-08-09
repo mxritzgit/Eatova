@@ -17,7 +17,7 @@ import 'package:eatova/src/theme/app_theme.dart';
 
 Future<void> _pumpAuth(WidgetTester tester, InMemoryAuthRepository repo) async {
   await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(),
+    theme: buildEatovaTheme(Brightness.dark),
     home: AuthScreen(authRepository: repo),
   ));
   await tester.pumpAndSettle();
@@ -30,7 +30,7 @@ Future<void> _pumpCode(
   String email = 'user@example.com',
 }) async {
   await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(),
+    theme: buildEatovaTheme(Brightness.dark),
     home: AuthCodeScreen(
       authRepository: repo,
       flow: flow,

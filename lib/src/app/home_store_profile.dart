@@ -252,14 +252,14 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
         if (!_disposed) {
           _emitSnack(profileSyncErrorMessage(e),
               icon: Icons.error_outline_rounded,
-              accent: danger,
+              tone: SnackTone.error,
               duration: kSnackError);
         }
       }
     }
     if (resetDay && !_disposed) {
       _emitSnack('Tagesdaten zurückgesetzt.',
-          icon: Icons.restart_alt_rounded, accent: orange);
+          icon: Icons.restart_alt_rounded, tone: SnackTone.warning);
     }
   }
 
@@ -274,7 +274,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
   void resetTodayData() {
     _mutate(_clearTodayState);
     _emitSnack('Tagesdaten zurückgesetzt.',
-        icon: Icons.restart_alt_rounded, accent: orange);
+        icon: Icons.restart_alt_rounded, tone: SnackTone.warning);
   }
 
   Future<void> completeOnboarding(UserProfile finished) async {
@@ -297,7 +297,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
       if (!_disposed) {
         _emitSnack(profileSyncErrorMessage(e),
             icon: Icons.error_outline_rounded,
-            accent: danger,
+            tone: SnackTone.error,
             duration: kSnackError);
       }
     }

@@ -94,7 +94,7 @@ Future<void> _settle(WidgetTester tester) async {
 
 Future<void> _pump(WidgetTester tester, _Svc svc) async {
   await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(),
+    theme: buildEatovaTheme(Brightness.dark),
     home: Scaffold(body: CoachChatScreen(service: svc, userName: 'Moritz')),
   ));
   await _settle(tester);

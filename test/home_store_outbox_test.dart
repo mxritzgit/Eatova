@@ -20,7 +20,7 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart'
     show outboxDeleteLossHint, outboxLossHint;
 import 'package:eatova/src/services/sync_outbox.dart';
-import 'package:eatova/src/theme/app_colors.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // DATA-7 Datenverlust-Fix: ein fehlgeschlagener Sync-Write rollt den lokalen
 // State NICHT mehr zurueck (der Eintrag des Nutzers war sonst WEG), sondern
@@ -234,17 +234,17 @@ class _FakeServer {
 
 class _SnackCapture {
   final List<String> messages = <String>[];
-  final List<Color> accents = <Color>[];
+  final List<SnackTone> tones = <SnackTone>[];
 
   void call(
     String message, {
     IconData icon = Icons.info_outline,
-    Color accent = Colors.white,
+    SnackTone tone = SnackTone.positive,
     Duration? duration,
     SnackBarAction? action,
   }) {
     messages.add(message);
-    accents.add(accent);
+    tones.add(tone);
   }
 
   Iterable<String> get offlineHints =>
@@ -341,9 +341,9 @@ void main() {
     expect(s.snacks.offlineHints, hasLength(1));
     expect(s.snacks.offlineHints.single,
         'Offline — wird synchronisiert, sobald du wieder online bist.');
-    final accent = s.snacks.accents[
+    final ton = s.snacks.tones[
         s.snacks.messages.indexWhere((m) => m.startsWith('Offline'))];
-    expect(accent, isNot(danger), reason: 'kein Rot-Alarm');
+    expect(ton, isNot(SnackTone.error), reason: 'kein Rot-Alarm');
   });
 
   test(

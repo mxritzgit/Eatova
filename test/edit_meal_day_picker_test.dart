@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/day_math.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 
 // B5: Sommerzeit-Umstellung ueberspringt einen Tag — die Stelle im
@@ -297,6 +298,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: buildEatovaTheme(Brightness.dark),
           home: Scaffold(
             body: Builder(
               builder: (context) => Center(

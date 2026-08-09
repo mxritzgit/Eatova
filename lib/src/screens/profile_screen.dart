@@ -10,9 +10,10 @@ import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/health_service.dart';
 import '../services/secure_screen.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
+import '../widgets/design/design.dart';
 import '../widgets/profile/profile_widgets.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -62,138 +63,156 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final streak = stats.effectiveStreakOn(DateTime.now());
+
     // Gesundheitsdaten (Gewicht, BMI, Verlauf) nicht ins App-Switcher-
     // Vorschaubild / Recents-Thumbnail leaken (Sicherheits-Audit 2026-08-09).
     return SecureScreenGuard(
       child: Scaffold(
-      backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        scrolledUnderElevation: 0,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('profile-close'),
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            color: textPrimary,
-            size: 20,
+        body: SafeArea(
+          child: LivelyEntrance(
+            // Bewusst SingleChildScrollView + Column statt des ListView aus der
+            // Design-Vorlage: ein ListView mountet nur die sichtbaren Kinder,
+            // und mehrere Tests greifen ohne vorheriges Scrollen auf weit unten
+            // liegende Karten zu (Schritte-Wert, Health-Refresh, Export-Zeile).
+            child: SingleChildScrollView(
+              key: const ValueKey('screen-profile'),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  PageHeader(
+                    title: 'Mein Profil',
+                    backKey: const ValueKey('profile-close'),
+                    // Das Zahnrad ruft denselben Callback wie die Zeile
+                    // „Profil & Ziele" — die Schale entscheidet, ob daraus ein
+                    // Sheet oder eine Route wird.
+                    trailing: SquareIconButton(
+                      key: const ValueKey('profile-open-settings'),
+                      icon: Icons.settings_outlined,
+                      semanticLabel: 'Einstellungen',
+                      onTap: onEditProfile,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  IdentityCard(name: name, profile: profile),
+                  const SizedBox(height: 14),
+                  ProfileStatRow(
+                    left: ProfileStatTile(
+                      label: 'STREAK',
+                      value: '$streak',
+                      unit: streak == 1 ? 'Tag' : 'Tage',
+                    ),
+                    right: ProfileStatTile(
+                      label: 'MAHLZEITEN',
+                      value: '${stats.mealsLogged}',
+                      unit: 'gesamt',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ProfileStatRow(
+                    left: ProfileStatTile(
+                      label: 'REKORD',
+                      value: '${stats.longestStreak}',
+                      unit: stats.longestStreak == 1 ? 'Tag' : 'Tage',
+                    ),
+                    right: ProfileStatTile(
+                      label: 'WIEGEN',
+                      value: '${stats.weightLogs}',
+                      unit: 'Einträge',
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  const SectionHeading(title: 'Dein Plan'),
+                  const SizedBox(height: 12),
+                  GoalPlanCard(profile: profile, onEdit: onEditProfile),
+                  const SizedBox(height: 22),
+                  const SectionHeading(title: 'Körper'),
+                  const SizedBox(height: 12),
+                  WeightCard(
+                    profile: profile,
+                    log: weightLog,
+                    onLogWeight: onLogWeight,
+                  ),
+                  const SizedBox(height: 12),
+                  BmiCard(profile: profile, log: weightLog),
+                  const SizedBox(height: 22),
+                  const SectionHeading(title: 'Tagesziele'),
+                  const SizedBox(height: 12),
+                  GoalsCard(
+                    profile: profile,
+                    dailyKcal: dailyConsumedKcal,
+                    dailySteps: dailySteps,
+                    onEdit: onEditProfile,
+                  ),
+                  const SizedBox(height: 22),
+                  SectionHeading(
+                    title: 'Fortschritt',
+                    trailing: formatSessionDuration(stats.sessionDuration),
+                  ),
+                  const SizedBox(height: 12),
+                  AchievementsGrid(
+                    stats: stats,
+                    trackingStreak: streak,
+                    weightLogs: weightLog.entries.length,
+                    favoritesCount: favoritesCount,
+                  ),
+                  const SizedBox(height: 22),
+                  const SectionHeading(title: 'Verbindungen'),
+                  const SizedBox(height: 12),
+                  HealthConnectionCard(
+                    state: healthAuthState,
+                    lastFetch: healthLastFetch,
+                    onConnect: onConnectHealth,
+                    onRefresh: onRefreshHealth,
+                  ),
+                  const SizedBox(height: 22),
+                  // Jeder andere Block traegt seine Abschnittszeile; ohne
+                  // diese stuenden Export, Ausloggen und „Konto löschen" als
+                  // einzige Gruppe unbeschriftet da.
+                  const SectionHeading(title: 'Daten & Konto'),
+                  const SizedBox(height: 12),
+                  ProfileActionsCard(
+                    onEditProfile: onEditProfile,
+                    onResetDay: () {
+                      Navigator.maybePop(context);
+                      onResetDay();
+                    },
+                    onExport: () => _showExportSheet(context),
+                    onAbout: () => _showAboutSheet(context),
+                    onSignOut: onSignOut == null
+                        ? null
+                        : () async {
+                            Navigator.maybePop(context);
+                            await onSignOut!.call();
+                          },
+                    onDeleteAccount: onDeleteAccount == null
+                        ? null
+                        : () => _confirmDeleteAccount(context),
+                  ),
+                  const SizedBox(height: 18),
+                  const _FooterCredit(),
+                ],
+              ),
+            ),
           ),
-          onPressed: () => Navigator.maybePop(context),
         ),
-        title: const Text(
-          'Mein Profil',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.2,
-          ),
-        ),
-        centerTitle: false,
       ),
-      body: SafeArea(
-        top: false,
-        child: LivelyEntrance(
-          child: SingleChildScrollView(
-            key: const ValueKey('screen-profile'),
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-            child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Identitaets-Header: Avatar + Name freistehend (keine Karte)
-              // mit Stat-Leiste — der Anker des Screens, wie ihn moderne
-              // Profil-Screens setzen. Danach gruppieren Eyebrow-Labels die
-              // Karten in Sektionen statt einer generischen Kartenliste.
-              ProfileHero(
-                name: name,
-                streak: stats.effectiveStreakOn(DateTime.now()),
-                mealsLogged: stats.mealsLogged,
-                weightKg:
-                    weightLog.latest?.weightKg ?? profile.weightKg.toDouble(),
-              ),
-              const SizedBox(height: 24),
-              const _SectionLabel('Dein Plan'),
-              GoalPlanCard(profile: profile, onEdit: onEditProfile),
-              const SizedBox(height: 14),
-              GoalsOverviewCard(
-                profile: profile,
-                dailyKcal: dailyConsumedKcal,
-                dailySteps: dailySteps,
-                onEdit: onEditProfile,
-              ),
-              const SizedBox(height: 22),
-              const _SectionLabel('Körper'),
-              BodyStatsCard(
-                profile: profile,
-                log: weightLog,
-                onLogWeight: onLogWeight,
-              ),
-              const SizedBox(height: 14),
-              WeightHistoryCard(log: weightLog, accent: lime),
-              const SizedBox(height: 22),
-              const _SectionLabel('Fortschritt'),
-              LifetimeStatsCard(stats: stats),
-              const SizedBox(height: 14),
-              AchievementsGrid(
-                stats: stats,
-                trackingStreak: stats.effectiveStreakOn(DateTime.now()),
-                weightLogs: weightLog.entries.length,
-                favoritesCount: favoritesCount,
-              ),
-              const SizedBox(height: 22),
-              const _SectionLabel('Verbindungen'),
-              HealthConnectionCard(
-                state: healthAuthState,
-                lastFetch: healthLastFetch,
-                onConnect: onConnectHealth,
-                onRefresh: onRefreshHealth,
-              ),
-              const SizedBox(height: 22),
-              const _SectionLabel('Daten & Konto'),
-              ProfileActionsCard(
-                onEditProfile: onEditProfile,
-                onResetDay: () {
-                  Navigator.maybePop(context);
-                  onResetDay();
-                },
-                onExport: () => _showExportSheet(context),
-                onAbout: () => _showAboutSheet(context),
-                onSignOut: onSignOut == null
-                    ? null
-                    : () async {
-                        Navigator.maybePop(context);
-                        await onSignOut!.call();
-                      },
-                onDeleteAccount: onDeleteAccount == null
-                    ? null
-                    : () => _confirmDeleteAccount(context),
-              ),
-              const SizedBox(height: 18),
-              const _FooterCredit(),
-            ],
-          ),
-          ),
-        ),
-      ),
-    ),
     );
   }
 
   Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final t = context.t;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: surface,
-        title: const Text(
-          'Konto wirklich löschen?',
-          style: TextStyle(color: textPrimary),
-        ),
+        title: const Text('Konto wirklich löschen?'),
         content: const Text(
           'Dein Account und ALLE Daten (Profil, Mahlzeiten, Gewicht, Schlaf, '
           'Coach-Verlauf) werden unwiderruflich gelöscht. Das lässt sich nicht '
           'rückgängig machen.',
-          style: TextStyle(color: textMuted),
         ),
-        actions: [
+        actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Abbrechen'),
@@ -201,7 +220,7 @@ class ProfileScreen extends StatelessWidget {
           TextButton(
             key: const ValueKey('confirm-delete-account'),
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: danger),
+            style: TextButton.styleFrom(foregroundColor: t.danger),
             child: const Text('Endgültig löschen'),
           ),
         ],
@@ -216,7 +235,10 @@ class ProfileScreen extends StatelessWidget {
     final voll = onBuildFullExport;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: surface,
+      backgroundColor: context.t.bg,
+      // Das Theme setzt global `false`; hier steht der Griff aber an der Route
+      // richtig, weil das Sheet selbst ein DraggableScrollableSheet ist und
+      // keinen eigenen Kopfbereich hat.
       showDragHandle: true,
       isScrollControlled: true,
       builder: (_) => _ExportSheet(
@@ -232,12 +254,7 @@ class ProfileScreen extends StatelessWidget {
   }
 
   void _showAboutSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: surface,
-      showDragHandle: true,
-      builder: (_) => const _AboutSheet(),
-    );
+    showEatovaSheet<void>(context, const _AboutSheet());
   }
 
   String _buildSnapshot() {
@@ -303,6 +320,7 @@ class _ExportSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return DraggableScrollableSheet(
       initialChildSize: 0.65,
       minChildSize: 0.4,
@@ -327,101 +345,89 @@ class _ExportSheet extends StatelessWidget {
                             '(Art. 15/20 DSGVO).'
                         : 'In-Memory Snapshot deiner aktuellen Session als '
                             'JSON.';
-            return Padding(
+            // EIN Scroller fuer das ganze Sheet (Kopf + JSON), getrieben vom
+            // Controller des DraggableScrollableSheet. Vorher trug der Kopf
+            // seine natuerliche Hoehe und der JSON-Block sass in einem
+            // `Expanded` mit eigenem Scroller: bei doppelter Systemschrift
+            // wuchs der Kopf ueber die Sheet-Hoehe hinaus und die Spalte
+            // ueberlief (gemessen: 63 px). So kann sie das konstruktiv nicht
+            // mehr — und der Ziehgriff zieht jetzt am gesamten Inhalt.
+            return SingleChildScrollView(
+              controller: controller,
+              // AlwaysScrollable: ein kurzer Snapshot fuellt das Sheet nicht
+              // aus. Ohne diese Physik nimmt der Scroller die Zieh-Geste dann
+              // gar nicht erst an — und das DraggableScrollableSheet, das
+              // genau daran haengt, liesse sich nicht mehr groesser/kleiner
+              // ziehen.
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                children: <Widget>[
                   Row(
-                    children: [
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
                       Expanded(
                         child: Text(
                           vollstaendig ? 'Datenauskunft' : 'Daten Snapshot',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.4,
-                          ),
+                          style: AppType.display(20, color: t.ink),
                         ),
                       ),
-                      OutlinedButton.icon(
-                        key: const ValueKey('profile-export-copy'),
-                        onPressed: laedt
-                            ? null
-                            : () async {
-                                await Clipboard.setData(
-                                    ClipboardData(text: text));
-                                if (context.mounted) {
-                                  showAppSnack(
-                                      context, 'Export in Zwischenablage',
-                                      icon: Icons.content_copy_rounded,
-                                      accent: cyan);
-                                }
-                              },
-                        icon: const Icon(Icons.copy_rounded, size: 14),
-                        label: const Text(
-                          'Kopieren',
-                          style: TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w600),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: lime,
-                          side: BorderSide(color: lime.withValues(alpha: 0.4)),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(rControl),
-                          ),
-                        ),
+                      const SizedBox(width: 10),
+                      _CopyButton(
+                        enabled: !laedt,
+                        onCopy: () async {
+                          await Clipboard.setData(ClipboardData(text: text));
+                          if (context.mounted) {
+                            showAppSnack(
+                              context,
+                              'Export in Zwischenablage',
+                              icon: Icons.content_copy_rounded,
+                            );
+                          }
+                        },
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
                     untertitel,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                    style: AppType.ui(
+                      12,
+                      weight: FontWeight.w500,
+                      color: t.ink2,
+                      height: 1.4,
                     ),
                   ),
                   const SizedBox(height: 14),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: surfaceSoft,
-                        borderRadius: BorderRadius.circular(rCard),
-                        border: Border.all(color: hairline),
-                      ),
-                      child: laedt
-                          ? const Center(
+                  AppCard(
+                    padding: const EdgeInsets.all(14),
+                    color: t.surf2,
+                    child: laedt
+                        // Feste Hoehe waehrend des Ladens: ohne den JSON-Text
+                        // schrumpfte die Karte sonst auf den Spinner zusammen
+                        // und das Sheet saehe nach einem Fehler aus.
+                        ? const SizedBox(
+                            height: 180,
+                            child: Center(
                               child: SizedBox(
                                 width: 28,
                                 height: 28,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2.5),
-                              ),
-                            )
-                          : SingleChildScrollView(
-                              controller: controller,
-                              child: SelectableText(
-                                text,
-                                style: const TextStyle(
-                                  color: textPrimary,
-                                  fontSize: 11.5,
-                                  fontFeatures: [
-                                    FontFeature.tabularFigures()
-                                  ],
-                                  height: 1.45,
+                                  strokeWidth: 2.5,
                                 ),
                               ),
                             ),
-                    ),
+                          )
+                        : SelectableText(
+                            text,
+                            style: AppType.display(
+                              11.5,
+                              weight: FontWeight.w400,
+                              color: t.ink,
+                              height: 1.45,
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -429,6 +435,57 @@ class _ExportSheet extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+/// Der „Kopieren"-Knopf des Export-Sheets. Gesperrt, solange die Auskunft
+/// laedt — sonst landete der Platzhalter in der Zwischenablage.
+class _CopyButton extends StatelessWidget {
+  const _CopyButton({required this.enabled, required this.onCopy});
+
+  final bool enabled;
+  final Future<void> Function() onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    // `enabled` explizit an die Semantik: gesperrt heisst gedaempft UND fuer
+    // den Screenreader hoerbar gesperrt — sonst kuendigt er einen Knopf an,
+    // der waehrend des Ladens nichts tut.
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.4,
+        child: Material(
+          key: const ValueKey('profile-export-copy'),
+          color: t.forest,
+          borderRadius: BorderRadius.circular(rChip),
+          child: InkWell(
+            onTap: enabled ? onCopy : null,
+            borderRadius: BorderRadius.circular(rChip),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.copy_rounded, size: 14, color: t.onForest),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Kopieren',
+                    style: AppType.ui(
+                      12,
+                      weight: FontWeight.w700,
+                      color: t.onForest,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -457,57 +514,49 @@ class _AboutSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final t = context.t;
+    // Scrollbar statt starr: bei doppelter Systemschrift ist der Block aus
+    // Beschreibung, Version, Build, Quellen und Datenschutz-Zeile hoeher als
+    // der Bildschirm (gemessen: 251 px Ueberlauf). Der Datenschutz-Link steht
+    // ganz unten — genau der Teil, der nie abgeschnitten werden darf.
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: <Widget>[
           Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: lime.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: const Icon(Icons.bolt_rounded, color: lime, size: 22),
+            children: <Widget>[
+              IconTile(
+                icon: Icons.bolt_rounded,
+                color: t.accent,
+                size: 44,
               ),
               const SizedBox(width: 12),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Eatova',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.4,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('Eatova', style: AppType.display(20, color: t.ink)),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Ernährung. Tracking. Coach.',
+                      style: AppType.ui(
+                        12,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Ernährung. Tracking. Coach.',
-                    style: TextStyle(
-                      color: textMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'Kalorien und Makros ohne Reibung tracken — per KI-Foto-Scan, '
             'Barcode und Produktsuche, mit einem persönlichen Ernährungs-Coach.',
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 13,
-              height: 1.45,
-            ),
+            style: AppType.ui(13, color: t.ink2, height: 1.45),
           ),
           const SizedBox(height: 16),
           FutureBuilder<PackageInfo>(
@@ -516,7 +565,7 @@ class _AboutSheet extends StatelessWidget {
               final info = snapshot.data;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                children: <Widget>[
                   _AboutRow(label: 'Version', value: info?.version ?? '—'),
                   const SizedBox(height: 6),
                   _AboutRow(label: 'Build', value: info?.buildNumber ?? '—'),
@@ -542,6 +591,7 @@ class _PrivacyLinkRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return InkWell(
       key: const ValueKey('profile-privacy-link'),
       onTap: () => launchUrl(
@@ -552,28 +602,21 @@ class _PrivacyLinkRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: surfaceSoft,
+          color: t.surf,
           borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(color: hairline),
+          border: Border.all(color: t.line),
         ),
         child: Row(
-          children: [
-            const Icon(Icons.shield_outlined, color: textMuted, size: 16),
+          children: <Widget>[
+            Icon(Icons.shield_outlined, color: t.ink2, size: 16),
             const SizedBox(width: 10),
-            const Expanded(
+            Expanded(
               child: Text(
                 'Datenschutzerklärung',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
               ),
             ),
-            Icon(
-              Icons.open_in_new_rounded,
-              color: textMuted.withValues(alpha: 0.7),
-              size: 15,
-            ),
+            Icon(Icons.open_in_new_rounded, color: t.ink2, size: 15),
           ],
         ),
       ),
@@ -589,51 +632,22 @@ class _AboutRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
-      children: [
+      children: <Widget>[
         Text(
           label,
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
+          style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
         ),
-        const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(
-            color: textPrimary,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Eyebrow-Label einer Profil-Sektion (Stil von FieldLabel: klein,
-/// versal, gesperrte Laufweite) — die Gruppierung, die dem Screen bisher
-/// fehlte: vorher stand Karte an Karte ohne erkennbare Ordnung.
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 10),
-      child: Text(
-        text.toUpperCase(),
-        style: const TextStyle(
-          color: textMuted,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1.1,
-        ),
-      ),
     );
   }
 }
@@ -643,6 +657,7 @@ class _FooterCredit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // Gleiche PackageInfo-Future wie das Ueber-Sheet: kein zweiter
     // Plattform-Roundtrip, und die Versionsnummer kann nie mehr von der
     // pubspec abweichen. Ohne Daten (laufende Future/Test) nur die Wortmarke.
@@ -653,10 +668,14 @@ class _FooterCredit extends StatelessWidget {
           final version = snapshot.data?.version;
           return Text(
             version == null ? 'Eatova' : 'Eatova · v$version',
-            style: TextStyle(
-              color: textMuted.withValues(alpha: 0.6),
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
+            style: AppType.ui(
+              11,
+              weight: FontWeight.w500,
+              // Ohne Zusatz-Transparenz: `ink2` ist bereits der gedaempfte
+              // Ton und exakt auf 4.5:1 ausgelegt. Ein weiteres 0.7 druecken
+              // die Versionszeile im Hell-Modus auf 2.55:1 — das ist normaler
+              // Text, kein deaktiviertes Bedienelement, also ohne Ausnahme.
+              color: t.ink2,
               letterSpacing: 0.4,
             ),
           );

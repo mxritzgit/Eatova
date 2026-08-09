@@ -1,53 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/app_colors.dart';
-
-class AppCard extends StatelessWidget {
-  const AppCard({
-    super.key,
-    required this.child,
-    this.padding = EdgeInsets.zero,
-    this.radius,
-    this.elevated = true,
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-
-  /// Override the corner radius. Defaults to [rCard]; pass [rSheet] for the
-  /// occasional large container that should read as a panel.
-  final double? radius;
-
-  /// Soft tinted elevation. On by default for the premium-dark depth; turn it
-  /// off for cards that sit directly on another elevated surface.
-  final bool elevated;
-
-  @override
-  Widget build(BuildContext context) {
-    final r = radius ?? rCard;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(r),
-        boxShadow: elevated ? cardShadow : null,
-      ),
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          // Faint lit top edge fading into the card body — physical, not flat.
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [cardSheenTop, surface],
-            stops: [0.0, 0.55],
-          ),
-          borderRadius: BorderRadius.circular(r),
-          border: Border.all(color: hairline),
-        ),
-        child: child,
-      ),
-    );
-  }
-}
+import '../../theme/app_tokens.dart';
 
 class StatusPill extends StatelessWidget {
   const StatusPill({super.key, required this.label, required this.color});
@@ -66,11 +19,11 @@ class StatusPill extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
+        style: AppType.ui(
+          11,
+          weight: FontWeight.w700,
           color: color,
-          fontSize: 11,
           letterSpacing: 0.3,
-          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -85,24 +38,21 @@ class MetricChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: surfaceSoft,
+        color: t.surf2,
         borderRadius: BorderRadius.circular(rChip),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: textMuted),
+          Icon(icon, size: 14, color: t.ink2),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
-              color: textPrimary,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+            style: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
           ),
         ],
       ),
@@ -118,6 +68,7 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Row(
@@ -125,20 +76,12 @@ class SectionHeader extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
+              style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
             ),
           ),
           Text(
             action,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+            style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
           ),
         ],
       ),
@@ -153,14 +96,6 @@ class FieldLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-        color: textMuted,
-        fontWeight: FontWeight.w600,
-        fontSize: 11,
-        letterSpacing: 0.8,
-      ),
-    );
+    return Text(text, style: AppType.eyebrow(context.t.ink2, size: 11));
   }
 }

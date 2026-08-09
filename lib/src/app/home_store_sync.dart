@@ -153,7 +153,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _emitSnack(
       directSyncErrorMessage(error),
       icon: Icons.error_outline_rounded,
-      accent: danger,
+      tone: SnackTone.error,
       duration: kSnackError,
     );
   }
@@ -254,7 +254,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _emitSnack(
       queuedSyncHint(error),
       icon: offline ? Icons.cloud_off_rounded : Icons.sync_problem_rounded,
-      accent: textMuted,
+      tone: SnackTone.neutral,
     );
   }
 
@@ -294,7 +294,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _emitSnack(
       deletesLost ? outboxDeleteLossHint : outboxLossHint,
       icon: Icons.sync_problem_rounded,
-      accent: danger,
+      tone: SnackTone.error,
       duration: kSnackError,
     );
   }
@@ -719,7 +719,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _emitSnack(
       label,
       icon: Icons.delete_outline_rounded,
-      accent: danger,
+      tone: SnackTone.error,
       action: SnackBarAction(label: 'Rückgängig', onPressed: onUndo),
     );
   }

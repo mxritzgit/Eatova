@@ -55,28 +55,33 @@ class _RecipeField {
 /// gehoeren zusammen nach lib/src/widgets/common/, sobald jemand den Import in
 /// recipes_screen.dart setzen darf.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
+  final t = context.t;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       key: const ValueKey('discard-changes-dialog'),
-      backgroundColor: surface,
-      title: const Text(
-        'Änderungen verwerfen?',
-        style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+      backgroundColor: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
       ),
-      content: const Text(
+      title: Text(
+        'Änderungen verwerfen?',
+        style: AppType.display(19, color: t.ink),
+      ),
+      content: Text(
         'Dein Rezept ist noch nicht gespeichert.',
-        style: TextStyle(color: textMuted),
+        style: AppType.ui(13, color: t.ink2, height: 1.4),
       ),
       actions: [
         TextButton(
           key: const ValueKey('discard-changes-cancel'),
+          style: TextButton.styleFrom(foregroundColor: t.ink2),
           onPressed: () => Navigator.of(dialogContext).pop(false),
           child: const Text('Weiter bearbeiten'),
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
-          style: TextButton.styleFrom(foregroundColor: danger),
+          style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: const Text('Verwerfen'),
         ),
@@ -365,14 +370,18 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   }
 
   Widget _buildSheet(BuildContext context) {
+    final t = context.t;
+    // Der Rumpf ist der SheetScaffold-Optik nachgebaut statt sie zu benutzen:
+    // `SheetScaffold` kennt keinen Key an der Fussaktion, und der
+    // Speichern-Knopf muss ein `FilledButton` mit `recipe-create-save` bleiben.
     return Container(
       key: const ValueKey('recipe-create-sheet'),
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.92,
       ),
-      decoration: const BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+      decoration: BoxDecoration(
+        color: t.bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -385,33 +394,23 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 width: 42,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: hairline,
+                  color: t.line,
                   borderRadius: BorderRadius.circular(rPill),
                 ),
               ),
             ),
             const SizedBox(height: 18),
-            const Text(
+            Text(
               'Eigenes Rezept',
-              style: TextStyle(
-                color: textPrimary,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-              ),
+              style: AppType.display(24, color: t.ink, height: 1.15),
             ),
-            const SizedBox(height: 4),
-            const Text(
+            const SizedBox(height: 6),
+            Text(
               'Name, Kalorien und Gewicht genügen — Makros sind optional.',
-              style: TextStyle(
-                color: textMuted,
-                fontSize: 12.5,
-                height: 1.4,
-                fontWeight: FontWeight.w500,
-              ),
+              style: AppType.ui(12.5, color: t.ink2, height: 1.45),
             ),
             const SizedBox(height: 18),
-            _Field(
+            _RecipeSheetField(
               fieldKey: const ValueKey('recipe-create-name'),
               controller: _name,
               label: 'Name',
@@ -419,7 +418,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               maxChars: _nameMaxChars,
             ),
             const SizedBox(height: 12),
-            _Field(
+            _RecipeSheetField(
               fieldKey: const ValueKey('recipe-create-portion'),
               controller: _portion,
               label: 'Portion',
@@ -430,7 +429,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: _Field(
+                  child: _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-kcal'),
                     controller: _kcal,
                     label: 'Kalorien',
@@ -441,7 +440,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _Field(
+                  child: _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-grams'),
                     controller: _grams,
                     label: 'Gewicht',
@@ -457,7 +456,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: _Field(
+                  child: _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-protein'),
                     controller: _protein,
                     label: 'Protein',
@@ -468,7 +467,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _Field(
+                  child: _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-carbs'),
                     controller: _carbs,
                     label: 'KH',
@@ -479,7 +478,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _Field(
+                  child: _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-fat'),
                     controller: _fat,
                     label: 'Fett',
@@ -491,7 +490,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               ],
             ),
             const SizedBox(height: 12),
-            _Field(
+            _RecipeSheetField(
               fieldKey: const ValueKey('recipe-create-ingredients'),
               controller: _ingredients,
               label: 'Zutaten',
@@ -499,28 +498,28 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               maxLines: 4,
             ),
             const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: FilledButton.icon(
-                key: const ValueKey('recipe-create-save'),
-                onPressed: _isValid ? _save : null,
-                icon: const Icon(Icons.check_rounded, size: 19),
-                label: const Text(
-                  'Rezept speichern',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.1,
-                  ),
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: lime,
-                  foregroundColor: bg,
-                  disabledBackgroundColor: surfaceSoft,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(rControl),
-                  ),
+            // Bleibt ein `FilledButton` mit `onPressed: _isValid ? _save : null`
+            // — recipe_create_sheet_test castet darauf und liest
+            // `onPressed == null` als Sperrsignal. Nur der Stil wandert auf die
+            // Fussaktion der neuen Sheet-Sprache.
+            FilledButton.icon(
+              key: const ValueKey('recipe-create-save'),
+              onPressed: _isValid ? _save : null,
+              icon: const Icon(Icons.check_rounded, size: 18),
+              label: Text(
+                'Rezept speichern',
+                style: AppType.ui(14.5, weight: FontWeight.w700),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: t.forest,
+                foregroundColor: t.onForest,
+                disabledBackgroundColor: t.surf2,
+                disabledForegroundColor: t.ink2,
+                // `minimumSize` statt fester Hoehe: bei doppelter Schrift waere
+                // die Beschriftung sonst hoeher als der Knopf.
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
             ),
@@ -531,8 +530,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   }
 }
 
-class _Field extends StatelessWidget {
-  const _Field({
+/// Beschriftetes Eingabefeld in der Optik von `SheetField`, hier lokal
+/// nachgebaut: das Bibliotheks-Widget kennt (noch) weder einen Key auf dem
+/// inneren [TextField] noch `maxLines`/`maxLength`/`inputFormatters` — und der
+/// [ValueKey] muss zwingend direkt am [TextField] sitzen, weil
+/// recipe_create_sheet_test darauf castet.
+class _RecipeSheetField extends StatelessWidget {
+  const _RecipeSheetField({
     required this.fieldKey,
     required this.controller,
     required this.label,
@@ -563,30 +567,88 @@ class _Field extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      key: fieldKey,
-      cursorOpacityAnimates: false,
-      controller: controller,
-      maxLines: maxLines,
-      maxLength: maxChars,
-      keyboardType: numeric ? TextInputType.number : TextInputType.text,
-      inputFormatters:
-          numeric ? [FilteringTextInputFormatter.digitsOnly] : null,
-      textCapitalization: numeric
-          ? TextCapitalization.none
-          : TextCapitalization.sentences,
-      style: const TextStyle(color: textPrimary, fontSize: 14),
-      cursorColor: lime,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        suffixText: suffix,
-        errorText: errorText,
-        errorStyle: const TextStyle(fontSize: 11, height: 1.2),
-        // Der Zeichenzaehler waere hier nur Rauschen — gekuerzt wird ohnehin
-        // sichtbar, weil die Eingabe an der Grenze stehen bleibt.
-        counterText: '',
-      ),
+    final t = context.t;
+    final hasError = errorText != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label.toUpperCase(), style: AppType.eyebrow(t.ink2, size: 9.5)),
+        const SizedBox(height: 7),
+        Container(
+          decoration: BoxDecoration(
+            color: t.surf,
+            borderRadius: BorderRadius.circular(rControl),
+            border: Border.all(color: hasError ? t.danger : t.line),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                // Die Beschriftung steht als eigene Versalien-Zeile UEBER dem
+                // Feld statt als `InputDecoration.labelText` darin. Optisch ist
+                // das die neue Sprache — fuer den Screenreader waere das Feld
+                // damit aber unbeschriftet („Textfeld, leer"), waehrend es
+                // vorher „Kalorien" ansagte. Die Annotation holt den Bezug
+                // zurueck, ohne die Optik anzufassen.
+                child: Semantics(
+                  label: label,
+                  child: TextField(
+                    key: fieldKey,
+                    cursorOpacityAnimates: false,
+                    controller: controller,
+                    maxLines: maxLines,
+                    maxLength: maxChars,
+                    keyboardType:
+                        numeric ? TextInputType.number : TextInputType.text,
+                    inputFormatters: numeric
+                        ? [FilteringTextInputFormatter.digitsOnly]
+                        : null,
+                    textCapitalization: numeric
+                        ? TextCapitalization.none
+                        : TextCapitalization.sentences,
+                    style: AppType.ui(14, color: t.ink),
+                    cursorColor: t.accent,
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                      hintText: hint,
+                      hintStyle: AppType.ui(14, color: t.ink2),
+                      // Der Zeichenzaehler waere hier nur Rauschen — gekuerzt
+                      // wird ohnehin sichtbar, weil die Eingabe an der Grenze
+                      // stehen bleibt.
+                      counterText: '',
+                    ),
+                  ),
+                ),
+              ),
+              if (suffix != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(
+                    suffix!,
+                    style: AppType.ui(
+                      12.5,
+                      weight: FontWeight.w600,
+                      color: t.ink2,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (hasError) ...[
+          const SizedBox(height: 6),
+          Text(
+            errorText!,
+            style: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
+          ),
+        ],
+      ],
     );
   }
 }

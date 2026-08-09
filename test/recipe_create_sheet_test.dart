@@ -6,6 +6,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 // D5: Sheets verwerfen ausgefuellte Formulare kommentarlos.
 //
@@ -67,6 +68,7 @@ class _CreateCapture {
 Future<void> _openSheet(WidgetTester tester, _CreateCapture capture) async {
   await tester.pumpWidget(
     MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: RecipesScreen(
           onAddMeal: (MealAnalysisResult _, MealSlot __) {},

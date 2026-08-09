@@ -29,6 +29,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 /// Viewport-Pinning + Overflow-Toleranz wie in den uebrigen Widget-Suiten.
@@ -94,6 +95,10 @@ Future<void> _oeffne(
   final result = _ergebnis(postenAnzahl: postenAnzahl);
   await tester.pumpWidget(
     MaterialApp(
+      // Seit dem Design-Refactor lesen die Anpassen-Flaechen ihre Farben aus
+      // der AppTokens-ThemeExtension; ein blankes MaterialApp-Theme traegt sie
+      // nicht und AppTokens.of wirft dann bewusst.
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(

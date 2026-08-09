@@ -19,12 +19,14 @@ import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/recipes/recipes_screen.dart';
-import '../theme/app_colors.dart';
-import '../widgets/app_shell/eatova_bottom_nav.dart';
+import '../screens/settings/settings_screen.dart';
+import '../screens/today/today_screen.dart';
+import '../theme/app_tokens.dart';
 import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/common/store_selector.dart';
+import '../widgets/design/design.dart';
 import '../widgets/kcal/edit_meal_sheet.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'home_store.dart';
@@ -239,34 +241,41 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   void _emitSnack(
     String message, {
     IconData icon = Icons.info_outline_rounded,
-    Color accent = forgeLime,
+    SnackTone tone = SnackTone.positive,
     Duration? duration,
     SnackBarAction? action,
   }) {
     if (!mounted) return;
     if (duration != null) {
       showAppSnack(context, message,
-          icon: icon, accent: accent, duration: duration, action: action);
+          icon: icon, tone: tone, duration: duration, action: action);
     } else {
-      showAppSnack(context, message,
-          icon: icon, accent: accent, action: action);
+      showAppSnack(context, message, icon: icon, tone: tone, action: action);
     }
   }
 
   // --- context-tragende Flows (Sheets / Navigation) ------------------------
 
+  /// Die Einstellungen sind seit dem Design-Refactor 2026-08-09 eine ROUTE,
+  /// kein modales Sheet mehr (Begruendung: settings_screen.dart). Der
+  /// Rueckgabewert bleibt [SettingsResult], die Verarbeitung darunter also
+  /// unveraendert.
   Future<void> _openSettings() async {
-    final result = await showSettingsSheet(
-      context,
-      profile: _store.profile,
-      notificationsEnabled: _store.notificationsEnabled,
-      // D11: ohne diese Zeile erreicht der dritte Zustand `blocked` das Sheet
-      // nie — der Schalter zeigte weiter „Aktiv. Du bekommst gezielte Nudges",
-      // waehrend das OS gar nichts zustellt. `onOpenSystemSettings` bleibt
-      // offen, solange das Projekt keinen Weg dorthin hat (url_launcher baut
-      // nur ACTION_VIEW, Settings.ACTION_APP_NOTIFICATION_SETTINGS ist eine
-      // Action ohne URI); das Sheet zeigt dann nur den Text.
-      reminderState: _store.reminderState,
+    final result = await Navigator.of(context).push<SettingsResult>(
+      MaterialPageRoute<SettingsResult>(
+        builder: (_) => SettingsScreen(
+          profile: _store.profile,
+          notificationsEnabled: _store.notificationsEnabled,
+          // D11: ohne diese Zeile erreicht der dritte Zustand `blocked` den
+          // Screen nie — der Schalter zeigte weiter „Aktiv. Du bekommst
+          // gezielte Nudges", waehrend das OS gar nichts zustellt.
+          // `onOpenSystemSettings` bleibt offen, solange das Projekt keinen
+          // Weg dorthin hat (url_launcher baut nur ACTION_VIEW,
+          // Settings.ACTION_APP_NOTIFICATION_SETTINGS ist eine Action ohne
+          // URI); der Screen zeigt dann nur den Text.
+          reminderState: _store.reminderState,
+        ),
+      ),
     );
     if (result == null || !mounted) return;
     await _store.applySettings(
@@ -393,20 +402,21 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             _store.setTab(0);
           },
           child: Scaffold(
-            backgroundColor: bg,
-            // Food-Tab (0): Eingabe läuft nur über das modale AddMealSheet, das
+            backgroundColor: context.t.bg,
+            // Food-Tab (1): Eingabe läuft nur über das modale AddMealSheet, das
             // seine Tastatur-Anpassung selbst macht. Würde der Home-Scaffold
             // zusätzlich resizen, schöbe sich der Hintergrund sichtbar hinter
             // dem halbtransparenten Barrier. Andere Tabs behalten das
             // Default-Verhalten.
-            resizeToAvoidBottomInset: tab != 0,
-            bottomNavigationBar: EatovaBottomNav(
-              selectedIndex: tab,
-              onSelected: (index) => _store.setTab(index),
+            resizeToAvoidBottomInset: tab != _tabFood,
+            bottomNavigationBar: AppNavBar(
+              index: tab,
+              onChanged: (index) => _store.setTab(index),
+              items: _navItems,
             ),
-            // Alle Tabs (Food/Rezepte/Coach) haben eigene scroll-faehige
-            // Inhalte + fixierte Eingabe-Bereiche - die brauchen feste Hoehe
-            // und keinen aeusseren SingleChildScrollView.
+            // Alle Tabs haben eigene scroll-faehige Inhalte + fixierte
+            // Eingabe-Bereiche - die brauchen feste Hoehe und keinen
+            // aeusseren SingleChildScrollView.
             body: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
@@ -421,8 +431,43 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
   // --- Tabs (D6) ------------------------------------------------------------
 
-  /// Zahl der Tabs: 0 = Food (Default), 1 = Rezepte, 2 = Coach.
-  static const int _tabCount = 3;
+  /// Tab-Ordnung seit dem Design-Refactor 2026-08-09:
+  /// 0 = Heute (Landepunkt), 1 = Food, 2 = Rezepte, 3 = Coach.
+  ///
+  /// „Heute" ist zurueck, aber mit anderer Aufgabe als der 2026-08-03
+  /// entfernte gleichnamige Tab: damals doppelte er den Food-Tab, jetzt
+  /// traegt er den Tagesueberblick (Kalorien-Hero, Makros, Streak) und der
+  /// Food-Tab wird zum reinen Tagebuch.
+  static const int _tabHeute = 0;
+  static const int _tabFood = 1;
+  static const int _tabRezepte = 2;
+  static const int _tabCoach = 3;
+  static const int _tabCount = 4;
+
+  /// Die Labels tragen zugleich die Testschluessel (`nav-Food` & Co.) —
+  /// deshalb bleiben „Food", „Rezepte" und „Coach" wortgleich.
+  static const List<AppNavItem> _navItems = <AppNavItem>[
+    AppNavItem(
+      icon: Icons.home_outlined,
+      activeIcon: Icons.home_rounded,
+      label: 'Heute',
+    ),
+    AppNavItem(
+      icon: Icons.restaurant_outlined,
+      activeIcon: Icons.restaurant_rounded,
+      label: 'Food',
+    ),
+    AppNavItem(
+      icon: Icons.menu_book_outlined,
+      activeIcon: Icons.menu_book_rounded,
+      label: 'Rezepte',
+    ),
+    AppNavItem(
+      icon: Icons.auto_awesome_outlined,
+      activeIcon: Icons.auto_awesome_rounded,
+      label: 'Coach',
+    ),
+  ];
 
   /// Tabs, die schon einmal sichtbar waren (D6, Lazy-Building).
   final Set<int> _mountedTabs = <int>{};
@@ -494,11 +539,59 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         child: LivelyEntrance(
           key: ValueKey('lively-tab-$index'),
           child: switch (index) {
-            1 => _recipesTab(),
-            2 => _coachTab(),
-            _ => _foodTab(),
+            _tabFood => _foodTab(),
+            _tabRezepte => _recipesTab(),
+            _tabCoach => _coachTab(),
+            _ => _todayTab(),
           },
         ),
+      );
+
+  /// Der Tagesueberblick. Eigene, engere Selector-Slice als der Food-Tab:
+  /// „Heute" zeigt zusaetzlich Streak und Name, braucht aber weder Favoriten
+  /// noch die Analyzer-Dienste.
+  Widget _todayTab() => StoreSelector(
+        store: _store,
+        selector: () => (
+          _store.selectedFoodDate,
+          _store.loggedMeals,
+          _store.profile,
+          _store.dailySteps,
+          _store.userName,
+          _store.lifetimeStats,
+          _store.isLoadingFoodDay(_store.selectedFoodDate),
+          _store.selectedFoodDateIsToday,
+        ),
+        builder: (context) {
+          assert(_countTabBuild(_tabHeute));
+          final tag = _store.selectedFoodDate;
+          return TodayScreen(
+            userName: _store.userName,
+            profile: _store.profile,
+            selectedDate: tag,
+            consumedKcal: _store.consumedKcalForFoodDate(tag),
+            macroProgress: _store.macroProgressForFoodDate(tag),
+            meals: _store.mealsForFoodDate(tag),
+            dayLoading: _store.isLoadingFoodDay(tag),
+            // Identisch zum Food-Tab: an einem Archivtag gibt es keine
+            // belastbare Schrittzahl, deshalb 0 statt einer Scheinangabe.
+            burnedKcal: _store.selectedFoodDateIsToday
+                ? estimateKcalBurnedFromSteps(
+                    steps: _store.dailySteps,
+                    weightKg: _store.profile.weightKg,
+                    heightCm: _store.profile.heightCm,
+                    sex: _store.profile.sex,
+                  )
+                : 0,
+            streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
+            profileInitial: _store.profileInitial,
+            onDateSelected: _store.setFoodDate,
+            onOpenCoach: () => _store.setTab(_tabCoach),
+            onOpenProfile: _openProfile,
+            onLogFood: () => _store.setTab(_tabFood),
+            onOpenMealSlot: (_) => _store.setTab(_tabFood),
+          );
+        },
       );
 
   // MealEditScope reicht die Bearbeiten-Callbacks des Stores an der
@@ -524,7 +617,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.selectedFoodDateIsToday,
         ),
         builder: (context) {
-          assert(_countTabBuild(0));
+          assert(_countTabBuild(_tabFood));
           return MealEditScope(
             onUpdateMeal: _store.updateLoggedMealDetails,
             onRemoveMeal: _store.removeLoggedMeal,
@@ -578,7 +671,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.macroProgress,
         ),
         builder: (context) {
-          assert(_countTabBuild(1));
+          assert(_countTabBuild(_tabRezepte));
           return RecipesScreen(
             // Kein hartes foodDate mehr: addResultToDailyTotal faellt auf das
             // im Store gewaehlte selectedFoodDate zurueck (Closure liest den
@@ -630,7 +723,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.loggedMeals,
         ),
         builder: (context) {
-          assert(_countTabBuild(2));
+          assert(_countTabBuild(_tabCoach));
           // C8 (KI-Offenlegung) liegt vollstaendig in den Coach-Screens: der
           // Composer-Platzhalter nennt die KI durchgaengig, der Leerzustand
           // traegt einen antippbaren Hinweis, und das (i)-Sheet listet auf,

@@ -21,6 +21,7 @@ import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/meals_sync.dart'
     show mealResultFromJson, mealResultToJson;
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
@@ -74,6 +75,7 @@ void main() {
     final geloggt = <MealAnalysisResult>[];
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.dark),
         home: Scaffold(
           body: AddMealSheet(
             slot: MealSlot.snack,
@@ -137,6 +139,7 @@ void main() {
     final geloggt = <MealAnalysisResult>[];
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.dark),
         home: Scaffold(
           body: AddMealSheet(
             slot: MealSlot.snack,

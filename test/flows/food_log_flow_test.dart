@@ -111,13 +111,33 @@ void main() {
       findsOneWidget,
     );
 
+    // Den Bestaetigungs-Toast ablaufen lassen. Seit dem Design-Refactor reicht
+    // das Tagebuch bis an den Seitenfuss, und der Toast liegt genau dort ueber
+    // der untersten Zeile — der Wisch traefe sonst die Snackbar.
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+
     // Von rechts nach links swipen -> Lösch-Aktion erscheint -> antippen.
+    //
+    // ensureVisible ist ebenfalls neu noetig: die Eintraege liegen jetzt in
+    // der Slot-Karte ihres Slots, und welcher das ist, entscheidet die
+    // Uhrzeit-Heuristik. Ab der dritten Karte sitzt die Zeile im scrollbaren
+    // Bereich unter dem Falz — ohne ensureVisible haenge der Test an der
+    // CI-Uhrzeit.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('food-history-entry-0')),
+    );
+    await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const ValueKey('food-history-entry-0')),
       const Offset(-300, 0),
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('food-history-delete-0')), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('food-history-delete-0')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-history-delete-0')));
     await tester.pumpAndSettle();
 

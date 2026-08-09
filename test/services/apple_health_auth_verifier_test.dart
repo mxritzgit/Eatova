@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
 // REVIEW B3 — "verweigerte Berechtigung sieht aus wie 0 Schritte".
@@ -202,6 +203,12 @@ void main() {
     Future<void> pumpCard(WidgetTester tester, HealthAuthState state) async {
       await tester.pumpWidget(
         MaterialApp(
+          // Design-Refactor 2026-08-09: die Karte liest ihre Farben ueber
+          // `AppTokens.of`, und das wirft absichtlich, wenn die ThemeExtension
+          // fehlt (Verdrahtungs-Detektor). Ein nacktes MaterialApp haengt sie
+          // nicht ans Theme — deshalb hier das echte App-Theme. Keine einzige
+          // Erwartung dieser sechs Faelle wurde angefasst.
+          theme: buildEatovaTheme(Brightness.dark),
           home: Scaffold(
             body: HealthConnectionCard(
               state: state,

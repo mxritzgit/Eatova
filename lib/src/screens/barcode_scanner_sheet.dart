@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../services/crash_reporter.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
 
 /// Oeffnet den Barcode-Scanner als animiertes Bottom-Panel (~60% Hoehe) im
 /// gleichen Rahmen wie die KI-Scan-Kamera ([MealCameraSheet]) — gleitet von
@@ -115,9 +115,11 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
       child: SizedBox(
         height: panelHeight,
         child: Container(
-          decoration: const BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+          decoration: BoxDecoration(
+            color: context.t.bg,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(rSheet),
+            ),
           ),
           clipBehavior: Clip.antiAlias,
           child: Column(
@@ -242,7 +244,13 @@ class _ScanFrame extends StatelessWidget {
       height: 132,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: forgeLime.withValues(alpha: 0.9), width: 2),
+        // Der Rahmen liegt AUF dem Kamerabild: `lime` traegt dort in beiden
+        // Anzeige-Modi, `accent` waere im Hell-Modus dunkelgruen auf dunklem
+        // Bild.
+        border: Border.all(
+          color: context.t.lime.withValues(alpha: 0.9),
+          width: 2,
+        ),
       ),
     );
   }
@@ -265,7 +273,7 @@ class _TorchButton extends StatelessWidget {
         return Material(
           key: const ValueKey('barcode-torch'),
           color: on
-              ? forgeLime.withValues(alpha: 0.92)
+              ? context.t.lime.withValues(alpha: 0.92)
               : Colors.black.withValues(alpha: 0.45),
           shape: const CircleBorder(),
           child: InkWell(
@@ -292,13 +300,14 @@ class _ScannerLoadingLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: bg,
+    final t = context.t;
+    return ColoredBox(
+      color: t.bg,
       child: Center(
         child: SizedBox(
           width: 26,
           height: 26,
-          child: CircularProgressIndicator(strokeWidth: 2, color: forgeLime),
+          child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
         ),
       ),
     );
@@ -310,25 +319,26 @@ class _ScannerFailedLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: bg,
+    final t = context.t;
+    return ColoredBox(
+      color: t.bg,
       child: Center(
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.no_photography_outlined, color: textMuted, size: 32),
-              SizedBox(height: 12),
+              Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
+              const SizedBox(height: 12),
               Text(
                 'Kamera nicht verfügbar. Prüfe die Kamera-Berechtigung in den '
                 'Einstellungen.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 13.5,
+                style: AppType.ui(
+                  13.5,
+                  weight: FontWeight.w500,
+                  color: t.ink,
                   height: 1.4,
-                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
@@ -341,6 +351,12 @@ class _ScannerFailedLayer extends StatelessWidget {
 
 /// Sanfte dunkle Verlaeufe oben/unten, damit Hinweis-Pill + Torch-Button auf
 /// hellen Kamerabildern lesbar bleiben (deckungsgleich mit MealCameraSheet).
+///
+/// Die harten `Colors.black`/`Colors.white` in diesem Overlay bleiben bewusst
+/// stehen und sind KEIN vergessener Token: sie liegen auf einem LIVE-Kamerabild
+/// und nicht auf einer Theme-Flaeche. Ein token-gefaerbter Scrim wuerde im
+/// Hell-Modus zu einem hellen Schleier auf einem beliebig hellen Bild — genau
+/// die Lesbarkeit, die er herstellen soll, waere dahin.
 class _EdgeScrim extends StatelessWidget {
   const _EdgeScrim();
 
@@ -377,7 +393,7 @@ class _SheetHandle extends StatelessWidget {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: hairline,
+          color: context.t.line,
           borderRadius: BorderRadius.circular(rPill),
         ),
       ),
@@ -392,26 +408,22 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 2, 6, 2),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Barcode scannen',
-              style: TextStyle(
-                color: textPrimary,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
+              style: AppType.display(17, color: t.ink),
             ),
           ),
           IconButton(
             key: const ValueKey('barcode-close-button'),
             onPressed: onClose,
             tooltip: 'Schließen',
-            icon: const Icon(Icons.close_rounded, color: textMuted),
+            icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
       ),

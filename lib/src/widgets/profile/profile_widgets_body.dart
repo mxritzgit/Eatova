@@ -1,7 +1,10 @@
 part of 'profile_widgets.dart';
 
-class BodyStatsCard extends StatelessWidget {
-  const BodyStatsCard({
+/// Die Gewichts-Karte: grosse aktuelle Zahl, Delta-Pille, Verlaufslinie ueber
+/// die echte Historie, darunter der Fortschritt Richtung Wunschgewicht — und
+/// als Abschluss die Aktion „Gewicht loggen".
+class WeightCard extends StatelessWidget {
+  const WeightCard({
     super.key,
     required this.profile,
     required this.log,
@@ -12,169 +15,200 @@ class BodyStatsCard extends StatelessWidget {
   final WeightLog log;
   final ValueChanged<double> onLogWeight;
 
-  double get _bmi {
-    final m = profile.heightCm / 100.0;
-    if (m <= 0) return 0;
-    final w = log.latest?.weightKg ?? profile.weightKg.toDouble();
-    return w / (m * m);
-  }
+  double get _current => log.latest?.weightKg ?? profile.weightKg.toDouble();
 
   @override
   Widget build(BuildContext context) {
-    final latest = log.latest;
+    final t = context.t;
+    final entries = log.entries;
+    final hatVerlauf = entries.length >= 2;
     final delta = log.trendDelta;
-    final weightValue = latest?.weightKg ?? profile.weightKg.toDouble();
-    final bmi = _bmi;
-    final bmiLabel = BMIGaugePainter.labelFor(bmi);
-    final bmiColor = BMIGaugePainter.colorFor(bmi);
 
-    return AppCard(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Körper',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-              _InfoButton(
-                onTap: () => _showBmiInfoSheet(context),
-                tooltip: 'BMI-Erklärung',
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        AppCard(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      weightValue.toStringAsFixed(1),
-                      style: const TextStyle(
-                        fontSize: 38,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -1.4,
-                        height: 1,
-                        fontFeatures: [FontFeature.tabularFigures()],
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      'Gewicht',
+                      style: AppType.display(
+                        17,
+                        weight: FontWeight.w700,
+                        color: t.ink,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'kg · aktuelles Gewicht',
-                      style: TextStyle(
-                        color: textMuted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                  ),
+                  Flexible(
+                    child: Text(
+                      hatVerlauf ? '${entries.length} Messungen' : '–',
+                      textAlign: TextAlign.right,
+                      style: AppType.ui(
+                        11.5,
+                        weight: FontWeight.w600,
+                        color: t.ink2,
                       ),
                     ),
-                    if (delta != null) ...[
-                      const SizedBox(height: 8),
-                      _DeltaPill(delta: delta),
-                    ],
-                    const SizedBox(height: 14),
-                    _BodyMetric(
-                      icon: Icons.height_rounded,
-                      label: '${profile.heightCm} cm',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: <Widget>[
+                          Text(
+                            formatKgDe(_current),
+                            style: AppType.display(34, color: t.ink),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'kg',
+                            style: AppType.ui(
+                              13,
+                              weight: FontWeight.w600,
+                              color: t.ink2,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 6),
-                    _BodyMetric(
-                      icon: Icons.cake_outlined,
-                      label: '${profile.ageYears} J. · ${profile.sex.label}',
-                    ),
+                  ),
+                  if (delta != null) ...<Widget>[
+                    const SizedBox(width: 10),
+                    _DeltaPill(delta: delta),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              // A11y: Verlaufslinie ist nur gezeichnet -> Spanne als Sprachwert.
+              Semantics(
+                label: 'Gewichtsverlauf',
+                value: hatVerlauf
+                    ? '${entries.length} Messungen, '
+                        'zuletzt ${formatKgDe(entries.last.weightKg)} kg'
+                    : 'Noch keine Verlaufslinie',
+                child: hatVerlauf
+                    ? RepaintBoundary(
+                        child: Sparkline(
+                          values: <double>[
+                            for (final e in entries) e.weightKg,
+                          ],
+                        ),
+                      )
+                    // Unter zwei Messungen zeichnet die Sparkline nichts —
+                    // eine leere 74-px-Flaeche saehe wie ein Ladefehler aus.
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Text(
+                          'Logge dein Gewicht regelmäßig für eine '
+                          'Verlaufslinie.',
+                          style: AppType.ui(12, color: t.ink2, height: 1.4),
+                        ),
+                      ),
+              ),
+              if (hatVerlauf) ...<Widget>[
+                const SizedBox(height: 6),
+                Row(
+                  children: <Widget>[
+                    _Caption(_formatShort(entries.first.timestamp)),
+                    const Spacer(),
+                    _Caption(_formatShort(entries.last.timestamp)),
                   ],
                 ),
-              ),
-              SizedBox(
-                width: 140,
-                height: 110,
-                // A11y: Gauge ist reines CustomPaint -> Wert + Zone ansagen.
-                child: Semantics(
-                  label: 'BMI',
-                  value: '${bmi.toStringAsFixed(1)} · $bmiLabel',
-                  child: RepaintBoundary(
-                    child: CustomPaint(painter: BMIGaugePainter(bmi: bmi)),
-                  ),
-                ),
-              ),
+              ],
+              ..._buildGoalProgress(context),
             ],
           ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: bmiColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(rControl),
-              border: Border.all(color: bmiColor.withValues(alpha: 0.32)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: bmiColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'BMI $bmiLabel',
-                    style: TextStyle(
-                      color: bmiColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.2,
+        ),
+        const SizedBox(height: 12),
+        PrimaryActionButton(
+          key: const ValueKey('profile-log-weight'),
+          label: 'Gewicht loggen',
+          icon: Icons.add_rounded,
+          height: 48,
+          onTap: () => _promptWeight(context),
+        ),
+      ],
+    );
+  }
+
+  /// Fortschritt vom ERSTEN gemessenen Gewicht zum Wunschgewicht.
+  ///
+  /// Liegt das Ziel praktisch auf dem Startwert („halten"), faellt die Zeile
+  /// ganz weg: ein 100-%-Balken fuer ein Ziel, das keines ist, waere eine
+  /// erfundene Erfolgsmeldung — und (start − ziel) waere zugleich der Nenner
+  /// einer Division durch Null.
+  List<Widget> _buildGoalProgress(BuildContext context) {
+    final t = context.t;
+    final start = log.entries.isNotEmpty
+        ? log.entries.first.weightKg
+        : profile.weightKg.toDouble();
+    final ziel = profile.targetWeightKg.toDouble();
+    final spanne = (start - ziel).abs();
+    if (spanne < 0.1) return const <Widget>[];
+
+    // Laeuft das Gewicht in die falsche Richtung, klemmt der Wert auf 0 —
+    // gewollt, ein negativer Balken hilft niemandem.
+    final fortschritt = ((start - _current) / (start - ziel)).clamp(0.0, 1.0);
+    final prozent = (fortschritt * 100).round();
+
+    return <Widget>[
+      const SizedBox(height: 14),
+      Divider(height: 1, thickness: 1, color: t.line),
+      const SizedBox(height: 14),
+      Semantics(
+        label: 'Ziel Fortschritt',
+        value: '$prozent %',
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'Ziel ${formatKgDe(ziel)} kg',
+                    style: AppType.ui(
+                      11.5,
+                      weight: FontWeight.w600,
+                      color: t.ink,
                     ),
                   ),
-                ),
-                Text(
-                  bmi.toStringAsFixed(1),
-                  style: TextStyle(
-                    color: bmiColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                  const SizedBox(height: 7),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: fortschritt,
+                      minHeight: 7,
+                      backgroundColor: t.tile,
+                      valueColor: AlwaysStoppedAnimation<Color>(t.accent),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              key: const ValueKey('profile-log-weight'),
-              onPressed: () => _promptWeight(context),
-              icon: const Icon(Icons.add_rounded, size: 17),
-              label: const Text(
-                'Gewicht loggen',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: textPrimary,
-                side: const BorderSide(color: hairline),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
+                ],
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Text(
+              '$prozent %',
+              style: AppType.ui(11.5, weight: FontWeight.w700, color: t.ink2),
+            ),
+          ],
+        ),
       ),
-    );
+    ];
   }
 
   /// **D5, bewusst OHNE Verwerf-Rueckfrage.**
@@ -188,7 +222,7 @@ class BodyStatsCard extends StatelessWidget {
   /// Rueckfrage (Bestandteile, Bearbeiten, Rezept anlegen, Einstellungen)
   /// halten dagegen vielteilige Formulare, deren Inhalt nirgends sonst steht.
   ///
-  /// Was hier trotzdem faellt, ist `showDragHandle: true`: `app_theme.dart:95`
+  /// Was hier trotzdem faellt, ist `showDragHandle: true`: `app_theme.dart`
   /// setzt global `false`, und der Griff der Route liegt als Stack-Geschwister
   /// NEBEN dem builder-Kind (`bottom_sheet.dart:397-410`) — ein Ort, an dem
   /// kein Sheet ihn je erreichen kann. Gezeichnet wird er jetzt wie ueberall
@@ -196,19 +230,152 @@ class BodyStatsCard extends StatelessWidget {
   Future<void> _promptWeight(BuildContext context) async {
     final result = await showModalBottomSheet<double>(
       context: context,
-      backgroundColor: surface,
+      backgroundColor: context.t.bg,
       isScrollControlled: true,
-      builder: (_) => _ProfileWeightInputSheet(
-        initial: log.latest?.weightKg ?? profile.weightKg.toDouble(),
-      ),
+      builder: (_) => _ProfileWeightInputSheet(initial: _current),
     );
     if (result != null) onLogWeight(result);
   }
 
+  static String _formatShort(DateTime d) {
+    final now = DateTime.now();
+    if (d.year == now.year && d.month == now.month && d.day == now.day) {
+      return 'heute';
+    }
+    return '${d.day.toString().padLeft(2, '0')}.'
+        '${d.month.toString().padLeft(2, '0')}.';
+  }
+}
+
+/// Die BMI-Karte: Halbkreis-Skala, Zonen-Chip und die uebrigen Koerperdaten.
+class BmiCard extends StatelessWidget {
+  const BmiCard({super.key, required this.profile, required this.log});
+
+  final UserProfile profile;
+  final WeightLog log;
+
+  double get _bmi {
+    final m = profile.heightCm / 100.0;
+    if (m <= 0) return 0;
+    final w = log.latest?.weightKg ?? profile.weightKg.toDouble();
+    return w / (m * m);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final bmi = _bmi;
+    final bmiLabel = BMIGaugePainter.labelFor(bmi);
+    final bmiColor = BMIGaugePainter.colorFor(t, bmi);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Körper',
+                  style: AppType.display(
+                    17,
+                    weight: FontWeight.w700,
+                    color: t.ink,
+                  ),
+                ),
+              ),
+              _InfoButton(
+                onTap: () => _showBmiInfoSheet(context),
+                tooltip: 'BMI-Erklärung',
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Center(
+            child: SizedBox(
+              width: 190,
+              height: 108,
+              // A11y: Gauge ist reines CustomPaint -> Wert + Zone ansagen.
+              child: Semantics(
+                label: 'BMI',
+                value: '${formatBmiDe(bmi)} · $bmiLabel',
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: BMIGaugePainter.fromTokens(t, bmi),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: bmiColor.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(rControl),
+              border: Border.all(color: bmiColor.withValues(alpha: 0.32)),
+            ),
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration:
+                      BoxDecoration(color: bmiColor, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'BMI $bmiLabel',
+                    style: AppType.ui(
+                      12,
+                      weight: FontWeight.w600,
+                      color: bmiColor,
+                    ),
+                  ),
+                ),
+                Text(
+                  formatBmiDe(bmi),
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w700,
+                    color: bmiColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Wrap statt Row: bei grosser Systemschrift brechen die beiden
+          // Angaben untereinander, statt die Zeile zu sprengen.
+          Wrap(
+            spacing: 16,
+            runSpacing: 6,
+            children: <Widget>[
+              _BodyMetric(
+                icon: Icons.height_rounded,
+                label: '${profile.heightCm} cm',
+              ),
+              _BodyMetric(
+                icon: Icons.cake_outlined,
+                label: '${profile.ageYears} J. · ${profile.sex.label}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// `isScrollControlled`, weil die vier Zonen-Zeilen plus Erklaerungsabsatz
+  /// bei doppelter Systemschrift deutlich hoeher werden als die 9/16
+  /// Bildschirmhoehe, die ein ungesteuertes Sheet maximal bekommt (gemessen:
+  /// 1087 px Ueberlauf). Der Inhalt scrollt zusaetzlich, siehe [_BmiInfoSheet].
   static void _showBmiInfoSheet(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: surface,
+      backgroundColor: context.t.bg,
+      isScrollControlled: true,
       builder: (_) => const _BmiInfoSheet(),
     );
   }
@@ -227,11 +394,12 @@ class _ProfileSheetGrabber extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Semantics(
       button: true,
       label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       onTap: () => Navigator.of(context).maybePop(),
-      child: const SizedBox(
+      child: SizedBox(
         width: double.infinity,
         height: 26,
         child: Center(
@@ -240,8 +408,8 @@ class _ProfileSheetGrabber extends StatelessWidget {
             height: 4,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: textMuted,
-                borderRadius: BorderRadius.all(Radius.circular(rPill)),
+                color: t.ink2.withValues(alpha: 0.5),
+                borderRadius: const BorderRadius.all(Radius.circular(rPill)),
               ),
             ),
           ),
@@ -256,79 +424,105 @@ class _BmiInfoSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final zones = [
-      ('Untergewicht', '< 18.5', cyan),
-      ('Normal', '18.5 – 24.9', lime),
-      ('Übergewicht', '25.0 – 29.9', orange),
-      ('Adipös', '≥ 30.0', danger),
+    final t = context.t;
+    // Name UND Farbe kommen aus [BMIGaugePainter] — eine zweite, hier
+    // abgeschriebene Zuordnung waere genau die Stelle, an der die Legende
+    // spaeter still von Skala und Zonen-Chip abweicht. Die Stuetzwerte liegen
+    // jeweils mitten in ihrer Zone.
+    final zones = <(String, String, Color)>[
+      for (final z in <(double, String)>[
+        (17.0, '< 18.5'),
+        (22.0, '18.5 – 24.9'),
+        (27.0, '25.0 – 29.9'),
+        (32.0, '≥ 30.0'),
+      ])
+        (
+          BMIGaugePainter.labelFor(z.$1),
+          z.$2,
+          BMIGaugePainter.colorFor(t, z.$1),
+        ),
     ];
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Center(child: _ProfileSheetGrabber()),
-          const Text(
-            'BMI Orientierung',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Body Mass Index ist eine grobe Heuristik. Für Athleten und '
-            'athletische Körper ist die Tendenz interessanter als der '
-            'absolute Wert.',
-            style: TextStyle(color: textMuted, fontSize: 13, height: 1.45),
-          ),
-          const SizedBox(height: 16),
-          for (final z in zones) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: z.$3.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(rControl),
-                border: Border.all(color: z.$3.withValues(alpha: 0.32)),
-              ),
-              child: Row(
-                children: [
+    // Griff bleibt oben stehen, der Rest scrollt: bei doppelter Systemschrift
+    // ist die Zonen-Liste hoeher als der Bildschirm, und ein Erklaer-Sheet, das
+    // seine unterste Zone abschneidet, erklaert nichts.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const Center(child: _ProfileSheetGrabber()),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'BMI Orientierung',
+                  style: AppType.display(20, color: t.ink),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Body Mass Index ist eine grobe Heuristik. Für Athleten und '
+                  'athletische Körper ist die Tendenz interessanter als der '
+                  'absolute Wert.',
+                  style: AppType.ui(13, color: t.ink2, height: 1.45),
+                ),
+                const SizedBox(height: 16),
+                for (final z in zones)
                   Container(
-                    width: 8,
-                    height: 8,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
-                      color: z.$3,
-                      shape: BoxShape.circle,
+                      color: z.$3.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(rControl),
+                      border: Border.all(color: z.$3.withValues(alpha: 0.32)),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration:
+                              BoxDecoration(color: z.$3, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            z.$1,
+                            style: AppType.ui(
+                              13,
+                              weight: FontWeight.w600,
+                              color: z.$3,
+                            ),
+                          ),
+                        ),
+                        // Flexible: die Bereichsangabe („18.5 – 24.9") ist bei
+                        // 200 % Systemschrift breiter als der Rest der Zeile.
+                        Flexible(
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: Text(
+                              z.$2,
+                              textAlign: TextAlign.right,
+                              style: AppType.ui(
+                                12,
+                                weight: FontWeight.w500,
+                                color: t.ink2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      z.$1,
-                      style: TextStyle(
-                        color: z.$3,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    z.$2,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
-          ],
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -362,6 +556,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
@@ -372,17 +567,14 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: <Widget>[
           const Center(child: _ProfileSheetGrabber()),
-          const Text(
-            'Gewicht loggen',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-            ),
-          ),
+          Text('Gewicht loggen', style: AppType.display(20, color: t.ink)),
           const SizedBox(height: 16),
+          // Bewusst ein lokales TextField statt SheetField: der Fokus muss
+          // beim Oeffnen im Feld stehen (`autofocus`), und SheetField kennt
+          // diesen Parameter nicht. Die InputDecoration kommt trotzdem aus dem
+          // Theme, ist also bereits tokenbasiert.
           TextField(
             key: const ValueKey('profile-weight-input'),
             cursorOpacityAnimates: false,
@@ -395,29 +587,16 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              key: const ValueKey('profile-weight-save'),
-              onPressed: () {
-                final raw = _controller.text.trim().replaceAll(',', '.');
-                final value = double.tryParse(raw);
-                if (value != null && value > 0) Navigator.pop(context, value);
-              },
-              icon: const Icon(Icons.check_rounded, size: 17),
-              label: const Text(
-                'Speichern',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: lime,
-                foregroundColor: bg,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-              ),
-            ),
+          PrimaryActionButton(
+            key: const ValueKey('profile-weight-save'),
+            label: 'Speichern',
+            icon: Icons.check_rounded,
+            height: 50,
+            onTap: () {
+              final raw = _controller.text.trim().replaceAll(',', '.');
+              final value = double.tryParse(raw);
+              if (value != null && value > 0) Navigator.pop(context, value);
+            },
           ),
         ],
       ),
@@ -425,6 +604,13 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
   }
 }
 
+/// Die Veraenderung seit der ersten Messung.
+///
+/// Abweichung von der Vorlage: dort steht die Pille in `lime` bei 45 %
+/// Deckkraft mit `ink`-Text — im Dunkelmodus waere das heller Text auf heller
+/// Flaeche. Hier traegt sie die volle Lime-Flaeche mit `onLime` (das
+/// dokumentierte Paar, in beiden Modi dunkel auf hell); „stabil" bleibt ruhig
+/// auf `tile`.
 class _DeltaPill extends StatelessWidget {
   const _DeltaPill({required this.delta});
 
@@ -432,34 +618,30 @@ class _DeltaPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final isFlat = delta.abs() < 0.05;
-    final color = isFlat ? textMuted : (delta > 0 ? orange : cyan);
     final icon = isFlat
         ? Icons.remove_rounded
         : (delta > 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded);
+    // U+2212 als Minus, wie ueberall sonst in der App (paceLabel).
     final label = isFlat
         ? 'stabil'
-        : '${delta > 0 ? '+' : ''}${delta.toStringAsFixed(1)} kg';
+        : '${delta > 0 ? '+' : '−'}${formatKgDe(delta.abs())} kg';
+    final fg = isFlat ? t.ink2 : t.onLime;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(rChip),
+        color: isFlat ? t.tile : t.lime,
+        borderRadius: BorderRadius.circular(9),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 12),
+        children: <Widget>[
+          Icon(icon, color: fg, size: 12),
           const SizedBox(width: 4),
           Text(
             label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+            style: AppType.ui(11, weight: FontWeight.w700, color: fg),
           ),
         ],
       ),
@@ -475,109 +657,26 @@ class _BodyMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: textMuted, size: 13),
+      children: <Widget>[
+        Icon(icon, color: t.ink2, size: 13),
         const SizedBox(width: 6),
-        // Flexible + Ellipsis: als starres Row-Kind mass der Text seine
-        // volle Einzeilenbreite und overflowte die schmale linke Spalte
-        // neben der BMI-Gauge (28 px bei 393 px logischer Breite).
+        // Flexible + Ellipsis: als starres Row-Kind mass der Text seine volle
+        // Einzeilenbreite und sprengte bei grosser Systemschrift die Zeile —
+        // auch innerhalb eines Wrap, der nur den UMBRUCH regelt, nicht die
+        // Breite eines einzelnen Kindes.
         Flexible(
           child: Text(
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+            style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
           ),
         ),
       ],
     );
-  }
-}
-
-class WeightHistoryCard extends StatelessWidget {
-  const WeightHistoryCard({super.key, required this.log, required this.accent});
-
-  final WeightLog log;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasData = log.entries.length >= 2;
-    return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Verlauf',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-              Text(
-                hasData ? '${log.entries.length} Messungen' : '–',
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 130,
-            // A11y: Verlaufslinie ist nur gezeichnet -> Spanne als Sprachwert.
-            child: Semantics(
-              label: 'Gewichtsverlauf',
-              value: hasData
-                  ? '${log.entries.length} Messungen, '
-                      'zuletzt ${log.entries.last.weightKg.toStringAsFixed(1)} kg'
-                  : 'Noch keine Verlaufslinie',
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  painter: WeightLineChartPainter(
-                    entries: log.entries,
-                    accent: accent,
-                  ),
-                  size: Size.infinite,
-                ),
-              ),
-            ),
-          ),
-          if (hasData) ...[
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                _Caption(_formatShort(log.entries.first.timestamp)),
-                const Spacer(),
-                _Caption(_formatShort(log.entries.last.timestamp)),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  static String _formatShort(DateTime d) {
-    final now = DateTime.now();
-    if (d.year == now.year && d.month == now.month && d.day == now.day) {
-      return 'heute';
-    }
-    return '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.';
   }
 }
 
@@ -590,10 +689,10 @@ class _Caption extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(
-        color: textMuted,
-        fontSize: 11,
-        fontWeight: FontWeight.w500,
+      style: AppType.ui(
+        11,
+        weight: FontWeight.w500,
+        color: context.t.ink2,
         letterSpacing: 0.2,
       ),
     );
@@ -608,6 +707,7 @@ class _InfoButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // A11y: 44x44 Hit-Target, Chip + Glyph bleiben optisch 28/15.
     return Tooltip(
       message: tooltip,
@@ -623,12 +723,12 @@ class _InfoButton extends StatelessWidget {
               height: 28,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: surfaceSoft,
+                color: t.tile,
                 borderRadius: BorderRadius.circular(rControl),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.info_outline_rounded,
-                color: textMuted,
+                color: t.ink2,
                 size: 15,
               ),
             ),

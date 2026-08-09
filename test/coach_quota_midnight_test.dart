@@ -2,6 +2,7 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -106,7 +107,13 @@ void main() {
       'der Nutzer ueber Mitternacht bis zum Kaltstart ausgesperrt',
       (tester) async {
     final svc = _MidnightService.create();
-    await tester.pumpWidget(MaterialApp(home: _TabHost(service: svc)));
+    await tester.pumpWidget(MaterialApp(
+      // Ohne das Eatova-Theme wirft `AppTokens.of` (Theme.of(...)
+      // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
+      // Design-Refactor ueber `context.t`.
+      theme: buildEatovaTheme(Brightness.dark),
+      home: _TabHost(service: svc),
+    ));
     await tester.pump(const Duration(milliseconds: 400));
     expect(svc.quotaCalls, 1, reason: 'Bootstrap: 0 uebrig, Composer gesperrt');
     expect(find.text('Limit für heute erreicht'), findsOneWidget);
@@ -121,7 +128,13 @@ void main() {
 
   testWidgets('das Verlassen des Tabs allein fragt nichts ab', (tester) async {
     final svc = _MidnightService.create();
-    await tester.pumpWidget(MaterialApp(home: _TabHost(service: svc)));
+    await tester.pumpWidget(MaterialApp(
+      // Ohne das Eatova-Theme wirft `AppTokens.of` (Theme.of(...)
+      // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
+      // Design-Refactor ueber `context.t`.
+      theme: buildEatovaTheme(Brightness.dark),
+      home: _TabHost(service: svc),
+    ));
     await tester.pump(const Duration(milliseconds: 400));
 
     await _wechsleTab(tester); // nur weg
@@ -134,7 +147,13 @@ void main() {
       'ist das Kontingent wirklich aufgebraucht, bleibt der Composer gesperrt',
       (tester) async {
     final svc = _MidnightService.create()..resetAtCall = 99;
-    await tester.pumpWidget(MaterialApp(home: _TabHost(service: svc)));
+    await tester.pumpWidget(MaterialApp(
+      // Ohne das Eatova-Theme wirft `AppTokens.of` (Theme.of(...)
+      // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
+      // Design-Refactor ueber `context.t`.
+      theme: buildEatovaTheme(Brightness.dark),
+      home: _TabHost(service: svc),
+    ));
     await tester.pump(const Duration(milliseconds: 400));
 
     await _wechsleTab(tester);

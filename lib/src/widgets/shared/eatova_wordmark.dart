@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 
 /// Eatova-Wortmarke: „eat" + Kamera-Fokusring als „o" + „va".
 ///
@@ -12,22 +12,37 @@ class EatovaWordmark extends StatelessWidget {
   const EatovaWordmark({
     super.key,
     this.fontSize = 24,
-    this.textColor = textPrimary,
-    this.ringColor = lime,
+    this.textColor,
+    this.ringColor,
   });
 
   final double fontSize;
-  final Color textColor;
-  final Color ringColor;
+
+  /// Ohne Angabe nimmt die Marke das **Marken-Flächenpaar** aus [AppTokens]:
+  /// `onForest` für die Schrift, `lime` für den Ring.
+  ///
+  /// Bewusst NICHT `ink`/`accent`: die Wortmarke steht heute ausschließlich
+  /// auf `auth_screen.dart`, und dieser Screen ist in beiden Anzeige-Modi
+  /// dunkel (`backgroundColor: bg` aus `app_colors.dart`, unmigriert und in
+  /// dieser Runde tabu). Mit `ink`/`accent` wäre die Marke im Hellmodus
+  /// nahezu schwarz auf nahezu schwarz — also unsichtbar. `onForest` und
+  /// `lime` sind in beiden Paletten hell und kontrast-gesichert; das ist
+  /// dieselbe Begründung, aus der `welcome_screen.dart` dem Anzeige-Modus
+  /// bewusst nicht folgt (DESIGN_REFACTOR §2, Nachtrag).
+  ///
+  /// Wer die Marke auf eine helle Karte setzt, übergibt beide Farben selbst.
+  final Color? textColor;
+  final Color? ringColor;
 
   @override
   Widget build(BuildContext context) {
-    final style = TextStyle(
-      fontSize: fontSize,
-      fontWeight: FontWeight.w800,
+    final t = context.t;
+    final style = AppType.display(
+      fontSize,
+      weight: FontWeight.w800,
       letterSpacing: fontSize * -0.02,
       height: 1.0,
-      color: textColor,
+      color: textColor ?? t.onForest,
     );
     // Ring etwas größer als die x-Höhe und leicht nach unten versetzt,
     // damit er optisch auf der Mittellinie der Kleinbuchstaben sitzt.
@@ -43,7 +58,7 @@ class EatovaWordmark extends StatelessWidget {
             offset: Offset(0, fontSize * 0.09),
             child: CustomPaint(
               size: Size.square(ringBox),
-              painter: _FocusRingPainter(ringColor),
+              painter: _FocusRingPainter(ringColor ?? t.lime),
             ),
           ),
         ),

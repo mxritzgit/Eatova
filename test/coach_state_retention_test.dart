@@ -131,7 +131,7 @@ void main() {
     final service = _CountingService.create();
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildEatovaTheme(),
+        theme: buildEatovaTheme(Brightness.dark),
         home: MediaQuery(
           data: const MediaQueryData(disableAnimations: true),
           child: _TabHost(service: service),

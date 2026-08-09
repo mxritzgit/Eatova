@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/favorite_meal.dart';
@@ -12,12 +13,16 @@ import '../services/fallback_product_service.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
+import '../services/meal_totals.dart';
 import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../services/trend_service.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/common/motion.dart';
+import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
-import '../widgets/kcal/calories_overview_card.dart';
+import '../widgets/kcal/daily_summary_card.dart';
+import '../widgets/kcal/diary_meal_card.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import 'barcode_scanner_sheet.dart';
 import 'trends_screen.dart';
@@ -135,9 +140,10 @@ class MealAnalysisScreen extends StatelessWidget {
     // Alle Eintraege des angezeigten Tages - das Sheet filtert die Anzeige
     // selbst nach dem im Selector gewaehlten Slot (bleibt so synchron, wenn
     // der User den Slot im Sheet wechselt). `slot` ist nur der Default-Slot.
-    final existingForDay = loggedMeals
-        .where((m) => DateUtils.isSameDay(m.loggedAt, selectedDate))
-        .toList(growable: false);
+    //
+    // DATA-6: ueber `mealsForFoodDate` gebucketet, nicht ueber
+    // `isSameDay(loggedAt)` — siehe [_entriesBySlot].
+    final existingForDay = mealsForFoodDate(loggedMeals, selectedDate);
     showAddMealSheet(
       context,
       slot: slot,
@@ -233,49 +239,58 @@ class MealAnalysisScreen extends StatelessWidget {
     return TrendService(client, userId).loadDailyTotals();
   }
 
+  /// Die Eintraege des angezeigten Tages, absteigend nach Zeitpunkt und mit
+  /// ihrem Index in genau DIESER Liste.
+  ///
+  /// Die Indizes entstehen bewusst einmal fuer den ganzen Tag und nicht pro
+  /// Slot-Karte: `food-history-entry-0` bleibt so der neueste Eintrag des
+  /// Tages, worauf mehrere Flows bauen.
+  ///
+  /// Der Tages-Filter laeuft ueber `mealsForFoodDate` — denselben kanonischen
+  /// DATA-6-Schluessel, aus dem auch [dailyConsumedKcal] und [macroProgress]
+  /// entstehen. Ein eigenes `isSameDay(loggedAt, selectedDate)` waere genau
+  /// die Logik, die DATA-6 abgeloest hat: eine Mahlzeit mit persistiertem
+  /// `local_day` (23:45-Eintrag, spaeter unter anderem Zonen-/DST-Offset
+  /// betrachtet) zaehlt dann in der Kopfzahl mit, faellt aber aus dem
+  /// Tagebuch — der Tag zeigte kcal und darunter „Noch nichts geloggt".
+  Map<MealSlot, List<DiaryEntry>> _entriesBySlot() {
+    final sorted = mealsForFoodDate(loggedMeals, selectedDate).toList()
+      ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+    final map = <MealSlot, List<DiaryEntry>>{
+      for (final slot in MealSlot.values) slot: <DiaryEntry>[],
+    };
+    for (var i = 0; i < sorted.length; i++) {
+      map[sorted[i].slot]!.add(DiaryEntry(sorted[i], i));
+    }
+    return map;
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final boundedHeight = constraints.hasBoundedHeight;
-
-        final calsCard = CaloriesOverviewCard(
-          dailyConsumedKcal: dailyConsumedKcal,
-          kcalGoal: profile.dailyKcalGoal,
-          burnedKcal: burnedKcal,
-          macroProgress: macroProgress,
-          profile: profile,
-        );
-
-        final historyCard = dayLoading
-            ? const _DayLoadingCard()
-            : MealsTodayCard(
-                meals: loggedMeals,
-                onMealTap: (slot) => _openAddSheet(context, slot),
-                onRemoveMeal: onRemoveMeal,
-              );
+        final bySlot = _entriesBySlot();
+        final tagLeer = bySlot.values.every((e) => e.isEmpty);
 
         final children = <Widget>[
           _KcalHeader(
+            selectedDate: selectedDate,
+            consumedKcal: dailyConsumedKcal,
             onTrendsPressed: () => _openTrends(context),
             onSettingsPressed: onSettingsPressed,
             onProfilePressed: onProfilePressed,
             profileInitial: profileInitial,
           ),
-          SizedBox(height: boundedHeight ? 10 : 8),
+          const SizedBox(height: 14),
           _FoodDateStrip(
             selectedDate: selectedDate,
             pastDays: visiblePastDays,
             onSelected: onDateSelected,
           ),
-          SizedBox(height: boundedHeight ? 12 : 14),
-          // Glass-Kalorienkarte mit inline-Makros (hoehen-begrenzt im Tab).
-          // Weniger Flex als der Verlauf: die Karte hat eine feste Menge an
-          // Inhalt, die Liste darunter profitiert von jeder zusaetzlichen Zeile.
-          if (boundedHeight) Expanded(flex: 40, child: calsCard) else calsCard,
           const SizedBox(height: 12),
-          // Add-Block: FESTE Hoehe, NICHT Expanded -> sitzt klar oben,
-          // damit Such-Launcher + Action-Buttons ohne Scroll hit-testbar sind.
+          // Such-Launcher + Schnell-Chips. Keine Entrance-Animation, damit sie
+          // in Widget-Tests stabil hit-testbar bleiben.
           _FoodAddBlock(
             onSearch: () =>
                 _openAddSheet(context, _heuristicSlot(), searchMode: true),
@@ -283,31 +298,104 @@ class MealAnalysisScreen extends StatelessWidget {
             onAiScan: () => _scanWithCamera(context),
           ),
           const SizedBox(height: 12),
-          // Verlauf: einzige unten wachsende Sektion.
-          if (boundedHeight)
-            Expanded(flex: 46, child: historyCard)
+          DailySummaryCard(
+            dailyConsumedKcal: dailyConsumedKcal,
+            kcalGoal: profile.dailyKcalGoal,
+            burnedKcal: burnedKcal,
+            macroProgress: macroProgress,
+            profile: profile,
+          ),
+          const SizedBox(height: 12),
+          if (dayLoading)
+            const _DayLoadingCard()
           else
-            historyCard,
+            // EAGER gebaut (Column, kein ListView): Finder laufen ueber den
+            // Element-Baum — in einer lazy Liste existierten die unteren
+            // Slot-Karten und ihre Eintraege schlicht nicht.
+            SlidableAutoCloseBehavior(
+              child: Column(
+                key: const ValueKey('kcal-meals-today-card'),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  // „Verlauf" benennt den Block weiterhin — der Vertrag haelt
+                  // das Wort fest (DESIGN_REFACTOR §6), und die Vorlage setzt
+                  // ueber ihre Mahlzeiten-Liste genau so eine Abschnittszeile
+                  // („Today's meals", nutrition_app(1).dart:935).
+                  const SectionHeading(title: 'Verlauf'),
+                  const SizedBox(height: 12),
+                  Column(
+                    key: const ValueKey('food-history'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      for (final slot in MealSlot.values) ...<Widget>[
+                        DiaryMealCard(
+                          slot: slot,
+                          entries: bySlot[slot]!,
+                          onAddToSlot: (s) => _openAddSheet(context, s),
+                          onMealTap: (s) => _openAddSheet(context, s),
+                          onRemoveMeal: onRemoveMeal,
+                        ),
+                        if (slot != MealSlot.values.last)
+                          const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+                  if (tagLeer) ...<Widget>[
+                    const SizedBox(height: 14),
+                    const _DiaryDayHint(),
+                  ],
+                ],
+              ),
+            ),
         ];
+
+        final column = Column(
+          key: const ValueKey('screen-kcal-tracker'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        );
 
         return SizedBox(
           key: const ValueKey('kcal-page-fill'),
           height: boundedHeight ? constraints.maxHeight : null,
-          child: Column(
-            key: const ValueKey('screen-kcal-tracker'),
-            mainAxisSize: boundedHeight ? MainAxisSize.max : MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: children,
-          ),
+          // Ohne obere Schranke (Vorschau, Golden-Hosts) wuerde ein
+          // Scrollview ins Unendliche wachsen — dann steht dieselbe Column
+          // schlicht ungescrollt da.
+          child: boundedHeight
+              ? SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: column,
+                )
+              : column,
         );
       },
     );
   }
 }
 
-/// Add-Block (feste Hoehe): readonly Such-Launcher + 2 Action-Buttons.
-/// Suche/Barcode oeffnen ihre Flows (Sheet bzw. In-App-Scanner), KI-Scan die
-/// In-App-Kamera. Keine Entrance-Opacity/Transform -> hit-testbar.
+/// Wegweiser fuer einen Tag ohne einen einzigen Eintrag — einmal unter den
+/// vier Slot-Karten, nicht in jeder von ihnen.
+class _DiaryDayHint extends StatelessWidget {
+  const _DiaryDayHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        'Tippe oben auf KI-Scan, Barcode oder Suche.',
+        textAlign: TextAlign.center,
+        style: AppType.ui(12, color: context.t.ink2, height: 1.3),
+      ),
+    );
+  }
+}
+
+/// Add-Block: readonly Such-Launcher + 2 Schnell-Chips. Suche/Barcode oeffnen
+/// ihre Flows (Sheet bzw. In-App-Scanner), KI-Scan die In-App-Kamera.
+/// Keine Entrance-Opacity/Transform -> hit-testbar.
 class _FoodAddBlock extends StatelessWidget {
   const _FoodAddBlock({
     required this.onSearch,
@@ -330,7 +418,7 @@ class _FoodAddBlock extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _FoodActionButton(
+              child: _FoodQuickChip(
                 key: const ValueKey('food-action-barcode'),
                 icon: Icons.qr_code_scanner_rounded,
                 label: 'Barcode',
@@ -340,7 +428,7 @@ class _FoodAddBlock extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: _FoodActionButton(
+              child: _FoodQuickChip(
                 key: const ValueKey('food-action-ai'),
                 icon: Icons.auto_awesome_rounded,
                 label: 'KI-Scan',
@@ -356,6 +444,10 @@ class _FoodAddBlock extends StatelessWidget {
 }
 
 /// Readonly Such-Launcher (KEIN echtes TextField) -> oeffnet das Add-Sheet.
+///
+/// Die Optik stammt aus dem `SearchBarField` des Entwurfs, das Verhalten
+/// bewusst nicht: ein echtes Feld hier oeffnete die Tastatur statt des
+/// Sheets. Der echte Sucheingang bleibt `kcal-product-search-input`.
 class _FoodSearchBar extends StatelessWidget {
   const _FoodSearchBar({required this.onTap});
 
@@ -363,42 +455,43 @@ class _FoodSearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // A11y: der Launcher sieht aus wie ein Textfeld, ist aber ein Knopf —
     // fuer Screenreader explizit als solcher markiert (das sichtbare
     // Platzhalter-Label uebernimmt die Beschriftung).
     return Semantics(
       button: true,
-      child: InkWell(
-        key: const ValueKey('food-search'),
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
-        child: Container(
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          // Randlos: der Fill traegt die Form. Im Tab sind Suche, Chips und
-          // Aktionen dieselbe Klasse „tippbare Flaeche" und teilen ihn sich.
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.circular(rControl),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.search_rounded, size: 18, color: textMuted),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Lebensmittel oder Mahlzeiten suchen…',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: textMuted,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: -0.2,
+      child: Material(
+        color: t.surf,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          key: const ValueKey('food-search'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: t.line),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.search_rounded, size: 18, color: t.ink2),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    // Wortgleich wie vor dem Refactor: die Suche findet
+                    // Produkte UND eigene Mahlzeiten, und der Vertrag laesst
+                    // ein Redesign kein Umbenennen sein (§6).
+                    'Lebensmittel oder Mahlzeiten suchen…',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.ui(14, color: t.ink2),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -406,10 +499,14 @@ class _FoodSearchBar extends StatelessWidget {
   }
 }
 
-/// Kompakter Action-Button: Outline (filled:false) oder gefuelltes forgeLime
-/// (filled:true). Keine Entrance-Animation -> stabil hit-testbar.
-class _FoodActionButton extends StatelessWidget {
-  const _FoodActionButton({
+/// Schnell-Chip fuer Barcode und KI-Scan.
+///
+/// Bewusst NICHT [FilterChipPill]: der gemeinsame Chip setzt kein `maxLines`,
+/// und `food_tab_layout_test` liest genau EINEN Text-Nachfahren mit
+/// `maxLines == 1`. Ein Format-Parameter am gemeinsamen Baustein steht als
+/// Aenderungswunsch im Bericht.
+class _FoodQuickChip extends StatelessWidget {
+  const _FoodQuickChip({
     super.key,
     required this.icon,
     required this.label,
@@ -424,41 +521,44 @@ class _FoodActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color fg = filled ? bg : textPrimary;
+    final t = context.t;
+    final fg = filled ? t.onForest : t.ink2;
     return Semantics(
       button: true,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
-        child: Container(
-          // Icon + einzeiliges Label nebeneinander statt uebereinander: liest
-          // sich als eine Beschriftung, braucht knapp die halbe Hoehe des alten
-          // zweizeiligen Blocks und bleibt bei grosser Systemschrift stabil.
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: filled ? forgeLime : surface,
-            borderRadius: BorderRadius.circular(rControl),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 17, color: fg),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: fg,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.2,
+      child: Material(
+        color: filled ? t.forest : t.surf,
+        borderRadius: BorderRadius.circular(rChip),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(rChip),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(rChip),
+              border: Border.all(
+                color: filled ? Colors.transparent : t.line,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 17, color: filled ? t.lime : t.ink2),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.ui(
+                      13,
+                      weight: filled ? FontWeight.w700 : FontWeight.w600,
+                      color: fg,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -466,13 +566,54 @@ class _FoodActionButton extends StatelessWidget {
   }
 }
 
+/// `DateTime.weekday`: 1 = Montag.
+const List<String> _weekdayNames = <String>[
+  'Montag',
+  'Dienstag',
+  'Mittwoch',
+  'Donnerstag',
+  'Freitag',
+  'Samstag',
+  'Sonntag',
+];
+
+const List<String> _monthNames = <String>[
+  'Januar',
+  'Februar',
+  'März',
+  'April',
+  'Mai',
+  'Juni',
+  'Juli',
+  'August',
+  'September',
+  'Oktober',
+  'November',
+  'Dezember',
+];
+
+/// Ausgeschriebenes Datum als Untertitel des Seitentitels.
+///
+/// Bewusst NICHT „Heute"/„Gestern"/„Vor N Tagen": diese relative Bezeichnung
+/// traegt bereits `food-date-selected-label`, und Tests zaehlen sie einmal.
+/// Lokale Namenslisten statt `intl` — kein neues Paket fuer zwei Zeilen.
+@visibleForTesting
+String foodHeaderDateLabel(DateTime date) =>
+    '${_weekdayNames[date.weekday - 1]}, ${date.day}. '
+    '${_monthNames[date.month - 1]}';
+
 class _KcalHeader extends StatelessWidget {
   const _KcalHeader({
+    required this.selectedDate,
+    required this.consumedKcal,
     required this.onTrendsPressed,
     this.onSettingsPressed,
     this.onProfilePressed,
     this.profileInitial,
   });
+
+  final DateTime selectedDate;
+  final int consumedKcal;
 
   /// Einstieg in die Trend-Ansicht (Kalorien-/Makro-Verlauf). Immer sichtbar:
   /// die Trend-Seite haengt nicht am Store, sondern laedt selbst.
@@ -483,52 +624,100 @@ class _KcalHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(2, 0, 0, 0),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Text(
-              'Ernährung',
-              style: TextStyle(
-                color: textPrimary,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            SquareIconButton(
+              key: const ValueKey('topbar-trends'),
+              icon: Icons.insights_rounded,
+              onTap: onTrendsPressed,
+              semanticLabel: 'Trends',
+            ),
+            if (onSettingsPressed != null) ...[
+              const SizedBox(width: 8),
+              SquareIconButton(
+                key: const ValueKey('topbar-settings'),
+                icon: Icons.tune_rounded,
+                onTap: onSettingsPressed,
+                semanticLabel: 'Einstellungen',
               ),
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('topbar-trends'),
-            onPressed: onTrendsPressed,
-            tooltip: 'Trends',
-            icon: const Icon(
-              Icons.insights_rounded,
-              size: 20,
-              color: textMuted,
-            ),
-            visualDensity: VisualDensity.compact,
-          ),
-          if (onSettingsPressed != null)
-            IconButton(
-              key: const ValueKey('topbar-settings'),
-              onPressed: onSettingsPressed,
-              tooltip: 'Einstellungen',
-              icon: const Icon(Icons.tune_rounded, size: 20, color: textMuted),
-              visualDensity: VisualDensity.compact,
-            ),
-          if (onProfilePressed != null) ...[
-            const SizedBox(width: 4),
-            _ProfileBadge(initial: profileInitial, onTap: onProfilePressed!),
+            ],
+            if (onProfilePressed != null) ...[
+              const SizedBox(width: 8),
+              _ProfileBadge(initial: profileInitial, onTap: onProfilePressed!),
+            ],
           ],
+        ),
+        const SizedBox(height: 10),
+        ScreenTitle(
+          title: 'Ernährung',
+          subtitle: foodHeaderDateLabel(selectedDate),
+          trailing: _KcalTile(
+            kcal: consumedKcal,
+            isToday: DateUtils.isSameDay(selectedDate, DateTime.now()),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Die Forest-Kachel rechts im Kopf.
+///
+/// Zahl und Beschriftung sind zwei getrennte Texte — mit einem einzigen
+/// „N kcal" traeger die Baum den Text ein zweites Mal, und
+/// `flows/food_scan_flow_test` zaehlt ihn genau einmal.
+class _KcalTile extends StatelessWidget {
+  const _KcalTile({required this.kcal, required this.isToday});
+
+  final int kcal;
+  final bool isToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Container(
+      decoration: BoxDecoration(
+        color: t.forest,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            formatThousands(kcal),
+            style: AppType.display(
+              20,
+              weight: FontWeight.w700,
+              color: t.onForest,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            // Der Tab zeigt jeden der letzten 30 Tage — „HEUTE" waere an
+            // einem Archivtag schlicht falsch.
+            isToday ? 'KCAL HEUTE' : 'KCAL AM TAG',
+            style: AppType.ui(
+              9.5,
+              weight: FontWeight.w500,
+              color: t.lime,
+              letterSpacing: 0.6,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-/// Kompakter Profil-Einstieg: weiche Lime-Kapsel mit Initial (rahmenlos,
-/// wie die uebrigen tippbaren Flaechen des Tabs).
+/// Kompakter Profil-Einstieg: weiche Marken-Kapsel mit Initial.
 class _ProfileBadge extends StatelessWidget {
   const _ProfileBadge({required this.onTap, this.initial});
 
@@ -537,6 +726,7 @@ class _ProfileBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final showInitial = initial != null && initial!.isNotEmpty;
     // A11y: die Kapsel zeigt nur ein Initial/Icon — ohne Label wuesste ein
     // Screenreader-Nutzer nicht, dass hier das Profil haengt.
@@ -545,29 +735,25 @@ class _ProfileBadge extends StatelessWidget {
       label: 'Profil öffnen',
       child: Material(
         key: const ValueKey('topbar-profile'),
-        color: Colors.transparent,
+        color: t.forest,
+        borderRadius: BorderRadius.circular(11),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(rControl),
+          borderRadius: BorderRadius.circular(11),
           child: Container(
             width: 34,
             height: 34,
-            decoration: BoxDecoration(
-              color: lime.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(rControl),
-            ),
             alignment: Alignment.center,
             child: showInitial
                 ? Text(
                     initial!,
-                    style: const TextStyle(
-                      color: lime,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.2,
+                    style: AppType.display(
+                      13,
+                      weight: FontWeight.w700,
+                      color: t.lime,
                     ),
                   )
-                : const Icon(Icons.person_rounded, color: lime, size: 17),
+                : Icon(Icons.person_rounded, color: t.lime, size: 17),
           ),
         ),
       ),
@@ -682,11 +868,15 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
         ? 0.0
         : (index * (_chipWidth + _chipGap) - 2 * _chipWidth)
             .clamp(0.0, _scroll.position.maxScrollExtent);
-    _scroll.animateTo(
-      ziel,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
+    final dauer = motionDuration(context, const Duration(milliseconds: 260));
+    // Kein `animateTo(..., Duration.zero)`: DrivenScrollActivity haelt darauf
+    // ein `assert(duration > Duration.zero)` und wuerde im Debug-Build werfen.
+    // Unter reduzierter Bewegung springt die Leiste stattdessen.
+    if (dauer == Duration.zero) {
+      _scroll.jumpTo(ziel);
+      return;
+    }
+    _scroll.animateTo(ziel, duration: dauer, curve: Curves.easeOutCubic);
   }
 
   @override
@@ -713,10 +903,10 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
           padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
           child: Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.calendar_today_rounded,
                 size: 12,
-                color: textMuted,
+                color: context.t.ink2,
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -725,10 +915,10 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
                   key: const ValueKey('food-date-selected-label'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w600,
+                    color: context.t.ink2,
                     letterSpacing: 0.1,
                   ),
                 ),
@@ -835,6 +1025,7 @@ class _FoodDateChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // A11y-Muster wie der Zeitraum-Umschalter der Trend-Ansicht: Chip als
     // Button mit Auswahl-Zustand ansagen.
     return Semantics(
@@ -842,17 +1033,22 @@ class _FoodDateChip extends StatelessWidget {
       selected: selected,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
+        borderRadius: BorderRadius.circular(rChip),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: motionDuration(context, const Duration(milliseconds: 160)),
           curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+          // Vertikal knapper als frueher (9): der 1-px-Rand der neuen Sprache
+          // nimmt 2 px, und die Leiste ist auf 52 px festgenagelt (die Chip-
+          // Geometrie 66/6 haengt an _scrollToSelected).
+          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
           decoration: BoxDecoration(
-            color: selected ? forgeLime : surface,
-            borderRadius: BorderRadius.circular(rControl),
+            color: selected ? t.forest : t.surf,
+            borderRadius: BorderRadius.circular(rChip),
+            border: Border.all(color: selected ? Colors.transparent : t.line),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Wochentag tritt zurueck, das Datum traegt die Zeile — beim
               // gewaehlten Chip kehrt sich das um, weil dort der Kontext zaehlt.
@@ -860,10 +1056,10 @@ class _FoodDateChip extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? bg : textMuted,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
+                style: AppType.ui(
+                  10.5,
+                  weight: FontWeight.w700,
+                  color: selected ? t.lime : t.ink2,
                   letterSpacing: 0.1,
                 ),
               ),
@@ -872,11 +1068,10 @@ class _FoodDateChip extends StatelessWidget {
                 '${date.day}.${date.month}.',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? bg.withValues(alpha: 0.68) : textPrimary,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+                style: AppType.display(
+                  11.5,
+                  weight: FontWeight.w700,
+                  color: selected ? t.onForest : t.ink,
                 ),
               ),
             ],
@@ -908,6 +1103,7 @@ class _CalendarDayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // A11y: reiner Icon-Knopf — ohne Label bliebe er fuer Screenreader stumm.
     return Semantics(
       button: true,
@@ -915,20 +1111,21 @@ class _CalendarDayButton extends StatelessWidget {
       label: 'Anderen Tag im Kalender wählen',
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
+        borderRadius: BorderRadius.circular(rChip),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: motionDuration(context, const Duration(milliseconds: 160)),
           curve: Curves.easeOut,
           width: 44,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: selected ? forgeLime : surface,
-            borderRadius: BorderRadius.circular(rControl),
+            color: selected ? t.forest : t.surf,
+            borderRadius: BorderRadius.circular(rChip),
+            border: Border.all(color: selected ? Colors.transparent : t.line),
           ),
           child: Icon(
             Icons.calendar_month_rounded,
             size: 18,
-            color: selected ? bg : textMuted,
+            color: selected ? t.lime : t.ink2,
           ),
         ),
       ),
@@ -936,38 +1133,35 @@ class _CalendarDayButton extends StatelessWidget {
   }
 }
 
-/// Lade-Zustand des Verlaufs, waehrend ein Alt-Tag on-demand nachgeladen
-/// wird — Spinner statt eines faelschlich leeren Tages.
+/// Lade-Zustand des Tagebuchs, waehrend ein Alt-Tag on-demand nachgeladen
+/// wird — GENAU EIN Spinner statt eines faelschlich leeren Tages. Er ersetzt
+/// den kompletten Tagebuch-Block, nicht einzelne Karten.
 class _DayLoadingCard extends StatelessWidget {
   const _DayLoadingCard();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final t = context.t;
+    return AppCard(
       key: const ValueKey('food-day-loading'),
-      width: double.infinity,
+      radius: rCard,
       padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(rCard),
-      ),
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           SizedBox(
             width: 22,
             height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.4),
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+              color: t.accent,
+            ),
           ),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           Text(
             'Tag wird geladen…',
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-            ),
+            style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
           ),
         ],
       ),

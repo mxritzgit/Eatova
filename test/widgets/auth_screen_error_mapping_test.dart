@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 /// Wirft beim OAuth-Start die deutsche Abbruch-Meldung, wie sie
 /// runNativeGoogleSignIn beim User-Abbruch produziert.
@@ -60,7 +61,15 @@ void main() {
       '(Regression: Mapper kannte nur engl. "cancel", nicht "abgebrochen")',
       (tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: AuthScreen(authRepository: _CancelingAuthRepository())),
+      MaterialApp(
+        // Design-Refactor 2026-08: die Wortmarke im Kopf des AuthScreens
+        // (auth_screen.dart:285 -> EatovaWordmark) liest ihre Standardfarben
+        // seit der Token-Migration ueber `context.t`. `AppTokens.of` wirft
+        // absichtlich ohne ThemeExtension — eine nackte MaterialApp stirbt
+        // damit schon im ersten Build, bevor der Fehler-Mapper drankommt.
+        theme: buildEatovaTheme(Brightness.dark),
+        home: AuthScreen(authRepository: _CancelingAuthRepository()),
+      ),
     );
 
     await tester.tap(find.text('Mit Google anmelden'));

@@ -12,6 +12,7 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Audit 2026-06-09, M-1: der lokale Klartext-PII-Cache (Profil, Mood-Notiz,
 // Lifetime-Stats, Notification-Flag) wurde bisher NUR bei der Konto-Löschung
@@ -30,7 +31,7 @@ import 'package:eatova/src/services/sync_outbox.dart';
 void _noopSnack(
   String message, {
   IconData icon = Icons.info_outline_rounded,
-  Color accent = const Color(0xFFFFFFFF),
+  SnackTone tone = SnackTone.positive,
   Duration? duration,
   SnackBarAction? action,
 }) {}

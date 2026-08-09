@@ -12,6 +12,7 @@ import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Sentinel-Rest A1 (Sweep 2026-08-08): `_writeCacheSnapshot` lief am
 // Boot-Ende UNGEGUARDET. Die Kombination „Cache-Lesefehler + Offline-Boot"
@@ -56,7 +57,7 @@ class _LesefehlerStore implements KeyValueStore {
 void _noopSnack(
   String message, {
   IconData icon = Icons.info_outline_rounded,
-  Color accent = const Color(0xFFFFFFFF),
+  SnackTone tone = SnackTone.positive,
   Duration? duration,
   SnackBarAction? action,
 }) {}

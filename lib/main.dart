@@ -10,6 +10,8 @@ import 'src/config/supabase_config.dart';
 import 'src/services/apple_health_service.dart';
 import 'src/services/crash_reporter.dart';
 import 'src/services/notification_service.dart';
+import 'src/theme/app_theme.dart';
+import 'src/theme/app_tokens.dart';
 
 export 'src/app/eatova_app.dart';
 
@@ -167,55 +169,67 @@ class _BootErrorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Design-Refactor 2026-08-09: Dieser Screen stand als einzige Flaeche
+    // ausserhalb von lib/src/theme/ noch auf harten Farbwerten (#111114,
+    // #FF5C5C, Colors.white*). Auf einem Geraet im Hell-Modus war der
+    // Bildschirm damit tiefschwarz — ausgerechnet in dem Moment, in dem der
+    // Nutzer ohnehin nicht versteht, was los ist.
+    //
+    // Die Tokens sind hier gefahrlos: `buildEatovaTheme` ist eine reine
+    // Funktion ueber `AppTokens.light/dark` und haengt an keinem der Dienste,
+    // deren Ausfall ueberhaupt erst zu diesem Screen fuehrt.
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Eatova',
-      home: Scaffold(
-        backgroundColor: const Color(0xFF111114),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: Color(0xFFFF5C5C),
-                  size: 56,
+      theme: buildEatovaTheme(Brightness.light),
+      darkTheme: buildEatovaTheme(Brightness.dark),
+      home: Builder(
+        builder: (context) {
+          final t = context.t;
+          return Scaffold(
+            body: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.error_outline, color: t.danger, size: 56),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Eatova konnte nicht starten',
+                      style: AppType.display(
+                        22,
+                        weight: FontWeight.w700,
+                        color: t.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (showDetails) ...[
+                      SelectableText(
+                        '$error',
+                        style: AppType.ui(14, color: t.ink2),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Build braucht SUPABASE_URL + SUPABASE_ANON_KEY via\n'
+                        '--dart-define-from-file=dart_defines.json.\n'
+                        'Vorlage: dart_defines.example.json, Details: '
+                        'README.md.',
+                        style: AppType.ui(13, color: t.ink2),
+                      ),
+                    ] else
+                      Text(
+                        'Beim Start ist ein Fehler aufgetreten. Bitte starte '
+                        'die App neu.\nWenn das Problem bleibt, erreichst du '
+                        'uns unter support@eatova.de.',
+                        style: AppType.ui(14, color: t.ink2),
+                      ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Eatova konnte nicht starten',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (showDetails) ...[
-                  SelectableText(
-                    '$error',
-                    style: const TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Build braucht SUPABASE_URL + SUPABASE_ANON_KEY via\n'
-                    '--dart-define-from-file=dart_defines.json.\n'
-                    'Vorlage: dart_defines.example.json, Details: README.md.',
-                    style: TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                ] else
-                  const Text(
-                    'Beim Start ist ein Fehler aufgetreten. Bitte starte die '
-                    'App neu.\nWenn das Problem bleibt, erreichst du uns unter '
-                    'support@eatova.de.',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

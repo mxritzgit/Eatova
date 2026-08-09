@@ -15,10 +15,11 @@ import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/theme_mode_controller.dart';
 import 'auth_gate.dart';
 import 'eatova_home_page.dart';
 
-class EatovaApp extends StatelessWidget {
+class EatovaApp extends StatefulWidget {
   const EatovaApp({
     super.key,
     this.mealAnalyzer,
@@ -28,6 +29,7 @@ class EatovaApp extends StatelessWidget {
     this.healthService,
     this.authRepository,
     this.notificationService,
+    this.themeModeController,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -42,14 +44,57 @@ class EatovaApp extends StatelessWidget {
   /// EatovaHomePage faellt auf NoopNotificationService zurueck.
   final NotificationService? notificationService;
 
+  /// Anzeige-Modus (Hell/Dunkel/System). In Tests injizierbar, damit ein
+  /// Test einen Modus festnageln kann, ohne SharedPreferences zu stellen.
+  final ThemeModeController? themeModeController;
+
+  @override
+  State<EatovaApp> createState() => _EatovaAppState();
+}
+
+class _EatovaAppState extends State<EatovaApp> {
+  late final ThemeModeController _themeMode;
+  late final bool _eigenerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _eigenerController = widget.themeModeController == null;
+    _themeMode = widget.themeModeController ?? ThemeModeController();
+    if (_eigenerController) {
+      // Der gespeicherte Modus kommt asynchron nach. Bis dahin laeuft die App
+      // im System-Modus — dem Default, der auch beim ersten Start gilt, also
+      // ohne sichtbaren Sprung fuer alle, die nichts umgestellt haben.
+      unawaited(_themeMode.load());
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_eigenerController) _themeMode.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final repository = authRepository ?? defaultAuthRepository();
+    final repository = widget.authRepository ?? defaultAuthRepository();
 
+    return ThemeModeScope(
+      controller: _themeMode,
+      child: ListenableBuilder(
+        listenable: _themeMode,
+        builder: (context, _) => _buildApp(context, repository),
+      ),
+    );
+  }
+
+  Widget _buildApp(BuildContext context, AuthRepository repository) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Eatova',
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.light),
+      darkTheme: buildEatovaTheme(Brightness.dark),
+      themeMode: _themeMode.mode,
       // Deutsche Material-Lokalisierung: die App-Texte sind durchgehend
       // deutsch, aber SDK-Dialoge zogen bislang die englischen Defaults —
       // showTimePicker (Schlafziel im Settings-Sheet) rendert erst mit
@@ -84,13 +129,13 @@ class EatovaApp extends StatelessWidget {
           // Key auf user.id pinnen: bei Sign-Out und neuem Login wird die
           // Page komplett neu erstellt (frischer State, eigene Sync-Instanz).
           key: ValueKey('home-${user.id}'),
-          mealAnalyzer: mealAnalyzer,
-          productService: productService,
-          photoInput: photoInput,
-          mealCameraLauncher: mealCameraLauncher,
-          healthService: healthService,
+          mealAnalyzer: widget.mealAnalyzer,
+          productService: widget.productService,
+          photoInput: widget.photoInput,
+          mealCameraLauncher: widget.mealCameraLauncher,
+          healthService: widget.healthService,
           notificationService:
-              notificationService ?? const NoopNotificationService(),
+              widget.notificationService ?? const NoopNotificationService(),
           initialUserName: user.firstName,
           onSignOut: repository.signOut,
           sync: _syncFor(user.id),

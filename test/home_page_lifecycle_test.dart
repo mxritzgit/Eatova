@@ -31,6 +31,7 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 /// Health-Double mit zaehlbarem Lesepfad. [authState] wandert genau wie beim
 /// echten AppleHealthService bei JEDEM `readSnapshot()` mit (dort ueber den
@@ -131,6 +132,10 @@ Future<void> _pumpHome(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
+      // Design-Refactor 2026-08: die Schale liest Farben ueber `context.t`
+      // (AppTokens als ThemeExtension). `AppTokens.of` wirft absichtlich, wenn
+      // die Extension fehlt — ohne `theme:` scheitert schon der erste Build.
+      theme: buildEatovaTheme(Brightness.dark),
       home: EatovaHomePage(
         healthService: health,
         notificationService:

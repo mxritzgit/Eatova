@@ -1,7 +1,7 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Sessions-Sheet: Liste aller Konversationen + "Neue Unterhaltung" oben.
+// Sessions-Sheet: Liste aller Konversationen + „Neu" oben.
 // ---------------------------------------------------------------------------
 class _SessionsSheet extends StatelessWidget {
   const _SessionsSheet({
@@ -20,78 +20,72 @@ class _SessionsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxHeight = MediaQuery.of(context).size.height * 0.75;
+    final t = context.t;
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: maxHeight),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 10, 0, 12),
+          // Kein eigener Ziehgriff: showEatovaSheet setzt showDragHandle.
+          padding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: hairline,
-                    borderRadius: BorderRadius.circular(rPill),
-                  ),
-                ),
-              ),
+            children: <Widget>[
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: Row(
-                  children: [
-                    const Expanded(
+                  children: <Widget>[
+                    Expanded(
                       child: Text(
                         'Coach-Sessions',
-                        style: TextStyle(
-                          color: textPrimary,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.3,
+                        style: AppType.display(
+                          19,
+                          weight: FontWeight.w700,
+                          color: t.ink,
                         ),
                       ),
                     ),
-                    TextButton.icon(
-                      key: const ValueKey('coach-sessions-new'),
-                      onPressed: onNew,
-                      icon: const Icon(Icons.add_rounded,
-                          size: 18, color: coachAccent),
-                      label: const Text(
-                        'Neu',
-                        style: TextStyle(
-                          color: coachAccent,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      style: TextButton.styleFrom(
-                        backgroundColor: coachAccent.withValues(alpha: 0.10),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(rPill),
+                    const SizedBox(width: 10),
+                    Material(
+                      color: t.forest,
+                      borderRadius: BorderRadius.circular(rPill),
+                      child: InkWell(
+                        key: const ValueKey('coach-sessions-new'),
+                        onTap: onNew,
+                        borderRadius: BorderRadius.circular(rPill),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Icon(Icons.add_rounded, size: 18, color: t.lime),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Neu',
+                                style: AppType.ui(
+                                  13.5,
+                                  weight: FontWeight.w700,
+                                  color: t.onForest,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
               Flexible(
                 child: sessions.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
                         child: Text(
                           'Noch keine Unterhaltungen. Stell deinem Coach die erste Frage.',
-                          style: TextStyle(
-                            color: textMuted.withValues(alpha: 0.9),
-                            fontSize: 13.5,
-                            height: 1.4,
-                          ),
+                          style: AppType.ui(13.5, color: t.ink2, height: 1.4),
                         ),
                       )
                     : ListView.separated(
@@ -101,10 +95,9 @@ class _SessionsSheet extends StatelessWidget {
                         separatorBuilder: (_, __) => const SizedBox(height: 6),
                         itemBuilder: (context, i) {
                           final s = sessions[i];
-                          final isActive = s.id == activeSessionId;
                           return _SessionTile(
                             session: s,
-                            isActive: isActive,
+                            isActive: s.id == activeSessionId,
                             onTap: () => onSelect(s.id),
                             onDelete: () => _confirmDelete(context, s),
                           );
@@ -119,27 +112,24 @@ class _SessionsSheet extends StatelessWidget {
   }
 
   void _confirmDelete(BuildContext context, ChatSession s) {
+    final t = context.t;
     showDialog<void>(
       context: context,
+      // Flaeche, Radius, Rand und die Textstile kommen aus dem dialogTheme.
       builder: (ctx) => AlertDialog(
-        backgroundColor: surface,
-        title: const Text('Session löschen?',
-            style: TextStyle(color: textPrimary, fontSize: 16)),
-        content: Text(
-          '"${s.title}" und alle Nachrichten darin werden entfernt.',
-          style: const TextStyle(color: textMuted, fontSize: 13.5),
-        ),
-        actions: [
+        title: const Text('Session löschen?'),
+        content: Text('"${s.title}" und alle Nachrichten darin werden entfernt.'),
+        actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Abbrechen', style: TextStyle(color: textMuted)),
+            child: Text('Abbrechen', style: TextStyle(color: t.ink2)),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
               onDelete(s.id);
             },
-            child: const Text('Löschen', style: TextStyle(color: danger)),
+            child: Text('Löschen', style: TextStyle(color: t.danger)),
           ),
         ],
       ),
@@ -162,8 +152,9 @@ class _SessionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Material(
-      color: isActive ? surfaceSoft : Colors.transparent,
+      color: isActive ? t.surf : Colors.transparent,
       borderRadius: BorderRadius.circular(rCard),
       child: InkWell(
         onTap: onTap,
@@ -171,42 +162,32 @@ class _SessionTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
           child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? coachAccent.withValues(alpha: 0.16)
-                      : surfaceSoft,
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  size: 16,
-                  color: isActive ? coachAccent : textMuted,
-                ),
+            children: <Widget>[
+              IconTile(
+                icon: Icons.chat_bubble_outline_rounded,
+                color: isActive ? t.accent : null,
+                size: 32,
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
-                  children: [
+                  children: <Widget>[
                     Text(
                       session.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w600,
+                        color: t.ink,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       _humanizeTimestamp(session.lastMessageAt),
-                      style: const TextStyle(color: textMuted, fontSize: 11.5),
+                      style: AppType.ui(11.5, color: t.ink2),
                     ),
                   ],
                 ),
@@ -214,8 +195,8 @@ class _SessionTile extends StatelessWidget {
               IconButton(
                 tooltip: 'Löschen',
                 onPressed: onDelete,
-                icon: const Icon(Icons.delete_outline_rounded,
-                    size: 18, color: textMuted),
+                icon: Icon(Icons.delete_outline_rounded,
+                    size: 18, color: t.ink2),
                 visualDensity: VisualDensity.compact,
               ),
             ],

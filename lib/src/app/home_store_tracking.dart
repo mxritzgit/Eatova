@@ -83,7 +83,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     _emitSnack(
       'Apple Health: $label kg übernehmen?',
       icon: Icons.monitor_weight_outlined,
-      accent: lime,
+      tone: SnackTone.positive,
       // Unaufgefordertes Angebot beim Resume/Kaltstart: etwas laenger sichtbar
       // als Standard-Action-Snacks (kSnackAction), damit der Tap realistisch
       // treffbar ist, bevor der Toast von selbst verschwindet.

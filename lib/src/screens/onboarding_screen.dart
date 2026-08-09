@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../models/model_limits.dart';
 import '../models/user_profile.dart';
 import '../services/kcal_calculator.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/common/motion.dart';
+import '../widgets/design/design.dart';
 import '../widgets/shared/target_bmi_hint.dart';
 
 /// Verpflichtendes Onboarding: erhebt Körperdaten, Aktivität und Ziel und
@@ -264,6 +266,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final step = _steps[_index];
     final progress = (_index + 1) / _steps.length;
     final isSummary = step == _Step.summary;
@@ -274,7 +277,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       onPopInvokedWithResult: _onPopInvoked,
       child: Scaffold(
         key: const ValueKey('screen-onboarding'),
-        backgroundColor: bg,
+        backgroundColor: t.bg,
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
@@ -289,7 +292,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: 24),
                 Expanded(
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 240),
+                    duration:
+                        motionDuration(context, const Duration(milliseconds: 240)),
                     switchInCurve: Curves.easeOutCubic,
                     transitionBuilder: (child, anim) {
                       return FadeTransition(
@@ -310,15 +314,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _PrimaryButton(
-                  keyValue:
-                      ValueKey(isSummary ? 'onboarding-finish' : 'onboarding-next'),
-                  label: switch (step) {
-                    _Step.intro => 'Los geht\'s',
-                    _Step.summary => 'Plan aktivieren',
-                    _ => 'Weiter',
-                  },
-                  onTap: _next,
+                Semantics(
+                  // Vorher ein FilledButton, jetzt ein blankes InkWell: die
+                  // Bibliothek gibt [PrimaryActionButton] kein `isButton` mit,
+                  // und ohne dieses Flag kuendigt ein Screenreader den
+                  // Weiter-Knopf nur noch als Text an. Gehoert in die
+                  // Bibliothek (siehe Bericht) — bis dahin hier.
+                  button: true,
+                  child: PrimaryActionButton(
+                    key: ValueKey(
+                      isSummary ? 'onboarding-finish' : 'onboarding-next',
+                    ),
+                    label: switch (step) {
+                      _Step.intro => 'Los geht\'s',
+                      _Step.summary => 'Plan aktivieren',
+                      _ => 'Weiter',
+                    },
+                    onTap: _next,
+                  ),
                 ),
               ],
             ),
@@ -473,69 +486,38 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       children: [
         SizedBox(
-          width: 40,
+          // Genau die Kantenlaenge von SquareIconButton — der Balken darf
+          // beim Wechsel Intro ↔ Schritt 1 nicht springen.
+          width: 34,
           child: showBack
-              ? IconButton(
+              ? SquareIconButton(
                   key: const ValueKey('onboarding-back'),
-                  onPressed: onBack,
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.arrow_back_rounded, size: 22),
-                  color: textMuted,
+                  icon: Icons.chevron_left_rounded,
+                  onTap: onBack,
+                  // Umlaut, kein „ue": ein Semantics-Label ist GESPROCHENER
+                  // Text (vgl. PageHeader in widgets/design/rows.dart).
+                  semanticLabel: 'Zurück',
                 )
               : const SizedBox.shrink(),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 12),
         Expanded(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(rPill),
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 6,
-              backgroundColor: surfaceSoft,
-              valueColor: const AlwaysStoppedAnimation<Color>(lime),
+              backgroundColor: t.tile,
+              valueColor: AlwaysStoppedAnimation<Color>(t.accent),
             ),
           ),
         ),
         const SizedBox(width: 46),
       ],
-    );
-  }
-}
-
-class _PrimaryButton extends StatelessWidget {
-  const _PrimaryButton({
-    required this.keyValue,
-    required this.label,
-    required this.onTap,
-  });
-
-  final Key keyValue;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton(
-        key: keyValue,
-        onPressed: onTap,
-        style: FilledButton.styleFrom(
-          backgroundColor: lime,
-          foregroundColor: bg,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(rCard),
-          ),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-        ),
-      ),
     );
   }
 }
@@ -557,25 +539,18 @@ class _StepFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -1.0,
-            height: 1.08,
-          ),
-        ),
+        Text(title, style: AppType.display(28, color: t.ink, height: 1.08)),
         const SizedBox(height: 8),
         Text(
           subtitle,
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+          style: AppType.ui(
+            14,
+            weight: FontWeight.w500,
+            color: t.ink2,
             height: 1.45,
           ),
         ),
@@ -597,6 +572,7 @@ class _IntroStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -605,31 +581,25 @@ class _IntroStep extends StatelessWidget {
           width: 64,
           height: 64,
           decoration: BoxDecoration(
-            color: lime.withValues(alpha: 0.16),
+            color: t.forest,
             borderRadius: BorderRadius.circular(rSheet),
-            border: Border.all(color: lime.withValues(alpha: 0.28)),
           ),
-          child: const Icon(Icons.flag_rounded, color: lime, size: 30),
+          child: Icon(Icons.flag_rounded, color: t.lime, size: 30),
         ),
         const SizedBox(height: 28),
         Text(
           'Willkommen, $firstName.',
-          style: const TextStyle(
-            fontSize: 30,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -1.0,
-            height: 1.08,
-          ),
+          style: AppType.display(30, color: t.ink, height: 1.08),
         ),
         const SizedBox(height: 12),
-        const Text(
+        Text(
           'In 6 kurzen Schritten berechnen wir dein persönliches Tagesziel — '
           'genau abgestimmt auf deinen Körper und dein Wunschgewicht.',
-          style: TextStyle(
-            color: textMuted,
-            fontSize: 15,
+          style: AppType.ui(
+            15,
+            weight: FontWeight.w500,
+            color: t.ink2,
             height: 1.45,
-            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 32),
@@ -660,24 +630,18 @@ class _IntroBullet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: lime.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(rControl),
-          ),
-          child: Icon(icon, color: lime, size: 18),
-        ),
+        IconTile(icon: icon, color: t.accent),
         const SizedBox(width: 14),
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
+            style: AppType.ui(
+              14,
+              weight: FontWeight.w500,
+              color: t.ink,
               height: 1.3,
             ),
           ),
@@ -699,6 +663,7 @@ class _SexPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     const labels = {
       BiologicalSex.male: ('Männlich', Icons.male_rounded),
       BiologicalSex.female: ('Weiblich', Icons.female_rounded),
@@ -717,15 +682,22 @@ class _SexPicker extends StatelessWidget {
                   Icon(
                     labels[sex]!.$2,
                     size: 30,
-                    color: value == sex ? lime : textMuted,
+                    color: value == sex ? t.lime : t.ink2,
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    labels[sex]!.$1,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: value == sex ? textPrimary : textMuted,
+                  // Die Kachel ist ein Drittel breit, die Beschriftung waechst
+                  // mit der Systemschrift — ohne Schrumpfen liefe „Männlich"
+                  // bei 2.0 heraus.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      labels[sex]!.$1,
+                      maxLines: 1,
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w700,
+                        color: value == sex ? t.onForest : t.ink2,
+                      ),
                     ),
                   ),
                 ],
@@ -904,6 +876,7 @@ class _NumberPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final safeValue = value.clamp(min, _hi).toInt();
     return Column(
       children: [
@@ -916,30 +889,35 @@ class _NumberPicker extends StatelessWidget {
               onTap: () => _set(safeValue - 1),
             ),
             const SizedBox(width: 20),
-            SizedBox(
-              width: 150,
+            // Abweichung von vorher (SizedBox(width: 150)): bei textScaler 2.0
+            // ist die 52er-Ziffernfolge breiter als 150 px. Die Spalte waechst
+            // jetzt mit dem verbleibenden Platz, die Zahl schrumpft notfalls.
+            Flexible(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    '$safeValue',
-                    key: ValueKey('onboarding-$field-value'),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 52,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -1.6,
-                      height: 1,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '$safeValue',
+                      key: ValueKey('onboarding-$field-value'),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      style: AppType.display(52, color: t.ink, height: 1),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    unit,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.2,
+                  const SizedBox(height: 6),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      unit,
+                      maxLines: 1,
+                      style: AppType.ui(
+                        13,
+                        weight: FontWeight.w600,
+                        color: t.ink2,
+                        letterSpacing: 0.2,
+                      ),
                     ),
                   ),
                 ],
@@ -957,10 +935,10 @@ class _NumberPicker extends StatelessWidget {
         if (_hi > min)
           SliderTheme(
             data: SliderThemeData(
-              activeTrackColor: lime,
-              inactiveTrackColor: surfaceSoft,
-              thumbColor: lime,
-              overlayColor: lime.withValues(alpha: 0.15),
+              activeTrackColor: t.accent,
+              inactiveTrackColor: t.tile,
+              thumbColor: t.accent,
+              overlayColor: t.accent.withValues(alpha: 0.15),
               trackHeight: 5,
             ),
             child: Slider(
@@ -976,16 +954,16 @@ class _NumberPicker extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: lime.withValues(alpha: 0.10),
+              color: t.lime,
               borderRadius: BorderRadius.circular(rPill),
             ),
             child: Text(
               footnote!,
-              style: const TextStyle(
-                color: lime,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
+              textAlign: TextAlign.center,
+              style: AppType.display(
+                13,
+                weight: FontWeight.w700,
+                color: t.onLime,
               ),
             ),
           ),
@@ -1008,6 +986,7 @@ class _StepButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return InkWell(
       key: keyValue,
       onTap: onTap,
@@ -1016,11 +995,11 @@ class _StepButton extends StatelessWidget {
         width: 52,
         height: 52,
         decoration: BoxDecoration(
-          color: surfaceSoft,
+          color: t.surf,
           shape: BoxShape.circle,
-          border: Border.all(color: hairline),
+          border: Border.all(color: t.line),
         ),
-        child: Icon(icon, color: textPrimary, size: 24),
+        child: Icon(icon, color: t.ink, size: 24),
       ),
     );
   }
@@ -1045,19 +1024,22 @@ class _TileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return InkWell(
       key: keyValue,
       onTap: onTap,
       borderRadius: BorderRadius.circular(rCard),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: motionDuration(context, const Duration(milliseconds: 160)),
         padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
         decoration: BoxDecoration(
-          color: selected ? lime.withValues(alpha: 0.12) : surface,
+          // Ausgewaehlt heisst jetzt: volle Markenflaeche statt getoenter
+          // Rand. Das traegt die Auswahl auch dann, wenn der Nutzer den
+          // Farbunterschied nicht sieht (Kontrast statt Farbton).
+          color: selected ? t.forest : t.surf,
           borderRadius: BorderRadius.circular(rCard),
           border: Border.all(
-            color: selected ? lime.withValues(alpha: 0.55) : hairline,
-            width: selected ? 1.5 : 1,
+            color: selected ? t.forest : t.line,
           ),
         ),
         child: child,
@@ -1087,20 +1069,18 @@ class _RowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return InkWell(
       key: keyValue,
       onTap: onTap,
       borderRadius: BorderRadius.circular(rCard),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: motionDuration(context, const Duration(milliseconds: 160)),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
-          color: selected ? lime.withValues(alpha: 0.12) : surface,
+          color: selected ? t.forest : t.surf,
           borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(
-            color: selected ? lime.withValues(alpha: 0.55) : hairline,
-            width: selected ? 1.5 : 1,
-          ),
+          border: Border.all(color: selected ? t.forest : t.line),
         ),
         child: Row(
           children: [
@@ -1108,7 +1088,7 @@ class _RowCard extends StatelessWidget {
               Icon(
                 leadingIcon,
                 size: 22,
-                color: selected ? lime : textMuted,
+                color: selected ? t.lime : t.ink2,
               ),
               const SizedBox(width: 14),
             ],
@@ -1118,20 +1098,22 @@ class _RowCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: textPrimary,
+                    style: AppType.ui(
+                      15,
+                      weight: FontWeight.w700,
+                      color: selected ? t.onForest : t.ink,
                       letterSpacing: -0.2,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w500,
+                    style: AppType.ui(
+                      12.5,
+                      weight: FontWeight.w500,
+                      color: selected
+                          ? t.onForest.withValues(alpha: 0.78)
+                          : t.ink2,
                       height: 1.3,
                     ),
                   ),
@@ -1142,17 +1124,16 @@ class _RowCard extends StatelessWidget {
               const SizedBox(width: 10),
               Text(
                 trailing!,
-                style: TextStyle(
-                  color: selected ? lime : textMuted,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+                style: AppType.display(
+                  13,
+                  weight: FontWeight.w700,
+                  color: selected ? t.lime : t.ink2,
                 ),
               ),
             ],
             if (selected) ...[
               const SizedBox(width: 10),
-              const Icon(Icons.check_circle_rounded, color: lime, size: 20),
+              Icon(Icons.check_circle_rounded, color: t.lime, size: 20),
             ],
           ],
         ),
@@ -1195,25 +1176,21 @@ class _SummaryStep extends StatelessWidget {
       _ => 'Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.',
     };
 
+    final t = context.t;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Dein Plan steht, $firstName.',
-          style: const TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -1.0,
-            height: 1.08,
-          ),
+          style: AppType.display(28, color: t.ink, height: 1.08),
         ),
         const SizedBox(height: 8),
-        const Text(
+        Text(
           'Das ist dein empfohlenes Tagesziel.',
-          style: TextStyle(
-            color: textMuted,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+          style: AppType.ui(
+            14,
+            weight: FontWeight.w500,
+            color: t.ink2,
             height: 1.45,
           ),
         ),
@@ -1221,82 +1198,95 @@ class _SummaryStep extends StatelessWidget {
         // Hero kcal card
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [lime.withValues(alpha: 0.18), surface],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(rSheet),
-            border: Border.all(color: lime.withValues(alpha: 0.35)),
+            color: t.forest,
+            borderRadius: BorderRadius.circular(rHero),
           ),
-          child: Column(
+          child: Stack(
             children: [
-              const Text(
-                'TÄGLICHES KALORIENZIEL',
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 11,
-                  letterSpacing: 1.2,
-                  fontWeight: FontWeight.w600,
+              Positioned.fill(
+                child: DotGridBackground(
+                  color: t.onForest.withValues(alpha: 0.07),
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    '${targets.kcal}',
-                    key: const ValueKey('onboarding-summary-kcal'),
-                    style: const TextStyle(
-                      fontSize: 52,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -1.8,
-                      height: 1,
-                      color: lime,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 7),
-                    child: Text(
-                      'kcal',
-                      style: TextStyle(
-                        color: textMuted,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+                child: Column(
+                  children: [
+                    Text(
+                      'TÄGLICHES KALORIENZIEL',
+                      textAlign: TextAlign.center,
+                      style: AppType.eyebrow(
+                        t.onForest.withValues(alpha: 0.70),
+                        size: 11,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '${targets.kcal}',
+                            key: const ValueKey('onboarding-summary-kcal'),
+                            maxLines: 1,
+                            style:
+                                AppType.display(52, color: t.lime, height: 1),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 7),
+                          child: Text(
+                            'kcal',
+                            style: AppType.ui(
+                              16,
+                              weight: FontWeight.w700,
+                              color: t.onForest.withValues(alpha: 0.70),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        // Macros
+        // Macros — auf dem Seitengrund statt auf der Forest-Flaeche: dort
+        // haette t.protein im Hellmodus kein lesbares Kontrastverhaeltnis.
         Row(
           children: [
-            _MacroChip(label: 'Protein', value: '${targets.proteinG} g', color: lime),
+            _MacroChip(
+              label: 'Protein',
+              value: '${targets.proteinG} g',
+              color: t.protein,
+            ),
             const SizedBox(width: 12),
-            _MacroChip(label: 'Carbs', value: '${targets.carbsG} g', color: cyan),
+            _MacroChip(
+              label: 'Carbs',
+              value: '${targets.carbsG} g',
+              color: t.carbs,
+            ),
             const SizedBox(width: 12),
-            _MacroChip(label: 'Fett', value: '${targets.fatG} g', color: orange),
+            _MacroChip(
+              label: 'Fett',
+              value: '${targets.fatG} g',
+              color: t.fat,
+            ),
           ],
         ),
         const SizedBox(height: 16),
         // Breakdown
-        Container(
+        AppCard(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.circular(rCard),
-            border: Border.all(color: hairline),
-          ),
+          radius: rCard,
           child: Column(
             children: [
               _BreakdownRow(
@@ -1320,7 +1310,6 @@ class _SummaryStep extends StatelessWidget {
                 label: 'Ziel · ${targets.effectivePaceLabel}',
                 value: _signedKcalLabel(targets.effectiveKcalDelta),
                 highlight: targets.effectiveKcalDelta != 0,
-                positive: targets.effectiveKcalDelta > 0,
               ),
             ],
           ),
@@ -1333,25 +1322,30 @@ class _SummaryStep extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: orange.withValues(alpha: 0.10),
+              color: t.warning.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(rCard),
-              border: Border.all(color: orange.withValues(alpha: 0.30)),
+              border: Border.all(color: t.warning.withValues(alpha: 0.30)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(
-                  padding: EdgeInsets.only(top: 1),
-                  child: Icon(Icons.info_outline_rounded, color: orange, size: 18),
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.info_outline_rounded,
+                    color: t.warning,
+                    size: 18,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     targets.paceWarning!,
                     key: const ValueKey('onboarding-summary-pace-warning'),
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
+                    style: AppType.ui(
+                      12.5,
+                      weight: FontWeight.w600,
+                      color: t.ink,
                       height: 1.45,
                     ),
                   ),
@@ -1364,18 +1358,19 @@ class _SummaryStep extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 1),
-              child: Icon(Icons.timeline_rounded, color: lime, size: 18),
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(Icons.timeline_rounded, color: t.accent, size: 18),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 timeline,
                 key: const ValueKey('onboarding-summary-timeline'),
-                style: const TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
+                style: AppType.ui(
+                  13.5,
+                  weight: FontWeight.w600,
+                  color: t.ink,
                   height: 1.4,
                 ),
               ),
@@ -1383,14 +1378,14 @@ class _SummaryStep extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        const Text(
+        Text(
           'Schätzung nach Mifflin-St Jeor. Werte sind jederzeit unter '
           'Profil › Einstellungen anpassbar.',
-          style: TextStyle(
-            color: textMuted,
-            fontSize: 12,
+          style: AppType.ui(
+            12,
+            weight: FontWeight.w500,
+            color: t.ink2,
             height: 1.45,
-            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -1407,32 +1402,32 @@ class _MacroChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: hairline),
-        ),
+      child: AppCard(
+        radius: rCard,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
         child: Column(
           children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: color,
-                fontFeatures: const [FontFeature.tabularFigures()],
+            // Die Kachel ist ein Drittel der Zeile breit — bei textScaler 2.0
+            // braucht der Inhalt die Notbremse.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                maxLines: 1,
+                style:
+                    AppType.display(16, weight: FontWeight.w700, color: color),
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style:
+                    AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
               ),
             ),
           ],
@@ -1455,6 +1450,11 @@ String _signedKcalLabel(int kcal) {
   return '$sign${kcal.abs()} kcal';
 }
 
+/// Eine Zeile der Aufschluesselung.
+///
+/// **Genau zwei [Text]-Kinder** — der Test `onboarding_screen_test` liest alle
+/// Texte der Ziel-Zeile als Liste und vergleicht sie mit
+/// `['Ziel · −0,72 kg/Woche', '−797 kcal']`.
 class _BreakdownRow extends StatelessWidget {
   const _BreakdownRow({
     super.key,
@@ -1462,37 +1462,45 @@ class _BreakdownRow extends StatelessWidget {
     required this.value,
     this.valueKey,
     this.highlight = false,
-    this.positive = false,
   });
 
   final String label;
   final String value;
   final Key? valueKey;
+
+  /// Hebt die Zahl in den Marken-Akzent. Frueher unterschied die Farbe
+  /// zusaetzlich Defizit (lime) von Ueberschuss (orange) — in der neuen
+  /// Sprache traegt der Ton keine Daten mehr, und die Richtung steht ohnehin
+  /// als Vorzeichen im Text.
   final bool highlight;
-  final bool positive;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       children: [
         Expanded(
           child: Text(
             label,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
+            style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
           ),
         ),
-        Text(
-          value,
-          key: valueKey,
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w700,
-            color: highlight ? (positive ? orange : lime) : textPrimary,
-            fontFeatures: const [FontFeature.tabularFigures()],
+        // Kein Expanded/Flexible: die Zeile hat nur zwei Kinder, und der Wert
+        // ist immer kurz („1997 kcal"). Der Text darf umbrechen, die Spalte
+        // links gibt dafuer nach.
+        Flexible(
+          child: Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: Text(
+              value,
+              key: valueKey,
+              textAlign: TextAlign.right,
+              style: AppType.display(
+                13.5,
+                weight: FontWeight.w700,
+                color: highlight ? t.accent : t.ink,
+              ),
+            ),
           ),
         ),
       ],
@@ -1505,9 +1513,9 @@ class _BreakdownDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 10),
-      child: Divider(height: 1, color: hairline),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Divider(height: 1, color: context.t.line),
     );
   }
 }

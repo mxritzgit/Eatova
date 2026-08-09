@@ -94,7 +94,7 @@ Future<void> _pumpGate(
 ) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: AuthGate(
         authRepository: repository,
         builder: (context, user, freshLogin) => Scaffold(
@@ -249,7 +249,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildEatovaTheme(),
+        theme: buildEatovaTheme(Brightness.dark),
         home: AuthGate(
           authRepository: repository,
           builder: (context, user, freshLogin) => Scaffold(

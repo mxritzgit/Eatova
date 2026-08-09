@@ -9,7 +9,13 @@
 //    Zurueck-Taste schloss aus dem Coach- oder Rezepte-Tab die App.
 //
 // Die Tests fahren die echte EatovaHomePage ohne Sync (Preview-Pfad): kein
-// Boot-Gate, kein Onboarding, alle drei Tabs erreichbar.
+// Boot-Gate, kein Onboarding, alle Tabs erreichbar.
+//
+// Design-Refactor 2026-08-09: Der neue Tab „Heute" ist dazugekommen und sitzt
+// auf Index 0. Alle Tab-Indizes sind deshalb um eins nach hinten gerueckt
+// (Heute 0, Food 1, Rezepte 2, Coach 3), und der Kaltstart baut jetzt Heute
+// statt Food. Die geprueften AUSSAGEN sind dieselben geblieben — nur die
+// Nummern und der Name des Wurzel-Tabs haben sich geaendert.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +25,7 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 HomeStore _storeOf(WidgetTester tester) =>
@@ -50,7 +57,7 @@ Future<void> _pumpHome(WidgetTester tester) async {
   addTearDown(() => FlutterError.onError = prior);
 
   await tester.pumpWidget(
-    MaterialApp(theme: buildEatovaTheme(), home: EatovaHomePage()),
+    MaterialApp(theme: buildEatovaTheme(Brightness.dark), home: EatovaHomePage()),
   );
   await tester.pump();
 }
@@ -63,7 +70,9 @@ void main() {
 
       // skipOffstage: false — sonst uebersieht der Finder auch einen
       // GEBAUTEN, nur unsichtbaren IndexedStack-Tab und der Test waere blind.
-      expect(find.byType(MealAnalysisScreen), findsOneWidget);
+      expect(find.byType(TodayScreen), findsOneWidget);
+      expect(find.byType(MealAnalysisScreen, skipOffstage: false), findsNothing,
+          reason: 'Food ist seit dem Refactor Tab 1, nicht mehr der Landepunkt');
       expect(find.byType(RecipesScreen, skipOffstage: false), findsNothing,
           reason: 'ein eager IndexedStack baute jeden Tab beim Kaltstart');
       expect(find.byType(CoachChatScreen, skipOffstage: false), findsNothing,
@@ -74,11 +83,11 @@ void main() {
         (tester) async {
       await _pumpHome(tester);
 
-      await _goToTab(tester, 2);
+      await _goToTab(tester, 3);
       final coachState = tester.state(find.byType(CoachChatScreen));
 
-      await _goToTab(tester, 1);
       await _goToTab(tester, 2);
+      await _goToTab(tester, 3);
 
       expect(
         identical(tester.state(find.byType(CoachChatScreen)), coachState),
@@ -95,14 +104,14 @@ void main() {
       // TextEditingController lebt in _CoachChatScreenState. Bleibt DIE Instanz
       // ueber den Tab-Wechsel dieselbe, ueberlebt auch ihr Text.
       await _pumpHome(tester);
-      await _goToTab(tester, 2);
+      await _goToTab(tester, 3);
 
       final feld = find.byKey(const ValueKey('coach-input'));
       final controller = tester.widget<TextField>(feld).controller;
       expect(controller, isNotNull);
 
       await _goToTab(tester, 0);
-      await _goToTab(tester, 2);
+      await _goToTab(tester, 3);
 
       expect(identical(tester.widget<TextField>(feld).controller, controller),
           isTrue);
@@ -110,7 +119,7 @@ void main() {
 
     testWidgets('der Text im Rezept-Suchfeld bleibt stehen', (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 1);
+      await _goToTab(tester, 2);
 
       await tester.enterText(
         find.byKey(const ValueKey('recipes-search-input')),
@@ -123,7 +132,7 @@ void main() {
       await tester.pump();
 
       await _goToTab(tester, 0);
-      await _goToTab(tester, 1);
+      await _goToTab(tester, 2);
 
       expect(
         tester
@@ -137,12 +146,15 @@ void main() {
 
     testWidgets('der Food-Tab bleibt beim Wechsel gemountet', (tester) async {
       await _pumpHome(tester);
+      // Food ist seit dem Refactor Tab 1 und beim Kaltstart noch nicht gebaut
+      // — erst hinschalten, dann messen.
+      await _goToTab(tester, 1);
       // MealAnalysisScreen ist stateless — Element-Identitaet ist hier das
       // Mount-Signal: ein Remount wirft das alte Element weg.
       final foodElement = tester.element(find.byType(MealAnalysisScreen));
 
+      await _goToTab(tester, 2);
       await _goToTab(tester, 1);
-      await _goToTab(tester, 0);
 
       expect(
         identical(tester.element(find.byType(MealAnalysisScreen)), foodElement),
@@ -152,11 +164,14 @@ void main() {
   });
 
   group('D7 — Zurueck-Taste', () {
-    testWidgets('aus dem Coach-Tab fuehrt Zurueck auf Food statt aus der App',
+    // Der Zielpunkt der Zurueck-Taste ist weiterhin Tab 0 — der heisst seit
+    // dem Refactor „Heute" statt „Food". Die Zusicherung (`selectedTab == 0`)
+    // ist deshalb unveraendert richtig, nur die Namen ziehen mit.
+    testWidgets('aus dem Coach-Tab fuehrt Zurueck auf Heute statt aus der App',
         (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 2);
-      expect(_storeOf(tester).selectedTab, 2);
+      await _goToTab(tester, 3);
+      expect(_storeOf(tester).selectedTab, 3);
 
       final handled = await WidgetsBinding.instance.handlePopRoute();
       await tester.pump();
@@ -167,6 +182,15 @@ void main() {
 
     testWidgets('aus dem Rezepte-Tab ebenso', (tester) async {
       await _pumpHome(tester);
+      await _goToTab(tester, 2);
+
+      expect(await WidgetsBinding.instance.handlePopRoute(), isTrue);
+      await tester.pump();
+      expect(_storeOf(tester).selectedTab, 0);
+    });
+
+    testWidgets('aus dem Food-Tab ebenso', (tester) async {
+      await _pumpHome(tester);
       await _goToTab(tester, 1);
 
       expect(await WidgetsBinding.instance.handlePopRoute(), isTrue);
@@ -174,22 +198,22 @@ void main() {
       expect(_storeOf(tester).selectedTab, 0);
     });
 
-    testWidgets('auf Food schliesst Zurueck die App normal (kein Klemmen)',
+    testWidgets('auf Heute schliesst Zurueck die App normal (kein Klemmen)',
         (tester) async {
       await _pumpHome(tester);
       expect(_storeOf(tester).selectedTab, 0);
 
       expect(await WidgetsBinding.instance.handlePopRoute(), isFalse,
-          reason: 'der Food-Tab ist die Wurzel — hier gehoert die App zu');
+          reason: 'der Heute-Tab ist die Wurzel — hier gehoert die App zu');
       expect(_storeOf(tester).selectedTab, 0);
     });
 
     testWidgets('eine gepushte Route poppt zuerst, der Tab bleibt stehen',
         (tester) async {
       // Rezepte-Tab statt Coach: der CoachOrb animiert endlos, ein
-      // pumpAndSettle waehrend Tab 2 sichtbar ist wuerde nie settlen.
+      // pumpAndSettle waehrend des Coach-Tabs wuerde nie settlen.
       await _pumpHome(tester);
-      await _goToTab(tester, 1);
+      await _goToTab(tester, 2);
 
       // Route oeffnen (liegt UEBER dem Home) und mit Zurueck schliessen.
       Navigator.of(tester.element(find.byType(EatovaHomePage))).push(
@@ -204,7 +228,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('test-pushed-route')), findsNothing);
-      expect(_storeOf(tester).selectedTab, 1,
+      expect(_storeOf(tester).selectedTab, 2,
           reason: 'das PopScope der Schale gehoert der Home-Route, nicht der '
               'gepushten Route darueber');
     });
@@ -219,7 +243,7 @@ void main() {
     // und `test/coach_*`; hier bleibt nur die Aussage, DASS der Tab sie traegt.
     testWidgets('der Coach-Tab nennt die KI', (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 2);
+      await _goToTab(tester, 3);
 
       expect(find.byKey(const ValueKey('coach-ai-note')), findsOneWidget,
           reason: 'der antippbare Hinweis im Leerzustand fuehrt ins (i)-Sheet');
@@ -228,7 +252,7 @@ void main() {
     testWidgets('der Tab-Rahmen traegt keine zweite Offenlegung',
         (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 2);
+      await _goToTab(tester, 3);
 
       expect(find.byKey(const ValueKey('coach-ai-disclosure')), findsNothing,
           reason: 'sonst steht die Aussage doppelt untereinander');

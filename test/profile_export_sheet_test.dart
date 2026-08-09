@@ -11,17 +11,24 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 void main() {
   Future<void> oeffneExport(
     WidgetTester tester, {
     Future<String> Function()? onBuildFullExport,
   }) async {
-    // Bewusst die Default-Testflaeche (800x600 logisch): schmaler loest ein
-    // vorbestehendes _BodyMetric-Row-Overflow in profile_widgets_body aus,
-    // das mit dem Export-Sheet nichts zu tun hat.
+    // Bewusst die Default-Testflaeche (800x600 logisch) — hier geht es nur um
+    // das Export-Sheet, nicht um die Kopfgeometrie des Screens.
+    //
+    // `theme: buildEatovaTheme(...)` ist Pflicht, seit die Karten ihre Farben
+    // ueber `AppTokens.of` lesen: das nackte MaterialApp haengt die
+    // ThemeExtension nicht ans Theme, und AppTokens.of wirft dann absichtlich
+    // (Verdrahtungs-Detektor). Ohne diese Zeile scheiterten alle drei Faelle
+    // schon vor dem Design-Refactor an einem Null-Check in basic_widgets.dart.
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.dark),
         home: ProfileScreen(
           name: 'Moritz',
           profile: const UserProfile(),
