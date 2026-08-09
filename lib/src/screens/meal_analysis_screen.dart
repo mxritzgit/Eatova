@@ -4,12 +4,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/favorite_meal.dart';
 import '../models/logged_meal.dart';
-import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/user_profile.dart';
 import '../config/search_config.dart';
 import '../services/day_math.dart';
 import '../services/fallback_product_service.dart';
+import '../services/kcal_format.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
@@ -21,12 +21,25 @@ import '../theme/app_tokens.dart';
 import '../widgets/common/motion.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
-import '../widgets/kcal/daily_summary_card.dart';
 import '../widgets/kcal/diary_meal_card.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import 'barcode_scanner_sheet.dart';
 import 'trends_screen.dart';
 
+/// Der Tab „Food": Kopfzeile · Datums-Streifen · Such-Launcher mit
+/// Barcode/KI-Scan · „Verlauf" mit den vier Slot-Karten.
+///
+/// **Ohne Kalorien-Karte.** Bis zum 2026-08-10 stand zwischen Scan-Chips und
+/// Verlauf noch die `DailySummaryCard` (Rest-kcal, ZIEL/GEGESSEN/VERBRANNT,
+/// drei Makro-Balken). Sie wiederholte, was der Tab „Heute" einen Tipp
+/// entfernt bereits vollstaendig zeigt, und schob den Verlauf — die eigentliche
+/// Aufgabe DIESES Tabs — auf einem 852-px-Schirm unter die Falz. Der Tab
+/// beantwortet jetzt genau eine Frage: „was habe ich gegessen und was trage
+/// ich nach?". Die Tagesbilanz beantwortet „Heute".
+///
+/// Die gegessenen kcal des angezeigten Tages bleiben trotzdem sichtbar — als
+/// kleine Forest-Kachel im Kopf ([_KcalTile]), damit man beim Nachtragen nicht
+/// blind ist.
 class MealAnalysisScreen extends StatelessWidget {
   MealAnalysisScreen({
     super.key,
@@ -35,11 +48,9 @@ class MealAnalysisScreen extends StatelessWidget {
     MealPhotoInput? photoInput,
     MealCameraLauncher? cameraLauncher,
     required this.dailyConsumedKcal,
-    this.macroProgress = MacroProgress.empty,
     this.profile = const UserProfile(),
     this.favorites = const <FavoriteMeal>[],
     this.loggedMeals = const <LoggedMeal>[],
-    this.burnedKcal = 0,
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
     // 30 Tage manuell erreichbar (scrollbare Chip-Leiste, Heute zuerst);
@@ -58,6 +69,7 @@ class MealAnalysisScreen extends StatelessWidget {
     this.onProfilePressed,
     this.profileInitial,
     this.trendTotalsLoader,
+    this.addSlotRequest,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
@@ -96,11 +108,31 @@ class MealAnalysisScreen extends StatelessWidget {
   final MealPhotoInput photoInput;
   final MealCameraLauncher cameraLauncher;
   final int dailyConsumedKcal;
-  final MacroProgress macroProgress;
+
+  /// Nur noch durchgereicht: die drei Makro-Balken sassen in der entfernten
+  /// Kalorien-Karte und stehen heute im Tab „Heute"
+  /// (`today_screen.dart`, `today-macros-card`). Das Feld bleibt in der
+  /// Signatur, weil `eatova_home_page.dart` es setzt — es zu streichen waere
+  /// eine Aenderung an einer Datei, die diesem Paket nicht gehoert (steht als
+
   final UserProfile profile;
   final List<FavoriteMeal> favorites;
   final List<LoggedMeal> loggedMeals;
-  final int burnedKcal;
+
+
+  /// Anfrage von aussen, das Hinzufuegen-Fenster fuer einen bestimmten Slot
+  /// zu oeffnen — gesetzt vom Heute-Tab, wenn dort eine Mahlzeiten-Zeile
+  /// getippt wird.
+  ///
+  /// Bewusst ein [ValueNotifier] und kein einfacher Parameter: die Schale
+  /// cached die Tab-Widgets nach Identitaet (`_tabViews`), ein geaenderter
+  /// Parameter erreichte den gebauten Tab also gar nicht. Die Identitaet des
+  /// Notifiers bleibt stabil, sein Wert wandert.
+  ///
+  /// Der Empfaenger setzt den Wert beim Verarbeiten auf null zurueck — sonst
+  /// oeffnete der naechste Besuch des Tabs ein Geister-Fenster.
+  final ValueNotifier<MealSlot?>? addSlotRequest;
+
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateSelected;
   final int visiblePastDays;
@@ -247,8 +279,7 @@ class MealAnalysisScreen extends StatelessWidget {
   /// Tages, worauf mehrere Flows bauen.
   ///
   /// Der Tages-Filter laeuft ueber `mealsForFoodDate` — denselben kanonischen
-  /// DATA-6-Schluessel, aus dem auch [dailyConsumedKcal] und [macroProgress]
-  /// entstehen. Ein eigenes `isSameDay(loggedAt, selectedDate)` waere genau
+  /// DATA-6-Schluessel, aus dem auch [dailyConsumedKcal] entsteht. Ein eigenes `isSameDay(loggedAt, selectedDate)` waere genau
   /// die Logik, die DATA-6 abgeloest hat: eine Mahlzeit mit persistiertem
   /// `local_day` (23:45-Eintrag, spaeter unter anderem Zonen-/DST-Offset
   /// betrachtet) zaehlt dann in der Kopfzahl mit, faellt aber aus dem
@@ -297,15 +328,10 @@ class MealAnalysisScreen extends StatelessWidget {
             onBarcode: () => _scanBarcode(context),
             onAiScan: () => _scanWithCamera(context),
           ),
-          const SizedBox(height: 12),
-          DailySummaryCard(
-            dailyConsumedKcal: dailyConsumedKcal,
-            kcalGoal: profile.dailyKcalGoal,
-            burnedKcal: burnedKcal,
-            macroProgress: macroProgress,
-            profile: profile,
-          ),
-          const SizedBox(height: 12),
+          // Hier stand bis 2026-08-10 die DailySummaryCard. Zwischen
+          // Scan-Chips und Verlauf liegt jetzt nur noch der Abstand — die
+          // Tagesbilanz traegt der Tab „Heute" (s. Klassenkommentar).
+          const SizedBox(height: 14),
           if (dayLoading)
             const _DayLoadingCard()
           else
@@ -364,16 +390,79 @@ class MealAnalysisScreen extends StatelessWidget {
           // Ohne obere Schranke (Vorschau, Golden-Hosts) wuerde ein
           // Scrollview ins Unendliche wachsen — dann steht dieselbe Column
           // schlicht ungescrollt da.
-          child: boundedHeight
-              ? SingleChildScrollView(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: column,
-                )
-              : column,
+          child: _SlotRequestListener(
+            request: addSlotRequest,
+            onSlot: (listenerContext, slot) =>
+                _openAddSheet(listenerContext, slot),
+            child: boundedHeight
+                ? SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: column,
+                  )
+                : column,
+          ),
         );
       },
     );
   }
+}
+
+/// Oeffnet das Hinzufuegen-Fenster, sobald von aussen ein Slot angefragt wird.
+///
+/// Sitzt IM Baum des Food-Tabs, weil das Sheet einen Context unterhalb des
+/// Navigators braucht. Beide Ausloeser sind noetig: Der Tab wird lazy gebaut —
+/// liegt die Anfrage beim Mounten schon vor (der Normalfall: erst Slot tippen,
+/// dann Tab-Wechsel), kaeme ein reiner Listener zu spaet.
+class _SlotRequestListener extends StatefulWidget {
+  const _SlotRequestListener({
+    required this.request,
+    required this.onSlot,
+    required this.child,
+  });
+
+  final ValueNotifier<MealSlot?>? request;
+  final void Function(BuildContext context, MealSlot slot) onSlot;
+  final Widget child;
+
+  @override
+  State<_SlotRequestListener> createState() => _SlotRequestListenerState();
+}
+
+class _SlotRequestListenerState extends State<_SlotRequestListener> {
+  @override
+  void initState() {
+    super.initState();
+    widget.request?.addListener(_pruefe);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pruefe());
+  }
+
+  @override
+  void didUpdateWidget(covariant _SlotRequestListener oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.request != widget.request) {
+      oldWidget.request?.removeListener(_pruefe);
+      widget.request?.addListener(_pruefe);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.request?.removeListener(_pruefe);
+    super.dispose();
+  }
+
+  void _pruefe() {
+    final anfrage = widget.request;
+    final slot = anfrage?.value;
+    if (slot == null || !mounted) return;
+    // ERST zuruecksetzen, dann oeffnen: das Sheet laeuft asynchron, und ein
+    // zweiter Notify waehrenddessen oeffnete es sonst doppelt.
+    anfrage!.value = null;
+    widget.onSlot(context, slot);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Wegweiser fuer einen Tag ohne einen einzigen Eintrag — einmal unter den

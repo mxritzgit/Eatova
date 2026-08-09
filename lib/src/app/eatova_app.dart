@@ -137,6 +137,7 @@ class _EatovaAppState extends State<EatovaApp> {
           notificationService:
               widget.notificationService ?? const NoopNotificationService(),
           initialUserName: user.firstName,
+          userEmail: user.email,
           onSignOut: repository.signOut,
           sync: _syncFor(user.id),
           showWelcome: freshLogin,

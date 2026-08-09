@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
+import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../services/data_export.dart';
 import '../services/eatova_sync.dart';
@@ -19,6 +20,7 @@ import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/recipes/recipes_screen.dart';
+import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
 import '../theme/app_tokens.dart';
@@ -41,6 +43,7 @@ class EatovaHomePage extends StatefulWidget {
     this.healthService,
     this.notificationService = const NoopNotificationService(),
     this.initialUserName = 'Moritz',
+    this.userEmail,
     this.onSignOut,
     this.sync,
     this.showWelcome = false,
@@ -60,6 +63,10 @@ class EatovaHomePage extends StatefulWidget {
   final NotificationService notificationService;
 
   final String initialUserName;
+
+  /// Mailadresse der Session — der Einstellungs-Screen zeigt sie an.
+  /// Null in Tests/Preview ohne Auth; der Screen blendet die Zeile dann aus.
+  final String? userEmail;
   final Future<void> Function()? onSignOut;
   final EatovaSync? sync;
 
@@ -111,6 +118,18 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   // Health-Refresh auf einer OFFENEN ProfileScreen nicht ankommen. Gebumpt nur,
   // WENN die Route tatsaechlich offen ist ([_profileRouteOpen]).
   final ValueNotifier<int> _profileRefresh = ValueNotifier<int>(0);
+
+  /// Ein Tipp auf eine Mahlzeit-Zeile in „Heute" soll im Food-Tab das
+  /// Hinzufuegen-Fenster fuer GENAU diesen Slot oeffnen. Seit der
+  /// „Essen loggen"-Knopf entfallen ist (Nutzer-Wunsch 2026-08-10), ist das
+  /// der einzige Weg zum Nachtragen — er darf den Slot nicht unterwegs
+  /// verlieren.
+  ///
+  /// Ein Notifier statt eines Parameters, weil die Schale die Tab-Widgets
+  /// nach Identitaet cached (`_tabViews`): ein geaenderter Parameter erreichte
+  /// den bereits gebauten Tab nie.
+  final ValueNotifier<MealSlot?> _addSlotRequest =
+      ValueNotifier<MealSlot?>(null);
   bool _profileRouteOpen = false;
   late bool _welcomeFinished;
 
@@ -141,6 +160,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     WidgetsBinding.instance.removeObserver(this);
     _store.removeListener(_onStoreChanged);
     _profileRefresh.dispose();
+    _addSlotRequest.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -256,14 +276,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
   // --- context-tragende Flows (Sheets / Navigation) ------------------------
 
-  /// Die Einstellungen sind seit dem Design-Refactor 2026-08-09 eine ROUTE,
-  /// kein modales Sheet mehr (Begruendung: settings_screen.dart). Der
-  /// Rueckgabewert bleibt [SettingsResult], die Verarbeitung darunter also
-  /// unveraendert.
-  Future<void> _openSettings() async {
+  /// „Profil & Ziele" — Koerperdaten, Aktivitaet, Ziel, Energie/Makros,
+  /// Tagesziele, Erinnerungen.
+  ///
+  /// Seit dem Design-Refactor 2026-08-09 eine ROUTE statt eines modalen
+  /// Sheets; seit dem 2026-08-10 von den Einstellungen getrennt (die tragen
+  /// jetzt Konto- und Anzeige-Themen). Der Rueckgabewert bleibt
+  /// [SettingsResult], die Verarbeitung darunter also unveraendert.
+  Future<void> _openGoals() async {
     final result = await Navigator.of(context).push<SettingsResult>(
       MaterialPageRoute<SettingsResult>(
-        builder: (_) => SettingsScreen(
+        builder: (_) => GoalsScreen(
           profile: _store.profile,
           notificationsEnabled: _store.notificationsEnabled,
           // D11: ohne diese Zeile erreicht der dritte Zustand `blocked` den
@@ -282,6 +305,35 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       newProfile: result.profile,
       notificationsEnabled: result.notificationsEnabled,
       resetDay: result.resetDay,
+    );
+  }
+
+  /// Die Einstellungen — Konto, Anzeige, Daten, Gefahrenzone.
+  ///
+  /// Bewusst OHNE Koerperdaten und Ziele: die haben mit [_openGoals] eine
+  /// eigene Seite, erreichbar aus dem Profil. Ein Screen, der Gewicht und
+  /// Kontoloeschung mischt, war der Grund, warum das alte Sheet auf 1922
+  /// Zeilen kam.
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsScreen(
+          // Nur echte Daten: die Mailadresse kommt aus der Session. Einen
+          // „verbundenes Konto"-Eintrag gibt es bewusst nicht — welcher
+          // Anbieter die Anmeldung getragen hat, weiss die App heute nicht,
+          // und eine geratene Zeile waere schlimmer als keine.
+          email: widget.userEmail,
+          onOpenGoals: _openGoals,
+          onSignOut: widget.onSignOut != null ? _signOut : null,
+          onDeleteAccount: widget.sync != null ? _deleteAccount : null,
+          onExportData: widget.sync != null
+              ? () => DataExportService(
+                    widget.sync!.client,
+                    widget.sync!.userId,
+                  ).buildExportJson()
+              : null,
+        ),
+      ),
     );
   }
 
@@ -323,7 +375,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               healthLastFetch: _store.healthLastFetch,
               favoritesCount: _store.favorites.length,
               onLogWeight: _store.logWeight,
-              onEditProfile: _openSettings,
+              onEditProfile: _openGoals,
               onResetDay: _store.resetTodayData,
               onConnectHealth: _store.connectHealth,
               onRefreshHealth: _store.refreshHealthSteps,
@@ -588,8 +640,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             onDateSelected: _store.setFoodDate,
             onOpenCoach: () => _store.setTab(_tabCoach),
             onOpenProfile: _openProfile,
-            onLogFood: () => _store.setTab(_tabFood),
-            onOpenMealSlot: (_) => _store.setTab(_tabFood),
+            onOpenMealSlot: (slot) {
+              // Reihenfolge zaehlt: der Food-Tab wird lazy gebaut. Steht der
+              // Wunsch schon fest, bevor er mountet, findet ihn sein initState
+              // vor — sonst liefe der Notify ins Leere.
+              _addSlotRequest.value = slot;
+              _store.setTab(_tabFood);
+            },
           );
         },
       );
@@ -631,19 +688,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               dayLoading: _store.isLoadingFoodDay(_store.selectedFoodDate),
               dailyConsumedKcal:
                   _store.consumedKcalForFoodDate(_store.selectedFoodDate),
-              macroProgress:
-                  _store.macroProgressForFoodDate(_store.selectedFoodDate),
               profile: _store.profile,
               favorites: _store.favorites,
               loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
-              burnedKcal: _store.selectedFoodDateIsToday
-                  ? estimateKcalBurnedFromSteps(
-                      steps: _store.dailySteps,
-                      weightKg: _store.profile.weightKg,
-                      heightCm: _store.profile.heightCm,
-                      sex: _store.profile.sex,
-                    )
-                  : 0,
               onAddMeal: (result, slot) =>
                   _store.addResultToDailyTotal(result, slot: slot),
               onUpdateMeal: _store.updateLoggedMealResult,
@@ -654,6 +701,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onSettingsPressed: _openSettings,
               onProfilePressed: _openProfile,
               profileInitial: _store.profileInitial,
+              addSlotRequest: _addSlotRequest,
             ),
           );
         },

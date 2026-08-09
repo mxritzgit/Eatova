@@ -56,8 +56,15 @@ void main() {
     expect(find.byKey(const ValueKey('food-date-strip')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-chip-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-chip-3')), findsOneWidget);
-    expect(find.byKey(const ValueKey('analyse-daily-kcal-card')), findsOneWidget);
-    expect(find.byKey(const ValueKey('analyse-daily-kcal-total')), findsOneWidget);
+    // Die Kalorien-Karte ist am 2026-08-10 aus dem Food-Tab entfernt worden
+    // („das haben wir ja im Heute-Tab schon"). Statt ihrer Existenz prueft der
+    // Pin jetzt ihre ABWESENHEIT — und dass der Verlauf, der ihren Platz
+    // eingenommen hat, da ist. Das Tagestotal steht im Heute-Tab
+    // (`today-kcal-hero`, weiter oben in diesem Test schon gepinnt).
+    expect(find.byKey(const ValueKey('analyse-daily-kcal-card')), findsNothing);
+    expect(find.byKey(const ValueKey('analyse-daily-kcal-total')), findsNothing);
+    expect(find.byKey(const ValueKey('kcal-meals-today-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('food-history')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-search')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-barcode')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-ai')), findsOneWidget);

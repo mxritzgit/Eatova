@@ -384,7 +384,13 @@ class AppNavBar extends StatelessWidget {
         color: t.surf.withValues(alpha: 0.94),
         border: Border(top: BorderSide(color: t.line)),
       ),
-      padding: EdgeInsets.fromLTRB(10, 10, 10, 10 + bottomInset),
+      // Flacher als die Vorlage (Nutzer-Wunsch 2026-08-10): dort summierten
+      // sich 10/10-Aussenpolsterung, 4er-Innenpolsterung, eine 30 px hohe
+      // Icon-Kapsel und 5 px Abstand zur Beschriftung auf ~76 px. Die Leiste
+      // liegt auf JEDEM Screen und nimmt diese Hoehe dem Inhalt weg. Die
+      // Trefferflaeche bleibt dabei ueber 44 px — das ist die Untergrenze,
+      // unter die diese Kuerzung nicht gehen darf.
+      padding: EdgeInsets.fromLTRB(10, 6, 10, 6 + bottomInset),
       child: Row(
         children: List<Widget>.generate(items.length, (i) {
           final item = items[i];
@@ -399,7 +405,7 @@ class AppNavBar extends StatelessWidget {
                 onTap: () => onChanged(i),
                 borderRadius: BorderRadius.circular(14),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
@@ -408,7 +414,7 @@ class AppNavBar extends StatelessWidget {
                         curve: Curves.easeOut,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
-                          vertical: 5,
+                          vertical: 3,
                         ),
                         decoration: BoxDecoration(
                           color: active ? t.lime : Colors.transparent,
@@ -416,11 +422,11 @@ class AppNavBar extends StatelessWidget {
                         ),
                         child: Icon(
                           active ? item.activeIcon : item.icon,
-                          size: 20,
+                          size: 19,
                           color: active ? t.onLime : t.ink2,
                         ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 3),
                       // Die Beschriftung steht schon als Semantics-Label am
                       // Item; ohne ExcludeSemantics liest der Screenreader
                       // „Rezepte Rezepte".

@@ -1,52 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:eatova/src/app/home_store.dart' show ReminderState;
-import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
 // DESIGN_REFACTOR §7.2 / §5: jeder Screen rendert in BEIDEN Helligkeiten und
 // bei Systemschrift 200 % ohne RenderFlex-Overflow.
 //
-// „Profil & Ziele" ist die dichteste Seite der App: jede Zeile traegt
-// Beschriftung links und Zahlenfeld plus Einheit rechts, die Anzeige-Gruppe
-// eine Drei-Segment-Pille neben dem Titel, der Plan-Hero drei Makro-Kacheln
-// nebeneinander. Feste Breiten sind hier die wahrscheinlichste Bruchstelle,
-// deshalb wird sie eigens gepumpt statt nur im Sammel-Stresstest.
+// Diese Datei trug bis 2026-08-10 die Render-Faelle von „Profil & Ziele"; die
+// sind mit dem Screen nach `goals_screen_render_test.dart` umgezogen. Hier
+// steht jetzt der neue Einstellungs-Screen. Seine Bruchstellen sind andere:
+// die Drei-Segment-Pille neben der Erscheinungsbild-Zeile, die
+// Icon-Kachel-Zeile mit langer Mailadresse und der Loesch-Block mit seinem
+// Erklaerkasten.
 //
 // Anders als in den Verhaltens-Tests werden Overflows hier NICHT geschluckt —
 // sie sind der Pruefgegenstand.
 void main() {
-  /// Profil, dessen gespeicherte Energie-Ziele exakt der Rechnung entsprechen
-  /// → Live-Modus, die vier Energie-Felder sind ausgeblendet.
-  UserProfile autoProfil() {
-    const basis = UserProfile();
-    final t = const KcalCalculator().calculate(basis);
-    return basis.copyWith(
-      dailyKcalGoal: t.kcal,
-      proteinGoalG: t.proteinG,
-      carbsGoalG: t.carbsG,
-      fatGoalG: t.fatG,
-    );
-  }
+  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  /// Pumpt die Seite und meldet gesammelt jeden Overflow.
-  ///
-  /// FlutterError.onError wird VOR dem expect() wiederhergestellt — das
-  /// Test-Binding asserted sonst beim ersten TestFailure, solange der Handler
-  /// noch ueberschrieben ist.
   Future<void> pumpOhneOverflow(
     WidgetTester tester,
     String fall, {
     required Brightness brightness,
     double textScale = 1.0,
-    UserProfile profile = const UserProfile(),
-    ReminderState reminderState = ReminderState.off,
-    VoidCallback? onOpenSystemSettings,
-    ThemeModeController? themeController,
+    String? email = 'jonas.schmidt.mit.langer.adresse@beispiel-mail.de',
+    bool mitScope = true,
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
@@ -65,20 +46,26 @@ void main() {
       prior?.call(details);
     };
 
+    final controller = ThemeModeController();
+    addTearDown(controller.dispose);
+
+    // Alle Callbacks gesetzt: das ist der VOLLE Screen, also der dichteste
+    // Fall. Die ausgeduennten Varianten koennen konstruktiv nicht mehr
+    // ueberlaufen als dieser.
     final app = MaterialApp(
       theme: buildEatovaTheme(brightness),
       home: SettingsScreen(
-        profile: profile,
-        reminderState: reminderState,
-        onOpenSystemSettings: onOpenSystemSettings,
+        email: email,
+        onOpenGoals: () {},
+        onSignOut: () async {},
+        onDeleteAccount: () async {},
+        onExportData: () async => '{}',
       ),
     );
 
     try {
       await tester.pumpWidget(
-        themeController == null
-            ? app
-            : ThemeModeScope(controller: themeController, child: app),
+        mitScope ? ThemeModeScope(controller: controller, child: app) : app,
       );
       await tester.pumpAndSettle();
     } finally {
@@ -120,88 +107,18 @@ void main() {
     );
   });
 
-  testWidgets('Live-Modus blendet die Energie-Felder aus und bleibt heil',
+  testWidgets('die Erscheinungsbild-Zeile traegt die Pille auch bei 2.0',
       (tester) async {
-    // Eigener Zweig: statt der vier Zahlenzeilen steht hier die Notiz.
+    // Die dichteste Zeile der Seite: Titel und Untertitel links,
+    // Drei-Segment-Pille rechts. Bei 2.0 muss die Pille in eine zweite Zeile
+    // umbrechen statt die Zeile zu sprengen. (Zusicherung uebernommen aus dem
+    // frueheren `settings_screen_render_test`, als die Pille noch auf „Profil
+    // & Ziele" stand.)
     await pumpOhneOverflow(
       tester,
-      'Live-Modus @2.0',
+      'Erscheinungsbild @2.0',
       brightness: Brightness.light,
       textScale: 2.0,
-      profile: autoProfil(),
-    );
-    expect(find.byKey(const ValueKey('settings-kcal')), findsNothing);
-  });
-
-  testWidgets('blockierte Erinnerungen blenden eine Extra-Zeile ein',
-      (tester) async {
-    // Zweiter eigener Zweig: Hinweis in Warnfarbe plus Knopf in die
-    // Systemeinstellungen.
-    await pumpOhneOverflow(
-      tester,
-      'blockiert @2.0',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-      reminderState: ReminderState.blocked,
-      onOpenSystemSettings: () {},
-    );
-    expect(
-      find.byKey(const ValueKey('settings-open-system-settings')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('die Fehler-Sammelmeldung sprengt die Seite nicht',
-      (tester) async {
-    // Ungueltige Werte blenden zehn Fehlerzeilen UND die Sammelmeldung ein.
-    await pumpOhneOverflow(
-      tester,
-      'Fehlerfall @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-      profile: const UserProfile(weightKg: 30, heightCm: 100),
-    );
-
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-    try {
-      await tester.enterText(
-        find.byKey(const ValueKey('settings-weight')),
-        '755',
-      );
-      await tester.pumpAndSettle();
-    } finally {
-      FlutterError.onError = prior;
-    }
-
-    expect(
-      find.byKey(const ValueKey('settings-validation-note')),
-      findsOneWidget,
-    );
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
-  });
-
-  testWidgets('die ANZEIGE-Gruppe traegt die Pille auch bei textScale 2.0',
-      (tester) async {
-    // Die dichteste Zeile der Seite: Titel links, Drei-Segment-Pille rechts.
-    // Bei 2.0 muss die Pille in eine zweite Zeile umbrechen statt die Zeile
-    // zu sprengen.
-    final controller = ThemeModeController();
-    addTearDown(controller.dispose);
-
-    await pumpOhneOverflow(
-      tester,
-      'ANZEIGE @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-      themeController: controller,
     );
 
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsOneWidget);
@@ -211,15 +128,30 @@ void main() {
     );
   });
 
-  testWidgets('die drei Auswahl-Sheets rendern im Dunkelmodus bei 2.0',
+  testWidgets('die ausgeduennte Seite rendert ebenfalls sauber',
       (tester) async {
-    // Die Picker sind neuer Code (settings_pickers.dart) und liegen als
-    // eigene Route ueber der Seite — die Render-Faelle oben erreichen sie
-    // nicht. Ihre Zeilen tragen Titel UND Untertitel („Ergibt 1200 kcal/Tag ·
-    // −0,72 kg/Woche"), also genau die Sorte langer Text, die bei 2.0 bricht.
+    // Ohne Mailadresse und ohne ThemeModeScope faellt die halbe Seite weg —
+    // eine leere [SettingsGroup] waere hier die Bruchstelle.
     await pumpOhneOverflow(
       tester,
-      'Picker-Grundzustand',
+      'ohne Konto @2.0',
+      brightness: Brightness.dark,
+      textScale: 2.0,
+      email: null,
+      mitScope: false,
+    );
+
+    expect(find.text('KONTO'), findsNothing);
+    expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
+  });
+
+  testWidgets('das Loesch-Sheet rendert bei 2.0 ohne Overflow', (tester) async {
+    // Eigene Route ueber der Seite — die Faelle oben erreichen sie nicht. Der
+    // Titel, drei Zeilen Erklaertext, ein Eingabefeld und ein 52-px-Knopf sind
+    // bei doppelter Schrift der engste Platz der App.
+    await pumpOhneOverflow(
+      tester,
+      'Loesch-Sheet Grundzustand',
       brightness: Brightness.dark,
       textScale: 2.0,
     );
@@ -235,23 +167,29 @@ void main() {
     };
 
     try {
-      for (final fall in const <(String, String)>[
-        ('settings-sex', 'settings-sex-female'),
-        ('settings-activity', 'settings-activity-moderate'),
-        ('settings-weight-goal', 'settings-weight-goal-lose1kg'),
-      ]) {
-        await tester.ensureVisible(find.byKey(ValueKey(fall.$1)));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(ValueKey(fall.$1)));
-        await tester.pumpAndSettle();
+      // Bei doppelter Schrift liegt der Loesch-Block weit unterhalb des
+      // Viewports, und die Seite ist eine (lazy) ListView — ohne Scrollen
+      // existiert er gar nicht erst im Baum.
+      final oeffner = find.byKey(const ValueKey('settings-delete-account'));
+      await tester.scrollUntilVisible(
+        oeffner,
+        400,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('screen-settings')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(oeffner);
+      await tester.pumpAndSettle();
 
-        // Die Options-Schluessel sind seit dem Sheet unveraendert.
-        expect(find.byKey(ValueKey(fall.$2)), findsOneWidget,
-            reason: '${fall.$1}: Picker ist nicht aufgegangen');
+      expect(find.text('Konto endgültig löschen'), findsOneWidget);
 
-        Navigator.of(tester.element(find.byKey(ValueKey(fall.$2)))).pop();
-        await tester.pumpAndSettle();
-      }
+      await tester.enterText(
+        find.byKey(const ValueKey('settings-delete-confirm-field')),
+        'LÖSCHEN',
+      );
+      await tester.pumpAndSettle();
     } finally {
       FlutterError.onError = prior;
     }
@@ -259,86 +197,17 @@ void main() {
     expect(overflows, isEmpty, reason: overflows.join('\n'));
   });
 
-  // --- A11y: was der Umbau von Material-Widgets auf eigene Flaechen kostet ---
-  //
-  // Das alte Sheet baute auf `TextField(decoration: labelText:)`,
-  // `OutlinedButton.icon` und `FilledButton.icon`. Die trugen ihren Namen und
-  // ihren Enabled-Zustand von selbst im Semantik-Baum. Die neuen Flaechen sind
-  // Rows und InkWells — beides muss ausdruecklich gesetzt werden, und beides
-  // faellt bei einem Umbau lautlos weg, weil kein Pixel sich aendert. Deshalb
-  // stehen die drei Zusicherungen hier fest.
-
-  testWidgets('jedes Zahlenfeld traegt seine Beschriftung als Semantik-Name',
-      (tester) async {
-    await pumpOhneOverflow(tester, 'a11y-Felder', brightness: Brightness.light);
-
-    const felder = <String, String>{
-      'settings-weight': 'Gewicht',
-      'settings-height': 'Größe',
-      'settings-age': 'Alter',
-      'settings-target-weight': 'Wunschgewicht',
-      'settings-steps-goal': 'Schritte',
-      'settings-water': 'Wasser',
-      'settings-kcal': 'Kcal Ziel',
-      'settings-protein': 'Protein',
-      'settings-carbs': 'Carbs',
-      'settings-fat': 'Fett',
-    };
-    for (final eintrag in felder.entries) {
-      final knoten = tester.getSemantics(find.byKey(ValueKey(eintrag.key)));
-      expect(
-        knoten,
-        isSemantics(isTextField: true, isEnabled: true),
-        reason: eintrag.key,
-      );
-      expect(
-        knoten.getSemanticsData().label,
-        contains(eintrag.value),
-        reason: '${eintrag.key} waere ohne Namen nur „ein Zahlenfeld"',
-      );
-    }
-  });
-
-  testWidgets('gesperrte Aktionen sagen dem Screenreader, dass sie gesperrt '
-      'sind', (tester) async {
-    await pumpOhneOverflow(tester, 'a11y-Knoepfe', brightness: Brightness.light);
-
-    for (final key in const <String>['settings-save', 'settings-reset-day']) {
-      expect(
-        tester.getSemantics(find.byKey(ValueKey(key))),
-        isSemantics(isButton: true, hasEnabledState: true, isEnabled: true),
-        reason: key,
-      );
-    }
-
-    // 755 kg — dieselbe Eingabe wie in settings_validation_test.
-    await tester.enterText(find.byKey(const ValueKey('settings-weight')), '755');
-    await tester.pumpAndSettle();
-
-    for (final key in const <String>['settings-save', 'settings-reset-day']) {
-      expect(
-        tester.getSemantics(find.byKey(ValueKey(key))),
-        isSemantics(
-          isButton: true,
-          hasEnabledState: true,
-          isEnabled: false,
-        ),
-        reason: '$key muss als GESPERRT angesagt werden, nicht als wirkungslos',
-      );
-    }
-  });
-
   testWidgets('der Seitenfuss steht ohne vorheriges Scrollen im Baum',
       (tester) async {
-    // Zusicherung gegen ein spaeteres Zurueckrutschen auf ListView: eine
-    // Lazy-Liste baut „Speichern" und die Rechts-Links gar nicht erst, und
-    // mehrere Tests lesen sie, bevor irgendwer scrollt.
+    // Die Seite ist eine ListView (Lazy). Diese Zusicherung haelt fest, dass
+    // die Rechtsseiten und die Gefahrenzone trotzdem gefunden werden, solange
+    // der Viewport sie traegt — sonst laufen die Verhaltens-Tests ins Leere,
+    // bevor irgendwer scrollt.
     await pumpOhneOverflow(tester, 'Fuss', brightness: Brightness.light);
 
-    expect(find.byKey(const ValueKey('settings-reset-day')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-save')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-imprint-link')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-sign-out')), findsOneWidget);
   });
 }

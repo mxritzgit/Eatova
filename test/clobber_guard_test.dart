@@ -259,6 +259,15 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('topbar-settings')));
     await _drain(tester);
 
+    // Seit der Trennung 2026-08-10 stehen Koerperdaten und „Speichern" nicht
+    // mehr in den Einstellungen selbst, sondern auf „Profil & Ziele" — eine
+    // Ebene tiefer. Der geprueffte Schreibpfad ist unveraendert derselbe.
+    final zuDenZielen = find.byKey(const ValueKey('settings-open-goals'));
+    await tester.ensureVisible(zuDenZielen);
+    await _drain(tester);
+    await tester.tap(zuDenZielen);
+    await _drain(tester);
+
     final weightField = find.byKey(const ValueKey('settings-weight'));
     expect(weightField, findsOneWidget);
     await tester.enterText(weightField, '81');

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
@@ -58,7 +58,7 @@ void main() {
                   result = Navigator.of(context).push<SettingsResult>(
                     MaterialPageRoute<SettingsResult>(
                       builder: (_) =>
-                          const SettingsScreen(profile: UserProfile()),
+                          const GoalsScreen(profile: UserProfile()),
                     ),
                   );
                 },
@@ -78,7 +78,7 @@ void main() {
   /// als Seite unbrauchbar: der Titel scrollt weg, und der Verwerfen-Dialog
   /// traegt den Namen selbst in einem laengeren Satz.
   bool seiteOffen(WidgetTester tester) =>
-      find.byKey(const ValueKey('screen-settings')).evaluate().isNotEmpty;
+      find.byKey(const ValueKey('screen-goals')).evaluate().isNotEmpty;
 
   String feldText(WidgetTester tester, String key) =>
       tester.widget<TextField>(find.byKey(ValueKey(key))).controller!.text;

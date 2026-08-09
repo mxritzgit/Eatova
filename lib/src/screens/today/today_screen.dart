@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
@@ -41,7 +39,6 @@ class TodayScreen extends StatelessWidget {
     this.onDateSelected,
     this.onOpenCoach,
     this.onOpenProfile,
-    this.onLogFood,
     this.onOpenMealSlot,
   });
 
@@ -72,7 +69,10 @@ class TodayScreen extends StatelessWidget {
   final ValueChanged<DateTime>? onDateSelected;
   final VoidCallback? onOpenCoach;
   final VoidCallback? onOpenProfile;
-  final VoidCallback? onLogFood;
+
+  /// Der einzige Weg zum Loggen: eine Slot-Zeile fuehrt in den Food-Tab.
+  /// Ein schwebender „Essen loggen"-Knopf stand hier bis 2026-08-10 daneben —
+  /// er ist auf Nutzer-Entscheid entfallen (zwei Wege zum selben Ziel).
   final ValueChanged<MealSlot>? onOpenMealSlot;
 
   @override
@@ -88,119 +88,102 @@ class TodayScreen extends StatelessWidget {
     final restProtein =
         (profile.proteinGoalG - macroProgress.proteinG).round().clamp(0, 99999);
 
-    // Der schwebende Knopf ueberlagert die Liste; unten muss deshalb genau
-    // seine Hoehe frei bleiben. Eine feste Zahl reicht dafuer nicht: der Knopf
-    // ist zwar mindestens 54 hoch (PrimaryActionButton), waechst darueber
-    // hinaus aber mit der Systemschrift (Beschriftung + 2x8 Innenpolsterung).
-    // Der Faktor 1.7 ist die Zeilenhoehen-Reserve inklusive Sicherheitsmarge.
-    final knopfHoehe =
-        math.max(54.0, MediaQuery.textScalerOf(context).scale(15) * 1.7 + 16);
-
     // KEIN eigenes SafeArea und KEIN horizontaler Rand: beides liefert die
     // Schale bereits (eatova_home_page.dart:420-424). Ein zweites Padding
-    // ergaebe 40 px Rand und einen falsch sitzenden Knopf.
-    return Stack(
+    // ergaebe 40 px Rand.
+    //
+    // Reine Liste, kein Stack: bis 2026-08-10 schwebte hier ein „Essen
+    // loggen"-Knopf ueber der Liste, weshalb unten seine (mit der
+    // Systemschrift wachsende) Hoehe frei bleiben musste. Der Knopf ist auf
+    // Nutzer-Entscheid entfallen; die 12 sind jetzt nur noch Luft, damit die
+    // letzte Karte nicht an der Navigationsleiste klebt (plus die 12 der
+    // Schale).
+    return ListView(
       key: const ValueKey('screen-today'),
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
       children: <Widget>[
-        ListView(
-          // Knopfhoehe + 12 Luft + die 12 der Schale.
-          padding: EdgeInsets.fromLTRB(0, 0, 0, knopfHoehe + 24),
-          children: <Widget>[
-            _Kopfzeile(
-              // Die Eyebrow folgt dem GEWAEHLTEN Tag — sonst widerspraeche sie
-              // dem Datums-Streifen direkt darunter. Die Begruessung folgt der
-              // Wanduhr: „Guten Morgen" ist eine Aussage ueber jetzt, nicht
-              // ueber den aufgeschlagenen Tag.
-              eyebrow: todayEyebrow(selectedDate),
-              greeting: todayGreeting(jetzt),
-              initial: profileInitial ?? todayInitial(userName),
-              onOpenProfile: onOpenProfile,
-            ),
-            const SizedBox(height: 16),
-            TodayDayStrip(
-              selectedDate: selectedDate,
-              today: heute,
-              onSelected: onDateSelected,
-            ),
-            const SizedBox(height: 14),
-            TodayCalorieHero(
-              consumedKcal: consumedKcal,
-              burnedKcal: burnedKcal,
-              kcalGoal: profile.dailyKcalGoal,
-              streak: streak,
-            ),
-            const SizedBox(height: 14),
-            AppCard(
-              key: const ValueKey('today-macros-card'),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 5),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const SectionHeading(title: 'Makros', trailing: 'Tagesziele'),
-                  const SizedBox(height: 14),
-                  MacroBar(
-                    label: 'Protein',
-                    value: macroProgress.proteinG.round(),
-                    goal: profile.proteinGoalG,
-                    unit: 'g',
-                    color: t.protein,
-                  ),
-                  MacroBar(
-                    label: 'Kohlenhydrate',
-                    value: macroProgress.carbsG.round(),
-                    goal: profile.carbsGoalG,
-                    unit: 'g',
-                    color: t.carbs,
-                  ),
-                  MacroBar(
-                    label: 'Fett',
-                    value: macroProgress.fatG.round(),
-                    goal: profile.fatGoalG,
-                    unit: 'g',
-                    color: t.fat,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Auf einem Archivtag waere „Heutige Mahlzeiten" schlicht falsch.
-            //
-            // Ohne das `trailing: 'Manage'` der Vorlage: [SectionHeading]
-            // zeichnet dort nur gedaempften Text, keinen Knopf. „Verwalten"
-            // saehe aus wie ein Link, waere aber tot — und die Slot-Zeilen
-            // darunter fuehren ohnehin schon in den Food-Tab.
-            SectionHeading(
-              title: istHeute ? 'Heutige Mahlzeiten' : 'Mahlzeiten',
-            ),
-            const SizedBox(height: 12),
-            if (dayLoading)
-              const TodayDayLoadingCard()
-            else
-              TodayMealsCard(meals: meals, onOpenSlot: onOpenMealSlot),
-            const SizedBox(height: 14),
-            TodayCoachBanner(
-              teaser: coachTeaser(
-                // Waehrend der Tag noch laedt, ist `meals` leer, OHNE dass der
-                // Tag leer waere — „logge deine erste Mahlzeit" waere dann
-                // eine Behauptung ueber ungeladene Daten.
-                dayIsEmpty: !dayLoading && meals.isEmpty,
-                remainingProteinG: restProtein,
-                isToday: istHeute,
-              ),
-              onTap: onOpenCoach,
-            ),
-          ],
+        _Kopfzeile(
+          // Die Eyebrow folgt dem GEWAEHLTEN Tag — sonst widerspraeche sie
+          // dem Datums-Streifen direkt darunter. Die Begruessung folgt der
+          // Wanduhr: „Guten Morgen" ist eine Aussage ueber jetzt, nicht
+          // ueber den aufgeschlagenen Tag.
+          eyebrow: todayEyebrow(selectedDate),
+          greeting: todayGreeting(jetzt),
+          initial: profileInitial ?? todayInitial(userName),
+          onOpenProfile: onOpenProfile,
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: PrimaryActionButton(
-            key: const ValueKey('today-log-food'),
-            label: 'Essen loggen',
-            icon: Icons.add_rounded,
-            onTap: onLogFood,
+        const SizedBox(height: 16),
+        TodayDayStrip(
+          selectedDate: selectedDate,
+          today: heute,
+          onSelected: onDateSelected,
+        ),
+        const SizedBox(height: 14),
+        TodayCalorieHero(
+          consumedKcal: consumedKcal,
+          burnedKcal: burnedKcal,
+          kcalGoal: profile.dailyKcalGoal,
+          streak: streak,
+        ),
+        const SizedBox(height: 14),
+        AppCard(
+          key: const ValueKey('today-macros-card'),
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const SectionHeading(title: 'Makros', trailing: 'Tagesziele'),
+              const SizedBox(height: 14),
+              MacroBar(
+                label: 'Protein',
+                value: macroProgress.proteinG.round(),
+                goal: profile.proteinGoalG,
+                unit: 'g',
+                color: t.protein,
+              ),
+              MacroBar(
+                label: 'Kohlenhydrate',
+                value: macroProgress.carbsG.round(),
+                goal: profile.carbsGoalG,
+                unit: 'g',
+                color: t.carbs,
+              ),
+              MacroBar(
+                label: 'Fett',
+                value: macroProgress.fatG.round(),
+                goal: profile.fatGoalG,
+                unit: 'g',
+                color: t.fat,
+              ),
+            ],
           ),
+        ),
+        const SizedBox(height: 20),
+        // Auf einem Archivtag waere „Heutige Mahlzeiten" schlicht falsch.
+        //
+        // Ohne das `trailing: 'Manage'` der Vorlage: [SectionHeading]
+        // zeichnet dort nur gedaempften Text, keinen Knopf. „Verwalten"
+        // saehe aus wie ein Link, waere aber tot — und die Slot-Zeilen
+        // darunter fuehren ohnehin schon in den Food-Tab.
+        SectionHeading(
+          title: istHeute ? 'Heutige Mahlzeiten' : 'Mahlzeiten',
+        ),
+        const SizedBox(height: 12),
+        if (dayLoading)
+          const TodayDayLoadingCard()
+        else
+          TodayMealsCard(meals: meals, onOpenSlot: onOpenMealSlot),
+        const SizedBox(height: 14),
+        TodayCoachBanner(
+          teaser: coachTeaser(
+            // Waehrend der Tag noch laedt, ist `meals` leer, OHNE dass der
+            // Tag leer waere — „logge deine erste Mahlzeit" waere dann
+            // eine Behauptung ueber ungeladene Daten.
+            dayIsEmpty: !dayLoading && meals.isEmpty,
+            remainingProteinG: restProtein,
+            isToday: istHeute,
+          ),
+          onTap: onOpenCoach,
         ),
       ],
     );

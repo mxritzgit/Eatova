@@ -77,7 +77,6 @@ Future<void> _pumpToday(
   ValueChanged<DateTime>? onDateSelected,
   VoidCallback? onOpenCoach,
   VoidCallback? onOpenProfile,
-  VoidCallback? onLogFood,
   ValueChanged<MealSlot>? onOpenMealSlot,
   Brightness brightness = Brightness.light,
   TextScaler textScaler = TextScaler.noScaling,
@@ -106,7 +105,6 @@ Future<void> _pumpToday(
         onDateSelected: onDateSelected,
         onOpenCoach: onOpenCoach,
         onOpenProfile: onOpenProfile,
-        onLogFood: onLogFood,
         onOpenMealSlot: onOpenMealSlot,
       ),
       brightness: brightness,
@@ -226,6 +224,36 @@ void main() {
       expect(_textOf(tester, 'today-kcal-goal'), 'Ziel 1 kcal');
       expect(_textOf(tester, 'today-kcal-remaining'), '399');
       expect(find.text('kcal drüber'), findsOneWidget);
+    });
+
+    // VERSCHOBEN aus test/widgets/calories_overview_glass_test.dart
+    // („der Fortschritt ist fuer einen Screenreader vorhanden"). Die
+    // Food-Zusammenfassung, die dieselbe Ansage trug, ist am 2026-08-10 aus
+    // dem Food-Tab entfernt worden — der Hero ist seitdem die EINZIGE Flaeche,
+    // an der ein Screenreader den Tagesfortschritt erfaehrt. Der TickGauge ist
+    // ein CustomPaint und damit semantisch leer; ohne diese Annotation gaebe es
+    // den Fortschritt fuer einen Screenreader gar nicht. Geprueft wird deshalb
+    // der WERT, nicht nur die Existenz des Labels (das taten wir schon).
+    testWidgets('der Screenreader hoert den Fortschritt als Prozentwert',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpToday(
+          tester,
+          profile: const UserProfile(dailyKcalGoal: 2200),
+          consumedKcal: 1100,
+        );
+      });
+
+      // RegExp statt Gleichheit: der Hero verschmilzt den Gauge-Knoten mit den
+      // Texten darum herum, das Label steht also nicht allein im Knoten.
+      final gauge = find.bySemanticsLabel(RegExp('Kalorienfortschritt'));
+      expect(gauge, findsOneWidget);
+      expect(
+        tester.getSemantics(gauge).value,
+        contains('50 Prozent des Tagesziels gegessen'),
+      );
+      handle.dispose();
     });
   });
 
@@ -424,11 +452,11 @@ void main() {
   });
 
   group('Aktionen', () {
-    testWidgets('Profil, Slot, Coach und „Essen loggen" melden sich zurueck',
-        (tester) async {
+    // UMGESCHRIEBEN (Nutzer-Entscheid 2026-08-10): der Test tippte hier vorher
+    // zusaetzlich auf „Essen loggen" und erwartete den `onLogFood`-Rueckruf.
+    testWidgets('Profil, Slot und Coach melden sich zurueck', (tester) async {
       var profil = 0;
       var coach = 0;
-      var loggen = 0;
       MealSlot? slot;
 
       await withClock(Clock.fixed(_jetzt), () async {
@@ -436,7 +464,6 @@ void main() {
           tester,
           onOpenProfile: () => profil++,
           onOpenCoach: () => coach++,
-          onLogFood: () => loggen++,
           onOpenMealSlot: (s) => slot = s,
         );
       });
@@ -444,10 +471,6 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('today-profile')));
       await tester.pumpAndSettle();
       expect(profil, 1);
-
-      await tester.tap(find.byKey(const ValueKey('today-log-food')));
-      await tester.pumpAndSettle();
-      expect(loggen, 1);
 
       await _scrollTo(
           tester, find.byKey(const ValueKey('today-meal-row-dinner')));
@@ -477,7 +500,111 @@ void main() {
     });
   });
 
+  group('Der schwebende „Essen loggen"-Knopf ist fort', () {
+    // UMGESCHRIEBEN, nicht geloescht (Nutzer-Entscheid 2026-08-10): der Knopf
+    // entfaellt ersatzlos. Zum Loggen fuehren die Mahlzeiten-Zeilen in den
+    // Food-Tab — zwei Wege zum selben Ziel waren einer zu viel. Die Tests
+    // bleiben als Wachposten stehen, damit der Knopf nicht unbemerkt
+    // zurueckkehrt.
+    testWidgets('weder Key noch Beschriftung sind noch im Baum',
+        (tester) async {
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpToday(tester);
+      });
+
+      expect(
+        find.byKey(const ValueKey('today-log-food'), skipOffstage: false),
+        findsNothing,
+      );
+      expect(find.text('Essen loggen', skipOffstage: false), findsNothing);
+      expect(
+        find.byType(PrimaryActionButton, skipOffstage: false),
+        findsNothing,
+      );
+    });
+
+    testWidgets('die Wurzel ist eine reine Liste ohne Knopf-Reserve',
+        (tester) async {
+      // Die untere Reserve wuchs frueher mit der Systemschrift mit (sie musste
+      // die Knopfhoehe freihalten). Ohne Knopf ist sie eine glatte 12 — bei
+      // jeder Textgroesse.
+      for (final skalierung in <TextScaler>[
+        TextScaler.noScaling,
+        const TextScaler.linear(2.0),
+      ]) {
+        await withClock(Clock.fixed(_jetzt), () async {
+          await _pumpToday(tester, textScaler: skalierung);
+        });
+
+        // Der Cast ist die eigentliche Aussage: die Wurzel ist wieder eine
+        // ListView, kein Stack. (Ein `findsNothing` auf Stack ginge nicht —
+        // das Coach-Banner bringt selbst einen mit.)
+        final liste = tester
+            .widget<ListView>(find.byKey(const ValueKey('screen-today')));
+        expect(liste.padding, const EdgeInsets.fromLTRB(0, 0, 0, 12),
+            reason: 'Reserve bei $skalierung');
+      }
+    });
+  });
+
   group('Robustheit', () {
+    testWidgets('ohne den Knopf-Stack bleibt jede Kombination layoutbar',
+        (tester) async {
+      // Bis 2026-08-10 war die Wurzel ein Stack aus Liste + schwebendem Knopf.
+      // Diese Matrix haelt fest, dass die reine ListView in keiner Kombination
+      // bricht — auch nicht ganz unten, wo die ListView ihre Kinder erst beim
+      // Heranscrollen baut.
+      for (final helligkeit in Brightness.values) {
+        for (final skalierung in <TextScaler>[
+          TextScaler.noScaling,
+          const TextScaler.linear(2.0),
+        ]) {
+          for (final mitMahlzeiten in <bool>[false, true]) {
+            final fall = '$helligkeit / $skalierung / '
+                'Mahlzeiten=$mitMahlzeiten';
+            await withClock(Clock.fixed(_jetzt), () async {
+              await _pumpToday(
+                tester,
+                brightness: helligkeit,
+                textScaler: skalierung,
+                consumedKcal: mitMahlzeiten ? 610 : 0,
+                meals: mitMahlzeiten
+                    ? <LoggedMeal>[_meal('Lachsbowl', MealSlot.dinner, 610)]
+                    : const <LoggedMeal>[],
+              );
+            });
+            expect(tester.takeException(), isNull, reason: fall);
+
+            await _scrollTo(
+                tester, find.byKey(const ValueKey('today-coach-banner')));
+            expect(tester.takeException(), isNull,
+                reason: 'nach unten gescrollt: $fall');
+          }
+        }
+      }
+    });
+
+    testWidgets('auch waehrend dayLoading bleibt die Liste heil',
+        (tester) async {
+      for (final helligkeit in Brightness.values) {
+        await withClock(Clock.fixed(_jetzt), () async {
+          await _pumpToday(
+            tester,
+            brightness: helligkeit,
+            textScaler: const TextScaler.linear(2.0),
+            dayLoading: true,
+            settle: false,
+          );
+        });
+        expect(tester.takeException(), isNull, reason: '$helligkeit');
+
+        await _scrollToUnsettled(
+            tester, find.byKey(const ValueKey('today-coach-banner')));
+        expect(tester.takeException(), isNull,
+            reason: 'nach unten gescrollt: $helligkeit');
+      }
+    });
+
     testWidgets('rendert in beiden Helligkeiten ohne Ausnahme', (tester) async {
       for (final helligkeit in Brightness.values) {
         await withClock(Clock.fixed(_jetzt), () async {
@@ -572,6 +699,44 @@ void main() {
         }
       }
     });
+
+    // VERSCHOBEN aus test/widgets/calories_overview_glass_test.dart
+    // („ueberleben in $brightness die Systemschrift 2.0"). Die grosse Restzahl
+    // stand bis 2026-08-10 auf ZWEI Flaechen; seit die Food-Zusammenfassung
+    // entfernt ist, steht sie nur noch hier — und zwar mit 66 px Grundschrift,
+    // also der groessten Zahl der App. Gemessen wird die FITTEDBOX: der Text
+    // darin behaelt seine ungeschrumpfte Groesse, die Verkleinerung steckt in
+    // der Transformation darueber.
+    //
+    // Beide Modi, weil der Hellmodus andere Randstaerken und damit andere
+    // Innenmasse hat (DESIGN_REFACTOR §7.2).
+    for (final helligkeit in Brightness.values) {
+      testWidgets('die Restzahl schrumpft in $helligkeit bei Systemschrift 2.0, '
+          'statt den Hero zu sprengen', (tester) async {
+        await withClock(Clock.fixed(_jetzt), () async {
+          await _pumpToday(
+            tester,
+            brightness: helligkeit,
+            textScaler: const TextScaler.linear(2.0),
+            profile: const UserProfile(dailyKcalGoal: 99999),
+            consumedKcal: 12345,
+            burnedKcal: 1234,
+          );
+        });
+
+        expect(tester.takeException(), isNull);
+        final hero = find.byKey(const ValueKey('today-kcal-hero'));
+        final zahl = find.byKey(const ValueKey('today-kcal-remaining'));
+        expect(zahl, findsOneWidget);
+        final kasten =
+            find.ancestor(of: zahl, matching: find.byType(FittedBox)).first;
+        expect(tester.widget<FittedBox>(kasten).fit, BoxFit.scaleDown);
+        expect(
+          tester.getSize(kasten).width,
+          lessThanOrEqualTo(tester.getSize(hero).width),
+        );
+      });
+    }
 
     testWidgets('die Vorlese-Beschriftungen tragen echte Umlaute',
         (tester) async {

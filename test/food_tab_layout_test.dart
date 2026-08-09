@@ -11,9 +11,8 @@ import 'package:eatova/src/widgets/design/design.dart';
 // Renderer nutzt eine Test-Schrift mit anderen Metriken als SF auf dem Geraet.
 // Derselbe Baum, der im Simulator ~56 pt Luft hat, meldet hier einen Overflow —
 // die Zahlen sind also kein brauchbares Orakel. Aus demselben Grund schluckt
-// `testWidgetsRobust` in widget_test.dart diese Fehler. Die Hoehen-Stufen der
-// Kalorienkarte werden im Simulator verifiziert; hier stehen die Aussagen, die
-// von der Schriftmetrik unabhaengig sind.
+// `testWidgetsRobust` in widget_test.dart diese Fehler. Hier stehen die
+// Aussagen, die von der Schriftmetrik unabhaengig sind.
 
 /// Nutzbare Flaeche (Screen minus Safe Area), also das, was der Scaffold im
 /// Food-Tab bekommt. Die Test-View hat kein View-Padding, daher ist die Safe
@@ -117,20 +116,15 @@ void main() {
     expect(texts.first, matches(RegExp(r'^(Mo|Di|Mi|Do|Fr|Sa|So)$')));
   });
 
-  testWidgets('Calories card shows the goal only once', (tester) async {
-    await _pumpFoodTab(tester);
-
-    // Frueher stand das Tagesziel doppelt in der Karte: einmal als Unterzeile
-    // „Ziel: 2.200 kcal" unter der grossen Zahl und einmal in der ZIEL-Kachel.
-    expect(find.textContaining('Ziel:'), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('2.200 kcal'),
-      ),
-      findsOneWidget,
-    );
-  });
+  // GESTRICHEN 2026-08-10: „Calories card shows the goal only once".
+  // Der Testfall hielt fest, dass das Tagesziel in der Kalorien-Karte nicht
+  // doppelt steht (einmal als Unterzeile „Ziel: 2.200 kcal", einmal in der
+  // ZIEL-Kachel). Die Karte ist auf Nutzer-Entscheid komplett aus dem Food-Tab
+  // entfernt — der Food-Tab nennt das Tagesziel jetzt an KEINER Stelle mehr,
+  // die Aussage ist damit gegenstandslos. Dass der Tab die Karte nicht mehr
+  // traegt, prueft `food_diary_screen_test.dart` („Ohne Kalorien-Karte"); dass
+  // der Heute-Tab das Ziel genau einmal und roh nennt,
+  // `kcal_goal_consistency_test.dart`.
 
   testWidgets('Food action labels stay on one line', (tester) async {
     await _pumpFoodTab(tester, textScale: 1.3);

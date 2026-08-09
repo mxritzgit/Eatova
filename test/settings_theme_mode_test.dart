@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/settings_controls.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -12,8 +11,18 @@ import 'package:eatova/src/theme/theme_mode_controller.dart';
 // „Erscheinungsbild" als Drei-Segment-Pille (System / Hell / Dunkel).
 //
 // Sie ist eine GERAETE-Einstellung, keine Profil-Eigenschaft: sie wird sofort
-// ueber den [ThemeModeController] persistiert, landet nicht in
-// [SettingsResult] — und darf deshalb die Seite auch nicht „dirty" machen.
+// ueber den [ThemeModeController] persistiert und ist deshalb nichts, das man
+// speichern oder verwerfen koennte.
+//
+// ## Warum diese Datei umgeschrieben wurde (2026-08-10)
+//
+// Die Pille stand zuerst auf „Profil & Ziele" — dem einzigen Screen, den es
+// damals gab. Mit der Trennung (Nutzer-Entscheid) hat der Anzeige-Modus seinen
+// richtigen Platz gefunden: in den EINSTELLUNGEN, neben Konto und Daten,
+// waehrend „Profil & Ziele" nur noch Koerperdaten und Ziele traegt. Die
+// Zusicherungen sind dieselben geblieben, nur der Screen darunter ist ein
+// anderer; die Gruppe heisst dort „PRÄFERENZEN" statt „ANZEIGE", weil sie
+// nicht mehr allein steht.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -42,7 +51,9 @@ void main() {
               key: const ValueKey('open-settings'),
               onPressed: () => Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
-                  builder: (_) => const SettingsScreen(profile: UserProfile()),
+                  builder: (_) => const SettingsScreen(
+                    email: 'jonas@example.com',
+                  ),
                 ),
               ),
               child: const Text('open'),
@@ -75,7 +86,7 @@ void main() {
 
     await pumpSettings(tester, controller: controller);
 
-    expect(find.text('ANZEIGE'), findsOneWidget);
+    expect(find.text('PRÄFERENZEN'), findsOneWidget);
     expect(find.text('Erscheinungsbild'), findsOneWidget);
     expect(
       tester
@@ -111,18 +122,19 @@ void main() {
     expect(controller.mode, ThemeMode.system);
   });
 
-  testWidgets('ohne ThemeModeScope fehlt die ANZEIGE-Gruppe ersatzlos',
+  testWidgets('ohne ThemeModeScope fehlt die Erscheinungsbild-Zeile ersatzlos',
       (tester) async {
     // Previews und alle Alt-Tests pumpen die Seite ohne Scope. Ein Schalter
     // ohne Controller waere ein toter Schalter — also gar keiner.
     await pumpSettings(tester);
 
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
-    expect(find.text('ANZEIGE'), findsNothing);
+    expect(find.text('Erscheinungsbild'), findsNothing);
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
 
-  testWidgets('ein Moduswechsel macht die Seite NICHT dirty', (tester) async {
+  testWidgets('ein Moduswechsel fragt beim Verlassen nichts nach',
+      (tester) async {
     final controller = ThemeModeController();
     addTearDown(controller.dispose);
 
@@ -132,9 +144,9 @@ void main() {
     // Zurueck: es gibt nichts zu verwerfen — der Modus ist bereits
     // persistiert, und ein Verwerfen-Dialog koennte ihn gar nicht
     // zuruecknehmen.
-    await tester.ensureVisible(find.byKey(const ValueKey('settings-close')));
+    await tester.ensureVisible(find.byKey(const ValueKey('settings-back')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('settings-close')));
+    await tester.tap(find.byKey(const ValueKey('settings-back')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);

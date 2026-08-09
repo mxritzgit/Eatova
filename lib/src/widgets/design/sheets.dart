@@ -39,7 +39,14 @@ class SheetScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final fill = destructive ? t.danger : t.forest;
-    return Padding(
+    // Scrollbar, nicht nur schrumpfend: die Vorlage baut eine reine
+    // `Column(mainAxisSize: min)`. Ein Sheet waechst mit der Systemschrift,
+    // hat aber nur die Hoehe, die ihm der Bildschirm laesst — bei
+    // textScaler 2.0 lief dieses Geruest um gemessene 101 px ueber. Mit
+    // `shrinkWrap` bleibt das Sheet bei normaler Schrift genauso hoch wie
+    // vorher (es waechst nur bis zu seinem Inhalt) und wird erst scrollbar,
+    // wenn der Inhalt sonst nicht mehr passt.
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,

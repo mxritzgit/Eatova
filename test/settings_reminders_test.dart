@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart' show ReminderState;
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
@@ -48,7 +48,7 @@ void main() {
                 onPressed: () {
                   result = Navigator.of(context).push<SettingsResult>(
                     MaterialPageRoute<SettingsResult>(
-                      builder: (_) => SettingsScreen(
+                      builder: (_) => GoalsScreen(
                         profile: const UserProfile(),
                         notificationsEnabled: notificationsEnabled,
                         reminderState: reminderState,

@@ -10,11 +10,13 @@ import 'today_texts.dart';
 /// Der Rechenkern ist woertlich der von [CaloriesOverviewCard]
 /// (calories_overview_card.dart:34-39) — dieselben Klemmen, dieselbe
 /// Zielanpassung: `goal + burned` fliesst in `remaining` und `progress`, das
-/// ANGEZEIGTE Ziel bleibt das rohe. Zwei Flaechen, die dieselbe Zahl
-/// verschieden ausrechnen, waeren fuer den Nutzer ein Fehler, egal welche
-/// Rechnung „richtiger" ist — deshalb rechnet die Food-Zusammenfassung
-/// (`DailySummaryCard`) zeichengleich und wird von
-/// `test/kcal_goal_consistency_test.dart` daran festgehalten.
+/// ANGEZEIGTE Ziel bleibt das rohe — es ist der Wert, den der Nutzer in den
+/// Zielen gesetzt hat, nicht eine Zwischenrechnung. Festgehalten von
+/// `test/kcal_goal_consistency_test.dart`.
+///
+/// Seit dem 2026-08-10 ist das die EINZIGE Flaeche mit dieser Rechnung: die
+/// Kalorien-Karte im Food-Tab ist auf Nutzer-Wunsch entfallen („das haben wir
+/// ja im Heute-Tab schon").
 class TodayCalorieHero extends StatelessWidget {
   const TodayCalorieHero({
     super.key,
@@ -73,14 +75,10 @@ class TodayCalorieHero extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    // Hier steht das ROHE Tagesziel — dieselbe Zahl wie in der
-                    // ZIEL-Kachel der Food-Zusammenfassung
-                    // (daily_summary_card.dart). „Ziel" ist der Wert, den der
-                    // Nutzer in den Einstellungen gesetzt hat; das verbrannte
-                    // Guthaben gehoert in die VERBLEIBENDE Zahl, nicht ins
-                    // Ziel. Beide Flaechen sind einen Tab-Tap voneinander
-                    // entfernt: stuende hier `goal + burned`, saehe der Nutzer
-                    // fuer denselben Tag zwei „Ziele" (2.300 hier, 2.000 dort).
+                    // Hier steht das ROHE Tagesziel — der Wert, den der Nutzer
+                    // in seinen Zielen gesetzt hat. Das verbrannte Guthaben
+                    // gehoert in die VERBLEIBENDE Zahl, nicht ins Ziel; sonst
+                    // stuende hier 2.300, waehrend die Ziele 2.000 sagen.
                     // Nachvollziehbar bleibt die Rechnung ueber die
                     // VERBRANNT-Kachel weiter unten.
                     // Festgenagelt von test/kcal_goal_consistency_test.dart.

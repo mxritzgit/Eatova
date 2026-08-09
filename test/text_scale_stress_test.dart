@@ -135,9 +135,10 @@ void main() {
       (tester) async {
     // Neu seit dem Design-Refactor 2026-08-09 und zugleich der Kaltstart-
     // Landepunkt: Forest-Hero mit drei Kennzahl-Kacheln nebeneinander, drei
-    // Makro-Balken (Label/Balken/Wert in EINER Zeile), vier Slot-Zeilen und
-    // ein schwebender Knopf ueber der Liste. Jede dieser Zeilen ist eine
-    // klassische Bruchstelle bei 200 % Systemschrift.
+    // Makro-Balken (Label/Balken/Wert in EINER Zeile) und vier Slot-Zeilen.
+    // Jede dieser Zeilen ist eine klassische Bruchstelle bei 200 %
+    // Systemschrift. (Der frueher hier erwaehnte schwebende Knopf ist am
+    // 2026-08-10 auf Nutzer-Wunsch entfallen.)
     _pinViewport(tester);
     await _expectNoOverflow('Heute-Tab', () async {
       await _bootApp(tester);
@@ -268,6 +269,24 @@ void main() {
       await _scrollDurch(
         tester,
         find.byKey(const ValueKey('screen-settings')),
+        schritte: 8,
+      );
+
+      // Seit der Trennung 2026-08-10 tragen die Einstellungen nur noch Konto,
+      // Anzeige, Daten und Gefahrenzone; Koerperdaten und Ziele (und damit
+      // „Speichern") leben eine Ebene tiefer. Der Stresstest laeuft deshalb
+      // weiter bis dorthin — die dichte Formularseite ist genau der Fall, den
+      // er finden soll.
+      final zuDenZielen = find.byKey(const ValueKey('settings-open-goals'));
+      await tester.ensureVisible(zuDenZielen);
+      await tester.pumpAndSettle();
+      await tester.tap(zuDenZielen);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
+      await _scrollDurch(
+        tester,
+        find.byKey(const ValueKey('screen-goals')),
         schritte: 8,
       );
       expect(find.byKey(const ValueKey('settings-save')), findsOneWidget);

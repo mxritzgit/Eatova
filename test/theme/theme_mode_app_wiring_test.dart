@@ -13,9 +13,9 @@ import 'package:eatova/src/theme/theme_mode_controller.dart';
 // [ThemeModeScope] selbst. Damit blieb genau die eine Stelle ungeprueft, an
 // der die Kette in der ausgelieferten App haengt: `EatovaApp.build`.
 //
-// Das ist keine theoretische Luecke. `SettingsScreen._anzeigeGruppe()` liest
+// Das ist keine theoretische Luecke. `SettingsScreen._praeferenzenGruppe()` liest
 // den Controller mit `ThemeModeScope.maybeOf(context)` und laesst die Gruppe
-// bei `null` ERSATZLOS weg (settings_screen.dart:871) — bewusst, damit
+// bei `null` die Zeile ERSATZLOS weg (settings_screen.dart) — bewusst, damit
 // Previews keinen toten Schalter zeigen. Faellt der Scope in eatova_app.dart
 // weg oder rutscht er unter den Navigator, verschwindet „Erscheinungsbild"
 // still aus den Einstellungen: kein Absturz, keine Fehlermeldung, und alle
@@ -54,7 +54,7 @@ void main() {
 
     await pumpApp(tester, controller);
 
-    // Exakt der Aufruf aus SettingsScreen._anzeigeGruppe().
+    // Exakt der Aufruf aus SettingsScreen._praeferenzenGruppe().
     final gefunden = ThemeModeScope.maybeOf(appContext(tester));
     expect(gefunden, isNotNull,
         reason: 'ohne Scope laesst die Einstellungs-Seite „Erscheinungsbild" '

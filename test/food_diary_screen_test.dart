@@ -204,9 +204,101 @@ void main() {
 
     expect(find.text('1.234'), findsOneWidget);
     expect(find.text('KCAL HEUTE'), findsOneWidget);
-    // food_scan_flow_test:27 haengt daran, dass die Kachel kein zweites
-    // „<n> kcal" in den Baum stellt.
-    expect(find.text('1.234 kcal'), findsOneWidget); // nur die Zusammenfassung
+    // Seit dem Wegfall der Zusammenfassungs-Karte (2026-08-10) ist die Kachel
+    // die EINZIGE kcal-Angabe des Tabs — und sie setzt Zahl und Einheit
+    // getrennt. Ein „1.234 kcal" am Stueck gibt es hier nicht mehr; die
+    // Flow-Tests zaehlen genau darauf.
+    expect(find.text('1.234 kcal'), findsNothing);
+  });
+
+  // -------------------------------------------------------------------------
+  // Die Kalorien-Karte ist fort (Nutzer-Entscheid 2026-08-10).
+  //
+  // Sie zeigte Rest-kcal, ZIEL/GEGESSEN/VERBRANNT und drei Makro-Balken —
+  // alles Dinge, die der Tab „Heute" einen Tipp entfernt vollstaendig traegt.
+  // Bezahlt wurde die Wiederholung damit, dass der Verlauf, die eigentliche
+  // Aufgabe DIESES Tabs, auf einem 852-px-Schirm unter die Falz rutschte.
+  // -------------------------------------------------------------------------
+  group('Ohne Kalorien-Karte', () {
+    testWidgets('weder Karte noch ihre Kennzahlen stehen noch im Baum',
+        (tester) async {
+      await _pumpFoodTab(
+        tester,
+        dailyConsumedKcal: 1234,
+        profile: const UserProfile(dailyKcalGoal: 2200),
+      );
+
+      for (final key in const <String>[
+        'analyse-daily-kcal-card',
+        'analyse-daily-kcal-total',
+        'analyse-daily-kcal-goal',
+        'analyse-daily-kcal-remaining',
+      ]) {
+        expect(
+          find.byKey(ValueKey<String>(key), skipOffstage: false),
+          findsNothing,
+          reason: key,
+        );
+      }
+      // Und die Beschriftungen, die nur sie trug.
+      for (final text in const <String>[
+        'TAGESBILANZ',
+        'ZIEL',
+        'GEGESSEN',
+        'VERBRANNT',
+        'kcal übrig',
+        'kcal drüber',
+      ]) {
+        expect(find.text(text), findsNothing, reason: text);
+      }
+    });
+
+    testWidgets('der Verlauf beginnt deutlich oberhalb der Falz',
+        (tester) async {
+      // Der Grund fuer die ganze Aenderung. Mit Karte begann „Verlauf" auf
+      // diesem 393x852-Schirm bei y=655 — unter der Falz, obwohl er der
+      // Hauptinhalt des Tabs ist.
+      await _pumpFoodTab(tester, dailyConsumedKcal: 1234);
+
+      final verlauf = find.descendant(
+        of: find.byKey(const ValueKey('kcal-meals-today-card')),
+        matching: find.text('Verlauf'),
+      );
+      expect(verlauf, findsOneWidget);
+      expect(
+        tester.getTopLeft(verlauf).dy,
+        lessThan(500),
+        reason: 'der Verlauf ist wieder unter die Falz gerutscht',
+      );
+    });
+
+    // VERSCHOBEN aus test/widgets/calories_overview_glass_test.dart
+    // („Die Zusammenfassung rastert in $brightness nichts Teures"). Der
+    // Pruefgegenstand wandert von der entfernten Karte auf den ganzen Tab:
+    // ein Blur ueber einer einfarbigen Flaeche kostet in JEDEM Frame Zeit,
+    // ohne etwas zu zeigen — und der weiche ImageFiltered-Glow gehoerte zur
+    // abgeloesten Glas-Sprache.
+    for (final brightness in Brightness.values) {
+      testWidgets('Der Food-Tab rastert in $brightness nichts Teures',
+          (tester) async {
+        await _pumpFoodTab(
+          tester,
+          brightness: brightness,
+          meals: [_mahlzeit(slot: MealSlot.lunch)],
+          dailyConsumedKcal: 320,
+        );
+
+        final tab = find.byKey(const ValueKey('screen-kcal-tracker'));
+        expect(
+          find.descendant(of: tab, matching: find.byType(BackdropFilter)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: tab, matching: find.byType(ImageFiltered)),
+          findsNothing,
+        );
+      });
+    }
   });
 
   // textScale-Pflicht aus DESIGN_REFACTOR §5, in BEIDEN Modi: der Hell-Modus

@@ -271,6 +271,37 @@ die Coach-Offenlegungstexte.
 
 ## 8. Paketzuschnitt
 
+## 8a. Nachträge aus dem ersten Blick des Nutzers (2026-08-10)
+
+Nach dem ersten Durchklicken auf dem Gerät kamen vier Korrekturen. Sie stehen
+hier, weil sie frühere Absätze dieses Dokuments überschreiben:
+
+1. **Die Navigationsleiste ist flacher** (~76 → ~58 px). Sie liegt auf jedem
+   Screen; die Höhe war dem Inhalt weggenommen. Untergrenze bleibt die
+   44-px-Trefferfläche.
+2. **Der schwebende „Essen loggen"-Knopf auf „Heute" ist ersatzlos weg.**
+   Der Weg zum Loggen führt über die Mahlzeiten-Zeilen in den Food-Tab.
+   `TodayScreen` hat deshalb keinen `onLogFood`-Parameter mehr.
+3. **Die Kalorien-Karte ist aus dem Food-Tab verschwunden** (`DailySummaryCard`
+   gelöscht). Begründung des Nutzers: „das haben wir ja im Heute-Tab schon".
+   Der Food-Tab ist damit Kopfzeile · Datums-Streifen · Suche/Barcode/KI-Scan ·
+   Verlauf. Alle Prüfungen, die über diese Karte liefen (vor allem „geloggte
+   Mahlzeit kommt im Tagestotal an"), wurden auf den Heute-Tab umgehängt —
+   nicht gestrichen.
+4. **Die Einstellungen sind geteilt.** `SettingsScreen` ist jetzt der
+   Konto-Screen nach `Downloads/settings_screen.dart` (Konto · Präferenzen ·
+   Daten & Privatsphäre · Gefahrenzone, Key `screen-settings`).
+   Körperdaten, Aktivität, Ziele, Energie/Makros, Tagesziele und Erinnerungen
+   leben in `GoalsScreen` („Profil & Ziele", Key `screen-goals`).
+   Einstiege: Zahnrad → Einstellungen; Profil-Bearbeiten-Knöpfe → Ziele;
+   zusätzlich eine Zeile „Profil & Ziele" in den Einstellungen.
+   **Bewusst NICHT gebaut**, weil ohne echte Funktion: Einheiten
+   (metrisch/imperial), Sprachauswahl, Wochen-Zusammenfassungs-Mail,
+   „Verbundene Konten" und das „VERIFIED"-Abzeichen (die App kennt weder
+   Anmelde-Anbieter noch Bestätigungsstand).
+
+## 8b. Paketzuschnitt der ersten Runde
+
 | # | Paket | Besitzt |
 |---|---|---|
 | 1 | **Heute** | `lib/src/screens/today/**` (neu) |

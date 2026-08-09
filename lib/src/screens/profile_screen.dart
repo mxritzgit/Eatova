@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,10 +10,10 @@ import '../models/weight_log.dart';
 import '../services/health_service.dart';
 import '../services/secure_screen.dart';
 import '../theme/app_tokens.dart';
-import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/design/design.dart';
 import '../widgets/profile/profile_widgets.dart';
+import '../widgets/shared/data_export_sheet.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
@@ -233,23 +232,17 @@ class ProfileScreen extends StatelessWidget {
 
   void _showExportSheet(BuildContext context) {
     final voll = onBuildFullExport;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.t.bg,
-      // Das Theme setzt global `false`; hier steht der Griff aber an der Route
-      // richtig, weil das Sheet selbst ein DraggableScrollableSheet ist und
-      // keinen eigenen Kopfbereich hat.
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (_) => _ExportSheet(
-        // Mit Sync kommt die vollstaendige Server-Auskunft; ohne (Preview)
-        // bleibt der Session-Snapshot. Der Fallback deckt zusaetzlich den
-        // Offline-Fall ab — dann sagt das Sheet ehrlich, dass es nur die
-        // Session zeigt.
-        snapshot: voll != null ? voll() : Future.value(_buildSnapshot()),
-        fallbackSnapshot: _buildSnapshot(),
-        vollstaendig: voll != null,
-      ),
+    // Ein Sheet fuer beide Einstiege (Profil und Einstellungen) — es lag
+    // sonst zweimal im Baum und waere auseinandergelaufen.
+    //
+    // Mit Sync kommt die vollstaendige Server-Auskunft; ohne (Preview) bleibt
+    // der Session-Snapshot. Der Fallback deckt zusaetzlich den Offline-Fall
+    // ab — dann sagt das Sheet ehrlich, dass es nur die Session zeigt.
+    showDataExportSheet(
+      context,
+      snapshot: () => voll != null ? voll() : Future.value(_buildSnapshot()),
+      fallbackSnapshot: _buildSnapshot(),
+      vollstaendig: voll != null,
     );
   }
 
@@ -301,200 +294,6 @@ class ProfileScreen extends StatelessWidget {
   }
 }
 
-class _ExportSheet extends StatelessWidget {
-  const _ExportSheet({
-    required this.snapshot,
-    required this.fallbackSnapshot,
-    required this.vollstaendig,
-  });
-
-  /// Die (asynchron geladene) Auskunft — mit Sync die vollstaendige
-  /// Server-Kopie, ohne der Session-Snapshot als bereits erfuellte Future.
-  final Future<String> snapshot;
-
-  /// Wird gezeigt, wenn [snapshot] fehlschlaegt (offline) — zusammen mit
-  /// einem Hinweis, dass es sich dann NUR um die Session handelt.
-  final String fallbackSnapshot;
-
-  final bool vollstaendig;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return DraggableScrollableSheet(
-      initialChildSize: 0.65,
-      minChildSize: 0.4,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (context, controller) {
-        return FutureBuilder<String>(
-          future: snapshot,
-          builder: (context, snap) {
-            final laedt = snap.connectionState != ConnectionState.done;
-            final fehler = snap.hasError;
-            final text = snap.data ?? fallbackSnapshot;
-            final untertitel = laedt
-                ? 'Deine Daten werden vom Server geladen …'
-                : fehler
-                    ? 'Server nicht erreichbar — das hier ist nur der '
-                        'Teil-Snapshot deiner aktuellen Session. Für die '
-                        'vollständige Kopie bitte mit Internet erneut öffnen.'
-                    : vollstaendig
-                        ? 'Vollständige Kopie deiner gespeicherten Daten als '
-                            'JSON — alle Tabellen, direkt vom Server geladen '
-                            '(Art. 15/20 DSGVO).'
-                        : 'In-Memory Snapshot deiner aktuellen Session als '
-                            'JSON.';
-            // EIN Scroller fuer das ganze Sheet (Kopf + JSON), getrieben vom
-            // Controller des DraggableScrollableSheet. Vorher trug der Kopf
-            // seine natuerliche Hoehe und der JSON-Block sass in einem
-            // `Expanded` mit eigenem Scroller: bei doppelter Systemschrift
-            // wuchs der Kopf ueber die Sheet-Hoehe hinaus und die Spalte
-            // ueberlief (gemessen: 63 px). So kann sie das konstruktiv nicht
-            // mehr — und der Ziehgriff zieht jetzt am gesamten Inhalt.
-            return SingleChildScrollView(
-              controller: controller,
-              // AlwaysScrollable: ein kurzer Snapshot fuellt das Sheet nicht
-              // aus. Ohne diese Physik nimmt der Scroller die Zieh-Geste dann
-              // gar nicht erst an — und das DraggableScrollableSheet, das
-              // genau daran haengt, liesse sich nicht mehr groesser/kleiner
-              // ziehen.
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          vollstaendig ? 'Datenauskunft' : 'Daten Snapshot',
-                          style: AppType.display(20, color: t.ink),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      _CopyButton(
-                        enabled: !laedt,
-                        onCopy: () async {
-                          await Clipboard.setData(ClipboardData(text: text));
-                          if (context.mounted) {
-                            showAppSnack(
-                              context,
-                              'Export in Zwischenablage',
-                              icon: Icons.content_copy_rounded,
-                            );
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    untertitel,
-                    style: AppType.ui(
-                      12,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  AppCard(
-                    padding: const EdgeInsets.all(14),
-                    color: t.surf2,
-                    child: laedt
-                        // Feste Hoehe waehrend des Ladens: ohne den JSON-Text
-                        // schrumpfte die Karte sonst auf den Spinner zusammen
-                        // und das Sheet saehe nach einem Fehler aus.
-                        ? const SizedBox(
-                            height: 180,
-                            child: Center(
-                              child: SizedBox(
-                                width: 28,
-                                height: 28,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                ),
-                              ),
-                            ),
-                          )
-                        : SelectableText(
-                            text,
-                            style: AppType.display(
-                              11.5,
-                              weight: FontWeight.w400,
-                              color: t.ink,
-                              height: 1.45,
-                            ),
-                          ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// Der „Kopieren"-Knopf des Export-Sheets. Gesperrt, solange die Auskunft
-/// laedt — sonst landete der Platzhalter in der Zwischenablage.
-class _CopyButton extends StatelessWidget {
-  const _CopyButton({required this.enabled, required this.onCopy});
-
-  final bool enabled;
-  final Future<void> Function() onCopy;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // `enabled` explizit an die Semantik: gesperrt heisst gedaempft UND fuer
-    // den Screenreader hoerbar gesperrt — sonst kuendigt er einen Knopf an,
-    // der waehrend des Ladens nichts tut.
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.4,
-        child: Material(
-          key: const ValueKey('profile-export-copy'),
-          color: t.forest,
-          borderRadius: BorderRadius.circular(rChip),
-          child: InkWell(
-            onTap: enabled ? onCopy : null,
-            borderRadius: BorderRadius.circular(rChip),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(Icons.copy_rounded, size: 14, color: t.onForest),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Kopieren',
-                    style: AppType.ui(
-                      12,
-                      weight: FontWeight.w700,
-                      color: t.onForest,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// App-Metadaten zur Laufzeit (Version/Build aus pubspec via Plattform-API)
-/// statt hartkodierter Strings, die beim Version-Bump auseinanderlaufen.
-/// Lazy top-level Future: wird erst beim ersten Oeffnen des Ueber-Sheets
-/// angefragt und danach wiederverwendet. In Widget-Tests (Channel nicht
-/// gemockt) schlaegt die Future fehl — die UI faellt dann auf '—' zurueck.
 final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
 class _AboutSheet extends StatelessWidget {

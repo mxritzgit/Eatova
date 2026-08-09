@@ -43,17 +43,16 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();
+
+    // Das Tagestotal steht seit dem 2026-08-10 im Heute-Tab, nicht mehr in
+    // einer Karte des Food-Tabs (s. expectTagestotalAufHeute).
+    await expectTagestotalAufHeute(tester, '590');
+
+    // Und im Food-Tab steht der Eintrag selbst — mit Name und kcal.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('590 kcal'),
-      ),
-      findsOneWidget,
-    );
-
+    expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(find.text('Hähnchen mit Reis & Brokkoli'), findsWidgets);
     expect(find.textContaining('590'), findsWidgets);
   });
@@ -67,12 +66,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const EatovaApp());
 
-    // Food-Tab: Gestern waehlen (Chip 3, Heute ist Chip 4).
+    // Food-Tab: einen Archivtag waehlen. Der Chip-Index IST der Tages-Offset
+    // (chip-0 = Heute), chip-3 ist also „Vor 3 Tagen".
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-date-chip-3')));
     await tester.pumpAndSettle();
-    expect(find.text('Gestern'), findsWidgets);
+    expect(find.text('Vor 3 Tagen'), findsOneWidget);
 
     // Rezept ueber den Detail-Screen zum Tracker hinzufuegen.
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
@@ -90,30 +90,22 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();
 
-    // Zurueck im Food-Tab: die Auswahl steht noch auf Gestern und traegt
-    // die 590 kcal des Rezepts + den Verlaufseintrag.
+    // Zurueck im Food-Tab: die Auswahl steht noch auf dem Archivtag und traegt
+    // den Verlaufseintrag …
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
-    expect(find.text('Gestern'), findsWidgets);
+    expect(find.text('Vor 3 Tagen'), findsOneWidget);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('590 kcal'),
-      ),
-      findsOneWidget,
-    );
+    // … und die 590 kcal im Tagestotal (das der Heute-Tab fuer denselben
+    // gewaehlten Tag zeigt, seit die Kalorien-Karte fort ist).
+    await expectTagestotalAufHeute(tester, '590');
 
-    // Heute bleibt leer — genau das war der Bug.
+    // Ein anderer Tag bleibt leer — genau das war der Bug.
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-date-chip-4')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('0 kcal'),
-      ),
-      findsOneWidget,
-    );
+    await expectTagestotalAufHeute(tester, '0');
   });
 }

@@ -1,945 +1,466 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../../app/home_store.dart' show ReminderState;
-import '../../models/model_limits.dart';
-import '../../models/user_profile.dart';
-import '../../services/kcal_calculator.dart';
+import '../../config/legal_links.dart';
 import '../../services/secure_screen.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/theme_mode_controller.dart';
 import '../../widgets/design/design.dart';
-import '../../widgets/shared/settings_sheet.dart' show SettingsResult;
-import '../../widgets/shared/target_bmi_hint.dart';
+import '../../widgets/shared/data_export_sheet.dart';
 import 'settings_controls.dart';
-import 'settings_pickers.dart';
-import 'settings_plan_hero.dart';
 
-/// Die Einstellungen — seit dem Design-Refactor 2026-08-09 eine volle Seite
-/// statt eines modalen BottomSheets.
+/// Die Einstellungen — Konto, Anzeige, Daten, Gefahrenzone.
 ///
-/// Der Grund ist nicht Geschmack: das Sheet trug ~20 Einstellungen in sechs
-/// Gruppen, mehrere Picker-Sheets zweiter Ebene und einen eigenen Drag-Guard
-/// gegen versehentliches Verwerfen. Als Route entfaellt der Drag-Guard (ein
-/// [PopScope] deckt Zurueck-Knopf und Systemzurueck vollstaendig ab), die
-/// zweite Sheet-Ebene wird zur normalen Navigation, und die Gruppen bekommen
-/// den Platz, den sie brauchen.
+/// Aufteilung seit 2026-08-10 (Nutzer-Entscheid): Koerperdaten, Aktivitaet,
+/// Ziele, Energie/Makros und Tagesziele leben auf einer EIGENEN Seite
+/// ([GoalsScreen], erreichbar ueber „Profil & Ziele"). Hier bleibt, was das
+/// Konto und die App betrifft. Ein Screen, der Gewichtseingabe und
+/// Kontoloeschung mischte, war der Grund, warum das abgeloeste Sheet auf
+/// 1922 Zeilen kam.
 ///
-/// Rueckgabe per [Navigator.pop] ist ein [SettingsResult] (oder null bei
-/// Abbruch) — identisch zum bisherigen Sheet, damit die Schale unveraendert
-/// `applySettings` aufrufen kann.
+/// **Was die Vorlage zeigt und hier bewusst fehlt** (`Downloads/
+/// settings_screen.dart`): „Units Metric/Imperial", „Language" und „Weekly
+/// summary email" haben in dieser App keine Funktion — die App ist deutsch und
+/// metrisch, und einen Wochen-Report gibt es nicht. Ein Schalter ohne Wirkung
+/// ist schlimmer als kein Schalter. Ebenso fehlen „Password" und „Connected
+/// accounts": beide braeuchten das [AuthRepository], das diese Route nicht
+/// erreicht (siehe Bericht), und das „VERIFIED"-Abzeichen an der Mailadresse,
+/// weil die App den Bestaetigungsstand nicht kennt. Apple Health fehlt, weil
+/// die Verbindung im Profil bereits vollstaendig bedienbar ist
+/// (`HealthConnectionCard`) — derselbe Zustand an zwei Orten waere ein Fehler.
+///
+/// Der Screen gibt nichts zurueck — jede Aktion laeuft ueber ihren Callback.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
-    required this.profile,
-    this.notificationsEnabled = false,
-    this.reminderState,
-    this.onOpenSystemSettings,
+    this.email,
+    this.onOpenGoals,
+    this.onSignOut,
+    this.onDeleteAccount,
+    this.onExportData,
   });
 
-  final UserProfile profile;
+  /// Mailadresse der Session. Null in Preview/Tests ohne Auth — die Zeile
+  /// wird dann ausgeblendet statt mit einem Platzhalter gefuellt.
+  final String? email;
 
-  /// Aufrufer, die den vollen Zustand nicht kennen, uebergeben weiterhin nur
-  /// dieses Flag; daraus wird [ReminderState.off] bzw. [ReminderState.active]
-  /// — „vom System blockiert" laesst sich so allerdings nie anzeigen.
-  final bool notificationsEnabled;
+  /// Fuehrt auf „Profil & Ziele".
+  final VoidCallback? onOpenGoals;
 
-  final ReminderState? reminderState;
+  final Future<void> Function()? onSignOut;
+  final Future<void> Function()? onDeleteAccount;
 
-  /// Der Weg in die System-Benachrichtigungseinstellungen. Fehlt er, zeigt der
-  /// blockierte Zustand nur den Hinweistext und KEINEN Knopf: ein Knopf, der
-  /// nichts oeffnet, waere dieselbe Sorte Luege wie der Schalter, der D11
-  /// ausgeloest hat. Das Projekt hat aktuell keinen solchen Weg —
-  /// `url_launcher` startet auf Android ausschliesslich ACTION_VIEW-Intents
-  /// und erreicht `Settings.ACTION_APP_NOTIFICATION_SETTINGS` damit nicht.
-  final VoidCallback? onOpenSystemSettings;
+  /// Liefert die vollstaendige Datenauskunft als JSON (DSGVO Art. 15).
+  /// Null ohne Sync — der Eintrag entfaellt dann.
+  final Future<String> Function()? onExportData;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
+/// App-Metadaten zur Laufzeit statt hartkodierter Strings, die beim
+/// Version-Bump auseinanderlaufen. In Widget-Tests (Kanal nicht gemockt)
+/// schlaegt die Future fehl — die Fusszeile faellt dann auf die Wortmarke
+/// zurueck.
+///
+/// Dieselbe Future existiert nochmal privat in `profile_screen.dart`; beide
+/// gehoeren in einen gemeinsamen Zugriff (siehe Bericht).
+final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _weight;
-  late final TextEditingController _height;
-  late final TextEditingController _age;
-  late final TextEditingController _steps;
-  late final TextEditingController _kcal;
-  late final TextEditingController _water;
-  late final TextEditingController _protein;
-  late final TextEditingController _carbs;
-  late final TextEditingController _fat;
-  late final TextEditingController _targetWeight;
-  late BiologicalSex _sex;
-  late ActivityLevel _activity;
-  late int _sleepGoalMinutes;
-  late WeightGoal _goal;
-
-  /// True wenn der User kcal/Makros von Hand übersteuert hat. Standardmäßig
-  /// rechnen wir live aus Körper + Aktivität + Ziel — nur wenn die
-  /// gespeicherten Werte davon abweichen (oder der User den Schalter umlegt),
-  /// bleiben manuelle Werte erhalten.
-  late bool _manualEnergy;
-
-  /// Lokaler Zustand der Erinnerungen (PROD-1 / D11). Beim Speichern wird
-  /// daraus [SettingsResult.notificationsEnabled] — und zwar nur bei
-  /// [ReminderState.active], „blockiert" ist kein „an".
-  late ReminderState _reminder;
-
-  // --- Ausgangsstand fuer die Verwerf-Rueckfrage (D5) ------------------------
-  late final ReminderState _reminderStart;
-  late final bool _manualStart;
-  late final Map<TextEditingController, String> _textStart;
-
-  @override
-  void initState() {
-    super.initState();
-    _reminder = widget.reminderState ??
-        (widget.notificationsEnabled
-            ? ReminderState.active
-            : ReminderState.off);
-    _reminderStart = _reminder;
-    final p = widget.profile;
-    _weight = TextEditingController(text: p.weightKg.toString());
-    _height = TextEditingController(text: p.heightCm.toString());
-    _age = TextEditingController(text: p.ageYears.toString());
-    _steps = TextEditingController(text: p.dailyStepsGoal.toString());
-    _kcal = TextEditingController(text: p.dailyKcalGoal.toString());
-    _water = TextEditingController(text: p.dailyWaterGoalMl.toString());
-    _protein = TextEditingController(text: p.proteinGoalG.toString());
-    _carbs = TextEditingController(text: p.carbsGoalG.toString());
-    _fat = TextEditingController(text: p.fatGoalG.toString());
-    _targetWeight = TextEditingController(text: p.targetWeightKg.toString());
-    _sex = p.sex;
-    _activity = p.activityLevel;
-    _sleepGoalMinutes = p.dailySleepGoalMinutes;
-    _goal = p.weightGoal;
-
-    // Der Manuell-Schalter wird NICHT persistiert, sondern hier aus dem
-    // Vergleich Profil ↔ Rechner rekonstruiert.
-    final computed = const KcalCalculator().calculate(p);
-    _manualEnergy = p.dailyKcalGoal != computed.kcal ||
-        p.proteinGoalG != computed.proteinG ||
-        p.carbsGoalG != computed.carbsG ||
-        p.fatGoalG != computed.fatG;
-    _manualStart = _manualEnergy;
-    _textStart = <TextEditingController, String>{
-      for (final c in _alleFelder) c: c.text,
-    };
-  }
-
-  List<TextEditingController> get _alleFelder => <TextEditingController>[
-        _weight,
-        _height,
-        _age,
-        _steps,
-        _kcal,
-        _water,
-        _protein,
-        _carbs,
-        _fat,
-        _targetWeight,
-      ];
-
-  @override
-  void dispose() {
-    _weight.dispose();
-    _height.dispose();
-    _age.dispose();
-    _steps.dispose();
-    _kcal.dispose();
-    _water.dispose();
-    _protein.dispose();
-    _carbs.dispose();
-    _fat.dispose();
-    _targetWeight.dispose();
-    super.dispose();
-  }
-
-  // --- Feldpruefung (C1) ----------------------------------------------------
-  //
-  // `FilteringTextInputFormatter.digitsOnly` ist ein TYP-Guard, kein
-  // WERTEBEREICHS-Guard. Wer „75,5" tippt, verliert das Komma und schickt 755
-  // an `profiles.weight_kg` (`between 30 and 300`) — PostgreSQL antwortet mit
-  // 23514, und dessen Meldung traegt die komplette fehlgeschlagene Zeile
-  // inklusive E-Mail. Genau das war der Ausloeser des Sentry-Leaks C1.
-  //
-  // Gegen Nutzereingaben ist ABLEHNEN richtig, nicht Klemmen: 755 auf 300 zu
-  // klemmen schriebe eine Zahl ins Profil, die der Nutzer nie gemeint hat.
-  // Die Grenzen stammen aus den echten SQL-Migrationen (model_limits.dart).
-
-  static const String _bereichKg =
-      '${ProfileLimits.weightKgMin}–${ProfileLimits.weightKgMax} kg '
-      '(ganze Zahl)';
-  static const String _bereichCm =
-      '${ProfileLimits.heightCmMin}–${ProfileLimits.heightCmMax} cm';
-  static const String _bereichAlter =
-      '${ProfileLimits.ageYearsMin}–${ProfileLimits.ageYearsMax} Jahre';
-  static const String _bereichSchritte =
-      '${ProfileLimits.dailyStepsGoalMin}–${ProfileLimits.dailyStepsGoalMax}';
-  static const String _bereichWasser =
-      '${ProfileLimits.dailyWaterGoalMlMin}–'
-      '${ProfileLimits.dailyWaterGoalMlMax} ml';
-  static const String _bereichKcal =
-      '${ProfileLimits.dailyKcalGoalMin}–${ProfileLimits.dailyKcalGoalMax} kcal';
-  static const String _bereichProtein =
-      '${ProfileLimits.proteinGoalGMin}–${ProfileLimits.proteinGoalGMax} g';
-  static const String _bereichCarbs =
-      '${ProfileLimits.carbsGoalGMin}–${ProfileLimits.carbsGoalGMax} g';
-  static const String _bereichFett =
-      '${ProfileLimits.fatGoalGMin}–${ProfileLimits.fatGoalGMax} g';
-
-  /// Fehlertext des Feldes oder `null`, wenn der Wert so in die DB darf.
-  String? _fehler(
-    TextEditingController c,
-    bool Function(num) gueltig,
-    String bereich,
-  ) {
-    final text = c.text.trim();
-    if (text.isEmpty) return 'Bitte ausfüllen';
-    final wert = int.tryParse(text);
-    if (wert == null || !gueltig(wert)) return bereich;
-    return null;
-  }
-
-  String? get _weightError =>
-      _fehler(_weight, isValidProfileWeightKg, _bereichKg);
-  String? get _heightError =>
-      _fehler(_height, isValidProfileHeightCm, _bereichCm);
-  String? get _ageError => _fehler(_age, isValidProfileAgeYears, _bereichAlter);
-  String? get _targetWeightError =>
-      _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
-  String? get _stepsError =>
-      _fehler(_steps, isValidDailyStepsGoal, _bereichSchritte);
-  String? get _waterError =>
-      _fehler(_water, isValidDailyWaterGoalMl, _bereichWasser);
-
-  // Der Manuell-Pfad misst an den DB-Grenzen (800..7000), NICHT an der
-  // engeren 1200er-Untergrenze des Rechners: wer bewusst 1000 setzt, darf das.
-  String? get _kcalError => _fehler(_kcal, isValidDailyKcalGoal, _bereichKcal);
-  String? get _proteinError =>
-      _fehler(_protein, isValidProteinGoalG, _bereichProtein);
-  String? get _carbsError => _fehler(_carbs, isValidCarbsGoalG, _bereichCarbs);
-  String? get _fatError => _fehler(_fat, isValidFatGoalG, _bereichFett);
-
-  /// Versteckte Felder zaehlen nicht: im Live-Modus kommen kcal und Makros aus
-  /// der Rechnung, die ihre Grenzen selbst einhaelt.
-  bool get _hatFehler => <String?>[
-        _weightError,
-        _heightError,
-        _ageError,
-        _targetWeightError,
-        _stepsError,
-        _waterError,
-        if (_manualEnergy) ...<String?>[
-          _kcalError,
-          _proteinError,
-          _carbsError,
-          _fatError,
-        ],
-      ].any((f) => f != null);
-
-  /// Der Feldwert, sofern er gueltig ist — sonst [fallback].
-  ///
-  /// Fuer die Live-Rechnung: waehrend der Nutzer einen ungueltigen Wert stehen
-  /// hat, zeigt die Plan-Karte weiter den letzten sinnvollen Plan statt eines
-  /// Phantasie-Ziels fuer 755 kg. Auf dem Speicherpfad kann der Fallback nicht
-  /// greifen — dort ist [_hatFehler] bereits false.
-  int _wertOder(
-    TextEditingController c,
-    bool Function(num) gueltig,
-    int fallback,
-  ) {
-    final wert = int.tryParse(c.text.trim());
-    return (wert != null && gueltig(wert)) ? wert : fallback;
-  }
-
-  /// Profil nur mit den kalorien-relevanten Feldern — Basis für die
-  /// Live-Berechnung (Energie-Felder fließen NICHT in calculate() ein).
-  UserProfile _draftForCalc() {
-    final p = widget.profile;
-    return p.copyWith(
-      weightKg: _wertOder(_weight, isValidProfileWeightKg, p.weightKg),
-      heightCm: _wertOder(_height, isValidProfileHeightCm, p.heightCm),
-      // Mindestalter 16 (Art. 8 DSGVO, Gesundheitsdaten) — dieselbe Grenze wie
-      // Onboarding und DB-Constraint. Frueher wurde hier still auf 16
-      // geklemmt; das schrieb einem 12-Jaehrigen ein erfundenes Alter ins
-      // Profil. Jetzt lehnt das Feld ab und der Nutzer korrigiert.
-      ageYears: _wertOder(_age, isValidProfileAgeYears, p.ageYears),
-      sex: _sex,
-      activityLevel: _activity,
-      targetWeightKg: _wertOder(
-        _targetWeight,
-        isValidProfileTargetWeightKg,
-        p.targetWeightKg,
-      ),
-      weightGoal: _goal,
-    );
-  }
-
-  KcalTargets get _liveTargets =>
-      const KcalCalculator().calculate(_draftForCalc());
-
-  // --- Tempo: Auswahl vs. Plan (B2) ----------------------------------------
-  //
-  // Die Plan-Karte zeigt das effektive Tempo („−0,72 kg/Woche"). Eine Gruppe
-  // weiter unten stand im selben Scroll das versprochene („−1 kg/Woche") —
-  // derselbe Widerspruch, nur verschoben. Die Regel: **Steht auf einem
-  // Bildschirm mehr als eine Tempo-Zeichenkette, muss eine dritte sie
-  // verbinden.** Die Auswahl bleibt oben, die Folge steht darunter.
-
-  /// Untertitel einer Option im Gewichtsziel-Picker: der Plan, den sie mit den
-  /// Koerperdaten ergibt, die gerade auf der Seite stehen.
-  ///
-  /// Im Manuell-Modus haengt das Tagesziel nicht mehr am Tempo — dann waere
-  /// jede gerechnete Zahl eine Behauptung ueber etwas, das der Schalter gerade
-  /// abgeschaltet hat.
-  String _zielFolge(WeightGoal option) {
-    if (_manualEnergy) return 'Ändert dein manuelles Tagesziel nicht';
-    final t = const KcalCalculator()
-        .calculate(_draftForCalc().copyWith(weightGoal: option));
-    return 'Ergibt ${t.kcal} kcal/Tag · ${t.effectivePaceLabel}';
-  }
-
-  /// Die Zeile unter der Gewichtsziel-Zeile — `null`, solange dort dieselbe
-  /// Tempo-Beschriftung steht wie auf der Plan-Karte.
-  ///
-  /// Verglichen werden bewusst die **Zeichenketten**, nicht die Zahlen: der
-  /// Nutzer sieht Text, und genau dann, wenn zwei verschiedene Texte auf dem
-  /// Bildschirm stehen, braucht es die Erklaerung.
-  String? _zielAbweichung({required int tagesziel, required KcalTargets t}) {
-    final label = paceLabelForWeeklyRateKg(
-      wochenrateKg(tagesziel: tagesziel, erhaltung: t.maintenanceKcal),
-    );
-    if (label == _goal.paceLabel) return null;
-    return 'Ergibt $tagesziel kcal/Tag · $label';
-  }
-
-  UserProfile _buildProfile() {
-    final p = widget.profile;
-    final t = _liveTargets;
-    // copyWith erhält Felder die der Screen nicht anfasst — v.a.
-    // onboardingCompleted (sonst landet der User beim Speichern wieder im
-    // Onboarding).
-    return _draftForCalc().copyWith(
-      dailyStepsGoal: _wertOder(_steps, isValidDailyStepsGoal, p.dailyStepsGoal),
-      dailyWaterGoalMl:
-          _wertOder(_water, isValidDailyWaterGoalMl, p.dailyWaterGoalMl),
-      dailySleepGoalMinutes: _sleepGoalMinutes,
-      dailyKcalGoal:
-          _manualEnergy ? _wertOder(_kcal, isValidDailyKcalGoal, t.kcal) : t.kcal,
-      proteinGoalG: _manualEnergy
-          ? _wertOder(_protein, isValidProteinGoalG, t.proteinG)
-          : t.proteinG,
-      carbsGoalG: _manualEnergy
-          ? _wertOder(_carbs, isValidCarbsGoalG, t.carbsG)
-          : t.carbsG,
-      fatGoalG:
-          _manualEnergy ? _wertOder(_fat, isValidFatGoalG, t.fatG) : t.fatG,
-    );
-  }
-
-  // --- Verwerf-Rueckfrage (D5) ---------------------------------------------
-
-  /// Hat der Nutzer irgendetwas angefasst? Zehn Zahlenfelder, vier Auswahl-
-  /// felder und zwei Schalter — nichts davon darf kommentarlos verschwinden.
-  ///
-  /// Der Anzeige-Modus gehoert bewusst NICHT dazu: er ist eine Geraete-
-  /// einstellung, wird sofort persistiert und laesst sich gar nicht verwerfen.
-  bool get _dirty {
-    final p = widget.profile;
-    if (_sex != p.sex ||
-        _activity != p.activityLevel ||
-        _goal != p.weightGoal ||
-        _sleepGoalMinutes != p.dailySleepGoalMinutes) {
-      return true;
-    }
-    if (_manualEnergy != _manualStart) return true;
-    if (_reminder != _reminderStart) return true;
-    return _textStart.entries.any((e) => e.key.text != e.value);
-  }
-
-  /// Laeuft fuer JEDEN abgefangenen Schliess-Versuch — Zurueck-Knopf und
-  /// Systemzurueck laufen beide ueber [Navigator.maybePop] und damit durch das
-  /// [PopScope]. Mehrfach-Versuche stapeln keine Dialoge.
-  bool _discardDialogOpen = false;
-
-  Future<void> _askDiscard() async {
-    if (_discardDialogOpen) return;
-    _discardDialogOpen = true;
-    final verwerfen = await _confirmDiscardChanges(context);
-    _discardDialogOpen = false;
-    if (!mounted || !verwerfen) return;
-    // Der Dialog ist hier bereits gepoppt — oberste Route ist wieder die
-    // Seite. Bewusst ohne Ergebnis: verworfen ist nicht gespeichert.
-    Navigator.of(context).pop();
-  }
-
-  /// Text zum aktuellen Erinnerungs-Zustand (D11). Drei Zustaende, drei Saetze
-  /// — „blockiert" ist ausdruecklich kein Fehler, sondern eine Systemeinstellung.
-  String get _reminderText => switch (_reminder) {
-        ReminderState.off =>
-          'Aus. Schalter umlegen, um lokale Erinnerungen zu aktivieren.',
-        ReminderState.active =>
-          'Aktiv. Jeden Abend um 20 Uhr, wenn du noch nichts geloggt hast.',
-        ReminderState.blocked =>
-          'Vom System blockiert. Eatova darf keine Mitteilungen senden — '
-              'erlaube sie in den Systemeinstellungen.',
-      };
-
-  /// Bei Live-Modus die Energie-Felder mit der frischen Berechnung füllen,
-  /// damit die Seite konsistent bleibt; danach neu zeichnen.
-  void _recompute() {
-    if (!_manualEnergy) {
-      final t = _liveTargets;
-      _kcal.text = t.kcal.toString();
-      _protein.text = t.proteinG.toString();
-      _carbs.text = t.carbsG.toString();
-      _fat.text = t.fatG.toString();
-    }
-    setState(() {});
-  }
-
-  void _toggleManual(bool manual) {
-    setState(() {
-      _manualEnergy = manual;
-      if (!manual) {
-        final t = _liveTargets;
-        _kcal.text = t.kcal.toString();
-        _protein.text = t.proteinG.toString();
-        _carbs.text = t.carbsG.toString();
-        _fat.text = t.fatG.toString();
-      }
-    });
-  }
-
-  void _save({required bool resetDay}) {
-    Navigator.pop(
-      context,
-      SettingsResult(
-        profile: _buildProfile(),
-        resetDay: resetDay,
-        // D11: nur „aktiv" heisst, dass abends wirklich etwas kommt.
-        notificationsEnabled: _reminder == ReminderState.active,
-      ),
-    );
-  }
-
-  Future<void> _pickSex() async {
-    final gewaehlt = await showSexPicker(context, value: _sex);
-    if (gewaehlt == null || !mounted) return;
-    _sex = gewaehlt;
-    _recompute();
-  }
-
-  Future<void> _pickActivity() async {
-    final gewaehlt = await showActivityPicker(context, value: _activity);
-    if (gewaehlt == null || !mounted) return;
-    _activity = gewaehlt;
-    _recompute();
-  }
-
-  Future<void> _pickWeightGoal() async {
-    final gewaehlt = await showWeightGoalPicker(
-      context,
-      value: _goal,
-      outcomeFor: _zielFolge,
-    );
-    if (gewaehlt == null || !mounted) return;
-    _goal = gewaehlt;
-    _recompute();
-  }
-
-  Future<void> _pickSleepGoal() async {
-    final gewaehlt = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(
-        hour: _sleepGoalMinutes ~/ 60,
-        minute: _sleepGoalMinutes % 60,
-      ),
-      helpText: 'Schlafziel',
-    );
-    if (gewaehlt == null || !mounted) return;
-    // Der Time-Picker laesst 0:00 bis 23:59 zu, `daily_sleep_goal_minutes` nur
-    // 180..900. Hier wird geklemmt statt abgelehnt — der Wert kommt aus einem
-    // Picker, und die Zeile zeigt anschliessend genau den Wert, der
-    // gespeichert wird (sichtbar, nicht still).
-    setState(
-      () => _sleepGoalMinutes =
-          clampDailySleepGoalMinutes(gewaehlt.hour * 60 + gewaehlt.minute),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final ziele = _liveTargets;
-    final heroKcal = _manualEnergy
-        ? _wertOder(_kcal, isValidDailyKcalGoal, ziele.kcal)
-        : ziele.kcal;
-    final heroProtein = _manualEnergy
-        ? _wertOder(_protein, isValidProteinGoalG, ziele.proteinG)
-        : ziele.proteinG;
-    final heroCarbs = _manualEnergy
-        ? _wertOder(_carbs, isValidCarbsGoalG, ziele.carbsG)
-        : ziele.carbsG;
-    final heroFat =
-        _manualEnergy ? _wertOder(_fat, isValidFatGoalG, ziele.fatG) : ziele.fatG;
 
-    return PopScope<SettingsResult>(
-      // D5: Zurueck-Knopf und Systemzurueck laufen beide ueber
-      // Navigator.maybePop und fragen damit die Pop-Disposition. Der
-      // Drag-Guard des alten Sheets hat als Route kein Gegenstueck mehr — eine
-      // Route kennt weder Barriere noch Wegwisch-Geste.
-      canPop: !_dirty,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        _askDiscard();
-      },
-      // Dieselbe Datenklasse wie das Profil (Gewicht, Groesse, Alter,
-      // Wunschgewicht) — also derselbe Screenshot-/Recents-Schutz.
-      child: SecureScreenGuard(
-        child: Scaffold(
-          key: const ValueKey('screen-settings'),
-          body: SafeArea(
-            // Auch unten: diese Route traegt KEINE Navigationsleiste, die den
-            // Seitenfuss sonst von der Gestenleiste des Systems freihielte —
-            // ohne das lägen „Speichern" und die Rechts-Links am Scroll-Ende
-            // unter dem Balken. (Der Profil-Screen macht es genauso.)
-            // Bewusst KEINE ListView: die Tests lesen „Speichern" und die
-            // Fusszeile, bevor irgendwer scrollt. Eine Lazy-Liste baut beides
-            // gar nicht erst.
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const PageHeader(
-                    large: 'Profil & Ziele',
-                    backKey: ValueKey('settings-close'),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Wir berechnen dein Tagesziel aus Körper, Aktivität und '
-                    'Ziel.',
-                    style: AppType.ui(12.5, color: t.ink2, height: 1.45),
-                  ),
-                  const SizedBox(height: 18),
-                  SettingsPlanHero(
-                    kcal: heroKcal,
-                    protein: heroProtein,
-                    carbs: heroCarbs,
-                    fat: heroFat,
-                    targets: ziele,
-                    manual: _manualEnergy,
-                  ),
-                  const SizedBox(height: 22),
-                  ..._koerperGruppe(),
-                  ..._zielGruppe(heroKcal: heroKcal, ziele: ziele),
-                  ..._energieGruppe(),
-                  ..._tageszieleGruppe(),
-                  ..._erinnerungenGruppe(t),
-                  ..._anzeigeGruppe(),
-                  if (_hatFehler) ...<Widget>[
-                    SettingsNote(
-                      'Bitte die rot markierten Felder korrigieren — solange '
-                      'sie außerhalb des erlaubten Bereichs liegen, lässt sich '
-                      'nicht speichern.',
-                      key: const ValueKey('settings-validation-note'),
-                      tone: t.danger,
-                      icon: Icons.error_outline_rounded,
-                      boxed: true,
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  SettingsSecondaryButton(
-                    key: const ValueKey('settings-reset-day'),
-                    label: 'Tagesdaten zurücksetzen',
-                    icon: Icons.restart_alt_rounded,
-                    tone: t.warning,
-                    // Auch dieser Weg schreibt das Profil — er muss an
-                    // derselben Feldpruefung haengen wie „Speichern".
-                    onTap: _hatFehler ? null : () => _save(resetDay: true),
-                  ),
-                  const SizedBox(height: 10),
-                  Semantics(
-                    // [PrimaryActionButton] ist ein blankes InkWell und traegt
-                    // weder `isButton` noch einen Enabled-Zustand — der
-                    // FilledButton des alten Sheets tat beides. Ohne diese
-                    // Huelle klaenge das gesperrte „Speichern" fuer einen
-                    // Screenreader wie ein normaler Knopf, der nichts tut.
-                    // (Gehoert eigentlich in die Bibliothek, siehe Bericht.)
-                    button: true,
-                    enabled: !_hatFehler,
-                    child: Opacity(
-                      // PrimaryActionButton kann „gesperrt" selbst nicht
-                      // ausdruecken; dieselbe Loesung wie SheetScaffold.
-                      opacity: _hatFehler ? 0.4 : 1,
-                      child: PrimaryActionButton(
-                        key: const ValueKey('settings-save'),
-                        label: 'Speichern',
-                        icon: Icons.check_rounded,
-                        onTap: _hatFehler ? null : () => _save(resetDay: false),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const SettingsLegalLinks(),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- Gruppen --------------------------------------------------------------
-
-  List<Widget> _koerperGruppe() => <Widget>[
-        SettingsGroup(
-          label: 'KÖRPER',
-          children: <Widget>[
-            SettingsNumberRow(
-              label: 'Gewicht',
-              suffix: 'kg',
-              controller: _weight,
-              fieldKey: const ValueKey('settings-weight'),
-              errorText: _weightError,
-              onChanged: (_) => _recompute(),
-            ),
-            SettingsNumberRow(
-              label: 'Größe',
-              suffix: 'cm',
-              controller: _height,
-              fieldKey: const ValueKey('settings-height'),
-              errorText: _heightError,
-              onChanged: (_) => _recompute(),
-            ),
-            SettingsNumberRow(
-              label: 'Alter',
-              suffix: 'J.',
-              controller: _age,
-              fieldKey: const ValueKey('settings-age'),
-              errorText: _ageError,
-              onChanged: (_) => _recompute(),
-            ),
-            SettingsRow(
-              key: const ValueKey('settings-sex'),
-              title: 'Geschlecht',
-              value: _sex.label,
-              onTap: _pickSex,
-            ),
-          ],
-        ),
-      ];
-
-  List<Widget> _zielGruppe({
-    required int heroKcal,
-    required KcalTargets ziele,
-  }) {
-    final t = context.t;
-    final p = widget.profile;
-    final bmiHeight = _wertOder(_height, isValidProfileHeightCm, p.heightCm);
-    final bmiTarget = _wertOder(
-      _targetWeight,
-      isValidProfileTargetWeightKg,
-      p.targetWeightKg,
-    );
-    // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze wie im
-    // Onboarding-Zielschritt (unter 18,5 / über 35). Die Sichtbarkeit wird
-    // hier entschieden, damit SettingsGroup keine Trennlinie um ein leeres
-    // Kind zieht.
-    final zeigtBmiHinweis = targetBmiHintText(
-          heightCm: bmiHeight,
-          targetWeightKg: bmiTarget,
-        ) !=
-        null;
-    final abweichung = _zielAbweichung(tagesziel: heroKcal, t: ziele);
-
-    return <Widget>[
-      SettingsGroup(
-        label: 'AKTIVITÄT & ZIEL',
-        children: <Widget>[
-          SettingsRow(
-            key: const ValueKey('settings-activity'),
-            title: 'Aktivitätslevel',
-            subtitle: 'Bestimmt deinen Kalorienbedarf.',
-            value: '${_activity.label} · ×${_activity.palFactor}',
-            onTap: _pickActivity,
-          ),
-          SettingsNumberRow(
-            label: 'Wunschgewicht',
-            suffix: 'kg',
-            controller: _targetWeight,
-            fieldKey: const ValueKey('settings-target-weight'),
-            errorText: _targetWeightError,
-            onChanged: (_) => _recompute(),
-          ),
-          if (zeigtBmiHinweis)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: TargetBmiHint(
-                heightCm: bmiHeight,
-                targetWeightKg: bmiTarget,
-              ),
-            ),
-          // Zeile und Zusatzzeile sind EIN Gruppenkind — sonst zoege
-          // SettingsGroup eine Trennlinie zwischen die Zeile und ihre eigene
-          // Fussnote.
-          Column(
+    // Die Seite selbst zeigt nur die Mailadresse — das Auskunfts-Sheet darunter
+    // aber den vollstaendigen Datensatz inklusive Gewicht und Schlaf. Weil das
+    // Sheet als Route UEBER dieser hier liegt, bleibt dieser Guard waehrend
+    // seiner Anzeige gehalten und deckt ihn mit ab.
+    return SecureScreenGuard(
+      child: Scaffold(
+        body: SafeArea(
+          bottom: false,
+          child: ListView(
+            key: const ValueKey('screen-settings'),
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
             children: <Widget>[
-              SettingsRow(
-                key: const ValueKey('settings-weight-goal'),
-                title: 'Gewichtsziel',
-                subtitle: _goal.label,
-                // Bleibt das GEWAEHLTE Tempo: die Zeile muss zeigen, was der
-                // Nutzer getippt hat. Was daraus wird, steht darunter.
-                value: _goal.paceLabel,
-                onTap: _pickWeightGoal,
+              const PageHeader(
+                large: 'Einstellungen',
+                backKey: ValueKey('settings-back'),
               ),
-              if (abweichung != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 13),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: Text(
-                      abweichung,
-                      key: const ValueKey('settings-weight-goal-effective'),
+              const SizedBox(height: 16),
+              ..._kontoGruppe(t),
+              ..._praeferenzenGruppe(),
+              ..._datenGruppe(),
+              ..._gefahrenzone(t),
+              const _VersionFooter(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Baut eine [SettingsGroup] nur, wenn sie ueberhaupt Zeilen hat — sonst
+  /// stuende eine leere Karte samt Versalien-Beschriftung auf der Seite.
+  List<Widget> _gruppe(
+    String label,
+    List<Widget> kinder, {
+    Color? labelColor,
+    Color? borderColor,
+  }) {
+    if (kinder.isEmpty) return const <Widget>[];
+    return <Widget>[
+      SettingsGroup(
+        label: label,
+        labelColor: labelColor,
+        borderColor: borderColor,
+        children: kinder,
+      ),
+    ];
+  }
+
+  // --- KONTO ----------------------------------------------------------------
+
+  List<Widget> _kontoGruppe(AppTokens t) {
+    final email = widget.email;
+    if (email == null) return const <Widget>[];
+    return _gruppe('KONTO', <Widget>[
+      SettingsRow(
+        key: const ValueKey('settings-email'),
+        // Kein Bearbeiten-Weg und kein „VERIFIED"-Abzeichen: die App kann
+        // beides heute nicht belegen. Deshalb auch kein Chevron — der
+        // versprach eine Folgeseite, die es nicht gibt.
+        leading: IconTile(icon: Icons.mail_outline_rounded, color: t.protein),
+        title: 'E-Mail-Adresse',
+        subtitle: email,
+        chevron: false,
+      ),
+    ]);
+  }
+
+  // --- PRAEFERENZEN ---------------------------------------------------------
+
+  List<Widget> _praeferenzenGruppe() {
+    // Ohne [ThemeModeScope] (Previews, Widget-Tests, die nur diesen Screen
+    // pumpen) faellt die Zeile ersatzlos weg — ein Schalter ohne Controller
+    // waere ein toter Schalter.
+    final controller = ThemeModeScope.maybeOf(context);
+    return _gruppe('PRÄFERENZEN', <Widget>[
+      if (widget.onOpenGoals != null)
+        SettingsRow(
+          key: const ValueKey('settings-open-goals'),
+          title: 'Profil & Ziele',
+          subtitle: 'Körperdaten, Aktivität, Kalorien- und Makroziele',
+          onTap: widget.onOpenGoals,
+        ),
+      if (controller != null)
+        SettingsRow(
+          // Die Vorlage nennt die Zeile „Dark appearance" und haengt einen
+          // Schalter daran. Unsere Auswahl hat DREI Zustaende
+          // (DESIGN_REFACTOR §2: Start ist ThemeMode.system) — „Dunkles
+          // Erscheinungsbild: Hell" waere ein Widerspruch in einer Zeile. Die
+          // Zeile heisst deshalb nach dem, was sie einstellt, nicht nach einem
+          // ihrer Werte.
+          title: 'Erscheinungsbild',
+          subtitle: 'System folgt der Einstellung deines Geräts.',
+          chevron: false,
+          trailing: SettingsThemeModePill(
+            key: const ValueKey('settings-theme-mode'),
+            mode: controller.mode,
+            // Geraeteeinstellung: sofort persistiert, nichts zu speichern und
+            // nichts zu verwerfen.
+            onChanged: controller.setMode,
+          ),
+        ),
+    ]);
+  }
+
+  // --- DATEN & PRIVATSPHAERE ------------------------------------------------
+
+  List<Widget> _datenGruppe() {
+    return _gruppe('DATEN & PRIVATSPHÄRE', <Widget>[
+      if (widget.onExportData != null)
+        SettingsRow(
+          key: const ValueKey('settings-export'),
+          title: 'Daten exportieren',
+          subtitle: 'Vollständige Kopie als JSON (Art. 15 DSGVO)',
+          onTap: _openExport,
+        ),
+      // Die drei Rechtsseiten. Sie stehen als Zeilen statt als Fusszeile, weil
+      // dieser Screen ohnehin aus Zeilen besteht — die Schluessel sind
+      // unveraendert die aus [SettingsLegalLinks] (DESIGN_REFACTOR §6).
+      const _LegalRow(
+        rowKey: ValueKey('settings-privacy-link'),
+        title: 'Datenschutz',
+        url: kPrivacyUrl,
+      ),
+      const _LegalRow(
+        rowKey: ValueKey('settings-terms-link'),
+        title: 'AGB',
+        url: kTermsUrl,
+      ),
+      const _LegalRow(
+        rowKey: ValueKey('settings-imprint-link'),
+        title: 'Impressum',
+        url: kImprintUrl,
+      ),
+    ]);
+  }
+
+  Future<void> _openExport() async {
+    final bauen = widget.onExportData;
+    if (bauen == null) return;
+    await showDataExportSheet(
+      context,
+      snapshot: bauen,
+      vollstaendig: true,
+    );
+  }
+
+  // --- GEFAHRENZONE ---------------------------------------------------------
+
+  List<Widget> _gefahrenzone(AppTokens t) {
+    return _gruppe(
+      'GEFAHRENZONE',
+      <Widget>[
+        if (widget.onSignOut != null)
+          SettingsRow(
+            key: const ValueKey('settings-sign-out'),
+            title: 'Ausloggen',
+            onTap: _signOut,
+          ),
+        if (widget.onDeleteAccount != null) _deleteBlock(t),
+      ],
+      labelColor: t.danger,
+      borderColor: t.danger.withValues(alpha: 0.35),
+    );
+  }
+
+  Widget _deleteBlock(AppTokens t) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              IconTile(icon: Icons.delete_outline_rounded, color: t.danger),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Konto löschen',
                       style: AppType.ui(
-                        11.5,
-                        weight: FontWeight.w500,
-                        color: t.ink2,
-                        height: 1.3,
+                        13.5,
+                        weight: FontWeight.w700,
+                        color: t.danger,
                       ),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Entfernt alle Einträge dauerhaft',
+                      style: AppType.ui(11.5, color: t.ink2),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Material(
+            color: t.danger.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(13),
+            child: InkWell(
+              key: const ValueKey('settings-delete-account'),
+              onTap: _openDeleteSheet,
+              borderRadius: BorderRadius.circular(13),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                child: Text.rich(
+                  TextSpan(
+                    text: 'Du wirst gebeten, ',
+                    children: <InlineSpan>[
+                      TextSpan(
+                        text: 'LÖSCHEN',
+                        style: AppType.ui(
+                          11.5,
+                          weight: FontWeight.w700,
+                          color: t.ink,
+                          height: 1.45,
+                        ),
+                      ),
+                      // Die Vorlage verspricht zusaetzlich eine Passwort-
+                      // Bestaetigung und „Daten werden nach 30 Tagen
+                      // geloescht". Beides waere hier gelogen: die App kann
+                      // kein Passwort pruefen (kein AuthRepository auf dieser
+                      // Route), und die Loeschung laeuft sofort und
+                      // unwiderruflich.
+                      const TextSpan(
+                        text: ' zu tippen. Danach ist dein Konto samt aller '
+                            'Daten sofort und unwiderruflich weg.',
+                      ),
+                    ],
+                    style: AppType.ui(11.5, color: t.ink2, height: 1.45),
                   ),
                 ),
-            ],
+              ),
+            ),
           ),
         ],
       ),
-    ];
+    );
   }
 
-  List<Widget> _energieGruppe() => <Widget>[
-        SettingsGroup(
-          label: 'ENERGIE & MAKROS',
-          children: <Widget>[
-            SettingsRow(
-              title: 'Manuell',
-              chevron: false,
-              trailing: AppToggle(
-                key: const ValueKey('settings-manual-energy'),
-                value: _manualEnergy,
-                onChanged: _toggleManual,
-                semanticLabel: 'Energie & Makros manuell setzen',
-              ),
-            ),
-            if (!_manualEnergy)
-              const SettingsNote(
-                'Automatisch aus deinem Ziel berechnet. Schalter umlegen, '
-                'um kcal und Makros von Hand zu setzen.',
-              )
-            else ...<Widget>[
-              SettingsNumberRow(
-                label: 'Kcal Ziel',
-                suffix: 'kcal',
-                controller: _kcal,
-                fieldKey: const ValueKey('settings-kcal'),
-                errorText: _kcalError,
-                onChanged: (_) => setState(() {}),
-              ),
-              SettingsNumberRow(
-                label: 'Protein',
-                suffix: 'g',
-                controller: _protein,
-                fieldKey: const ValueKey('settings-protein'),
-                errorText: _proteinError,
-                onChanged: (_) => setState(() {}),
-              ),
-              SettingsNumberRow(
-                label: 'Carbs',
-                suffix: 'g',
-                controller: _carbs,
-                fieldKey: const ValueKey('settings-carbs'),
-                errorText: _carbsError,
-                onChanged: (_) => setState(() {}),
-              ),
-              SettingsNumberRow(
-                label: 'Fett',
-                suffix: 'g',
-                controller: _fat,
-                fieldKey: const ValueKey('settings-fat'),
-                errorText: _fatError,
-                onChanged: (_) => setState(() {}),
-              ),
-            ],
-          ],
-        ),
-      ];
-
-  List<Widget> _tageszieleGruppe() {
-    final stunden = _sleepGoalMinutes ~/ 60;
-    final rest = _sleepGoalMinutes % 60;
-    return <Widget>[
-      SettingsGroup(
-        label: 'TAGESZIELE',
-        children: <Widget>[
-          SettingsNumberRow(
-            label: 'Schritte',
-            suffix: '/Tag',
-            controller: _steps,
-            fieldKey: const ValueKey('settings-steps-goal'),
-            errorText: _stepsError,
-            onChanged: (_) => setState(() {}),
-          ),
-          SettingsNumberRow(
-            label: 'Wasser',
-            suffix: 'ml',
-            controller: _water,
-            fieldKey: const ValueKey('settings-water'),
-            errorText: _waterError,
-            onChanged: (_) => setState(() {}),
-          ),
-          SettingsRow(
-            key: const ValueKey('settings-sleep-goal'),
-            title: 'Schlafziel',
-            value: '${stunden}h ${rest.toString().padLeft(2, '0')}m',
-            onTap: _pickSleepGoal,
-          ),
-          const SettingsNote(
-            'Nur fürs Tracking – ändert deine Kalorien nicht.',
-          ),
-        ],
-      ),
-    ];
+  /// Erst die Seite schliessen, dann abmelden.
+  ///
+  /// Die Reihenfolge ist nicht kosmetisch: `AuthGate` raeumt beim
+  /// Identitaetswechsel alles ueber der Root-Route ab und zeigt dann „Deine
+  /// Sitzung ist abgelaufen". Wer selbst auf „Ausloggen" getippt hat, soll
+  /// diesen Satz nicht sehen — deshalb poppt die gewollte Abmeldung selbst,
+  /// bevor sie den Callback ruft (genauso wie im Profil).
+  Future<void> _signOut() async {
+    final abmelden = widget.onSignOut;
+    if (abmelden == null) return;
+    final navigator = Navigator.of(context);
+    await navigator.maybePop();
+    await abmelden();
   }
 
-  List<Widget> _erinnerungenGruppe(AppTokens t) => <Widget>[
-        SettingsGroup(
-          label: 'ERINNERUNGEN',
-          children: <Widget>[
-            SettingsRow(
-              title: 'Erinnerungen',
-              subtitle:
-                  'Tägliche Streak-Erinnerung am Abend — lokal, ohne Server.',
-              chevron: false,
-              trailing: AppToggle(
-                key: const ValueKey('settings-notifications'),
-                value: _reminder == ReminderState.active,
-                // D11: im blockierten Zustand NICHT erneut umlegen lassen. Auf
-                // Android 13+ zeigt das System nach zwei Ablehnungen gar
-                // keinen Dialog mehr — der Schalter spraenge sofort zurueck
-                // und die App saehe wieder aus, als laege es an ihr.
-                enabled: _reminder != ReminderState.blocked,
-                semanticLabel: _reminder == ReminderState.blocked
-                    ? 'Lokale Erinnerungen — vom System blockiert'
-                    : 'Lokale Erinnerungen aktivieren',
-                onChanged: (v) => setState(
-                  () => _reminder =
-                      v ? ReminderState.active : ReminderState.off,
-                ),
-              ),
-            ),
-            SettingsNote(
-              _reminderText,
-              key: const ValueKey('settings-reminder-note'),
-              tone: _reminder == ReminderState.blocked ? t.warning : t.ink2,
-              icon: _reminder == ReminderState.blocked
-                  ? Icons.notifications_off_outlined
-                  : Icons.info_outline_rounded,
-            ),
-            if (_reminder == ReminderState.blocked &&
-                widget.onOpenSystemSettings != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-                child: SettingsSecondaryButton(
-                  key: const ValueKey('settings-open-system-settings'),
-                  label: 'Systemeinstellungen öffnen',
-                  icon: Icons.settings_outlined,
-                  tone: t.warning,
-                  onTap: widget.onOpenSystemSettings,
-                ),
-              ),
-          ],
-        ),
-      ];
-
-  /// Der Anzeige-Modus. Ohne [ThemeModeScope] (Previews, Widget-Tests, die nur
-  /// diesen Screen pumpen) faellt die Gruppe ersatzlos weg — ein Schalter ohne
-  /// Controller waere ein toter Schalter.
-  List<Widget> _anzeigeGruppe() {
-    final controller = ThemeModeScope.maybeOf(context);
-    if (controller == null) return const <Widget>[];
-    return <Widget>[
-      SettingsGroup(
-        label: 'ANZEIGE',
-        children: <Widget>[
-          SettingsRow(
-            // Die Vorlage nennt die Zeile „Dark appearance" und haengt einen
-            // Schalter daran. Unsere Auswahl hat DREI Zustaende (§2: Start ist
-            // ThemeMode.system) — „Dunkles Erscheinungsbild: Hell" waere ein
-            // Widerspruch in einer Zeile. Die Zeile heisst deshalb nach dem,
-            // was sie einstellt, nicht nach einem ihrer Werte.
-            title: 'Erscheinungsbild',
-            subtitle: 'System folgt der Einstellung deines Geräts.',
-            chevron: false,
-            trailing: SettingsThemeModePill(
-              key: const ValueKey('settings-theme-mode'),
-              mode: controller.mode,
-              // Geraeteeinstellung: sofort persistiert, nicht Teil von
-              // [SettingsResult] und ausdruecklich nicht Teil von [_dirty].
-              onChanged: controller.setMode,
-            ),
-          ),
-        ],
-      ),
-    ];
+  Future<void> _openDeleteSheet() async {
+    final loeschen = widget.onDeleteAccount;
+    if (loeschen == null) return;
+    // Die Tipp-Bestaetigung ist die staerkere Absicherung als der
+    // Ja/Nein-Dialog im Profil (`confirm-delete-account`): ein Dialog ist mit
+    // zwei Taps weg, „LÖSCHEN" tippt niemand versehentlich.
+    final bestaetigt =
+        await showEatovaSheet<bool>(context, const _DeleteAccountSheet());
+    if (bestaetigt != true || !mounted) return;
+    final navigator = Navigator.of(context);
+    await navigator.maybePop();
+    await loeschen();
   }
 }
 
 // ---------------------------------------------------------------------------
-// D5: Verwerf-Rueckfrage
+// Bausteine dieses Screens
 // ---------------------------------------------------------------------------
 
-/// „Aenderungen verwerfen?" — die gemeinsame Bestaetigung fuer jeden Weg, eine
-/// ausgefuellte Seite zu verlassen.
+/// Eine Zeile, die eine Rechtsseite im Browser oeffnet.
 ///
-/// `barrierDismissible: true` (Default) ist Absicht: ein Tap neben den Dialog
-/// ist „Abbrechen", also die harmlose Antwort.
+/// Kein Chevron, sondern das Extern-Symbol: der Chevron verspricht eine
+/// Folgeseite IN der App, hier verlaesst man sie.
+class _LegalRow extends StatelessWidget {
+  const _LegalRow({
+    required this.rowKey,
+    required this.title,
+    required this.url,
+  });
+
+  final Key rowKey;
+  final String title;
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return SettingsRow(
+      key: rowKey,
+      title: title,
+      chevron: false,
+      trailing: Icon(Icons.open_in_new_rounded, size: 15, color: t.ink2),
+      onTap: () => launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      ),
+    );
+  }
+}
+
+/// Die Versionszeile am Seitenfuss.
+class _VersionFooter extends StatelessWidget {
+  const _VersionFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Center(
+      child: FutureBuilder<PackageInfo>(
+        future: _packageInfo,
+        builder: (context, snapshot) {
+          final info = snapshot.data;
+          return Text(
+            info == null
+                ? 'Eatova'
+                : 'Version ${info.version} · Build ${info.buildNumber}',
+            textAlign: TextAlign.center,
+            style: AppType.ui(
+              10.5,
+              weight: FontWeight.w500,
+              // Ohne Zusatz-Transparenz: `ink2` ist bereits der gedaempfte Ton
+              // und exakt auf 4.5:1 ausgelegt.
+              color: t.ink2,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Die Tipp-Bestaetigung fuer die Kontoloeschung.
 ///
-/// **Mehrfach vorhanden:** dieselbe Bestaetigung steht in
-/// `edit_meal_sheet.dart` und `recipe_create_sheet.dart` (dort jeweils noch
-/// mit `_DiscardDragGuard`, weil beide Sheets geblieben sind). Die Kopien
-/// gehoeren in die gemeinsame Bibliothek zusammengefuehrt — das geht nur
-/// paketuebergreifend.
-///
-/// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
-Future<bool> _confirmDiscardChanges(BuildContext context) async {
-  final verwerfen = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) {
-      final t = dialogContext.t;
-      return AlertDialog(
-        key: const ValueKey('discard-changes-dialog'),
-        title: const Text('Änderungen verwerfen?'),
-        content: const Text(
-          'Deine Eingaben in „Profil & Ziele" sind noch nicht gespeichert.',
+/// Poppt mit `true`, sobald der Nutzer „LÖSCHEN" getippt und die Aktion
+/// ausgeloest hat; sonst mit `null`.
+class _DeleteAccountSheet extends StatefulWidget {
+  const _DeleteAccountSheet();
+
+  @override
+  State<_DeleteAccountSheet> createState() => _DeleteAccountSheetState();
+}
+
+class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
+  static const String _wort = 'LÖSCHEN';
+
+  final TextEditingController _confirm = TextEditingController();
+
+  @override
+  void dispose() {
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  /// Gross-/Kleinschreibung egal: die Bestaetigung soll vor Versehen schuetzen,
+  /// nicht vor der Shift-Taste.
+  bool get _scharf => _confirm.text.trim().toUpperCase() == _wort;
+
+  @override
+  Widget build(BuildContext context) {
+    // Der Scroller sitzt seit 2026-08-10 in [SheetScaffold] selbst — die
+    // Ueberlaufgefahr bei grosser Systemschrift betrifft jedes Sheet, nicht
+    // nur dieses.
+    return SheetScaffold(
+      title: 'Konto löschen',
+      subtitle: 'Das entfernt dein Profil, alle Mahlzeiten, deinen '
+          'Gewichtsverlauf und den Coach-Verlauf. Es lässt sich nicht '
+          'rückgängig machen.',
+      destructive: true,
+      actionLabel: 'Konto endgültig löschen',
+      actionEnabled: _scharf,
+      onAction: () => Navigator.of(context).pop(true),
+      children: <Widget>[
+        SheetField(
+          key: const ValueKey('settings-delete-confirm-field'),
+          label: 'Zum Bestätigen $_wort tippen',
+          hint: _wort,
+          controller: _confirm,
+          onChanged: (_) => setState(() {}),
         ),
-        actions: <Widget>[
-          TextButton(
-            key: const ValueKey('discard-changes-cancel'),
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Weiter bearbeiten'),
-          ),
-          TextButton(
-            key: const ValueKey('discard-changes-confirm'),
-            style: TextButton.styleFrom(foregroundColor: t.danger),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Verwerfen'),
-          ),
-        ],
-      );
-    },
-  );
-  return verwerfen ?? false;
+      ],
+    );
+  }
 }

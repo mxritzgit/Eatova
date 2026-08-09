@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
@@ -47,7 +47,7 @@ void main() {
                 onPressed: () {
                   result = Navigator.of(context).push<SettingsResult>(
                     MaterialPageRoute<SettingsResult>(
-                      builder: (_) => SettingsScreen(profile: profile),
+                      builder: (_) => GoalsScreen(profile: profile),
                     ),
                   );
                 },
