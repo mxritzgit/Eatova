@@ -29,7 +29,15 @@ void main() {
       'GENAU diesen Slot', (tester) async {
     await bootHeute(tester);
 
-    await tester.tap(find.byKey(const ValueKey('today-meal-row-lunch')));
+    // IMMER erst heranscrollen: Die Mahlzeiten-Zeilen liegen am unteren Rand,
+    // und wie weit genau haengt an der Schriftmetrik der Plattform. Lokal
+    // (Windows) war „Mittagessen" gerade noch tippbar, auf dem CI-Runner
+    // (Linux) sass es bei y=801 von 852 — der Tipp ging dort ins Leere und der
+    // Test behauptete danach etwas Falsches.
+    final mittag = find.byKey(const ValueKey('today-meal-row-lunch'));
+    await tester.ensureVisible(mittag);
+    await tester.pumpAndSettle();
+    await tester.tap(mittag);
     await tester.pumpAndSettle();
 
     // Der Wechsel auf den Food-Tab ist passiert ...
