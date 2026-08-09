@@ -51,10 +51,17 @@ abstract class AuthRepository {
   /// Konto-Enumerations-Leck.
   Future<void> sendPasswordReset(String email);
 
-  /// Feuert, wenn der Nutzer ueber den Reset-Mail-Link zurueckkommt
-  /// (AuthChangeEvent.passwordRecovery): die Session ist dann bereits
-  /// gueltig, und der AuthGate zeigt den Neues-Passwort-Dialog.
-  Stream<void> get passwordRecoveryEvents;
+  /// Prueft den 6-stelligen Code aus der Passwort-Reset-Mail (OTP statt
+  /// Link, {{ .Token }}-Template; Gueltigkeit mailer_otp_exp = 10 Min).
+  /// Erfolg stellt die Session her — danach setzt [updatePassword] das neue
+  /// Passwort.
+  Future<void> verifyRecoveryCode({required String email, required String code});
+
+  /// Prueft den 6-stelligen Code aus der Registrierungs-Bestaetigung.
+  Future<void> verifySignupCode({required String email, required String code});
+
+  /// Fordert die Registrierungs-Bestaetigung erneut an (neuer Code).
+  Future<void> resendSignupCode(String email);
 
   /// Setzt das Passwort des angemeldeten Nutzers (Recovery-Abschluss).
   Future<void> updatePassword(String newPassword);
@@ -101,9 +108,29 @@ class SupabaseAuthRepository implements AuthRepository {
   }
 
   @override
-  Stream<void> get passwordRecoveryEvents => _client.auth.onAuthStateChange
-      .where((e) => e.event == AuthChangeEvent.passwordRecovery)
-      .map((_) {});
+  Future<void> verifyRecoveryCode(
+      {required String email, required String code}) async {
+    await _client.auth.verifyOTP(
+      type: OtpType.recovery,
+      email: email.trim(),
+      token: code.trim(),
+    );
+  }
+
+  @override
+  Future<void> verifySignupCode(
+      {required String email, required String code}) async {
+    await _client.auth.verifyOTP(
+      type: OtpType.signup,
+      email: email.trim(),
+      token: code.trim(),
+    );
+  }
+
+  @override
+  Future<void> resendSignupCode(String email) async {
+    await _client.auth.resend(type: OtpType.signup, email: email.trim());
+  }
 
   @override
   Future<void> updatePassword(String newPassword) async {
@@ -218,7 +245,15 @@ class PreviewAuthRepository implements AuthRepository {
   Future<void> sendPasswordReset(String email) async {}
 
   @override
-  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+  Future<void> verifyRecoveryCode(
+      {required String email, required String code}) async {}
+
+  @override
+  Future<void> verifySignupCode(
+      {required String email, required String code}) async {}
+
+  @override
+  Future<void> resendSignupCode(String email) async {}
 
   @override
   Future<void> updatePassword(String newPassword) async {}
@@ -253,20 +288,45 @@ class InMemoryAuthRepository implements AuthRepository {
   /// Fuer Tests: welche neuen Passwoerter gesetzt wurden.
   final List<String> passwordUpdates = <String>[];
 
-  final StreamController<void> _recoveryController =
-      StreamController<void>.broadcast();
+  /// Fuer Tests: verifizierte Codes als 'email:code'.
+  final List<String> verifiedCodes = <String>[];
+
+  /// Fuer Tests: erneut angeforderte Signup-Codes.
+  final List<String> signupResends = <String>[];
+
+  /// Fuer Tests: laesst den naechsten Verify-Aufruf scheitern (falscher/
+  /// abgelaufener Code).
+  bool verifyFails = false;
 
   @override
   Future<void> sendPasswordReset(String email) async {
     passwordResets.add(email.trim());
   }
 
-  @override
-  Stream<void> get passwordRecoveryEvents => _recoveryController.stream;
+  Future<void> _verify(String email, String code) async {
+    if (verifyFails) {
+      verifyFails = false;
+      throw const AuthException('Token has expired or is invalid');
+    }
+    verifiedCodes.add('${email.trim()}:${code.trim()}');
+    _user ??= EatovaUser(id: 'otp-user', email: email.trim());
+    _controller.add(_user);
+  }
 
-  /// Simuliert den Klick auf den Reset-Mail-Link (Deep-Link zurueck in die
-  /// App): supabase_flutter wuerde hier das passwordRecovery-Event feuern.
-  void emitPasswordRecovery() => _recoveryController.add(null);
+  @override
+  Future<void> verifyRecoveryCode(
+          {required String email, required String code}) =>
+      _verify(email, code);
+
+  @override
+  Future<void> verifySignupCode(
+          {required String email, required String code}) =>
+      _verify(email, code);
+
+  @override
+  Future<void> resendSignupCode(String email) async {
+    signupResends.add(email.trim());
+  }
 
   @override
   Future<void> updatePassword(String newPassword) async {
@@ -314,10 +374,7 @@ class InMemoryAuthRepository implements AuthRepository {
     _controller.add(null);
   }
 
-  void dispose() {
-    _controller.close();
-    _recoveryController.close();
-  }
+  void dispose() => _controller.close();
 }
 
 /// Auth-Schicht nicht verfuegbar (`Supabase.instance` warf beim App-Build).
@@ -349,7 +406,17 @@ class UnavailableAuthRepository implements AuthRepository {
   Future<void> sendPasswordReset(String email) => _fail();
 
   @override
-  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+  Future<void> verifyRecoveryCode(
+          {required String email, required String code}) =>
+      _fail();
+
+  @override
+  Future<void> verifySignupCode(
+          {required String email, required String code}) =>
+      _fail();
+
+  @override
+  Future<void> resendSignupCode(String email) => _fail();
 
   @override
   Future<void> updatePassword(String newPassword) => _fail();

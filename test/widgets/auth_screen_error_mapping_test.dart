@@ -18,7 +18,17 @@ class _CancelingAuthRepository implements AuthRepository {
   Future<void> sendPasswordReset(String email) => throw UnimplementedError();
 
   @override
-  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+  Future<void> verifyRecoveryCode(
+          {required String email, required String code}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> verifySignupCode(
+          {required String email, required String code}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> resendSignupCode(String email) => throw UnimplementedError();
 
   @override
   Future<void> updatePassword(String newPassword) => throw UnimplementedError();

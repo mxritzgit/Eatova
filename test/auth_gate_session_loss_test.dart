@@ -49,7 +49,15 @@ class _ScriptedAuthRepository implements AuthRepository {
   Future<void> sendPasswordReset(String email) async {}
 
   @override
-  Stream<void> get passwordRecoveryEvents => const Stream.empty();
+  Future<void> verifyRecoveryCode(
+      {required String email, required String code}) async {}
+
+  @override
+  Future<void> verifySignupCode(
+      {required String email, required String code}) async {}
+
+  @override
+  Future<void> resendSignupCode(String email) async {}
 
   @override
   Future<void> updatePassword(String newPassword) async {}

@@ -1,21 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// „Passwort vergessen" — UI-Haelfte (2026-08-08).
+// 6-stelliger Code-Flow (OTP statt Mail-Link, 2026-08-09):
 //
-//  * Sign-in: der Link unter dem Passwortfeld stoesst den Reset fuer die
-//    getippte E-Mail an. Die Bestaetigung ist IMMER neutral („falls ein
-//    Konto existiert…") — ob die Mail existiert oder ein reines
-//    Google-Konto ist, verraet die App nicht (Konto-Enumeration).
-//  * Recovery: klickt der Nutzer den Mail-Link, tauscht supabase_flutter
-//    den Code gegen eine Session und feuert passwordRecovery. Der AuthGate
-//    zeigt dann den Neues-Passwort-Dialog — ohne ihn waere der Nutzer
-//    einfach eingeloggt und der Reset liefe ins Leere.
+//  * „Passwort vergessen?" fuehrt auf eine EIGENE Seite: E-Mail -> Code
+//    anfordern (neutral bestaetigt — keine Konto-Enumeration) -> Code
+//    pruefen (verifyOTP recovery stellt die Session her) -> neues Passwort.
+//  * Die Registrierung bestaetigt die E-Mail ebenfalls per Code
+//    (AuthCodeFlow.signup) statt per Link.
+//  * Falsche/abgelaufene Codes zeigen einen Hinweis samt Neuanfordern-Weg.
 
 Future<void> _pumpAuth(WidgetTester tester, InMemoryAuthRepository repo) async {
   await tester.pumpWidget(MaterialApp(
@@ -25,9 +23,26 @@ Future<void> _pumpAuth(WidgetTester tester, InMemoryAuthRepository repo) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _pumpCode(
+  WidgetTester tester,
+  InMemoryAuthRepository repo, {
+  required AuthCodeFlow flow,
+  String email = 'user@example.com',
+}) async {
+  await tester.pumpWidget(MaterialApp(
+    theme: buildEatovaTheme(),
+    home: AuthCodeScreen(
+      authRepository: repo,
+      flow: flow,
+      initialEmail: email,
+    ),
+  ));
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('Passwort vergessen: schickt Reset fuer die getippte E-Mail '
-      'und bestaetigt neutral', (tester) async {
+  testWidgets('Passwort vergessen oeffnet die Code-Seite mit vorbefuellter '
+      'E-Mail', (tester) async {
     final repo = InMemoryAuthRepository();
     await _pumpAuth(tester, repo);
 
@@ -38,89 +53,97 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-forgot-password')));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('auth-code-screen')), findsOneWidget);
+    expect(find.text('user@example.com'), findsOneWidget,
+        reason: 'die getippte Adresse ist vorbefuellt');
+  });
+
+  testWidgets('Recovery: Code anfordern bestaetigt NEUTRAL und wechselt zur '
+      'Code-Eingabe', (tester) async {
+    final repo = InMemoryAuthRepository();
+    await _pumpCode(tester, repo, flow: AuthCodeFlow.recovery);
+
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
+    await tester.pumpAndSettle();
+
     expect(repo.passwordResets, ['user@example.com']);
-    expect(find.byKey(const ValueKey('auth-message')), findsOneWidget);
+    expect(find.byKey(const ValueKey('code-field')), findsOneWidget);
     expect(find.textContaining('Falls ein Konto'), findsOneWidget,
         reason: 'neutral — keine Aussage, OB das Konto existiert');
+    expect(find.textContaining('10 Minuten'), findsOneWidget);
   });
 
-  testWidgets('Passwort vergessen ohne E-Mail: Hinweis statt Request',
+  testWidgets('Recovery: Code pruefen -> Passwort-Schritt -> speichern',
       (tester) async {
     final repo = InMemoryAuthRepository();
-    await _pumpAuth(tester, repo);
-
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('auth-forgot-password')));
-    await tester.tap(find.byKey(const ValueKey('auth-forgot-password')));
+    await _pumpCode(tester, repo, flow: AuthCodeFlow.recovery);
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    expect(repo.passwordResets, isEmpty);
-    expect(find.byKey(const ValueKey('auth-error')), findsOneWidget);
-  });
-
-  testWidgets('Registrieren-Modus zeigt den Link nicht', (tester) async {
-    final repo = InMemoryAuthRepository();
-    await _pumpAuth(tester, repo);
-
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('auth-toggle-register')));
-    await tester.tap(find.byKey(const ValueKey('auth-toggle-register')));
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '482913');
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('auth-forgot-password')), findsNothing,
-        reason: 'beim Registrieren gibt es noch kein Passwort zu vergessen');
-  });
-
-  testWidgets('passwordRecovery-Event: Neues-Passwort-Dialog erscheint und '
-      'speichert', (tester) async {
-    final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'user@example.com'));
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(),
-      home: AuthGate(
-        authRepository: repo,
-        builder: (context, user, fresh) => const Scaffold(body: Text('Home')),
-      ),
-    ));
-    await tester.pumpAndSettle();
-
-    repo.emitPasswordRecovery();
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('password-reset-dialog')), findsOneWidget);
+    expect(repo.verifiedCodes, ['user@example.com:482913']);
+    expect(
+        find.byKey(const ValueKey('code-password-field')), findsOneWidget);
 
     await tester.enterText(
-        find.byKey(const ValueKey('password-reset-field')), 'neues-passwort9');
-    await tester.tap(find.byKey(const ValueKey('password-reset-submit')));
+        find.byKey(const ValueKey('code-password-field')), 'neues-passwort9');
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
     expect(repo.passwordUpdates, ['neues-passwort9']);
-    expect(find.byKey(const ValueKey('password-reset-dialog')), findsNothing,
-        reason: 'nach dem Speichern schliesst der Dialog');
   });
 
-  testWidgets('passwordRecovery: zu kurzes Passwort wird abgelehnt',
+  testWidgets('falscher Code: Hinweis + Neuanfordern statt Weiterkommen',
       (tester) async {
-    final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'user@example.com'));
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(),
-      home: AuthGate(
-        authRepository: repo,
-        builder: (context, user, fresh) => const Scaffold(body: Text('Home')),
-      ),
-    ));
-    await tester.pumpAndSettle();
-    repo.emitPasswordRecovery();
+    final repo = InMemoryAuthRepository();
+    await _pumpCode(tester, repo, flow: AuthCodeFlow.recovery);
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-        find.byKey(const ValueKey('password-reset-field')), 'kurz');
-    await tester.tap(find.byKey(const ValueKey('password-reset-submit')));
+    repo.verifyFails = true;
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '000000');
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    expect(repo.passwordUpdates, isEmpty);
-    expect(find.byKey(const ValueKey('password-reset-dialog')), findsOneWidget,
-        reason: 'Dialog bleibt offen, bis ein gueltiges Passwort da ist');
+    expect(find.byKey(const ValueKey('code-error')), findsOneWidget);
+    expect(find.textContaining('abgelaufen'), findsOneWidget);
+    expect(find.byKey(const ValueKey('code-field')), findsOneWidget,
+        reason: 'kein Weiterkommen mit falschem Code');
+
+    await tester.tap(find.byKey(const ValueKey('code-resend')));
+    await tester.pumpAndSettle();
+    expect(repo.passwordResets, hasLength(2),
+        reason: 'Neuanfordern stoesst den Reset erneut an');
+  });
+
+  testWidgets('Signup-Flow: startet direkt beim Code und prueft ihn',
+      (tester) async {
+    final repo = InMemoryAuthRepository();
+    await _pumpCode(tester, repo, flow: AuthCodeFlow.signup);
+
+    expect(find.byKey(const ValueKey('code-field')), findsOneWidget,
+        reason: 'die Adresse steht fest — kein E-Mail-Schritt');
+
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '135791');
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
+    await tester.pumpAndSettle();
+
+    expect(repo.verifiedCodes, ['user@example.com:135791']);
+  });
+
+  testWidgets('Signup-Flow: Neuanfordern nutzt resendSignupCode',
+      (tester) async {
+    final repo = InMemoryAuthRepository();
+    await _pumpCode(tester, repo, flow: AuthCodeFlow.signup);
+
+    await tester.tap(find.byKey(const ValueKey('code-resend')));
+    await tester.pumpAndSettle();
+
+    expect(repo.signupResends, ['user@example.com']);
+    expect(repo.passwordResets, isEmpty,
+        reason: 'Signup-Resend darf keinen Passwort-Reset ausloesen');
   });
 }

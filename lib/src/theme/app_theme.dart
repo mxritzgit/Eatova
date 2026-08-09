@@ -117,6 +117,7 @@ ThemeData buildEatovaTheme() {
     datePickerTheme: DatePickerThemeData(
       backgroundColor: surface,
       surfaceTintColor: Colors.transparent,
+      elevation: 0,
       headerBackgroundColor: Colors.transparent,
       headerForegroundColor: textPrimary,
       headerHelpStyle: const TextStyle(
@@ -125,13 +126,67 @@ ThemeData buildEatovaTheme() {
         fontWeight: FontWeight.w700,
         letterSpacing: 1.1,
       ),
+      headerHeadlineStyle: const TextStyle(
+        color: textPrimary,
+        fontSize: 26,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.6,
+      ),
       weekdayStyle: const TextStyle(
         color: textMuted,
         fontSize: 12,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.4,
       ),
       dayStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      // Tages-Zellen: Auswahl als satte Lime-Flaeche, Heute nur als Ring,
+      // Disabled deutlich zurueckgenommen, Press/Hover als weiche
+      // Flaechen-Aufhellung statt Material-Splash-Grau.
+      dayForegroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return bg;
+        if (states.contains(WidgetState.disabled)) {
+          return textMuted.withValues(alpha: 0.35);
+        }
+        return textPrimary;
+      }),
+      dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return lime;
+        return Colors.transparent;
+      }),
+      dayOverlayColor: WidgetStateProperty.all(
+        Colors.white.withValues(alpha: 0.06),
+      ),
+      todayForegroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return bg;
+        return lime;
+      }),
+      todayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return lime;
+        return Colors.transparent;
+      }),
       todayBorder: const BorderSide(color: lime, width: 1.2),
+      // Jahres-Raster im selben Ton wie die Tage.
+      yearStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      yearForegroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return bg;
+        return textPrimary;
+      }),
+      yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return lime;
+        return Colors.transparent;
+      }),
+      yearOverlayColor: WidgetStateProperty.all(
+        Colors.white.withValues(alpha: 0.06),
+      ),
+      // Fusszeile: Abbrechen zurueckhaltend, OK traegt den Akzent.
+      cancelButtonStyle: TextButton.styleFrom(
+        foregroundColor: textMuted,
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+      confirmButtonStyle: TextButton.styleFrom(
+        foregroundColor: lime,
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+      ),
       dividerColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rSheet),

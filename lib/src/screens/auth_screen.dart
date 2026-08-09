@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
+import 'auth_code_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/shared/eatova_wordmark.dart';
 
@@ -100,8 +101,17 @@ class _AuthScreenState extends State<AuthScreen> {
         if (!mounted) return;
         setState(
           () => _message =
-              'Bestätigungs-Mail unterwegs an $email. Klick den Link, dann bist du drin.',
+              'Bestätigungs-Code unterwegs an $email (10 Minuten gültig).',
         );
+        // Direkt zur Code-Eingabe: die Bestaetigung laeuft ueber den
+        // 6-stelligen Code aus der Mail, nicht mehr ueber einen Link.
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => AuthCodeScreen(
+            authRepository: widget.authRepository,
+            flow: AuthCodeFlow.signup,
+            initialEmail: email,
+          ),
+        ));
       } else {
         await widget.authRepository.signIn(email: email, password: password);
       }
@@ -113,41 +123,20 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  Future<void> _forgotPassword() async {
-    final email = _emailController.text.trim();
+  /// Eigene Seite fuer den Code-Flow (6-stelliger OTP statt Mail-Link):
+  /// E-Mail wird vorbefuellt, eingeben/aendern passiert dort.
+  void _forgotPassword() {
     setState(() {
       _error = null;
       _message = null;
     });
-    if (!email.contains('@') || !email.contains('.')) {
-      setState(() => _error =
-          'Gib oben deine E-Mail ein, dann schicken wir dir einen Reset-Link.');
-      return;
-    }
-    setState(() => _loading = true);
-    try {
-      await widget.authRepository.sendPasswordReset(email);
-    } catch (error) {
-      // Auch der Fehlerfall bleibt neutral formuliert — nur echte
-      // Infrastruktur-Probleme (offline) unterscheiden sich fuer den Nutzer
-      // sichtbar von „Mail ist unterwegs".
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = _friendlyError(error);
-      });
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      // Bewusst NEUTRAL: ob zur E-Mail ein Konto existiert (oder ein reines
-      // Google-Konto ohne Passwort), verraet die App nicht —
-      // Konto-Enumeration. Google-Konten melden sich weiter ueber Google an.
-      _message = 'Falls ein Konto mit dieser E-Mail existiert, ist gerade '
-          'eine Mail mit dem Reset-Link unterwegs. Google-Konten haben kein '
-          'Passwort — dort meldest du dich einfach wieder mit Google an.';
-    });
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => AuthCodeScreen(
+        authRepository: widget.authRepository,
+        flow: AuthCodeFlow.recovery,
+        initialEmail: _emailController.text.trim(),
+      ),
+    ));
   }
 
   String _friendlyError(Object error) {
