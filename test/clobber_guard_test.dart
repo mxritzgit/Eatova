@@ -1,12 +1,14 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
@@ -161,6 +163,16 @@ Future<void> _pumpHome(
     // absichtlich, wenn die Extension fehlt — ohne `theme:` stirbt schon der
     // erste Build und der Clobber-Guard kaeme gar nicht zum Zug.
     theme: buildEatovaTheme(Brightness.dark),
+    // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
+    // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+    locale: const Locale('de'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: EatovaHomePage(
       sync: sync,
       debugCache: debugCache,
