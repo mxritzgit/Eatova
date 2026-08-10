@@ -6,7 +6,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/legal_links.dart';
+import '../../app/locale_controller.dart';
 import '../../auth/auth_repository.dart';
+import '../../l10n/l10n.dart';
 import '../../services/secure_screen.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/theme_mode_controller.dart';
@@ -266,6 +268,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // pumpen) faellt die Zeile ersatzlos weg — ein Schalter ohne Controller
     // waere ein toter Schalter.
     final controller = ThemeModeScope.maybeOf(context);
+    // Dasselbe Wächter-Muster fuer die Sprachwahl (Spiegel des Anzeige-Modus,
+    // s.o.): ohne [LocaleScope] gibt es nichts, das den Override setzen
+    // koennte.
+    final localeController = LocaleScope.maybeOf(context);
     return _gruppe('PRÄFERENZEN', <Widget>[
       if (widget.onOpenGoals != null)
         SettingsRow(
@@ -291,6 +297,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // Geraeteeinstellung: sofort persistiert, nichts zu speichern und
             // nichts zu verwerfen.
             onChanged: controller.setMode,
+          ),
+        ),
+      if (localeController != null)
+        SettingsRow(
+          title: context.l10n.settingsLanguageTitle,
+          subtitle: context.l10n.settingsLanguageSubtitle,
+          chevron: false,
+          trailing: SettingsLanguagePill(
+            key: const ValueKey('settings-language'),
+            value: localeController.override,
+            // Geraeteeinstellung: sofort persistiert, nichts zu verwerfen.
+            onChanged: localeController.setOverride,
           ),
         ),
     ]);
