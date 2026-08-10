@@ -64,7 +64,6 @@ Widget _profile({
     dailySteps: dailySteps,
     healthAuthState: healthAuthState,
     healthLastFetch: null,
-    favoritesCount: 2,
     onLogWeight: (_) {},
     onEditProfile: onEditProfile ?? () {},
     onResetDay: () {},

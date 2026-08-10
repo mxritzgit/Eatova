@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/legal_links.dart';
+import '../../auth/auth_repository.dart';
 import '../../services/secure_screen.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/theme_mode_controller.dart';
+import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/shared/data_export_sheet.dart';
+import 'account_change_sheets.dart';
 import 'settings_controls.dart';
 
 /// Die Einstellungen — Konto, Anzeige, Daten, Gefahrenzone.
@@ -23,18 +28,25 @@ import 'settings_controls.dart';
 /// settings_screen.dart`): „Units Metric/Imperial", „Language" und „Weekly
 /// summary email" haben in dieser App keine Funktion — die App ist deutsch und
 /// metrisch, und einen Wochen-Report gibt es nicht. Ein Schalter ohne Wirkung
-/// ist schlimmer als kein Schalter. Ebenso fehlen „Password" und „Connected
-/// accounts": beide braeuchten das [AuthRepository], das diese Route nicht
-/// erreicht (siehe Bericht), und das „VERIFIED"-Abzeichen an der Mailadresse,
-/// weil die App den Bestaetigungsstand nicht kennt. Apple Health fehlt, weil
-/// die Verbindung im Profil bereits vollstaendig bedienbar ist
-/// (`HealthConnectionCard`) — derselbe Zustand an zwei Orten waere ein Fehler.
+/// ist schlimmer als kein Schalter. Ebenso fehlt „Connected accounts": welcher
+/// Anbieter die Anmeldung getragen hat, weiss die App nicht — genauso wenig wie
+/// den Bestaetigungsstand, weshalb auch das „VERIFIED"-Abzeichen an der
+/// Mailadresse fehlt. Apple Health fehlt, weil die Verbindung im Profil bereits
+/// vollstaendig bedienbar ist (`HealthConnectionCard`) — derselbe Zustand an
+/// zwei Orten waere ein Fehler.
+///
+/// „Password" gibt es seit 2026-08-10 dagegen sehr wohl: das [AuthRepository]
+/// wird durchgereicht, und mit ihm haengen „Passwort ändern" und
+/// „E-Mail-Adresse ändern" in der Gruppe KONTO (Sheets in
+/// `account_change_sheets.dart`). Ohne Repository entfallen beide Zeilen
+/// ersatzlos — dieselbe Regel wie fuer Export und Ausloggen.
 ///
 /// Der Screen gibt nichts zurueck — jede Aktion laeuft ueber ihren Callback.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     this.email,
+    this.authRepository,
     this.onOpenGoals,
     this.onSignOut,
     this.onDeleteAccount,
@@ -44,6 +56,11 @@ class SettingsScreen extends StatefulWidget {
   /// Mailadresse der Session. Null in Preview/Tests ohne Auth — die Zeile
   /// wird dann ausgeblendet statt mit einem Platzhalter gefuellt.
   final String? email;
+
+  /// Traegt die Konto-Aenderungen (Passwort, Mailadresse). Null in Preview/
+  /// Tests ohne Auth — die beiden Zeilen entfallen dann, statt ins Leere zu
+  /// fuehren.
+  final AuthRepository? authRepository;
 
   /// Fuehrt auf „Profil & Ziele".
   final VoidCallback? onOpenGoals;
@@ -69,6 +86,41 @@ class SettingsScreen extends StatefulWidget {
 final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Die Adresse aus der laufenden Sitzung.
+  ///
+  /// [SettingsScreen.email] wird beim Aufbau der Route eingefroren — nach einem
+  /// Adresswechsel stuende dort weiter die alte. Der Konto-Screen ist aber
+  /// genau der Ort, an dem man das Ergebnis sehen will, also haengt er selbst
+  /// am `authStateChanges`-Strom (dessen Vertrag steht in
+  /// `test/auth_account_change_test.dart`).
+  String? _sessionEmail;
+  StreamSubscription<EatovaUser?>? _sessionSub;
+
+  @override
+  void initState() {
+    super.initState();
+    final repo = widget.authRepository;
+    if (repo == null) return;
+    _sessionEmail = repo.currentUser?.email;
+    _sessionSub = repo.authStateChanges.listen((user) {
+      final adresse = user?.email;
+      // `null` heisst abgemeldet, nicht „keine Adresse mehr": in dem Fall
+      // raeumt der AuthGate diese Route ohnehin ab, und bis dahin ist die
+      // zuletzt bekannte Adresse die ehrlichere Anzeige.
+      if (!mounted || adresse == null || adresse == _sessionEmail) return;
+      setState(() => _sessionEmail = adresse);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sessionSub?.cancel();
+    super.dispose();
+  }
+
+  /// Die anzuzeigende Mailadresse — Sitzung schlaegt Aufruf-Parameter.
+  String? get _adresse => _sessionEmail ?? widget.email;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -124,20 +176,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- KONTO ----------------------------------------------------------------
 
   List<Widget> _kontoGruppe(AppTokens t) {
-    final email = widget.email;
-    if (email == null) return const <Widget>[];
+    final email = _adresse;
+    final repo = widget.authRepository;
     return _gruppe('KONTO', <Widget>[
-      SettingsRow(
-        key: const ValueKey('settings-email'),
-        // Kein Bearbeiten-Weg und kein „VERIFIED"-Abzeichen: die App kann
-        // beides heute nicht belegen. Deshalb auch kein Chevron — der
-        // versprach eine Folgeseite, die es nicht gibt.
-        leading: IconTile(icon: Icons.mail_outline_rounded, color: t.protein),
-        title: 'E-Mail-Adresse',
-        subtitle: email,
-        chevron: false,
-      ),
+      if (email != null)
+        SettingsRow(
+          key: const ValueKey('settings-email'),
+          // Rein anzeigend, kein Chevron: geaendert wird sie in der Zeile
+          // darunter, und ein „VERIFIED"-Abzeichen kann die App nicht belegen.
+          // `accent` statt eines Makro-Tons: die Vorlage nimmt hier ein
+          // kraeftiges Blau, das bei uns `protein` waere — und Makro-Farben
+          // kodieren ausschliesslich Naehrwerte (DESIGN_REFACTOR §3, Schloss 1).
+          // Ein blaues Brief-Icon neben blauen Protein-Balken laese eine
+          // Verbindung vermuten, die es nicht gibt.
+          leading: IconTile(icon: Icons.mail_outline_rounded, color: t.accent),
+          title: 'E-Mail-Adresse',
+          subtitle: email,
+          chevron: false,
+        ),
+      if (repo != null)
+        SettingsRow(
+          key: const ValueKey('settings-change-password'),
+          // `accent` statt eines Makro-Tons: die Nährwert-Farben kodieren
+          // ausschliesslich Naehrwerte (DESIGN_REFACTOR §3, Schloss 1).
+          leading: IconTile(icon: Icons.lock_outline_rounded, color: t.accent),
+          title: 'Passwort ändern',
+          subtitle: 'Mit Bestätigungs-Code an deine E-Mail',
+          onTap: () => _openPasswortAendern(repo, email),
+        ),
+      // Ohne bekannte Adresse geht der Wechsel nicht: der erste der beiden
+      // Codes wird gegen die BISHERIGE Adresse verifiziert.
+      if (repo != null && email != null)
+        SettingsRow(
+          key: const ValueKey('settings-change-email'),
+          leading:
+              IconTile(icon: Icons.alternate_email_rounded, color: t.accent),
+          title: 'E-Mail-Adresse ändern',
+          subtitle: 'Bestätigung an die alte und die neue Adresse',
+          onTap: () => _openMailAendern(repo, email),
+        ),
     ]);
+  }
+
+  Future<void> _openPasswortAendern(
+    AuthRepository repo,
+    String? email,
+  ) async {
+    final erfolg = await showPasswordChangeSheet(
+      context,
+      authRepository: repo,
+      email: email,
+    );
+    if (!erfolg || !mounted) return;
+    showAppSnack(
+      context,
+      'Passwort geändert.',
+      icon: Icons.lock_reset_rounded,
+    );
+  }
+
+  Future<void> _openMailAendern(AuthRepository repo, String email) async {
+    final erfolg = await showEmailChangeSheet(
+      context,
+      authRepository: repo,
+      currentEmail: email,
+    );
+    if (!erfolg || !mounted) return;
+    // Die neue Adresse steht schon in der Zeile darueber — der Strom hat sie
+    // gemeldet, bevor das Sheet zu war.
+    showAppSnack(
+      context,
+      'E-Mail-Adresse geändert.',
+      icon: Icons.mark_email_read_rounded,
+    );
   }
 
   // --- PRAEFERENZEN ---------------------------------------------------------

@@ -38,7 +38,6 @@ void main() {
           dailySteps: 0,
           healthAuthState: HealthAuthState.unknown,
           healthLastFetch: null,
-          favoritesCount: 0,
           onLogWeight: (_) {},
           onEditProfile: () {},
           onResetDay: () {},

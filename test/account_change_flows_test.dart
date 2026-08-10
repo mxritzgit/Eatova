@@ -1,0 +1,582 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
+
+import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/screens/settings/account_change_messages.dart';
+import 'package:eatova/src/services/secure_screen.dart';
+import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
+
+// Die zwei Konto-Aenderungs-Flows der Einstellungen (2026-08-10).
+//
+// Prueft die OBERFLAECHE gegen den bereits getesteten Auth-Vertrag
+// (`test/auth_account_change_test.dart`); das [InMemoryAuthRepository] ist die
+// Gegenstelle und protokolliert `reauthRequests`, `usedNonces`,
+// `emailChangeRequests` und `verifiedCodes`.
+//
+// Drei Zusicherungen tragen die Datei:
+//
+//   1. Kein Server-Aufruf, den die App vorher als aussichtslos erkennen kann
+//      (Wiederholung stimmt nicht, Code hat keine 6 Ziffern, Adresse ist
+//      keine).
+//   2. Beide E-Mail-Codes gehen an die RICHTIGE Adresse — ein einzelner Code
+//      schliesst den Vorgang nicht ab. Das ist der ganze Sinn der „sicheren
+//      E-Mail-Aenderung".
+//   3. Ein abgelehnter Code wirft die Eingabe nicht weg und zeigt eine
+//      deutsche Meldung ohne Roh-Details.
+
+/// Gegenstelle, die genau den ZWEITEN `confirmEmailChange`-Aufruf ablehnt.
+///
+/// `InMemoryAuthRepository.verifyFails` kann das nicht: es trifft immer den
+/// naechsten Aufruf, und der ist im Doppel-Code-Schritt der erste.
+class _ZweiterCodeScheitert extends InMemoryAuthRepository {
+  _ZweiterCodeScheitert({super.initialUser});
+
+  int _aufrufe = 0;
+
+  @override
+  Future<void> confirmEmailChange({
+    required String email,
+    required String code,
+  }) async {
+    _aufrufe++;
+    if (_aufrufe == 2) {
+      throw const AuthException('Token has expired or is invalid');
+    }
+    return super.confirmEmailChange(email: email, code: code);
+  }
+}
+
+/// Gegenstelle, deren erster Aufruf haengen bleibt, bis der Test ihn freigibt
+/// — so laesst sich der Ladezustand ueberhaupt beobachten.
+class _LangsamerStart extends InMemoryAuthRepository {
+  _LangsamerStart({super.initialUser});
+
+  final Completer<void> _tor = Completer<void>();
+
+  void freigeben() => _tor.complete();
+
+  @override
+  Future<void> startPasswordChange() async {
+    await _tor.future;
+    return super.startPasswordChange();
+  }
+}
+
+void main() {
+  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  InMemoryAuthRepository baueRepo() {
+    final repo = InMemoryAuthRepository(
+      initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
+    );
+    addTearDown(repo.dispose);
+    return repo;
+  }
+
+  Future<void> pump(
+    WidgetTester tester, {
+    AuthRepository? repo,
+    String? email = 'alt@eatova.de',
+    Brightness brightness = Brightness.light,
+  }) async {
+    tester.view.physicalSize = const Size(1179, 2556);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEatovaTheme(brightness),
+        home: SettingsScreen(email: email, authRepository: repo),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> tippe(WidgetTester tester, Finder finder) async {
+    await tester.ensureVisible(finder);
+    await tester.pumpAndSettle();
+    await tester.tap(finder);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> schreibe(
+    WidgetTester tester,
+    String schluessel,
+    String text,
+  ) async {
+    await tester.enterText(find.byKey(ValueKey<String>(schluessel)), text);
+    await tester.pumpAndSettle();
+  }
+
+  /// Laesst einen stehenden Toast ablaufen — sonst meldet die Testuhr am Ende
+  /// einen offenen Timer (Muster aus `app_snack_test.dart`).
+  Future<void> raeumeToastAb(WidgetTester tester) async {
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  }
+
+  /// Bis zum Code-Schritt der Passwort-Aenderung.
+  Future<void> oeffnePasswortSchritt2(
+    WidgetTester tester,
+    InMemoryAuthRepository repo,
+  ) async {
+    await pump(tester, repo: repo);
+    await tippe(tester, find.byKey(const ValueKey('settings-change-password')));
+    await tippe(tester, find.text('Code anfordern'));
+  }
+
+  /// Bis zum Doppel-Code-Schritt der Adress-Aenderung.
+  Future<void> oeffneMailSchritt2(
+    WidgetTester tester,
+    InMemoryAuthRepository repo, {
+    String ziel = 'neu@eatova.de',
+  }) async {
+    await pump(tester, repo: repo);
+    await tippe(tester, find.byKey(const ValueKey('settings-change-email')));
+    await schreibe(tester, 'email-change-new-address', ziel);
+    await tippe(tester, find.text('Codes anfordern'));
+  }
+
+  // --- Die beiden Zeilen ----------------------------------------------------
+
+  group('Die Zeilen in der Gruppe KONTO', () {
+    testWidgets('stehen da, sobald ein AuthRepository durchgereicht ist',
+        (tester) async {
+      await pump(tester, repo: baueRepo());
+
+      expect(
+        find.byKey(const ValueKey('settings-change-password')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('settings-change-email')),
+        findsOneWidget,
+      );
+      expect(find.text('Passwort ändern'), findsOneWidget);
+      expect(find.text('E-Mail-Adresse ändern'), findsOneWidget);
+    });
+
+    testWidgets('fehlen ersatzlos ohne AuthRepository', (tester) async {
+      // Kein grauer Eintrag: eine deaktivierte Zeile behauptet, es gaebe den
+      // Weg und die App koenne ihn gerade nur nicht. Ohne Auth-Schicht gibt es
+      // ihn schlicht nicht (dieselbe Regel wie fuer Export und Ausloggen).
+      await pump(tester);
+
+      expect(
+        find.byKey(const ValueKey('settings-change-password')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('settings-change-email')), findsNothing);
+      expect(find.text('Passwort ändern'), findsNothing);
+      expect(find.text('E-Mail-Adresse ändern'), findsNothing);
+      // Die Mailadresse selbst steht weiterhin da.
+      expect(find.byKey(const ValueKey('settings-email')), findsOneWidget);
+    });
+
+    // Codes und Mailadressen gehoeren nicht ins Vorschaubild des
+    // App-Umschalters. Der Guard ist ref-gezaehlt, die Verschachtelung unter
+    // dem der Seite also gratis — und sie macht die Sheets unabhaengig davon,
+    // wer sie oeffnet.
+    for (final schluessel in const <String>[
+      'settings-change-password',
+      'settings-change-email',
+    ]) {
+      testWidgets('$schluessel oeffnet ein Sheet unter einem SecureScreenGuard',
+          (tester) async {
+        await pump(tester, repo: baueRepo());
+        expect(find.byType(SecureScreenGuard), findsOneWidget);
+
+        await tippe(tester, find.byKey(ValueKey<String>(schluessel)));
+
+        expect(find.byType(SecureScreenGuard), findsNWidgets(2));
+      });
+    }
+  });
+
+  // --- Flow 1: Passwort -----------------------------------------------------
+
+  group('Passwort ändern', () {
+    testWidgets('„Code anfordern" ruft startPasswordChange', (tester) async {
+      final repo = baueRepo();
+      await oeffnePasswortSchritt2(tester, repo);
+
+      expect(repo.reauthRequests, <String>['alt@eatova.de']);
+      // Erst danach gibt es ueberhaupt Felder — ein Code-Feld ohne Code waere
+      // eine Sackgasse.
+      expect(
+        find.byKey(const ValueKey('password-change-code')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('password-change-new')), findsOneWidget);
+    });
+
+    testWidgets('reicht Code UND neues Passwort durch', (tester) async {
+      final repo = baueRepo();
+      await oeffnePasswortSchritt2(tester, repo);
+
+      await schreibe(tester, 'password-change-code', '123456');
+      await schreibe(tester, 'password-change-new', 'geheim99');
+      await schreibe(tester, 'password-change-repeat', 'geheim99');
+      await tippe(tester, find.text('Passwort jetzt ändern'));
+
+      expect(repo.usedNonces, <String>['123456']);
+      expect(repo.passwordUpdates, <String>['geheim99']);
+      // Zurueck in den Einstellungen, mit Bestaetigung.
+      expect(
+        find.byKey(const ValueKey('password-change-sheet')),
+        findsNothing,
+      );
+      expect(find.text('Passwort geändert.'), findsOneWidget);
+      await raeumeToastAb(tester);
+    });
+
+    testWidgets('eine abweichende Wiederholung blockt VOR dem Aufruf',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffnePasswortSchritt2(tester, repo);
+
+      await schreibe(tester, 'password-change-code', '123456');
+      await schreibe(tester, 'password-change-new', 'geheim99');
+      await schreibe(tester, 'password-change-repeat', 'geheim98');
+      await tippe(tester, find.text('Passwort jetzt ändern'));
+
+      expect(repo.usedNonces, isEmpty);
+      expect(repo.passwordUpdates, isEmpty);
+      expect(find.text(kAccountPasswordMismatch), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('password-change-sheet')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('ein zu kurzes Passwort blockt VOR dem Aufruf', (tester) async {
+      // Zeichengleich mit auth_screen.dart / auth_code_screen.dart: 8 Zeichen.
+      final repo = baueRepo();
+      await oeffnePasswortSchritt2(tester, repo);
+
+      await schreibe(tester, 'password-change-code', '123456');
+      await schreibe(tester, 'password-change-new', 'kurz');
+      await schreibe(tester, 'password-change-repeat', 'kurz');
+      await tippe(tester, find.text('Passwort jetzt ändern'));
+
+      expect(repo.passwordUpdates, isEmpty);
+      expect(
+        find.text('Das Passwort braucht mindestens 8 Zeichen.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('ein Code mit weniger als 6 Ziffern blockt VOR dem Aufruf',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffnePasswortSchritt2(tester, repo);
+
+      await schreibe(tester, 'password-change-code', '12345');
+      await schreibe(tester, 'password-change-new', 'geheim99');
+      await schreibe(tester, 'password-change-repeat', 'geheim99');
+      await tippe(tester, find.text('Passwort jetzt ändern'));
+
+      expect(repo.usedNonces, isEmpty);
+      expect(find.text('Der Code hat 6 Ziffern.'), findsOneWidget);
+    });
+
+    testWidgets('der Knopf sperrt waehrend des Aufrufs und sagt es',
+        (tester) async {
+      final repo = _LangsamerStart(
+        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
+      );
+      addTearDown(repo.dispose);
+
+      await pump(tester, repo: repo);
+      await tippe(
+        tester,
+        find.byKey(const ValueKey('settings-change-password')),
+      );
+
+      // Zwei Taps OHNE Frame dazwischen: der Baum traegt den Knopf noch als
+      // scharf, allein der Riegel im Handler verhindert den zweiten Aufruf.
+      await tester.tap(find.text('Code anfordern'));
+      await tester.tap(find.text('Code anfordern'));
+      await tester.pump();
+
+      expect(find.text('Code wird angefordert…'), findsOneWidget);
+      expect(find.text('Code anfordern'), findsNothing);
+
+      repo.freigeben();
+      await tester.pumpAndSettle();
+
+      expect(repo.reauthRequests, hasLength(1));
+      expect(
+        find.byKey(const ValueKey('password-change-code')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('ein falscher Code meldet verstaendlich und laesst alles stehen',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffnePasswortSchritt2(tester, repo);
+
+      await schreibe(tester, 'password-change-code', '000000');
+      await schreibe(tester, 'password-change-new', 'geheim99');
+      await schreibe(tester, 'password-change-repeat', 'geheim99');
+      repo.verifyFails = true;
+      await tippe(tester, find.text('Passwort jetzt ändern'));
+
+      expect(repo.passwordUpdates, isEmpty);
+      expect(
+        find.byKey(const ValueKey('password-change-error')),
+        findsOneWidget,
+      );
+      expect(find.text(kAccountCodeRejected), findsOneWidget);
+      // Kein Roh-Detail auf dem Screen.
+      expect(find.textContaining('AuthException'), findsNothing);
+      expect(find.textContaining('Token has expired'), findsNothing);
+      // Und die Eingabe steht noch — niemand tippt ein Passwort zweimal, nur
+      // weil ein Code danebenlag.
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('password-change-code')))
+            .controller
+            ?.text,
+        '000000',
+      );
+      expect(
+        find.byKey(const ValueKey('password-change-sheet')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // --- Flow 2: E-Mail -------------------------------------------------------
+
+  group('E-Mail-Adresse ändern', () {
+    testWidgets('reicht die getrimmte Adresse an startEmailChange',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffneMailSchritt2(tester, repo, ziel: '  neu@eatova.de  ');
+
+      expect(repo.emailChangeRequests, <String>['neu@eatova.de']);
+      expect(
+        find.byKey(const ValueKey('email-change-code-old')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('email-change-code-new')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('zeigt beide Adressen im Klartext an ihren Feldern',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffneMailSchritt2(tester, repo);
+
+      // Wer welchen Code wohin tippt, darf nicht Ratearbeit sein.
+      expect(find.text('alt@eatova.de'), findsWidgets);
+      expect(find.text('neu@eatova.de'), findsWidgets);
+      expect(
+        find.byKey(const ValueKey('email-change-both-hint')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('verifiziert JEDEN Code mit SEINER Adresse', (tester) async {
+      final repo = baueRepo();
+      await oeffneMailSchritt2(tester, repo);
+
+      await schreibe(tester, 'email-change-code-old', '111111');
+      await schreibe(tester, 'email-change-code-new', '222222');
+      await tippe(tester, find.text('Adresse jetzt ändern'));
+
+      expect(repo.verifiedCodes, <String>[
+        'alt@eatova.de:111111',
+        'neu@eatova.de:222222',
+      ]);
+      expect(repo.currentUser?.email, 'neu@eatova.de');
+      expect(find.byKey(const ValueKey('email-change-sheet')), findsNothing);
+      expect(find.text('E-Mail-Adresse geändert.'), findsOneWidget);
+      await raeumeToastAb(tester);
+    });
+
+    testWidgets('ein einzelner Code schliesst den Vorgang NICHT ab',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffneMailSchritt2(tester, repo);
+
+      await schreibe(tester, 'email-change-code-old', '111111');
+      await tippe(tester, find.text('Adresse jetzt ändern'));
+
+      // Nicht einmal der eine Code geht raus: ein halb bestaetigter Wechsel
+      // verbrennt den Code, ohne dass sich etwas aendert.
+      expect(repo.verifiedCodes, isEmpty);
+      expect(repo.currentUser?.email, 'alt@eatova.de');
+      expect(find.byKey(const ValueKey('email-change-sheet')), findsOneWidget);
+      expect(find.text('Der Code hat 6 Ziffern.'), findsOneWidget);
+    });
+
+    testWidgets('eine ungueltige Adresse blockt VOR dem Aufruf',
+        (tester) async {
+      final repo = baueRepo();
+      await pump(tester, repo: repo);
+      await tippe(tester, find.byKey(const ValueKey('settings-change-email')));
+
+      await schreibe(tester, 'email-change-new-address', 'keine-adresse');
+      await tippe(tester, find.text('Codes anfordern'));
+
+      expect(repo.emailChangeRequests, isEmpty);
+      expect(find.text('Bitte gib eine gültige E-Mail ein.'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('email-change-code-old')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('die eigene Adresse ist keine Aenderung', (tester) async {
+      final repo = baueRepo();
+      await pump(tester, repo: repo);
+      await tippe(tester, find.byKey(const ValueKey('settings-change-email')));
+
+      await schreibe(tester, 'email-change-new-address', 'ALT@eatova.de');
+      await tippe(tester, find.text('Codes anfordern'));
+
+      expect(repo.emailChangeRequests, isEmpty);
+      expect(find.text(kAccountEmailUnchanged), findsOneWidget);
+    });
+
+    testWidgets('ein falscher Code laesst beide Eingaben stehen',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffneMailSchritt2(tester, repo);
+
+      await schreibe(tester, 'email-change-code-old', '000000');
+      await schreibe(tester, 'email-change-code-new', '222222');
+      repo.verifyFails = true;
+      await tippe(tester, find.text('Adresse jetzt ändern'));
+
+      expect(repo.currentUser?.email, 'alt@eatova.de');
+      expect(find.text(kAccountCodeRejected), findsWidgets);
+      expect(
+        tester
+            .widget<TextField>(
+                find.byKey(const ValueKey('email-change-code-new')))
+            .controller
+            ?.text,
+        '222222',
+      );
+      expect(find.byKey(const ValueKey('email-change-sheet')), findsOneWidget);
+    });
+
+    testWidgets('ein zweiter Anlauf wiederholt den bereits geglueckten Code '
+        'nicht', (tester) async {
+      // GoTrue verbrennt einen bestaetigten Code. Wer beim ZWEITEN Code
+      // danebentippt, darf beim naechsten Versuch nicht am ersten scheitern —
+      // sonst waere der Vorgang nach einem Tippfehler unrettbar.
+      final repo = _ZweiterCodeScheitert(
+        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
+      );
+      addTearDown(repo.dispose);
+
+      await pump(tester, repo: repo);
+      await tippe(tester, find.byKey(const ValueKey('settings-change-email')));
+      await schreibe(tester, 'email-change-new-address', 'neu@eatova.de');
+      await tippe(tester, find.text('Codes anfordern'));
+
+      await schreibe(tester, 'email-change-code-old', '111111');
+      await schreibe(tester, 'email-change-code-new', '999999');
+      await tippe(tester, find.text('Adresse jetzt ändern'));
+
+      // Erster Code durch, zweiter abgelehnt.
+      expect(repo.verifiedCodes, <String>['alt@eatova.de:111111']);
+      expect(repo.currentUser?.email, 'alt@eatova.de');
+
+      // Zweiter Anlauf, diesmal mit dem richtigen zweiten Code.
+      await schreibe(tester, 'email-change-code-new', '222222');
+      await tippe(tester, find.text('Adresse jetzt ändern'));
+
+      expect(repo.verifiedCodes, <String>[
+        'alt@eatova.de:111111',
+        'neu@eatova.de:222222',
+      ], reason: 'der erste Code darf NICHT erneut eingereicht werden');
+      expect(find.text('E-Mail-Adresse geändert.'), findsOneWidget);
+      await raeumeToastAb(tester);
+    });
+
+    testWidgets('die Einstellungen zeigen danach die neue Adresse',
+        (tester) async {
+      final repo = baueRepo();
+      await oeffneMailSchritt2(tester, repo);
+
+      await schreibe(tester, 'email-change-code-old', '111111');
+      await schreibe(tester, 'email-change-code-new', '222222');
+      await tippe(tester, find.text('Adresse jetzt ändern'));
+      await raeumeToastAb(tester);
+
+      // Der `authStateChanges`-Strom meldet den Wechsel; die Seite haengt
+      // daran, statt auf einen Neuaufbau der Route zu hoffen.
+      expect(find.text('neu@eatova.de'), findsOneWidget);
+    });
+  });
+
+  // --- Der Fehler-Uebersetzer (rein, ohne Widget) ---------------------------
+
+  group('accountChangeErrorMessage', () {
+    test('uebersetzt den abgelaufenen/falschen Code', () {
+      expect(
+        accountChangeErrorMessage(
+            const AuthException('Token has expired or is invalid')),
+        kAccountCodeRejected,
+      );
+    });
+
+    test('uebersetzt eine bereits vergebene Adresse', () {
+      expect(
+        accountChangeErrorMessage(const AuthException(
+            'A user with this email address has already been registered')),
+        'Diese E-Mail-Adresse wird bereits verwendet.',
+      );
+    });
+
+    test('uebersetzt ein zu schwaches Passwort', () {
+      expect(
+        accountChangeErrorMessage(
+            const AuthException('Password should be at least 6 characters')),
+        'Dieses Passwort ist zu schwach. Nimm ein längeres oder '
+            'ungewöhnlicheres.',
+      );
+    });
+
+    test('uebersetzt fehlendes Netz', () {
+      expect(
+        accountChangeErrorMessage(const SocketException('no route to host')),
+        startsWith('Offline'),
+      );
+    });
+
+    test('uebersetzt eine Sperre wegen zu vieler Versuche', () {
+      expect(
+        accountChangeErrorMessage(const AuthException(
+            'For security purposes, you can only request this after 51 seconds')),
+        startsWith('Zu viele Versuche'),
+      );
+    });
+
+    test('gibt NIE den Roh-Text weiter', () {
+      // Ein AuthException-Text kann interne Details tragen (Projekt-URL,
+      // Constraint-Namen). Der Unbekannt-Fall ist deshalb generisch.
+      const roh = 'unexpected_failure at https://xyz.supabase.co/auth/v1/user';
+      final meldung = accountChangeErrorMessage(const AuthException(roh));
+
+      expect(meldung, 'Das hat gerade nicht geklappt. Bitte versuch es später '
+          'erneut.');
+      expect(meldung.contains('supabase'), isFalse);
+    });
+  });
+}

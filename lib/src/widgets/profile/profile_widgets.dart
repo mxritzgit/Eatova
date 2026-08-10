@@ -11,13 +11,11 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../../models/lifetime_stats.dart';
 import '../../models/user_profile.dart';
 import '../../models/weight_log.dart';
 import '../../services/health_service.dart';
 import '../../services/kcal_calculator.dart';
 import '../../theme/app_tokens.dart';
-import '../common/motion.dart';
 import '../design/design.dart';
 import 'profile_charts.dart';
 

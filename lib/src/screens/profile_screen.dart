@@ -26,7 +26,6 @@ class ProfileScreen extends StatelessWidget {
     required this.dailySteps,
     required this.healthAuthState,
     required this.healthLastFetch,
-    required this.favoritesCount,
     required this.onLogWeight,
     required this.onEditProfile,
     required this.onResetDay,
@@ -45,7 +44,6 @@ class ProfileScreen extends StatelessWidget {
   final int dailySteps;
   final HealthAuthState healthAuthState;
   final DateTime? healthLastFetch;
-  final int favoritesCount;
   final ValueChanged<double> onLogWeight;
   final VoidCallback onEditProfile;
   final VoidCallback onResetDay;
@@ -143,18 +141,6 @@ class ProfileScreen extends StatelessWidget {
                     dailyKcal: dailyConsumedKcal,
                     dailySteps: dailySteps,
                     onEdit: onEditProfile,
-                  ),
-                  const SizedBox(height: 22),
-                  SectionHeading(
-                    title: 'Fortschritt',
-                    trailing: formatSessionDuration(stats.sessionDuration),
-                  ),
-                  const SizedBox(height: 12),
-                  AchievementsGrid(
-                    stats: stats,
-                    trackingStreak: streak,
-                    weightLogs: weightLog.entries.length,
-                    favoritesCount: favoritesCount,
                   ),
                   const SizedBox(height: 22),
                   const SectionHeading(title: 'Verbindungen'),

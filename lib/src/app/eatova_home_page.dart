@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
+import '../auth/auth_repository.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../services/data_export.dart';
@@ -44,6 +45,7 @@ class EatovaHomePage extends StatefulWidget {
     this.notificationService = const NoopNotificationService(),
     this.initialUserName = 'Moritz',
     this.userEmail,
+    this.authRepository,
     this.onSignOut,
     this.sync,
     this.showWelcome = false,
@@ -67,6 +69,11 @@ class EatovaHomePage extends StatefulWidget {
   /// Mailadresse der Session — der Einstellungs-Screen zeigt sie an.
   /// Null in Tests/Preview ohne Auth; der Screen blendet die Zeile dann aus.
   final String? userEmail;
+
+  /// Traegt die Konto-Aenderungen (Passwort, Mailadresse) in den
+  /// Einstellungen. Null in Tests/Preview ohne Auth — die Zeilen
+  /// entfallen dann, statt ins Leere zu fuehren.
+  final AuthRepository? authRepository;
   final Future<void> Function()? onSignOut;
   final EatovaSync? sync;
 
@@ -323,6 +330,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           // Anbieter die Anmeldung getragen hat, weiss die App heute nicht,
           // und eine geratene Zeile waere schlimmer als keine.
           email: widget.userEmail,
+          authRepository: widget.authRepository,
           onOpenGoals: _openGoals,
           onSignOut: widget.onSignOut != null ? _signOut : null,
           onDeleteAccount: widget.sync != null ? _deleteAccount : null,
@@ -373,7 +381,6 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               dailySteps: _store.dailySteps,
               healthAuthState: _store.healthAuthState,
               healthLastFetch: _store.healthLastFetch,
-              favoritesCount: _store.favorites.length,
               onLogWeight: _store.logWeight,
               onEditProfile: _openGoals,
               onResetDay: _store.resetTodayData,
