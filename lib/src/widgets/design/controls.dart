@@ -348,13 +348,18 @@ class AppNavItem {
     required this.icon,
     required this.activeIcon,
     required this.label,
-  });
+    String? keyId,
+  }) : keyId = keyId ?? label;
 
   final IconData icon;
   final IconData activeIcon;
 
-  /// Traegt zugleich den Testschluessel: `ValueKey('nav-$label')`.
+  /// Das sichtbare Label — laeuft ueber die ARB und wird uebersetzt.
   final String label;
+
+  /// Traegt den Testschluessel (`ValueKey('nav-$keyId')`). Bleibt DEUTSCH,
+  /// auch wenn [label] uebersetzt wird — Keys sind API (DESIGN_REFACTOR §6).
+  final String keyId;
 }
 
 /// Die untere Navigationsleiste — Lime-Kapsel um das aktive Icon.
@@ -401,7 +406,7 @@ class AppNavBar extends StatelessWidget {
               button: true,
               label: item.label,
               child: InkWell(
-                key: ValueKey<String>('nav-${item.label}'),
+                key: ValueKey<String>('nav-${item.keyId}'),
                 onTap: () => onChanged(i),
                 borderRadius: BorderRadius.circular(14),
                 child: Padding(

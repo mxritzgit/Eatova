@@ -24,6 +24,7 @@ import '../screens/recipes/recipes_screen.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
+import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
@@ -464,7 +465,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             bottomNavigationBar: AppNavBar(
               index: tab,
               onChanged: (index) => _store.setTab(index),
-              items: _navItems,
+              items: _navItems(context),
             ),
             // Alle Tabs haben eigene scroll-faehige Inhalte + fixierte
             // Eingabe-Bereiche - die brauchen feste Hoehe und keinen
@@ -496,30 +497,37 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   static const int _tabCoach = 3;
   static const int _tabCount = 4;
 
-  /// Die Labels tragen zugleich die Testschluessel (`nav-Food` & Co.) —
-  /// deshalb bleiben „Food", „Rezepte" und „Coach" wortgleich.
-  static const List<AppNavItem> _navItems = <AppNavItem>[
-    AppNavItem(
-      icon: Icons.home_outlined,
-      activeIcon: Icons.home_rounded,
-      label: 'Heute',
-    ),
-    AppNavItem(
-      icon: Icons.restaurant_outlined,
-      activeIcon: Icons.restaurant_rounded,
-      label: 'Food',
-    ),
-    AppNavItem(
-      icon: Icons.menu_book_outlined,
-      activeIcon: Icons.menu_book_rounded,
-      label: 'Rezepte',
-    ),
-    AppNavItem(
-      icon: Icons.auto_awesome_outlined,
-      activeIcon: Icons.auto_awesome_rounded,
-      label: 'Coach',
-    ),
-  ];
+  /// Die keyIds tragen die Testschluessel (`nav-Heute` & Co.) und bleiben
+  /// deutsch; die sichtbaren Labels kommen aus der ARB (Spec §4).
+  List<AppNavItem> _navItems(BuildContext context) {
+    final l10n = context.l10n;
+    return <AppNavItem>[
+      AppNavItem(
+        icon: Icons.home_outlined,
+        activeIcon: Icons.home_rounded,
+        label: l10n.navToday,
+        keyId: 'Heute',
+      ),
+      AppNavItem(
+        icon: Icons.restaurant_outlined,
+        activeIcon: Icons.restaurant_rounded,
+        label: l10n.navFood,
+        keyId: 'Food',
+      ),
+      AppNavItem(
+        icon: Icons.menu_book_outlined,
+        activeIcon: Icons.menu_book_rounded,
+        label: l10n.navRecipes,
+        keyId: 'Rezepte',
+      ),
+      AppNavItem(
+        icon: Icons.auto_awesome_outlined,
+        activeIcon: Icons.auto_awesome_rounded,
+        label: l10n.navCoach,
+        keyId: 'Coach',
+      ),
+    ];
+  }
 
   /// Tabs, die schon einmal sichtbar waren (D6, Lazy-Building).
   final Set<int> _mountedTabs = <int>{};

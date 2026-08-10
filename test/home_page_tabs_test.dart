@@ -18,10 +18,12 @@
 // Nummern und der Name des Wurzel-Tabs haben sich geaendert.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
@@ -57,7 +59,20 @@ Future<void> _pumpHome(WidgetTester tester) async {
   addTearDown(() => FlutterError.onError = prior);
 
   await tester.pumpWidget(
-    MaterialApp(theme: buildEatovaTheme(Brightness.dark), home: EatovaHomePage()),
+    MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
+      // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
+      // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      home: EatovaHomePage(),
+    ),
   );
   await tester.pump();
 }
