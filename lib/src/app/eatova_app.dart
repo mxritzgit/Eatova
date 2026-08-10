@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/auth_repository.dart';
+import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
@@ -18,6 +19,7 @@ import '../theme/app_theme.dart';
 import '../theme/theme_mode_controller.dart';
 import 'auth_gate.dart';
 import 'eatova_home_page.dart';
+import 'locale_controller.dart';
 
 class EatovaApp extends StatefulWidget {
   const EatovaApp({
@@ -30,6 +32,7 @@ class EatovaApp extends StatefulWidget {
     this.authRepository,
     this.notificationService,
     this.themeModeController,
+    this.localeController,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -48,6 +51,11 @@ class EatovaApp extends StatefulWidget {
   /// Test einen Modus festnageln kann, ohne SharedPreferences zu stellen.
   final ThemeModeController? themeModeController;
 
+  /// Anzeigesprache (System/Deutsch/Englisch). In Tests injizierbar, damit
+  /// ein Test eine Sprache festnageln kann, ohne SharedPreferences zu
+  /// stellen (Spiegel von [themeModeController]).
+  final LocaleController? localeController;
+
   @override
   State<EatovaApp> createState() => _EatovaAppState();
 }
@@ -55,6 +63,8 @@ class EatovaApp extends StatefulWidget {
 class _EatovaAppState extends State<EatovaApp> {
   late final ThemeModeController _themeMode;
   late final bool _eigenerController;
+  late final LocaleController _locale;
+  late final bool _eigenerLocale;
 
   @override
   void initState() {
@@ -67,11 +77,19 @@ class _EatovaAppState extends State<EatovaApp> {
       // ohne sichtbaren Sprung fuer alle, die nichts umgestellt haben.
       unawaited(_themeMode.load());
     }
+    _eigenerLocale = widget.localeController == null;
+    _locale = widget.localeController ?? LocaleController();
+    if (_eigenerLocale) {
+      // Analog: die gespeicherte Sprache kommt asynchron nach, bis dahin
+      // laeuft die App im System-Modus (null-Override -> resolveEatovaLocale).
+      unawaited(_locale.load());
+    }
   }
 
   @override
   void dispose() {
     if (_eigenerController) _themeMode.dispose();
+    if (_eigenerLocale) _locale.dispose();
     super.dispose();
   }
 
@@ -79,11 +97,14 @@ class _EatovaAppState extends State<EatovaApp> {
   Widget build(BuildContext context) {
     final repository = widget.authRepository ?? defaultAuthRepository();
 
-    return ThemeModeScope(
-      controller: _themeMode,
-      child: ListenableBuilder(
-        listenable: _themeMode,
-        builder: (context, _) => _buildApp(context, repository),
+    return LocaleScope(
+      controller: _locale,
+      child: ThemeModeScope(
+        controller: _themeMode,
+        child: ListenableBuilder(
+          listenable: Listenable.merge([_themeMode, _locale]),
+          builder: (context, _) => _buildApp(context, repository),
+        ),
       ),
     );
   }
@@ -95,19 +116,20 @@ class _EatovaAppState extends State<EatovaApp> {
       theme: buildEatovaTheme(Brightness.light),
       darkTheme: buildEatovaTheme(Brightness.dark),
       themeMode: _themeMode.mode,
-      // Deutsche Material-Lokalisierung: die App-Texte sind durchgehend
-      // deutsch, aber SDK-Dialoge zogen bislang die englischen Defaults —
-      // showTimePicker (Schlafziel im Settings-Sheet) rendert erst mit
-      // de-Locale 24h (HH:mm) statt AM/PM, showDatePicker deutsche Monats-/
-      // Wochentagsnamen. Locale fest auf de gepinnt (einzige supportedLocale),
-      // damit das Verhalten nicht von der Geraete-Sprache abhaengt.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de')],
+      // Sprache: Override aus den Einstellungen; null = System, dann
+      // entscheidet resolveEatovaLocale (deutsch -> de, sonst en). Der alte
+      // Pin auf de stammte aus der Zeit ohne App-Lokalisierung.
+      locale: _locale.override,
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localeListResolutionCallback: (locales, supported) =>
+          _locale.override ?? resolveEatovaLocale(locales),
       localizationsDelegates: const [
+        AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      onGenerateTitle: (context) => 'Eatova',
       // A11y: System-Großschrift respektieren, aber deckeln. Cap bei 2.0
       // (WCAG 1.4.4 erwartet Lesbarkeit bis 200 %): die Kern-Screens (Auth,
       // Food-Tab) sind per Stress-Test (test/text_scale_stress_test.dart)
