@@ -6,26 +6,46 @@
 /// Funktionen ein [AppLocalizations] — reines `package:flutter/widgets.dart`
 /// fuer den Typ, kein Widget-Baum noetig.
 ///
-/// Drei Funktionen hier sind KOPIEN, keine Aufrufe — das Original ist jeweils
-/// nicht erreichbar:
-///   * [greetingForHour] spiegelt `_CoachHero._timeGreeting`
-///     (coach_hero.dart:13-19, privat und in einem `part`). ACHTUNG
-///     DRIFT-RISIKO seit der i18n-Migration: DIESE Kopie liest ihre Texte
-///     jetzt aus der ARB (`todayGreeting*`), das Original in coach_hero.dart
-///     traegt bis zur Coach-Migration (Paket 4) weiterhin die hartkodierten
-///     deutschen Strings. Die Schwellen (<5/<11/<17) bleiben identisch, nur
-///     die Textquelle ist auseinandergelaufen — der Drift-Test hier prueft
-///     nur noch die deutschen WERTE, nicht mehr die Kopie-Identitaet.
-///   * [kcalThousands] spiegelt `_formatThousands`
-///     (calories_overview_card.dart:1061-1071, privat).
-///   * [todayDateLabel] spiegelt `foodDateSelectedLabel`
-///     (meal_analysis_screen.dart:623-628, `@visibleForTesting` — ein Aufruf
-///     aus Produktivcode waere `invalid_use_of_visible_for_testing_member`).
-///     Dasselbe Drift-Risiko wie bei [greetingForHour]: das Original bleibt
-///     bis zur Food-Migration (Paket 2) hartkodiert deutsch.
-/// Jede Kopie haengt an einem eigenen Test, damit eine Drift auffaellt. Die
-/// saubere Loesung waere eine gemeinsame Heimat unter `lib/src/services/`;
-/// das sind fremde Dateien und steht im Bericht.
+/// Drei Funktionen hier waren urspruenglich KOPIEN ohne erreichbares
+/// Original (privat/`part`/`@visibleForTesting` in einer fremden Datei).
+/// Zwei davon sind inzwischen konsolidiert, eine ist es strukturell noch
+/// nicht (aber ohne Drift-Risiko mehr):
+///
+///   * [greetingForHour] ist seit der Coach-Migration (Paket 4,
+///     2026-08-10) die GETEILTE Implementierung, kein Spiegel mehr:
+///     `_CoachHero._timeGreeting` (coach_hero.dart, privat und in einem
+///     `part`) ruft diese Funktion jetzt direkt mit `DateTime.now().hour`
+///     auf, statt eigene Schwellen/Texte zu tragen. Heute und Coach laufen
+///     also durch denselben Code — eine Drift ist damit strukturell
+///     ausgeschlossen, nicht nur getestet. Der Test hier bleibt trotzdem
+///     der Wert-Nachweis fuer die vier ARB-Texte (`todayGreeting*`).
+///   * [kcalThousands] delegiert seit der Food-Migration (Paket 2,
+///     2026-08-10) an `services/kcal_format.dart:formatThousands` — der
+///     gemeinsamen Heimat der drei vormals zeichengleichen Kopien (Food-
+///     Karte, Heute-Texte, die inzwischen entfernte alte
+///     Kalorienuebersicht). Ebenfalls kein Spiegel mehr, kein Drift-Risiko.
+///   * [todayDateLabel] ist WEITERHIN eine eigene Implementierung, kein
+///     Aufruf: das Original `foodDateSelectedLabel`
+///     (meal_analysis_screen.dart, `@visibleForTesting`) laesst sich aus
+///     Produktivcode nicht rufen (`invalid_use_of_visible_for_testing_member`).
+///     Seit der Food-Migration (Paket 2) lesen aber BEIDE Implementierungen
+///     dieselben ARB-Keys (`todayDateToday`/`todayDateYesterday`/
+///     `todayDateDaysAgo`) statt je eigener deutscher Literale — die WERTE
+///     koennen deshalb nicht mehr auseinanderlaufen, auch wenn der Code
+///     strukturell dupliziert bleibt. Analog dazu [todayEyebrow]: dessen
+///     Pendant in Food, `foodHeaderDateLabel` (meal_analysis_screen.dart),
+///     trug frueher eine eigene hartkodierte Wochentags-/Monatsliste und
+///     ist seit Paket 2 ebenfalls auf `intl`s Skeleton `MMMMEEEEd`
+///     umgestellt — beide lesen jetzt dieselben CLDR-Daten statt eigener
+///     Tabellen. `todayEyebrow` stand nie in dieser Kopien-Liste, weil es
+///     von Anfang an die massgebliche Implementierung war (kein Original
+///     anderswo, das haette auseinanderlaufen koennen).
+///
+/// Jede verbliebene Doppelung haengt an einem eigenen Test, damit eine
+/// Aenderung an nur einer Seite auffiele. Die sauberste Loesung fuer
+/// [todayDateLabel]/`foodDateSelectedLabel` waere eine gemeinsame Heimat
+/// unter `lib/src/services/` (wie inzwischen bei `kcalThousands`) — offen,
+/// s. Paket-4-Bericht.
 library;
 
 import 'package:clock/clock.dart';
@@ -37,8 +57,10 @@ import '../../models/logged_meal.dart';
 import '../../services/day_math.dart';
 import '../../services/kcal_format.dart';
 
-/// Tageszeit-Begruessung. Schwellen wortgleich aus coach_hero.dart:13-19,
-/// die Texte kommen seit der i18n-Migration aus der ARB.
+/// Tageszeit-Begruessung. Seit der Coach-Migration (Paket 4, 2026-08-10)
+/// die einzige Implementierung: `_CoachHero` (coach_hero.dart) ruft sie
+/// direkt mit `DateTime.now().hour` auf, statt eigene Schwellen/Texte zu
+/// tragen (s. Datei-Kommentar oben).
 String greetingForHour(int hour, AppLocalizations l10n) {
   if (hour < 5) return l10n.todayGreetingNight;
   if (hour < 11) return l10n.todayGreetingMorning;
