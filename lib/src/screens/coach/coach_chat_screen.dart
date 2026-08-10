@@ -56,7 +56,9 @@ class CoachChatScreen extends StatefulWidget {
   final CoachChatService? service;
   final String userName;
 
-  /// Aktueller Streak (lifetimeStats.currentStreak) fuer die Pill oben links.
+  /// Anzeige-Streak fuer die Pill oben links. Der Aufrufer reicht
+  /// `lifetimeStats.effectiveStreakOn(now)` herein — nie `currentStreak`
+  /// direkt, sonst zeigt eine gerissene Kette nicht 0.
   final int streak;
 
   /// Kompakter Snapshot von Profil + Tagesbilanz (Restmakros/kcal/Gewicht/

@@ -46,6 +46,8 @@ class InAppMealCameraLauncher implements MealCameraLauncher {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
+      // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
       barrierColor: Colors.black.withValues(alpha: 0.55),
       builder: (_) => MealCameraSheet(initialSlot: initialSlot),
     );

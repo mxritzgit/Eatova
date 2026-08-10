@@ -13,6 +13,8 @@ Future<String?> showBarcodeScannerSheet(BuildContext context) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
+    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (_) => const BarcodeScannerSheet(),
   );
@@ -436,6 +438,9 @@ class _HeaderRow extends StatelessWidget {
 /// Nicht `_ScannerFailedLayer` wiederverwendet: der beschreibt einen toten
 /// Kamerazugriff (Berechtigung, Simulator) und bietet keinen Ausweg. Hier ist
 /// die Kamera in Ordnung, nur die Erkennung haengt, und ein Neustart hilft.
+///
+/// Liegt wie [_EdgeScrim] ueber dem LIVE-Kamerabild — die harten
+/// Schwarz/Weiss-Werte sind bewusst kein Token (Begruendung dort).
 class _AnalyzerStalledLayer extends StatelessWidget {
   const _AnalyzerStalledLayer({required this.onRetry});
 

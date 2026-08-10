@@ -335,6 +335,30 @@ void main() {
       expect(find.byIcon(Icons.restaurant_outlined), findsNothing);
       expect(find.byIcon(Icons.menu_book_outlined), findsOneWidget);
     });
+
+    testWidgets('bleibt flach, aber jedes Item bleibt ein 44-px-Tap-Ziel',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        designHarness(
+          AppNavBar(index: 0, onChanged: (_) {}, items: _navItems),
+        ),
+      );
+
+      // Nutzer-Wunsch 2026-08-10: die Leiste wurde von ~76 auf ~58 px
+      // gekuerzt, weil sie auf jedem Screen liegt. Waechst sie wieder, soll
+      // das ein bewusster Bruch dieses Tests sein, kein Nebeneffekt.
+      expect(
+        tester.getSize(find.byType(AppNavBar)).height,
+        lessThanOrEqualTo(62),
+      );
+
+      // Die Untergrenze der Kuerzung: 44 px Trefferflaeche pro Item. Der
+      // Guideline-Check laeuft ueber die Semantik-Knoten, prueft also genau
+      // das, was ein Finger trifft.
+      await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+      handle.dispose();
+    });
   });
 
   testWidgets('alle Bedienelemente rendern in hell und dunkel', (tester) async {
