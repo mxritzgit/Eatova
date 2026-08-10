@@ -730,7 +730,10 @@ class _KcalHeader extends StatelessWidget {
               const SizedBox(width: 8),
               SquareIconButton(
                 key: const ValueKey('topbar-settings'),
-                icon: Icons.tune_rounded,
+                // Zahnrad, nicht Schieberegler: seit der Aufteilung fuehrt
+                // dieser Knopf in die EINSTELLUNGEN (Konto, Anzeige, Daten)
+                // und nicht mehr in die Ziel-Eingabe.
+                icon: Icons.settings_outlined,
                 onTap: onSettingsPressed,
                 semanticLabel: 'Einstellungen',
               ),

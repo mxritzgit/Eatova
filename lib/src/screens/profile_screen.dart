@@ -28,6 +28,7 @@ class ProfileScreen extends StatelessWidget {
     required this.healthLastFetch,
     required this.onLogWeight,
     required this.onEditProfile,
+    required this.onOpenSettings,
     required this.onResetDay,
     required this.onConnectHealth,
     required this.onRefreshHealth,
@@ -45,7 +46,18 @@ class ProfileScreen extends StatelessWidget {
   final HealthAuthState healthAuthState;
   final DateTime? healthLastFetch;
   final ValueChanged<double> onLogWeight;
+  /// Fuehrt auf „Profil & Ziele" — Koerperdaten, Aktivitaet, Kalorien.
   final VoidCallback onEditProfile;
+
+  /// Fuehrt auf die Einstellungen (Konto, Anzeige, Daten).
+  ///
+  /// Bewusst getrennt von [onEditProfile]: Bis 2026-08-10 lagen beide
+  /// auf demselben Callback. Das Zahnrad hier trug die Beschriftung
+  /// „Einstellungen", oeffnete aber die Ziele — und die Einstellungen
+  /// waren nur ueber ein Schieberegler-Symbol im Food-Kopf erreichbar.
+  /// Ein Zahnrad, das nicht in die Einstellungen fuehrt, ist ein Fehler,
+  /// kein Geschmack.
+  final VoidCallback onOpenSettings;
   final VoidCallback onResetDay;
   final VoidCallback onConnectHealth;
   final VoidCallback onRefreshHealth;
@@ -81,14 +93,11 @@ class ProfileScreen extends StatelessWidget {
                   PageHeader(
                     title: 'Mein Profil',
                     backKey: const ValueKey('profile-close'),
-                    // Das Zahnrad ruft denselben Callback wie die Zeile
-                    // „Profil & Ziele" — die Schale entscheidet, ob daraus ein
-                    // Sheet oder eine Route wird.
                     trailing: SquareIconButton(
                       key: const ValueKey('profile-open-settings'),
                       icon: Icons.settings_outlined,
                       semanticLabel: 'Einstellungen',
-                      onTap: onEditProfile,
+                      onTap: onOpenSettings,
                     ),
                   ),
                   const SizedBox(height: 14),

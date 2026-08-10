@@ -40,6 +40,7 @@ void main() {
           healthLastFetch: null,
           onLogWeight: (_) {},
           onEditProfile: () {},
+          onOpenSettings: () {},
           onResetDay: () {},
           onConnectHealth: () {},
           onRefreshHealth: () {},

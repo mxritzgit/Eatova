@@ -53,6 +53,7 @@ Widget _profile({
   int dailySteps = 1000,
   int dailyConsumedKcal = 900,
   VoidCallback? onEditProfile,
+  VoidCallback? onOpenSettings,
   HealthAuthState healthAuthState = HealthAuthState.unknown,
 }) {
   return ProfileScreen(
@@ -66,6 +67,7 @@ Widget _profile({
     healthLastFetch: null,
     onLogWeight: (_) {},
     onEditProfile: onEditProfile ?? () {},
+    onOpenSettings: onOpenSettings ?? () {},
     onResetDay: () {},
     onConnectHealth: () {},
     onRefreshHealth: () {},
@@ -125,16 +127,25 @@ void main() {
 
   testWidgets('der Kopf traegt Zurueck-Knopf und Zahnrad', (tester) async {
     _pinViewport(tester);
-    var settingsCalls = 0;
+    var einstellungen = 0;
+    var ziele = 0;
     await _pumpAsRoute(
       tester,
-      _profile(onEditProfile: () => settingsCalls++),
+      _profile(
+        onOpenSettings: () => einstellungen++,
+        onEditProfile: () => ziele++,
+      ),
     );
 
-    // Das Zahnrad ruft denselben Callback wie „Profil & Ziele".
+    // Das Zahnrad fuehrt in die EINSTELLUNGEN — nicht auf „Profil & Ziele".
+    // Bis 2026-08-10 hingen beide am selben Callback; das Zahnrad trug die
+    // Beschriftung „Einstellungen" und oeffnete die Ziele, waehrend die
+    // Einstellungen nur hinter einem Schieberegler-Symbol im Food-Kopf lagen.
+    // Der Nutzer fand sie schlicht nicht.
     await tester.tap(find.byKey(const ValueKey('profile-open-settings')));
     await tester.pumpAndSettle();
-    expect(settingsCalls, 1);
+    expect(einstellungen, 1);
+    expect(ziele, 0, reason: 'das Zahnrad darf NICHT auf die Ziele fuehren');
 
     // Und der Zurueck-Knopf schliesst die Route.
     await tester.tap(find.byKey(const ValueKey('profile-close')));

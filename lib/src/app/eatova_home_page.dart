@@ -383,6 +383,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               healthLastFetch: _store.healthLastFetch,
               onLogWeight: _store.logWeight,
               onEditProfile: _openGoals,
+              onOpenSettings: _openSettings,
               onResetDay: _store.resetTodayData,
               onConnectHealth: _store.connectHealth,
               onRefreshHealth: _store.refreshHealthSteps,
