@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 
 // ---------------------------------------------------------------------------
 // Sanfter BMI-Hinweis zum Zielgewicht.
@@ -70,28 +70,30 @@ class TargetBmiHint extends StatelessWidget {
     );
     if (text == null) return const SizedBox.shrink();
 
+    final t = context.t;
     return Container(
       key: const ValueKey('target-bmi-hint'),
       width: double.infinity,
       margin: margin,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: surfaceSoft,
+        color: t.surf2,
         borderRadius: BorderRadius.circular(rControl),
+        border: Border.all(color: t.line),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, size: 15, color: textMuted),
+          Icon(Icons.info_outline_rounded, size: 15, color: t.ink2),
           const SizedBox(width: 9),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 12,
+              style: AppType.ui(
+                12,
+                weight: FontWeight.w500,
+                color: t.ink2,
                 height: 1.4,
-                fontWeight: FontWeight.w500,
               ),
             ),
           ),

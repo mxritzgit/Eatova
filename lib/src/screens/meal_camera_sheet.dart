@@ -10,8 +10,9 @@ import '../models/logged_meal.dart';
 import '../models/meal_analysis_request.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_compressor.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
 import '../theme/meal_slot_style.dart';
+import '../widgets/common/motion.dart';
 
 /// In-App-Kamera als animiertes Bottom-Panel (~60% Hoehe) statt Vollbild-
 /// Wechsel: Live-Vorschau (verzerrungsfrei cover-gecroppt), Slot-Chips oben,
@@ -288,9 +289,11 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       child: SizedBox(
         height: panelHeight,
         child: Container(
-          decoration: const BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+          decoration: BoxDecoration(
+            color: context.t.bg,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(rSheet),
+            ),
           ),
           clipBehavior: Clip.antiAlias,
           child: Column(
@@ -395,13 +398,16 @@ class _CameraLoadingLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: bg,
+    final t = context.t;
+    // GENAU EIN CircularProgressIndicator: die Zaehlung pro Zustand ist in
+    // meal_camera_sheet_test festgenagelt.
+    return ColoredBox(
+      color: t.bg,
       child: Center(
         child: SizedBox(
           width: 26,
           height: 26,
-          child: CircularProgressIndicator(strokeWidth: 2, color: forgeLime),
+          child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
         ),
       ),
     );
@@ -413,25 +419,28 @@ class _CameraFailedLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: bg,
+    final t = context.t;
+    // KEIN Spinner in dieser Schicht — der Fehlerzustand zeigt eine Erklaerung,
+    // kein Warten (meal_camera_sheet_test zaehlt beides).
+    return ColoredBox(
+      color: t.bg,
       child: Center(
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.no_photography_outlined, color: textMuted, size: 32),
-              SizedBox(height: 12),
+              Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
+              const SizedBox(height: 12),
               Text(
                 'Kamera nicht verfügbar. Prüfe die Berechtigung oder wähle ein '
                 'Foto aus der Galerie.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 13.5,
+                style: AppType.ui(
+                  13.5,
+                  weight: FontWeight.w500,
+                  color: t.ink,
                   height: 1.4,
-                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
@@ -444,6 +453,13 @@ class _CameraFailedLayer extends StatelessWidget {
 
 /// Sanfte dunkle Verlaeufe oben/unten, damit Chips + Bedienleiste auf hellen
 /// Kamerabildern lesbar bleiben.
+///
+/// Die harten `Colors.black`/`Colors.white` dieser und der folgenden
+/// Overlay-Klassen bleiben bewusst stehen und sind KEIN vergessener Token: sie
+/// liegen auf einem LIVE-Kamerabild, nicht auf einer Theme-Flaeche. Ein
+/// token-gefaerbter Scrim wuerde im Hell-Modus zu einem hellen Schleier auf
+/// einem beliebig hellen Bild — genau die Lesbarkeit, die er herstellen soll,
+/// waere dahin.
 class _EdgeScrim extends StatelessWidget {
   const _EdgeScrim();
 
@@ -480,7 +496,7 @@ class _SheetHandle extends StatelessWidget {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: hairline,
+          color: context.t.line,
           borderRadius: BorderRadius.circular(rPill),
         ),
       ),
@@ -495,26 +511,22 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 2, 6, 2),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Mahlzeit scannen',
-              style: TextStyle(
-                color: textPrimary,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
+              style: AppType.display(17, color: t.ink),
             ),
           ),
           IconButton(
             key: const ValueKey('meal-camera-close'),
             onPressed: onClose,
             tooltip: 'Schließen',
-            icon: const Icon(Icons.close_rounded, color: textMuted),
+            icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
       ),
@@ -570,13 +582,21 @@ class _SlotChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = slot.accent;
+    // Der Chip liegt AUF dem Live-Kamerabild, zusammen mit den harten
+    // schwarz/weissen Scrims und Beschriftungen dieser Datei — deshalb die
+    // DUNKEL-Palette in beiden Anzeige-Modi, nicht `accentIn(context)`.
+    // Dasselbe Argument wie beim Scanrahmen und beim Ausloeser: die hellen
+    // Slot-Toene tragen auf einem beliebig hellen Bild, die dunklen des
+    // Hell-Modus (Mittag = tiefes Blau) haetten das schwarze Chip-Label auf
+    // 3,6:1 gedrueckt. Kein Brightness-Abzweig, sondern eine feste Palette
+    // fuer eine Flaeche, die immer dunkel ist.
+    final accent = slot.accentOn(AppTokens.dark);
     return InkWell(
       key: ValueKey('meal-camera-slot-${slot.name}'),
       onTap: onTap,
       borderRadius: BorderRadius.circular(rPill),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: motionDuration(context, const Duration(milliseconds: 160)),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           color: selected
@@ -708,7 +728,9 @@ class _Shutter extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: enabled ? forgeLime : Colors.white.withValues(alpha: 0.4),
+              color: enabled
+                ? context.t.lime
+                : Colors.white.withValues(alpha: 0.4),
             ),
             child: busy
                 ? const Padding(

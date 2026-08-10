@@ -5,7 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
+// Der Design-Refactor 2026-08-09 hat am Onboarding nichts als das Aussehen
+// geaendert — Ablauf, Schritte, Validierung, Keys und Texte sind gleich
+// geblieben. Diese Datei ist der Beleg dafuer: die einzige Aenderung gegenueber
+// der Fassung davor ist das `theme:` an den drei pumpWidget-Stellen (der
+// Screen liest seine Farben jetzt ueber `context.t`, und AppTokens.of wirft
+// bewusst, wenn die ThemeExtension fehlt).
 void main() {
   Future<UserProfile> runFullFlow(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -23,6 +30,7 @@ void main() {
     UserProfile? captured;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.light),
         home: OnboardingScreen(
           firstName: 'Moritz',
           initialProfile: const UserProfile(),
@@ -121,6 +129,7 @@ void main() {
     UserProfile? captured;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.light),
         home: OnboardingScreen(
           firstName: 'Moritz',
           initialProfile: const UserProfile(),
@@ -186,6 +195,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.light),
         home: OnboardingScreen(
           key: screenKey,
           firstName: 'Moritz',

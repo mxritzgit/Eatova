@@ -36,7 +36,7 @@ enum ReminderState {
 /// Profil-Part von [HomeStore]: Profil/Settings, Onboarding und die
 /// Erinnerungen (PROD-1, abendlicher Streak-Retter). Reine Datei-Aufteilung —
 /// Verhalten und Member sind 1:1 aus home_store.dart uebernommen.
-mixin _HomeStoreProfilePart on _HomeStoreBase {
+mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   ReminderState _reminderState = ReminderState.off;
   bool _onboardingDone = false;
 
@@ -205,15 +205,35 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
   @visibleForTesting
   Future<void> initNotificationsFromCache() => _initNotificationsFromCache();
 
-  // --- Settings / Reset / Onboarding ---------------------------------------
+  // --- Settings / Onboarding ------------------------------------------------
 
-  /// Wendet das im Settings-Sheet bearbeitete Profil + Flags an (das Sheet
+  /// Wendet das in „Profil & Ziele" bearbeitete Profil + Flags an (der Screen
   /// selbst lebt in der context-tragenden Schale). Spiegelt das frühere
   /// `_openSettings` ohne den UI-/Navigations-Teil.
+  ///
+  /// **Entfallen am 2026-08-10:** der Parameter `resetDay` und mit ihm der
+  /// Zweig, der die Tageswerte leerte. „Tagesdaten zurücksetzen" ist auf
+  /// Nutzer-Entscheid ersatzlos gestrichen (Knopf, Profil-Zeile, Store-Methode
+  /// und `SettingsResult.resetDay`).
+  ///
+  /// **Luecke D (2026-08-10):** der Save laeuft ueber [_syncOrQueue] und damit
+  /// ueber die Outbox — vorher schrieb er direkt gegen Supabase, ohne Netz und
+  /// ohne Retry. Offline war die Aenderung danach nur im Cache, und der
+  /// naechste Start MIT Netz ueberschrieb sie mit der alten Serverzeile
+  /// (`_bootFromSupabase`) und schrieb die alte Zeile per
+  /// `_writeCacheSnapshot` auch noch ueber den Cache: Gewicht, kcal-Ziel und
+  /// Diaet waren restlos und ohne Hinweis weg. Jetzt liegt die Aenderung als
+  /// [SyncOpKind.profileUpsert] in der persistierten Queue, der Boot legt sie
+  /// per `_applyPendingOpsToState` wieder ueber die Serverzeile, und weil alle
+  /// Profil-Ops denselben Entitaets-Schluessel tragen, koaleszieren mehrere
+  /// Offline-Aenderungen zu einer — die letzte gewinnt.
+  ///
+  /// Kein `await` mehr auf dem Netz-Write: der Aufrufer (Schale) haengt sonst
+  /// an einem Request, dessen Ergebnis fuer ihn folgenlos ist — die Zustellung
+  /// besorgt die Outbox.
   Future<void> applySettings({
     required UserProfile newProfile,
     required bool notificationsEnabled,
-    required bool resetDay,
   }) async {
     // `this.` ist noetig, weil der Parameter den Getter verdeckt. Vergleich
     // gegen den TATSAECHLICHEN Zustand: in [ReminderState.blocked] ist
@@ -223,83 +243,61 @@ mixin _HomeStoreProfilePart on _HomeStoreBase {
       unawaited(_setNotificationsEnabled(notificationsEnabled));
     }
     final canPersistProfile = _hydratedFromRealSource;
-    _mutate(() {
-      profile = newProfile;
-      if (resetDay) {
-        _clearTodayState();
-      }
-    });
-    final s = sync;
-    if (s != null) {
-      if (canPersistProfile) {
-        unawaited(_cache?.writeProfile(newProfile) ?? Future<void>.value());
-      }
-      try {
-        if (canPersistProfile) {
-          await s.profile.save(newProfile);
-        } else {
-          dev.log(
-              'ProfileSync.save uebersprungen: profile basiert auf Ctor-Defaults '
-              '(kein Server-/Cache-Hydrate) — Clobber-Schutz',
-              name: 'eatova_sync');
-        }
-      } catch (e, st) {
-        // Kein Outbox-Netz fuer den Profil-Save: freundliche Meldung OHNE
-        // Exception-Details (frueher stand hier der rohe Postgrest-Text im
-        // Snack), Roh-Fehler geht an dev.log/CrashReporter.
-        dev.log('Profil-Sync failed', error: e, name: 'eatova_sync');
-        unawaited(CrashReporter.capture(e, st, context: 'profil-settings'));
-        if (!_disposed) {
-          _emitSnack(profileSyncErrorMessage(e),
-              icon: Icons.error_outline_rounded,
-              accent: danger,
-              duration: kSnackError);
-        }
-      }
+    _mutate(() => profile = newProfile);
+    if (sync == null) return;
+    if (!canPersistProfile) {
+      // Clobber-Schutz (A1): ohne echte Hydrationsquelle besteht `profile` aus
+      // Ctor-Defaults. Weder Cache noch Outbox duerfen die sehen — eine
+      // eingereihte Default-Op wuerde sie sogar mit Retry auf den Server
+      // schreiben und waere damit schlimmer als der alte Direkt-Save.
+      dev.log(
+          'ProfileSync.save uebersprungen: profile basiert auf Ctor-Defaults '
+          '(kein Server-/Cache-Hydrate) — Clobber-Schutz',
+          name: 'eatova_sync');
+      return;
     }
-    if (resetDay && !_disposed) {
-      _emitSnack('Tagesdaten zurückgesetzt.',
-          icon: Icons.restart_alt_rounded, accent: orange);
-    }
+    unawaited(_cache?.writeProfile(newProfile) ?? Future<void>.value());
+    _syncOrQueue(
+      'Profil-Sync',
+      () => sync!.profile.save(newProfile),
+      () => SyncOp.profileUpsert(newProfile),
+    );
   }
 
-  void _clearTodayState() {
-    dailyConsumedKcal = 0;
-    dailySteps = 0;
-    macroProgress = MacroProgress.empty;
-    loggedMeals = <LoggedMeal>[];
-    selectedFoodDate = DateUtils.dateOnly(DateTime.now());
-  }
+  // Hier standen bis 2026-08-10 `resetTodayData()` und `_clearTodayState()`.
+  // Beide sind mit „Tagesdaten zurücksetzen" ersatzlos entfallen
+  // (Nutzer-Entscheid). `_clearTodayState` hatte AUSSER dem Reset keinen
+  // zweiten Aufrufer: der Mitternachts-/Resume-Pfad geht ueber
+  // `maybeRollOverToToday()` (home_store.dart) und schiebt `selectedFoodDate`
+  // nur weiter, statt Tageswerte zu leeren; `completeOnboarding` fasst sie gar
+  // nicht an. Der Hinweis in home_store.dart bei `_lastKnownToday` nennt
+  // `_clearTodayState` noch als Beispiel-Schreiber von `selectedFoodDate` —
+  // das Argument dort (Datumsvergleich statt Flag) traegt ohne ihn genauso.
 
-  void resetTodayData() {
-    _mutate(_clearTodayState);
-    _emitSnack('Tagesdaten zurückgesetzt.',
-        icon: Icons.restart_alt_rounded, accent: orange);
-  }
-
+  /// Abschluss des verpflichtenden Onboardings.
+  ///
+  /// Luecke D gilt hier genauso — und haerter: die Profilzeile existiert
+  /// serverseitig meist schon (der Signup-Trigger legt sie mit Defaults und
+  /// `onboarding_completed = false` an). Ein offline abgeschlossenes
+  /// Onboarding wurde deshalb beim naechsten Start MIT Netz nicht nur
+  /// vergessen — der Boot las die Bootstrap-Zeile, warf die eingegebenen
+  /// Koerperdaten weg UND schickte den Nutzer erneut durch das Onboarding.
+  /// Auch das laeuft jetzt ueber die Outbox.
   Future<void> completeOnboarding(UserProfile finished) async {
     _mutate(() {
       profile = finished;
       _onboardingDone = true;
+      // Die Angaben stammen vom Nutzer, nicht aus den Ctor-Defaults — ab hier
+      // ist der Zustand eine echte Quelle (und die Op unten damit eine).
       _hydratedFromRealSource = true;
     });
-    final s = sync;
-    if (s == null) return;
+    if (sync == null) return;
     unawaited(_cache?.writeProfile(finished) ?? Future<void>.value());
     unawaited(_setNotificationsEnabled(true));
-    try {
-      await s.profile.save(finished);
-    } catch (e, st) {
-      // Wie in applySettings: klassifizierte, freundliche Meldung statt des
-      // rohen Exception-Texts; Diagnose laeuft ueber dev.log/CrashReporter.
-      dev.log('Profil-Sync (Onboarding) failed', error: e, name: 'eatova_sync');
-      unawaited(CrashReporter.capture(e, st, context: 'profil-onboarding'));
-      if (!_disposed) {
-        _emitSnack(profileSyncErrorMessage(e),
-            icon: Icons.error_outline_rounded,
-            accent: danger,
-            duration: kSnackError);
-      }
-    }
+    _syncOrQueue(
+      'Profil-Sync (Onboarding)',
+      () => sync!.profile.save(finished),
+      () => SyncOp.profileUpsert(finished),
+    );
   }
 }

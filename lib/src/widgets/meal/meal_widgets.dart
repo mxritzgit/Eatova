@@ -11,8 +11,10 @@ import 'package:flutter/services.dart';
 
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../common/basic_widgets.dart';
+import '../common/motion.dart';
+import '../design/design.dart';
 
 part 'meal_widgets_cards.dart';
 part 'meal_widgets_result.dart';

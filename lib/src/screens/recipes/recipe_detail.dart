@@ -1,7 +1,7 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Detail-Ansicht eines Rezepts (eigener Route-Push): Bild, Makro-Grid,
+// Detail-Ansicht eines Rezepts (eigener Route-Push): Bild, Nährwert-Grid,
 // „Zum Tracker hinzufügen"-Karte und die Info-Sektionen (Portion, Zutaten,
 // Zubereitung, Profi-Hinweis). [RecipeDetailScreen] ist bewusst öffentlich.
 // ---------------------------------------------------------------------------
@@ -21,12 +21,9 @@ class RecipeDetailScreen extends StatelessWidget {
   final VoidCallback? onDelete;
 
   Future<void> _showMealPicker(BuildContext context) async {
-    final slot = await showModalBottomSheet<MealSlot>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.62),
-      isScrollControlled: true,
-      builder: (sheetContext) => _MealSlotPickerSheet(recipe: recipe),
+    final slot = await showEatovaSheet<MealSlot>(
+      context,
+      _MealSlotPickerSheet(recipe: recipe),
     );
     if (!context.mounted || slot == null) return;
     _add(context, slot);
@@ -38,14 +35,14 @@ class RecipeDetailScreen extends StatelessWidget {
       context,
       '${recipe.caloriesKcal} kcal zu ${slot.label} hinzugefügt.',
       icon: Icons.check_circle_rounded,
-      accent: lime,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Scaffold(
-      backgroundColor: bg,
+      backgroundColor: t.bg,
       body: SafeArea(
         bottom: false,
         child: SingleChildScrollView(
@@ -54,31 +51,25 @@ class RecipeDetailScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  _RoundIconButton(
-                    key: const ValueKey('recipe-detail-back'),
-                    icon: Icons.arrow_back_rounded,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                  const Spacer(),
-                  if (onDelete != null) ...[
-                    _RoundIconButton(
-                      key: const ValueKey('recipe-detail-delete'),
-                      icon: Icons.delete_outline_rounded,
-                      iconColor: danger,
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        onDelete!();
-                      },
-                    ),
-                    const SizedBox(width: 10),
-                  ],
-                  _GlassBadge(
-                    text: recipe.userCreated ? 'Eigenes Rezept' : 'Eatova Rezept',
-                    dark: true,
-                  ),
-                ],
+              PageHeader(
+                title: recipe.userCreated ? 'Eigenes Rezept' : 'Eatova Rezept',
+                backKey: const ValueKey('recipe-detail-back'),
+                onBack: () => Navigator.of(context).pop(),
+                trailing: onDelete == null
+                    // Gegengewicht zum Zurueck-Knopf: ohne es waere der mittige
+                    // Titel bei Bestandsrezepten aus der Mitte verschoben.
+                    ? const SizedBox(width: 34)
+                    : SquareIconButton(
+                        key: const ValueKey('recipe-detail-delete'),
+                        icon: Icons.delete_outline_rounded,
+                        semanticLabel: 'Rezept löschen',
+                        onTap: () {
+                          // Erst zurueck, dann melden: der Toast soll auf der
+                          // Rezeptliste landen, nicht auf dem sterbenden Detail.
+                          Navigator.of(context).pop();
+                          onDelete!();
+                        },
+                      ),
               ),
               const SizedBox(height: 16),
               ClipRRect(
@@ -86,30 +77,22 @@ class RecipeDetailScreen extends StatelessWidget {
                 child: SizedBox(
                   height: 258,
                   width: double.infinity,
-                  child: _RecipeImage(recipe: recipe),
+                  child: _RecipeImage(
+                    recipe: recipe,
+                    placeholderRadius: rSheet,
+                  ),
                 ),
               ),
               const SizedBox(height: 22),
               Text(
                 recipe.title,
                 key: ValueKey('recipe-detail-${recipe.slug}'),
-                style: const TextStyle(
-                  color: textPrimary,
-                  fontSize: 28,
-                  height: 1.08,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -1.0,
-                ),
+                style: AppType.display(28, color: t.ink, height: 1.1),
               ),
               const SizedBox(height: 10),
               Text(
                 recipe.description,
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 14,
-                  height: 1.45,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: AppType.ui(14, color: t.ink2, height: 1.45),
               ),
               if (recipe.categories.isNotEmpty) ...[
                 const SizedBox(height: 14),
@@ -136,7 +119,7 @@ class RecipeDetailScreen extends StatelessWidget {
               _RecipeInfoSection(
                 title: 'Profi-Hinweis',
                 body: recipe.professionalHint,
-                accent: lime,
+                highlight: true,
               ),
             ],
           ),
@@ -154,50 +137,37 @@ class _AddToMealCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final t = context.t;
+    return AppCard(
       key: const ValueKey('recipe-add-card'),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(rSheet),
-        border: Border.all(color: lime.withValues(alpha: 0.28)),
-      ),
+      radius: rSheet,
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: lime.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: const Icon(Icons.add_rounded, color: lime, size: 22),
-              ),
-              const SizedBox(width: 10),
+              IconTile(icon: Icons.add_rounded, color: t.accent),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Zum Tracker hinzufügen',
-                      style: TextStyle(
-                        color: textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.2,
+                      style: AppType.display(
+                        15,
+                        weight: FontWeight.w700,
+                        color: t.ink,
                       ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       '${recipe.caloriesKcal} kcal · ${recipe.proteinG} g Protein',
-                      style: const TextStyle(
-                        color: textMuted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                      style: AppType.ui(
+                        12,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
                       ),
                     ),
                   ],
@@ -206,35 +176,16 @@ class _AddToMealCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton.icon(
-              key: const ValueKey('recipe-add-button'),
-              onPressed: onTap,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: lime,
-                foregroundColor: bg,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rCard),
-                ),
-              ),
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
-              label: const Text(
-                'Hinzufügen',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.1,
-                ),
-              ),
-            ),
+          PrimaryActionButton(
+            key: const ValueKey('recipe-add-button'),
+            label: 'Hinzufügen',
+            icon: Icons.add_rounded,
+            onTap: onTap,
           ),
-          const SizedBox(height: 9),
-          const Text(
+          const SizedBox(height: 10),
+          Text(
             'Danach wählst du Frühstück, Mittagessen, Abendessen oder Snack.',
-            style: TextStyle(color: textMuted, fontSize: 11.5, height: 1.35),
+            style: AppType.ui(11.5, color: t.ink2, height: 1.35),
           ),
         ],
       ),
@@ -249,15 +200,43 @@ class _NutritionGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    // Korrektur gegenueber dem Altstand: dort trug „Protein" `orange` und
+    // „Fett" `macroFat` — derselbe Farbwert (app_colors.dart:50/62), beide
+    // Kacheln waren also farbgleich. Jetzt je ein eigener Makro-Token.
     return Row(
       children: [
-        Expanded(child: _NutritionTile(label: 'Kcal', value: '${recipe.caloriesKcal}', color: lime)),
+        Expanded(
+          child: _NutritionTile(
+            label: 'Kcal',
+            value: '${recipe.caloriesKcal}',
+            color: t.accent,
+          ),
+        ),
         const SizedBox(width: 8),
-        Expanded(child: _NutritionTile(label: 'Protein', value: '${recipe.proteinG} g', color: orange)),
+        Expanded(
+          child: _NutritionTile(
+            label: 'Protein',
+            value: '${recipe.proteinG} g',
+            color: t.protein,
+          ),
+        ),
         const SizedBox(width: 8),
-        Expanded(child: _NutritionTile(label: 'KH', value: '${recipe.carbsG} g', color: cyan)),
+        Expanded(
+          child: _NutritionTile(
+            label: 'KH',
+            value: '${recipe.carbsG} g',
+            color: t.carbs,
+          ),
+        ),
         const SizedBox(width: 8),
-        Expanded(child: _NutritionTile(label: 'Fett', value: '${recipe.fatG} g', color: macroFat)),
+        Expanded(
+          child: _NutritionTile(
+            label: 'Fett',
+            value: '${recipe.fatG} g',
+            color: t.fat,
+          ),
+        ),
       ],
     );
   }
@@ -276,36 +255,24 @@ class _NutritionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final t = context.t;
+    return AppCard(
+      radius: rCard,
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
       child: Column(
         children: [
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: color,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.25,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+            style: AppType.display(16, weight: FontWeight.w700, color: color),
           ),
           const SizedBox(height: 4),
           Text(
             label.toUpperCase(),
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.8,
-            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.eyebrow(t.ink2, size: 9.5),
           ),
         ],
       ),
@@ -317,90 +284,49 @@ class _RecipeInfoSection extends StatelessWidget {
   const _RecipeInfoSection({
     required this.title,
     required this.body,
-    this.accent = cyan,
+    this.highlight = false,
   });
 
   final String title;
   final String body;
-  final Color accent;
+
+  /// Hebt den Punkt vor der Überschrift in den Akzent (Profi-Hinweis).
+  final bool highlight;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(rSheet),
-          border: Border.all(color: hairline),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: highlight ? t.accent : t.ink2,
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              body,
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 13,
-                height: 1.5,
-                fontWeight: FontWeight.w500,
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: SectionHeading(title: title)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          AppCard(
+            radius: rSheet,
+            child: SizedBox(
+              width: double.infinity,
+              child: Text(
+                body,
+                style: AppType.ui(13, color: t.ink2, height: 1.5),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RoundIconButton extends StatelessWidget {
-  const _RoundIconButton({
-    super.key,
-    required this.icon,
-    required this.onTap,
-    this.iconColor = textPrimary,
-  });
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final Color iconColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rCard),
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: hairline),
-        ),
-        child: Icon(icon, color: iconColor, size: 20),
+          ),
+        ],
       ),
     );
   }

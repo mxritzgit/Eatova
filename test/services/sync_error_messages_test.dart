@@ -104,18 +104,32 @@ void main() {
     });
   });
 
-  group('profileSyncErrorMessage (kein Auto-Retry)', () {
-    test('unterscheidet Offline von Sonstigem, nie Roh-Details', () {
+  group('Profil-Save haengt seit Luecke D am Outbox-Netz', () {
+    // Vorher gab es hier `profileSyncErrorMessage` mit „Bitte speichere es
+    // später erneut." — die ehrliche Meldung fuer einen Save OHNE Retry.
+    // Seit der Profil-Save als profileUpsert in die Outbox geht, ist genau
+    // dieser Satz falsch: es gibt einen Auto-Retry, und der Nutzer muss
+    // nichts tun. Die Zusicherungen der alten Tests gelten unveraendert
+    // weiter — Offline wird von Server-Fehlern unterschieden, und weder Text
+    // traegt Roh-Details —, nur eben auf dem Text, den der Profil-Save
+    // heute wirklich ausloest.
+    test('offline -> derselbe Warteschlangen-Hinweis wie jeder andere Write',
+        () {
       expect(
-        profileSyncErrorMessage(http.ClientException('offline')),
-        'Offline — Profil konnte nicht synchronisiert werden. Bitte speichere es später erneut.',
+        queuedSyncHint(http.ClientException('offline')),
+        'Offline — wird synchronisiert, sobald du wieder online bist.',
       );
+    });
+
+    test('Server-Fehler -> neutrale Retry-Meldung ohne Spaltennamen', () {
       const error = PostgrestException(
           message: 'null value in column "daily_kcal_goal"');
-      final msg = profileSyncErrorMessage(error);
+      final msg = queuedSyncHint(error);
       expect(msg,
-          'Profil konnte nicht gespeichert werden. Bitte versuch es später erneut.');
+          'Änderung konnte nicht gespeichert werden — wird automatisch erneut versucht.');
       expect(msg, isNot(contains('daily_kcal_goal')));
+      expect(msg, isNot(contains('Bitte speichere es später erneut')),
+          reason: 'das waere gelogen — die Outbox versucht es selbst erneut');
     });
   });
 

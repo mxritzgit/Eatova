@@ -5,8 +5,10 @@ import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
 import '../../services/day_math.dart';
 import '../../services/local_day.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
+import '../common/motion.dart';
+import '../design/design.dart';
 import '../meal/meal_widgets.dart';
 import 'slot_selector.dart';
 
@@ -23,8 +25,8 @@ typedef UpdateMealDetails =
 
 /// Stellt die Edit-Callbacks des HomeStore unterhalb des Food-Tabs bereit.
 ///
-/// Hintergrund: die Verlaufskarte ([MealsTodayCard]) und das AddMealSheet
-/// leben unterhalb von `MealAnalysisScreen`, dessen Konstruktor-Signatur
+/// Hintergrund: die Slot-Karten des Tagebuchs (`DiaryMealCard`) und das
+/// AddMealSheet leben unterhalb von `MealAnalysisScreen`, dessen Signatur
 /// hier bewusst nicht angefasst wird — der Scope reicht die Callbacks an den
 /// Screen VORBEI direkt zu den Widgets, die das Bearbeiten-Sheet oeffnen.
 /// Fehlt der Scope (Preview/Standalone-Tests), fallen die Widgets auf ihr
@@ -76,6 +78,8 @@ Future<MealEditOutcome?> showEditMealSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
+    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (sheetContext) {
       return EditMealSheet(
@@ -98,18 +102,22 @@ Future<MealEditOutcome?> showEditMealSheet(
 ///
 /// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
+  final t = context.t;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       key: const ValueKey('discard-changes-dialog'),
-      backgroundColor: surface,
-      title: const Text(
-        'Änderungen verwerfen?',
-        style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+      backgroundColor: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
       ),
-      content: const Text(
+      title: Text(
+        'Änderungen verwerfen?',
+        style: AppType.display(19, color: t.ink),
+      ),
+      content: Text(
         'Deine Änderungen an dieser Mahlzeit sind noch nicht gespeichert.',
-        style: TextStyle(color: textMuted),
+        style: AppType.ui(13, color: t.ink2, height: 1.4),
       ),
       actions: [
         TextButton(
@@ -119,7 +127,7 @@ Future<bool> _confirmDiscardChanges(BuildContext context) async {
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
-          style: TextButton.styleFrom(foregroundColor: danger),
+          style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: const Text('Verwerfen'),
         ),
@@ -350,12 +358,18 @@ class _EditMealSheetState extends State<EditMealSheet> {
   }
 
   Widget _buildSheet(MediaQueryData mediaQuery, double maxHeight) {
+    final t = context.t;
+    // Kein SheetScaffold: fixer Kopf ueber einem gedeckelten Scrollbereich,
+    // zwei Fussaktionen (Speichern + Loeschen) — und `edit-meal-save-button`
+    // muss ein FilledButton bleiben, weil Tests seinen `onPressed` lesen.
     return Container(
       key: const ValueKey('edit-meal-sheet'),
       constraints: BoxConstraints(maxHeight: maxHeight),
-      decoration: const BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+      decoration: BoxDecoration(
+        color: t.bg,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(rSheet),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -386,13 +400,13 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       key: const ValueKey('edit-meal-adjust-button'),
                       onPressed: _adjustPortion,
                       icon: const Icon(Icons.tune_rounded, size: 17),
-                      label: const Text(
+                      label: Text(
                         'Portion & Bestandteile anpassen',
-                        style: TextStyle(fontWeight: FontWeight.w600),
+                        style: AppType.ui(13.5, weight: FontWeight.w600),
                       ),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: cyan,
-                        side: BorderSide(color: cyan.withValues(alpha: 0.45)),
+                        foregroundColor: t.ink,
+                        side: BorderSide(color: t.line),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 14,
                           vertical: 10,
@@ -428,13 +442,13 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       key: const ValueKey('edit-meal-save-button'),
                       onPressed: _dirty ? _save : null,
                       icon: const Icon(Icons.check_rounded, size: 17),
-                      label: const Text(
+                      label: Text(
                         'Speichern',
-                        style: TextStyle(fontWeight: FontWeight.w600),
+                        style: AppType.ui(14, weight: FontWeight.w600),
                       ),
                       style: FilledButton.styleFrom(
-                        backgroundColor: forgeLime,
-                        foregroundColor: bg,
+                        backgroundColor: t.forest,
+                        foregroundColor: t.onForest,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(rControl),
@@ -448,17 +462,14 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       child: TextButton.icon(
                         key: const ValueKey('edit-meal-delete-button'),
                         onPressed: _delete,
-                        style: TextButton.styleFrom(foregroundColor: danger),
+                        style: TextButton.styleFrom(foregroundColor: t.danger),
                         icon: const Icon(
                           Icons.delete_outline_rounded,
                           size: 16,
                         ),
-                        label: const Text(
+                        label: Text(
                           'Mahlzeit löschen',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: AppType.ui(13, weight: FontWeight.w600),
                         ),
                       ),
                     ),
@@ -484,7 +495,7 @@ class _SheetHandle extends StatelessWidget {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: hairline,
+          color: context.t.line,
           borderRadius: BorderRadius.circular(rPill),
         ),
       ),
@@ -505,43 +516,31 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = slot.accent;
+    final t = context.t;
+    final color = slot.accentIn(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
       child: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: Icon(slot.icon, color: color, size: 18),
-          ),
+          MealAvatar(letter: slot.initial, color: color, size: 36),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Mahlzeit bearbeiten',
-                  style: TextStyle(
-                    color: textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.3,
-                  ),
+                  style: AppType.display(18, color: t.ink),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   mealName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
                   ),
                 ),
               ],
@@ -551,7 +550,7 @@ class _Header extends StatelessWidget {
             key: const ValueKey('edit-meal-sheet-close'),
             onPressed: onClose,
             tooltip: 'Schließen',
-            icon: const Icon(Icons.close_rounded, color: textMuted),
+            icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
       ),
@@ -568,40 +567,31 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final t = context.t;
+    return AppCard(
       key: const ValueKey('edit-meal-summary'),
-      width: double.infinity,
+      radius: rCard,
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.local_fire_department_outlined,
-            color: orange,
+            color: t.accent,
             size: 18,
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               '${result.caloriesKcal} kcal · ${result.estimatedGrams} g',
-              style: const TextStyle(
-                color: textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
+              style: AppType.display(16, color: t.ink),
             ),
           ),
           Text(
             adjusted ? 'Angepasst' : result.sourceLabel,
-            style: TextStyle(
-              color: adjusted ? orange : textMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+            style: AppType.ui(
+              11,
+              weight: FontWeight.w600,
+              color: adjusted ? t.ink : t.ink2,
             ),
           ),
         ],
@@ -619,12 +609,7 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
-      style: const TextStyle(
-        color: textMuted,
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 1.2,
-      ),
+      style: AppType.eyebrow(context.t.ink2, size: 11),
     );
   }
 }
@@ -702,6 +687,7 @@ class _DayPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final today = startOfDay(DateTime.now());
     // B5: Kalender-, keine Absolutzeitarithmetik — siehe [editMealPickerDays].
     final days = editMealPickerDays(
@@ -733,13 +719,17 @@ class _DayPicker extends StatelessWidget {
               onTap: () => onSelected(date),
               borderRadius: BorderRadius.circular(rControl),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
+                duration:
+                    motionDuration(context, const Duration(milliseconds: 160)),
                 curve: Curves.easeOut,
                 width: 64,
                 padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
                 decoration: BoxDecoration(
-                  color: isSelected ? forgeLime : surfaceSoft,
+                  color: isSelected ? t.forest : t.surf,
                   borderRadius: BorderRadius.circular(rControl),
+                  border: Border.all(
+                    color: isSelected ? Colors.transparent : t.line,
+                  ),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -748,10 +738,10 @@ class _DayPicker extends StatelessWidget {
                       editMealDayChipLabel(today: today, date: date),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: isSelected ? bg : textMuted,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
+                      style: AppType.ui(
+                        10.5,
+                        weight: FontWeight.w700,
+                        color: isSelected ? t.lime : t.ink2,
                         letterSpacing: 0.1,
                       ),
                     ),
@@ -760,13 +750,10 @@ class _DayPicker extends StatelessWidget {
                       '${date.day}.${date.month}.',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: isSelected
-                            ? bg.withValues(alpha: 0.68)
-                            : textPrimary,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+                      style: AppType.display(
+                        11.5,
+                        weight: FontWeight.w700,
+                        color: isSelected ? t.onForest : t.ink,
                       ),
                     ),
                   ],
@@ -789,6 +776,7 @@ class _CalendarChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // A11y: "Anderes / Datum…" liest sich zerhackt — als ein Button mit
     // klarer Aktion ansagen.
     return Semantics(
@@ -802,32 +790,33 @@ class _CalendarChip extends StatelessWidget {
           width: 72,
           padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
           decoration: BoxDecoration(
-            color: surfaceSoft,
+            color: t.surf,
             borderRadius: BorderRadius.circular(rControl),
+            border: Border.all(color: t.line),
           ),
-          child: const Column(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 'Anderes',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
+                style: AppType.ui(
+                  10.5,
+                  weight: FontWeight.w700,
+                  color: t.ink2,
                   letterSpacing: 0.1,
                 ),
               ),
-              SizedBox(height: 3),
+              const SizedBox(height: 3),
               Text(
                 'Datum…',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
+                style: AppType.display(
+                  11.5,
+                  weight: FontWeight.w700,
+                  color: t.ink,
                 ),
               ),
             ],

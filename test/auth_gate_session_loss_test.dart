@@ -63,6 +63,24 @@ class _ScriptedAuthRepository implements AuthRepository {
   Future<void> updatePassword(String newPassword) async {}
 
   @override
+  Future<void> startPasswordChange() async {}
+
+  @override
+  Future<void> confirmPasswordChange({
+    required String code,
+    required String newPassword,
+  }) async {}
+
+  @override
+  Future<void> startEmailChange(String newEmail) async {}
+
+  @override
+  Future<void> confirmEmailChange({
+    required String email,
+    required String code,
+  }) async {}
+
+  @override
   Future<void> signIn({required String email, required String password}) async {}
 
   @override
@@ -94,7 +112,7 @@ Future<void> _pumpGate(
 ) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: AuthGate(
         authRepository: repository,
         builder: (context, user, freshLogin) => Scaffold(
@@ -249,7 +267,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildEatovaTheme(),
+        theme: buildEatovaTheme(Brightness.dark),
         home: AuthGate(
           authRepository: repository,
           builder: (context, user, freshLogin) => Scaffold(

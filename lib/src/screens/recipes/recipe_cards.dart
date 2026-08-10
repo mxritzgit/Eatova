@@ -1,9 +1,13 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Rezept-Karten der Übersicht: horizontale Hero-Kachel (Empfehlungen +
-// „Passt zu deinem Ziel"), Listen-Kachel der Hauptliste und der Empty State.
+// Rezept-Karten der Übersicht: die grosse Bildkachel der Karussells
+// (Empfehlungen + „Passt zu deinem Ziel"), die Listenzeile der Hauptliste und
+// der Empty State.
 // ---------------------------------------------------------------------------
+
+/// Die `FeaturedRecipeCard`-Sprache des Entwurfs: Foto als Grund, Verlauf nach
+/// unten, darauf Badge, Titel und Kennzahlen.
 class _RecipeHeroCard extends StatelessWidget {
   const _RecipeHeroCard({
     required this.recipe,
@@ -14,102 +18,70 @@ class _RecipeHeroCard extends StatelessWidget {
   final FitnessRecipe recipe;
   final VoidCallback onTap;
 
-  /// Optionales zweites Badge oben rechts (z.B. „Match" in der Ziel-Sektion).
+  /// Ersetzt das „EMPFOHLEN"-Etikett (z.B. durch „Match" in der Ziel-Sektion).
   final String? badgeText;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(rSheet),
+      borderRadius: BorderRadius.circular(26),
       child: SizedBox(
-        width: 200,
-        child: Container(
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.circular(rSheet),
-            border: Border.all(color: hairline),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        // Breiter als die frueheren 200 px: der Titel steht jetzt in
+        // Display-Groesse auf voller Kartenbreite und wuerde bei 200 px in
+        // Silben zerfallen. 280 laesst auf einem 393er Viewport die naechste
+        // Karte weiterhin anschneiden — das Karussell bleibt als solches
+        // erkennbar.
+        width: 280,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: Stack(
+            fit: StackFit.expand,
             children: [
-              Stack(
-                children: [
-                  SizedBox(
-                    height: 132,
-                    width: double.infinity,
-                    child: _RecipeImage(recipe: recipe),
-                  ),
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.55),
-                          ],
-                          stops: const [0.45, 1.0],
-                        ),
-                      ),
+              _RecipeImage(recipe: recipe),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  decoration: BoxDecoration(
+                    // Ein Foto-Scrim MUSS in beiden Anzeige-Modi dunkel sein
+                    // (das Foto ist in beiden dasselbe), taugt also fuer keinen
+                    // Tinten-Token. `Colors.black` ist kein Color(0x…)-Literal
+                    // und entspricht dem bisherigen Verlauf.
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.92),
+                        Colors.black.withValues(alpha: 0.55),
+                        Colors.black.withValues(alpha: 0.0),
+                      ],
+                      stops: const [0, 0.55, 1],
                     ),
                   ),
-                  Positioned(
-                    left: 10,
-                    top: 10,
-                    child: _GlassBadge(text: '${recipe.caloriesKcal} kcal'),
-                  ),
-                  if (badgeText != null)
-                    Positioned(
-                      right: 10,
-                      top: 10,
-                      child: _MatchBadge(text: badgeText!),
-                    ),
-                  if (recipe.categories.isNotEmpty)
-                    Positioned(
-                      left: 10,
-                      bottom: 10,
-                      child: _CategoryPill(
-                        label: recipe.categories.first,
-                        onImage: true,
-                      ),
-                    ),
-                ],
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 11, 14, 12),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      _RecipeBadge(
+                        text: badgeText ?? 'EMPFOHLEN',
+                        icon: badgeText == null ? null : Icons.bolt_rounded,
+                        filled: true,
+                      ),
+                      const SizedBox(height: 9),
                       Text(
                         recipe.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: textPrimary,
-                          fontSize: 15,
-                          height: 1.2,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
+                        style: AppType.display(
+                          19,
+                          color: t.onForest,
+                          height: 1.15,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        recipe.description,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: textMuted,
-                          fontSize: 11.5,
-                          height: 1.32,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const Spacer(),
-                      _MacroRow(recipe: recipe, compact: true),
+                      const SizedBox(height: 9),
+                      _RecipeMetrics(recipe: recipe, onImage: true),
                     ],
                   ),
                 ),
@@ -122,6 +94,8 @@ class _RecipeHeroCard extends StatelessWidget {
   }
 }
 
+/// Die `RecipeCard`-Sprache des Entwurfs: 96×96-Bild links, Kategorie als
+/// farbige Versalien-Zeile, Titel, zweizeilige Beschreibung, Kennzahlen.
 class _RecipeListTile extends StatelessWidget {
   const _RecipeListTile({
     super.key,
@@ -134,78 +108,64 @@ class _RecipeListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(rCard),
-      child: Container(
-        padding: const EdgeInsets.all(11),
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: hairline),
-        ),
+      child: AppCard(
+        radius: rCard,
+        padding: const EdgeInsets.all(12),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(rControl),
-                  child: SizedBox(
-                    width: 84,
-                    height: 84,
-                    child: _RecipeImage(recipe: recipe),
-                  ),
+            SizedBox(
+              width: 96,
+              height: 96,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(rControl),
+                child: _RecipeImage(
+                  recipe: recipe,
+                  placeholderRadius: rControl,
                 ),
-                Positioned(
-                  left: 6,
-                  bottom: 6,
-                  child: _GlassBadge(text: '${recipe.caloriesKcal} kcal'),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(width: 13),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          recipe.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: textPrimary,
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.15,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      const Icon(
-                        Icons.chevron_right_rounded,
-                        color: textMuted,
-                        size: 20,
-                      ),
-                    ],
+                  if (recipe.categories.isNotEmpty) ...[
+                    Text(
+                      recipe.categories.first.toUpperCase(),
+                      // Einheitlich `accent`: die Vorlage faerbt diese Zeile
+                      // nach MealSlot in Makro-Toenen — unsere Karten tragen
+                      // aber Rezept-KATEGORIEN, und Makro-Farben kodieren laut
+                      // Token-Vertrag ausschliesslich Naehrwerte.
+                      style: AppType.eyebrow(t.accent, size: 9.5),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  Text(
+                    recipe.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.display(
+                      16.5,
+                      weight: FontWeight.w700,
+                      color: t.ink,
+                      height: 1.2,
+                    ),
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 4),
                   Text(
                     recipe.description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 11.5,
-                      height: 1.3,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: AppType.ui(11.5, color: t.ink2, height: 1.4),
                   ),
-                  const SizedBox(height: 9),
-                  _MacroRow(recipe: recipe),
+                  const SizedBox(height: 8),
+                  _RecipeMetrics(recipe: recipe),
                 ],
               ),
             ),
@@ -221,18 +181,15 @@ class _RecipeEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
-      child: const Text(
-        'Kein Rezept gefunden. Versuch eine andere Kategorie oder Suche.',
-        style: TextStyle(color: textMuted, fontSize: 13, height: 1.4),
+    final t = context.t;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: AppCard(
+        radius: rCard,
+        child: Text(
+          'Kein Rezept gefunden. Versuch eine andere Kategorie oder Suche.',
+          style: AppType.ui(13, color: t.ink2, height: 1.4),
+        ),
       ),
     );
   }

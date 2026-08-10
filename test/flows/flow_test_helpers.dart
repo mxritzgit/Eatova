@@ -49,6 +49,41 @@ void testWidgetsRobust(
   });
 }
 
+/// Wechselt auf den Tab „Heute" und prueft dort die GEGESSEN-Kachel des
+/// Kalorien-Heroes.
+///
+/// WARUM: Bis zum 2026-08-10 lasen die Flows das Tagestotal aus
+/// `analyse-daily-kcal-total` — der Kalorien-Karte im Food-Tab. Die Karte ist
+/// auf Nutzer-Entscheid entfallen („das haben wir ja im Heute-Tab schon"). Die
+/// AUSSAGE der Flows („eine geloggte Mahlzeit kommt im Tagestotal an") ist
+/// damit nicht weg, sondern umgezogen: sie steht in `today-stat-eaten`, und
+/// der Heute-Tab folgt demselben `selectedFoodDate` wie der Food-Tab — auch
+/// auf einem Archivtag.
+///
+/// [kcal] ist die reine Zahl mit Tausenderpunkt („252", „1.234"): der Hero
+/// setzt Zahl und Beschriftung als getrennte Texte.
+Future<void> expectTagestotalAufHeute(
+  WidgetTester tester,
+  String kcal,
+) async {
+  // Eine offene Bestaetigungs-Snackbar liegt ueber der Navigationsleiste und
+  // finge sonst den Tap auf `nav-Heute`.
+  await tester.pump(const Duration(seconds: 5));
+  await tester.pumpAndSettle();
+
+  await tester.tap(find.byKey(const ValueKey('nav-Heute')));
+  await tester.pumpAndSettle();
+
+  expect(
+    find.descendant(
+      of: find.byKey(const ValueKey('today-stat-eaten')),
+      matching: find.text(kcal),
+    ),
+    findsOneWidget,
+    reason: 'der Heute-Hero nennt nicht „$kcal" gegessene kcal',
+  );
+}
+
 class FakeMealAnalyzer implements MealAnalyzer {
   @override
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {

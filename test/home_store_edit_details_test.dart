@@ -8,6 +8,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Bearbeiten-Sheet (2026-08-06): updateLoggedMealDetails aendert Portion,
 // Slot und/oder Tag einer geloggten Mahlzeit in EINEM Update. Diese Tests
@@ -26,7 +27,7 @@ class _SnackCapture {
   void call(
     String message, {
     IconData icon = Icons.info_outline,
-    Color accent = Colors.white,
+    SnackTone tone = SnackTone.positive,
     Duration? duration,
     SnackBarAction? action,
   }) {

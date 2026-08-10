@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../services/day_math.dart';
 import '../services/trend_service.dart';
-import '../theme/app_colors.dart';
-import '../widgets/common/basic_widgets.dart';
+import '../theme/app_tokens.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/common/motion.dart';
+import '../widgets/design/design.dart';
 
 /// Trend-Ansicht (Langzeit-Perspektive): Kalorien-Balken pro Tag mit
 /// Ziellinie + Zielkorridor, Zeitraum-Umschalter 7/30/90 Tage und
@@ -83,40 +83,22 @@ class _TrendsScreenState extends State<TrendsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        scrolledUnderElevation: 0,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('trends-close'),
-          tooltip: 'Zurück',
-          icon: const Icon(
-            Icons.arrow_back_rounded,
-            color: textPrimary,
-            size: 20,
-          ),
-          onPressed: () => Navigator.maybePop(context),
-        ),
-        title: const Text(
-          'Trends',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: -0.2,
-          ),
-        ),
-        centerTitle: false,
-      ),
       body: SafeArea(
-        top: false,
         child: LivelyEntrance(
+          // Wie im Profil bewusst SingleChildScrollView + Column statt eines
+          // ListView: alle Kennzahlen sollen im Elementbaum stehen, auch die,
+          // die gerade unterhalb des Bildschirms liegen.
           child: SingleChildScrollView(
             key: const ValueKey('screen-trends'),
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const PageHeader(
+                  title: 'Trends',
+                  backKey: ValueKey('trends-close'),
+                ),
+                const SizedBox(height: 14),
                 _RangeSelector(
                   ranges: _ranges,
                   selected: _rangeDays,
@@ -138,9 +120,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
         SizedBox(
           key: ValueKey('trends-loading'),
           height: 260,
-          child: Center(
-            child: CircularProgressIndicator(color: forgeLime, strokeWidth: 3),
-          ),
+          child: Center(child: CircularProgressIndicator(strokeWidth: 3)),
         ),
       ];
     }
@@ -233,17 +213,17 @@ class _MetricsNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      key: ValueKey('trends-metrics-note'),
-      padding: EdgeInsets.symmetric(horizontal: 4),
+    return Padding(
+      key: const ValueKey('trends-metrics-note'),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         'Kennzahlen zählen nur abgeschlossene Tage. Heute läuft noch und '
         'ist nur im Verlauf oben enthalten.',
-        style: TextStyle(
-          color: textMuted,
-          fontSize: 11,
+        style: AppType.ui(
+          11,
+          weight: FontWeight.w500,
+          color: context.t.ink2,
           height: 1.4,
-          fontWeight: FontWeight.w500,
         ),
       ),
     );
@@ -261,8 +241,7 @@ String formatKcalDe(int value) {
   return value < 0 ? '-$buf' : buf.toString();
 }
 
-/// Zeitraum-Umschalter als Soft-Kapseln (Flaechen-Aufhellung statt Rahmen,
-/// gleiches Muster wie die Datums-Chips im Food-Tab).
+/// Zeitraum-Umschalter: drei gleich breite Filter-Pillen.
 class _RangeSelector extends StatelessWidget {
   const _RangeSelector({
     required this.ranges,
@@ -280,62 +259,24 @@ class _RangeSelector extends StatelessWidget {
       children: [
         for (var i = 0; i < ranges.length; i++) ...[
           Expanded(
-            child: _RangeChip(
+            // Der Key sitzt auf der Semantics-Huelle, nicht auf der Pille:
+            // so tippen die Tests unveraendert `trends-range-7` und der
+            // Screenreader behaelt seinen erklaerenden Namen.
+            child: Semantics(
               key: ValueKey('trends-range-${ranges[i]}'),
-              days: ranges[i],
+              button: true,
               selected: ranges[i] == selected,
-              onTap: () => onSelected(ranges[i]),
+              label: 'Zeitraum ${ranges[i]} Tage',
+              child: FilterChipPill(
+                label: '${ranges[i]} Tage',
+                selected: ranges[i] == selected,
+                onTap: () => onSelected(ranges[i]),
+              ),
             ),
           ),
           if (i != ranges.length - 1) const SizedBox(width: 8),
         ],
       ],
-    );
-  }
-}
-
-class _RangeChip extends StatelessWidget {
-  const _RangeChip({
-    super.key,
-    required this.days,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final int days;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: 'Zeitraum $days Tage',
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
-        child: AnimatedContainer(
-          duration: motionDuration(context, const Duration(milliseconds: 160)),
-          curve: Curves.easeOut,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? forgeLime : surface,
-            borderRadius: BorderRadius.circular(rControl),
-          ),
-          child: Text(
-            '$days Tage',
-            style: TextStyle(
-              color: selected ? bg : textMuted,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -359,6 +300,7 @@ class _ChartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // A11y: das Chart ist nur gezeichnet -> Kennwerte als Sprachwert.
     // [avgKcal] kommt aus den abgeschlossenen Tagen und kann null sein,
     // waehrend das Chart schon einen Balken zeigt (nur heute geloggt). Dann
@@ -380,23 +322,27 @@ class _ChartCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Kalorien pro Tag',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
+                  style: AppType.display(
+                    17,
+                    weight: FontWeight.w700,
+                    color: t.ink,
                   ),
                 ),
               ),
-              Text(
-                '$rangeDays Tage',
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
+              Flexible(
+                child: Text(
+                  '$rangeDays Tage',
+                  textAlign: TextAlign.right,
+                  style: AppType.ui(
+                    11.5,
+                    weight: FontWeight.w600,
+                    color: t.ink2,
+                  ),
                 ),
               ),
             ],
@@ -418,13 +364,18 @@ class _ChartCard extends StatelessWidget {
                     const Duration(milliseconds: 550),
                   ),
                   curve: Curves.easeOutCubic,
-                  builder: (context, t, _) => CustomPaint(
+                  builder: (context, value, _) => CustomPaint(
                     key: const ValueKey('trends-chart'),
                     painter: _KcalTrendPainter(
                       window: window,
                       goalKcal: kcalGoal,
                       firstDay: firstDay,
-                      progress: t,
+                      progress: value,
+                      gridColor: t.line,
+                      barColor: t.accent,
+                      goalLineColor: t.ink.withValues(alpha: 0.6),
+                      bandColor: t.ink.withValues(alpha: 0.05),
+                      axisTextColor: t.ink2,
                     ),
                     size: Size.infinite,
                   ),
@@ -462,12 +413,11 @@ class _Caption extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(
-        color: textMuted,
-        fontSize: 11,
-        fontWeight: FontWeight.w500,
+      style: AppType.ui(
+        11,
+        weight: FontWeight.w500,
+        color: context.t.ink2,
         letterSpacing: 0.2,
-        fontFeatures: [FontFeature.tabularFigures()],
       ),
     );
   }
@@ -487,39 +437,19 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return AppCard(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-            ),
-          ),
+          Text(label, style: AppType.eyebrow(t.ink2)),
           const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              color: textPrimary,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
+          Text(value, style: AppType.display(20, color: t.ink)),
           const SizedBox(height: 2),
           Text(
             sub,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
+            style: AppType.ui(11, weight: FontWeight.w500, color: t.ink2),
           ),
         ],
       ),
@@ -534,6 +464,7 @@ class _MacroAveragesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final m = macros;
     return AppCard(
       key: const ValueKey('trends-avg-macros'),
@@ -541,35 +472,27 @@ class _MacroAveragesCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Ø MAKROS PRO TAG',
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-            ),
-          ),
+          Text('Ø MAKROS PRO TAG', style: AppType.eyebrow(t.ink2)),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: _MacroAvg(
-                  color: macroProtein,
+                  color: t.protein,
                   label: 'Protein',
                   value: m == null ? '–' : '${m.proteinG.round()} g',
                 ),
               ),
               Expanded(
                 child: _MacroAvg(
-                  color: macroCarbs,
-                  label: 'Carbs',
+                  color: t.carbs,
+                  label: 'Kohlenhydrate',
                   value: m == null ? '–' : '${m.carbsG.round()} g',
                 ),
               ),
               Expanded(
                 child: _MacroAvg(
-                  color: macroFat,
+                  color: t.fat,
                   label: 'Fett',
                   value: m == null ? '–' : '${m.fatG.round()} g',
                 ),
@@ -597,6 +520,7 @@ class _MacroAvg extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -616,21 +540,16 @@ class _MacroAvg extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: AppType.ui(11, weight: FontWeight.w500, color: t.ink2),
               ),
               Text(
                 value,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: [FontFeature.tabularFigures()],
+                style: AppType.display(
+                  14,
+                  weight: FontWeight.w700,
+                  color: t.ink,
                 ),
               ),
             ],
@@ -646,32 +565,28 @@ class _EmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const AppCard(
-      key: ValueKey('trends-empty'),
-      padding: EdgeInsets.fromLTRB(20, 28, 20, 28),
+    final t = context.t;
+    return AppCard(
+      key: const ValueKey('trends-empty'),
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
       child: Column(
         children: [
-          Icon(Icons.query_stats_rounded, color: textMuted, size: 32),
-          SizedBox(height: 12),
+          Icon(Icons.query_stats_rounded, color: t.ink2, size: 32),
+          const SizedBox(height: 12),
           Text(
             'Noch zu wenig Daten',
-            style: TextStyle(
-              color: textPrimary,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-            ),
+            style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
           ),
-          SizedBox(height: 6),
+          const SizedBox(height: 6),
           Text(
             'Logge deine Mahlzeiten an mindestens zwei Tagen,\n'
             'um hier deinen Verlauf zu sehen.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 12,
+            style: AppType.ui(
+              12,
+              weight: FontWeight.w500,
+              color: t.ink2,
               height: 1.4,
-              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -687,56 +602,36 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return AppCard(
       key: const ValueKey('trends-error'),
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
       child: Column(
         children: [
-          const Icon(Icons.cloud_off_rounded, color: textMuted, size: 32),
+          Icon(Icons.cloud_off_rounded, color: t.ink2, size: 32),
           const SizedBox(height: 12),
-          const Text(
+          Text(
             'Trends konnten nicht geladen werden',
-            style: TextStyle(
-              color: textPrimary,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-            ),
+            textAlign: TextAlign.center,
+            style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Prüfe deine Internetverbindung und versuche es erneut.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 12,
+            style: AppType.ui(
+              12,
+              weight: FontWeight.w500,
+              color: t.ink2,
               height: 1.4,
-              fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 16),
-          InkWell(
+          PrimaryActionButton(
             key: const ValueKey('trends-retry'),
+            label: 'Erneut versuchen',
+            height: 46,
             onTap: onRetry,
-            borderRadius: BorderRadius.circular(rControl),
-            child: Container(
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: forgeLime,
-                borderRadius: BorderRadius.circular(rControl),
-              ),
-              child: const Text(
-                'Erneut versuchen',
-                style: TextStyle(
-                  color: bg,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
           ),
         ],
       ),
@@ -749,19 +644,28 @@ class _ErrorCard extends StatelessWidget {
 /// oben, eckig an der Basis; Luecken-Tage bleiben Luecken (kein 0-Balken —
 /// „nicht getrackt" ist kein 0-kcal-Tag). Ruhige, durchgezogene Hairline-
 /// Gridlines; die Ziellinie ist heller und traegt ein Label, der Korridor
-/// (±10 %) liegt als leise Flaeche dahinter. Achsentext in Text-Tokens.
+/// (±10 %) liegt als leise Flaeche dahinter.
+///
+/// Alle fuenf Farben kommen als Felder herein und stehen in [shouldRepaint]:
+/// beim Wechsel Hell/Dunkel aendert sich nur die Farbe, nicht die Datenlage.
 class _KcalTrendPainter extends CustomPainter {
   _KcalTrendPainter({
     required this.window,
     required this.goalKcal,
     required this.firstDay,
     required this.progress,
+    required this.gridColor,
+    required this.barColor,
+    required this.goalLineColor,
+    required this.bandColor,
+    required this.axisTextColor,
   });
 
   final List<TrendDayTotals?> window;
   final int goalKcal;
   final DateTime firstDay;
   final double progress;
+  final Color gridColor, barColor, goalLineColor, bandColor, axisTextColor;
 
   static const _weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
@@ -791,7 +695,7 @@ class _KcalTrendPainter extends CustomPainter {
     // Ruhiges Grid: 4 durchgezogene Hairlines (0 bis niceMax in Dritteln),
     // Tick-Werte rechtsbuendig in der Achsen-Rinne.
     final gridPaint = Paint()
-      ..color = hairline
+      ..color = gridColor
       ..strokeWidth = 1;
     for (var i = 0; i <= 3; i++) {
       final y = inner.bottom - inner.height * (i / 3);
@@ -824,10 +728,7 @@ class _KcalTrendPainter extends CustomPainter {
         inner.right,
         loY.clamp(inner.top, inner.bottom),
       );
-      canvas.drawRect(
-        band,
-        Paint()..color = textPrimary.withValues(alpha: 0.05),
-      );
+      canvas.drawRect(band, Paint()..color = bandColor);
     }
 
     // Balken: duenne Marken mit Flaechen-Luecke zwischen Nachbarn, Daten-Ende
@@ -836,7 +737,7 @@ class _KcalTrendPainter extends CustomPainter {
     final slotW = inner.width / n;
     final gapW = slotW >= 8 ? 2.0 : 1.0;
     final barW = math.min(24.0, math.max(slotW - gapW, slotW * 0.55));
-    final barPaint = Paint()..color = forgeLime.withValues(alpha: 0.92);
+    final barPaint = Paint()..color = barColor.withValues(alpha: 0.92);
     for (var i = 0; i < n; i++) {
       final day = window[i];
       if (day == null || day.kcal <= 0) continue;
@@ -857,7 +758,7 @@ class _KcalTrendPainter extends CustomPainter {
     if (goalKcal > 0) {
       final goalY = inner.bottom - (goalKcal / niceMax) * inner.height;
       final goalPaint = Paint()
-        ..color = textPrimary.withValues(alpha: 0.6)
+        ..color = goalLineColor
         ..strokeWidth = 1.4;
       canvas.drawLine(
         Offset(inner.left, goalY),
@@ -914,12 +815,7 @@ class _KcalTrendPainter extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
         text: text,
-        style: const TextStyle(
-          color: textMuted,
-          fontSize: 9,
-          fontWeight: FontWeight.w500,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
+        style: AppType.display(9, weight: FontWeight.w500, color: axisTextColor),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -934,13 +830,13 @@ class _KcalTrendPainter extends CustomPainter {
 
   void _drawEmptyHint(Canvas canvas, Size size) {
     final tp = TextPainter(
-      text: const TextSpan(
+      text: TextSpan(
         text: 'Keine Einträge in diesem Zeitraum.',
-        style: TextStyle(
-          color: textMuted,
-          fontSize: 12,
+        style: AppType.ui(
+          12,
+          weight: FontWeight.w500,
+          color: axisTextColor,
           height: 1.4,
-          fontWeight: FontWeight.w500,
         ),
       ),
       textAlign: TextAlign.center,
@@ -957,5 +853,10 @@ class _KcalTrendPainter extends CustomPainter {
       old.window != window ||
       old.goalKcal != goalKcal ||
       old.firstDay != firstDay ||
-      old.progress != progress;
+      old.progress != progress ||
+      old.gridColor != gridColor ||
+      old.barColor != barColor ||
+      old.goalLineColor != goalLineColor ||
+      old.bandColor != bandColor ||
+      old.axisTextColor != axisTextColor;
 }

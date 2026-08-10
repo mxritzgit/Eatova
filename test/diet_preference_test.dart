@@ -7,6 +7,7 @@ import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 // PROD-6: Diät-/Präferenz-Personalisierung. Ein vegetarisches/veganes Profil
 // darf NIE ein fleisch-/fischhaltiges Rezept aktiv empfohlen bekommen
@@ -99,6 +100,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: buildEatovaTheme(Brightness.dark),
           home: Scaffold(
             body: RecipesScreen(
               diet: diet,

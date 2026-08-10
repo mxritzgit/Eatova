@@ -1,383 +1,92 @@
 part of 'profile_widgets.dart';
 
-class LifetimeStatsCard extends StatelessWidget {
-  const LifetimeStatsCard({super.key, required this.stats});
-
-  final LifetimeStats stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final duration = stats.sessionDuration;
-    final since = _formatSession(duration);
-    // Anzeige-Streak: gerissene Kette zaehlt als 0, nicht der alte Stand.
-    final streak = stats.effectiveStreakOn(DateTime.now());
-    final items = <_LifetimeTile>[
-      _LifetimeTile(
-        icon: Icons.local_fire_department_rounded,
-        color: lime,
-        value: streak.toString(),
-        label: 'Streak',
-      ),
-      _LifetimeTile(
-        icon: Icons.restaurant_menu_rounded,
-        color: orange,
-        value: stats.mealsLogged.toString(),
-        label: 'Mahlzeiten',
-      ),
-      _LifetimeTile(
-        // Cyan statt orange: orange traegt schon "Mahlzeiten", und der
-        // Streak-Meilenstein ("7er Streak"-Badge unten) ist ebenfalls cyan —
-        // so bleibt jede Kachel eindeutig codiert.
-        icon: Icons.emoji_events_rounded,
-        color: cyan,
-        value: stats.longestStreak.toString(),
-        label: 'Rekord',
-      ),
-      _LifetimeTile(
-        icon: Icons.monitor_weight_outlined,
-        color: wellnessTone,
-        value: stats.weightLogs.toString(),
-        label: 'Wiegen',
-      ),
-    ];
-    return AppCard(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Deine Session',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: surfaceSoft,
-                  borderRadius: BorderRadius.circular(rChip),
-                ),
-                child: Text(
-                  since,
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          GridView.count(
-            crossAxisCount: 2,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 1.85,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: items,
-          ),
-        ],
-      ),
-    );
-  }
-
-  static String _formatSession(Duration d) {
-    if (d.inMinutes < 1) return 'gerade gestartet';
-    if (d.inMinutes < 60) return '${d.inMinutes} Min';
-    final h = d.inHours;
-    final rest = d.inMinutes % 60;
-    if (rest == 0) return '${h}h';
-    return '${h}h $rest Min';
-  }
-}
-
-class _LifetimeTile extends StatelessWidget {
-  const _LifetimeTile({
-    required this.icon,
-    required this.color,
-    required this.value,
-    required this.label,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: Icon(icon, color: color, size: 17),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.4,
-                    height: 1.1,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class AchievementsGrid extends StatelessWidget {
-  const AchievementsGrid({
+/// Eine Kennzahl-Kachel: Versalien-Label, grosse Zahl, Einheit.
+///
+/// Heisst bewusst nicht einfach `StatTile`: die Bibliothek importiert die
+/// gesamte Design-Barrel, und ein so generischer Name waere ein Kandidat fuer
+/// eine spaetere Namenskollision mit einem gemeinsamen Baustein.
+class ProfileStatTile extends StatelessWidget {
+  const ProfileStatTile({
     super.key,
-    required this.stats,
-    required this.trackingStreak,
-    required this.weightLogs,
-    required this.favoritesCount,
+    required this.label,
+    required this.value,
+    required this.unit,
   });
 
-  final LifetimeStats stats;
-
-  /// Logging-Streak (effectiveStreakOn): Tage in Folge mit >= 1 Mahlzeit.
-  final int trackingStreak;
-  final int weightLogs;
-  final int favoritesCount;
+  final String label;
+  final String value;
+  final String unit;
 
   @override
   Widget build(BuildContext context) {
-    final achievements = <_Achievement>[
-      _Achievement(
-        icon: Icons.local_fire_department_rounded,
-        title: 'Erster Streak',
-        subtitle: trackingStreak >= 1 ? 'Erreicht' : '1 Tag Essen loggen',
-        color: orange,
-        unlocked: trackingStreak >= 1,
-      ),
-      _Achievement(
-        icon: Icons.calendar_view_week_rounded,
-        title: '3er Streak',
-        subtitle: trackingStreak >= 3
-            ? 'Drei Tage am Stück'
-            : '${(3 - trackingStreak).clamp(1, 3)} bis zum Badge',
-        color: lime,
-        unlocked: trackingStreak >= 3,
-      ),
-      _Achievement(
-        icon: Icons.restaurant_rounded,
-        title: 'Foodie',
-        subtitle: stats.mealsLogged >= 5
-            ? '${stats.mealsLogged} Mahlzeiten erfasst'
-            : 'Logge 5 Mahlzeiten',
-        color: wellnessTone,
-        unlocked: stats.mealsLogged >= 5,
-      ),
-      _Achievement(
-        icon: Icons.workspace_premium_rounded,
-        title: '7er Streak',
-        subtitle: trackingStreak >= 7
-            ? 'Sieben Tage am Stück'
-            : '${(7 - trackingStreak).clamp(1, 7)} bis zum Badge',
-        color: cyan,
-        unlocked: trackingStreak >= 7,
-      ),
-      _Achievement(
-        icon: Icons.monitor_weight_rounded,
-        title: 'Tracker',
-        subtitle: weightLogs >= 2
-            ? 'Gewichtsverlauf aktiv'
-            : 'Gewicht 2× loggen',
-        color: lime,
-        unlocked: weightLogs >= 2,
-      ),
-      _Achievement(
-        icon: Icons.star_rounded,
-        title: 'Favoriten',
-        subtitle: favoritesCount >= 3
-            ? '$favoritesCount Lieblings-Mahlzeiten'
-            : '3 Mahlzeiten merken',
-        color: orange,
-        unlocked: favoritesCount >= 3,
-      ),
-    ];
-
+    final t = context.t;
     return AppCard(
-      padding: const EdgeInsets.all(18),
+      radius: 20,
+      padding: const EdgeInsets.all(15),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Text(label, style: AppType.eyebrow(t.ink2, size: 9.5)),
+          const SizedBox(height: 6),
+          // Zahl und Einheit stehen in einer halben Kartenbreite. Ohne
+          // Flexible + FittedBox platzt die Zwei-Spalten-Reihe bei
+          // textScaler 2.0 — genau die Bruchstelle aus §5 des Vertrags.
           Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Achievements',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: AppType.display(28, color: t.ink),
                   ),
                 ),
               ),
-              Text(
-                '${achievements.where((a) => a.unlocked).length}/${achievements.length}',
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                  fontFeatures: [FontFeature.tabularFigures()],
+              const SizedBox(width: 5),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    unit,
+                    style:
+                        AppType.ui(11, weight: FontWeight.w500, color: t.ink2),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          GridView.count(
-            crossAxisCount: 2,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 2.05,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [for (final a in achievements) _AchievementTile(data: a)],
-          ),
         ],
       ),
     );
   }
 }
 
-class _Achievement {
-  const _Achievement({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.unlocked,
-  });
+/// Zwei Kacheln nebeneinander, gleich hoch.
+///
+/// `IntrinsicHeight` statt einer festen Hoehe: die Kacheln duerfen mit der
+/// Systemschrift wachsen, sollen dabei aber nicht unterschiedlich hoch werden.
+class ProfileStatRow extends StatelessWidget {
+  const ProfileStatRow({super.key, required this.left, required this.right});
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final bool unlocked;
-}
-
-class _AchievementTile extends StatelessWidget {
-  const _AchievementTile({required this.data});
-
-  final _Achievement data;
+  final Widget left;
+  final Widget right;
 
   @override
   Widget build(BuildContext context) {
-    final tint = data.unlocked ? data.color : textMuted;
-    return AnimatedContainer(
-      // A11y: Unlock-Uebergang unter "Bewegung reduzieren" auf 0.
-      duration: motionDuration(context, const Duration(milliseconds: 220)),
-      curve: Curves.easeOut,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: data.unlocked
-            ? data.color.withValues(alpha: 0.10)
-            : surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(
-          color: data.unlocked
-              ? data.color.withValues(alpha: 0.40)
-              : hairline,
-        ),
-      ),
+    return IntrinsicHeight(
       child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: tint.withValues(alpha: data.unlocked ? 0.18 : 0.08),
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: Icon(data.icon, color: tint, size: 16),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  data.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: data.unlocked ? textPrimary : textPrimary
-                        .withValues(alpha: 0.7),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  data.subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 10.5,
-                    height: 1.35,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Expanded(child: left),
+          const SizedBox(width: 12),
+          Expanded(child: right),
         ],
       ),
     );
   }
 }
+

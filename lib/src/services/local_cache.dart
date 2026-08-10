@@ -5,6 +5,7 @@ import 'dart:developer' as dev;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/favorite_meal.dart';
+import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/user_profile.dart';
@@ -148,6 +149,14 @@ class LocalCache {
   String get _outboxKey => 'eatova.v1.outbox.$_userId';
   String get _pendingStatsKey => 'eatova.v1.pending_stats.$_userId';
 
+  /// Luecke A: selbst angelegte Rezepte. Sie waren die EINZIGE Nutzer-Sammlung
+  /// mit nur EINEM Sicherungsnetz — der Outbox. Faellt die aus (zugestellt,
+  /// gekappt, oder nie entstanden, weil der Live-Write ohne Timeout haengt),
+  /// war das Rezept spurlos weg, und ein Kaltstart ohne Netz zeigte gar keine
+  /// Eigen-Rezepte mehr. Jetzt derselbe Write-Through wie Tagebuch/Favoriten.
+  /// Ebenfalls PII (Zutaten/Mengen des Nutzers) -> wird in [clear] geraeumt.
+  String get _userRecipesKey => 'eatova.v1.user_recipes.$_userId';
+
   // ---- Erinnerungen (PROD-1) ----------------------------------------------
   // Opt-in-Flag fuer die lokalen Retention-Nudges. Persistiert pro User, damit
   // ein Kaltstart die geplanten Nudges nur dann wieder aufsetzt, wenn der User
@@ -169,14 +178,19 @@ class LocalCache {
 
   // ---- Profil -------------------------------------------------------------
 
+  // Wire-Format (userProfileToJson/-FromJson) liegt seit Luecke D in
+  // sync_outbox.dart: das Profil hat jetzt ZWEI Persistenzwege — diesen
+  // Cache-Slot und die Outbox-Op. Zwei Kopien desselben Mappings waeren die
+  // Falle, gegen die der Vollstaendigkeits-Test in local_cache_test
+  // geschrieben ist. Schluesselnamen und Defensiv-Verhalten sind unveraendert.
   Future<void> writeProfile(UserProfile profile) =>
-      _writeJson(_profileKey, _profileToJson(profile));
+      _writeJson(_profileKey, userProfileToJson(profile));
 
   Future<UserProfile?> readProfile() async {
     final json = await _readJson(_profileKey);
     if (json == null) return null;
     try {
-      final profile = _profileFromJson(json);
+      final profile = userProfileFromJson(json);
       if (profile == null) {
         dev.log(
             'LocalCache.readProfile: Blob unvollstaendig (Zahlenfeld fehlt/'
@@ -241,6 +255,35 @@ class LocalCache {
       return items.map(favoriteMealFromJson).toList();
     } catch (e) {
       dev.log('LocalCache.readFavorites parse failed', error: e,
+          name: 'local_cache');
+      return null;
+    }
+  }
+
+  /// Eigen-Rezepte (Luecke A). Wire-Format ist bewusst die SERVERZEILE
+  /// ([FitnessRecipe.toRow]/[FitnessRecipe.fromRow]): ein aus dem Cache
+  /// gelesenes Rezept ist damit Zeichen fuer Zeichen dasselbe wie ein frisch
+  /// geladenes — inklusive `userCreated: true` und dem festen Profi-Hinweis,
+  /// die `fromRow` setzt (die Tabelle fuehrt beide Spalten nicht).
+  Future<void> writeUserRecipes(List<FitnessRecipe> recipes) =>
+      _writeJson(_userRecipesKey, _userRecipesToJson(recipes));
+
+  static Map<String, dynamic> _userRecipesToJson(List<FitnessRecipe> recipes) =>
+      <String, dynamic>{
+        'items': recipes.map((r) => r.toRow()).toList(),
+      };
+
+  Future<List<FitnessRecipe>?> readUserRecipes() async {
+    final items = await _readItems(_userRecipesKey);
+    if (items == null) return null;
+    try {
+      return items.map(FitnessRecipe.fromRow).toList();
+    } catch (e) {
+      // Wie bei Tagebuch/Favoriten: der Slot faellt ALS GANZES aus (null),
+      // der Server-Load bzw. der naechste Write fixt ihn. Ein Rezept ohne
+      // slug wirft in fromRow — der slug ist der Konflikt-Schluessel des
+      // Upserts und darf nie erfunden werden (Sentinel-Rest S4).
+      dev.log('LocalCache.readUserRecipes parse failed', error: e,
           name: 'local_cache');
       return null;
     }
@@ -339,25 +382,28 @@ class LocalCache {
     await _store.remove(_loggedMealsKey);
     await _store.remove(_favoritesKey);
     await _store.remove(_weightLogKey);
+    // Eigen-Rezepte sind Nutzerinhalt (Zutaten, Mengen) und fallen damit unter
+    // dieselbe M-1-Begruendung wie das Tagebuch — auch bei [preserveOutbox].
+    await _store.remove(_userRecipesKey);
     if (preserveOutbox) return;
     await _store.remove(_outboxKey);
     await _store.remove(_pendingStatsKey);
   }
 
   // ---- Entprellte Blob-Writes (G9b) ---------------------------------------
-  // Tagebuch, Favoriten und Gewichts-Log sind reine Spiegel des Server-Stands
-  // und werden bei JEDER Mutation komplett neu geschrieben — jedes Mal der
-  // ganze Blob durch jsonEncode + AES-GCM + base64. Gemessen: 91,5 ms bei 210
-  // Mahlzeiten auf Desktop-JIT, mobiles AOT-ARM 2-4x langsamer. Eine
-  // Fuenfer-Serie (hinzufuegen, korrigieren, loeschen, ...) kostete das
-  // fuenfmal, weil jeder Aufruf sofort schrieb.
+  // Tagebuch, Favoriten, Gewichts-Log und Eigen-Rezepte sind Spiegel des
+  // Server-Stands und werden bei JEDER Mutation komplett neu geschrieben —
+  // jedes Mal der ganze Blob durch jsonEncode + AES-GCM + base64. Gemessen:
+  // 91,5 ms bei 210 Mahlzeiten auf Desktop-JIT, mobiles AOT-ARM 2-4x
+  // langsamer. Eine Fuenfer-Serie (hinzufuegen, korrigieren, loeschen, ...)
+  // kostete das fuenfmal, weil jeder Aufruf sofort schrieb.
   //
   // Die entprellten Varianten fassen alle Aufrufe innerhalb von
   // [writeDebounce] zu EINEM Write pro Slot zusammen.
   //
   // BEWUSST NICHT entprellt sind die Outbox und die pendenden Stats-Deltas:
   // die SIND der Kill-Sicherungs-Mechanismus (DATA-7) und muessen sofort auf
-  // der Platte liegen. Ein Verlust der drei Spiegel-Slots kostet dagegen nur
+  // der Platte liegen. Ein Verlust der vier Spiegel-Slots kostet dagegen nur
   // einen Netz-Load beim naechsten Kaltstart — die zugehoerigen Writes leben
   // ohnehin in der (sofort persistierten) Outbox. Profil und lifetime_stats
   // bleiben ebenfalls sofort: kleine Maps, vernachlaessigbare Krypto-Kosten.
@@ -390,6 +436,13 @@ class LocalCache {
   /// Entprellter Write-Through fuers Gewichts-Log.
   void writeWeightLogDebounced(WeightLog log) =>
       _scheduleWrite(_weightLogKey, _weightLogToJson(log));
+
+  /// Entprellter Write-Through fuer die Eigen-Rezepte (Luecke A). Gleiche
+  /// Begruendung wie oben: der Slot wird bei jeder Mutation komplett neu
+  /// geschrieben, und ein Verlust kostet nur einen Netz-Load — der zugehoerige
+  /// Write liegt in der (sofort persistierten) Outbox.
+  void writeUserRecipesDebounced(List<FitnessRecipe> recipes) =>
+      _scheduleWrite(_userRecipesKey, _userRecipesToJson(recipes));
 
   /// Schreibt alle ausstehenden entprellten Writes SOFORT weg.
   ///
@@ -477,94 +530,9 @@ class LocalCache {
   // ---- (De)Serialisierung -------------------------------------------------
   // Bewusst hier statt auf den Modellen: die Modelle bleiben unveraendert
   // (keine fremden Aenderungen ausserhalb meiner File-Ownership), und der
-  // Cache besitzt sein eigenes, versioniertes Wire-Format.
-
-  static Map<String, dynamic> _profileToJson(UserProfile p) => <String, dynamic>{
-        'weight_kg': p.weightKg,
-        'height_cm': p.heightCm,
-        'age_years': p.ageYears,
-        'sex': p.sex.name,
-        'activity_level': p.activityLevel.name,
-        'target_weight_kg': p.targetWeightKg,
-        'daily_steps_goal': p.dailyStepsGoal,
-        'daily_kcal_goal': p.dailyKcalGoal,
-        'daily_water_goal_ml': p.dailyWaterGoalMl,
-        'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
-        'protein_goal_g': p.proteinGoalG,
-        'carbs_goal_g': p.carbsGoalG,
-        'fat_goal_g': p.fatGoalG,
-        'weight_goal': p.weightGoal.name,
-        // A7: MUSS mitgeschrieben werden. Der Cache ist die ERSTE
-        // Hydrationsquelle und setzt dabei die Clobber-Sperre
-        // (_hydratedFromRealSource). Fehlte der Schluessel, fiel `diet` beim
-        // Kaltstart still auf den Ctor-Default none zurueck — und der naechste
-        // profile.save() schrieb dieses none dauerhaft auf den Server, ohne
-        // dass der User es ueber die UI je wieder haette reparieren koennen.
-        // Schluesselname wie serverseitig: profiles.diet_preference.
-        'diet_preference': p.diet.name,
-        'onboarding_completed': p.onboardingCompleted,
-      };
-
-  /// Sentinel-Fund 3 (Nachverifikation 2026-08-08): fehlende/unlesbare
-  /// Zahlenfelder wurden hier mit erfundenen Werten aufgefuellt (78 kg,
-  /// 178 cm, 2200 kcal, ...) — und die Cache-Hydration setzte damit die
-  /// Clobber-Sperre (_hydratedFromRealSource), der naechste profile.save()
-  /// schrieb die Fantasie dauerhaft auf den Server: der A7-Mechanismus fuer
-  /// die Zahlenfelder. Ein Blob, dem Zahlen fehlen (Alt-Build vor einer
-  /// Felderweiterung, korrupte Zeile), ist deshalb ALS GANZES keine
-  /// Hydrationsquelle: null — der Server-Load direkt nach der Cache-Hydration
-  /// liefert die Wahrheit. Die Enum-Felder bleiben bewusst nachsichtig (A7:
-  /// kuenftige Enum-Werte fallen lesbar zurueck — sie erfinden Einordnungen,
-  /// keine Messwerte).
-  static UserProfile? _profileFromJson(Map<String, dynamic> j) {
-    final weightKg = _intOrNull(j['weight_kg']);
-    final heightCm = _intOrNull(j['height_cm']);
-    final ageYears = _intOrNull(j['age_years']);
-    final targetWeightKg = _intOrNull(j['target_weight_kg']);
-    final dailyStepsGoal = _intOrNull(j['daily_steps_goal']);
-    final dailyKcalGoal = _intOrNull(j['daily_kcal_goal']);
-    final dailyWaterGoalMl = _intOrNull(j['daily_water_goal_ml']);
-    final dailySleepGoalMinutes = _intOrNull(j['daily_sleep_goal_minutes']);
-    final proteinGoalG = _intOrNull(j['protein_goal_g']);
-    final carbsGoalG = _intOrNull(j['carbs_goal_g']);
-    final fatGoalG = _intOrNull(j['fat_goal_g']);
-    if (weightKg == null ||
-        heightCm == null ||
-        ageYears == null ||
-        targetWeightKg == null ||
-        dailyStepsGoal == null ||
-        dailyKcalGoal == null ||
-        dailyWaterGoalMl == null ||
-        dailySleepGoalMinutes == null ||
-        proteinGoalG == null ||
-        carbsGoalG == null ||
-        fatGoalG == null) {
-      return null;
-    }
-    return UserProfile(
-      weightKg: weightKg,
-      heightCm: heightCm,
-      ageYears: ageYears,
-      sex: _enumByName(BiologicalSex.values, j['sex'], BiologicalSex.neutral),
-      activityLevel: _enumByName(
-          ActivityLevel.values, j['activity_level'], ActivityLevel.sedentary),
-      targetWeightKg: targetWeightKg,
-      dailyStepsGoal: dailyStepsGoal,
-      dailyKcalGoal: dailyKcalGoal,
-      dailyWaterGoalMl: dailyWaterGoalMl,
-      dailySleepGoalMinutes: dailySleepGoalMinutes,
-      proteinGoalG: proteinGoalG,
-      carbsGoalG: carbsGoalG,
-      fatGoalG: fatGoalG,
-      weightGoal:
-          _enumByName(WeightGoal.values, j['weight_goal'], WeightGoal.maintain),
-      // Gegenstueck zu 'diet_preference' oben. Unbekannte/fehlende Werte
-      // (Alt-Eintrag vor A7, kuenftige Enum-Werte) fallen auf none.
-      diet: _enumByName(
-          DietPreference.values, j['diet_preference'], DietPreference.none),
-      onboardingCompleted: j['onboarding_completed'] == true,
-    );
-  }
+  // Cache besitzt sein eigenes, versioniertes Wire-Format. Das Profil-Mapping
+  // ist seit Luecke D die Ausnahme: es liegt in sync_outbox.dart, weil Cache
+  // UND Outbox-Op dieselben Bytes brauchen (Begruendung dort).
 
   static Map<String, dynamic> _statsToJson(LifetimeStats s) => <String, dynamic>{
         'workouts_completed': s.workoutsCompleted,
@@ -578,20 +546,10 @@ class LocalCache {
             s.lastTrackedDate == null ? null : _dateOnly(s.lastTrackedDate!),
       };
 
-  static int _int(Object? v, int fallback) => _intOrNull(v) ?? fallback;
-
-  static int? _intOrNull(Object? v) {
+  static int _int(Object? v, int fallback) {
     if (v is int) return v;
     if (v is num) return v.toInt();
-    if (v is String) return int.tryParse(v);
-    return null;
-  }
-
-  static T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
-    if (raw is! String) return fallback;
-    for (final v in values) {
-      if (v.name == raw) return v;
-    }
+    if (v is String) return int.tryParse(v) ?? fallback;
     return fallback;
   }
 

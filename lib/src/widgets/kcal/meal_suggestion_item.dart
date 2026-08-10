@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 
 import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../common/motion.dart';
 
 /// Gemeinsames Item-Widget fuer Suchtreffer, Favoriten und letzte
 /// Mahlzeiten im AddMealSheet.
@@ -21,7 +22,7 @@ class MealSuggestionItem extends StatefulWidget {
     required this.onAdd,
     this.imageUrl,
     this.fallbackIcon = Icons.fastfood_outlined,
-    this.accent = lime,
+    this.accent,
     this.justAdded = false,
     this.onRemove,
     this.addButtonKey,
@@ -36,7 +37,11 @@ class MealSuggestionItem extends StatefulWidget {
   final ValueChanged<MealAnalysisResult> onAdd;
   final String? imageUrl;
   final IconData fallbackIcon;
-  final Color accent;
+
+  /// Akzent des Kaertchens. Null -> [AppTokens.accent]; eine Konstante als
+  /// Default ginge nicht mehr, seit die Farbe vom Anzeige-Modus abhaengt.
+  final Color? accent;
+
   final bool justAdded;
   final VoidCallback? onRemove;
   final Key? addButtonKey;
@@ -182,28 +187,18 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     // Tatsache. Jede Portionsaenderung laeuft ueber setState, der Knopf
     // haelt also nie ein veraltetes Ergebnis.
     final angepasst = _adjusted;
+    final t = context.t;
+    final accent = widget.accent ?? t.accent;
 
-    // Soft-Kapsel statt Akzent-Rahmen (Design-Vorgabe „keine Hairlines"):
-    // aufgeklappt hebt sich die Karte ueber Flaechen-Aufhellung + cardShadow
-    // und einen weichen Akzent-Schein ab — nicht ueber eine 1.2-px-Linie.
+    // Ruhige Karte der neuen Sprache: 1-px-Rand statt Schatten. Aufgeklappt
+    // hebt sie sich ueber die hellere Flaeche ab, nicht ueber eine Erhebung.
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
+      duration: motionDuration(context, const Duration(milliseconds: 180)),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: widget.expanded
-            ? Color.alphaBlend(Colors.white.withValues(alpha: 0.035), surface)
-            : surfaceSoft,
+        color: widget.expanded ? t.surf : t.surf2,
         borderRadius: BorderRadius.circular(rCard),
-        boxShadow: widget.expanded
-            ? [
-                ...cardShadow,
-                BoxShadow(
-                  color: widget.accent.withValues(alpha: 0.10),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ]
-            : null,
+        border: Border.all(color: widget.expanded ? accent : t.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -212,7 +207,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
             result: widget.result,
             imageUrl: widget.imageUrl,
             fallbackIcon: widget.fallbackIcon,
-            accent: widget.accent,
+            accent: accent,
             expanded: widget.expanded,
             justAdded: widget.justAdded,
             onTap: widget.onTap,
@@ -222,12 +217,12 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
             favoriteButtonKey: widget.favoriteButtonKey,
           ),
           AnimatedSize(
-            duration: const Duration(milliseconds: 180),
+            duration: motionDuration(context, const Duration(milliseconds: 180)),
             curve: Curves.easeOutCubic,
             alignment: Alignment.topCenter,
             child: widget.expanded
                 ? _ExpandedBody(
-                    accent: widget.accent,
+                    accent: accent,
                     grams: _grams,
                     gramsController: _gramsController,
                     preview: angepasst,
@@ -287,6 +282,7 @@ class _Header extends StatelessWidget {
     // `adjustedToGrams(100).caloriesKcal` ist genau die Dichte, die aus
     // caloriesKcal und estimatedGrams folgt — dieselbe Rechnung, die auch
     // geloggt wird, statt des rohen Nebenfelds `kcalPer100G`.
+    final t = context.t;
     final per100 = result.adjustedToGrams(100).caloriesKcal;
     final subtitle = per100 > 0
         ? '$per100 kcal / 100 g'
@@ -313,10 +309,10 @@ class _Header extends StatelessWidget {
                     result.mealName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.1,
+                    style: AppType.ui(
+                      13.5,
+                      weight: FontWeight.w700,
+                      color: t.ink,
                       height: 1.2,
                     ),
                   ),
@@ -325,11 +321,10 @@ class _Header extends StatelessWidget {
                     subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                    style: AppType.display(
+                      11.5,
+                      weight: FontWeight.w500,
+                      color: t.ink2,
                     ),
                   ),
                 ],
@@ -348,9 +343,9 @@ class _Header extends StatelessWidget {
                   isFavorite
                       ? Icons.favorite_rounded
                       : Icons.favorite_outline_rounded,
-                  // lime ist die reservierte Aktionsfarbe — bewusst NICHT der
-                  // (oft orange) Item-Akzent.
-                  color: isFavorite ? lime : textMuted,
+                  // Der Marken-Akzent ist die reservierte Aktionsfarbe —
+                  // bewusst NICHT der (kategorische) Item-Akzent.
+                  color: isFavorite ? t.accent : t.ink2,
                   size: 18,
                 ),
               ),
@@ -426,12 +421,13 @@ class _Trailing extends StatelessWidget {
         child: Icon(Icons.check_circle_rounded, color: accent, size: 22),
       );
     }
+    final t = context.t;
     final chevron = AnimatedRotation(
-      duration: const Duration(milliseconds: 180),
+      duration: motionDuration(context, const Duration(milliseconds: 180)),
       turns: expanded ? 0.5 : 0,
-      child: const Icon(
+      child: Icon(
         Icons.keyboard_arrow_down_rounded,
-        color: textMuted,
+        color: t.ink2,
         size: 22,
       ),
     );
@@ -445,7 +441,7 @@ class _Trailing extends StatelessWidget {
           onPressed: onRemove,
           tooltip: 'Entfernen',
           visualDensity: VisualDensity.compact,
-          icon: const Icon(Icons.close_rounded, color: textMuted, size: 15),
+          icon: Icon(Icons.close_rounded, color: t.ink2, size: 15),
         ),
         chevron,
         const SizedBox(width: 4),
@@ -493,6 +489,7 @@ class _ExpandedBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
       child: Column(
@@ -527,14 +524,14 @@ class _ExpandedBody extends StatelessWidget {
           ),
           if (gramsInvalid) ...[
             const SizedBox(height: 6),
-            const Text(
+            Text(
               'Portion zwischen ${PlausibilityLimits.portionGramsMin} und '
               '${PlausibilityLimits.portionGramsMax} g.',
-              key: ValueKey('kcal-suggestion-grams-hint'),
-              style: TextStyle(
-                color: warning,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+              key: const ValueKey('kcal-suggestion-grams-hint'),
+              style: AppType.ui(
+                11,
+                weight: FontWeight.w600,
+                color: t.warning,
               ),
             ),
           ],
@@ -542,7 +539,7 @@ class _ExpandedBody extends StatelessWidget {
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: accent,
-              inactiveTrackColor: hairline,
+              inactiveTrackColor: t.tile,
               thumbColor: accent,
               overlayColor: accent.withValues(alpha: 0.15),
               trackHeight: 4,
@@ -570,13 +567,13 @@ class _ExpandedBody extends StatelessWidget {
               key: addButtonKey,
               onPressed: onAdd,
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text(
+              label: Text(
                 'Hinzufügen',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                style: AppType.ui(14, weight: FontWeight.w700),
               ),
               style: FilledButton.styleFrom(
-                backgroundColor: accent,
-                foregroundColor: bg,
+                backgroundColor: t.forest,
+                foregroundColor: t.onForest,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(rControl),
@@ -622,8 +619,7 @@ class _StepperButton extends StatelessWidget {
           width: 46,
           height: 46,
           decoration: BoxDecoration(
-            color: Color.alphaBlend(
-                Colors.white.withValues(alpha: 0.05), surfaceSoft),
+            color: context.t.tile,
             borderRadius: BorderRadius.circular(rPill),
           ),
           child: Icon(icon, size: 21, color: accent),
@@ -668,15 +664,15 @@ class _GramsFieldState extends State<_GramsField> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+      duration: motionDuration(context, const Duration(milliseconds: 160)),
       curve: Curves.easeOutCubic,
       height: 48,
       decoration: BoxDecoration(
-        color: Color.alphaBlend(
-          Colors.white.withValues(alpha: _focused ? 0.065 : 0.035),
-          surfaceSoft,
-        ),
+        // Fokus = Flaechen-Aufhellung, kein Ring: `surf` liegt in beiden Modi
+        // eine Stufe ueber `tile` und uebernimmt genau diese Rolle.
+        color: _focused ? t.surf : t.tile,
         borderRadius: BorderRadius.circular(rPill),
       ),
       child: Row(
@@ -703,12 +699,7 @@ class _GramsFieldState extends State<_GramsField> {
                 LengthLimitingTextInputFormatter(5),
               ],
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
+              style: AppType.display(18, color: t.ink),
               decoration: const InputDecoration(
                 // Theme-Borders explizit ausnullen: das globale
                 // inputDecorationTheme traegt Hairline + Lime-Fokusring.
@@ -722,13 +713,9 @@ class _GramsFieldState extends State<_GramsField> {
             ),
           ),
           const SizedBox(width: 3),
-          const Text(
+          Text(
             'g',
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
+            style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
           ),
         ],
       ),
@@ -751,29 +738,23 @@ class _LivePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        const Text(
+        Text(
           '=',
-          style: TextStyle(
-            color: textMuted,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+          style: AppType.ui(
+            14,
+            weight: FontWeight.w500,
+            color: t.ink2,
             height: 1.0,
           ),
         ),
         const SizedBox(width: 8),
         Text(
           '$kcal kcal',
-          style: const TextStyle(
-            color: textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.4,
-            height: 1.0,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
+          style: AppType.display(20, color: t.ink, height: 1.0),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -782,12 +763,10 @@ class _LivePreview extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.1,
-              fontFeatures: [FontFeature.tabularFigures()],
+            style: AppType.display(
+              11.5,
+              weight: FontWeight.w600,
+              color: t.ink2,
             ),
           ),
         ),

@@ -16,6 +16,7 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // B4 (2026-08-08): Der Store kannte keinen Tageswechsel. `selectedFoodDate`
 // wurde nur bei der Feld-Initialisierung, bei einem expliziten Nutzer-Tap
@@ -46,7 +47,7 @@ import 'package:eatova/src/services/notification_service.dart';
 void _noopSnack(
   String message, {
   IconData icon = Icons.info_outline,
-  Color accent = Colors.white,
+  SnackTone tone = SnackTone.positive,
   Duration? duration,
   SnackBarAction? action,
 }) {}

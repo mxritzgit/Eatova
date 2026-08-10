@@ -19,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 /// Viewport-Pinning + Overflow-Toleranz wie in den uebrigen Widget-Suiten.
@@ -95,6 +96,9 @@ const _mitMakros = MealAnalysisResult(
 /// weiterreichen wuerde.
 Widget _host(MealAnalysisResult result, void Function(Object?) onResult) {
   return MaterialApp(
+    // Die Anpassen-Flaechen lesen ihre Farben seit dem Design-Refactor aus der
+    // AppTokens-ThemeExtension — ohne Eatova-Theme wirft AppTokens.of bewusst.
+    theme: buildEatovaTheme(Brightness.dark),
     home: Scaffold(
       body: Builder(
         builder: (context) => TextButton(

@@ -62,7 +62,7 @@ Future<void> _pumpFoodTab(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: SafeArea(
           child: Padding(

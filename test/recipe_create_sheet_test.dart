@@ -6,6 +6,8 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 // D5: Sheets verwerfen ausgefuellte Formulare kommentarlos.
 //
@@ -62,15 +64,25 @@ void testWidgetsRobust(String description, WidgetTesterCallback callback) {
 
 class _CreateCapture {
   final List<FitnessRecipe> created = <FitnessRecipe>[];
+
+  /// Seit Luecke E meldet der Hook zurueck, was mit dem Rezept passiert ist —
+  /// hier immer „zugestellt", diese Suite prueft den Verwerfen-Schutz und die
+  /// Feldvalidierung, nicht die Sync-Rueckmeldung (die liegt in
+  /// recipes_save_feedback_test.dart).
+  Future<SyncDelivery> add(FitnessRecipe recipe) async {
+    created.add(recipe);
+    return SyncDelivery.delivered;
+  }
 }
 
 Future<void> _openSheet(WidgetTester tester, _CreateCapture capture) async {
   await tester.pumpWidget(
     MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: RecipesScreen(
           onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-          onCreateRecipe: capture.created.add,
+          onCreateRecipe: capture.add,
         ),
       ),
     ),

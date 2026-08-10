@@ -1,10 +1,10 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Composer (AI Coach v2): rahmenlose Soft-Pill (surfaceSoft + cardShadow),
-// "+"-Attach links, Text, Mic + runder Send-Kreis rechts (faerbt sich mit
-// Draft in coachAccent). Fokus hellt die Flaeche dezent auf; bei knapper
-// Quota sitzt ein tappbarer Hinweis-Pill darueber.
+// Composer nach der Design-Vorlage: Kapsel auf `surf` mit 1-px-Rand, „+"
+// links, Text, Mic und der Senden-Knopf als Forest-Kachel mit Lime-Pfeil.
+// Fokus hellt die Flaeche auf `surf2` auf, statt einen Ring zu ziehen; bei
+// knapper Quota sitzt ein tappbarer Hinweis darueber.
 // ---------------------------------------------------------------------------
 class _Composer extends StatefulWidget {
   const _Composer({
@@ -64,42 +64,43 @@ class _ComposerState extends State<_Composer> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final hasText = widget.draft.trim().isNotEmpty;
     final showQuotaHint = widget.remaining > 0 && widget.remaining <= 2;
+    // Kein viewInsets-Zuschlag wie in der Vorlage: der Home-Scaffold hat fuer
+    // den Coach `resizeToAvoidBottomInset: true`, die Tastatur ist also schon
+    // einmal ausgeglichen.
     return SafeArea(
       top: false,
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        children: [
+        children: <Widget>[
           if (showQuotaHint)
             _QuotaHint(remaining: widget.remaining, onTap: widget.onQuotaTap),
           AnimatedContainer(
             duration: motionDuration(context, const Duration(milliseconds: 200)),
             curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            // Horizontal 0: der Seitenrand kommt aus der Schale.
+            margin: const EdgeInsets.only(bottom: 4),
             constraints: const BoxConstraints(minHeight: 52, maxHeight: 160),
-            padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
             decoration: BoxDecoration(
-              // Rahmenlos: weiche, erhabene Kapsel im Premium-Dark-Stil
-              // (cardShadow statt Stroke). Fokus hellt die Flaeche dezent auf,
-              // statt einen Ring zu ziehen.
-              color: _focused
-                  ? Color.alphaBlend(
-                      Colors.white.withValues(alpha: 0.045),
-                      surfaceSoft,
-                    )
-                  : surfaceSoft,
-              borderRadius: BorderRadius.circular(26),
-              boxShadow: cardShadow,
+              color: _focused ? t.surf2 : t.surf,
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(color: t.line),
+              // Die einzige erhabene Flaeche des Screens: der Composer liegt
+              // ueber der scrollenden Liste.
+              boxShadow: softShadow(t),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
+              children: <Widget>[
                 _ComposerIcon(
                   key: const ValueKey('coach-attach'),
                   icon: Icons.add_rounded,
                   enabled: widget.canSend,
                   onTap: widget.onAttach,
+                  semanticLabel: 'Foto anhängen',
                 ),
                 const SizedBox(width: 2),
                 Expanded(
@@ -113,17 +114,22 @@ class _ComposerState extends State<_Composer> {
                     minLines: 1,
                     textInputAction: TextInputAction.newline,
                     textCapitalization: TextCapitalization.sentences,
-                    style: const TextStyle(
-                      color: textPrimary,
-                      fontSize: 15.5,
-                      height: 1.3,
-                      letterSpacing: -0.1,
-                    ),
-                    cursorColor: coachAccent,
+                    style: AppType.ui(15.5, color: t.ink, height: 1.3),
+                    cursorColor: t.accent,
                     decoration: InputDecoration(
+                      // Alle vier Raender UND `filled` muessen hier stehen:
+                      // der inputDecorationTheme der App fuellt Felder und
+                      // umrandet sie. Nur `border` zu setzen liesse einen
+                      // zweiten gefuellten, gerahmten Kasten in der Kapsel
+                      // stehen (dasselbe Muster wie SheetField).
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
                       isCollapsed: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 14, horizontal: 6),
                       // C8: der Platzhalter nennt die KI — im Leerzustand
                       // steht der Hinweis im Hero, im laufenden Chat ist der
                       // Composer die einzige Stelle, die immer sichtbar ist.
@@ -132,12 +138,7 @@ class _ComposerState extends State<_Composer> {
                           : widget.listening
                               ? 'Ich höre zu…'
                               : 'Frag den KI-Coach…',
-                      hintStyle: const TextStyle(
-                        color: textMuted,
-                        fontSize: 15.5,
-                        letterSpacing: -0.1,
-                      ),
-                      border: InputBorder.none,
+                      hintStyle: AppType.ui(15.5, color: t.ink2),
                     ),
                   ),
                 ),
@@ -162,8 +163,8 @@ class _ComposerState extends State<_Composer> {
   }
 }
 
-/// Dezenter Status-Pill ueber dem Composer, sobald nur noch 1–2 Coach-Fragen
-/// uebrig sind. Tap oeffnet das Quota-Sheet.
+/// Dezenter Status-Hinweis ueber dem Composer, sobald nur noch 1–2
+/// Coach-Fragen uebrig sind. Tap oeffnet das Quota-Sheet.
 class _QuotaHint extends StatelessWidget {
   const _QuotaHint({required this.remaining, required this.onTap});
 
@@ -172,40 +173,40 @@ class _QuotaHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    final shape = StadiumBorder(side: BorderSide(color: t.line));
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Center(
         child: Material(
           key: const ValueKey('coach-quota-hint'),
-          color: surfaceSoft,
-          shape: const StadiumBorder(),
+          color: t.surf,
+          shape: shape,
           child: InkWell(
-            customBorder: const StadiumBorder(),
+            customBorder: shape,
             onTap: onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-                children: [
+                children: <Widget>[
                   Container(
                     width: 6,
                     height: 6,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: coachAccent,
-                    ),
+                    decoration:
+                        BoxDecoration(shape: BoxShape.circle, color: t.lime),
                   ),
                   const SizedBox(width: 7),
-                  Text(
-                    remaining == 1
-                        ? 'Noch 1 Frage heute'
-                        : 'Noch $remaining Fragen heute',
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.1,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                  Flexible(
+                    child: Text(
+                      remaining == 1
+                          ? 'Noch 1 Frage heute'
+                          : 'Noch $remaining Fragen heute',
+                      style: AppType.ui(
+                        11.5,
+                        weight: FontWeight.w600,
+                        color: t.ink2,
+                      ),
                     ),
                   ),
                 ],
@@ -224,32 +225,44 @@ class _ComposerIcon extends StatelessWidget {
     required this.icon,
     required this.enabled,
     required this.onTap,
+    required this.semanticLabel,
   });
 
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
 
+  /// Pflicht, nicht optional: der Knopf zeigt AUSSCHLIESSLICH ein Glyph.
+  /// Ohne Namen kuendigt ein Screenreader ihn als „Schaltflaeche" an — der
+  /// Nutzer erfaehrt nie, was sie tut.
+  final String semanticLabel;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          customBorder: const CircleBorder(),
-          child: SizedBox(
-            width: 38,
-            height: 44,
-            child: Center(
-              // Schlichtes Glyph ohne Chip (AI Coach v2) — die Pill selbst
-              // traegt die Flaeche.
-              child: Icon(
-                icon,
-                color: enabled ? textMuted : textMuted.withValues(alpha: 0.5),
-                size: 20,
+    final t = context.t;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: semanticLabel,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Material(
+          color: Colors.transparent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            onTap: enabled ? onTap : null,
+            customBorder: const CircleBorder(),
+            child: SizedBox(
+              width: 38,
+              height: 44,
+              child: Center(
+                // Schlichtes Glyph ohne Chip — die Kapsel selbst traegt die
+                // Flaeche.
+                child: Icon(
+                  icon,
+                  color: enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5),
+                  size: 20,
+                ),
               ),
             ),
           ),
@@ -260,7 +273,14 @@ class _ComposerIcon extends StatelessWidget {
 }
 
 /// Mic-Button rechts im Composer. Waehrend [listening] pulsiert ein weicher
-/// Akzent-Ring hinter dem Icon (unter "Bewegung reduzieren": statisch getoent).
+/// Akzent-Ring hinter dem Icon (unter „Bewegung reduzieren": statisch getoent).
+///
+/// Der Zuhoer-Zustand faerbt sich in [AppTokens.accent], NICHT in `lime`:
+/// `lime` ist eine Flaechenfarbe und traegt nur mit `onLime` darauf. Als
+/// Strich auf der hellen Composer-Kapsel (`surf` = #FFFDF8) kaeme es im
+/// Hellmodus auf rund 1,2:1 — das Mikro saehe aus, als sei nichts passiert,
+/// obwohl es zuhoert. `accent` ist genau dafuer da (hell: forest, dunkel:
+/// lime) und traegt in beiden Modi.
 class _MicButton extends StatefulWidget {
   const _MicButton({
     required this.enabled,
@@ -313,49 +333,59 @@ class _MicButtonState extends State<_MicButton>
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     final color = widget.listening
-        ? coachAccent
-        : (widget.enabled ? textMuted : textMuted.withValues(alpha: 0.5));
-    return Padding(
+        ? t.accent
+        : (widget.enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5));
+    return Semantics(
       key: const ValueKey('coach-mic'),
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: widget.listening
-            ? coachAccent.withValues(alpha: 0.14)
-            : Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: widget.enabled ? widget.onTap : null,
-          customBorder: const CircleBorder(),
-          child: SizedBox(
-            width: 42,
-            height: 44,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (widget.listening && !reduce)
-                  RepaintBoundary(
-                    child: AnimatedBuilder(
-                      animation: _pulse,
-                      builder: (_, __) {
-                        final t = _pulse.value;
-                        return Container(
-                          width: 24 + 14 * t,
-                          height: 24 + 14 * t,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: coachAccent.withValues(alpha: 0.5 * (1 - t)),
-                              width: 1.5,
+      button: true,
+      enabled: widget.enabled,
+      // Der Knopf ist ein Umschalter: der Zustand gehoert in den Namen, sonst
+      // erfaehrt ein Screenreader-Nutzer nie, dass gerade aufgenommen wird.
+      label: widget.listening ? 'Spracheingabe beenden' : 'Spracheingabe',
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Material(
+        // Auch die Fuellung ueber `accent`: `forest` bei 18 % liegt im
+        // Dunkelmodus praktisch auf `surf` und war dort unsichtbar.
+          color: widget.listening
+              ? t.accent.withValues(alpha: 0.16)
+              : Colors.transparent,
+          shape: const CircleBorder(),
+          child: InkWell(
+            onTap: widget.enabled ? widget.onTap : null,
+            customBorder: const CircleBorder(),
+            child: SizedBox(
+              width: 42,
+              height: 44,
+              child: Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  if (widget.listening && !reduce)
+                    RepaintBoundary(
+                      child: AnimatedBuilder(
+                        animation: _pulse,
+                        builder: (_, __) {
+                          final v = _pulse.value;
+                          return Container(
+                            width: 24 + 14 * v,
+                            height: 24 + 14 * v,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: t.accent.withValues(alpha: 0.5 * (1 - v)),
+                                width: 1.5,
+                              ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                Icon(Icons.mic_none_rounded, color: color, size: 20),
-              ],
+                  Icon(Icons.mic_none_rounded, color: color, size: 20),
+                ],
+              ),
             ),
           ),
         ),
@@ -364,8 +394,8 @@ class _MicButtonState extends State<_MicButton>
   }
 }
 
-/// Runder Send-Kreis (AI Coach v2): faerbt sich mit vorhandenem Draft in
-/// coachAccent, sonst dezente Ruhe-Flaeche.
+/// Senden-Knopf nach der Vorlage: Forest-Kachel mit Lime-Pfeil, sobald ein
+/// Entwurf im Feld steht; sonst ruhige Kachel.
 class _SendButton extends StatelessWidget {
   const _SendButton({
     required this.active,
@@ -379,27 +409,38 @@ class _SendButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-      child: GestureDetector(
-        key: const ValueKey('coach-send'),
-        onTap: enabled ? onTap : null,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: motionDuration(context, const Duration(milliseconds: 200)),
-          curve: Curves.easeOutCubic,
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: active && enabled
-                ? coachAccent
-                : textPrimary.withValues(alpha: 0.08),
-          ),
-          child: Icon(
-            Icons.arrow_upward_rounded,
-            color: active && enabled ? Colors.white : textMuted,
-            size: 18,
+    final t = context.t;
+    final scharf = active && enabled;
+    // Ein blanker GestureDetector traegt gar keine Semantik: der Knopf war
+    // fuer TalkBack/VoiceOver weder benannt NOCH als Schaltflaeche erkennbar —
+    // der Coach liess sich mit Screenreader schlicht nicht abschicken.
+    // `enabled` gehoert dazu, damit der gesperrte Zustand angesagt wird,
+    // statt wie ein wirkungsloser Knopf zu klingen.
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: 'Senden',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        child: GestureDetector(
+          key: const ValueKey('coach-send'),
+          onTap: enabled ? onTap : null,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedContainer(
+            duration:
+                motionDuration(context, const Duration(milliseconds: 200)),
+            curve: Curves.easeOutCubic,
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(13),
+              color: scharf ? t.forest : t.tile,
+            ),
+            child: Icon(
+              Icons.send_rounded,
+              color: scharf ? t.lime : t.ink2,
+              size: 16,
+            ),
           ),
         ),
       ),
@@ -407,7 +448,7 @@ class _SendButton extends StatelessWidget {
   }
 }
 
-/// Zeile im Attach-Sheet ("+"): Icon-Kachel + Label, Sheet-Pattern der App.
+/// Zeile im Attach-Sheet („+"): Icon-Kachel + Label.
 class _AttachTile extends StatelessWidget {
   const _AttachTile({
     super.key,
@@ -422,6 +463,7 @@ class _AttachTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(rCard),
@@ -431,24 +473,14 @@ class _AttachTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
           child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: surfaceSoft,
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: Icon(icon, size: 18, color: textPrimary),
-              ),
+            children: <Widget>[
+              IconTile(icon: icon, size: 36),
               const SizedBox(width: 12),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.2,
+              Flexible(
+                child: Text(
+                  label,
+                  style:
+                      AppType.ui(15, weight: FontWeight.w600, color: t.ink),
                 ),
               ),
             ],
@@ -460,7 +492,7 @@ class _AttachTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-/// Sheet hinter dem (i) in der Top-Bar und hinter dem Hinweis im Leerzustand.
+/// Sheet hinter dem (i) im Kopf und hinter dem Hinweis im Leerzustand.
 ///
 /// C8: vorher stand hier NUR das Tageskontingent — dass jede Nachricht einen
 /// Tages-Snapshot (Gewicht, Ziel, Kalorien, offene Makros, Namen der heute
@@ -475,6 +507,7 @@ class _CoachInfoSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return SafeArea(
       top: false,
       child: ConstrainedBox(
@@ -482,37 +515,23 @@ class _CoachInfoSheet extends StatelessWidget {
           maxHeight: MediaQuery.sizeOf(context).height * 0.82,
         ),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
           child: Column(
             key: const ValueKey('coach-info-sheet'),
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 14),
-                  decoration: BoxDecoration(
-                    color: hairline,
-                    borderRadius: BorderRadius.circular(rPill),
-                  ),
-                ),
-              ),
-              const Text(
+            children: <Widget>[
+              // Kein eigener Ziehgriff: showEatovaSheet setzt showDragHandle.
+              Text(
                 'KI-Coach',
-                style: TextStyle(
-                  color: textPrimary,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
-                ),
+                style:
+                    AppType.display(20, weight: FontWeight.w700, color: t.ink),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'Hier antwortet eine KI, keine echte Person. Die Antworten '
                 'sind eine Schätzung und ersetzen keinen ärztlichen Rat.',
-                style: TextStyle(color: textMuted, fontSize: 13, height: 1.45),
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
               const SizedBox(height: 18),
               const _InfoLabel('Das schickt jede Frage mit'),
@@ -523,27 +542,22 @@ class _CoachInfoSheet extends StatelessWidget {
               const _InfoBullet(
                   'Die Namen der Mahlzeiten, die du heute geloggt hast'),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Das geht zusammen mit deiner Frage an unseren KI-Anbieter '
                 '(OpenRouter, Modell Grok von xAI) auf Servern in den USA — '
                 'nur, um die Antwort zu erzeugen. Mehr dazu steht in der '
                 'Datenschutzerklärung.',
-                style: TextStyle(color: textMuted, fontSize: 13, height: 1.45),
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
               const SizedBox(height: 20),
-              Container(height: 1, color: hairline),
+              Container(height: 1, color: t.line),
               const SizedBox(height: 18),
               const _InfoLabel('Coach-Limit'),
               const SizedBox(height: 6),
               Text(
                 '$remaining von $dailyLimit Fragen heute frei. '
                 'Reset um Mitternacht (UTC).',
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 13,
-                  height: 1.45,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
               const SizedBox(height: 14),
               _QuotaBar(remaining: remaining, total: dailyLimit),
@@ -563,19 +577,15 @@ class _InfoLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Text(
       text,
-      style: const TextStyle(
-        color: textPrimary,
-        fontSize: 13.5,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.2,
-      ),
+      style: AppType.ui(13.5, weight: FontWeight.w700, color: t.ink),
     );
   }
 }
 
-/// Aufzaehlungszeile im Info-Sheet (Akzent-Punkt + Text).
+/// Aufzaehlungszeile im Info-Sheet (Lime-Punkt + Text).
 class _InfoBullet extends StatelessWidget {
   const _InfoBullet(this.text);
 
@@ -583,28 +593,22 @@ class _InfoBullet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: <Widget>[
           Container(
             width: 5,
             height: 5,
             margin: const EdgeInsets.only(top: 7, right: 9),
-            decoration: const BoxDecoration(
-              color: coachAccent,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: t.lime, shape: BoxShape.circle),
           ),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                color: textPrimary,
-                fontSize: 13,
-                height: 1.45,
-              ),
+              style: AppType.ui(13, color: t.ink, height: 1.45),
             ),
           ),
         ],
@@ -622,20 +626,21 @@ class _QuotaBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final pct = total == 0 ? 0.0 : remaining / total;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+      children: <Widget>[
         ClipRRect(
           borderRadius: BorderRadius.circular(rPill),
           child: Stack(
-            children: [
-              Container(height: 6, color: surfaceSoft),
+            children: <Widget>[
+              Container(height: 6, color: t.tile),
               FractionallySizedBox(
                 widthFactor: pct.clamp(0.0, 1.0),
                 child: Container(
                   height: 6,
-                  decoration: const BoxDecoration(color: coachAccent),
+                  decoration: BoxDecoration(color: t.accent),
                 ),
               ),
             ],
@@ -644,12 +649,8 @@ class _QuotaBar extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           '$remaining / $total',
-          style: const TextStyle(
-            color: textPrimary,
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            fontFeatures: [FontFeature.tabularFigures()],
-          ),
+          style:
+              AppType.display(12.5, weight: FontWeight.w600, color: t.ink),
         ),
       ],
     );

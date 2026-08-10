@@ -7,17 +7,24 @@
 /// oeffentliche [RecipeDetailScreen] lebt in recipe_detail.dart).
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/user_profile.dart';
-import '../../theme/app_colors.dart';
+import '../../services/meal_photo_input.dart';
+import '../../services/recipe_image_store.dart';
+import '../../services/sync_error_messages.dart';
+import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/design/design.dart';
 
 part 'recipes_header.dart';
 part 'recipe_cards.dart';
@@ -35,6 +42,7 @@ class RecipesScreen extends StatefulWidget {
     this.onCreateRecipe,
     this.onDeleteRecipe,
     this.initialUserRecipes = const <FitnessRecipe>[],
+    this.photoInput,
   });
 
   final void Function(MealAnalysisResult result, MealSlot slot) onAddMeal;
@@ -56,15 +64,23 @@ class RecipesScreen extends StatefulWidget {
   /// Optionaler Hook, mit dem ein selbst angelegtes Rezept an den
   /// Aufrufer gemeldet wird (persistiert via user_recipes). Null → das
   /// Rezept lebt nur lokal in dieser Session.
-  final ValueChanged<FitnessRecipe>? onCreateRecipe;
+  ///
+  /// Meldet zurueck, was mit dem Rezept WIRKLICH passiert ist (Luecke E) —
+  /// daran haengt der Text der Erfolgsmeldung.
+  final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
 
   /// Optionaler Hook zum Loeschen eines Eigen-Rezepts (per slug). Wird vom
   /// Aufrufer an user_recipes.delete weitergereicht. Null → keine Persistenz.
-  final ValueChanged<String>? onDeleteRecipe;
+  final Future<SyncDelivery> Function(String slug)? onDeleteRecipe;
 
   /// Beim Boot aus Supabase geladene Eigen-Rezepte. Werden als Anfangsstand
   /// uebernommen, damit selbst angelegte Rezepte einen Neustart ueberleben.
   final List<FitnessRecipe> initialUserRecipes;
+
+  /// Quelle fuer das Rezept-Foto (Kamera/Galerie). Null → das echte
+  /// [DeviceMealPhotoInput], das die Bytes bereits EXIF-frei zurueckgibt.
+  /// Der Parameter existiert allein als Test-Naht — genau wie beim Food-Tab.
+  final MealPhotoInput? photoInput;
 
   @override
   State<RecipesScreen> createState() => _RecipesScreenState();
@@ -94,11 +110,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// findet.
   late List<FitnessRecipe> _userRecipes;
 
-  /// True, sobald der User in dieser Session selbst etwas angelegt/geloescht
-  /// hat. Dann darf ein spaeter nachgeladener Boot-Stand die lokale Liste
-  /// NICHT mehr ueberschreiben.
-  bool _locallyMutated = false;
-
   @override
   void initState() {
     super.initState();
@@ -122,12 +133,27 @@ class _RecipesScreenState extends State<RecipesScreen> {
   @override
   void didUpdateWidget(covariant RecipesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Boot laedt die Eigen-Rezepte ggf. NACH dem ersten Build nach (async).
-    // Solange der User in dieser Session noch nichts selbst geaendert hat,
-    // den frisch geladenen Stand uebernehmen; sonst lokale Aenderungen
-    // (neu erstellt/geloescht) NICHT ueberschreiben.
-    if (!_locallyMutated &&
-        !identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
+    // Jeder neue Stand des Aufrufers wird uebernommen. Der Store weist seine
+    // Rezeptliste bei jeder Mutation NEU zu, die Identitaetspruefung ist damit
+    // ein exakter Fingerabdruck „hat sich etwas geaendert".
+    //
+    // Hier stand bis Luecke E ein `_locallyMutated`-Riegel: hatte der Nutzer in
+    // dieser Sitzung EINMAL etwas angelegt oder geloescht, wurde nie wieder ein
+    // Stand von aussen uebernommen. Der Riegel war noetig, solange
+    // `_bootFromSupabase` `_userRecipes = loadedRecipes` setzte — ein spaet
+    // eintreffender (oder offline leerer) Boot-Stand haette das frisch
+    // angelegte Rezept sonst weggeworfen.
+    //
+    // Seit Luecke C MERGT der Boot, statt zu ersetzen: der nachgereichte Stand
+    // enthaelt das eigene Rezept selbst, der Riegel schuetzt also nichts mehr
+    // — er richtet Schaden an. Der teuerste Fall ist die Wiedereinblendung
+    // nach einer endgueltig gescheiterten Loesch-Op
+    // (`_restoreDroppedDeletes`): der Store holt den Eintrag zurueck und
+    // meldet „der Eintrag ist wieder da", waehrend genau diese Loeschung den
+    // Riegel gesetzt hatte — der Screen zeigte das Rezept nie wieder. Ebenso
+    // blieben Rezepte eines ZWEITEN Geraets unsichtbar, sobald man hier einmal
+    // etwas angelegt hatte.
+    if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
     }
   }
@@ -184,36 +210,57 @@ class _RecipesScreenState extends State<RecipesScreen> {
 
   /// Loescht ein Eigen-Rezept lokal + (falls verdrahtet) persistent via
   /// onDeleteRecipe(slug). Wird aus dem Detail-Screen heraus aufgerufen.
-  void _deleteUserRecipe(FitnessRecipe recipe) {
+  Future<void> _deleteUserRecipe(FitnessRecipe recipe) async {
     setState(() {
       _userRecipes = _userRecipes
           .where((r) => r.slug != recipe.slug)
           .toList(growable: true);
-      _locallyMutated = true;
     });
-    widget.onDeleteRecipe?.call(recipe.slug);
-    if (mounted) {
-      showAppSnack(context, '„${recipe.title}" gelöscht.',
-          icon: Icons.delete_outline_rounded, accent: danger);
-    }
+    // Das eigene Foto geht mit. Es ist PII (ein Kuechenfoto zeigt die
+    // Wohnung) und haette sonst kein Ende: der Slug ist weg, niemand wuerde
+    // die Datei je wieder anfassen. No-Op fuer Bestandsrezepte
+    // (Bundle-Asset) und fuer Eigen-Rezepte ohne Bild.
+    await RecipeImageStore.instance.deleteFor(recipe.imageAsset);
+    final ausgang = await _melde(widget.onDeleteRecipe?.call(recipe.slug));
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      deliveryHint('„${recipe.title}" gelöscht', ausgang),
+      icon: Icons.delete_outline_rounded,
+      tone: SnackTone.error,
+    );
   }
 
+  /// Wartet auf den Ausgang eines Persistenz-Hooks. Ohne Hook (Vorschau/Test)
+  /// gibt es nichts zu synchronisieren — dann gilt die Aktion als erledigt.
+  Future<SyncDelivery> _melde(Future<SyncDelivery>? hook) async =>
+      await hook ?? SyncDelivery.delivered;
+
   Future<void> _openCreateSheet() async {
+    // Bewusst NICHT `showEatovaSheet`: das erzwingt `showDragHandle: true`, und
+    // ein Zug AM GRIFF laeuft ueber `BottomSheet._handleDragEnd → Navigator.pop`
+    // — also weder durch das `PopScope` noch durch den `_DiscardDragGuard` im
+    // builder-Kind. Der D5-Verwerfen-Schutz haette damit ein stilles Loch.
     final recipe = await showModalBottomSheet<FitnessRecipe>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.6),
-      builder: (_) => const _CreateRecipeSheet(),
+      builder: (_) => _CreateRecipeSheet(
+        photoInput: widget.photoInput ?? DeviceMealPhotoInput(),
+      ),
     );
     if (recipe == null || !mounted) return;
-    setState(() {
-      _userRecipes.insert(0, recipe);
-      _locallyMutated = true;
-    });
-    widget.onCreateRecipe?.call(recipe);
-    showAppSnack(context, '„${recipe.title}" gespeichert.',
-        icon: Icons.bookmark_added_rounded, accent: forgeLime);
+    setState(() => _userRecipes.insert(0, recipe));
+    // Luecke E: die Meldung wartet auf den Ausgang, statt ihn zu behaupten.
+    // Sie kommt spaetestens nach [kSyncDeliveryWindow] — der Store deckelt die
+    // Wartezeit, weil ein Supabase-Write kein Timeout traegt.
+    final ausgang = await _melde(widget.onCreateRecipe?.call(recipe));
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      deliveryHint('„${recipe.title}" gespeichert', ausgang),
+      icon: Icons.bookmark_added_rounded,
+    );
   }
 
   @override
@@ -230,6 +277,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ? const <FitnessRecipe>[]
         : _goalMatches(remaining);
 
+    // Feste Karussell-Hoehe plus wachsende Schrift ist bei textScaler 2.0 ein
+    // garantierter Overflow — dieselbe Technik nutzt `MacroBar` in der
+    // Design-Bibliothek.
+    final carouselHeight =
+        MediaQuery.textScalerOf(context).scale(236).clamp(236.0, 430.0);
+
     // D6: Der PageStorageKey gibt der Liste eine stabile Identitaet im
     // PageStorage der Route. Die Scrollposition wird damit beim Verlassen des
     // Tabs gesichert und beim Zurueckkehren wiederhergestellt — auch dann,
@@ -244,24 +297,24 @@ class _RecipesScreenState extends State<RecipesScreen> {
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
           _RecipesHeader(onCreate: _openCreateSheet),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _RecipeSearchField(
             controller: _searchController,
             onClear: _searchController.clear,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _RecipeFilterChips(
             selected: selectedFilter,
             onSelected: (filter) => setState(() => selectedFilter = filter),
           ),
-          const SizedBox(height: 24),
-          _SectionHeader(
+          const SizedBox(height: 18),
+          SectionHeading(
             title: 'Empfehlungen',
-            subtitle: '${_allRecipes.length} Fitness-Gerichte',
+            trailing: '${_allRecipes.length} Fitness-Gerichte',
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 256,
+            height: carouselHeight,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               clipBehavior: Clip.none,
@@ -276,10 +329,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
               },
             ),
           ),
-          const SizedBox(height: 26),
-          _SectionHeader(
+          const SizedBox(height: 22),
+          SectionHeading(
             title: selectedFilter == 'Alle' ? 'Alle Rezepte' : selectedFilter,
-            subtitle: '${visibleRecipes.length} Treffer',
+            trailing: '${visibleRecipes.length} Treffer',
           ),
           const SizedBox(height: 12),
           for (var i = 0; i < visibleRecipes.length; i++) ...[
@@ -288,20 +341,20 @@ class _RecipesScreenState extends State<RecipesScreen> {
               recipe: visibleRecipes[i],
               onTap: () => _openRecipe(visibleRecipes[i]),
             ),
-            if (i != visibleRecipes.length - 1) const SizedBox(height: 10),
+            if (i != visibleRecipes.length - 1) const SizedBox(height: 12),
           ],
           if (visibleRecipes.isEmpty) const _RecipeEmptyState(),
           // Steht bewusst NACH der Hauptliste: so bleibt die erste Rezept-Kachel
           // im initialen Viewport (Test nutzt ensureVisible ohne vorheriges Scrollen).
           if (goalMatches.isNotEmpty) ...[
-            const SizedBox(height: 26),
-            const _SectionHeader(
+            const SizedBox(height: 22),
+            const SectionHeading(
               title: 'Passt zu deinem Ziel',
-              subtitle: 'nach Restmakros',
+              trailing: 'nach Restmakros',
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 256,
+              height: carouselHeight,
               child: ListView.separated(
                 key: const ValueKey('recipe-goal-matches'),
                 scrollDirection: Axis.horizontal,

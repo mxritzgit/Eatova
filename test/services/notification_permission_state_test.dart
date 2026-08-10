@@ -5,6 +5,7 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // D11 (Review 2026-08-08): Der Berechtigungsschalter luegt.
 //
@@ -26,7 +27,7 @@ import 'package:eatova/src/services/notification_service.dart';
 void _noopSnack(
   String message, {
   IconData icon = Icons.info_outline_rounded,
-  Color accent = const Color(0xFFFFFFFF),
+  SnackTone tone = SnackTone.positive,
   Duration? duration,
   SnackBarAction? action,
 }) {}

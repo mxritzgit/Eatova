@@ -7,6 +7,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 
 // Bearbeiten-Sheet (2026-08-06): Tap auf eine geloggte Mahlzeit (Verlauf +
@@ -94,6 +95,7 @@ Future<void> _openSheet(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: Builder(
           builder: (context) => Center(

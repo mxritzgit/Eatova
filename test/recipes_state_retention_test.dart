@@ -25,7 +25,8 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/theme/app_colors.dart';
+import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 const _remaining = MacroProgress(
   proteinG: 90,
@@ -70,6 +71,7 @@ class _TabHarnessState extends State<_TabHarness> {
         : (_tab == 0 ? other : _recipesScreen());
 
     return MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: SafeArea(
           child: Padding(
@@ -128,17 +130,19 @@ String _searchText(WidgetTester tester) => tester
     .controller
     .text;
 
-/// Name des aktiven Kategorie-Chips (der einzige mit limefarbener Flaeche).
+/// Name des aktiven Kategorie-Chips.
+///
+/// Fragt seit dem Design-Refactor 2026-08-09 direkt `FilterChipPill.selected`
+/// ab. Vorher suchte der Helfer ein `AnimatedContainer` mit limefarbener
+/// `decoration.color` — beides gibt es in der neuen Chip-Pille nicht mehr
+/// (sie faerbt mit `t.forest` und ohne Animation), der Helfer waere still auf
+/// `<keiner>` zurueckgefallen. Gleiche Zusicherung, farb- und tokenfrei
+/// abgelesen.
 String _activeFilter(WidgetTester tester) {
   for (final filter in recipeFilters) {
-    final chip = find.descendant(
-      of: find.byKey(ValueKey('recipe-filter-$filter')),
-      matching: find.byType(AnimatedContainer),
-    );
+    final chip = find.byKey(ValueKey('recipe-filter-$filter'));
     if (chip.evaluate().isEmpty) continue; // Chip-Leiste ist lazy.
-    final decoration =
-        tester.widget<AnimatedContainer>(chip).decoration as BoxDecoration?;
-    if (decoration?.color == lime) return filter;
+    if (tester.widget<FilterChipPill>(chip).selected) return filter;
   }
   return '<keiner>';
 }
@@ -172,7 +176,12 @@ void main() {
       'Suchtext ueberlebt das Wegscrollen des Suchfelds (Listen-Recycling)',
       (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: _recipesScreen())));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEatovaTheme(Brightness.dark),
+        home: Scaffold(body: _recipesScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.enterText(
@@ -210,7 +219,12 @@ void main() {
   testWidgets('Loesch-X leert Suchtext und Trefferliste sichtbar',
       (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: _recipesScreen())));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEatovaTheme(Brightness.dark),
+        home: Scaffold(body: _recipesScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('recipes-search-clear')), findsNothing,

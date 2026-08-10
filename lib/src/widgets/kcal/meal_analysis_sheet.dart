@@ -7,9 +7,10 @@ import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
 import '../../services/open_food_facts_product_service.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
+import '../design/design.dart';
 import '../meal/meal_widgets.dart';
 
 /// Meldung, wenn eine Mahlzeit ohne Kalorienangabe geloggt werden soll.
@@ -62,6 +63,8 @@ Future<void> showMealAnalysisSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
+    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (sheetContext) {
       return MealAnalysisSheet(
@@ -161,7 +164,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       showAppSnack(
           context, mealAnalysisErrorMessage(error, widget.failureMessage),
           icon: Icons.error_outline_rounded,
-          accent: danger,
+          tone: SnackTone.error,
           duration: kSnackError);
       Navigator.of(context).maybePop();
     }
@@ -190,7 +193,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
         context,
         kMealWithoutCaloriesMessage,
         icon: Icons.error_outline_rounded,
-        accent: danger,
+        tone: SnackTone.error,
         duration: kSnackError,
       );
       return;
@@ -205,7 +208,6 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       context,
       '${result.caloriesKcal} kcal zu ${widget.slot.label} hinzugefügt.',
       icon: Icons.check_circle_rounded,
-      accent: lime,
     );
   }
 
@@ -243,30 +245,34 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       final message = wasAdded
           ? '$adjustment g angepasst. Tageswert aktualisiert.'
           : '$adjustment g angepasst.';
-      showAppSnack(context, message,
-          icon: Icons.tune_rounded, accent: lime);
+      showAppSnack(context, message, icon: Icons.tune_rounded);
     } else if (adjustment is List<MealComponent>) {
       final message = wasAdded
           ? '${updated.estimatedGrams} g über Einzelposten angepasst. Tageswert aktualisiert.'
           : '${updated.estimatedGrams} g über Einzelposten angepasst.';
-      showAppSnack(context, message,
-          icon: Icons.tune_rounded, accent: lime);
+      showAppSnack(context, message, icon: Icons.tune_rounded);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final mediaQuery = MediaQuery.of(context);
     final maxHeight = mediaQuery.size.height * 0.92;
     final keyboardInset = mediaQuery.viewInsets.bottom;
 
+    // Bewusst kein SheetScaffold: das braucht einen fixen Titel plus genau
+    // eine Fussaktion. Hier sitzt ueber einem gedeckelten Scrollbereich ein
+    // fixer Kopf, und die Aktionen liegen auf der Ergebniskarte.
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(
         constraints: BoxConstraints(maxHeight: maxHeight),
-        decoration: const BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+        decoration: BoxDecoration(
+          color: t.bg,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(rSheet),
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -323,7 +329,7 @@ class _SheetHandle extends StatelessWidget {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: hairline,
+          color: context.t.line,
           borderRadius: BorderRadius.circular(rPill),
         ),
       ),
@@ -337,25 +343,15 @@ class _Header extends StatelessWidget {
   final MealSlot slot;
   final VoidCallback onClose;
 
-  Color get _color => slot.accent;
-
-  IconData get _icon => slot.icon;
-
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    final color = slot.accentIn(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
       child: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: _color.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: Icon(_icon, color: _color, size: 18),
-          ),
+          MealAvatar(letter: slot.initial, color: color, size: 36),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -363,20 +359,15 @@ class _Header extends StatelessWidget {
               children: [
                 Text(
                   slot.label,
-                  style: const TextStyle(
-                    color: textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.3,
-                  ),
+                  style: AppType.display(18, color: t.ink),
                 ),
                 const SizedBox(height: 2),
-                const Text(
+                Text(
                   'Analyse prüfen',
-                  style: TextStyle(
-                    color: textMuted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
                   ),
                 ),
               ],
@@ -386,7 +377,7 @@ class _Header extends StatelessWidget {
             key: const ValueKey('analyse-sheet-close'),
             onPressed: onClose,
             tooltip: 'Schließen',
-            icon: const Icon(Icons.close_rounded, color: textMuted),
+            icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Regression: Snackbars (z. B. "Mahlzeit gelöscht / Rückgängig") blieben auf
@@ -9,7 +10,13 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 // Snackbar-Entrance synchron ab und Flutters eingebauter Auto-Dismiss-Timer
 // feuert teils nicht. showAppSnack hat dafür ein Safety-Net.
 
+// Design-Refactor 2026-08: showAppSnack liest den Toast-Ton seit der
+// Token-Migration ueber `context.t` (SnackTone -> AppTokens). `AppTokens.of`
+// wirft absichtlich, wenn die ThemeExtension fehlt — eine nackte MaterialApp
+// reicht als Wirt deshalb nicht mehr. In der App haengt jeder Toast unter
+// `buildEatovaTheme` (eatova_app.dart:95/96), die Harness bildet das nach.
 Widget _host(VoidCallback onTap) => MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: Builder(
           builder: (context) => Center(
@@ -32,6 +39,7 @@ void main() {
 
     late BuildContext ctx;
     await tester.pumpWidget(MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
         body: Builder(builder: (context) {
           ctx = context;

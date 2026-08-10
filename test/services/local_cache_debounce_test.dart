@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/favorite_meal.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/weight_log.dart';
@@ -65,7 +66,26 @@ class _ZaehlenderStore implements KeyValueStore {
   }
 }
 
+FitnessRecipe _recipe(String slug) => FitnessRecipe(
+      slug: slug,
+      title: 'Eigene Bowl',
+      description: 'Eigenes Rezept',
+      portion: '1 Teller',
+      ingredients: 'Reis',
+      preparation: 'Kochen.',
+      professionalHint: 'Selbst angelegt. Werte beruhen auf deinen Angaben.',
+      imageAsset: '',
+      caloriesKcal: 600,
+      proteinG: 50,
+      carbsG: 60,
+      fatG: 15,
+      estimatedGrams: 400,
+      categories: const <String>['Eigene'],
+      userCreated: true,
+    );
+
 const _mealsKey = 'eatova.v1.logged_meals.user-1';
+const _recipesKey = 'eatova.v1.user_recipes.user-1';
 
 void main() {
   group('LocalCache entprellte Blob-Writes (G9b)', () {
@@ -156,6 +176,43 @@ void main() {
       expect(store.writesFuer('eatova.v1.weight_log.user-1'), 1);
       expect((await cache.readFavorites())!.single.id, 'name:bowl-3');
       expect((await cache.readWeightLog())!.latest!.weightKg, 84.0);
+    });
+
+    test(
+        'Eigen-Rezepte werden ebenfalls entprellt und ueberleben den Flush '
+        '(Luecke A)', () async {
+      final store = _ZaehlenderStore();
+      final cache = LocalCache(store, 'user-1');
+
+      // Drei Anlagen kurz hintereinander (Rezept anlegen, korrigieren,
+      // zweites anlegen) duerfen den Blob nur einmal verschluesseln …
+      cache.writeUserRecipesDebounced([_recipe('user_1')]);
+      cache.writeUserRecipesDebounced([_recipe('user_1'), _recipe('user_2')]);
+      cache.writeUserRecipesDebounced([_recipe('user_3')]);
+      expect(store.writesFuer(_recipesKey), 0);
+      // … und der Lesepfad sieht den ausstehenden Stand trotzdem sofort (kein
+      // Read-after-Write-Loch fuer die Boot-Hydration).
+      expect((await cache.readUserRecipes())!.single.slug, 'user_3');
+
+      await cache.flush();
+
+      expect(store.writesFuer(_recipesKey), 1);
+      expect((await cache.readUserRecipes())!.single.slug, 'user_3');
+    });
+
+    test('clear() verwirft auch ausstehende Rezept-Writes', () async {
+      final store = _ZaehlenderStore();
+      final cache = LocalCache(store, 'user-1');
+
+      cache.writeUserRecipesDebounced([_recipe('user_privat')]);
+      await cache.clear();
+      await Future<void>.delayed(
+          LocalCache.writeDebounce + const Duration(milliseconds: 200));
+
+      expect(store.writesFuer(_recipesKey), 0,
+          reason: 'ein laufender Timer darf die geraeumten Rezepte nicht '
+              'zurueckschreiben');
+      expect(store.snapshot, isEmpty);
     });
 
     test('Outbox und Stats-Deltas bleiben SOFORT (Kill-Sicherheit, DATA-7)',

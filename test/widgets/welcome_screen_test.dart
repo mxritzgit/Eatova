@@ -1,0 +1,234 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/auth/welcome_screen.dart';
+
+// Widget-Tests fuer den Boot-/Willkommens-Screen.
+//
+// Der Screen ist ein bewusster Sonderfall der Design-Refactor-Regeln: er ist
+// ein MARKEN-MOMENT und traegt in beiden Anzeige-Modi die Forest-Flaeche mit
+// Lime-Akzent, nicht den Modus-Grund. Der Test „traegt in beiden Modi die
+// Marken-Flaeche" nagelt genau das fest — sonst zieht jemand den Screen
+// spaeter „konsistenzhalber" auf t.bg und der Auftritt zerfaellt.
+//
+// ACHTUNG: Der Lade-Komet laeuft als Dauer-Loop (`_loopController.repeat()`).
+// `pumpAndSettle` kehrt hier NIE zurueck. Alle Tests pumpen deshalb in festen
+// Schritten ueber [_tick].
+
+/// iPhone 14 (393x852 logisch). Der Default-Testviewport (800x600) ist breiter
+/// und hoeher als jedes Telefon und wuerde Ueberlauf verstecken.
+void _pinPhoneViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1179, 2556);
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+/// Treibt die Uhr in Schritten weiter — der Ersatz fuer `pumpAndSettle`,
+/// solange der Komet-Loop im Baum haengt.
+Future<void> _tick(
+  WidgetTester tester,
+  Duration total, {
+  Duration step = const Duration(milliseconds: 50),
+}) async {
+  var elapsed = Duration.zero;
+  while (elapsed < total) {
+    await tester.pump(step);
+    elapsed += step;
+  }
+}
+
+Future<void> _pumpWelcome(
+  WidgetTester tester, {
+  required Brightness brightness,
+  required Future<void> profileReady,
+  bool celebrateLogin = false,
+  VoidCallback? onComplete,
+  String firstName = 'Mira',
+  TextScaler textScaler = TextScaler.noScaling,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: buildEatovaTheme(brightness),
+      home: Builder(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          // Eigener Key je Modus: erzwingt einen frischen State, wenn ein Test
+          // beide Helligkeiten nacheinander pumpt (sonst bleibt initState und
+          // damit das erste profileReady stehen).
+          child: WelcomeScreen(
+            key: ValueKey('welcome-$brightness'),
+            firstName: firstName,
+            profileReady: profileReady,
+            celebrateLogin: celebrateLogin,
+            onComplete: onComplete ?? () {},
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+void main() {
+  testWidgets('rendert in hell UND dunkel ohne Exception', (tester) async {
+    _pinPhoneViewport(tester);
+
+    for (final brightness in Brightness.values) {
+      await _pumpWelcome(
+        tester,
+        brightness: brightness,
+        profileReady: Completer<void>().future,
+      );
+      await _tick(tester, const Duration(milliseconds: 1200));
+
+      expect(
+        find.byKey(const ValueKey('screen-welcome')),
+        findsOneWidget,
+        reason: '$brightness: Screen fehlt',
+      );
+      expect(find.text('Eatova'), findsOneWidget, reason: '$brightness');
+      expect(tester.takeException(), isNull, reason: '$brightness');
+    }
+  });
+
+  testWidgets('traegt in beiden Modi die Marken-Flaeche, nicht den Modus-Grund',
+      (tester) async {
+    _pinPhoneViewport(tester);
+
+    for (final brightness in Brightness.values) {
+      final tokens =
+          brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
+      await _pumpWelcome(
+        tester,
+        brightness: brightness,
+        profileReady: Completer<void>().future,
+      );
+      await _tick(tester, const Duration(milliseconds: 400));
+
+      final scaffold = tester.widget<Scaffold>(
+        find.byKey(const ValueKey('screen-welcome')),
+      );
+      expect(
+        scaffold.backgroundColor,
+        tokens.forest,
+        reason: '$brightness: der Marken-Moment steht auf forest',
+      );
+      expect(
+        scaffold.backgroundColor,
+        isNot(tokens.bg),
+        reason: '$brightness: kein Modus-Grund unter dem Marken-Moment',
+      );
+    }
+  });
+
+  testWidgets('zeigt die Begruessung mit dem Vornamen bei celebrateLogin',
+      (tester) async {
+    _pinPhoneViewport(tester);
+    final ready = Completer<void>();
+
+    await _pumpWelcome(
+      tester,
+      brightness: Brightness.light,
+      profileReady: ready.future,
+      celebrateLogin: true,
+      firstName: 'Mira',
+    );
+    await _tick(tester, const Duration(milliseconds: 1100));
+
+    expect(find.text('Eatova'), findsOneWidget);
+    expect(find.text('Willkommen, Mira.'), findsNothing);
+
+    ready.complete();
+    await tester.pump(); // .then feuert
+    await _tick(tester, const Duration(milliseconds: 900)); // Morph + Switcher
+
+    expect(find.text('Willkommen, Mira.'), findsOneWidget);
+    expect(find.text('Du bist drin.'), findsOneWidget);
+    expect(find.text('Eatova'), findsNothing);
+
+    // Halte-Pause + Exit leerpumpen, sonst haengt ein Timer im Teardown.
+    await _tick(tester, const Duration(milliseconds: 2000));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ruft onComplete erst nach aufgeloestem profileReady '
+      '(Session-Restore)', (tester) async {
+    _pinPhoneViewport(tester);
+    var fertig = 0;
+    final ready = Completer<void>();
+
+    await _pumpWelcome(
+      tester,
+      brightness: Brightness.dark,
+      profileReady: ready.future,
+      onComplete: () => fertig++,
+    );
+    await _tick(tester, const Duration(milliseconds: 1500));
+    expect(fertig, 0, reason: 'ohne Profil-Load darf nichts weiterspringen');
+
+    ready.complete();
+    await tester.pump();
+    await _tick(tester, const Duration(milliseconds: 800));
+
+    expect(fertig, 1);
+  });
+
+  testWidgets('ruft onComplete erst nach der Willkommens-Sequenz '
+      '(frischer Login)', (tester) async {
+    _pinPhoneViewport(tester);
+    var fertig = 0;
+    final ready = Completer<void>();
+
+    await _pumpWelcome(
+      tester,
+      brightness: Brightness.light,
+      profileReady: ready.future,
+      celebrateLogin: true,
+      onComplete: () => fertig++,
+    );
+    await _tick(tester, const Duration(milliseconds: 1200));
+    expect(fertig, 0);
+
+    ready.complete();
+    await tester.pump();
+    await _tick(tester, const Duration(milliseconds: 1000));
+    expect(fertig, 0, reason: 'Check-Morph + Halte-Pause laufen noch');
+
+    await _tick(tester, const Duration(milliseconds: 1500));
+    expect(fertig, 1);
+  });
+
+  testWidgets('bleibt bei doppelter Systemschrift overflow-frei',
+      (tester) async {
+    _pinPhoneViewport(tester);
+    final ready = Completer<void>();
+
+    await _pumpWelcome(
+      tester,
+      brightness: Brightness.dark,
+      profileReady: ready.future,
+      celebrateLogin: true,
+      textScaler: const TextScaler.linear(2.0),
+    );
+    await _tick(tester, const Duration(milliseconds: 1100));
+    expect(tester.takeException(), isNull, reason: 'Wortmark bei textScale 2.0');
+
+    ready.complete();
+    await tester.pump();
+    await _tick(tester, const Duration(milliseconds: 900));
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'Willkommens-Text bei textScale 2.0',
+    );
+
+    await _tick(tester, const Duration(milliseconds: 2000));
+    expect(tester.takeException(), isNull);
+  });
+}

@@ -1,4 +1,5 @@
 import 'package:eatova/src/models/favorite_meal.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
@@ -85,6 +86,7 @@ void main() {
         await c.writeWeightLog(const WeightLog());
         await c.writeOutbox(const <SyncOp>[]);
         await c.writePendingStatsDeltas(meals: 1, weightLogs: 1);
+        await c.writeUserRecipes(const <FitnessRecipe>[]);
       }
 
       test('jeder Slot traegt exakt seinen erwarteten Namen', () async {
@@ -101,6 +103,13 @@ void main() {
           'eatova.v1.weight_log.user-42',
           'eatova.v1.outbox.user-42',
           'eatova.v1.pending_stats.user-42',
+          // Luecke A, neu: bis hierher hielt diese Liste die Luecke als SOLL
+          // fest — acht Slots, und `user_recipes` war keiner davon. Eigen-
+          // Rezepte hingen deshalb allein an der Outbox und waren weg, sobald
+          // die ihre Schuldigkeit getan hatte. Der Name ist ab jetzt Wire-
+          // Format: wer ihn umbenennt, laesst die Rezepte jeder bestehenden
+          // Installation beim naechsten Start ohne Netz verschwinden.
+          'eatova.v1.user_recipes.user-42',
         };
 
         expect(store.snapshot.keys.toSet(), erwartet,

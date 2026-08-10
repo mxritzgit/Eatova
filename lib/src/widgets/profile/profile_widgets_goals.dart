@@ -1,7 +1,9 @@
 part of 'profile_widgets.dart';
 
-class GoalsOverviewCard extends StatelessWidget {
-  const GoalsOverviewCard({
+/// Die Tagesziele als Einstellungs-Karte: zwei Zustandszeilen, der
+/// Makro-Split als Balken mit Legende und der Weg zum Bearbeiten.
+class GoalsCard extends StatelessWidget {
+  const GoalsCard({
     super.key,
     required this.profile,
     required this.dailyKcal,
@@ -16,71 +18,127 @@ class GoalsOverviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final goals = <_Goal>[
-      _Goal(
-        label: 'Kcal',
-        current: dailyKcal,
-        target: profile.dailyKcalGoal,
-        unit: 'kcal',
-        color: orange,
-        icon: Icons.local_fire_department_outlined,
-      ),
-      _Goal(
-        label: 'Schritte',
-        current: dailySteps,
-        target: profile.dailyStepsGoal,
-        unit: '',
-        color: lime,
-        icon: Icons.directions_walk_outlined,
-      ),
-    ];
+    final t = context.t;
+    final protein = profile.proteinGoalG;
+    final carbs = profile.carbsGoalG;
+    final fat = profile.fatGoalG;
+    final hatMakros = protein + carbs + fat > 0;
 
     return AppCard(
-      padding: const EdgeInsets.all(18),
+      clip: true,
+      child: Column(
+        children: <Widget>[
+          SettingsRow(
+            leading: const IconTile(icon: Icons.local_fire_department_outlined),
+            title: 'Kalorien',
+            // GENAU dieses Format ('<ist>/<soll>', ohne Leerzeichen) traegt den
+            // Live-Refresh-Beweis in profile_route_refresh_test. MacroBar aus
+            // der Design-Bibliothek rendert '1000 / 8000' und ist hier deshalb
+            // nicht verwendbar.
+            value: '$dailyKcal/${profile.dailyKcalGoal}',
+            chevron: false,
+          ),
+          Divider(height: 1, thickness: 1, color: t.line),
+          SettingsRow(
+            leading: const IconTile(icon: Icons.directions_walk_outlined),
+            title: 'Schritte',
+            value: '$dailySteps/${profile.dailyStepsGoal}',
+            chevron: false,
+          ),
+          if (hatMakros) ...<Widget>[
+            Divider(height: 1, thickness: 1, color: t.line),
+            _MacroSplitBlock(protein: protein, carbs: carbs, fat: fat),
+          ],
+          if (onEdit != null) ...<Widget>[
+            Divider(height: 1, thickness: 1, color: t.line),
+            SettingsRow(
+              key: const ValueKey('profile-edit-goals'),
+              leading: const IconTile(icon: Icons.tune_rounded),
+              title: 'Ziele anpassen',
+              onTap: onEdit,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Makro-Verteilung als ein Balken statt dreier Ringe: die Anteile stehen so
+/// im direkten Groessenvergleich, und die Legende nennt die absoluten Gramm.
+class _MacroSplitBlock extends StatelessWidget {
+  const _MacroSplitBlock({
+    required this.protein,
+    required this.carbs,
+    required this.fat,
+  });
+
+  final int protein, carbs, fat;
+
+  /// `Expanded` mit flex 0 laesst sein Kind unbeschraenkt breit werden und
+  /// wirft in einer Row — ein Makroziel von 0 g ist im Einstellungs-Sheet
+  /// erlaubt, also darf der Balken das aushalten.
+  static int _flex(int value) => value < 1 ? 1 : value;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: <Widget>[
           Row(
-            children: [
-              const Expanded(
+            children: <Widget>[
+              const IconTile(icon: Icons.bar_chart_rounded),
+              const SizedBox(width: 12),
+              Expanded(
                 child: Text(
-                  'Tagesziele',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
+                  'Makro-Verteilung',
+                  style:
+                      AppType.ui(13.5, weight: FontWeight.w600, color: t.ink),
                 ),
               ),
-              if (onEdit != null)
-                TextButton(
-                  key: const ValueKey('profile-edit-goals'),
-                  onPressed: onEdit,
-                  style: TextButton.styleFrom(
-                    foregroundColor: textPrimary,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text(
-                    'Anpassen',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                ),
             ],
           ),
-          const SizedBox(height: 14),
-          GridView.count(
-            crossAxisCount: 2,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 1.7,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [for (final g in goals) _GoalTile(goal: g)],
+          const SizedBox(height: 12),
+          Semantics(
+            label: 'Makro-Verteilung',
+            value: '$protein g Protein, $carbs g Kohlenhydrate, $fat g Fett',
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: SizedBox(
+                height: 9,
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      flex: _flex(protein),
+                      child: ColoredBox(color: t.protein),
+                    ),
+                    Expanded(
+                      flex: _flex(carbs),
+                      child: ColoredBox(color: t.carbs),
+                    ),
+                    Expanded(
+                      flex: _flex(fat),
+                      child: ColoredBox(color: t.fat),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          // Wrap statt Row: drei Legenden-Eintraege passen bei textScaler 2.0
+          // nicht mehr nebeneinander.
+          Wrap(
+            spacing: 14,
+            runSpacing: 6,
+            children: <Widget>[
+              _LegendDot(color: t.protein, label: '$protein g Protein'),
+              _LegendDot(color: t.carbs, label: '$carbs g Kohlenhydrate'),
+              _LegendDot(color: t.fat, label: '$fat g Fett'),
+            ],
           ),
         ],
       ),
@@ -88,97 +146,36 @@ class GoalsOverviewCard extends StatelessWidget {
   }
 }
 
-class _Goal {
-  _Goal({
-    required this.label,
-    required this.current,
-    required this.target,
-    required this.unit,
-    required this.color,
-    required this.icon,
-  });
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color, required this.label});
 
-  final String label;
-  final int current;
-  final int target;
-  final String unit;
   final Color color;
-  final IconData icon;
-
-  double get ratio =>
-      target <= 0 ? 0 : (current / target).clamp(0.0, 1.0).toDouble();
-}
-
-class _GoalTile extends StatelessWidget {
-  const _GoalTile({required this.goal});
-
-  final _Goal goal;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 38,
-            height: 38,
-            // A11y: Fortschritts-Ring ansagen; der Wert daneben nennt die
-            // absoluten Zahlen, hier reicht die Prozent-Erfuellung.
-            child: Semantics(
-              label: '${goal.label} Fortschritt',
-              value: '${(goal.ratio * 100).round()}%',
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  RepaintBoundary(
-                    child: CustomPaint(
-                      size: const Size(38, 38),
-                      painter:
-                          MiniRingPainter(value: goal.ratio, color: goal.color),
-                    ),
-                  ),
-                  Icon(goal.icon, color: goal.color, size: 14),
-                ],
-              ),
-            ),
+    final t = context.t;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        // Flexible + Ellipsis: der Wrap regelt nur den Umbruch ZWISCHEN den
+        // Legenden-Eintraegen, nicht die Breite eines einzelnen. „240 g
+        // Kohlenhydrate" sprengt bei doppelter Systemschrift sonst die Zeile.
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.ui(11, weight: FontWeight.w600, color: t.ink2),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  goal.label,
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.6,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${goal.current}/${goal.target}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

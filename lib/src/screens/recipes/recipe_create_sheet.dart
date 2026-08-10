@@ -2,7 +2,8 @@ part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
 // „Eigenes Rezept"-Formular: Bottom-Sheet zum Anlegen eines eigenen Rezepts
-// (Name, Portion, Makros, Zutaten) inkl. des rahmenlosen Eingabefelds.
+// (Foto, Name, Portion, Nährwerte, Zutaten) inkl. des Eingabefelds, der
+// Foto-Auswahl und des Verwerfen-Schutzes.
 // ---------------------------------------------------------------------------
 
 /// Grenzen aus `LoggedMealLimits` bzw. `PlausibilityLimits`
@@ -55,28 +56,33 @@ class _RecipeField {
 /// gehoeren zusammen nach lib/src/widgets/common/, sobald jemand den Import in
 /// recipes_screen.dart setzen darf.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
+  final t = context.t;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       key: const ValueKey('discard-changes-dialog'),
-      backgroundColor: surface,
-      title: const Text(
-        'Änderungen verwerfen?',
-        style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+      backgroundColor: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
       ),
-      content: const Text(
+      title: Text(
+        'Änderungen verwerfen?',
+        style: AppType.display(19, color: t.ink),
+      ),
+      content: Text(
         'Dein Rezept ist noch nicht gespeichert.',
-        style: TextStyle(color: textMuted),
+        style: AppType.ui(13, color: t.ink2, height: 1.4),
       ),
       actions: [
         TextButton(
           key: const ValueKey('discard-changes-cancel'),
+          style: TextButton.styleFrom(foregroundColor: t.ink2),
           onPressed: () => Navigator.of(dialogContext).pop(false),
           child: const Text('Weiter bearbeiten'),
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
-          style: TextButton.styleFrom(foregroundColor: danger),
+          style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: const Text('Verwerfen'),
         ),
@@ -162,10 +168,32 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
   }
 }
 
-/// Bottom-Sheet zum Anlegen eines eigenen Rezepts (Name, Portion, Makros,
-/// Zutaten). Gibt beim Speichern ein [FitnessRecipe] via Navigator.pop zurück.
+/// Bottom-Sheet zum Anlegen eines eigenen Rezepts (Foto, Name, Portion,
+/// Nährwerte, Zutaten). Gibt beim Speichern ein [FitnessRecipe] via
+/// Navigator.pop zurück.
+///
+/// **Aufbau.** Vier benannte Gruppen statt einer Feldkolonne — „Foto" ·
+/// „Was ist es" · „Nährwerte" · „Zutaten", jede mit einer Versalien-Kopfzeile
+/// ([_SheetGroup]) über ihrem Inhalt. Die Eingabekapseln bleiben die des
+/// Design-Vertrags (`SheetField`-Optik: [AppTokens.surf] mit
+/// [AppTokens.line]-Rand); rot umrandet wird, was einen Fehler trägt.
+///
+/// Die vier Nährwerte stehen nebeneinander statt untereinander — bei normaler
+/// Schrift vierspaltig, ab ~1,25-facher Schrift zweispaltig (siehe
+/// [_FieldGrid]). Zusammen mit „Portion + Gewicht" auf einer Zeile war das der
+/// teuerste Höhenposten der alten Fassung.
+///
+/// **Höhe ist hier ein Funktionsmerkmal, keine Kosmetik** — siehe die
+/// Begründung an [_SheetGroup]. Der zugehörige Test heißt
+/// „bei normaler Schrift kommt es ohne Scrollen aus"
+/// (test/recipe_create_photo_test.dart).
 class _CreateRecipeSheet extends StatefulWidget {
-  const _CreateRecipeSheet();
+  const _CreateRecipeSheet({required this.photoInput});
+
+  /// Kamera-/Galerie-Auswahl. Liefert die Bytes bereits EXIF-frei zurück
+  /// (`DeviceMealPhotoInput` schickt sie durch `compressMealPhoto`) — das ist
+  /// dieselbe Pipeline wie beim KI-Scan, hier wird keine zweite gebaut.
+  final MealPhotoInput photoInput;
 
   @override
   State<_CreateRecipeSheet> createState() => _CreateRecipeSheetState();
@@ -234,8 +262,59 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     super.dispose();
   }
 
-  /// D5: irgendein Feld weicht vom Ausgangszustand ab.
-  bool get _dirty => _felder.any((feld) => feld.veraendert);
+  // ── Foto ────────────────────────────────────────────────────────────────
+  //
+  // Die Bytes bleiben bis zum Speichern IM SPEICHER. Erst [_save] legt sie
+  // ab — wer das Sheet verwirft, hinterlaesst keine verwaiste Datei. Der
+  // Dateiname haengt am Slug, und den gibt es vor dem Speichern noch nicht.
+
+  Uint8List? _photoBytes;
+
+  /// Solange die Systemauswahl offen ist bzw. die Bytes gescrubbt werden.
+  bool _photoBusy = false;
+
+  bool get _hasPhoto => _photoBytes != null;
+
+  Future<void> _pickPhoto(ImageSource source) async {
+    if (_photoBusy) return;
+    setState(() => _photoBusy = true);
+    Uint8List? bytes;
+    try {
+      final auswahl = await widget.photoInput.pick(source);
+      // `previewBytes` ist der bereits gescrubbte Stand. Null heisst: nicht
+      // dekodierbar — fail-closed, dann lieber gar kein Bild (dieselbe Regel
+      // wie im Upload-Pfad, s. compressMealPhoto).
+      bytes = auswahl?.previewBytes;
+      if (auswahl != null && bytes == null) {
+        _melde('Das Foto ließ sich nicht lesen.');
+      }
+    } catch (_) {
+      _melde('Das Foto ließ sich nicht laden.');
+    }
+    if (!mounted) return;
+    setState(() {
+      _photoBusy = false;
+      if (bytes != null) _photoBytes = bytes;
+    });
+  }
+
+  void _removePhoto() => setState(() => _photoBytes = null);
+
+  void _melde(String text) {
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      text,
+      icon: Icons.error_outline_rounded,
+      tone: SnackTone.error,
+    );
+  }
+
+  /// D5: irgendein Feld weicht vom Ausgangszustand ab — oder es liegt ein
+  /// noch nicht gespeichertes Foto im Sheet. Ohne den zweiten Teil wäre ein
+  /// gerade aufgenommenes Bild der einzige Inhalt, den ein Barriere-Tap
+  /// kommentarlos verwirft.
+  bool get _dirty => _felder.any((feld) => feld.veraendert) || _hasPhoto;
 
   // ── Feldvalidierung ─────────────────────────────────────────────────────
   //
@@ -295,8 +374,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   int _zahl(TextEditingController controller) =>
       int.tryParse(controller.text.trim()) ?? 0;
 
-  void _save() {
-    if (!_isValid) return;
+  /// Läuft ohne Foto vollständig synchron durch (kein `await` vor dem `pop`) —
+  /// nur der Bild-Zweig wartet auf die Ablage.
+  ///
+  /// Der Rückgabetyp ist `Future<void>`; als `VoidCallback` am
+  /// [FilledButton] bleibt `onPressed` unverändert lesbar (`null` = gesperrt),
+  /// woran recipe_create_sheet_test hängt.
+  Future<void> _save() async {
+    if (!_isValid || _saving) return;
     // Der Name ist durch `maxLength` bereits auf <= 160 UTF-16-Einheiten
     // begrenzt; `char_length` in Postgres zaehlt Code Points und ist damit nie
     // groesser. Bleibt das Trimmen.
@@ -304,17 +389,37 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final ingredients = _ingredients.text.trim();
     final portion =
         _portion.text.trim().isEmpty ? '1 Portion' : _portion.text.trim();
+    final slug = FitnessRecipe.userRecipeSlug();
 
+    // Das Bild bekommt seinen Namen aus dem Slug. Scheitert die Ablage (kein
+    // Verzeichnis, Bytes nicht dekodierbar, volle Platte), wird das Rezept OHNE
+    // Bild gespeichert — eine Referenz ins Leere waere schlimmer als keine.
+    var imageAsset = '';
+    final bytes = _photoBytes;
+    if (bytes != null) {
+      setState(() => _saving = true);
+      final referenz =
+          await RecipeImageStore.instance.save(slug: slug, bytes: bytes);
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (referenz == null) {
+        _melde('Das Foto konnte nicht abgelegt werden.');
+      } else {
+        imageAsset = referenz;
+      }
+    }
+
+    if (!mounted) return;
     Navigator.of(context).pop(
       FitnessRecipe(
-        slug: FitnessRecipe.userRecipeSlug(),
+        slug: slug,
         title: name,
         description: 'Eigenes Rezept',
         portion: portion,
         ingredients: ingredients.isEmpty ? 'Keine Angabe' : ingredients,
         preparation: 'Eigenes Rezept — keine Zubereitung hinterlegt.',
         professionalHint: 'Selbst angelegt. Werte beruhen auf deinen Angaben.',
-        imageAsset: '',
+        imageAsset: imageAsset,
         caloriesKcal: _zahl(_kcal),
         proteinG: _zahl(_protein),
         carbsG: _zahl(_carbs),
@@ -325,6 +430,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       ),
     );
   }
+
+  /// Sperrt den Speichern-Knopf, solange die Bytes geschrieben werden.
+  bool _saving = false;
 
   /// D5: laeuft fuer jeden abgefangenen Dismiss-Versuch — Barriere-Tap und
   /// System-Zurueck kommen ueber [PopScope], das Ziehen ueber
@@ -365,17 +473,21 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   }
 
   Widget _buildSheet(BuildContext context) {
+    final t = context.t;
+    // Der Rumpf ist der SheetScaffold-Optik nachgebaut statt sie zu benutzen:
+    // `SheetScaffold` kennt keinen Key an der Fussaktion, und der
+    // Speichern-Knopf muss ein `FilledButton` mit `recipe-create-save` bleiben.
     return Container(
       key: const ValueKey('recipe-create-sheet'),
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.92,
       ),
-      decoration: const BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+      decoration: BoxDecoration(
+        color: t.bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -385,142 +497,163 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 width: 42,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: hairline,
+                  color: t.line,
                   borderRadius: BorderRadius.circular(rPill),
                 ),
               ),
             ),
-            const SizedBox(height: 18),
-            const Text(
+            const SizedBox(height: 12),
+            Text(
               'Eigenes Rezept',
-              style: TextStyle(
-                color: textPrimary,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-              ),
+              style: AppType.display(24, color: t.ink, height: 1.15),
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Name, Kalorien und Gewicht genügen — Makros sind optional.',
-              style: TextStyle(
-                color: textMuted,
-                fontSize: 12.5,
-                height: 1.4,
-                fontWeight: FontWeight.w500,
+            // Bewusst kurz: der Satz stand vorher zweizeilig ueber dem
+            // Formular. Was optional ist, sagen jetzt die Gruppen selbst
+            // („optional" rechts in der Kopfzeile).
+            Text(
+              'Name und Kalorien genügen.',
+              style: AppType.ui(12.5, color: t.ink2, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            _SheetGroup(
+              label: 'Foto',
+              child: _RecipePhotoPicker(
+                bytes: _photoBytes,
+                busy: _photoBusy,
+                onCamera: () => _pickPhoto(ImageSource.camera),
+                onGallery: () => _pickPhoto(ImageSource.gallery),
+                onRemove: _removePhoto,
               ),
             ),
-            const SizedBox(height: 18),
-            _Field(
-              fieldKey: const ValueKey('recipe-create-name'),
-              controller: _name,
-              label: 'Name',
-              hint: 'z. B. Protein-Bowl',
-              maxChars: _nameMaxChars,
+            const SizedBox(height: 10),
+            _SheetGroup(
+              label: 'Was ist es',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _RecipeSheetField(
+                    fieldKey: const ValueKey('recipe-create-name'),
+                    controller: _name,
+                    label: 'Name',
+                    hint: 'z. B. Protein-Bowl',
+                    maxChars: _nameMaxChars,
+                  ),
+                  const SizedBox(height: 12),
+                  _FieldGrid(
+                    // Portion und Gewicht beschreiben dasselbe: „wie viel ist
+                    // eine Portion". Sie stehen deshalb nebeneinander, und die
+                    // Naehrwerte-Gruppe bleibt rein numerisch.
+                    columns: 2,
+                    children: [
+                      _RecipeSheetField(
+                        fieldKey: const ValueKey('recipe-create-portion'),
+                        controller: _portion,
+                        label: 'Portion',
+                        hint: '1 Teller',
+                      ),
+                      _RecipeSheetField(
+                        fieldKey: const ValueKey('recipe-create-grams'),
+                        controller: _grams,
+                        label: 'Gewicht',
+                        unit: 'g',
+                        numeric: true,
+                        errorText: _gramsFehler,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            _Field(
-              fieldKey: const ValueKey('recipe-create-portion'),
-              controller: _portion,
-              label: 'Portion',
-              hint: '1 Teller',
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _Field(
+            const SizedBox(height: 10),
+            _SheetGroup(
+              label: 'Nährwerte',
+              trailing: 'pro Portion',
+              // Vier Zahlen nebeneinander statt vier vollen Zeilen. Die drei
+              // Makro-Felder tragen ihren Token-Ton als Punkt vor der
+              // Beschriftung — dieselbe Kodierung wie im Naehrwert-Grid der
+              // Detail-Ansicht, damit die Farben nicht auseinanderlaufen.
+              child: _FieldGrid(
+                columns: 4,
+                children: [
+                  _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-kcal'),
                     controller: _kcal,
                     label: 'Kalorien',
-                    suffix: 'kcal',
+                    unit: 'kcal',
                     numeric: true,
+                    dot: t.accent,
                     errorText: _kcalFehler,
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _Field(
-                    fieldKey: const ValueKey('recipe-create-grams'),
-                    controller: _grams,
-                    label: 'Gewicht',
-                    suffix: 'g',
-                    numeric: true,
-                    errorText: _gramsFehler,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _Field(
+                  _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-protein'),
                     controller: _protein,
                     label: 'Protein',
-                    suffix: 'g',
+                    unit: 'g',
                     numeric: true,
+                    dot: t.protein,
                     errorText: _makroFehler(_protein),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _Field(
+                  _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-carbs'),
                     controller: _carbs,
                     label: 'KH',
-                    suffix: 'g',
+                    unit: 'g',
                     numeric: true,
+                    dot: t.carbs,
                     errorText: _makroFehler(_carbs),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _Field(
+                  _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-fat'),
                     controller: _fat,
                     label: 'Fett',
-                    suffix: 'g',
+                    unit: 'g',
                     numeric: true,
+                    dot: t.fat,
                     errorText: _makroFehler(_fat),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            _Field(
-              fieldKey: const ValueKey('recipe-create-ingredients'),
-              controller: _ingredients,
+            const SizedBox(height: 10),
+            _SheetGroup(
               label: 'Zutaten',
-              hint: 'Eine Zutat pro Zeile',
-              maxLines: 4,
+              trailing: 'optional',
+              child: _RecipeSheetField(
+                fieldKey: const ValueKey('recipe-create-ingredients'),
+                controller: _ingredients,
+                label: 'Zutaten',
+                hint: 'Eine Zutat pro Zeile',
+                maxLines: 3,
+                // Die Gruppe traegt die Beschriftung schon in ihrer Kopfzeile;
+                // eine zweite direkt darunter waere Dopplung. Der
+                // Screenreader-Bezug bleibt (Semantics im Feld selbst).
+                showLabel: false,
+              ),
             ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: FilledButton.icon(
-                key: const ValueKey('recipe-create-save'),
-                onPressed: _isValid ? _save : null,
-                icon: const Icon(Icons.check_rounded, size: 19),
-                label: const Text(
-                  'Rezept speichern',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.1,
-                  ),
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: lime,
-                  foregroundColor: bg,
-                  disabledBackgroundColor: surfaceSoft,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(rControl),
-                  ),
+            const SizedBox(height: 14),
+            // Bleibt ein `FilledButton` mit `onPressed: _isValid ? _save : null`
+            // — recipe_create_sheet_test castet darauf und liest
+            // `onPressed == null` als Sperrsignal. Nur der Stil wandert auf die
+            // Fussaktion der neuen Sheet-Sprache.
+            FilledButton.icon(
+              key: const ValueKey('recipe-create-save'),
+              onPressed: _isValid && !_saving ? _save : null,
+              icon: const Icon(Icons.check_rounded, size: 18),
+              label: Text(
+                'Rezept speichern',
+                style: AppType.ui(14.5, weight: FontWeight.w700),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: t.forest,
+                foregroundColor: t.onForest,
+                disabledBackgroundColor: t.surf2,
+                disabledForegroundColor: t.ink2,
+                // `minimumSize` statt fester Hoehe: bei doppelter Schrift waere
+                // die Beschriftung sonst hoeher als der Knopf.
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
             ),
@@ -531,26 +664,343 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   }
 }
 
-class _Field extends StatelessWidget {
-  const _Field({
+/// Eine benannte Gruppe des Anlege-Sheets: Versalien-Kopfzeile über ihrem
+/// Inhalt.
+///
+/// Bewusst OHNE umschliessende Karte. Der erste Entwurf steckte jede Gruppe in
+/// eine [AppCard] — das sah geordnet aus und kostete 4 x 24 px Innenpolsterung.
+/// Zusammen mit dem Rest lag das Sheet bei gemessenen 889 px Inhalt auf einem
+/// 852-px-Geraet, also ueber seinem 92-%-Deckel: es wurde scrollbar, der
+/// Speichern-Knopf rutschte unter den Rand — und der Verwerfen-Schutz verlor
+/// seinen Zug-Weg an die Scrollflaeche (ein Scroller gewinnt die Gestenarena
+/// gegen den `_DiscardDragGuard` darueber). Die Kopfzeile allein gruppiert
+/// genauso gut; so macht es auch das Bearbeiten-Sheet (`_SectionLabel`).
+class _SheetGroup extends StatelessWidget {
+  const _SheetGroup({
+    required this.label,
+    required this.child,
+    this.trailing,
+  });
+
+  final String label;
+  final Widget child;
+
+  /// Gedämpfter Zusatz rechts („pro Portion", „optional").
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Text(
+                label.toUpperCase(),
+                style: AppType.eyebrow(t.ink2, size: 10),
+              ),
+            ),
+            if (trailing != null)
+              // `Flexible`, nicht starr: bei doppelter Schrift sprengt der
+              // Zusatz die Zeile sonst.
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 10),
+                  child: Text(
+                    trailing!,
+                    textAlign: TextAlign.right,
+                    style: AppType.ui(
+                      11,
+                      weight: FontWeight.w500,
+                      color: t.ink2,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+}
+
+/// Gleich breite Zellen nebeneinander — mit einer Notbremse für große Schrift.
+///
+/// Vier Zahlenfelder auf einer Zeile sind bei normaler Schrift genau richtig
+/// und bei textScaler 2.0 unbenutzbar (jede Zelle bekäme ~75 px, in denen eine
+/// zweistellige Zahl und ihre Beschriftung liegen müssten). Ab dem 1,25-fachen
+/// halbiert sich deshalb die Spaltenzahl; ein `Wrap` bricht dann sauber um,
+/// statt die Zeile zu sprengen.
+class _FieldGrid extends StatelessWidget {
+  const _FieldGrid({required this.columns, required this.children});
+
+  final int columns;
+  final List<Widget> children;
+
+  static const double _spacing = 9;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
+    final spalten = scale <= 1.25 ? columns : (columns > 2 ? 2 : 1);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final breite =
+            (constraints.maxWidth - _spacing * (spalten - 1)) / spalten;
+        return Wrap(
+          spacing: _spacing,
+          runSpacing: 12,
+          children: [
+            for (final child in children)
+              SizedBox(width: breite > 0 ? breite : null, child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Die Foto-Gruppe: Vorschau und Erklärung nebeneinander, darunter die
+/// Aktionen (Kamera · Galerie · Entfernen).
+///
+/// Der ehrliche Hinweis („Bleibt auf diesem Gerät") steht bewusst hier und
+/// nicht im Kleingedruckten: die Bytes gehen NICHT in die Cloud. Ein zweites
+/// Gerät sieht das Rezept, aber den Platzhalter statt des Fotos.
+class _RecipePhotoPicker extends StatelessWidget {
+  const _RecipePhotoPicker({
+    required this.bytes,
+    required this.busy,
+    required this.onCamera,
+    required this.onGallery,
+    required this.onRemove,
+  });
+
+  final Uint8List? bytes;
+  final bool busy;
+  final VoidCallback onCamera;
+  final VoidCallback onGallery;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final vorhanden = bytes != null;
+    return AppCard(
+      radius: rCard,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 60,
+                height: 60,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(rControl),
+                  child: vorhanden
+                      ? Image.memory(
+                          bytes!,
+                          key: const ValueKey('recipe-create-photo-preview'),
+                          fit: BoxFit.cover,
+                          width: 60,
+                          height: 60,
+                        )
+                      : const ImagePlaceholder(radius: rControl, label: 'FOTO'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      vorhanden ? 'Dein Foto' : 'Foto vom Gericht',
+                      style:
+                          AppType.ui(13, weight: FontWeight.w600, color: t.ink),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      busy
+                          ? 'Foto wird vorbereitet…'
+                          : 'Bleibt auf diesem Gerät.',
+                      style: AppType.ui(11.5, color: t.ink2, height: 1.3),
+                    ),
+                    if (vorhanden) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        'Ohne Standortdaten.',
+                        style: AppType.ui(11.5, color: t.ink2, height: 1.3),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Eine feste Zeile mit gleich breiten Kapseln statt eines `Wrap`:
+          // im Wrap brach die dritte Kapsel in eine zweite Reihe um und kostete
+          // das Sheet ~37 px Hoehe — bei einem Sheet, das seinen Deckel nicht
+          // reissen darf (s. `_SheetGroup`), ist das nicht drin.
+          Row(
+            children: [
+              Expanded(
+                child: _PhotoAction(
+                  actionKey: const ValueKey('recipe-create-photo-camera'),
+                  icon: Icons.photo_camera_outlined,
+                  label: 'Kamera',
+                  onTap: busy ? null : onCamera,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _PhotoAction(
+                  actionKey: const ValueKey('recipe-create-photo-gallery'),
+                  icon: Icons.photo_library_outlined,
+                  label: 'Galerie',
+                  onTap: busy ? null : onGallery,
+                ),
+              ),
+              if (vorhanden) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _PhotoAction(
+                    actionKey: const ValueKey('recipe-create-photo-remove'),
+                    icon: Icons.close_rounded,
+                    label: 'Entfernen',
+                    onTap: busy ? null : onRemove,
+                    destructive: true,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Kleine Kapsel-Aktion der Foto-Gruppe.
+class _PhotoAction extends StatelessWidget {
+  const _PhotoAction({
+    required this.actionKey,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final Key actionKey;
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final ton = destructive ? t.danger : t.ink;
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      child: Opacity(
+        opacity: onTap == null ? 0.45 : 1,
+        child: Material(
+          color: t.surf2,
+          borderRadius: BorderRadius.circular(rChip),
+          child: InkWell(
+            key: actionKey,
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(rChip),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 15, color: ton),
+                  const SizedBox(width: 6),
+                  // `Flexible` ist hier keine Kosmetik: bei doppelter Schrift
+                  // ist „Entfernen" breiter als die Spalte neben der
+                  // Bildkachel, und ein `Wrap` kann ein einzelnes Kind nicht
+                  // umbrechen — es lief um gemessene 27 px ueber.
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          AppType.ui(12, weight: FontWeight.w600, color: ton),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Beschriftetes Eingabefeld in der Optik von `SheetField`, hier lokal
+/// nachgebaut: das Bibliotheks-Widget kennt (noch) weder einen Key auf dem
+/// inneren [TextField] noch `maxLines`/`maxLength`/`inputFormatters` — und der
+/// [ValueKey] muss zwingend direkt am [TextField] sitzen, weil
+/// recipe_create_sheet_test darauf castet.
+///
+/// Zwei Abweichungen von `SheetField`, beide der neuen Gruppierung geschuldet:
+///
+///  * **Fläche `surf2` statt `surf` ohne Rahmen.** Das Feld sitzt jetzt in
+///    einer [AppCard] (die ist `surf` mit `line`-Rand) — ein Rahmen im Rahmen
+///    wäre doppelt gezeichnet, und eine `surf`-Kapsel auf `surf` unsichtbar.
+///    Rot umrandet wird weiterhin, was einen Fehler trägt.
+///  * **Die Einheit steht in der Kopfzeile, nicht in der Kapsel.** Ein Suffix
+///    NEBEN einem `Expanded`-Textfeld ist bei doppelter Schrift die klassische
+///    Overflow-Quelle; in der Beschriftung bricht es einfach um. Nebenbei
+///    passen dadurch vier Zahlenfelder auf eine Zeile.
+class _RecipeSheetField extends StatelessWidget {
+  const _RecipeSheetField({
     required this.fieldKey,
     required this.controller,
     required this.label,
     this.hint,
-    this.suffix,
+    this.unit,
     this.numeric = false,
     this.maxLines = 1,
     this.maxChars,
     this.errorText,
+    this.showLabel = true,
+    this.dot,
   });
 
   final Key fieldKey;
   final TextEditingController controller;
   final String label;
   final String? hint;
-  final String? suffix;
+
+  /// Maßeinheit — erscheint als Zusatz in der Versalien-Kopfzeile.
+  final String? unit;
+
   final bool numeric;
   final int maxLines;
+
+  /// Blendet die Kopfzeile aus, wenn die Gruppe sie schon trägt. Der
+  /// Screenreader-Bezug bleibt davon unberührt ([Semantics] unten).
+  final bool showLabel;
+
+  /// Kategorie-Punkt vor der Beschriftung (Makro-Token). Nur Kodierung, keine
+  /// Dekoration — dieselben Töne wie das Nährwert-Grid der Detail-Ansicht.
+  final Color? dot;
 
   /// Harte Laengenbegrenzung waehrend der Eingabe. Zaehlt UTF-16-Einheiten und
   /// ist damit nie grosszuegiger als Postgres' `char_length` (Code Points) —
@@ -563,30 +1013,118 @@ class _Field extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      key: fieldKey,
-      cursorOpacityAnimates: false,
-      controller: controller,
-      maxLines: maxLines,
-      maxLength: maxChars,
-      keyboardType: numeric ? TextInputType.number : TextInputType.text,
-      inputFormatters:
-          numeric ? [FilteringTextInputFormatter.digitsOnly] : null,
-      textCapitalization: numeric
-          ? TextCapitalization.none
-          : TextCapitalization.sentences,
-      style: const TextStyle(color: textPrimary, fontSize: 14),
-      cursorColor: lime,
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        suffixText: suffix,
-        errorText: errorText,
-        errorStyle: const TextStyle(fontSize: 11, height: 1.2),
-        // Der Zeichenzaehler waere hier nur Rauschen — gekuerzt wird ohnehin
-        // sichtbar, weil die Eingabe an der Grenze stehen bleibt.
-        counterText: '',
-      ),
+    final t = context.t;
+    final hasError = errorText != null;
+    final kopfzeile = unit == null
+        ? label.toUpperCase()
+        : '${label.toUpperCase()} · ${unit!.toUpperCase()}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showLabel) ...[
+          // Feste Kopfzeilen-Höhe, GENAU eine Zeile.
+          //
+          // Ohne sie brach „KALORIEN · KCAL" in einer 81-px-Spalte auf zwei
+          // Zeilen um, „KH · G" blieb einzeilig — und weil die Spalten oben
+          // bündig stehen, sassen die Eingabefelder von KH und Fett sichtbar
+          // höher als die von Kalorien und Protein (Nutzer-Befund
+          // 2026-08-10). Der FittedBox schrumpft die langen Kopfzeilen
+          // stattdessen leicht; alle vier Felder beginnen damit auf
+          // derselben Höhe, in jeder Schriftgrösse.
+          SizedBox(
+            height: MediaQuery.textScalerOf(context).scale(9.5) * 1.35,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (dot != null) ...[
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration:
+                        BoxDecoration(color: dot, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      kopfzeile,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: AppType.eyebrow(t.ink2, size: 9.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 5),
+        ],
+        Container(
+          decoration: BoxDecoration(
+            color: t.surf,
+            borderRadius: BorderRadius.circular(rControl),
+            border: Border.all(color: hasError ? t.danger : t.line),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 13),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                // Die Beschriftung steht als eigene Versalien-Zeile UEBER dem
+                // Feld statt als `InputDecoration.labelText` darin. Optisch ist
+                // das die neue Sprache — fuer den Screenreader waere das Feld
+                // damit aber unbeschriftet („Textfeld, leer"), waehrend es
+                // vorher „Kalorien" ansagte. Die Annotation holt den Bezug
+                // zurueck, ohne die Optik anzufassen.
+                child: Semantics(
+                  label: label,
+                  child: TextField(
+                    key: fieldKey,
+                    cursorOpacityAnimates: false,
+                    controller: controller,
+                    maxLines: maxLines,
+                    maxLength: maxChars,
+                    keyboardType:
+                        numeric ? TextInputType.number : TextInputType.text,
+                    inputFormatters: numeric
+                        ? [FilteringTextInputFormatter.digitsOnly]
+                        : null,
+                    textCapitalization: numeric
+                        ? TextCapitalization.none
+                        : TextCapitalization.sentences,
+                    style: AppType.ui(14, color: t.ink),
+                    cursorColor: t.accent,
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      hintText: hint,
+                      hintStyle: AppType.ui(14, color: t.ink2),
+                      // Der Zeichenzaehler waere hier nur Rauschen — gekuerzt
+                      // wird ohnehin sichtbar, weil die Eingabe an der Grenze
+                      // stehen bleibt.
+                      counterText: '',
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (hasError) ...[
+          const SizedBox(height: 6),
+          Text(
+            errorText!,
+            style: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
+          ),
+        ],
+      ],
     );
   }
 }

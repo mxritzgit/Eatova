@@ -1,6 +1,12 @@
 // Tab-Navigation (aus test/widget_test.dart aufgeteilt): Bottom-Nav wechselt
-// zwischen den drei Tabs Food, Rezepte und Coach; prueft die Kern-Pins der
-// jeweiligen Screens.
+// zwischen den vier Tabs Heute, Food, Rezepte und Coach; prueft die Kern-Pins
+// der jeweiligen Screens.
+//
+// Design-Refactor 2026-08-09: aus drei Tabs sind vier geworden, und der
+// Landepunkt beim Kaltstart ist jetzt „Heute" (Index 0) statt Food. Der
+// bestehende Food-Block ist deshalb unveraendert geblieben — er steht nur
+// hinter einem zusaetzlichen Tap auf `nav-Food`, und alle Indizes sind um eins
+// nach hinten gerueckt.
 //
 // Seit D6 (2026-08-08) liegen die Tabs in einem lazy [IndexedStack]: ein einmal
 // besuchter Tab bleibt GEMOUNTET (nur unsichtbar). Die Standard-Finder
@@ -17,12 +23,13 @@ import 'package:eatova/main.dart';
 import 'flow_test_helpers.dart';
 
 void main() {
-  testWidgetsRobust('Bottom navigation switches between Food, Rezepte and Coach', (
+  testWidgetsRobust(
+      'Bottom navigation switches between Heute, Food, Rezepte and Coach', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const EatovaApp());
 
-    // Food ist der Default-Tab (Index 0) — und beim Kaltstart der EINZIGE
+    // Heute ist der Default-Tab (Index 0) — und beim Kaltstart der EINZIGE
     // gebaute Tab (D6-Lazy-Building).
     expect(find.byKey(const ValueKey('tab-fixed-0')), findsOneWidget);
     expect(_sichtbarerTab(tester), 0);
@@ -30,13 +37,34 @@ void main() {
         findsNothing);
     expect(find.byKey(const ValueKey('tab-fixed-2'), skipOffstage: false),
         findsNothing);
+    expect(find.byKey(const ValueKey('tab-fixed-3'), skipOffstage: false),
+        findsNothing);
+    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-date-strip')), findsOneWidget);
+    // Der Food-Tab ist noch gar nicht gebaut.
+    expect(find.byKey(const ValueKey('screen-kcal-tracker'), skipOffstage: false),
+        findsNothing);
+
+    // Ab hier der unveraenderte Food-Block — nur eben nach einem Tap statt
+    // direkt nach dem Boot.
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
+    await tester.pumpAndSettle();
+    expect(_sichtbarerTab(tester), 1);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
     expect(find.byKey(const ValueKey('kcal-page-fill')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-strip')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-chip-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-chip-3')), findsOneWidget);
-    expect(find.byKey(const ValueKey('analyse-daily-kcal-card')), findsOneWidget);
-    expect(find.byKey(const ValueKey('analyse-daily-kcal-total')), findsOneWidget);
+    // Die Kalorien-Karte ist am 2026-08-10 aus dem Food-Tab entfernt worden
+    // („das haben wir ja im Heute-Tab schon"). Statt ihrer Existenz prueft der
+    // Pin jetzt ihre ABWESENHEIT — und dass der Verlauf, der ihren Platz
+    // eingenommen hat, da ist. Das Tagestotal steht im Heute-Tab
+    // (`today-kcal-hero`, weiter oben in diesem Test schon gepinnt).
+    expect(find.byKey(const ValueKey('analyse-daily-kcal-card')), findsNothing);
+    expect(find.byKey(const ValueKey('analyse-daily-kcal-total')), findsNothing);
+    expect(find.byKey(const ValueKey('kcal-meals-today-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('food-history')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-search')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-barcode')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-ai')), findsOneWidget);
@@ -49,7 +77,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
     await tester.pumpAndSettle();
-    expect(_sichtbarerTab(tester), 1);
+    expect(_sichtbarerTab(tester), 2);
     expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipes-search-input')), findsOneWidget);
     expect(find.text('Hähnchen mit Reis & Brokkoli'), findsWidgets);
@@ -73,7 +101,7 @@ void main() {
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    expect(_sichtbarerTab(tester), 2);
+    expect(_sichtbarerTab(tester), 3);
     expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);
     expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
 
@@ -81,8 +109,13 @@ void main() {
     // Der CoachOrb tickt weiter, solange sein Tab sichtbar ist — nach dem
     // Wechsel schaltet ihn der TickerMode stumm, danach settlet es wieder.
     await tester.pumpAndSettle();
-    expect(_sichtbarerTab(tester), 0);
+    expect(_sichtbarerTab(tester), 1);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('nav-Heute')));
+    await tester.pumpAndSettle();
+    expect(_sichtbarerTab(tester), 0);
+    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
 
     // D6: die besuchten Tabs sind noch da (nur unsichtbar) — genau das haelt
     // Coach-Entwurf, Rezept-Suchtext und Scrollpositionen am Leben. Fuer die
@@ -91,6 +124,9 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const ValueKey('tab-fixed-2'), skipOffstage: false),
         findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-fixed-3'), skipOffstage: false),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsNothing);
     expect(find.byKey(const ValueKey('screen-recipes')), findsNothing);
     expect(find.byKey(const ValueKey('screen-coach')), findsNothing);
   });

@@ -10,6 +10,7 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 // DATA-3 Clobber-Guard: ein Offline-Kaltstart (ProfileSync.load() wirft) darf
 // die echte Server-Profilzeile NIEMALS mit den nackten Ctor-Defaults
@@ -155,6 +156,11 @@ Future<void> _pumpHome(
   addTearDown(() => FlutterError.onError = prior);
 
   await tester.pumpWidget(MaterialApp(
+    // Design-Refactor 2026-08: Schale, Onboarding und Food-Tab lesen Farben
+    // ueber `context.t` (AppTokens als ThemeExtension). `AppTokens.of` wirft
+    // absichtlich, wenn die Extension fehlt — ohne `theme:` stirbt schon der
+    // erste Build und der Clobber-Guard kaeme gar nicht zum Zug.
+    theme: buildEatovaTheme(Brightness.dark),
     home: EatovaHomePage(
       sync: sync,
       debugCache: debugCache,
@@ -235,12 +241,31 @@ void main() {
     // Das Onboarding-Gate ist dank gecachtem onboarding_completed=true weg —
     // der User landet direkt im Home (kein Onboarding-Screen).
     expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
+    // Design-Refactor 2026-08: der Landepunkt ist der neue Tab „Heute"
+    // (Index 0), nicht mehr der Food-Tab. Die Aussage bleibt dieselbe — die
+    // App zeigt statt des Onboarding-Gates die echte Oberflaeche.
+    expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
+
+    // Das Zahnrad haengt in der Kopfzeile des Food-Tabs
+    // (meal_analysis_screen.dart:642); der lazy IndexedStack baut den Tab erst
+    // beim ersten Besuch, deshalb zuerst hinueberwechseln.
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
+    await _drain(tester);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
     // Settings oeffnen, Gewicht auf 81 setzen, speichern. Da _hydratedFromReal
     // Source dank Cache-Hydration true ist, DARF (und soll) der Save laufen —
     // aber mit dem echten/editierten Wert, nicht mit 78.
     await tester.tap(find.byKey(const ValueKey('topbar-settings')));
+    await _drain(tester);
+
+    // Seit der Trennung 2026-08-10 stehen Koerperdaten und „Speichern" nicht
+    // mehr in den Einstellungen selbst, sondern auf „Profil & Ziele" — eine
+    // Ebene tiefer. Der geprueffte Schreibpfad ist unveraendert derselbe.
+    final zuDenZielen = find.byKey(const ValueKey('settings-open-goals'));
+    await tester.ensureVisible(zuDenZielen);
+    await _drain(tester);
+    await tester.tap(zuDenZielen);
     await _drain(tester);
 
     final weightField = find.byKey(const ValueKey('settings-weight'));

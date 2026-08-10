@@ -34,13 +34,49 @@ Future<void> _pumpTrends(
   WidgetTester tester, {
   required TrendTotalsLoader loader,
   int kcalGoal = 2200,
+  Brightness brightness = Brightness.dark,
+  TextScaler? textScaler,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
-      home: TrendsScreen(kcalGoal: kcalGoal, loadTotals: loader),
+      theme: buildEatovaTheme(brightness),
+      home: textScaler == null
+          ? TrendsScreen(kcalGoal: kcalGoal, loadTotals: loader)
+          : MediaQuery(
+              data: MediaQueryData(textScaler: textScaler),
+              child: TrendsScreen(kcalGoal: kcalGoal, loadTotals: loader),
+            ),
     ),
   );
+}
+
+/// iPhone-14-Viewport, damit die Karten eine realistische Breite bekommen.
+void _pinViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1179, 2556);
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+/// Sammelt Overflow-Fehler waehrend [body] und meldet sie gesammelt.
+/// FlutterError.onError wird VOR dem expect() zurueckgesetzt — sonst asserted
+/// das Test-Binding beim ersten TestFailure.
+Future<void> _expectNoOverflow(Future<void> Function() body) async {
+  final overflows = <String>[];
+  final prior = FlutterError.onError;
+  FlutterError.onError = (details) {
+    if (details.exception.toString().contains('overflowed')) {
+      overflows.add(details.summary.toString());
+      return;
+    }
+    prior?.call(details);
+  };
+  try {
+    await body();
+  } finally {
+    FlutterError.onError = prior;
+  }
+  expect(overflows, isEmpty, reason: overflows.join('\n'));
 }
 
 void main() {
@@ -202,6 +238,49 @@ void main() {
     expect(find.byKey(const ValueKey('trends-error')), findsNothing);
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
     expect(calls, 2);
+  });
+
+  // Design-Vertrag §7.2: jeder Screen muss in BEIDEN Anzeige-Modi rendern.
+  // Der Trend-Painter bekommt seine fuenf Farben seit dem Refactor als
+  // Parameter — faellt eine davon aus dem Vertrag, faellt es hier auf.
+  for (final brightness in <Brightness>[Brightness.light, Brightness.dark]) {
+    testWidgets('rendert in ${brightness.name} ohne Exception', (tester) async {
+      _pinViewport(tester);
+      await _pumpTrends(
+        tester,
+        brightness: brightness,
+        loader: () => Future.value([
+          for (var d = 0; d < 6; d++) _day(d, kcal: 1800 + d * 90, p: 110, c: 190, f: 65),
+        ]),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+      expect(find.text('Trends'), findsOneWidget);
+      expect(find.byKey(const ValueKey('trends-close')), findsOneWidget);
+    });
+  }
+
+  testWidgets('rendert bei textScaler 2.0 ohne Overflow', (tester) async {
+    _pinViewport(tester);
+    await _expectNoOverflow(() async {
+      await _pumpTrends(
+        tester,
+        textScaler: const TextScaler.linear(2.0),
+        loader: () => Future.value([
+          for (var d = 0; d < 6; d++) _day(d, kcal: 2200, p: 120, c: 200, f: 60),
+        ]),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Auch die 7-Tage-Ansicht (Wochentags-Achse) einmal zeichnen.
+      await tester.tap(find.byKey(const ValueKey('trends-range-7')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+    });
   });
 
   testWidgets('auch ein synchron werfender Loader endet im Retry-Zustand', (

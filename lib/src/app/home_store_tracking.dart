@@ -83,7 +83,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     _emitSnack(
       'Apple Health: $label kg übernehmen?',
       icon: Icons.monitor_weight_outlined,
-      accent: lime,
+      tone: SnackTone.positive,
       // Unaufgefordertes Angebot beim Resume/Kaltstart: etwas laenger sichtbar
       // als Standard-Action-Snacks (kSnackAction), damit der Tap realistisch
       // treffbar ist, bevor der Toast von selbst verschwindet.
@@ -121,26 +121,23 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (writeToHealth) {
       unawaited(health.writeWeight(kg, ts));
     }
-    final s = sync;
-    if (s == null) return;
+    if (sync == null) return;
     // Client-UUID fuer die Server-Zeile: Live-Write und ein spaeterer
     // Outbox-Retry teilen dieselbe id -> Upsert statt Insert, ein Retry nach
     // unklarem Timeout erzeugt kein Duplikat (DATA-7-Idempotenz).
     final rowId = uuidV4();
-    s.tracking.insertWeight(kg, ts, id: rowId).then((_) {
-      _queueStatsDelta(weightLogs: 1);
-      _onSyncSuccess();
-    }).catchError((Object e, StackTrace st) {
-      // Kein Rollback mehr: das Gewicht bleibt geloggt (damit bleibt auch der
-      // Health-Import-Dedup-Marker korrekt gesetzt) und wird per Outbox
-      // nachgeholt.
-      _handleSyncFailure(
-        'Gewicht',
-        e,
-        st,
-        SyncOp.weightInsert(id: rowId, weightKg: kg, recordedAt: ts),
-      );
-    });
+    // Kein Rollback: das Gewicht bleibt geloggt (damit bleibt auch der
+    // Health-Import-Dedup-Marker korrekt gesetzt) und wird per Outbox
+    // nachgeholt. Luecke B: die Op liegt dafuer schon VOR dem Write in der
+    // Queue — ein haengender Request erzeugte sonst nie eine.
+    _syncOrQueue(
+      'Gewicht',
+      () => sync!.tracking.insertWeight(kg, ts, id: rowId),
+      () => SyncOp.weightInsert(id: rowId, weightKg: kg, recordedAt: ts),
+      // Wie beim Mahlzeiten-Insert: das Lifetime-Delta bucht sonst _performOp
+      // beim Nachspielen.
+      onDelivered: () => _queueStatsDelta(weightLogs: 1),
+    );
   }
 
   // --- Streak ---------------------------------------------------------------
@@ -148,20 +145,40 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Schreibt einen Logging-Tag serverseitig in die Streak
   /// (record_tracking_day, idempotent pro Tag) und adoptiert die frische
   /// Server-Zeile. Default ist "heute"; ein Outbox-Replay uebergibt den Tag
-  /// der nachgeholten Mahlzeit. Fehler bleiben still — der optimistische
-  /// lokale recordTrackedDay-Stand gilt dann bis zum naechsten Load/Log
-  /// weiter.
+  /// der nachgeholten Mahlzeit.
+  ///
+  /// **Zweitpruefung 2026-08-10:** Fehler blieben hier bis eben still — und
+  /// das war die letzte Nutzer-Groesse mit NULL Sicherungsnetzen. Der
+  /// Kommentar behauptete, der optimistische lokale Stand gelte „bis zum
+  /// naechsten Load/Log weiter"; tatsaechlich hielt er keine Sekunde: der auf
+  /// 600 ms entprellte [_flushStatsDelta] adoptierte gleich danach die frische
+  /// Serverzeile, die den Tag naturgemaess nicht kennt, und
+  /// [_cacheLifetimeStats] schrieb den Verlust in den Cache. Der Nutzer hatte
+  /// geloggt, die Mahlzeit war angekommen — und seine Streak war trotzdem
+  /// gerissen, ohne Hinweis und ohne jede Stelle, die es je repariert haette.
+  /// Jetzt landet der Tag in derselben persistierten Outbox wie jeder andere
+  /// Write ([_queueTrackingDay]).
   @override
   void _recordTrackingDay({DateTime? day}) {
     final s = sync;
     if (s == null) return;
-    s.lifetimeStats.recordTrackingDay(day ?? clock.now()).then((fresh) {
+    final tag = day ?? clock.now();
+    s.lifetimeStats.recordTrackingDay(tag).then((fresh) {
       if (_disposed) return;
-      _mutate(() => lifetimeStats = fresh);
+      // Eine aeltere, gescheiterte Op fuer denselben Tag ist damit erledigt.
+      _clearQueuedTrackingDay(localDayKey(tag));
+      _mutate(() {
+        lifetimeStats = fresh;
+        // Andere, noch nicht zugestellte Tage bleiben sichtbar — die gerade
+        // gelesene Serverzeile kennt sie nicht.
+        _overlayPendingTrackingDays();
+      });
       _cacheLifetimeStats();
     }).catchError((Object e, StackTrace st) {
-      dev.log('recordTrackingDay failed', error: e, name: 'home_store');
+      dev.log('recordTrackingDay failed — Tag bleibt in der Outbox liegen',
+          error: e, name: 'home_store');
       unawaited(CrashReporter.capture(e, st, context: 'record-tracking-day'));
+      _queueTrackingDay(tag);
     });
   }
 }

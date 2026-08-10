@@ -1,176 +1,112 @@
 part of 'profile_widgets.dart';
 
-/// Identitaets-Header des Profils: Avatar mit weichem Lime-Schein, Name
-/// zentriert darunter, dann die Stat-Leiste (Streak · Mahlzeiten · Gewicht)
-/// als drei gleichberechtigte Soft-Kacheln. Bewusst KEINE Karte — der Kopf
-/// steht frei auf dem Hintergrund, wie es moderne Profil-Screens tun; die
-/// Karten beginnen erst mit den Sektionen darunter.
-class ProfileHero extends StatelessWidget {
-  const ProfileHero({
-    super.key,
-    required this.name,
-    required this.streak,
-    required this.mealsLogged,
-    required this.weightKg,
-  });
+/// Der Identitaets-Anker des Profils: Forest-Flaeche mit Initialen-Kachel,
+/// Name und zwei Tags aus ECHTEN Profilfeldern.
+///
+/// Die Design-Vorlage zeigt hier zusaetzlich E-Mail, ein „PREMIUM"-Tag und
+/// „MEMBER SINCE 2024". Nichts davon existiert bei uns: der Screen bekommt nur
+/// einen Namen, und `LifetimeStats.sessionStart` ist der Start DIESER Sitzung,
+/// kein Beitrittsdatum. Erfundene Daten auf der Identitaetskarte waeren die
+/// teuerste Art von Designschuld — also stehen dort die beiden Felder, die es
+/// wirklich gibt.
+class IdentityCard extends StatelessWidget {
+  const IdentityCard({super.key, required this.name, required this.profile});
 
   final String name;
-  final int streak;
-  final int mealsLogged;
-  final double weightKg;
+  final UserProfile profile;
 
+  /// Initialen aus dem Anzeigenamen. Bewusst OHNE Platzhalter-Buchstaben:
+  /// ein leerer Name ergibt eine leere Zeichenkette, die Kachel zeigt dann ein
+  /// Personen-Glyph statt zweier erfundener Buchstaben.
   String get _initials {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return 'SF';
+    final parts = name.trim().split(RegExp(r'\s+'))
+      ..removeWhere((p) => p.isEmpty);
+    if (parts.isEmpty) return '';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
         .toUpperCase();
   }
 
-  String get _weightLabel {
-    final gerundet = (weightKg * 10).round() / 10;
-    final text = gerundet == gerundet.roundToDouble()
-        ? '${gerundet.round()}'
-        : gerundet.toStringAsFixed(1).replaceAll('.', ',');
-    return '$text kg';
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: 6),
-        Center(
-          child: Container(
-            width: 78,
-            height: 78,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  lime.withValues(alpha: 0.32),
-                  lime.withValues(alpha: 0.08),
-                ],
+    final t = context.t;
+    final initials = _initials;
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: t.forest,
+        borderRadius: BorderRadius.circular(rHero),
+      ),
+      child: Stack(
+        children: <Widget>[
+          Positioned(
+            right: -40,
+            bottom: -50,
+            child: Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                color: t.lime.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
               ),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: lime.withValues(alpha: 0.16),
-                  blurRadius: 30,
-                  offset: const Offset(0, 8),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: t.lime,
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      alignment: Alignment.center,
+                      // FittedBox: die Kachel hat eine feste Kantenlaenge, die
+                      // Initialen wachsen aber mit der Systemschrift.
+                      child: initials.isEmpty
+                          ? Icon(Icons.person_outline,
+                              size: 28, color: t.onLime)
+                          : FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                initials,
+                                style: AppType.display(24, color: t.onLime),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.display(
+                          23,
+                          color: t.onForest,
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Wrap statt Row: bei textScaler 2.0 passen zwei Tags nicht
+                // mehr nebeneinander, sie sollen umbrechen statt zu sprengen.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    _IdentityTag(label: profile.weightGoal.label, solid: true),
+                    _IdentityTag(label: profile.activityLevel.label),
+                  ],
                 ),
               ],
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              _initials,
-              style: const TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w700,
-                color: lime,
-                letterSpacing: -0.4,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Text(
-          name,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.6,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _HeroStat(
-                icon: Icons.local_fire_department_rounded,
-                accent: lime,
-                value: '$streak',
-                label: 'Tage Streak',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _HeroStat(
-                icon: Icons.restaurant_rounded,
-                accent: cyan,
-                value: '$mealsLogged',
-                label: 'Mahlzeiten',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _HeroStat(
-                icon: Icons.monitor_weight_rounded,
-                accent: orange,
-                value: _weightLabel,
-                label: 'Gewicht',
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-/// Eine Kachel der Hero-Stat-Leiste: rahmenlose Soft-Flaeche, Akzent nur im
-/// Icon, Zahl als Held (Soft-Kapsel-Vorgabe — keine Hairlines).
-class _HeroStat extends StatelessWidget {
-  const _HeroStat({
-    required this.icon,
-    required this.accent,
-    required this.value,
-    required this.label,
-  });
-
-  final IconData icon;
-  final Color accent;
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 17, color: accent),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.4,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label.toUpperCase(),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: textMuted,
-              fontSize: 9.5,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.7,
             ),
           ),
         ],
@@ -179,8 +115,40 @@ class _HeroStat extends StatelessWidget {
   }
 }
 
-/// Moderne Ziel-Übersicht: aktuelles Gewicht → Wunschgewicht, Tempo (kg/Woche),
-/// Tagesziel und grobe Zeit-Prognose. Headline-Karte des Profils.
+class _IdentityTag extends StatelessWidget {
+  const _IdentityTag({required this.label, this.solid = false});
+
+  final String label;
+  final bool solid;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        color: solid ? t.lime : t.onForest.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Text(
+        label,
+        style: AppType.ui(
+          10.5,
+          weight: solid ? FontWeight.w700 : FontWeight.w600,
+          color: solid ? t.onLime : t.onForest,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+/// Ziel-Uebersicht: aktuelles Gewicht → Wunschgewicht, Tempo (kg/Woche),
+/// Tagesziel und grobe Zeit-Prognose.
+///
+/// Klassenname und Konstruktor-Signatur sind API: `profile_hero_pace_test`
+/// baut die Karte direkt und nagelt fuenf Saetze zeichengenau fest. Der
+/// Design-Refactor tauscht hier nur Flaechen, Farben und Radien.
 class GoalPlanCard extends StatelessWidget {
   const GoalPlanCard({super.key, required this.profile, this.onEdit});
 
@@ -189,6 +157,7 @@ class GoalPlanCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final goal = profile.weightGoal;
     final isMaintain = goal == WeightGoal.maintain;
     final gap = (profile.weightKg - profile.targetWeightKg).abs();
@@ -205,62 +174,41 @@ class GoalPlanCard extends StatelessWidget {
     final weeks = const KcalCalculator().weeksToGoal(profile, targets: targets);
     // Fertig formulierter Satz aus KcalTargets, sonst null.
     final paceWarning = isMaintain ? null : targets.paceWarning;
-    final accent = goal.isGain ? orange : (goal.isLoss ? lime : cyan);
+    // Ein Ziel mit Richtung traegt den Marken-Akzent, „halten" bleibt ruhig.
+    final accent = isMaintain ? t.ink2 : t.accent;
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [accent.withValues(alpha: 0.14), surface],
-        ),
-        borderRadius: BorderRadius.circular(rSheet),
-        border: Border.all(color: accent.withValues(alpha: 0.30)),
-      ),
+    return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: <Widget>[
           Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: Icon(
-                  isMaintain
-                      ? Icons.shield_moon_outlined
-                      : (goal.isGain
-                          ? Icons.trending_up_rounded
-                          : Icons.trending_down_rounded),
-                  color: accent,
-                  size: 20,
-                ),
+            children: <Widget>[
+              IconTile(
+                icon: isMaintain
+                    ? Icons.shield_moon_outlined
+                    : (goal.isGain
+                        ? Icons.trending_up_rounded
+                        : Icons.trending_down_rounded),
+                color: accent,
+                size: 38,
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
+                  children: <Widget>[
+                    Text(
                       'Mein Ziel',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.2,
+                      style: AppType.ui(
+                        15,
+                        weight: FontWeight.w700,
+                        color: t.ink,
                       ),
                     ),
                     const SizedBox(height: 1),
                     Text(
                       goal.label,
-                      style: const TextStyle(
-                        color: textMuted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
                     ),
                   ],
                 ),
@@ -278,19 +226,19 @@ class GoalPlanCard extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Row(
-            children: [
+            children: <Widget>[
               Expanded(
                 child: _WeightPole(
                   label: 'Aktuell',
                   value: '${profile.weightKg}',
-                  color: textPrimary,
+                  color: t.ink,
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Icon(
                   Icons.arrow_forward_rounded,
-                  color: isMaintain ? textMuted : accent,
+                  color: accent,
                   size: 22,
                 ),
               ),
@@ -305,7 +253,7 @@ class GoalPlanCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Row(
-            children: [
+            children: <Widget>[
               Expanded(
                 // Den fertigen paceWarning-Satz haengt die Karte NICHT als
                 // eigenen Textblock an: W3-04 zeigt ihn im Einstellungs-Sheet,
@@ -318,8 +266,7 @@ class GoalPlanCard extends StatelessWidget {
                   child: _PlanChip(
                     icon: Icons.speed_rounded,
                     label: 'Tempo',
-                    value:
-                        isMaintain ? 'stabil' : targets.effectivePaceLabel,
+                    value: isMaintain ? 'stabil' : targets.effectivePaceLabel,
                     color: accent,
                   ),
                 ),
@@ -330,23 +277,22 @@ class GoalPlanCard extends StatelessWidget {
                   icon: Icons.local_fire_department_rounded,
                   label: 'Tagesziel',
                   value: '${profile.dailyKcalGoal} kcal',
-                  color: orange,
+                  color: t.ink,
                 ),
               ),
             ],
           ),
-          if (!isMaintain && gap > 0) ...[
+          if (!isMaintain && gap > 0) ...<Widget>[
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
               decoration: BoxDecoration(
-                color: surfaceSoft,
+                color: t.tile,
                 borderRadius: BorderRadius.circular(rControl),
-                border: Border.all(color: hairline),
               ),
               child: Row(
-                children: [
+                children: <Widget>[
                   Icon(Icons.flag_rounded, color: accent, size: 16),
                   const SizedBox(width: 10),
                   Expanded(
@@ -354,11 +300,11 @@ class GoalPlanCard extends StatelessWidget {
                       weeks != null
                           ? 'Noch $gap kg · Ziel in ca. $weeks Wochen'
                           : 'Noch $gap kg bis zum Wunschgewicht',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                      style: AppType.ui(
+                        13,
+                        weight: FontWeight.w600,
+                        color: t.ink,
                         height: 1.35,
-                        fontFeatures: [FontFeature.tabularFigures()],
                       ),
                     ),
                   ),
@@ -403,47 +349,35 @@ class _WeightPole extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Column(
-      children: [
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 10.5,
-            letterSpacing: 0.8,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+      children: <Widget>[
+        Text(label.toUpperCase(), style: AppType.eyebrow(t.ink2, size: 10.5)),
         const SizedBox(height: 4),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -1.2,
-                color: color,
-                height: 1,
-                fontFeatures: const [FontFeature.tabularFigures()],
+        // FittedBox: die grosse Zahl waechst mit der Systemschrift, die halbe
+        // Kartenbreite tut es nicht.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: <Widget>[
+              Text(
+                value,
+                style: AppType.display(30, color: color, height: 1),
               ),
-            ),
-            const SizedBox(width: 3),
-            const Padding(
-              padding: EdgeInsets.only(bottom: 3),
-              child: Text(
-                'kg',
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+              const SizedBox(width: 3),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(
+                  'kg',
+                  style:
+                      AppType.ui(12, weight: FontWeight.w700, color: t.ink2),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -465,41 +399,32 @@ class _PlanChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: surfaceSoft,
+        color: t.tile,
         borderRadius: BorderRadius.circular(rControl),
-        border: Border.all(color: hairline),
       ),
       child: Row(
-        children: [
+        children: <Widget>[
           Icon(icon, color: color, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              children: <Widget>[
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: textMuted,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style:
+                      AppType.ui(10.5, weight: FontWeight.w600, color: t.ink2),
                 ),
                 const SizedBox(height: 1),
                 Text(
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: color,
-                    letterSpacing: -0.2,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+                  style: AppType.ui(13, weight: FontWeight.w700, color: color),
                 ),
               ],
             ),

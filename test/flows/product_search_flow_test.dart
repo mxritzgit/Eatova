@@ -44,13 +44,12 @@ void main() {
     await tester.ensureVisible(addButton);
     await tester.tap(addButton);
     await tester.pumpAndSettle();
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('252 kcal'),
-      ),
-      findsOneWidget,
-    );
+
+    // Das Sheet schliessen und im Heute-Tab nachsehen: dort steht das
+    // Tagestotal, seit die Kalorien-Karte aus dem Food-Tab entfernt ist.
+    await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
+    await tester.pumpAndSettle();
+    await expectTagestotalAufHeute(tester, '252');
   });
 
   testWidgetsRobust('Kcal product search shows suggestions while typing', (

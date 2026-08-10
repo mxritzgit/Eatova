@@ -1,216 +1,137 @@
 import 'package:flutter/material.dart';
 
-import 'app_colors.dart';
+import 'app_tokens.dart';
 
-/// Premium-Dark Theme für Eatova.
+/// Das Eatova-Theme — Material 3 als Fundament, [AppTokens] als sichtbare
+/// Schicht.
 ///
-/// Eine Schrift (SF Pro – Apples System-Font) trägt die gesamte App — Hierarchie entsteht über
-/// Gewicht, Größe und Tracking, nicht über Font-Wechsel. Komponenten-Themes
-/// setzen Tiefe (getönte Schatten statt Schwarz), die gelockte Radius-Skala
-/// und Lime als einzige Interaktionsfarbe zentral, damit jeder Screen ohne
-/// lokale Sonderfälle konsistent wirkt.
-ThemeData buildEatovaTheme() {
-  // SF Pro über Apples System-Font: 'CupertinoSystemText' löst auf iOS/macOS zu
-  // San Francisco (SF Pro) auf; andere Plattformen nutzen ihren Default-Sans.
-  // SF Pro liegt nicht auf Google Fonts und ist für Nicht-Apple-Plattformen
-  // nicht lizenziert → System-Font statt gebündeltem Asset.
-  const fontFamily = 'CupertinoSystemText';
+/// Die Arbeitsteilung (Design-Refactor 2026-08-09): Material traegt Verhalten,
+/// Semantik und Plattform-Korrektheit (Ripple, Fokus, Screenreader, Scroll-
+/// Physik, Dialoge); die Pixel kommen aus den Tokens. Deshalb setzt diese
+/// Datei ein echtes [ColorScheme] — SDK-Widgets, die wir nicht selbst
+/// zeichnen (DatePicker, Snackbar, Cursor), sollen ohne lokale Sonderfaelle
+/// richtig aussehen.
+///
+/// Zwei Schriften statt einer: Bricolage Grotesque fuer Zahlen/Ueberschriften,
+/// Archivo fuer alles Uebrige — beide gebuendelt unter assets/fonts.
+ThemeData buildEatovaTheme(Brightness brightness) {
+  final t = brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
 
-  final base = ThemeData(
-    useMaterial3: true,
-    fontFamily: fontFamily,
-    brightness: Brightness.dark,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: lime,
-      brightness: Brightness.dark,
-      surface: surface,
-      primary: lime,
-      // Dunkler Text/Icon auf der hellen Lime-Fläche (Kontrast-Lock).
-      onPrimary: bg,
-      error: danger,
-    ),
-    scaffoldBackgroundColor: bg,
+  final scheme = ColorScheme.fromSeed(
+    seedColor: t.forest,
+    brightness: brightness,
+  ).copyWith(
+    primary: t.forest,
+    onPrimary: t.onForest,
+    secondary: t.lime,
+    onSecondary: t.onLime,
+    surface: t.bg,
+    onSurface: t.ink,
+    surfaceContainerHighest: t.surf2,
+    outline: t.ink2,
+    outlineVariant: t.line,
+    error: t.danger,
   );
+
+  final base = ThemeData(useMaterial3: true, colorScheme: scheme);
 
   final textTheme = base.textTheme
       .apply(
-        fontFamily: fontFamily,
-        bodyColor: textPrimary,
-        displayColor: textPrimary,
+        fontFamily: AppType.uiFamily,
+        bodyColor: t.ink,
+        displayColor: t.ink,
       )
       .copyWith(
-        bodyMedium: const TextStyle(
-          fontFamily: fontFamily,
-          color: textPrimary,
-          fontSize: 14,
-          height: 1.45,
-        ),
-        bodySmall: const TextStyle(
-          fontFamily: fontFamily,
-          color: textMuted,
-          fontSize: 13,
-          height: 1.45,
-        ),
+        bodyMedium: AppType.ui(14, color: t.ink, height: 1.45),
+        bodySmall: AppType.ui(13, color: t.ink2, height: 1.45),
       );
 
   return base.copyWith(
+    scaffoldBackgroundColor: t.bg,
+    canvasColor: t.bg,
+    extensions: <ThemeExtension<dynamic>>[t],
     textTheme: textTheme,
     primaryTextTheme: textTheme,
-    dividerColor: hairline,
-    dividerTheme: const DividerThemeData(
-      color: hairline,
-      thickness: 1,
-      space: 1,
-    ),
-    splashColor: lime.withValues(alpha: 0.06),
-    highlightColor: lime.withValues(alpha: 0.04),
+    splashFactory: InkSparkle.splashFactory,
+    splashColor: t.ink.withValues(alpha: 0.05),
+    highlightColor: t.ink.withValues(alpha: 0.03),
+    dividerColor: t.line,
+    dividerTheme: DividerThemeData(color: t.line, thickness: 1, space: 1),
+    iconTheme: IconThemeData(color: t.ink2, size: 20),
     cardTheme: CardThemeData(
-      color: surface,
+      color: t.surf,
       elevation: 0,
-      shadowColor: shadowTint,
+      shadowColor: t.shadowTint,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rCard),
-        side: const BorderSide(color: hairline),
+        side: BorderSide(color: t.line),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: surfaceSoft,
-      contentTextStyle: const TextStyle(
-        fontFamily: fontFamily,
-        color: textPrimary,
-        fontWeight: FontWeight.w600,
-        fontSize: 13.5,
-      ),
-      actionTextColor: lime,
+      backgroundColor: t.forest,
+      contentTextStyle:
+          AppType.ui(13.5, weight: FontWeight.w500, color: t.onForest),
+      actionTextColor: t.lime,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rControl),
       ),
       behavior: SnackBarBehavior.floating,
       elevation: 8,
     ),
-    bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: surface,
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: t.bg,
+      modalBackgroundColor: t.bg,
       surfaceTintColor: Colors.transparent,
-      modalBackgroundColor: surface,
       showDragHandle: false,
-      shape: RoundedRectangleBorder(
+      dragHandleColor: t.line,
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: surface,
+      backgroundColor: t.surf,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rSheet),
-        side: const BorderSide(color: hairline),
+        side: BorderSide(color: t.line),
       ),
+      titleTextStyle: AppType.display(20, weight: FontWeight.w700, color: t.ink),
+      contentTextStyle: AppType.ui(13.5, color: t.ink2, height: 1.45),
     ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(
-      color: lime,
-      linearTrackColor: surfaceSoft,
-      circularTrackColor: surfaceSoft,
-    ),
-    iconTheme: const IconThemeData(color: textPrimary, size: 22),
-    // Kalender-Dialog (Datumsauswahl im Food-Tab/Edit-Sheet) im App-Stil:
-    // dunkle Flaeche, kein Header-Block, Lime nur fuer Heute/Auswahl.
-    // Bewusst die Standard-Widgets (DatePickerDialog) — nur Toene.
-    datePickerTheme: DatePickerThemeData(
-      backgroundColor: surface,
+    popupMenuTheme: PopupMenuThemeData(
+      color: t.surf,
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      headerBackgroundColor: Colors.transparent,
-      headerForegroundColor: textPrimary,
-      headerHelpStyle: const TextStyle(
-        color: textMuted,
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.1,
-      ),
-      headerHeadlineStyle: const TextStyle(
-        color: textPrimary,
-        fontSize: 26,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -0.6,
-      ),
-      weekdayStyle: const TextStyle(
-        color: textMuted,
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.4,
-      ),
-      dayStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      // Tages-Zellen: Auswahl als satte Lime-Flaeche, Heute nur als Ring,
-      // Disabled deutlich zurueckgenommen, Press/Hover als weiche
-      // Flaechen-Aufhellung statt Material-Splash-Grau.
-      dayForegroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return bg;
-        if (states.contains(WidgetState.disabled)) {
-          return textMuted.withValues(alpha: 0.35);
-        }
-        return textPrimary;
-      }),
-      dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return lime;
-        return Colors.transparent;
-      }),
-      dayOverlayColor: WidgetStateProperty.all(
-        Colors.white.withValues(alpha: 0.06),
-      ),
-      todayForegroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return bg;
-        return lime;
-      }),
-      todayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return lime;
-        return Colors.transparent;
-      }),
-      todayBorder: const BorderSide(color: lime, width: 1.2),
-      // Jahres-Raster im selben Ton wie die Tage.
-      yearStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      yearForegroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return bg;
-        return textPrimary;
-      }),
-      yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return lime;
-        return Colors.transparent;
-      }),
-      yearOverlayColor: WidgetStateProperty.all(
-        Colors.white.withValues(alpha: 0.06),
-      ),
-      // Fusszeile: Abbrechen zurueckhaltend, OK traegt den Akzent.
-      cancelButtonStyle: TextButton.styleFrom(
-        foregroundColor: textMuted,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      ),
-      confirmButtonStyle: TextButton.styleFrom(
-        foregroundColor: lime,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-      ),
-      dividerColor: Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rSheet),
+        borderRadius: BorderRadius.circular(rCard),
+        side: BorderSide(color: t.line),
       ),
     ),
-    chipTheme:ChipThemeData(
-      backgroundColor: surfaceSoft,
-      selectedColor: lime,
-      side: BorderSide.none,
-      labelStyle: const TextStyle(
-        fontFamily: fontFamily,
-        color: textPrimary,
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-      ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: t.accent,
+      linearTrackColor: t.tile,
+      circularTrackColor: t.tile,
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: t.surf,
+      selectedColor: t.forest,
+      side: BorderSide(color: t.line),
+      labelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
+      secondaryLabelStyle:
+          AppType.ui(12, weight: FontWeight.w600, color: t.onForest),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rChip),
       ),
     ),
+    // Eingabefelder: weiche Kapsel, KEIN Fokusring (Nutzer-Feedback) — der
+    // Fokus zeigt sich ueber die aufgehellte Flaeche, nicht ueber eine
+    // leuchtende Kontur. Der 1-px-Rand ist derselbe [AppTokens.line], der
+    // auch jede Karte umschliesst; er rahmt nicht das Feld ein, er setzt es
+    // wie jede andere Flaeche vom Grund ab.
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: surfaceSoft,
-      hintStyle: const TextStyle(fontFamily: fontFamily, color: textMuted),
-      labelStyle: const TextStyle(fontFamily: fontFamily, color: textMuted),
+      fillColor: t.surf,
+      hintStyle: AppType.ui(14, color: t.ink2),
+      labelStyle: AppType.ui(14, color: t.ink2),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(rControl),
@@ -218,11 +139,113 @@ ThemeData buildEatovaTheme() {
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(rControl),
-        borderSide: const BorderSide(color: hairline),
+        borderSide: BorderSide(color: t.line),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(rControl),
-        borderSide: const BorderSide(color: lime, width: 1.5),
+        borderSide: BorderSide(color: t.line),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(rControl),
+        borderSide: BorderSide(color: t.danger),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(rControl),
+        borderSide: BorderSide(color: t.danger),
+      ),
+    ),
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: t.accent,
+      selectionColor: t.lime.withValues(alpha: 0.35),
+      selectionHandleColor: t.accent,
+    ),
+    // Kalender-Dialog (Datumsauswahl im Food-Tab/Edit-Sheet) im App-Stil:
+    // ruhige Flaeche, kein Header-Block, Akzent nur fuer Heute/Auswahl.
+    // Bewusst die Standard-Widgets (DatePickerDialog) — nur Toene.
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: t.surf,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      headerBackgroundColor: Colors.transparent,
+      headerForegroundColor: t.ink,
+      headerHelpStyle: AppType.ui(
+        11,
+        weight: FontWeight.w700,
+        color: t.ink2,
+        letterSpacing: 1.1,
+      ),
+      headerHeadlineStyle: AppType.display(26, color: t.ink),
+      weekdayStyle: AppType.ui(
+        12,
+        weight: FontWeight.w700,
+        color: t.ink2,
+        letterSpacing: 0.4,
+      ),
+      dayStyle: AppType.ui(13, weight: FontWeight.w600),
+      // Tages-Zellen: Auswahl als satte Akzent-Flaeche, Heute nur als Ring,
+      // Disabled deutlich zurueckgenommen, Press/Hover als weiche
+      // Flaechen-Aufhellung statt Material-Splash-Grau.
+      dayForegroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.onForest;
+        if (states.contains(WidgetState.disabled)) {
+          return t.ink2.withValues(alpha: 0.35);
+        }
+        return t.ink;
+      }),
+      dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.forest;
+        return Colors.transparent;
+      }),
+      dayOverlayColor: WidgetStateProperty.all(t.ink.withValues(alpha: 0.06)),
+      todayForegroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.onForest;
+        return t.accent;
+      }),
+      todayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.forest;
+        return Colors.transparent;
+      }),
+      todayBorder: BorderSide(color: t.accent, width: 1.2),
+      // Jahres-Raster im selben Ton wie die Tage.
+      yearStyle: AppType.ui(13, weight: FontWeight.w600),
+      yearForegroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.onForest;
+        return t.ink;
+      }),
+      yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.forest;
+        return Colors.transparent;
+      }),
+      yearOverlayColor: WidgetStateProperty.all(t.ink.withValues(alpha: 0.06)),
+      // Fusszeile: Abbrechen zurueckhaltend, OK traegt den Akzent.
+      cancelButtonStyle: TextButton.styleFrom(
+        foregroundColor: t.ink2,
+        textStyle: AppType.ui(13, weight: FontWeight.w600),
+      ),
+      confirmButtonStyle: TextButton.styleFrom(
+        foregroundColor: t.accent,
+        textStyle: AppType.ui(13, weight: FontWeight.w800),
+      ),
+      dividerColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
+      ),
+    ),
+    timePickerTheme: TimePickerThemeData(
+      backgroundColor: t.surf,
+      dialBackgroundColor: t.tile,
+      dialHandColor: t.forest,
+      dialTextColor: t.ink,
+      hourMinuteColor: t.tile,
+      hourMinuteTextColor: t.ink,
+      helpTextStyle: AppType.ui(
+        11,
+        weight: FontWeight.w700,
+        color: t.ink2,
+        letterSpacing: 1.1,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
       ),
     ),
   );

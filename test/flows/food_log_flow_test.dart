@@ -101,35 +101,47 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
 
-    // Eintrag ist im Verlauf, Tages-kcal zeigt ihn.
+    // Eintrag ist im Verlauf …
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('252 kcal'),
-      ),
-      findsOneWidget,
-    );
+    // … und im Tagestotal. Das steht seit dem 2026-08-10 im Heute-Tab, nicht
+    // mehr in einer Karte des Food-Tabs (s. expectTagestotalAufHeute).
+    await expectTagestotalAufHeute(tester, '252');
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
+    await tester.pumpAndSettle();
+
+    // Den Bestaetigungs-Toast ablaufen lassen. Seit dem Design-Refactor reicht
+    // das Tagebuch bis an den Seitenfuss, und der Toast liegt genau dort ueber
+    // der untersten Zeile — der Wisch traefe sonst die Snackbar.
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
 
     // Von rechts nach links swipen -> Lösch-Aktion erscheint -> antippen.
+    //
+    // ensureVisible ist ebenfalls neu noetig: die Eintraege liegen jetzt in
+    // der Slot-Karte ihres Slots, und welcher das ist, entscheidet die
+    // Uhrzeit-Heuristik. Ab der dritten Karte sitzt die Zeile im scrollbaren
+    // Bereich unter dem Falz — ohne ensureVisible haenge der Test an der
+    // CI-Uhrzeit.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('food-history-entry-0')),
+    );
+    await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const ValueKey('food-history-entry-0')),
       const Offset(-300, 0),
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('food-history-delete-0')), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('food-history-delete-0')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-history-delete-0')));
     await tester.pumpAndSettle();
 
     // Eintrag ist sofort weg und die Tagessumme aktualisiert direkt auf 0.
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('0 kcal'),
-      ),
-      findsOneWidget,
-    );
+    await expectTagestotalAufHeute(tester, '0');
   });
 
   testWidgetsRobust('Food calendar keeps past days separate from today', (
@@ -139,18 +151,16 @@ void main() {
       EatovaApp(productService: FakeProductLookupService()),
     );
 
+    // Vor allem anderen: heute ist leer. Das Tagestotal steht seit dem
+    // 2026-08-10 im Heute-Tab — der demselben gewaehlten Tag folgt wie der
+    // Food-Tab, deshalb taugt er auch als Orakel fuer einen Archivtag.
+    await expectTagestotalAufHeute(tester, '0');
+
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('food-date-chip-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-chip-2')), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('0 kcal'),
-      ),
-      findsOneWidget,
-    );
 
     await tester.tap(find.byKey(const ValueKey('food-date-chip-2')));
     await tester.pumpAndSettle();
@@ -175,17 +185,15 @@ void main() {
     await tester.tap(pastAddButton);
     await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('252 kcal'),
-      ),
-      findsOneWidget,
-    );
-
     // AddMealSheet schliessen, sonst absorbiert die Modal-Barrier den
-    // naechsten Chip-Tap.
+    // naechsten Tap.
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
+    await tester.pumpAndSettle();
+
+    // Der ARCHIVTAG traegt die 252 …
+    await expectTagestotalAufHeute(tester, '252');
+
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
     // Seit der absteigenden 30-Tage-Leiste ist Heute der ERSTE Chip
@@ -194,12 +202,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('food-date-chip-0')));
     await tester.pumpAndSettle();
     expect(find.text('Heute'), findsWidgets);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('0 kcal'),
-      ),
-      findsOneWidget,
-    );
+    // … und heute bleibt davon unberuehrt. Genau das ist die Aussage.
+    await expectTagestotalAufHeute(tester, '0');
   });
 }

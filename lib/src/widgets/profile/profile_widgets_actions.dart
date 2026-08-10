@@ -16,6 +16,7 @@ class HealthConnectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final isGranted = state == HealthAuthState.granted;
     // Review B3: „verbunden, aber es kommen keine Daten". Apple meldet das
     // Berechtigungs-Sheet als Erfolg, sobald es angezeigt wurde — auch wenn der
@@ -26,10 +27,10 @@ class HealthConnectionCard extends StatelessWidget {
     final isUnsupported = state == HealthAuthState.unsupported;
     final needsAttention = isUnverified || isDenied;
     final color = isGranted
-        ? lime
+        ? t.accent
         : needsAttention
-            ? orange
-            : textMuted;
+            ? t.warning
+            : t.ink2;
     final subtitle = isGranted
         ? lastFetch != null
             ? 'Synchronisiert · ${_formatTime(lastFetch!)}'
@@ -49,30 +50,22 @@ class HealthConnectionCard extends StatelessWidget {
     final actionLabel = needsAttention ? 'Prüfen' : 'Verbinden';
 
     return AppCard(
-      padding: const EdgeInsets.all(18),
       child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: Icon(
-              isGranted ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              color: color,
-              size: 19,
-            ),
+        children: <Widget>[
+          IconTile(
+            icon:
+                isGranted ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            color: color,
+            size: 44,
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
+              children: <Widget>[
+                Text(
                   'Apple Health',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -81,10 +74,10 @@ class HealthConnectionCard extends StatelessWidget {
                   // entzogenen Fall vollständig lesbar bleiben muss.
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w500,
                     color: color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
                     height: 1.35,
                   ),
                 ),
@@ -93,40 +86,17 @@ class HealthConnectionCard extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           if (isGranted)
-            IconButton(
+            SquareIconButton(
               key: const ValueKey('profile-health-refresh'),
-              onPressed: onRefresh,
-              tooltip: 'Aktualisieren',
-              icon: const Icon(
-                Icons.sync_rounded,
-                color: textMuted,
-                size: 20,
-              ),
+              icon: Icons.sync_rounded,
+              semanticLabel: 'Aktualisieren',
+              onTap: onRefresh,
             )
           else if (!isUnsupported)
-            FilledButton(
-              key: const ValueKey('profile-health-connect'),
-              onPressed: onConnect,
-              style: FilledButton.styleFrom(
-                backgroundColor: lime,
-                foregroundColor: bg,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-              ),
-              child: Text(
-                actionLabel,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+            _CompactButton(
+              buttonKey: const ValueKey('profile-health-connect'),
+              label: actionLabel,
+              onTap: onConnect,
             ),
         ],
       ),
@@ -139,177 +109,68 @@ class HealthConnectionCard extends StatelessWidget {
     if (diff.inMinutes < 1) return 'gerade eben';
     if (diff.inMinutes < 60) return 'vor ${diff.inMinutes} Min';
     if (diff.inHours < 24) return 'vor ${diff.inHours}h';
-    return '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.';
+    return '${d.day.toString().padLeft(2, '0')}.'
+        '${d.month.toString().padLeft(2, '0')}.';
   }
 }
 
-class ProfileActionsCard extends StatelessWidget {
-  const ProfileActionsCard({
-    super.key,
-    required this.onEditProfile,
-    required this.onResetDay,
-    required this.onExport,
-    required this.onAbout,
-    this.onSignOut,
-    this.onDeleteAccount,
-  });
-
-  final VoidCallback onEditProfile;
-  final VoidCallback onResetDay;
-  final VoidCallback onExport;
-  final VoidCallback onAbout;
-  final VoidCallback? onSignOut;
-  final VoidCallback? onDeleteAccount;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        children: [
-          _ActionRow(
-            icon: Icons.tune_rounded,
-            color: lime,
-            title: 'Profil & Ziele',
-            subtitle: 'Körper, Schritte, Kcal, Schlaf',
-            onTap: onEditProfile,
-            keyValue: const ValueKey('profile-action-edit'),
-          ),
-          const _Divider(),
-          _ActionRow(
-            icon: Icons.restart_alt_rounded,
-            color: orange,
-            title: 'Tagesdaten zurücksetzen',
-            subtitle: 'Heute neu starten',
-            onTap: onResetDay,
-            keyValue: const ValueKey('profile-action-reset'),
-          ),
-          const _Divider(),
-          _ActionRow(
-            icon: Icons.ios_share_rounded,
-            color: cyan,
-            title: 'Daten exportieren',
-            subtitle: 'Kopie deiner Daten als JSON',
-            onTap: onExport,
-            keyValue: const ValueKey('profile-action-export'),
-          ),
-          const _Divider(),
-          _ActionRow(
-            icon: Icons.info_outline_rounded,
-            color: textMuted,
-            title: 'Über Eatova',
-            subtitle: 'Version & Mitwirkende',
-            onTap: onAbout,
-            keyValue: const ValueKey('profile-action-about'),
-          ),
-          if (onSignOut != null) ...[
-            const _Divider(),
-            _ActionRow(
-              icon: Icons.logout_rounded,
-              color: danger,
-              title: 'Ausloggen',
-              subtitle: 'Zurück zum Login',
-              onTap: onSignOut!,
-              keyValue: const ValueKey('profile-action-logout'),
-            ),
-          ],
-          if (onDeleteAccount != null) ...[
-            const _Divider(),
-            _ActionRow(
-              icon: Icons.delete_forever_rounded,
-              color: danger,
-              title: 'Konto löschen',
-              subtitle: 'Account + alle Daten unwiderruflich',
-              onTap: onDeleteAccount!,
-              keyValue: const ValueKey('profile-action-delete'),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.subtitle,
+/// Kleiner, gefuellter Knopf fuer eine Aktion IN einer Karte.
+///
+/// Bewusst nicht [PrimaryActionButton]: der ist die Hauptaktion einer Seite
+/// (54 px hoch, volle Breite) und wuerde eine Karten-Zeile erschlagen. Der Key
+/// wandert als [buttonKey] auf das aeusserste Material, damit ein Tap in der
+/// Mitte den InkWell trifft.
+class _CompactButton extends StatelessWidget {
+  const _CompactButton({
+    required this.buttonKey,
+    required this.label,
     required this.onTap,
-    required this.keyValue,
   });
 
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String subtitle;
+  final Key buttonKey;
+  final String label;
   final VoidCallback onTap;
-  final Key keyValue;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      key: keyValue,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(rControl),
-              ),
-              child: Icon(icon, color: color, size: 16),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: textMuted,
-              size: 20,
-            ),
-          ],
+    final t = context.t;
+    return Material(
+      key: buttonKey,
+      color: t.forest,
+      borderRadius: BorderRadius.circular(rChip),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rChip),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Text(
+            label,
+            style:
+                AppType.ui(12, weight: FontWeight.w700, color: t.onForest),
+          ),
         ),
       ),
     );
   }
 }
 
-class _Divider extends StatelessWidget {
-  const _Divider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 1,
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      color: hairline,
-    );
-  }
-}
+// Hier stand bis 2026-08-10 `ProfileActionsCard` — die Gruppe „Daten & Konto"
+// mit sechs Zeilen (`profile-action-edit/-reset/-export/-about/-logout/
+// -delete`). Sie ist auf Nutzer-Entscheid entfallen, weil sie die Einstellungen
+// doppelte:
+//
+//   * „Profil & Ziele"     -> `settings-open-goals`
+//   * „Daten exportieren"  -> `settings-export`
+//   * „Ausloggen"          -> `settings-sign-out`
+//   * „Konto löschen"      -> `settings-delete-account`
+//   * „Über Eatova"        -> `settings-about` (samt Sheet UMGEZOGEN, nicht
+//                             geloescht: es traegt die ODbL-Quellennennung
+//                             und die Datenschutz-Zeile nach DSGVO Art. 13)
+//   * „Tagesdaten zurücksetzen" -> ersatzlos entfallen, mitsamt
+//                             `HomeStore.resetTodayData` und
+//                             `settings-reset-day`.
+//
+// Die Wege in die Einstellungen fuehren jetzt ueber das Zahnrad im Profil-Kopf
+// (`profile-open-settings`) und den Food-Kopf (`topbar-settings`); die Wege zu
+// den Zielen ueber `profile-goalplan-edit` und `profile-edit-goals`. Beides
+// haelt `test/settings_erreichbarkeit_test.dart` fest.

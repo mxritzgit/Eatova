@@ -1,14 +1,21 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Hero (AI Coach v2): animierter Orb + Zeit-Begruessung mit echtem Vornamen.
+// Hero: animierter Orb + Zeit-Begruessung mit echtem Vornamen.
 // ---------------------------------------------------------------------------
 class _CoachHero extends StatelessWidget {
-  const _CoachHero({required this.name, required this.onDisclosureTap});
+  const _CoachHero({
+    required this.name,
+    required this.onDisclosureTap,
+    required this.onSuggestion,
+  });
   final String name;
 
   /// Oeffnet das (i)-Sheet mit den Details (welche Daten, wohin).
   final VoidCallback onDisclosureTap;
+
+  /// Legt einen Vorschlag ins Eingabefeld (sendet nicht).
+  final ValueChanged<String> onSuggestion;
 
   String get _timeGreeting {
     final h = DateTime.now().hour;
@@ -26,6 +33,7 @@ class _CoachHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Center(
       key: const ValueKey('coach-empty'),
       // Scrollbar statt starr: der Leerzustand traegt seit C8 eine Zeile mehr,
@@ -36,26 +44,23 @@ class _CoachHero extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
+          children: <Widget>[
             const CoachOrb(size: 92),
             const SizedBox(height: 22),
             Text(
               '$_timeGreeting, $_firstName',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 25,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-                color: textPrimary,
-              ),
+              style: AppType.display(26, color: t.ink, height: 1.15),
             ),
             const SizedBox(height: 6),
-            const Text(
+            Text(
               'Wie kann ich dir helfen?',
-              style: TextStyle(fontSize: 15, color: textMuted),
+              textAlign: TextAlign.center,
+              style: AppType.ui(15, color: t.ink2),
             ),
             const SizedBox(height: 18),
             _CoachAiNote(onTap: onDisclosureTap),
+            _SuggestionList(onSuggestion: onSuggestion),
           ],
         ),
       ),
@@ -74,66 +79,64 @@ class _CoachAiNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: Material(
-        key: const ValueKey('coach-ai-note'),
-        color: surfaceSoft.withValues(alpha: 0.55),
+    final t = context.t;
+    return Material(
+      key: const ValueKey('coach-ai-note'),
+      color: t.surf,
+      borderRadius: BorderRadius.circular(rCard),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(rCard),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rCard),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(top: 1),
-                      child: Icon(
-                        Icons.auto_awesome_rounded,
-                        size: 13,
-                        color: coachAccent,
-                      ),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(rCard),
+            border: Border.all(color: t.line),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Icon(
+                      Icons.auto_awesome_rounded,
+                      size: 13,
+                      color: t.accent,
                     ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        'Hier antwortet eine KI. Die Tipps sind eine '
-                        'KI-Schätzung, kein ärztlicher Rat.',
-                        textAlign: TextAlign.start,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          height: 1.4,
-                          color: textPrimary.withValues(alpha: 0.85),
-                        ),
-                      ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Hier antwortet eine KI. Die Tipps sind eine '
+                      'KI-Schätzung, kein ärztlicher Rat.',
+                      style: AppType.ui(12.5, color: t.ink, height: 1.4),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Flexible(
+                    child: Text(
                       'Welche Daten mitgehen',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: coachAccent,
+                      style: AppType.ui(
+                        12,
+                        weight: FontWeight.w600,
+                        color: t.accent,
                       ),
                     ),
-                    SizedBox(width: 3),
-                    Icon(Icons.chevron_right_rounded,
-                        size: 15, color: coachAccent),
-                  ],
-                ),
-              ],
-            ),
+                  ),
+                  const SizedBox(width: 3),
+                  Icon(Icons.chevron_right_rounded, size: 15, color: t.accent),
+                ],
+              ),
+            ],
           ),
         ),
       ),
@@ -142,16 +145,24 @@ class _CoachAiNote extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Vorschlags-Zeilen (nur im Hero-State, ueber dem Composer): volle Breite mit
-// Pfeil. Legen den Text ins Feld statt direkt zu senden — die Quota ist knapp,
-// der User behaelt die Kontrolle vor dem Abschicken.
+// Vorschlags-Zeilen: Lime-Punkt, Text, Chevron. Legen den Text ins Feld statt
+// direkt zu senden — die Quota ist knapp, der User behaelt die Kontrolle vor
+// dem Abschicken.
+//
+// Sie haengen am Hero und damit an `isHero`, stehen aber INNERHALB seines
+// SingleChildScrollView. Zwei Gruende: als Geschwister der Nachrichtenliste
+// (so lagen sie bisher) sprengten drei zweizeilige Zeilen bei textScaler 2.0
+// die Screen-Column um 225 px — dort kann nichts scrollen. Und in der
+// Nachrichtenliste selbst (so macht es die Vorlage) erschienen sie auch bei
+// _historyUnavailable, also „Frag doch mal…" ueber einem Banner, das sagt,
+// der Verlauf sei nicht ladbar.
 // ---------------------------------------------------------------------------
 class _SuggestionList extends StatelessWidget {
   const _SuggestionList({required this.onSuggestion});
 
   final ValueChanged<String> onSuggestion;
 
-  static const List<String> _suggestions = [
+  static const List<String> _suggestions = <String>[
     'Was soll ich heute noch essen?',
     'Wie komme ich auf meine restlichen Proteine?',
     'Wann sollte ich heute schlafen gehen?',
@@ -159,40 +170,60 @@ class _SuggestionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      // Horizontal 0: der Seitenrand kommt aus der Schale.
+      padding: const EdgeInsets.fromLTRB(0, 18, 0, 0),
       child: Column(
-        children: [
+        // min + stretch ist Pflicht: die Liste steht in einem
+        // SingleChildScrollView (unbegrenzte Hoehe), und die Zeilen sollen
+        // die volle Breite nehmen.
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
           for (var i = 0; i < _suggestions.length; i++)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Material(
-                color: surfaceSoft.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(rCard),
+                color: t.surf,
+                borderRadius: BorderRadius.circular(14),
                 child: InkWell(
-                  key: ValueKey('coach-suggestion-$i'),
+                  key: ValueKey<String>('coach-suggestion-$i'),
                   onTap: () => onSuggestion(_suggestions[i]),
-                  borderRadius: BorderRadius.circular(rCard),
-                  child: Padding(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: t.line),
+                    ),
                     padding: const EdgeInsets.symmetric(
                         horizontal: 15, vertical: 13),
                     child: Row(
-                      children: [
+                      children: <Widget>[
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: t.lime,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             _suggestions[i],
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: textPrimary,
-                              letterSpacing: -0.1,
+                            style: AppType.ui(
+                              13,
+                              weight: FontWeight.w500,
+                              color: t.ink,
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 14,
-                          color: textPrimary.withValues(alpha: 0.4),
+                          Icons.chevron_right_rounded,
+                          size: 16,
+                          color: t.ink2,
                         ),
                       ],
                     ),

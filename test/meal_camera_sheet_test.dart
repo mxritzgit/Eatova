@@ -11,6 +11,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 
 /// Ersetzt die echte Geraete-Kamera: liefert eine Back-Kamera, laesst die
@@ -164,8 +165,11 @@ bool _hasExifSegment(Uint8List bytes) {
 
 Future<void> _pumpSheet(WidgetTester tester) async {
   await tester.pumpWidget(
-    const MaterialApp(
-      home: Scaffold(body: MealCameraSheet(initialSlot: MealSlot.lunch)),
+    MaterialApp(
+      theme: buildEatovaTheme(Brightness.dark),
+      home: const Scaffold(
+        body: MealCameraSheet(initialSlot: MealSlot.lunch),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -265,8 +269,11 @@ void main() {
         CameraPlatform.instance = fake;
 
         await tester.pumpWidget(
-          const MaterialApp(
-            home: Scaffold(body: MealCameraSheet(initialSlot: MealSlot.lunch)),
+          MaterialApp(
+            theme: buildEatovaTheme(Brightness.dark),
+            home: const Scaffold(
+              body: MealCameraSheet(initialSlot: MealSlot.lunch),
+            ),
           ),
         );
         await tester.pump();
@@ -293,8 +300,11 @@ void main() {
         CameraPlatform.instance = fake;
 
         await tester.pumpWidget(
-          const MaterialApp(
-            home: Scaffold(body: MealCameraSheet(initialSlot: MealSlot.lunch)),
+          MaterialApp(
+            theme: buildEatovaTheme(Brightness.dark),
+            home: const Scaffold(
+              body: MealCameraSheet(initialSlot: MealSlot.lunch),
+            ),
           ),
         );
         await tester.pump();
@@ -361,6 +371,7 @@ void main() {
       MealCameraCapture? captured;
       await tester.pumpWidget(
         MaterialApp(
+          theme: buildEatovaTheme(Brightness.dark),
           home: Scaffold(
             body: Builder(
               builder: (context) => TextButton(

@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 
 // Seit meal_analyzer.dart explizite .timeout(...) auf Request-Abschluss und
@@ -29,6 +30,7 @@ Widget _sheetHost(
   String Function(MealAnalysisResult, MealSlot)? onAdd,
 }) {
   return MaterialApp(
+    theme: buildEatovaTheme(Brightness.dark),
     home: Scaffold(
       body: MealAnalysisSheet(
         slot: MealSlot.lunch,

@@ -65,6 +65,46 @@ abstract class AuthRepository {
 
   /// Setzt das Passwort des angemeldeten Nutzers (Recovery-Abschluss).
   Future<void> updatePassword(String newPassword);
+
+  // --- Konto-Aenderungen aus der App heraus (2026-08-10) --------------------
+  //
+  // Beide Wege benutzen GoTrue-Bordmittel statt selbstgebauter Token. Die
+  // zugehoerige Server-Konfiguration steht in supabase/AUTH_EMAIL_OTP.md;
+  // ohne sie sind die Codes wirkungslos oder kommen als Link.
+
+  /// Fordert den Bestaetigungscode fuer eine Passwort-Aenderung an — GoTrue
+  /// schickt ihn an die hinterlegte Adresse (`reauthenticate`).
+  ///
+  /// Nur fuer den EINGELOGGTEN Nutzer. Das Gegenstueck fuer „Passwort
+  /// vergessen" (ausgeloggt) ist [sendPasswordReset].
+  Future<void> startPasswordChange();
+
+  /// Setzt das neue Passwort — nur zusammen mit dem Code aus
+  /// [startPasswordChange].
+  ///
+  /// Der Code ist Pflicht, nicht Zierde: mit
+  /// `security_update_password_require_reauthentication` lehnt GoTrue eine
+  /// Aenderung ohne gueltige Nonce ab. Sonst koennte, wer eine fremde
+  /// Sitzung erbeutet, das Passwort ohne Zugriff aufs Postfach tauschen.
+  Future<void> confirmPasswordChange({
+    required String code,
+    required String newPassword,
+  });
+
+  /// Stoesst die Aenderung der Mailadresse an.
+  ///
+  /// Bei aktiver „sicherer E-Mail-Aenderung" verschickt GoTrue ZWEI Codes:
+  /// einen an die bisherige und einen an die neue Adresse. Erst wenn beide
+  /// ueber [confirmEmailChange] bestaetigt sind, traegt das Konto die neue
+  /// Adresse — ein einzelnes erbeutetes Postfach genuegt also nicht.
+  Future<void> startEmailChange(String newEmail);
+
+  /// Bestaetigt EINEN der beiden Codes aus [startEmailChange]. [email] ist
+  /// die Adresse, an die dieser Code ging (alte oder neue).
+  Future<void> confirmEmailChange({
+    required String email,
+    required String code,
+  });
   Future<void> signIn({required String email, required String password});
   Future<void> signUp({
     required String email,
@@ -135,6 +175,41 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> updatePassword(String newPassword) async {
     await _client.auth.updateUser(UserAttributes(password: newPassword));
+  }
+
+  @override
+  Future<void> startPasswordChange() async {
+    await _client.auth.reauthenticate();
+  }
+
+  @override
+  Future<void> confirmPasswordChange({
+    required String code,
+    required String newPassword,
+  }) async {
+    await _client.auth.updateUser(
+      UserAttributes(password: newPassword, nonce: code.trim()),
+    );
+  }
+
+  @override
+  Future<void> startEmailChange(String newEmail) async {
+    // BEWUSST ohne `emailRedirectTo`: der Code-Flow braucht keinen Deep-Link,
+    // und sein Fehlen verhindert, dass ein Server-Template-Rueckfall den
+    // kaperbaren `eatova://`-Link reaktiviert (Sicherheits-Audit 2026-08-09).
+    await _client.auth.updateUser(UserAttributes(email: newEmail.trim()));
+  }
+
+  @override
+  Future<void> confirmEmailChange({
+    required String email,
+    required String code,
+  }) async {
+    await _client.auth.verifyOTP(
+      type: OtpType.emailChange,
+      email: email.trim(),
+      token: code.trim(),
+    );
   }
 
   @override
@@ -258,6 +333,26 @@ class PreviewAuthRepository implements AuthRepository {
   @override
   Future<void> updatePassword(String newPassword) async {}
 
+  // Konto-Aenderungen gibt es im Preview-Betrieb nicht: es steht kein
+  // Postfach hinter dem Vorschau-Nutzer, ein „Code verschickt" waere gelogen.
+  @override
+  Future<void> startPasswordChange() async {}
+
+  @override
+  Future<void> confirmPasswordChange({
+    required String code,
+    required String newPassword,
+  }) async {}
+
+  @override
+  Future<void> startEmailChange(String newEmail) async {}
+
+  @override
+  Future<void> confirmEmailChange({
+    required String email,
+    required String code,
+  }) async {}
+
   @override
   Future<void> signIn({required String email, required String password}) async {}
 
@@ -331,6 +426,75 @@ class InMemoryAuthRepository implements AuthRepository {
   @override
   Future<void> updatePassword(String newPassword) async {
     passwordUpdates.add(newPassword);
+  }
+
+  // --- Konto-Aenderungen ----------------------------------------------------
+
+  /// Fuer Tests: an welche Adressen ein Passwort-Aenderungs-Code ging.
+  final List<String> reauthRequests = <String>[];
+
+  /// Fuer Tests: welche Codes als Nonce beim Passwortsetzen mitliefen.
+  final List<String> usedNonces = <String>[];
+
+  /// Fuer Tests: welche neuen Mailadressen angefragt wurden.
+  final List<String> emailChangeRequests = <String>[];
+
+  /// Laufende Adress-Aenderung: Zieladresse und die noch offenen
+  /// Bestaetigungen. Der Wechsel greift erst, wenn BEIDE weg sind — genau
+  /// das Verhalten von GoTrue bei aktiver „sicherer E-Mail-Aenderung".
+  String? _pendingEmail;
+  final Set<String> _offeneBestaetigungen = <String>{};
+
+  @override
+  Future<void> startPasswordChange() async {
+    reauthRequests.add(_user?.email ?? '');
+  }
+
+  @override
+  Future<void> confirmPasswordChange({
+    required String code,
+    required String newPassword,
+  }) async {
+    if (verifyFails) {
+      verifyFails = false;
+      throw const AuthException('Token has expired or is invalid');
+    }
+    usedNonces.add(code.trim());
+    passwordUpdates.add(newPassword);
+  }
+
+  @override
+  Future<void> startEmailChange(String newEmail) async {
+    final ziel = newEmail.trim();
+    emailChangeRequests.add(ziel);
+    _pendingEmail = ziel;
+    _offeneBestaetigungen
+      ..clear()
+      ..addAll(<String>{
+        if (_user?.email != null) _user!.email!,
+        ziel,
+      });
+  }
+
+  @override
+  Future<void> confirmEmailChange({
+    required String email,
+    required String code,
+  }) async {
+    if (verifyFails) {
+      verifyFails = false;
+      throw const AuthException('Token has expired or is invalid');
+    }
+    verifiedCodes.add('${email.trim()}:${code.trim()}');
+    _offeneBestaetigungen.remove(email.trim());
+    if (_offeneBestaetigungen.isNotEmpty || _pendingEmail == null) return;
+    _user = EatovaUser(
+      id: _user?.id ?? 'otp-user',
+      email: _pendingEmail,
+      displayName: _user?.displayName,
+    );
+    _pendingEmail = null;
+    _controller.add(_user);
   }
 
   @override
@@ -420,6 +584,25 @@ class UnavailableAuthRepository implements AuthRepository {
 
   @override
   Future<void> updatePassword(String newPassword) => _fail();
+
+  @override
+  Future<void> startPasswordChange() => _fail();
+
+  @override
+  Future<void> confirmPasswordChange({
+    required String code,
+    required String newPassword,
+  }) => _fail();
+
+  @override
+  Future<void> startEmailChange(String newEmail) => _fail();
+
+  @override
+  Future<void> confirmEmailChange({
+    required String email,
+    required String code,
+  }) => _fail();
+
 
   @override
   Future<void> signIn({required String email, required String password}) =>

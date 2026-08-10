@@ -3,14 +3,22 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart' show ReminderState;
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
 // D11 — der Berechtigungsschalter kannte nur an/aus und log deshalb: wer im
 // Systemdialog „Nicht zulassen" tippte, sah „Aktiv. Du bekommst gezielte Nudges
 // zur passenden Zeit." und bekam nie etwas. Der Store fuehrt seit Welle 2 drei
-// Zustaende (ReminderState); das Sheet muss alle drei zeigen.
+// Zustaende (ReminderState); die Seite muss alle drei zeigen.
+//
+// Seit dem Design-Refactor 2026-08-09 ist der Schalter ein [AppToggle] statt
+// eines Material-[Switch]. AppToggle hat ein NICHT-nullable `onChanged` und
+// drueckt die Sperre ueber `enabled` aus — die geprueften Sachverhalte
+// (blockiert heisst aus und nicht erneut umlegbar) sind unveraendert.
 void main() {
-  Future<Future<SettingsResult?>> openSheet(
+  Future<Future<SettingsResult?>> openSettings(
     WidgetTester tester, {
     ReminderState? reminderState,
     bool notificationsEnabled = false,
@@ -31,18 +39,22 @@ void main() {
     late Future<SettingsResult?> result;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.light),
         home: Scaffold(
           body: Builder(
             builder: (context) => Center(
               child: FilledButton(
                 key: const ValueKey('open-settings'),
                 onPressed: () {
-                  result = showSettingsSheet(
-                    context,
-                    profile: const UserProfile(),
-                    notificationsEnabled: notificationsEnabled,
-                    reminderState: reminderState,
-                    onOpenSystemSettings: onOpenSystemSettings,
+                  result = Navigator.of(context).push<SettingsResult>(
+                    MaterialPageRoute<SettingsResult>(
+                      builder: (_) => GoalsScreen(
+                        profile: const UserProfile(),
+                        notificationsEnabled: notificationsEnabled,
+                        reminderState: reminderState,
+                        onOpenSystemSettings: onOpenSystemSettings,
+                      ),
+                    ),
                   );
                 },
                 child: const Text('open'),
@@ -57,14 +69,14 @@ void main() {
     return result;
   }
 
-  Switch reminderSwitch(WidgetTester tester) =>
-      tester.widget<Switch>(find.byKey(const ValueKey('settings-notifications')));
+  AppToggle reminderSwitch(WidgetTester tester) => tester
+      .widget<AppToggle>(find.byKey(const ValueKey('settings-notifications')));
 
   testWidgets('off: Schalter aus, Einladung zum Einschalten', (tester) async {
-    await openSheet(tester, reminderState: ReminderState.off);
+    await openSettings(tester, reminderState: ReminderState.off);
 
     expect(reminderSwitch(tester).value, isFalse);
-    expect(reminderSwitch(tester).onChanged, isNotNull);
+    expect(reminderSwitch(tester).enabled, isTrue);
     expect(
       find.text(
         'Aus. Schalter umlegen, um lokale Erinnerungen zu aktivieren.',
@@ -74,7 +86,7 @@ void main() {
   });
 
   testWidgets('active: Schalter an, konkrete Zusage', (tester) async {
-    await openSheet(tester, reminderState: ReminderState.active);
+    await openSettings(tester, reminderState: ReminderState.active);
 
     expect(reminderSwitch(tester).value, isTrue);
     expect(
@@ -87,7 +99,7 @@ void main() {
 
   testWidgets('blocked: Schalter AUS, ehrlicher Text, kein „Fehler"',
       (tester) async {
-    await openSheet(tester, reminderState: ReminderState.blocked);
+    await openSettings(tester, reminderState: ReminderState.blocked);
 
     expect(reminderSwitch(tester).value, isFalse);
     expect(
@@ -102,17 +114,25 @@ void main() {
 
   testWidgets('blocked: der Schalter laesst sich nicht erneut umlegen',
       (tester) async {
-    await openSheet(tester, reminderState: ReminderState.blocked);
+    await openSettings(tester, reminderState: ReminderState.blocked);
 
     // Android 13+ zeigt nach zwei Ablehnungen gar keinen Dialog mehr — der
     // Schalter spraenge sofort zurueck.
-    expect(reminderSwitch(tester).onChanged, isNull);
+    expect(reminderSwitch(tester).enabled, isFalse);
+
+    // Und er reagiert wirklich nicht: ein Tap darf den Zustand nicht drehen.
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('settings-notifications')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-notifications')));
+    await tester.pumpAndSettle();
+    expect(reminderSwitch(tester).value, isFalse);
   });
 
   testWidgets('blocked: Button in die Systemeinstellungen, wenn verdrahtet',
       (tester) async {
     var geoeffnet = 0;
-    await openSheet(
+    await openSettings(
       tester,
       reminderState: ReminderState.blocked,
       onOpenSystemSettings: () => geoeffnet++,
@@ -129,14 +149,15 @@ void main() {
 
   testWidgets('ohne verdrahteten Weg gibt es keinen toten Button',
       (tester) async {
-    await openSheet(tester, reminderState: ReminderState.blocked);
+    await openSettings(tester, reminderState: ReminderState.blocked);
 
     expect(find.byKey(const ValueKey('settings-open-system-settings')),
         findsNothing);
   });
 
   testWidgets('blocked meldet dem Aufrufer weiterhin „aus"', (tester) async {
-    final resultFuture = await openSheet(tester, reminderState: ReminderState.blocked);
+    final resultFuture =
+        await openSettings(tester, reminderState: ReminderState.blocked);
 
     await tester.ensureVisible(find.byKey(const ValueKey('settings-save')));
     await tester.pumpAndSettle();
@@ -148,7 +169,7 @@ void main() {
 
   testWidgets('altes bool-API bleibt gueltig (kein reminderState uebergeben)',
       (tester) async {
-    await openSheet(tester, notificationsEnabled: true);
+    await openSettings(tester, notificationsEnabled: true);
 
     expect(reminderSwitch(tester).value, isTrue);
     expect(

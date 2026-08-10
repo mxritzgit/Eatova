@@ -2,27 +2,38 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
-// D5 — das Sheet verwarf ausgefuellte Formulare kommentarlos: sieben
-// numerische Controller plus Makro-Umschalter, und ein Tap knapp ueber das
-// Sheet (auf die Barriere), um die Tastatur zu schliessen, war alles weg.
+// D5 — „Profil & Ziele" verwarf ausgefuellte Formulare kommentarlos: zehn
+// numerische Controller plus Makro-Umschalter, und eine unbedachte
+// Schliess-Geste war alles weg.
 //
-// Es gibt ZWEI Schliesswege, und sie laufen im Framework verschieden:
+// ## Warum diese Datei neu gefasst wurde (Design-Refactor 2026-08-09)
 //
-//   Barriere-Tap → ModalBarrier.handleDismiss → Navigator.maybePop
-//                  (modal_barrier.dart:225-230)  → fragt PopScope
-//   Ziehen       → BottomSheet._handleDragEnd → onClosing → Navigator.pop
-//                  (bottom_sheet.dart:769-771)   → fragt PopScope NICHT
+// Als modales BottomSheet gab es DREI Schliesswege, und sie liefen im
+// Framework verschieden:
 //
-// Ein reines PopScope deckt also nur die Haelfte ab. Beide Wege werden hier
-// einzeln geprueft.
+//   Barriere-Tap → ModalBarrier.handleDismiss → Navigator.maybePop → PopScope
+//   Ziehen       → BottomSheet._handleDragEnd → Navigator.pop  → KEIN PopScope
+//   Systemzurueck→ Navigator.maybePop                          → PopScope
+//
+// Genau deshalb brauchte das Sheet zusaetzlich zum PopScope einen
+// `_DiscardDragGuard` in der Gesten-Arena. Als ROUTE existieren die ersten
+// beiden Wege nicht mehr: eine Route hat keine Barriere und laesst sich nicht
+// wegziehen. Uebrig bleiben der Zurueck-Knopf im Seitenkopf
+// (`settings-close`, laeuft ueber `Navigator.maybePop`) und der
+// System-Zurueck — und beide laufen jetzt durch DASSELBE PopScope. Das ist die
+// eigentliche Vereinfachung des Umbaus.
+//
+// Die beiden gestrichenen Faelle sind ersatzlos entfallen, nicht ungeprueft
+// geblieben: es gibt nichts mehr, das sie ausloesen koennte. Alle Erwartungen
+// an den Dialog selbst (Keys, Titel, „Weiter bearbeiten" haelt die Eingaben,
+// Tap neben den Dialog = Abbrechen) sind woertlich uebernommen.
 void main() {
-  Future<Future<SettingsResult?>> openSheet(WidgetTester tester) async {
-    // Bewusst hoher Viewport: das Sheet ist rund 1980 px hoch und fuellt einen
-    // normalen Bildschirm komplett — dann gaebe es gar keine Barriere zum
-    // Antippen. Bei 2200 px bleibt oben ein Streifen frei.
-    tester.view.physicalSize = const Size(1179, 6600);
+  Future<Future<SettingsResult?>> openSettings(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -37,15 +48,18 @@ void main() {
     late Future<SettingsResult?> result;
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.light),
         home: Scaffold(
           body: Builder(
             builder: (context) => Center(
               child: FilledButton(
                 key: const ValueKey('open-settings'),
                 onPressed: () {
-                  result = showSettingsSheet(
-                    context,
-                    profile: const UserProfile(),
+                  result = Navigator.of(context).push<SettingsResult>(
+                    MaterialPageRoute<SettingsResult>(
+                      builder: (_) =>
+                          const GoalsScreen(profile: UserProfile()),
+                    ),
                   );
                 },
                 child: const Text('open'),
@@ -60,117 +74,66 @@ void main() {
     return result;
   }
 
-  bool sheetOffen(WidgetTester tester) =>
-      find.text('Profil & Ziele').evaluate().isNotEmpty;
+  /// Sichtbarkeits-Sonde. Frueher stand hier `find.text('Profil & Ziele')` —
+  /// als Seite unbrauchbar: der Titel scrollt weg, und der Verwerfen-Dialog
+  /// traegt den Namen selbst in einem laengeren Satz.
+  bool seiteOffen(WidgetTester tester) =>
+      find.byKey(const ValueKey('screen-goals')).evaluate().isNotEmpty;
 
-  String feldText(WidgetTester tester, String key) => tester
-      .widget<TextField>(find.byKey(ValueKey(key)))
-      .controller!
-      .text;
+  String feldText(WidgetTester tester, String key) =>
+      tester.widget<TextField>(find.byKey(ValueKey(key))).controller!.text;
 
-  Offset sheetOben(WidgetTester tester) => tester.getTopLeft(
-        find
-            .descendant(
-              of: find.byType(BottomSheet),
-              matching: find.byType(Material),
-            )
-            .first,
-      );
-
-  /// Tippt oberhalb des Sheets — genau die Geste, mit der man die Tastatur
-  /// schliessen will.
-  Future<void> tippeAufBarriere(WidgetTester tester) async {
-    await tester.tapAt(Offset(196, sheetOben(tester).dy - 40));
+  /// Der Zurueck-Knopf im Seitenkopf. Er nutzt den Standard von [PageHeader],
+  /// also `Navigator.maybePop` — damit laeuft er durch dasselbe [PopScope] wie
+  /// der System-Zurueck.
+  Future<void> tippeZurueck(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('settings-close')));
     await tester.pumpAndSettle();
   }
 
-  /// Zieht das Sheet am oberen Rand kraeftig nach unten.
-  Future<void> ziehSheetWeg(WidgetTester tester) async {
-    await tester.flingFrom(
-      Offset(196, sheetOben(tester).dy + 12),
-      const Offset(0, 400),
-      2000,
-    );
-    await tester.pumpAndSettle();
-  }
+  // --- Weg 1: Zurueck-Knopf -------------------------------------------------
 
-  // --- Weg 1: Barriere-Tap --------------------------------------------------
-
-  testWidgets('Barriere-Tap fragt nach, wenn etwas eingetippt wurde',
+  testWidgets('der Zurueck-Knopf fragt nach, wenn etwas eingetippt wurde',
       (tester) async {
-    final resultFuture = await openSheet(tester);
+    final resultFuture = await openSettings(tester);
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
     await tester.pump();
 
-    await tippeAufBarriere(tester);
+    await tippeZurueck(tester);
 
-    expect(sheetOffen(tester), isTrue, reason: 'nichts darf still verpuffen');
+    expect(seiteOffen(tester), isTrue, reason: 'nichts darf still verpuffen');
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
     expect(find.text('Änderungen verwerfen?'), findsOneWidget);
 
     // „Weiter bearbeiten" laesst alles stehen.
     await tester.tap(find.byKey(const ValueKey('discard-changes-cancel')));
     await tester.pumpAndSettle();
-    expect(sheetOffen(tester), isTrue);
+    expect(seiteOffen(tester), isTrue);
     expect(feldText(tester, 'settings-weight'), '80');
 
     // Und „Verwerfen" schliesst wirklich.
-    await tippeAufBarriere(tester);
+    await tippeZurueck(tester);
     await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
     await tester.pumpAndSettle();
-    expect(sheetOffen(tester), isFalse);
+    expect(seiteOffen(tester), isFalse);
     expect(await resultFuture, isNull);
   });
 
-  testWidgets('unveraendertes Sheet schliesst der Barriere-Tap sofort',
+  testWidgets('unveraenderte Seite schliesst der Zurueck-Knopf sofort',
       (tester) async {
-    final resultFuture = await openSheet(tester);
+    final resultFuture = await openSettings(tester);
 
-    await tippeAufBarriere(tester);
+    await tippeZurueck(tester);
 
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
-    expect(sheetOffen(tester), isFalse);
+    expect(seiteOffen(tester), isFalse);
     expect(await resultFuture, isNull);
   });
 
-  // --- Weg 2: Ziehen --------------------------------------------------------
-
-  testWidgets('Wegziehen fragt nach, wenn etwas eingetippt wurde',
-      (tester) async {
-    final resultFuture = await openSheet(tester);
-    await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
-    await tester.pump();
-
-    await ziehSheetWeg(tester);
-
-    expect(sheetOffen(tester), isTrue,
-        reason: 'PopScope sieht diesen Weg nicht — der Drag-Guard muss ran');
-    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
-    expect(feldText(tester, 'settings-weight'), '80');
-
-    await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
-    await tester.pumpAndSettle();
-    expect(sheetOffen(tester), isFalse);
-    expect(await resultFuture, isNull);
-  });
-
-  testWidgets('unveraendertes Sheet laesst sich weiterhin wegziehen',
-      (tester) async {
-    // Zugleich der Beleg, dass dieser Weg wirklich schliesst: waere er es
-    // nicht, saehe man am dirty-Fall oben gar keinen Unterschied.
-    final resultFuture = await openSheet(tester);
-
-    await ziehSheetWeg(tester);
-
-    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
-    expect(sheetOffen(tester), isFalse);
-    expect(await resultFuture, isNull);
-  });
-
-  // --- Weg 3: System-Zurueck ------------------------------------------------
+  // --- Weg 2: System-Zurueck ------------------------------------------------
 
   testWidgets('der System-Zurueck-Button fragt genauso nach', (tester) async {
-    await openSheet(tester);
+    await openSettings(tester);
     await tester.enterText(find.byKey(const ValueKey('settings-water')), '3000');
     await tester.pump();
 
@@ -178,45 +141,64 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
-    expect(sheetOffen(tester), isTrue);
+    expect(seiteOffen(tester), isTrue);
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
   });
 
-  // --- Verhalten des Dialogs und des Guards ---------------------------------
+  testWidgets('unveraenderte Seite laesst der System-Zurueck sofort gehen',
+      (tester) async {
+    // Zugleich der Beleg, dass dieser Weg wirklich schliesst: waere er es
+    // nicht, saehe man am dirty-Fall oben gar keinen Unterschied.
+    final resultFuture = await openSettings(tester);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
+    expect(seiteOffen(tester), isFalse);
+    expect(await resultFuture, isNull);
+  });
+
+  // --- Verhalten des Dialogs ------------------------------------------------
 
   testWidgets('auch der Makro-Umschalter zaehlt als Aenderung', (tester) async {
-    await openSheet(tester);
+    await openSettings(tester);
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('settings-manual-energy')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-manual-energy')));
     await tester.pumpAndSettle();
 
-    await tippeAufBarriere(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('settings-close')));
+    await tester.pumpAndSettle();
+    await tippeZurueck(tester);
 
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
   });
 
   testWidgets('ein Tap neben den Dialog ist „Abbrechen", nicht „Verwerfen"',
       (tester) async {
-    await openSheet(tester);
+    await openSettings(tester);
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
     await tester.pump();
 
-    await tippeAufBarriere(tester);
+    await tippeZurueck(tester);
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
 
-    // Zweiter Tap an dieselbe Stelle: der Dialog liegt darueber und schluckt
-    // ihn — es geht nur der Dialog zu, das Sheet bleibt mit seinen Eingaben.
+    // Der Dialog liegt ueber der Seite und sein Barrier schluckt den Tap — es
+    // geht nur der Dialog zu, die Seite bleibt mit ihren Eingaben.
     await tester.tapAt(const Offset(196, 20));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
-    expect(sheetOffen(tester), isTrue);
+    expect(seiteOffen(tester), isTrue);
     expect(feldText(tester, 'settings-weight'), '80');
   });
 
-  testWidgets('der Drag-Guard blockiert weder Tippen noch Auswahl',
+  testWidgets('der Verwerfen-Schutz blockiert weder Tippen noch Auswahl',
       (tester) async {
-    await openSheet(tester);
-    // Ab hier ist der Guard aktiv.
+    await openSettings(tester);
+    // Ab hier ist die Seite „dirty".
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
     await tester.pump();
 
@@ -228,59 +210,44 @@ void main() {
     expect(feldText(tester, 'settings-water'), '3000');
 
     // Und der Makro-Umschalter reagiert weiterhin auf Taps.
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('settings-manual-energy')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-manual-energy')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('settings-kcal')), findsNothing);
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
   });
 
-  testWidgets('der Drag-Guard laesst das Sheet weiter scrollen',
+  testWidgets('der Verwerfen-Schutz laesst die Seite weiter scrollen',
       (tester) async {
-    // Kleiner Viewport, damit es ueberhaupt etwas zu scrollen gibt.
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Center(
-              child: FilledButton(
-                key: const ValueKey('open-settings'),
-                onPressed: () => showSettingsSheet(
-                  context,
-                  profile: const UserProfile(),
-                ),
-                child: const Text('open'),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('open-settings')));
-    await tester.pumpAndSettle();
+    await openSettings(tester);
 
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
     await tester.pump();
 
-    final vorher = tester.getTopLeft(find.text('Profil & Ziele')).dy;
+    // Gemessen wird die ScrollPosition, nicht die Lage der Kopfzeile: der Kopf
+    // scrollt auf einer Seite mit heraus und taugt nicht mehr als Referenz.
+    final position = tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(SingleChildScrollView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+    final vorher = position.pixels;
+
     await tester.drag(
       find.byType(SingleChildScrollView),
       const Offset(0, -300),
     );
     await tester.pumpAndSettle();
 
-    expect(tester.getTopLeft(find.text('Profil & Ziele')).dy, lessThan(vorher));
-    expect(sheetOffen(tester), isTrue);
+    expect(position.pixels, greaterThan(vorher));
+    expect(seiteOffen(tester), isTrue);
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
   });
 }

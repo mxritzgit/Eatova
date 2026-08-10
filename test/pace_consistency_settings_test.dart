@@ -2,17 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
-import 'package:eatova/src/widgets/shared/settings_sheet.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
-// B2, Reststelle 1 — derselbe Widerspruch wie in der Plan-Karte, nur zwei
-// Karten weiter unten im SELBEN Scroll:
+// B2, Reststelle 1 — derselbe Widerspruch wie in der Plan-Karte, nur eine
+// Gruppe weiter unten im SELBEN Scroll:
 //
-//   _PlanHero          „Erhaltung 1997 · −0,72 kg/Woche"   (settings_sheet:1144)
-//   _WeightGoalField   „Abnehmen              −1 kg/Woche"  (settings_sheet:1738)
+//   Plan-Hero          „Erhaltung 1997 · −0,72 kg/Woche"
+//   Gewichtsziel-Zeile „Abnehmen              −1 kg/Woche"
 //
 // Anders als im Picker gibt es hier zwangslaeufig ein vollstaendiges Profil:
-// das Sheet rechnet aus genau diesen Feldern live das Tagesziel. Es sind also
+// der Screen rechnet aus genau diesen Feldern live das Tagesziel. Es sind also
 // zwei verschiedene Tempo-Zeichenketten auf einem Bildschirm, ohne dass etwas
 // den Unterschied erklaert.
 //
@@ -23,7 +24,7 @@ import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 // Option.
 void main() {
   /// Profil, dessen gespeicherte Energie-Ziele exakt der Rechnung entsprechen.
-  /// Nur dann startet das Sheet im Live-Modus (Manuell-Schalter aus).
+  /// Nur dann startet der Screen im Live-Modus (Manuell-Schalter aus).
   UserProfile autoProfil(WeightGoal goal) {
     const basis = UserProfile();
     final p = basis.copyWith(weightGoal: goal);
@@ -36,7 +37,7 @@ void main() {
     );
   }
 
-  Future<void> openSheet(
+  Future<void> openSettings(
     WidgetTester tester, {
     required UserProfile profile,
   }) async {
@@ -54,12 +55,17 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: buildEatovaTheme(Brightness.light),
         home: Scaffold(
           body: Builder(
             builder: (context) => Center(
               child: FilledButton(
                 key: const ValueKey('open-settings'),
-                onPressed: () => showSettingsSheet(context, profile: profile),
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => GoalsScreen(profile: profile),
+                  ),
+                ),
                 child: const Text('open'),
               ),
             ),
@@ -71,7 +77,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Oeffnet das Auswahl-Sheet des Gewichtsziels. Das Feld liegt weit unten im
+  /// Oeffnet das Auswahl-Sheet des Gewichtsziels. Die Zeile liegt weit unten im
   /// Scroll — ohne [WidgetController.ensureVisible] geht der Tap ins Leere.
   Future<void> openGoalPicker(WidgetTester tester) async {
     await tester.ensureVisible(find.byKey(const ValueKey('settings-weight-goal')));
@@ -88,9 +94,9 @@ void main() {
       );
 
   testWidgets(
-      'das Gewichtsziel-Feld sagt, was aus dem gewaehlten Tempo wird',
+      'die Gewichtsziel-Zeile sagt, was aus dem gewaehlten Tempo wird',
       (tester) async {
-    await openSheet(tester, profile: autoProfil(WeightGoal.lose1kg));
+    await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
 
     // Die Plan-Karte im selben Scroll: 1997 − 1200 = 797 kcal ≙ −0,72 kg/Woche.
     expect(find.text('Erhaltung 1997 · −0,72 kg/Woche'), findsOneWidget);
@@ -115,12 +121,12 @@ void main() {
   });
 
   testWidgets(
-      'ohne abweichendes Tempo bleibt das Feld ohne Zusatzzeile',
+      'ohne abweichendes Tempo bleibt die Zeile ohne Zusatzzeile',
       (tester) async {
     // −0,5 kg/Woche: Erhaltung 1997, Ziel 1450, real −547 kcal ≙ −0,5 kg/Woche.
     // Versprechen und Plan tragen dieselbe Beschriftung — eine erklaerende
     // Zeile waere hier nur Laerm.
-    await openSheet(tester, profile: autoProfil(WeightGoal.lose05kg));
+    await openSettings(tester, profile: autoProfil(WeightGoal.lose05kg));
 
     expect(find.text('Erhaltung 1997 · −0,5 kg/Woche'), findsOneWidget);
     expect(
@@ -132,7 +138,7 @@ void main() {
   testWidgets(
       'jede Option im Ziel-Picker nennt den Plan, den sie ergibt',
       (tester) async {
-    await openSheet(tester, profile: autoProfil(WeightGoal.lose1kg));
+    await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
     await openGoalPicker(tester);
 
     // „Zuegig" und „Ambitioniert" landen fuer dieses Profil beide auf 1200 kcal
@@ -164,10 +170,10 @@ void main() {
   testWidgets(
       'im Manuell-Modus sagt der Picker, dass die Auswahl das Tagesziel nicht bewegt',
       (tester) async {
-    // Standardprofil: 2200 kcal gespeichert, gerechnet waeren es 2000 → das
-    // Sheet startet im Manuell-Modus. Dort haengt das Tagesziel nicht mehr am
+    // Standardprofil: 2200 kcal gespeichert, gerechnet waeren es 2000 → der
+    // Screen startet im Manuell-Modus. Dort haengt das Tagesziel nicht mehr am
     // Tempo; „Ergibt 1450 kcal/Tag" waere schlicht falsch.
-    await openSheet(tester, profile: const UserProfile());
+    await openSettings(tester, profile: const UserProfile());
 
     // Ziel „halten", aber 2200 kcal ueber einer Erhaltung von 1997.
     expect(

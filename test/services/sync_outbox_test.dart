@@ -5,6 +5,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
 // DATA-7 Write-Outbox: SyncOp ist das persistierbare Wire-Format fuer
@@ -161,6 +162,81 @@ void main() {
       expect(del!.kind, SyncOpKind.recipeDelete);
     });
 
+    test('profileUpsert roundtrippt jedes Profilfeld', () {
+      const profile = UserProfile(
+        weightKg: 84,
+        heightCm: 186,
+        ageYears: 41,
+        sex: BiologicalSex.female,
+        activityLevel: ActivityLevel.athlete,
+        targetWeightKg: 79,
+        dailyStepsGoal: 12000,
+        dailyKcalGoal: 1900,
+        dailyWaterGoalMl: 3000,
+        dailySleepGoalMinutes: 480,
+        proteinGoalG: 150,
+        carbsGoalG: 180,
+        fatGoalG: 60,
+        weightGoal: WeightGoal.lose05kg,
+        diet: DietPreference.vegan,
+        onboardingCompleted: true,
+      );
+      final back = SyncOp.tryFromJson(SyncOp.profileUpsert(profile).toJson());
+
+      expect(back!.kind, SyncOpKind.profileUpsert);
+      final p = back.profile!;
+      expect(p.weightKg, 84);
+      expect(p.heightCm, 186);
+      expect(p.ageYears, 41);
+      expect(p.sex, BiologicalSex.female);
+      expect(p.activityLevel, ActivityLevel.athlete);
+      expect(p.targetWeightKg, 79);
+      expect(p.dailyStepsGoal, 12000);
+      expect(p.dailyKcalGoal, 1900);
+      expect(p.dailyWaterGoalMl, 3000);
+      expect(p.dailySleepGoalMinutes, 480);
+      expect(p.proteinGoalG, 150);
+      expect(p.carbsGoalG, 180);
+      expect(p.fatGoalG, 60);
+      expect(p.weightGoal, WeightGoal.lose05kg);
+      expect(p.diet, DietPreference.vegan);
+      expect(p.onboardingCompleted, isTrue);
+    });
+
+    test(
+        'alle Profil-Ops teilen EINEN Entitaets-Schluessel — das Profil ist '
+        'eine einzige Zeile', () {
+      expect(SyncOp.profileUpsert(const UserProfile()).entityKey,
+          'profile:self');
+      expect(SyncOp.profileUpsert(const UserProfile(weightKg: 91)).entityKey,
+          'profile:self',
+          reason: 'sonst koaleszieren zwei Offline-Aenderungen nicht und '
+              'ueberholen sich beim Replay');
+    });
+
+    test(
+        'ein unvollstaendiges Profil in der Payload ist UNLESBAR (null), nicht '
+        'halb erfunden', () {
+      // Die Gegenprobe zum Sentinel-Fund 3: frueher fuellten fehlende
+      // Zahlenfelder sich mit Ctor-Defaults auf. In einer Outbox-Op waere das
+      // fatal — der Replay schriebe 78 kg / 2200 kcal ueber die echte
+      // Serverzeile, mit Retry. Null heisst hier: der Replay wirft und
+      // verwirft die Op (A8-Pfad), statt Fantasie zuzustellen.
+      final vollstaendig =
+          SyncOp.profileUpsert(const UserProfile(weightKg: 91)).toJson();
+      final payload = (vollstaendig['payload'] as Map)
+          .cast<String, dynamic>();
+      final profil = (payload['profile'] as Map).cast<String, dynamic>();
+      profil.remove('daily_kcal_goal');
+
+      final op = SyncOp.tryFromJson(<String, dynamic>{
+        ...vollstaendig,
+        'payload': <String, dynamic>{'profile': profil},
+      });
+      expect(op, isNotNull, reason: 'die Op selbst bleibt lesbar');
+      expect(op!.profile, isNull);
+    });
+
     test('korrupte Eintraege liefern null statt Crash', () {
       expect(SyncOp.tryFromJson(const {}), isNull);
       expect(SyncOp.tryFromJson(const {'kind': 'zeitmaschine'}), isNull);
@@ -181,8 +257,46 @@ void main() {
     });
   });
 
+  group('SyncOp.trackingDay (Streak-Tag)', () {
+    test('Roundtrip: der Tag steckt im entityId, die Payload bleibt leer', () {
+      final op = SyncOp.trackingDay('2026-08-10');
+      expect(op.entityKey, 'tracking:2026-08-10');
+      expect(op.payload, isEmpty,
+          reason: 'der Tag IST die ganze Information — eine Payload waere nur '
+              'eine zweite Stelle, an der er falsch stehen kann');
+      final back = SyncOp.tryFromJson(op.toJson())!;
+      expect(back.kind, SyncOpKind.trackingDay);
+      expect(back.entityId, '2026-08-10');
+    });
+
+    test(
+        'zwei Ops fuer denselben Tag koaleszieren zu einer, zwei Tage bleiben '
+        'zwei', () {
+      final eins = enqueueCoalesced(
+          const <SyncOp>[], SyncOp.trackingDay('2026-08-10'));
+      final nochmal =
+          enqueueCoalesced(eins, SyncOp.trackingDay('2026-08-10'));
+      expect(nochmal, hasLength(1),
+          reason: 'sonst haengt sich bei jedem Log desselben Tages eine '
+              'voellig identische Op an');
+      final zweiTage =
+          enqueueCoalesced(nochmal, SyncOp.trackingDay('2026-08-11'));
+      expect(zweiTage.map((o) => o.entityId).toList(),
+          <String>['2026-08-10', '2026-08-11'],
+          reason: 'verschiedene Tage sind verschiedene Entitaeten und muessen '
+              'in chronologischer Reihenfolge nachgespielt werden');
+    });
+
+    test('ein Streak-Tag ist KEIN Delete — er faellt am Cap zuerst', () {
+      // Ein verworfener Streak-Tag kostet einen Zaehler, ein verworfener
+      // Delete laesst geloeschte Nutzerdaten auferstehen. Die Reihenfolge in
+      // capOutbox haengt genau an dieser Unterscheidung.
+      expect(SyncOp.trackingDay('2026-08-10').isDelete, isFalse);
+    });
+  });
+
   group('SyncOp.attempts (Zustellversuchs-Budget)', () {
-    test('frische Ops starten bei 0 — alle acht Factories', () {
+    test('frische Ops starten bei 0 — jede Factory, keine ausgelassen', () {
       final ops = <SyncOp>[
         SyncOp.mealInsert(_meal('m-1'), trackDay: true),
         SyncOp.mealUpsert(_meal('m-1')),
@@ -197,8 +311,15 @@ void main() {
         SyncOp.favoriteDelete('fav-1'),
         SyncOp.recipeUpsert(_recipe()),
         SyncOp.recipeDelete('user_123'),
+        SyncOp.profileUpsert(const UserProfile()),
+        SyncOp.trackingDay('2026-08-10'),
       ];
       expect(ops.map((o) => o.attempts), everyElement(0));
+      // Vollstaendigkeit statt einer Zahl im Testnamen: wer eine Op-Familie
+      // ergaenzt und sie hier vergisst, macht den Test rot (die alte Fassung
+      // hiess „alle acht Factories" und haette profileUpsert stillschweigend
+      // ausgelassen).
+      expect(ops.map((o) => o.kind).toSet(), SyncOpKind.values.toSet());
     });
 
     test(
@@ -248,6 +369,21 @@ void main() {
           )).isDelete,
           isFalse);
       expect(SyncOp.recipeUpsert(_recipe()).isDelete, isFalse);
+      expect(SyncOp.profileUpsert(const UserProfile()).isDelete, isFalse);
+    });
+
+    test(
+        'profileUpsert ist ein Upsert — sonst koaleszieren zwei Aenderungen '
+        'derselben Profilzeile nicht', () {
+      final queue = enqueueCoalesced(
+        <SyncOp>[SyncOp.profileUpsert(const UserProfile(weightKg: 84))],
+        SyncOp.profileUpsert(const UserProfile(weightKg: 86)),
+      );
+
+      expect(SyncOp.profileUpsert(const UserProfile()).isUpsert, isTrue);
+      expect(queue, hasLength(1));
+      expect(queue.single.profile!.weightKg, 86,
+          reason: 'die letzte Aenderung gewinnt');
     });
 
     test('incrementAttempt zaehlt hoch und behaelt alles andere', () {

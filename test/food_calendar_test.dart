@@ -41,7 +41,7 @@ Future<void> _pumpFoodTab(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
       locale: const Locale('de'),
       supportedLocales: const [Locale('de')],
       localizationsDelegates: const [

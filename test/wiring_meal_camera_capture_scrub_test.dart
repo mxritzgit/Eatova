@@ -44,6 +44,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 
 /// Laengste Kante, auf die [compressMealPhoto] herunterrechnet. Die Testquelle
 /// liegt bewusst DARUEBER, damit die Re-Kompression an zwei unabhaengigen
@@ -190,6 +191,11 @@ void main() {
       MealCameraCapture? captured;
       await tester.pumpWidget(
         MaterialApp(
+          // Design-Refactor 2026-08: MealCameraSheet liest seine Farben ueber
+          // `context.t`. `AppTokens.of` wirft absichtlich ohne
+          // ThemeExtension — ohne `theme:` wird der Ausloeser
+          // (`meal-camera-shutter`) gar nicht erst gebaut.
+          theme: buildEatovaTheme(Brightness.dark),
           home: Scaffold(
             body: Builder(
               builder: (context) => TextButton(

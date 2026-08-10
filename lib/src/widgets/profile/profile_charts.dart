@@ -2,169 +2,65 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../models/weight_log.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 
-class WeightLineChartPainter extends CustomPainter {
-  WeightLineChartPainter({required this.entries, required this.accent});
-
-  final List<WeightLogEntry> entries;
-  final Color accent;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = hairline
-      ..strokeWidth = 1;
-
-    const padding = EdgeInsets.fromLTRB(8, 12, 8, 18);
-    final inner = Rect.fromLTWH(
-      padding.left,
-      padding.top,
-      size.width - padding.horizontal,
-      size.height - padding.vertical,
-    );
-
-    for (var i = 0; i <= 3; i++) {
-      final y = inner.top + inner.height * (i / 3);
-      canvas.drawLine(Offset(inner.left, y), Offset(inner.right, y), gridPaint);
-    }
-
-    if (entries.length < 2) {
-      _drawEmptyHint(canvas, size);
-      return;
-    }
-
-    final values = entries.map((e) => e.weightKg).toList();
-    final minV = values.reduce(math.min);
-    final maxV = values.reduce(math.max);
-    final pad = math.max((maxV - minV) * 0.25, 0.6);
-    final lo = minV - pad;
-    final hi = maxV + pad;
-    final range = math.max(hi - lo, 0.001);
-
-    final path = Path();
-    final fillPath = Path();
-    final dots = <Offset>[];
-
-    for (var i = 0; i < entries.length; i++) {
-      final t = entries.length == 1 ? 0.5 : i / (entries.length - 1);
-      final x = inner.left + inner.width * t;
-      final y = inner.bottom - ((entries[i].weightKg - lo) / range) * inner.height;
-      final point = Offset(x, y);
-      dots.add(point);
-      if (i == 0) {
-        path.moveTo(x, y);
-        fillPath.moveTo(x, inner.bottom);
-        fillPath.lineTo(x, y);
-      } else {
-        path.lineTo(x, y);
-        fillPath.lineTo(x, y);
-      }
-    }
-    fillPath.lineTo(dots.last.dx, inner.bottom);
-    fillPath.close();
-
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          accent.withValues(alpha: 0.32),
-          accent.withValues(alpha: 0.02),
-        ],
-      ).createShader(inner);
-    canvas.drawPath(fillPath, fillPaint);
-
-    final linePaint = Paint()
-      ..color = accent
-      ..strokeWidth = 2.2
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(path, linePaint);
-
-    final ringPaint = Paint()
-      ..color = bg
-      ..style = PaintingStyle.fill;
-    final dotPaint = Paint()..color = accent;
-    for (final p in dots) {
-      canvas.drawCircle(p, 3.4, ringPaint);
-      canvas.drawCircle(p, 2.2, dotPaint);
-    }
-
-    _drawAxisLabel(
-      canvas,
-      '${hi.toStringAsFixed(1)} kg',
-      Offset(inner.left, padding.top - 6),
-      Alignment.topLeft,
-    );
-    _drawAxisLabel(
-      canvas,
-      '${lo.toStringAsFixed(1)} kg',
-      Offset(inner.left, size.height - padding.bottom + 2),
-      Alignment.bottomLeft,
-    );
-  }
-
-  void _drawAxisLabel(Canvas canvas, String text, Offset anchor, Alignment a) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: const TextStyle(
-          color: textMuted,
-          fontSize: 10,
-          fontWeight: FontWeight.w500,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final dx = a == Alignment.bottomRight || a == Alignment.topRight
-        ? anchor.dx - tp.width
-        : anchor.dx;
-    final dy = a == Alignment.bottomLeft || a == Alignment.bottomRight
-        ? anchor.dy
-        : anchor.dy;
-    tp.paint(canvas, Offset(dx, dy));
-  }
-
-  void _drawEmptyHint(Canvas canvas, Size size) {
-    final tp = TextPainter(
-      text: const TextSpan(
-        text: 'Logge dein Gewicht regelmÃ¤ÃŸig\nfÃ¼r eine Verlaufslinie.',
-        style: TextStyle(
-          color: textMuted,
-          fontSize: 12,
-          height: 1.4,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      textAlign: TextAlign.center,
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: size.width - 24);
-    tp.paint(
-      canvas,
-      Offset((size.width - tp.width) / 2, (size.height - tp.height) / 2),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant WeightLineChartPainter old) =>
-      old.entries != entries || old.accent != accent;
-}
-
+/// Halbkreis-Skala mit Zeiger fuer den BMI.
+///
+/// Die Farben kommen als Felder herein statt aus einer Konstanten-Datei: der
+/// Painter muss in beiden Anzeige-Modi zeichnen. [shouldRepaint] vergleicht sie
+/// deshalb ALLE — beim Wechsel Hell/Dunkel aendert sich nur die Farbe, nicht
+/// der Wert, und ein Painter, der nur den Wert vergleicht, laesst die alte
+/// Zeichnung stehen.
 class BMIGaugePainter extends CustomPainter {
-  BMIGaugePainter({required this.bmi});
+  BMIGaugePainter({
+    required this.bmi,
+    required this.underColor,
+    required this.normalColor,
+    required this.overColor,
+    required this.obeseColor,
+    required this.trackColor,
+    required this.pointerCoreColor,
+    required this.labelColor,
+  });
+
+  /// Der uebliche Weg von den Tokens zum Painter. Hier — und nur hier — liegt
+  /// die Zuordnung BMI-Zone → Zustandsfarbe.
+  factory BMIGaugePainter.fromTokens(AppTokens t, double bmi) =>
+      BMIGaugePainter(
+        bmi: bmi,
+        // Unter- UND Uebergewicht tragen denselben Warnton: der Token-Vertrag
+        // kennt als Zustandsfarben nur `warning` und `danger`, die drei
+        // Makro-Toene sind fuer Naehrwerte gesperrt. Die Position auf dem
+        // Halbkreis (links bzw. rechts der Normalzone) unterscheidet beide
+        // eindeutig. Ein eigener, nicht alarmierender „info"-Ton waere hier
+        // besser — der gehoert als Token nach AppTokens, nicht hierher.
+        underColor: t.warning,
+        normalColor: t.accent,
+        overColor: t.warning,
+        obeseColor: t.danger,
+        trackColor: t.tile,
+        // Der Zeiger sitzt auf einer Karte, nicht auf dem Seitengrund: sein
+        // Kern muss die KARTEN-Flaeche aufnehmen, sonst steht im Hell-Modus
+        // ein dunkler Punkt mitten auf der hellen Karte.
+        pointerCoreColor: t.surf,
+        labelColor: t.ink2,
+      );
 
   final double bmi;
+  final Color underColor, normalColor, overColor, obeseColor;
+  final Color trackColor, pointerCoreColor, labelColor;
 
-  static const List<({double upper, Color color})> _zones = [
-    (upper: 18.5, color: cyan),
-    (upper: 25.0, color: lime),
-    (upper: 30.0, color: orange),
-    (upper: 40.0, color: danger),
-  ];
+  /// Untere/obere Kante der gezeichneten Skala (der Halbkreis bildet 15–40 ab).
+  static const double _lo = 15.0;
+  static const double _hi = 40.0;
+
+  List<({double upper, Color color})> get _zones =>
+      <({double upper, Color color})>[
+        (upper: 18.5, color: underColor),
+        (upper: 25.0, color: normalColor),
+        (upper: 30.0, color: overColor),
+        (upper: _hi, color: obeseColor),
+      ];
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -175,19 +71,17 @@ class BMIGaugePainter extends CustomPainter {
     final rect = Rect.fromCircle(center: center, radius: radius);
 
     final basePaint = Paint()
-      ..color = surfaceSoft
+      ..color = trackColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.butt;
     canvas.drawArc(rect, math.pi, math.pi, false, basePaint);
 
-    const lo = 15.0;
-    const hi = 40.0;
-    const totalSpan = hi - lo;
-    double cursor = lo;
+    const totalSpan = _hi - _lo;
+    var cursor = _lo;
     for (final zone in _zones) {
-      final segStart = (cursor - lo) / totalSpan;
-      final segEnd = (math.min(zone.upper, hi) - lo) / totalSpan;
+      final segStart = (cursor - _lo) / totalSpan;
+      final segEnd = (math.min(zone.upper, _hi) - _lo) / totalSpan;
       final startAngle = math.pi + math.pi * segStart;
       final sweep = math.pi * (segEnd - segStart);
       if (sweep <= 0) continue;
@@ -200,13 +94,16 @@ class BMIGaugePainter extends CustomPainter {
       cursor = zone.upper;
     }
 
-    final clamped = bmi.clamp(lo, hi).toDouble();
-    final t = (clamped - lo) / totalSpan;
-    final pointerAngle = math.pi + math.pi * t;
+    // Ein nicht-endlicher BMI (Groesse 0) darf keinen NaN-Winkel erzeugen —
+    // sonst zeichnet der Zeiger ins Nichts.
+    final safeBmi = bmi.isFinite ? bmi : _lo;
+    final clamped = safeBmi.clamp(_lo, _hi).toDouble();
+    final position = (clamped - _lo) / totalSpan;
+    final pointerAngle = math.pi + math.pi * position;
     final activeColor = _colorFor(clamped);
 
     final pointerPaint = Paint()
-      ..color = bg
+      ..color = pointerCoreColor
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -224,32 +121,18 @@ class BMIGaugePainter extends CustomPainter {
       ..strokeWidth = 1.6;
     canvas.drawLine(tipInner, tipOuter, pointerPaint);
 
-    canvas.drawCircle(center, 5, Paint()..color = bg);
+    canvas.drawCircle(center, 5, Paint()..color = pointerCoreColor);
     canvas.drawCircle(center, 3, Paint()..color = activeColor);
 
     final valueTp = TextPainter(
       text: TextSpan(
-        text: bmi.toStringAsFixed(1),
-        style: TextStyle(
-          color: activeColor,
-          fontSize: 24,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.6,
-          fontFeatures: const [FontFeature.tabularFigures()],
-        ),
+        text: bmi.isFinite ? bmi.toStringAsFixed(1).replaceAll('.', ',') : '–',
+        style: AppType.display(24, color: activeColor),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
     final labelTp = TextPainter(
-      text: const TextSpan(
-        text: 'BMI',
-        style: TextStyle(
-          color: textMuted,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.2,
-        ),
-      ),
+      text: TextSpan(text: 'BMI', style: AppType.eyebrow(labelColor)),
       textDirection: TextDirection.ltr,
     )..layout();
 
@@ -263,55 +146,38 @@ class BMIGaugePainter extends CustomPainter {
     );
   }
 
-  static Color _colorFor(double v) {
+  Color _colorFor(double v) {
     for (final z in _zones) {
       if (v < z.upper) return z.color;
     }
-    return danger;
+    return obeseColor;
+  }
+
+  /// Die Zonenfarbe fuer einen Chip neben der Skala — dieselbe Zuordnung wie
+  /// im Painter, ohne dass der Aufrufer einen bauen muss.
+  static Color colorFor(AppTokens t, double v) {
+    if (!v.isFinite) return t.ink2;
+    if (v < 18.5) return t.warning;
+    if (v < 25.0) return t.accent;
+    if (v < 30.0) return t.warning;
+    return t.danger;
   }
 
   static String labelFor(double v) {
     if (v < 18.5) return 'Untergewicht';
     if (v < 25.0) return 'Normal';
-    if (v < 30.0) return 'Ãœbergewicht';
-    return 'AdipÃ¶s';
-  }
-
-  static Color colorFor(double v) => _colorFor(v);
-
-  @override
-  bool shouldRepaint(covariant BMIGaugePainter old) => old.bmi != bmi;
-}
-
-class MiniRingPainter extends CustomPainter {
-  MiniRingPainter({required this.value, required this.color, this.stroke = 6});
-
-  final double value;
-  final Color color;
-  final double stroke;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2 - stroke / 2;
-    final rect = Rect.fromCircle(center: center, radius: radius);
-    final base = Paint()
-      ..color = surfaceSoft
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke;
-    canvas.drawArc(rect, 0, math.pi * 2, false, base);
-
-    final v = value.clamp(0.0, 1.0);
-    if (v <= 0) return;
-    final p = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round;
-    canvas.drawArc(rect, -math.pi / 2, math.pi * 2 * v, false, p);
+    if (v < 30.0) return 'Übergewicht';
+    return 'Adipös';
   }
 
   @override
-  bool shouldRepaint(covariant MiniRingPainter old) =>
-      old.value != value || old.color != color || old.stroke != stroke;
+  bool shouldRepaint(covariant BMIGaugePainter old) =>
+      old.bmi != bmi ||
+      old.underColor != underColor ||
+      old.normalColor != normalColor ||
+      old.overColor != overColor ||
+      old.obeseColor != obeseColor ||
+      old.trackColor != trackColor ||
+      old.pointerCoreColor != pointerCoreColor ||
+      old.labelColor != labelColor;
 }

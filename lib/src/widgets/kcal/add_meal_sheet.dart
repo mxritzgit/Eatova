@@ -11,9 +11,11 @@ import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/open_food_facts_product_service.dart';
-import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
+import '../common/motion.dart';
+import '../design/design.dart';
 import 'edit_meal_sheet.dart';
 import 'existing_meals_list.dart';
 import 'meal_analysis_sheet.dart';
@@ -63,6 +65,8 @@ Future<void> showAddMealSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
+    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (sheetContext) {
       return AddMealSheet(
@@ -178,6 +182,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
   late List<LoggedMeal> _existing;
   late List<FavoriteMeal> _favorites;
 
+  // Diese drei Dauern laufen BEWUSST NICHT ueber `motionDuration`: sie takten
+  // keine Bewegung, sondern Netz- und Anzeigelogik. Ein Debounce von 0 wuerde
+  // pro Tastendruck eine Suchanfrage feuern, ein Retry-Delay von 0 den
+  // Backoff aushebeln, und der Haken am gerade hinzugefuegten Treffer waere
+  // weg, bevor ihn jemand sieht. „Bewegung reduzieren" darf das Verhalten der
+  // App nicht aendern, nur ihre Animationen.
   static const Duration _productSearchDebounceDelay = Duration(
     milliseconds: 1000,
   );
@@ -417,7 +427,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
             ? 'Kamera konnte nicht geöffnet werden. Prüfe die Berechtigung.'
             : 'Galerie konnte nicht geöffnet werden. Prüfe die Berechtigung.',
         icon: Icons.error_outline_rounded,
-        accent: danger,
+        tone: SnackTone.error,
         duration: kSnackError,
       );
       return;
@@ -481,7 +491,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         context,
         kSuggestionWithoutCaloriesMessage,
         icon: Icons.error_outline_rounded,
-        accent: danger,
+        tone: SnackTone.error,
         duration: kSnackError,
       );
       return;
@@ -493,7 +503,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
         context,
         '${result.caloriesKcal} kcal zu ${_selectedSlot.label} hinzugefügt.',
         icon: Icons.check_circle_rounded,
-        accent: lime,
       );
     }
     setState(() {
@@ -518,17 +527,23 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final mediaQuery = MediaQuery.of(context);
     final maxHeight = mediaQuery.size.height * 0.92;
     final keyboardInset = mediaQuery.viewInsets.bottom;
 
+    // Kein SheetScaffold: das Sheet traegt drei fixe Zonen (Kopf, Suchleiste,
+    // Slot-Wahl) ueber einem gedeckelten Scrollbereich und hat gar keine
+    // Fussaktion — jede Zeile loggt selbst.
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(
         constraints: BoxConstraints(maxHeight: maxHeight),
-        decoration: const BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+        decoration: BoxDecoration(
+          color: t.bg,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(rSheet),
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -588,7 +603,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
                       // Beim Entfernen eines Favoriten fällt die Liste sanft
                       // zusammen statt hart zu springen.
                       AnimatedSize(
-                        duration: const Duration(milliseconds: 220),
+                        duration: motionDuration(
+                          context,
+                          const Duration(milliseconds: 220),
+                        ),
                         curve: Curves.easeInOut,
                         alignment: Alignment.topCenter,
                         child: _buildFavorites(),
@@ -605,13 +623,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   Widget _buildSearchResults() {
     if (_isSearchingProducts && _productSuggestions.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
           child: SizedBox(
             width: 22,
             height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2, color: lime),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: context.t.accent,
+            ),
           ),
         ),
       );
@@ -643,7 +664,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
       result: suggestion.result,
       imageUrl: suggestion.imageUrl,
       fallbackIcon: Icons.fastfood_outlined,
-      accent: lime,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -712,7 +732,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
       fallbackIcon: pinned
           ? Icons.favorite_rounded
           : Icons.bookmark_outline_rounded,
-      accent: orange,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -767,7 +786,7 @@ class _SheetHandle extends StatelessWidget {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: hairline,
+          color: context.t.line,
           borderRadius: BorderRadius.circular(rPill),
         ),
       ),
@@ -794,56 +813,50 @@ class _SheetHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = searchMode ? lime : slot.accent;
-    final headerIcon = searchMode ? Icons.search_rounded : slot.icon;
+    final t = context.t;
     final title = searchMode ? 'Lebensmittel suchen' : slot.label;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 6, 10),
       child: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(rControl),
+          if (searchMode)
+            IconTile(icon: Icons.search_rounded, color: t.accent, size: 36)
+          else
+            MealAvatar(
+              letter: slot.initial,
+              color: slot.accentIn(context),
+              size: 36,
             ),
-            child: Icon(headerIcon, color: accent, size: 18),
-          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
-                color: textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
+              style: AppType.display(18, color: t.ink),
             ),
           ),
           // Foto/Galerie/Barcode nur im normalen Add-Modus. Im Such-Modus
           // bleibt der Kopf schlank — die Suche hat ihre eigenen Aktions-
           // Buttons im Food-Tab, hier wird nur gesucht.
+          //
+          // Die drei tragen jetzt denselben gedaempften Ton: sie sind
+          // gleichrangige Eingaenge, und die frueheren drei Farben waren
+          // Makro-/Wellness-Toene aus einer fremden Bedeutungsebene.
           if (!searchMode) ...[
             _HeaderIconButton(
               keyValue: const ValueKey('analyse-camera-button'),
               icon: Icons.photo_camera_rounded,
-              color: orange,
               tooltip: 'Foto aufnehmen',
               onPressed: onCamera,
             ),
             _HeaderIconButton(
               keyValue: const ValueKey('analyse-gallery-button'),
               icon: Icons.photo_library_outlined,
-              color: wellnessTone,
               tooltip: 'Aus Galerie',
               onPressed: onGallery,
             ),
             _HeaderIconButton(
               keyValue: const ValueKey('analyse-barcode-button'),
               icon: Icons.qr_code_scanner_rounded,
-              color: cyan,
               tooltip: 'Barcode scannen',
               onPressed: onBarcode,
             ),
@@ -853,7 +866,7 @@ class _SheetHeader extends StatelessWidget {
             key: const ValueKey('add-meal-sheet-close'),
             onPressed: onClose,
             tooltip: 'Schließen',
-            icon: const Icon(Icons.close_rounded, color: textMuted),
+            icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
       ),
@@ -865,14 +878,12 @@ class _HeaderIconButton extends StatelessWidget {
   const _HeaderIconButton({
     required this.keyValue,
     required this.icon,
-    required this.color,
     required this.tooltip,
     required this.onPressed,
   });
 
   final Key keyValue;
   final IconData icon;
-  final Color color;
   final String tooltip;
   final VoidCallback onPressed;
 
@@ -883,15 +894,7 @@ class _HeaderIconButton extends StatelessWidget {
       onPressed: onPressed,
       tooltip: tooltip,
       visualDensity: VisualDensity.compact,
-      icon: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(rControl),
-        ),
-        child: Icon(icon, color: color, size: 17),
-      ),
+      icon: IconTile(icon: icon),
     );
   }
 }
@@ -915,20 +918,21 @@ class _SearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       key: const ValueKey('kcal-product-search-card'),
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
       child: Container(
         height: 46,
         decoration: BoxDecoration(
-          color: surfaceSoft,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: hairline),
+          color: t.surf,
+          borderRadius: BorderRadius.circular(rControl),
+          border: Border.all(color: t.line),
         ),
         child: Row(
           children: [
             const SizedBox(width: 12),
-            const Icon(Icons.search_rounded, size: 18, color: textMuted),
+            Icon(Icons.search_rounded, size: 18, color: t.ink2),
             const SizedBox(width: 8),
             Expanded(
               child: TextField(
@@ -939,24 +943,24 @@ class _SearchBar extends StatelessWidget {
                 // bei offenem Sheet auf ~60fps Dauer-Rendering. Diskretes
                 // Blinken repaintet nur ~2x/s (gilt app-weit fuer alle Felder).
                 cursorOpacityAnimates: false,
+                cursorColor: t.accent,
                 onChanged: onChanged,
                 onSubmitted: onSubmitted,
                 textInputAction: TextInputAction.search,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: textPrimary,
-                ),
-                decoration: const InputDecoration(
+                style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                decoration: InputDecoration(
                   hintText: 'Was hast du gegessen?',
-                  hintStyle: TextStyle(
-                    color: textMuted,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                  hintStyle: AppType.ui(
+                    14,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
                   ),
                   isCollapsed: true,
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 14),
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
             ),
@@ -965,18 +969,18 @@ class _SearchBar extends StatelessWidget {
               tooltip: 'Suchen',
               onPressed: isSearching ? null : onSearchPressed,
               icon: isSearching
-                  ? const SizedBox(
+                  ? SizedBox(
                       height: 16,
                       width: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: lime,
+                        color: t.accent,
                       ),
                     )
-                  : const Icon(
+                  : Icon(
                       Icons.arrow_forward_rounded,
                       size: 18,
-                      color: lime,
+                      color: t.accent,
                     ),
             ),
           ],
@@ -997,12 +1001,7 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
-      style: const TextStyle(
-        color: textMuted,
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 1.2,
-      ),
+      style: AppType.eyebrow(context.t.ink2, size: 11),
     );
   }
 }
@@ -1019,10 +1018,10 @@ class _HintBlock extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: textMuted,
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
+        style: AppType.ui(
+          13,
+          weight: FontWeight.w500,
+          color: context.t.ink2,
           height: 1.4,
         ),
       ),
@@ -1035,38 +1034,27 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 32),
       child: Column(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: lime.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(rCard),
-            ),
-            child: const Icon(Icons.restaurant_outlined, color: lime, size: 24),
+          IconTile(
+            icon: Icons.restaurant_outlined,
+            color: t.accent,
+            size: 56,
           ),
           const SizedBox(height: 14),
-          const Text(
+          Text(
             'Suche oben oder scanne einen Barcode',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
+            style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Eingaben erscheinen direkt in der Liste oben.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: textMuted,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+            style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
           ),
         ],
       ),

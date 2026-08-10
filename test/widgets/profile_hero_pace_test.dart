@@ -13,7 +13,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/theme/app_colors.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
@@ -49,9 +48,10 @@ Future<void> _pumpCard(WidgetTester tester, UserProfile profile) async {
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildEatovaTheme(),
+      theme: buildEatovaTheme(Brightness.dark),
+      // Kein backgroundColor mehr: das Theme setzt scaffoldBackgroundColor
+      // aus den Tokens, ein harter Wert wuerde den Hell-Modus aushebeln.
       home: Scaffold(
-        backgroundColor: bg,
         body: Padding(
           padding: const EdgeInsets.all(20),
           child: GoalPlanCard(profile: profile, onEdit: () {}),

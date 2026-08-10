@@ -20,7 +20,7 @@ Future<Object?> showWeightAdjustmentSheet(
 ) {
   return showModalBottomSheet<Object>(
     context: context,
-    backgroundColor: surface,
+    backgroundColor: context.t.bg,
     isScrollControlled: true,
     builder: (context) => _MealItemAdjustmentSheet(result: result),
   );
@@ -50,16 +50,20 @@ Future<Object?> showWeightAdjustmentSheet(
 ///
 /// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
 Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
+  final t = context.t;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       key: const ValueKey('discard-changes-dialog'),
-      backgroundColor: surface,
-      title: const Text(
-        'Änderungen verwerfen?',
-        style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+      backgroundColor: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
       ),
-      content: Text(text, style: const TextStyle(color: textMuted)),
+      title: Text(
+        'Änderungen verwerfen?',
+        style: AppType.display(19, color: t.ink),
+      ),
+      content: Text(text, style: AppType.ui(13, color: t.ink2, height: 1.4)),
       actions: [
         TextButton(
           key: const ValueKey('discard-changes-cancel'),
@@ -68,7 +72,7 @@ Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
-          style: TextButton.styleFrom(foregroundColor: danger),
+          style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: const Text('Verwerfen'),
         ),
@@ -105,7 +109,7 @@ class _SheetGrabber extends StatelessWidget {
       button: true,
       label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       onTap: onDismiss,
-      child: const SizedBox(
+      child: SizedBox(
         width: double.infinity,
         height: 26,
         child: Center(
@@ -114,8 +118,8 @@ class _SheetGrabber extends StatelessWidget {
             height: 4,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: textMuted,
-                borderRadius: BorderRadius.all(Radius.circular(rPill)),
+                color: context.t.ink2,
+                borderRadius: const BorderRadius.all(Radius.circular(rPill)),
               ),
             ),
           ),
@@ -445,6 +449,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final uebrig = _uebrigeIndizes;
     final adjustedItems = <MealComponent>[
       for (final index in uebrig) _posten[index].angepasst,
@@ -495,22 +500,18 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Bestandteile anpassen',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.4,
-                        ),
+                        style: AppType.display(20, color: t.ink),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         _statusLine(addedCount),
-                        style: const TextStyle(
-                          color: textMuted,
-                          fontSize: 13,
+                        style: AppType.ui(
+                          13,
+                          weight: FontWeight.w500,
+                          color: t.ink2,
                           height: 1.4,
-                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -535,13 +536,13 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                         key: const ValueKey('analyse-item-add-button'),
                         onPressed: _addItemDialog,
                         icon: const Icon(Icons.add_rounded, size: 17),
-                        label: const Text(
+                        label: Text(
                           'Bestandteil hinzufügen',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                          style: AppType.ui(13.5, weight: FontWeight.w600),
                         ),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: cyan,
-                          side: BorderSide(color: cyan.withValues(alpha: 0.45)),
+                          foregroundColor: t.ink,
+                          side: BorderSide(color: t.line),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 10,
@@ -552,43 +553,31 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      Container(
+                      AppCard(
                         key: const ValueKey('analyse-adjusted-kcal-preview'),
-                        width: double.infinity,
+                        radius: rCard,
                         padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          // Warm getoente Soft-Flaeche statt Orange-Hairline.
-                          color: Color.alphaBlend(
-                              orange.withValues(alpha: 0.07), surfaceSoft),
-                          borderRadius: BorderRadius.circular(rCard),
-                        ),
                         child: Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.calculate_outlined,
-                              color: orange,
+                              color: t.accent,
                               size: 18,
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
                                 '$totalGrams g ≈ $totalKcal kcal',
-                                style: const TextStyle(
-                                  color: orange,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  fontFeatures: [FontFeature.tabularFigures()],
-                                ),
+                                style: AppType.display(18, color: t.ink),
                               ),
                             ),
                             if (adjustedItems.isNotEmpty)
                               Text(
                                 '${adjustedItems.length} Posten',
-                                style: const TextStyle(
-                                  color: textMuted,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  fontFeatures: [FontFeature.tabularFigures()],
+                                style: AppType.display(
+                                  11,
+                                  weight: FontWeight.w500,
+                                  color: t.ink2,
                                 ),
                               ),
                           ],
@@ -596,12 +585,12 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                       ),
                       if (adjustedItems.isEmpty) ...[
                         const SizedBox(height: 8),
-                        const Text(
+                        Text(
                           'Mindestens ein Bestandteil muss übrig bleiben.',
-                          style: TextStyle(
-                            color: warning,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                          style: AppType.ui(
+                            11,
+                            weight: FontWeight.w600,
+                            color: t.warning,
                           ),
                         ),
                       ],
@@ -614,13 +603,13 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                               ? () => Navigator.pop(context, adjustedItems)
                               : null,
                           icon: const Icon(Icons.check_rounded, size: 17),
-                          label: const Text(
+                          label: Text(
                             'Übernehmen',
-                            style: TextStyle(fontWeight: FontWeight.w600),
+                            style: AppType.ui(14, weight: FontWeight.w600),
                           ),
                           style: FilledButton.styleFrom(
-                            backgroundColor: orange,
-                            foregroundColor: bg,
+                            backgroundColor: t.forest,
+                            foregroundColor: t.onForest,
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(rControl),
@@ -668,17 +657,15 @@ class _ItemEditCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     // Soft-Kapsel statt Hairline-Rahmen + Formular-Label (Design-Vorgabe):
     // die Gramm-Zeile bekommt dieselbe Bedienflaeche wie die
     // Vorschlagskarten im Food-Tab — runde -/+ Kapseln um eine rahmenlose
     // Wert-Kapsel, die Zahl als Held.
-    return Container(
+    return AppCard(
       key: ValueKey('analyse-item-card-$index'),
+      radius: rCard,
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -687,11 +674,7 @@ class _ItemEditCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   item.name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
+                  style: AppType.ui(14, weight: FontWeight.w700, color: t.ink),
                 ),
               ),
               IconButton(
@@ -699,10 +682,10 @@ class _ItemEditCard extends StatelessWidget {
                 onPressed: onRemove,
                 tooltip: 'Entfernen',
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(
+                icon: Icon(
                   Icons.close_rounded,
                   size: 18,
-                  color: textMuted,
+                  color: t.ink2,
                 ),
               ),
             ],
@@ -723,8 +706,7 @@ class _ItemEditCard extends StatelessWidget {
                   child: Container(
                     height: 46,
                     decoration: BoxDecoration(
-                      color: Color.alphaBlend(
-                          Colors.white.withValues(alpha: 0.04), surfaceSoft),
+                      color: t.surf2,
                       borderRadius: BorderRadius.circular(rPill),
                     ),
                     child: Row(
@@ -746,12 +728,7 @@ class _ItemEditCard extends StatelessWidget {
                               FilteringTextInputFormatter.digitsOnly,
                             ],
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.3,
-                              fontFeatures: [FontFeature.tabularFigures()],
-                            ),
+                            style: AppType.display(18, color: t.ink),
                             decoration: const InputDecoration(
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
@@ -763,12 +740,12 @@ class _ItemEditCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 3),
-                        const Text(
+                        Text(
                           'g',
-                          style: TextStyle(
-                            color: textMuted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                          style: AppType.ui(
+                            13,
+                            weight: FontWeight.w600,
+                            color: t.ink2,
                           ),
                         ),
                       ],
@@ -790,11 +767,10 @@ class _ItemEditCard extends StatelessWidget {
             padding: const EdgeInsets.only(right: 6),
             child: Text(
               'Ursprünglich ${item.gramsLabel} · ${item.caloriesLabel}',
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                fontFeatures: [FontFeature.tabularFigures()],
+              style: AppType.display(
+                11,
+                weight: FontWeight.w500,
+                color: t.ink2,
               ),
             ),
           ),
@@ -803,30 +779,28 @@ class _ItemEditCard extends StatelessWidget {
             padding: const EdgeInsets.only(right: 6),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.local_fire_department_outlined,
                   size: 14,
-                  color: orange,
+                  color: t.accent,
                 ),
                 const SizedBox(width: 6),
                 Text(
                   '$liveGrams g · $liveKcal kcal',
-                  style: const TextStyle(
-                    color: orange,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                  style: AppType.display(
+                    12,
+                    weight: FontWeight.w600,
+                    color: t.ink,
                   ),
                 ),
                 if (item.kcalPer100G != null) ...[
                   const SizedBox(width: 8),
                   Text(
                     '· ${item.kcalPer100G!.round()} kcal/100g',
-                    style: const TextStyle(
-                      color: textMuted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                    style: AppType.display(
+                      11,
+                      weight: FontWeight.w500,
+                      color: t.ink2,
                     ),
                   ),
                 ],
@@ -840,7 +814,8 @@ class _ItemEditCard extends StatelessWidget {
 }
 
 /// Runde -/+ Soft-Kapsel der Posten-Zeile (Muster der Vorschlagskarten im
-/// Food-Tab, Akzent hier `orange` — die Farbe des Anpassen-Sheets).
+/// Food-Tab; der Akzent kommt jetzt aus [AppTokens.accent] statt aus einer
+/// Makro-Farbe).
 class _ItemStepperButton extends StatelessWidget {
   const _ItemStepperButton({
     required this.icon,
@@ -856,6 +831,7 @@ class _ItemStepperButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Semantics(
       button: true,
       label: semanticLabel,
@@ -866,11 +842,10 @@ class _ItemStepperButton extends StatelessWidget {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: Color.alphaBlend(
-                Colors.white.withValues(alpha: 0.05), surfaceSoft),
+            color: t.surf2,
             borderRadius: BorderRadius.circular(rPill),
           ),
-          child: Icon(icon, size: 20, color: orange),
+          child: Icon(icon, size: 20, color: t.accent),
         ),
       ),
     );
@@ -885,30 +860,27 @@ class _RemovedItemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final t = context.t;
+    return AppCard(
+      radius: rCard,
+      color: t.surf2,
       padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-      decoration: BoxDecoration(
-        color: surfaceSoft.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: hairline),
-      ),
       child: Row(
         children: [
           Expanded(
             child: Text(
               name,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: textMuted,
-                decoration: TextDecoration.lineThrough,
-              ),
+              style: AppType.ui(
+                13,
+                weight: FontWeight.w600,
+                color: t.ink2,
+              ).copyWith(decoration: TextDecoration.lineThrough),
             ),
           ),
           TextButton.icon(
             onPressed: onUndo,
             style: TextButton.styleFrom(
-              foregroundColor: cyan,
+              foregroundColor: t.ink,
               padding: const EdgeInsets.symmetric(
                 horizontal: 8,
                 vertical: 4,
@@ -917,9 +889,9 @@ class _RemovedItemCard extends StatelessWidget {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             icon: const Icon(Icons.undo_rounded, size: 14),
-            label: const Text(
+            label: Text(
               'Wiederherstellen',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+              style: AppType.ui(11, weight: FontWeight.w600),
             ),
           ),
         ],
@@ -1130,6 +1102,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return PopScope<MealComponent?>(
       // Nur solange wirklich etwas drinsteht. Ein leerer Dialog schliesst wie
       // bisher sofort.
@@ -1139,29 +1112,25 @@ class _AddItemDialogState extends State<_AddItemDialog> {
         _askDiscard();
       },
       child: AlertDialog(
-        backgroundColor: surface,
+        backgroundColor: t.surf,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rSheet),
         ),
-        title: const Text(
+        title: Text(
           'Bestandteil hinzufügen',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.4,
-          ),
+          style: AppType.display(18, color: t.ink),
         ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Manuell — wenn die KI etwas übersehen hat.',
-                style: TextStyle(
-                  color: textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                style: AppType.ui(
+                  12,
+                  weight: FontWeight.w500,
+                  color: t.ink2,
                 ),
               ),
               const SizedBox(height: 14),
@@ -1222,7 +1191,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                   onPressed: () =>
                       setState(() => _makrosOffen = !_makrosOffen),
                   style: TextButton.styleFrom(
-                    foregroundColor: cyan,
+                    foregroundColor: t.ink,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 6,
                       vertical: 4,
@@ -1236,9 +1205,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                         : Icons.expand_more_rounded,
                     size: 16,
                   ),
-                  label: const Text(
+                  label: Text(
                     'Makros ergänzen (optional)',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    style: AppType.ui(12, weight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -1273,12 +1242,12 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 ),
                 if (!_makrosGueltig) ...[
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                     'Makros in Gramm, jeweils zwischen 0 und 1000.',
-                    style: TextStyle(
-                      color: warning,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                    style: AppType.ui(
+                      11,
+                      weight: FontWeight.w600,
+                      color: t.warning,
                     ),
                   ),
                 ],
@@ -1287,11 +1256,11 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               Text(
                 _makroHinweis,
                 key: const ValueKey('analyse-add-item-macro-hint'),
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 11,
+                style: AppType.ui(
+                  11,
+                  weight: FontWeight.w500,
+                  color: t.ink2,
                   height: 1.4,
-                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
@@ -1303,22 +1272,22 @@ class _AddItemDialogState extends State<_AddItemDialog> {
             // die Rueckfrage, sobald etwas drinsteht — genau wie das
             // Schliessen-Kreuz im Bearbeiten-Sheet (edit_meal_sheet.dart:367).
             onPressed: () => Navigator.of(context).maybePop(),
-            style: TextButton.styleFrom(foregroundColor: textMuted),
+            style: TextButton.styleFrom(foregroundColor: t.ink2),
             child: const Text('Abbrechen'),
           ),
           FilledButton(
             key: const ValueKey('analyse-add-item-save'),
             onPressed: _isValid ? _submit : null,
             style: FilledButton.styleFrom(
-              backgroundColor: cyan,
-              foregroundColor: bg,
+              backgroundColor: t.forest,
+              foregroundColor: t.onForest,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(rControl),
               ),
             ),
-            child: const Text(
+            child: Text(
               'Hinzufügen',
-              style: TextStyle(fontWeight: FontWeight.w600),
+              style: AppType.ui(14, weight: FontWeight.w600),
             ),
           ),
         ],

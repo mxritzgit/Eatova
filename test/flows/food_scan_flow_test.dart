@@ -20,11 +20,12 @@ void main() {
       ),
     );
 
+    // Ausgangslage: heute ist leer. Das Tagestotal steht seit dem 2026-08-10
+    // im Heute-Tab (die Kalorien-Karte des Food-Tabs ist entfallen).
+    await expectTagestotalAufHeute(tester, '0');
+
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('analyse-daily-kcal-total')), findsOneWidget);
-    expect(find.text('0 kcal'), findsOneWidget);
 
     // KI-Scan öffnet die (gefakte) In-App-Kamera -> liefert das Foto -> das
     // Analyse-Sheet öffnet direkt (kein generisches Add-Sheet mehr).
@@ -41,10 +42,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.pumpAndSettle();
     expect(find.text('Zu heute hinzugefügt'), findsOneWidget);
+    // Hinter dem offenen Sheet traegt die Kopf-Kachel des Food-Tabs den neuen
+    // Tageswert. Sie setzt NUR die Zahl (die Einheit steht als eigenes Label
+    // darunter) — deshalb „855", nicht „855 kcal".
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('855 kcal'),
+        of: find.byKey(const ValueKey('screen-kcal-tracker')),
+        matching: find.text('855'),
       ),
       findsOneWidget,
     );
@@ -77,17 +81,29 @@ void main() {
     expect(find.text('Zu heute hinzugefügt'), findsOneWidget);
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('analyse-daily-kcal-card')),
-        matching: find.text('815 kcal'),
+        of: find.byKey(const ValueKey('screen-kcal-tracker')),
+        matching: find.text('815'),
       ),
       findsOneWidget,
     );
+
+    // Und dort, wo das Tagestotal seit dem 2026-08-10 zuhause ist.
+    await tester.tap(find.byKey(const ValueKey('analyse-sheet-close')));
+    await tester.pumpAndSettle();
+    await expectTagestotalAufHeute(tester, '815');
   });
 
   // PROD-3: Re-Portionierung einer bereits geloggten Mahlzeit skaliert kcal UND
   // Makros (frueher froren Protein/KH/Fett ein und der kcal-Delta traf zudem die
   // FALSCHE — erste — Mahlzeit des Tages). 300 g / 30 g Protein -> 400 g muss
-  // Protein auf ~40 g hochskalieren (Makro-Balken zeigt 40/130g).
+  // Protein auf ~40 g hochskalieren.
+  //
+  // Der Makro-Balken, an dem das haengt, ist umgezogen: er sass im kompakten
+  // Format `0/130g` in der Kalorien-Karte des Food-Tabs, die am 2026-08-10
+  // entfallen ist. Die Makros stehen jetzt im Heute-Tab (`today-macros-card`)
+  // und benutzen den gemeinsamen [MacroBar] der Design-Bibliothek — der setzt
+  // `0 / 130g` mit Leerzeichen um den Schraegstrich. Die AUSSAGE des Tests ist
+  // unveraendert: eine skalierte Portion veraendert die angezeigten Makros.
   testWidgetsRobust('Re-portioning a logged meal scales macros, not just kcal', (
     WidgetTester tester,
   ) async {
@@ -98,11 +114,11 @@ void main() {
       ),
     );
 
+    // Vor dem Loggen: Protein 0 / 130g (der Kaltstart landet auf „Heute").
+    expect(find.text('0 / 130g'), findsOneWidget);
+
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
-
-    // Vor dem Loggen: Protein 0/130g.
-    expect(find.text('0/130g'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
     await tester.pumpAndSettle();
@@ -130,12 +146,19 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('analyse-save-weight-button')));
     await tester.pumpAndSettle();
 
-    // Der Makro-Balken der Food-Seite liegt hinter den Sheets im Widget-Tree
-    // und ist daher direkt findbar. Protein skaliert von 30 auf ~40 g
+    // Sheets schliessen und im Heute-Tab nachsehen, wo die Makro-Balken seit
+    // dem 2026-08-10 stehen. Protein skaliert von 30 auf ~40 g
     // (400/300 * 30 = 40). Vorher fror der Bug das Protein bei 30 ein, waehrend
     // nur die kcal stiegen — UND traf zudem die falsche Mahlzeit.
-    expect(find.text('40/130g'), findsOneWidget);
-    expect(find.text('30/130g'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('analyse-sheet-close')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-Heute')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('40 / 130g'), findsOneWidget);
+    expect(find.text('30 / 130g'), findsNothing);
   });
 
   // PROD-4: Das Favoriten-Herz rendert im Analyse-Ergebnis und das Antippen

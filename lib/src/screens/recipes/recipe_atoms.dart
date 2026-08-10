@@ -2,63 +2,46 @@ part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Geteilte Kleinst-Widgets, die Karten, Detail-Ansicht und Slot-Picker
-// gemeinsam nutzen: Badges, Kategorie-Pille, Rezept-Bild und Makro-Zeile.
+// gemeinsam nutzen: Badge, Kategorie-Pille, Rezept-Bild und Kennzahlen-Zeile.
 // ---------------------------------------------------------------------------
-class _GlassBadge extends StatelessWidget {
-  const _GlassBadge({required this.text, this.dark = false});
+
+/// Kleines Etikett — gefuellt als Markierung auf einem Foto („EMPFOHLEN",
+/// „Match"), ungefuellt als ruhiger Hinweis auf einer Karte.
+///
+/// Zusammenzug der frueheren `_GlassBadge` + `_MatchBadge`: beide zeichneten
+/// dieselbe Kapsel, nur mit anderer Fuellung.
+class _RecipeBadge extends StatelessWidget {
+  const _RecipeBadge({required this.text, this.icon, this.filled = false});
 
   final String text;
-  final bool dark;
+  final IconData? icon;
+  final bool filled;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    final foreground = filled ? t.onLime : t.ink;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: dark ? surface : Colors.black.withValues(alpha: 0.48),
-        borderRadius: BorderRadius.circular(rPill),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: textPrimary,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.1,
-          fontFeatures: [FontFeature.tabularFigures()],
-        ),
-      ),
-    );
-  }
-}
-
-/// Lime-getöntes Badge oben rechts auf der „Passt zu deinem Ziel"-Karte.
-class _MatchBadge extends StatelessWidget {
-  const _MatchBadge({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: lime,
-        borderRadius: BorderRadius.circular(rPill),
+        color: filled ? t.lime : t.surf,
+        borderRadius: BorderRadius.circular(7),
+        border: filled ? null : Border.all(color: t.line),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.bolt_rounded, color: bg, size: 12),
-          const SizedBox(width: 3),
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: foreground),
+            const SizedBox(width: 4),
+          ],
           Text(
             text,
-            style: const TextStyle(
-              color: bg,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
+            style: AppType.ui(
+              9.5,
+              weight: FontWeight.w700,
+              color: foreground,
+              letterSpacing: 1,
             ),
           ),
         ],
@@ -67,61 +50,62 @@ class _MatchBadge extends StatelessWidget {
   }
 }
 
-/// Kompakte Kategorie-Pille. Auf dem Bild (onImage) dunkel-transluzent, sonst
-/// lime-getönt — nutzt dieselbe Token-Skala wie der Rest des Screens.
+/// Kompakte Kategorie-Pille der Detail-Ansicht.
+///
+/// Faerbt einheitlich in [AppTokens.accent]: die Vorlage nimmt hier
+/// Makro-Toene, unsere Pillen tragen aber Rezept-KATEGORIEN („Fisch",
+/// „Low Carb") — und Makro-Farben kodieren laut Token-Vertrag ausschliesslich
+/// Naehrwerte.
 class _CategoryPill extends StatelessWidget {
-  const _CategoryPill({required this.label, this.onImage = false});
+  const _CategoryPill({required this.label});
 
   final String label;
-  final bool onImage;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: onImage
-            ? Colors.black.withValues(alpha: 0.5)
-            : lime.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(rPill),
-        border: Border.all(
-          color: onImage
-              ? Colors.white.withValues(alpha: 0.18)
-              : lime.withValues(alpha: 0.3),
-        ),
+        color: t.tile,
+        borderRadius: BorderRadius.circular(rChip),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: onImage ? textPrimary : lime,
-          fontSize: 10.5,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.1,
-        ),
+        style: AppType.ui(10.5, weight: FontWeight.w600, color: t.accent),
       ),
     );
   }
 }
 
-/// Bild für eine Rezept-Karte. Asset-Rezepte zeigen ihr PNG, selbst angelegte
-/// Rezepte (ohne Asset) bekommen einen ruhigen lime-getönten Platzhalter.
+/// Bild einer Rezept-Karte. Drei Faelle, in dieser Reihenfolge:
+///
+///  1. `local:<slug>.jpg` — ein selbst aufgenommenes Foto aus dem
+///     [RecipeImageStore]. Liegt die Datei auf DIESEM Geraet, wird sie
+///     gezeigt; fehlt sie (zweites Geraet, geraeumter Cache), faellt die
+///     Kachel auf den Platzhalter zurueck. Nie ein graues Kaputt-Icon.
+///  2. Die 30 Bestandsrezepte zeigen ihr Bundle-Asset.
+///  3. Alles Uebrige (Eigen-Rezept ohne Bild) bekommt den gestreiften
+///     [ImagePlaceholder] der Design-Bibliothek.
 class _RecipeImage extends StatelessWidget {
-  const _RecipeImage({required this.recipe});
+  const _RecipeImage({required this.recipe, this.placeholderRadius = 0});
 
   final FitnessRecipe recipe;
 
+  /// Der Platzhalter zeichnet seine eigene Ecke; die echten Assets schneidet
+  /// die aufrufende Karte per ClipRRect zu.
+  final double placeholderRadius;
+
   @override
   Widget build(BuildContext context) {
-    if (recipe.userCreated || recipe.imageAsset.isEmpty) {
-      return Container(
-        color: surfaceSoft,
-        alignment: Alignment.center,
-        child: const Icon(
-          Icons.ramen_dining_outlined,
-          color: lime,
-          size: 30,
-        ),
+    if (RecipeImageStore.isLocalReference(recipe.imageAsset)) {
+      return _LocalRecipeImage(
+        reference: recipe.imageAsset,
+        placeholderRadius: placeholderRadius,
       );
+    }
+    if (recipe.userCreated || recipe.imageAsset.isEmpty) {
+      return ImagePlaceholder(radius: placeholderRadius, label: 'REZEPT');
     }
     // Decode-Auflösung an die tatsächliche Slot-Breite koppeln: die Rezept-PNGs
     // sind ~1800px/2.4MB groß und würden sonst voll dekodiert (Hero, Liste,
@@ -141,52 +125,136 @@ class _RecipeImage extends StatelessWidget {
   }
 }
 
-class _MacroRow extends StatelessWidget {
-  const _MacroRow({required this.recipe, this.compact = false});
+/// Ein selbst aufgenommenes Rezept-Foto aus dem App-Dokumentenverzeichnis.
+///
+/// Warum ein StatefulWidget statt eines [FutureBuilder]: der Ablageort steht
+/// nach dem ersten Aufloesen fest, [RecipeImageStore.resolveSync] beantwortet
+/// die Frage danach OHNE Frame-Verzoegerung. Ein FutureBuilder haette beim
+/// Scrollen durch die Liste jedes Mal einen Platzhalter-Frame aufblitzen
+/// lassen, obwohl die Datei laengst bekannt ist. Nur der allererste Zugriff
+/// einer Sitzung laeuft asynchron.
+class _LocalRecipeImage extends StatefulWidget {
+  const _LocalRecipeImage({
+    required this.reference,
+    required this.placeholderRadius,
+  });
 
-  final FitnessRecipe recipe;
-  final bool compact;
+  final String reference;
+  final double placeholderRadius;
+
+  @override
+  State<_LocalRecipeImage> createState() => _LocalRecipeImageState();
+}
+
+class _LocalRecipeImageState extends State<_LocalRecipeImage> {
+  File? _file;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocalRecipeImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.reference != widget.reference) {
+      _file = null;
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    final store = RecipeImageStore.instance;
+    if (store.baseResolved) {
+      _file = store.resolveSync(widget.reference);
+      return;
+    }
+    final gesucht = widget.reference;
+    store.resolve(gesucht).then((datei) {
+      // Zwischenzeitlich abgeraeumt oder auf ein anderes Rezept umgehaengt.
+      if (!mounted || gesucht != widget.reference) return;
+      setState(() => _file = datei);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final fontSize = compact ? 10.5 : 11.2;
-    const tabular = TextStyle(fontFeatures: [FontFeature.tabularFigures()]);
-    // FittedBox laesst die Makro-Zeile bei dreistelligen Werten in der schmalen
-    // Hero-Kachel proportional schrumpfen statt rechts ueberzulaufen; passt sie,
-    // bleibt die Darstellung pixelgenau identisch.
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: Alignment.centerLeft,
-      child: Row(
-        children: [
-          Text(
-            '${recipe.proteinG}g P',
-            style: tabular.copyWith(
-              color: lime,
-              fontSize: fontSize,
-              fontWeight: FontWeight.w700,
-            ),
+    final datei = _file;
+    if (datei == null) {
+      return ImagePlaceholder(
+        radius: widget.placeholderRadius,
+        label: 'REZEPT',
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final logicalWidth =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : 400.0;
+        return Image.file(
+          datei,
+          fit: BoxFit.cover,
+          cacheWidth: (logicalWidth * dpr).round().clamp(1, 1600),
+          // Die Datei kann zwischen Existenz-Pruefung und Dekodieren
+          // verschwinden (Loeschen, Aufraeumen). Auch dann: Platzhalter.
+          errorBuilder: (context, error, stack) => ImagePlaceholder(
+            radius: widget.placeholderRadius,
+            label: 'REZEPT',
           ),
-          const SizedBox(width: 10),
-          Text(
-            '${recipe.carbsG}g KH',
-            style: tabular.copyWith(
-              color: textMuted,
-              fontSize: fontSize,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '${recipe.fatG}g F',
-            style: tabular.copyWith(
-              color: textMuted,
-              fontSize: fontSize,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
+    );
+  }
+}
+
+/// Die Kennzahlen-Zeile unter einem Rezept-Titel.
+///
+/// Die Vorlage zeigt hier „480 kcal · 25 min · Serves 2". [FitnessRecipe] kennt
+/// weder Zubereitungszeit noch Portionsanzahl — statt Daten zu erfinden stehen
+/// hier die vier Werte, die eine Fitness-Rezeptliste ueberhaupt scanbar machen:
+/// Kalorien (betont) und das komplette Makro-Trio.
+///
+/// Die Beschriftungen sind buchstabengleich der frueheren `_MacroRow`
+/// (`24g P` · `30g KH` · `12g F`) — der Umbau hatte KH und Fett von den Karten
+/// genommen, sie standen danach nur noch in der Detail-Ansicht.
+///
+/// Bewusst NICHT [FitnessRecipe.portion]: das Feld ist Fliesstext, kein Mass
+/// („1 großer Fitness-Teller / 1 Hauptmahlzeit"). In der Kennzahlen-Zeile lief
+/// es ueber vier Zeilen und sprengte die Bildkachel; als Beschreibung steht es
+/// weiterhin in der Detail-Ansicht unter „Portion".
+///
+/// `Wrap` statt der `Row` der Vorlage: bei doppelter Schrift bricht die Zeile
+/// um, statt ueberzulaufen. Bei normaler Schrift passen alle vier Werte auf
+/// eine Zeile — auch in der 280 px breiten Bildkachel.
+class _RecipeMetrics extends StatelessWidget {
+  const _RecipeMetrics({required this.recipe, this.onImage = false});
+
+  final FitnessRecipe recipe;
+
+  /// Auf dem Foto braucht auch der gedaempfte Wert einen hellen Ton — `ink2`
+  /// waere dort in beiden Modi zu dunkel.
+  final bool onImage;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final stark = onImage ? t.onForest : t.ink;
+    final leise = onImage ? t.onForest.withValues(alpha: 0.78) : t.ink2;
+    // Makro-Toene kodieren laut Token-Vertrag Naehrwerte — hier steht der Wert
+    // aber schon im Text („30g KH"), und drei Farben auf einer Kachel neben
+    // dem Foto waeren Laerm. Die Kodierung traegt das Naehrwert-Grid im Detail.
+    TextStyle stil(Color color) =>
+        AppType.ui(11, weight: FontWeight.w600, color: color);
+    return Wrap(
+      spacing: 12,
+      runSpacing: 4,
+      children: [
+        Text('${recipe.caloriesKcal} kcal', style: stil(stark)),
+        Text('${recipe.proteinG}g P', style: stil(leise)),
+        Text('${recipe.carbsG}g KH', style: stil(leise)),
+        Text('${recipe.fatG}g F', style: stil(leise)),
+      ],
     );
   }
 }
