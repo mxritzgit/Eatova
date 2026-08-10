@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart'
     show kProfileMode, kReleaseMode, visibleForTesting;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'sync_error_messages.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'
     show AuthException, FunctionException, PostgrestException, StorageException;
 
@@ -72,6 +73,40 @@ class CrashReporter {
   /// Testnaht fuer [breadcrumb], analog zu [debugSentrySink].
   @visibleForTesting
   static void Function(String message)? debugBreadcrumbSink;
+
+  /// Meldet einen fehlgeschlagenen Sync-Write — aber NUR, wenn er etwas
+  /// bedeutet.
+  ///
+  /// Ein reiner Netzausfall auf diesem Pfad ist kein Vorfall, sondern der
+  /// vorgesehene Ablauf: die Op liegt in der persistierten Warteschlange, der
+  /// Nutzer hat den Hinweis gesehen, der Replay holt es nach. Bis 2026-08-10
+  /// ging trotzdem jeder dieser Faelle als Fehler mit Prioritaet „hoch" an
+  /// Sentry — der Feed zeigte drei Issues aus einer halben Stunde
+  /// Flugmodus-Test, alle aus demselben Pfad.
+  ///
+  /// Das ist nicht nur Laerm. Wer in der U-Bahn eine Mahlzeit eintraegt,
+  /// erzeugte einen Crash-Report; bei genug Nutzern verschwinden echte Fehler
+  /// zwischen erwarteten Netzausfaellen, und das Kontingent ist verbraucht,
+  /// bevor der erste echte Absturz ankommt.
+  ///
+  /// Die Klassifizierung ist BEWUSST dieselbe wie die fuer die Nutzer-Meldung
+  /// ([isNetworkSyncError]) — ein zweiter Schwellenwert waere ein zweiter Ort,
+  /// an dem beides auseinanderlaeuft.
+  static Future<void> captureSyncFailure(
+    Object error,
+    StackTrace stack, {
+    String? context,
+  }) async {
+    if (isNetworkSyncError(error)) {
+      dev.log(
+        'Sync-Write offline gescheitert — eingereiht, nicht gemeldet',
+        error: error,
+        name: 'eatova_sync',
+      );
+      return;
+    }
+    await capture(error, stack, context: context);
+  }
 
   /// Meldet einen behandelten Fehler. Loggt immer via `dart:developer`;
   /// an Sentry geht — sanitisiert — nur, wenn [isActive]. Wirft nie selbst:

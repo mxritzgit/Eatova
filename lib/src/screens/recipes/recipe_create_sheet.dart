@@ -1022,30 +1022,43 @@ class _RecipeSheetField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (showLabel) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (dot != null) ...[
-                Padding(
-                  // Der Punkt sitzt auf der Höhe der Versalien, nicht auf der
-                  // Grundlinie — sonst rutscht er bei großer Schrift weg.
-                  padding: const EdgeInsets.only(top: 3),
-                  child: Container(
+          // Feste Kopfzeilen-Höhe, GENAU eine Zeile.
+          //
+          // Ohne sie brach „KALORIEN · KCAL" in einer 81-px-Spalte auf zwei
+          // Zeilen um, „KH · G" blieb einzeilig — und weil die Spalten oben
+          // bündig stehen, sassen die Eingabefelder von KH und Fett sichtbar
+          // höher als die von Kalorien und Protein (Nutzer-Befund
+          // 2026-08-10). Der FittedBox schrumpft die langen Kopfzeilen
+          // stattdessen leicht; alle vier Felder beginnen damit auf
+          // derselben Höhe, in jeder Schriftgrösse.
+          SizedBox(
+            height: MediaQuery.textScalerOf(context).scale(9.5) * 1.35,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (dot != null) ...[
+                  Container(
                     width: 6,
                     height: 6,
                     decoration:
                         BoxDecoration(color: dot, shape: BoxShape.circle),
                   ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      kopfzeile,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: AppType.eyebrow(t.ink2, size: 9.5),
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 6),
               ],
-              Expanded(
-                child: Text(
-                  kopfzeile,
-                  style: AppType.eyebrow(t.ink2, size: 9.5),
-                ),
-              ),
-            ],
+            ),
           ),
           const SizedBox(height: 5),
         ],

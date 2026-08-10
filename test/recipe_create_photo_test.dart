@@ -606,4 +606,69 @@ void main() {
       expect(hoehe, greaterThan(300));
     });
   });
+  group('Die vier Naehrwert-Felder stehen auf einer Linie', () {
+    // Nutzer-Befund 2026-08-10: „bei Rezepte Hinzufuegen ist KH und Fett
+    // weiter oben als die anderen 2 kleinen Boxen Kcal und Protein."
+    //
+    // Ursache: Die Versalien-Kopfzeile war ein frei umbrechender Text. In
+    // einer ~81-px-Spalte braucht „KALORIEN · KCAL" zwei Zeilen, „KH · G"
+    // eine — und weil die Spalten oben buendig stehen, begannen die
+    // Eingabefelder auf verschiedenen Hoehen.
+    //
+    // Der Test misst die FELDER, nicht die Kopfzeilen: die Kopfzeile darf
+    // ruhig unterschiedlich breit sein, die Boxen darunter nicht springen.
+    for (final skalierung in <double>[1.0, 1.3, 2.0]) {
+      testWidgets('bei Systemschrift ${skalierung}x', (tester) async {
+        _pinViewport(tester, textScale: skalierung);
+        await tester.pumpWidget(
+          _app(Brightness.dark, photoInput: _FakeFotoquelle()),
+        );
+        await tester.pumpAndSettle();
+        await _openSheet(tester);
+
+        double obenVon(String key) {
+          final feld = find.byKey(ValueKey(key));
+          expect(feld, findsOneWidget, reason: key);
+          return tester.getRect(feld).top;
+        }
+
+        final kanten = <String, double>{
+          for (final k in const <String>[
+            'recipe-create-kcal',
+            'recipe-create-protein',
+            'recipe-create-carbs',
+            'recipe-create-fat',
+          ])
+            k: obenVon(k),
+        };
+
+        // Das Raster bricht ab 1,25-facher Schrift von vier auf zwei
+        // Spalten um (_FieldGrid). Welche Felder eine Zeile bilden, haengt
+        // also von der Schriftgroesse ab — der Test rechnet das nach, statt
+        // eine Anordnung zu raten.
+        final paare = skalierung <= 1.25
+            ? <List<String>>[
+                <String>[
+                  'recipe-create-kcal',
+                  'recipe-create-protein',
+                  'recipe-create-carbs',
+                  'recipe-create-fat',
+                ],
+              ]
+            : <List<String>>[
+                <String>['recipe-create-kcal', 'recipe-create-protein'],
+                <String>['recipe-create-carbs', 'recipe-create-fat'],
+              ];
+
+        for (final zeile in paare) {
+          final tops = zeile.map((k) => kanten[k]!).toSet();
+          expect(tops.length, 1,
+              reason: 'Felder derselben Zeile (${zeile.join(", ")}) muessen '
+                  'buendig beginnen, gemessen: $tops');
+        }
+      });
+    }
+  });
+
+
 }

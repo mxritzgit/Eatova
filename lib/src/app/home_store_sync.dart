@@ -306,7 +306,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }) {
     dev.log('$operation failed — Op bleibt in der Outbox liegen',
         error: error, name: 'eatova_sync');
-    unawaited(CrashReporter.capture(error, stack, context: operation));
+    // `captureSyncFailure` statt `capture`: ein reiner Netzausfall ist hier
+    // der vorgesehene Ablauf, kein Vorfall — die Op liegt in der Queue, der
+    // Nutzer hat den Hinweis. Vorher erzeugte jeder Offline-Write ein
+    // Sentry-Issue mit Prioritaet „hoch" (Feed-Befund 2026-08-10).
+    unawaited(CrashReporter.captureSyncFailure(error, stack,
+        context: operation));
     if (_disposed) return;
     // Der Aufrufer sagt es praeziser (mit dem Namen des Eintrags) und in EINEM
     // Toast. [_syncHintShown] bleibt bewusst unberuehrt: eine spaetere,
