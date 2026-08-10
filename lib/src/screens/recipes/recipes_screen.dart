@@ -7,14 +7,19 @@
 /// oeffentliche [RecipeDetailScreen] lebt in recipe_detail.dart).
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/user_profile.dart';
+import '../../services/meal_photo_input.dart';
+import '../../services/recipe_image_store.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -37,6 +42,7 @@ class RecipesScreen extends StatefulWidget {
     this.onCreateRecipe,
     this.onDeleteRecipe,
     this.initialUserRecipes = const <FitnessRecipe>[],
+    this.photoInput,
   });
 
   final void Function(MealAnalysisResult result, MealSlot slot) onAddMeal;
@@ -70,6 +76,11 @@ class RecipesScreen extends StatefulWidget {
   /// Beim Boot aus Supabase geladene Eigen-Rezepte. Werden als Anfangsstand
   /// uebernommen, damit selbst angelegte Rezepte einen Neustart ueberleben.
   final List<FitnessRecipe> initialUserRecipes;
+
+  /// Quelle fuer das Rezept-Foto (Kamera/Galerie). Null → das echte
+  /// [DeviceMealPhotoInput], das die Bytes bereits EXIF-frei zurueckgibt.
+  /// Der Parameter existiert allein als Test-Naht — genau wie beim Food-Tab.
+  final MealPhotoInput? photoInput;
 
   @override
   State<RecipesScreen> createState() => _RecipesScreenState();
@@ -205,6 +216,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
           .where((r) => r.slug != recipe.slug)
           .toList(growable: true);
     });
+    // Das eigene Foto geht mit. Es ist PII (ein Kuechenfoto zeigt die
+    // Wohnung) und haette sonst kein Ende: der Slug ist weg, niemand wuerde
+    // die Datei je wieder anfassen. No-Op fuer Bestandsrezepte
+    // (Bundle-Asset) und fuer Eigen-Rezepte ohne Bild.
+    await RecipeImageStore.instance.deleteFor(recipe.imageAsset);
     final ausgang = await _melde(widget.onDeleteRecipe?.call(recipe.slug));
     if (!mounted) return;
     showAppSnack(
@@ -229,7 +245,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => const _CreateRecipeSheet(),
+      builder: (_) => _CreateRecipeSheet(
+        photoInput: widget.photoInput ?? DeviceMealPhotoInput(),
+      ),
     );
     if (recipe == null || !mounted) return;
     setState(() => _userRecipes.insert(0, recipe));

@@ -1036,6 +1036,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   Future<void> _clearCache({bool preserveOutbox = false}) async {
     final cache = _cache ?? debugCache ?? await _resolveCacheForCurrentUser();
     await cache?.clear(preserveOutbox: preserveOutbox);
+    // Die Fotos eigener Rezepte liegen NICHT im LocalCache, sondern als
+    // Dateien im App-Verzeichnis — ohne diesen Aufruf ueberlebte ein
+    // Kuechenfoto den Logout auf dem Geraet. Es faellt unter dieselbe
+    // M-1-Begruendung wie die Rezeptzeile selbst (Audit 2026-06-09) und
+    // deshalb auch bei `preserveOutbox: true`: die Outbox traegt Zeilen,
+    // keine Bytes.
+    //
+    // Folge, bewusst in Kauf genommen: Spielt nach einem Re-Login ein noch
+    // offener Rezept-Upsert nach, traegt die Zeile weiter ihren
+    // `local:`-Marker ohne Bytes — die Anzeige faellt dann sauber auf den
+    // Platzhalter zurueck. Ein zurueckgelassenes Foto waere der schlechtere
+    // Tausch.
+    await RecipeImageStore.instance.clear();
   }
 
   Future<LocalCache?> _resolveCacheForCurrentUser() async {

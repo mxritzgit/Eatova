@@ -112,6 +112,13 @@ dependencies:
   # deklariert, weil secure_cache_store.dart GCMBlockCipher(AESEngine())
   # direkt benutzt. Zieht KEIN zusaetzliches Paket nach.
   pointycastle: ^4.0.0
+  # Ebenfalls schon transitiv da (ueber shared_preferences/sentry) — aber
+  # `recipe_image_store.dart` benutzt es DIREKT fuer das App-Dokumenten-
+  # verzeichnis, in dem die Fotos eigener Rezepte liegen. Ohne diese Zeile
+  # bricht der Build in dem Moment, in dem das Paket aus der transitiven
+  # Kette faellt; `depend_on_referenced_packages: ignore` in den
+  # analysis_options verbirgt das bis dahin.
+  path_provider: ^2.1.0
 
 dev_dependencies:
   flutter_test:

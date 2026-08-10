@@ -22,6 +22,7 @@ import '../services/local_day.dart';
 import '../services/meal_totals.dart' as totals;
 import '../services/meals_sync.dart' show MealsSync;
 import '../services/notification_service.dart';
+import '../services/recipe_image_store.dart';
 import '../services/search_credentials.dart';
 import '../services/secure_cache_store.dart';
 import '../services/streak_reminder_planner.dart';

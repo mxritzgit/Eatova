@@ -78,9 +78,15 @@ class _CategoryPill extends StatelessWidget {
   }
 }
 
-/// Bild einer Rezept-Karte. Die 30 Bestandsrezepte zeigen ihr echtes Asset;
-/// nur selbst angelegte Rezepte (ohne Asset) fallen auf den gestreiften
-/// [ImagePlaceholder] der Design-Bibliothek zurueck.
+/// Bild einer Rezept-Karte. Drei Faelle, in dieser Reihenfolge:
+///
+///  1. `local:<slug>.jpg` — ein selbst aufgenommenes Foto aus dem
+///     [RecipeImageStore]. Liegt die Datei auf DIESEM Geraet, wird sie
+///     gezeigt; fehlt sie (zweites Geraet, geraeumter Cache), faellt die
+///     Kachel auf den Platzhalter zurueck. Nie ein graues Kaputt-Icon.
+///  2. Die 30 Bestandsrezepte zeigen ihr Bundle-Asset.
+///  3. Alles Uebrige (Eigen-Rezept ohne Bild) bekommt den gestreiften
+///     [ImagePlaceholder] der Design-Bibliothek.
 class _RecipeImage extends StatelessWidget {
   const _RecipeImage({required this.recipe, this.placeholderRadius = 0});
 
@@ -92,6 +98,12 @@ class _RecipeImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (RecipeImageStore.isLocalReference(recipe.imageAsset)) {
+      return _LocalRecipeImage(
+        reference: recipe.imageAsset,
+        placeholderRadius: placeholderRadius,
+      );
+    }
     if (recipe.userCreated || recipe.imageAsset.isEmpty) {
       return ImagePlaceholder(radius: placeholderRadius, label: 'REZEPT');
     }
@@ -107,6 +119,89 @@ class _RecipeImage extends StatelessWidget {
           recipe.imageAsset,
           fit: BoxFit.cover,
           cacheWidth: (logicalWidth * dpr).round().clamp(1, 1600),
+        );
+      },
+    );
+  }
+}
+
+/// Ein selbst aufgenommenes Rezept-Foto aus dem App-Dokumentenverzeichnis.
+///
+/// Warum ein StatefulWidget statt eines [FutureBuilder]: der Ablageort steht
+/// nach dem ersten Aufloesen fest, [RecipeImageStore.resolveSync] beantwortet
+/// die Frage danach OHNE Frame-Verzoegerung. Ein FutureBuilder haette beim
+/// Scrollen durch die Liste jedes Mal einen Platzhalter-Frame aufblitzen
+/// lassen, obwohl die Datei laengst bekannt ist. Nur der allererste Zugriff
+/// einer Sitzung laeuft asynchron.
+class _LocalRecipeImage extends StatefulWidget {
+  const _LocalRecipeImage({
+    required this.reference,
+    required this.placeholderRadius,
+  });
+
+  final String reference;
+  final double placeholderRadius;
+
+  @override
+  State<_LocalRecipeImage> createState() => _LocalRecipeImageState();
+}
+
+class _LocalRecipeImageState extends State<_LocalRecipeImage> {
+  File? _file;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocalRecipeImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.reference != widget.reference) {
+      _file = null;
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    final store = RecipeImageStore.instance;
+    if (store.baseResolved) {
+      _file = store.resolveSync(widget.reference);
+      return;
+    }
+    final gesucht = widget.reference;
+    store.resolve(gesucht).then((datei) {
+      // Zwischenzeitlich abgeraeumt oder auf ein anderes Rezept umgehaengt.
+      if (!mounted || gesucht != widget.reference) return;
+      setState(() => _file = datei);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final datei = _file;
+    if (datei == null) {
+      return ImagePlaceholder(
+        radius: widget.placeholderRadius,
+        label: 'REZEPT',
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final logicalWidth =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : 400.0;
+        return Image.file(
+          datei,
+          fit: BoxFit.cover,
+          cacheWidth: (logicalWidth * dpr).round().clamp(1, 1600),
+          // Die Datei kann zwischen Existenz-Pruefung und Dekodieren
+          // verschwinden (Loeschen, Aufraeumen). Auch dann: Platzhalter.
+          errorBuilder: (context, error, stack) => ImagePlaceholder(
+            radius: widget.placeholderRadius,
+            label: 'REZEPT',
+          ),
         );
       },
     );
