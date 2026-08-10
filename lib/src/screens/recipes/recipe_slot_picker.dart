@@ -137,7 +137,7 @@ class _MealSlotButton extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  slot.label,
+                  slot.label(context.l10n),
                   style: AppType.ui(
                     13.5,
                     weight: FontWeight.w600,

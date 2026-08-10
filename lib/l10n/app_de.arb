@@ -1,5 +1,20 @@
 {
   "@@locale": "de",
+  "commonSlotBreakfast": "Frühstück",
+  "commonSlotLunch": "Mittagessen",
+  "commonSlotDinner": "Abendessen",
+  "commonSlotSnacks": "Snacks",
+  "commonSlotBreakfastShort": "Frühstück",
+  "commonSlotLunchShort": "Mittag",
+  "commonSlotDinnerShort": "Abend",
+  "commonSlotSnackShort": "Snack",
+  "commonKcalAddedToSlot": "{kcal} kcal zu {slot} hinzugefügt.",
+  "@commonKcalAddedToSlot": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "slot": { "type": "String" }
+    }
+  },
   "settingsLanguageTitle": "Sprache",
   "settingsLanguageSubtitle": "System folgt der Sprache deines Geräts.",
   "languageSystem": "System",
@@ -63,5 +78,256 @@
   "todayCoachCta": "Zum Coach",
   "todayDayLoading": "Tag wird geladen…",
   "todaySemanticsDatePrev": "Tag zurück",
-  "todaySemanticsDateNext": "Tag vor"
+  "todaySemanticsDateNext": "Tag vor",
+  "foodAnalysisFailedMessage": "Analyse fehlgeschlagen. Prüfe Internet, Supabase und OpenRouter.",
+  "foodBarcodeNotFoundMessage": "Barcode {code} nicht gefunden oder OpenFoodFacts nicht erreichbar.",
+  "@foodBarcodeNotFoundMessage": {
+    "placeholders": {
+      "code": { "type": "String" }
+    }
+  },
+  "foodDiaryEmptyHint": "Tippe oben auf KI-Scan, Barcode oder Suche.",
+  "foodActionBarcode": "Barcode",
+  "foodActionAiScan": "KI-Scan",
+  "foodSearchPlaceholder": "Lebensmittel oder Mahlzeiten suchen…",
+  "foodSectionHistoryTitle": "Verlauf",
+  "foodSemanticsTrends": "Trends",
+  "foodSemanticsSettings": "Einstellungen",
+  "foodTitle": "Ernährung",
+  "foodKcalTodayLabel": "KCAL HEUTE",
+  "foodKcalOnDayLabel": "KCAL AM TAG",
+  "foodDatePickerHelpText": "Tag wählen",
+  "foodCalendarButtonSemantics": "Anderen Tag im Kalender wählen",
+  "foodEntryDeleteSemantics": "Eintrag löschen",
+  "foodPortionFallback": "1 Portion",
+  "foodEditMealTitle": "Mahlzeit bearbeiten",
+  "foodDiarySlotSummary": "{kcal} kcal · {count, plural, one{{count} Eintrag} other{{count} Einträge}}",
+  "@foodDiarySlotSummary": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
+  "foodSlotAddLabel": "{slot} ergänzen",
+  "@foodSlotAddLabel": {
+    "placeholders": {
+      "slot": { "type": "String" }
+    }
+  },
+  "foodAlreadyAddedEyebrow": "Schon hinzugefügt",
+  "foodRemoveTooltip": "Entfernen",
+  "commonClose": "Schließen",
+  "commonSave": "Speichern",
+  "commonCancel": "Abbrechen",
+  "foodDiscardChangesTitle": "Änderungen verwerfen?",
+  "foodDiscardChangesBody": "Deine Änderungen an dieser Mahlzeit sind noch nicht gespeichert.",
+  "foodDiscardChangesKeepEditing": "Weiter bearbeiten",
+  "foodDiscardChangesConfirm": "Verwerfen",
+  "foodAdjustPortionButton": "Portion & Bestandteile anpassen",
+  "foodSectionMeal": "Mahlzeit",
+  "foodSectionDay": "Tag",
+  "foodDeleteMealButton": "Mahlzeit löschen",
+  "foodAdjustedLabel": "Angepasst",
+  "foodOtherDateCalendarSemantics": "Anderes Datum im Kalender wählen",
+  "foodOtherDateLine1": "Anderes",
+  "foodOtherDateLine2": "Datum…",
+  "foodSuggestionWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts loggen. Der Eintrag stammt noch aus einer älteren Version — entferne ihn und leg ihn über Suche oder Barcode neu an.",
+  "foodMealWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts loggen. Trag die Bestandteile über „Anpassen\" ein.",
+  "foodSearchMinCharsHint": "Mindestens 2 Zeichen, z.B. Dr Oetker Salami.",
+  "foodSearchNoResultsHint": "Keine passenden Produkte gefunden. Versuche Marke + Produktname.",
+  "foodSearchUnreachableHint": "OpenFoodFacts gerade nicht erreichbar.",
+  "foodCameraPermissionError": "Kamera konnte nicht geöffnet werden. Prüfe die Berechtigung.",
+  "foodGalleryPermissionError": "Galerie konnte nicht geöffnet werden. Prüfe die Berechtigung.",
+  "foodSectionSearchResults": "Suchtreffer",
+  "foodSectionFavorites": "Favoriten",
+  "foodSectionRecentMeals": "Letzte Mahlzeiten",
+  "foodSearchModeTitle": "Lebensmittel suchen",
+  "foodTakePhotoTooltip": "Foto aufnehmen",
+  "foodFromGalleryTooltip": "Aus Galerie",
+  "foodScanBarcodeTooltip": "Barcode scannen",
+  "foodSearchInputHint": "Was hast du gegessen?",
+  "foodSearchButtonTooltip": "Suchen",
+  "foodEmptyStateTitle": "Suche oben oder scanne einen Barcode",
+  "foodEmptyStateSubtitle": "Eingaben erscheinen direkt in der Liste oben.",
+  "foodAnalysisTimeoutMessage": "Das dauert gerade zu lange. Bitte versuch es gleich nochmal.",
+  "foodReviewAnalysisSubtitle": "Analyse prüfen",
+  "foodPortionAdjustedUpdated": "{grams} g angepasst. Tageswert aktualisiert.",
+  "@foodPortionAdjustedUpdated": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionAdjusted": "{grams} g angepasst.",
+  "@foodPortionAdjusted": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionAdjustedItemsUpdated": "{grams} g über Einzelposten angepasst. Tageswert aktualisiert.",
+  "@foodPortionAdjustedItemsUpdated": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionAdjustedItems": "{grams} g über Einzelposten angepasst.",
+  "@foodPortionAdjustedItems": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "commonAdd": "Hinzufügen",
+  "foodRemoveFavoriteTooltip": "Aus Favoriten entfernen",
+  "foodAddFavoriteTooltip": "Als Favorit speichern",
+  "foodDecreaseAmountSemantics": "Menge verringern",
+  "foodIncreaseAmountSemantics": "Menge erhöhen",
+  "foodPortionRangeHint": "Portion zwischen {min} und {max} g.",
+  "@foodPortionRangeHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "foodMacroProteinShort": "P {value}",
+  "@foodMacroProteinShort": {
+    "placeholders": {
+      "value": { "type": "String" }
+    }
+  },
+  "foodMacroCarbsShort": "KH {value}",
+  "@foodMacroCarbsShort": {
+    "placeholders": {
+      "value": { "type": "String" }
+    }
+  },
+  "foodMacroFatShort": "F {value}",
+  "@foodMacroFatShort": {
+    "placeholders": {
+      "value": { "type": "String" }
+    }
+  },
+  "foodDetailsTooltip": "Details",
+  "foodIngredientsCountLabel": "BESTANDTEILE · {count}",
+  "@foodIngredientsCountLabel": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodMacroTileCarbsLabel": "Carbs",
+  "foodInfoBrandLabel": "Marke",
+  "foodInfoBarcodeLabel": "Barcode",
+  "foodInfoSourceLabel": "Quelle",
+  "foodInfoConfidenceLabel": "Sicherheit",
+  "foodEstimateDisclaimer": "Schätzungen sind Näherungen. Zutaten, Öl und Portion können abweichen.",
+  "foodAddedToDailyLabel": "Zu heute hinzugefügt",
+  "foodPortionItemized": "{count, plural, other{{count} Bestandteile}} · {grams} g",
+  "@foodPortionItemized": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionItemizedAdjusted": "{grams} g über Einzelposten angepasst",
+  "@foodPortionItemizedAdjusted": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionManuallyAdjusted": "{grams} g manuell angepasst",
+  "@foodPortionManuallyAdjusted": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionLabelPrefixed": "Portion: {label}",
+  "@foodPortionLabelPrefixed": {
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "foodPhotoCardTitle": "Foto",
+  "foodPhotoCardPreviewAction": "Preview",
+  "foodNoImageSelected": "Noch kein Bild ausgewählt",
+  "foodLoadingStageDetect": "Erkenne Lebensmittel...",
+  "foodLoadingStageEstimate": "Schätze Mengen...",
+  "foodLoadingStageCalculate": "Berechne Kalorien...",
+  "foodLoadingStageFinal": "Letzter Feinschliff...",
+  "foodLoadingAlmostDone": "Gleich fertig...",
+  "foodLoadingStepOf": "Schritt {step} von {total}",
+  "@foodLoadingStepOf": {
+    "placeholders": {
+      "step": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "foodDiscardItemsBody": "Deine Anpassungen an den Bestandteilen sind noch nicht übernommen.",
+  "foodDiscardNewItemBody": "Der neue Bestandteil ist noch nicht hinzugefügt.",
+  "foodItemsRemovedCount": "{count} entfernt",
+  "@foodItemsRemovedCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodItemsAddedCount": "{count} manuell ergänzt",
+  "@foodItemsAddedCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodAdjustItemsHint": "Pro Lebensmittel das Gewicht anpassen oder mit X entfernen.",
+  "foodAdjustItemsTitle": "Bestandteile anpassen",
+  "foodAddItemTitle": "Bestandteil hinzufügen",
+  "foodAdjustedTotalApprox": "{grams} g ≈ {kcal} kcal",
+  "@foodAdjustedTotalApprox": {
+    "placeholders": {
+      "grams": { "type": "int" },
+      "kcal": { "type": "int" }
+    }
+  },
+  "foodItemsCountLabel": "{count} Posten",
+  "@foodItemsCountLabel": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodAtLeastOneItemRequired": "Mindestens ein Bestandteil muss übrig bleiben.",
+  "foodApplyButton": "Übernehmen",
+  "foodDecreaseItemSemantics": "Weniger {name}",
+  "@foodDecreaseItemSemantics": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "foodIncreaseItemSemantics": "Mehr {name}",
+  "@foodIncreaseItemSemantics": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "foodOriginallyLabel": "Ursprünglich {grams} · {calories}",
+  "@foodOriginallyLabel": {
+    "placeholders": {
+      "grams": { "type": "String" },
+      "calories": { "type": "String" }
+    }
+  },
+  "foodUndoRemoveButton": "Wiederherstellen",
+  "foodMacroHintIncomplete": "Ohne alle drei Angaben werden Protein, Kohlenhydrate und Fett für die ganze Mahlzeit als „–\" ausgewiesen.",
+  "foodMacroHintOthersIncomplete": "Andere Bestandteile tragen keine Makros — die Mahlzeit weist Protein, Kohlenhydrate und Fett weiterhin als „–\" aus.",
+  "foodMacroHintComplete": "Protein, Kohlenhydrate und Fett werden für die Mahlzeit exakt aufsummiert.",
+  "foodAddItemManualHint": "Manuell — wenn die KI etwas übersehen hat.",
+  "foodAddItemNameLabel": "Name",
+  "foodAddItemNameHint": "z. B. Tomate",
+  "foodAddItemWeightLabel": "Gewicht",
+  "foodAddItemCaloriesLabel": "Kalorien",
+  "foodAddItemMacrosToggle": "Makros ergänzen (optional)",
+  "foodMacroRangeHint": "Makros in Gramm, jeweils zwischen 0 und 1000.",
+  "foodBarcodeHintText": "Barcode in den Rahmen halten",
+  "foodCameraUnavailableMessage": "Kamera nicht verfügbar. Prüfe die Kamera-Berechtigung in den Einstellungen.",
+  "foodDetectionStalledTitle": "Die Erkennung hängt",
+  "foodDetectionStalledBody": "Das Bild läuft, aber es kommen keine Ergebnisse mehr an. Ein Neustart des Scanners behebt das meistens.",
+  "foodRestartScannerButton": "Scanner neu starten",
+  "foodPhotoCaptureFailedMessage": "Foto konnte nicht aufgenommen werden. Versuch es nochmal.",
+  "foodImageLoadFailedMessage": "Das Bild konnte nicht geladen werden.",
+  "foodCameraUnavailableGalleryMessage": "Kamera nicht verfügbar. Prüfe die Berechtigung oder wähle ein Foto aus der Galerie.",
+  "foodScanMealTitle": "Mahlzeit scannen"
 }

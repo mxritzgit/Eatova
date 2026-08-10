@@ -51,6 +51,7 @@ Future<Object?> showWeightAdjustmentSheet(
 /// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
 Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
   final t = context.t;
+  final l10n = context.l10n;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -60,7 +61,7 @@ Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
         borderRadius: BorderRadius.circular(rSheet),
       ),
       title: Text(
-        'Änderungen verwerfen?',
+        l10n.foodDiscardChangesTitle,
         style: AppType.display(19, color: t.ink),
       ),
       content: Text(text, style: AppType.ui(13, color: t.ink2, height: 1.4)),
@@ -68,13 +69,13 @@ Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
         TextButton(
           key: const ValueKey('discard-changes-cancel'),
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Weiter bearbeiten'),
+          child: Text(l10n.foodDiscardChangesKeepEditing),
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
           style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Verwerfen'),
+          child: Text(l10n.foodDiscardChangesConfirm),
         ),
       ],
     ),
@@ -413,12 +414,14 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     return _posten[index].angepasst.caloriesKcal;
   }
 
-  String _statusLine(int addedCount) {
+  String _statusLine(int addedCount, AppLocalizations l10n) {
     final parts = <String>[];
-    if (_removed.isNotEmpty) parts.add('${_removed.length} entfernt');
-    if (addedCount > 0) parts.add('$addedCount manuell ergänzt');
+    if (_removed.isNotEmpty) {
+      parts.add(l10n.foodItemsRemovedCount(_removed.length));
+    }
+    if (addedCount > 0) parts.add(l10n.foodItemsAddedCount(addedCount));
     if (parts.isEmpty) {
-      return 'Pro Lebensmittel das Gewicht anpassen oder mit X entfernen.';
+      return l10n.foodAdjustItemsHint;
     }
     return parts.join(' · ');
   }
@@ -434,7 +437,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     _discardDialogOpen = true;
     final verwerfen = await _confirmDiscardChanges(
       context,
-      'Deine Anpassungen an den Bestandteilen sind noch nicht übernommen.',
+      context.l10n.foodDiscardItemsBody,
     );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
@@ -450,6 +453,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final uebrig = _uebrigeIndizes;
     final adjustedItems = <MealComponent>[
       for (final index in uebrig) _posten[index].angepasst,
@@ -501,12 +505,12 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Bestandteile anpassen',
+                        l10n.foodAdjustItemsTitle,
                         style: AppType.display(20, color: t.ink),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _statusLine(addedCount),
+                        _statusLine(addedCount, l10n),
                         style: AppType.ui(
                           13,
                           weight: FontWeight.w500,
@@ -537,7 +541,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                         onPressed: _addItemDialog,
                         icon: const Icon(Icons.add_rounded, size: 17),
                         label: Text(
-                          'Bestandteil hinzufügen',
+                          l10n.foodAddItemTitle,
                           style: AppType.ui(13.5, weight: FontWeight.w600),
                         ),
                         style: OutlinedButton.styleFrom(
@@ -567,13 +571,14 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                '$totalGrams g ≈ $totalKcal kcal',
+                                l10n.foodAdjustedTotalApprox(
+                                    totalGrams, totalKcal),
                                 style: AppType.display(18, color: t.ink),
                               ),
                             ),
                             if (adjustedItems.isNotEmpty)
                               Text(
-                                '${adjustedItems.length} Posten',
+                                l10n.foodItemsCountLabel(adjustedItems.length),
                                 style: AppType.display(
                                   11,
                                   weight: FontWeight.w500,
@@ -586,7 +591,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                       if (adjustedItems.isEmpty) ...[
                         const SizedBox(height: 8),
                         Text(
-                          'Mindestens ein Bestandteil muss übrig bleiben.',
+                          l10n.foodAtLeastOneItemRequired,
                           style: AppType.ui(
                             11,
                             weight: FontWeight.w600,
@@ -604,7 +609,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                               : null,
                           icon: const Icon(Icons.check_rounded, size: 17),
                           label: Text(
-                            'Übernehmen',
+                            l10n.foodApplyButton,
                             style: AppType.ui(14, weight: FontWeight.w600),
                           ),
                           style: FilledButton.styleFrom(
@@ -658,6 +663,7 @@ class _ItemEditCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     // Soft-Kapsel statt Hairline-Rahmen + Formular-Label (Design-Vorgabe):
     // die Gramm-Zeile bekommt dieselbe Bedienflaeche wie die
     // Vorschlagskarten im Food-Tab — runde -/+ Kapseln um eine rahmenlose
@@ -680,7 +686,7 @@ class _ItemEditCard extends StatelessWidget {
               IconButton(
                 key: ValueKey('analyse-item-remove-$index'),
                 onPressed: onRemove,
-                tooltip: 'Entfernen',
+                tooltip: l10n.foodRemoveTooltip,
                 visualDensity: VisualDensity.compact,
                 icon: Icon(
                   Icons.close_rounded,
@@ -697,7 +703,7 @@ class _ItemEditCard extends StatelessWidget {
               children: [
                 _ItemStepperButton(
                   icon: Icons.remove_rounded,
-                  semanticLabel: 'Weniger ${item.name}',
+                  semanticLabel: l10n.foodDecreaseItemSemantics(item.name),
                   onTap: () => _bump(-10),
                   onLongPress: () => _bump(-50),
                 ),
@@ -755,7 +761,7 @@ class _ItemEditCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 _ItemStepperButton(
                   icon: Icons.add_rounded,
-                  semanticLabel: 'Mehr ${item.name}',
+                  semanticLabel: l10n.foodIncreaseItemSemantics(item.name),
                   onTap: () => _bump(10),
                   onLongPress: () => _bump(50),
                 ),
@@ -766,7 +772,7 @@ class _ItemEditCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 6),
             child: Text(
-              'Ursprünglich ${item.gramsLabel} · ${item.caloriesLabel}',
+              l10n.foodOriginallyLabel(item.gramsLabel, item.caloriesLabel),
               style: AppType.display(
                 11,
                 weight: FontWeight.w500,
@@ -890,7 +896,7 @@ class _RemovedItemCard extends StatelessWidget {
             ),
             icon: const Icon(Icons.undo_rounded, size: 14),
             label: Text(
-              'Wiederherstellen',
+              context.l10n.foodUndoRemoveButton,
               style: AppType.ui(11, weight: FontWeight.w600),
             ),
           ),
@@ -1040,16 +1046,14 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   /// bevor der Nutzer auf "Hinzufügen" tippt (B8). Der Wortlaut deckt sich mit
   /// dem, was danach in `portionNotes` steht.
   String get _makroHinweis {
+    final l10n = context.l10n;
     if (!_alleMakrosGesetzt) {
-      return 'Ohne alle drei Angaben werden Protein, Kohlenhydrate und Fett '
-          'für die ganze Mahlzeit als „–" ausgewiesen.';
+      return l10n.foodMacroHintIncomplete;
     }
     if (!widget.restTraegtMakros) {
-      return 'Andere Bestandteile tragen keine Makros — die Mahlzeit weist '
-          'Protein, Kohlenhydrate und Fett weiterhin als „–" aus.';
+      return l10n.foodMacroHintOthersIncomplete;
     }
-    return 'Protein, Kohlenhydrate und Fett werden für die Mahlzeit exakt '
-        'aufsummiert.';
+    return l10n.foodMacroHintComplete;
   }
 
   bool get _isValid {
@@ -1090,7 +1094,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     _discardDialogOpen = true;
     final verwerfen = await _confirmDiscardChanges(
       context,
-      'Der neue Bestandteil ist noch nicht hinzugefügt.',
+      context.l10n.foodDiscardNewItemBody,
     );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
@@ -1103,6 +1107,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return PopScope<MealComponent?>(
       // Nur solange wirklich etwas drinsteht. Ein leerer Dialog schliesst wie
       // bisher sofort.
@@ -1117,7 +1122,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
           borderRadius: BorderRadius.circular(rSheet),
         ),
         title: Text(
-          'Bestandteil hinzufügen',
+          l10n.foodAddItemTitle,
           style: AppType.display(18, color: t.ink),
         ),
         content: SingleChildScrollView(
@@ -1126,7 +1131,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Manuell — wenn die KI etwas übersehen hat.',
+                l10n.foodAddItemManualHint,
                 style: AppType.ui(
                   12,
                   weight: FontWeight.w500,
@@ -1140,9 +1145,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 controller: _name,
                 autofocus: true,
                 textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  hintText: 'z. B. Tomate',
+                decoration: InputDecoration(
+                  labelText: l10n.foodAddItemNameLabel,
+                  hintText: l10n.foodAddItemNameHint,
                 ),
               ),
               const SizedBox(height: 10),
@@ -1157,8 +1162,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                       ],
-                      decoration: const InputDecoration(
-                        labelText: 'Gewicht',
+                      decoration: InputDecoration(
+                        labelText: l10n.foodAddItemWeightLabel,
                         suffixText: 'g',
                       ),
                     ),
@@ -1173,8 +1178,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                       ],
-                      decoration: const InputDecoration(
-                        labelText: 'Kalorien',
+                      decoration: InputDecoration(
+                        labelText: l10n.foodAddItemCaloriesLabel,
                         suffixText: 'kcal',
                       ),
                     ),
@@ -1206,7 +1211,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                     size: 16,
                   ),
                   label: Text(
-                    'Makros ergänzen (optional)',
+                    l10n.foodAddItemMacrosToggle,
                     style: AppType.ui(12, weight: FontWeight.w600),
                   ),
                 ),
@@ -1219,7 +1224,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       child: _MacroField(
                         fieldKey: const ValueKey('analyse-add-item-protein'),
                         controller: _protein,
-                        label: 'Protein',
+                        label: l10n.todayMacroProtein,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1227,7 +1232,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       child: _MacroField(
                         fieldKey: const ValueKey('analyse-add-item-carbs'),
                         controller: _carbs,
-                        label: 'Carbs',
+                        label: l10n.foodMacroTileCarbsLabel,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1235,7 +1240,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       child: _MacroField(
                         fieldKey: const ValueKey('analyse-add-item-fat'),
                         controller: _fat,
-                        label: 'Fett',
+                        label: l10n.todayMacroFat,
                       ),
                     ),
                   ],
@@ -1243,7 +1248,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 if (!_makrosGueltig) ...[
                   const SizedBox(height: 6),
                   Text(
-                    'Makros in Gramm, jeweils zwischen 0 und 1000.',
+                    l10n.foodMacroRangeHint,
                     style: AppType.ui(
                       11,
                       weight: FontWeight.w600,
@@ -1273,7 +1278,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
             // Schliessen-Kreuz im Bearbeiten-Sheet (edit_meal_sheet.dart:367).
             onPressed: () => Navigator.of(context).maybePop(),
             style: TextButton.styleFrom(foregroundColor: t.ink2),
-            child: const Text('Abbrechen'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             key: const ValueKey('analyse-add-item-save'),
@@ -1286,7 +1291,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               ),
             ),
             child: Text(
-              'Hinzufügen',
+              l10n.commonAdd,
               style: AppType.ui(14, weight: FontWeight.w600),
             ),
           ),

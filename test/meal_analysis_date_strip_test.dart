@@ -28,11 +28,15 @@
 // Maschine ihn ueberhaupt hat, und kann nirgends falsch rot werden.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/theme/app_theme.dart';
+
+final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
 /// Kurzform fuer Kalender-Assertions: nur (Jahr, Monat, Tag) zaehlen.
 ({int y, int m, int d}) ymd(DateTime value) =>
@@ -63,6 +67,17 @@ Future<void> _pumpFoodTab(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
+      // MealAnalysisScreen liest seit der i18n-Migration context.l10n —
+      // ohne Delegates/locale wirft AppLocalizations.of() (Muster
+      // test/home_page_tabs_test.dart).
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Scaffold(
         body: SafeArea(
           child: Padding(
@@ -173,46 +188,58 @@ void main() {
   group('foodDateChipLabel — Heute/Gestern/Wochentag', () {
     test('der Vortag heisst „Gestern", auch ueber die Umstellung', () {
       expect(
-        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 30)),
+        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 30), _de),
         'Heute',
       );
       // Altcode: 23 Stunden -> inDays == 0 -> faelschlich „Heute".
       expect(
-        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 29)),
+        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 29), _de),
         'Gestern',
       );
       // Altcode: 47 Stunden -> inDays == 1 -> faelschlich „Gestern".
       expect(
-        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 28)),
+        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 28), _de),
         'Sa',
       );
       expect(
-        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 27)),
+        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 27), _de),
         'Fr',
       );
     });
 
     test('ausserhalb der Umstellung unveraendert', () {
       final dienstag = DateTime(2026, 6, 9);
-      expect(foodDateChipLabel(dienstag, DateTime(2026, 6, 9)), 'Heute');
-      expect(foodDateChipLabel(dienstag, DateTime(2026, 6, 8)), 'Gestern');
-      expect(foodDateChipLabel(dienstag, DateTime(2026, 6, 7)), 'So');
+      expect(foodDateChipLabel(dienstag, DateTime(2026, 6, 9), _de), 'Heute');
+      expect(
+          foodDateChipLabel(dienstag, DateTime(2026, 6, 8), _de), 'Gestern');
+      expect(foodDateChipLabel(dienstag, DateTime(2026, 6, 7), _de), 'So');
+    });
+
+    test('unter en englische Kuerzel ohne Punkt', () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      expect(
+        foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 28), en),
+        'Sat',
+      );
     });
   });
 
   group('foodDateSelectedLabel — die Kopfzeile', () {
     test('zaehlt Kalendertage, nicht 24-Stunden-Bloecke', () {
       expect(
-        foodDateSelectedLabel(montagNachUmstellung, DateTime(2026, 3, 30)),
+        foodDateSelectedLabel(
+            montagNachUmstellung, DateTime(2026, 3, 30), _de),
         'Heute',
       );
       expect(
-        foodDateSelectedLabel(montagNachUmstellung, DateTime(2026, 3, 29)),
+        foodDateSelectedLabel(
+            montagNachUmstellung, DateTime(2026, 3, 29), _de),
         'Gestern',
       );
       // Altcode: 119 Stunden -> inDays == 4 -> „Vor 4 Tagen".
       expect(
-        foodDateSelectedLabel(montagNachUmstellung, DateTime(2026, 3, 25)),
+        foodDateSelectedLabel(
+            montagNachUmstellung, DateTime(2026, 3, 25), _de),
         'Vor 5 Tagen',
       );
     });

@@ -5,8 +5,10 @@
 // §5 (Textskalierung bis 2.0 overflow-frei).
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
@@ -56,6 +58,7 @@ Future<List<Object>> _pumpFoodTab(
   UserProfile profile = const UserProfile(),
   VoidCallback? onSettingsPressed,
   VoidCallback? onProfilePressed,
+  Locale locale = const Locale('de'),
 }) async {
   tester.view.devicePixelRatio = 3.0;
   tester.view.physicalSize = _viewport * 3.0;
@@ -75,6 +78,15 @@ Future<List<Object>> _pumpFoodTab(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
+      // MealAnalysisScreen liest seit der i18n-Migration context.l10n.
+      locale: locale,
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: MediaQuery(
         data: MediaQueryData(
           textScaler: TextScaler.linear(textScale).clamp(maxScaleFactor: 2.0),
@@ -382,5 +394,33 @@ void main() {
     expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
     expect(find.byKey(const ValueKey('topbar-settings')), findsNothing);
     expect(find.byKey(const ValueKey('topbar-profile')), findsNothing);
+  });
+
+  group('EN-Render-Smoke (i18n-Paket 2, Spec §6)', () {
+    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
+    // mindestens eine echte englische Uebersetzung steht im Baum. Englische
+    // Texte sind teils laenger als die deutschen — das faengt Overflows, die
+    // ein reiner `de`-Lauf nie zeigen wuerde. Muster:
+    // test/screens/today/today_screen_test.dart (Paket 1).
+    for (final helligkeit in Brightness.values) {
+      testWidgets('rendert unter en in $helligkeit ohne Ausnahme',
+          (tester) async {
+        final fehler = await _pumpFoodTab(
+          tester,
+          brightness: helligkeit,
+          locale: const Locale('en'),
+          meals: [_mahlzeit(slot: MealSlot.lunch)],
+          dailyConsumedKcal: 320,
+        );
+        expect(tester.takeException(), isNull,
+            reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
+        expect(fehler, isEmpty);
+
+        // „Ernährung" -> „Nutrition", „Frühstück" -> „Breakfast".
+        expect(find.text('Nutrition'), findsOneWidget);
+        expect(find.text('Breakfast'), findsOneWidget);
+        expect(find.text('Nothing logged yet'), findsWidgets);
+      });
+    }
   });
 }

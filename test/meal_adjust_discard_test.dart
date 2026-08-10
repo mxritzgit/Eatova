@@ -25,8 +25,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -99,6 +101,15 @@ Future<void> _oeffne(
       // der AppTokens-ThemeExtension; ein blankes MaterialApp-Theme traegt sie
       // nicht und AppTokens.of wirft dann bewusst.
       theme: buildEatovaTheme(Brightness.dark),
+      // showWeightAdjustmentSheet liest seit der i18n-Migration context.l10n.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
@@ -169,13 +180,16 @@ Future<void> _ziehAmGriff(WidgetTester tester) async {
 /// Vor dem Fix ist das der Route-Griff (`_DragHandle`), dessen
 /// `onSemanticsTap` direkt `Navigator.pop` ruft; danach der eigene Griff im
 /// Sheet, der ueber `maybePop` und damit ueber die Rueckfrage laeuft. Beide
-/// tragen `MaterialLocalizations.modalBarrierDismissLabel` — im Test-Host
-/// (englische Default-Lokalisierung) also „Dismiss".
+/// tragen `MaterialLocalizations.modalBarrierDismissLabel` — seit der
+/// i18n-Migration (Paket 2) laeuft dieses MaterialApp explizit unter `de`
+/// (andere Tests in dieser Datei pruefen ARB-Text wie „Bestandteile
+/// anpassen"), darum „Schließen" statt des englischen SDK-Defaults
+/// „Dismiss" (material_de.arb: modalBarrierDismissLabel).
 ///
 /// Die Barriere selbst taucht hier NICHT auf: `ModalBarrier` setzt Label und
 /// Dismiss-Aktion nur, wenn `platformSupportsDismissingBarrier` gilt, und das
 /// ist auf Android (Default-Plattform im Test) false.
-final _griffKnoten = find.semantics.byLabel('Dismiss');
+final _griffKnoten = find.semantics.byLabel('Schließen');
 
 void main() {
   // ── Weg 1: Barriere-Tap ─────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
 import '../theme/app_tokens.dart';
 
@@ -192,9 +193,9 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                                             Colors.white.withValues(alpha: 0.35),
                                       ),
                                     ),
-                                    child: const Text(
-                                      'Barcode in den Rahmen halten',
-                                      style: TextStyle(
+                                    child: Text(
+                                      context.l10n.foodBarcodeHintText,
+                                      style: const TextStyle(
                                         fontSize: 11.5,
                                         fontWeight: FontWeight.w700,
                                         letterSpacing: -0.1,
@@ -333,8 +334,7 @@ class _ScannerFailedLayer extends StatelessWidget {
               Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
               const SizedBox(height: 12),
               Text(
-                'Kamera nicht verfügbar. Prüfe die Kamera-Berechtigung in den '
-                'Einstellungen.',
+                context.l10n.foodCameraUnavailableMessage,
                 textAlign: TextAlign.center,
                 style: AppType.ui(
                   13.5,
@@ -411,20 +411,21 @@ class _HeaderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 2, 6, 2),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              'Barcode scannen',
+              l10n.foodScanBarcodeTooltip,
               style: AppType.display(17, color: t.ink),
             ),
           ),
           IconButton(
             key: const ValueKey('barcode-close-button'),
             onPressed: onClose,
-            tooltip: 'Schließen',
+            tooltip: l10n.commonClose,
             icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
@@ -448,6 +449,7 @@ class _AnalyzerStalledLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Container(
       key: const ValueKey('barcode-analyzer-stalled'),
       color: Colors.black.withValues(alpha: 0.72),
@@ -457,27 +459,27 @@ class _AnalyzerStalledLayer extends StatelessWidget {
         children: [
           const Icon(Icons.refresh_rounded, size: 30, color: Colors.white),
           const SizedBox(height: 10),
-          const Text(
-            'Die Erkennung hängt',
+          Text(
+            l10n.foodDetectionStalledTitle,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 14.5,
               fontWeight: FontWeight.w800,
               color: Colors.white,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Das Bild läuft, aber es kommen keine Ergebnisse mehr an. '
-            'Ein Neustart des Scanners behebt das meistens.',
+          Text(
+            l10n.foodDetectionStalledBody,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, height: 1.35, color: Colors.white70),
+            style: const TextStyle(
+                fontSize: 12, height: 1.35, color: Colors.white70),
           ),
           const SizedBox(height: 14),
           FilledButton(
             key: const ValueKey('barcode-analyzer-restart'),
             onPressed: onRetry,
-            child: const Text('Scanner neu starten'),
+            child: Text(l10n.foodRestartScannerButton),
           ),
         ],
       ),

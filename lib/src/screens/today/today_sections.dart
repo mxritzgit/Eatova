@@ -87,14 +87,14 @@ class TodayMealRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
             children: <Widget>[
-              MealAvatar(letter: slot.initial, color: slot.accentOn(t)),
+              MealAvatar(letter: slot.initial(l10n), color: slot.accentOn(t)),
               const SizedBox(width: 13),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      slot.label,
+                      slot.label(l10n),
                       style:
                           AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                     ),
@@ -113,7 +113,7 @@ class TodayMealRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
                   Text(
-                    kcalThousands(kcal),
+                    kcalThousands(kcal, l10n),
                     style: AppType.display(
                       16,
                       weight: FontWeight.w700,

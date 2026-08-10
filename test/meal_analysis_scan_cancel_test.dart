@@ -14,8 +14,10 @@
 // abgedeckt, weil der Test das Sheet ueber den echten Screen-Baum fuehrt.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -91,6 +93,15 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(Brightness.dark),
+          // MealAnalysisScreen liest seit der i18n-Migration context.l10n.
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           home: Scaffold(
             body: SafeArea(
               child: Padding(

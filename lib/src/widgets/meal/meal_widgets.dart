@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
 import '../../theme/app_tokens.dart';

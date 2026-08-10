@@ -34,9 +34,42 @@ import 'package:flutter_test/flutter_test.dart';
 /// Paket 1 (Heute, 2026-08-10) ist der erste Eintrag. Spätere Pakete hängen
 /// hier einfach an (docs/I18N_PAKETE.md, Paketzuschnitt-Tabelle) — NICHT
 /// ersetzen, nur ergänzen.
+///
+/// Paket 2 (Food, 2026-08-10): die fünf Datei-Einträge (statt Verzeichnisse)
+/// decken die Screen-Dateien ohne eigenen Ordner sowie die beiden
+/// Handover-Dateien aus Paket 1 ab (`kcal_format.dart` jetzt locale-bewusst,
+/// `meal_slot_style.dart` jetzt ARB-gestuetzt) — [dartDateien] akzeptiert
+/// seitdem sowohl Verzeichnisse als auch einzelne Dateien.
+/// `models/logged_meal.dart` bleibt bewusst AUSSEN — `MealSlotLabel.germanLabel`
+/// traegt weiterhin hartkodiertes Deutsch fuer den nicht-UI-Aufrufer
+/// (KI-Kontext, `HomeStore._todaysFoodSummary`), s. Paket-2-Bericht.
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
+  'lib/src/screens/meal_analysis_screen.dart',
+  'lib/src/screens/barcode_scanner_sheet.dart',
+  'lib/src/screens/meal_camera_sheet.dart',
+  'lib/src/widgets/kcal/',
+  'lib/src/widgets/meal/',
+  'lib/src/services/kcal_format.dart',
+  'lib/src/theme/meal_slot_style.dart',
 ];
+
+/// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie
+/// [_migriertePfade]: das hier sind bewusst NICHT migrierte Einzelfunde in
+/// sonst vollstaendig migrierten Dateien — keine wachsende Deckungsliste,
+/// sondern eine kurze, begruendete Deny-Liste. Paket 2 traegt den ersten
+/// Eintrag: `_supabaseTrendLoader()` (meal_analysis_screen.dart) ist eine
+/// `static` Funktion ohne `BuildContext` — der Wurf wird von TrendsScreen
+/// stets abgefangen und NIE roh angezeigt (Kommentar dort: „Der Service hat
+/// bereits geloggt — hier nur in den Retry-Zustand uebersetzen, keine rohe
+/// Exception in die UI durchreichen"). Eine echte l10n-Anbindung braeuchte
+/// einen Context, den diese Stelle strukturell nicht hat — kein uebersehener
+/// Fund, sondern dieselbe Kategorie wie Log-/Sentry-Texte (Spec §4).
+const Map<String, List<String>> _bekannteAusnahmen = <String, List<String>>{
+  'lib/src/screens/meal_analysis_screen.dart': [
+    "'Kein angemeldeter Nutzer für die Trend-Ansicht.'",
+  ],
+};
 
 void main() {
   final RegExp literal = RegExp(r"'[^'\n]*'");
@@ -51,7 +84,15 @@ void main() {
       })
       .join('\n');
 
+  /// Akzeptiert sowohl einen Verzeichnis-Pfad (endet auf `/`, rekursiv
+  /// durchsucht) als auch den Pfad einer einzelnen `.dart`-Datei — Paket 2
+  /// hat Screen-Dateien ohne eigenen Ordner (z. B.
+  /// `meal_analysis_screen.dart`) und Handover-Dateien wie `kcal_format.dart`.
   List<File> dartDateien(String pfad) {
+    final einzelDatei = File(pfad);
+    if (einzelDatei.existsSync()) {
+      return <File>[einzelDatei];
+    }
     final dir = Directory(pfad);
     if (!dir.existsSync()) {
       fail('$pfad fehlt (aufgelöst von ${Directory.current.path}) — '
@@ -71,9 +112,10 @@ void main() {
       for (final datei in dartDateien(pfad)) {
         final relativ = datei.path.replaceAll(r'\', '/');
         final quelle = ohneKommentare(datei.readAsStringSync());
+        final ausnahmen = _bekannteAusnahmen[relativ] ?? const <String>[];
         for (final match in literal.allMatches(quelle)) {
           final text = match.group(0)!;
-          if (deutschesZeichen.hasMatch(text)) {
+          if (deutschesZeichen.hasMatch(text) && !ausnahmen.contains(text)) {
             funde.add('$relativ: $text');
           }
         }
@@ -91,7 +133,11 @@ void main() {
 
   test('die migrierten Pfade existieren wirklich (kein Tippfehler)', () {
     for (final pfad in _migriertePfade) {
-      expect(Directory(pfad).existsSync(), isTrue, reason: pfad);
+      expect(
+        Directory(pfad).existsSync() || File(pfad).existsSync(),
+        isTrue,
+        reason: pfad,
+      );
     }
   });
 }

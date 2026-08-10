@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';

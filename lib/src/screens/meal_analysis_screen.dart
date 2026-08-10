@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../l10n/l10n.dart';
 import '../models/favorite_meal.dart';
 import '../models/logged_meal.dart';
 import '../models/meal_analysis_result.dart';
@@ -221,8 +224,7 @@ class MealAnalysisScreen extends StatelessWidget {
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
-      failureMessage:
-          'Analyse fehlgeschlagen. Prüfe Internet, Supabase und OpenRouter.',
+      failureMessage: context.l10n.foodAnalysisFailedMessage,
     );
   }
 
@@ -241,8 +243,7 @@ class MealAnalysisScreen extends StatelessWidget {
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
-      failureMessage:
-          'Barcode $trimmed nicht gefunden oder OpenFoodFacts nicht erreichbar.',
+      failureMessage: context.l10n.foodBarcodeNotFoundMessage(trimmed),
     );
   }
 
@@ -300,6 +301,7 @@ class MealAnalysisScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final l10n = context.l10n;
         final boundedHeight = constraints.hasBoundedHeight;
         final bySlot = _entriesBySlot();
         final tagLeer = bySlot.values.every((e) => e.isEmpty);
@@ -348,7 +350,7 @@ class MealAnalysisScreen extends StatelessWidget {
                   // das Wort fest (DESIGN_REFACTOR §6), und die Vorlage setzt
                   // ueber ihre Mahlzeiten-Liste genau so eine Abschnittszeile
                   // („Today's meals", nutrition_app(1).dart:935).
-                  const SectionHeading(title: 'Verlauf'),
+                  SectionHeading(title: l10n.foodSectionHistoryTitle),
                   const SizedBox(height: 12),
                   Column(
                     key: const ValueKey('food-history'),
@@ -474,7 +476,7 @@ class _DiaryDayHint extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Text(
-        'Tippe oben auf KI-Scan, Barcode oder Suche.',
+        context.l10n.foodDiaryEmptyHint,
         textAlign: TextAlign.center,
         style: AppType.ui(12, color: context.t.ink2, height: 1.3),
       ),
@@ -498,6 +500,7 @@ class _FoodAddBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -510,7 +513,7 @@ class _FoodAddBlock extends StatelessWidget {
               child: _FoodQuickChip(
                 key: const ValueKey('food-action-barcode'),
                 icon: Icons.qr_code_scanner_rounded,
-                label: 'Barcode',
+                label: l10n.foodActionBarcode,
                 filled: false,
                 onTap: onBarcode,
               ),
@@ -520,7 +523,7 @@ class _FoodAddBlock extends StatelessWidget {
               child: _FoodQuickChip(
                 key: const ValueKey('food-action-ai'),
                 icon: Icons.auto_awesome_rounded,
-                label: 'KI-Scan',
+                label: l10n.foodActionAiScan,
                 filled: true,
                 onTap: onAiScan,
               ),
@@ -573,7 +576,7 @@ class _FoodSearchBar extends StatelessWidget {
                     // Wortgleich wie vor dem Refactor: die Suche findet
                     // Produkte UND eigene Mahlzeiten, und der Vertrag laesst
                     // ein Redesign kein Umbenennen sein (§6).
-                    'Lebensmittel oder Mahlzeiten suchen…',
+                    context.l10n.foodSearchPlaceholder,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.ui(14, color: t.ink2),
@@ -655,41 +658,36 @@ class _FoodQuickChip extends StatelessWidget {
   }
 }
 
-/// `DateTime.weekday`: 1 = Montag.
-const List<String> _weekdayNames = <String>[
-  'Montag',
-  'Dienstag',
-  'Mittwoch',
-  'Donnerstag',
-  'Freitag',
-  'Samstag',
-  'Sonntag',
-];
+/// Einmalige Initialisierung der `intl`-Datumssymbole — derselbe Bool-Wächter
+/// wie in `today_texts.dart` (dort nicht wiederverwendbar: die Variable ist
+/// datei-privat). Der Screen haengt in einem `ListenableBuilder` am
+/// `HomeStore` und baut bei JEDEM HomeStore-Wechsel neu — ohne den Wächter
+/// wuerde `initializeDateFormatting()` seine (recht grosse) CLDR-Tabelle bei
+/// jedem Rebuild neu aufbauen.
+bool _dateSymbolsReady = false;
+void _ensureDateSymbols() {
+  if (_dateSymbolsReady) return;
+  initializeDateFormatting();
+  _dateSymbolsReady = true;
+}
 
-const List<String> _monthNames = <String>[
-  'Januar',
-  'Februar',
-  'März',
-  'April',
-  'Mai',
-  'Juni',
-  'Juli',
-  'August',
-  'September',
-  'Oktober',
-  'November',
-  'Dezember',
-];
-
-/// Ausgeschriebenes Datum als Untertitel des Seitentitels.
+/// Ausgeschriebenes Datum als Untertitel des Seitentitels: „Montag, 10.
+/// August" (`de`) / „Monday, August 10" (`en`).
 ///
 /// Bewusst NICHT „Heute"/„Gestern"/„Vor N Tagen": diese relative Bezeichnung
 /// traegt bereits `food-date-selected-label`, und Tests zaehlen sie einmal.
-/// Lokale Namenslisten statt `intl` — kein neues Paket fuer zwei Zeilen.
+///
+/// Seit der i18n-Migration (Paket 2, 2026-08-10) ueber `intl`s Skeleton
+/// `MMMMEEEEd` statt lokaler Namenslisten — dieselbe Technik wie
+/// `today_texts.dart:todayEyebrow`, nur ohne das `.toUpperCase()` dort. Die
+/// CLDR-Daten liefern unter `de` byte-identisch zum alten Listen-Join
+/// „Montag, 10. August" (verifiziert fuer einstellige Tage: `d` im Skeleton
+/// polstert nicht auf „05").
 @visibleForTesting
-String foodHeaderDateLabel(DateTime date) =>
-    '${_weekdayNames[date.weekday - 1]}, ${date.day}. '
-    '${_monthNames[date.month - 1]}';
+String foodHeaderDateLabel(DateTime date, AppLocalizations l10n) {
+  _ensureDateSymbols();
+  return DateFormat.MMMMEEEEd(l10n.localeName).format(date);
+}
 
 class _KcalHeader extends StatelessWidget {
   const _KcalHeader({
@@ -713,6 +711,7 @@ class _KcalHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -724,7 +723,7 @@ class _KcalHeader extends StatelessWidget {
               key: const ValueKey('topbar-trends'),
               icon: Icons.insights_rounded,
               onTap: onTrendsPressed,
-              semanticLabel: 'Trends',
+              semanticLabel: l10n.foodSemanticsTrends,
             ),
             if (onSettingsPressed != null) ...[
               const SizedBox(width: 8),
@@ -735,7 +734,7 @@ class _KcalHeader extends StatelessWidget {
                 // und nicht mehr in die Ziel-Eingabe.
                 icon: Icons.settings_outlined,
                 onTap: onSettingsPressed,
-                semanticLabel: 'Einstellungen',
+                semanticLabel: l10n.foodSemanticsSettings,
               ),
             ],
             if (onProfilePressed != null) ...[
@@ -746,8 +745,8 @@ class _KcalHeader extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         ScreenTitle(
-          title: 'Ernährung',
-          subtitle: foodHeaderDateLabel(selectedDate),
+          title: l10n.foodTitle,
+          subtitle: foodHeaderDateLabel(selectedDate, l10n),
           trailing: _KcalTile(
             kcal: consumedKcal,
             isToday: DateUtils.isSameDay(selectedDate, DateTime.now()),
@@ -772,6 +771,7 @@ class _KcalTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Container(
       decoration: BoxDecoration(
         color: t.forest,
@@ -783,7 +783,7 @@ class _KcalTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            formatThousands(kcal),
+            formatThousands(kcal, l10n.localeName),
             style: AppType.display(
               20,
               weight: FontWeight.w700,
@@ -795,7 +795,7 @@ class _KcalTile extends StatelessWidget {
           Text(
             // Der Tab zeigt jeden der letzten 30 Tage — „HEUTE" waere an
             // einem Archivtag schlicht falsch.
-            isToday ? 'KCAL HEUTE' : 'KCAL AM TAG',
+            isToday ? l10n.foodKcalTodayLabel : l10n.foodKcalOnDayLabel,
             style: AppType.ui(
               9.5,
               weight: FontWeight.w500,
@@ -824,7 +824,10 @@ class _ProfileBadge extends StatelessWidget {
     // Screenreader-Nutzer nicht, dass hier das Profil haengt.
     return Semantics(
       button: true,
-      label: 'Profil öffnen',
+      // Wortgleich zu `todaySemanticsOpenProfile` (today_screen.dart) — beide
+      // Tabs oeffnen dasselbe Profil, ein eigener Key waere dieselbe Aussage
+      // zweimal in der ARB.
+      label: context.l10n.todaySemanticsOpenProfile,
       child: Material(
         key: const ValueKey('topbar-profile'),
         color: t.forest,
@@ -874,8 +877,6 @@ class _ProfileBadge extends StatelessWidget {
 // beliebigen Anker (etwa dem 30.03.2026) liessen sie sich dann gar nicht
 // pruefen.
 
-const _weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-
 /// Die Tage der Leiste: [pastDays] zurueckliegende plus [today], aufsteigend.
 @visibleForTesting
 List<DateTime> foodDateStripDays({
@@ -888,21 +889,36 @@ List<DateTime> foodDateStripDays({
 /// Kopfzeile eines Chips. Fuer aeltere Tage der Wochentag statt nochmal des
 /// Datums — darunter steht bereits „23.7.", zweimal dasselbe sah nach Fehler
 /// aus.
+///
+/// Seit der i18n-Migration (Paket 2, 2026-08-10) ueber `intl`s Skeleton `EE`
+/// statt einer lokalen Zwei-Buchstaben-Liste. Die deutschen CLDR-Kuerzel
+/// tragen einen Punkt („Mo.", „Di."), den die alte Liste nicht hatte —
+/// abgeschnitten, damit `de` byte-identisch bleibt.
 @visibleForTesting
-String foodDateChipLabel(DateTime today, DateTime date) {
+String foodDateChipLabel(DateTime today, DateTime date, AppLocalizations l10n) {
   final offset = daysBetween(today, date);
-  if (offset == 0) return 'Heute';
-  if (offset == 1) return 'Gestern';
-  return _weekdays[date.weekday - 1];
+  if (offset == 0) return l10n.todayDateToday;
+  if (offset == 1) return l10n.todayDateYesterday;
+  _ensureDateSymbols();
+  return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
 }
 
 /// Die Zeile ueber den Chips, die den gewaehlten Tag benennt.
+///
+/// Zeichengleich zu `today_texts.dart:todayDateLabel` — beide lesen jetzt
+/// dieselben ARB-Keys (`todayDateToday`/`todayDateYesterday`/
+/// `todayDateDaysAgo`), damit die beiden Kopien nicht mehr auseinanderlaufen
+/// koennen (Paket-1-Bericht, Drift-Risiko).
 @visibleForTesting
-String foodDateSelectedLabel(DateTime today, DateTime selected) {
+String foodDateSelectedLabel(
+  DateTime today,
+  DateTime selected,
+  AppLocalizations l10n,
+) {
   final offset = daysBetween(today, selected);
-  if (offset == 0) return 'Heute';
-  if (offset == 1) return 'Gestern';
-  return 'Vor $offset Tagen';
+  if (offset == 0) return l10n.todayDateToday;
+  if (offset == 1) return l10n.todayDateYesterday;
+  return l10n.todayDateDaysAgo(offset);
 }
 
 class _FoodDateStrip extends StatefulWidget {
@@ -973,6 +989,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final today = DateUtils.dateOnly(DateTime.now());
     final selected = DateUtils.dateOnly(widget.selectedDate);
     // Absteigend (Heute zuerst, wie der Tages-Picker im Edit-Sheet): bei 31
@@ -1003,7 +1020,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  foodDateSelectedLabel(today, selected),
+                  foodDateSelectedLabel(today, selected, l10n),
                   key: const ValueKey('food-date-selected-label'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1047,7 +1064,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
                           // Kopfzeile: Jahreszahl, wenn nicht aktuelles Jahr
                           // — sonst der Wochentag wie bei jedem Chip.
                           label: selected.year == today.year
-                              ? foodDateChipLabel(today, selected)
+                              ? foodDateChipLabel(today, selected, l10n)
                               : '${selected.year}',
                           selected: true,
                           onTap: () => _pickFromCalendar(context),
@@ -1060,7 +1077,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
                       child: _FoodDateChip(
                         key: ValueKey('food-date-chip-$tagIndex'),
                         date: days[tagIndex],
-                        label: foodDateChipLabel(today, days[tagIndex]),
+                        label: foodDateChipLabel(today, days[tagIndex], l10n),
                         selected:
                             DateUtils.isSameDay(days[tagIndex], selected),
                         onTap: () => widget.onSelected(days[tagIndex]),
@@ -1083,8 +1100,10 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
   }
 
   /// Kalender-Zugriff auf aeltere Tage (jenseits der Chips). Der Dialog
-  /// rendert dank der de-Lokalisierung in eatova_app.dart deutsch; die
-  /// Auswahl laeuft ueber denselben [onSelected]-Pfad wie die Chips
+  /// rendert in der aktiven App-Sprache — `eatova_app.dart` reicht
+  /// `Localizations.override`/`supportedLocales` bis hierher durch (seit dem
+  /// i18n-Grundgerüst; vorher fest auf `de`).
+  /// Die Auswahl laeuft ueber denselben [onSelected]-Pfad wie die Chips
   /// (setFoodDate-Kette, inkl. On-Demand-Nachladen im Store).
   Future<void> _pickFromCalendar(BuildContext context) async {
     final today = DateUtils.dateOnly(DateTime.now());
@@ -1095,7 +1114,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
       initialDate: selectedDay.isBefore(firstDate) ? firstDate : selectedDay,
       firstDate: firstDate,
       lastDate: today,
-      helpText: 'Tag wählen',
+      helpText: context.l10n.foodDatePickerHelpText,
     );
     if (picked != null) widget.onSelected(picked);
   }
@@ -1200,7 +1219,7 @@ class _CalendarDayButton extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: 'Anderen Tag im Kalender wählen',
+      label: context.l10n.foodCalendarButtonSemantics,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(rChip),
@@ -1252,7 +1271,9 @@ class _DayLoadingCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Tag wird geladen…',
+            // Wortgleich zu `todayDayLoading` — beide Tabs zeigen denselben
+            // Zwischenzustand.
+            context.l10n.todayDayLoading,
             style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
           ),
         ],

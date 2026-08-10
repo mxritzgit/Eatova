@@ -78,18 +78,17 @@ String todayEyebrow(DateTime date, AppLocalizations l10n) {
   return DateFormat.MMMMEEEEd(l10n.localeName).format(date).toUpperCase();
 }
 
-/// kcal mit deutschem Tausenderpunkt.
+/// kcal mit dem Tausendertrenner der aktiven Sprache.
 ///
 /// Delegiert an die gemeinsame Heimat unter `services/` — die drei
 /// zeichengleichen Kopien waren genau die Sorte Doppelung, bei der eine
 /// spaetere Aenderung nur eine Flaeche erreicht.
 ///
-/// NICHT locale-bewusst: `formatThousands` ist eine geteilte Datei ausserhalb
-/// des Heute-Pakets (`services/kcal_format.dart`, auch von
-/// `meal_analysis_screen.dart` genutzt) und bleibt bis zu einem eigenen
-/// Formate-Umbau hartkodiert deutsch — unter `en` zeigt „Heute" also weiterhin
-/// „2.200 kcal" statt „2,200 kcal". Siehe Bericht (Drift-/Luecken-Abschnitt).
-String kcalThousands(int n) => formatThousands(n);
+/// Seit der i18n-Migration Paket 2 (2026-08-10) locale-bewusst:
+/// `formatThousands` liest jetzt `l10n.localeName` statt fest `de` zu
+/// rechnen. Unter `de` byte-identisch zum Bestand.
+String kcalThousands(int n, AppLocalizations l10n) =>
+    formatThousands(n, l10n.localeName);
 
 /// Benennt den gewaehlten Tag: „Heute" / „Gestern" / „Vor N Tagen".
 /// Zeichengleich zu `foodDateSelectedLabel`, damit beide Tabs denselben Tag

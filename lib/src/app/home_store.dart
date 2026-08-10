@@ -180,7 +180,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       final name = raw.isEmpty
           ? 'Mahlzeit'
           : (raw.length > 40 ? '${raw.substring(0, 39)}…' : raw);
-      return '${m.slot.label}: $name (${m.result.caloriesKcal} kcal)';
+      return '${m.slot.germanLabel}: $name (${m.result.caloriesKcal} kcal)';
     }).join(', ');
     final suffix = meals.length > maxFoods ? ' …' : '';
     return 'Heute gegessene Lebensmittel — $shown$suffix.';

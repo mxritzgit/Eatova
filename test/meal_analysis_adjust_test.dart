@@ -15,8 +15,10 @@
 //     also im selben Sheet gleichzeitig sichtbar.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -99,6 +101,15 @@ Widget _host(MealAnalysisResult result, void Function(Object?) onResult) {
     // Die Anpassen-Flaechen lesen ihre Farben seit dem Design-Refactor aus der
     // AppTokens-ThemeExtension — ohne Eatova-Theme wirft AppTokens.of bewusst.
     theme: buildEatovaTheme(Brightness.dark),
+    // showWeightAdjustmentSheet liest seit der i18n-Migration context.l10n.
+    locale: const Locale('de'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: Scaffold(
       body: Builder(
         builder: (context) => TextButton(

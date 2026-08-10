@@ -31,9 +31,10 @@ class RecipeDetailScreen extends StatelessWidget {
 
   void _add(BuildContext context, MealSlot slot) {
     onAddMeal(recipe.toMealResult(), slot);
+    final l10n = context.l10n;
     showAppSnack(
       context,
-      '${recipe.caloriesKcal} kcal zu ${slot.label} hinzugefügt.',
+      l10n.commonKcalAddedToSlot(recipe.caloriesKcal, slot.label(l10n)),
       icon: Icons.check_circle_rounded,
     );
   }

@@ -86,7 +86,7 @@ class TodayCalorieHero extends StatelessWidget {
                     // Festgenagelt von test/kcal_goal_consistency_test.dart.
                     Flexible(
                       child: Text(
-                        l10n.todayKcalGoalLabel(kcalThousands(goal)),
+                        l10n.todayKcalGoalLabel(kcalThousands(goal, l10n)),
                         key: const ValueKey('today-kcal-goal'),
                         textAlign: TextAlign.right,
                         style: AppType.ui(
@@ -111,7 +111,7 @@ class TodayCalorieHero extends StatelessWidget {
                       Text(
                         // Der Betrag, nicht der negative Wert: das Vorzeichen
                         // traegt die Einheit daneben.
-                        kcalThousands(remaining.abs()),
+                        kcalThousands(remaining.abs(), l10n),
                         key: const ValueKey('today-kcal-remaining'),
                         style: AppType.display(
                           66,
@@ -159,7 +159,7 @@ class TodayCalorieHero extends StatelessWidget {
                   children: <Widget>[
                     _Kachel(
                       keyValue: 'today-stat-eaten',
-                      value: kcalThousands(eaten),
+                      value: kcalThousands(eaten, l10n),
                       label: l10n.todayStatEaten,
                     ),
                     const _Trenner(),
@@ -168,7 +168,7 @@ class TodayCalorieHero extends StatelessWidget {
                       keyValue: 'today-stat-burned',
                       // Wortgleich zur alten Karte
                       // (calories_overview_card.dart:198-200).
-                      value: burned == 0 ? '—' : kcalThousands(burned),
+                      value: burned == 0 ? '—' : kcalThousands(burned, l10n),
                       label: l10n.todayStatBurned,
                     ),
                     const _Trenner(),

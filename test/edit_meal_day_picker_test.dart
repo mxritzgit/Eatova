@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
+
+final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
 // B5: Sommerzeit-Umstellung ueberspringt einen Tag — die Stelle im
 // Bearbeiten-Sheet (edit_meal_sheet.dart:514 bzw. :504 vor dem Fix).
@@ -214,6 +218,7 @@ void main() {
         editMealDayChipLabel(
           today: DateTime(2026, 3, 30),
           date: DateTime(2026, 3, 30),
+          l10n: _de,
         ),
         'Heute',
       );
@@ -221,6 +226,7 @@ void main() {
         editMealDayChipLabel(
           today: DateTime(2026, 3, 30),
           date: DateTime(2026, 3, 29),
+          l10n: _de,
         ),
         'Gestern',
       );
@@ -229,6 +235,7 @@ void main() {
         editMealDayChipLabel(
           today: DateTime(2026, 3, 30),
           date: DateTime(2026, 3, 28),
+          l10n: _de,
         ),
         'Sa',
       );
@@ -239,14 +246,22 @@ void main() {
       // kein Tag in den „Heute"/„Gestern"-Nahbereich faellt.
       expect(DateTime(2026, 3, 30).weekday, DateTime.monday);
       final today = DateTime(2026, 4, 8);
-      expect(editMealDayChipLabel(today: today, date: DateTime(2026, 3, 30)),
+      expect(
+          editMealDayChipLabel(
+              today: today, date: DateTime(2026, 3, 30), l10n: _de),
           'Mo');
       expect(
-          editMealDayChipLabel(today: today, date: DateTime(2026, 4, 5)), 'So');
+          editMealDayChipLabel(
+              today: today, date: DateTime(2026, 4, 5), l10n: _de),
+          'So');
       expect(
-          editMealDayChipLabel(today: today, date: DateTime(2026, 4, 4)), 'Sa');
+          editMealDayChipLabel(
+              today: today, date: DateTime(2026, 4, 4), l10n: _de),
+          'Sa');
       expect(
-          editMealDayChipLabel(today: today, date: DateTime(2026, 4, 3)), 'Fr');
+          editMealDayChipLabel(
+              today: today, date: DateTime(2026, 4, 3), l10n: _de),
+          'Fr');
     });
 
     test('Uhrzeiten kippen die Beschriftung nicht (Minuten um Mitternacht)', () {
@@ -256,6 +271,7 @@ void main() {
         editMealDayChipLabel(
           today: DateTime(2026, 6, 10, 0, 5),
           date: DateTime(2026, 6, 9, 23, 55),
+          l10n: _de,
         ),
         'Gestern',
       );
@@ -263,6 +279,7 @@ void main() {
         editMealDayChipLabel(
           today: DateTime(2026, 6, 10, 23, 55),
           date: DateTime(2026, 6, 10, 0, 5),
+          l10n: _de,
         ),
         'Heute',
       );
@@ -272,11 +289,15 @@ void main() {
         'beschriftet', () {
       final today = DateTime(2026, 3, 30);
       final tage = editMealPickerDays(today: today, count: pickerDays);
-      expect(editMealDayChipLabel(today: today, date: tage[0]), 'Heute');
-      expect(editMealDayChipLabel(today: today, date: tage[1]), 'Gestern');
+      expect(
+          editMealDayChipLabel(today: today, date: tage[0], l10n: _de),
+          'Heute');
+      expect(
+          editMealDayChipLabel(today: today, date: tage[1], l10n: _de),
+          'Gestern');
       for (var i = 2; i < tage.length; i++) {
         expect(
-          editMealDayChipLabel(today: today, date: tage[i]),
+          editMealDayChipLabel(today: today, date: tage[i], l10n: _de),
           isNot(anyOf('Heute', 'Gestern')),
           reason: 'Chip $i (${ymd(tage[i])}) traegt eine Nahbereichs-Label',
         );
@@ -299,6 +320,15 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(Brightness.dark),
+          // EditMealSheet liest seit der i18n-Migration context.l10n.
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           home: Scaffold(
             body: Builder(
               builder: (context) => Center(

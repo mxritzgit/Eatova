@@ -6,7 +6,19 @@ import 'meal_analysis_result.dart';
 enum MealSlot { breakfast, lunch, dinner, snack }
 
 extension MealSlotLabel on MealSlot {
-  String get label => switch (this) {
+  /// Deutscher Klartext-Name, UNABHAENGIG von der App-Sprache.
+  ///
+  /// Seit der i18n-Migration (Paket 2, 2026-08-10) NUR fuer nicht-UI-Text
+  /// gedacht, der an das KI-Modell geht (`HomeStore._todaysFoodSummary` im
+  /// `coachContext`) — die Sprache des Coach-Kontexts ist ein eigenes, noch
+  /// offenes Spec-Thema (i18n-design.md §5/§8, „Scan/Coach-PR"). Fuer
+  /// NUTZERSICHTBAREN Text IMMER `MealSlotStyle.label(l10n)`
+  /// (theme/meal_slot_style.dart) verwenden — das liest aus der ARB und
+  /// spricht die aktive Sprache. [germanLabel] war bis zur Migration die
+  /// einzige Quelle (`label`, ohne Sprachparameter); der alte Name ist
+  /// bewusst frei geworden, damit ein neuer UI-Aufruf nicht versehentlich
+  /// wieder hier landet.
+  String get germanLabel => switch (this) {
         MealSlot.breakfast => 'Frühstück',
         MealSlot.lunch => 'Mittagessen',
         MealSlot.dinner => 'Abendessen',

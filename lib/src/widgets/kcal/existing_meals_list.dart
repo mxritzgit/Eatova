@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -54,7 +55,7 @@ class ExistingMealsList extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Schon hinzugefügt',
+                  context.l10n.foodAlreadyAddedEyebrow,
                   style: AppType.eyebrow(t.ink2, size: 11),
                 ),
                 const Spacer(),
@@ -137,7 +138,7 @@ class _ExistingMealRow extends StatelessWidget {
               constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               onPressed: () => onRemove!(meal.id),
               icon: Icon(Icons.close_rounded, color: t.ink2),
-              tooltip: 'Entfernen',
+              tooltip: context.l10n.foodRemoveTooltip,
             ),
         ],
       ),
@@ -147,7 +148,7 @@ class _ExistingMealRow extends StatelessWidget {
     // Aktion ansagen, sonst bleibt der Edit-Tap unentdeckbar.
     return Semantics(
       button: true,
-      hint: 'Mahlzeit bearbeiten',
+      hint: context.l10n.foodEditMealTitle,
       child: InkWell(
         key: ValueKey('analyse-existing-edit-${meal.id}'),
         onTap: () => onEdit!(meal),

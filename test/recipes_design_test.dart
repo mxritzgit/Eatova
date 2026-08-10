@@ -20,8 +20,10 @@
 // an einer fremden Helferdatei haengen.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
@@ -68,6 +70,16 @@ Widget _app(
 }) {
   return MaterialApp(
     theme: buildEatovaTheme(brightness),
+    // RecipesScreen ruft seit der i18n-Migration (Paket 2) slot.label(l10n)
+    // fuer den Slot-Picker (recipe_slot_picker.dart) — context.l10n.
+    locale: const Locale('de'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: Scaffold(
       body: SafeArea(
         child: Padding(

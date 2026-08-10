@@ -37,10 +37,12 @@ import 'dart:async';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
@@ -196,6 +198,15 @@ void main() {
           // ThemeExtension — ohne `theme:` wird der Ausloeser
           // (`meal-camera-shutter`) gar nicht erst gebaut.
           theme: buildEatovaTheme(Brightness.dark),
+          // MealCameraSheet liest seit der i18n-Migration context.l10n.
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           home: Scaffold(
             body: Builder(
               builder: (context) => TextButton(

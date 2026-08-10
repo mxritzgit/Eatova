@@ -86,17 +86,23 @@ void main() {
 
   group('kcalThousands — verhaltensgleich zu _formatThousands', () {
     test('Tausenderpunkte ab vier Stellen', () {
-      expect(kcalThousands(0), '0');
-      expect(kcalThousands(999), '999');
-      expect(kcalThousands(1000), '1.000');
-      expect(kcalThousands(2200), '2.200');
-      expect(kcalThousands(12345), '12.345');
-      expect(kcalThousands(1234567), '1.234.567');
+      expect(kcalThousands(0, _de), '0');
+      expect(kcalThousands(999, _de), '999');
+      expect(kcalThousands(1000, _de), '1.000');
+      expect(kcalThousands(2200, _de), '2.200');
+      expect(kcalThousands(12345, _de), '12.345');
+      expect(kcalThousands(1234567, _de), '1.234.567');
     });
 
     test('das Minuszeichen steht vor der Gruppierung', () {
-      expect(kcalThousands(-1234), '-1.234');
-      expect(kcalThousands(-42), '-42');
+      expect(kcalThousands(-1234, _de), '-1.234');
+      expect(kcalThousands(-42, _de), '-42');
+    });
+
+    test('unter en steht ein Komma statt des Punkts', () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      expect(kcalThousands(2200, en), '2,200');
+      expect(kcalThousands(1234567, en), '1,234,567');
     });
   });
 
