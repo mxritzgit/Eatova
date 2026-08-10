@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/l10n.dart';
 import '../models/model_limits.dart';
 import '../models/user_profile.dart';
 import '../services/kcal_calculator.dart';
@@ -193,7 +194,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String _tempoFolge(WeightGoal option) {
     final t = const KcalCalculator()
         .calculate(_draftProfile().copyWith(weightGoal: option));
-    return 'Ergibt ${t.kcal} kcal/Tag · ${t.effectivePaceLabel}';
+    return context.l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel);
   }
 
   void _next() {
@@ -267,6 +268,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final step = _steps[_index];
     final progress = (_index + 1) / _steps.length;
     final isSummary = step == _Step.summary;
@@ -326,9 +328,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       isSummary ? 'onboarding-finish' : 'onboarding-next',
                     ),
                     label: switch (step) {
-                      _Step.intro => 'Los geht\'s',
-                      _Step.summary => 'Plan aktivieren',
-                      _ => 'Weiter',
+                      _Step.intro => l10n.onboardingStartCta,
+                      _Step.summary => l10n.onboardingActivatePlanCta,
+                      _ => l10n.onboardingNextCta,
                     },
                     onTap: _next,
                   ),
@@ -342,73 +344,74 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildStep(_Step step) {
+    final l10n = context.l10n;
     return switch (step) {
       _Step.intro => _IntroStep(firstName: widget.firstName),
       _Step.sex => _StepFrame(
-          title: 'Dein Geschlecht',
-          subtitle: 'Beeinflusst deinen Grundumsatz.',
+          title: l10n.onboardingSexStepTitle,
+          subtitle: l10n.onboardingSexStepSubtitle,
           child: _SexPicker(
             value: _sex,
             onChanged: (v) => setState(() => _sex = v),
           ),
         ),
       _Step.age => _StepFrame(
-          title: 'Wie alt bist du?',
-          subtitle: 'Der Energiebedarf sinkt mit dem Alter.',
+          title: l10n.onboardingAgeStepTitle,
+          subtitle: l10n.onboardingAgeStepSubtitle,
           child: _NumberPicker(
             field: 'age',
             value: _age,
             min: ProfileLimits.ageYearsMin,
             max: ProfileLimits.ageYearsMax,
-            unit: 'Jahre',
+            unit: l10n.onboardingUnitYears,
             onChanged: (v) => setState(() => _age = v),
           ),
         ),
       _Step.height => _StepFrame(
-          title: 'Deine Größe',
-          subtitle: 'Für die Bedarfs- und Schrittberechnung.',
+          title: l10n.onboardingHeightStepTitle,
+          subtitle: l10n.onboardingHeightStepSubtitle,
           child: _NumberPicker(
             field: 'height',
             value: _height,
             min: ProfileLimits.heightCmMin,
             max: ProfileLimits.heightCmMax,
-            unit: 'cm',
+            unit: l10n.commonUnitCm,
             onChanged: (v) => setState(() => _height = v),
           ),
         ),
       _Step.weight => _StepFrame(
-          title: 'Dein aktuelles Gewicht',
-          subtitle: 'Startpunkt für deinen Plan.',
+          title: l10n.onboardingWeightStepTitle,
+          subtitle: l10n.onboardingWeightStepSubtitle,
           child: _NumberPicker(
             field: 'weight',
             value: _weight,
             min: ProfileLimits.weightKgMin,
             max: ProfileLimits.weightKgMax,
-            unit: 'kg',
+            unit: l10n.commonUnitKg,
             onChanged: (v) => setState(() => _weight = v),
           ),
         ),
       _Step.activity => _StepFrame(
-          title: 'Wie aktiv bist du?',
-          subtitle: 'Dein Alltag ohne gezähltes Training.',
+          title: l10n.onboardingActivityStepTitle,
+          subtitle: l10n.onboardingActivityStepSubtitle,
           child: _ActivityPicker(
             value: _activity,
             onChanged: (v) => setState(() => _activity = v),
           ),
         ),
       _Step.goal => _StepFrame(
-          title: 'Was ist dein Ziel?',
-          subtitle: 'Bestimmt deine tägliche Kalorienmenge.',
+          title: l10n.onboardingGoalStepTitle,
+          subtitle: l10n.onboardingGoalStepSubtitle,
           child: _GoalPicker(
             value: _direction,
             onChanged: _onDirectionChosen,
           ),
         ),
       _Step.target => _StepFrame(
-          title: 'Dein Wunschgewicht',
+          title: l10n.onboardingTargetStepTitle,
           subtitle: _direction == _GoalDirection.lose
-              ? 'Wohin willst du abnehmen?'
-              : 'Wohin willst du aufbauen?',
+              ? l10n.onboardingTargetStepSubtitleLose
+              : l10n.onboardingTargetStepSubtitleGain,
           child: Column(
             children: [
               _NumberPicker(
@@ -416,10 +419,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 value: _target,
                 min: _targetMin,
                 max: _targetMax,
-                unit: 'kg',
+                unit: l10n.commonUnitKg,
                 onChanged: (v) => setState(() => _target = v),
-                footnote: '${(_weight - _target).abs()} kg '
-                    '${_direction == _GoalDirection.lose ? 'abnehmen' : 'zunehmen'}',
+                footnote: _direction == _GoalDirection.lose
+                    ? l10n.onboardingTargetFootnoteLose(
+                        (_weight - _target).abs())
+                    : l10n.onboardingTargetFootnoteGain(
+                        (_weight - _target).abs()),
               ),
               // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze wie
               // im Settings-Sheet (unter 18,5 / über 35).
@@ -432,10 +438,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ),
       _Step.pace => _StepFrame(
-          title: 'Welches Tempo?',
+          title: l10n.onboardingPaceStepTitle,
           subtitle: _direction == _GoalDirection.lose
-              ? 'Wie schnell willst du abnehmen?'
-              : 'Wie schnell willst du aufbauen?',
+              ? l10n.onboardingPaceStepSubtitleLose
+              : l10n.onboardingPaceStepSubtitleGain,
           child: _PacePicker(
             options: _direction == _GoalDirection.lose
                 ? lossPaceGoals
@@ -452,9 +458,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
         ),
       _Step.diet => _StepFrame(
-          title: 'Ernährungsweise?',
-          subtitle: 'Wir empfehlen dir passende Rezepte. '
-              'Durchsuchen kannst du immer alle.',
+          title: l10n.onboardingDietStepTitle,
+          subtitle: l10n.onboardingDietStepSubtitle,
           child: _DietPicker(
             value: _diet,
             onChanged: (v) => setState(() => _diet = v),
@@ -500,7 +505,7 @@ class _Header extends StatelessWidget {
                   onTap: onBack,
                   // Umlaut, kein „ue": ein Semantics-Label ist GESPROCHENER
                   // Text (vgl. PageHeader in widgets/design/rows.dart).
-                  semanticLabel: 'Zurück',
+                  semanticLabel: context.l10n.onboardingBackSemanticLabel,
                 )
               : const SizedBox.shrink(),
         ),
@@ -573,6 +578,7 @@ class _IntroStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -588,13 +594,12 @@ class _IntroStep extends StatelessWidget {
         ),
         const SizedBox(height: 28),
         Text(
-          'Willkommen, $firstName.',
+          l10n.onboardingWelcomeTitle(firstName),
           style: AppType.display(30, color: t.ink, height: 1.08),
         ),
         const SizedBox(height: 12),
         Text(
-          'In 6 kurzen Schritten berechnen wir dein persönliches Tagesziel — '
-          'genau abgestimmt auf deinen Körper und dein Wunschgewicht.',
+          l10n.onboardingWelcomeBody,
           style: AppType.ui(
             15,
             weight: FontWeight.w500,
@@ -603,19 +608,19 @@ class _IntroStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 32),
-        const _IntroBullet(
+        _IntroBullet(
           icon: Icons.calculate_rounded,
-          text: 'Wissenschaftliche Mifflin-St-Jeor-Formel',
+          text: l10n.onboardingBulletFormula,
         ),
         const SizedBox(height: 14),
-        const _IntroBullet(
+        _IntroBullet(
           icon: Icons.local_fire_department_rounded,
-          text: 'Kalorien & Makros automatisch gesetzt',
+          text: l10n.onboardingBulletAutoMacros,
         ),
         const SizedBox(height: 14),
-        const _IntroBullet(
+        _IntroBullet(
           icon: Icons.tune_rounded,
-          text: 'Jederzeit in den Einstellungen anpassbar',
+          text: l10n.onboardingBulletAdjustable,
         ),
       ],
     );
@@ -664,10 +669,11 @@ class _SexPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    const labels = {
-      BiologicalSex.male: ('Männlich', Icons.male_rounded),
-      BiologicalSex.female: ('Weiblich', Icons.female_rounded),
-      BiologicalSex.neutral: ('Divers', Icons.person_rounded),
+    final l10n = context.l10n;
+    final labels = {
+      BiologicalSex.male: (l10n.onboardingSexMale, Icons.male_rounded),
+      BiologicalSex.female: (l10n.onboardingSexFemale, Icons.female_rounded),
+      BiologicalSex.neutral: (l10n.onboardingSexNeutral, Icons.person_rounded),
     };
     return Row(
       children: [
@@ -719,6 +725,7 @@ class _ActivityPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Column(
       children: [
         for (final level in ActivityLevel.values) ...[
@@ -726,8 +733,8 @@ class _ActivityPicker extends StatelessWidget {
             keyValue: ValueKey('onboarding-activity-${level.name}'),
             selected: value == level,
             onTap: () => onChanged(level),
-            title: level.label,
-            subtitle: level.description,
+            title: level.label(l10n),
+            subtitle: level.description(l10n),
             trailing: '×${level.palFactor}',
           ),
           if (level != ActivityLevel.values.last) const SizedBox(height: 10),
@@ -745,10 +752,27 @@ class _GoalPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const items = {
-      _GoalDirection.lose: ('Abnehmen', 'Fett verlieren, Defizit', Icons.trending_down_rounded),
-      _GoalDirection.maintain: ('Gewicht halten', 'Form & Energie stabil', Icons.trending_flat_rounded),
-      _GoalDirection.gain: ('Zunehmen', 'Muskeln aufbauen, Überschuss', Icons.trending_up_rounded),
+    final l10n = context.l10n;
+    // Die Direction-Labels ('Abnehmen'/'Gewicht halten'/'Zunehmen') sind
+    // BYTE-IDENTISCH zu [WeightGoalInfo.label] fuer die jeweils passende
+    // [WeightGoal]-Auspraegung — dieselben ARB-Keys werden hier bewusst
+    // wiederverwendet statt eigene, doppelte Onboarding-Keys anzulegen.
+    final items = {
+      _GoalDirection.lose: (
+        l10n.commonWeightGoalLabelLose,
+        l10n.onboardingGoalDescLose,
+        Icons.trending_down_rounded,
+      ),
+      _GoalDirection.maintain: (
+        l10n.commonWeightGoalLabelMaintain,
+        l10n.onboardingGoalDescMaintain,
+        Icons.trending_flat_rounded,
+      ),
+      _GoalDirection.gain: (
+        l10n.commonWeightGoalLabelGain,
+        l10n.onboardingGoalDescGain,
+        Icons.trending_up_rounded,
+      ),
     };
     return Column(
       children: [
@@ -776,6 +800,7 @@ class _DietPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     const icons = {
       DietPreference.none: Icons.restaurant_rounded,
       DietPreference.vegetarian: Icons.spa_rounded,
@@ -789,8 +814,8 @@ class _DietPicker extends StatelessWidget {
             keyValue: ValueKey('onboarding-diet-${diet.name}'),
             selected: value == diet,
             onTap: () => onChanged(diet),
-            title: diet.label,
-            subtitle: diet.description,
+            title: diet.label(l10n),
+            subtitle: diet.description(l10n),
             leadingIcon: icons[diet],
           ),
           if (diet != DietPreference.values.last) const SizedBox(height: 10),
@@ -817,17 +842,20 @@ class _PacePicker extends StatelessWidget {
 
   final ValueChanged<WeightGoal> onChanged;
 
-  static const _paceNames = {
-    WeightGoal.lose025kg: 'Sanft',
-    WeightGoal.lose05kg: 'Moderat',
-    WeightGoal.lose075kg: 'Zügig',
-    WeightGoal.lose1kg: 'Ambitioniert',
-    WeightGoal.gain025kg: 'Sanft',
-    WeightGoal.gain05kg: 'Ambitioniert',
-  };
+  static String? _paceName(AppLocalizations l10n, WeightGoal goal) =>
+      switch (goal) {
+        WeightGoal.lose025kg => l10n.onboardingPaceNameSanft,
+        WeightGoal.lose05kg => l10n.onboardingPaceNameModerat,
+        WeightGoal.lose075kg => l10n.onboardingPaceNameZuegig,
+        WeightGoal.lose1kg => l10n.onboardingPaceNameAmbitioniert,
+        WeightGoal.gain025kg => l10n.onboardingPaceNameSanft,
+        WeightGoal.gain05kg => l10n.onboardingPaceNameAmbitioniert,
+        _ => null,
+      };
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Column(
       children: [
         for (final goal in options) ...[
@@ -835,7 +863,10 @@ class _PacePicker extends StatelessWidget {
             keyValue: ValueKey('onboarding-pace-${goal.name}'),
             selected: value == goal,
             onTap: () => onChanged(goal),
-            title: '${_paceNames[goal] ?? 'Tempo'} · ${goal.paceLabel}',
+            title: l10n.onboardingPaceOptionTitle(
+              _paceName(l10n, goal) ?? l10n.onboardingPaceNameFallback,
+              goal.paceLabel,
+            ),
             subtitle: outcomeFor(goal),
           ),
           if (goal != options.last) const SizedBox(height: 10),
@@ -1159,6 +1190,7 @@ class _SummaryStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     // [targets] ist aus genau diesem Profil berechnet — durchreichen statt
     // `calculate` ein zweites Mal laufen zu lassen.
     final weeks = const KcalCalculator().weeksToGoal(profile, targets: targets);
@@ -1170,10 +1202,11 @@ class _SummaryStep extends StatelessWidget {
     // Dann lieber gar keine Zahl als eine erfundene; das Warum steht direkt
     // darueber in [KcalTargets.paceWarning].
     final timeline = switch (goal) {
-      WeightGoal.maintain => 'Du hältst dein Gewicht von ${profile.weightKg} kg.',
+      WeightGoal.maintain =>
+        l10n.onboardingTimelineMaintain(profile.weightKg),
       _ when weeks != null =>
-        '${profile.targetWeightKg} kg in ca. $weeks Wochen erreichbar.',
-      _ => 'Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.',
+        l10n.onboardingTimelineEstimate(profile.targetWeightKg, weeks),
+      _ => l10n.onboardingTimelineUnknown,
     };
 
     final t = context.t;
@@ -1181,12 +1214,12 @@ class _SummaryStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Dein Plan steht, $firstName.',
+          l10n.onboardingSummaryTitle(firstName),
           style: AppType.display(28, color: t.ink, height: 1.08),
         ),
         const SizedBox(height: 8),
         Text(
-          'Das ist dein empfohlenes Tagesziel.',
+          l10n.onboardingSummarySubtitle,
           style: AppType.ui(
             14,
             weight: FontWeight.w500,
@@ -1216,7 +1249,7 @@ class _SummaryStep extends StatelessWidget {
                 child: Column(
                   children: [
                     Text(
-                      'TÄGLICHES KALORIENZIEL',
+                      l10n.onboardingSummaryKcalEyebrow,
                       textAlign: TextAlign.center,
                       style: AppType.eyebrow(
                         t.onForest.withValues(alpha: 0.70),
@@ -1242,7 +1275,7 @@ class _SummaryStep extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 7),
                           child: Text(
-                            'kcal',
+                            l10n.commonKcalUnit,
                             style: AppType.ui(
                               16,
                               weight: FontWeight.w700,
@@ -1264,20 +1297,20 @@ class _SummaryStep extends StatelessWidget {
         Row(
           children: [
             _MacroChip(
-              label: 'Protein',
-              value: '${targets.proteinG} g',
+              label: l10n.todayMacroProtein,
+              value: '${targets.proteinG} ${l10n.commonUnitG}',
               color: t.protein,
             ),
             const SizedBox(width: 12),
             _MacroChip(
-              label: 'Carbs',
-              value: '${targets.carbsG} g',
+              label: l10n.foodMacroTileCarbsLabel,
+              value: '${targets.carbsG} ${l10n.commonUnitG}',
               color: t.carbs,
             ),
             const SizedBox(width: 12),
             _MacroChip(
-              label: 'Fett',
-              value: '${targets.fatG} g',
+              label: l10n.todayMacroFat,
+              value: '${targets.fatG} ${l10n.commonUnitG}',
               color: t.fat,
             ),
           ],
@@ -1290,13 +1323,15 @@ class _SummaryStep extends StatelessWidget {
           child: Column(
             children: [
               _BreakdownRow(
-                label: 'Grundumsatz (BMR)',
-                value: '${targets.bmr} kcal',
+                label: l10n.onboardingSummaryBmrLabel,
+                value: '${targets.bmr} ${l10n.commonKcalUnit}',
               ),
               const _BreakdownDivider(),
               _BreakdownRow(
-                label: 'Erhaltungsbedarf · ${profile.activityLevel.label}',
-                value: '${targets.maintenanceKcal} kcal',
+                label: l10n.onboardingSummaryMaintenanceLabel(
+                  profile.activityLevel.label(l10n),
+                ),
+                value: '${targets.maintenanceKcal} ${l10n.commonKcalUnit}',
                 valueKey: const ValueKey('onboarding-summary-maintenance'),
               ),
               const _BreakdownDivider(),
@@ -1307,7 +1342,9 @@ class _SummaryStep extends StatelessWidget {
               // Karte auch arithmetisch auf: Erhaltung − Tagesziel = Delta.
               _BreakdownRow(
                 key: const ValueKey('onboarding-summary-goal-row'),
-                label: 'Ziel · ${targets.effectivePaceLabel}',
+                label: l10n.onboardingSummaryGoalLabel(
+                  targets.effectivePaceLabel,
+                ),
                 value: _signedKcalLabel(targets.effectiveKcalDelta),
                 highlight: targets.effectiveKcalDelta != 0,
               ),
@@ -1379,8 +1416,7 @@ class _SummaryStep extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Schätzung nach Mifflin-St Jeor. Werte sind jederzeit unter '
-          'Profil › Einstellungen anpassbar.',
+          l10n.onboardingSummaryFootnote,
           style: AppType.ui(
             12,
             weight: FontWeight.w500,

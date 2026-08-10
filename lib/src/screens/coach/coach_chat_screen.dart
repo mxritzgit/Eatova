@@ -467,6 +467,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     final text = typedText.trim();
     final hasImage = imageBytes != null && imageBytes.isNotEmpty;
     if (svc == null || sessionId == null || _sending || (text.isEmpty && !hasImage)) return;
+    // Der Service haelt bewusst keinen BuildContext (s. `coach_chat_service.dart`)
+    // — hier, unmittelbar vor dem Sendeversuch, ist `l10n` frisch aus dem
+    // Context gelesen und wird nur fuer die Fallback-Fehlertexte gebraucht.
+    svc.l10n = l10n;
     // Nur ein bekanntermassen leeres Kontingent blockt hier. Ist der Stand
     // unbekannt, laeuft der Versuch bewusst zum Server — der weiss es genau
     // und antwortet notfalls mit 429 (-> CoachQuotaExceeded weiter unten).

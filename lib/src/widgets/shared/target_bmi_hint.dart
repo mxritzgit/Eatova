@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 
 // ---------------------------------------------------------------------------
@@ -30,17 +31,31 @@ double? targetBmi({required int heightCm, required int targetWeightKg}) {
 ///
 /// Grenzfälle: exakt 18,5 und exakt 35,0 lösen KEINEN Hinweis aus — nur
 /// Werte strikt darunter bzw. strikt darüber.
-String? targetBmiHintText({required int heightCm, required int targetWeightKg}) {
+///
+/// [l10n] ist optional (Default Deutsch, [deL10n]): `test/target_bmi_hint_test.dart`
+/// ruft diese Funktion als Test-API weiterhin kontextfrei und pumpt feste
+/// deutsche Erwartungstexte (DESIGN_REFACTOR §6) — der [TargetBmiHint]-Widget
+/// reicht sein `context.l10n` durch.
+String? targetBmiHintText({
+  required int heightCm,
+  required int targetWeightKg,
+  AppLocalizations? l10n,
+}) {
   final bmi = targetBmi(heightCm: heightCm, targetWeightKg: targetWeightKg);
   if (bmi == null) return null;
+  final t = l10n ?? deL10n;
+  // Zahlenformat bleibt bewusst deutsch (Komma), unabhaengig von [l10n]: das
+  // spiegelt denselben, bereits bestehenden Stand wie `_formatRateKg` in
+  // `user_profile.dart`/`kcal_calculator.dart` (dokumentierte Ripple-Uebergabe,
+  // s. Paket-6-Bericht) — eine echte `intl`-Anbindung braeuchte dieselbe
+  // Ueberarbeitung an allen drei Stellen gleichzeitig, sonst mischt die App
+  // zwei Zahlenformate.
   final formatted = bmi.toStringAsFixed(1).replaceAll('.', ',');
   if (bmi < kBmiUnderweightThreshold) {
-    return 'Dieses Zielgewicht entspräche einem BMI von $formatted — das '
-        'liegt unterhalb des als gesund geltenden Bereichs.';
+    return t.targetBmiHintUnderweight(formatted);
   }
   if (bmi > kBmiUpperHintThreshold) {
-    return 'Dieses Zielgewicht entspräche einem BMI von $formatted — das '
-        'liegt oberhalb des als gesund geltenden Bereichs.';
+    return t.targetBmiHintOverweight(formatted);
   }
   return null;
 }
@@ -67,6 +82,7 @@ class TargetBmiHint extends StatelessWidget {
     final text = targetBmiHintText(
       heightCm: heightCm,
       targetWeightKg: targetWeightKg,
+      l10n: context.l10n,
     );
     if (text == null) return const SizedBox.shrink();
 

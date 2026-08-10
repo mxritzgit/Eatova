@@ -365,7 +365,7 @@ class BmiCard extends StatelessWidget {
               _BodyMetric(
                 icon: Icons.cake_outlined,
                 label: '${l10n.profileAgeAbbreviation(profile.ageYears)} · '
-                    '${profile.sex.label}',
+                    '${profile.sex.label(l10n)}',
               ),
             ],
           ),

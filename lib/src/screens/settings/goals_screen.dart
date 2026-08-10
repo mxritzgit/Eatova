@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/home_store.dart' show ReminderState;
+import '../../l10n/l10n.dart';
 import '../../models/model_limits.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
@@ -165,26 +166,29 @@ class _GoalsScreenState extends State<GoalsScreen> {
   // klemmen schriebe eine Zahl ins Profil, die der Nutzer nie gemeint hat.
   // Die Grenzen stammen aus den echten SQL-Migrationen (model_limits.dart).
 
-  static const String _bereichKg =
-      '${ProfileLimits.weightKgMin}–${ProfileLimits.weightKgMax} kg '
-      '(ganze Zahl)';
-  static const String _bereichCm =
-      '${ProfileLimits.heightCmMin}–${ProfileLimits.heightCmMax} cm';
-  static const String _bereichAlter =
-      '${ProfileLimits.ageYearsMin}–${ProfileLimits.ageYearsMax} Jahre';
-  static const String _bereichSchritte =
-      '${ProfileLimits.dailyStepsGoalMin}–${ProfileLimits.dailyStepsGoalMax}';
-  static const String _bereichWasser =
-      '${ProfileLimits.dailyWaterGoalMlMin}–'
-      '${ProfileLimits.dailyWaterGoalMlMax} ml';
-  static const String _bereichKcal =
-      '${ProfileLimits.dailyKcalGoalMin}–${ProfileLimits.dailyKcalGoalMax} kcal';
-  static const String _bereichProtein =
-      '${ProfileLimits.proteinGoalGMin}–${ProfileLimits.proteinGoalGMax} g';
-  static const String _bereichCarbs =
-      '${ProfileLimits.carbsGoalGMin}–${ProfileLimits.carbsGoalGMax} g';
-  static const String _bereichFett =
-      '${ProfileLimits.fatGoalGMin}–${ProfileLimits.fatGoalGMax} g';
+  // Alle sechs `_bereichXxx`-Getter interpolieren ihre Zahlen weiterhin aus
+  // [ProfileLimits] (bewusst so, NICHT literalisieren — s. Klassendoku) —
+  // seit der i18n-Migration (Paket 6) ueber ARB-Keys mit {min}/{max}-
+  // Platzhaltern statt `static const String`, damit sie `context.l10n`
+  // erreichen. `settings_validation_test.dart` bleibt unter `de` byte-gleich.
+  String get _bereichKg => context.l10n
+      .settingsRangeErrorKg(ProfileLimits.weightKgMin, ProfileLimits.weightKgMax);
+  String get _bereichCm => context.l10n
+      .settingsRangeErrorCm(ProfileLimits.heightCmMin, ProfileLimits.heightCmMax);
+  String get _bereichAlter => context.l10n.settingsRangeErrorYears(
+      ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax);
+  String get _bereichSchritte => context.l10n.settingsRangeErrorSteps(
+      ProfileLimits.dailyStepsGoalMin, ProfileLimits.dailyStepsGoalMax);
+  String get _bereichWasser => context.l10n.settingsRangeErrorMl(
+      ProfileLimits.dailyWaterGoalMlMin, ProfileLimits.dailyWaterGoalMlMax);
+  String get _bereichKcal => context.l10n.settingsRangeErrorKcal(
+      ProfileLimits.dailyKcalGoalMin, ProfileLimits.dailyKcalGoalMax);
+  String get _bereichProtein => context.l10n.settingsRangeErrorGrams(
+      ProfileLimits.proteinGoalGMin, ProfileLimits.proteinGoalGMax);
+  String get _bereichCarbs => context.l10n.settingsRangeErrorGrams(
+      ProfileLimits.carbsGoalGMin, ProfileLimits.carbsGoalGMax);
+  String get _bereichFett => context.l10n
+      .settingsRangeErrorGrams(ProfileLimits.fatGoalGMin, ProfileLimits.fatGoalGMax);
 
   /// Fehlertext des Feldes oder `null`, wenn der Wert so in die DB darf.
   String? _fehler(
@@ -193,7 +197,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     String bereich,
   ) {
     final text = c.text.trim();
-    if (text.isEmpty) return 'Bitte ausfüllen';
+    if (text.isEmpty) return context.l10n.settingsFieldRequired;
     final wert = int.tryParse(text);
     if (wert == null || !gueltig(wert)) return bereich;
     return null;
@@ -292,10 +296,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// jede gerechnete Zahl eine Behauptung ueber etwas, das der Schalter gerade
   /// abgeschaltet hat.
   String _zielFolge(WeightGoal option) {
-    if (_manualEnergy) return 'Ändert dein manuelles Tagesziel nicht';
+    if (_manualEnergy) return context.l10n.goalsManualNoChangeHint;
     final t = const KcalCalculator()
         .calculate(_draftForCalc().copyWith(weightGoal: option));
-    return 'Ergibt ${t.kcal} kcal/Tag · ${t.effectivePaceLabel}';
+    return context.l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel);
   }
 
   /// Die Zeile unter der Gewichtsziel-Zeile — `null`, solange dort dieselbe
@@ -309,7 +313,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       wochenrateKg(tagesziel: tagesziel, erhaltung: t.maintenanceKcal),
     );
     if (label == _goal.paceLabel) return null;
-    return 'Ergibt $tagesziel kcal/Tag · $label';
+    return context.l10n.commonKcalOutcomeLabel(tagesziel, label);
   }
 
   UserProfile _buildProfile() {
@@ -377,13 +381,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// Text zum aktuellen Erinnerungs-Zustand (D11). Drei Zustaende, drei Saetze
   /// — „blockiert" ist ausdruecklich kein Fehler, sondern eine Systemeinstellung.
   String get _reminderText => switch (_reminder) {
-        ReminderState.off =>
-          'Aus. Schalter umlegen, um lokale Erinnerungen zu aktivieren.',
-        ReminderState.active =>
-          'Aktiv. Jeden Abend um 20 Uhr, wenn du noch nichts geloggt hast.',
-        ReminderState.blocked =>
-          'Vom System blockiert. Eatova darf keine Mitteilungen senden — '
-              'erlaube sie in den Systemeinstellungen.',
+        ReminderState.off => context.l10n.goalsReminderTextOff,
+        ReminderState.active => context.l10n.goalsReminderTextActive,
+        ReminderState.blocked => context.l10n.goalsReminderTextBlocked,
       };
 
   /// Bei Live-Modus die Energie-Felder mit der frischen Berechnung füllen,
@@ -455,7 +455,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         hour: _sleepGoalMinutes ~/ 60,
         minute: _sleepGoalMinutes % 60,
       ),
-      helpText: 'Schlafziel',
+      helpText: context.l10n.goalsFieldSleep,
     );
     if (gewaehlt == null || !mounted) return;
     // Der Time-Picker laesst 0:00 bis 23:59 zu, `daily_sleep_goal_minutes` nur
@@ -471,6 +471,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final ziele = _liveTargets;
     final heroKcal = _manualEnergy
         ? _wertOder(_kcal, isValidDailyKcalGoal, ziele.kcal)
@@ -512,14 +513,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  const PageHeader(
-                    large: 'Profil & Ziele',
-                    backKey: ValueKey('settings-close'),
+                  PageHeader(
+                    large: l10n.goalsPageTitle,
+                    backKey: const ValueKey('settings-close'),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'Wir berechnen dein Tagesziel aus Körper, Aktivität und '
-                    'Ziel.',
+                    l10n.goalsIntroHint,
                     style: AppType.ui(12.5, color: t.ink2, height: 1.45),
                   ),
                   const SizedBox(height: 18),
@@ -539,9 +539,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   ..._erinnerungenGruppe(t),
                   if (_hatFehler) ...<Widget>[
                     SettingsNote(
-                      'Bitte die rot markierten Felder korrigieren — solange '
-                      'sie außerhalb des erlaubten Bereichs liegen, lässt sich '
-                      'nicht speichern.',
+                      l10n.goalsValidationSummary,
                       key: const ValueKey('settings-validation-note'),
                       tone: t.danger,
                       icon: Icons.error_outline_rounded,
@@ -570,7 +568,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       opacity: _hatFehler ? 0.4 : 1,
                       child: PrimaryActionButton(
                         key: const ValueKey('settings-save'),
-                        label: 'Speichern',
+                        label: l10n.commonSave,
                         icon: Icons.check_rounded,
                         onTap: _hatFehler ? null : _save,
                       ),
@@ -589,49 +587,53 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   // --- Gruppen --------------------------------------------------------------
 
-  List<Widget> _koerperGruppe() => <Widget>[
-        SettingsGroup(
-          label: 'KÖRPER',
-          children: <Widget>[
-            SettingsNumberRow(
-              label: 'Gewicht',
-              suffix: 'kg',
-              controller: _weight,
-              fieldKey: const ValueKey('settings-weight'),
-              errorText: _weightError,
-              onChanged: (_) => _recompute(),
-            ),
-            SettingsNumberRow(
-              label: 'Größe',
-              suffix: 'cm',
-              controller: _height,
-              fieldKey: const ValueKey('settings-height'),
-              errorText: _heightError,
-              onChanged: (_) => _recompute(),
-            ),
-            SettingsNumberRow(
-              label: 'Alter',
-              suffix: 'J.',
-              controller: _age,
-              fieldKey: const ValueKey('settings-age'),
-              errorText: _ageError,
-              onChanged: (_) => _recompute(),
-            ),
-            SettingsRow(
-              key: const ValueKey('settings-sex'),
-              title: 'Geschlecht',
-              value: _sex.label,
-              onTap: _pickSex,
-            ),
-          ],
-        ),
-      ];
+  List<Widget> _koerperGruppe() {
+    final l10n = context.l10n;
+    return <Widget>[
+      SettingsGroup(
+        label: l10n.goalsGroupBody,
+        children: <Widget>[
+          SettingsNumberRow(
+            label: l10n.goalsFieldWeight,
+            suffix: l10n.commonUnitKg,
+            controller: _weight,
+            fieldKey: const ValueKey('settings-weight'),
+            errorText: _weightError,
+            onChanged: (_) => _recompute(),
+          ),
+          SettingsNumberRow(
+            label: l10n.goalsFieldHeight,
+            suffix: l10n.commonUnitCm,
+            controller: _height,
+            fieldKey: const ValueKey('settings-height'),
+            errorText: _heightError,
+            onChanged: (_) => _recompute(),
+          ),
+          SettingsNumberRow(
+            label: l10n.goalsFieldAge,
+            suffix: l10n.goalsUnitAgeAbbrev,
+            controller: _age,
+            fieldKey: const ValueKey('settings-age'),
+            errorText: _ageError,
+            onChanged: (_) => _recompute(),
+          ),
+          SettingsRow(
+            key: const ValueKey('settings-sex'),
+            title: l10n.goalsFieldSex,
+            value: _sex.label(l10n),
+            onTap: _pickSex,
+          ),
+        ],
+      ),
+    ];
+  }
 
   List<Widget> _zielGruppe({
     required int heroKcal,
     required KcalTargets ziele,
   }) {
     final t = context.t;
+    final l10n = context.l10n;
     final p = widget.profile;
     final bmiHeight = _wertOder(_height, isValidProfileHeightCm, p.heightCm);
     final bmiTarget = _wertOder(
@@ -652,18 +654,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
     return <Widget>[
       SettingsGroup(
-        label: 'AKTIVITÄT & ZIEL',
+        label: l10n.goalsGroupActivityGoal,
         children: <Widget>[
           SettingsRow(
             key: const ValueKey('settings-activity'),
-            title: 'Aktivitätslevel',
-            subtitle: 'Bestimmt deinen Kalorienbedarf.',
-            value: '${_activity.label} · ×${_activity.palFactor}',
+            title: l10n.goalsFieldActivity,
+            subtitle: l10n.goalsFieldActivitySubtitle,
+            value: '${_activity.label(l10n)} · ×${_activity.palFactor}',
             onTap: _pickActivity,
           ),
           SettingsNumberRow(
-            label: 'Wunschgewicht',
-            suffix: 'kg',
+            label: l10n.goalsFieldTargetWeight,
+            suffix: l10n.commonUnitKg,
             controller: _targetWeight,
             fieldKey: const ValueKey('settings-target-weight'),
             errorText: _targetWeightError,
@@ -684,8 +686,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
             children: <Widget>[
               SettingsRow(
                 key: const ValueKey('settings-weight-goal'),
-                title: 'Gewichtsziel',
-                subtitle: _goal.label,
+                title: l10n.goalsFieldWeightGoal,
+                subtitle: _goal.label(l10n),
                 // Bleibt das GEWAEHLTE Tempo: die Zeile muss zeigen, was der
                 // Nutzer getippt hat. Was daraus wird, steht darunter.
                 value: _goal.paceLabel,
@@ -715,81 +717,82 @@ class _GoalsScreenState extends State<GoalsScreen> {
     ];
   }
 
-  List<Widget> _energieGruppe() => <Widget>[
-        SettingsGroup(
-          label: 'ENERGIE & MAKROS',
-          children: <Widget>[
-            SettingsRow(
-              title: 'Manuell',
-              chevron: false,
-              trailing: AppToggle(
-                key: const ValueKey('settings-manual-energy'),
-                value: _manualEnergy,
-                onChanged: _toggleManual,
-                semanticLabel: 'Energie & Makros manuell setzen',
-              ),
+  List<Widget> _energieGruppe() {
+    final l10n = context.l10n;
+    return <Widget>[
+      SettingsGroup(
+        label: l10n.goalsGroupEnergyMacros,
+        children: <Widget>[
+          SettingsRow(
+            title: l10n.goalsFieldManual,
+            chevron: false,
+            trailing: AppToggle(
+              key: const ValueKey('settings-manual-energy'),
+              value: _manualEnergy,
+              onChanged: _toggleManual,
+              semanticLabel: l10n.goalsManualSemanticLabel,
             ),
-            if (!_manualEnergy)
-              const SettingsNote(
-                'Automatisch aus deinem Ziel berechnet. Schalter umlegen, '
-                'um kcal und Makros von Hand zu setzen.',
-              )
-            else ...<Widget>[
-              SettingsNumberRow(
-                label: 'Kcal Ziel',
-                suffix: 'kcal',
-                controller: _kcal,
-                fieldKey: const ValueKey('settings-kcal'),
-                errorText: _kcalError,
-                onChanged: (_) => setState(() {}),
-              ),
-              SettingsNumberRow(
-                label: 'Protein',
-                suffix: 'g',
-                controller: _protein,
-                fieldKey: const ValueKey('settings-protein'),
-                errorText: _proteinError,
-                onChanged: (_) => setState(() {}),
-              ),
-              SettingsNumberRow(
-                label: 'Carbs',
-                suffix: 'g',
-                controller: _carbs,
-                fieldKey: const ValueKey('settings-carbs'),
-                errorText: _carbsError,
-                onChanged: (_) => setState(() {}),
-              ),
-              SettingsNumberRow(
-                label: 'Fett',
-                suffix: 'g',
-                controller: _fat,
-                fieldKey: const ValueKey('settings-fat'),
-                errorText: _fatError,
-                onChanged: (_) => setState(() {}),
-              ),
-            ],
+          ),
+          if (!_manualEnergy)
+            SettingsNote(l10n.goalsAutoNote)
+          else ...<Widget>[
+            SettingsNumberRow(
+              label: l10n.goalsFieldKcalGoal,
+              suffix: l10n.commonKcalUnit,
+              controller: _kcal,
+              fieldKey: const ValueKey('settings-kcal'),
+              errorText: _kcalError,
+              onChanged: (_) => setState(() {}),
+            ),
+            SettingsNumberRow(
+              label: l10n.todayMacroProtein,
+              suffix: l10n.commonUnitG,
+              controller: _protein,
+              fieldKey: const ValueKey('settings-protein'),
+              errorText: _proteinError,
+              onChanged: (_) => setState(() {}),
+            ),
+            SettingsNumberRow(
+              label: l10n.foodMacroTileCarbsLabel,
+              suffix: l10n.commonUnitG,
+              controller: _carbs,
+              fieldKey: const ValueKey('settings-carbs'),
+              errorText: _carbsError,
+              onChanged: (_) => setState(() {}),
+            ),
+            SettingsNumberRow(
+              label: l10n.todayMacroFat,
+              suffix: l10n.commonUnitG,
+              controller: _fat,
+              fieldKey: const ValueKey('settings-fat'),
+              errorText: _fatError,
+              onChanged: (_) => setState(() {}),
+            ),
           ],
-        ),
-      ];
+        ],
+      ),
+    ];
+  }
 
   List<Widget> _tageszieleGruppe() {
+    final l10n = context.l10n;
     final stunden = _sleepGoalMinutes ~/ 60;
     final rest = _sleepGoalMinutes % 60;
     return <Widget>[
       SettingsGroup(
-        label: 'TAGESZIELE',
+        label: l10n.goalsGroupDailyTargets,
         children: <Widget>[
           SettingsNumberRow(
-            label: 'Schritte',
-            suffix: '/Tag',
+            label: l10n.goalsFieldSteps,
+            suffix: l10n.goalsUnitPerDay,
             controller: _steps,
             fieldKey: const ValueKey('settings-steps-goal'),
             errorText: _stepsError,
             onChanged: (_) => setState(() {}),
           ),
           SettingsNumberRow(
-            label: 'Wasser',
-            suffix: 'ml',
+            label: l10n.goalsFieldWater,
+            suffix: l10n.commonUnitMl,
             controller: _water,
             fieldKey: const ValueKey('settings-water'),
             errorText: _waterError,
@@ -797,67 +800,70 @@ class _GoalsScreenState extends State<GoalsScreen> {
           ),
           SettingsRow(
             key: const ValueKey('settings-sleep-goal'),
-            title: 'Schlafziel',
-            value: '${stunden}h ${rest.toString().padLeft(2, '0')}m',
+            title: l10n.goalsFieldSleep,
+            value: l10n.goalsSleepGoalValue(
+              stunden,
+              rest.toString().padLeft(2, '0'),
+            ),
             onTap: _pickSleepGoal,
           ),
-          const SettingsNote(
-            'Nur fürs Tracking – ändert deine Kalorien nicht.',
-          ),
+          SettingsNote(l10n.goalsDailyTargetsNote),
         ],
       ),
     ];
   }
 
-  List<Widget> _erinnerungenGruppe(AppTokens t) => <Widget>[
-        SettingsGroup(
-          label: 'ERINNERUNGEN',
-          children: <Widget>[
-            SettingsRow(
-              title: 'Erinnerungen',
-              subtitle:
-                  'Tägliche Streak-Erinnerung am Abend — lokal, ohne Server.',
-              chevron: false,
-              trailing: AppToggle(
-                key: const ValueKey('settings-notifications'),
-                value: _reminder == ReminderState.active,
-                // D11: im blockierten Zustand NICHT erneut umlegen lassen. Auf
-                // Android 13+ zeigt das System nach zwei Ablehnungen gar
-                // keinen Dialog mehr — der Schalter spraenge sofort zurueck
-                // und die App saehe wieder aus, als laege es an ihr.
-                enabled: _reminder != ReminderState.blocked,
-                semanticLabel: _reminder == ReminderState.blocked
-                    ? 'Lokale Erinnerungen — vom System blockiert'
-                    : 'Lokale Erinnerungen aktivieren',
-                onChanged: (v) => setState(
-                  () => _reminder =
-                      v ? ReminderState.active : ReminderState.off,
-                ),
+  List<Widget> _erinnerungenGruppe(AppTokens t) {
+    final l10n = context.l10n;
+    return <Widget>[
+      SettingsGroup(
+        label: l10n.goalsGroupReminders,
+        children: <Widget>[
+          SettingsRow(
+            title: l10n.goalsFieldReminders,
+            subtitle: l10n.goalsRemindersSubtitle,
+            chevron: false,
+            trailing: AppToggle(
+              key: const ValueKey('settings-notifications'),
+              value: _reminder == ReminderState.active,
+              // D11: im blockierten Zustand NICHT erneut umlegen lassen. Auf
+              // Android 13+ zeigt das System nach zwei Ablehnungen gar
+              // keinen Dialog mehr — der Schalter spraenge sofort zurueck
+              // und die App saehe wieder aus, als laege es an ihr.
+              enabled: _reminder != ReminderState.blocked,
+              semanticLabel: _reminder == ReminderState.blocked
+                  ? l10n.goalsReminderBlockedSemantics
+                  : l10n.goalsReminderActiveSemantics,
+              onChanged: (v) => setState(
+                () => _reminder =
+                    v ? ReminderState.active : ReminderState.off,
               ),
             ),
-            SettingsNote(
-              _reminderText,
-              key: const ValueKey('settings-reminder-note'),
-              tone: _reminder == ReminderState.blocked ? t.warning : t.ink2,
-              icon: _reminder == ReminderState.blocked
-                  ? Icons.notifications_off_outlined
-                  : Icons.info_outline_rounded,
-            ),
-            if (_reminder == ReminderState.blocked &&
-                widget.onOpenSystemSettings != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-                child: SettingsSecondaryButton(
-                  key: const ValueKey('settings-open-system-settings'),
-                  label: 'Systemeinstellungen öffnen',
-                  icon: Icons.settings_outlined,
-                  tone: t.warning,
-                  onTap: widget.onOpenSystemSettings,
-                ),
+          ),
+          SettingsNote(
+            _reminderText,
+            key: const ValueKey('settings-reminder-note'),
+            tone: _reminder == ReminderState.blocked ? t.warning : t.ink2,
+            icon: _reminder == ReminderState.blocked
+                ? Icons.notifications_off_outlined
+                : Icons.info_outline_rounded,
+          ),
+          if (_reminder == ReminderState.blocked &&
+              widget.onOpenSystemSettings != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+              child: SettingsSecondaryButton(
+                key: const ValueKey('settings-open-system-settings'),
+                label: l10n.goalsOpenSystemSettings,
+                icon: Icons.settings_outlined,
+                tone: t.warning,
+                onTap: widget.onOpenSystemSettings,
               ),
-          ],
-        ),
-      ];
+            ),
+        ],
+      ),
+    ];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -878,27 +884,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
 ///
 /// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
+  final l10n = context.l10n;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
       final t = dialogContext.t;
       return AlertDialog(
         key: const ValueKey('discard-changes-dialog'),
-        title: const Text('Änderungen verwerfen?'),
-        content: const Text(
-          'Deine Eingaben in „Profil & Ziele" sind noch nicht gespeichert.',
-        ),
+        title: Text(l10n.foodDiscardChangesTitle),
+        content: Text(l10n.goalsDiscardChangesBody),
         actions: <Widget>[
           TextButton(
             key: const ValueKey('discard-changes-cancel'),
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Weiter bearbeiten'),
+            child: Text(l10n.foodDiscardChangesKeepEditing),
           ),
           TextButton(
             key: const ValueKey('discard-changes-confirm'),
             style: TextButton.styleFrom(foregroundColor: t.danger),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Verwerfen'),
+            child: Text(l10n.foodDiscardChangesConfirm),
           ),
         ],
       );

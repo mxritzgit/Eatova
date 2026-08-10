@@ -30,6 +30,7 @@ class IdentityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final initials = _initials;
 
     return Container(
@@ -102,8 +103,11 @@ class IdentityCard extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: <Widget>[
-                    _IdentityTag(label: profile.weightGoal.label, solid: true),
-                    _IdentityTag(label: profile.activityLevel.label),
+                    _IdentityTag(
+                      label: profile.weightGoal.label(l10n),
+                      solid: true,
+                    ),
+                    _IdentityTag(label: profile.activityLevel.label(l10n)),
                   ],
                 ),
               ],
@@ -208,7 +212,7 @@ class GoalPlanCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      goal.label,
+                      goal.label(l10n),
                       style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
                     ),
                   ],

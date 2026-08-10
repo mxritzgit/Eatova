@@ -68,6 +68,38 @@ import 'package:flutter_test/flutter_test.dart';
 /// `ActivityLevel.label`/`BiologicalSex.label` bleiben hartkodiertes Deutsch,
 /// s. Paket-5-Bericht (dokumentierte Ripple-Uebergabe, analog zum
 /// `MealSlot.label`-Fund aus Paket 1).
+///
+/// Paket 6 (Einstellungen, 2026-08-10 — LETZTES Screen-Paket):
+/// `lib/src/screens/settings/` (alle sieben Dateien), `lib/src/widgets/shared/`
+/// (alle vier Dateien) und `lib/src/screens/onboarding_screen.dart` komplett
+/// dazu. Dazu die Ripple-Uebergabe aus Paket 5: `lib/src/models/user_profile.dart`
+/// zieht jetzt mit — `BiologicalSex.label`/`ActivityLevel.label`/
+/// `.description`/`DietPreference.label`/`.description`/`WeightGoal.label`/
+/// `.menuLabel` nehmen alle ein [AppLocalizations] entgegen (Persistenz bleibt
+/// `enumWert.name`, unveraendert). `WeightGoal.paceLabel` bleibt bewusst
+/// hartkodiertes Deutsch — es sitzt zusammen mit `KcalTargets.effectivePaceLabel`/
+/// `.paceWarning` in `kcal_calculator.dart`, das noch aussteht (s.u.).
+/// Zwei inhaltlich uebernommene Service-Handovers (dokumentierte, NICHT
+/// migrierte Einzelfaelle wie schon bei Paket 4s `coach_chat_service.dart`):
+///  * `lib/src/services/sync_error_messages.dart` — der Store (`HomeStore`,
+///    ARCH-4: haelt nie einen BuildContext) reicht sein aufgeloestes
+///    `AppLocalizations` per `setLocalizations()` durch
+///    (`_EatovaHomePageState.didChangeDependencies`); alle Funktionen nehmen
+///    ein optionales `[AppLocalizations? l10n]` mit Deutsch-Default, damit
+///    `test/services/sync_error_messages_test.dart` als kontextfreie API
+///    weiterlaeuft.
+///  * `lib/src/services/coach_chat_service.dart` — jetzt AUSSERHALB der Deny-
+///    Liste unten (die Fallback-Meldungen sind migriert), bleibt aber wegen
+///    `test/coach_error_mapping_test.dart` (kontextfrei) nicht in
+///    [_migriertePfade]: `send()`s Signatur ist unveraendert, ein Setter
+///    (`svc.l10n = ...`) traegt das Sprachpaket, Default bleibt Deutsch.
+/// Nach Paket 6 fehlen fuer die volle `lib/`-Deckung nur noch: die
+/// Auth-Screens (eigene Runde, s. Vertrag), der `fitness_recipe.dart`-Katalog
+/// (Content, kein Screen-Text, s. Paket-3-Kommentar) und die beiden oben
+/// dokumentierten Service-Einzelfaelle (`sync_error_messages.dart`,
+/// `coach_chat_service.dart`) sowie `kcal_calculator.dart`
+/// (`paceLabelForWeeklyRateKg`/`effectivePaceLabel`/`paceWarning` — dieselbe
+/// Kategorie, noch unmigriert).
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -82,6 +114,10 @@ const List<String> _migriertePfade = <String>[
   'lib/src/screens/profile_screen.dart',
   'lib/src/widgets/profile/',
   'lib/src/screens/trends_screen.dart',
+  'lib/src/screens/settings/',
+  'lib/src/widgets/shared/',
+  'lib/src/screens/onboarding_screen.dart',
+  'lib/src/models/user_profile.dart',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie

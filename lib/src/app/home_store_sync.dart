@@ -190,7 +190,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     unawaited(CrashReporter.capture(error, stack, context: operation));
     if (_disposed) return;
     _emitSnack(
-      directSyncErrorMessage(error),
+      directSyncErrorMessage(error, _l10n),
       icon: Icons.error_outline_rounded,
       tone: SnackTone.error,
       duration: kSnackError,
@@ -400,7 +400,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _syncHintShown = true;
     final offline = error != null && isNetworkSyncError(error);
     _emitSnack(
-      queuedSyncHint(error),
+      queuedSyncHint(error, _l10n),
       icon: offline ? Icons.cloud_off_rounded : Icons.sync_problem_rounded,
       tone: SnackTone.neutral,
     );
@@ -440,7 +440,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _outboxLossNotified = true;
     }
     _emitSnack(
-      deletesLost ? outboxDeleteLossHint : outboxLossHint,
+      deletesLost ? outboxDeleteLossHint(_l10n) : outboxLossHint(_l10n),
       icon: Icons.sync_problem_rounded,
       tone: SnackTone.error,
       duration: kSnackError,

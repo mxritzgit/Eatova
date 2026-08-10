@@ -1,10 +1,18 @@
+import '../l10n/l10n.dart';
+
 enum BiologicalSex { male, female, neutral }
 
 extension BiologicalSexLabel on BiologicalSex {
-  String get label => switch (this) {
-        BiologicalSex.male => 'männlich',
-        BiologicalSex.female => 'weiblich',
-        BiologicalSex.neutral => 'neutral',
+  /// Nutzersichtbares Label, sprachaktiv ueber die ARB.
+  ///
+  /// Seit der i18n-Migration (Paket 6, 2026-08-10) hier zuhause statt als
+  /// nackter Getter: die Persistenz (`sex.name`) blieb unberuehrt, s.
+  /// `profile_sync.dart`/`sync_outbox.dart` — nur die ANZEIGE braucht die
+  /// aktive Sprache. Mirrors [MealSlotStyle.label] (Paket 2).
+  String label(AppLocalizations l10n) => switch (this) {
+        BiologicalSex.male => l10n.commonSexLabelMale,
+        BiologicalSex.female => l10n.commonSexLabelFemale,
+        BiologicalSex.neutral => l10n.commonSexLabelNeutral,
       };
 }
 
@@ -24,20 +32,20 @@ extension ActivityLevelInfo on ActivityLevel {
         ActivityLevel.athlete => 1.9,
       };
 
-  String get label => switch (this) {
-        ActivityLevel.sedentary => 'Kaum aktiv',
-        ActivityLevel.light => 'Leicht aktiv',
-        ActivityLevel.moderate => 'Mäßig aktiv',
-        ActivityLevel.active => 'Sehr aktiv',
-        ActivityLevel.athlete => 'Extrem aktiv',
+  String label(AppLocalizations l10n) => switch (this) {
+        ActivityLevel.sedentary => l10n.commonActivityLabelSedentary,
+        ActivityLevel.light => l10n.commonActivityLabelLight,
+        ActivityLevel.moderate => l10n.commonActivityLabelModerate,
+        ActivityLevel.active => l10n.commonActivityLabelActive,
+        ActivityLevel.athlete => l10n.commonActivityLabelAthlete,
       };
 
-  String get description => switch (this) {
-        ActivityLevel.sedentary => 'Bürojob, wenig Bewegung',
-        ActivityLevel.light => 'Leichte Bewegung, 1–2× Sport/Woche',
-        ActivityLevel.moderate => 'Aktiver Alltag, 3–5× Sport/Woche',
-        ActivityLevel.active => 'Täglich aktiv, 6–7× Sport/Woche',
-        ActivityLevel.athlete => 'Körperliche Arbeit + tägl. Training',
+  String description(AppLocalizations l10n) => switch (this) {
+        ActivityLevel.sedentary => l10n.commonActivityDescSedentary,
+        ActivityLevel.light => l10n.commonActivityDescLight,
+        ActivityLevel.moderate => l10n.commonActivityDescModerate,
+        ActivityLevel.active => l10n.commonActivityDescActive,
+        ActivityLevel.athlete => l10n.commonActivityDescAthlete,
       };
 }
 
@@ -49,18 +57,18 @@ extension ActivityLevelInfo on ActivityLevel {
 enum DietPreference { none, vegetarian, vegan, pescetarian }
 
 extension DietPreferenceInfo on DietPreference {
-  String get label => switch (this) {
-        DietPreference.none => 'Alles',
-        DietPreference.vegetarian => 'Vegetarisch',
-        DietPreference.vegan => 'Vegan',
-        DietPreference.pescetarian => 'Pescetarisch',
+  String label(AppLocalizations l10n) => switch (this) {
+        DietPreference.none => l10n.commonDietLabelNone,
+        DietPreference.vegetarian => l10n.commonDietLabelVegetarian,
+        DietPreference.vegan => l10n.commonDietLabelVegan,
+        DietPreference.pescetarian => l10n.commonDietLabelPescetarian,
       };
 
-  String get description => switch (this) {
-        DietPreference.none => 'Keine Einschränkung',
-        DietPreference.vegetarian => 'Kein Fleisch, kein Fisch',
-        DietPreference.vegan => 'Rein pflanzlich',
-        DietPreference.pescetarian => 'Vegetarisch plus Fisch',
+  String description(AppLocalizations l10n) => switch (this) {
+        DietPreference.none => l10n.commonDietDescNone,
+        DietPreference.vegetarian => l10n.commonDietDescVegetarian,
+        DietPreference.vegan => l10n.commonDietDescVegan,
+        DietPreference.pescetarian => l10n.commonDietDescPescetarian,
       };
 }
 
@@ -140,10 +148,11 @@ extension WeightGoalInfo on WeightGoal {
   /// Versprechen und Wirklichkeit direkt vergleichen lassen.
   double get signedWeeklyRateKg => kcalDelta * 7 / kcalPerKgBodyMass;
 
-  /// Richtungs-Label ohne Tempo.
-  String get label {
-    if (kcalDelta == 0) return 'Gewicht halten';
-    return isGain ? 'Zunehmen' : 'Abnehmen';
+  /// Richtungs-Label ohne Tempo, sprachaktiv ueber die ARB (Paket 6,
+  /// 2026-08-10) — s. [BiologicalSexLabel.label].
+  String label(AppLocalizations l10n) {
+    if (kcalDelta == 0) return l10n.commonWeightGoalLabelMaintain;
+    return isGain ? l10n.commonWeightGoalLabelGain : l10n.commonWeightGoalLabelLose;
   }
 
   /// Vorzeichenbehaftetes Tempo, z.B. "−1 kg/Woche", "+0,5 kg/Woche".
@@ -152,11 +161,18 @@ extension WeightGoalInfo on WeightGoal {
   /// konkretes Profil im Spiel ist (Plan-Karten, Zusammenfassungen), gehört
   /// `KcalTargets.effectivePaceLabel` hin: nur das kennt die
   /// Sicherheitsgrenze.
+  ///
+  /// Bleibt bewusst hartkodiertes Deutsch (dokumentierte Ripple-Uebergabe,
+  /// s. Paket-6-Bericht): `paceLabelForWeeklyRateKg` sitzt in `kcal_calculator.dart`
+  /// zusammen mit `KcalTargets.effectivePaceLabel`/`.paceWarning`, die
+  /// denselben Weg gehen — eine l10n-Anbindung dieser einen Stelle liesse die
+  /// beiden auseinanderlaufen.
   String get paceLabel => paceLabelForWeeklyRateKg(signedWeeklyRateKg);
 
   /// Kombiniertes Menü-Label, z.B. "Abnehmen · −1 kg/Woche".
-  String get menuLabel =>
-      kcalDelta == 0 ? 'Gewicht halten' : '$label · $paceLabel';
+  String menuLabel(AppLocalizations l10n) => kcalDelta == 0
+      ? l10n.commonWeightGoalLabelMaintain
+      : '${label(l10n)} · $paceLabel';
 
   /// Vorzeichenbehaftetes Delta-Label, z.B. "−1100 kcal" / "±0".
   String get deltaLabel {

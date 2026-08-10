@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/account_change_messages.dart';
 import 'package:eatova/src/services/secure_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
@@ -93,6 +95,16 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(brightness),
+        // settings_screen.dart und die Konto-Sheets rufen jetzt durchgehend
+        // context.l10n (Paket 6) — ohne Delegates wirft AppLocalizations.of().
+        locale: const Locale('de'),
+        supportedLocales: const [Locale('de'), Locale('en')],
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: SettingsScreen(email: email, authRepository: repo),
       ),
     );
@@ -249,7 +261,7 @@ void main() {
 
       expect(repo.usedNonces, isEmpty);
       expect(repo.passwordUpdates, isEmpty);
-      expect(find.text(kAccountPasswordMismatch), findsOneWidget);
+      expect(find.text(kAccountPasswordMismatch()), findsOneWidget);
       expect(
         find.byKey(const ValueKey('password-change-sheet')),
         findsOneWidget,
@@ -335,7 +347,7 @@ void main() {
         find.byKey(const ValueKey('password-change-error')),
         findsOneWidget,
       );
-      expect(find.text(kAccountCodeRejected), findsOneWidget);
+      expect(find.text(kAccountCodeRejected()), findsOneWidget);
       // Kein Roh-Detail auf dem Screen.
       expect(find.textContaining('AuthException'), findsNothing);
       expect(find.textContaining('Token has expired'), findsNothing);
@@ -448,7 +460,7 @@ void main() {
       await tippe(tester, find.text('Codes anfordern'));
 
       expect(repo.emailChangeRequests, isEmpty);
-      expect(find.text(kAccountEmailUnchanged), findsOneWidget);
+      expect(find.text(kAccountEmailUnchanged()), findsOneWidget);
     });
 
     testWidgets('ein falscher Code laesst beide Eingaben stehen',
@@ -462,7 +474,7 @@ void main() {
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
       expect(repo.currentUser?.email, 'alt@eatova.de');
-      expect(find.text(kAccountCodeRejected), findsWidgets);
+      expect(find.text(kAccountCodeRejected()), findsWidgets);
       expect(
         tester
             .widget<TextField>(
@@ -532,7 +544,7 @@ void main() {
       expect(
         accountChangeErrorMessage(
             const AuthException('Token has expired or is invalid')),
-        kAccountCodeRejected,
+        kAccountCodeRejected(),
       );
     });
 

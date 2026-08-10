@@ -717,5 +717,402 @@
       "goal": { "type": "String" }
     }
   },
-  "trendsChartEmptyHintPainter": "Keine Einträge in diesem Zeitraum."
+  "trendsChartEmptyHintPainter": "Keine Einträge in diesem Zeitraum.",
+
+  "commonSexLabelMale": "männlich",
+  "commonSexLabelFemale": "weiblich",
+  "commonSexLabelNeutral": "neutral",
+  "commonActivityLabelSedentary": "Kaum aktiv",
+  "commonActivityLabelLight": "Leicht aktiv",
+  "commonActivityLabelModerate": "Mäßig aktiv",
+  "commonActivityLabelActive": "Sehr aktiv",
+  "commonActivityLabelAthlete": "Extrem aktiv",
+  "commonActivityDescSedentary": "Bürojob, wenig Bewegung",
+  "commonActivityDescLight": "Leichte Bewegung, 1–2× Sport/Woche",
+  "commonActivityDescModerate": "Aktiver Alltag, 3–5× Sport/Woche",
+  "commonActivityDescActive": "Täglich aktiv, 6–7× Sport/Woche",
+  "commonActivityDescAthlete": "Körperliche Arbeit + tägl. Training",
+  "commonWeightGoalLabelMaintain": "Gewicht halten",
+  "commonWeightGoalLabelGain": "Zunehmen",
+  "commonWeightGoalLabelLose": "Abnehmen",
+  "commonDietLabelNone": "Alles",
+  "commonDietLabelVegetarian": "Vegetarisch",
+  "commonDietLabelVegan": "Vegan",
+  "commonDietLabelPescetarian": "Pescetarisch",
+  "commonDietDescNone": "Keine Einschränkung",
+  "commonDietDescVegetarian": "Kein Fleisch, kein Fisch",
+  "commonDietDescVegan": "Rein pflanzlich",
+  "commonDietDescPescetarian": "Vegetarisch plus Fisch",
+  "commonKcalUnit": "kcal",
+  "commonUnitCm": "cm",
+  "commonUnitKg": "kg",
+  "commonUnitG": "g",
+  "commonUnitMl": "ml",
+  "commonKcalOutcomeLabel": "Ergibt {kcal} kcal/Tag · {paceLabel}",
+  "@commonKcalOutcomeLabel": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "paceLabel": { "type": "String" }
+    }
+  },
+  "commonGenericRetryError": "Das hat gerade nicht geklappt. Bitte versuch es später erneut.",
+  "commonDeliverySuccess": "{erfolg}.",
+  "@commonDeliverySuccess": {
+    "placeholders": {
+      "erfolg": { "type": "String" }
+    }
+  },
+  "commonDeliveryQueuedOffline": "{erfolg} — wird synchronisiert, sobald du wieder online bist.",
+  "@commonDeliveryQueuedOffline": {
+    "placeholders": {
+      "erfolg": { "type": "String" }
+    }
+  },
+  "commonDeliveryQueuedRetry": "{erfolg} — die Übertragung wird automatisch wiederholt.",
+  "@commonDeliveryQueuedRetry": {
+    "placeholders": {
+      "erfolg": { "type": "String" }
+    }
+  },
+  "commonQueuedOfflineHint": "Offline — wird synchronisiert, sobald du wieder online bist.",
+  "commonQueuedRetryGenericHint": "Änderung konnte nicht gespeichert werden — wird automatisch erneut versucht.",
+  "commonSyncErrorOffline": "Offline — das hat gerade nicht geklappt. Bitte versuch es mit Internetverbindung erneut.",
+  "commonOutboxLossHint": "Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.",
+  "commonOutboxDeleteLossHint": "Eine Löschung ließ sich nicht speichern — der Eintrag ist wieder da. Bitte lösch ihn noch einmal.",
+
+  "settingsFieldRequired": "Bitte ausfüllen",
+  "settingsRangeErrorKg": "{min}–{max} kg (ganze Zahl)",
+  "@settingsRangeErrorKg": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorCm": "{min}–{max} cm",
+  "@settingsRangeErrorCm": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorYears": "{min}–{max} Jahre",
+  "@settingsRangeErrorYears": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorSteps": "{min}–{max}",
+  "@settingsRangeErrorSteps": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorMl": "{min}–{max} ml",
+  "@settingsRangeErrorMl": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorKcal": "{min}–{max} kcal",
+  "@settingsRangeErrorKcal": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorGrams": "{min}–{max} g",
+  "@settingsRangeErrorGrams": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "goalsIntroHint": "Wir berechnen dein Tagesziel aus Körper, Aktivität und Ziel.",
+  "goalsManualNoChangeHint": "Ändert dein manuelles Tagesziel nicht",
+  "goalsValidationSummary": "Bitte die rot markierten Felder korrigieren — solange sie außerhalb des erlaubten Bereichs liegen, lässt sich nicht speichern.",
+  "goalsPageTitle": "Profil & Ziele",
+  "goalsGroupBody": "KÖRPER",
+  "goalsFieldWeight": "Gewicht",
+  "goalsFieldHeight": "Größe",
+  "goalsFieldAge": "Alter",
+  "goalsUnitAgeAbbrev": "J.",
+  "goalsFieldSex": "Geschlecht",
+  "goalsGroupActivityGoal": "AKTIVITÄT & ZIEL",
+  "goalsFieldActivity": "Aktivitätslevel",
+  "goalsFieldActivitySubtitle": "Bestimmt deinen Kalorienbedarf.",
+  "goalsFieldTargetWeight": "Wunschgewicht",
+  "goalsFieldWeightGoal": "Gewichtsziel",
+  "goalsGroupEnergyMacros": "ENERGIE & MAKROS",
+  "goalsFieldManual": "Manuell",
+  "goalsManualSemanticLabel": "Energie & Makros manuell setzen",
+  "goalsAutoNote": "Automatisch aus deinem Ziel berechnet. Schalter umlegen, um kcal und Makros von Hand zu setzen.",
+  "goalsFieldKcalGoal": "Kcal Ziel",
+  "goalsGroupDailyTargets": "TAGESZIELE",
+  "goalsFieldSteps": "Schritte",
+  "goalsUnitPerDay": "/Tag",
+  "goalsFieldWater": "Wasser",
+  "goalsFieldSleep": "Schlafziel",
+  "goalsSleepGoalValue": "{hours}h {minutes}m",
+  "@goalsSleepGoalValue": {
+    "placeholders": {
+      "hours": { "type": "int" },
+      "minutes": { "type": "String" }
+    }
+  },
+  "goalsDailyTargetsNote": "Nur fürs Tracking – ändert deine Kalorien nicht.",
+  "goalsGroupReminders": "ERINNERUNGEN",
+  "goalsFieldReminders": "Erinnerungen",
+  "goalsRemindersSubtitle": "Tägliche Streak-Erinnerung am Abend — lokal, ohne Server.",
+  "goalsReminderBlockedSemantics": "Lokale Erinnerungen — vom System blockiert",
+  "goalsReminderActiveSemantics": "Lokale Erinnerungen aktivieren",
+  "goalsReminderTextOff": "Aus. Schalter umlegen, um lokale Erinnerungen zu aktivieren.",
+  "goalsReminderTextActive": "Aktiv. Jeden Abend um 20 Uhr, wenn du noch nichts geloggt hast.",
+  "goalsReminderTextBlocked": "Vom System blockiert. Eatova darf keine Mitteilungen senden — erlaube sie in den Systemeinstellungen.",
+  "goalsOpenSystemSettings": "Systemeinstellungen öffnen",
+  "goalsDiscardChangesBody": "Deine Eingaben in „Profil & Ziele\" sind noch nicht gespeichert.",
+
+  "settingsPageTitle": "Einstellungen",
+  "settingsGroupAccount": "KONTO",
+  "settingsEmailLabel": "E-Mail-Adresse",
+  "settingsChangePasswordTitle": "Passwort ändern",
+  "settingsChangePasswordSubtitle": "Mit Bestätigungs-Code an deine E-Mail",
+  "settingsChangeEmailTitle": "E-Mail-Adresse ändern",
+  "settingsChangeEmailSubtitle": "Bestätigung an die alte und die neue Adresse",
+  "settingsPasswordChangedSnack": "Passwort geändert.",
+  "settingsEmailChangedSnack": "E-Mail-Adresse geändert.",
+  "settingsGroupPreferences": "PRÄFERENZEN",
+  "settingsOpenGoalsSubtitle": "Körperdaten, Aktivität, Kalorien- und Makroziele",
+  "settingsAppearanceTitle": "Erscheinungsbild",
+  "settingsAppearanceSubtitle": "System folgt der Einstellung deines Geräts.",
+  "settingsThemeModeLight": "Hell",
+  "settingsThemeModeDark": "Dunkel",
+  "settingsGroupDataPrivacy": "DATEN & PRIVATSPHÄRE",
+  "settingsExportDataTitle": "Daten exportieren",
+  "settingsExportDataSubtitle": "Vollständige Kopie als JSON (Art. 15 DSGVO)",
+  "settingsLegalPrivacy": "Datenschutz",
+  "settingsLegalTerms": "AGB",
+  "settingsLegalImprint": "Impressum",
+  "settingsAboutTitle": "Über Eatova",
+  "settingsAboutSubtitle": "Version, Quellen & Datenschutz",
+  "settingsGroupDangerZone": "GEFAHRENZONE",
+  "settingsSignOutTitle": "Ausloggen",
+  "settingsDeleteAccountTitle": "Konto löschen",
+  "settingsDeleteAccountBlockSubtitle": "Entfernt alle Einträge dauerhaft",
+  "settingsDeleteAccountPromptPrefix": "Du wirst gebeten, ",
+  "settingsDeleteConfirmWord": "LÖSCHEN",
+  "settingsDeleteAccountPromptSuffix": " zu tippen. Danach ist dein Konto samt aller Daten sofort und unwiderruflich weg.",
+  "settingsAboutAppName": "Eatova",
+  "settingsAboutTagline": "Ernährung. Tracking. Coach.",
+  "settingsAboutDescription": "Kalorien und Makros ohne Reibung tracken — per KI-Foto-Scan, Barcode und Produktsuche, mit einem persönlichen Ernährungs-Coach.",
+  "settingsAboutVersionLabel": "Version",
+  "settingsAboutBuildLabel": "Build",
+  "settingsAboutSourcesLabel": "Quellen",
+  "settingsAboutSourcesDefault": "OpenFoodFacts · Eigener Suchindex",
+  "settingsAboutSourcesWithAppleHealth": "OpenFoodFacts · Eigener Suchindex · Apple Health",
+  "settingsPrivacyPolicyLinkLabel": "Datenschutzerklärung",
+  "settingsDeleteAccountSheetSubtitle": "Das entfernt dein Profil, alle Mahlzeiten, deinen Gewichtsverlauf und den Coach-Verlauf. Es lässt sich nicht rückgängig machen.",
+  "settingsDeleteAccountActionLabel": "Konto endgültig löschen",
+  "settingsDeleteAccountFieldLabel": "Zum Bestätigen {word} tippen",
+  "@settingsDeleteAccountFieldLabel": {
+    "placeholders": {
+      "word": { "type": "String" }
+    }
+  },
+
+  "settingsSexPickerGroupLabel": "BEEINFLUSST DEINEN GRUNDUMSATZ",
+  "settingsActivityPickerGroupLabel": "ALLTAG OHNE GEZÄHLTES TRAINING",
+  "settingsWeightGoalPickerTitle": "Gewichtsziel & Tempo",
+  "settingsWeightGoalPickerGroupLabel": "ZIEL",
+
+  "settingsPlanHeroEyebrowManual": "DEIN TAGESZIEL · MANUELL",
+  "settingsPlanHeroEyebrow": "DEIN TAGESZIEL",
+  "settingsPlanHeroMaintenance": "Erhaltung {kcal} · {paceLabel}",
+  "@settingsPlanHeroMaintenance": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "paceLabel": { "type": "String" }
+    }
+  },
+
+  "settingsAccountEmailInvalid": "Bitte gib eine gültige E-Mail ein.",
+  "settingsAccountEmailUnchanged": "Das ist bereits deine Adresse — hier gibt es nichts zu ändern.",
+  "settingsAccountCodeInvalid": "Der Code hat 6 Ziffern.",
+  "settingsAccountPasswordTooShort": "Das Passwort braucht mindestens 8 Zeichen.",
+  "settingsAccountPasswordMismatch": "Die beiden Passwörter stimmen nicht überein.",
+  "settingsAccountCodeRejected": "Der Code stimmt nicht oder ist abgelaufen. Fordere einen neuen an.",
+  "settingsAccountOfflineError": "Offline — die Änderung ließ sich nicht abschicken. Bitte versuch es mit Internetverbindung erneut.",
+  "settingsAccountRateLimited": "Zu viele Versuche in kurzer Zeit. Bitte warte einen Moment und versuch es dann erneut.",
+  "settingsAccountEmailInUse": "Diese E-Mail-Adresse wird bereits verwendet.",
+  "settingsAccountEmailLooksInvalid": "Diese E-Mail-Adresse sieht nicht gültig aus.",
+  "settingsAccountPasswordSameAsOld": "Das neue Passwort muss sich vom bisherigen unterscheiden.",
+  "settingsAccountPasswordWeak": "Dieses Passwort ist zu schwach. Nimm ein längeres oder ungewöhnlicheres.",
+
+  "settingsPasswordChangeCodeSentTo": "Zur Sicherheit schicken wir dir zuerst einen 6-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
+  "@settingsPasswordChangeCodeSentTo": {
+    "placeholders": {
+      "adresse": { "type": "String" }
+    }
+  },
+  "settingsPasswordChangeCodeSentDefault": "Zur Sicherheit schicken wir dir zuerst einen 6-stelligen Code an deine hinterlegte Adresse. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
+  "settingsPasswordChangeStep2Subtitle": "Trag den Code aus der E-Mail zusammen mit deinem neuen Passwort ein.",
+  "settingsPasswordChangeCodeFieldLabel": "Bestätigungs-Code",
+  "settingsPasswordChangeNewLabel": "Neues Passwort",
+  "settingsPasswordChangeNewHint": "Mind. 8 Zeichen",
+  "settingsPasswordChangeRepeatLabel": "Neues Passwort wiederholen",
+  "settingsPasswordChangeRepeatHint": "Nochmal eingeben",
+  "settingsPasswordChangeRequestingCta": "Code wird angefordert…",
+  "settingsPasswordChangeSavingCta": "Wird gespeichert…",
+  "settingsPasswordChangeRequestCta": "Code anfordern",
+  "settingsPasswordChangeSubmitCta": "Passwort jetzt ändern",
+  "settingsEmailChangeStep1Subtitle": "Deine bisherige Adresse ist {currentEmail}. Wir schicken danach ZWEI Codes: einen an diese Adresse und einen an die neue. Die Änderung greift erst, wenn du beide einträgst.",
+  "@settingsEmailChangeStep1Subtitle": {
+    "placeholders": {
+      "currentEmail": { "type": "String" }
+    }
+  },
+  "settingsEmailChangeStep2Subtitle": "Zwei E-Mails sind unterwegs. Trag jeden Code bei SEINER Adresse ein — jede Adresse hat ihren eigenen.",
+  "settingsEmailChangeRequestingCta": "Codes werden angefordert…",
+  "settingsEmailChangeCheckingCta": "Wird geprüft…",
+  "settingsEmailChangeRequestCta": "Codes anfordern",
+  "settingsEmailChangeSubmitCta": "Adresse jetzt ändern",
+  "settingsEmailChangeNewAddressLabel": "Neue E-Mail-Adresse",
+  "settingsEmailChangeNewAddressHint": "du@beispiel.de",
+  "settingsEmailChangeOldCodeLabel": "Code an die bisherige Adresse",
+  "settingsEmailChangeNewCodeLabel": "Code an die neue Adresse",
+  "settingsEmailChangeBothCodesHint": "Beide Codes sind nötig. Mit nur einem bleibt deine bisherige Adresse bestehen — genau das schützt dich, wenn jemand Zugriff auf nur eines der beiden Postfächer hätte.",
+
+  "exportSheetLoadingSubtitle": "Deine Daten werden vom Server geladen …",
+  "exportSheetErrorSubtitle": "Server nicht erreichbar — die vollständige Kopie bitte mit Internet erneut öffnen.",
+  "exportSheetFullSubtitle": "Vollständige Kopie deiner gespeicherten Daten als JSON — alle Tabellen, direkt vom Server geladen (Art. 15/20 DSGVO).",
+  "exportSheetSessionSubtitle": "In-Memory Snapshot deiner aktuellen Session als JSON.",
+  "exportSheetTitleFull": "Datenauskunft",
+  "exportSheetTitleSession": "Daten Snapshot",
+  "exportSheetCopiedSnack": "Export in Zwischenablage",
+  "exportSheetCopyButton": "Kopieren",
+
+  "targetBmiHintUnderweight": "Dieses Zielgewicht entspräche einem BMI von {bmi} — das liegt unterhalb des als gesund geltenden Bereichs.",
+  "@targetBmiHintUnderweight": {
+    "placeholders": {
+      "bmi": { "type": "String" }
+    }
+  },
+  "targetBmiHintOverweight": "Dieses Zielgewicht entspräche einem BMI von {bmi} — das liegt oberhalb des als gesund geltenden Bereichs.",
+  "@targetBmiHintOverweight": {
+    "placeholders": {
+      "bmi": { "type": "String" }
+    }
+  },
+
+  "onboardingBackSemanticLabel": "Zurück",
+  "onboardingStartCta": "Los geht's",
+  "onboardingActivatePlanCta": "Plan aktivieren",
+  "onboardingNextCta": "Weiter",
+  "onboardingSexStepTitle": "Dein Geschlecht",
+  "onboardingSexStepSubtitle": "Beeinflusst deinen Grundumsatz.",
+  "onboardingAgeStepTitle": "Wie alt bist du?",
+  "onboardingAgeStepSubtitle": "Der Energiebedarf sinkt mit dem Alter.",
+  "onboardingHeightStepTitle": "Deine Größe",
+  "onboardingHeightStepSubtitle": "Für die Bedarfs- und Schrittberechnung.",
+  "onboardingWeightStepTitle": "Dein aktuelles Gewicht",
+  "onboardingWeightStepSubtitle": "Startpunkt für deinen Plan.",
+  "onboardingActivityStepTitle": "Wie aktiv bist du?",
+  "onboardingActivityStepSubtitle": "Dein Alltag ohne gezähltes Training.",
+  "onboardingGoalStepTitle": "Was ist dein Ziel?",
+  "onboardingGoalStepSubtitle": "Bestimmt deine tägliche Kalorienmenge.",
+  "onboardingTargetStepTitle": "Dein Wunschgewicht",
+  "onboardingTargetStepSubtitleLose": "Wohin willst du abnehmen?",
+  "onboardingTargetStepSubtitleGain": "Wohin willst du aufbauen?",
+  "onboardingPaceStepTitle": "Welches Tempo?",
+  "onboardingPaceStepSubtitleLose": "Wie schnell willst du abnehmen?",
+  "onboardingPaceStepSubtitleGain": "Wie schnell willst du aufbauen?",
+  "onboardingDietStepTitle": "Ernährungsweise?",
+  "onboardingDietStepSubtitle": "Wir empfehlen dir passende Rezepte. Durchsuchen kannst du immer alle.",
+  "onboardingUnitYears": "Jahre",
+  "onboardingTargetFootnoteLose": "{kg} kg abnehmen",
+  "@onboardingTargetFootnoteLose": {
+    "placeholders": {
+      "kg": { "type": "int" }
+    }
+  },
+  "onboardingTargetFootnoteGain": "{kg} kg zunehmen",
+  "@onboardingTargetFootnoteGain": {
+    "placeholders": {
+      "kg": { "type": "int" }
+    }
+  },
+  "onboardingWelcomeTitle": "Willkommen, {firstName}.",
+  "@onboardingWelcomeTitle": {
+    "placeholders": {
+      "firstName": { "type": "String" }
+    }
+  },
+  "onboardingWelcomeBody": "In 6 kurzen Schritten berechnen wir dein persönliches Tagesziel — genau abgestimmt auf deinen Körper und dein Wunschgewicht.",
+  "onboardingBulletFormula": "Wissenschaftliche Mifflin-St-Jeor-Formel",
+  "onboardingBulletAutoMacros": "Kalorien & Makros automatisch gesetzt",
+  "onboardingBulletAdjustable": "Jederzeit in den Einstellungen anpassbar",
+  "onboardingSexMale": "Männlich",
+  "onboardingSexFemale": "Weiblich",
+  "onboardingSexNeutral": "Divers",
+  "onboardingGoalDescLose": "Fett verlieren, Defizit",
+  "onboardingGoalDescMaintain": "Form & Energie stabil",
+  "onboardingGoalDescGain": "Muskeln aufbauen, Überschuss",
+  "onboardingPaceNameSanft": "Sanft",
+  "onboardingPaceNameModerat": "Moderat",
+  "onboardingPaceNameZuegig": "Zügig",
+  "onboardingPaceNameAmbitioniert": "Ambitioniert",
+  "onboardingPaceNameFallback": "Tempo",
+  "onboardingPaceOptionTitle": "{name} · {paceLabel}",
+  "@onboardingPaceOptionTitle": {
+    "placeholders": {
+      "name": { "type": "String" },
+      "paceLabel": { "type": "String" }
+    }
+  },
+  "onboardingSummaryTitle": "Dein Plan steht, {firstName}.",
+  "@onboardingSummaryTitle": {
+    "placeholders": {
+      "firstName": { "type": "String" }
+    }
+  },
+  "onboardingSummarySubtitle": "Das ist dein empfohlenes Tagesziel.",
+  "onboardingSummaryKcalEyebrow": "TÄGLICHES KALORIENZIEL",
+  "onboardingSummaryBmrLabel": "Grundumsatz (BMR)",
+  "onboardingSummaryMaintenanceLabel": "Erhaltungsbedarf · {activityLabel}",
+  "@onboardingSummaryMaintenanceLabel": {
+    "placeholders": {
+      "activityLabel": { "type": "String" }
+    }
+  },
+  "onboardingSummaryGoalLabel": "Ziel · {paceLabel}",
+  "@onboardingSummaryGoalLabel": {
+    "placeholders": {
+      "paceLabel": { "type": "String" }
+    }
+  },
+  "onboardingTimelineMaintain": "Du hältst dein Gewicht von {weightKg} kg.",
+  "@onboardingTimelineMaintain": {
+    "placeholders": {
+      "weightKg": { "type": "int" }
+    }
+  },
+  "onboardingTimelineEstimate": "{targetWeightKg} kg in ca. {weeks} Wochen erreichbar.",
+  "@onboardingTimelineEstimate": {
+    "placeholders": {
+      "targetWeightKg": { "type": "int" },
+      "weeks": { "type": "int" }
+    }
+  },
+  "onboardingTimelineUnknown": "Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.",
+  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor. Werte sind jederzeit unter Profil › Einstellungen anpassbar.",
+
+  "coachErrorEmptyReply": "Leere Antwort vom Coach.",
+  "coachErrorUnreachable": "Der Coach ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.",
+  "coachErrorNoConnection": "Keine Verbindung zum Coach. Prüf deine Internetverbindung und versuch es nochmal.",
+  "coachErrorSessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich neu an, dann antwortet der Coach wieder.",
+  "coachErrorQuotaFallback": "Tageslimit erreicht. Morgen geht's weiter.",
+  "coachErrorTooManyRequests": "Zu viele Anfragen. Bitte versuch es gleich nochmal.",
+  "coachErrorRequestFailed": "Der Coach konnte deine Anfrage nicht verarbeiten."
 }

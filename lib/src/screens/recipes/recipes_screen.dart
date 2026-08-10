@@ -226,7 +226,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
     if (!mounted) return;
     showAppSnack(
       context,
-      deliveryHint(context.l10n.recipesDeletedSuccess(recipe.title), ausgang),
+      deliveryHint(
+        context.l10n.recipesDeletedSuccess(recipe.title),
+        ausgang,
+        context.l10n,
+      ),
       icon: Icons.delete_outline_rounded,
       tone: SnackTone.error,
     );
@@ -259,7 +263,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
     if (!mounted) return;
     showAppSnack(
       context,
-      deliveryHint(context.l10n.recipesSavedSuccess(recipe.title), ausgang),
+      deliveryHint(
+        context.l10n.recipesSavedSuccess(recipe.title),
+        ausgang,
+        context.l10n,
+      ),
       icon: Icons.bookmark_added_rounded,
     );
   }

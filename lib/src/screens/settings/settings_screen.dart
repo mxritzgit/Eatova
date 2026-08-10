@@ -135,6 +135,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
 
     // Die Seite selbst zeigt nur die Mailadresse — das Auskunfts-Sheet darunter
     // aber den vollstaendigen Datensatz inklusive Gewicht und Schlaf. Weil das
@@ -148,15 +149,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             key: const ValueKey('screen-settings'),
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
             children: <Widget>[
-              const PageHeader(
-                large: 'Einstellungen',
-                backKey: ValueKey('settings-back'),
+              PageHeader(
+                large: l10n.settingsPageTitle,
+                backKey: const ValueKey('settings-back'),
               ),
               const SizedBox(height: 16),
-              ..._kontoGruppe(t),
-              ..._praeferenzenGruppe(),
-              ..._datenGruppe(),
-              ..._gefahrenzone(t),
+              ..._kontoGruppe(t, l10n),
+              ..._praeferenzenGruppe(l10n),
+              ..._datenGruppe(l10n),
+              ..._gefahrenzone(t, l10n),
             ],
           ),
         ),
@@ -185,10 +186,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // --- KONTO ----------------------------------------------------------------
 
-  List<Widget> _kontoGruppe(AppTokens t) {
+  List<Widget> _kontoGruppe(AppTokens t, AppLocalizations l10n) {
     final email = _adresse;
     final repo = widget.authRepository;
-    return _gruppe('KONTO', <Widget>[
+    return _gruppe(l10n.settingsGroupAccount, <Widget>[
       if (email != null)
         SettingsRow(
           key: const ValueKey('settings-email'),
@@ -200,7 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Ein blaues Brief-Icon neben blauen Protein-Balken laese eine
           // Verbindung vermuten, die es nicht gibt.
           leading: IconTile(icon: Icons.mail_outline_rounded, color: t.accent),
-          title: 'E-Mail-Adresse',
+          title: l10n.settingsEmailLabel,
           subtitle: email,
           chevron: false,
         ),
@@ -210,8 +211,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // `accent` statt eines Makro-Tons: die Nährwert-Farben kodieren
           // ausschliesslich Naehrwerte (DESIGN_REFACTOR §3, Schloss 1).
           leading: IconTile(icon: Icons.lock_outline_rounded, color: t.accent),
-          title: 'Passwort ändern',
-          subtitle: 'Mit Bestätigungs-Code an deine E-Mail',
+          title: l10n.settingsChangePasswordTitle,
+          subtitle: l10n.settingsChangePasswordSubtitle,
           onTap: () => _openPasswortAendern(repo, email),
         ),
       // Ohne bekannte Adresse geht der Wechsel nicht: der erste der beiden
@@ -221,8 +222,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           key: const ValueKey('settings-change-email'),
           leading:
               IconTile(icon: Icons.alternate_email_rounded, color: t.accent),
-          title: 'E-Mail-Adresse ändern',
-          subtitle: 'Bestätigung an die alte und die neue Adresse',
+          title: l10n.settingsChangeEmailTitle,
+          subtitle: l10n.settingsChangeEmailSubtitle,
           onTap: () => _openMailAendern(repo, email),
         ),
     ]);
@@ -232,6 +233,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     AuthRepository repo,
     String? email,
   ) async {
+    final l10n = context.l10n;
     final erfolg = await showPasswordChangeSheet(
       context,
       authRepository: repo,
@@ -240,12 +242,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!erfolg || !mounted) return;
     showAppSnack(
       context,
-      'Passwort geändert.',
+      l10n.settingsPasswordChangedSnack,
       icon: Icons.lock_reset_rounded,
     );
   }
 
   Future<void> _openMailAendern(AuthRepository repo, String email) async {
+    final l10n = context.l10n;
     final erfolg = await showEmailChangeSheet(
       context,
       authRepository: repo,
@@ -256,14 +259,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // gemeldet, bevor das Sheet zu war.
     showAppSnack(
       context,
-      'E-Mail-Adresse geändert.',
+      l10n.settingsEmailChangedSnack,
       icon: Icons.mark_email_read_rounded,
     );
   }
 
   // --- PRAEFERENZEN ---------------------------------------------------------
 
-  List<Widget> _praeferenzenGruppe() {
+  List<Widget> _praeferenzenGruppe(AppLocalizations l10n) {
     // Ohne [ThemeModeScope] (Previews, Widget-Tests, die nur diesen Screen
     // pumpen) faellt die Zeile ersatzlos weg — ein Schalter ohne Controller
     // waere ein toter Schalter.
@@ -272,12 +275,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // s.o.): ohne [LocaleScope] gibt es nichts, das den Override setzen
     // koennte.
     final localeController = LocaleScope.maybeOf(context);
-    return _gruppe('PRÄFERENZEN', <Widget>[
+    return _gruppe(l10n.settingsGroupPreferences, <Widget>[
       if (widget.onOpenGoals != null)
         SettingsRow(
           key: const ValueKey('settings-open-goals'),
-          title: 'Profil & Ziele',
-          subtitle: 'Körperdaten, Aktivität, Kalorien- und Makroziele',
+          title: l10n.goalsPageTitle,
+          subtitle: l10n.settingsOpenGoalsSubtitle,
           onTap: widget.onOpenGoals,
         ),
       if (controller != null)
@@ -288,8 +291,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Erscheinungsbild: Hell" waere ein Widerspruch in einer Zeile. Die
           // Zeile heisst deshalb nach dem, was sie einstellt, nicht nach einem
           // ihrer Werte.
-          title: 'Erscheinungsbild',
-          subtitle: 'System folgt der Einstellung deines Geräts.',
+          title: l10n.settingsAppearanceTitle,
+          subtitle: l10n.settingsAppearanceSubtitle,
           chevron: false,
           trailing: SettingsThemeModePill(
             key: const ValueKey('settings-theme-mode'),
@@ -301,8 +304,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       if (localeController != null)
         SettingsRow(
-          title: context.l10n.settingsLanguageTitle,
-          subtitle: context.l10n.settingsLanguageSubtitle,
+          title: l10n.settingsLanguageTitle,
+          subtitle: l10n.settingsLanguageSubtitle,
           chevron: false,
           trailing: SettingsLanguagePill(
             key: const ValueKey('settings-language'),
@@ -316,31 +319,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // --- DATEN & PRIVATSPHAERE ------------------------------------------------
 
-  List<Widget> _datenGruppe() {
-    return _gruppe('DATEN & PRIVATSPHÄRE', <Widget>[
+  List<Widget> _datenGruppe(AppLocalizations l10n) {
+    return _gruppe(l10n.settingsGroupDataPrivacy, <Widget>[
       if (widget.onExportData != null)
         SettingsRow(
           key: const ValueKey('settings-export'),
-          title: 'Daten exportieren',
-          subtitle: 'Vollständige Kopie als JSON (Art. 15 DSGVO)',
+          title: l10n.settingsExportDataTitle,
+          subtitle: l10n.settingsExportDataSubtitle,
           onTap: _openExport,
         ),
       // Die drei Rechtsseiten. Sie stehen als Zeilen statt als Fusszeile, weil
       // dieser Screen ohnehin aus Zeilen besteht — die Schluessel sind
       // unveraendert die aus [SettingsLegalLinks] (DESIGN_REFACTOR §6).
-      const _LegalRow(
-        rowKey: ValueKey('settings-privacy-link'),
-        title: 'Datenschutz',
+      _LegalRow(
+        rowKey: const ValueKey('settings-privacy-link'),
+        title: l10n.settingsLegalPrivacy,
         url: kPrivacyUrl,
       ),
-      const _LegalRow(
-        rowKey: ValueKey('settings-terms-link'),
-        title: 'AGB',
+      _LegalRow(
+        rowKey: const ValueKey('settings-terms-link'),
+        title: l10n.settingsLegalTerms,
         url: kTermsUrl,
       ),
-      const _LegalRow(
-        rowKey: ValueKey('settings-imprint-link'),
-        title: 'Impressum',
+      _LegalRow(
+        rowKey: const ValueKey('settings-imprint-link'),
+        title: l10n.settingsLegalImprint,
         url: kImprintUrl,
       ),
       // Version, Herkunft der Daten (ODbL-Namensnennung fuer OpenFoodFacts)
@@ -349,8 +352,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Zeile eine Auskunft ueber Daten.
       SettingsRow(
         key: const ValueKey('settings-about'),
-        title: 'Über Eatova',
-        subtitle: 'Version, Quellen & Datenschutz',
+        title: l10n.settingsAboutTitle,
+        subtitle: l10n.settingsAboutSubtitle,
         onTap: () => showEatovaSheet<void>(context, const _AboutSheet()),
       ),
     ]);
@@ -368,24 +371,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // --- GEFAHRENZONE ---------------------------------------------------------
 
-  List<Widget> _gefahrenzone(AppTokens t) {
+  List<Widget> _gefahrenzone(AppTokens t, AppLocalizations l10n) {
     return _gruppe(
-      'GEFAHRENZONE',
+      l10n.settingsGroupDangerZone,
       <Widget>[
         if (widget.onSignOut != null)
           SettingsRow(
             key: const ValueKey('settings-sign-out'),
-            title: 'Ausloggen',
+            title: l10n.settingsSignOutTitle,
             onTap: _signOut,
           ),
-        if (widget.onDeleteAccount != null) _deleteBlock(t),
+        if (widget.onDeleteAccount != null) _deleteBlock(t, l10n),
       ],
       labelColor: t.danger,
       borderColor: t.danger.withValues(alpha: 0.35),
     );
   }
 
-  Widget _deleteBlock(AppTokens t) {
+  Widget _deleteBlock(AppTokens t, AppLocalizations l10n) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(
@@ -400,7 +403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'Konto löschen',
+                      l10n.settingsDeleteAccountTitle,
                       style: AppType.ui(
                         13.5,
                         weight: FontWeight.w700,
@@ -409,7 +412,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Entfernt alle Einträge dauerhaft',
+                      l10n.settingsDeleteAccountBlockSubtitle,
                       style: AppType.ui(11.5, color: t.ink2),
                     ),
                   ],
@@ -430,10 +433,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
                 child: Text.rich(
                   TextSpan(
-                    text: 'Du wirst gebeten, ',
+                    text: l10n.settingsDeleteAccountPromptPrefix,
                     children: <InlineSpan>[
                       TextSpan(
-                        text: 'LÖSCHEN',
+                        text: l10n.settingsDeleteConfirmWord,
                         style: AppType.ui(
                           11.5,
                           weight: FontWeight.w700,
@@ -447,9 +450,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       // kein Passwort pruefen (kein AuthRepository auf dieser
                       // Route), und die Loeschung laeuft sofort und
                       // unwiderruflich.
-                      const TextSpan(
-                        text: ' zu tippen. Danach ist dein Konto samt aller '
-                            'Daten sofort und unwiderruflich weg.',
+                      TextSpan(
+                        text: l10n.settingsDeleteAccountPromptSuffix,
                       ),
                     ],
                     style: AppType.ui(11.5, color: t.ink2, height: 1.45),
@@ -552,17 +554,17 @@ class _AboutSheet extends StatelessWidget {
   /// OpenFoodFacts bzw. dem eigenen Suchindex; Schritte liefert Apple Health
   /// (nur iOS — auf Android ist der Health-Pfad ein No-op, also dort nicht
   /// nennen). "wger" war nie angebunden und ist raus.
-  static String get _sources {
-    const base = 'OpenFoodFacts · Eigener Suchindex';
+  static String _sources(AppLocalizations l10n) {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return '$base · Apple Health';
+      return l10n.settingsAboutSourcesWithAppleHealth;
     }
-    return base;
+    return l10n.settingsAboutSourcesDefault;
   }
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     // Scrollbar statt starr: bei doppelter Systemschrift ist der Block aus
     // Beschreibung, Version, Build, Quellen und Datenschutz-Zeile hoeher als
     // der Bildschirm (gemessen: 251 px Ueberlauf). Der Datenschutz-Link steht
@@ -585,10 +587,13 @@ class _AboutSheet extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text('Eatova', style: AppType.display(20, color: t.ink)),
+                    Text(
+                      l10n.settingsAboutAppName,
+                      style: AppType.display(20, color: t.ink),
+                    ),
                     const SizedBox(height: 2),
                     Text(
-                      'Ernährung. Tracking. Coach.',
+                      l10n.settingsAboutTagline,
                       style: AppType.ui(
                         12,
                         weight: FontWeight.w500,
@@ -602,8 +607,7 @@ class _AboutSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'Kalorien und Makros ohne Reibung tracken — per KI-Foto-Scan, '
-            'Barcode und Produktsuche, mit einem persönlichen Ernährungs-Coach.',
+            l10n.settingsAboutDescription,
             style: AppType.ui(13, color: t.ink2, height: 1.45),
           ),
           const SizedBox(height: 16),
@@ -614,15 +618,24 @@ class _AboutSheet extends StatelessWidget {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  _AboutRow(label: 'Version', value: info?.version ?? '—'),
+                  _AboutRow(
+                    label: l10n.settingsAboutVersionLabel,
+                    value: info?.version ?? '—',
+                  ),
                   const SizedBox(height: 6),
-                  _AboutRow(label: 'Build', value: info?.buildNumber ?? '—'),
+                  _AboutRow(
+                    label: l10n.settingsAboutBuildLabel,
+                    value: info?.buildNumber ?? '—',
+                  ),
                 ],
               );
             },
           ),
           const SizedBox(height: 6),
-          _AboutRow(label: 'Quellen', value: _sources),
+          _AboutRow(
+            label: l10n.settingsAboutSourcesLabel,
+            value: _sources(l10n),
+          ),
           const SizedBox(height: 14),
           // DSGVO Art. 13 / App-Store: Datenschutz auch nach dem Login
           // erreichbar, nicht nur auf dem Auth-Screen.
@@ -666,7 +679,7 @@ class _PrivacyLinkRow extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Datenschutzerklärung',
+                context.l10n.settingsPrivacyPolicyLinkLabel,
                 style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
               ),
             ),
@@ -719,8 +732,6 @@ class _DeleteAccountSheet extends StatefulWidget {
 }
 
 class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
-  static const String _wort = 'LÖSCHEN';
-
   final TextEditingController _confirm = TextEditingController();
 
   @override
@@ -730,28 +741,30 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
   }
 
   /// Gross-/Kleinschreibung egal: die Bestaetigung soll vor Versehen schuetzen,
-  /// nicht vor der Shift-Taste.
-  bool get _scharf => _confirm.text.trim().toUpperCase() == _wort;
+  /// nicht vor der Shift-Taste. Das erwartete Wort kommt aus der ARB (unter
+  /// `en` „DELETE" statt „LÖSCHEN") — deshalb ein Getter mit Context statt
+  /// einer `static const`.
+  bool _scharf(String wort) => _confirm.text.trim().toUpperCase() == wort;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final wort = l10n.settingsDeleteConfirmWord;
     // Der Scroller sitzt seit 2026-08-10 in [SheetScaffold] selbst — die
     // Ueberlaufgefahr bei grosser Systemschrift betrifft jedes Sheet, nicht
     // nur dieses.
     return SheetScaffold(
-      title: 'Konto löschen',
-      subtitle: 'Das entfernt dein Profil, alle Mahlzeiten, deinen '
-          'Gewichtsverlauf und den Coach-Verlauf. Es lässt sich nicht '
-          'rückgängig machen.',
+      title: l10n.settingsDeleteAccountTitle,
+      subtitle: l10n.settingsDeleteAccountSheetSubtitle,
       destructive: true,
-      actionLabel: 'Konto endgültig löschen',
-      actionEnabled: _scharf,
+      actionLabel: l10n.settingsDeleteAccountActionLabel,
+      actionEnabled: _scharf(wort),
       onAction: () => Navigator.of(context).pop(true),
       children: <Widget>[
         SheetField(
           key: const ValueKey('settings-delete-confirm-field'),
-          label: 'Zum Bestätigen $_wort tippen',
-          hint: _wort,
+          label: l10n.settingsDeleteAccountFieldLabel(wort),
+          hint: wort,
           controller: _confirm,
           onChanged: (_) => setState(() {}),
         ),
