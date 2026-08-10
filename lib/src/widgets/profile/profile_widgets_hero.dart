@@ -158,6 +158,7 @@ class GoalPlanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final goal = profile.weightGoal;
     final isMaintain = goal == WeightGoal.maintain;
     final gap = (profile.weightKg - profile.targetWeightKg).abs();
@@ -198,7 +199,7 @@ class GoalPlanCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'Mein Ziel',
+                      l10n.profileGoalPlanTitle,
                       style: AppType.ui(
                         15,
                         weight: FontWeight.w700,
@@ -218,7 +219,7 @@ class GoalPlanCard extends StatelessWidget {
                 IconButton(
                   key: const ValueKey('profile-goalplan-edit'),
                   onPressed: onEdit,
-                  tooltip: 'Ziel anpassen',
+                  tooltip: l10n.profileGoalPlanEditTooltip,
                   icon: const Icon(Icons.tune_rounded, size: 18),
                   color: accent,
                 ),
@@ -229,7 +230,7 @@ class GoalPlanCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: _WeightPole(
-                  label: 'Aktuell',
+                  label: l10n.profileWeightPoleCurrent,
                   value: '${profile.weightKg}',
                   color: t.ink,
                 ),
@@ -244,7 +245,9 @@ class GoalPlanCard extends StatelessWidget {
               ),
               Expanded(
                 child: _WeightPole(
-                  label: isMaintain ? 'Halten' : 'Wunsch',
+                  label: isMaintain
+                      ? l10n.profileWeightPoleHold
+                      : l10n.profileWeightPoleTarget,
                   value: '${profile.targetWeightKg}',
                   color: accent,
                 ),
@@ -265,8 +268,10 @@ class GoalPlanCard extends StatelessWidget {
                   message: paceWarning,
                   child: _PlanChip(
                     icon: Icons.speed_rounded,
-                    label: 'Tempo',
-                    value: isMaintain ? 'stabil' : targets.effectivePaceLabel,
+                    label: l10n.profilePlanChipPace,
+                    value: isMaintain
+                        ? l10n.profileStable
+                        : targets.effectivePaceLabel,
                     color: accent,
                   ),
                 ),
@@ -275,7 +280,7 @@ class GoalPlanCard extends StatelessWidget {
               Expanded(
                 child: _PlanChip(
                   icon: Icons.local_fire_department_rounded,
-                  label: 'Tagesziel',
+                  label: l10n.profilePlanChipDailyGoal,
                   value: '${profile.dailyKcalGoal} kcal',
                   color: t.ink,
                 ),
@@ -298,8 +303,8 @@ class GoalPlanCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       weeks != null
-                          ? 'Noch $gap kg · Ziel in ca. $weeks Wochen'
-                          : 'Noch $gap kg bis zum Wunschgewicht',
+                          ? l10n.profileGoalProgressWeeks(gap, weeks)
+                          : l10n.profileGoalProgressNoWeeks(gap),
                       style: AppType.ui(
                         13,
                         weight: FontWeight.w600,

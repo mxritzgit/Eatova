@@ -19,6 +19,7 @@ class GoalsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final protein = profile.proteinGoalG;
     final carbs = profile.carbsGoalG;
     final fat = profile.fatGoalG;
@@ -30,7 +31,7 @@ class GoalsCard extends StatelessWidget {
         children: <Widget>[
           SettingsRow(
             leading: const IconTile(icon: Icons.local_fire_department_outlined),
-            title: 'Kalorien',
+            title: l10n.profileGoalsCalories,
             // GENAU dieses Format ('<ist>/<soll>', ohne Leerzeichen) traegt den
             // Live-Refresh-Beweis in profile_route_refresh_test. MacroBar aus
             // der Design-Bibliothek rendert '1000 / 8000' und ist hier deshalb
@@ -41,7 +42,7 @@ class GoalsCard extends StatelessWidget {
           Divider(height: 1, thickness: 1, color: t.line),
           SettingsRow(
             leading: const IconTile(icon: Icons.directions_walk_outlined),
-            title: 'Schritte',
+            title: l10n.profileGoalsSteps,
             value: '$dailySteps/${profile.dailyStepsGoal}',
             chevron: false,
           ),
@@ -54,7 +55,7 @@ class GoalsCard extends StatelessWidget {
             SettingsRow(
               key: const ValueKey('profile-edit-goals'),
               leading: const IconTile(icon: Icons.tune_rounded),
-              title: 'Ziele anpassen',
+              title: l10n.profileGoalsEditCta,
               onTap: onEdit,
             ),
           ],
@@ -83,6 +84,7 @@ class _MacroSplitBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(
@@ -94,7 +96,7 @@ class _MacroSplitBlock extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Makro-Verteilung',
+                  l10n.profileMacroSplitTitle,
                   style:
                       AppType.ui(13.5, weight: FontWeight.w600, color: t.ink),
                 ),
@@ -103,8 +105,10 @@ class _MacroSplitBlock extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Semantics(
-            label: 'Makro-Verteilung',
-            value: '$protein g Protein, $carbs g Kohlenhydrate, $fat g Fett',
+            label: l10n.profileMacroSplitTitle,
+            value: '${l10n.profileMacroAmountLabel(protein, l10n.todayMacroProtein)}, '
+                '${l10n.profileMacroAmountLabel(carbs, l10n.todayMacroCarbs)}, '
+                '${l10n.profileMacroAmountLabel(fat, l10n.todayMacroFat)}',
             child: ClipRRect(
               borderRadius: BorderRadius.circular(5),
               child: SizedBox(
@@ -135,9 +139,24 @@ class _MacroSplitBlock extends StatelessWidget {
             spacing: 14,
             runSpacing: 6,
             children: <Widget>[
-              _LegendDot(color: t.protein, label: '$protein g Protein'),
-              _LegendDot(color: t.carbs, label: '$carbs g Kohlenhydrate'),
-              _LegendDot(color: t.fat, label: '$fat g Fett'),
+              _LegendDot(
+                color: t.protein,
+                label: l10n.profileMacroAmountLabel(
+                  protein,
+                  l10n.todayMacroProtein,
+                ),
+              ),
+              _LegendDot(
+                color: t.carbs,
+                label: l10n.profileMacroAmountLabel(
+                  carbs,
+                  l10n.todayMacroCarbs,
+                ),
+              ),
+              _LegendDot(
+                color: t.fat,
+                label: l10n.profileMacroAmountLabel(fat, l10n.todayMacroFat),
+              ),
             ],
           ),
         ],

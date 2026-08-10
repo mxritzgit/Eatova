@@ -59,6 +59,15 @@ import 'package:flutter_test/flutter_test.dart';
 /// die `send()`-Signatur geaendert und jeden Test-Override in
 /// coach_design_test.dart/coach_image_privacy_test.dart mitgerissen. S.
 /// Paket-4-Bericht.
+///
+/// Paket 5 (Profil, 2026-08-10): `lib/src/screens/profile_screen.dart`,
+/// `lib/src/widgets/profile/` (alle acht Dateien, inkl. `profile_format.dart`
+/// — `part of`, kein eigener Import) und `lib/src/screens/trends_screen.dart`
+/// komplett dazu. Bewusst NICHT migriert (ausserhalb des Paket-Scopes):
+/// `lib/src/models/user_profile.dart` — `WeightGoal.label`/
+/// `ActivityLevel.label`/`BiologicalSex.label` bleiben hartkodiertes Deutsch,
+/// s. Paket-5-Bericht (dokumentierte Ripple-Uebergabe, analog zum
+/// `MealSlot.label`-Fund aus Paket 1).
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -70,6 +79,9 @@ const List<String> _migriertePfade = <String>[
   'lib/src/theme/meal_slot_style.dart',
   'lib/src/screens/recipes/',
   'lib/src/screens/coach/',
+  'lib/src/screens/profile_screen.dart',
+  'lib/src/widgets/profile/',
+  'lib/src/screens/trends_screen.dart',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie

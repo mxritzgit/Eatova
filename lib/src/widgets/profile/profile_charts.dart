@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 
 /// Halbkreis-Skala mit Zeiger fuer den BMI.
@@ -163,11 +164,11 @@ class BMIGaugePainter extends CustomPainter {
     return t.danger;
   }
 
-  static String labelFor(double v) {
-    if (v < 18.5) return 'Untergewicht';
-    if (v < 25.0) return 'Normal';
-    if (v < 30.0) return 'Übergewicht';
-    return 'Adipös';
+  static String labelFor(double v, AppLocalizations l10n) {
+    if (v < 18.5) return l10n.profileBmiZoneUnder;
+    if (v < 25.0) return l10n.profileBmiZoneNormal;
+    if (v < 30.0) return l10n.profileBmiZoneOver;
+    return l10n.profileBmiZoneObese;
   }
 
   @override

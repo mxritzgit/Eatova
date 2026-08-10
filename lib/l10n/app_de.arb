@@ -543,5 +543,179 @@
       "access": { "type": "String" }
     }
   },
-  "coachErrorSpeechEmpty": "Ich habe nichts verstanden. Versuch es nochmal."
+  "coachErrorSpeechEmpty": "Ich habe nichts verstanden. Versuch es nochmal.",
+  "profileTitle": "Mein Profil",
+  "profileLabelStreak": "STREAK",
+  "profileLabelMeals": "MAHLZEITEN",
+  "profileUnitTotal": "gesamt",
+  "profileLabelRecord": "REKORD",
+  "profileLabelWeighIns": "WIEGEN",
+  "profileUnitEntries": "Einträge",
+  "profileSectionPlan": "Dein Plan",
+  "profileSectionBody": "Körper",
+  "profileSectionDailyGoals": "Tagesziele",
+  "profileSectionConnections": "Verbindungen",
+  "profileGoalPlanTitle": "Mein Ziel",
+  "profileGoalPlanEditTooltip": "Ziel anpassen",
+  "profileWeightPoleCurrent": "Aktuell",
+  "profileWeightPoleHold": "Halten",
+  "profileWeightPoleTarget": "Wunsch",
+  "profilePlanChipPace": "Tempo",
+  "profileStable": "stabil",
+  "profilePlanChipDailyGoal": "Tagesziel",
+  "profileGoalProgressWeeks": "Noch {gap} kg · Ziel in ca. {weeks} Wochen",
+  "@profileGoalProgressWeeks": {
+    "placeholders": {
+      "gap": { "type": "int" },
+      "weeks": { "type": "int" }
+    }
+  },
+  "profileGoalProgressNoWeeks": "Noch {gap} kg bis zum Wunschgewicht",
+  "@profileGoalProgressNoWeeks": {
+    "placeholders": {
+      "gap": { "type": "int" }
+    }
+  },
+  "profileWeightTitle": "Gewicht",
+  "profileWeightMeasurementsCount": "{count} Messungen",
+  "@profileWeightMeasurementsCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "profileWeightHistorySemanticsLabel": "Gewichtsverlauf",
+  "profileWeightHistorySemanticsValue": "{count} Messungen, zuletzt {kg} kg",
+  "@profileWeightHistorySemanticsValue": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "kg": { "type": "String" }
+    }
+  },
+  "profileWeightHistoryEmptySemantics": "Noch keine Verlaufslinie",
+  "profileWeightHistoryEmptyHint": "Logge dein Gewicht regelmäßig für eine Verlaufslinie.",
+  "profileLogWeightCta": "Gewicht loggen",
+  "profileGoalProgressSemanticsLabel": "Ziel Fortschritt",
+  "profileGoalTargetLabel": "Ziel {kg} kg",
+  "@profileGoalTargetLabel": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
+  "profileWeightCaptionToday": "heute",
+  "profileBmiInfoTooltip": "BMI-Erklärung",
+  "profileBmiZoneLabel": "BMI {zone}",
+  "@profileBmiZoneLabel": {
+    "placeholders": {
+      "zone": { "type": "String" }
+    }
+  },
+  "profileAgeAbbreviation": "{age} J.",
+  "@profileAgeAbbreviation": {
+    "placeholders": {
+      "age": { "type": "int" }
+    }
+  },
+  "profileBmiInfoSheetTitle": "BMI Orientierung",
+  "profileBmiInfoSheetBody": "Body Mass Index ist eine grobe Heuristik. Für Athleten und athletische Körper ist die Tendenz interessanter als der absolute Wert.",
+  "profileWeightInputLabel": "Aktuelles Gewicht",
+  "profileGoalsCalories": "Kalorien",
+  "profileGoalsSteps": "Schritte",
+  "profileGoalsEditCta": "Ziele anpassen",
+  "profileMacroSplitTitle": "Makro-Verteilung",
+  "profileMacroAmountLabel": "{g} g {macro}",
+  "@profileMacroAmountLabel": {
+    "placeholders": {
+      "g": { "type": "int" },
+      "macro": { "type": "String" }
+    }
+  },
+  "profileHealthSyncedAt": "Synchronisiert · {time}",
+  "@profileHealthSyncedAt": {
+    "placeholders": {
+      "time": { "type": "String" }
+    }
+  },
+  "profileHealthConnected": "Verbunden",
+  "profileHealthUnverifiedHint": "Keine Daten — in Einstellungen › Health › Datenzugriff & Geräte › Eatova alle Kategorien einschalten",
+  "profileHealthDeniedHint": "Zugriff entzogen — in Einstellungen › Health › Datenzugriff & Geräte › Eatova wieder freigeben",
+  "profileHealthUnsupportedHint": "Auf diesem Gerät nicht aktiv",
+  "profileHealthSetupHint": "Apple Health einrichten",
+  "profileHealthActionCheck": "Prüfen",
+  "profileHealthActionConnect": "Verbinden",
+  "profileHealthRefreshSemantics": "Aktualisieren",
+  "profileHealthTimeJustNow": "gerade eben",
+  "profileHealthTimeMinutesAgo": "vor {minutes} Min",
+  "@profileHealthTimeMinutesAgo": {
+    "placeholders": {
+      "minutes": { "type": "int" }
+    }
+  },
+  "profileHealthTimeHoursAgo": "vor {hours}h",
+  "@profileHealthTimeHoursAgo": {
+    "placeholders": {
+      "hours": { "type": "int" }
+    }
+  },
+  "profileBmiZoneUnder": "Untergewicht",
+  "profileBmiZoneNormal": "Normal",
+  "profileBmiZoneOver": "Übergewicht",
+  "profileBmiZoneObese": "Adipös",
+  "trendsTitle": "Trends",
+  "trendsStatAvgKcalLabel": "Ø KALORIEN",
+  "trendsNoCompletedDay": "noch kein abgeschlossener Tag",
+  "trendsStatAvgKcalSub": "pro getracktem Tag",
+  "trendsStatGoalRateLabel": "ZIEL GETROFFEN",
+  "trendsStatGoalRateSub": "{hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} (±10 %)",
+  "@trendsStatGoalRateSub": {
+    "placeholders": {
+      "hit": { "type": "int" },
+      "tracked": { "type": "int" }
+    }
+  },
+  "trendsMetricsNote": "Kennzahlen zählen nur abgeschlossene Tage. Heute läuft noch und ist nur im Verlauf oben enthalten.",
+  "trendsRangeDaysLabel": "{days} Tage",
+  "@trendsRangeDaysLabel": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "trendsRangeSemanticsLabel": "Zeitraum {days} Tage",
+  "@trendsRangeSemanticsLabel": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "trendsChartTitle": "Kalorien pro Tag",
+  "trendsChartSemanticsEmpty": "Keine Einträge in diesem Zeitraum",
+  "trendsChartSemanticsNoAvg": "{tracked} von {range} Tagen mit Einträgen, noch kein abgeschlossener Tag für den Durchschnitt, Tagesziel {goal} Kilokalorien",
+  "@trendsChartSemanticsNoAvg": {
+    "placeholders": {
+      "tracked": { "type": "int" },
+      "range": { "type": "int" },
+      "goal": { "type": "int" }
+    }
+  },
+  "trendsChartSemanticsWithAvg": "{tracked} von {range} Tagen mit Einträgen, im Schnitt {avg} Kilokalorien pro abgeschlossenem Tag, Tagesziel {goal} Kilokalorien",
+  "@trendsChartSemanticsWithAvg": {
+    "placeholders": {
+      "tracked": { "type": "int" },
+      "range": { "type": "int" },
+      "avg": { "type": "int" },
+      "goal": { "type": "int" }
+    }
+  },
+  "trendsChartSemanticsLabel": "Kalorienverlauf",
+  "trendsMacroAvgTitle": "Ø MAKROS PRO TAG",
+  "trendsEmptyTitle": "Noch zu wenig Daten",
+  "trendsEmptyBody": "Logge deine Mahlzeiten an mindestens zwei Tagen,\num hier deinen Verlauf zu sehen.",
+  "trendsErrorTitle": "Trends konnten nicht geladen werden",
+  "trendsErrorBody": "Prüfe deine Internetverbindung und versuche es erneut.",
+  "trendsRetryCta": "Erneut versuchen",
+  "trendsChartGoalLabel": "Ziel {goal}",
+  "@trendsChartGoalLabel": {
+    "placeholders": {
+      "goal": { "type": "String" }
+    }
+  },
+  "trendsChartEmptyHintPainter": "Keine Einträge in diesem Zeitraum."
 }

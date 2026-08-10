@@ -10,8 +10,10 @@
 //     dieser Test verhindert, dass sie jemand gutgemeint nachruestet.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -43,6 +45,15 @@ Future<void> _pumpCard(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
+      // WeightCard liest seit der i18n-Migration context.l10n.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Scaffold(
         body: Padding(
           padding: const EdgeInsets.all(20),

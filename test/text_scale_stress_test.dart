@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -69,7 +71,16 @@ DateTime _daysAgo(int n) {
 }
 
 /// Bootet die App und landet auf „Heute" (Index 0 seit dem Design-Refactor).
+///
+/// `EatovaApp` ohne Locale-Override loest in `flutter test` NICHT auf `de`
+/// auf (Test-PlatformDispatcher-Default ist `en`, s. Paket-2-Bericht) —
+/// die Profil-Seite prueft weiter unten den migrierten Text „Verbindungen"
+/// (ARB-Wert unter `de`), deshalb hier fest auf `de` gepinnt.
 Future<void> _bootApp(WidgetTester tester) async {
+  tester.platformDispatcher.localesTestValue = <Locale>[
+    const Locale('de', 'DE'),
+  ];
+  addTearDown(tester.platformDispatcher.clearLocalesTestValue);
   await tester.pumpWidget(const EatovaApp());
   await tester.pumpAndSettle();
   expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
@@ -309,6 +320,15 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(Brightness.dark),
+          // TrendsScreen liest seit der i18n-Migration context.l10n.
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           home: TrendsScreen(
             kcalGoal: 2200,
             loadTotals: () => Future.value([

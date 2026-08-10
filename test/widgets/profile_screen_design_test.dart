@@ -9,8 +9,10 @@
 //     „MEMBER SINCE" — die Design-Vorlage zeigt beides, wir haben es nicht).
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
@@ -80,10 +82,20 @@ Future<void> _pumpAsRoute(
   Widget screen, {
   Brightness brightness = Brightness.dark,
   TextScaler? textScaler,
+  Locale locale = const Locale('de'),
 }) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
+      // ProfileScreen liest seit der i18n-Migration context.l10n.
+      locale: locale,
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       builder: textScaler == null
           ? null
           : (context, child) => MediaQuery(
@@ -317,5 +329,29 @@ void main() {
       );
       await tester.pumpAndSettle();
     });
+  });
+
+  group('EN-Render-Smoke (i18n-Paket 5, Spec §6)', () {
+    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
+    // mindestens eine echte englische Uebersetzung steht im Baum. Muster:
+    // test/coach_design_test.dart (Paket 4).
+    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
+      testWidgets('rendert unter en in $brightness ohne Ausnahme',
+          (tester) async {
+        _pinViewport(tester);
+        await _pumpAsRoute(
+          tester,
+          _profile(),
+          brightness: brightness,
+          locale: const Locale('en'),
+        );
+
+        expect(tester.takeException(), isNull,
+            reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
+        // „Mein Profil" -> „My Profile", „Verbindungen" -> „Connections".
+        expect(find.text('My Profile'), findsOneWidget);
+        expect(find.text('Connections'), findsOneWidget);
+      });
+    }
   });
 }

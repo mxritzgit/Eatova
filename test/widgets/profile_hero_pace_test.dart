@@ -10,8 +10,10 @@
 // Defizit frisst — beides wird hier festgenagelt.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
@@ -49,6 +51,15 @@ Future<void> _pumpCard(WidgetTester tester, UserProfile profile) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
+      // GoalPlanCard liest seit der i18n-Migration context.l10n.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       // Kein backgroundColor mehr: das Theme setzt scaffoldBackgroundColor
       // aus den Tokens, ein harter Wert wuerde den Hell-Modus aushebeln.
       home: Scaffold(
