@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/legal_links.dart';
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/motion.dart';
 
@@ -217,12 +218,81 @@ class SettingsNote extends StatelessWidget {
   }
 }
 
-/// Die Drei-Segment-Pille fuer den Anzeige-Modus.
+/// Gemeinsamer Rendering-Unterbau der Einstellungs-Pillen.
 ///
 /// Geometrisch identisch zu [SegmentedPill] aus der Bibliothek, nur mit
 /// Testschluesseln an den einzelnen Optionen. Die Breite ist zusaetzlich
-/// gedeckelt, damit die drei Segmente bei textScaler 2.0 in eine zweite
-/// Zeile umbrechen statt die Einstellungszeile zu sprengen.
+/// gedeckelt, damit die Segmente bei textScaler 2.0 in eine zweite Zeile
+/// umbrechen statt die Einstellungszeile zu sprengen.
+///
+/// [SettingsThemeModePill] und [SettingsLanguagePill] sehen identisch aus und
+/// unterscheiden sich nur im Wert-Typ ([ThemeMode] vs. `Locale?`) und darin,
+/// woher die Optionen kommen (statische Konstante vs. `context.l10n` im
+/// `build()`) — der Baukoerper steht deshalb genau EINMAL hier, nicht
+/// zweimal geklont.
+class _SettingsChoicePill<T> extends StatelessWidget {
+  const _SettingsChoicePill({
+    required this.value,
+    required this.optionen,
+    required this.onChanged,
+  });
+
+  final T value;
+  final List<(T, String, String)> optionen;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return ConstrainedBox(
+      constraints:
+          BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.55),
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: t.tile,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Wrap(
+          runSpacing: 3,
+          children: <Widget>[
+            for (final (wert, beschriftung, schluessel) in optionen)
+              GestureDetector(
+                key: ValueKey<String>(schluessel),
+                onTap: () => onChanged(wert),
+                child: AnimatedContainer(
+                  // DESIGN_REFACTOR §5: respektiert „Bewegung reduzieren"
+                  // (Klon von SegmentedPill, dort ebenso).
+                  duration:
+                      motionDuration(context, const Duration(milliseconds: 160)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: wert == value ? t.forest : Colors.transparent,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Semantics(
+                    selected: wert == value,
+                    button: true,
+                    child: Text(
+                      beschriftung,
+                      style: AppType.ui(
+                        11,
+                        weight: FontWeight.w600,
+                        color: wert == value ? t.onForest : t.ink2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Die Drei-Segment-Pille fuer den Anzeige-Modus.
 class SettingsThemeModePill extends StatelessWidget {
   const SettingsThemeModePill({
     super.key,
@@ -242,51 +312,44 @@ class SettingsThemeModePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    return ConstrainedBox(
-      constraints:
-          BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.55),
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: t.tile,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Wrap(
-          runSpacing: 3,
-          children: <Widget>[
-            for (final (modus, beschriftung, schluessel) in _optionen)
-              GestureDetector(
-                key: ValueKey<String>(schluessel),
-                onTap: () => onChanged(modus),
-                child: AnimatedContainer(
-                  // DESIGN_REFACTOR §5: respektiert „Bewegung reduzieren"
-                  // (Klon von SegmentedPill, dort ebenso).
-                  duration:
-                      motionDuration(context, const Duration(milliseconds: 160)),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: modus == mode ? t.forest : Colors.transparent,
-                    borderRadius: BorderRadius.circular(7),
-                  ),
-                  child: Semantics(
-                    selected: modus == mode,
-                    button: true,
-                    child: Text(
-                      beschriftung,
-                      style: AppType.ui(
-                        11,
-                        weight: FontWeight.w600,
-                        color: modus == mode ? t.onForest : t.ink2,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+    return _SettingsChoicePill<ThemeMode>(
+      value: mode,
+      optionen: _optionen,
+      onChanged: onChanged,
+    );
+  }
+}
+
+/// Die Drei-Segment-Pille fuer die Anzeigesprache (System/Deutsch/English).
+///
+/// Spiegel von [SettingsThemeModePill] — derselbe Rendering-Unterbau
+/// ([_SettingsChoicePill]), nur mit `Locale?` als Wert (`null` = System) und
+/// Optionen, die im `build()` aus `context.l10n` gebaut werden: die
+/// Beschriftungen sind Uebersetzungen, keine festen Strings, koennen also
+/// nicht wie beim Anzeige-Modus als `static const` stehen.
+class SettingsLanguagePill extends StatelessWidget {
+  const SettingsLanguagePill({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  /// null = System (Geraetesprache).
+  final Locale? value;
+  final ValueChanged<Locale?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final optionen = <(Locale?, String, String)>[
+      (null, l10n.languageSystem, 'settings-language-system'),
+      (const Locale('de'), l10n.languageGerman, 'settings-language-de'),
+      (const Locale('en'), l10n.languageEnglish, 'settings-language-en'),
+    ];
+    return _SettingsChoicePill<Locale?>(
+      value: value,
+      optionen: optionen,
+      onChanged: onChanged,
     );
   }
 }

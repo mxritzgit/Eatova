@@ -38,6 +38,11 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
+  # Schon transitiv da (flutter_localizations pinnt 0.20.2) — aber der von
+  # gen_l10n generierte Code importiert package:intl direkt. Ohne diese Zeile
+  # bricht der Build, sobald das Paket aus der transitiven Kette fiele.
+  intl: ^0.20.2
+
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
@@ -156,6 +161,8 @@ flutter_launcher_icons:
 
 # The following section is specific to Flutter packages.
 flutter:
+
+  generate: true
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

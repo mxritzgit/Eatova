@@ -1,0 +1,12 @@
+{
+  "@@locale": "de",
+  "settingsLanguageTitle": "Sprache",
+  "settingsLanguageSubtitle": "System folgt der Sprache deines Geräts.",
+  "languageSystem": "System",
+  "languageGerman": "Deutsch",
+  "languageEnglish": "English",
+  "navToday": "Heute",
+  "navFood": "Food",
+  "navRecipes": "Rezepte",
+  "navCoach": "Coach"
+}

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 // Gemeinsamer Unterbau fuer alle Tests der Design-Bibliothek.
@@ -25,10 +27,19 @@ Widget designHarness(
   Brightness brightness = Brightness.light,
   TextScaler textScaler = TextScaler.noScaling,
   bool scrollable = false,
+  Locale locale = const Locale('de'),
 }) {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: buildEatovaTheme(brightness),
+    locale: locale,
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: Builder(
       builder: (context) {
         final Widget body = Padding(

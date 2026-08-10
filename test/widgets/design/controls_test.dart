@@ -336,6 +336,32 @@ void main() {
       expect(find.byIcon(Icons.menu_book_outlined), findsOneWidget);
     });
 
+    testWidgets('englische Labels, aber die Keys bleiben deutsch',
+        (tester) async {
+      await tester.pumpWidget(
+        designHarness(
+          AppNavBar(
+            index: 0,
+            onChanged: (_) {},
+            items: const <AppNavItem>[
+              AppNavItem(
+                icon: Icons.restaurant_outlined,
+                activeIcon: Icons.restaurant_rounded,
+                label: 'Recipes',
+                keyId: 'Rezepte',
+              ),
+            ],
+          ),
+          locale: const Locale('en'),
+        ),
+      );
+
+      // Der Vertrag aus DESIGN_REFACTOR §6: der Key ist API und bleibt
+      // deutsch, auch wenn das sichtbare Label uebersetzt ist.
+      expect(find.byKey(const ValueKey<String>('nav-Rezepte')), findsOneWidget);
+      expect(find.text('Recipes'), findsOneWidget);
+    });
+
     testWidgets('bleibt flach, aber jedes Item bleibt ein 44-px-Tap-Ziel',
         (tester) async {
       final handle = tester.ensureSemantics();

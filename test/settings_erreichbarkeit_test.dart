@@ -64,6 +64,12 @@ void main() {
         reason: 'ein Zahnrad mit der Beschriftung „Einstellungen" muss in '
             'die Einstellungen fuehren');
     expect(find.byKey(const ValueKey('screen-goals')), findsNothing);
+
+    // Final-Review i18n-Grundgeruest: die Zeile haengt am LocaleScope der
+    // App-Schale — faellt der Scope, verschwindet sie STILL. Ankunft allein
+    // genuegt deshalb nicht: beide Praeferenz-Zeilen muessen DA sein.
+    expect(find.byKey(const ValueKey('settings-language')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-theme-mode')), findsOneWidget);
   });
 
   testWidgets('die Bearbeiten-Knoepfe im Profil fuehren auf „Profil & Ziele"',

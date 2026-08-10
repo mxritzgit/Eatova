@@ -5,11 +5,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
 
-// Deutsche Material-Lokalisierung (2026-08-06): EatovaApp pinnt locale/
-// supportedLocales auf de und verdrahtet die flutter_localizations-Delegates.
-// Damit rendern SDK-Dialoge — allen voran showTimePicker (Schlafziel im
-// Settings-Sheet, settings_sheet.dart) und showDatePicker (Food-Tab-Kalender,
-// Edit-Sheet) — deutsch und im 24h-Format statt Englisch + AM/PM.
+// Deutsche Material-Lokalisierung (2026-08-06, Ablauf geaendert 2026-08-10
+// im i18n-Grundgeruest): EatovaApp pinnt locale/supportedLocales seit dem
+// Grundgeruest NICHT mehr fest auf de — sie folgt dem Geraet
+// (resolveEatovaLocale, lib/src/app/locale_controller.dart: Geraet deutsch
+// -> de, sonst en) und verdrahtet die flutter_localizations-Delegates.
+// Diese Datei prueft den de-Zweig dieser Aufloesung: ein deutsches Geraet
+// bekommt weiterhin deutsche SDK-Dialoge — allen voran showTimePicker
+// (Schlafziel im Settings-Sheet, settings_sheet.dart) und showDatePicker
+// (Food-Tab-Kalender, Edit-Sheet) — deutsch und im 24h-Format statt
+// Englisch + AM/PM. Die Test-ASSERTIONS sind unveraendert; neu ist nur, dass
+// die Geraetesprache jetzt EXPLIZIT auf de festgenagelt wird
+// (`tester.platformDispatcher.localesTestValue`), statt sich implizit auf
+// den alten Pin zu verlassen.
 //
 // Die Tests fahren die ECHTE App-Schale (EatovaApp -> MaterialApp) und
 // pruefen erstens die Localization-Werte auf einem Context aus dem App-Baum
@@ -42,6 +50,12 @@ void main() {
   testWidgetsRobust(
       'App laeuft unter de-Locale: Material-Strings deutsch, '
       'TimePicker-Format 24h (HH:mm)', (WidgetTester tester) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest die App
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (s. Datei-Kopfkommentar).
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+
     await tester.pumpWidget(const EatovaApp());
     await tester.pumpAndSettle();
 
@@ -68,6 +82,12 @@ void main() {
   testWidgetsRobust(
       'showTimePicker aus dem App-Baum rendert deutsch und ohne AM/PM',
       (WidgetTester tester) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest die App
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (s. Datei-Kopfkommentar).
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+
     await tester.pumpWidget(const EatovaApp());
     await tester.pumpAndSettle();
 
