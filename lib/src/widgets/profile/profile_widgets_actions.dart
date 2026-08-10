@@ -154,82 +154,23 @@ class _CompactButton extends StatelessWidget {
   }
 }
 
-/// Die sechs Konto-Aktionen als Einstellungs-Gruppe.
-///
-/// Jeder `profile-action-*`-Key sitzt jetzt auf der [SettingsRow] selbst
-/// (vorher auf einem InkWell darin) — Tests tippen unveraendert den Key.
-class ProfileActionsCard extends StatelessWidget {
-  const ProfileActionsCard({
-    super.key,
-    required this.onEditProfile,
-    required this.onResetDay,
-    required this.onExport,
-    required this.onAbout,
-    this.onSignOut,
-    this.onDeleteAccount,
-  });
-
-  final VoidCallback onEditProfile;
-  final VoidCallback onResetDay;
-  final VoidCallback onExport;
-  final VoidCallback onAbout;
-  final VoidCallback? onSignOut;
-  final VoidCallback? onDeleteAccount;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return SettingsGroup(
-      label: 'DATEN & KONTO',
-      children: <Widget>[
-        SettingsRow(
-          key: const ValueKey('profile-action-edit'),
-          leading: const IconTile(icon: Icons.tune_rounded),
-          title: 'Profil & Ziele',
-          subtitle: 'Körper, Schritte, Kcal, Schlaf',
-          onTap: onEditProfile,
-        ),
-        SettingsRow(
-          key: const ValueKey('profile-action-reset'),
-          leading: const IconTile(icon: Icons.restart_alt_rounded),
-          title: 'Tagesdaten zurücksetzen',
-          subtitle: 'Heute neu starten',
-          onTap: onResetDay,
-        ),
-        SettingsRow(
-          key: const ValueKey('profile-action-export'),
-          leading: const IconTile(icon: Icons.ios_share_rounded),
-          title: 'Daten exportieren',
-          subtitle: 'Kopie deiner Daten als JSON',
-          onTap: onExport,
-        ),
-        SettingsRow(
-          key: const ValueKey('profile-action-about'),
-          leading: const IconTile(icon: Icons.info_outline_rounded),
-          title: 'Über Eatova',
-          subtitle: 'Version & Mitwirkende',
-          onTap: onAbout,
-        ),
-        if (onSignOut != null)
-          SettingsRow(
-            key: const ValueKey('profile-action-logout'),
-            leading: IconTile(icon: Icons.logout_rounded, color: t.danger),
-            title: 'Ausloggen',
-            subtitle: 'Zurück zum Login',
-            titleColor: t.danger,
-            onTap: onSignOut,
-          ),
-        if (onDeleteAccount != null)
-          SettingsRow(
-            key: const ValueKey('profile-action-delete'),
-            leading:
-                IconTile(icon: Icons.delete_forever_rounded, color: t.danger),
-            title: 'Konto löschen',
-            subtitle: 'Account + alle Daten unwiderruflich',
-            titleColor: t.danger,
-            onTap: onDeleteAccount,
-          ),
-      ],
-    );
-  }
-}
+// Hier stand bis 2026-08-10 `ProfileActionsCard` — die Gruppe „Daten & Konto"
+// mit sechs Zeilen (`profile-action-edit/-reset/-export/-about/-logout/
+// -delete`). Sie ist auf Nutzer-Entscheid entfallen, weil sie die Einstellungen
+// doppelte:
+//
+//   * „Profil & Ziele"     -> `settings-open-goals`
+//   * „Daten exportieren"  -> `settings-export`
+//   * „Ausloggen"          -> `settings-sign-out`
+//   * „Konto löschen"      -> `settings-delete-account`
+//   * „Über Eatova"        -> `settings-about` (samt Sheet UMGEZOGEN, nicht
+//                             geloescht: es traegt die ODbL-Quellennennung
+//                             und die Datenschutz-Zeile nach DSGVO Art. 13)
+//   * „Tagesdaten zurücksetzen" -> ersatzlos entfallen, mitsamt
+//                             `HomeStore.resetTodayData` und
+//                             `settings-reset-day`.
+//
+// Die Wege in die Einstellungen fuehren jetzt ueber das Zahnrad im Profil-Kopf
+// (`profile-open-settings`) und den Food-Kopf (`topbar-settings`); die Wege zu
+// den Zielen ueber `profile-goalplan-edit` und `profile-edit-goals`. Beides
+// haelt `test/settings_erreichbarkeit_test.dart` fest.

@@ -27,6 +27,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
@@ -74,7 +75,7 @@ Widget _app(
           child: RecipesScreen(
             onAddMeal: (MealAnalysisResult _, MealSlot __) {},
             remainingMacros: _remaining,
-            onCreateRecipe: (_) {},
+            onCreateRecipe: (_) async => SyncDelivery.delivered,
             initialUserRecipes: userRecipes,
           ),
         ),

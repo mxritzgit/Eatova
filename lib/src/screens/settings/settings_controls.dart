@@ -291,8 +291,9 @@ class SettingsThemeModePill extends StatelessWidget {
   }
 }
 
-/// Umriss-Knopf fuer die zweite Aktion am Seitenfuss („Tagesdaten
-/// zuruecksetzen", „Systemeinstellungen oeffnen").
+/// Umriss-Knopf fuer eine zweite, nachgeordnete Aktion („Systemeinstellungen
+/// oeffnen"). Bis 2026-08-10 trug er auch „Tagesdaten zuruecksetzen" — die
+/// Aktion ist auf Nutzer-Entscheid ersatzlos entfallen.
 ///
 /// `onTap == null` heisst gesperrt: gedaempft und taub, nicht unsichtbar —
 /// dieselbe Loesung, die [SheetScaffold.actionEnabled] fuer die Hauptaktion
@@ -300,10 +301,9 @@ class SettingsThemeModePill extends StatelessWidget {
 ///
 /// **A11y:** Der Vorgaenger war ein `OutlinedButton.icon` und trug damit
 /// `isButton` und den Enabled-Zustand im Semantik-Baum; ein blosses [InkWell]
-/// traegt beides nicht. Ohne das eigene [Semantics] klaenge der gesperrte
-/// „Tagesdaten zuruecksetzen"-Knopf fuer einen Screenreader wie ein normaler,
-/// nur eben ohne Wirkung — genau die Sorte stille Luege, gegen die D11
-/// geschrieben wurde.
+/// traegt beides nicht. Ohne das eigene [Semantics] klaenge ein gesperrter
+/// Knopf fuer einen Screenreader wie ein normaler, nur eben ohne Wirkung —
+/// genau die Sorte stille Luege, gegen die D11 geschrieben wurde.
 class SettingsSecondaryButton extends StatelessWidget {
   const SettingsSecondaryButton({
     super.key,

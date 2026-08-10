@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -41,6 +42,14 @@ import 'settings_controls.dart';
 /// `account_change_sheets.dart`). Ohne Repository entfallen beide Zeilen
 /// ersatzlos — dieselbe Regel wie fuer Export und Ausloggen.
 ///
+/// „Über Eatova" (`settings-about`) ist am 2026-08-10 aus dem Profil
+/// HIERHER gezogen, als der dortige Block „Daten & Konto" entfiel. Es ist die
+/// einzige der sechs Profil-Zeilen ohne Gegenstueck gewesen — und keine
+/// Kosmetik: sein Sheet traegt die nach ODbL vorgeschriebene Quellennennung
+/// fuer die OpenFoodFacts-Daten UND die Datenschutz-Zeile nach DSGVO Art. 13
+/// (erreichbar auch nach dem Login, nicht nur auf dem Auth-Screen). Es steht
+/// in DATEN & PRIVATSPHÄRE, weil genau das sein Inhalt ist.
+///
 /// Der Screen gibt nichts zurueck — jede Aktion laeuft ueber ihren Callback.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -78,11 +87,11 @@ class SettingsScreen extends StatefulWidget {
 
 /// App-Metadaten zur Laufzeit statt hartkodierter Strings, die beim
 /// Version-Bump auseinanderlaufen. In Widget-Tests (Kanal nicht gemockt)
-/// schlaegt die Future fehl — die Fusszeile faellt dann auf die Wortmarke
-/// zurueck.
+/// schlaegt die Future fehl — die Zeilen zeigen dann „—".
 ///
-/// Dieselbe Future existiert nochmal privat in `profile_screen.dart`; beide
-/// gehoeren in einen gemeinsamen Zugriff (siehe Bericht).
+/// Dieselbe Future existiert nochmal privat in `profile_screen.dart` (fuer die
+/// Wortmarke im Profil-Fuss); beide gehoeren in einen gemeinsamen Zugriff
+/// (siehe Bericht).
 final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
 class _SettingsScreenState extends State<SettingsScreen> {
@@ -146,7 +155,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ..._praeferenzenGruppe(),
               ..._datenGruppe(),
               ..._gefahrenzone(t),
-              const _VersionFooter(),
             ],
           ),
         ),
@@ -316,6 +324,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         rowKey: ValueKey('settings-imprint-link'),
         title: 'Impressum',
         url: kImprintUrl,
+      ),
+      // Version, Herkunft der Daten (ODbL-Namensnennung fuer OpenFoodFacts)
+      // und der Datenschutz-Link. Steht bewusst in DIESER Gruppe und nicht in
+      // einer eigenen: der Sheet-Inhalt ist von der ersten bis zur letzten
+      // Zeile eine Auskunft ueber Daten.
+      SettingsRow(
+        key: const ValueKey('settings-about'),
+        title: 'Über Eatova',
+        subtitle: 'Version, Quellen & Datenschutz',
+        onTap: () => showEatovaSheet<void>(context, const _AboutSheet()),
       ),
     ]);
   }
@@ -492,33 +510,181 @@ class _LegalRow extends StatelessWidget {
   }
 }
 
-/// Die Versionszeile am Seitenfuss.
-class _VersionFooter extends StatelessWidget {
-  const _VersionFooter();
+/// Das „Über Eatova"-Sheet.
+///
+/// Bis 2026-08-10 privat in `profile_screen.dart` (Zeile `profile-action-about`
+/// im entfallenen Block „Daten & Konto"). Mit umgezogen sind [_AboutRow] und
+/// [_PrivacyLinkRow] — und mit ihnen der Testschluessel
+/// `profile-privacy-link`, der bewusst NICHT umbenannt wurde
+/// (DESIGN_REFACTOR §6: „Key bleibt Key, der Key wandert mit").
+///
+/// Zwei Zeilen darin sind Pflicht, nicht Deko:
+///  * **Quellen** — die Namensnennung fuer die OpenFoodFacts-Daten (ODbL).
+///  * **Datenschutzerklärung** — DSGVO Art. 13 verlangt sie auch NACH dem
+///    Login, nicht nur auf dem Auth-Screen.
+///
+/// Die Fusszeile „Version … · Build …" der Einstellungen ist mit diesem Umzug
+/// entfallen: sie stand ab dann drei Zeilen unter einem Eintrag, der dasselbe
+/// noch einmal sagt. Ohne Tipp bleibt die Version im Profil-Fuss ablesbar
+/// (`Eatova · v1.2.3`).
+class _AboutSheet extends StatelessWidget {
+  const _AboutSheet();
+
+  /// Datenquellen ehrlich + plattformgerecht: Produktdaten kommen aus
+  /// OpenFoodFacts bzw. dem eigenen Suchindex; Schritte liefert Apple Health
+  /// (nur iOS — auf Android ist der Health-Pfad ein No-op, also dort nicht
+  /// nennen). "wger" war nie angebunden und ist raus.
+  static String get _sources {
+    const base = 'OpenFoodFacts · Eigener Suchindex';
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return '$base · Apple Health';
+    }
+    return base;
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Center(
-      child: FutureBuilder<PackageInfo>(
-        future: _packageInfo,
-        builder: (context, snapshot) {
-          final info = snapshot.data;
-          return Text(
-            info == null
-                ? 'Eatova'
-                : 'Version ${info.version} · Build ${info.buildNumber}',
-            textAlign: TextAlign.center,
-            style: AppType.ui(
-              10.5,
-              weight: FontWeight.w500,
-              // Ohne Zusatz-Transparenz: `ink2` ist bereits der gedaempfte Ton
-              // und exakt auf 4.5:1 ausgelegt.
-              color: t.ink2,
-            ),
-          );
-        },
+    // Scrollbar statt starr: bei doppelter Systemschrift ist der Block aus
+    // Beschreibung, Version, Build, Quellen und Datenschutz-Zeile hoeher als
+    // der Bildschirm (gemessen: 251 px Ueberlauf). Der Datenschutz-Link steht
+    // ganz unten — genau der Teil, der nie abgeschnitten werden darf.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              IconTile(
+                icon: Icons.bolt_rounded,
+                color: t.accent,
+                size: 44,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('Eatova', style: AppType.display(20, color: t.ink)),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Ernährung. Tracking. Coach.',
+                      style: AppType.ui(
+                        12,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Kalorien und Makros ohne Reibung tracken — per KI-Foto-Scan, '
+            'Barcode und Produktsuche, mit einem persönlichen Ernährungs-Coach.',
+            style: AppType.ui(13, color: t.ink2, height: 1.45),
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<PackageInfo>(
+            future: _packageInfo,
+            builder: (context, snapshot) {
+              final info = snapshot.data;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _AboutRow(label: 'Version', value: info?.version ?? '—'),
+                  const SizedBox(height: 6),
+                  _AboutRow(label: 'Build', value: info?.buildNumber ?? '—'),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 6),
+          _AboutRow(label: 'Quellen', value: _sources),
+          const SizedBox(height: 14),
+          // DSGVO Art. 13 / App-Store: Datenschutz auch nach dem Login
+          // erreichbar, nicht nur auf dem Auth-Screen.
+          const _PrivacyLinkRow(),
+        ],
       ),
+    );
+  }
+}
+
+/// Tappbare Datenschutz-Zeile im [_AboutSheet]. Oeffnet die Policy extern
+/// (url_launcher).
+///
+/// Der Schluessel heisst weiterhin `profile-privacy-link` — er ist mit dem
+/// Sheet aus dem Profil mitgewandert (DESIGN_REFACTOR §6). Die Zeile
+/// `settings-privacy-link` eine Ebene darueber ist ein ANDERES Bedienelement
+/// (Gruppe DATEN & PRIVATSPHÄRE) und bleibt davon unberuehrt.
+class _PrivacyLinkRow extends StatelessWidget {
+  const _PrivacyLinkRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return InkWell(
+      key: const ValueKey('profile-privacy-link'),
+      onTap: () => launchUrl(
+        Uri.parse(kPrivacyUrl),
+        mode: LaunchMode.externalApplication,
+      ),
+      borderRadius: BorderRadius.circular(rControl),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: t.surf,
+          borderRadius: BorderRadius.circular(rControl),
+          border: Border.all(color: t.line),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(Icons.shield_outlined, color: t.ink2, size: 16),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Datenschutzerklärung',
+                style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
+              ),
+            ),
+            Icon(Icons.open_in_new_rounded, color: t.ink2, size: 15),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Beschriftung links, Wert rechts — die Zeilenform des [_AboutSheet].
+class _AboutRow extends StatelessWidget {
+  const _AboutRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Row(
+      children: <Widget>[
+        Text(
+          label,
+          style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
+          ),
+        ),
+      ],
     );
   }
 }

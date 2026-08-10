@@ -412,12 +412,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
     });
   }
 
-  void _save({required bool resetDay}) {
+  void _save() {
     Navigator.pop(
       context,
       SettingsResult(
         profile: _buildProfile(),
-        resetDay: resetDay,
         // D11: nur „aktiv" heisst, dass abends wirklich etwas kommt.
         notificationsEnabled: _reminder == ReminderState.active,
       ),
@@ -550,16 +549,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
-                  SettingsSecondaryButton(
-                    key: const ValueKey('settings-reset-day'),
-                    label: 'Tagesdaten zurücksetzen',
-                    icon: Icons.restart_alt_rounded,
-                    tone: t.warning,
-                    // Auch dieser Weg schreibt das Profil — er muss an
-                    // derselben Feldpruefung haengen wie „Speichern".
-                    onTap: _hatFehler ? null : () => _save(resetDay: true),
-                  ),
-                  const SizedBox(height: 10),
+                  // Hier stand bis 2026-08-10 der Knopf `settings-reset-day`
+                  // („Tagesdaten zurücksetzen"). Er ist auf Nutzer-Entscheid
+                  // ersatzlos entfallen — mit ihm das Feld
+                  // `SettingsResult.resetDay`, `HomeStore.resetTodayData` und
+                  // der Reset-Zweig in `applySettings`. Der Seitenfuss traegt
+                  // damit nur noch „Speichern" und die Rechts-Links.
                   Semantics(
                     // [PrimaryActionButton] ist ein blankes InkWell und traegt
                     // weder `isButton` noch einen Enabled-Zustand — der
@@ -577,7 +572,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         key: const ValueKey('settings-save'),
                         label: 'Speichern',
                         icon: Icons.check_rounded,
-                        onTap: _hatFehler ? null : () => _save(resetDay: false),
+                        onTap: _hatFehler ? null : _save,
                       ),
                     ),
                   ),

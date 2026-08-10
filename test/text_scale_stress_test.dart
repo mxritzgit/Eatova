@@ -246,13 +246,16 @@ void main() {
       expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
 
       // Die dichteste Seite: Kennzahl-Kacheln zu zweit, Plan-Karte mit drei
-      // Makro-Spalten, Gewichts-Sparkline und die Aktionsliste ganz unten.
+      // Makro-Spalten, Gewichts-Sparkline und die Health-Karte ganz unten.
       await _scrollDurch(
         tester,
         find.byKey(const ValueKey('screen-profile')),
         schritte: 8,
       );
-      expect(find.byKey(const ValueKey('profile-action-about')), findsOneWidget);
+      // Anker am Seitenende. Bis 2026-08-10 stand hier
+      // `profile-action-about` — die Zeile ist mit dem Block „Daten & Konto"
+      // in die Einstellungen gezogen (`settings-about`, unten mitgeprueft).
+      expect(find.text('Verbindungen'), findsOneWidget);
     });
   });
 
@@ -271,6 +274,11 @@ void main() {
         find.byKey(const ValueKey('screen-settings')),
         schritte: 8,
       );
+
+      // („Über Eatova" ist am 2026-08-10 aus dem Profil hierher gezogen. Sein
+      // Sheet ist eine eigene Route und wird von diesem Durchlauf nicht
+      // geoeffnet — der 2.0-Fall dafuer steht in
+      // `test/settings_screen_render_test.dart`.)
 
       // Seit der Trennung 2026-08-10 tragen die Einstellungen nur noch Konto,
       // Anzeige, Daten und Gefahrenzone; Koerperdaten und Ziele (und damit

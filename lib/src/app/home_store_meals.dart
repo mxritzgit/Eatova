@@ -137,24 +137,27 @@ mixin _HomeStoreMealsPart
     }
     _cacheLoggedMeals();
     _cacheFavorites(); // _rememberRecent hat die Favoriten/Recents mutiert
-    final s = sync;
-    if (s == null) return entry.id;
-    s.meals.insertLoggedMeal(entry).then((_) {
-      _queueStatsDelta(meals: 1);
-      if (targetIsToday) _recordTrackingDay();
-      _onSyncSuccess();
-    }).catchError((Object e, StackTrace st) {
-      // DATA-7: KEIN Rollback mehr — die Mahlzeit bleibt im Tagebuch stehen
-      // und wird als Outbox-Op nachgeholt (inkl. Stats-/Streak-Zaehlung beim
-      // Replay-Erfolg). Der Streak-Reminder-Plan von oben bleibt damit
-      // ebenfalls korrekt.
-      _handleSyncFailure(
-        'Mahlzeit',
-        e,
-        st,
-        SyncOp.mealInsert(entry, trackDay: targetIsToday),
-      );
-    });
+    if (sync == null) return entry.id;
+    // DATA-7: KEIN Rollback — die Mahlzeit bleibt im Tagebuch stehen und wird
+    // als Outbox-Op nachgeholt (inkl. Stats-/Streak-Zaehlung beim
+    // Replay-Erfolg). Der Streak-Reminder-Plan von oben bleibt damit ebenfalls
+    // korrekt.
+    //
+    // Luecke B: laeuft seit der Umstellung ueber denselben op-zuerst-Pfad wie
+    // alle anderen Writes. Vorher hatte GENAU der wertvollste Write (eine
+    // frisch geloggte Mahlzeit) sein eigenes then/catchError — und damit
+    // dieselbe Luecke: haengt der Request, entstand nie eine Op.
+    _syncOrQueue(
+      'Mahlzeit',
+      () => sync!.meals.insertLoggedMeal(entry),
+      () => SyncOp.mealInsert(entry, trackDay: targetIsToday),
+      onDelivered: () {
+        // Genau die Seiteneffekte, die _performOp beim Nachspielen selbst
+        // uebernimmt — deshalb laufen sie nur nach der LIVE-Zustellung.
+        _queueStatsDelta(meals: 1);
+        if (targetIsToday) _recordTrackingDay();
+      },
+    );
     return entry.id;
   }
 
@@ -465,28 +468,54 @@ mixin _HomeStoreMealsPart
 
   // --- Eigen-Rezepte --------------------------------------------------------
 
-  void createUserRecipe(FitnessRecipe recipe) {
+  // Luecke A: Eigen-Rezepte waren die einzige Nutzer-Sammlung OHNE lokalen
+  // Write-Through — ihr einziges Netz war die Outbox. Deshalb spiegeln beide
+  // Mutationen VOR dem Netz-Write in den Cache, genau wie
+  // addResultToDailyTotal es fuers Tagebuch vormacht.
+  //
+  // Seit Luecke B entsteht die Outbox-Op ebenfalls vor dem Write, der Cache ist
+  // also nicht mehr das einzige, was den Tap ueberlebt. Er bleibt trotzdem das
+  // zweite, UNABHAENGIGE Netz: die Outbox kann zugestellt haben, am Cap
+  // gefallen oder beim Lesen ausgefallen sein — der Cache traegt den Bestand
+  // auch dann, und der Boot-Merge (Luecke C) laesst ihn nicht mehr von der
+  // Serverliste ueberschreiben.
+
+  /// Legt ein Eigen-Rezept an und meldet, was mit ihm passiert ist.
+  ///
+  /// Luecke E: der Rezepte-Screen zeigte „„X" gespeichert." synchron und
+  /// unbedingt — und bekam bei einem gescheiterten Write den generischen
+  /// Warteschlangen-Hinweis des Stores hinterhergeschoben, der den ersten
+  /// Toast sofort wieder abraeumte. Jetzt wartet der Screen auf diesen
+  /// Rueckgabewert und sagt beides in EINEM Satz; der Store haelt seinen
+  /// eigenen Hinweis dafuer zurueck ([aufruferMeldetAusgang]).
+  Future<SyncDelivery> createUserRecipe(FitnessRecipe recipe) {
     _mutate(() {
       _userRecipes = [
         recipe,
         ..._userRecipes.where((r) => r.slug != recipe.slug)
       ];
     });
-    _syncOrQueue(
+    _cacheUserRecipes();
+    return _syncOrQueue(
       'Rezept',
       () => sync!.userRecipes.upsert(recipe),
       () => SyncOp.recipeUpsert(recipe),
+      aufruferMeldetAusgang: true,
     );
   }
 
-  void deleteUserRecipe(String slug) {
+  /// Loescht ein Eigen-Rezept. Meldet den Ausgang wie [createUserRecipe] —
+  /// „gelöscht." ohne Deckung waere derselbe Fehler in der Gegenrichtung.
+  Future<SyncDelivery> deleteUserRecipe(String slug) {
     _mutate(() {
       _userRecipes = _userRecipes.where((r) => r.slug != slug).toList();
     });
-    _syncOrQueue(
+    _cacheUserRecipes();
+    return _syncOrQueue(
       'Rezept-Delete',
       () => sync!.userRecipes.delete(slug),
       () => SyncOp.recipeDelete(slug),
+      aufruferMeldetAusgang: true,
     );
   }
 }

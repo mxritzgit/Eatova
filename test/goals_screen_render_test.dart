@@ -305,31 +305,27 @@ void main() {
 
   testWidgets('gesperrte Aktionen sagen dem Screenreader, dass sie gesperrt '
       'sind', (tester) async {
+    // Der Fall lief bis 2026-08-10 ueber ZWEI Knoepfe: „Speichern" und
+    // „Tagesdaten zurücksetzen" (`settings-reset-day`). Der zweite ist auf
+    // Nutzer-Entscheid ersatzlos entfallen — die Aussage selbst (gesperrt wird
+    // als gesperrt ANGESAGT, nicht als wirkungsloser Knopf) gilt unveraendert
+    // fuer den verbliebenen und bleibt deshalb stehen.
     await pumpOhneOverflow(tester, 'a11y-Knoepfe', brightness: Brightness.light);
 
-    for (final key in const <String>['settings-save', 'settings-reset-day']) {
-      expect(
-        tester.getSemantics(find.byKey(ValueKey(key))),
-        isSemantics(isButton: true, hasEnabledState: true, isEnabled: true),
-        reason: key,
-      );
-    }
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('settings-save'))),
+      isSemantics(isButton: true, hasEnabledState: true, isEnabled: true),
+    );
 
     // 755 kg — dieselbe Eingabe wie in settings_validation_test.
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '755');
     await tester.pumpAndSettle();
 
-    for (final key in const <String>['settings-save', 'settings-reset-day']) {
-      expect(
-        tester.getSemantics(find.byKey(ValueKey(key))),
-        isSemantics(
-          isButton: true,
-          hasEnabledState: true,
-          isEnabled: false,
-        ),
-        reason: '$key muss als GESPERRT angesagt werden, nicht als wirkungslos',
-      );
-    }
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('settings-save'))),
+      isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),
+      reason: 'muss als GESPERRT angesagt werden, nicht als wirkungslos',
+    );
   });
 
   testWidgets('der Seitenfuss steht ohne vorheriges Scrollen im Baum',
@@ -339,8 +335,12 @@ void main() {
     // mehrere Tests lesen sie, bevor irgendwer scrollt.
     await pumpOhneOverflow(tester, 'Fuss', brightness: Brightness.light);
 
-    expect(find.byKey(const ValueKey('settings-reset-day')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-save')), findsOneWidget);
+    // Der Knopf `settings-reset-day` stand bis 2026-08-10 direkt darueber und
+    // ist ersatzlos entfallen (Nutzer-Entscheid) — hier bleibt er als
+    // Negativ-Zusicherung stehen, damit er nicht unbemerkt zurueckkehrt.
+    expect(find.byKey(const ValueKey('settings-reset-day')), findsNothing);
+    expect(find.text('Tagesdaten zurücksetzen'), findsNothing);
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-imprint-link')), findsOneWidget);

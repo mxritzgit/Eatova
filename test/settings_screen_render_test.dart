@@ -197,6 +197,64 @@ void main() {
     expect(overflows, isEmpty, reason: overflows.join('\n'));
   });
 
+  testWidgets('das „Über Eatova"-Sheet rendert bei 2.0 ohne Overflow',
+      (tester) async {
+    // Umgezogen am 2026-08-10 aus `test/widgets/profile_screen_design_test`,
+    // zusammen mit dem Sheet selbst. Der Fall ist nicht kosmetisch: der Block
+    // aus Beschreibung, Version, Build, Quellen und Datenschutz-Zeile war bei
+    // doppelter Systemschrift schon einmal 251 px zu hoch — und ganz unten
+    // steht die Zeile, die nie abgeschnitten werden darf.
+    await pumpOhneOverflow(
+      tester,
+      'Über-Sheet Grundzustand',
+      brightness: Brightness.dark,
+      textScale: 2.0,
+    );
+
+    final overflows = <String>[];
+    final prior = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exception.toString().contains('overflowed')) {
+        overflows.add(details.summary.toString());
+        return;
+      }
+      prior?.call(details);
+    };
+
+    try {
+      final oeffner = find.byKey(const ValueKey('settings-about'));
+      await tester.scrollUntilVisible(
+        oeffner,
+        400,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('screen-settings')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(oeffner);
+      await tester.pumpAndSettle();
+
+      // Die beiden Pflichtzeilen des Sheets: die ODbL-Namensnennung fuer die
+      // OpenFoodFacts-Daten und der Datenschutz-Link nach DSGVO Art. 13.
+      expect(find.text('Quellen'), findsOneWidget);
+      expect(
+        find.textContaining('OpenFoodFacts'),
+        findsOneWidget,
+        reason: 'die Quellennennung ist lizenzrechtlich vorgeschrieben',
+      );
+      expect(
+        find.byKey(const ValueKey('profile-privacy-link')),
+        findsOneWidget,
+        reason: 'Key bleibt Key — er ist mit dem Sheet mitgewandert',
+      );
+    } finally {
+      FlutterError.onError = prior;
+    }
+
+    expect(overflows, isEmpty, reason: overflows.join('\n'));
+  });
+
   testWidgets('der Seitenfuss steht ohne vorheriges Scrollen im Baum',
       (tester) async {
     // Die Seite ist eine ListView (Lazy). Diese Zusicherung haelt fest, dass
@@ -208,6 +266,22 @@ void main() {
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-imprint-link')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-about')), findsOneWidget);
+
+    // `settings-sign-out` stand hier bis 2026-08-10 mit in der Liste. Mit der
+    // zugewanderten Zeile „Über Eatova" ist die GEFAHRENZONE eine Zeile
+    // tiefer gerutscht und liegt bei voller Verdrahtung knapp unter dem Rand —
+    // die Zusicherung wird deshalb zur Erreichbarkeit statt zur Sichtbarkeit.
+    // (Die Verhaltens-Tests scrollen ohnehin per `ensureVisible` dorthin.)
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-sign-out')),
+      300,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('screen-settings')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('settings-sign-out')), findsOneWidget);
   });
 }

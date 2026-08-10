@@ -15,15 +15,18 @@ import '../../models/user_profile.dart';
 /// `unnecessary_import`, und die CI laeuft mit `--fatal-infos`. Sobald die
 /// Schale ihre Zeile 31 streicht, zieht die Klasse zum Screen und diese Datei
 /// entfaellt.
+///
+/// **Entfallen am 2026-08-10:** das Feld `resetDay`. „Tagesdaten zurücksetzen"
+/// ist auf Nutzer-Entscheid ersatzlos gestrichen — samt dem Knopf
+/// `settings-reset-day` in `GoalsScreen`, `HomeStore.resetTodayData` und dem
+/// Reset-Zweig in `applySettings`.
 class SettingsResult {
   const SettingsResult({
     required this.profile,
-    required this.resetDay,
     required this.notificationsEnabled,
   });
 
   final UserProfile profile;
-  final bool resetDay;
 
   /// Zustand des Erinnerungen-Schalters beim Speichern. Der Aufrufer vergleicht
   /// mit dem vorigen Stand und ruft requestPermission()/reschedule bzw.

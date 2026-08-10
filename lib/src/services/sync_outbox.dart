@@ -3,6 +3,7 @@ import 'package:clock/clock.dart';
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/logged_meal.dart';
+import '../models/user_profile.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
 
 /// DATA-7 Write-Outbox: fehlgeschlagene Sync-Writes werden NICHT mehr
@@ -82,6 +83,7 @@ const int kOutboxDeleteMaxAttempts = 64;
 ///  * weightInsert -> TrackingSync.insertWeight mit Client-UUID + Upsert.
 ///  * favoriteUpsert -> Upsert auf (user_id, favorite_key).
 ///  * recipeUpsert -> Upsert auf (user_id, slug).
+///  * profileUpsert -> ProfileSync.save ist ein Upsert auf die User-Id.
 ///  * *Delete -> Deletes sind von Natur aus idempotent (0 Zeilen beim Retry).
 /// mealInsert vs. mealUpsert: NUR ein nachgeholter Erst-Insert zaehlt beim
 /// Replay die Lifetime-Stats (+1 Mahlzeit, ggf. Streak-Tag); Update/Restore
@@ -95,6 +97,27 @@ enum SyncOpKind {
   favoriteDelete,
   recipeUpsert,
   recipeDelete,
+
+  /// Luecke D: Profil/Ziele (Gewicht, kcal-Ziel, Diaet, Onboarding-Flag).
+  /// Kam als letzte Op-Familie dazu — bis dahin liefen `applySettings` und
+  /// `completeOnboarding` OHNE Netz gegen Supabase, und der naechste Boot
+  /// ueberschrieb die offline gemachte Aenderung still mit der alten
+  /// Serverzeile.
+  profileUpsert,
+
+  /// Zweitpruefung 2026-08-10: ein getrackter Logging-Tag
+  /// (`record_tracking_day`).
+  ///
+  /// Der Streak-Tag war die letzte Nutzer-Groesse mit **null** Netzen: der RPC
+  /// lief als reines fire-and-forget aus `_recordTrackingDay`, sein Fehler
+  /// wurde geloggt und danach vergessen. Der optimistische lokale Stand hielt
+  /// nicht einmal bis zum naechsten Atemzug — 600 ms spaeter adoptierte
+  /// `_flushStatsDelta` die frische Serverzeile, die den Tag naturgemaess
+  /// nicht kennt, und `_cacheLifetimeStats` schrieb den Verlust fest. Ergebnis:
+  /// der Nutzer hat geloggt, die Mahlzeit ist angekommen, und seine Streak ist
+  /// trotzdem gerissen — ohne Hinweis und ohne irgendeine Stelle, die es je
+  /// reparieren koennte.
+  trackingDay,
 }
 
 /// Eine persistierbare, nachholbare Sync-Operation.
@@ -193,8 +216,39 @@ class SyncOp {
   factory SyncOp.recipeDelete(String slug) => SyncOp._(
       kind: SyncOpKind.recipeDelete, entityId: slug, payload: const {});
 
+  /// Das Profil ist EINE Zeile pro Nutzer (public.profiles.id = auth-User).
+  /// Deshalb ein fester [entityId] statt eines Schluessels aus den Daten: alle
+  /// Profil-Ops teilen sich denselben [entityKey], koaleszieren dadurch zu
+  /// genau einem Eintrag, und die letzte Aenderung gewinnt. Zwei nebenlaeufige
+  /// Ops wuerden sich beim Replay sonst gegenseitig ueberholen.
+  static const String profileEntityId = 'self';
+
+  factory SyncOp.profileUpsert(UserProfile profile) => SyncOp._(
+        kind: SyncOpKind.profileUpsert,
+        entityId: profileEntityId,
+        payload: {'profile': userProfileToJson(profile)},
+      );
+
+  /// Ein getrackter Logging-Tag ([LifetimeStatsSync.recordTrackingDay]).
+  ///
+  /// [localDay] ist der kanonische Tages-Schluessel `YYYY-MM-DD` (localDayKey)
+  /// und zugleich der [entityId]: alle Versuche fuer DENSELBEN Tag teilen sich
+  /// damit einen [entityKey] und koaleszieren zu genau einer Op. Die Payload
+  /// ist leer — der Tag IST die ganze Information.
+  ///
+  /// Idempotent in beide Richtungen: der RPC zaehlt pro Tag nur einmal und ist
+  /// fuer Tage vor dem zuletzt gezaehlten serverseitig ein No-op. Ein Replay
+  /// kann die Streak also weder doppelt hochzaehlen noch zurueckdrehen — genau
+  /// deshalb darf der Tag ueberhaupt in die Outbox.
+  factory SyncOp.trackingDay(String localDay) => SyncOp._(
+        kind: SyncOpKind.trackingDay,
+        entityId: localDay,
+        payload: const <String, dynamic>{},
+      );
+
   /// Kollisionsfreier Entitaets-Schluessel ueber alle Op-Familien
-  /// (`meal:<id>`, `weight:<id>`, `favorite:<key>`, `recipe:<slug>`).
+  /// (`meal:<id>`, `weight:<id>`, `favorite:<key>`, `recipe:<slug>`,
+  /// `profile:self`, `tracking:<YYYY-MM-DD>`).
   String get entityKey => switch (kind) {
         SyncOpKind.mealInsert ||
         SyncOpKind.mealUpsert ||
@@ -207,6 +261,8 @@ class SyncOp {
         SyncOpKind.recipeUpsert ||
         SyncOpKind.recipeDelete =>
           'recipe:$entityId',
+        SyncOpKind.profileUpsert => 'profile:$entityId',
+        SyncOpKind.trackingDay => 'tracking:$entityId',
       };
 
   /// True fuer die drei Loesch-Familien.
@@ -228,11 +284,18 @@ class SyncOp {
 
   /// True fuer Upsert-artige Ops — nur die duerfen beim Einreihen koalesziert
   /// (Payload ersetzt) werden.
+  ///
+  /// [SyncOpKind.trackingDay] zaehlt bewusst dazu, obwohl es kein Zeilen-
+  /// Upsert ist: die Payload ist leer, „ersetzen" ist damit dasselbe wie
+  /// „behalten" — und ohne Koaleszenz haengte sich fuer denselben Tag bei
+  /// jedem weiteren Log eine zusaetzliche, voellig gleiche Op an.
   bool get isUpsert =>
       kind == SyncOpKind.mealInsert ||
       kind == SyncOpKind.mealUpsert ||
       kind == SyncOpKind.favoriteUpsert ||
-      kind == SyncOpKind.recipeUpsert;
+      kind == SyncOpKind.recipeUpsert ||
+      kind == SyncOpKind.profileUpsert ||
+      kind == SyncOpKind.trackingDay;
 
   // ---- Payload-Zugriffe (defensiv: korrupt -> null) ------------------------
 
@@ -276,6 +339,21 @@ class SyncOp {
     if (raw is! Map) return null;
     try {
       return FitnessRecipe.fromRow(raw.cast<String, dynamic>());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Das Profil der Op — null, wenn die Payload unlesbar oder unvollstaendig
+  /// ist. Unvollstaendig zaehlt hier bewusst als unlesbar (siehe
+  /// [userProfileFromJson]): eine Op, die auf halb erfundenen Zahlen sitzt,
+  /// wuerde beim Replay eine echte Serverzeile mit Fantasie ueberschreiben.
+  /// Der Replay wirft dafuer und verwirft die Op (A8-Pfad).
+  UserProfile? get profile {
+    final raw = payload['profile'];
+    if (raw is! Map) return null;
+    try {
+      return userProfileFromJson(raw.cast<String, dynamic>());
     } catch (_) {
       return null;
     }
@@ -508,4 +586,114 @@ MealSlot? _parseSlot(String? raw) {
     if (v.name == raw) return v;
   }
   return null;
+}
+
+// ---- (De)Serialisierung UserProfile -----------------------------------------
+// Wohnt hier und nicht mehr im LocalCache, weil das Profil seit Luecke D ZWEI
+// Persistenzwege hat: den Cache-Slot und die Outbox-Op. Zwei Kopien desselben
+// Mappings waeren genau die Falle, gegen die local_cache_test's
+// „Wire-Format deckt JEDES UserProfile-Feld ab" geschrieben ist — ein neues
+// Feld waere in der einen Kopie gelandet und in der anderen nicht. Die
+// Schluesselnamen sind unveraendert (sie stehen auf dem Geraet jeder
+// bestehenden Installation) und folgen den Spalten von public.profiles.
+
+Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
+      'weight_kg': p.weightKg,
+      'height_cm': p.heightCm,
+      'age_years': p.ageYears,
+      'sex': p.sex.name,
+      'activity_level': p.activityLevel.name,
+      'target_weight_kg': p.targetWeightKg,
+      'daily_steps_goal': p.dailyStepsGoal,
+      'daily_kcal_goal': p.dailyKcalGoal,
+      'daily_water_goal_ml': p.dailyWaterGoalMl,
+      'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
+      'protein_goal_g': p.proteinGoalG,
+      'carbs_goal_g': p.carbsGoalG,
+      'fat_goal_g': p.fatGoalG,
+      'weight_goal': p.weightGoal.name,
+      // A7: MUSS mitgeschrieben werden. Der Cache ist die ERSTE
+      // Hydrationsquelle und setzt dabei die Clobber-Sperre
+      // (_hydratedFromRealSource). Fehlte der Schluessel, fiel `diet` beim
+      // Kaltstart still auf den Ctor-Default none zurueck — und der naechste
+      // profile.save() schrieb dieses none dauerhaft auf den Server, ohne dass
+      // der User es ueber die UI je wieder haette reparieren koennen.
+      // Schluesselname wie serverseitig: profiles.diet_preference.
+      'diet_preference': p.diet.name,
+      'onboarding_completed': p.onboardingCompleted,
+    };
+
+/// Sentinel-Fund 3 (Nachverifikation 2026-08-08): fehlende/unlesbare
+/// Zahlenfelder wurden hier mit erfundenen Werten aufgefuellt (78 kg, 178 cm,
+/// 2200 kcal, ...) — und die Cache-Hydration setzte damit die Clobber-Sperre
+/// (_hydratedFromRealSource), der naechste profile.save() schrieb die Fantasie
+/// dauerhaft auf den Server. Ein Blob, dem Zahlen fehlen (Alt-Build vor einer
+/// Felderweiterung, korrupte Zeile), ist deshalb ALS GANZES keine
+/// Hydrationsquelle: null. Fuer den Cache liefert der Server-Load direkt
+/// danach die Wahrheit, fuer eine Outbox-Op ist es der Verwurfs-Pfad (A8).
+/// Die Enum-Felder bleiben bewusst nachsichtig (A7: kuenftige Enum-Werte
+/// fallen lesbar zurueck — sie erfinden Einordnungen, keine Messwerte).
+UserProfile? userProfileFromJson(Map<String, dynamic> j) {
+  final weightKg = _profileInt(j['weight_kg']);
+  final heightCm = _profileInt(j['height_cm']);
+  final ageYears = _profileInt(j['age_years']);
+  final targetWeightKg = _profileInt(j['target_weight_kg']);
+  final dailyStepsGoal = _profileInt(j['daily_steps_goal']);
+  final dailyKcalGoal = _profileInt(j['daily_kcal_goal']);
+  final dailyWaterGoalMl = _profileInt(j['daily_water_goal_ml']);
+  final dailySleepGoalMinutes = _profileInt(j['daily_sleep_goal_minutes']);
+  final proteinGoalG = _profileInt(j['protein_goal_g']);
+  final carbsGoalG = _profileInt(j['carbs_goal_g']);
+  final fatGoalG = _profileInt(j['fat_goal_g']);
+  if (weightKg == null ||
+      heightCm == null ||
+      ageYears == null ||
+      targetWeightKg == null ||
+      dailyStepsGoal == null ||
+      dailyKcalGoal == null ||
+      dailyWaterGoalMl == null ||
+      dailySleepGoalMinutes == null ||
+      proteinGoalG == null ||
+      carbsGoalG == null ||
+      fatGoalG == null) {
+    return null;
+  }
+  return UserProfile(
+    weightKg: weightKg,
+    heightCm: heightCm,
+    ageYears: ageYears,
+    sex: _profileEnum(BiologicalSex.values, j['sex'], BiologicalSex.neutral),
+    activityLevel: _profileEnum(
+        ActivityLevel.values, j['activity_level'], ActivityLevel.sedentary),
+    targetWeightKg: targetWeightKg,
+    dailyStepsGoal: dailyStepsGoal,
+    dailyKcalGoal: dailyKcalGoal,
+    dailyWaterGoalMl: dailyWaterGoalMl,
+    dailySleepGoalMinutes: dailySleepGoalMinutes,
+    proteinGoalG: proteinGoalG,
+    carbsGoalG: carbsGoalG,
+    fatGoalG: fatGoalG,
+    weightGoal:
+        _profileEnum(WeightGoal.values, j['weight_goal'], WeightGoal.maintain),
+    // Gegenstueck zu 'diet_preference' oben. Unbekannte/fehlende Werte
+    // (Alt-Eintrag vor A7, kuenftige Enum-Werte) fallen auf none.
+    diet: _profileEnum(
+        DietPreference.values, j['diet_preference'], DietPreference.none),
+    onboardingCompleted: j['onboarding_completed'] == true,
+  );
+}
+
+int? _profileInt(Object? v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v);
+  return null;
+}
+
+T _profileEnum<T extends Enum>(List<T> values, Object? raw, T fallback) {
+  if (raw is! String) return fallback;
+  for (final v in values) {
+    if (v.name == raw) return v;
+  }
+  return fallback;
 }

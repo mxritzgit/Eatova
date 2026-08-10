@@ -311,7 +311,6 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     await _store.applySettings(
       newProfile: result.profile,
       notificationsEnabled: result.notificationsEnabled,
-      resetDay: result.resetDay,
     );
   }
 
@@ -384,19 +383,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onLogWeight: _store.logWeight,
               onEditProfile: _openGoals,
               onOpenSettings: _openSettings,
-              onResetDay: _store.resetTodayData,
               onConnectHealth: _store.connectHealth,
               onRefreshHealth: _store.refreshHealthSteps,
-              onSignOut: widget.onSignOut != null ? _signOut : null,
-              onDeleteAccount: widget.sync != null ? _deleteAccount : null,
-              // C7: die Auskunft kommt vollstaendig vom Server (alle
-              // RLS-lesbaren Tabellen), nicht mehr aus dem Session-Zustand.
-              onBuildFullExport: widget.sync != null
-                  ? () => DataExportService(
-                        widget.sync!.client,
-                        widget.sync!.userId,
-                      ).buildExportJson()
-                  : null,
+              // Ausloggen, Kontoloeschung, Datenauskunft und „Über Eatova"
+              // haengen seit 2026-08-10 ausschliesslich an [_openSettings]
+              // (Zahnrad im Profil-Kopf) — der Block „Daten & Konto" im Profil
+              // doppelte die Einstellungen und ist auf Nutzer-Entscheid weg.
             ),
           ),
         ),

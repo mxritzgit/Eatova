@@ -54,6 +54,52 @@ bool isNetworkSyncError(Object error) =>
     error is ClientException ||
     error is AuthRetryableFetchException;
 
+/// Was mit einem Write TATSAECHLICH passiert ist — die Antwort, die der Store
+/// dem Aufrufer schuldet, wenn der eine eigene Erfolgsmeldung zeigt (Luecke E).
+///
+/// Die drei Auspraegungen spiegeln exakt die Unterscheidung, die
+/// [queuedSyncHint] schon immer getroffen hat: zugestellt, wegen fehlenden
+/// Netzes eingereiht, oder wegen einer Server-Ablehnung eingereiht. Ein
+/// blosses bool haette den dritten Fall in den zweiten gefaltet — und
+/// „sobald du wieder online bist" waere gelogen, wenn der Server geantwortet
+/// hat.
+enum SyncDelivery {
+  /// Live beim Server angekommen.
+  delivered,
+
+  /// In der persistierten Outbox gelandet, weil das Geraet kein Netz hatte.
+  queuedOffline,
+
+  /// In der persistierten Outbox gelandet, obwohl der Server erreichbar war
+  /// (Ablehnung, oder die Entitaet hatte schon eine gescheiterte Op offen).
+  queuedRetry,
+}
+
+/// Baut aus einer Erfolgs-Aussage (`'„Bowl" gespeichert'`) die Meldung, die den
+/// tatsaechlichen Ausgang spiegelt.
+///
+/// Warum ueberhaupt: der Rezepte-Screen zeigte „gespeichert." synchron und
+/// UNBEDINGT — auch wenn der Write nie beim Server ankam. Lokal stimmte die
+/// Aussage (seit Luecke A liegt das Rezept im Cache), aber der danach vom Store
+/// nachgeschobene Offline-Hinweis ersetzte den Toast sofort wieder
+/// ([showAppSnack] raeumt den vorigen ab). Der Nutzer sah zwei Meldungen
+/// aufblitzen, von denen die erste zu viel versprach. Jetzt sagt EINE Meldung
+/// beides: der Eintrag ist sicher, und was noch aussteht.
+String deliveryHint(String erfolg, SyncDelivery delivery) => switch (delivery) {
+      SyncDelivery.delivered => '$erfolg.',
+      SyncDelivery.queuedOffline =>
+        '$erfolg — wird synchronisiert, sobald du wieder online bist.',
+      SyncDelivery.queuedRetry =>
+        '$erfolg — die Übertragung wird automatisch wiederholt.',
+    };
+
+/// Klassifiziert einen Queue-Grund fuer [deliveryHint]. [error] ist null, wenn
+/// die Op ohne Live-Versuch hinter eine bereits pendende eingereiht wurde.
+SyncDelivery queuedDelivery(Object? error) =>
+    error != null && isNetworkSyncError(error)
+        ? SyncDelivery.queuedOffline
+        : SyncDelivery.queuedRetry;
+
 /// Dezenter Hinweis fuer einen Write, der in der Outbox gelandet ist: die
 /// Outbox retryt automatisch (Boot, Lifecycle-Flush, Backoff-Timer), der User
 /// muss nichts tun. Netzfehler -> ehrliches "Offline", alles andere (auch
@@ -64,12 +110,15 @@ String queuedSyncHint(Object? error) => error != null &&
     ? 'Offline — wird synchronisiert, sobald du wieder online bist.'
     : 'Änderung konnte nicht gespeichert werden — wird automatisch erneut versucht.';
 
-/// Meldung fuer den Profil-Save (Settings/Onboarding). Der laeuft NICHT ueber
-/// die Outbox — es gibt keinen Auto-Retry, der User muss selbst erneut
-/// speichern; die Meldung sagt das ehrlich.
-String profileSyncErrorMessage(Object error) => isNetworkSyncError(error)
-    ? 'Offline — Profil konnte nicht synchronisiert werden. Bitte speichere es später erneut.'
-    : 'Profil konnte nicht gespeichert werden. Bitte versuch es später erneut.';
+// Hier stand bis Luecke D (2026-08-10) `profileSyncErrorMessage` — die
+// Meldung „Profil konnte nicht gespeichert werden. Bitte versuch es später
+// erneut." Sie war korrekt, solange der Profil-Save wirklich ohne Netz gegen
+// Supabase lief. Seit er ueber die Outbox geht, gibt es einen Auto-Retry, und
+// die Bitte, spaeter selbst erneut zu speichern, waere schlicht falsch: der
+// Profil-Save nimmt jetzt denselben Weg wie jeder andere Write und damit
+// [queuedSyncHint]. Ersatzlos entfallen statt ungenutzt liegengelassen — eine
+// Meldung, die niemand mehr ausloest, ist der beste Kandidat dafuer, beim
+// naechsten Umbau versehentlich wieder verdrahtet zu werden.
 
 /// Generische Meldung fuer sonstige Operationen ohne Outbox-Netz (z.B.
 /// Konto-Löschung): kein Auto-Retry, der User soll es erneut ausloesen.

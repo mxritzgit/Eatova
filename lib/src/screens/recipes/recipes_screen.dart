@@ -15,6 +15,7 @@ import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/user_profile.dart';
+import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
@@ -57,11 +58,14 @@ class RecipesScreen extends StatefulWidget {
   /// Optionaler Hook, mit dem ein selbst angelegtes Rezept an den
   /// Aufrufer gemeldet wird (persistiert via user_recipes). Null → das
   /// Rezept lebt nur lokal in dieser Session.
-  final ValueChanged<FitnessRecipe>? onCreateRecipe;
+  ///
+  /// Meldet zurueck, was mit dem Rezept WIRKLICH passiert ist (Luecke E) —
+  /// daran haengt der Text der Erfolgsmeldung.
+  final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
 
   /// Optionaler Hook zum Loeschen eines Eigen-Rezepts (per slug). Wird vom
   /// Aufrufer an user_recipes.delete weitergereicht. Null → keine Persistenz.
-  final ValueChanged<String>? onDeleteRecipe;
+  final Future<SyncDelivery> Function(String slug)? onDeleteRecipe;
 
   /// Beim Boot aus Supabase geladene Eigen-Rezepte. Werden als Anfangsstand
   /// uebernommen, damit selbst angelegte Rezepte einen Neustart ueberleben.
@@ -95,11 +99,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// findet.
   late List<FitnessRecipe> _userRecipes;
 
-  /// True, sobald der User in dieser Session selbst etwas angelegt/geloescht
-  /// hat. Dann darf ein spaeter nachgeladener Boot-Stand die lokale Liste
-  /// NICHT mehr ueberschreiben.
-  bool _locallyMutated = false;
-
   @override
   void initState() {
     super.initState();
@@ -123,12 +122,27 @@ class _RecipesScreenState extends State<RecipesScreen> {
   @override
   void didUpdateWidget(covariant RecipesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Boot laedt die Eigen-Rezepte ggf. NACH dem ersten Build nach (async).
-    // Solange der User in dieser Session noch nichts selbst geaendert hat,
-    // den frisch geladenen Stand uebernehmen; sonst lokale Aenderungen
-    // (neu erstellt/geloescht) NICHT ueberschreiben.
-    if (!_locallyMutated &&
-        !identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
+    // Jeder neue Stand des Aufrufers wird uebernommen. Der Store weist seine
+    // Rezeptliste bei jeder Mutation NEU zu, die Identitaetspruefung ist damit
+    // ein exakter Fingerabdruck „hat sich etwas geaendert".
+    //
+    // Hier stand bis Luecke E ein `_locallyMutated`-Riegel: hatte der Nutzer in
+    // dieser Sitzung EINMAL etwas angelegt oder geloescht, wurde nie wieder ein
+    // Stand von aussen uebernommen. Der Riegel war noetig, solange
+    // `_bootFromSupabase` `_userRecipes = loadedRecipes` setzte — ein spaet
+    // eintreffender (oder offline leerer) Boot-Stand haette das frisch
+    // angelegte Rezept sonst weggeworfen.
+    //
+    // Seit Luecke C MERGT der Boot, statt zu ersetzen: der nachgereichte Stand
+    // enthaelt das eigene Rezept selbst, der Riegel schuetzt also nichts mehr
+    // — er richtet Schaden an. Der teuerste Fall ist die Wiedereinblendung
+    // nach einer endgueltig gescheiterten Loesch-Op
+    // (`_restoreDroppedDeletes`): der Store holt den Eintrag zurueck und
+    // meldet „der Eintrag ist wieder da", waehrend genau diese Loeschung den
+    // Riegel gesetzt hatte — der Screen zeigte das Rezept nie wieder. Ebenso
+    // blieben Rezepte eines ZWEITEN Geraets unsichtbar, sobald man hier einmal
+    // etwas angelegt hatte.
+    if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
     }
   }
@@ -185,19 +199,26 @@ class _RecipesScreenState extends State<RecipesScreen> {
 
   /// Loescht ein Eigen-Rezept lokal + (falls verdrahtet) persistent via
   /// onDeleteRecipe(slug). Wird aus dem Detail-Screen heraus aufgerufen.
-  void _deleteUserRecipe(FitnessRecipe recipe) {
+  Future<void> _deleteUserRecipe(FitnessRecipe recipe) async {
     setState(() {
       _userRecipes = _userRecipes
           .where((r) => r.slug != recipe.slug)
           .toList(growable: true);
-      _locallyMutated = true;
     });
-    widget.onDeleteRecipe?.call(recipe.slug);
-    if (mounted) {
-      showAppSnack(context, '„${recipe.title}" gelöscht.',
-          icon: Icons.delete_outline_rounded, tone: SnackTone.error);
-    }
+    final ausgang = await _melde(widget.onDeleteRecipe?.call(recipe.slug));
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      deliveryHint('„${recipe.title}" gelöscht', ausgang),
+      icon: Icons.delete_outline_rounded,
+      tone: SnackTone.error,
+    );
   }
+
+  /// Wartet auf den Ausgang eines Persistenz-Hooks. Ohne Hook (Vorschau/Test)
+  /// gibt es nichts zu synchronisieren — dann gilt die Aktion als erledigt.
+  Future<SyncDelivery> _melde(Future<SyncDelivery>? hook) async =>
+      await hook ?? SyncDelivery.delivered;
 
   Future<void> _openCreateSheet() async {
     // Bewusst NICHT `showEatovaSheet`: das erzwingt `showDragHandle: true`, und
@@ -211,13 +232,17 @@ class _RecipesScreenState extends State<RecipesScreen> {
       builder: (_) => const _CreateRecipeSheet(),
     );
     if (recipe == null || !mounted) return;
-    setState(() {
-      _userRecipes.insert(0, recipe);
-      _locallyMutated = true;
-    });
-    widget.onCreateRecipe?.call(recipe);
-    showAppSnack(context, '„${recipe.title}" gespeichert.',
-        icon: Icons.bookmark_added_rounded);
+    setState(() => _userRecipes.insert(0, recipe));
+    // Luecke E: die Meldung wartet auf den Ausgang, statt ihn zu behaupten.
+    // Sie kommt spaetestens nach [kSyncDeliveryWindow] — der Store deckelt die
+    // Wartezeit, weil ein Supabase-Write kein Timeout traegt.
+    final ausgang = await _melde(widget.onCreateRecipe?.call(recipe));
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      deliveryHint('„${recipe.title}" gespeichert', ausgang),
+      icon: Icons.bookmark_added_rounded,
+    );
   }
 
   @override

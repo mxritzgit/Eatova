@@ -68,11 +68,8 @@ Widget _profile({
     onLogWeight: (_) {},
     onEditProfile: onEditProfile ?? () {},
     onOpenSettings: onOpenSettings ?? () {},
-    onResetDay: () {},
     onConnectHealth: () {},
     onRefreshHealth: () {},
-    onSignOut: () async {},
-    onDeleteAccount: () async {},
   );
 }
 
@@ -153,7 +150,16 @@ void main() {
     expect(find.byKey(const ValueKey('screen-profile')), findsNothing);
   });
 
-  testWidgets('alle sechs Konto-Aktionen sind da', (tester) async {
+  // Bis 2026-08-10 stand hier „alle sechs Konto-Aktionen sind da". Der Block
+  // „Daten & Konto" ist auf Nutzer-Entscheid entfallen, weil er die
+  // Einstellungen doppelte. Aus der Zusicherung wird damit ihr Gegenteil: die
+  // sechs Zeilen duerfen hier NICHT mehr stehen — und weil ein blosses
+  // „ist weg" ein stiller Funktionsverlust waere, haelt
+  // `test/settings_erreichbarkeit_test.dart` die Gegenstuecke in den
+  // Einstellungen fest (`settings-open-goals`, `settings-export`,
+  // `settings-about`, `settings-sign-out`, `settings-delete-account`).
+  testWidgets('der Block „Daten & Konto" steht nicht mehr im Profil',
+      (tester) async {
     _pinViewport(tester);
     await _pumpAsRoute(tester, _profile());
 
@@ -165,41 +171,39 @@ void main() {
       'profile-action-logout',
       'profile-action-delete',
     ]) {
-      expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
+      expect(find.byKey(ValueKey(key)), findsNothing, reason: key);
     }
-    // Die Beschriftungen sind API (docs/DESIGN_REFACTOR.md §6).
-    expect(find.text('Profil & Ziele'), findsOneWidget);
-    expect(find.text('Tagesdaten zurücksetzen'), findsOneWidget);
-    expect(find.text('Daten exportieren'), findsOneWidget);
-    expect(find.text('Über Eatova'), findsOneWidget);
-    expect(find.text('Ausloggen'), findsOneWidget);
-    expect(find.text('Konto löschen'), findsOneWidget);
+    expect(find.text('DATEN & KONTO'), findsNothing);
+    expect(find.text('Daten & Konto'), findsNothing);
+    // „Tagesdaten zurücksetzen" gibt es in der ganzen App nicht mehr — weder
+    // hier noch auf „Profil & Ziele" (`settings-reset-day`).
+    expect(find.text('Tagesdaten zurücksetzen'), findsNothing);
+    // Der letzte Abschnitt ist jetzt „Verbindungen"; darunter nur noch die
+    // Wortmarke mit der Version.
+    expect(find.text('Verbindungen'), findsOneWidget);
   });
 
-  testWidgets('die Aktions-Zeilen sind tappbar (Loeschen fragt nach)', (
-    tester,
-  ) async {
+  testWidgets('die Bearbeiten-Knoepfe an Plan- und Zielkarte tragen die Ziele',
+      (tester) async {
+    // Mit dem Block „Daten & Konto" ist die Zeile `profile-action-edit`
+    // entfallen. Der Weg auf „Profil & Ziele" darf dadurch nicht abreissen —
+    // er haengt seither ausschliesslich an diesen beiden Knoepfen (und an der
+    // Zeile `settings-open-goals` in den Einstellungen).
     _pinViewport(tester);
     var editCalls = 0;
     await _pumpAsRoute(tester, _profile(onEditProfile: () => editCalls++));
 
-    final edit = find.byKey(const ValueKey('profile-action-edit'));
-    await tester.ensureVisible(edit);
-    await tester.pumpAndSettle();
-    await tester.tap(edit);
-    await tester.pumpAndSettle();
-    expect(editCalls, 1);
-
-    final delete = find.byKey(const ValueKey('profile-action-delete'));
-    await tester.ensureVisible(delete);
-    await tester.pumpAndSettle();
-    await tester.tap(delete);
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('confirm-delete-account')),
-      findsOneWidget,
-      reason: 'Kontoloeschung darf nie ohne Rueckfrage laufen',
-    );
+    for (final key in const <String>[
+      'profile-goalplan-edit',
+      'profile-edit-goals',
+    ]) {
+      final knopf = find.byKey(ValueKey(key));
+      await tester.ensureVisible(knopf);
+      await tester.pumpAndSettle();
+      await tester.tap(knopf);
+      await tester.pumpAndSettle();
+    }
+    expect(editCalls, 2);
   });
 
   testWidgets(
@@ -242,14 +246,17 @@ void main() {
     );
   });
 
-  // Die vier Sheets des Profils standen bisher in KEINEM Test. Sie sind der
-  // Ort, an dem eine feste Sheet-Hoehe und grosse Systemschrift aufeinander
-  // treffen — genau die Bruchstelle aus §5 des Vertrags.
+  // Die Sheets des Profils standen bisher in KEINEM Test. Sie sind der Ort, an
+  // dem eine feste Sheet-Hoehe und grosse Systemschrift aufeinander treffen —
+  // genau die Bruchstelle aus §5 des Vertrags.
+  //
+  // Aus den urspruenglich vier Faellen sind zwei geworden: „Über Eatova" und
+  // die „Datenauskunft" haengen seit 2026-08-10 an den Einstellungen. Ihre
+  // 2.0-Faelle sind nicht gestrichen, sondern nach
+  // `test/settings_screen_render_test.dart` umgezogen.
   for (final sheet in <({String name, String key, String? tooltip})>[
     (name: 'Gewicht loggen', key: 'profile-log-weight', tooltip: null),
     (name: 'BMI-Erklärung', key: '', tooltip: 'BMI-Erklärung'),
-    (name: 'Über Eatova', key: 'profile-action-about', tooltip: null),
-    (name: 'Datenauskunft', key: 'profile-action-export', tooltip: null),
   ]) {
     testWidgets('Sheet „${sheet.name}" oeffnet bei textScaler 2.0 ohne '
         'Overflow', (tester) async {
@@ -302,9 +309,11 @@ void main() {
         textScaler: const TextScaler.linear(2.0),
       );
       // Bis ans Ende scrollen, damit auch die unteren Karten wirklich
-      // gelayoutet werden.
+      // gelayoutet werden. Anker ist seit dem Wegfall des Blocks
+      // „Daten & Konto" der Verbinden-Knopf der Health-Karte — der letzte
+      // Bedienpunkt der Seite (bei `unverified` sichtbar, s. oben).
       await tester.ensureVisible(
-        find.byKey(const ValueKey('profile-action-delete')),
+        find.byKey(const ValueKey('profile-health-connect')),
       );
       await tester.pumpAndSettle();
     });

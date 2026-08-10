@@ -337,37 +337,64 @@ class HomeStore extends _HomeStoreBase
     await _initNotificationsFromCache();
   }
 
+  /// Liest EINEN Cache-Slot ausfallsicher.
+  ///
+  /// Luecke F: vorher lagen alle sieben Reads in EINEM `try`, und `readOutbox`
+  /// war der sechste. Wirft einer der fuenf davor, uebersprang der Sprung in
+  /// den `catch` jeden weiteren Read — `_outbox` blieb leer, und das naechste
+  /// Einreihen schrieb eine frische Ein-Element-Queue ueber den persistierten
+  /// Blob. Bis zu [kOutboxMaxOps] nicht zugestellte Writes waren damit
+  /// endgueltig weg, ausgeloest von einem unlesbaren PROFIL.
+  ///
+  /// Ein kaputter Slot kostet jetzt genau seinen eigenen Inhalt: `null` heisst
+  /// hier wie ueberall „nichts Brauchbares da", der Server-Load bzw. der
+  /// naechste Write repariert ihn. [onFehler] laeuft nur beim WURF (nicht bei
+  /// einem leeren Slot) — der Unterschied traegt fuer die Outbox: „konnte
+  /// nicht gelesen werden" ist etwas anderes als „ist leer".
+  Future<T?> _leseSlot<T>(
+    String slot,
+    Future<T?> Function() read, {
+    VoidCallback? onFehler,
+  }) async {
+    try {
+      return await read();
+    } catch (e, st) {
+      onFehler?.call();
+      dev.log('LocalCache hydrate failed ($slot)',
+          error: e, stackTrace: st, name: 'local_cache');
+      unawaited(CrashReporter.capture(e, st, context: 'cache-hydrate-$slot'));
+      return null;
+    }
+  }
+
   Future<void> _hydrateFromCache() async {
     final cache = _cache;
     if (cache == null) return;
     final today = clock.now();
-    UserProfile? cachedProfile;
-    LifetimeStats? cachedStats;
-    List<LoggedMeal>? cachedMeals;
-    List<FavoriteMeal>? cachedFavorites;
-    WeightLog? cachedWeightLog;
-    List<SyncOp>? cachedOutbox;
-    ({int meals, int weightLogs})? cachedDeltas;
-    var leseFehler = false;
-    try {
-      cachedProfile = await cache.readProfile();
-      cachedStats = await cache.readLifetimeStats();
-      cachedMeals = await cache.readLoggedMeals();
-      cachedFavorites = await cache.readFavorites();
-      cachedWeightLog = await cache.readWeightLog();
-      cachedOutbox = await cache.readOutbox();
-      cachedDeltas = await cache.readPendingStatsDeltas();
-    } catch (e, st) {
-      leseFehler = true;
-      dev.log('LocalCache hydrate failed',
-          error: e, stackTrace: st, name: 'local_cache');
-      unawaited(CrashReporter.capture(e, st, context: 'cache-hydrate'));
-    }
+    var outboxLesefehler = false;
+    var deltaLesefehler = false;
+    final cachedProfile = await _leseSlot('profile', cache.readProfile);
+    final cachedStats = await _leseSlot('stats', cache.readLifetimeStats);
+    final cachedMeals = await _leseSlot('logged_meals', cache.readLoggedMeals);
+    final cachedFavorites = await _leseSlot('favorites', cache.readFavorites);
+    final cachedWeightLog = await _leseSlot('weight_log', cache.readWeightLog);
+    final cachedOutbox = await _leseSlot('outbox', cache.readOutbox,
+        onFehler: () => outboxLesefehler = true);
+    final cachedDeltas = await _leseSlot(
+        'pending_stats', cache.readPendingStatsDeltas,
+        onFehler: () => deltaLesefehler = true);
+    final cachedRecipes =
+        await _leseSlot('user_recipes', cache.readUserRecipes);
     if (_disposed) return;
+    // Der persistierte Blob bleibt unangetastet, solange wir ihn nicht lesen
+    // konnten — sonst schriebe der naechste Write ihn nieder (s. dort).
+    _outboxHydrationFailed = outboxLesefehler;
     // Ab hier spiegelt der In-Memory-Zustand den Blob (die Uebernahme unten
     // ist synchron) — signOutCleanup darf `_outbox.length` wieder glauben.
-    // Nach einem Lesefehler bewusst NICHT: der Blob koennte intakt sein.
-    if (!leseFehler) _syncStateHydrated = true;
+    // Bewusst NUR am Sync-Zustand (Outbox + Deltas) festgemacht: ein
+    // unlesbares Profil sagt nichts darueber aus, ob es liegengebliebene
+    // Writes gibt, und wuerde den Logout-Cleanup sonst grundlos ausbremsen.
+    if (!outboxLesefehler && !deltaLesefehler) _syncStateHydrated = true;
     // Outbox + Stats-Deltas IMMER uebernehmen — das ist der kill-sichere Teil
     // des Sync-Zustands, unabhaengig davon, ob sonst etwas gecacht war.
     if (cachedOutbox != null) {
@@ -404,6 +431,7 @@ class HomeStore extends _HomeStoreBase
         cachedMeals == null &&
         cachedFavorites == null &&
         cachedWeightLog == null &&
+        cachedRecipes == null &&
         _outbox.isEmpty) {
       return;
     }
@@ -418,6 +446,10 @@ class HomeStore extends _HomeStoreBase
       if (cachedMeals != null) loggedMeals = cachedMeals;
       if (cachedFavorites != null) favorites = cachedFavorites;
       if (cachedWeightLog != null) weightLog = cachedWeightLog;
+      // Luecke A: ohne diese Zeile startete die App im Flugmodus IMMER mit
+      // einer leeren Eigen-Rezept-Liste — auch fuer laengst synchronisierte
+      // Rezepte, weil nur der (fehlschlagende) Server-Load sie kannte.
+      if (cachedRecipes != null) _userRecipes = cachedRecipes;
       _applyPendingOpsToState();
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
@@ -467,7 +499,9 @@ class HomeStore extends _HomeStoreBase
       }
 
       final loadedRecipes = results[5] as List<FitnessRecipe>?;
-      if (loadedRecipes != null) _userRecipes = loadedRecipes;
+      if (loadedRecipes != null) {
+        _userRecipes = _mergeUserRecipes(loadedRecipes);
+      }
 
       // Cache-then-network-Merge: Server-Daten gewinnen fuer synchronisierte
       // Eintraege, aber noch nicht synchronisierte Outbox-Writes bleiben
@@ -488,6 +522,45 @@ class HomeStore extends _HomeStoreBase
     if (!_profileReadyCompleter.isCompleted) {
       _profileReadyCompleter.complete();
     }
+  }
+
+  /// Luecke C: legt die frisch geladene Serverliste UEBER den lokalen Stand,
+  /// statt ihn zu ersetzen.
+  ///
+  /// Vorher setzte der Boot `_userRecipes = loadedRecipes`. Einzige Gegenkraft
+  /// war [_HomeStoreSyncPart._applyPendingOpsToState] — und die greift nur,
+  /// solange die Op noch in der Queue liegt. Ist sie nie entstanden (der
+  /// Live-Write haengt, s. Luecke B) oder am Queue-Cap gefallen, war der
+  /// Cache-Slot aus Luecke A wertlos: der erste Start MIT Netz warf das eigene
+  /// Rezept weg, und `_writeCacheSnapshot` schrieb den Verlust anschliessend
+  /// fest. Genau das Fehlerbild „Flugmodus -> Rezept -> App zu -> online ->
+  /// weg".
+  ///
+  /// Gleiches Muster wie der Alt-Tag-Merge fuer Mahlzeiten
+  /// ([_HomeStoreMealsPart._mergeArchiveMeals]): nur FEHLENDE Slugs kommen
+  /// dazu, fuer gemeinsame gewinnt die Serverzeile (sie ist die autoritative
+  /// Fassung). Ein noch nicht zugestellter lokaler Stand ist damit nicht
+  /// verloren — `_applyPendingOpsToState` legt ihn direkt danach wieder
+  /// obenauf.
+  ///
+  /// Quelle ist bewusst der LEBENDE `_userRecipes` und nicht der rohe
+  /// Cache-Blob: die Hydration hat pendende Ops darauf schon angewandt, eine
+  /// lokale Loeschung ist hier also bereits vollzogen. Ein Merge aus dem Blob
+  /// wuerde ein geloeschtes Rezept wieder einblenden, sobald die Loeschung
+  /// noch im 400-ms-Entprellfenster lag, als die App starb.
+  ///
+  /// Bewusst in Kauf genommen: hat ein ANDERES Geraet ein Rezept geloescht,
+  /// kennt dieses Geraet die Loeschung nicht — sein lokaler Eintrag ueberlebt
+  /// den Merge und bleibt hier sichtbar, bis der Nutzer ihn auch hier loescht.
+  /// Der umgekehrte Fehler (eigenes Rezept still weg) ist der teurere.
+  List<FitnessRecipe> _mergeUserRecipes(List<FitnessRecipe> fromServer) {
+    final serverSlugs = fromServer.map((r) => r.slug).toSet();
+    final nurLokal =
+        _userRecipes.where((r) => !serverSlugs.contains(r.slug)).toList();
+    if (nurLokal.isEmpty) return fromServer;
+    // Lokale zuerst: die Rezepte-Liste zeigt Eigen-Rezepte oben, und das
+    // gerade angelegte ist das, worauf der Nutzer schaut.
+    return <FitnessRecipe>[...nurLokal, ...fromServer];
   }
 
   Future<T?> _safeLoad<T>(
