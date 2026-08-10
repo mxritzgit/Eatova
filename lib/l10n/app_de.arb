@@ -119,6 +119,7 @@
   "commonClose": "Schließen",
   "commonSave": "Speichern",
   "commonCancel": "Abbrechen",
+  "commonDelete": "Löschen",
   "foodDiscardChangesTitle": "Änderungen verwerfen?",
   "foodDiscardChangesBody": "Deine Änderungen an dieser Mahlzeit sind noch nicht gespeichert.",
   "foodDiscardChangesKeepEditing": "Weiter bearbeiten",
@@ -440,5 +441,107 @@
   "recipesPhotoStaysOnDevice": "Bleibt auf diesem Gerät.",
   "recipesPhotoNoLocationData": "Ohne Standortdaten.",
   "recipesCameraAction": "Kamera",
-  "recipesGalleryAction": "Galerie"
+  "recipesGalleryAction": "Galerie",
+  "coachTitle": "KI-Coach",
+  "coachStatusLine": "Sieht dein heutiges Log",
+  "coachInfoSemanticLabel": "Infos zum KI-Coach",
+  "coachSessionsSemanticLabel": "Unterhaltungen",
+  "coachStreakUnit": "{count, plural, one{Tag} other{Tage}}",
+  "@coachStreakUnit": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachHeroSubtitle": "Wie kann ich dir helfen?",
+  "coachFallbackName": "Champion",
+  "coachAiNoteBody": "Hier antwortet eine KI. Die Tipps sind eine KI-Schätzung, kein ärztlicher Rat.",
+  "coachAiNoteCta": "Welche Daten mitgehen",
+  "coachSuggestionMeal": "Was soll ich heute noch essen?",
+  "coachSuggestionProtein": "Wie komme ich auf meine restlichen Proteine?",
+  "coachSuggestionSleep": "Wann sollte ich heute schlafen gehen?",
+  "coachAttachSemanticLabel": "Foto anhängen",
+  "coachComposerHintLimitReached": "Limit für heute erreicht",
+  "coachComposerHintListening": "Ich höre zu…",
+  "coachComposerHintDefault": "Frag den KI-Coach…",
+  "coachQuotaHint": "{count, plural, one{Noch 1 Frage heute} other{Noch {count} Fragen heute}}",
+  "@coachQuotaHint": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachMicLabelListening": "Spracheingabe beenden",
+  "coachMicLabelIdle": "Spracheingabe",
+  "coachSendLabel": "Senden",
+  "coachAttachCamera": "Foto aufnehmen",
+  "coachAttachGallery": "Aus der Galerie",
+  "coachInfoIntro": "Hier antwortet eine KI, keine echte Person. Die Antworten sind eine Schätzung und ersetzen keinen ärztlichen Rat.",
+  "coachInfoDataLabel": "Das schickt jede Frage mit",
+  "coachInfoBulletWeight": "Dein Gewicht und dein Zielgewicht",
+  "coachInfoBulletMacros": "Deine heutigen Kalorien und die offenen Makros",
+  "coachInfoBulletMeals": "Die Namen der Mahlzeiten, die du heute geloggt hast",
+  "coachInfoProvider": "Das geht zusammen mit deiner Frage an unseren KI-Anbieter (OpenRouter, Modell Grok von xAI) auf Servern in den USA — nur, um die Antwort zu erzeugen. Mehr dazu steht in der Datenschutzerklärung.",
+  "coachInfoLimitLabel": "Coach-Limit",
+  "coachInfoLimitBody": "{remaining} von {dailyLimit} Fragen heute frei. Reset um Mitternacht (UTC).",
+  "@coachInfoLimitBody": {
+    "placeholders": {
+      "remaining": { "type": "int" },
+      "dailyLimit": { "type": "int" }
+    }
+  },
+  "coachRefusalLabel": "Hinweis",
+  "coachSessionsTitle": "Coach-Sessions",
+  "coachSessionsNewLabel": "Neu",
+  "coachSessionsEmpty": "Noch keine Unterhaltungen. Stell deinem Coach die erste Frage.",
+  "coachSessionDeleteTitle": "Session löschen?",
+  "coachSessionDeleteBody": "\"{title}\" und alle Nachrichten darin werden entfernt.",
+  "@coachSessionDeleteBody": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "coachTimeJustNow": "gerade eben",
+  "coachTimeMinutesAgo": "vor {count} min",
+  "@coachTimeMinutesAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachTimeHoursAgo": "vor {count} h",
+  "@coachTimeHoursAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachTimeDaysAgo": "vor {count} Tagen",
+  "@coachTimeDaysAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachSpeechPermissionDenied": "Mikrofon oder Spracherkennung wurde nicht erlaubt. Du kannst die Berechtigung in den iOS-Einstellungen wieder aktivieren.",
+  "coachSpeechUnavailable": "Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.",
+  "coachSpeechFailed": "Spracherkennung fehlgeschlagen.",
+  "coachErrorNotLoggedIn": "Bitte erst einloggen, um den Coach zu nutzen.",
+  "coachErrorNoSession": "Konnte keine Coach-Session laden.",
+  "coachErrorHistoryUnavailable": "Dein Verlauf konnte nicht geladen werden. Prüf deine Verbindung und versuch es nochmal.",
+  "coachErrorDeleteFailed": "Die Unterhaltung konnte nicht gelöscht werden. Prüf deine Verbindung und versuch es nochmal.",
+  "coachImageDefaultCaption": "Analysiere dieses Bild im Fitness-Kontext.",
+  "coachErrorDailyLimitReached": "Tageslimit erreicht ({limit} Coach-Fragen pro Tag). Morgen geht's weiter.",
+  "@coachErrorDailyLimitReached": {
+    "placeholders": {
+      "limit": { "type": "int" }
+    }
+  },
+  "coachErrorImageTooLarge": "Das Bild ist zu groß für den Coach. Bitte schick ein kleineres.",
+  "coachErrorImageLoadFailed": "Das Bild konnte nicht geladen werden.",
+  "coachErrorImageOpenFailed": "Das Bild konnte nicht geöffnet werden.",
+  "coachCameraAccessNoun": "Kamerazugriff",
+  "coachPhotoAccessNoun": "Fotozugriff",
+  "coachPermissionDenied": "{access} wurde nicht erlaubt. Du kannst die Berechtigung in den iOS-Einstellungen wieder aktivieren.",
+  "@coachPermissionDenied": {
+    "placeholders": {
+      "access": { "type": "String" }
+    }
+  },
+  "coachErrorSpeechEmpty": "Ich habe nichts verstanden. Versuch es nochmal."
 }

@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
@@ -33,7 +35,10 @@ class _EndlosMikro extends CoachSpeechInput {
   const _EndlosMikro();
 
   @override
-  Future<String?> listen({String localeId = 'de_DE'}) =>
+  Future<String?> listen({
+    String localeId = 'de_DE',
+    required AppLocalizations l10n,
+  }) =>
       Completer<String?>().future;
 
   @override
@@ -125,6 +130,7 @@ Future<void> _pumpCoach(
   Brightness brightness = Brightness.dark,
   double textScale = 1.0,
   CoachSpeechInput speechInput = const CoachSpeechInput(),
+  Locale locale = const Locale('de'),
 }) async {
   tester.view.devicePixelRatio = 3.0;
   tester.view.physicalSize = _usableSize * 3.0;
@@ -141,6 +147,16 @@ Future<void> _pumpCoach(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
+      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
+      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      locale: locale,
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: MediaQuery(
         // Aus der echten View abgeleitet statt frisch gebaut: ein blankes
         // MediaQueryData haette Size.zero, und alles, was seine Breite oder
@@ -437,5 +453,29 @@ void main() {
     }
     expect(treffer, isEmpty,
         reason: 'Farbe kommt ausschliesslich aus context.t (AppTokens)');
+  });
+
+  group('EN-Render-Smoke (i18n-Paket 4, Spec §6)', () {
+    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
+    // mindestens eine echte englische Uebersetzung steht im Baum. Muster:
+    // test/recipes_design_test.dart (Paket 3).
+    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
+      testWidgets('Coach-Tab rendert unter en in $brightness ohne Ausnahme',
+          (tester) async {
+        await _pumpCoach(
+          tester,
+          service: _FakeCoach.create(),
+          brightness: brightness,
+          locale: const Locale('en'),
+        );
+
+        expect(tester.takeException(), isNull,
+            reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
+        // „KI-Coach" -> „AI Coach", „Wie kann ich dir helfen?" ->
+        // „How can I help you?".
+        expect(find.text('AI Coach'), findsOneWidget);
+        expect(find.text('How can I help you?'), findsOneWidget);
+      });
+    }
   });
 }

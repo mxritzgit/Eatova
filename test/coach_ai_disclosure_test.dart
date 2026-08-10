@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
@@ -33,6 +35,16 @@ Future<void> _pumpCoach(WidgetTester tester) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
+      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
+      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: const MediaQuery(
         // Orb + Composer animieren sonst endlos -> pumpAndSettle liefe aus.
         data: MediaQueryData(disableAnimations: true),

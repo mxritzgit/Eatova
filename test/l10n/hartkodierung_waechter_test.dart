@@ -48,6 +48,17 @@ import 'package:flutter_test/flutter_test.dart';
 /// `lib/src/models/fitness_recipe.dart` bleibt bewusst AUSSEN — der
 /// Bestandskatalog (30 Rezepte: Titel/Zutaten/Zubereitung) und `recipeFilters`
 /// sind Content, keine Screen-Texte, und bekommen ihr eigenes Paket (Spec §5).
+///
+/// Paket 4 (Coach, 2026-08-10): `lib/src/screens/coach/` komplett dazu
+/// (inkl. `coach_speech.dart` — `part of`, kein eigener Import, aber ein
+/// eigenstaendiger Fund-Kandidat). `lib/src/services/coach_chat_service.dart`
+/// bleibt bewusst AUSSEN — die Fallback-Meldungen dort (nur sichtbar, wenn
+/// der Server keinen eigenen `reply`-Text liefert) haengen an
+/// `test/coach_error_mapping_test.dart`, das den Service KONTEXTFREI
+/// (ohne BuildContext/l10n) direkt aufruft; eine l10n-Anbindung dort haette
+/// die `send()`-Signatur geaendert und jeden Test-Override in
+/// coach_design_test.dart/coach_image_privacy_test.dart mitgerissen. S.
+/// Paket-4-Bericht.
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -58,6 +69,7 @@ const List<String> _migriertePfade = <String>[
   'lib/src/services/kcal_format.dart',
   'lib/src/theme/meal_slot_style.dart',
   'lib/src/screens/recipes/',
+  'lib/src/screens/coach/',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie

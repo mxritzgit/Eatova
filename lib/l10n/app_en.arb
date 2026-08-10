@@ -119,6 +119,7 @@
   "commonClose": "Close",
   "commonSave": "Save",
   "commonCancel": "Cancel",
+  "commonDelete": "Delete",
   "foodDiscardChangesTitle": "Discard changes?",
   "foodDiscardChangesBody": "Your changes to this meal haven't been saved yet.",
   "foodDiscardChangesKeepEditing": "Keep editing",
@@ -440,5 +441,107 @@
   "recipesPhotoStaysOnDevice": "Stays on this device.",
   "recipesPhotoNoLocationData": "No location data.",
   "recipesCameraAction": "Camera",
-  "recipesGalleryAction": "Gallery"
+  "recipesGalleryAction": "Gallery",
+  "coachTitle": "AI Coach",
+  "coachStatusLine": "Sees today's log",
+  "coachInfoSemanticLabel": "Info about the AI coach",
+  "coachSessionsSemanticLabel": "Conversations",
+  "coachStreakUnit": "{count, plural, one{day} other{days}}",
+  "@coachStreakUnit": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachHeroSubtitle": "How can I help you?",
+  "coachFallbackName": "Champion",
+  "coachAiNoteBody": "An AI answers here. The tips are an AI estimate, not medical advice.",
+  "coachAiNoteCta": "Which data is sent",
+  "coachSuggestionMeal": "What should I eat for the rest of today?",
+  "coachSuggestionProtein": "How do I hit my remaining protein?",
+  "coachSuggestionSleep": "When should I go to sleep tonight?",
+  "coachAttachSemanticLabel": "Attach photo",
+  "coachComposerHintLimitReached": "Limit reached for today",
+  "coachComposerHintListening": "Listening…",
+  "coachComposerHintDefault": "Ask the AI coach…",
+  "coachQuotaHint": "{count, plural, one{1 question left today} other{{count} questions left today}}",
+  "@coachQuotaHint": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachMicLabelListening": "Stop voice input",
+  "coachMicLabelIdle": "Voice input",
+  "coachSendLabel": "Send",
+  "coachAttachCamera": "Take photo",
+  "coachAttachGallery": "From gallery",
+  "coachInfoIntro": "An AI answers here, not a real person. The answers are an estimate and don't replace medical advice.",
+  "coachInfoDataLabel": "Every question also sends",
+  "coachInfoBulletWeight": "Your weight and your target weight",
+  "coachInfoBulletMacros": "Today's calories and your remaining macros",
+  "coachInfoBulletMeals": "The names of the meals you've logged today",
+  "coachInfoProvider": "This goes together with your question to our AI provider (OpenRouter, model Grok by xAI) on servers in the USA — only to generate the answer. More on this is in the privacy policy.",
+  "coachInfoLimitLabel": "Coach limit",
+  "coachInfoLimitBody": "{remaining} of {dailyLimit} questions left today. Resets at midnight (UTC).",
+  "@coachInfoLimitBody": {
+    "placeholders": {
+      "remaining": { "type": "int" },
+      "dailyLimit": { "type": "int" }
+    }
+  },
+  "coachRefusalLabel": "Note",
+  "coachSessionsTitle": "Coach sessions",
+  "coachSessionsNewLabel": "New",
+  "coachSessionsEmpty": "No conversations yet. Ask your coach the first question.",
+  "coachSessionDeleteTitle": "Delete session?",
+  "coachSessionDeleteBody": "\"{title}\" and all messages in it will be removed.",
+  "@coachSessionDeleteBody": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "coachTimeJustNow": "just now",
+  "coachTimeMinutesAgo": "{count} min ago",
+  "@coachTimeMinutesAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachTimeHoursAgo": "{count} h ago",
+  "@coachTimeHoursAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachTimeDaysAgo": "{count} days ago",
+  "@coachTimeDaysAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachSpeechPermissionDenied": "Microphone or speech recognition access was denied. You can re-enable the permission in iOS Settings.",
+  "coachSpeechUnavailable": "Speech recognition is not available on this device right now.",
+  "coachSpeechFailed": "Speech recognition failed.",
+  "coachErrorNotLoggedIn": "Please log in first to use the coach.",
+  "coachErrorNoSession": "Could not load a coach session.",
+  "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
+  "coachErrorDeleteFailed": "The conversation could not be deleted. Check your connection and try again.",
+  "coachImageDefaultCaption": "Analyze this image in a fitness context.",
+  "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More again tomorrow.",
+  "@coachErrorDailyLimitReached": {
+    "placeholders": {
+      "limit": { "type": "int" }
+    }
+  },
+  "coachErrorImageTooLarge": "The image is too large for the coach. Please send a smaller one.",
+  "coachErrorImageLoadFailed": "The image could not be loaded.",
+  "coachErrorImageOpenFailed": "The image could not be opened.",
+  "coachCameraAccessNoun": "Camera access",
+  "coachPhotoAccessNoun": "Photo access",
+  "coachPermissionDenied": "{access} was denied. You can re-enable the permission in iOS Settings.",
+  "@coachPermissionDenied": {
+    "placeholders": {
+      "access": { "type": "String" }
+    }
+  },
+  "coachErrorSpeechEmpty": "I didn't understand that. Try again."
 }

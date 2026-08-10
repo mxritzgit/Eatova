@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../services/coach_chat_service.dart';
@@ -25,6 +26,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import '../today/today_texts.dart' show greetingForHour;
 
 part 'coach_speech.dart';
 part 'coach_top_bar.dart';
@@ -139,7 +141,13 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     _input.addListener(() {
       if (_draft != _input.text) setState(() => _draft = _input.text);
     });
-    _bootstrap();
+    // Kein Service = nicht eingeloggt: dieser Zweig braucht den lokalisierten
+    // Fehlertext, und `Localizations.of()` (context.l10n) ist waehrend
+    // initState() noch nicht erlaubt — [didChangeDependencies] uebernimmt ihn
+    // unten, genau einmal, bevor der erste Frame baut.
+    if (widget.service != null) {
+      _bootstrap();
+    }
   }
 
   /// Seit D6 haengt dieser Screen im `IndexedStack` und bleibt dauerhaft
@@ -161,9 +169,22 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// dort weg, faellt alles hier still aus.
   bool _sichtbar = true;
 
+  /// Setzt den lokalisierten „nicht eingeloggt"-Text genau einmal — nicht in
+  /// [initState] (dort ist noch kein BuildContext fuer die Lokalisierung
+  /// aufgebaut, s. `recipe_create_sheet.dart` fuer dasselbe Muster), aber
+  /// auch nicht bei jedem [didChangeDependencies]-Aufruf (ein Locale-Wechsel
+  /// WAEHREND der Screen ohne Service offen ist, soll den Text nicht erneut
+  /// ueberschreiben — praktisch irrelevant hier, aber konsistent zum Muster).
+  bool _notEingeloggtGemeldet = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (widget.service == null && !_notEingeloggtGemeldet) {
+      _notEingeloggtGemeldet = true;
+      _loading = false;
+      _error = context.l10n.coachErrorNotLoggedIn;
+    }
     final sichtbar = TickerMode.valuesOf(context).enabled;
     final wurdeSichtbar = sichtbar && !_sichtbar;
     _sichtbar = sichtbar;
@@ -222,13 +243,14 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
 
   Future<void> _bootstrapIntern() async {
     final svc = widget.service;
-    if (svc == null) {
-      setState(() {
-        _loading = false;
-        _error = 'Bitte erst einloggen, um den Coach zu nutzen.';
-      });
-      return;
-    }
+    // Defensiv: `initState` ruft `_bootstrap()` seit der i18n-Migration nur
+    // noch bei vorhandenem Service (der lokalisierte Fehlertext dafuer sitzt
+    // in [didChangeDependencies] — `Localizations.of()` ist waehrend
+    // initState() noch nicht erlaubt). `_beiRueckkehr` reicht ebenfalls immer
+    // einen nicht-nullen Service durch — dieser Zweig ist also nur ein
+    // Sicherheitsnetz und braucht deshalb kein `context.l10n` vor dem ersten
+    // `await`.
+    if (svc == null) return;
     // Nur im Wiederholungslauf: Spinner zeigen, altes Banner abraeumen. Beim
     // ersten Lauf aus initState ist `_loading` schon true — dort duerfte gar
     // kein setState fallen.
@@ -252,9 +274,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         : await svc.ensureDefaultSession();
     if (activeId == null) {
       if (!mounted) return;
+      // Nach mindestens einem `await`: Localizations ist jetzt sicher da.
       setState(() {
         _loading = false;
-        _error = 'Konnte keine Coach-Session laden.';
+        _error = context.l10n.coachErrorNoSession;
       });
       return;
     }
@@ -268,8 +291,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       setState(() {
         _loading = false;
         _historyUnavailable = true;
-        _error = 'Dein Verlauf konnte nicht geladen werden. Prüf deine '
-            'Verbindung und versuch es nochmal.';
+        _error = context.l10n.coachErrorHistoryUnavailable;
       });
       return;
     }
@@ -354,8 +376,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       setState(() {
         _loading = false;
         _historyUnavailable = true;
-        _error = 'Dein Verlauf konnte nicht geladen werden. Prüf deine '
-            'Verbindung und versuch es nochmal.';
+        _error = context.l10n.coachErrorHistoryUnavailable;
       });
       return;
     }
@@ -395,8 +416,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       if (!mounted) return;
       showAppSnack(
         context,
-        'Die Unterhaltung konnte nicht gelöscht werden. Prüf deine '
-        'Verbindung und versuch es nochmal.',
+        context.l10n.coachErrorDeleteFailed,
         icon: Icons.error_outline_rounded,
         duration: kSnackError,
       );
@@ -439,6 +459,8 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     Uint8List? imageBytes,
     String? imageMimeType,
   }) async {
+    // Vor dem ersten `await` gegriffen: sicherer Context-Zugriff.
+    final l10n = context.l10n;
     final svc = widget.service;
     final sessionId = _activeSessionId;
     final typedText = textOverride ?? _input.text;
@@ -449,15 +471,13 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     // unbekannt, laeuft der Versuch bewusst zum Server — der weiss es genau
     // und antwortet notfalls mit 429 (-> CoachQuotaExceeded weiter unten).
     if (_kontingentErschoepft) {
-      setState(() => _error =
-          'Tageslimit erreicht ($_limitFuerAnzeige Coach-Fragen pro Tag). Morgen geht\'s weiter.');
+      setState(() =>
+          _error = l10n.coachErrorDailyLimitReached(_limitFuerAnzeige));
       return;
     }
 
     HapticFeedback.selectionClick();
-    final displayText = text.isEmpty
-        ? 'Analysiere dieses Bild im Fitness-Kontext.'
-        : text;
+    final displayText = text.isEmpty ? l10n.coachImageDefaultCaption : text;
     final userMsg = ChatMessage(
       id: 'local-${DateTime.now().microsecondsSinceEpoch}',
       role: ChatRole.user,
@@ -598,6 +618,8 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   Future<void> _pickAndSendImage(ImageSource source) async {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
+    // Vor dem ersten `await` gegriffen: sicherer Context-Zugriff.
+    final l10n = context.l10n;
     try {
       final image = await _picker.pickImage(
         source: source,
@@ -612,23 +634,22 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       final bytes = await _scrubImage(raw);
       if (!mounted) return;
       if (bytes.lengthInBytes > _maxImageBytes) {
-        setState(() => _error =
-            'Das Bild ist zu groß für den Coach. Bitte schick ein kleineres.');
+        setState(() => _error = l10n.coachErrorImageTooLarge);
         return;
       }
       await _send(
         textOverride: _input.text.trim().isEmpty
-            ? 'Analysiere dieses Bild im Fitness-Kontext.'
+            ? l10n.coachImageDefaultCaption
             : _input.text.trim(),
         imageBytes: bytes,
         imageMimeType: _mimeForBytes(bytes, image),
       );
     } on PlatformException catch (e) {
       if (!mounted) return;
-      setState(() => _error = _permissionMessageFor(source, e));
+      setState(() => _error = _permissionMessageFor(source, e, l10n));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Das Bild konnte nicht geladen werden.');
+      setState(() => _error = l10n.coachErrorImageLoadFailed);
     }
   }
 
@@ -643,15 +664,19 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     return 'image/jpeg';
   }
 
-  String _permissionMessageFor(ImageSource source, PlatformException e) {
+  String _permissionMessageFor(
+    ImageSource source,
+    PlatformException e,
+    AppLocalizations l10n,
+  ) {
     final permissionText = source == ImageSource.camera
-        ? 'Kamerazugriff'
-        : 'Fotozugriff';
+        ? l10n.coachCameraAccessNoun
+        : l10n.coachPhotoAccessNoun;
     final lower = '${e.code} ${e.message}'.toLowerCase();
     if (lower.contains('denied') || lower.contains('permission')) {
-      return '$permissionText wurde nicht erlaubt. Du kannst die Berechtigung in den iOS-Einstellungen wieder aktivieren.';
+      return l10n.coachPermissionDenied(permissionText);
     }
-    return 'Das Bild konnte nicht geöffnet werden.';
+    return l10n.coachErrorImageOpenFailed;
   }
 
   Future<void> _toggleSpeechInput() async {
@@ -663,17 +688,20 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
 
+    // Vor dem ersten `await` gegriffen: sicherer Context-Zugriff.
+    final l10n = context.l10n;
     setState(() {
       _listening = true;
       _error = null;
     });
     try {
-      final spokenText = await widget.speechInput.listen(localeId: 'de_DE');
+      final spokenText =
+          await widget.speechInput.listen(localeId: 'de_DE', l10n: l10n);
       if (!mounted) return;
       setState(() => _listening = false);
       final text = spokenText?.trim() ?? '';
       if (text.isEmpty) {
-        setState(() => _error = 'Ich habe nichts verstanden. Versuch es nochmal.');
+        setState(() => _error = l10n.coachErrorSpeechEmpty);
         return;
       }
       _input.text = text;
@@ -688,7 +716,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       if (!mounted) return;
       setState(() {
         _listening = false;
-        _error = 'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.';
+        _error = l10n.coachSpeechUnavailable;
       });
     }
   }
@@ -725,7 +753,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                 _AttachTile(
                   key: const ValueKey('coach-camera'),
                   icon: Icons.photo_camera_outlined,
-                  label: 'Foto aufnehmen',
+                  label: sheetContext.l10n.coachAttachCamera,
                   onTap: () {
                     Navigator.of(sheetContext).pop();
                     _pickAndSendImage(ImageSource.camera);
@@ -735,7 +763,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                 _AttachTile(
                   key: const ValueKey('coach-gallery'),
                   icon: Icons.photo_outlined,
-                  label: 'Aus der Galerie',
+                  label: sheetContext.l10n.coachAttachGallery,
                   onTap: () {
                     Navigator.of(sheetContext).pop();
                     _pickAndSendImage(ImageSource.gallery);

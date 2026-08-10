@@ -23,6 +23,7 @@ class _CoachTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Container(
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: t.line)),
@@ -61,7 +62,7 @@ class _CoachTopBar extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     Text(
-                      'KI-Coach',
+                      l10n.coachTitle,
                       style: AppType.display(22, color: t.ink, height: 1.1),
                     ),
                     const SizedBox(height: 3),
@@ -79,7 +80,7 @@ class _CoachTopBar extends StatelessWidget {
                         const SizedBox(width: 6),
                         Flexible(
                           child: Text(
-                            'Sieht dein heutiges Log',
+                            l10n.coachStatusLine,
                             style: AppType.ui(
                               11.5,
                               weight: FontWeight.w500,
@@ -103,14 +104,14 @@ class _CoachTopBar extends StatelessWidget {
                 key: const ValueKey('coach-info'),
                 icon: Icons.info_outline_rounded,
                 onTap: onInfoTap,
-                semanticLabel: 'Infos zum KI-Coach',
+                semanticLabel: l10n.coachInfoSemanticLabel,
               ),
               const SizedBox(width: 6),
               SquareIconButton(
                 key: const ValueKey('coach-sessions-open'),
                 icon: Icons.forum_outlined,
                 onTap: onSessionsTap,
-                semanticLabel: 'Unterhaltungen',
+                semanticLabel: l10n.coachSessionsSemanticLabel,
               ),
             ],
           ),
@@ -129,6 +130,7 @@ class _StreakPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Container(
       key: const ValueKey('coach-streak'),
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
@@ -153,7 +155,7 @@ class _StreakPill extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Text(
-            streak == 1 ? 'Tag' : 'Tage',
+            l10n.coachStreakUnit(streak),
             style: AppType.ui(11.5, color: t.ink2),
           ),
         ],

@@ -21,6 +21,7 @@ class _SessionsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: maxHeight),
@@ -38,7 +39,7 @@ class _SessionsSheet extends StatelessWidget {
                   children: <Widget>[
                     Expanded(
                       child: Text(
-                        'Coach-Sessions',
+                        l10n.coachSessionsTitle,
                         style: AppType.display(
                           19,
                           weight: FontWeight.w700,
@@ -63,7 +64,7 @@ class _SessionsSheet extends StatelessWidget {
                               Icon(Icons.add_rounded, size: 18, color: t.lime),
                               const SizedBox(width: 6),
                               Text(
-                                'Neu',
+                                l10n.coachSessionsNewLabel,
                                 style: AppType.ui(
                                   13.5,
                                   weight: FontWeight.w700,
@@ -84,7 +85,7 @@ class _SessionsSheet extends StatelessWidget {
                     ? Padding(
                         padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
                         child: Text(
-                          'Noch keine Unterhaltungen. Stell deinem Coach die erste Frage.',
+                          l10n.coachSessionsEmpty,
                           style: AppType.ui(13.5, color: t.ink2, height: 1.4),
                         ),
                       )
@@ -113,23 +114,24 @@ class _SessionsSheet extends StatelessWidget {
 
   void _confirmDelete(BuildContext context, ChatSession s) {
     final t = context.t;
+    final l10n = context.l10n;
     showDialog<void>(
       context: context,
       // Flaeche, Radius, Rand und die Textstile kommen aus dem dialogTheme.
       builder: (ctx) => AlertDialog(
-        title: const Text('Session löschen?'),
-        content: Text('"${s.title}" und alle Nachrichten darin werden entfernt.'),
+        title: Text(l10n.coachSessionDeleteTitle),
+        content: Text(l10n.coachSessionDeleteBody(s.title)),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('Abbrechen', style: TextStyle(color: t.ink2)),
+            child: Text(l10n.commonCancel, style: TextStyle(color: t.ink2)),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
               onDelete(s.id);
             },
-            child: Text('Löschen', style: TextStyle(color: t.danger)),
+            child: Text(l10n.commonDelete, style: TextStyle(color: t.danger)),
           ),
         ],
       ),
@@ -153,6 +155,7 @@ class _SessionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Material(
       color: isActive ? t.surf : Colors.transparent,
       borderRadius: BorderRadius.circular(rCard),
@@ -186,14 +189,14 @@ class _SessionTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _humanizeTimestamp(session.lastMessageAt),
+                      _humanizeTimestamp(session.lastMessageAt, l10n),
                       style: AppType.ui(11.5, color: t.ink2),
                     ),
                   ],
                 ),
               ),
               IconButton(
-                tooltip: 'Löschen',
+                tooltip: l10n.commonDelete,
                 onPressed: onDelete,
                 icon: Icon(Icons.delete_outline_rounded,
                     size: 18, color: t.ink2),
@@ -207,11 +210,13 @@ class _SessionTile extends StatelessWidget {
   }
 }
 
-String _humanizeTimestamp(DateTime ts) {
+String _humanizeTimestamp(DateTime ts, AppLocalizations l10n) {
   final diff = DateTime.now().difference(ts);
-  if (diff.inMinutes < 1) return 'gerade eben';
-  if (diff.inMinutes < 60) return 'vor ${diff.inMinutes} min';
-  if (diff.inHours < 24) return 'vor ${diff.inHours} h';
-  if (diff.inDays < 7) return 'vor ${diff.inDays} Tagen';
+  if (diff.inMinutes < 1) return l10n.coachTimeJustNow;
+  if (diff.inMinutes < 60) return l10n.coachTimeMinutesAgo(diff.inMinutes);
+  if (diff.inHours < 24) return l10n.coachTimeHoursAgo(diff.inHours);
+  if (diff.inDays < 7) return l10n.coachTimeDaysAgo(diff.inDays);
+  // Reines Zahlenformat ohne Woerter — bleibt unter beiden Sprachen gleich
+  // (kein l10n-Aufruf noetig, s. Bericht).
   return '${ts.day.toString().padLeft(2, '0')}.${ts.month.toString().padLeft(2, '0')}.${ts.year}';
 }

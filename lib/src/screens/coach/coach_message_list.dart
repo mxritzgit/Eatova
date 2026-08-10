@@ -89,7 +89,7 @@ class _MessageView extends StatelessWidget {
                             size: 12, color: t.warning),
                         const SizedBox(width: 5),
                         Text(
-                          'Hinweis',
+                          context.l10n.coachRefusalLabel,
                           style: AppType.ui(
                             10.5,
                             weight: FontWeight.w700,
