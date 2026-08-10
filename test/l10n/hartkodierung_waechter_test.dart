@@ -43,6 +43,11 @@ import 'package:flutter_test/flutter_test.dart';
 /// `models/logged_meal.dart` bleibt bewusst AUSSEN — `MealSlotLabel.germanLabel`
 /// traegt weiterhin hartkodiertes Deutsch fuer den nicht-UI-Aufrufer
 /// (KI-Kontext, `HomeStore._todaysFoodSummary`), s. Paket-2-Bericht.
+///
+/// Paket 3 (Rezepte, 2026-08-10): `lib/src/screens/recipes/` komplett dazu.
+/// `lib/src/models/fitness_recipe.dart` bleibt bewusst AUSSEN — der
+/// Bestandskatalog (30 Rezepte: Titel/Zutaten/Zubereitung) und `recipeFilters`
+/// sind Content, keine Screen-Texte, und bekommen ihr eigenes Paket (Spec §5).
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -52,6 +57,7 @@ const List<String> _migriertePfade = <String>[
   'lib/src/widgets/meal/',
   'lib/src/services/kcal_format.dart',
   'lib/src/theme/meal_slot_style.dart',
+  'lib/src/screens/recipes/',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie

@@ -65,7 +65,7 @@ class _RecipeHeroCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _RecipeBadge(
-                        text: badgeText ?? 'EMPFOHLEN',
+                        text: badgeText ?? context.l10n.recipesRecommendedBadge,
                         icon: badgeText == null ? null : Icons.bolt_rounded,
                         filled: true,
                       ),
@@ -187,7 +187,7 @@ class _RecipeEmptyState extends StatelessWidget {
       child: AppCard(
         radius: rCard,
         child: Text(
-          'Kein Rezept gefunden. Versuch eine andere Kategorie oder Suche.',
+          context.l10n.recipesEmptyStateMessage,
           style: AppType.ui(13, color: t.ink2, height: 1.4),
         ),
       ),

@@ -17,6 +17,7 @@ class _MealSlotPickerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     const slots = <MealSlot>[
       MealSlot.breakfast,
       MealSlot.lunch,
@@ -55,12 +56,15 @@ class _MealSlotPickerSheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Wann eintragen?',
+                          l10n.recipesWhenToLogTitle,
                           style: AppType.display(24, color: t.ink, height: 1.15),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${recipe.caloriesKcal} kcal · ${recipe.proteinG} g Protein',
+                          l10n.recipesKcalProteinSummary(
+                            recipe.caloriesKcal,
+                            recipe.proteinG,
+                          ),
                           style: AppType.ui(
                             12.5,
                             weight: FontWeight.w500,
@@ -94,7 +98,7 @@ class _MealSlotPickerSheet extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    'Abbrechen',
+                    l10n.commonCancel,
                     style: AppType.ui(13.5, weight: FontWeight.w600),
                   ),
                 ),

@@ -226,7 +226,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     if (!mounted) return;
     showAppSnack(
       context,
-      deliveryHint('„${recipe.title}" gelöscht', ausgang),
+      deliveryHint(context.l10n.recipesDeletedSuccess(recipe.title), ausgang),
       icon: Icons.delete_outline_rounded,
       tone: SnackTone.error,
     );
@@ -259,13 +259,14 @@ class _RecipesScreenState extends State<RecipesScreen> {
     if (!mounted) return;
     showAppSnack(
       context,
-      deliveryHint('„${recipe.title}" gespeichert', ausgang),
+      deliveryHint(context.l10n.recipesSavedSuccess(recipe.title), ausgang),
       icon: Icons.bookmark_added_rounded,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final visibleRecipes = filteredRecipes;
     // Empfehlungs-Carousel: diät-vorgefiltert (PROD-6). Fallback auf die volle
     // Liste, falls die Präferenz keinerlei Kuratier-Rezepte übrig lässt, damit
@@ -310,8 +311,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
           ),
           const SizedBox(height: 18),
           SectionHeading(
-            title: 'Empfehlungen',
-            trailing: '${_allRecipes.length} Fitness-Gerichte',
+            title: l10n.recipesRecommendedTitle,
+            trailing: l10n.recipesFitnessDishesCount(_allRecipes.length),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -332,8 +333,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
           ),
           const SizedBox(height: 22),
           SectionHeading(
-            title: selectedFilter == 'Alle' ? 'Alle Rezepte' : selectedFilter,
-            trailing: '${visibleRecipes.length} Treffer',
+            title: selectedFilter == 'Alle'
+                ? l10n.recipesAllTitle
+                : selectedFilter,
+            trailing: l10n.recipesResultsCount(visibleRecipes.length),
           ),
           const SizedBox(height: 12),
           for (var i = 0; i < visibleRecipes.length; i++) ...[
@@ -349,9 +352,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
           // im initialen Viewport (Test nutzt ensureVisible ohne vorheriges Scrollen).
           if (goalMatches.isNotEmpty) ...[
             const SizedBox(height: 22),
-            const SectionHeading(
-              title: 'Passt zu deinem Ziel',
-              trailing: 'nach Restmakros',
+            SectionHeading(
+              title: l10n.recipesGoalMatchTitle,
+              trailing: l10n.recipesGoalMatchTrailing,
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -366,7 +369,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                   final recipe = goalMatches[index];
                   return _RecipeHeroCard(
                     recipe: recipe,
-                    badgeText: 'Match',
+                    badgeText: l10n.recipesGoalMatchBadge,
                     onTap: () => _openRecipe(recipe),
                   );
                 },

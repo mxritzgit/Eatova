@@ -329,5 +329,116 @@
   "foodPhotoCaptureFailedMessage": "Couldn't take the photo. Please try again.",
   "foodImageLoadFailedMessage": "Couldn't load the image.",
   "foodCameraUnavailableGalleryMessage": "Camera unavailable. Check the permission or choose a photo from the gallery.",
-  "foodScanMealTitle": "Scan meal"
+  "foodScanMealTitle": "Scan meal",
+  "recipesSubtitle": "Clean meals with real photos and tracked macros.",
+  "recipesCreateSemantics": "Create your own recipe",
+  "recipesSearchHint": "Search dish, goal, or category",
+  "recipesSearchClearTooltip": "Clear search",
+  "recipesRecommendedTitle": "Recommendations",
+  "recipesFitnessDishesCount": "{count} fitness dishes",
+  "@recipesFitnessDishesCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "recipesAllTitle": "All recipes",
+  "recipesResultsCount": "{count} matches",
+  "@recipesResultsCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "recipesGoalMatchTitle": "Fits your goal",
+  "recipesGoalMatchTrailing": "by remaining macros",
+  "recipesGoalMatchBadge": "Match",
+  "recipesDeletedSuccess": "\"{title}\" deleted",
+  "@recipesDeletedSuccess": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "recipesSavedSuccess": "\"{title}\" saved",
+  "@recipesSavedSuccess": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "recipesRecommendedBadge": "RECOMMENDED",
+  "recipesEmptyStateMessage": "No recipe found. Try a different category or search term.",
+  "recipesImagePlaceholderLabel": "RECIPE",
+  "recipesMetricProtein": "{grams}g P",
+  "@recipesMetricProtein": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesMetricCarbs": "{grams}g C",
+  "@recipesMetricCarbs": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesMetricFat": "{grams}g F",
+  "@recipesMetricFat": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesOwnTitle": "Your recipe",
+  "recipesBrandTitle": "Eatova recipe",
+  "recipesDeleteSemantics": "Delete recipe",
+  "recipesAddToTrackerTitle": "Add to tracker",
+  "recipesKcalProteinSummary": "{kcal} kcal · {protein} g protein",
+  "@recipesKcalProteinSummary": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "protein": { "type": "int" }
+    }
+  },
+  "recipesAddToTrackerHint": "Then choose breakfast, lunch, dinner, or snack.",
+  "recipesNutritionKcalLabel": "Kcal",
+  "recipesNutritionCarbsLabel": "C",
+  "recipesSectionPortion": "Portion",
+  "recipesSectionIngredients": "Ingredients",
+  "recipesSectionPreparation": "Preparation",
+  "recipesSectionProHint": "Pro tip",
+  "recipesWhenToLogTitle": "When did you eat this?",
+  "recipesDiscardChangesBody": "Your recipe hasn't been saved yet.",
+  "recipesPhotoUnreadableError": "Couldn't read the photo.",
+  "recipesPhotoLoadFailedError": "Couldn't load the photo.",
+  "recipesRangeErrorKcal": "{min}–{max} kcal",
+  "@recipesRangeErrorKcal": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "recipesRangeErrorGrams": "{min}–{max} g",
+  "@recipesRangeErrorGrams": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "recipesPhotoSaveFailedError": "Couldn't save the photo.",
+  "recipesNoDataProvided": "Not specified",
+  "recipesNoPreparationYet": "Your own recipe — no preparation steps added.",
+  "recipesSelfCreatedHint": "Self-added. Values are based on what you entered.",
+  "recipesNameAndCaloriesSuffice": "Name and calories are enough.",
+  "recipesGroupWhatIsIt": "What is it",
+  "recipesNameHint": "e.g. Protein Bowl",
+  "recipesPortionHint": "1 plate",
+  "recipesGroupNutrition": "Nutrition",
+  "recipesPerPortion": "per portion",
+  "recipesOptionalLabel": "optional",
+  "recipesIngredientsHint": "One ingredient per line",
+  "recipesSaveButtonLabel": "Save recipe",
+  "recipesPhotoPlaceholderLabel": "PHOTO",
+  "recipesYourPhoto": "Your photo",
+  "recipesPhotoOfDish": "Photo of the dish",
+  "recipesPhotoPreparing": "Preparing photo…",
+  "recipesPhotoStaysOnDevice": "Stays on this device.",
+  "recipesPhotoNoLocationData": "No location data.",
+  "recipesCameraAction": "Camera",
+  "recipesGalleryAction": "Gallery"
 }

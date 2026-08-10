@@ -329,5 +329,116 @@
   "foodPhotoCaptureFailedMessage": "Foto konnte nicht aufgenommen werden. Versuch es nochmal.",
   "foodImageLoadFailedMessage": "Das Bild konnte nicht geladen werden.",
   "foodCameraUnavailableGalleryMessage": "Kamera nicht verfügbar. Prüfe die Berechtigung oder wähle ein Foto aus der Galerie.",
-  "foodScanMealTitle": "Mahlzeit scannen"
+  "foodScanMealTitle": "Mahlzeit scannen",
+  "recipesSubtitle": "Clean Meals mit echten Bildern und Tracker-Werten.",
+  "recipesCreateSemantics": "Eigenes Rezept anlegen",
+  "recipesSearchHint": "Gericht, Ziel oder Kategorie suchen",
+  "recipesSearchClearTooltip": "Suche leeren",
+  "recipesRecommendedTitle": "Empfehlungen",
+  "recipesFitnessDishesCount": "{count} Fitness-Gerichte",
+  "@recipesFitnessDishesCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "recipesAllTitle": "Alle Rezepte",
+  "recipesResultsCount": "{count} Treffer",
+  "@recipesResultsCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "recipesGoalMatchTitle": "Passt zu deinem Ziel",
+  "recipesGoalMatchTrailing": "nach Restmakros",
+  "recipesGoalMatchBadge": "Match",
+  "recipesDeletedSuccess": "„{title}\" gelöscht",
+  "@recipesDeletedSuccess": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "recipesSavedSuccess": "„{title}\" gespeichert",
+  "@recipesSavedSuccess": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "recipesRecommendedBadge": "EMPFOHLEN",
+  "recipesEmptyStateMessage": "Kein Rezept gefunden. Versuch eine andere Kategorie oder Suche.",
+  "recipesImagePlaceholderLabel": "REZEPT",
+  "recipesMetricProtein": "{grams}g P",
+  "@recipesMetricProtein": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesMetricCarbs": "{grams}g KH",
+  "@recipesMetricCarbs": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesMetricFat": "{grams}g F",
+  "@recipesMetricFat": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesOwnTitle": "Eigenes Rezept",
+  "recipesBrandTitle": "Eatova Rezept",
+  "recipesDeleteSemantics": "Rezept löschen",
+  "recipesAddToTrackerTitle": "Zum Tracker hinzufügen",
+  "recipesKcalProteinSummary": "{kcal} kcal · {protein} g Protein",
+  "@recipesKcalProteinSummary": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "protein": { "type": "int" }
+    }
+  },
+  "recipesAddToTrackerHint": "Danach wählst du Frühstück, Mittagessen, Abendessen oder Snack.",
+  "recipesNutritionKcalLabel": "Kcal",
+  "recipesNutritionCarbsLabel": "KH",
+  "recipesSectionPortion": "Portion",
+  "recipesSectionIngredients": "Zutaten",
+  "recipesSectionPreparation": "Zubereitung",
+  "recipesSectionProHint": "Profi-Hinweis",
+  "recipesWhenToLogTitle": "Wann eintragen?",
+  "recipesDiscardChangesBody": "Dein Rezept ist noch nicht gespeichert.",
+  "recipesPhotoUnreadableError": "Das Foto ließ sich nicht lesen.",
+  "recipesPhotoLoadFailedError": "Das Foto ließ sich nicht laden.",
+  "recipesRangeErrorKcal": "{min}–{max} kcal",
+  "@recipesRangeErrorKcal": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "recipesRangeErrorGrams": "{min}–{max} g",
+  "@recipesRangeErrorGrams": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "recipesPhotoSaveFailedError": "Das Foto konnte nicht abgelegt werden.",
+  "recipesNoDataProvided": "Keine Angabe",
+  "recipesNoPreparationYet": "Eigenes Rezept — keine Zubereitung hinterlegt.",
+  "recipesSelfCreatedHint": "Selbst angelegt. Werte beruhen auf deinen Angaben.",
+  "recipesNameAndCaloriesSuffice": "Name und Kalorien genügen.",
+  "recipesGroupWhatIsIt": "Was ist es",
+  "recipesNameHint": "z. B. Protein-Bowl",
+  "recipesPortionHint": "1 Teller",
+  "recipesGroupNutrition": "Nährwerte",
+  "recipesPerPortion": "pro Portion",
+  "recipesOptionalLabel": "optional",
+  "recipesIngredientsHint": "Eine Zutat pro Zeile",
+  "recipesSaveButtonLabel": "Rezept speichern",
+  "recipesPhotoPlaceholderLabel": "FOTO",
+  "recipesYourPhoto": "Dein Foto",
+  "recipesPhotoOfDish": "Foto vom Gericht",
+  "recipesPhotoPreparing": "Foto wird vorbereitet…",
+  "recipesPhotoStaysOnDevice": "Bleibt auf diesem Gerät.",
+  "recipesPhotoNoLocationData": "Ohne Standortdaten.",
+  "recipesCameraAction": "Kamera",
+  "recipesGalleryAction": "Galerie"
 }

@@ -36,7 +36,12 @@ class _RecipeField {
   _RecipeField(this.controller, this.start);
 
   final TextEditingController controller;
-  final String start;
+
+  /// Nicht `final`: die Portion-Vorbelegung ist erst ab `didChangeDependencies`
+  /// bekannt (l10n braucht einen aufgebauten `BuildContext`, `initState` hat
+  /// noch keinen) und wird dort einmalig nachgetragen — sonst zaehlte das Feld
+  /// sich selbst gegen seinen leeren Ausgangswert als „veraendert" (s. dort).
+  String start;
 
   bool get veraendert => controller.text != start;
 }
@@ -57,6 +62,7 @@ class _RecipeField {
 /// recipes_screen.dart setzen darf.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
   final t = context.t;
+  final l10n = context.l10n;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -66,11 +72,11 @@ Future<bool> _confirmDiscardChanges(BuildContext context) async {
         borderRadius: BorderRadius.circular(rSheet),
       ),
       title: Text(
-        'Änderungen verwerfen?',
+        l10n.foodDiscardChangesTitle,
         style: AppType.display(19, color: t.ink),
       ),
       content: Text(
-        'Dein Rezept ist noch nicht gespeichert.',
+        l10n.recipesDiscardChangesBody,
         style: AppType.ui(13, color: t.ink2, height: 1.4),
       ),
       actions: [
@@ -78,13 +84,13 @@ Future<bool> _confirmDiscardChanges(BuildContext context) async {
           key: const ValueKey('discard-changes-cancel'),
           style: TextButton.styleFrom(foregroundColor: t.ink2),
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Weiter bearbeiten'),
+          child: Text(l10n.foodDiscardChangesKeepEditing),
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
           style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Verwerfen'),
+          child: Text(l10n.foodDiscardChangesConfirm),
         ),
       ],
     ),
@@ -232,13 +238,35 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   void initState() {
     super.initState();
     _name = _feld();
-    _portion = _feld('1 Portion');
+    // Vorbelegung "1 Portion" kommt erst in didChangeDependencies — l10n
+    // braucht einen aufgebauten BuildContext, den initState noch nicht hat.
+    _portion = _feld();
     _grams = _feld('300');
     _kcal = _feld();
     _protein = _feld();
     _carbs = _feld();
     _fat = _feld();
     _ingredients = _feld();
+  }
+
+  /// Setzt die l10n-abhaengige Portion-Vorbelegung genau einmal — nicht in
+  /// [initState] (dort ist noch kein BuildContext fuer die Lokalisierung
+  /// aufgebaut), aber auch nicht bei jedem [didChangeDependencies]-Aufruf
+  /// (ein Locale-Wechsel WAEHREND das Sheet offen ist, duerfte einen bereits
+  /// getippten Text nicht ueberschreiben). [_RecipeField.start] wird
+  /// mitgezogen, sonst zaehlte das frische Feld sich selbst als „veraendert".
+  bool _defaultsVorbelegt = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_defaultsVorbelegt) return;
+    _defaultsVorbelegt = true;
+    final fallbackPortion = context.l10n.foodPortionFallback;
+    _portion.text = fallbackPortion;
+    _felder
+        .firstWhere((feld) => feld.controller == _portion)
+        .start = fallbackPortion;
   }
 
   TextEditingController _feld([String start = '']) {
@@ -285,11 +313,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       // dekodierbar — fail-closed, dann lieber gar kein Bild (dieselbe Regel
       // wie im Upload-Pfad, s. compressMealPhoto).
       bytes = auswahl?.previewBytes;
-      if (auswahl != null && bytes == null) {
-        _melde('Das Foto ließ sich nicht lesen.');
+      if (auswahl != null && bytes == null && mounted) {
+        _melde(context.l10n.recipesPhotoUnreadableError);
       }
     } catch (_) {
-      _melde('Das Foto ließ sich nicht laden.');
+      if (mounted) _melde(context.l10n.recipesPhotoLoadFailedError);
     }
     if (!mounted) return;
     setState(() {
@@ -340,23 +368,35 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     TextEditingController controller, {
     required int min,
     required int max,
-    required String einheit,
+    required String Function(int min, int max) bereichstext,
   }) {
     final text = controller.text.trim();
     if (text.isEmpty) return null;
     final wert = int.tryParse(text);
-    if (wert == null || wert < min || wert > max) return '$min–$max $einheit';
+    if (wert == null || wert < min || wert > max) return bereichstext(min, max);
     return null;
   }
 
-  String? get _kcalFehler =>
-      _zahlFehler(_kcal, min: _kcalMin, max: _kcalMax, einheit: 'kcal');
+  String? get _kcalFehler => _zahlFehler(
+        _kcal,
+        min: _kcalMin,
+        max: _kcalMax,
+        bereichstext: context.l10n.recipesRangeErrorKcal,
+      );
 
-  String? get _gramsFehler =>
-      _zahlFehler(_grams, min: _gramsMin, max: _gramsMax, einheit: 'g');
+  String? get _gramsFehler => _zahlFehler(
+        _grams,
+        min: _gramsMin,
+        max: _gramsMax,
+        bereichstext: context.l10n.recipesRangeErrorGrams,
+      );
 
-  String? _makroFehler(TextEditingController controller) =>
-      _zahlFehler(controller, min: _macroMin, max: _macroMax, einheit: 'g');
+  String? _makroFehler(TextEditingController controller) => _zahlFehler(
+        controller,
+        min: _macroMin,
+        max: _macroMax,
+        bereichstext: context.l10n.recipesRangeErrorGrams,
+      );
 
   /// Speichern ist frei, wenn die Pflichtfelder gefuellt und ALLE Felder
   /// innerhalb ihrer Grenzen sind.
@@ -382,13 +422,15 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// woran recipe_create_sheet_test hängt.
   Future<void> _save() async {
     if (!_isValid || _saving) return;
+    final l10n = context.l10n;
     // Der Name ist durch `maxLength` bereits auf <= 160 UTF-16-Einheiten
     // begrenzt; `char_length` in Postgres zaehlt Code Points und ist damit nie
     // groesser. Bleibt das Trimmen.
     final name = _name.text.trim();
     final ingredients = _ingredients.text.trim();
-    final portion =
-        _portion.text.trim().isEmpty ? '1 Portion' : _portion.text.trim();
+    final portion = _portion.text.trim().isEmpty
+        ? l10n.foodPortionFallback
+        : _portion.text.trim();
     final slug = FitnessRecipe.userRecipeSlug();
 
     // Das Bild bekommt seinen Namen aus dem Slug. Scheitert die Ablage (kein
@@ -403,7 +445,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       if (!mounted) return;
       setState(() => _saving = false);
       if (referenz == null) {
-        _melde('Das Foto konnte nicht abgelegt werden.');
+        _melde(l10n.recipesPhotoSaveFailedError);
       } else {
         imageAsset = referenz;
       }
@@ -414,11 +456,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       FitnessRecipe(
         slug: slug,
         title: name,
-        description: 'Eigenes Rezept',
+        description: l10n.recipesOwnTitle,
         portion: portion,
-        ingredients: ingredients.isEmpty ? 'Keine Angabe' : ingredients,
-        preparation: 'Eigenes Rezept — keine Zubereitung hinterlegt.',
-        professionalHint: 'Selbst angelegt. Werte beruhen auf deinen Angaben.',
+        ingredients: ingredients.isEmpty ? l10n.recipesNoDataProvided : ingredients,
+        preparation: l10n.recipesNoPreparationYet,
+        professionalHint: l10n.recipesSelfCreatedHint,
         imageAsset: imageAsset,
         caloriesKcal: _zahl(_kcal),
         proteinG: _zahl(_protein),
@@ -474,6 +516,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
 
   Widget _buildSheet(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     // Der Rumpf ist der SheetScaffold-Optik nachgebaut statt sie zu benutzen:
     // `SheetScaffold` kennt keinen Key an der Fussaktion, und der
     // Speichern-Knopf muss ein `FilledButton` mit `recipe-create-save` bleiben.
@@ -504,7 +547,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Eigenes Rezept',
+              l10n.recipesOwnTitle,
               style: AppType.display(24, color: t.ink, height: 1.15),
             ),
             const SizedBox(height: 4),
@@ -512,12 +555,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             // Formular. Was optional ist, sagen jetzt die Gruppen selbst
             // („optional" rechts in der Kopfzeile).
             Text(
-              'Name und Kalorien genügen.',
+              l10n.recipesNameAndCaloriesSuffice,
               style: AppType.ui(12.5, color: t.ink2, height: 1.4),
             ),
             const SizedBox(height: 12),
             _SheetGroup(
-              label: 'Foto',
+              label: l10n.foodPhotoCardTitle,
               child: _RecipePhotoPicker(
                 bytes: _photoBytes,
                 busy: _photoBusy,
@@ -528,15 +571,15 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             ),
             const SizedBox(height: 10),
             _SheetGroup(
-              label: 'Was ist es',
+              label: l10n.recipesGroupWhatIsIt,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-name'),
                     controller: _name,
-                    label: 'Name',
-                    hint: 'z. B. Protein-Bowl',
+                    label: l10n.foodAddItemNameLabel,
+                    hint: l10n.recipesNameHint,
                     maxChars: _nameMaxChars,
                   ),
                   const SizedBox(height: 12),
@@ -549,13 +592,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                       _RecipeSheetField(
                         fieldKey: const ValueKey('recipe-create-portion'),
                         controller: _portion,
-                        label: 'Portion',
-                        hint: '1 Teller',
+                        label: l10n.recipesSectionPortion,
+                        hint: l10n.recipesPortionHint,
                       ),
                       _RecipeSheetField(
                         fieldKey: const ValueKey('recipe-create-grams'),
                         controller: _grams,
-                        label: 'Gewicht',
+                        label: l10n.foodAddItemWeightLabel,
                         unit: 'g',
                         numeric: true,
                         errorText: _gramsFehler,
@@ -567,8 +610,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             ),
             const SizedBox(height: 10),
             _SheetGroup(
-              label: 'Nährwerte',
-              trailing: 'pro Portion',
+              label: l10n.recipesGroupNutrition,
+              trailing: l10n.recipesPerPortion,
               // Vier Zahlen nebeneinander statt vier vollen Zeilen. Die drei
               // Makro-Felder tragen ihren Token-Ton als Punkt vor der
               // Beschriftung — dieselbe Kodierung wie im Naehrwert-Grid der
@@ -579,7 +622,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-kcal'),
                     controller: _kcal,
-                    label: 'Kalorien',
+                    label: l10n.foodAddItemCaloriesLabel,
                     unit: 'kcal',
                     numeric: true,
                     dot: t.accent,
@@ -588,7 +631,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-protein'),
                     controller: _protein,
-                    label: 'Protein',
+                    label: l10n.todayMacroProtein,
                     unit: 'g',
                     numeric: true,
                     dot: t.protein,
@@ -597,7 +640,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-carbs'),
                     controller: _carbs,
-                    label: 'KH',
+                    label: l10n.recipesNutritionCarbsLabel,
                     unit: 'g',
                     numeric: true,
                     dot: t.carbs,
@@ -606,7 +649,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   _RecipeSheetField(
                     fieldKey: const ValueKey('recipe-create-fat'),
                     controller: _fat,
-                    label: 'Fett',
+                    label: l10n.todayMacroFat,
                     unit: 'g',
                     numeric: true,
                     dot: t.fat,
@@ -617,13 +660,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             ),
             const SizedBox(height: 10),
             _SheetGroup(
-              label: 'Zutaten',
-              trailing: 'optional',
+              label: l10n.recipesSectionIngredients,
+              trailing: l10n.recipesOptionalLabel,
               child: _RecipeSheetField(
                 fieldKey: const ValueKey('recipe-create-ingredients'),
                 controller: _ingredients,
-                label: 'Zutaten',
-                hint: 'Eine Zutat pro Zeile',
+                label: l10n.recipesSectionIngredients,
+                hint: l10n.recipesIngredientsHint,
                 maxLines: 3,
                 // Die Gruppe traegt die Beschriftung schon in ihrer Kopfzeile;
                 // eine zweite direkt darunter waere Dopplung. Der
@@ -641,7 +684,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               onPressed: _isValid && !_saving ? _save : null,
               icon: const Icon(Icons.check_rounded, size: 18),
               label: Text(
-                'Rezept speichern',
+                l10n.recipesSaveButtonLabel,
                 style: AppType.ui(14.5, weight: FontWeight.w700),
               ),
               style: FilledButton.styleFrom(
@@ -789,6 +832,7 @@ class _RecipePhotoPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final vorhanden = bytes != null;
     return AppCard(
       radius: rCard,
@@ -812,7 +856,10 @@ class _RecipePhotoPicker extends StatelessWidget {
                           width: 60,
                           height: 60,
                         )
-                      : const ImagePlaceholder(radius: rControl, label: 'FOTO'),
+                      : ImagePlaceholder(
+                          radius: rControl,
+                          label: l10n.recipesPhotoPlaceholderLabel,
+                        ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -821,21 +868,21 @@ class _RecipePhotoPicker extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      vorhanden ? 'Dein Foto' : 'Foto vom Gericht',
+                      vorhanden ? l10n.recipesYourPhoto : l10n.recipesPhotoOfDish,
                       style:
                           AppType.ui(13, weight: FontWeight.w600, color: t.ink),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       busy
-                          ? 'Foto wird vorbereitet…'
-                          : 'Bleibt auf diesem Gerät.',
+                          ? l10n.recipesPhotoPreparing
+                          : l10n.recipesPhotoStaysOnDevice,
                       style: AppType.ui(11.5, color: t.ink2, height: 1.3),
                     ),
                     if (vorhanden) ...[
                       const SizedBox(height: 3),
                       Text(
-                        'Ohne Standortdaten.',
+                        l10n.recipesPhotoNoLocationData,
                         style: AppType.ui(11.5, color: t.ink2, height: 1.3),
                       ),
                     ],
@@ -855,7 +902,7 @@ class _RecipePhotoPicker extends StatelessWidget {
                 child: _PhotoAction(
                   actionKey: const ValueKey('recipe-create-photo-camera'),
                   icon: Icons.photo_camera_outlined,
-                  label: 'Kamera',
+                  label: l10n.recipesCameraAction,
                   onTap: busy ? null : onCamera,
                 ),
               ),
@@ -864,7 +911,7 @@ class _RecipePhotoPicker extends StatelessWidget {
                 child: _PhotoAction(
                   actionKey: const ValueKey('recipe-create-photo-gallery'),
                   icon: Icons.photo_library_outlined,
-                  label: 'Galerie',
+                  label: l10n.recipesGalleryAction,
                   onTap: busy ? null : onGallery,
                 ),
               ),
@@ -874,7 +921,7 @@ class _RecipePhotoPicker extends StatelessWidget {
                   child: _PhotoAction(
                     actionKey: const ValueKey('recipe-create-photo-remove'),
                     icon: Icons.close_rounded,
-                    label: 'Entfernen',
+                    label: l10n.foodRemoveTooltip,
                     onTap: busy ? null : onRemove,
                     destructive: true,
                   ),

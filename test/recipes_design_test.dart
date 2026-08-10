@@ -67,12 +67,13 @@ final _eigenes = FitnessRecipe(
 Widget _app(
   Brightness brightness, {
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
+  Locale locale = const Locale('de'),
 }) {
   return MaterialApp(
     theme: buildEatovaTheme(brightness),
     // RecipesScreen ruft seit der i18n-Migration (Paket 2) slot.label(l10n)
     // fuer den Slot-Picker (recipe_slot_picker.dart) — context.l10n.
-    locale: const Locale('de'),
+    locale: locale,
     supportedLocales: const [Locale('de'), Locale('en')],
     localizationsDelegates: const [
       AppLocalizations.delegate,
@@ -576,5 +577,27 @@ void main() {
 
       expect(find.byType(ImagePlaceholder), findsWidgets);
     });
+  });
+
+  group('EN-Render-Smoke (i18n-Paket 3, Spec §6)', () {
+    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
+    // mindestens eine echte englische Uebersetzung steht im Baum. Englische
+    // Texte sind teils laenger als die deutschen — das faengt Overflows, die
+    // ein reiner `de`-Lauf nie zeigen wuerde. Muster:
+    // test/food_diary_screen_test.dart (Paket 2).
+    for (final helligkeit in Brightness.values) {
+      testWidgets('Rezepte-Tab rendert unter en in $helligkeit ohne Ausnahme',
+          (tester) async {
+        _pinViewport(tester);
+        await tester.pumpWidget(_app(helligkeit, locale: const Locale('en')));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull,
+            reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
+        // „Rezepte" -> „Recipes", „Empfehlungen" -> „Recommendations".
+        expect(find.text('Recipes'), findsOneWidget);
+        expect(find.text('Recommendations'), findsOneWidget);
+      });
+    }
   });
 }
