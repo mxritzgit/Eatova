@@ -8,5 +8,60 @@
   "navToday": "Today",
   "navFood": "Food",
   "navRecipes": "Recipes",
-  "navCoach": "Coach"
+  "navCoach": "Coach",
+  "todayGreetingNight": "Good night",
+  "todayGreetingMorning": "Good morning",
+  "todayGreetingDay": "Hello",
+  "todayGreetingEvening": "Good evening",
+  "todayDateToday": "Today",
+  "todayDateYesterday": "Yesterday",
+  "todayDateDaysAgo": "{count} days ago",
+  "@todayDateDaysAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "todayMealSlotEmpty": "Nothing logged yet",
+  "todayCoachTeaserNeutral": "Ask the coach for ideas for your goals.",
+  "todayCoachTeaserEmptyDay": "Log your first meal — I'll build your day around it.",
+  "todayCoachTeaserProteinOpen": "You still need {remainingProteinG} g of protein. Want a suggestion?",
+  "@todayCoachTeaserProteinOpen": {
+    "placeholders": {
+      "remainingProteinG": { "type": "int" }
+    }
+  },
+  "todayCoachTeaserProteinDone": "Your protein goal is met. Want me to look at the rest of your day?",
+  "todayMacrosTitle": "Macros",
+  "todayMacrosTrailing": "Daily goals",
+  "todayMacroProtein": "Protein",
+  "todayMacroCarbs": "Carbs",
+  "todayMacroFat": "Fat",
+  "todayMealsTitleToday": "Today's meals",
+  "todayMealsTitleArchive": "Meals",
+  "todaySemanticsOpenProfile": "Open profile",
+  "todayKcalBudgetEyebrow": "CALORIE BUDGET",
+  "todayKcalGoalLabel": "Goal {goal} kcal",
+  "@todayKcalGoalLabel": {
+    "placeholders": {
+      "goal": { "type": "String" }
+    }
+  },
+  "todayKcalOver": "kcal over",
+  "todayKcalRemaining": "kcal left",
+  "todaySemanticsCalorieProgress": "Calorie progress",
+  "todaySemanticsCalorieProgressValue": "{percent} percent of daily goal eaten",
+  "@todaySemanticsCalorieProgressValue": {
+    "placeholders": {
+      "percent": { "type": "int" }
+    }
+  },
+  "todayStatEaten": "EATEN",
+  "todayStatBurned": "BURNED",
+  "todayStatStreak": "DAY STREAK",
+  "todayMealKcalLabel": "KCAL",
+  "todayCoachEyebrow": "AI COACH",
+  "todayCoachCta": "Go to coach",
+  "todayDayLoading": "Loading day…",
+  "todaySemanticsDatePrev": "Previous day",
+  "todaySemanticsDateNext": "Next day"
 }

@@ -8,5 +8,60 @@
   "navToday": "Heute",
   "navFood": "Food",
   "navRecipes": "Rezepte",
-  "navCoach": "Coach"
+  "navCoach": "Coach",
+  "todayGreetingNight": "Gute Nacht",
+  "todayGreetingMorning": "Guten Morgen",
+  "todayGreetingDay": "Hallo",
+  "todayGreetingEvening": "Guten Abend",
+  "todayDateToday": "Heute",
+  "todayDateYesterday": "Gestern",
+  "todayDateDaysAgo": "Vor {count} Tagen",
+  "@todayDateDaysAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "todayMealSlotEmpty": "Noch nichts geloggt",
+  "todayCoachTeaserNeutral": "Frag den Coach nach Ideen für deine Ziele.",
+  "todayCoachTeaserEmptyDay": "Logge deine erste Mahlzeit — ich baue deinen Tag darum herum.",
+  "todayCoachTeaserProteinOpen": "Dir fehlen noch {remainingProteinG} g Protein. Soll ich dir etwas vorschlagen?",
+  "@todayCoachTeaserProteinOpen": {
+    "placeholders": {
+      "remainingProteinG": { "type": "int" }
+    }
+  },
+  "todayCoachTeaserProteinDone": "Dein Protein-Ziel steht. Soll ich auf den Rest des Tages schauen?",
+  "todayMacrosTitle": "Makros",
+  "todayMacrosTrailing": "Tagesziele",
+  "todayMacroProtein": "Protein",
+  "todayMacroCarbs": "Kohlenhydrate",
+  "todayMacroFat": "Fett",
+  "todayMealsTitleToday": "Heutige Mahlzeiten",
+  "todayMealsTitleArchive": "Mahlzeiten",
+  "todaySemanticsOpenProfile": "Profil öffnen",
+  "todayKcalBudgetEyebrow": "KALORIENBUDGET",
+  "todayKcalGoalLabel": "Ziel {goal} kcal",
+  "@todayKcalGoalLabel": {
+    "placeholders": {
+      "goal": { "type": "String" }
+    }
+  },
+  "todayKcalOver": "kcal drüber",
+  "todayKcalRemaining": "kcal übrig",
+  "todaySemanticsCalorieProgress": "Kalorienfortschritt",
+  "todaySemanticsCalorieProgressValue": "{percent} Prozent des Tagesziels gegessen",
+  "@todaySemanticsCalorieProgressValue": {
+    "placeholders": {
+      "percent": { "type": "int" }
+    }
+  },
+  "todayStatEaten": "GEGESSEN",
+  "todayStatBurned": "VERBRANNT",
+  "todayStatStreak": "TAGE-STREAK",
+  "todayMealKcalLabel": "KCAL",
+  "todayCoachEyebrow": "KI-COACH",
+  "todayCoachCta": "Zum Coach",
+  "todayDayLoading": "Tag wird geladen…",
+  "todaySemanticsDatePrev": "Tag zurück",
+  "todaySemanticsDateNext": "Tag vor"
 }

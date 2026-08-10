@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
 import 'today_texts.dart';
@@ -40,6 +41,7 @@ class TodayCalorieHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
 
     final goal = kcalGoal <= 0 ? 1 : kcalGoal;
     final eaten = consumedKcal.clamp(0, 99999).toInt();
@@ -70,7 +72,7 @@ class TodayCalorieHero extends StatelessWidget {
                   children: <Widget>[
                     Expanded(
                       child: Text(
-                        'KALORIENBUDGET',
+                        l10n.todayKcalBudgetEyebrow,
                         style: AppType.eyebrow(t.lime),
                       ),
                     ),
@@ -84,7 +86,7 @@ class TodayCalorieHero extends StatelessWidget {
                     // Festgenagelt von test/kcal_goal_consistency_test.dart.
                     Flexible(
                       child: Text(
-                        'Ziel ${kcalThousands(goal)} kcal',
+                        l10n.todayKcalGoalLabel(kcalThousands(goal)),
                         key: const ValueKey('today-kcal-goal'),
                         textAlign: TextAlign.right,
                         style: AppType.ui(
@@ -122,7 +124,9 @@ class TodayCalorieHero extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: Text(
-                          ueberzogen ? 'kcal drüber' : 'kcal übrig',
+                          ueberzogen
+                              ? l10n.todayKcalOver
+                              : l10n.todayKcalRemaining,
                           style: AppType.ui(
                             13,
                             // Die grosse Zahl bleibt in beiden Faellen
@@ -143,9 +147,10 @@ class TodayCalorieHero extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 Semantics(
-                  label: 'Kalorienfortschritt',
-                  value: '${(progress * 100).round()} Prozent des '
-                      'Tagesziels gegessen',
+                  label: l10n.todaySemanticsCalorieProgress,
+                  value: l10n.todaySemanticsCalorieProgressValue(
+                    (progress * 100).round(),
+                  ),
                   child: TickGauge(progress: progress),
                 ),
                 const SizedBox(height: 18),
@@ -155,7 +160,7 @@ class TodayCalorieHero extends StatelessWidget {
                     _Kachel(
                       keyValue: 'today-stat-eaten',
                       value: kcalThousands(eaten),
-                      label: 'GEGESSEN',
+                      label: l10n.todayStatEaten,
                     ),
                     const _Trenner(),
                     const SizedBox(width: 16),
@@ -164,14 +169,14 @@ class TodayCalorieHero extends StatelessWidget {
                       // Wortgleich zur alten Karte
                       // (calories_overview_card.dart:198-200).
                       value: burned == 0 ? '—' : kcalThousands(burned),
-                      label: 'VERBRANNT',
+                      label: l10n.todayStatBurned,
                     ),
                     const _Trenner(),
                     const SizedBox(width: 16),
                     _Kachel(
                       keyValue: 'today-stat-streak',
                       value: '$streak',
-                      label: 'TAGE-STREAK',
+                      label: l10n.todayStatStreak,
                       valueColor: t.lime,
                     ),
                   ],

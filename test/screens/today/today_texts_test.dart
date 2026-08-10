@@ -5,13 +5,23 @@
 // coach_hero.dart, Tausenderpunkt aus calories_overview_card.dart, Tageslabel
 // aus meal_analysis_screen.dart). Diese Tests sind der Drift-Melder: weicht
 // eine Kopie vom Original ab, faellt es hier auf und nicht erst im UI.
+//
+// Seit der i18n-Migration (Paket 1, 2026-08-10) brauchen die textgebenden
+// Helfer ein [AppLocalizations] — hier fest `de` (die Erwartungswerte bleiben
+// wortgleich zum Bestand, Regel 1 aus docs/I18N_PAKETE.md). `todayEyebrow`
+// initialisiert die `intl`-Datumssymbole selbst (einmalig, s.
+// today_texts.dart) — kein Extra-Setup hier noetig.
 
 import 'package:clock/clock.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/today/today_texts.dart';
+
+final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
 LoggedMeal _meal(String name, {int kcal = 400, MealSlot? slot}) => LoggedMeal(
       id: name,
@@ -34,40 +44,43 @@ void main() {
   group('greetingForHour — dieselben Schwellen wie der Coach-Hero', () {
     test('die vier Faecher an ihren Kanten', () {
       // coach_hero.dart:13-19: <5 / <11 / <17 / sonst.
-      expect(greetingForHour(0), 'Gute Nacht');
-      expect(greetingForHour(4), 'Gute Nacht');
-      expect(greetingForHour(5), 'Guten Morgen');
-      expect(greetingForHour(10), 'Guten Morgen');
-      expect(greetingForHour(11), 'Hallo');
-      expect(greetingForHour(16), 'Hallo');
-      expect(greetingForHour(17), 'Guten Abend');
-      expect(greetingForHour(23), 'Guten Abend');
+      expect(greetingForHour(0, _de), 'Gute Nacht');
+      expect(greetingForHour(4, _de), 'Gute Nacht');
+      expect(greetingForHour(5, _de), 'Guten Morgen');
+      expect(greetingForHour(10, _de), 'Guten Morgen');
+      expect(greetingForHour(11, _de), 'Hallo');
+      expect(greetingForHour(16, _de), 'Hallo');
+      expect(greetingForHour(17, _de), 'Guten Abend');
+      expect(greetingForHour(23, _de), 'Guten Abend');
     });
 
     test('todayGreeting liest die Wanduhr ueber clock.now()', () {
       withClock(Clock.fixed(DateTime(2026, 8, 9, 7, 30)), () {
-        expect(todayGreeting(), 'Guten Morgen');
+        expect(todayGreeting(_de), 'Guten Morgen');
       });
       withClock(Clock.fixed(DateTime(2026, 8, 9, 22, 5)), () {
-        expect(todayGreeting(), 'Guten Abend');
+        expect(todayGreeting(_de), 'Guten Abend');
       });
     });
   });
 
   group('todayEyebrow — deutsches Datum in Versalien', () {
     test('Wochentag, Tag und Monat', () {
-      expect(todayEyebrow(DateTime(2026, 8, 9)), 'SONNTAG, 9. AUGUST');
-      expect(todayEyebrow(DateTime(2026, 8, 10)), 'MONTAG, 10. AUGUST');
+      expect(todayEyebrow(DateTime(2026, 8, 9), _de), 'SONNTAG, 9. AUGUST');
+      expect(todayEyebrow(DateTime(2026, 8, 10), _de), 'MONTAG, 10. AUGUST');
     });
 
     test('Umlaut-Monat bleibt ein Umlaut', () {
-      expect(todayEyebrow(DateTime(2026, 3, 29)), 'SONNTAG, 29. MÄRZ');
+      expect(todayEyebrow(DateTime(2026, 3, 29), _de), 'SONNTAG, 29. MÄRZ');
     });
 
     test('Jahres- und Monatsgrenzen', () {
-      expect(todayEyebrow(DateTime(2026, 1, 1)), 'DONNERSTAG, 1. JANUAR');
-      expect(todayEyebrow(DateTime(2026, 12, 31)), 'DONNERSTAG, 31. DEZEMBER');
-      expect(todayEyebrow(DateTime(2026, 2, 28)), 'SAMSTAG, 28. FEBRUAR');
+      expect(
+          todayEyebrow(DateTime(2026, 1, 1), _de), 'DONNERSTAG, 1. JANUAR');
+      expect(todayEyebrow(DateTime(2026, 12, 31), _de),
+          'DONNERSTAG, 31. DEZEMBER');
+      expect(
+          todayEyebrow(DateTime(2026, 2, 28), _de), 'SAMSTAG, 28. FEBRUAR');
     });
   });
 
@@ -95,15 +108,15 @@ void main() {
 
     test('Heute / Gestern / Vor N Tagen', () {
       expect(
-        todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 30)),
+        todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 30), _de),
         'Heute',
       );
       expect(
-        todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 29)),
+        todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 29), _de),
         'Gestern',
       );
       expect(
-        todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 25)),
+        todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 25), _de),
         'Vor 5 Tagen',
       );
     });
@@ -113,6 +126,7 @@ void main() {
         todayDateLabel(
           DateTime(2026, 8, 9, 23, 59),
           DateTime(2026, 8, 9, 0, 1),
+          _de,
         ),
         'Heute',
       );
@@ -121,16 +135,20 @@ void main() {
 
   group('mealSlotSubtitle', () {
     test('leerer Slot traegt den wortgleichen Leertext', () {
-      expect(mealSlotSubtitle(const <LoggedMeal>[]), 'Noch nichts geloggt');
+      expect(
+        mealSlotSubtitle(const <LoggedMeal>[], _de),
+        'Noch nichts geloggt',
+      );
     });
 
     test('Namen mit Mittelpunkt verbunden', () {
       expect(
-        mealSlotSubtitle(<LoggedMeal>[_meal('Haferbrei')]),
+        mealSlotSubtitle(<LoggedMeal>[_meal('Haferbrei')], _de),
         'Haferbrei',
       );
       expect(
-        mealSlotSubtitle(<LoggedMeal>[_meal('Haferbrei'), _meal('Kaffee')]),
+        mealSlotSubtitle(
+            <LoggedMeal>[_meal('Haferbrei'), _meal('Kaffee')], _de),
         'Haferbrei · Kaffee',
       );
     });
@@ -139,21 +157,21 @@ void main() {
   group('coachTeaser', () {
     test('leerer Tag lockt zum ersten Log', () {
       expect(
-        coachTeaser(dayIsEmpty: true, remainingProteinG: 130),
+        coachTeaser(dayIsEmpty: true, remainingProteinG: 130, l10n: _de),
         'Logge deine erste Mahlzeit — ich baue deinen Tag darum herum.',
       );
     });
 
     test('offenes Protein wird konkret benannt', () {
       expect(
-        coachTeaser(dayIsEmpty: false, remainingProteinG: 38),
+        coachTeaser(dayIsEmpty: false, remainingProteinG: 38, l10n: _de),
         'Dir fehlen noch 38 g Protein. Soll ich dir etwas vorschlagen?',
       );
     });
 
     test('erfuelltes Protein-Ziel bekommt einen eigenen Zweig', () {
       expect(
-        coachTeaser(dayIsEmpty: false, remainingProteinG: 0),
+        coachTeaser(dayIsEmpty: false, remainingProteinG: 0, l10n: _de),
         'Dein Protein-Ziel steht. Soll ich auf den Rest des Tages schauen?',
       );
     });
@@ -166,15 +184,30 @@ void main() {
       // rechnet ohnehin mit HEUTE (HomeStore.coachContext).
       const neutral = 'Frag den Coach nach Ideen für deine Ziele.';
       expect(
-        coachTeaser(dayIsEmpty: true, remainingProteinG: 130, isToday: false),
+        coachTeaser(
+          dayIsEmpty: true,
+          remainingProteinG: 130,
+          l10n: _de,
+          isToday: false,
+        ),
         neutral,
       );
       expect(
-        coachTeaser(dayIsEmpty: false, remainingProteinG: 38, isToday: false),
+        coachTeaser(
+          dayIsEmpty: false,
+          remainingProteinG: 38,
+          l10n: _de,
+          isToday: false,
+        ),
         neutral,
       );
       expect(
-        coachTeaser(dayIsEmpty: false, remainingProteinG: 0, isToday: false),
+        coachTeaser(
+          dayIsEmpty: false,
+          remainingProteinG: 0,
+          l10n: _de,
+          isToday: false,
+        ),
         neutral,
       );
     });
