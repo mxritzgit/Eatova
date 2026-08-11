@@ -927,7 +927,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       label,
       icon: Icons.delete_outline_rounded,
       tone: SnackTone.error,
-      action: SnackBarAction(label: 'Rückgängig', onPressed: onUndo),
+      action: SnackBarAction(label: _l10n.commonUndo, onPressed: onUndo),
     );
   }
 

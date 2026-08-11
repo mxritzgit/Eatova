@@ -177,6 +177,15 @@
     }
   },
   "commonAdd": "Add",
+  "commonMealDeleted": "Meal deleted",
+  "commonUndo": "Undo",
+  "commonHealthWeightOfferMessage": "Apple Health: {kg} kg — apply?",
+  "@commonHealthWeightOfferMessage": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
+  "commonHealthWeightOfferAction": "Apply",
   "foodRemoveFavoriteTooltip": "Remove from favorites",
   "foodAddFavoriteTooltip": "Save as favorite",
   "foodDecreaseAmountSemantics": "Decrease amount",

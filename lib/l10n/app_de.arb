@@ -177,6 +177,15 @@
     }
   },
   "commonAdd": "Hinzufügen",
+  "commonMealDeleted": "Mahlzeit gelöscht",
+  "commonUndo": "Rückgängig",
+  "commonHealthWeightOfferMessage": "Apple Health: {kg} kg übernehmen?",
+  "@commonHealthWeightOfferMessage": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
+  "commonHealthWeightOfferAction": "Übernehmen",
   "foodRemoveFavoriteTooltip": "Aus Favoriten entfernen",
   "foodAddFavoriteTooltip": "Als Favorit speichern",
   "foodDecreaseAmountSemantics": "Menge verringern",

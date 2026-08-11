@@ -78,10 +78,13 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
     if (_lastOfferedHealthWeightKg == kg) return;
     _lastOfferedHealthWeightKg = kg;
-    // Deutsche Formatierung: Komma, eine Nachkommastelle (z.B. "82,4").
-    final label = kg.toStringAsFixed(1).replaceAll('.', ',');
+    // Locale-bewusst ueber NumberFormat (Paket 7/Nachzuegler-Muster, s.
+    // target_bmi_hint.dart): unter `de` byte-gleich zum vorherigen
+    // `toStringAsFixed(1).replaceAll('.', ',')` (CLDR liefert fuer `de`
+    // ebenfalls das Komma), unter `en` jetzt der Punkt.
+    final label = NumberFormat('0.0', _l10n.localeName).format(kg);
     _emitSnack(
-      'Apple Health: $label kg übernehmen?',
+      _l10n.commonHealthWeightOfferMessage(label),
       icon: Icons.monitor_weight_outlined,
       tone: SnackTone.positive,
       // Unaufgefordertes Angebot beim Resume/Kaltstart: etwas laenger sichtbar
@@ -89,7 +92,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       // treffbar ist, bevor der Toast von selbst verschwindet.
       duration: const Duration(milliseconds: 3500),
       action: SnackBarAction(
-        label: 'Übernehmen',
+        label: _l10n.commonHealthWeightOfferAction,
         onPressed: () => importHealthWeight(kg),
       ),
     );

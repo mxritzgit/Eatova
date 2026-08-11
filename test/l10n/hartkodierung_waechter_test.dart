@@ -102,10 +102,59 @@ import 'package:flutter_test/flutter_test.dart';
 /// bewacht — nur `kcal_calculator.dart` musste vorher noch mitziehen, weil
 /// `paceLabelForWeeklyRateKg`/`effectivePaceLabel`/`paceWarning` an der
 /// B2-Kopplung haengen (`WeightGoalInfo.paceLabel` in `user_profile.dart`
-/// rechnet mit derselben Funktion — beide liefen sonst auseinander). Damit
-/// deckt `_migriertePfade` `lib/` vollstaendig ab bis auf: die Auth-Screens
-/// (eigene Runde, s. Vertrag) und den `fitness_recipe.dart`-Katalog (Content,
-/// kein Screen-Text, s. Paket-3-Kommentar).
+/// rechnet mit derselben Funktion — beide liefen sonst auseinander).
+///
+/// Review-Fixwelle (Finding 2, 2026-08-11): der Store haelt sein `_l10n`
+/// zwar seit Paket 6 (s.o.), die eigenen Store-Snacks in `lib/src/app/`
+/// waren aber nie Teil eines Pakets — kein Screen-Ordner, durch die
+/// Paketzuschnitt-Tabelle gefallen. Vier Fundstellen ziehen jetzt nach:
+/// `home_store_meals.dart` (`commonMealDeleted`/`commonUndo`),
+/// `home_store_sync.dart` (`commonUndo` wiederverwendet; die einzige
+/// verbleibende Ausnahme dort ist `'Konto-Löschung'` — ein reiner
+/// dev.log/CrashReporter-Diagnosetext, s. [_bekannteAusnahmen]),
+/// `home_store_tracking.dart` (Apple-Health-Uebernahme-Snack, plus das
+/// deutsche Dezimalkomma jetzt ueber `NumberFormat` statt hartem
+/// `replaceAll('.', ',')`) und `lib/src/widgets/design/rows.dart`
+/// (`PageHeader`s Zurueck-Semantics — wiederverwendet `onboardingBackSemanticLabel`
+/// statt einen zweiten, gleichbedeutenden Key anzulegen).
+///
+/// Die vorherige Schlussbehauptung an dieser Stelle („`_migriertePfade`
+/// deckt `lib/` vollstaendig ab bis auf Auth + `fitness_recipe.dart`") war
+/// FALSCH — sie unterschlug einen ganzen Bereich. Ehrliche Restliste, Stand
+/// nach Finding 2 (alle bewusst NICHT in [_migriertePfade], mit Zielort):
+///  * `lib/src/app/` bleibt bis auf die vier oben genannten Dateien
+///    unbewacht: `home_store.dart` selbst traegt in `coachContext`/
+///    `_todaysFoodSummary` noch hartes Deutsch — das ist aber kein UI-Text,
+///    sondern Freitext-KONTEXT fuer den Coach-Prompt (geht an die Edge
+///    Function, nie direkt gerendert); `home_store_profile.dart`,
+///    `eatova_home_page.dart`, `eatova_app.dart`, `auth_gate.dart` und
+///    `locale_controller.dart` sind noch nicht durchsucht. Ziel: Scan/Coach-PR
+///    (haengt am Coach-Prompt-Kontext).
+///  * `lib/src/services/meal_analyzer.dart` — Scan-Fehlermeldungen (Bild zu
+///    gross, Rate-Limit). Ziel: Scan-PR.
+///  * `lib/src/services/open_food_facts_product_service.dart` —
+///    Produkt-Fundtexte (Naehrwertangabe unplausibel/fehlend). Ziel: Scan-PR.
+///  * `lib/src/models/meal_analysis_result.dart` — `sourceLabel`/
+///    `portionLabel`/die Anpassungs-Beschreibungen des Scan-Ergebnisses.
+///    Haengt inhaltlich an `meal_analyzer.dart`/dem OFF-Service. Ziel: Scan-PR.
+///  * `lib/src/services/notification_service.dart` und
+///    `lib/src/services/streak_reminder_planner.dart` — Notification-Kanal-
+///    und Erinnerungs-Body-Texte. Ziel: eigene Notifications-Runde im
+///    Scan/Coach-PR (Streak-Erinnerung haengt am Engagement-Teil des Coachs).
+///  * `main.dart` — der Boot-Fehlerschirm („Eatova konnte nicht starten" …)
+///    bleibt BEWUSST hartkodiertes Deutsch: er laeuft, bevor Flutter/l10n
+///    ueberhaupt initialisiert ist — `AppLocalizations.of` waere dort
+///    strukturell nicht erreichbar. Keine Migrationsluecke, sondern eine
+///    dauerhafte Ausnahme (analog zu Log-/Sentry-Texten, Spec §4).
+///  * `lib/src/screens/coach/coach_sessions.dart` — `_humanizeTimestamp`s
+///    Datumsfallback (Nachrichten >= 7 Tage alt) gibt ein rohes `DD.MM.YYYY`
+///    aus. Bewusst sprachneutral (nur Ziffern, s. Kommentar dort), aber
+///    NICHT locale-abhaengig formatiert — ein EN-Leser koennte Tag/Monat
+///    vertauschen. Kein Hartkodierungs-Fund im engeren Sinn (keine deutschen
+///    Woerter), aber eine offene Anschlussfrage fuer den Scan/Coach-PR.
+///  * Unveraendert seit Paket 3/dem Vertrag: die Auth-Screens (eigene Runde)
+///    und der `fitness_recipe.dart`-Katalog (30 Rezepte, Content statt
+///    Screen-Text) — beide Ziel: Inhalte-PR.
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -127,6 +176,10 @@ const List<String> _migriertePfade = <String>[
   'lib/src/services/kcal_calculator.dart',
   'lib/src/services/sync_error_messages.dart',
   'lib/src/services/coach_chat_service.dart',
+  'lib/src/app/home_store_meals.dart',
+  'lib/src/app/home_store_sync.dart',
+  'lib/src/app/home_store_tracking.dart',
+  'lib/src/widgets/design/rows.dart',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie
@@ -143,6 +196,16 @@ const List<String> _migriertePfade = <String>[
 const Map<String, List<String>> _bekannteAusnahmen = <String, List<String>>{
   'lib/src/screens/meal_analysis_screen.dart': [
     "'Kein angemeldeter Nutzer für die Trend-Ansicht.'",
+  ],
+  // Finding 2 (Review-Fixwelle, 2026-08-11): das `operation`-Argument von
+  // `_reportSyncError`/`_syncOrQueue` geht NUR an `dev.log` und
+  // `CrashReporter.capture(context: ...)` — reiner Diagnose-Text, nie in der
+  // UI sichtbar (dieselbe Kategorie wie Log-/Sentry-Texte, Spec §4). Alle
+  // anderen Operation-Labels in dieser Datei ('Mahlzeit', 'Favorit',
+  // 'Rezept', ...) tragen ohnehin keinen Umlaut und fallen schon durch den
+  // Zeichenfilter — nur 'Konto-Löschung' braucht die dokumentierte Ausnahme.
+  'lib/src/app/home_store_sync.dart': [
+    "'Konto-Löschung'",
   ],
 };
 

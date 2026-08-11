@@ -248,7 +248,7 @@ mixin _HomeStoreMealsPart
       icon: Icons.check_circle_rounded,
       tone: SnackTone.positive,
       action: SnackBarAction(
-        label: 'Rückgängig',
+        label: _l10n.commonUndo,
         onPressed: () => _revertLoggedMealUpdate(previous),
       ),
     );
@@ -329,7 +329,7 @@ mixin _HomeStoreMealsPart
       () => SyncOp.mealDelete(id),
     );
     if (removed != null) {
-      _showUndoSnackBar('Mahlzeit gelöscht', () => _restoreLoggedMeal(removed));
+      _showUndoSnackBar(_l10n.commonMealDeleted, () => _restoreLoggedMeal(removed));
     }
   }
 
