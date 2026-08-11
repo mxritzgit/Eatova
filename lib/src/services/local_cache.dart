@@ -157,6 +157,15 @@ class LocalCache {
   /// Ebenfalls PII (Zutaten/Mengen des Nutzers) -> wird in [clear] geraeumt.
   String get _userRecipesKey => 'eatova.v1.user_recipes.$_userId';
 
+  /// Tages-Aktivitaet: Schritte + daraus geschaetzte "Verbrannt"-kcal pro
+  /// lokalem Kalendertag (Key im Blob: YYYY-MM-DD, s. local_day.dart).
+  /// Anders als der Legacy-daily-Slot des frueheren Heute-Tabs traegt er nur
+  /// diese zwei Zahlen — aber auch das sind Gesundheitsdaten, also PII ->
+  /// wird in [clear] geraeumt. Bewusst NUR lokal (keine Supabase-Tabelle):
+  /// Schritte kommen aus dem Health-Store des Geraets, ein Server-Sync wuerde
+  /// Gesundheitsdaten hochladen, die dort nie gebraucht werden.
+  String get _dailyActivityKey => 'eatova.v1.daily_activity.$_userId';
+
   // ---- Erinnerungen (PROD-1) ----------------------------------------------
   // Opt-in-Flag fuer die lokalen Retention-Nudges. Persistiert pro User, damit
   // ein Kaltstart die geplanten Nudges nur dann wieder aufsetzt, wenn der User
@@ -289,6 +298,41 @@ class LocalCache {
     }
   }
 
+  /// Tages-Aktivitaet (s. [_dailyActivityKey]). Wire-Format:
+  /// `{'days': {'2026-08-11': {'steps': 8123, 'kcal': 312}}}`.
+  Future<void> writeDailyActivity(
+    Map<String, ({int steps, int kcal})> days,
+  ) =>
+      _writeJson(_dailyActivityKey, <String, dynamic>{
+        'days': <String, dynamic>{
+          for (final e in days.entries)
+            e.key: <String, dynamic>{
+              'steps': e.value.steps,
+              'kcal': e.value.kcal,
+            },
+        },
+      });
+
+  /// Liest die Tages-Aktivitaet. Fehlt/korrupt -> null; einzelne unlesbare
+  /// Tage werden uebersprungen statt den ganzen Slot zu verwerfen (Muster
+  /// wie [readOutbox] — die uebrigen Tage sollen den einen kaputten nicht
+  /// mitreissen).
+  Future<Map<String, ({int steps, int kcal})>?> readDailyActivity() async {
+    final json = await _readJson(_dailyActivityKey);
+    final days = json?['days'];
+    if (days is! Map) return null;
+    final result = <String, ({int steps, int kcal})>{};
+    for (final entry in days.entries) {
+      final value = entry.value;
+      if (value is! Map) continue;
+      result['${entry.key}'] = (
+        steps: _int(value['steps'], 0),
+        kcal: _int(value['kcal'], 0),
+      );
+    }
+    return result;
+  }
+
   Future<void> writeWeightLog(WeightLog log) =>
       _writeJson(_weightLogKey, _weightLogToJson(log));
 
@@ -385,6 +429,8 @@ class LocalCache {
     // Eigen-Rezepte sind Nutzerinhalt (Zutaten, Mengen) und fallen damit unter
     // dieselbe M-1-Begruendung wie das Tagebuch — auch bei [preserveOutbox].
     await _store.remove(_userRecipesKey);
+    // Schritte/Burned-kcal sind Gesundheitsdaten — gleiche M-1-Begruendung.
+    await _store.remove(_dailyActivityKey);
     if (preserveOutbox) return;
     await _store.remove(_outboxKey);
     await _store.remove(_pendingStatsKey);

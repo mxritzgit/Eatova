@@ -29,8 +29,9 @@ class TodayCalorieHero extends StatelessWidget {
 
   final int consumedKcal;
 
-  /// An einem Nicht-Heute-Tag reicht die Schale 0 durch — die Kachel zeigt
-  /// dann „—" statt einer erfundenen Null.
+  /// Heute live aus dem Schrittstand; an einem Archivtag der pro Tag
+  /// festgeschriebene Endwert (HomeStore.burnedKcalForFoodDate). 0 heisst
+  /// „kein Eintrag" — die Kachel zeigt dann „—" statt einer erfundenen Null.
   final int burnedKcal;
 
   final int kcalGoal;

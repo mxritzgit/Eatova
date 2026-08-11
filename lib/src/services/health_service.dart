@@ -76,6 +76,17 @@ abstract class HealthService {
   /// not authorized or no data.
   Future<HealthSnapshot?> readSnapshot();
 
+  /// Liest die Schrittsumme EINES lokalen Kalendertages [day] — der
+  /// Backfill-Pfad fuer die "Verbrannt"-Anzeige vergangener Tage.
+  ///
+  /// Liefert nur positive Werte, sonst null: `getTotalStepsInInterval`
+  /// summiert ohne Leseberechtigung eine leere Collection und liefert 0
+  /// statt eines Fehlers (s. `HealthAuthEvidence.steps` im Apple-Service).
+  /// Eine 0 ist damit nicht von "kein Zugriff" unterscheidbar und darf nie
+  /// als Tagesendwert eingefroren werden — ein echter 0-Schritte-Tag zeigt
+  /// ohnehin "—". Off-iOS / nicht unterstuetzt immer null.
+  Future<int?> readStepsOnDay(DateTime day);
+
   /// Schreibt ein Koerpergewicht-Sample (kg) zum Zeitpunkt [when] in den
   /// Health-Store. Liefert true bei Erfolg, false wenn nicht unterstuetzt /
   /// nicht autorisiert / Fehler. Off-iOS immer no-op -> false.
@@ -108,6 +119,9 @@ class NoopHealthService implements HealthService {
 
   @override
   Future<HealthSnapshot?> readSnapshot() async => null;
+
+  @override
+  Future<int?> readStepsOnDay(DateTime day) async => null;
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async => false;

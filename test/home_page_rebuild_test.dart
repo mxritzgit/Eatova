@@ -65,6 +65,9 @@ class _StaticHealth implements HealthService {
 
   @override
   Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
+
+  @override
+  Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
 HomeStore _storeOf(WidgetTester tester) =>

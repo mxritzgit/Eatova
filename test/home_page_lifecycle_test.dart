@@ -88,6 +88,9 @@ class _FakeHealth implements HealthService {
 
   @override
   Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
+
+  @override
+  Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
 /// Notification-Double mit umlegbarer OS-Ebene (D11). Implementiert die
