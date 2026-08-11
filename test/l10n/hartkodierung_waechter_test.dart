@@ -76,9 +76,11 @@ import 'package:flutter_test/flutter_test.dart';
 /// zieht jetzt mit — `BiologicalSex.label`/`ActivityLevel.label`/
 /// `.description`/`DietPreference.label`/`.description`/`WeightGoal.label`/
 /// `.menuLabel` nehmen alle ein [AppLocalizations] entgegen (Persistenz bleibt
-/// `enumWert.name`, unveraendert). `WeightGoal.paceLabel` bleibt bewusst
-/// hartkodiertes Deutsch — es sitzt zusammen mit `KcalTargets.effectivePaceLabel`/
-/// `.paceWarning` in `kcal_calculator.dart`, das noch aussteht (s.u.).
+/// `enumWert.name`, unveraendert). `WeightGoal.paceLabel` war zu diesem
+/// Zeitpunkt noch bewusst hartkodiertes Deutsch — es haengt an
+/// `KcalTargets.effectivePaceLabel`/`.paceWarning` in `kcal_calculator.dart`
+/// (B2-Kopplung, beide muessen synchron bleiben). Paket 7 unten zieht beide
+/// nach; die Formulierung „das noch aussteht" stimmt seither nicht mehr.
 /// Zwei inhaltlich uebernommene Service-Handovers (dokumentierte, NICHT
 /// migrierte Einzelfaelle wie schon bei Paket 4s `coach_chat_service.dart`):
 ///  * `lib/src/services/sync_error_messages.dart` — der Store (`HomeStore`,

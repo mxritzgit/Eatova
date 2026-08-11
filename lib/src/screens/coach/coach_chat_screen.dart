@@ -488,7 +488,6 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       content: displayText,
       createdAt: DateTime.now(),
       imageBytes: imageBytes,
-      mediaLabel: hasImage ? 'Bild' : null,
     );
 
     setState(() {

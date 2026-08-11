@@ -86,7 +86,7 @@
       "code": { "type": "String" }
     }
   },
-  "foodDiaryEmptyHint": "Tap AI scan, barcode, or search above.",
+  "foodDiaryEmptyHint": "Tap AI Scan, barcode, or search above.",
   "foodActionBarcode": "Barcode",
   "foodActionAiScan": "AI Scan",
   "foodSearchPlaceholder": "Search food or meals…",
@@ -293,7 +293,7 @@
       "kcal": { "type": "int" }
     }
   },
-  "foodItemsCountLabel": "{count} items",
+  "foodItemsCountLabel": "{count, plural, one{1 item} other{{count} items}}",
   "@foodItemsCountLabel": {
     "placeholders": {
       "count": { "type": "int" }
@@ -352,7 +352,7 @@
     }
   },
   "recipesAllTitle": "All recipes",
-  "recipesResultsCount": "{count} matches",
+  "recipesResultsCount": "{count, plural, one{1 match} other{{count} matches}}",
   "@recipesResultsCount": {
     "placeholders": {
       "count": { "type": "int" }
@@ -515,13 +515,13 @@
       "count": { "type": "int" }
     }
   },
-  "coachTimeHoursAgo": "{count} h ago",
+  "coachTimeHoursAgo": "{count}h ago",
   "@coachTimeHoursAgo": {
     "placeholders": {
       "count": { "type": "int" }
     }
   },
-  "coachTimeDaysAgo": "{count} days ago",
+  "coachTimeDaysAgo": "{count, plural, one{1 day ago} other{{count} days ago}}",
   "@coachTimeDaysAgo": {
     "placeholders": {
       "count": { "type": "int" }
@@ -535,7 +535,7 @@
   "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
   "coachErrorDeleteFailed": "The conversation could not be deleted. Check your connection and try again.",
   "coachImageDefaultCaption": "Analyze this image in a fitness context.",
-  "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More again tomorrow.",
+  "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More tomorrow.",
   "@coachErrorDailyLimitReached": {
     "placeholders": {
       "limit": { "type": "int" }
@@ -572,7 +572,7 @@
   "profilePlanChipPace": "Pace",
   "profileStable": "stable",
   "profilePlanChipDailyGoal": "Daily goal",
-  "profileGoalProgressWeeks": "{gap} kg to go · goal in about {weeks} weeks",
+  "profileGoalProgressWeeks": "{gap} kg to go · goal in about {weeks, plural, one{1 week} other{{weeks} weeks}}",
   "@profileGoalProgressWeeks": {
     "placeholders": {
       "gap": { "type": "int" },
@@ -586,14 +586,14 @@
     }
   },
   "profileWeightTitle": "Weight",
-  "profileWeightMeasurementsCount": "{count} entries",
+  "profileWeightMeasurementsCount": "{count, plural, one{1 entry} other{{count} entries}}",
   "@profileWeightMeasurementsCount": {
     "placeholders": {
       "count": { "type": "int" }
     }
   },
   "profileWeightHistorySemanticsLabel": "Weight history",
-  "profileWeightHistorySemanticsValue": "{count} entries, most recently {kg} kg",
+  "profileWeightHistorySemanticsValue": "{count, plural, one{1 entry} other{{count} entries}}, most recently {kg} kg",
   "@profileWeightHistorySemanticsValue": {
     "placeholders": {
       "count": { "type": "int" },
@@ -871,7 +871,7 @@
       "max": { "type": "int" }
     }
   },
-  "goalsIntroHint": "We calculate your daily target from body, activity and goal.",
+  "goalsIntroHint": "We calculate your daily goal from body, activity and weight goal.",
   "goalsManualNoChangeHint": "Doesn't change your manual daily target",
   "goalsValidationSummary": "Please correct the fields marked in red — while they're outside the allowed range, saving is disabled.",
   "goalsPageTitle": "Profile & Goals",
@@ -891,7 +891,7 @@
   "goalsManualSemanticLabel": "Set energy & macros manually",
   "goalsAutoNote": "Calculated automatically from your goal. Flip the switch to set kcal and macros by hand.",
   "goalsFieldKcalGoal": "Kcal goal",
-  "goalsGroupDailyTargets": "DAILY TARGETS",
+  "goalsGroupDailyTargets": "Daily goals",
   "goalsFieldSteps": "Steps",
   "goalsUnitPerDay": "/day",
   "goalsFieldWater": "Water",
@@ -969,7 +969,7 @@
   "settingsWeightGoalPickerGroupLabel": "GOAL",
 
   "settingsPlanHeroEyebrowManual": "YOUR DAILY TARGET · MANUAL",
-  "settingsPlanHeroEyebrow": "YOUR DAILY TARGET",
+  "settingsPlanHeroEyebrow": "YOUR DAILY GOAL",
   "settingsPlanHeroMaintenance": "Maintenance {kcal} · {paceLabel}",
   "@settingsPlanHeroMaintenance": {
     "placeholders": {
@@ -1090,7 +1090,7 @@
       "firstName": { "type": "String" }
     }
   },
-  "onboardingWelcomeBody": "In 6 short steps, we'll calculate your personal daily target — tailored to your body and your target weight.",
+  "onboardingWelcomeBody": "In 6 short steps, we'll calculate your personal daily goal — tailored to your body and your target weight.",
   "onboardingBulletFormula": "Scientific Mifflin-St Jeor formula",
   "onboardingBulletAutoMacros": "Calories & macros set automatically",
   "onboardingBulletAdjustable": "Adjustable anytime in settings",
@@ -1139,7 +1139,7 @@
       "weightKg": { "type": "int" }
     }
   },
-  "onboardingTimelineEstimate": "{targetWeightKg} kg achievable in approx. {weeks} weeks.",
+  "onboardingTimelineEstimate": "{targetWeightKg} kg achievable in approx. {weeks, plural, one{1 week} other{{weeks} weeks}}.",
   "@onboardingTimelineEstimate": {
     "placeholders": {
       "targetWeightKg": { "type": "int" },
