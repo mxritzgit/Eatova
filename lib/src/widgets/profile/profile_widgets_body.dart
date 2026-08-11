@@ -20,6 +20,7 @@ class WeightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final entries = log.entries;
     final hatVerlauf = entries.length >= 2;
     final delta = log.trendDelta;
@@ -36,7 +37,7 @@ class WeightCard extends StatelessWidget {
                 children: <Widget>[
                   Expanded(
                     child: Text(
-                      'Gewicht',
+                      l10n.profileWeightTitle,
                       style: AppType.display(
                         17,
                         weight: FontWeight.w700,
@@ -46,7 +47,9 @@ class WeightCard extends StatelessWidget {
                   ),
                   Flexible(
                     child: Text(
-                      hatVerlauf ? '${entries.length} Messungen' : '–',
+                      hatVerlauf
+                          ? l10n.profileWeightMeasurementsCount(entries.length)
+                          : '–',
                       textAlign: TextAlign.right,
                       style: AppType.ui(
                         11.5,
@@ -71,7 +74,7 @@ class WeightCard extends StatelessWidget {
                         textBaseline: TextBaseline.alphabetic,
                         children: <Widget>[
                           Text(
-                            formatKgDe(_current),
+                            formatKgDe(_current, l10n),
                             style: AppType.display(34, color: t.ink),
                           ),
                           const SizedBox(width: 8),
@@ -96,11 +99,13 @@ class WeightCard extends StatelessWidget {
               const SizedBox(height: 12),
               // A11y: Verlaufslinie ist nur gezeichnet -> Spanne als Sprachwert.
               Semantics(
-                label: 'Gewichtsverlauf',
+                label: l10n.profileWeightHistorySemanticsLabel,
                 value: hatVerlauf
-                    ? '${entries.length} Messungen, '
-                        'zuletzt ${formatKgDe(entries.last.weightKg)} kg'
-                    : 'Noch keine Verlaufslinie',
+                    ? l10n.profileWeightHistorySemanticsValue(
+                        entries.length,
+                        formatKgDe(entries.last.weightKg, l10n),
+                      )
+                    : l10n.profileWeightHistoryEmptySemantics,
                 child: hatVerlauf
                     ? RepaintBoundary(
                         child: Sparkline(
@@ -114,8 +119,7 @@ class WeightCard extends StatelessWidget {
                     : Padding(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         child: Text(
-                          'Logge dein Gewicht regelmäßig für eine '
-                          'Verlaufslinie.',
+                          l10n.profileWeightHistoryEmptyHint,
                           style: AppType.ui(12, color: t.ink2, height: 1.4),
                         ),
                       ),
@@ -124,9 +128,9 @@ class WeightCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Row(
                   children: <Widget>[
-                    _Caption(_formatShort(entries.first.timestamp)),
+                    _Caption(_formatShort(entries.first.timestamp, l10n)),
                     const Spacer(),
-                    _Caption(_formatShort(entries.last.timestamp)),
+                    _Caption(_formatShort(entries.last.timestamp, l10n)),
                   ],
                 ),
               ],
@@ -137,7 +141,7 @@ class WeightCard extends StatelessWidget {
         const SizedBox(height: 12),
         PrimaryActionButton(
           key: const ValueKey('profile-log-weight'),
-          label: 'Gewicht loggen',
+          label: l10n.profileLogWeightCta,
           icon: Icons.add_rounded,
           height: 48,
           onTap: () => _promptWeight(context),
@@ -154,6 +158,7 @@ class WeightCard extends StatelessWidget {
   /// einer Division durch Null.
   List<Widget> _buildGoalProgress(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final start = log.entries.isNotEmpty
         ? log.entries.first.weightKg
         : profile.weightKg.toDouble();
@@ -171,7 +176,7 @@ class WeightCard extends StatelessWidget {
       Divider(height: 1, thickness: 1, color: t.line),
       const SizedBox(height: 14),
       Semantics(
-        label: 'Ziel Fortschritt',
+        label: l10n.profileGoalProgressSemanticsLabel,
         value: '$prozent %',
         child: Row(
           children: <Widget>[
@@ -180,7 +185,7 @@ class WeightCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    'Ziel ${formatKgDe(ziel)} kg',
+                    l10n.profileGoalTargetLabel(formatKgDe(ziel, l10n)),
                     style: AppType.ui(
                       11.5,
                       weight: FontWeight.w600,
@@ -237,10 +242,10 @@ class WeightCard extends StatelessWidget {
     if (result != null) onLogWeight(result);
   }
 
-  static String _formatShort(DateTime d) {
+  static String _formatShort(DateTime d, AppLocalizations l10n) {
     final now = DateTime.now();
     if (d.year == now.year && d.month == now.month && d.day == now.day) {
-      return 'heute';
+      return l10n.profileWeightCaptionToday;
     }
     return '${d.day.toString().padLeft(2, '0')}.'
         '${d.month.toString().padLeft(2, '0')}.';
@@ -264,8 +269,9 @@ class BmiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final bmi = _bmi;
-    final bmiLabel = BMIGaugePainter.labelFor(bmi);
+    final bmiLabel = BMIGaugePainter.labelFor(bmi, l10n);
     final bmiColor = BMIGaugePainter.colorFor(t, bmi);
 
     return AppCard(
@@ -276,7 +282,7 @@ class BmiCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  'Körper',
+                  l10n.profileSectionBody,
                   style: AppType.display(
                     17,
                     weight: FontWeight.w700,
@@ -286,7 +292,7 @@ class BmiCard extends StatelessWidget {
               ),
               _InfoButton(
                 onTap: () => _showBmiInfoSheet(context),
-                tooltip: 'BMI-Erklärung',
+                tooltip: l10n.profileBmiInfoTooltip,
               ),
             ],
           ),
@@ -298,10 +304,14 @@ class BmiCard extends StatelessWidget {
               // A11y: Gauge ist reines CustomPaint -> Wert + Zone ansagen.
               child: Semantics(
                 label: 'BMI',
-                value: '${formatBmiDe(bmi)} · $bmiLabel',
+                value: '${formatBmiDe(bmi, l10n)} · $bmiLabel',
                 child: RepaintBoundary(
                   child: CustomPaint(
-                    painter: BMIGaugePainter.fromTokens(t, bmi),
+                    painter: BMIGaugePainter.fromTokens(
+                      t,
+                      bmi,
+                      formatBmiDe(bmi, l10n),
+                    ),
                   ),
                 ),
               ),
@@ -326,7 +336,7 @@ class BmiCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'BMI $bmiLabel',
+                    l10n.profileBmiZoneLabel(bmiLabel),
                     style: AppType.ui(
                       12,
                       weight: FontWeight.w600,
@@ -335,7 +345,7 @@ class BmiCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  formatBmiDe(bmi),
+                  formatBmiDe(bmi, l10n),
                   style: AppType.ui(
                     12,
                     weight: FontWeight.w700,
@@ -358,7 +368,8 @@ class BmiCard extends StatelessWidget {
               ),
               _BodyMetric(
                 icon: Icons.cake_outlined,
-                label: '${profile.ageYears} J. · ${profile.sex.label}',
+                label: '${l10n.profileAgeAbbreviation(profile.ageYears)} · '
+                    '${profile.sex.label(l10n)}',
               ),
             ],
           ),
@@ -425,6 +436,7 @@ class _BmiInfoSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     // Name UND Farbe kommen aus [BMIGaugePainter] — eine zweite, hier
     // abgeschriebene Zuordnung waere genau die Stelle, an der die Legende
     // spaeter still von Skala und Zonen-Chip abweicht. Die Stuetzwerte liegen
@@ -437,7 +449,7 @@ class _BmiInfoSheet extends StatelessWidget {
         (32.0, '≥ 30.0'),
       ])
         (
-          BMIGaugePainter.labelFor(z.$1),
+          BMIGaugePainter.labelFor(z.$1, l10n),
           z.$2,
           BMIGaugePainter.colorFor(t, z.$1),
         ),
@@ -457,14 +469,12 @@ class _BmiInfoSheet extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'BMI Orientierung',
+                  l10n.profileBmiInfoSheetTitle,
                   style: AppType.display(20, color: t.ink),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Body Mass Index ist eine grobe Heuristik. Für Athleten und '
-                  'athletische Körper ist die Tendenz interessanter als der '
-                  'absolute Wert.',
+                  l10n.profileBmiInfoSheetBody,
                   style: AppType.ui(13, color: t.ink2, height: 1.45),
                 ),
                 const SizedBox(height: 16),
@@ -557,6 +567,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
@@ -569,7 +580,8 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           const Center(child: _ProfileSheetGrabber()),
-          Text('Gewicht loggen', style: AppType.display(20, color: t.ink)),
+          Text(l10n.profileLogWeightCta,
+              style: AppType.display(20, color: t.ink)),
           const SizedBox(height: 16),
           // Bewusst ein lokales TextField statt SheetField: der Fokus muss
           // beim Oeffnen im Feld stehen (`autofocus`), und SheetField kennt
@@ -581,15 +593,15 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
             controller: _controller,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Aktuelles Gewicht',
+            decoration: InputDecoration(
+              labelText: l10n.profileWeightInputLabel,
               suffixText: 'kg',
             ),
           ),
           const SizedBox(height: 16),
           PrimaryActionButton(
             key: const ValueKey('profile-weight-save'),
-            label: 'Speichern',
+            label: l10n.commonSave,
             icon: Icons.check_rounded,
             height: 50,
             onTap: () {
@@ -619,14 +631,15 @@ class _DeltaPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final isFlat = delta.abs() < 0.05;
     final icon = isFlat
         ? Icons.remove_rounded
         : (delta > 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded);
     // U+2212 als Minus, wie ueberall sonst in der App (paceLabel).
     final label = isFlat
-        ? 'stabil'
-        : '${delta > 0 ? '+' : '−'}${formatKgDe(delta.abs())} kg';
+        ? l10n.profileStable
+        : '${delta > 0 ? '+' : '−'}${formatKgDe(delta.abs(), l10n)} kg';
     final fg = isFlat ? t.ink2 : t.onLime;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),

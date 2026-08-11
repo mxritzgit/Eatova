@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../services/day_math.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
@@ -32,6 +33,7 @@ class TodayDayStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
 
     // Vorwaerts endet auf dem heutigen Tag: fuer morgen gibt es keine Daten,
     // und ein leerer Zukunftstag saehe aus wie ein Ladefehler. Rechnung ueber
@@ -48,7 +50,7 @@ class TodayDayStrip extends StatelessWidget {
           key: const ValueKey('today-date-prev'),
           icon: Icons.chevron_left_rounded,
           // Umlaut, kein „ue": ein Semantics-Label ist gesprochener Text.
-          semanticLabel: 'Tag zurück',
+          semanticLabel: l10n.todaySemanticsDatePrev,
           onTap: () => springe(-1),
         ),
         const SizedBox(width: 8),
@@ -80,7 +82,7 @@ class TodayDayStrip extends StatelessWidget {
                 const SizedBox(width: 7),
                 Flexible(
                   child: Text(
-                    todayDateLabel(today, selectedDate),
+                    todayDateLabel(today, selectedDate, l10n),
                     key: const ValueKey('today-date-selected-label'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -101,7 +103,7 @@ class TodayDayStrip extends StatelessWidget {
           child: SquareIconButton(
             key: const ValueKey('today-date-next'),
             icon: Icons.chevron_right_rounded,
-            semanticLabel: 'Tag vor',
+            semanticLabel: l10n.todaySemanticsDateNext,
             onTap: vorwaertsGesperrt ? null : () => springe(1),
           ),
         ),

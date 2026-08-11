@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/favorite_meal.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
@@ -23,20 +24,15 @@ import 'meal_suggestion_item.dart';
 import 'slot_selector.dart';
 
 /// Meldung, wenn eine Zeile aus Suche, Favoriten oder Recents ohne
-/// Kalorienangabe geloggt werden soll.
+/// Kalorienangabe geloggt werden soll — `l10n.foodSuggestionWithoutCaloriesMessage`.
 ///
-/// Bewusst **nicht** [kMealWithoutCaloriesMessage] aus dem Analyse-Sheet: der
-/// dortige Wortlaut verweist auf „Anpassen" → Bestandteile eintragen, und
-/// genau diesen Weg gibt es hier nicht. Das aufgeklappte Kaertchen hat nur
-/// einen Portionsregler, und 0 kcal bleiben bei jeder Portion 0. Der einzige
-/// Ausweg ist, den Bestandseintrag zu ersetzen — das steht hier deshalb auch
-/// so drin. Zwei Saetze mit verschiedenem Inhalt sind keine gespiegelte
-/// Konstante; als Konstante steht der Text hier nur, damit Tests denselben
-/// Wortlaut pruefen wie die Oberflaeche.
-const String kSuggestionWithoutCaloriesMessage =
-    'Ohne Kalorienangabe lässt sich nichts loggen. Der Eintrag stammt noch '
-    'aus einer älteren Version — entferne ihn und leg ihn über Suche oder '
-    'Barcode neu an.';
+/// Bewusst **nicht** [kMealWithoutCaloriesMessage] (`foodMealWithoutCaloriesMessage`)
+/// aus dem Analyse-Sheet: der dortige Wortlaut verweist auf „Anpassen" →
+/// Bestandteile eintragen, und genau diesen Weg gibt es hier nicht. Das
+/// aufgeklappte Kaertchen hat nur einen Portionsregler, und 0 kcal bleiben bei
+/// jeder Portion 0. Der einzige Ausweg ist, den Bestandseintrag zu ersetzen —
+/// das steht hier deshalb auch so drin. Zwei eigene ARB-Keys mit
+/// verschiedenem Inhalt statt einer gespiegelten Konstante.
 
 Future<void> showAddMealSheet(
   BuildContext context, {
@@ -303,7 +299,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (query.length < 2) {
       setState(() {
         _productSuggestions = const <ProductSearchResult>[];
-        _productSearchMessage = 'Mindestens 2 Zeichen, z.B. Dr Oetker Salami.';
+        _productSearchMessage = context.l10n.foodSearchMinCharsHint;
       });
       return;
     }
@@ -315,9 +311,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _productSuggestions = cached;
         _isSearchingProducts = false;
-        _productSearchMessage = cached.isEmpty
-            ? 'Keine passenden Produkte gefunden. Versuche Marke + Produktname.'
-            : null;
+        _productSearchMessage =
+            cached.isEmpty ? context.l10n.foodSearchNoResultsHint : null;
       });
       return;
     }
@@ -327,8 +322,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _productSuggestions = const <ProductSearchResult>[];
         _isSearchingProducts = false;
-        _productSearchMessage =
-            'Keine passenden Produkte gefunden. Versuche Marke + Produktname.';
+        _productSearchMessage = context.l10n.foodSearchNoResultsHint;
       });
       return;
     }
@@ -349,9 +343,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _productSuggestions = suggestions;
         _isSearchingProducts = false;
-        _productSearchMessage = suggestions.isEmpty
-            ? 'Keine passenden Produkte gefunden. Versuche Marke + Produktname.'
-            : null;
+        _productSearchMessage =
+            suggestions.isEmpty ? context.l10n.foodSearchNoResultsHint : null;
       });
     } catch (_) {
       if (!mounted) return;
@@ -361,9 +354,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
       }
       setState(() {
         _isSearchingProducts = false;
-        _productSearchMessage = showTransientError
-            ? 'OpenFoodFacts gerade nicht erreichbar.'
-            : null;
+        _productSearchMessage =
+            showTransientError ? context.l10n.foodSearchUnreachableHint : null;
       });
     }
   }
@@ -421,11 +413,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
       selection = await widget.photoInput.pick(source);
     } on PlatformException catch (_) {
       if (!mounted) return;
+      final l10n = context.l10n;
       showAppSnack(
         context,
         source == ImageSource.camera
-            ? 'Kamera konnte nicht geöffnet werden. Prüfe die Berechtigung.'
-            : 'Galerie konnte nicht geöffnet werden. Prüfe die Berechtigung.',
+            ? l10n.foodCameraPermissionError
+            : l10n.foodGalleryPermissionError,
         icon: Icons.error_outline_rounded,
         tone: SnackTone.error,
         duration: kSnackError,
@@ -443,8 +436,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       onUpdateMeal: widget.onUpdateMeal,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
-      failureMessage:
-          'Analyse fehlgeschlagen. Prüfe Internet, Supabase und OpenRouter.',
+      failureMessage: context.l10n.foodAnalysisFailedMessage,
     );
   }
 
@@ -463,8 +455,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       onUpdateMeal: widget.onUpdateMeal,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
-      failureMessage:
-          'Barcode $trimmed nicht gefunden oder OpenFoodFacts nicht erreichbar.',
+      failureMessage: context.l10n.foodBarcodeNotFoundMessage(trimmed),
     );
   }
 
@@ -489,7 +480,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
       showAppSnack(
         context,
-        kSuggestionWithoutCaloriesMessage,
+        context.l10n.foodSuggestionWithoutCaloriesMessage,
         icon: Icons.error_outline_rounded,
         tone: SnackTone.error,
         duration: kSnackError,
@@ -499,9 +490,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
     widget.onAdd(result, _selectedSlot);
     if (mounted) {
+      final l10n = context.l10n;
       showAppSnack(
         context,
-        '${result.caloriesKcal} kcal zu ${_selectedSlot.label} hinzugefügt.',
+        l10n.commonKcalAddedToSlot(
+          result.caloriesKcal,
+          _selectedSlot.label(l10n),
+        ),
         icon: Icons.check_circle_rounded,
       );
     }
@@ -646,7 +641,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionLabel('Suchtreffer'),
+        _SectionLabel(context.l10n.foodSectionSearchResults),
         const SizedBox(height: 8),
         for (var i = 0; i < _productSuggestions.length; i++) ...[
           _suggestionItem(i),
@@ -694,7 +689,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (pinned.isNotEmpty) ...[
-          const _SectionLabel('Favoriten'),
+          _SectionLabel(context.l10n.foodSectionFavorites),
           const SizedBox(height: 8),
           for (var i = 0; i < pinned.length; i++) ...[
             _favoriteItem(pinned[i], i, pinned: true),
@@ -703,7 +698,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
           if (recents.isNotEmpty) const SizedBox(height: 18),
         ],
         if (recents.isNotEmpty) ...[
-          const _SectionLabel('Letzte Mahlzeiten'),
+          _SectionLabel(context.l10n.foodSectionRecentMeals),
           const SizedBox(height: 8),
           for (var i = 0; i < recents.length; i++) ...[
             _favoriteItem(recents[i], i, pinned: false),
@@ -814,7 +809,8 @@ class _SheetHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final title = searchMode ? 'Lebensmittel suchen' : slot.label;
+    final l10n = context.l10n;
+    final title = searchMode ? l10n.foodSearchModeTitle : slot.label(l10n);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 6, 10),
       child: Row(
@@ -823,7 +819,7 @@ class _SheetHeader extends StatelessWidget {
             IconTile(icon: Icons.search_rounded, color: t.accent, size: 36)
           else
             MealAvatar(
-              letter: slot.initial,
+              letter: slot.initial(l10n),
               color: slot.accentIn(context),
               size: 36,
             ),
@@ -845,19 +841,19 @@ class _SheetHeader extends StatelessWidget {
             _HeaderIconButton(
               keyValue: const ValueKey('analyse-camera-button'),
               icon: Icons.photo_camera_rounded,
-              tooltip: 'Foto aufnehmen',
+              tooltip: l10n.foodTakePhotoTooltip,
               onPressed: onCamera,
             ),
             _HeaderIconButton(
               keyValue: const ValueKey('analyse-gallery-button'),
               icon: Icons.photo_library_outlined,
-              tooltip: 'Aus Galerie',
+              tooltip: l10n.foodFromGalleryTooltip,
               onPressed: onGallery,
             ),
             _HeaderIconButton(
               keyValue: const ValueKey('analyse-barcode-button'),
               icon: Icons.qr_code_scanner_rounded,
-              tooltip: 'Barcode scannen',
+              tooltip: l10n.foodScanBarcodeTooltip,
               onPressed: onBarcode,
             ),
             const SizedBox(width: 2),
@@ -865,7 +861,7 @@ class _SheetHeader extends StatelessWidget {
           IconButton(
             key: const ValueKey('add-meal-sheet-close'),
             onPressed: onClose,
-            tooltip: 'Schließen',
+            tooltip: l10n.commonClose,
             icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
@@ -949,7 +945,7 @@ class _SearchBar extends StatelessWidget {
                 textInputAction: TextInputAction.search,
                 style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                 decoration: InputDecoration(
-                  hintText: 'Was hast du gegessen?',
+                  hintText: context.l10n.foodSearchInputHint,
                   hintStyle: AppType.ui(
                     14,
                     weight: FontWeight.w500,
@@ -966,7 +962,7 @@ class _SearchBar extends StatelessWidget {
             ),
             IconButton(
               key: const ValueKey('kcal-product-search-button'),
-              tooltip: 'Suchen',
+              tooltip: context.l10n.foodSearchButtonTooltip,
               onPressed: isSearching ? null : onSearchPressed,
               icon: isSearching
                   ? SizedBox(
@@ -1046,13 +1042,13 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'Suche oben oder scanne einen Barcode',
+            context.l10n.foodEmptyStateTitle,
             textAlign: TextAlign.center,
             style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
           ),
           const SizedBox(height: 4),
           Text(
-            'Eingaben erscheinen direkt in der Liste oben.',
+            context.l10n.foodEmptyStateSubtitle,
             textAlign: TextAlign.center,
             style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
           ),

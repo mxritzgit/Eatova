@@ -10,7 +10,9 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../models/weight_log.dart';
 import '../../services/health_service.dart';

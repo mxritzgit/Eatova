@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
@@ -95,6 +97,16 @@ Future<void> _settle(WidgetTester tester) async {
 Future<void> _pump(WidgetTester tester, _Svc svc) async {
   await tester.pumpWidget(MaterialApp(
     theme: buildEatovaTheme(Brightness.dark),
+    // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
+    // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+    locale: const Locale('de'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: Scaffold(body: CoachChatScreen(service: svc, userName: 'Moritz')),
   ));
   await _settle(tester);

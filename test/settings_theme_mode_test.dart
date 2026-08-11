@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_controls.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -44,6 +46,14 @@ void main() {
 
     final app = MaterialApp(
       theme: buildEatovaTheme(Brightness.light),
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Scaffold(
         body: Builder(
           builder: (context) => Center(

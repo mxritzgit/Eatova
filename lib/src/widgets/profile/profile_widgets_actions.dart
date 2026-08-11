@@ -17,6 +17,7 @@ class HealthConnectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final isGranted = state == HealthAuthState.granted;
     // Review B3: „verbunden, aber es kommen keine Daten". Apple meldet das
     // Berechtigungs-Sheet als Erfolg, sobald es angezeigt wurde — auch wenn der
@@ -33,21 +34,21 @@ class HealthConnectionCard extends StatelessWidget {
             : t.ink2;
     final subtitle = isGranted
         ? lastFetch != null
-            ? 'Synchronisiert · ${_formatTime(lastFetch!)}'
-            : 'Verbunden'
+            ? l10n.profileHealthSyncedAt(_formatTime(lastFetch!, l10n))
+            : l10n.profileHealthConnected
         : isUnverified
-            ? 'Keine Daten — in Einstellungen › Health › Datenzugriff & '
-                'Geräte › Eatova alle Kategorien einschalten'
+            ? l10n.profileHealthUnverifiedHint
             : isDenied
-                ? 'Zugriff entzogen — in Einstellungen › Health › Datenzugriff '
-                    '& Geräte › Eatova wieder freigeben'
+                ? l10n.profileHealthDeniedHint
                 : isUnsupported
-                    ? 'Auf diesem Gerät nicht aktiv'
-                    : 'Apple Health einrichten';
+                    ? l10n.profileHealthUnsupportedHint
+                    : l10n.profileHealthSetupHint;
     // „Prüfen" statt „Verbinden", sobald wir schon einmal gefragt haben: iOS
     // zeigt das Sheet kein zweites Mal, der Tap re-verifiziert stattdessen die
     // Signale — genau das, was nach einem Besuch in den Einstellungen zählt.
-    final actionLabel = needsAttention ? 'Prüfen' : 'Verbinden';
+    final actionLabel = needsAttention
+        ? l10n.profileHealthActionCheck
+        : l10n.profileHealthActionConnect;
 
     return AppCard(
       child: Row(
@@ -89,7 +90,7 @@ class HealthConnectionCard extends StatelessWidget {
             SquareIconButton(
               key: const ValueKey('profile-health-refresh'),
               icon: Icons.sync_rounded,
-              semanticLabel: 'Aktualisieren',
+              semanticLabel: l10n.profileHealthRefreshSemantics,
               onTap: onRefresh,
             )
           else if (!isUnsupported)
@@ -103,12 +104,14 @@ class HealthConnectionCard extends StatelessWidget {
     );
   }
 
-  static String _formatTime(DateTime d) {
+  static String _formatTime(DateTime d, AppLocalizations l10n) {
     final now = DateTime.now();
     final diff = now.difference(d);
-    if (diff.inMinutes < 1) return 'gerade eben';
-    if (diff.inMinutes < 60) return 'vor ${diff.inMinutes} Min';
-    if (diff.inHours < 24) return 'vor ${diff.inHours}h';
+    if (diff.inMinutes < 1) return l10n.profileHealthTimeJustNow;
+    if (diff.inMinutes < 60) {
+      return l10n.profileHealthTimeMinutesAgo(diff.inMinutes);
+    }
+    if (diff.inHours < 24) return l10n.profileHealthTimeHoursAgo(diff.inHours);
     return '${d.day.toString().padLeft(2, '0')}.'
         '${d.month.toString().padLeft(2, '0')}.';
   }

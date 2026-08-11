@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
@@ -336,8 +337,8 @@ class _Header extends StatelessWidget {
                 key: favoriteButtonKey,
                 onPressed: () => onToggleFavorite!(result),
                 tooltip: isFavorite
-                    ? 'Aus Favoriten entfernen'
-                    : 'Als Favorit speichern',
+                    ? context.l10n.foodRemoveFavoriteTooltip
+                    : context.l10n.foodAddFavoriteTooltip,
                 visualDensity: VisualDensity.compact,
                 icon: Icon(
                   isFavorite
@@ -439,7 +440,7 @@ class _Trailing extends StatelessWidget {
       children: [
         IconButton(
           onPressed: onRemove,
-          tooltip: 'Entfernen',
+          tooltip: context.l10n.foodRemoveTooltip,
           visualDensity: VisualDensity.compact,
           icon: Icon(Icons.close_rounded, color: t.ink2, size: 15),
         ),
@@ -490,6 +491,7 @@ class _ExpandedBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
       child: Column(
@@ -500,7 +502,7 @@ class _ExpandedBody extends StatelessWidget {
             children: [
               _StepperButton(
                 icon: Icons.remove_rounded,
-                semanticLabel: 'Menge verringern',
+                semanticLabel: l10n.foodDecreaseAmountSemantics,
                 accent: accent,
                 onTap: () => onBump(-step),
                 onLongPress: () => onBump(-step * 5),
@@ -515,7 +517,7 @@ class _ExpandedBody extends StatelessWidget {
               const SizedBox(width: 10),
               _StepperButton(
                 icon: Icons.add_rounded,
-                semanticLabel: 'Menge erhöhen',
+                semanticLabel: l10n.foodIncreaseAmountSemantics,
                 accent: accent,
                 onTap: () => onBump(step),
                 onLongPress: () => onBump(step * 5),
@@ -525,8 +527,10 @@ class _ExpandedBody extends StatelessWidget {
           if (gramsInvalid) ...[
             const SizedBox(height: 6),
             Text(
-              'Portion zwischen ${PlausibilityLimits.portionGramsMin} und '
-              '${PlausibilityLimits.portionGramsMax} g.',
+              l10n.foodPortionRangeHint(
+                PlausibilityLimits.portionGramsMin,
+                PlausibilityLimits.portionGramsMax,
+              ),
               key: const ValueKey('kcal-suggestion-grams-hint'),
               style: AppType.ui(
                 11,
@@ -568,7 +572,7 @@ class _ExpandedBody extends StatelessWidget {
               onPressed: onAdd,
               icon: const Icon(Icons.add_rounded, size: 18),
               label: Text(
-                'Hinzufügen',
+                l10n.commonAdd,
                 style: AppType.ui(14, weight: FontWeight.w700),
               ),
               style: FilledButton.styleFrom(
@@ -759,7 +763,7 @@ class _LivePreview extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: Text(
-            _macroLine(),
+            _macroLine(context.l10n),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.right,
@@ -774,11 +778,11 @@ class _LivePreview extends StatelessWidget {
     );
   }
 
-  String _macroLine() {
+  String _macroLine(AppLocalizations l10n) {
     final parts = <String>[];
-    if (protein != '-') parts.add('P $protein');
-    if (carbs != '-') parts.add('KH $carbs');
-    if (fat != '-') parts.add('F $fat');
+    if (protein != '-') parts.add(l10n.foodMacroProteinShort(protein));
+    if (carbs != '-') parts.add(l10n.foodMacroCarbsShort(carbs));
+    if (fat != '-') parts.add(l10n.foodMacroFatShort(fat));
     return parts.join(' · ');
   }
 }

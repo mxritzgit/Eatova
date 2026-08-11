@@ -11,16 +11,17 @@ class _RecipesHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return ScreenTitle(
-      title: 'Rezepte',
-      subtitle: 'Clean Meals mit echten Bildern und Tracker-Werten.',
+      title: l10n.navRecipes,
+      subtitle: l10n.recipesSubtitle,
       trailing: onCreate == null
           ? null
           : SquareIconButton(
               key: const ValueKey('recipe-create-button'),
               icon: Icons.add_rounded,
               onTap: onCreate,
-              semanticLabel: 'Eigenes Rezept anlegen',
+              semanticLabel: l10n.recipesCreateSemantics,
             ),
     );
   }
@@ -73,7 +74,7 @@ class _RecipeSearchField extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
           prefixIcon: Icon(Icons.search_rounded, size: 18, color: t.ink2),
           prefixIconConstraints: const BoxConstraints(minWidth: 44),
-          hintText: 'Gericht, Ziel oder Kategorie suchen',
+          hintText: context.l10n.recipesSearchHint,
           hintStyle: AppType.ui(14, color: t.ink2),
           // Der Suchtext bleibt jetzt ueber Scrollen und Tab-Wechsel stehen —
           // dann muss der User ihn auch sichtbar wieder loswerden koennen.
@@ -85,7 +86,7 @@ class _RecipeSearchField extends StatelessWidget {
               return IconButton(
                 key: const ValueKey('recipes-search-clear'),
                 onPressed: onClear,
-                tooltip: 'Suche leeren',
+                tooltip: context.l10n.recipesSearchClearTooltip,
                 padding: EdgeInsets.zero,
                 visualDensity: VisualDensity.compact,
                 constraints: const BoxConstraints(

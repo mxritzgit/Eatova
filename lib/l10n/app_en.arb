@@ -1,5 +1,20 @@
 {
   "@@locale": "en",
+  "commonSlotBreakfast": "Breakfast",
+  "commonSlotLunch": "Lunch",
+  "commonSlotDinner": "Dinner",
+  "commonSlotSnacks": "Snacks",
+  "commonSlotBreakfastShort": "Breakfast",
+  "commonSlotLunchShort": "Lunch",
+  "commonSlotDinnerShort": "Dinner",
+  "commonSlotSnackShort": "Snack",
+  "commonKcalAddedToSlot": "Added {kcal} kcal to {slot}.",
+  "@commonKcalAddedToSlot": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "slot": { "type": "String" }
+    }
+  },
   "settingsLanguageTitle": "Language",
   "settingsLanguageSubtitle": "System follows your device's language.",
   "languageSystem": "System",
@@ -8,5 +23,1137 @@
   "navToday": "Today",
   "navFood": "Food",
   "navRecipes": "Recipes",
-  "navCoach": "Coach"
+  "navCoach": "Coach",
+  "todayGreetingNight": "Good night",
+  "todayGreetingMorning": "Good morning",
+  "todayGreetingDay": "Hello",
+  "todayGreetingEvening": "Good evening",
+  "todayDateToday": "Today",
+  "todayDateYesterday": "Yesterday",
+  "todayDateDaysAgo": "{count} days ago",
+  "@todayDateDaysAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "todayMealSlotEmpty": "Nothing logged yet",
+  "todayCoachTeaserNeutral": "Ask the coach for ideas for your goals.",
+  "todayCoachTeaserEmptyDay": "Log your first meal — I'll build your day around it.",
+  "todayCoachTeaserProteinOpen": "You still need {remainingProteinG} g of protein. Want a suggestion?",
+  "@todayCoachTeaserProteinOpen": {
+    "placeholders": {
+      "remainingProteinG": { "type": "int" }
+    }
+  },
+  "todayCoachTeaserProteinDone": "Your protein goal is met. Want me to look at the rest of your day?",
+  "todayMacrosTitle": "Macros",
+  "todayMacrosTrailing": "Daily goals",
+  "todayMacroProtein": "Protein",
+  "todayMacroCarbs": "Carbs",
+  "todayMacroFat": "Fat",
+  "todayMealsTitleToday": "Today's meals",
+  "todayMealsTitleArchive": "Meals",
+  "todaySemanticsOpenProfile": "Open profile",
+  "todayKcalBudgetEyebrow": "CALORIE BUDGET",
+  "todayKcalGoalLabel": "Goal {goal} kcal",
+  "@todayKcalGoalLabel": {
+    "placeholders": {
+      "goal": { "type": "String" }
+    }
+  },
+  "todayKcalOver": "kcal over",
+  "todayKcalRemaining": "kcal left",
+  "todaySemanticsCalorieProgress": "Calorie progress",
+  "todaySemanticsCalorieProgressValue": "{percent} percent of daily goal eaten",
+  "@todaySemanticsCalorieProgressValue": {
+    "placeholders": {
+      "percent": { "type": "int" }
+    }
+  },
+  "todayStatEaten": "EATEN",
+  "todayStatBurned": "BURNED",
+  "todayStatStreak": "DAY STREAK",
+  "todayMealKcalLabel": "KCAL",
+  "todayCoachEyebrow": "AI COACH",
+  "todayCoachCta": "Go to coach",
+  "todayDayLoading": "Loading day…",
+  "todaySemanticsDatePrev": "Previous day",
+  "todaySemanticsDateNext": "Next day",
+  "foodAnalysisFailedMessage": "Analysis failed. Check your internet connection, Supabase, and OpenRouter.",
+  "foodBarcodeNotFoundMessage": "Barcode {code} not found, or OpenFoodFacts is unreachable.",
+  "@foodBarcodeNotFoundMessage": {
+    "placeholders": {
+      "code": { "type": "String" }
+    }
+  },
+  "foodDiaryEmptyHint": "Tap AI Scan, barcode, or search above.",
+  "foodActionBarcode": "Barcode",
+  "foodActionAiScan": "AI Scan",
+  "foodSearchPlaceholder": "Search food or meals…",
+  "foodSectionHistoryTitle": "History",
+  "foodSemanticsTrends": "Trends",
+  "foodSemanticsSettings": "Settings",
+  "foodTitle": "Nutrition",
+  "foodKcalTodayLabel": "KCAL TODAY",
+  "foodKcalOnDayLabel": "KCAL THAT DAY",
+  "foodDatePickerHelpText": "Choose day",
+  "foodCalendarButtonSemantics": "Choose another day from the calendar",
+  "foodEntryDeleteSemantics": "Delete entry",
+  "foodPortionFallback": "1 portion",
+  "foodEditMealTitle": "Edit meal",
+  "foodDiarySlotSummary": "{kcal} kcal · {count, plural, one{{count} entry} other{{count} entries}}",
+  "@foodDiarySlotSummary": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
+  "foodSlotAddLabel": "Add to {slot}",
+  "@foodSlotAddLabel": {
+    "placeholders": {
+      "slot": { "type": "String" }
+    }
+  },
+  "foodAlreadyAddedEyebrow": "Already added",
+  "foodRemoveTooltip": "Remove",
+  "commonClose": "Close",
+  "commonSave": "Save",
+  "commonCancel": "Cancel",
+  "commonDelete": "Delete",
+  "foodDiscardChangesTitle": "Discard changes?",
+  "foodDiscardChangesBody": "Your changes to this meal haven't been saved yet.",
+  "foodDiscardChangesKeepEditing": "Keep editing",
+  "foodDiscardChangesConfirm": "Discard",
+  "foodAdjustPortionButton": "Adjust portion & ingredients",
+  "foodSectionMeal": "Meal",
+  "foodSectionDay": "Day",
+  "foodDeleteMealButton": "Delete meal",
+  "foodAdjustedLabel": "Adjusted",
+  "foodOtherDateCalendarSemantics": "Choose another date from the calendar",
+  "foodOtherDateLine1": "Other",
+  "foodOtherDateLine2": "date…",
+  "foodSuggestionWithoutCaloriesMessage": "This can't be logged without a calorie value. The entry is from an older version — remove it and add it again via search or barcode.",
+  "foodMealWithoutCaloriesMessage": "This can't be logged without a calorie value. Enter the ingredients via \"Adjust\".",
+  "foodSearchMinCharsHint": "At least 2 characters, e.g. Dr Oetker Salami.",
+  "foodSearchNoResultsHint": "No matching products found. Try a brand plus product name.",
+  "foodSearchUnreachableHint": "OpenFoodFacts is currently unreachable.",
+  "foodCameraPermissionError": "Couldn't open the camera. Check the permission.",
+  "foodGalleryPermissionError": "Couldn't open the gallery. Check the permission.",
+  "foodSectionSearchResults": "Search results",
+  "foodSectionFavorites": "Favorites",
+  "foodSectionRecentMeals": "Recent meals",
+  "foodSearchModeTitle": "Search food",
+  "foodTakePhotoTooltip": "Take photo",
+  "foodFromGalleryTooltip": "From gallery",
+  "foodScanBarcodeTooltip": "Scan barcode",
+  "foodSearchInputHint": "What did you eat?",
+  "foodSearchButtonTooltip": "Search",
+  "foodEmptyStateTitle": "Search above or scan a barcode",
+  "foodEmptyStateSubtitle": "Entries appear directly in the list above.",
+  "foodAnalysisTimeoutMessage": "That's taking too long. Please try again in a moment.",
+  "foodReviewAnalysisSubtitle": "Review analysis",
+  "foodPortionAdjustedUpdated": "Adjusted to {grams} g. Today's total updated.",
+  "@foodPortionAdjustedUpdated": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionAdjusted": "Adjusted to {grams} g.",
+  "@foodPortionAdjusted": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionAdjustedItemsUpdated": "Adjusted to {grams} g via individual items. Today's total updated.",
+  "@foodPortionAdjustedItemsUpdated": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionAdjustedItems": "Adjusted to {grams} g via individual items.",
+  "@foodPortionAdjustedItems": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "commonAdd": "Add",
+  "commonMealDeleted": "Meal deleted",
+  "commonUndo": "Undo",
+  "commonHealthWeightOfferMessage": "Apple Health: {kg} kg — apply?",
+  "@commonHealthWeightOfferMessage": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
+  "commonHealthWeightOfferAction": "Apply",
+  "foodRemoveFavoriteTooltip": "Remove from favorites",
+  "foodAddFavoriteTooltip": "Save as favorite",
+  "foodDecreaseAmountSemantics": "Decrease amount",
+  "foodIncreaseAmountSemantics": "Increase amount",
+  "foodPortionRangeHint": "Portion between {min} and {max} g.",
+  "@foodPortionRangeHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "foodMacroProteinShort": "P {value}",
+  "@foodMacroProteinShort": {
+    "placeholders": {
+      "value": { "type": "String" }
+    }
+  },
+  "foodMacroCarbsShort": "C {value}",
+  "@foodMacroCarbsShort": {
+    "placeholders": {
+      "value": { "type": "String" }
+    }
+  },
+  "foodMacroFatShort": "F {value}",
+  "@foodMacroFatShort": {
+    "placeholders": {
+      "value": { "type": "String" }
+    }
+  },
+  "foodDetailsTooltip": "Details",
+  "foodIngredientsCountLabel": "INGREDIENTS · {count}",
+  "@foodIngredientsCountLabel": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodMacroTileCarbsLabel": "Carbs",
+  "foodInfoBrandLabel": "Brand",
+  "foodInfoBarcodeLabel": "Barcode",
+  "foodInfoSourceLabel": "Source",
+  "foodInfoConfidenceLabel": "Confidence",
+  "foodEstimateDisclaimer": "Estimates are approximations. Ingredients, oil, and portion size can vary.",
+  "foodAddedToDailyLabel": "Added to today",
+  "foodPortionItemized": "{count, plural, one{{count} ingredient} other{{count} ingredients}} · {grams} g",
+  "@foodPortionItemized": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionItemizedAdjusted": "Adjusted to {grams} g via individual items",
+  "@foodPortionItemizedAdjusted": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionManuallyAdjusted": "Adjusted to {grams} g manually",
+  "@foodPortionManuallyAdjusted": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodPortionLabelPrefixed": "Portion: {label}",
+  "@foodPortionLabelPrefixed": {
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "foodPhotoCardTitle": "Photo",
+  "foodPhotoCardPreviewAction": "Preview",
+  "foodNoImageSelected": "No image selected yet",
+  "foodLoadingStageDetect": "Detecting food...",
+  "foodLoadingStageEstimate": "Estimating amounts...",
+  "foodLoadingStageCalculate": "Calculating calories...",
+  "foodLoadingStageFinal": "Final touches...",
+  "foodLoadingAlmostDone": "Almost done...",
+  "foodLoadingStepOf": "Step {step} of {total}",
+  "@foodLoadingStepOf": {
+    "placeholders": {
+      "step": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "foodDiscardItemsBody": "Your adjustments to the ingredients haven't been applied yet.",
+  "foodDiscardNewItemBody": "The new ingredient hasn't been added yet.",
+  "foodItemsRemovedCount": "{count} removed",
+  "@foodItemsRemovedCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodItemsAddedCount": "{count} added manually",
+  "@foodItemsAddedCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodAdjustItemsHint": "Adjust the weight per food item, or remove it with X.",
+  "foodAdjustItemsTitle": "Adjust ingredients",
+  "foodAddItemTitle": "Add ingredient",
+  "foodAdjustedTotalApprox": "{grams} g ≈ {kcal} kcal",
+  "@foodAdjustedTotalApprox": {
+    "placeholders": {
+      "grams": { "type": "int" },
+      "kcal": { "type": "int" }
+    }
+  },
+  "foodItemsCountLabel": "{count, plural, one{1 item} other{{count} items}}",
+  "@foodItemsCountLabel": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodAtLeastOneItemRequired": "At least one ingredient must remain.",
+  "foodApplyButton": "Apply",
+  "foodDecreaseItemSemantics": "Less {name}",
+  "@foodDecreaseItemSemantics": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "foodIncreaseItemSemantics": "More {name}",
+  "@foodIncreaseItemSemantics": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "foodOriginallyLabel": "Originally {grams} · {calories}",
+  "@foodOriginallyLabel": {
+    "placeholders": {
+      "grams": { "type": "String" },
+      "calories": { "type": "String" }
+    }
+  },
+  "foodUndoRemoveButton": "Undo",
+  "foodMacroHintIncomplete": "Without all three values, protein, carbs, and fat will show as \"–\" for the whole meal.",
+  "foodMacroHintOthersIncomplete": "Other ingredients don't carry macros — the meal will still show protein, carbs, and fat as \"–\".",
+  "foodMacroHintComplete": "Protein, carbs, and fat will be summed exactly for the meal.",
+  "foodAddItemManualHint": "Manual — for anything the AI missed.",
+  "foodAddItemNameLabel": "Name",
+  "foodAddItemNameHint": "e.g. Tomato",
+  "foodAddItemWeightLabel": "Weight",
+  "foodAddItemCaloriesLabel": "Calories",
+  "foodAddItemMacrosToggle": "Add macros (optional)",
+  "foodMacroRangeHint": "Macros in grams, each between 0 and 1000.",
+  "foodBarcodeHintText": "Hold the barcode inside the frame",
+  "foodCameraUnavailableMessage": "Camera unavailable. Check the camera permission in Settings.",
+  "foodDetectionStalledTitle": "Detection is stuck",
+  "foodDetectionStalledBody": "The picture is running, but no results are coming through. Restarting the scanner usually fixes this.",
+  "foodRestartScannerButton": "Restart scanner",
+  "foodPhotoCaptureFailedMessage": "Couldn't take the photo. Please try again.",
+  "foodImageLoadFailedMessage": "Couldn't load the image.",
+  "foodCameraUnavailableGalleryMessage": "Camera unavailable. Check the permission or choose a photo from the gallery.",
+  "foodScanMealTitle": "Scan meal",
+  "recipesSubtitle": "Clean meals with real photos and tracked macros.",
+  "recipesCreateSemantics": "Create your own recipe",
+  "recipesSearchHint": "Search dish, goal, or category",
+  "recipesSearchClearTooltip": "Clear search",
+  "recipesRecommendedTitle": "Recommendations",
+  "recipesFitnessDishesCount": "{count} fitness dishes",
+  "@recipesFitnessDishesCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "recipesAllTitle": "All recipes",
+  "recipesResultsCount": "{count, plural, one{1 match} other{{count} matches}}",
+  "@recipesResultsCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "recipesGoalMatchTitle": "Fits your goal",
+  "recipesGoalMatchTrailing": "by remaining macros",
+  "recipesGoalMatchBadge": "Match",
+  "recipesDeletedSuccess": "\"{title}\" deleted",
+  "@recipesDeletedSuccess": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "recipesSavedSuccess": "\"{title}\" saved",
+  "@recipesSavedSuccess": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "recipesRecommendedBadge": "RECOMMENDED",
+  "recipesEmptyStateMessage": "No recipe found. Try a different category or search term.",
+  "recipesImagePlaceholderLabel": "RECIPE",
+  "recipesMetricProtein": "{grams}g P",
+  "@recipesMetricProtein": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesMetricCarbs": "{grams}g C",
+  "@recipesMetricCarbs": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesMetricFat": "{grams}g F",
+  "@recipesMetricFat": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "recipesOwnTitle": "Your recipe",
+  "recipesBrandTitle": "Eatova recipe",
+  "recipesDeleteSemantics": "Delete recipe",
+  "recipesAddToTrackerTitle": "Add to tracker",
+  "recipesKcalProteinSummary": "{kcal} kcal · {protein} g protein",
+  "@recipesKcalProteinSummary": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "protein": { "type": "int" }
+    }
+  },
+  "recipesAddToTrackerHint": "Then choose breakfast, lunch, dinner, or snack.",
+  "recipesNutritionKcalLabel": "Kcal",
+  "recipesNutritionCarbsLabel": "C",
+  "recipesSectionPortion": "Portion",
+  "recipesSectionIngredients": "Ingredients",
+  "recipesSectionPreparation": "Preparation",
+  "recipesSectionProHint": "Pro tip",
+  "recipesWhenToLogTitle": "When did you eat this?",
+  "recipesDiscardChangesBody": "Your recipe hasn't been saved yet.",
+  "recipesPhotoUnreadableError": "Couldn't read the photo.",
+  "recipesPhotoLoadFailedError": "Couldn't load the photo.",
+  "recipesRangeErrorKcal": "{min}–{max} kcal",
+  "@recipesRangeErrorKcal": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "recipesRangeErrorGrams": "{min}–{max} g",
+  "@recipesRangeErrorGrams": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "recipesPhotoSaveFailedError": "Couldn't save the photo.",
+  "recipesNoDataProvided": "Not specified",
+  "recipesNoPreparationYet": "Your own recipe — no preparation steps added.",
+  "recipesSelfCreatedHint": "Self-added. Values are based on what you entered.",
+  "recipesNameAndCaloriesSuffice": "Name and calories are enough.",
+  "recipesGroupWhatIsIt": "What is it",
+  "recipesNameHint": "e.g. Protein Bowl",
+  "recipesPortionHint": "1 plate",
+  "recipesGroupNutrition": "Nutrition",
+  "recipesPerPortion": "per portion",
+  "recipesOptionalLabel": "optional",
+  "recipesIngredientsHint": "One ingredient per line",
+  "recipesSaveButtonLabel": "Save recipe",
+  "recipesPhotoPlaceholderLabel": "PHOTO",
+  "recipesYourPhoto": "Your photo",
+  "recipesPhotoOfDish": "Photo of the dish",
+  "recipesPhotoPreparing": "Preparing photo…",
+  "recipesPhotoStaysOnDevice": "Stays on this device.",
+  "recipesPhotoNoLocationData": "No location data.",
+  "recipesCameraAction": "Camera",
+  "recipesGalleryAction": "Gallery",
+  "coachTitle": "AI Coach",
+  "coachStatusLine": "Sees today's log",
+  "coachInfoSemanticLabel": "Info about the AI coach",
+  "coachSessionsSemanticLabel": "Conversations",
+  "coachStreakUnit": "{count, plural, one{day} other{days}}",
+  "@coachStreakUnit": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachHeroSubtitle": "How can I help you?",
+  "coachFallbackName": "Champion",
+  "coachAiNoteBody": "An AI answers here. The tips are an AI estimate, not medical advice.",
+  "coachAiNoteCta": "Which data is sent",
+  "coachSuggestionMeal": "What should I eat for the rest of today?",
+  "coachSuggestionProtein": "How do I hit my remaining protein?",
+  "coachSuggestionSleep": "When should I go to sleep tonight?",
+  "coachAttachSemanticLabel": "Attach photo",
+  "coachComposerHintLimitReached": "Limit reached for today",
+  "coachComposerHintListening": "Listening…",
+  "coachComposerHintDefault": "Ask the AI coach…",
+  "coachQuotaHint": "{count, plural, one{1 question left today} other{{count} questions left today}}",
+  "@coachQuotaHint": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachMicLabelListening": "Stop voice input",
+  "coachMicLabelIdle": "Voice input",
+  "coachSendLabel": "Send",
+  "coachAttachCamera": "Take photo",
+  "coachAttachGallery": "From gallery",
+  "coachInfoIntro": "An AI answers here, not a real person. The answers are an estimate and don't replace medical advice.",
+  "coachInfoDataLabel": "Every question also sends",
+  "coachInfoBulletWeight": "Your weight and your target weight",
+  "coachInfoBulletMacros": "Today's calories and your remaining macros",
+  "coachInfoBulletMeals": "The names of the meals you've logged today",
+  "coachInfoProvider": "This goes together with your question to our AI provider (OpenRouter, model Grok by xAI) on servers in the USA — only to generate the answer. More on this is in the privacy policy.",
+  "coachInfoLimitLabel": "Coach limit",
+  "coachInfoLimitBody": "{remaining} of {dailyLimit} questions left today. Resets at midnight (UTC).",
+  "@coachInfoLimitBody": {
+    "placeholders": {
+      "remaining": { "type": "int" },
+      "dailyLimit": { "type": "int" }
+    }
+  },
+  "coachRefusalLabel": "Note",
+  "coachSessionsTitle": "Coach sessions",
+  "coachSessionsNewLabel": "New",
+  "coachSessionsEmpty": "No conversations yet. Ask your coach the first question.",
+  "coachSessionDeleteTitle": "Delete session?",
+  "coachSessionDeleteBody": "\"{title}\" and all messages in it will be removed.",
+  "@coachSessionDeleteBody": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "coachTimeJustNow": "just now",
+  "coachTimeMinutesAgo": "{count} min ago",
+  "@coachTimeMinutesAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachTimeHoursAgo": "{count}h ago",
+  "@coachTimeHoursAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachTimeDaysAgo": "{count, plural, one{1 day ago} other{{count} days ago}}",
+  "@coachTimeDaysAgo": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "coachSpeechPermissionDenied": "Microphone or speech recognition access was denied. You can re-enable the permission in iOS Settings.",
+  "coachSpeechUnavailable": "Speech recognition is not available on this device right now.",
+  "coachSpeechFailed": "Speech recognition failed.",
+  "coachErrorNotLoggedIn": "Please log in first to use the coach.",
+  "coachErrorNoSession": "Could not load a coach session.",
+  "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
+  "coachErrorDeleteFailed": "The conversation could not be deleted. Check your connection and try again.",
+  "coachImageDefaultCaption": "Analyze this image in a fitness context.",
+  "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More tomorrow.",
+  "@coachErrorDailyLimitReached": {
+    "placeholders": {
+      "limit": { "type": "int" }
+    }
+  },
+  "coachErrorImageTooLarge": "The image is too large for the coach. Please send a smaller one.",
+  "coachErrorImageLoadFailed": "The image could not be loaded.",
+  "coachErrorImageOpenFailed": "The image could not be opened.",
+  "coachCameraAccessNoun": "Camera access",
+  "coachPhotoAccessNoun": "Photo access",
+  "coachPermissionDenied": "{access} was denied. You can re-enable the permission in iOS Settings.",
+  "@coachPermissionDenied": {
+    "placeholders": {
+      "access": { "type": "String" }
+    }
+  },
+  "coachErrorSpeechEmpty": "I didn't understand that. Try again.",
+  "profileTitle": "My Profile",
+  "profileLabelStreak": "STREAK",
+  "profileLabelMeals": "MEALS",
+  "profileUnitTotal": "total",
+  "profileLabelRecord": "RECORD",
+  "profileLabelWeighIns": "WEIGH-INS",
+  "profileUnitEntries": "entries",
+  "profileSectionPlan": "Your Plan",
+  "profileSectionBody": "Body",
+  "profileSectionDailyGoals": "Daily Goals",
+  "profileSectionConnections": "Connections",
+  "profileGoalPlanTitle": "My Goal",
+  "profileGoalPlanEditTooltip": "Adjust goal",
+  "profileWeightPoleCurrent": "Current",
+  "profileWeightPoleHold": "Hold",
+  "profileWeightPoleTarget": "Target",
+  "profilePlanChipPace": "Pace",
+  "profileStable": "stable",
+  "profilePlanChipDailyGoal": "Daily goal",
+  "profileGoalProgressWeeks": "{gap} kg to go · goal in about {weeks, plural, one{1 week} other{{weeks} weeks}}",
+  "@profileGoalProgressWeeks": {
+    "placeholders": {
+      "gap": { "type": "int" },
+      "weeks": { "type": "int" }
+    }
+  },
+  "profileGoalProgressNoWeeks": "{gap} kg to go until your target weight",
+  "@profileGoalProgressNoWeeks": {
+    "placeholders": {
+      "gap": { "type": "int" }
+    }
+  },
+  "profileWeightTitle": "Weight",
+  "profileWeightMeasurementsCount": "{count, plural, one{1 entry} other{{count} entries}}",
+  "@profileWeightMeasurementsCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "profileWeightHistorySemanticsLabel": "Weight history",
+  "profileWeightHistorySemanticsValue": "{count, plural, one{1 entry} other{{count} entries}}, most recently {kg} kg",
+  "@profileWeightHistorySemanticsValue": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "kg": { "type": "String" }
+    }
+  },
+  "profileWeightHistoryEmptySemantics": "No history yet",
+  "profileWeightHistoryEmptyHint": "Log your weight regularly to build a history line.",
+  "profileLogWeightCta": "Log weight",
+  "profileGoalProgressSemanticsLabel": "Goal progress",
+  "profileGoalTargetLabel": "Goal {kg} kg",
+  "@profileGoalTargetLabel": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
+  "profileWeightCaptionToday": "today",
+  "profileBmiInfoTooltip": "About BMI",
+  "profileBmiZoneLabel": "BMI {zone}",
+  "@profileBmiZoneLabel": {
+    "placeholders": {
+      "zone": { "type": "String" }
+    }
+  },
+  "profileAgeAbbreviation": "{age} yrs",
+  "@profileAgeAbbreviation": {
+    "placeholders": {
+      "age": { "type": "int" }
+    }
+  },
+  "profileBmiInfoSheetTitle": "BMI guide",
+  "profileBmiInfoSheetBody": "Body Mass Index is a rough heuristic. For athletes and athletic builds, the trend matters more than the absolute value.",
+  "profileWeightInputLabel": "Current weight",
+  "profileGoalsCalories": "Calories",
+  "profileGoalsSteps": "Steps",
+  "profileGoalsEditCta": "Adjust goals",
+  "profileMacroSplitTitle": "Macro split",
+  "profileMacroAmountLabel": "{g} g {macro}",
+  "@profileMacroAmountLabel": {
+    "placeholders": {
+      "g": { "type": "int" },
+      "macro": { "type": "String" }
+    }
+  },
+  "profileHealthSyncedAt": "Synced · {time}",
+  "@profileHealthSyncedAt": {
+    "placeholders": {
+      "time": { "type": "String" }
+    }
+  },
+  "profileHealthConnected": "Connected",
+  "profileHealthUnverifiedHint": "No data — in Settings › Health › Data Access & Devices › Eatova, turn on all categories",
+  "profileHealthDeniedHint": "Access revoked — in Settings › Health › Data Access & Devices › Eatova, allow access again",
+  "profileHealthUnsupportedHint": "Not available on this device",
+  "profileHealthSetupHint": "Set up Apple Health",
+  "profileHealthActionCheck": "Check",
+  "profileHealthActionConnect": "Connect",
+  "profileHealthRefreshSemantics": "Refresh",
+  "profileHealthTimeJustNow": "just now",
+  "profileHealthTimeMinutesAgo": "{minutes} min ago",
+  "@profileHealthTimeMinutesAgo": {
+    "placeholders": {
+      "minutes": { "type": "int" }
+    }
+  },
+  "profileHealthTimeHoursAgo": "{hours}h ago",
+  "@profileHealthTimeHoursAgo": {
+    "placeholders": {
+      "hours": { "type": "int" }
+    }
+  },
+  "profileBmiZoneUnder": "Underweight",
+  "profileBmiZoneNormal": "Normal",
+  "profileBmiZoneOver": "Overweight",
+  "profileBmiZoneObese": "Obese",
+  "trendsTitle": "Trends",
+  "trendsStatAvgKcalLabel": "AVG CALORIES",
+  "trendsNoCompletedDay": "no completed day yet",
+  "trendsStatAvgKcalSub": "per tracked day",
+  "trendsStatGoalRateLabel": "GOAL HIT RATE",
+  "trendsStatGoalRateSub": "{hit} of {tracked, plural, one{1 day} other{{tracked} days}} (±10 %)",
+  "@trendsStatGoalRateSub": {
+    "placeholders": {
+      "hit": { "type": "int" },
+      "tracked": { "type": "int" }
+    }
+  },
+  "trendsMetricsNote": "Metrics only count completed days. Today is still running and only appears in the chart above.",
+  "trendsRangeDaysLabel": "{days} days",
+  "@trendsRangeDaysLabel": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "trendsRangeSemanticsLabel": "Range {days} days",
+  "@trendsRangeSemanticsLabel": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "trendsChartTitle": "Calories per day",
+  "trendsChartSemanticsEmpty": "No entries in this range",
+  "trendsChartSemanticsNoAvg": "{tracked} of {range} days with entries, no completed day yet for the average, daily goal {goal} kilocalories",
+  "@trendsChartSemanticsNoAvg": {
+    "placeholders": {
+      "tracked": { "type": "int" },
+      "range": { "type": "int" },
+      "goal": { "type": "int" }
+    }
+  },
+  "trendsChartSemanticsWithAvg": "{tracked} of {range} days with entries, averaging {avg} kilocalories per completed day, daily goal {goal} kilocalories",
+  "@trendsChartSemanticsWithAvg": {
+    "placeholders": {
+      "tracked": { "type": "int" },
+      "range": { "type": "int" },
+      "avg": { "type": "int" },
+      "goal": { "type": "int" }
+    }
+  },
+  "trendsChartSemanticsLabel": "Calorie trend",
+  "trendsMacroAvgTitle": "AVG MACROS PER DAY",
+  "trendsEmptyTitle": "Not enough data yet",
+  "trendsEmptyBody": "Log your meals on at least two days\nto see your trend here.",
+  "trendsErrorTitle": "Trends could not be loaded",
+  "trendsErrorBody": "Check your internet connection and try again.",
+  "trendsRetryCta": "Try again",
+  "trendsChartGoalLabel": "Goal {goal}",
+  "@trendsChartGoalLabel": {
+    "placeholders": {
+      "goal": { "type": "String" }
+    }
+  },
+  "trendsChartEmptyHintPainter": "No entries in this range.",
+
+  "commonSexLabelMale": "male",
+  "commonSexLabelFemale": "female",
+  "commonSexLabelNeutral": "neutral",
+  "commonActivityLabelSedentary": "Barely active",
+  "commonActivityLabelLight": "Lightly active",
+  "commonActivityLabelModerate": "Moderately active",
+  "commonActivityLabelActive": "Very active",
+  "commonActivityLabelAthlete": "Extremely active",
+  "commonActivityDescSedentary": "Desk job, little movement",
+  "commonActivityDescLight": "Light exercise, 1–2× sport/week",
+  "commonActivityDescModerate": "Active daily life, 3–5× sport/week",
+  "commonActivityDescActive": "Active every day, 6–7× sport/week",
+  "commonActivityDescAthlete": "Physical work + daily training",
+  "commonWeightGoalLabelMaintain": "Maintain weight",
+  "commonWeightGoalLabelGain": "Gain weight",
+  "commonWeightGoalLabelLose": "Lose weight",
+  "commonDietLabelNone": "Everything",
+  "commonDietLabelVegetarian": "Vegetarian",
+  "commonDietLabelVegan": "Vegan",
+  "commonDietLabelPescetarian": "Pescetarian",
+  "commonDietDescNone": "No restriction",
+  "commonDietDescVegetarian": "No meat, no fish",
+  "commonDietDescVegan": "Fully plant-based",
+  "commonDietDescPescetarian": "Vegetarian plus fish",
+  "commonKcalUnit": "kcal",
+  "commonUnitCm": "cm",
+  "commonUnitKg": "kg",
+  "commonUnitG": "g",
+  "commonUnitMl": "ml",
+  "commonKcalOutcomeLabel": "Results in {kcal} kcal/day · {paceLabel}",
+  "@commonKcalOutcomeLabel": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "paceLabel": { "type": "String" }
+    }
+  },
+  "commonPaceStable": "Weight stable",
+  "commonPaceRateLabel": "{rate} kg/week",
+  "@commonPaceRateLabel": {
+    "placeholders": {
+      "rate": { "type": "String" }
+    }
+  },
+  "commonPaceWarningFloor": "For safety, your daily goal is {floor} kcal instead of {uncapped} kcal. Your actual pace is {effectivePace} instead of {promisedPace}.",
+  "@commonPaceWarningFloor": {
+    "placeholders": {
+      "floor": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningCeiling": "Your daily goal is capped at {ceiling} kcal (the calculation would give {uncapped} kcal). Your actual pace is {effectivePace} instead of {promisedPace}.",
+  "@commonPaceWarningCeiling": {
+    "placeholders": {
+      "ceiling": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningMismatch": "Your actual pace is {effectivePace} instead of {promisedPace}.",
+  "@commonPaceWarningMismatch": {
+    "placeholders": {
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonGenericRetryError": "That didn't work just now. Please try again later.",
+  "commonDeliverySuccess": "{erfolg}.",
+  "@commonDeliverySuccess": {
+    "placeholders": {
+      "erfolg": { "type": "String" }
+    }
+  },
+  "commonDeliveryQueuedOffline": "{erfolg} — will sync once you're back online.",
+  "@commonDeliveryQueuedOffline": {
+    "placeholders": {
+      "erfolg": { "type": "String" }
+    }
+  },
+  "commonDeliveryQueuedRetry": "{erfolg} — the transfer will be retried automatically.",
+  "@commonDeliveryQueuedRetry": {
+    "placeholders": {
+      "erfolg": { "type": "String" }
+    }
+  },
+  "commonQueuedOfflineHint": "Offline — will sync once you're back online.",
+  "commonQueuedRetryGenericHint": "Change couldn't be saved — it will be retried automatically.",
+  "commonSyncErrorOffline": "Offline — that didn't work just now. Please try again with an internet connection.",
+  "commonOutboxLossHint": "Some changes couldn't be saved and were discarded.",
+  "commonOutboxDeleteLossHint": "A deletion couldn't be saved — the entry is back. Please delete it again.",
+
+  "settingsFieldRequired": "Please fill in",
+  "settingsRangeErrorKg": "{min}–{max} kg (whole number)",
+  "@settingsRangeErrorKg": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorCm": "{min}–{max} cm",
+  "@settingsRangeErrorCm": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorYears": "{min}–{max} years",
+  "@settingsRangeErrorYears": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorSteps": "{min}–{max}",
+  "@settingsRangeErrorSteps": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorMl": "{min}–{max} ml",
+  "@settingsRangeErrorMl": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorKcal": "{min}–{max} kcal",
+  "@settingsRangeErrorKcal": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "settingsRangeErrorGrams": "{min}–{max} g",
+  "@settingsRangeErrorGrams": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "goalsIntroHint": "We calculate your daily goal from body, activity and weight goal.",
+  "goalsManualNoChangeHint": "Doesn't change your manual daily target",
+  "goalsValidationSummary": "Please correct the fields marked in red — while they're outside the allowed range, saving is disabled.",
+  "goalsPageTitle": "Profile & Goals",
+  "goalsGroupBody": "BODY",
+  "goalsFieldWeight": "Weight",
+  "goalsFieldHeight": "Height",
+  "goalsFieldAge": "Age",
+  "goalsUnitAgeAbbrev": "yr",
+  "goalsFieldSex": "Sex",
+  "goalsGroupActivityGoal": "ACTIVITY & GOAL",
+  "goalsFieldActivity": "Activity level",
+  "goalsFieldActivitySubtitle": "Determines your calorie needs.",
+  "goalsFieldTargetWeight": "Target weight",
+  "goalsFieldWeightGoal": "Weight goal",
+  "goalsGroupEnergyMacros": "ENERGY & MACROS",
+  "goalsFieldManual": "Manual",
+  "goalsManualSemanticLabel": "Set energy & macros manually",
+  "goalsAutoNote": "Calculated automatically from your goal. Flip the switch to set kcal and macros by hand.",
+  "goalsFieldKcalGoal": "Kcal goal",
+  "goalsGroupDailyTargets": "Daily goals",
+  "goalsFieldSteps": "Steps",
+  "goalsUnitPerDay": "/day",
+  "goalsFieldWater": "Water",
+  "goalsFieldSleep": "Sleep goal",
+  "goalsSleepGoalValue": "{hours}h {minutes}m",
+  "@goalsSleepGoalValue": {
+    "placeholders": {
+      "hours": { "type": "int" },
+      "minutes": { "type": "String" }
+    }
+  },
+  "goalsDailyTargetsNote": "For tracking only – doesn't change your calories.",
+  "goalsGroupReminders": "REMINDERS",
+  "goalsFieldReminders": "Reminders",
+  "goalsRemindersSubtitle": "Daily streak reminder in the evening — local, no server.",
+  "goalsReminderBlockedSemantics": "Local reminders — blocked by the system",
+  "goalsReminderActiveSemantics": "Enable local reminders",
+  "goalsReminderTextOff": "Off. Flip the switch to enable local reminders.",
+  "goalsReminderTextActive": "Active. Every evening at 8 pm, if you haven't logged anything yet.",
+  "goalsReminderTextBlocked": "Blocked by the system. Eatova isn't allowed to send notifications — enable them in system settings.",
+  "goalsOpenSystemSettings": "Open system settings",
+  "goalsDiscardChangesBody": "Your entries in \"Profile & Goals\" haven't been saved yet.",
+
+  "settingsPageTitle": "Settings",
+  "settingsGroupAccount": "ACCOUNT",
+  "settingsEmailLabel": "Email address",
+  "settingsChangePasswordTitle": "Change password",
+  "settingsChangePasswordSubtitle": "With a confirmation code to your email",
+  "settingsChangeEmailTitle": "Change email address",
+  "settingsChangeEmailSubtitle": "Confirmation to the old and the new address",
+  "settingsPasswordChangedSnack": "Password changed.",
+  "settingsEmailChangedSnack": "Email address changed.",
+  "settingsGroupPreferences": "PREFERENCES",
+  "settingsOpenGoalsSubtitle": "Body data, activity, calorie and macro goals",
+  "settingsAppearanceTitle": "Appearance",
+  "settingsAppearanceSubtitle": "System follows your device's setting.",
+  "settingsThemeModeLight": "Light",
+  "settingsThemeModeDark": "Dark",
+  "settingsGroupDataPrivacy": "DATA & PRIVACY",
+  "settingsExportDataTitle": "Export data",
+  "settingsExportDataSubtitle": "Full copy as JSON (Art. 15 GDPR)",
+  "settingsLegalPrivacy": "Privacy",
+  "settingsLegalTerms": "Terms",
+  "settingsLegalImprint": "Imprint",
+  "settingsAboutTitle": "About Eatova",
+  "settingsAboutSubtitle": "Version, sources & privacy",
+  "settingsGroupDangerZone": "DANGER ZONE",
+  "settingsSignOutTitle": "Sign out",
+  "settingsDeleteAccountTitle": "Delete account",
+  "settingsDeleteAccountBlockSubtitle": "Removes all entries permanently",
+  "settingsDeleteAccountPromptPrefix": "You'll be asked to type ",
+  "settingsDeleteConfirmWord": "DELETE",
+  "settingsDeleteAccountPromptSuffix": ". After that your account and all data are gone immediately and irreversibly.",
+  "settingsAboutAppName": "Eatova",
+  "settingsAboutTagline": "Nutrition. Tracking. Coach.",
+  "settingsAboutDescription": "Track calories and macros without friction — via AI photo scan, barcode and product search, with a personal nutrition coach.",
+  "settingsAboutVersionLabel": "Version",
+  "settingsAboutBuildLabel": "Build",
+  "settingsAboutSourcesLabel": "Sources",
+  "settingsAboutSourcesDefault": "OpenFoodFacts · Our own search index",
+  "settingsAboutSourcesWithAppleHealth": "OpenFoodFacts · Our own search index · Apple Health",
+  "settingsPrivacyPolicyLinkLabel": "Privacy policy",
+  "settingsDeleteAccountSheetSubtitle": "This removes your profile, all meals, your weight history and your coach history. It cannot be undone.",
+  "settingsDeleteAccountActionLabel": "Delete account permanently",
+  "settingsDeleteAccountFieldLabel": "Type {word} to confirm",
+  "@settingsDeleteAccountFieldLabel": {
+    "placeholders": {
+      "word": { "type": "String" }
+    }
+  },
+
+  "settingsSexPickerGroupLabel": "AFFECTS YOUR BASAL METABOLIC RATE",
+  "settingsActivityPickerGroupLabel": "DAILY LIFE WITHOUT COUNTED TRAINING",
+  "settingsWeightGoalPickerTitle": "Weight goal & pace",
+  "settingsWeightGoalPickerGroupLabel": "GOAL",
+
+  "settingsPlanHeroEyebrowManual": "YOUR DAILY GOAL · MANUAL",
+  "settingsPlanHeroEyebrow": "YOUR DAILY GOAL",
+  "settingsPlanHeroMaintenance": "Maintenance {kcal} · {paceLabel}",
+  "@settingsPlanHeroMaintenance": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "paceLabel": { "type": "String" }
+    }
+  },
+
+  "settingsAccountEmailInvalid": "Please enter a valid email address.",
+  "settingsAccountEmailUnchanged": "That's already your address — there's nothing to change here.",
+  "settingsAccountCodeInvalid": "The code has 6 digits.",
+  "settingsAccountPasswordTooShort": "The password needs at least 8 characters.",
+  "settingsAccountPasswordMismatch": "The two passwords don't match.",
+  "settingsAccountCodeRejected": "The code is wrong or has expired. Request a new one.",
+  "settingsAccountOfflineError": "Offline — the change couldn't be submitted. Please try again with an internet connection.",
+  "settingsAccountRateLimited": "Too many attempts in a short time. Please wait a moment and try again.",
+  "settingsAccountEmailInUse": "This email address is already in use.",
+  "settingsAccountEmailLooksInvalid": "This email address doesn't look valid.",
+  "settingsAccountPasswordSameAsOld": "The new password must be different from the old one.",
+  "settingsAccountPasswordWeak": "This password is too weak. Use a longer or more unusual one.",
+
+  "settingsPasswordChangeCodeSentTo": "For security, we'll first send you a 6-digit code to {adresse}. It's valid for 10 minutes — without it, the password can't be changed.",
+  "@settingsPasswordChangeCodeSentTo": {
+    "placeholders": {
+      "adresse": { "type": "String" }
+    }
+  },
+  "settingsPasswordChangeCodeSentDefault": "For security, we'll first send you a 6-digit code to your saved address. It's valid for 10 minutes — without it, the password can't be changed.",
+  "settingsPasswordChangeStep2Subtitle": "Enter the code from the email along with your new password.",
+  "settingsPasswordChangeCodeFieldLabel": "Confirmation code",
+  "settingsPasswordChangeNewLabel": "New password",
+  "settingsPasswordChangeNewHint": "At least 8 characters",
+  "settingsPasswordChangeRepeatLabel": "Repeat new password",
+  "settingsPasswordChangeRepeatHint": "Enter again",
+  "settingsPasswordChangeRequestingCta": "Requesting code…",
+  "settingsPasswordChangeSavingCta": "Saving…",
+  "settingsPasswordChangeRequestCta": "Request code",
+  "settingsPasswordChangeSubmitCta": "Change password now",
+  "settingsEmailChangeStep1Subtitle": "Your current address is {currentEmail}. We'll then send TWO codes: one to this address and one to the new one. The change takes effect once you enter both.",
+  "@settingsEmailChangeStep1Subtitle": {
+    "placeholders": {
+      "currentEmail": { "type": "String" }
+    }
+  },
+  "settingsEmailChangeStep2Subtitle": "Two emails are on their way. Enter each code at ITS address — each address has its own.",
+  "settingsEmailChangeRequestingCta": "Requesting codes…",
+  "settingsEmailChangeCheckingCta": "Checking…",
+  "settingsEmailChangeRequestCta": "Request codes",
+  "settingsEmailChangeSubmitCta": "Change address now",
+  "settingsEmailChangeNewAddressLabel": "New email address",
+  "settingsEmailChangeNewAddressHint": "you@example.com",
+  "settingsEmailChangeOldCodeLabel": "Code to the current address",
+  "settingsEmailChangeNewCodeLabel": "Code to the new address",
+  "settingsEmailChangeBothCodesHint": "Both codes are required. With only one, your current address stays in place — that's exactly what protects you if someone gained access to only one of the two inboxes.",
+
+  "exportSheetLoadingSubtitle": "Your data is loading from the server …",
+  "exportSheetErrorSubtitle": "Server not reachable — please reopen the full copy with an internet connection.",
+  "exportSheetFullSubtitle": "Full copy of your stored data as JSON — all tables, loaded directly from the server (Art. 15/20 GDPR).",
+  "exportSheetSessionSubtitle": "In-memory snapshot of your current session as JSON.",
+  "exportSheetTitleFull": "Data disclosure",
+  "exportSheetTitleSession": "Data snapshot",
+  "exportSheetCopiedSnack": "Export copied to clipboard",
+  "exportSheetCopyButton": "Copy",
+
+  "targetBmiHintUnderweight": "This target weight would correspond to a BMI of {bmi} — that's below the range considered healthy.",
+  "@targetBmiHintUnderweight": {
+    "placeholders": {
+      "bmi": { "type": "String" }
+    }
+  },
+  "targetBmiHintOverweight": "This target weight would correspond to a BMI of {bmi} — that's above the range considered healthy.",
+  "@targetBmiHintOverweight": {
+    "placeholders": {
+      "bmi": { "type": "String" }
+    }
+  },
+
+  "onboardingBackSemanticLabel": "Back",
+  "onboardingStartCta": "Let's go",
+  "onboardingActivatePlanCta": "Activate plan",
+  "onboardingNextCta": "Next",
+  "onboardingSexStepTitle": "Your sex",
+  "onboardingSexStepSubtitle": "Affects your basal metabolic rate.",
+  "onboardingAgeStepTitle": "How old are you?",
+  "onboardingAgeStepSubtitle": "Energy needs decrease with age.",
+  "onboardingHeightStepTitle": "Your height",
+  "onboardingHeightStepSubtitle": "For calculating needs and steps.",
+  "onboardingWeightStepTitle": "Your current weight",
+  "onboardingWeightStepSubtitle": "Starting point for your plan.",
+  "onboardingActivityStepTitle": "How active are you?",
+  "onboardingActivityStepSubtitle": "Your daily life without counted training.",
+  "onboardingGoalStepTitle": "What's your goal?",
+  "onboardingGoalStepSubtitle": "Determines your daily calorie amount.",
+  "onboardingTargetStepTitle": "Your target weight",
+  "onboardingTargetStepSubtitleLose": "How far do you want to lose?",
+  "onboardingTargetStepSubtitleGain": "How far do you want to gain?",
+  "onboardingPaceStepTitle": "What pace?",
+  "onboardingPaceStepSubtitleLose": "How fast do you want to lose weight?",
+  "onboardingPaceStepSubtitleGain": "How fast do you want to gain weight?",
+  "onboardingDietStepTitle": "Diet?",
+  "onboardingDietStepSubtitle": "We'll recommend recipes that fit. You can always browse all of them.",
+  "onboardingUnitYears": "years",
+  "onboardingTargetFootnoteLose": "{kg} kg to lose",
+  "@onboardingTargetFootnoteLose": {
+    "placeholders": {
+      "kg": { "type": "int" }
+    }
+  },
+  "onboardingTargetFootnoteGain": "{kg} kg to gain",
+  "@onboardingTargetFootnoteGain": {
+    "placeholders": {
+      "kg": { "type": "int" }
+    }
+  },
+  "onboardingWelcomeTitle": "Welcome, {firstName}.",
+  "@onboardingWelcomeTitle": {
+    "placeholders": {
+      "firstName": { "type": "String" }
+    }
+  },
+  "onboardingWelcomeBody": "In 6 short steps, we'll calculate your personal daily goal — tailored to your body and your target weight.",
+  "onboardingBulletFormula": "Scientific Mifflin-St Jeor formula",
+  "onboardingBulletAutoMacros": "Calories & macros set automatically",
+  "onboardingBulletAdjustable": "Adjustable anytime in settings",
+  "onboardingSexMale": "Male",
+  "onboardingSexFemale": "Female",
+  "onboardingSexNeutral": "Other",
+  "onboardingGoalDescLose": "Lose fat, deficit",
+  "onboardingGoalDescMaintain": "Keep shape & energy stable",
+  "onboardingGoalDescGain": "Build muscle, surplus",
+  "onboardingPaceNameSanft": "Gentle",
+  "onboardingPaceNameModerat": "Moderate",
+  "onboardingPaceNameZuegig": "Brisk",
+  "onboardingPaceNameAmbitioniert": "Ambitious",
+  "onboardingPaceNameFallback": "Pace",
+  "onboardingPaceOptionTitle": "{name} · {paceLabel}",
+  "@onboardingPaceOptionTitle": {
+    "placeholders": {
+      "name": { "type": "String" },
+      "paceLabel": { "type": "String" }
+    }
+  },
+  "onboardingSummaryTitle": "Your plan is ready, {firstName}.",
+  "@onboardingSummaryTitle": {
+    "placeholders": {
+      "firstName": { "type": "String" }
+    }
+  },
+  "onboardingSummarySubtitle": "This is your recommended daily target.",
+  "onboardingSummaryKcalEyebrow": "DAILY CALORIE TARGET",
+  "onboardingSummaryBmrLabel": "Basal metabolic rate (BMR)",
+  "onboardingSummaryMaintenanceLabel": "Maintenance · {activityLabel}",
+  "@onboardingSummaryMaintenanceLabel": {
+    "placeholders": {
+      "activityLabel": { "type": "String" }
+    }
+  },
+  "onboardingSummaryGoalLabel": "Goal · {paceLabel}",
+  "@onboardingSummaryGoalLabel": {
+    "placeholders": {
+      "paceLabel": { "type": "String" }
+    }
+  },
+  "onboardingTimelineMaintain": "You're maintaining your weight of {weightKg} kg.",
+  "@onboardingTimelineMaintain": {
+    "placeholders": {
+      "weightKg": { "type": "int" }
+    }
+  },
+  "onboardingTimelineEstimate": "{targetWeightKg} kg achievable in approx. {weeks, plural, one{1 week} other{{weeks} weeks}}.",
+  "@onboardingTimelineEstimate": {
+    "placeholders": {
+      "targetWeightKg": { "type": "int" },
+      "weeks": { "type": "int" }
+    }
+  },
+  "onboardingTimelineUnknown": "No reliable timeframe can be estimated for this goal.",
+  "onboardingSummaryFootnote": "Estimate based on Mifflin-St Jeor. Values can be adjusted anytime under Profile › Settings.",
+
+  "coachErrorEmptyReply": "Empty reply from the coach.",
+  "coachErrorUnreachable": "The coach isn't reachable right now. Please try again shortly.",
+  "coachErrorNoConnection": "No connection to the coach. Check your internet connection and try again.",
+  "coachErrorSessionExpired": "Your session has expired. Please sign in again, then the coach will respond again.",
+  "coachErrorQuotaFallback": "Daily limit reached. More tomorrow.",
+  "coachErrorTooManyRequests": "Too many requests. Please try again shortly.",
+  "coachErrorRequestFailed": "The coach couldn't process your request."
 }

@@ -1,8 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
+import '../l10n/l10n.dart';
 import '../services/day_math.dart';
+import '../services/kcal_format.dart';
 import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/lively.dart';
@@ -82,6 +86,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       body: SafeArea(
         child: LivelyEntrance(
@@ -94,9 +99,9 @@ class _TrendsScreenState extends State<TrendsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const PageHeader(
-                  title: 'Trends',
-                  backKey: ValueKey('trends-close'),
+                PageHeader(
+                  title: l10n.trendsTitle,
+                  backKey: const ValueKey('trends-close'),
                 ),
                 const SizedBox(height: 14),
                 _RangeSelector(
@@ -115,6 +120,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
   }
 
   List<Widget> _buildContent(BuildContext context) {
+    final l10n = context.l10n;
     if (_loading) {
       return const [
         SizedBox(
@@ -166,29 +172,28 @@ class _TrendsScreenState extends State<TrendsScreen> {
             Expanded(
               child: _StatCard(
                 key: const ValueKey('trends-avg-kcal'),
-                label: 'Ø KALORIEN',
+                label: l10n.trendsStatAvgKcalLabel,
                 value: avgKcal == null
                     ? '–'
-                    : '${formatKcalDe(avgKcal.round())} kcal',
+                    : '${formatThousands(avgKcal.round(), l10n.localeName)} kcal',
                 sub: avgKcal == null
-                    ? 'noch kein abgeschlossener Tag'
-                    : 'pro getracktem Tag',
+                    ? l10n.trendsNoCompletedDay
+                    : l10n.trendsStatAvgKcalSub,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _StatCard(
                 key: const ValueKey('trends-goal-rate'),
-                label: 'ZIEL GETROFFEN',
+                label: l10n.trendsStatGoalRateLabel,
                 // tracked == 0 ist der einzige Weg zu einer 0/0-Division —
                 // hier abgefangen, damit nie ein NaN ins Widget geraet.
                 value: hits.tracked == 0
                     ? '–'
                     : '${(hits.hit / hits.tracked * 100).round()} %',
                 sub: hits.tracked == 0
-                    ? 'noch kein abgeschlossener Tag'
-                    : '${hits.hit} von ${hits.tracked} '
-                          '${hits.tracked == 1 ? 'Tag' : 'Tagen'} (±10 %)',
+                    ? l10n.trendsNoCompletedDay
+                    : l10n.trendsStatGoalRateSub(hits.hit, hits.tracked),
               ),
             ),
           ],
@@ -217,8 +222,7 @@ class _MetricsNote extends StatelessWidget {
       key: const ValueKey('trends-metrics-note'),
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Text(
-        'Kennzahlen zählen nur abgeschlossene Tage. Heute läuft noch und '
-        'ist nur im Verlauf oben enthalten.',
+        context.l10n.trendsMetricsNote,
         style: AppType.ui(
           11,
           weight: FontWeight.w500,
@@ -228,17 +232,6 @@ class _MetricsNote extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Deutsche Tausender-Formatierung ohne intl-Dependency: 2200 -> "2.200".
-String formatKcalDe(int value) {
-  final digits = value.abs().toString();
-  final buf = StringBuffer();
-  for (var i = 0; i < digits.length; i++) {
-    if (i > 0 && (digits.length - i) % 3 == 0) buf.write('.');
-    buf.write(digits[i]);
-  }
-  return value < 0 ? '-$buf' : buf.toString();
 }
 
 /// Zeitraum-Umschalter: drei gleich breite Filter-Pillen.
@@ -255,6 +248,7 @@ class _RangeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Row(
       children: [
         for (var i = 0; i < ranges.length; i++) ...[
@@ -266,9 +260,9 @@ class _RangeSelector extends StatelessWidget {
               key: ValueKey('trends-range-${ranges[i]}'),
               button: true,
               selected: ranges[i] == selected,
-              label: 'Zeitraum ${ranges[i]} Tage',
+              label: l10n.trendsRangeSemanticsLabel(ranges[i]),
               child: FilterChipPill(
-                label: '${ranges[i]} Tage',
+                label: l10n.trendsRangeDaysLabel(ranges[i]),
                 selected: ranges[i] == selected,
                 onTap: () => onSelected(ranges[i]),
               ),
@@ -301,6 +295,7 @@ class _ChartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     // A11y: das Chart ist nur gezeichnet -> Kennwerte als Sprachwert.
     // [avgKcal] kommt aus den abgeschlossenen Tagen und kann null sein,
     // waehrend das Chart schon einen Balken zeigt (nur heute geloggt). Dann
@@ -308,14 +303,15 @@ class _ChartCard extends StatelessWidget {
     // Kilokalorien" angesagt, was schlicht falsch waere.
     final avg = avgKcal;
     final semanticsValue = trackedDays == 0
-        ? 'Keine Einträge in diesem Zeitraum'
+        ? l10n.trendsChartSemanticsEmpty
         : avg == null
-        ? '$trackedDays von $rangeDays Tagen mit Einträgen, '
-              'noch kein abgeschlossener Tag für den Durchschnitt, '
-              'Tagesziel $kcalGoal Kilokalorien'
-        : '$trackedDays von $rangeDays Tagen mit Einträgen, '
-              'im Schnitt ${avg.round()} Kilokalorien pro abgeschlossenem Tag, '
-              'Tagesziel $kcalGoal Kilokalorien';
+        ? l10n.trendsChartSemanticsNoAvg(trackedDays, rangeDays, kcalGoal)
+        : l10n.trendsChartSemanticsWithAvg(
+            trackedDays,
+            rangeDays,
+            avg.round(),
+            kcalGoal,
+          );
     return AppCard(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
       child: Column(
@@ -326,7 +322,7 @@ class _ChartCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  'Kalorien pro Tag',
+                  l10n.trendsChartTitle,
                   style: AppType.display(
                     17,
                     weight: FontWeight.w700,
@@ -336,7 +332,7 @@ class _ChartCard extends StatelessWidget {
               ),
               Flexible(
                 child: Text(
-                  '$rangeDays Tage',
+                  l10n.trendsRangeDaysLabel(rangeDays),
                   textAlign: TextAlign.right,
                   style: AppType.ui(
                     11.5,
@@ -351,7 +347,7 @@ class _ChartCard extends StatelessWidget {
           SizedBox(
             height: 200,
             child: Semantics(
-              label: 'Kalorienverlauf',
+              label: l10n.trendsChartSemanticsLabel,
               value: semanticsValue,
               child: RepaintBoundary(
                 child: TweenAnimationBuilder<double>(
@@ -376,6 +372,7 @@ class _ChartCard extends StatelessWidget {
                       goalLineColor: t.ink.withValues(alpha: 0.6),
                       bandColor: t.ink.withValues(alpha: 0.05),
                       axisTextColor: t.ink2,
+                      l10n: l10n,
                     ),
                     size: Size.infinite,
                   ),
@@ -393,7 +390,7 @@ class _ChartCard extends StatelessWidget {
                 children: [
                   _Caption('${firstDay.day}.${firstDay.month}.'),
                   const Spacer(),
-                  const _Caption('Heute'),
+                  _Caption(l10n.todayDateToday),
                 ],
               ),
             ),
@@ -465,6 +462,7 @@ class _MacroAveragesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final m = macros;
     return AppCard(
       key: const ValueKey('trends-avg-macros'),
@@ -472,28 +470,28 @@ class _MacroAveragesCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Ø MAKROS PRO TAG', style: AppType.eyebrow(t.ink2)),
+          Text(l10n.trendsMacroAvgTitle, style: AppType.eyebrow(t.ink2)),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: _MacroAvg(
                   color: t.protein,
-                  label: 'Protein',
+                  label: l10n.todayMacroProtein,
                   value: m == null ? '–' : '${m.proteinG.round()} g',
                 ),
               ),
               Expanded(
                 child: _MacroAvg(
                   color: t.carbs,
-                  label: 'Kohlenhydrate',
+                  label: l10n.todayMacroCarbs,
                   value: m == null ? '–' : '${m.carbsG.round()} g',
                 ),
               ),
               Expanded(
                 child: _MacroAvg(
                   color: t.fat,
-                  label: 'Fett',
+                  label: l10n.todayMacroFat,
                   value: m == null ? '–' : '${m.fatG.round()} g',
                 ),
               ),
@@ -566,6 +564,7 @@ class _EmptyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return AppCard(
       key: const ValueKey('trends-empty'),
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
@@ -574,13 +573,12 @@ class _EmptyCard extends StatelessWidget {
           Icon(Icons.query_stats_rounded, color: t.ink2, size: 32),
           const SizedBox(height: 12),
           Text(
-            'Noch zu wenig Daten',
+            l10n.trendsEmptyTitle,
             style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
           ),
           const SizedBox(height: 6),
           Text(
-            'Logge deine Mahlzeiten an mindestens zwei Tagen,\n'
-            'um hier deinen Verlauf zu sehen.',
+            l10n.trendsEmptyBody,
             textAlign: TextAlign.center,
             style: AppType.ui(
               12,
@@ -603,6 +601,7 @@ class _ErrorCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return AppCard(
       key: const ValueKey('trends-error'),
       padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
@@ -611,13 +610,13 @@ class _ErrorCard extends StatelessWidget {
           Icon(Icons.cloud_off_rounded, color: t.ink2, size: 32),
           const SizedBox(height: 12),
           Text(
-            'Trends konnten nicht geladen werden',
+            l10n.trendsErrorTitle,
             textAlign: TextAlign.center,
             style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
           ),
           const SizedBox(height: 6),
           Text(
-            'Prüfe deine Internetverbindung und versuche es erneut.',
+            l10n.trendsErrorBody,
             textAlign: TextAlign.center,
             style: AppType.ui(
               12,
@@ -629,7 +628,7 @@ class _ErrorCard extends StatelessWidget {
           const SizedBox(height: 16),
           PrimaryActionButton(
             key: const ValueKey('trends-retry'),
-            label: 'Erneut versuchen',
+            label: l10n.trendsRetryCta,
             height: 46,
             onTap: onRetry,
           ),
@@ -659,6 +658,7 @@ class _KcalTrendPainter extends CustomPainter {
     required this.goalLineColor,
     required this.bandColor,
     required this.axisTextColor,
+    required this.l10n,
   });
 
   final List<TrendDayTotals?> window;
@@ -667,10 +667,14 @@ class _KcalTrendPainter extends CustomPainter {
   final double progress;
   final Color gridColor, barColor, goalLineColor, bandColor, axisTextColor;
 
-  static const _weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  /// Widgets ohne BuildContext-Zugriff (hier: ein `CustomPainter`) bekommen
+  /// die Lokalisierung als Parameter gereicht (docs/I18N_PAKETE.md §3),
+  /// statt ein globales Lookup zu bauen — Vorbild `CoachSpeechInput.listen`.
+  final AppLocalizations l10n;
 
   @override
   void paint(Canvas canvas, Size size) {
+    _ensureDateSymbols();
     final showWeekdays = window.length == 7;
     final padding = EdgeInsets.fromLTRB(40, 14, 8, showWeekdays ? 20 : 6);
     final inner = Rect.fromLTWH(
@@ -702,7 +706,7 @@ class _KcalTrendPainter extends CustomPainter {
       canvas.drawLine(Offset(inner.left, y), Offset(inner.right, y), gridPaint);
       _drawText(
         canvas,
-        formatKcalDe((niceMax * i / 3).round()),
+        formatThousands((niceMax * i / 3).round(), l10n.localeName),
         Offset(inner.left - 6, y),
         alignRight: true,
         centerVertically: true,
@@ -767,7 +771,7 @@ class _KcalTrendPainter extends CustomPainter {
       );
       _drawText(
         canvas,
-        'Ziel ${formatKcalDe(goalKcal)}',
+        l10n.trendsChartGoalLabel(formatThousands(goalKcal, l10n.localeName)),
         Offset(inner.right, goalY - 4),
         alignRight: true,
         above: true,
@@ -782,7 +786,7 @@ class _KcalTrendPainter extends CustomPainter {
         final day = addDays(firstDay, i);
         _drawText(
           canvas,
-          _weekdays[day.weekday - 1],
+          DateFormat.E(l10n.localeName).format(day),
           Offset(inner.left + slotW * i + slotW / 2, inner.bottom + 4),
           centerHorizontally: true,
         );
@@ -831,7 +835,7 @@ class _KcalTrendPainter extends CustomPainter {
   void _drawEmptyHint(Canvas canvas, Size size) {
     final tp = TextPainter(
       text: TextSpan(
-        text: 'Keine Einträge in diesem Zeitraum.',
+        text: l10n.trendsChartEmptyHintPainter,
         style: AppType.ui(
           12,
           weight: FontWeight.w500,
@@ -858,5 +862,18 @@ class _KcalTrendPainter extends CustomPainter {
       old.barColor != barColor ||
       old.goalLineColor != goalLineColor ||
       old.bandColor != bandColor ||
-      old.axisTextColor != axisTextColor;
+      old.axisTextColor != axisTextColor ||
+      old.l10n != l10n;
+}
+
+/// Einmalige Initialisierung der `intl`-Datumssymbole (Wochentagskuerzel des
+/// Trend-Charts). Gleiches Muster wie `today_texts.dart`s
+/// `_ensureDateSymbols`: `initializeDateFormatting()` laedt synchron eine
+/// gebuendelte Tabelle, der Bool-Waechter verhindert nur den wiederholten
+/// Aufbau bei jedem Repaint.
+bool _dateSymbolsReady = false;
+void _ensureDateSymbols() {
+  if (_dateSymbolsReady) return;
+  initializeDateFormatting();
+  _dateSymbolsReady = true;
 }

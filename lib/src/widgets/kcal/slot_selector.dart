@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
@@ -67,13 +68,14 @@ class _SlotSegment extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final color = slot.accentIn(context);
     // A11y: Segment als Button mit Auswahl-Zustand und vollem Slot-Namen
     // (das sichtbare Kurz-Label allein waere z.B. nur "Früh").
     return Semantics(
       button: true,
       selected: selected,
-      label: slot.label,
+      label: slot.label(l10n),
       child: InkWell(
         key: keyValue,
         onTap: onTap,
@@ -100,7 +102,7 @@ class _SlotSegment extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                slot.shortLabel,
+                slot.shortLabel(l10n),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppType.ui(

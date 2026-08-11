@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
@@ -103,6 +106,7 @@ Future<MealEditOutcome?> showEditMealSheet(
 /// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
   final t = context.t;
+  final l10n = context.l10n;
   final verwerfen = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -112,24 +116,24 @@ Future<bool> _confirmDiscardChanges(BuildContext context) async {
         borderRadius: BorderRadius.circular(rSheet),
       ),
       title: Text(
-        'Änderungen verwerfen?',
+        l10n.foodDiscardChangesTitle,
         style: AppType.display(19, color: t.ink),
       ),
       content: Text(
-        'Deine Änderungen an dieser Mahlzeit sind noch nicht gespeichert.',
+        l10n.foodDiscardChangesBody,
         style: AppType.ui(13, color: t.ink2, height: 1.4),
       ),
       actions: [
         TextButton(
           key: const ValueKey('discard-changes-cancel'),
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Weiter bearbeiten'),
+          child: Text(l10n.foodDiscardChangesKeepEditing),
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
           style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Verwerfen'),
+          child: Text(l10n.foodDiscardChangesConfirm),
         ),
       ],
     ),
@@ -279,10 +283,10 @@ class _EditMealSheetState extends State<EditMealSheet> {
   }
 
   /// „Anderes Datum…": Kalender fuer Ziele jenseits der 35 Chips (der Dialog
-  /// rendert dank der de-Lokalisierung in eatova_app.dart deutsch). Grenzen
-  /// wie der Food-Tab-Kalender: 2 Jahre zurueck, nichts in der Zukunft. Die
-  /// Auswahl laeuft ueber denselben _day-State wie die Chips — gespeichert
-  /// wird weiterhin ausschliesslich ueber updateLoggedMealDetails.
+  /// rendert in der aktiven App-Sprache). Grenzen wie der Food-Tab-Kalender:
+  /// 2 Jahre zurueck, nichts in der Zukunft. Die Auswahl laeuft ueber
+  /// denselben _day-State wie die Chips — gespeichert wird weiterhin
+  /// ausschliesslich ueber updateLoggedMealDetails.
   Future<void> _pickOtherDay() async {
     final today = DateUtils.dateOnly(DateTime.now());
     final firstDate = DateTime(today.year - 2, today.month, today.day);
@@ -294,7 +298,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
       initialDate: initial,
       firstDate: firstDate,
       lastDate: today,
-      helpText: 'Tag wählen',
+      helpText: context.l10n.foodDatePickerHelpText,
     );
     if (!mounted || picked == null) return;
     setState(() => _day = DateUtils.dateOnly(picked));
@@ -359,6 +363,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
 
   Widget _buildSheet(MediaQueryData mediaQuery, double maxHeight) {
     final t = context.t;
+    final l10n = context.l10n;
     // Kein SheetScaffold: fixer Kopf ueber einem gedeckelten Scrollbereich,
     // zwei Fussaktionen (Speichern + Loeschen) — und `edit-meal-save-button`
     // muss ein FilledButton bleiben, weil Tests seinen `onPressed` lesen.
@@ -401,7 +406,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       onPressed: _adjustPortion,
                       icon: const Icon(Icons.tune_rounded, size: 17),
                       label: Text(
-                        'Portion & Bestandteile anpassen',
+                        l10n.foodAdjustPortionButton,
                         style: AppType.ui(13.5, weight: FontWeight.w600),
                       ),
                       style: OutlinedButton.styleFrom(
@@ -418,7 +423,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const _SectionLabel('Mahlzeit'),
+                  _SectionLabel(l10n.foodSectionMeal),
                   const SizedBox(height: 8),
                   SlotSelector(
                     key: const ValueKey('edit-meal-slot-select'),
@@ -427,7 +432,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     onSelected: (slot) => setState(() => _slot = slot),
                   ),
                   const SizedBox(height: 18),
-                  const _SectionLabel('Tag'),
+                  _SectionLabel(l10n.foodSectionDay),
                   const SizedBox(height: 8),
                   _DayPicker(
                     selected: _day,
@@ -443,7 +448,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       onPressed: _dirty ? _save : null,
                       icon: const Icon(Icons.check_rounded, size: 17),
                       label: Text(
-                        'Speichern',
+                        l10n.commonSave,
                         style: AppType.ui(14, weight: FontWeight.w600),
                       ),
                       style: FilledButton.styleFrom(
@@ -468,7 +473,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                           size: 16,
                         ),
                         label: Text(
-                          'Mahlzeit löschen',
+                          l10n.foodDeleteMealButton,
                           style: AppType.ui(13, weight: FontWeight.w600),
                         ),
                       ),
@@ -517,19 +522,20 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final color = slot.accentIn(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
       child: Row(
         children: [
-          MealAvatar(letter: slot.initial, color: color, size: 36),
+          MealAvatar(letter: slot.initial(l10n), color: color, size: 36),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Mahlzeit bearbeiten',
+                  l10n.foodEditMealTitle,
                   style: AppType.display(18, color: t.ink),
                 ),
                 const SizedBox(height: 2),
@@ -549,7 +555,7 @@ class _Header extends StatelessWidget {
           IconButton(
             key: const ValueKey('edit-meal-sheet-close'),
             onPressed: onClose,
-            tooltip: 'Schließen',
+            tooltip: l10n.commonClose,
             icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
@@ -587,7 +593,7 @@ class _SummaryCard extends StatelessWidget {
             ),
           ),
           Text(
-            adjusted ? 'Angepasst' : result.sourceLabel,
+            adjusted ? context.l10n.foodAdjustedLabel : result.sourceLabel,
             style: AppType.ui(
               11,
               weight: FontWeight.w600,
@@ -614,8 +620,15 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// `DateTime.weekday`: 1 = Montag.
-const List<String> _weekdayLabels = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+/// Einmalige Initialisierung der `intl`-Datumssymbole — derselbe Bool-Wächter
+/// wie in `meal_analysis_screen.dart`/`today_texts.dart` (dateiprivat, daher
+/// nicht wiederverwendbar).
+bool _dateSymbolsReady = false;
+void _ensureDateSymbols() {
+  if (_dateSymbolsReady) return;
+  initializeDateFormatting();
+  _dateSymbolsReady = true;
+}
 
 /// B5: die Tage des Chip-Pickers — [count] Kalendertage abwaerts ab [today]
 /// (heute zuerst), plus [selected], falls dieser Tag ausserhalb des Fensters
@@ -657,15 +670,24 @@ List<DateTime> editMealPickerDays({
 /// ueber die Fruehjahrsumstellung sind das 23 Stunden → `inDays == 0`, der
 /// Vortag hiess also „Heute". [daysBetween] rechnet ueber `(y, m, d)`-Tripel
 /// in UTC und kennt darum keine Sommerzeit.
+///
+/// Seit der i18n-Migration (Paket 2, 2026-08-10) ueber `intl`s Skeleton `EE`
+/// statt einer lokalen Zwei-Buchstaben-Liste — dieselbe Technik wie
+/// `meal_analysis_screen.dart:foodDateChipLabel` (dort nicht importierbar:
+/// screens/ importiert widgets/, nicht umgekehrt). Die deutschen CLDR-Kuerzel
+/// tragen einen Punkt („Mo."), den die alte Liste nicht hatte — abgeschnitten,
+/// damit `de` byte-identisch bleibt.
 @visibleForTesting
 String editMealDayChipLabel({
   required DateTime today,
   required DateTime date,
+  required AppLocalizations l10n,
 }) {
   final offset = daysBetween(today, date);
-  if (offset == 0) return 'Heute';
-  if (offset == 1) return 'Gestern';
-  return _weekdayLabels[date.weekday - 1];
+  if (offset == 0) return l10n.todayDateToday;
+  if (offset == 1) return l10n.todayDateYesterday;
+  _ensureDateSymbols();
+  return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
 }
 
 /// Horizontaler Chip-Picker ueber die letzten [pastDays] Tage (heute zuerst),
@@ -688,6 +710,7 @@ class _DayPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final today = startOfDay(DateTime.now());
     // B5: Kalender-, keine Absolutzeitarithmetik — siehe [editMealPickerDays].
     final days = editMealPickerDays(
@@ -735,7 +758,7 @@ class _DayPicker extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      editMealDayChipLabel(today: today, date: date),
+                      editMealDayChipLabel(today: today, date: date, l10n: l10n),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppType.ui(
@@ -779,9 +802,10 @@ class _CalendarChip extends StatelessWidget {
     final t = context.t;
     // A11y: "Anderes / Datum…" liest sich zerhackt — als ein Button mit
     // klarer Aktion ansagen.
+    final l10n = context.l10n;
     return Semantics(
       button: true,
-      label: 'Anderes Datum im Kalender wählen',
+      label: l10n.foodOtherDateCalendarSemantics,
       child: InkWell(
         key: const ValueKey('edit-day-calendar'),
         onTap: onTap,
@@ -798,7 +822,7 @@ class _CalendarChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Anderes',
+                l10n.foodOtherDateLine1,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppType.ui(
@@ -810,7 +834,7 @@ class _CalendarChip extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                'Datum…',
+                l10n.foodOtherDateLine2,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppType.display(

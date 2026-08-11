@@ -10,7 +10,6 @@ class ChatMessage {
     required this.createdAt,
     this.refusal = false,
     this.imageBytes,
-    this.mediaLabel,
   });
 
   final String id;
@@ -23,7 +22,6 @@ class ChatMessage {
   /// speichert aktuell bewusst keine Bilddaten, damit die Tabelle schlank und
   /// privat bleibt.
   final Uint8List? imageBytes;
-  final String? mediaLabel;
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
     final roleRaw = row['role']?.toString() ?? 'assistant';
@@ -44,7 +42,6 @@ class ChatMessage {
       createdAt: createdAt,
       refusal: refusal ?? this.refusal,
       imageBytes: imageBytes,
-      mediaLabel: mediaLabel,
     );
   }
 }

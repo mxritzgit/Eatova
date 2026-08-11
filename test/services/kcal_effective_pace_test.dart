@@ -43,7 +43,7 @@ void main() {
       expect(t.effectiveWeeklyRateKg, closeTo(-0.7245, 0.0005));
       expect(t.promisedWeeklyRateKg, -1.0);
       expect(t.matchesPromisedPace, isFalse);
-      expect(t.effectivePaceLabel, '−0,72 kg/Woche');
+      expect(t.effectivePaceLabel(), '−0,72 kg/Woche');
     });
 
     test('lose075kg und lose1kg: identischer Plan ⇒ identisches Versprechen',
@@ -59,7 +59,7 @@ void main() {
       // verschiedene Tempi und zwei verschiedene Zeitraeume ausweisen.
       expect(schnell.kcal, langsamer.kcal);
       expect(schnell.effectiveWeeklyRateKg, langsamer.effectiveWeeklyRateKg);
-      expect(schnell.effectivePaceLabel, langsamer.effectivePaceLabel);
+      expect(schnell.effectivePaceLabel(), langsamer.effectivePaceLabel());
 
       final zielProfil = standard.copyWith(targetWeightKg: 68);
       expect(
@@ -90,14 +90,14 @@ void main() {
       // Versprechen.
       expect(t.effectiveKcalDelta, -547);
       expect(t.matchesPromisedPace, isTrue);
-      expect(t.effectivePaceLabel, '−0,5 kg/Woche');
+      expect(t.effectivePaceLabel(), '−0,5 kg/Woche');
     });
 
     test('paceWarning nennt Grenze, echtes Ziel und echtes Tempo', () {
       final t = calc.calculate(
         standard.copyWith(weightGoal: WeightGoal.lose1kg),
       );
-      final hinweis = t.paceWarning;
+      final hinweis = t.paceWarning();
 
       expect(hinweis, isNotNull);
       expect(hinweis, contains('1200'));
@@ -106,7 +106,7 @@ void main() {
       final ohne = calc.calculate(
         standard.copyWith(weightGoal: WeightGoal.lose05kg),
       );
-      expect(ohne.paceWarning, isNull);
+      expect(ohne.paceWarning(), isNull);
     });
   });
 
@@ -162,7 +162,7 @@ void main() {
 
       // 1997 → 2000 durch die 50er-Rundung: +3 kcal sind Rauschen.
       expect(t.effectiveKcalDelta, 3);
-      expect(t.effectivePaceLabel, 'Gewicht stabil');
+      expect(t.effectivePaceLabel(), 'Gewicht stabil');
       expect(t.matchesPromisedPace, isTrue);
       expect(
         calc.weeksToGoal(standard.copyWith(targetWeightKg: 68)),
@@ -188,7 +188,7 @@ void main() {
       expect(t.floorApplied, isTrue);
       expect(t.effectiveKcalDelta, -32);
       expect(t.effectiveWeeklyRateKg.abs(), lessThan(weeklyRateNoiseKg));
-      expect(t.effectivePaceLabel, 'Gewicht stabil');
+      expect(t.effectivePaceLabel(), 'Gewicht stabil');
       expect(calc.weeksToGoal(knapp), isNull);
     });
 
@@ -239,7 +239,7 @@ void main() {
                 if (!t.effectiveWeeklyRateKg.isFinite) {
                   verstoesse.add('$wer: Rate ${t.effectiveWeeklyRateKg}');
                 }
-                if (t.effectivePaceLabel.isEmpty) {
+                if (t.effectivePaceLabel().isEmpty) {
                   verstoesse.add('$wer: leeres Label');
                 }
                 final wochen = calc.weeksToGoal(profil);
@@ -261,13 +261,13 @@ void main() {
     test('die sieben Ziel-Labels bleiben unveraendert', () {
       // paceLabel laeuft jetzt ueber paceLabelForWeeklyRateKg — die Ausgabe
       // fuer die Picker darf sich dadurch nicht verschieben.
-      expect(WeightGoal.lose1kg.paceLabel, '−1 kg/Woche');
-      expect(WeightGoal.lose075kg.paceLabel, '−0,75 kg/Woche');
-      expect(WeightGoal.lose05kg.paceLabel, '−0,5 kg/Woche');
-      expect(WeightGoal.lose025kg.paceLabel, '−0,25 kg/Woche');
-      expect(WeightGoal.maintain.paceLabel, 'Gewicht stabil');
-      expect(WeightGoal.gain025kg.paceLabel, '+0,25 kg/Woche');
-      expect(WeightGoal.gain05kg.paceLabel, '+0,5 kg/Woche');
+      expect(WeightGoal.lose1kg.paceLabel(), '−1 kg/Woche');
+      expect(WeightGoal.lose075kg.paceLabel(), '−0,75 kg/Woche');
+      expect(WeightGoal.lose05kg.paceLabel(), '−0,5 kg/Woche');
+      expect(WeightGoal.lose025kg.paceLabel(), '−0,25 kg/Woche');
+      expect(WeightGoal.maintain.paceLabel(), 'Gewicht stabil');
+      expect(WeightGoal.gain025kg.paceLabel(), '+0,25 kg/Woche');
+      expect(WeightGoal.gain05kg.paceLabel(), '+0,5 kg/Woche');
     });
 
     test('fast-ganzzahlige Raten ergeben "1", nicht "1,"', () {

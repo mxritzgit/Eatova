@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../l10n/l10n.dart';
 import '../models/logged_meal.dart';
 import '../models/meal_analysis_request.dart';
 import '../services/meal_camera_launcher.dart';
@@ -221,7 +222,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     } catch (_) {
       if (!mounted) return;
       setState(() => _busy = false);
-      _showError('Foto konnte nicht aufgenommen werden. Versuch es nochmal.');
+      _showError(context.l10n.foodPhotoCaptureFailedMessage);
     }
   }
 
@@ -250,11 +251,11 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     } on PlatformException catch (_) {
       if (!mounted) return;
       setState(() => _busy = false);
-      _showError('Galerie konnte nicht geöffnet werden. Prüfe die Berechtigung.');
+      _showError(context.l10n.foodGalleryPermissionError);
     } catch (_) {
       if (!mounted) return;
       setState(() => _busy = false);
-      _showError('Das Bild konnte nicht geladen werden.');
+      _showError(context.l10n.foodImageLoadFailedMessage);
     }
   }
 
@@ -433,8 +434,7 @@ class _CameraFailedLayer extends StatelessWidget {
               Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
               const SizedBox(height: 12),
               Text(
-                'Kamera nicht verfügbar. Prüfe die Berechtigung oder wähle ein '
-                'Foto aus der Galerie.',
+                context.l10n.foodCameraUnavailableGalleryMessage,
                 textAlign: TextAlign.center,
                 style: AppType.ui(
                   13.5,
@@ -512,20 +512,21 @@ class _HeaderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 2, 6, 2),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              'Mahlzeit scannen',
+              l10n.foodScanMealTitle,
               style: AppType.display(17, color: t.ink),
             ),
           ),
           IconButton(
             key: const ValueKey('meal-camera-close'),
             onPressed: onClose,
-            tooltip: 'Schließen',
+            tooltip: l10n.commonClose,
             icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
@@ -619,7 +620,7 @@ class _SlotChip extends StatelessWidget {
             const SizedBox(width: 4),
             Flexible(
               child: Text(
-                slot.shortLabel,
+                slot.shortLabel(context.l10n),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(

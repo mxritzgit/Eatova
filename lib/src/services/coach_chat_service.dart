@@ -2,6 +2,7 @@ import 'dart:developer' as dev;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../l10n/l10n.dart';
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 
@@ -20,6 +21,21 @@ class CoachChatService {
 
   final SupabaseClient _client;
   final String _userId;
+
+  /// Sprachpaket fuer die Fallback-Fehlertexte aus [send]/[_failureForStatus]
+  /// (user-sichtbar im Coach-`_ErrorBanner`). Der Service haelt bewusst
+  /// keinen BuildContext — der Coach-Screen liest `context.l10n` ohnehin
+  /// unmittelbar vor jedem Sendeversuch frisch (Aufruf-Trap: nicht in
+  /// initState) und reicht es hier direkt rein, statt die `send()`-Signatur
+  /// zu aendern. Eine geaenderte Signatur haette jeden `@override send(...)`
+  /// in den Test-Doubles (`coach_design_test.dart`,
+  /// `coach_image_privacy_test.dart` u.a.) mitgerissen — mit diesem Setter
+  /// bleiben deren Konstruktoren (`super.client, super.userId`) unveraendert.
+  /// Default Deutsch ([deL10n]): `test/coach_error_mapping_test.dart` ruft
+  /// [send] weiterhin kontextfrei und bleibt damit unveraendert gruen.
+  AppLocalizations _l10n = deL10n;
+
+  set l10n(AppLocalizations value) => _l10n = value;
 
   // -------------------------------------------------------------------------
   // Sessions
@@ -259,7 +275,7 @@ class CoachChatService {
           ? (map['reply'] as String).trim()
           : '';
       if (reply.isEmpty) {
-        throw const CoachChatException('Leere Antwort vom Coach.');
+        throw CoachChatException(_l10n.coachErrorEmptyReply);
       }
       return CoachChatReply(
         reply: reply,
@@ -288,22 +304,18 @@ class CoachChatService {
       // lief hier nie, also gibt es auch keine fachliche Aussage im Body —
       // das ist immer eine Infrastruktur-Stoerung.
       _logSendFailure(e, stack);
-      throw const CoachChatException(_unreachableMessage);
+      throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
       // Die Anfrage ging gar nicht erst raus (functions_client.dart:206-208).
       _logSendFailure(e, stack);
-      throw const CoachChatException(
-        'Keine Verbindung zum Coach. Prüf deine Internetverbindung und '
-        'versuch es nochmal.',
-      );
+      throw CoachChatException(_l10n.coachErrorNoConnection);
     } catch (e, stack) {
       _logSendFailure(e, stack);
-      throw const CoachChatException(_unreachableMessage);
+      throw CoachChatException(_unreachableMessage);
     }
   }
 
-  static const String _unreachableMessage =
-      'Der Coach ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.';
+  String get _unreachableMessage => _l10n.coachErrorUnreachable;
 
   void _logSendFailure(Object error, StackTrace stack) {
     dev.log(
@@ -329,10 +341,7 @@ class CoachChatService {
     // "unbekannter Fehler" zu lesen; die Function schickt hier ohnehin nur
     // {"error":"Unauthorized"} ohne anzeigbaren Text.
     if (status == 401 || status == 403) {
-      return const CoachChatException(
-        'Deine Sitzung ist abgelaufen. Bitte melde dich neu an, dann '
-        'antwortet der Coach wieder.',
-      );
+      return CoachChatException(_l10n.coachErrorSessionExpired);
     }
 
     if (status == 429) {
@@ -342,7 +351,7 @@ class CoachChatService {
       if (map['error'] == 'quota_exceeded') {
         final limit = map['daily_limit'];
         return CoachQuotaExceeded(
-          message: serverReply ?? 'Tageslimit erreicht. Morgen geht\'s weiter.',
+          message: serverReply ?? _l10n.coachErrorQuotaFallback,
           // Der 429er der Function traegt daily_limit immer (handler.ts);
           // fehlt es (Gateway-Body), bleibt nur der Anzeige-Ersatz — dieselbe
           // Konstante wie ueberall, kein eigenes Literal.
@@ -351,25 +360,24 @@ class CoachChatService {
         );
       }
       return CoachChatException(
-        serverReply ?? 'Zu viele Anfragen. Bitte versuch es gleich nochmal.',
+        serverReply ?? _l10n.coachErrorTooManyRequests,
       );
     }
 
     if (status == 413) {
       return CoachChatException(
-        serverReply ??
-            'Das Bild ist zu groß für den Coach. Bitte schick ein kleineres.',
+        serverReply ?? _l10n.coachErrorImageTooLarge,
       );
     }
 
     if (status >= 500) {
       // 5xx-Bodies sind Interna ("rpc_unavailable", Gateway-HTML) — nie
       // anzeigen, auch wenn ein reply-Feld dabei waere.
-      return const CoachChatException(_unreachableMessage);
+      return CoachChatException(_unreachableMessage);
     }
 
     return CoachChatException(
-      serverReply ?? 'Der Coach konnte deine Anfrage nicht verarbeiten.',
+      serverReply ?? _l10n.coachErrorRequestFailed,
     );
   }
 

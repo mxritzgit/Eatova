@@ -226,10 +226,10 @@ class SettingsNote extends StatelessWidget {
 /// umbrechen statt die Einstellungszeile zu sprengen.
 ///
 /// [SettingsThemeModePill] und [SettingsLanguagePill] sehen identisch aus und
-/// unterscheiden sich nur im Wert-Typ ([ThemeMode] vs. `Locale?`) und darin,
-/// woher die Optionen kommen (statische Konstante vs. `context.l10n` im
-/// `build()`) — der Baukoerper steht deshalb genau EINMAL hier, nicht
-/// zweimal geklont.
+/// unterscheiden sich nur im Wert-Typ ([ThemeMode] vs. `Locale?`) — beide
+/// bauen ihre Beschriftungen seit der i18n-Migration (Paket 6) aus
+/// `context.l10n` im `build()`. Der Baukoerper steht deshalb genau EINMAL
+/// hier, nicht zweimal geklont.
 class _SettingsChoicePill<T> extends StatelessWidget {
   const _SettingsChoicePill({
     required this.value,
@@ -303,18 +303,17 @@ class SettingsThemeModePill extends StatelessWidget {
   final ThemeMode mode;
   final ValueChanged<ThemeMode> onChanged;
 
-  static const List<(ThemeMode, String, String)> _optionen =
-      <(ThemeMode, String, String)>[
-    (ThemeMode.system, 'System', 'settings-theme-mode-system'),
-    (ThemeMode.light, 'Hell', 'settings-theme-mode-light'),
-    (ThemeMode.dark, 'Dunkel', 'settings-theme-mode-dark'),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final optionen = <(ThemeMode, String, String)>[
+      (ThemeMode.system, l10n.languageSystem, 'settings-theme-mode-system'),
+      (ThemeMode.light, l10n.settingsThemeModeLight, 'settings-theme-mode-light'),
+      (ThemeMode.dark, l10n.settingsThemeModeDark, 'settings-theme-mode-dark'),
+    ];
     return _SettingsChoicePill<ThemeMode>(
       value: mode,
-      optionen: _optionen,
+      optionen: optionen,
       onChanged: onChanged,
     );
   }
@@ -446,25 +445,26 @@ class SettingsLegalLinks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    final l10n = context.l10n;
+    return Center(
       child: Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,
         children: <Widget>[
           _LegalLink(
-            key: ValueKey('settings-privacy-link'),
-            label: 'Datenschutz',
+            key: const ValueKey('settings-privacy-link'),
+            label: l10n.settingsLegalPrivacy,
             url: kPrivacyUrl,
           ),
-          _LegalDot(),
+          const _LegalDot(),
           _LegalLink(
-            key: ValueKey('settings-terms-link'),
-            label: 'AGB',
+            key: const ValueKey('settings-terms-link'),
+            label: l10n.settingsLegalTerms,
             url: kTermsUrl,
           ),
-          _LegalDot(),
+          const _LegalDot(),
           _LegalLink(
-            key: ValueKey('settings-imprint-link'),
-            label: 'Impressum',
+            key: const ValueKey('settings-imprint-link'),
+            label: l10n.settingsLegalImprint,
             url: kImprintUrl,
           ),
         ],

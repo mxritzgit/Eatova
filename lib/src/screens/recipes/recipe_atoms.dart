@@ -105,7 +105,10 @@ class _RecipeImage extends StatelessWidget {
       );
     }
     if (recipe.userCreated || recipe.imageAsset.isEmpty) {
-      return ImagePlaceholder(radius: placeholderRadius, label: 'REZEPT');
+      return ImagePlaceholder(
+        radius: placeholderRadius,
+        label: context.l10n.recipesImagePlaceholderLabel,
+      );
     }
     // Decode-Auflösung an die tatsächliche Slot-Breite koppeln: die Rezept-PNGs
     // sind ~1800px/2.4MB groß und würden sonst voll dekodiert (Hero, Liste,
@@ -184,7 +187,7 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
     if (datei == null) {
       return ImagePlaceholder(
         radius: widget.placeholderRadius,
-        label: 'REZEPT',
+        label: context.l10n.recipesImagePlaceholderLabel,
       );
     }
     return LayoutBuilder(
@@ -200,7 +203,7 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
           // verschwinden (Loeschen, Aufraeumen). Auch dann: Platzhalter.
           errorBuilder: (context, error, stack) => ImagePlaceholder(
             radius: widget.placeholderRadius,
-            label: 'REZEPT',
+            label: context.l10n.recipesImagePlaceholderLabel,
           ),
         );
       },
@@ -239,6 +242,7 @@ class _RecipeMetrics extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final stark = onImage ? t.onForest : t.ink;
     final leise = onImage ? t.onForest.withValues(alpha: 0.78) : t.ink2;
     // Makro-Toene kodieren laut Token-Vertrag Naehrwerte — hier steht der Wert
@@ -251,9 +255,9 @@ class _RecipeMetrics extends StatelessWidget {
       runSpacing: 4,
       children: [
         Text('${recipe.caloriesKcal} kcal', style: stil(stark)),
-        Text('${recipe.proteinG}g P', style: stil(leise)),
-        Text('${recipe.carbsG}g KH', style: stil(leise)),
-        Text('${recipe.fatG}g F', style: stil(leise)),
+        Text(l10n.recipesMetricProtein(recipe.proteinG), style: stil(leise)),
+        Text(l10n.recipesMetricCarbs(recipe.carbsG), style: stil(leise)),
+        Text(l10n.recipesMetricFat(recipe.fatG), style: stil(leise)),
       ],
     );
   }

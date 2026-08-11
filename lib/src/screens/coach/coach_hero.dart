@@ -17,23 +17,25 @@ class _CoachHero extends StatelessWidget {
   /// Legt einen Vorschlag ins Eingabefeld (sendet nicht).
   final ValueChanged<String> onSuggestion;
 
-  String get _timeGreeting {
-    final h = DateTime.now().hour;
-    if (h < 5) return 'Gute Nacht';
-    if (h < 11) return 'Guten Morgen';
-    if (h < 17) return 'Hallo';
-    return 'Guten Abend';
-  }
+  /// Byte-gleich zu `greetingForHour` (today_texts.dart) — beide lasen bis
+  /// zur Coach-Migration (Paket 4) unabhaengige Texte (die Kopie schon aus
+  /// der ARB, das Original hier hartkodiert deutsch). Jetzt ruft das
+  /// Original die Kopie: `today_texts.dart` ist Flutter-frei und oeffentlich,
+  /// eine zweite ARB-Anbindung derselben vier Werte waere dieselbe Aussage
+  /// ein zweites Mal. Der Drift-Test bleibt in `today_texts_test.dart`.
+  String _timeGreeting(AppLocalizations l10n) =>
+      greetingForHour(DateTime.now().hour, l10n);
 
-  String get _firstName {
+  String _firstName(AppLocalizations l10n) {
     final trimmed = name.trim();
-    if (trimmed.isEmpty) return 'Champion';
+    if (trimmed.isEmpty) return l10n.coachFallbackName;
     return trimmed.split(RegExp(r'\s+')).first;
   }
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Center(
       key: const ValueKey('coach-empty'),
       // Scrollbar statt starr: der Leerzustand traegt seit C8 eine Zeile mehr,
@@ -48,13 +50,13 @@ class _CoachHero extends StatelessWidget {
             const CoachOrb(size: 92),
             const SizedBox(height: 22),
             Text(
-              '$_timeGreeting, $_firstName',
+              '${_timeGreeting(l10n)}, ${_firstName(l10n)}',
               textAlign: TextAlign.center,
               style: AppType.display(26, color: t.ink, height: 1.15),
             ),
             const SizedBox(height: 6),
             Text(
-              'Wie kann ich dir helfen?',
+              l10n.coachHeroSubtitle,
               textAlign: TextAlign.center,
               style: AppType.ui(15, color: t.ink2),
             ),
@@ -111,8 +113,7 @@ class _CoachAiNote extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Hier antwortet eine KI. Die Tipps sind eine '
-                      'KI-Schätzung, kein ärztlicher Rat.',
+                      context.l10n.coachAiNoteBody,
                       style: AppType.ui(12.5, color: t.ink, height: 1.4),
                     ),
                   ),
@@ -124,7 +125,7 @@ class _CoachAiNote extends StatelessWidget {
                 children: <Widget>[
                   Flexible(
                     child: Text(
-                      'Welche Daten mitgehen',
+                      context.l10n.coachAiNoteCta,
                       style: AppType.ui(
                         12,
                         weight: FontWeight.w600,
@@ -162,15 +163,15 @@ class _SuggestionList extends StatelessWidget {
 
   final ValueChanged<String> onSuggestion;
 
-  static const List<String> _suggestions = <String>[
-    'Was soll ich heute noch essen?',
-    'Wie komme ich auf meine restlichen Proteine?',
-    'Wann sollte ich heute schlafen gehen?',
-  ];
-
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
+    final suggestions = <String>[
+      l10n.coachSuggestionMeal,
+      l10n.coachSuggestionProtein,
+      l10n.coachSuggestionSleep,
+    ];
     return Padding(
       // Horizontal 0: der Seitenrand kommt aus der Schale.
       padding: const EdgeInsets.fromLTRB(0, 18, 0, 0),
@@ -181,7 +182,7 @@ class _SuggestionList extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          for (var i = 0; i < _suggestions.length; i++)
+          for (var i = 0; i < suggestions.length; i++)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Material(
@@ -189,7 +190,7 @@ class _SuggestionList extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   key: ValueKey<String>('coach-suggestion-$i'),
-                  onTap: () => onSuggestion(_suggestions[i]),
+                  onTap: () => onSuggestion(suggestions[i]),
                   borderRadius: BorderRadius.circular(14),
                   child: Container(
                     decoration: BoxDecoration(
@@ -211,7 +212,7 @@ class _SuggestionList extends StatelessWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            _suggestions[i],
+                            suggestions[i],
                             style: AppType.ui(
                               13,
                               weight: FontWeight.w500,

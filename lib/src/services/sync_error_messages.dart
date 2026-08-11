@@ -7,6 +7,7 @@ import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart'
     show AuthRetryableFetchException, PostgrestException;
 
+import '../l10n/l10n.dart';
 import 'sync_outbox.dart'
     show SyncOpKind, kOutboxDeleteMaxAttempts, kOutboxMaxAttempts;
 
@@ -85,13 +86,18 @@ enum SyncDelivery {
 /// ([showAppSnack] raeumt den vorigen ab). Der Nutzer sah zwei Meldungen
 /// aufblitzen, von denen die erste zu viel versprach. Jetzt sagt EINE Meldung
 /// beides: der Eintrag ist sicher, und was noch aussteht.
-String deliveryHint(String erfolg, SyncDelivery delivery) => switch (delivery) {
-      SyncDelivery.delivered => '$erfolg.',
-      SyncDelivery.queuedOffline =>
-        '$erfolg — wird synchronisiert, sobald du wieder online bist.',
-      SyncDelivery.queuedRetry =>
-        '$erfolg — die Übertragung wird automatisch wiederholt.',
-    };
+String deliveryHint(
+  String erfolg,
+  SyncDelivery delivery, [
+  AppLocalizations? l10n,
+]) {
+  final t = l10n ?? deL10n;
+  return switch (delivery) {
+    SyncDelivery.delivered => t.commonDeliverySuccess(erfolg),
+    SyncDelivery.queuedOffline => t.commonDeliveryQueuedOffline(erfolg),
+    SyncDelivery.queuedRetry => t.commonDeliveryQueuedRetry(erfolg),
+  };
+}
 
 /// Klassifiziert einen Queue-Grund fuer [deliveryHint]. [error] ist null, wenn
 /// die Op ohne Live-Versuch hinter eine bereits pendende eingereiht wurde.
@@ -105,10 +111,12 @@ SyncDelivery queuedDelivery(Object? error) =>
 /// muss nichts tun. Netzfehler -> ehrliches "Offline", alles andere (auch
 /// `null`, wenn eine Op ohne Live-Versuch hinter eine pendende eingereiht
 /// wurde) -> neutrale Meldung ohne Exception-Details.
-String queuedSyncHint(Object? error) => error != null &&
-        isNetworkSyncError(error)
-    ? 'Offline — wird synchronisiert, sobald du wieder online bist.'
-    : 'Änderung konnte nicht gespeichert werden — wird automatisch erneut versucht.';
+String queuedSyncHint(Object? error, [AppLocalizations? l10n]) {
+  final t = l10n ?? deL10n;
+  return error != null && isNetworkSyncError(error)
+      ? t.commonQueuedOfflineHint
+      : t.commonQueuedRetryGenericHint;
+}
 
 // Hier stand bis Luecke D (2026-08-10) `profileSyncErrorMessage` — die
 // Meldung „Profil konnte nicht gespeichert werden. Bitte versuch es später
@@ -122,16 +130,19 @@ String queuedSyncHint(Object? error) => error != null &&
 
 /// Generische Meldung fuer sonstige Operationen ohne Outbox-Netz (z.B.
 /// Konto-Löschung): kein Auto-Retry, der User soll es erneut ausloesen.
-String directSyncErrorMessage(Object error) => isNetworkSyncError(error)
-    ? 'Offline — das hat gerade nicht geklappt. Bitte versuch es mit Internetverbindung erneut.'
-    : 'Das hat gerade nicht geklappt. Bitte versuch es später erneut.';
+String directSyncErrorMessage(Object error, [AppLocalizations? l10n]) {
+  final t = l10n ?? deL10n;
+  return isNetworkSyncError(error)
+      ? t.commonSyncErrorOffline
+      : t.commonGenericRetryError;
+}
 
 /// Hinweis, dass die Outbox Ops ENDGUELTIG verworfen hat (Gift-Op, aufgebrauchtes
 /// Versuchs-Budget oder Queue-Cap). Echter Datenverlust — der User erfaehrt
 /// davon, aber wie ueberall hier OHNE technische Details: kein SQLSTATE, kein
 /// Tabellen-/Constraint-Name, kein Exception-Typ (Schema-Leakage).
-const String outboxLossHint =
-    'Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.';
+String outboxLossHint([AppLocalizations? l10n]) =>
+    (l10n ?? deL10n).commonOutboxLossHint;
 
 /// Hinweis fuer den Sonderfall einer endgueltig gescheiterten LOESCHUNG.
 ///
@@ -141,9 +152,8 @@ const String outboxLossHint =
 /// wieder ein (sonst kaeme er beim naechsten Kaltstart still vom Server
 /// zurueck und zaehlte erneut mit) — die Meldung sagt genau das und nennt die
 /// eine Handlung, die hilft. Wie ueberall hier ohne technische Details.
-const String outboxDeleteLossHint =
-    'Eine Löschung ließ sich nicht speichern — der Eintrag ist wieder da. '
-    'Bitte lösch ihn noch einmal.';
+String outboxDeleteLossHint([AppLocalizations? l10n]) =>
+    (l10n ?? deL10n).commonOutboxDeleteLossHint;
 
 /// Was mit einer fehlgeschlagenen Outbox-Op passieren soll.
 enum OutboxVerdict {

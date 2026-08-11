@@ -5,7 +5,14 @@ class CoachSpeechInput {
 
   static const MethodChannel _channel = MethodChannel('eatova/speech');
 
-  Future<String?> listen({String localeId = 'de_DE'}) async {
+  /// [l10n] fehlt bewusst nicht in der Signatur: [CoachSpeechInput] hat
+  /// keinen `BuildContext` (MethodChannel-Klasse, ohne Widget-Baum) — der
+  /// Aufrufer (`_toggleSpeechInput` in coach_chat_screen.dart, hat Context)
+  /// reicht die Uebersetzungen durch, statt hier ein eigenes Lookup zu bauen.
+  Future<String?> listen({
+    String localeId = 'de_DE',
+    required AppLocalizations l10n,
+  }) async {
     try {
       return await _channel.invokeMethod<String>('listen', <String, dynamic>{
         'localeId': localeId,
@@ -13,20 +20,14 @@ class CoachSpeechInput {
     } on PlatformException catch (e) {
       final code = e.code.toLowerCase();
       if (code.contains('permission') || code.contains('denied')) {
-        throw const CoachSpeechException(
-          'Mikrofon oder Spracherkennung wurde nicht erlaubt. Du kannst die Berechtigung in den iOS-Einstellungen wieder aktivieren.',
-        );
+        throw CoachSpeechException(l10n.coachSpeechPermissionDenied);
       }
       if (code.contains('unavailable')) {
-        throw const CoachSpeechException(
-          'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.',
-        );
+        throw CoachSpeechException(l10n.coachSpeechUnavailable);
       }
-      throw CoachSpeechException(e.message ?? 'Spracherkennung fehlgeschlagen.');
+      throw CoachSpeechException(e.message ?? l10n.coachSpeechFailed);
     } on MissingPluginException {
-      throw const CoachSpeechException(
-        'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.',
-      );
+      throw CoachSpeechException(l10n.coachSpeechUnavailable);
     }
   }
 

@@ -8,13 +8,17 @@ class MealPreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return AppCard(
       radius: rCard,
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SectionHeader(title: 'Foto', action: 'Preview'),
+          SectionHeader(
+            title: l10n.foodPhotoCardTitle,
+            action: l10n.foodPhotoCardPreviewAction,
+          ),
           const SizedBox(height: 10),
           Container(
             key: const ValueKey('analyse-image-preview'),
@@ -36,7 +40,7 @@ class MealPreviewCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Noch kein Bild ausgewählt',
+                        l10n.foodNoImageSelected,
                         style: AppType.ui(
                           13,
                           weight: FontWeight.w500,
@@ -82,12 +86,19 @@ class _MealLoadingCardState extends State<MealLoadingCard>
   /// Stufen (AnimatedSwitcher unten) ist Deko und kollabiert.
   static const Duration _estimatedDuration = Duration(seconds: 7);
 
-  static const List<(IconData, String)> _stages = [
-    (Icons.image_search_rounded, 'Erkenne Lebensmittel...'),
-    (Icons.straighten_rounded, 'Schätze Mengen...'),
-    (Icons.calculate_rounded, 'Berechne Kalorien...'),
-    (Icons.auto_awesome_rounded, 'Letzter Feinschliff...'),
-  ];
+  /// Seit der i18n-Migration (Paket 2, 2026-08-10) keine `static const`
+  /// Liste mehr — die ARB-Texte brauchen ein [AppLocalizations], das erst zur
+  /// Laufzeit vorliegt. `_stageCount` haelt die feste Laenge weiterhin ohne
+  /// `context`-Zugriff verfuegbar (fuer [_handleTick], das ausserhalb von
+  /// `build` laeuft).
+  static const int _stageCount = 4;
+
+  List<(IconData, String)> _stages(AppLocalizations l10n) => [
+        (Icons.image_search_rounded, l10n.foodLoadingStageDetect),
+        (Icons.straighten_rounded, l10n.foodLoadingStageEstimate),
+        (Icons.calculate_rounded, l10n.foodLoadingStageCalculate),
+        (Icons.auto_awesome_rounded, l10n.foodLoadingStageFinal),
+      ];
 
   @override
   void initState() {
@@ -102,8 +113,8 @@ class _MealLoadingCardState extends State<MealLoadingCard>
 
   void _handleTick() {
     if (!mounted) return;
-    final raw = (_progress.value * _stages.length).floor();
-    final clamped = raw.clamp(0, _stages.length - 1);
+    final raw = (_progress.value * _stageCount).floor();
+    final clamped = raw.clamp(0, _stageCount - 1);
     if (clamped != _stepIndex) {
       setState(() => _stepIndex = clamped);
     }
@@ -120,8 +131,10 @@ class _MealLoadingCardState extends State<MealLoadingCard>
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final stage = _stages[_stepIndex];
-    final atFinalStage = _stepIndex == _stages.length - 1;
+    final l10n = context.l10n;
+    final stages = _stages(l10n);
+    final stage = stages[_stepIndex];
+    final atFinalStage = _stepIndex == stages.length - 1;
     return AppCard(
       key: const ValueKey('analyse-loading'),
       radius: rCard,
@@ -163,8 +176,9 @@ class _MealLoadingCardState extends State<MealLoadingCard>
                       const SizedBox(height: 2),
                       Text(
                         atFinalStage
-                            ? 'Gleich fertig...'
-                            : 'Schritt ${_stepIndex + 1} von ${_stages.length}',
+                            ? l10n.foodLoadingAlmostDone
+                            : l10n.foodLoadingStepOf(
+                                _stepIndex + 1, stages.length),
                         style: AppType.ui(
                           11,
                           weight: FontWeight.w500,

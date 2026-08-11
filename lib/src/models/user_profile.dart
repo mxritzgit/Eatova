@@ -1,10 +1,20 @@
+import 'package:intl/intl.dart';
+
+import '../l10n/l10n.dart';
+
 enum BiologicalSex { male, female, neutral }
 
 extension BiologicalSexLabel on BiologicalSex {
-  String get label => switch (this) {
-        BiologicalSex.male => 'männlich',
-        BiologicalSex.female => 'weiblich',
-        BiologicalSex.neutral => 'neutral',
+  /// Nutzersichtbares Label, sprachaktiv ueber die ARB.
+  ///
+  /// Seit der i18n-Migration (Paket 6, 2026-08-10) hier zuhause statt als
+  /// nackter Getter: die Persistenz (`sex.name`) blieb unberuehrt, s.
+  /// `profile_sync.dart`/`sync_outbox.dart` — nur die ANZEIGE braucht die
+  /// aktive Sprache. Mirrors [MealSlotStyle.label] (Paket 2).
+  String label(AppLocalizations l10n) => switch (this) {
+        BiologicalSex.male => l10n.commonSexLabelMale,
+        BiologicalSex.female => l10n.commonSexLabelFemale,
+        BiologicalSex.neutral => l10n.commonSexLabelNeutral,
       };
 }
 
@@ -24,20 +34,20 @@ extension ActivityLevelInfo on ActivityLevel {
         ActivityLevel.athlete => 1.9,
       };
 
-  String get label => switch (this) {
-        ActivityLevel.sedentary => 'Kaum aktiv',
-        ActivityLevel.light => 'Leicht aktiv',
-        ActivityLevel.moderate => 'Mäßig aktiv',
-        ActivityLevel.active => 'Sehr aktiv',
-        ActivityLevel.athlete => 'Extrem aktiv',
+  String label(AppLocalizations l10n) => switch (this) {
+        ActivityLevel.sedentary => l10n.commonActivityLabelSedentary,
+        ActivityLevel.light => l10n.commonActivityLabelLight,
+        ActivityLevel.moderate => l10n.commonActivityLabelModerate,
+        ActivityLevel.active => l10n.commonActivityLabelActive,
+        ActivityLevel.athlete => l10n.commonActivityLabelAthlete,
       };
 
-  String get description => switch (this) {
-        ActivityLevel.sedentary => 'Bürojob, wenig Bewegung',
-        ActivityLevel.light => 'Leichte Bewegung, 1–2× Sport/Woche',
-        ActivityLevel.moderate => 'Aktiver Alltag, 3–5× Sport/Woche',
-        ActivityLevel.active => 'Täglich aktiv, 6–7× Sport/Woche',
-        ActivityLevel.athlete => 'Körperliche Arbeit + tägl. Training',
+  String description(AppLocalizations l10n) => switch (this) {
+        ActivityLevel.sedentary => l10n.commonActivityDescSedentary,
+        ActivityLevel.light => l10n.commonActivityDescLight,
+        ActivityLevel.moderate => l10n.commonActivityDescModerate,
+        ActivityLevel.active => l10n.commonActivityDescActive,
+        ActivityLevel.athlete => l10n.commonActivityDescAthlete,
       };
 }
 
@@ -49,18 +59,18 @@ extension ActivityLevelInfo on ActivityLevel {
 enum DietPreference { none, vegetarian, vegan, pescetarian }
 
 extension DietPreferenceInfo on DietPreference {
-  String get label => switch (this) {
-        DietPreference.none => 'Alles',
-        DietPreference.vegetarian => 'Vegetarisch',
-        DietPreference.vegan => 'Vegan',
-        DietPreference.pescetarian => 'Pescetarisch',
+  String label(AppLocalizations l10n) => switch (this) {
+        DietPreference.none => l10n.commonDietLabelNone,
+        DietPreference.vegetarian => l10n.commonDietLabelVegetarian,
+        DietPreference.vegan => l10n.commonDietLabelVegan,
+        DietPreference.pescetarian => l10n.commonDietLabelPescetarian,
       };
 
-  String get description => switch (this) {
-        DietPreference.none => 'Keine Einschränkung',
-        DietPreference.vegetarian => 'Kein Fleisch, kein Fisch',
-        DietPreference.vegan => 'Rein pflanzlich',
-        DietPreference.pescetarian => 'Vegetarisch plus Fisch',
+  String description(AppLocalizations l10n) => switch (this) {
+        DietPreference.none => l10n.commonDietDescNone,
+        DietPreference.vegetarian => l10n.commonDietDescVegetarian,
+        DietPreference.vegan => l10n.commonDietDescVegan,
+        DietPreference.pescetarian => l10n.commonDietDescPescetarian,
       };
 }
 
@@ -140,10 +150,11 @@ extension WeightGoalInfo on WeightGoal {
   /// Versprechen und Wirklichkeit direkt vergleichen lassen.
   double get signedWeeklyRateKg => kcalDelta * 7 / kcalPerKgBodyMass;
 
-  /// Richtungs-Label ohne Tempo.
-  String get label {
-    if (kcalDelta == 0) return 'Gewicht halten';
-    return isGain ? 'Zunehmen' : 'Abnehmen';
+  /// Richtungs-Label ohne Tempo, sprachaktiv ueber die ARB (Paket 6,
+  /// 2026-08-10) — s. [BiologicalSexLabel.label].
+  String label(AppLocalizations l10n) {
+    if (kcalDelta == 0) return l10n.commonWeightGoalLabelMaintain;
+    return isGain ? l10n.commonWeightGoalLabelGain : l10n.commonWeightGoalLabelLose;
   }
 
   /// Vorzeichenbehaftetes Tempo, z.B. "−1 kg/Woche", "+0,5 kg/Woche".
@@ -152,11 +163,21 @@ extension WeightGoalInfo on WeightGoal {
   /// konkretes Profil im Spiel ist (Plan-Karten, Zusammenfassungen), gehört
   /// `KcalTargets.effectivePaceLabel` hin: nur das kennt die
   /// Sicherheitsgrenze.
-  String get paceLabel => paceLabelForWeeklyRateKg(signedWeeklyRateKg);
+  ///
+  /// Seit der i18n-Migration (Paket 7, 2026-08-11) l10n-faehig — gemeinsam mit
+  /// `paceLabelForWeeklyRateKg` und `KcalTargets.effectivePaceLabel`/
+  /// `.paceWarning`, die denselben Weg gehen (B2-Kopplung, s. Paket-6-Bericht):
+  /// [l10n] optional, Default Deutsch ([deL10n]), damit
+  /// `test/services/kcal_effective_pace_test.dart` als kontextfreie Test-API
+  /// weiterlaeuft (Regel 1, docs/I18N_PAKETE.md). Aus einem Getter wurde
+  /// dafuer eine Methode — Dart-Getter koennen keine Parameter tragen.
+  String paceLabel([AppLocalizations? l10n]) =>
+      paceLabelForWeeklyRateKg(signedWeeklyRateKg, l10n);
 
   /// Kombiniertes Menü-Label, z.B. "Abnehmen · −1 kg/Woche".
-  String get menuLabel =>
-      kcalDelta == 0 ? 'Gewicht halten' : '$label · $paceLabel';
+  String menuLabel(AppLocalizations l10n) => kcalDelta == 0
+      ? l10n.commonWeightGoalLabelMaintain
+      : '${label(l10n)} · ${paceLabel(l10n)}';
 
   /// Vorzeichenbehaftetes Delta-Label, z.B. "−1100 kcal" / "±0".
   String get deltaLabel {
@@ -174,26 +195,37 @@ extension WeightGoalInfo on WeightGoal {
 /// "+0 kg/Woche" ausweisen. Nicht-endliche Werte können hier nicht ankommen
 /// (die Rate entsteht aus zwei Ganzzahlen), werden aber trotzdem abgefangen,
 /// damit kein "NaN kg/Woche" in ein Widget gelangt.
-String paceLabelForWeeklyRateKg(double signedRateKg) {
+///
+/// [l10n] ist optional (Default Deutsch, [deL10n]) — dasselbe Muster wie
+/// Paket 6s `sync_error_messages.dart`. Seit dem Nachzieh-Fix (Paket 7,
+/// 2026-08-11) folgt auch die Zahl selbst ([_formatRateKg]) der Sprache:
+/// ein englisches "−0.5 kg/week" mit deutschem Komma ("−0,5") war dieselbe
+/// Leck-Klasse wie der Text drumherum, nur eine Ebene tiefer.
+String paceLabelForWeeklyRateKg(double signedRateKg, [AppLocalizations? l10n]) {
+  final t = l10n ?? deL10n;
   if (!signedRateKg.isFinite || signedRateKg.abs() < weeklyRateNoiseKg) {
-    return 'Gewicht stabil';
+    return t.commonPaceStable;
   }
   final sign = signedRateKg > 0 ? '+' : '−';
-  return '$sign${_formatRateKg(signedRateKg.abs())} kg/Woche';
+  return t.commonPaceRateLabel(
+    '$sign${_formatRateKg(signedRateKg.abs(), t.localeName)}',
+  );
 }
 
-/// Formatiert eine kg-Rate deutsch auf höchstens zwei Nachkommastellen:
-/// 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.7245 → "0,72".
+/// Formatiert eine kg-Rate auf höchstens zwei Nachkommastellen, locale-bewusst:
+/// unter `de` 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.7245 → "0,72"; unter
+/// `en` dieselben Werte mit Punkt statt Komma ("0.5" usw.) — byte-identisch
+/// zum Bestand unter `de`.
 ///
 /// Erwartet einen vorzeichenlosen Wert; das Vorzeichen setzt der Aufrufer.
-/// Erst runden, dann formatieren: `1.0009.toStringAsFixed(2)` ergibt "1.00",
-/// und das alte Abschneiden der Nullen hätte daraus "1," gemacht.
-String _formatRateKg(double kg) {
+/// Erst runden, dann formatieren: [NumberFormat]s eigene Rundung auf der
+/// UNGERUNDETEN Rate könnte an der zweiten Nachkommastelle anders runden als
+/// das explizite `(kg * 100).round() / 100` — deshalb bleibt der Rundungs-
+/// schritt in eigener Hand, [NumberFormat] übernimmt nur noch die Anzeige
+/// (Trennzeichen, Nachkommastellen kappen) des bereits gerundeten Werts.
+String _formatRateKg(double kg, String localeName) {
   final gerundet = (kg.abs() * 100).round() / 100;
-  if (gerundet == gerundet.roundToDouble()) return gerundet.toStringAsFixed(0);
-  var text = gerundet.toStringAsFixed(2);
-  if (text.endsWith('0')) text = text.substring(0, text.length - 1);
-  return text.replaceAll('.', ',');
+  return NumberFormat('0.##', localeName).format(gerundet);
 }
 
 class UserProfile {

@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -36,10 +38,20 @@ Future<void> _pumpTrends(
   int kcalGoal = 2200,
   Brightness brightness = Brightness.dark,
   TextScaler? textScaler,
+  Locale locale = const Locale('de'),
 }) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
+      // TrendsScreen liest seit der i18n-Migration context.l10n.
+      locale: locale,
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: textScaler == null
           ? TrendsScreen(kcalGoal: kcalGoal, loadTotals: loader)
           : MediaQuery(
@@ -298,5 +310,35 @@ void main() {
 
     expect(find.byKey(const ValueKey('trends-error')), findsOneWidget);
     expect(find.byKey(const ValueKey('trends-retry')), findsOneWidget);
+  });
+
+  group('EN-Render-Smoke (i18n-Paket 5, Spec §6)', () {
+    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
+    // mindestens eine echte englische Uebersetzung steht im Baum. Muster:
+    // test/coach_design_test.dart (Paket 4).
+    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
+      testWidgets('rendert unter en in $brightness ohne Ausnahme',
+          (tester) async {
+        _pinViewport(tester);
+        await _pumpTrends(
+          tester,
+          brightness: brightness,
+          locale: const Locale('en'),
+          loader: () => Future.value([
+            for (var d = 0; d < 6; d++)
+              _day(d, kcal: 1800 + d * 90, p: 110, c: 190, f: 65),
+          ]),
+        );
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull,
+            reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
+        // „Trends" bleibt „Trends", „Ø KALORIEN" -> „AVG CALORIES".
+        expect(find.text('Trends'), findsOneWidget);
+        expect(find.text('AVG CALORIES'), findsOneWidget);
+        expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+      });
+    }
   });
 }

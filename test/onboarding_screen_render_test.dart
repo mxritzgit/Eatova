@@ -1,9 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
+
+/// Delegates fuer die drei MaterialApp-Instanzen dieser Datei — der Screen
+/// ruft seit Paket 6 (i18n) durchgehend `context.l10n`.
+const _l10nDelegates = [
+  AppLocalizations.delegate,
+  GlobalMaterialLocalizations.delegate,
+  GlobalWidgetsLocalizations.delegate,
+  GlobalCupertinoLocalizations.delegate,
+];
 
 // DESIGN_REFACTOR §7.2 / §5: jeder Screen rendert in BEIDEN Helligkeiten und
 // bei Systemschrift 200 % ohne RenderFlex-Overflow.
@@ -67,6 +78,9 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(brightness),
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: _l10nDelegates,
           home: OnboardingScreen(
             firstName: 'Moritz',
             initialProfile: vollerFlow,
@@ -140,6 +154,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.light),
+        locale: const Locale('de'),
+        supportedLocales: const [Locale('de'), Locale('en')],
+        localizationsDelegates: _l10nDelegates,
         home: OnboardingScreen(
           firstName: 'Moritz',
           initialProfile: vollerFlow,
@@ -191,6 +208,9 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(Brightness.light),
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: _l10nDelegates,
           home: OnboardingScreen(
             firstName: 'Moritz',
             initialProfile: const UserProfile(

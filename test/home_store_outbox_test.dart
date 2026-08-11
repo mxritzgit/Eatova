@@ -943,7 +943,7 @@ void main() {
     // Genau EIN Verlust-Hinweis, auch nach weiteren Flush-Runden.
     s.store.flushPendingWrites();
     await _settle();
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
 
     // Schema-Leakage-Guard: kein Snack traegt SQLSTATE, Tabellen-/
     // Constraint-Namen oder Exception-Typen.
@@ -979,7 +979,7 @@ void main() {
     final op =
         s.store.pendingOutbox.singleWhere((o) => o.entityKey == 'meal:$id');
     expect(op.attempts, 3);
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty,
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty,
         reason: 'ein 500 ist kein Grund, Nutzerdaten wegzuwerfen');
 
     // Server erholt sich rechtzeitig -> ganz normaler Sync.
@@ -1010,7 +1010,7 @@ void main() {
         s.store.pendingOutbox.singleWhere((o) => o.entityKey == 'meal:$id');
     expect(op.attempts, 0,
         reason: 'ein Offline-Wochenende darf kein Budget kosten');
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty);
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty);
 
     // Wieder online -> die Mahlzeit ist vollstaendig da.
     s.server.offline = false;
@@ -1085,7 +1085,7 @@ void main() {
     expect(persisted!.length, lessThanOrEqualTo(kOutboxMaxOps));
 
     // Der Verlust wird gemeldet — aber nur EINMAL, nicht 5x.
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test(
@@ -1150,7 +1150,7 @@ void main() {
       hasLength(1),
       reason: 'Wanduhrzeit entscheidet, nicht die Zahl der Durchlaeufe',
     );
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty);
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty);
 
     // Der Ausfall geht vorbei — die Mahlzeit landet ganz normal.
     s.server.rejectMealWrites = false;
@@ -1183,7 +1183,7 @@ void main() {
 
     expect(s.store.pendingOutbox.where((o) => o.entityKey == 'meal:m-uralt'),
         isEmpty);
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
   });
 
   test(
@@ -1205,7 +1205,7 @@ void main() {
         s.store.pendingOutbox.where((o) => o.entityKey == 'meal:$id'), isEmpty);
     expect(s.store.loggedMeals.map((m) => m.id), contains(id));
     expect(s.server.mealRows.keys, isNot(contains(id)));
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
 
     // Server ist wieder gesund, der Nutzer korrigiert die Portion.
     s.server.poisonMealWrites = false;
@@ -1259,7 +1259,7 @@ void main() {
     );
     // … und der Nutzer erfaehrt davon. Frueher war das der EINZIGE Verlustpfad
     // ohne Snack, ohne Breadcrumb, ohne Crash-Report.
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
   });
 
   test(
@@ -1316,10 +1316,10 @@ void main() {
     await _boot(s.store);
 
     expect(s.store.pendingOutbox, hasLength(kOutboxMaxOps));
-    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()),
         hasLength(1),
         reason: 'zwei Deletes sind gefallen — ihre Eintraege kommen wieder');
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1),
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1),
         reason: 'der Write ist gefallen und FEHLT damit — diese Meldung '
             'verschluckte der gemeinsame Aufruf mit deletesLost==true');
   });
@@ -1377,8 +1377,8 @@ void main() {
     expect(s.store.pendingOutbox.map((o) => o.entityKey), contains('meal:$id'),
         reason: 'die Loeschung darf nicht am Code-Verdikt sterben');
     expect(s.server.mealRows.keys, contains(id));
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), isEmpty);
-    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint), isEmpty);
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty);
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()), isEmpty);
 
     // Die Migration ist durch: die Loeschung geht ganz normal raus.
     s.server.poisonMealWrites = false;
@@ -1428,7 +1428,7 @@ void main() {
     expect(s.store.dailyConsumedKcal, 1800,
         reason: 'die Kalorien zaehlen wieder — das darf nicht unsichtbar sein');
     // … und der Nutzer erfaehrt, was zu tun ist.
-    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()),
         hasLength(1));
     for (final m in s.snacks.messages) {
       expect(m, isNot(contains('logged_meals')));
@@ -1468,7 +1468,7 @@ void main() {
     await _settle();
 
     expect(s.store.pendingOutbox, isEmpty);
-    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()),
         hasLength(1));
     expect(s.store.loggedMeals.map((m) => m.id), contains('m-alt'),
         reason: 'die Meldung verspricht die Wiedereinblendung — fuer eine '
@@ -1536,8 +1536,8 @@ void main() {
 
     // Der Episoden-Merker darf die zweite, ANDERE Nachricht nicht schlucken:
     // beim Write fehlt etwas, bei der Loeschung ist etwas wieder da.
-    expect(s.snacks.messages.where((m) => m == outboxLossHint), hasLength(1));
-    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint),
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()),
         hasLength(1));
     expect(s.store.loggedMeals.map((m) => m.id), contains('m-geist'));
   });
@@ -2636,7 +2636,7 @@ void main() {
     expect((await b.cache.readUserRecipes())!.map((r) => r.slug),
         contains('user_500'),
         reason: 'der Boot-Snapshot darf den Stand nicht wegschreiben');
-    expect(b.snacks.messages, isNot(contains(outboxLossHint)),
+    expect(b.snacks.messages, isNot(contains(outboxLossHint())),
         reason: 'ein retrybarer 500 ist kein Verlust');
 
     // Erholung vor dem Budget-Ende: der naechste Flush stellt zu.

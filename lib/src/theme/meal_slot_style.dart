@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/l10n.dart';
 import '../models/logged_meal.dart';
 import 'app_tokens.dart';
 
@@ -36,15 +37,32 @@ extension MealSlotStyle on MealSlot {
         MealSlot.snack => Icons.cookie_outlined,
       };
 
-  /// Kompaktes Label für enge Slots (Segmented-Control) — kürzer als das
-  /// Modell-Label ([MealSlotLabel.label], z. B. „Mittagessen"/„Snacks").
-  String get shortLabel => switch (this) {
-        MealSlot.breakfast => 'Frühstück',
-        MealSlot.lunch => 'Mittag',
-        MealSlot.dinner => 'Abend',
-        MealSlot.snack => 'Snack',
+  /// Der volle, NUTZERSICHTBARE Slot-Name („Frühstück"/„Mittagessen"/
+  /// „Abendessen"/„Snacks") — aus der ARB, spricht die aktive App-Sprache.
+  ///
+  /// Seit der i18n-Migration (Paket 2, 2026-08-10) hier zuhause statt als
+  /// `MealSlotLabel.label`-Getter in `models/logged_meal.dart`: ein Getter
+  /// ohne Sprachparameter kann die ARB nicht erreichen. Der alte Name blieb
+  /// dort als [MealSlotLabel.germanLabel] fuer den einen verbliebenen
+  /// nicht-UI-Aufrufer (KI-Kontext) erhalten — s. dort.
+  String label(AppLocalizations l10n) => switch (this) {
+        MealSlot.breakfast => l10n.commonSlotBreakfast,
+        MealSlot.lunch => l10n.commonSlotLunch,
+        MealSlot.dinner => l10n.commonSlotDinner,
+        MealSlot.snack => l10n.commonSlotSnacks,
       };
 
-  /// Anfangsbuchstabe für den runden Slot-Avatar der neuen Karten.
-  String get initial => label.substring(0, 1).toUpperCase();
+  /// Kompaktes Label für enge Slots (Segmented-Control) — kürzer als
+  /// [label], z. B. „Mittag" statt „Mittagessen".
+  String shortLabel(AppLocalizations l10n) => switch (this) {
+        MealSlot.breakfast => l10n.commonSlotBreakfastShort,
+        MealSlot.lunch => l10n.commonSlotLunchShort,
+        MealSlot.dinner => l10n.commonSlotDinnerShort,
+        MealSlot.snack => l10n.commonSlotSnackShort,
+      };
+
+  /// Anfangsbuchstabe für den runden Slot-Avatar der neuen Karten — aus dem
+  /// sprachaktiven [label], damit er unter `en` mit „B"/„L"/„D"/„S" statt
+  /// weiterhin „F"/„M"/„A"/„S" uebereinstimmt.
+  String initial(AppLocalizations l10n) => label(l10n).substring(0, 1).toUpperCase();
 }

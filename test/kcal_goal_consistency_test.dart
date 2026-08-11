@@ -30,8 +30,10 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
@@ -83,9 +85,21 @@ void _pinViewport(WidgetTester tester) {
 
 /// Dieselbe Huelle, die `EatovaHomePage` dem Tab gibt (SafeArea + 20/12/20/12)
 /// — sonst maesse der Test ein Layout, das die App nie zeichnet.
+///
+/// TodayScreen liest seit dem i18n-Paket 1 `context.l10n` (Muster von
+/// test/home_page_tabs_test.dart) — ohne die Lokalisierung wirft
+/// AppLocalizations.of() beim ersten Build.
 Widget _schale(Widget child, Brightness brightness) => MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: buildEatovaTheme(brightness),
+      locale: const Locale('de'),
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Scaffold(
         body: SafeArea(
           child: Padding(

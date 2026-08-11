@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
@@ -12,12 +13,6 @@ import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
-
-/// Meldung, wenn eine Mahlzeit ohne Kalorienangabe geloggt werden soll.
-/// Als Konstante, damit Tests denselben Wortlaut pruefen wie die Oberflaeche.
-const String kMealWithoutCaloriesMessage =
-    'Ohne Kalorienangabe lässt sich nichts loggen. Trag die Bestandteile über '
-    '„Anpassen" ein.';
 
 /// Mappt einen Analyse-/Lookup-Fehler auf die Snack-Meldung fuer den Nutzer.
 ///
@@ -34,9 +29,13 @@ const String kMealWithoutCaloriesMessage =
 ///    erreichbar") waere schlicht falsch: der Nutzer haelt das Produkt in der
 ///    Hand. Der Fehler bringt seine Meldung inklusive Produktname und
 ///    gemessenem Wert bereits mit.
-String mealAnalysisErrorMessage(Object error, String fallback) {
+String mealAnalysisErrorMessage(
+  Object error,
+  String fallback,
+  AppLocalizations l10n,
+) {
   if (error is TimeoutException) {
-    return 'Das dauert gerade zu lange. Bitte versuch es gleich nochmal.';
+    return l10n.foodAnalysisTimeoutMessage;
   }
   if (error is ProductWithoutNutritionException) {
     return error.userMessage;
@@ -162,7 +161,9 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       showAppSnack(
-          context, mealAnalysisErrorMessage(error, widget.failureMessage),
+          context,
+          mealAnalysisErrorMessage(
+              error, widget.failureMessage, context.l10n),
           icon: Icons.error_outline_rounded,
           tone: SnackTone.error,
           duration: kSnackError);
@@ -191,7 +192,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
       showAppSnack(
         context,
-        kMealWithoutCaloriesMessage,
+        context.l10n.foodMealWithoutCaloriesMessage,
         icon: Icons.error_outline_rounded,
         tone: SnackTone.error,
         duration: kSnackError,
@@ -204,9 +205,10 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       _addedToDailyTotal = true;
       _addedMealId = id;
     });
+    final l10n = context.l10n;
     showAppSnack(
       context,
-      '${result.caloriesKcal} kcal zu ${widget.slot.label} hinzugefügt.',
+      l10n.commonKcalAddedToSlot(result.caloriesKcal, widget.slot.label(l10n)),
       icon: Icons.check_circle_rounded,
     );
   }
@@ -242,14 +244,16 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     }
 
     if (adjustment is int && adjustment > 0) {
+      final l10n = context.l10n;
       final message = wasAdded
-          ? '$adjustment g angepasst. Tageswert aktualisiert.'
-          : '$adjustment g angepasst.';
+          ? l10n.foodPortionAdjustedUpdated(adjustment)
+          : l10n.foodPortionAdjusted(adjustment);
       showAppSnack(context, message, icon: Icons.tune_rounded);
     } else if (adjustment is List<MealComponent>) {
+      final l10n = context.l10n;
       final message = wasAdded
-          ? '${updated.estimatedGrams} g über Einzelposten angepasst. Tageswert aktualisiert.'
-          : '${updated.estimatedGrams} g über Einzelposten angepasst.';
+          ? l10n.foodPortionAdjustedItemsUpdated(updated.estimatedGrams)
+          : l10n.foodPortionAdjustedItems(updated.estimatedGrams);
       showAppSnack(context, message, icon: Icons.tune_rounded);
     }
   }
@@ -346,24 +350,25 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final color = slot.accentIn(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
       child: Row(
         children: [
-          MealAvatar(letter: slot.initial, color: color, size: 36),
+          MealAvatar(letter: slot.initial(l10n), color: color, size: 36),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  slot.label,
+                  slot.label(l10n),
                   style: AppType.display(18, color: t.ink),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Analyse prüfen',
+                  l10n.foodReviewAnalysisSubtitle,
                   style: AppType.ui(
                     12,
                     weight: FontWeight.w500,
@@ -376,7 +381,7 @@ class _Header extends StatelessWidget {
           IconButton(
             key: const ValueKey('analyse-sheet-close'),
             onPressed: onClose,
-            tooltip: 'Schließen',
+            tooltip: l10n.commonClose,
             icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],

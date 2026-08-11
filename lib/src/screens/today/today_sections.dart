@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -65,6 +66,7 @@ class TodayMealRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final kcal = meals.fold<int>(
       0,
       (summe, meal) => summe + meal.result.caloriesKcal,
@@ -85,20 +87,20 @@ class TodayMealRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Row(
             children: <Widget>[
-              MealAvatar(letter: slot.initial, color: slot.accentOn(t)),
+              MealAvatar(letter: slot.initial(l10n), color: slot.accentOn(t)),
               const SizedBox(width: 13),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      slot.label,
+                      slot.label(l10n),
                       style:
                           AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      mealSlotSubtitle(meals),
+                      mealSlotSubtitle(meals, l10n),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppType.ui(11.5, color: t.ink2),
@@ -111,7 +113,7 @@ class TodayMealRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
                   Text(
-                    kcalThousands(kcal),
+                    kcalThousands(kcal, l10n),
                     style: AppType.display(
                       16,
                       weight: FontWeight.w700,
@@ -119,7 +121,7 @@ class TodayMealRow extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'KCAL',
+                    l10n.todayMealKcalLabel,
                     style: AppType.ui(
                       9.5,
                       weight: FontWeight.w500,
@@ -147,6 +149,7 @@ class TodayCoachBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Container(
       key: const ValueKey('today-coach-banner'),
       clipBehavior: Clip.antiAlias,
@@ -177,7 +180,7 @@ class TodayCoachBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text('KI-COACH', style: AppType.eyebrow(t.ink2)),
+                Text(l10n.todayCoachEyebrow, style: AppType.eyebrow(t.ink2)),
                 const SizedBox(height: 6),
                 // Abweichung von der Vorlage (SizedBox(width: 230)): eine feste
                 // Textbreite bricht bei grosser Systemschrift. Die Spalte gibt
@@ -212,7 +215,7 @@ class TodayCoachBanner extends StatelessWidget {
                           children: <Widget>[
                             Flexible(
                               child: Text(
-                                'Zum Coach',
+                                l10n.todayCoachCta,
                                 style: AppType.ui(
                                   12,
                                   weight: FontWeight.w600,
@@ -263,7 +266,7 @@ class TodayDayLoadingCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Tag wird geladen…',
+            context.l10n.todayDayLoading,
             style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
           ),
         ],

@@ -1,3 +1,4 @@
+import '../l10n/l10n.dart';
 import '../models/model_limits.dart';
 import '../models/user_profile.dart';
 
@@ -121,8 +122,14 @@ class KcalTargets {
 
   /// Tempo-Label aus der **effektiven** Rate, z.B. "−0,72 kg/Woche". Liefert
   /// "Gewicht stabil", wenn nichts Nennenswertes übrig bleibt.
-  String get effectivePaceLabel =>
-      paceLabelForWeeklyRateKg(effectiveWeeklyRateKg);
+  ///
+  /// Seit der i18n-Migration (Paket 7, 2026-08-11) l10n-faehig: [l10n]
+  /// optional, Default Deutsch ([deL10n]) — gemeinsam migriert mit
+  /// [paceWarning] und `WeightGoalInfo.paceLabel`/`paceLabelForWeeklyRateKg`
+  /// (B2-Kopplung, s. Paket-6-/Paket-7-Bericht). Aus einem Getter wurde eine
+  /// Methode — Dart-Getter koennen keine Parameter tragen.
+  String effectivePaceLabel([AppLocalizations? l10n]) =>
+      paceLabelForWeeklyRateKg(effectiveWeeklyRateKg, l10n);
 
   /// Fertig formulierter Hinweis für die UI, wenn das Tagesziel das gewählte
   /// Tempo nicht hergibt — sonst `null`.
@@ -130,22 +137,32 @@ class KcalTargets {
   /// Gedacht für die Plan-Karte im Einstellungs-Sheet und die
   /// Onboarding-Zusammenfassung: dort steht heute „Erhaltung 1997 · −1
   /// kg/Woche" direkt über „1200", und die Differenz ist 797, nicht 1100.
-  String? get paceWarning {
+  ///
+  /// [l10n] optional, Default Deutsch ([deL10n]) — dasselbe Muster wie
+  /// [effectivePaceLabel]. Test-API bleibt kontextfrei aufrufbar
+  /// (`test/services/kcal_effective_pace_test.dart`).
+  String? paceWarning([AppLocalizations? l10n]) {
     if (!safetyClampApplied && matchesPromisedPace) return null;
+    final t = l10n ?? deL10n;
+    final effectivePace = effectivePaceLabel(l10n);
+    final promisedPace = goal.paceLabel(l10n);
     if (floorApplied) {
-      return 'Aus Sicherheitsgründen liegt dein Tagesziel bei '
-          '${KcalCalculator.kcalFloor} kcal statt $uncappedKcal kcal. '
-          'Dein tatsächliches Tempo ist damit $effectivePaceLabel statt '
-          '${goal.paceLabel}.';
+      return t.commonPaceWarningFloor(
+        KcalCalculator.kcalFloor,
+        uncappedKcal,
+        effectivePace,
+        promisedPace,
+      );
     }
     if (ceilingApplied) {
-      return 'Dein Tagesziel ist bei ${KcalCalculator.kcalCeiling} kcal '
-          'gedeckelt (rechnerisch wären es $uncappedKcal kcal). '
-          'Dein tatsächliches Tempo ist damit $effectivePaceLabel statt '
-          '${goal.paceLabel}.';
+      return t.commonPaceWarningCeiling(
+        KcalCalculator.kcalCeiling,
+        uncappedKcal,
+        effectivePace,
+        promisedPace,
+      );
     }
-    return 'Dein tatsächliches Tempo ist $effectivePaceLabel statt '
-        '${goal.paceLabel}.';
+    return t.commonPaceWarningMismatch(effectivePace, promisedPace);
   }
 }
 

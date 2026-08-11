@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart' show ReminderState;
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
@@ -52,6 +54,7 @@ void main() {
     ReminderState reminderState = ReminderState.off,
     VoidCallback? onOpenSystemSettings,
     ThemeModeController? themeController,
+    Locale locale = const Locale('de'),
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
@@ -72,6 +75,14 @@ void main() {
 
     final app = MaterialApp(
       theme: buildEatovaTheme(brightness),
+      locale: locale,
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: GoalsScreen(
         profile: profile,
         reminderState: reminderState,
@@ -105,6 +116,49 @@ void main() {
 
   testWidgets('rendert im Dunkelmodus', (tester) async {
     await pumpOhneOverflow(tester, 'dunkel', brightness: Brightness.dark);
+  });
+
+  testWidgets(
+      'rendert unter EN mit englischem Tempo-Label statt deutschem Leck '
+      '(i18n-Paket-7-Regression)', (tester) async {
+    // Paket-6-Review-Fund: `WeightGoal.paceLabel`/`KcalTargets.effectivePaceLabel`
+    // blieben hartkodiertes Deutsch, obwohl der Rest der Seite laengst
+    // uebersetzt war — unter EN stand „Gewicht stabil" mitten im englischen
+    // Screen. Paket 7 schliesst genau diese Luecke; diese Zusicherung haelt
+    // sie zu, damit ein kuenftiger Rueckfall wieder auffaellt.
+    await pumpOhneOverflow(
+      tester,
+      'en',
+      brightness: Brightness.light,
+      locale: const Locale('en'),
+    );
+
+    // Default-Profil hat WeightGoal.maintain — die Gewichtsziel-Zeile zeigt
+    // dessen Tempo-Label als eigenstaendigen Text (goals_screen.dart:
+    // `value: _goal.paceLabel(l10n)`).
+    expect(find.text('Weight stable'), findsOneWidget);
+    expect(find.text('Gewicht stabil'), findsNothing);
+  });
+
+  testWidgets(
+      'rendert unter EN mit Dezimalrate im Punkt- statt Komma-Format '
+      '(i18n-Nachzieh-Regression)', (tester) async {
+    // Folge-Fund zur EN-Textluecke oben: auch NACH der Textmigration blieb
+    // die ZAHL selbst (`_formatRateKg`) hartkodiert deutsch formatiert — ein
+    // englisches "−0.5 kg/week" mit deutschem Komma ("−0,5") ist dieselbe
+    // Leck-Klasse, nur eine Ebene tiefer. `WeightGoal.lose05kg` hat ein
+    // glattes Wunsch-Tempo von exakt 0,5 kg/Woche (kcalDelta -550 × 7 / 7700),
+    // das macht den Dezimalpunkt in der Zusicherung eindeutig pruefbar.
+    await pumpOhneOverflow(
+      tester,
+      'en Dezimalrate',
+      brightness: Brightness.light,
+      locale: const Locale('en'),
+      profile: const UserProfile(weightGoal: WeightGoal.lose05kg),
+    );
+
+    expect(find.text('−0.5 kg/week'), findsOneWidget);
+    expect(find.text('−0,5 kg/Woche'), findsNothing);
   });
 
   testWidgets('rendert bei textScale 2.0 (hell)', (tester) async {

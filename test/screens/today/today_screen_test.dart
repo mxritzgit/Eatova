@@ -7,8 +7,10 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -42,10 +44,22 @@ Widget _harness(
   Widget child, {
   Brightness brightness = Brightness.light,
   TextScaler textScaler = TextScaler.noScaling,
+  Locale locale = const Locale('de'),
 }) {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: buildEatovaTheme(brightness),
+    // TodayScreen und seine Teilbaeume lesen jetzt context.l10n (i18n-Paket
+    // 1, Muster von test/home_page_tabs_test.dart) — ohne diese
+    // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+    locale: locale,
+    supportedLocales: AppLocalizations.supportedLocales,
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: Builder(
       builder: (context) => MediaQuery(
         data: MediaQuery.of(context).copyWith(textScaler: textScaler),
@@ -80,6 +94,7 @@ Future<void> _pumpToday(
   ValueChanged<MealSlot>? onOpenMealSlot,
   Brightness brightness = Brightness.light,
   TextScaler textScaler = TextScaler.noScaling,
+  Locale locale = const Locale('de'),
   // Die Ladekarte dreht einen CircularProgressIndicator endlos —
   // `pumpAndSettle` wuerde dort nie settlen.
   bool settle = true,
@@ -109,6 +124,7 @@ Future<void> _pumpToday(
       ),
       brightness: brightness,
       textScaler: textScaler,
+      locale: locale,
     ),
   );
   if (settle) {
@@ -777,5 +793,41 @@ void main() {
       });
       expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
     });
+  });
+
+  group('EN-Render-Smoke (i18n-Paket 1, Spec §6)', () {
+    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
+    // mindestens eine echte englische Uebersetzung steht im Baum. Englische
+    // Texte sind teils laenger als die deutschen — das faengt Overflows, die
+    // ein reiner `de`-Lauf nie zeigen wuerde.
+    for (final helligkeit in Brightness.values) {
+      testWidgets('rendert unter en in $helligkeit ohne Ausnahme',
+          (tester) async {
+        await withClock(Clock.fixed(_jetzt), () async {
+          await _pumpToday(
+            tester,
+            brightness: helligkeit,
+            locale: const Locale('en'),
+            consumedKcal: 1400,
+            burnedKcal: 220,
+            streak: 5,
+            meals: <LoggedMeal>[_meal('Salmon bowl', MealSlot.dinner, 610)],
+          );
+        });
+        expect(tester.takeException(), isNull,
+            reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
+
+        // „KALORIENBUDGET" -> „CALORIE BUDGET": eindeutig englisch, steht
+        // ohne Scrollen im Baum (Teil des Hero, der Screen-Oberkante).
+        expect(find.text('CALORIE BUDGET'), findsOneWidget);
+
+        await _scrollTo(
+            tester, find.byKey(const ValueKey('today-coach-banner')));
+        expect(tester.takeException(), isNull,
+            reason: 'nach unten gescrollt: en/$helligkeit');
+        // „Zum Coach" -> „Go to coach".
+        expect(find.text('Go to coach'), findsOneWidget);
+      });
+    }
   });
 }

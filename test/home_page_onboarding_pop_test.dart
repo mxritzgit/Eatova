@@ -18,6 +18,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -25,6 +26,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -89,6 +91,14 @@ Future<void> _pumpOnboarding(WidgetTester tester) async {
   // ThemeExtension fehlt. Die Testlogik darunter ist unveraendert.
   await tester.pumpWidget(MaterialApp(
     theme: buildEatovaTheme(Brightness.light),
+    locale: const Locale('de'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: EatovaHomePage(
       sync: _sync(),
       debugCache: LocalCache(InMemoryKeyValueStore(), 'user-onboarding-pop'),

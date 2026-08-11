@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -58,6 +59,7 @@ class DiaryMealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final color = slot.accentIn(context);
     final kcal = entries.fold<int>(
       0,
@@ -74,14 +76,14 @@ class DiaryMealCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(15, 14, 15, 14),
             child: Row(
               children: <Widget>[
-                MealAvatar(letter: slot.initial, color: color, size: 36),
+                MealAvatar(letter: slot.initial(l10n), color: color, size: 36),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        slot.label,
+                        slot.label(l10n),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppType.ui(
@@ -93,9 +95,8 @@ class DiaryMealCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         entries.isEmpty
-                            ? 'Noch nichts geloggt'
-                            : '$kcal kcal · ${entries.length} '
-                                '${entries.length == 1 ? 'Eintrag' : 'Einträge'}',
+                            ? l10n.todayMealSlotEmpty
+                            : l10n.foodDiarySlotSummary(kcal, entries.length),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppType.display(11.5, color: t.ink2),
@@ -125,7 +126,7 @@ class DiaryMealCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(15, 0, 15, 14),
               child: DottedAddSlot(
                 key: ValueKey('food-slot-empty-${slot.name}'),
-                label: '${slot.label} ergänzen',
+                label: l10n.foodSlotAddLabel(slot.label(l10n)),
                 onTap: onAddToSlot == null ? null : () => onAddToSlot!(slot),
               ),
             ),
@@ -145,9 +146,10 @@ class _SlotAddButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Semantics(
       button: true,
-      label: '${slot.label} ergänzen',
+      label: l10n.foodSlotAddLabel(slot.label(l10n)),
       child: Material(
         key: ValueKey('food-slot-add-${slot.name}'),
         color: t.forest,
@@ -296,7 +298,7 @@ class _DeleteMealAction extends StatelessWidget {
           scale: Tween<double>(begin: 0.6, end: 1).animate(reveal),
           child: Semantics(
             button: true,
-            label: 'Eintrag löschen',
+            label: context.l10n.foodEntryDeleteSemantics,
             child: Container(
               width: 42,
               height: 42,
@@ -388,9 +390,10 @@ class _HistoryEntryState extends State<_HistoryEntry>
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final meal = widget.meal;
     final grams = meal.result.estimatedGrams;
-    final amount = grams > 0 ? '~$grams g' : '1 Portion';
+    final amount = grams > 0 ? '~$grams g' : l10n.foodPortionFallback;
 
     return FadeTransition(
       opacity: _in,
@@ -403,7 +406,7 @@ class _HistoryEntryState extends State<_HistoryEntry>
         // mit Hint ansagen (nur wenn ueberhaupt ein Tap verdrahtet ist).
         child: Semantics(
           button: widget.onTap != null,
-          hint: widget.onTap == null ? null : 'Mahlzeit bearbeiten',
+          hint: widget.onTap == null ? null : l10n.foodEditMealTitle,
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: t.surf,
@@ -448,7 +451,7 @@ class _HistoryEntryState extends State<_HistoryEntry>
                           // ausserhalb ihrer Karte selbsterklaerend — und
                           // edit_meal_sheet_test liest genau dieses Format.
                           Text(
-                            '${meal.slot.label} · $amount',
+                            '${meal.slot.label(l10n)} · $amount',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppType.ui(11, color: t.ink2),

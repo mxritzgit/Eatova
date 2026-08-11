@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_app.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
@@ -28,6 +30,14 @@ void main() {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
+    // EatovaApp() loest ihre Sprache seit Paket 6 (i18n) ueber die
+    // Geraeteliste auf (resolveEatovaLocale) — der Test-Harness liefert dort
+    // KEIN Deutsch (typischerweise en-US), waehrend diese Datei mit
+    // deutschen `find.text(...)`-Erwartungen arbeitet. Ohne diese Zeile
+    // rendert „Über Eatova" als „About Eatova" und der Text-Fund schlaegt
+    // fehl, obwohl nichts kaputt ist.
+    tester.platformDispatcher.localesTestValue = const [Locale('de')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(const EatovaApp());
     await tester.pumpAndSettle();
   }
@@ -168,6 +178,14 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.light),
+        locale: const Locale('de'),
+        supportedLocales: const [Locale('de'), Locale('en')],
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: SettingsScreen(
           email: 'jonas@example.com',
           onOpenGoals: () {},

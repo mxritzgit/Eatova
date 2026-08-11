@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../common/app_snack.dart';
 import '../design/design.dart';
@@ -90,20 +91,17 @@ class DataExportSheet extends StatelessWidget {
         return FutureBuilder<String>(
           future: snapshot,
           builder: (context, snap) {
+            final l10n = context.l10n;
             final laedt = snap.connectionState != ConnectionState.done;
             final fehler = snap.hasError;
             final text = snap.data ?? fallbackSnapshot;
             final untertitel = laedt
-                ? 'Deine Daten werden vom Server geladen …'
+                ? l10n.exportSheetLoadingSubtitle
                 : fehler
-                    ? 'Server nicht erreichbar — die vollständige Kopie bitte '
-                        'mit Internet erneut öffnen.'
+                    ? l10n.exportSheetErrorSubtitle
                     : vollstaendig
-                        ? 'Vollständige Kopie deiner gespeicherten Daten als '
-                            'JSON — alle Tabellen, direkt vom Server geladen '
-                            '(Art. 15/20 DSGVO).'
-                        : 'In-Memory Snapshot deiner aktuellen Session als '
-                            'JSON.';
+                        ? l10n.exportSheetFullSubtitle
+                        : l10n.exportSheetSessionSubtitle;
             // EIN Scroller fuer das ganze Sheet (Kopf + JSON), getrieben vom
             // Controller des DraggableScrollableSheet: bei doppelter
             // Systemschrift waechst der Kopf sonst ueber die Sheet-Hoehe
@@ -124,7 +122,9 @@ class DataExportSheet extends StatelessWidget {
                     children: <Widget>[
                       Expanded(
                         child: Text(
-                          vollstaendig ? 'Datenauskunft' : 'Daten Snapshot',
+                          vollstaendig
+                              ? l10n.exportSheetTitleFull
+                              : l10n.exportSheetTitleSession,
                           style: AppType.display(20, color: t.ink),
                         ),
                       ),
@@ -136,7 +136,7 @@ class DataExportSheet extends StatelessWidget {
                           if (context.mounted) {
                             showAppSnack(
                               context,
-                              'Export in Zwischenablage',
+                              l10n.exportSheetCopiedSnack,
                               icon: Icons.content_copy_rounded,
                             );
                           }
@@ -228,7 +228,7 @@ class _CopyButton extends StatelessWidget {
                   Icon(Icons.copy_rounded, size: 14, color: t.onForest),
                   const SizedBox(width: 6),
                   Text(
-                    'Kopieren',
+                    context.l10n.exportSheetCopyButton,
                     style: AppType.ui(
                       12,
                       weight: FontWeight.w700,

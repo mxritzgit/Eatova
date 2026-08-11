@@ -1,9 +1,11 @@
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -112,6 +114,16 @@ void main() {
       // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
       // Design-Refactor ueber `context.t`.
       theme: buildEatovaTheme(Brightness.dark),
+      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
+      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: _TabHost(service: svc),
     ));
     await tester.pump(const Duration(milliseconds: 400));
@@ -133,6 +145,16 @@ void main() {
       // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
       // Design-Refactor ueber `context.t`.
       theme: buildEatovaTheme(Brightness.dark),
+      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
+      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: _TabHost(service: svc),
     ));
     await tester.pump(const Duration(milliseconds: 400));
@@ -152,6 +174,16 @@ void main() {
       // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
       // Design-Refactor ueber `context.t`.
       theme: buildEatovaTheme(Brightness.dark),
+      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
+      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: _TabHost(service: svc),
     ));
     await tester.pump(const Duration(milliseconds: 400));

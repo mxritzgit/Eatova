@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../l10n/l10n.dart';
 import '../models/lifetime_stats.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
@@ -73,6 +74,7 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final streak = stats.effectiveStreakOn(DateTime.now());
 
     // Gesundheitsdaten (Gewicht, BMI, Verlauf) nicht ins App-Switcher-
@@ -92,12 +94,12 @@ class ProfileScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   PageHeader(
-                    title: 'Mein Profil',
+                    title: l10n.profileTitle,
                     backKey: const ValueKey('profile-close'),
                     trailing: SquareIconButton(
                       key: const ValueKey('profile-open-settings'),
                       icon: Icons.settings_outlined,
-                      semanticLabel: 'Einstellungen',
+                      semanticLabel: l10n.foodSemanticsSettings,
                       onTap: onOpenSettings,
                     ),
                   ),
@@ -106,35 +108,35 @@ class ProfileScreen extends StatelessWidget {
                   const SizedBox(height: 14),
                   ProfileStatRow(
                     left: ProfileStatTile(
-                      label: 'STREAK',
+                      label: l10n.profileLabelStreak,
                       value: '$streak',
-                      unit: streak == 1 ? 'Tag' : 'Tage',
+                      unit: l10n.coachStreakUnit(streak),
                     ),
                     right: ProfileStatTile(
-                      label: 'MAHLZEITEN',
+                      label: l10n.profileLabelMeals,
                       value: '${stats.mealsLogged}',
-                      unit: 'gesamt',
+                      unit: l10n.profileUnitTotal,
                     ),
                   ),
                   const SizedBox(height: 12),
                   ProfileStatRow(
                     left: ProfileStatTile(
-                      label: 'REKORD',
+                      label: l10n.profileLabelRecord,
                       value: '${stats.longestStreak}',
-                      unit: stats.longestStreak == 1 ? 'Tag' : 'Tage',
+                      unit: l10n.coachStreakUnit(stats.longestStreak),
                     ),
                     right: ProfileStatTile(
-                      label: 'WIEGEN',
+                      label: l10n.profileLabelWeighIns,
                       value: '${stats.weightLogs}',
-                      unit: 'Einträge',
+                      unit: l10n.profileUnitEntries,
                     ),
                   ),
                   const SizedBox(height: 22),
-                  const SectionHeading(title: 'Dein Plan'),
+                  SectionHeading(title: l10n.profileSectionPlan),
                   const SizedBox(height: 12),
                   GoalPlanCard(profile: profile, onEdit: onEditProfile),
                   const SizedBox(height: 22),
-                  const SectionHeading(title: 'Körper'),
+                  SectionHeading(title: l10n.profileSectionBody),
                   const SizedBox(height: 12),
                   WeightCard(
                     profile: profile,
@@ -144,7 +146,7 @@ class ProfileScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   BmiCard(profile: profile, log: weightLog),
                   const SizedBox(height: 22),
-                  const SectionHeading(title: 'Tagesziele'),
+                  SectionHeading(title: l10n.profileSectionDailyGoals),
                   const SizedBox(height: 12),
                   GoalsCard(
                     profile: profile,
@@ -153,7 +155,7 @@ class ProfileScreen extends StatelessWidget {
                     onEdit: onEditProfile,
                   ),
                   const SizedBox(height: 22),
-                  const SectionHeading(title: 'Verbindungen'),
+                  SectionHeading(title: l10n.profileSectionConnections),
                   const SizedBox(height: 12),
                   HealthConnectionCard(
                     state: healthAuthState,

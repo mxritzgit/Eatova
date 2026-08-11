@@ -2,13 +2,17 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
+
+final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
 // Seit meal_analyzer.dart explizite .timeout(...) auf Request-Abschluss und
 // Body-Lesen traegt, kommt ein haengender LLM-Provider als TimeoutException
@@ -31,6 +35,15 @@ Widget _sheetHost(
 }) {
   return MaterialApp(
     theme: buildEatovaTheme(Brightness.dark),
+    // MealAnalysisSheet liest seit der i18n-Migration context.l10n.
+    locale: const Locale('de'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     home: Scaffold(
       body: MealAnalysisSheet(
         slot: MealSlot.lunch,
@@ -79,16 +92,17 @@ void main() {
     test('TimeoutException -> freundliche Timeout-Meldung', () {
       final error =
           TimeoutException('Future not completed', const Duration(seconds: 60));
-      expect(mealAnalysisErrorMessage(error, _fallback), _timeoutText);
+      expect(mealAnalysisErrorMessage(error, _fallback, _de), _timeoutText);
     });
 
     test('andere Fehler -> generische Meldung des jeweiligen Flows', () {
       expect(
-        mealAnalysisErrorMessage(const HttpException('boom'), _fallback),
+        mealAnalysisErrorMessage(const HttpException('boom'), _fallback, _de),
         _fallback,
       );
       expect(
-        mealAnalysisErrorMessage(const FormatException('bad'), _fallback),
+        mealAnalysisErrorMessage(
+            const FormatException('bad'), _fallback, _de),
         _fallback,
       );
     });
@@ -104,12 +118,12 @@ void main() {
         kcalPer100G: 0,
       );
       expect(
-        mealAnalysisErrorMessage(ohneAngabe, _barcodeFallback),
+        mealAnalysisErrorMessage(ohneAngabe, _barcodeFallback, _de),
         'Die Ofenfrische Salami gefunden, aber ohne Nährwertangaben. '
         'Bitte manuell eintragen.',
       );
       expect(
-        mealAnalysisErrorMessage(ohneAngabe, _barcodeFallback),
+        mealAnalysisErrorMessage(ohneAngabe, _barcodeFallback, _de),
         isNot(_barcodeFallback),
       );
     });
@@ -122,7 +136,7 @@ void main() {
       );
       expect(unplausibel.isImplausible, isTrue);
       expect(
-        mealAnalysisErrorMessage(unplausibel, _barcodeFallback),
+        mealAnalysisErrorMessage(unplausibel, _barcodeFallback, _de),
         'Nussmus gefunden, aber die Nährwertangabe ist unplausibel '
         '(2180 kcal / 100 g). Bitte manuell eintragen.',
       );

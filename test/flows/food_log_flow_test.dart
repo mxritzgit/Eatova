@@ -13,6 +13,12 @@ void main() {
   testWidgetsRobust('Food add lets the user pick the meal slot, not the clock', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf (Geraet -> de/en), statt
+    // fest auf de zu pinnen. Die Assertions unten pruefen wortgleiche
+    // deutsche ARB-Texte (Muster test/localization_de_test.dart).
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(productService: FakeProductLookupService()),
     );
@@ -72,6 +78,12 @@ void main() {
   testWidgetsRobust('Food history row can be swiped to delete and updates live', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf (Geraet -> de/en), statt
+    // fest auf de zu pinnen. Die Assertions unten pruefen wortgleiche
+    // deutsche ARB-Texte (Muster test/localization_de_test.dart).
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(productService: FakeProductLookupService()),
     );
@@ -147,6 +159,12 @@ void main() {
   testWidgetsRobust('Food calendar keeps past days separate from today', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf (Geraet -> de/en), statt
+    // fest auf de zu pinnen. Die Assertions unten pruefen wortgleiche
+    // deutsche ARB-Texte (Muster test/localization_de_test.dart).
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(productService: FakeProductLookupService()),
     );

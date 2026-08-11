@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
@@ -19,19 +20,20 @@ Future<BiologicalSex?> showSexPicker(
   BuildContext context, {
   required BiologicalSex value,
 }) {
+  final l10n = context.l10n;
   return showEatovaSheet<BiologicalSex>(
     context,
     _PickerSheet(
-      title: 'Geschlecht',
+      title: l10n.goalsFieldSex,
       // Nicht noch einmal „GESCHLECHT" unter der Ueberschrift „Geschlecht":
       // die Versalien-Zeile soll etwas beitragen, das der Titel nicht schon
       // sagt — hier das Warum (dieselbe Begruendung wie im Onboarding-Schritt).
-      groupLabel: 'BEEINFLUSST DEINEN GRUNDUMSATZ',
+      groupLabel: l10n.settingsSexPickerGroupLabel,
       children: <Widget>[
         for (final option in BiologicalSex.values)
           _PickerRow<BiologicalSex>(
             key: ValueKey<String>('settings-sex-${option.name}'),
-            title: option.label,
+            title: option.label(l10n),
             result: option,
             selected: value == option,
           ),
@@ -44,17 +46,18 @@ Future<ActivityLevel?> showActivityPicker(
   BuildContext context, {
   required ActivityLevel value,
 }) {
+  final l10n = context.l10n;
   return showEatovaSheet<ActivityLevel>(
     context,
     _PickerSheet(
-      title: 'Aktivitätslevel',
-      groupLabel: 'ALLTAG OHNE GEZÄHLTES TRAINING',
+      title: l10n.goalsFieldActivity,
+      groupLabel: l10n.settingsActivityPickerGroupLabel,
       children: <Widget>[
         for (final option in ActivityLevel.values)
           _PickerRow<ActivityLevel>(
             key: ValueKey<String>('settings-activity-${option.name}'),
-            title: option.label,
-            subtitle: '${option.description} · ×${option.palFactor}',
+            title: option.label(l10n),
+            subtitle: '${option.description(l10n)} · ×${option.palFactor}',
             result: option,
             selected: value == option,
           ),
@@ -72,18 +75,19 @@ Future<WeightGoal?> showWeightGoalPicker(
   required WeightGoal value,
   required String Function(WeightGoal) outcomeFor,
 }) {
+  final l10n = context.l10n;
   return showEatovaSheet<WeightGoal>(
     context,
     _PickerSheet(
-      title: 'Gewichtsziel & Tempo',
-      groupLabel: 'ZIEL',
+      title: l10n.settingsWeightGoalPickerTitle,
+      groupLabel: l10n.settingsWeightGoalPickerGroupLabel,
       children: <Widget>[
         for (final option in WeightGoal.values)
           _PickerRow<WeightGoal>(
             key: ValueKey<String>('settings-weight-goal-${option.name}'),
             // Titel = die Auswahl (das gewaehlte Tempo ist der Name der
             // Option), Untertitel = ihre Folge.
-            title: option.menuLabel,
+            title: option.menuLabel(l10n),
             subtitle: outcomeFor(option),
             result: option,
             selected: value == option,

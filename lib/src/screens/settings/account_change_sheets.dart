@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../auth/auth_repository.dart';
+import '../../l10n/l10n.dart';
 import '../../services/secure_screen.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
@@ -132,7 +133,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _fehler = accountChangeErrorMessage(error);
+        _fehler = accountChangeErrorMessage(error, context.l10n);
       });
       return;
     }
@@ -145,6 +146,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
 
   Future<void> _passwortSetzen() async {
     if (_busy) return;
+    final l10n = context.l10n;
     final code = _code.text.trim();
     final neu = _neu.text;
     final wiederholung = _wiederholung.text;
@@ -152,12 +154,13 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
     // Alles, was die App selbst wissen kann, wird hier abgefangen. Ein
     // Absende-Knopf, der absehbar in einen Serverfehler laeuft, verbrennt
     // ausserdem den Code — GoTrue akzeptiert eine Nonce nur einmal.
-    final codeFehler = isAccountCode(code) ? null : kAccountCodeInvalid;
+    final codeFehler = isAccountCode(code) ? null : kAccountCodeInvalid(l10n);
     final neuFehler = neu.length < kAccountMinPasswordLength
-        ? kAccountPasswordTooShort
+        ? kAccountPasswordTooShort(l10n)
         : null;
-    final wiederholungFehler =
-        neuFehler == null && wiederholung != neu ? kAccountPasswordMismatch : null;
+    final wiederholungFehler = neuFehler == null && wiederholung != neu
+        ? kAccountPasswordMismatch(l10n)
+        : null;
 
     if (codeFehler != null || neuFehler != null || wiederholungFehler != null) {
       setState(() {
@@ -185,7 +188,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       // Passwort trotzdem richtig eingegeben.
       setState(() {
         _busy = false;
-        _fehler = accountChangeErrorMessage(error);
+        _fehler = accountChangeErrorMessage(error, context.l10n);
       });
       return;
     }
@@ -195,26 +198,25 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final adresse = widget.email;
     final ersterSchritt = _schritt == _PasswortSchritt.codeAnfordern;
 
     return SheetScaffold(
-      title: 'Passwort ändern',
+      title: l10n.settingsChangePasswordTitle,
       subtitle: ersterSchritt
-          ? 'Zur Sicherheit schicken wir dir zuerst einen 6-stelligen Code '
-              '${adresse == null ? 'an deine hinterlegte Adresse' : 'an $adresse'}. '
-              'Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort '
-              'nicht ändern.'
-          : 'Trag den Code aus der E-Mail zusammen mit deinem neuen Passwort '
-              'ein.',
-      actionLabel: _aktionsBeschriftung(ersterSchritt),
+          ? (adresse == null
+              ? l10n.settingsPasswordChangeCodeSentDefault
+              : l10n.settingsPasswordChangeCodeSentTo(adresse))
+          : l10n.settingsPasswordChangeStep2Subtitle,
+      actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
       actionEnabled: !_busy,
       onAction: ersterSchritt ? _codeAnfordern : _passwortSetzen,
       children: <Widget>[
         if (!ersterSchritt) ...<Widget>[
           _CodeFeld(
             fieldKey: const ValueKey<String>('password-change-code'),
-            label: 'Bestätigungs-Code',
+            label: l10n.settingsPasswordChangeCodeFieldLabel,
             adresse: adresse,
             controller: _code,
             enabled: !_busy,
@@ -222,8 +224,8 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
           ),
           SheetField(
             key: const ValueKey<String>('password-change-new'),
-            label: 'Neues Passwort',
-            hint: 'Mind. 8 Zeichen',
+            label: l10n.settingsPasswordChangeNewLabel,
+            hint: l10n.settingsPasswordChangeNewHint,
             obscure: true,
             controller: _neu,
             enabled: !_busy,
@@ -231,8 +233,8 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
           ),
           SheetField(
             key: const ValueKey<String>('password-change-repeat'),
-            label: 'Neues Passwort wiederholen',
-            hint: 'Nochmal eingeben',
+            label: l10n.settingsPasswordChangeRepeatLabel,
+            hint: l10n.settingsPasswordChangeRepeatHint,
             obscure: true,
             controller: _wiederholung,
             enabled: !_busy,
@@ -248,14 +250,18 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
     );
   }
 
-  String _aktionsBeschriftung(bool ersterSchritt) {
+  String _aktionsBeschriftung(AppLocalizations l10n, bool ersterSchritt) {
     if (_busy) {
-      return ersterSchritt ? 'Code wird angefordert…' : 'Wird gespeichert…';
+      return ersterSchritt
+          ? l10n.settingsPasswordChangeRequestingCta
+          : l10n.settingsPasswordChangeSavingCta;
     }
     // Bewusst NICHT „Passwort ändern": so heisst schon die Zeile, aus der
     // dieses Sheet kommt, und der Sheet-Titel. Drei gleiche Beschriftungen im
     // selben Baum sind fuer Screenreader und Tests gleichermassen mehrdeutig.
-    return ersterSchritt ? 'Code anfordern' : 'Passwort jetzt ändern';
+    return ersterSchritt
+        ? l10n.settingsPasswordChangeRequestCta
+        : l10n.settingsPasswordChangeSubmitCta;
   }
 }
 
@@ -309,13 +315,14 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
 
   Future<void> _codesAnfordern() async {
     if (_busy) return;
+    final l10n = context.l10n;
     final ziel = _adresse.text.trim();
     if (!isPlausibleAccountEmail(ziel)) {
-      setState(() => _adressFehler = kAccountEmailInvalid);
+      setState(() => _adressFehler = kAccountEmailInvalid(l10n));
       return;
     }
     if (ziel.toLowerCase() == widget.currentEmail.trim().toLowerCase()) {
-      setState(() => _adressFehler = kAccountEmailUnchanged);
+      setState(() => _adressFehler = kAccountEmailUnchanged(l10n));
       return;
     }
 
@@ -329,7 +336,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _adressFehler = accountChangeErrorMessage(error);
+        _adressFehler = accountChangeErrorMessage(error, context.l10n);
       });
       return;
     }
@@ -343,15 +350,18 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
 
   Future<void> _adresseBestaetigen() async {
     if (_busy) return;
+    final l10n = context.l10n;
     final codeAlt = _codeAlt.text.trim();
     final codeNeu = _codeNeu.text.trim();
 
     // Ein einzelner Code aendert nichts — er wuerde nur verbraucht. Deshalb
     // geht ohne BEIDE gar kein Aufruf raus.
-    final fehlerAlt =
-        _altBestaetigt || isAccountCode(codeAlt) ? null : kAccountCodeInvalid;
-    final fehlerNeu =
-        _neuBestaetigt || isAccountCode(codeNeu) ? null : kAccountCodeInvalid;
+    final fehlerAlt = _altBestaetigt || isAccountCode(codeAlt)
+        ? null
+        : kAccountCodeInvalid(l10n);
+    final fehlerNeu = _neuBestaetigt || isAccountCode(codeNeu)
+        ? null
+        : kAccountCodeInvalid(l10n);
     if (fehlerAlt != null || fehlerNeu != null) {
       setState(() {
         _fehlerAlt = fehlerAlt;
@@ -376,7 +386,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
         if (!mounted) return;
         setState(() {
           _busy = false;
-          _fehlerAlt = accountChangeErrorMessage(error);
+          _fehlerAlt = accountChangeErrorMessage(error, context.l10n);
         });
         return;
       }
@@ -394,7 +404,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
         if (!mounted) return;
         setState(() {
           _busy = false;
-          _fehlerNeu = accountChangeErrorMessage(error);
+          _fehlerNeu = accountChangeErrorMessage(error, context.l10n);
         });
         return;
       }
@@ -408,25 +418,23 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final ersterSchritt = _schritt == _MailSchritt.adresse;
 
     return SheetScaffold(
-      title: 'E-Mail-Adresse ändern',
+      title: l10n.settingsChangeEmailTitle,
       subtitle: ersterSchritt
-          ? 'Deine bisherige Adresse ist ${widget.currentEmail}. Wir schicken '
-              'danach ZWEI Codes: einen an diese Adresse und einen an die neue. '
-              'Die Änderung greift erst, wenn du beide einträgst.'
-          : 'Zwei E-Mails sind unterwegs. Trag jeden Code bei SEINER Adresse '
-              'ein — jede Adresse hat ihren eigenen.',
-      actionLabel: _aktionsBeschriftung(ersterSchritt),
+          ? l10n.settingsEmailChangeStep1Subtitle(widget.currentEmail)
+          : l10n.settingsEmailChangeStep2Subtitle,
+      actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
       actionEnabled: !_busy,
       onAction: ersterSchritt ? _codesAnfordern : _adresseBestaetigen,
       children: <Widget>[
         if (ersterSchritt)
           SheetField(
             key: const ValueKey<String>('email-change-new-address'),
-            label: 'Neue E-Mail-Adresse',
-            hint: 'du@beispiel.de',
+            label: l10n.settingsEmailChangeNewAddressLabel,
+            hint: l10n.settingsEmailChangeNewAddressHint,
             controller: _adresse,
             enabled: !_busy,
             keyboardType: TextInputType.emailAddress,
@@ -435,7 +443,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
         else ...<Widget>[
           _CodeFeld(
             fieldKey: const ValueKey<String>('email-change-code-old'),
-            label: 'Code an die bisherige Adresse',
+            label: l10n.settingsEmailChangeOldCodeLabel,
             adresse: widget.currentEmail,
             controller: _codeAlt,
             // Ein bereits bestaetigter Code ist verbraucht — das Feld bleibt
@@ -446,18 +454,16 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
           ),
           _CodeFeld(
             fieldKey: const ValueKey<String>('email-change-code-new'),
-            label: 'Code an die neue Adresse',
+            label: l10n.settingsEmailChangeNewCodeLabel,
             adresse: _zieladresse,
             controller: _codeNeu,
             enabled: !_busy && !_neuBestaetigt,
             errorText: _fehlerNeu,
             erledigt: _neuBestaetigt,
           ),
-          const SettingsNote(
-            key: ValueKey<String>('email-change-both-hint'),
-            'Beide Codes sind nötig. Mit nur einem bleibt deine bisherige '
-            'Adresse bestehen — genau das schützt dich, wenn jemand Zugriff '
-            'auf nur eines der beiden Postfächer hätte.',
+          SettingsNote(
+            key: const ValueKey<String>('email-change-both-hint'),
+            l10n.settingsEmailChangeBothCodesHint,
             boxed: true,
           ),
         ],
@@ -465,11 +471,15 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
     );
   }
 
-  String _aktionsBeschriftung(bool ersterSchritt) {
+  String _aktionsBeschriftung(AppLocalizations l10n, bool ersterSchritt) {
     if (_busy) {
-      return ersterSchritt ? 'Codes werden angefordert…' : 'Wird geprüft…';
+      return ersterSchritt
+          ? l10n.settingsEmailChangeRequestingCta
+          : l10n.settingsEmailChangeCheckingCta;
     }
-    return ersterSchritt ? 'Codes anfordern' : 'Adresse jetzt ändern';
+    return ersterSchritt
+        ? l10n.settingsEmailChangeRequestCta
+        : l10n.settingsEmailChangeSubmitCta;
   }
 }
 

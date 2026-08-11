@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/day_math.dart';
@@ -96,6 +98,15 @@ Future<void> _openSheet(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
+      // EditMealSheet liest seit der i18n-Migration context.l10n.
+      locale: const Locale('de'),
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: Scaffold(
         body: Builder(
           builder: (context) => Center(
@@ -473,6 +484,12 @@ void main() {
   testWidgetsRobust(
       'Verlauf: Tap auf Eintrag oeffnet Bearbeiten-Sheet, Slot-Wechsel wird '
       'gespeichert und im Verlauf sichtbar', (WidgetTester tester) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
+    // pruefen wortgleiche deutsche ARB-Texte.
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(productService: _FakeProductLookupService()),
     );
@@ -499,6 +516,12 @@ void main() {
   testWidgetsRobust(
       'Tagesliste im Add-Sheet: Verschieben auf gestern raeumt heute und '
       'fuellt gestern', (WidgetTester tester) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
+    // pruefen wortgleiche deutsche ARB-Texte.
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(productService: _FakeProductLookupService()),
     );

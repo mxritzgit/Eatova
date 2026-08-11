@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 
 /// Halbkreis-Skala mit Zeiger fuer den BMI.
@@ -14,6 +15,7 @@ import '../../theme/app_tokens.dart';
 class BMIGaugePainter extends CustomPainter {
   BMIGaugePainter({
     required this.bmi,
+    required this.valueLabel,
     required this.underColor,
     required this.normalColor,
     required this.overColor,
@@ -25,9 +27,20 @@ class BMIGaugePainter extends CustomPainter {
 
   /// Der uebliche Weg von den Tokens zum Painter. Hier — und nur hier — liegt
   /// die Zuordnung BMI-Zone → Zustandsfarbe.
-  factory BMIGaugePainter.fromTokens(AppTokens t, double bmi) =>
+  ///
+  /// [valueLabel] ist der bereits fertig formatierte BMI-Wert (`formatBmiDe`
+  /// aus `profile_format.dart`) — der Painter formatiert seit Paket 7
+  /// (2026-08-11) nicht mehr selbst (vorher hartkodiertes Komma,
+  /// `bmi.toStringAsFixed(1).replaceAll('.', ',')`): als [CustomPainter] hat
+  /// er im Zeichenschritt keinen Zugriff auf die aktive Sprache.
+  factory BMIGaugePainter.fromTokens(
+    AppTokens t,
+    double bmi,
+    String valueLabel,
+  ) =>
       BMIGaugePainter(
         bmi: bmi,
+        valueLabel: valueLabel,
         // Unter- UND Uebergewicht tragen denselben Warnton: der Token-Vertrag
         // kennt als Zustandsfarben nur `warning` und `danger`, die drei
         // Makro-Toene sind fuer Naehrwerte gesperrt. Die Position auf dem
@@ -47,6 +60,7 @@ class BMIGaugePainter extends CustomPainter {
       );
 
   final double bmi;
+  final String valueLabel;
   final Color underColor, normalColor, overColor, obeseColor;
   final Color trackColor, pointerCoreColor, labelColor;
 
@@ -126,7 +140,7 @@ class BMIGaugePainter extends CustomPainter {
 
     final valueTp = TextPainter(
       text: TextSpan(
-        text: bmi.isFinite ? bmi.toStringAsFixed(1).replaceAll('.', ',') : '–',
+        text: valueLabel,
         style: AppType.display(24, color: activeColor),
       ),
       textDirection: TextDirection.ltr,
@@ -163,16 +177,17 @@ class BMIGaugePainter extends CustomPainter {
     return t.danger;
   }
 
-  static String labelFor(double v) {
-    if (v < 18.5) return 'Untergewicht';
-    if (v < 25.0) return 'Normal';
-    if (v < 30.0) return 'Übergewicht';
-    return 'Adipös';
+  static String labelFor(double v, AppLocalizations l10n) {
+    if (v < 18.5) return l10n.profileBmiZoneUnder;
+    if (v < 25.0) return l10n.profileBmiZoneNormal;
+    if (v < 30.0) return l10n.profileBmiZoneOver;
+    return l10n.profileBmiZoneObese;
   }
 
   @override
   bool shouldRepaint(covariant BMIGaugePainter old) =>
       old.bmi != bmi ||
+      old.valueLabel != valueLabel ||
       old.underColor != underColor ||
       old.normalColor != normalColor ||
       old.overColor != overColor ||

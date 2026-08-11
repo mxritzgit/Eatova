@@ -4,7 +4,9 @@ import 'dart:developer' as dev;
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
+import '../l10n/l10n.dart';
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
@@ -96,6 +98,19 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   final LocalCache? debugCache;
   final SnackEmitter _emitSnack;
 
+  /// Sprachpaket fuer die wenigen Snack-Texte, die der Store selbst noch baut
+  /// (`sync_error_messages.dart`). Der Store haelt bewusst NIE einen
+  /// BuildContext (ARCH-4 Store-Seam, s. [SnackEmitter]) — [setLocalizations]
+  /// reicht ihm deshalb nur das bereits aufgeloeste [AppLocalizations]
+  /// hinein, gerufen aus `_EatovaHomePageState.didChangeDependencies` (dort
+  /// ist `context.l10n` sicher verfuegbar, in `initState` waere es das nicht).
+  /// Default Deutsch ([deL10n]): reproduziert exakt den vorherigen
+  /// hartkodierten Text, solange niemand den Setter ruft — deshalb bleiben
+  /// alle Store-Tests, die ihn nie aufrufen, unveraendert gruen.
+  AppLocalizations _l10n = deL10n;
+
+  void setLocalizations(AppLocalizations l10n) => _l10n = l10n;
+
   bool _disposed = false;
 
   // --- State (vormals Felder von _EatovaHomePageState) --------------------
@@ -180,7 +195,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       final name = raw.isEmpty
           ? 'Mahlzeit'
           : (raw.length > 40 ? '${raw.substring(0, 39)}…' : raw);
-      return '${m.slot.label}: $name (${m.result.caloriesKcal} kcal)';
+      return '${m.slot.germanLabel}: $name (${m.result.caloriesKcal} kcal)';
     }).join(', ');
     final suffix = meals.length > maxFoods ? ' …' : '';
     return 'Heute gegessene Lebensmittel — $shown$suffix.';

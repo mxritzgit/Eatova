@@ -395,7 +395,7 @@ void main() {
 
   group('outboxLossHint (endgueltiger Verlust)', () {
     test('sagt es klar, leakt aber nichts Technisches', () {
-      expect(outboxLossHint, isNotEmpty);
+      expect(outboxLossHint(), isNotEmpty);
       for (final leak in const <String>[
         '23514',
         'logged_meals',
@@ -405,8 +405,37 @@ void main() {
         'SQLSTATE',
         'Sync (',
       ]) {
-        expect(outboxLossHint, isNot(contains(leak)));
+        expect(outboxLossHint(), isNot(contains(leak)));
       }
+    });
+  });
+
+  group('deliveryHint (Luecke E)', () {
+    // Paket 6 (i18n): deliveryHint/queuedSyncHint/directSyncErrorMessage/
+    // outboxLossHint/outboxDeleteLossHint nehmen jetzt ein optionales
+    // [AppLocalizations] (Default Deutsch, s. `lib/src/l10n/l10n.dart`
+    // `deL10n`) statt fest verdrahteten deutschen Textes — die Werte hier
+    // bleiben unter Deutsch (Default) byte-identisch zum vorherigen Stand.
+    test('delivered haengt nur einen Punkt an', () {
+      expect(
+        deliveryHint('„Bowl" gespeichert', SyncDelivery.delivered),
+        '„Bowl" gespeichert.',
+      );
+    });
+
+    test('queuedOffline nennt den Offline-Grund', () {
+      expect(
+        deliveryHint('„Bowl" gespeichert', SyncDelivery.queuedOffline),
+        '„Bowl" gespeichert — wird synchronisiert, sobald du wieder online '
+        'bist.',
+      );
+    });
+
+    test('queuedRetry nennt den automatischen Retry', () {
+      expect(
+        deliveryHint('„Bowl" gelöscht', SyncDelivery.queuedRetry),
+        '„Bowl" gelöscht — die Übertragung wird automatisch wiederholt.',
+      );
     });
   });
 }

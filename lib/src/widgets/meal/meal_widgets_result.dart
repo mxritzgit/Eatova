@@ -41,6 +41,7 @@ class _MealResultCardState extends State<MealResultCard> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final result = widget.result;
     final isBarcode = result.sourceLabel == 'OpenFoodFacts';
 
@@ -66,8 +67,8 @@ class _MealResultCardState extends State<MealResultCard> {
                   key: const ValueKey('analyse-favorite-button'),
                   onPressed: () => widget.onToggleFavorite!(result),
                   tooltip: widget.isFavorite
-                      ? 'Aus Favoriten entfernen'
-                      : 'Als Favorit speichern',
+                      ? l10n.foodRemoveFavoriteTooltip
+                      : l10n.foodAddFavoriteTooltip,
                   visualDensity: VisualDensity.compact,
                   icon: Icon(
                     widget.isFavorite
@@ -80,7 +81,7 @@ class _MealResultCardState extends State<MealResultCard> {
               IconButton(
                 key: const ValueKey('analyse-info-button'),
                 onPressed: () => _showInfo(context),
-                tooltip: 'Details',
+                tooltip: l10n.foodDetailsTooltip,
                 visualDensity: VisualDensity.compact,
                 icon: Icon(
                   Icons.info_outline_rounded,
@@ -121,7 +122,7 @@ class _MealResultCardState extends State<MealResultCard> {
           _PortionLine(result: result),
           if (result.hasItemizedBreakdown) ...[
             const SizedBox(height: 14),
-            FieldLabel('BESTANDTEILE · ${result.items.length}'),
+            FieldLabel(l10n.foodIngredientsCountLabel(result.items.length)),
             const SizedBox(height: 6),
             _ItemBreakdownList(items: result.items),
           ],
@@ -130,7 +131,7 @@ class _MealResultCardState extends State<MealResultCard> {
             children: [
               Expanded(
                 child: MacroTile(
-                  label: 'Protein',
+                  label: l10n.todayMacroProtein,
                   value: result.protein,
                   color: t.protein,
                 ),
@@ -138,7 +139,7 @@ class _MealResultCardState extends State<MealResultCard> {
               const SizedBox(width: 8),
               Expanded(
                 child: MacroTile(
-                  label: 'Carbs',
+                  label: l10n.foodMacroTileCarbsLabel,
                   value: result.carbs,
                   color: t.carbs,
                 ),
@@ -146,7 +147,7 @@ class _MealResultCardState extends State<MealResultCard> {
               const SizedBox(width: 8),
               Expanded(
                 child: MacroTile(
-                  label: 'Fett',
+                  label: l10n.todayMacroFat,
                   value: result.fat,
                   color: t.fat,
                 ),
@@ -187,8 +188,8 @@ class _MealResultCardState extends State<MealResultCard> {
                   ),
                   label: Text(
                     widget.addedToDailyTotal
-                        ? 'Zu heute hinzugefügt'
-                        : 'Hinzufügen',
+                        ? l10n.foodAddedToDailyLabel
+                        : l10n.commonAdd,
                     style: AppType.ui(14, weight: FontWeight.w700),
                   ),
                   style: FilledButton.styleFrom(
@@ -210,6 +211,7 @@ class _MealResultCardState extends State<MealResultCard> {
 
   void _showInfo(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final result = widget.result;
     showModalBottomSheet<void>(
       context: context,
@@ -231,15 +233,16 @@ class _MealResultCardState extends State<MealResultCard> {
               ),
               const SizedBox(height: 12),
               if (result.brand != null && result.brand!.isNotEmpty)
-                _InfoLine(label: 'Marke', value: result.brand!),
+                _InfoLine(label: l10n.foodInfoBrandLabel, value: result.brand!),
               if (result.barcode != null && result.barcode!.isNotEmpty)
-                _InfoLine(label: 'Barcode', value: result.barcode!),
+                _InfoLine(
+                    label: l10n.foodInfoBarcodeLabel, value: result.barcode!),
               _InfoLine(
-                label: 'Quelle',
+                label: l10n.foodInfoSourceLabel,
                 value: result.sourceLabel,
               ),
               _InfoLine(
-                label: 'Sicherheit',
+                label: l10n.foodInfoConfidenceLabel,
                 value: result.confidence,
               ),
               const SizedBox(height: 12),
@@ -261,7 +264,7 @@ class _MealResultCardState extends State<MealResultCard> {
                   borderRadius: BorderRadius.circular(rControl),
                 ),
                 child: Text(
-                  'Schätzungen sind Näherungen. Zutaten, Öl und Portion können abweichen.',
+                  l10n.foodEstimateDisclaimer,
                   style: AppType.ui(
                     12,
                     weight: FontWeight.w500,
@@ -324,15 +327,16 @@ class _PortionLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final String label;
     if (result.hasItemizedBreakdown) {
       label = result.isAdjusted
-          ? '${result.estimatedGrams} g über Einzelposten angepasst'
-          : '${result.items.length} Bestandteile · ${result.estimatedGrams} g';
+          ? l10n.foodPortionItemizedAdjusted(result.estimatedGrams)
+          : l10n.foodPortionItemized(result.items.length, result.estimatedGrams);
     } else if (result.isAdjusted) {
-      label = '${result.estimatedGrams} g manuell angepasst';
+      label = l10n.foodPortionManuallyAdjusted(result.estimatedGrams);
     } else {
-      label = 'Portion: ${result.portionLabel}';
+      label = l10n.foodPortionLabelPrefixed(result.portionLabel);
     }
     return Padding(
       key: const ValueKey('analyse-portion-confirm-box'),

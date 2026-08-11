@@ -31,9 +31,10 @@ class RecipeDetailScreen extends StatelessWidget {
 
   void _add(BuildContext context, MealSlot slot) {
     onAddMeal(recipe.toMealResult(), slot);
+    final l10n = context.l10n;
     showAppSnack(
       context,
-      '${recipe.caloriesKcal} kcal zu ${slot.label} hinzugefügt.',
+      l10n.commonKcalAddedToSlot(recipe.caloriesKcal, slot.label(l10n)),
       icon: Icons.check_circle_rounded,
     );
   }
@@ -41,6 +42,7 @@ class RecipeDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
@@ -52,7 +54,8 @@ class RecipeDetailScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               PageHeader(
-                title: recipe.userCreated ? 'Eigenes Rezept' : 'Eatova Rezept',
+                title:
+                    recipe.userCreated ? l10n.recipesOwnTitle : l10n.recipesBrandTitle,
                 backKey: const ValueKey('recipe-detail-back'),
                 onBack: () => Navigator.of(context).pop(),
                 trailing: onDelete == null
@@ -62,7 +65,7 @@ class RecipeDetailScreen extends StatelessWidget {
                     : SquareIconButton(
                         key: const ValueKey('recipe-detail-delete'),
                         icon: Icons.delete_outline_rounded,
-                        semanticLabel: 'Rezept löschen',
+                        semanticLabel: l10n.recipesDeleteSemantics,
                         onTap: () {
                           // Erst zurueck, dann melden: der Toast soll auf der
                           // Rezeptliste landen, nicht auf dem sterbenden Detail.
@@ -113,11 +116,20 @@ class RecipeDetailScreen extends StatelessWidget {
                 onTap: () => _showMealPicker(context),
               ),
               const SizedBox(height: 18),
-              _RecipeInfoSection(title: 'Portion', body: recipe.portion),
-              _RecipeInfoSection(title: 'Zutaten', body: recipe.ingredients),
-              _RecipeInfoSection(title: 'Zubereitung', body: recipe.preparation),
               _RecipeInfoSection(
-                title: 'Profi-Hinweis',
+                title: l10n.recipesSectionPortion,
+                body: recipe.portion,
+              ),
+              _RecipeInfoSection(
+                title: l10n.recipesSectionIngredients,
+                body: recipe.ingredients,
+              ),
+              _RecipeInfoSection(
+                title: l10n.recipesSectionPreparation,
+                body: recipe.preparation,
+              ),
+              _RecipeInfoSection(
+                title: l10n.recipesSectionProHint,
                 body: recipe.professionalHint,
                 highlight: true,
               ),
@@ -138,6 +150,7 @@ class _AddToMealCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return AppCard(
       key: const ValueKey('recipe-add-card'),
       radius: rSheet,
@@ -154,7 +167,7 @@ class _AddToMealCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Zum Tracker hinzufügen',
+                      l10n.recipesAddToTrackerTitle,
                       style: AppType.display(
                         15,
                         weight: FontWeight.w700,
@@ -163,7 +176,10 @@ class _AddToMealCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${recipe.caloriesKcal} kcal · ${recipe.proteinG} g Protein',
+                      l10n.recipesKcalProteinSummary(
+                        recipe.caloriesKcal,
+                        recipe.proteinG,
+                      ),
                       style: AppType.ui(
                         12,
                         weight: FontWeight.w500,
@@ -178,13 +194,13 @@ class _AddToMealCard extends StatelessWidget {
           const SizedBox(height: 14),
           PrimaryActionButton(
             key: const ValueKey('recipe-add-button'),
-            label: 'Hinzufügen',
+            label: l10n.commonAdd,
             icon: Icons.add_rounded,
             onTap: onTap,
           ),
           const SizedBox(height: 10),
           Text(
-            'Danach wählst du Frühstück, Mittagessen, Abendessen oder Snack.',
+            l10n.recipesAddToTrackerHint,
             style: AppType.ui(11.5, color: t.ink2, height: 1.35),
           ),
         ],
@@ -201,6 +217,7 @@ class _NutritionGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     // Korrektur gegenueber dem Altstand: dort trug „Protein" `orange` und
     // „Fett" `macroFat` — derselbe Farbwert (app_colors.dart:50/62), beide
     // Kacheln waren also farbgleich. Jetzt je ein eigener Makro-Token.
@@ -208,7 +225,7 @@ class _NutritionGrid extends StatelessWidget {
       children: [
         Expanded(
           child: _NutritionTile(
-            label: 'Kcal',
+            label: l10n.recipesNutritionKcalLabel,
             value: '${recipe.caloriesKcal}',
             color: t.accent,
           ),
@@ -216,7 +233,7 @@ class _NutritionGrid extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: _NutritionTile(
-            label: 'Protein',
+            label: l10n.todayMacroProtein,
             value: '${recipe.proteinG} g',
             color: t.protein,
           ),
@@ -224,7 +241,7 @@ class _NutritionGrid extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: _NutritionTile(
-            label: 'KH',
+            label: l10n.recipesNutritionCarbsLabel,
             value: '${recipe.carbsG} g',
             color: t.carbs,
           ),
@@ -232,7 +249,7 @@ class _NutritionGrid extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: _NutritionTile(
-            label: 'Fett',
+            label: l10n.todayMacroFat,
             value: '${recipe.fatG} g',
             color: t.fat,
           ),

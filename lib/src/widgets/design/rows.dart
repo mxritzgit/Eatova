@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import 'controls.dart';
 
@@ -47,8 +48,12 @@ class PageHeader extends StatelessWidget {
           // Umlaut, kein „ue": ein Semantics-Label ist GESPROCHENER Text —
           // TalkBack liest „Zurueck" als „zurookk" vor. Gleiche Korrektur wie
           // in today_day_strip.dart („Tag zurück") und today_screen.dart
-          // („Profil öffnen").
-          semanticLabel: 'Zurück',
+          // („Profil öffnen"). Konsolidiert mit onboarding_screen.dart: der
+          // Onboarding-Zurueck-Knopf traegt denselben deutschen Text —
+          // [onboardingBackSemanticLabel] wiederverwendet statt einen
+          // gleichbedeutenden zweiten Key (z.B. commonBackSemantics)
+          // anzulegen.
+          semanticLabel: context.l10n.onboardingBackSemanticLabel,
         ),
         if (large != null) ...<Widget>[
           const SizedBox(width: 12),

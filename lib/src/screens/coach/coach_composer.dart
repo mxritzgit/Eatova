@@ -65,6 +65,7 @@ class _ComposerState extends State<_Composer> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final hasText = widget.draft.trim().isNotEmpty;
     final showQuotaHint = widget.remaining > 0 && widget.remaining <= 2;
     // Kein viewInsets-Zuschlag wie in der Vorlage: der Home-Scaffold hat fuer
@@ -100,7 +101,7 @@ class _ComposerState extends State<_Composer> {
                   icon: Icons.add_rounded,
                   enabled: widget.canSend,
                   onTap: widget.onAttach,
-                  semanticLabel: 'Foto anhängen',
+                  semanticLabel: l10n.coachAttachSemanticLabel,
                 ),
                 const SizedBox(width: 2),
                 Expanded(
@@ -134,10 +135,10 @@ class _ComposerState extends State<_Composer> {
                       // steht der Hinweis im Hero, im laufenden Chat ist der
                       // Composer die einzige Stelle, die immer sichtbar ist.
                       hintText: widget.remaining <= 0
-                          ? 'Limit für heute erreicht'
+                          ? l10n.coachComposerHintLimitReached
                           : widget.listening
-                              ? 'Ich höre zu…'
-                              : 'Frag den KI-Coach…',
+                              ? l10n.coachComposerHintListening
+                              : l10n.coachComposerHintDefault,
                       hintStyle: AppType.ui(15.5, color: t.ink2),
                     ),
                   ),
@@ -174,6 +175,7 @@ class _QuotaHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final shape = StadiumBorder(side: BorderSide(color: t.line));
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -199,9 +201,7 @@ class _QuotaHint extends StatelessWidget {
                   const SizedBox(width: 7),
                   Flexible(
                     child: Text(
-                      remaining == 1
-                          ? 'Noch 1 Frage heute'
-                          : 'Noch $remaining Fragen heute',
+                      l10n.coachQuotaHint(remaining),
                       style: AppType.ui(
                         11.5,
                         weight: FontWeight.w600,
@@ -334,6 +334,7 @@ class _MicButtonState extends State<_MicButton>
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     final color = widget.listening
         ? t.accent
@@ -344,7 +345,9 @@ class _MicButtonState extends State<_MicButton>
       enabled: widget.enabled,
       // Der Knopf ist ein Umschalter: der Zustand gehoert in den Namen, sonst
       // erfaehrt ein Screenreader-Nutzer nie, dass gerade aufgenommen wird.
-      label: widget.listening ? 'Spracheingabe beenden' : 'Spracheingabe',
+      label: widget.listening
+          ? l10n.coachMicLabelListening
+          : l10n.coachMicLabelIdle,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 2),
         child: Material(
@@ -419,7 +422,7 @@ class _SendButton extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: enabled,
-      label: 'Senden',
+      label: context.l10n.coachSendLabel,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         child: GestureDetector(
@@ -508,6 +511,7 @@ class _CoachInfoSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return SafeArea(
       top: false,
       child: ConstrainedBox(
@@ -523,40 +527,33 @@ class _CoachInfoSheet extends StatelessWidget {
             children: <Widget>[
               // Kein eigener Ziehgriff: showEatovaSheet setzt showDragHandle.
               Text(
-                'KI-Coach',
+                l10n.coachTitle,
                 style:
                     AppType.display(20, weight: FontWeight.w700, color: t.ink),
               ),
               const SizedBox(height: 6),
               Text(
-                'Hier antwortet eine KI, keine echte Person. Die Antworten '
-                'sind eine Schätzung und ersetzen keinen ärztlichen Rat.',
+                l10n.coachInfoIntro,
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
               const SizedBox(height: 18),
-              const _InfoLabel('Das schickt jede Frage mit'),
+              _InfoLabel(l10n.coachInfoDataLabel),
               const SizedBox(height: 8),
-              const _InfoBullet('Dein Gewicht und dein Zielgewicht'),
-              const _InfoBullet(
-                  'Deine heutigen Kalorien und die offenen Makros'),
-              const _InfoBullet(
-                  'Die Namen der Mahlzeiten, die du heute geloggt hast'),
+              _InfoBullet(l10n.coachInfoBulletWeight),
+              _InfoBullet(l10n.coachInfoBulletMacros),
+              _InfoBullet(l10n.coachInfoBulletMeals),
               const SizedBox(height: 12),
               Text(
-                'Das geht zusammen mit deiner Frage an unseren KI-Anbieter '
-                '(OpenRouter, Modell Grok von xAI) auf Servern in den USA — '
-                'nur, um die Antwort zu erzeugen. Mehr dazu steht in der '
-                'Datenschutzerklärung.',
+                l10n.coachInfoProvider,
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
               const SizedBox(height: 20),
               Container(height: 1, color: t.line),
               const SizedBox(height: 18),
-              const _InfoLabel('Coach-Limit'),
+              _InfoLabel(l10n.coachInfoLimitLabel),
               const SizedBox(height: 6),
               Text(
-                '$remaining von $dailyLimit Fragen heute frei. '
-                'Reset um Mitternacht (UTC).',
+                l10n.coachInfoLimitBody(remaining, dailyLimit),
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
               const SizedBox(height: 14),

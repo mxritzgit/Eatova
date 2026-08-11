@@ -164,6 +164,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Der Store haelt bewusst nie einen BuildContext (ARCH-4) — hier ist
+    // `context.l10n` sicher verfuegbar (anders als in initState) und wird bei
+    // jedem Aufruf (Kaltstart UND Sprachwechsel in den Einstellungen) frisch
+    // durchgereicht, damit die wenigen Snack-Texte, die der Store selbst noch
+    // baut (sync_error_messages.dart), der aktiven Sprache folgen.
+    _store.setLocalizations(context.l10n);
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _store.removeListener(_onStoreChanged);

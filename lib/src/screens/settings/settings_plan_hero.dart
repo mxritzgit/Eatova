@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../theme/app_tokens.dart';
@@ -57,18 +58,21 @@ class SettingsPlanHero extends StatelessWidget {
   /// B2: Hier stand frueher `goal.paceLabel` — das *gewaehlte* Tempo. Fuer das
   /// Standardprofil ergab das „Erhaltung 1997 · −1 kg/Woche" direkt ueber
   /// „1200"; 1997 − 1200 = 797 kcal, also −0,72 kg/Woche.
-  String get _paceLabel => paceLabelForWeeklyRateKg(
+  String _paceLabel(AppLocalizations l10n) => paceLabelForWeeklyRateKg(
         wochenrateKg(tagesziel: kcal, erhaltung: targets.maintenanceKcal),
+        l10n,
       );
 
   /// Der fertige Erklaersatz der Sicherheitsklemme — nur wenn die Karte auch
   /// das gerechnete Ziel zeigt.
-  String? get _paceWarning => _zeigtRechnung ? targets.paceWarning : null;
+  String? _paceWarning(AppLocalizations l10n) =>
+      _zeigtRechnung ? targets.paceWarning(l10n) : null;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final warnung = _paceWarning;
+    final l10n = context.l10n;
+    final warnung = _paceWarning(l10n);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -117,16 +121,18 @@ class SettingsPlanHero extends StatelessWidget {
                             children: <Widget>[
                               Text(
                                 manual
-                                    ? 'DEIN TAGESZIEL · MANUELL'
-                                    : 'DEIN TAGESZIEL',
+                                    ? l10n.settingsPlanHeroEyebrowManual
+                                    : l10n.settingsPlanHeroEyebrow,
                                 style: AppType.eyebrow(
                                   t.onForest.withValues(alpha: 0.70),
                                 ),
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                'Erhaltung ${targets.maintenanceKcal} · '
-                                '$_paceLabel',
+                                l10n.settingsPlanHeroMaintenance(
+                                  targets.maintenanceKcal,
+                                  _paceLabel(l10n),
+                                ),
                                 style: AppType.ui(
                                   12,
                                   weight: FontWeight.w500,
@@ -152,7 +158,7 @@ class SettingsPlanHero extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'kcal',
+                          l10n.commonKcalUnit,
                           style: AppType.ui(
                             14,
                             weight: FontWeight.w700,
@@ -170,11 +176,23 @@ class SettingsPlanHero extends StatelessWidget {
         const SizedBox(height: 12),
         Row(
           children: <Widget>[
-            _MacroTile(label: 'Protein', value: '$protein g', color: t.protein),
+            _MacroTile(
+              label: l10n.todayMacroProtein,
+              value: '$protein ${l10n.commonUnitG}',
+              color: t.protein,
+            ),
             const SizedBox(width: 10),
-            _MacroTile(label: 'Carbs', value: '$carbs g', color: t.carbs),
+            _MacroTile(
+              label: l10n.foodMacroTileCarbsLabel,
+              value: '$carbs ${l10n.commonUnitG}',
+              color: t.carbs,
+            ),
             const SizedBox(width: 10),
-            _MacroTile(label: 'Fett', value: '$fat g', color: t.fat),
+            _MacroTile(
+              label: l10n.todayMacroFat,
+              value: '$fat ${l10n.commonUnitG}',
+              color: t.fat,
+            ),
           ],
         ),
         if (warnung != null) ...<Widget>[

@@ -1,6 +1,7 @@
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/lifetime_stats.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
@@ -78,6 +79,7 @@ class TodayScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
 
     // Genau eine Uhrabfrage pro Aufbau: sonst koennten Begruessung und
     // Datums-Streifen auf verschiedenen Seiten von Mitternacht landen.
@@ -107,8 +109,8 @@ class TodayScreen extends StatelessWidget {
           // dem Datums-Streifen direkt darunter. Die Begruessung folgt der
           // Wanduhr: „Guten Morgen" ist eine Aussage ueber jetzt, nicht
           // ueber den aufgeschlagenen Tag.
-          eyebrow: todayEyebrow(selectedDate),
-          greeting: todayGreeting(jetzt),
+          eyebrow: todayEyebrow(selectedDate, l10n),
+          greeting: todayGreeting(l10n, jetzt),
           initial: profileInitial ?? todayInitial(userName),
           onOpenProfile: onOpenProfile,
         ),
@@ -132,24 +134,27 @@ class TodayScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const SectionHeading(title: 'Makros', trailing: 'Tagesziele'),
+              SectionHeading(
+                title: l10n.todayMacrosTitle,
+                trailing: l10n.todayMacrosTrailing,
+              ),
               const SizedBox(height: 14),
               MacroBar(
-                label: 'Protein',
+                label: l10n.todayMacroProtein,
                 value: macroProgress.proteinG.round(),
                 goal: profile.proteinGoalG,
                 unit: 'g',
                 color: t.protein,
               ),
               MacroBar(
-                label: 'Kohlenhydrate',
+                label: l10n.todayMacroCarbs,
                 value: macroProgress.carbsG.round(),
                 goal: profile.carbsGoalG,
                 unit: 'g',
                 color: t.carbs,
               ),
               MacroBar(
-                label: 'Fett',
+                label: l10n.todayMacroFat,
                 value: macroProgress.fatG.round(),
                 goal: profile.fatGoalG,
                 unit: 'g',
@@ -166,7 +171,9 @@ class TodayScreen extends StatelessWidget {
         // saehe aus wie ein Link, waere aber tot — und die Slot-Zeilen
         // darunter fuehren ohnehin schon in den Food-Tab.
         SectionHeading(
-          title: istHeute ? 'Heutige Mahlzeiten' : 'Mahlzeiten',
+          title: istHeute
+              ? l10n.todayMealsTitleToday
+              : l10n.todayMealsTitleArchive,
         ),
         const SizedBox(height: 12),
         if (dayLoading)
@@ -181,6 +188,7 @@ class TodayScreen extends StatelessWidget {
             // eine Behauptung ueber ungeladene Daten.
             dayIsEmpty: !dayLoading && meals.isEmpty,
             remainingProteinG: restProtein,
+            l10n: l10n,
             isToday: istHeute,
           ),
           onTap: onOpenCoach,
@@ -229,7 +237,7 @@ class _Kopfzeile extends StatelessWidget {
         Semantics(
           button: true,
           // Umlaut, kein „oe": ein Semantics-Label ist gesprochener Text.
-          label: 'Profil öffnen',
+          label: context.l10n.todaySemanticsOpenProfile,
           // 14 statt rControl (15): die Vorlage nennt fuer diese 44er-Kachel
           // ausdruecklich 14, und laut Vertrag §3 gewinnt dort die Vorlage.
           child: Material(

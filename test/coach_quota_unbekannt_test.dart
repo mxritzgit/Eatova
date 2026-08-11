@@ -1,11 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -122,7 +124,10 @@ class _StummesMikro extends CoachSpeechInput {
       'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.';
 
   @override
-  Future<String?> listen({String localeId = 'de_DE'}) async {
+  Future<String?> listen({
+    String localeId = 'de_DE',
+    required AppLocalizations l10n,
+  }) async {
     throw const CoachSpeechException(meldung);
   }
 }
@@ -172,11 +177,24 @@ class _TabHostState extends State<_TabHost> {
       );
 }
 
+/// Delegates + feste Locale `de`: der Coach ruft seit der i18n-Migration
+/// (Paket 4) context.l10n — ohne Lokalisierung wirft AppLocalizations.of()
+/// beim ersten Build (Muster: home_page_tabs_test.dart).
+const List<LocalizationsDelegate<dynamic>> _l10nDelegates = [
+  AppLocalizations.delegate,
+  GlobalMaterialLocalizations.delegate,
+  GlobalWidgetsLocalizations.delegate,
+  GlobalCupertinoLocalizations.delegate,
+];
+
 Future<void> _pumpHost(WidgetTester tester, CoachChatService svc) async {
   await tester.pumpWidget(MaterialApp(
     // Ohne das Eatova-Theme wirft `AppTokens.of` — der Screen liest seine
     // Farben seit dem Design-Refactor ueber `context.t`.
     theme: buildEatovaTheme(Brightness.dark),
+    locale: const Locale('de'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: _l10nDelegates,
     home: _TabHost(service: svc),
   ));
   await tester.pump(const Duration(milliseconds: 500));
@@ -302,6 +320,9 @@ void main() {
         ..quotaZeile = const {'used': 0, 'remaining': 5, 'daily_limit': 5};
       await tester.pumpWidget(MaterialApp(
         theme: buildEatovaTheme(Brightness.dark),
+        locale: const Locale('de'),
+        supportedLocales: const [Locale('de'), Locale('en')],
+        localizationsDelegates: _l10nDelegates,
         home: _TabHost(
           service: _service(backend),
           speechInput: const _StummesMikro(),

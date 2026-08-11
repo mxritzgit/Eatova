@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
@@ -28,6 +29,13 @@ import 'package:eatova/src/widgets/design/design.dart';
 Widget _harness(Widget child, {Brightness brightness = Brightness.light}) {
   return MaterialApp(
     theme: buildEatovaTheme(brightness),
+    // PageHeader liest jetzt context.l10n (Review-Fixwelle Finding 2) — ohne
+    // Lokalisierung wirft AppLocalizations.of() beim Bau des Zurueck-Knopfs
+    // (docs/I18N_PAKETE.md, "Bekannte Fallen"). Generierte Listen statt
+    // eigenem Block, wie dort empfohlen.
+    locale: const Locale('de'),
+    supportedLocales: AppLocalizations.supportedLocales,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
     home: Scaffold(body: SafeArea(child: Padding(
       padding: const EdgeInsets.all(20),
       child: child,

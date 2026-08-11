@@ -13,6 +13,12 @@ void main() {
   testWidgetsRobust('Food tab supports deterministic itemized photo results and daily kcal adding', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
+    // pruefen wortgleiche deutsche ARB-Texte.
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(
         mealAnalyzer: FakeMealAnalyzer(),
@@ -107,6 +113,12 @@ void main() {
   testWidgetsRobust('Re-portioning a logged meal scales macros, not just kcal', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
+    // pruefen wortgleiche deutsche ARB-Texte.
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(
         mealAnalyzer: MacroMealAnalyzer(),
@@ -166,6 +178,12 @@ void main() {
   testWidgetsRobust('Meal result shows a favorite heart that pins the meal', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
+    // pruefen wortgleiche deutsche ARB-Texte.
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
       EatovaApp(
         mealAnalyzer: MacroMealAnalyzer(),

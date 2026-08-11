@@ -13,6 +13,13 @@ void main() {
   testWidgetsRobust('Recipe detail can add a meal into kcal and macro tracker', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
+    // pruefen wortgleiche deutsche ARB-Texte (u. a. slot.label ueber
+    // recipe_detail.dart).
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(const EatovaApp());
 
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
@@ -64,6 +71,13 @@ void main() {
   testWidgetsRobust('Recipe lands on the day selected in the food tab', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
+    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
+    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
+    // pruefen wortgleiche deutsche ARB-Texte (u. a. slot.label ueber
+    // recipe_detail.dart).
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(const EatovaApp());
 
     // Food-Tab: einen Archivtag waehlen. Der Chip-Index IST der Tages-Offset
