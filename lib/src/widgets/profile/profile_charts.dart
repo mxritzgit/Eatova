@@ -15,6 +15,7 @@ import '../../theme/app_tokens.dart';
 class BMIGaugePainter extends CustomPainter {
   BMIGaugePainter({
     required this.bmi,
+    required this.valueLabel,
     required this.underColor,
     required this.normalColor,
     required this.overColor,
@@ -26,9 +27,20 @@ class BMIGaugePainter extends CustomPainter {
 
   /// Der uebliche Weg von den Tokens zum Painter. Hier — und nur hier — liegt
   /// die Zuordnung BMI-Zone → Zustandsfarbe.
-  factory BMIGaugePainter.fromTokens(AppTokens t, double bmi) =>
+  ///
+  /// [valueLabel] ist der bereits fertig formatierte BMI-Wert (`formatBmiDe`
+  /// aus `profile_format.dart`) — der Painter formatiert seit Paket 7
+  /// (2026-08-11) nicht mehr selbst (vorher hartkodiertes Komma,
+  /// `bmi.toStringAsFixed(1).replaceAll('.', ',')`): als [CustomPainter] hat
+  /// er im Zeichenschritt keinen Zugriff auf die aktive Sprache.
+  factory BMIGaugePainter.fromTokens(
+    AppTokens t,
+    double bmi,
+    String valueLabel,
+  ) =>
       BMIGaugePainter(
         bmi: bmi,
+        valueLabel: valueLabel,
         // Unter- UND Uebergewicht tragen denselben Warnton: der Token-Vertrag
         // kennt als Zustandsfarben nur `warning` und `danger`, die drei
         // Makro-Toene sind fuer Naehrwerte gesperrt. Die Position auf dem
@@ -48,6 +60,7 @@ class BMIGaugePainter extends CustomPainter {
       );
 
   final double bmi;
+  final String valueLabel;
   final Color underColor, normalColor, overColor, obeseColor;
   final Color trackColor, pointerCoreColor, labelColor;
 
@@ -127,7 +140,7 @@ class BMIGaugePainter extends CustomPainter {
 
     final valueTp = TextPainter(
       text: TextSpan(
-        text: bmi.isFinite ? bmi.toStringAsFixed(1).replaceAll('.', ',') : '–',
+        text: valueLabel,
         style: AppType.display(24, color: activeColor),
       ),
       textDirection: TextDirection.ltr,
@@ -174,6 +187,7 @@ class BMIGaugePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant BMIGaugePainter old) =>
       old.bmi != bmi ||
+      old.valueLabel != valueLabel ||
       old.underColor != underColor ||
       old.normalColor != normalColor ||
       old.overColor != overColor ||

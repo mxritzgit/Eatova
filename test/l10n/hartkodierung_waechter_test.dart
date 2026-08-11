@@ -93,13 +93,19 @@ import 'package:flutter_test/flutter_test.dart';
 ///    `test/coach_error_mapping_test.dart` (kontextfrei) nicht in
 ///    [_migriertePfade]: `send()`s Signatur ist unveraendert, ein Setter
 ///    (`svc.l10n = ...`) traegt das Sprachpaket, Default bleibt Deutsch.
-/// Nach Paket 6 fehlen fuer die volle `lib/`-Deckung nur noch: die
-/// Auth-Screens (eigene Runde, s. Vertrag), der `fitness_recipe.dart`-Katalog
-/// (Content, kein Screen-Text, s. Paket-3-Kommentar) und die beiden oben
-/// dokumentierten Service-Einzelfaelle (`sync_error_messages.dart`,
-/// `coach_chat_service.dart`) sowie `kcal_calculator.dart`
-/// (`paceLabelForWeeklyRateKg`/`effectivePaceLabel`/`paceWarning` — dieselbe
-/// Kategorie, noch unmigriert).
+/// Paket 7 (Nachzügler, 2026-08-11): der letzte offene Fund aus dem
+/// Paket-6-Review. `lib/src/services/kcal_calculator.dart`
+/// (`KcalTargets.effectivePaceLabel`/`.paceWarning`) kommt jetzt dazu — die
+/// beiden Service-Einzelfaelle aus Paket 6 (`sync_error_messages.dart`,
+/// `coach_chat_service.dart`) waren inhaltlich schon migriert (optionales
+/// `[AppLocalizations? l10n]`, Default Deutsch) und bleiben ab jetzt ebenfalls
+/// bewacht — nur `kcal_calculator.dart` musste vorher noch mitziehen, weil
+/// `paceLabelForWeeklyRateKg`/`effectivePaceLabel`/`paceWarning` an der
+/// B2-Kopplung haengen (`WeightGoalInfo.paceLabel` in `user_profile.dart`
+/// rechnet mit derselben Funktion — beide liefen sonst auseinander). Damit
+/// deckt `_migriertePfade` `lib/` vollstaendig ab bis auf: die Auth-Screens
+/// (eigene Runde, s. Vertrag) und den `fitness_recipe.dart`-Katalog (Content,
+/// kein Screen-Text, s. Paket-3-Kommentar).
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -118,6 +124,9 @@ const List<String> _migriertePfade = <String>[
   'lib/src/widgets/shared/',
   'lib/src/screens/onboarding_screen.dart',
   'lib/src/models/user_profile.dart',
+  'lib/src/services/kcal_calculator.dart',
+  'lib/src/services/sync_error_messages.dart',
+  'lib/src/services/coach_chat_service.dart',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie

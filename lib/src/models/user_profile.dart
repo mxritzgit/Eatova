@@ -162,17 +162,20 @@ extension WeightGoalInfo on WeightGoal {
   /// `KcalTargets.effectivePaceLabel` hin: nur das kennt die
   /// Sicherheitsgrenze.
   ///
-  /// Bleibt bewusst hartkodiertes Deutsch (dokumentierte Ripple-Uebergabe,
-  /// s. Paket-6-Bericht): `paceLabelForWeeklyRateKg` sitzt in `kcal_calculator.dart`
-  /// zusammen mit `KcalTargets.effectivePaceLabel`/`.paceWarning`, die
-  /// denselben Weg gehen — eine l10n-Anbindung dieser einen Stelle liesse die
-  /// beiden auseinanderlaufen.
-  String get paceLabel => paceLabelForWeeklyRateKg(signedWeeklyRateKg);
+  /// Seit der i18n-Migration (Paket 7, 2026-08-11) l10n-faehig — gemeinsam mit
+  /// `paceLabelForWeeklyRateKg` und `KcalTargets.effectivePaceLabel`/
+  /// `.paceWarning`, die denselben Weg gehen (B2-Kopplung, s. Paket-6-Bericht):
+  /// [l10n] optional, Default Deutsch ([deL10n]), damit
+  /// `test/services/kcal_effective_pace_test.dart` als kontextfreie Test-API
+  /// weiterlaeuft (Regel 1, docs/I18N_PAKETE.md). Aus einem Getter wurde
+  /// dafuer eine Methode — Dart-Getter koennen keine Parameter tragen.
+  String paceLabel([AppLocalizations? l10n]) =>
+      paceLabelForWeeklyRateKg(signedWeeklyRateKg, l10n);
 
   /// Kombiniertes Menü-Label, z.B. "Abnehmen · −1 kg/Woche".
   String menuLabel(AppLocalizations l10n) => kcalDelta == 0
       ? l10n.commonWeightGoalLabelMaintain
-      : '${label(l10n)} · $paceLabel';
+      : '${label(l10n)} · ${paceLabel(l10n)}';
 
   /// Vorzeichenbehaftetes Delta-Label, z.B. "−1100 kcal" / "±0".
   String get deltaLabel {
@@ -190,12 +193,20 @@ extension WeightGoalInfo on WeightGoal {
 /// "+0 kg/Woche" ausweisen. Nicht-endliche Werte können hier nicht ankommen
 /// (die Rate entsteht aus zwei Ganzzahlen), werden aber trotzdem abgefangen,
 /// damit kein "NaN kg/Woche" in ein Widget gelangt.
-String paceLabelForWeeklyRateKg(double signedRateKg) {
+///
+/// [l10n] ist optional (Default Deutsch, [deL10n]) — dasselbe Muster wie
+/// Paket 6s `sync_error_messages.dart`. Die Zahl selbst ([_formatRateKg])
+/// bleibt bewusst deutsch-kommaformatiert unabhängig von [l10n]: dieselbe
+/// dokumentierte Ripple-Uebergabe wie `target_bmi_hint.dart`s
+/// `targetBmiHintText` vor Paket 7 — eine `intl`-Anbindung der Rate ist NICHT
+/// Teil dieses Pakets (s. Paket-7-Bericht).
+String paceLabelForWeeklyRateKg(double signedRateKg, [AppLocalizations? l10n]) {
+  final t = l10n ?? deL10n;
   if (!signedRateKg.isFinite || signedRateKg.abs() < weeklyRateNoiseKg) {
-    return 'Gewicht stabil';
+    return t.commonPaceStable;
   }
   final sign = signedRateKg > 0 ? '+' : '−';
-  return '$sign${_formatRateKg(signedRateKg.abs())} kg/Woche';
+  return t.commonPaceRateLabel('$sign${_formatRateKg(signedRateKg.abs())}');
 }
 
 /// Formatiert eine kg-Rate deutsch auf höchstens zwei Nachkommastellen:

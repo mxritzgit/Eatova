@@ -54,6 +54,7 @@ void main() {
     ReminderState reminderState = ReminderState.off,
     VoidCallback? onOpenSystemSettings,
     ThemeModeController? themeController,
+    Locale locale = const Locale('de'),
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
@@ -74,7 +75,7 @@ void main() {
 
     final app = MaterialApp(
       theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
+      locale: locale,
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -115,6 +116,28 @@ void main() {
 
   testWidgets('rendert im Dunkelmodus', (tester) async {
     await pumpOhneOverflow(tester, 'dunkel', brightness: Brightness.dark);
+  });
+
+  testWidgets(
+      'rendert unter EN mit englischem Tempo-Label statt deutschem Leck '
+      '(i18n-Paket-7-Regression)', (tester) async {
+    // Paket-6-Review-Fund: `WeightGoal.paceLabel`/`KcalTargets.effectivePaceLabel`
+    // blieben hartkodiertes Deutsch, obwohl der Rest der Seite laengst
+    // uebersetzt war — unter EN stand „Gewicht stabil" mitten im englischen
+    // Screen. Paket 7 schliesst genau diese Luecke; diese Zusicherung haelt
+    // sie zu, damit ein kuenftiger Rueckfall wieder auffaellt.
+    await pumpOhneOverflow(
+      tester,
+      'en',
+      brightness: Brightness.light,
+      locale: const Locale('en'),
+    );
+
+    // Default-Profil hat WeightGoal.maintain — die Gewichtsziel-Zeile zeigt
+    // dessen Tempo-Label als eigenstaendigen Text (goals_screen.dart:
+    // `value: _goal.paceLabel(l10n)`).
+    expect(find.text('Weight stable'), findsOneWidget);
+    expect(find.text('Gewicht stabil'), findsNothing);
   });
 
   testWidgets('rendert bei textScale 2.0 (hell)', (tester) async {

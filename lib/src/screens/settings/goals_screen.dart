@@ -296,10 +296,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// jede gerechnete Zahl eine Behauptung ueber etwas, das der Schalter gerade
   /// abgeschaltet hat.
   String _zielFolge(WeightGoal option) {
-    if (_manualEnergy) return context.l10n.goalsManualNoChangeHint;
+    final l10n = context.l10n;
+    if (_manualEnergy) return l10n.goalsManualNoChangeHint;
     final t = const KcalCalculator()
         .calculate(_draftForCalc().copyWith(weightGoal: option));
-    return context.l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel);
+    return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
   /// Die Zeile unter der Gewichtsziel-Zeile — `null`, solange dort dieselbe
@@ -309,11 +310,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// Nutzer sieht Text, und genau dann, wenn zwei verschiedene Texte auf dem
   /// Bildschirm stehen, braucht es die Erklaerung.
   String? _zielAbweichung({required int tagesziel, required KcalTargets t}) {
+    final l10n = context.l10n;
     final label = paceLabelForWeeklyRateKg(
       wochenrateKg(tagesziel: tagesziel, erhaltung: t.maintenanceKcal),
+      l10n,
     );
-    if (label == _goal.paceLabel) return null;
-    return context.l10n.commonKcalOutcomeLabel(tagesziel, label);
+    if (label == _goal.paceLabel(l10n)) return null;
+    return l10n.commonKcalOutcomeLabel(tagesziel, label);
   }
 
   UserProfile _buildProfile() {
@@ -690,7 +693,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                 subtitle: _goal.label(l10n),
                 // Bleibt das GEWAEHLTE Tempo: die Zeile muss zeigen, was der
                 // Nutzer getippt hat. Was daraus wird, steht darunter.
-                value: _goal.paceLabel,
+                value: _goal.paceLabel(l10n),
                 onTap: _pickWeightGoal,
               ),
               if (abweichung != null)

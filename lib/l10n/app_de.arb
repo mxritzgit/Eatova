@@ -755,6 +755,38 @@
       "paceLabel": { "type": "String" }
     }
   },
+  "commonPaceStable": "Gewicht stabil",
+  "commonPaceRateLabel": "{rate} kg/Woche",
+  "@commonPaceRateLabel": {
+    "placeholders": {
+      "rate": { "type": "String" }
+    }
+  },
+  "commonPaceWarningFloor": "Aus Sicherheitsgründen liegt dein Tagesziel bei {floor} kcal statt {uncapped} kcal. Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
+  "@commonPaceWarningFloor": {
+    "placeholders": {
+      "floor": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningCeiling": "Dein Tagesziel ist bei {ceiling} kcal gedeckelt (rechnerisch wären es {uncapped} kcal). Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
+  "@commonPaceWarningCeiling": {
+    "placeholders": {
+      "ceiling": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningMismatch": "Dein tatsächliches Tempo ist {effectivePace} statt {promisedPace}.",
+  "@commonPaceWarningMismatch": {
+    "placeholders": {
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
   "commonGenericRetryError": "Das hat gerade nicht geklappt. Bitte versuch es später erneut.",
   "commonDeliverySuccess": "{erfolg}.",
   "@commonDeliverySuccess": {

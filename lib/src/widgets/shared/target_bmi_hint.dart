@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
@@ -44,13 +45,11 @@ String? targetBmiHintText({
   final bmi = targetBmi(heightCm: heightCm, targetWeightKg: targetWeightKg);
   if (bmi == null) return null;
   final t = l10n ?? deL10n;
-  // Zahlenformat bleibt bewusst deutsch (Komma), unabhaengig von [l10n]: das
-  // spiegelt denselben, bereits bestehenden Stand wie `_formatRateKg` in
-  // `user_profile.dart`/`kcal_calculator.dart` (dokumentierte Ripple-Uebergabe,
-  // s. Paket-6-Bericht) — eine echte `intl`-Anbindung braeuchte dieselbe
-  // Ueberarbeitung an allen drei Stellen gleichzeitig, sonst mischt die App
-  // zwei Zahlenformate.
-  final formatted = bmi.toStringAsFixed(1).replaceAll('.', ',');
+  // Seit Paket 7 (2026-08-11) locale-bewusst ueber NumberFormat — dasselbe
+  // Muster wie `formatBmiDe` in `profile/profile_format.dart`: unter `de`
+  // byte-gleich zum vorherigen `toStringAsFixed(1).replaceAll('.', ',')`
+  // (CLDR liefert fuer `de` ebenfalls das Komma), unter `en` jetzt der Punkt.
+  final formatted = NumberFormat('0.0', t.localeName).format(bmi);
   if (bmi < kBmiUnderweightThreshold) {
     return t.targetBmiHintUnderweight(formatted);
   }

@@ -178,7 +178,7 @@ class GoalPlanCard extends StatelessWidget {
     final targets = const KcalCalculator().calculate(profile);
     final weeks = const KcalCalculator().weeksToGoal(profile, targets: targets);
     // Fertig formulierter Satz aus KcalTargets, sonst null.
-    final paceWarning = isMaintain ? null : targets.paceWarning;
+    final paceWarning = isMaintain ? null : targets.paceWarning(l10n);
     // Ein Ziel mit Richtung traegt den Marken-Akzent, „halten" bleibt ruhig.
     final accent = isMaintain ? t.ink2 : t.accent;
 
@@ -275,7 +275,7 @@ class GoalPlanCard extends StatelessWidget {
                     label: l10n.profilePlanChipPace,
                     value: isMaintain
                         ? l10n.profileStable
-                        : targets.effectivePaceLabel,
+                        : targets.effectivePaceLabel(l10n),
                     color: accent,
                   ),
                 ),

@@ -192,9 +192,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Rate wären nicht mehr auseinanderzuhalten. Die Folge gehört in den
   /// Untertitel — Auswahl oben, Konsequenz darunter.
   String _tempoFolge(WeightGoal option) {
+    final l10n = context.l10n;
     final t = const KcalCalculator()
         .calculate(_draftProfile().copyWith(weightGoal: option));
-    return context.l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel);
+    return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
   void _next() {
@@ -865,7 +866,7 @@ class _PacePicker extends StatelessWidget {
             onTap: () => onChanged(goal),
             title: l10n.onboardingPaceOptionTitle(
               _paceName(l10n, goal) ?? l10n.onboardingPaceNameFallback,
-              goal.paceLabel,
+              goal.paceLabel(l10n),
             ),
             subtitle: outcomeFor(goal),
           ),
@@ -1210,6 +1211,10 @@ class _SummaryStep extends StatelessWidget {
     };
 
     final t = context.t;
+    // Einmal berechnet und weitergereicht: effectivePaceLabel/paceWarning
+    // muessen im Text UND im Sichtbarkeits-Check dieselbe Zeichenkette
+    // liefern (B2).
+    final paceWarning = targets.paceWarning(l10n);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1343,7 +1348,7 @@ class _SummaryStep extends StatelessWidget {
               _BreakdownRow(
                 key: const ValueKey('onboarding-summary-goal-row'),
                 label: l10n.onboardingSummaryGoalLabel(
-                  targets.effectivePaceLabel,
+                  targets.effectivePaceLabel(l10n),
                 ),
                 value: _signedKcalLabel(targets.effectiveKcalDelta),
                 highlight: targets.effectiveKcalDelta != 0,
@@ -1353,7 +1358,7 @@ class _SummaryStep extends StatelessWidget {
         ),
         // Sichtbarer Hinweis, wenn Tagesziel und gewaehltes Tempo auseinander
         // liegen — sonst bliebe der Widerspruch unerklaert.
-        if (targets.paceWarning != null) ...[
+        if (paceWarning != null) ...[
           const SizedBox(height: 12),
           Container(
             width: double.infinity,
@@ -1377,7 +1382,7 @@ class _SummaryStep extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    targets.paceWarning!,
+                    paceWarning,
                     key: const ValueKey('onboarding-summary-pace-warning'),
                     style: AppType.ui(
                       12.5,

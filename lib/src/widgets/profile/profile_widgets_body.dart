@@ -307,7 +307,11 @@ class BmiCard extends StatelessWidget {
                 value: '${formatBmiDe(bmi, l10n)} · $bmiLabel',
                 child: RepaintBoundary(
                   child: CustomPaint(
-                    painter: BMIGaugePainter.fromTokens(t, bmi),
+                    painter: BMIGaugePainter.fromTokens(
+                      t,
+                      bmi,
+                      formatBmiDe(bmi, l10n),
+                    ),
                   ),
                 ),
               ),

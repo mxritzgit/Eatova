@@ -58,19 +58,21 @@ class SettingsPlanHero extends StatelessWidget {
   /// B2: Hier stand frueher `goal.paceLabel` — das *gewaehlte* Tempo. Fuer das
   /// Standardprofil ergab das „Erhaltung 1997 · −1 kg/Woche" direkt ueber
   /// „1200"; 1997 − 1200 = 797 kcal, also −0,72 kg/Woche.
-  String get _paceLabel => paceLabelForWeeklyRateKg(
+  String _paceLabel(AppLocalizations l10n) => paceLabelForWeeklyRateKg(
         wochenrateKg(tagesziel: kcal, erhaltung: targets.maintenanceKcal),
+        l10n,
       );
 
   /// Der fertige Erklaersatz der Sicherheitsklemme — nur wenn die Karte auch
   /// das gerechnete Ziel zeigt.
-  String? get _paceWarning => _zeigtRechnung ? targets.paceWarning : null;
+  String? _paceWarning(AppLocalizations l10n) =>
+      _zeigtRechnung ? targets.paceWarning(l10n) : null;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final warnung = _paceWarning;
+    final warnung = _paceWarning(l10n);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -129,7 +131,7 @@ class SettingsPlanHero extends StatelessWidget {
                               Text(
                                 l10n.settingsPlanHeroMaintenance(
                                   targets.maintenanceKcal,
-                                  _paceLabel,
+                                  _paceLabel(l10n),
                                 ),
                                 style: AppType.ui(
                                   12,

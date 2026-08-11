@@ -755,6 +755,38 @@
       "paceLabel": { "type": "String" }
     }
   },
+  "commonPaceStable": "Weight stable",
+  "commonPaceRateLabel": "{rate} kg/week",
+  "@commonPaceRateLabel": {
+    "placeholders": {
+      "rate": { "type": "String" }
+    }
+  },
+  "commonPaceWarningFloor": "For safety, your daily goal is {floor} kcal instead of {uncapped} kcal. Your actual pace is {effectivePace} instead of {promisedPace}.",
+  "@commonPaceWarningFloor": {
+    "placeholders": {
+      "floor": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningCeiling": "Your daily goal is capped at {ceiling} kcal (the calculation would give {uncapped} kcal). Your actual pace is {effectivePace} instead of {promisedPace}.",
+  "@commonPaceWarningCeiling": {
+    "placeholders": {
+      "ceiling": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningMismatch": "Your actual pace is {effectivePace} instead of {promisedPace}.",
+  "@commonPaceWarningMismatch": {
+    "placeholders": {
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
   "commonGenericRetryError": "That didn't work just now. Please try again later.",
   "commonDeliverySuccess": "{erfolg}.",
   "@commonDeliverySuccess": {
