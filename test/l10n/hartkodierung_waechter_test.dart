@@ -120,46 +120,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// (`PageHeader`s Zurueck-Semantics — wiederverwendet `onboardingBackSemanticLabel`
 /// statt einen zweiten, gleichbedeutenden Key anzulegen).
 ///
-/// Die vorherige Schlussbehauptung an dieser Stelle („`_migriertePfade`
-/// deckt `lib/` vollstaendig ab bis auf Auth + `fitness_recipe.dart`") war
-/// FALSCH — sie unterschlug einen ganzen Bereich. Ehrliche Restliste, Stand
-/// nach Finding 2 (alle bewusst NICHT in [_migriertePfade], mit Zielort):
-///  * `lib/src/app/` bleibt bis auf die vier oben genannten Dateien
-///    unbewacht: `home_store.dart` selbst traegt in `coachContext`/
-///    `_todaysFoodSummary` noch hartes Deutsch — das ist aber kein UI-Text,
-///    sondern Freitext-KONTEXT fuer den Coach-Prompt (geht an die Edge
-///    Function, nie direkt gerendert); `home_store_profile.dart`,
-///    `eatova_home_page.dart`, `eatova_app.dart`, `auth_gate.dart` und
-///    `locale_controller.dart` sind noch nicht durchsucht. Ziel: Scan/Coach-PR
-///    (haengt am Coach-Prompt-Kontext).
-///  * `lib/src/services/meal_analyzer.dart` — Scan-Fehlermeldungen (Bild zu
-///    gross, Rate-Limit). Ziel: Scan-PR.
-///  * `lib/src/services/open_food_facts_product_service.dart` —
-///    Produkt-Fundtexte (Naehrwertangabe unplausibel/fehlend). Ziel: Scan-PR.
-///  * `lib/src/models/meal_analysis_result.dart` — `sourceLabel`/
-///    `portionLabel`/die Anpassungs-Beschreibungen des Scan-Ergebnisses.
-///    Haengt inhaltlich an `meal_analyzer.dart`/dem OFF-Service. Ziel: Scan-PR.
-///  * `lib/src/services/notification_service.dart` und
-///    `lib/src/services/streak_reminder_planner.dart` — Notification-Kanal-
-///    und Erinnerungs-Body-Texte. Ziel: eigene Notifications-Runde im
-///    Scan/Coach-PR (Streak-Erinnerung haengt am Engagement-Teil des Coachs).
-///  * `main.dart` — der Boot-Fehlerschirm („Eatova konnte nicht starten" …)
-///    bleibt BEWUSST hartkodiertes Deutsch: er laeuft, bevor Flutter/l10n
-///    ueberhaupt initialisiert ist — `AppLocalizations.of` waere dort
-///    strukturell nicht erreichbar. Keine Migrationsluecke, sondern eine
-///    dauerhafte Ausnahme (analog zu Log-/Sentry-Texten, Spec §4).
-///  * `lib/src/screens/coach/coach_sessions.dart` — `_humanizeTimestamp`s
-///    Datumsfallback (Nachrichten >= 7 Tage alt) gibt ein rohes `DD.MM.YYYY`
-///    aus. Bewusst sprachneutral (nur Ziffern, s. Kommentar dort), aber
-///    NICHT locale-abhaengig formatiert — ein EN-Leser koennte Tag/Monat
-///    vertauschen. Kein Hartkodierungs-Fund im engeren Sinn (keine deutschen
-///    Woerter), aber eine offene Anschlussfrage fuer den Scan/Coach-PR.
-///  * Unveraendert: die Auth-Screens (eigene Runde) — Ziel: die geplante
-///    Auth-Runde, s. Spec §4.
-///
 /// Inhalte-PR (2026-08-11): der `fitness_recipe.dart`-Katalog-Punkt aus der
-/// Restliste ist erledigt. Der Bestandskatalog (30 Rezepte) zog in ZWEI
-/// Dateien pro Sprache um (Spec §5): `lib/src/models/recipe_catalog_de.dart`
+/// (damaligen) Restliste ist erledigt. Der Bestandskatalog (30 Rezepte) zog
+/// in ZWEI Dateien pro Sprache um (Spec §5): `lib/src/models/recipe_catalog_de.dart`
 /// und `recipe_catalog_en.dart`. `fitness_recipe.dart` selbst traegt seither
 /// nur noch die Klasse, `recipeFilters` (bleibt neutral/unuebersetzt, s.
 /// Kommentar dort) und die beiden Resolver — steht jetzt komplett in
@@ -168,6 +131,69 @@ import 'package:flutter_test/flutter_test.dart';
 /// Content (das ist ihr Zweck, s. Datei-Kommentar dort) und bleibt — analog
 /// zu `main.dart`s Boot-Fehlerschirm — eine dauerhafte, dokumentierte
 /// Ausnahme AUSSERHALB von [_migriertePfade].
+///
+/// Scan/Coach-PR (2026-08-11, LETZTES Paket dieser i18n-Runde): raeumt die
+/// gesamte damalige Restliste ab bis auf zwei bewusste, dauerhafte
+/// Ausnahmen (s.u.). Neu in [_migriertePfade]: `meal_analyzer.dart`
+/// (Scan-Fehlertexte, jetzt ueber `request.language` -> `deL10n`/`enL10n`
+/// aufgeloest, kein BuildContext noetig), `open_food_facts_product_service.dart`
+/// (`ProductWithoutNutritionException.userMessage` ist jetzt eine Methode
+/// `[AppLocalizations? l10n]`, Default Deutsch — Muster `sync_error_messages.dart`),
+/// `notification_service.dart` + `streak_reminder_planner.dart`
+/// (Android-Kanal-Text ueber das neue `NotificationLocalizable`-Interface,
+/// `[LocalNotificationService]` traegt sein `_l10n` per `setLocalizations()`
+/// analog `HomeStore._l10n`; `planStreakReminders` bekommt `[AppLocalizations?
+/// l10n]` — geplante Erinnerungen sprechen die Sprache zum PLANUNGSzeitpunkt,
+/// akzeptierte Eigenschaft, s. i18n-design.md §5) sowie die vier bis dahin
+/// unbewachten `lib/src/app/`-Dateien `home_store_profile.dart`,
+/// `eatova_home_page.dart`, `eatova_app.dart`, `auth_gate.dart` und
+/// `locale_controller.dart` (alle fuenf: 0 deutsche Hartkodierungen gefunden,
+/// reine Nachtrags-Aufnahme). `coach_sessions.dart` (bereits Teil von
+/// `lib/src/screens/coach/`) bekommt zusaetzlich einen Verhaltens-Fix:
+/// `_humanizeTimestamp`s Datumsfallback laeuft jetzt ueber
+/// `intl.DateFormat('dd.MM.yyyy', l10n.localeName)` statt fest verdrahteter
+/// Interpunktion (unter 'de' weiterhin byte-gleich).
+///
+/// Ausserdem: `sourceLabel`/`portionLabel` in `meal_analysis_result.dart`
+/// sind jetzt sprachneutral (`MealResultSource`-Enum + `resolvedSourceLabel`/
+/// `resolvedPortionLabel`), `coachContext` (`home_store.dart`) traegt eine
+/// zusaetzliche, IMMER englische Protokoll-Zeile „App language of the user:
+/// …" fuer das Modell, und die Diktat-Locale in `coach_chat_screen.dart`
+/// folgt jetzt der App-Sprache (`en` -> `en_US`, sonst `de_DE`) statt fest
+/// `de_DE`.
+///
+/// Zwei bewusste, DAUERHAFTE Ausnahmen bleiben ausserhalb von
+/// [_migriertePfade] — keine Migrationsluecken, sondern getroffene
+/// Design-Entscheidungen:
+///  * `main.dart` — der Boot-Fehlerschirm („Eatova konnte nicht starten" …)
+///    bleibt hartkodiertes Deutsch: er laeuft, bevor Flutter/l10n ueberhaupt
+///    initialisiert ist — `AppLocalizations.of` waere dort strukturell nicht
+///    erreichbar (analog zu Log-/Sentry-Texten, Spec §4).
+///  * `lib/src/app/home_store.dart` selbst — `coachContext`/
+///    `_todaysFoodSummary` tragen weiterhin hartes Deutsch (Koerpergewicht,
+///    Tagesbilanz, Essensliste): das ist kein UI-Text, sondern Freitext-
+///    KONTEXT fuer den Coach-Prompt (geht an die Edge Function, nie direkt
+///    gerendert) — das Modell versteht deutschen Kontext unabhaengig von der
+///    Antwortsprache, die die Language Rule im Coach-System-Prompt regelt.
+///    Die neue Sprach-Hinweiszeile oben aendert daran nichts.
+///
+/// EINE dokumentierte, NICHT-permanente Luecke bleibt offen (kuenftige
+/// Runde, kein Blocker fuer dieses Paket): `lib/src/models/meal_analysis_result.dart`
+/// traegt jetzt `sourceLabel`/`portionLabel` sprachneutral (s.o.), aber die
+/// UEBRIGEN Textbausteine des Scan-Ergebnisses — `portionNotes` in
+/// `adjustedToGrams`/`adjustedToItems`/`fromEdgeFunction`/`fromOpenFoodFacts`
+/// sowie die `confidence`-Fallbacks ("Unbekannt"/"Hoch"/"Mittel"/"Niedrig")
+/// — sind weiterhin hartkodiertes Deutsch UND werden (anders als
+/// `sourceLabel`) tatsaechlich mit der Mahlzeit persistiert
+/// (`meals_sync.dart`: `portionNotes`). Eine saubere Loesung braucht
+/// dieselbe Rueckwaertskompatibilitaets-Sorgfalt wie der `sourceLabel`-Umbau
+/// (Alt-Zeilen tragen fertigen deutschen Freitext, kein Enum-Mapping moeglich
+/// ohne Text-Matching) — bewusst NICHT Teil dieses PRs (Scope: `sourceLabel`/
+/// `portionLabel`, s. PR-Beschreibung), deshalb bleibt die Datei komplett
+/// AUSSERHALB von [_migriertePfade] (die 10 verbleibenden Umlaut-Funde sind
+/// alle in diesen Textbausteinen; `MealResultSource.legacyDe` traegt
+/// zusaetzlich absichtlich das deutsche Bestandswort `'KI-Schätzung'` als
+/// Kompatibilitäts-DATEN, kein UI-Text).
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -195,6 +221,15 @@ const List<String> _migriertePfade = <String>[
   'lib/src/widgets/design/rows.dart',
   'lib/src/models/fitness_recipe.dart',
   'lib/src/models/recipe_catalog_en.dart',
+  'lib/src/services/meal_analyzer.dart',
+  'lib/src/services/open_food_facts_product_service.dart',
+  'lib/src/services/notification_service.dart',
+  'lib/src/services/streak_reminder_planner.dart',
+  'lib/src/app/home_store_profile.dart',
+  'lib/src/app/eatova_home_page.dart',
+  'lib/src/app/eatova_app.dart',
+  'lib/src/app/auth_gate.dart',
+  'lib/src/app/locale_controller.dart',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie

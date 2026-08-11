@@ -210,13 +210,29 @@ class _SessionTile extends StatelessWidget {
   }
 }
 
+/// Einmalige Initialisierung der `intl`-Datumssymbole — Muster
+/// `today_texts.dart._ensureDateSymbols`, eigener Guard: beide Dateien sind
+/// getrennte Libraries (kein Namenskonflikt, aber auch kein geteilter Zustand).
+bool _coachDateSymbolsReady = false;
+void _ensureCoachDateSymbols() {
+  if (_coachDateSymbolsReady) return;
+  initializeDateFormatting();
+  _coachDateSymbolsReady = true;
+}
+
 String _humanizeTimestamp(DateTime ts, AppLocalizations l10n) {
   final diff = DateTime.now().difference(ts);
   if (diff.inMinutes < 1) return l10n.coachTimeJustNow;
   if (diff.inMinutes < 60) return l10n.coachTimeMinutesAgo(diff.inMinutes);
   if (diff.inHours < 24) return l10n.coachTimeHoursAgo(diff.inHours);
   if (diff.inDays < 7) return l10n.coachTimeDaysAgo(diff.inDays);
-  // Reines Zahlenformat ohne Woerter — bleibt unter beiden Sprachen gleich
-  // (kein l10n-Aufruf noetig, s. Bericht).
-  return '${ts.day.toString().padLeft(2, '0')}.${ts.month.toString().padLeft(2, '0')}.${ts.year}';
+  // Reines Zahlenformat, aber ab jetzt ueber `intl` mit der aktiven Locale
+  // aufgeloest (Scan/Coach-PR, 2026-08-11) statt fest verdrahteter
+  // Interpunktion — unter 'de' weiterhin byte-gleich 'dd.MM.yyyy'. Bewusst
+  // DASSELBE numerische Muster fuer 'en': Tag.Monat.Jahr bleibt unzweideutig;
+  // ein Wechsel zu 'MM/dd' laese sich von US- und GB/DE-Lesern unterschiedlich
+  // lesen — genau die Verwechslungsgefahr, die der alte Kommentar hier schon
+  // vermeiden wollte.
+  _ensureCoachDateSymbols();
+  return DateFormat('dd.MM.yyyy', l10n.localeName).format(ts);
 }

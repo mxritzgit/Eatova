@@ -166,6 +166,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     final remCarbs = (p.carbsGoalG - macroProgress.carbsG).round();
     final remFat = (p.fatGoalG - macroProgress.fatG).round();
     final lines = [
+      // Scan/Coach-PR (2026-08-11): die einzige nicht-deutsche Zeile hier —
+      // ein stabiler, IMMER englischer Hinweis fuers Modell (kein UI-Text,
+      // deshalb keine ARB-Anbindung), analog einem Protokoll-Feld. Bewusst
+      // ZUERST, nicht ans Ende (wie _todaysFoodSummary) angehaengt: die
+      // 600-Zeichen-Kappung der Edge Function darf nur die Essensliste
+      // treffen, nie diese Zeile. Die Daten selbst bleiben deutsch — das
+      // LLM versteht sie unabhaengig von der App-Sprache, die Language Rule
+      // im System-Prompt steuert nur die ANTWORTsprache.
+      'App language of the user: ${_l10n.localeName}.',
       'Körpergewicht: ${p.weightKg} kg (Ziel ${p.targetWeightKg} kg).',
       'Heute gegessen: $dailyConsumedKcal von ${p.dailyKcalGoal} kcal '
           '(noch $remKcal kcal übrig).',

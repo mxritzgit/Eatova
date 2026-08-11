@@ -6,6 +6,8 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../l10n/l10n.dart';
+
 /// Ein vollstaendig aufgeloester, plan-fertiger Notification-Spec. Reiner
 /// Wert-Typ (immutable, mit Gleichheit), den der NotificationService 1:1 an
 /// zonedSchedule weiterreichen kann. Keine Flutter-/IO-Abhaengigkeit.
@@ -96,6 +98,23 @@ abstract class NotificationPermissionProbe {
   Future<bool> hasPermission();
 }
 
+/// Zusatz-Naht zu [NotificationService] (Muster [NotificationPermissionProbe]):
+/// traegt der Dienst einen Android-Notification-Kanal mit Name/Beschreibung
+/// (nur [LocalNotificationService]), reicht [setLocalizations] das aktive
+/// Sprachpaket hinein — der Kanal-Text wird beim naechsten `init()` in dieser
+/// Sprache (re-)angelegt (Scan/Coach-PR, 2026-08-11).
+///
+/// Bewusst ein EIGENES Interface statt eines neuen Members von
+/// [NotificationService]: [NotificationService.init] behaelt seine
+/// parameterlose Signatur, bestehende Test-Doubles (`implements
+/// NotificationService`, `init()` ohne Argumente) bleiben unveraendert
+/// gueltig. Der Aufrufer prueft per `is` (Muster
+/// `home_store_profile.dart._osDeliversNotifications`) und behandelt das
+/// Fehlen als „unlokalisierbar" — kein Fehler, der Kanal bleibt dann Deutsch.
+abstract class NotificationLocalizable {
+  void setLocalizations(AppLocalizations l10n);
+}
+
 /// No-op-Implementierung fuer Plattformen ohne lokale Notifications (Web/Test)
 /// oder als sichere Default-Injection. Tut nichts, crasht nie.
 class NoopNotificationService
@@ -122,17 +141,28 @@ class NoopNotificationService
 /// Echte, plattform-gestuetzte Implementierung. Nur iOS/Android werden bedient;
 /// auf allen anderen Plattformen no-op-pt sie hart (statt zu crashen).
 class LocalNotificationService
-    implements NotificationService, NotificationPermissionProbe {
+    implements
+        NotificationService,
+        NotificationPermissionProbe,
+        NotificationLocalizable {
   LocalNotificationService({FlutterLocalNotificationsPlugin? plugin})
       : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;
 
+  /// Sprachpaket fuer den Android-Kanal-Namen/-Beschreibung — s.
+  /// [NotificationLocalizable]. Default Deutsch ([deL10n]): reproduziert den
+  /// vorherigen hartkodierten Text, solange niemand [setLocalizations] ruft
+  /// (bestehende Tests bleiben unveraendert gruen).
+  AppLocalizations _l10n = deL10n;
+
+  @override
+  void setLocalizations(AppLocalizations l10n) => _l10n = l10n;
+
   static const String _androidChannelId = 'eatova_nudges';
-  static const String _androidChannelName = 'Eatova Erinnerungen';
-  static const String _androidChannelDescription =
-      'Tägliche Streak-Erinnerung am Abend.';
+  String get _androidChannelName => _l10n.notifChannelName;
+  String get _androidChannelDescription => _l10n.notifChannelDescription;
 
   bool get _supported => !kIsWeb && (Platform.isIOS || Platform.isAndroid);
 
@@ -166,7 +196,7 @@ class LocalNotificationService
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(
-      const AndroidNotificationChannel(
+      AndroidNotificationChannel(
         _androidChannelId,
         _androidChannelName,
         description: _androidChannelDescription,
@@ -323,7 +353,7 @@ class LocalNotificationService
   }
 
   NotificationDetails _details() {
-    const android = AndroidNotificationDetails(
+    final android = AndroidNotificationDetails(
       _androidChannelId,
       _androidChannelName,
       channelDescription: _androidChannelDescription,
@@ -335,6 +365,6 @@ class LocalNotificationService
       presentBadge: true,
       presentSound: true,
     );
-    return const NotificationDetails(android: android, iOS: ios);
+    return NotificationDetails(android: android, iOS: ios);
   }
 }
