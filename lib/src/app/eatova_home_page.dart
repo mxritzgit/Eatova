@@ -9,7 +9,6 @@ import '../models/macro_progress.dart';
 import '../services/data_export.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
-import '../services/kcal_calculator.dart';
 import '../services/local_cache.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
@@ -628,6 +627,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.loggedMeals,
           _store.profile,
           _store.dailySteps,
+          // Map-Identitaet als Fingerabdruck (G11): jeder Upsert/Backfill
+          // ersetzt die Map, ein Archivtag-Nachtrag erreicht die Kachel also.
+          _store.dailyActivity,
           _store.userName,
           _store.lifetimeStats,
           _store.isLoadingFoodDay(_store.selectedFoodDate),
@@ -644,16 +646,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             macroProgress: _store.macroProgressForFoodDate(tag),
             meals: _store.mealsForFoodDate(tag),
             dayLoading: _store.isLoadingFoodDay(tag),
-            // Identisch zum Food-Tab: an einem Archivtag gibt es keine
-            // belastbare Schrittzahl, deshalb 0 statt einer Scheinangabe.
-            burnedKcal: _store.selectedFoodDateIsToday
-                ? estimateKcalBurnedFromSteps(
-                    steps: _store.dailySteps,
-                    weightKg: _store.profile.weightKg,
-                    heightCm: _store.profile.heightCm,
-                    sex: _store.profile.sex,
-                  )
-                : 0,
+            // Heute live aus dem Schrittstand, Archivtage aus dem pro Tag
+            // festgeschriebenen Endwert (0 = kein Eintrag -> Kachel zeigt „—").
+            burnedKcal: _store.burnedKcalForFoodDate(tag),
             streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
             profileInitial: _store.profileInitial,
             onDateSelected: _store.setFoodDate,

@@ -354,6 +354,30 @@ class AppleHealthService implements HealthService {
   }
 
   @override
+  Future<int?> readStepsOnDay(DateTime day) async {
+    if (!Platform.isIOS) return null;
+    try {
+      await _ensureConfigured();
+      final start = DateTime(day.year, day.month, day.day);
+      // Kalenderarithmetik statt Duration(days: 1): ueber eine DST-Kante ist
+      // der Tag nicht 24 h lang (Begruendung: durationUntilNextLocalMidnight
+      // in home_store.dart). Dart normalisiert den Tages-Ueberlauf selbst.
+      var end = DateTime(day.year, day.month, day.day + 1);
+      final now = DateTime.now();
+      if (!start.isBefore(now)) return null;
+      if (end.isAfter(now)) end = now;
+      final steps = await _health.getTotalStepsInInterval(start, end);
+      // 0 beweist nichts (s. HealthAuthEvidence.steps): ohne Leseberechtigung
+      // kommt eine leere Summe zurueck, nie ein Fehler. Nur positive Werte
+      // duerfen als Tageswert gespeichert werden.
+      return (steps ?? 0) > 0 ? steps : null;
+    } catch (e, st) {
+      _reportError('readStepsOnDay', e, st);
+      return null;
+    }
+  }
+
+  @override
   Future<bool> writeWeight(double kg, DateTime when) async {
     if (!Platform.isIOS) return false;
     if (kg <= 0) return false;

@@ -12,6 +12,29 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   DateTime? healthLastFetch;
   bool healthSyncing = false;
 
+  /// Tages-Aktivitaet: Schritte + daraus geschaetzte "Verbrannt"-kcal pro
+  /// lokalem Kalendertag (Key: [localDayKey]).
+  ///
+  /// Der HEUTIGE Eintrag wird bei jedem verifizierten Health-Refresh
+  /// upsertet — der letzte Refresh eines Tages IST damit sein Endwert, und
+  /// die VERBRANNT-Kachel eines Archivtags zeigt ihn statt einer erfundenen
+  /// 0 ([burnedKcalForFoodDate]). Vergangene Tage ohne (oder mit womoeglich
+  /// unvollstaendigem) Eintrag holt [_maybeBackfillDailyActivity] einmal pro
+  /// Sitzung aus dem Health-Store nach — der kennt die volle Historie.
+  ///
+  /// Bei Mutation wird die Map ERSETZT statt veraendert: die Slice-Selectors
+  /// der Schale vergleichen per Identitaet (G11-Muster, s. eatova_home_page).
+  Map<String, ({int steps, int kcal})> dailyActivity =
+      <String, ({int steps, int kcal})>{};
+
+  /// Tage, fuer die diese Sitzung schon einen Backfill versucht hat — ein
+  /// Archivtag soll nicht bei jedem Antippen eine neue Health-Query kosten.
+  final Set<String> _dailyActivityBackfillAttempted = <String>{};
+
+  /// Aeltere Eintraege fallen beim Upsert aus der Map — laenger als ein Jahr
+  /// zurueckblaettern ist den dauerhaft wachsenden Blob nicht wert.
+  static const Duration _dailyActivityRetention = Duration(days: 400);
+
   /// In-Memory-Dedup fuer das HealthKit-Gewichts-Angebot: refreshHealthSteps()
   /// laeuft bei Kaltstart UND jedem App-Resume — ohne Dedup wuerde der
   /// „uebernehmen?"-Snack bei jedem Resume erneut aufpoppen. Merkt sich den
@@ -51,6 +74,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       if (snapshot != null) {
         dailySteps = snapshot.stepsToday;
         healthLastFetch = snapshot.fetchedAt;
+        // Tageswert festschreiben — der Tag des SNAPSHOTS, nicht "heute":
+        // laeuft der Refresh in der Mitternachts-Sekunde, gehoeren die
+        // Schritte noch zum Abfrage-Zeitpunkt.
+        _recordDailyActivity(snapshot.fetchedAt, snapshot.stepsToday);
       }
       // Kein `else { dailySteps = 0; }`: ein nicht-verifizierter Zustand
       // liefert seit B3 null statt „0 Schritte" — der zuletzt gemessene Wert
@@ -61,6 +88,68 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (snapshot != null) {
       _maybeOfferHealthWeight(snapshot.latestWeightKg);
     }
+  }
+
+  /// "Verbrannt"-kcal fuer [date]: heute live aus [dailySteps] (wie bisher),
+  /// fuer vergangene Tage der festgeschriebene Tageswert aus [dailyActivity].
+  /// 0 heisst "kein Eintrag" — die Kachel zeigt dann „—" statt einer Zahl.
+  int burnedKcalForFoodDate(DateTime date) {
+    if (_isSameFoodDate(date, clock.now())) {
+      return estimateKcalBurnedFromSteps(
+        steps: dailySteps,
+        weightKg: profile.weightKg,
+        heightCm: profile.heightCm,
+        sex: profile.sex,
+      );
+    }
+    return dailyActivity[localDayKey(date)]?.kcal ?? 0;
+  }
+
+  /// Upsert des Kalendertags von [day] mit [steps]; die kcal werden mit dem
+  /// AKTUELLEN Profil eingefroren (das damalige Gewicht laege hoechstens
+  /// wenige kg daneben — die Schaetzung selbst ist groeber). Muss innerhalb
+  /// eines _mutate-Blocks laufen (kein eigener Notify); der Cache-Write ist
+  /// fire-and-forget wie bei allen Spiegel-Slots.
+  void _recordDailyActivity(DateTime day, int steps) {
+    if (steps <= 0) return;
+    final key = localDayKey(day);
+    final kcal = estimateKcalBurnedFromSteps(
+      steps: steps,
+      weightKg: profile.weightKg,
+      heightCm: profile.heightCm,
+      sex: profile.sex,
+    );
+    // Unveraendert -> raus, OHNE die Map zu ersetzen: die Slice-Selectors
+    // vergleichen per Identitaet, und ein Resume ohne neue Schritte darf
+    // weder einen Heute-Tab-Rebuild noch einen AES-GCM-Cache-Write kosten
+    // (Perf-Guard: home_page_rebuild_test "ein Health-Refresh baut den
+    // Heute-Tab nicht mehr neu").
+    if (dailyActivity[key] == (steps: steps, kcal: kcal)) return;
+    // YYYY-MM-DD vergleicht lexikografisch chronologisch — der Cutoff ist
+    // ein String-Vergleich, kein Datums-Parsing.
+    final cutoff = localDayKey(clock.now().subtract(_dailyActivityRetention));
+    dailyActivity = <String, ({int steps, int kcal})>{
+      for (final e in dailyActivity.entries)
+        if (e.key.compareTo(cutoff) >= 0) e.key: e.value,
+      key: (steps: steps, kcal: kcal),
+    };
+    unawaited(_cache?.writeDailyActivity(dailyActivity) ?? Future<void>.value());
+  }
+
+  /// Holt fuer einen VERGANGENEN Tag die volle Tagessumme aus dem Health-
+  /// Store nach — einmal pro Tag und Sitzung, angestossen von
+  /// [HomeStore.setFoodDate]. Auch ein VORHANDENER Eintrag wird einmal
+  /// aufgefrischt: er kann vom letzten Refresh VOR Tagesende stammen, die
+  /// Health-Historie kennt dagegen die volle Summe. Liefert der Service
+  /// nichts (Android/Noop, keine Berechtigung, echter Ruhetag), bleibt der
+  /// gespeicherte Stand unangetastet.
+  Future<void> _maybeBackfillDailyActivity(DateTime day) async {
+    if (_disposed || _isSameFoodDate(day, clock.now())) return;
+    final key = localDayKey(day);
+    if (!_dailyActivityBackfillAttempted.add(key)) return;
+    final steps = await health.readStepsOnDay(day);
+    if (_disposed || steps == null || steps <= 0) return;
+    _mutate(() => _recordDailyActivity(day, steps));
   }
 
   /// Bietet ein aus Apple Health gelesenes Gewicht per Snack zum Uebernehmen

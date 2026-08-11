@@ -61,6 +61,9 @@ class _RecordingHealthService implements HealthService {
 
   @override
   Future<SleepSample?> readLastSleep({DateTime? before}) async => lastSleep;
+
+  @override
+  Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
 void main() {

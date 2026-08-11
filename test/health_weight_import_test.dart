@@ -57,6 +57,9 @@ class _FakeHealthService implements HealthService {
 
   @override
   Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
+
+  @override
+  Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
 /// Capture fuer den context-freien SnackEmitter des Stores: merkt sich

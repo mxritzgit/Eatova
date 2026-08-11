@@ -19,6 +19,7 @@ import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
+import '../services/kcal_calculator.dart';
 import '../services/local_cache.dart';
 import '../services/local_day.dart';
 import '../services/meal_totals.dart' as totals;
@@ -410,6 +411,8 @@ class HomeStore extends _HomeStoreBase
         onFehler: () => deltaLesefehler = true);
     final cachedRecipes =
         await _leseSlot('user_recipes', cache.readUserRecipes);
+    final cachedActivity =
+        await _leseSlot('daily_activity', cache.readDailyActivity);
     if (_disposed) return;
     // Der persistierte Blob bleibt unangetastet, solange wir ihn nicht lesen
     // konnten — sonst schriebe der naechste Write ihn nieder (s. dort).
@@ -457,6 +460,7 @@ class HomeStore extends _HomeStoreBase
         cachedFavorites == null &&
         cachedWeightLog == null &&
         cachedRecipes == null &&
+        cachedActivity == null &&
         _outbox.isEmpty) {
       return;
     }
@@ -475,6 +479,15 @@ class HomeStore extends _HomeStoreBase
       // einer leeren Eigen-Rezept-Liste — auch fuer laengst synchronisierte
       // Rezepte, weil nur der (fehlschlagende) Server-Load sie kannte.
       if (cachedRecipes != null) _userRecipes = cachedRecipes;
+      // Merge statt Zuweisung: ein frueher Health-Refresh kann HEUTE schon
+      // festgeschrieben haben, bevor die Hydration durch ist — der juengere
+      // In-Memory-Stand gewinnt fuer gemeinsame Tage.
+      if (cachedActivity != null) {
+        dailyActivity = <String, ({int steps, int kcal})>{
+          ...cachedActivity,
+          ...dailyActivity,
+        };
+      }
       _applyPendingOpsToState();
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
@@ -612,6 +625,9 @@ class HomeStore extends _HomeStoreBase
     if (_isOutsideBootWindow(day)) {
       unawaited(_ensureArchiveDayLoaded(day));
     }
+    // Archivtag: den "Verbrannt"-Tageswert aus der Health-Historie
+    // nachziehen, falls diese Sitzung ihn noch nicht geholt hat.
+    unawaited(_maybeBackfillDailyActivity(day));
   }
 
   // --- Tageswechsel (B4) ----------------------------------------------------
