@@ -1164,5 +1164,43 @@
   "coachErrorSessionExpired": "Your session has expired. Please sign in again, then the coach will respond again.",
   "coachErrorQuotaFallback": "Daily limit reached. More tomorrow.",
   "coachErrorTooManyRequests": "Too many requests. Please try again shortly.",
-  "coachErrorRequestFailed": "The coach couldn't process your request."
+  "coachErrorRequestFailed": "The coach couldn't process your request.",
+
+  "foodSourceAiEstimate": "AI estimate",
+  "foodSourcePhotoAi": "Photo AI",
+  "foodSourceRecipe": "Eatova recipe",
+  "foodPortionEstimated": "{grams} g estimated",
+  "@foodPortionEstimated": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodImageTooLargeError": "The photo is too large. Please choose a smaller one.",
+  "foodReauthRequiredError": "Please sign in again before analyzing a photo.",
+  "foodAnalysisRateLimitError": "Too many photo analyses. Please try again later.",
+  "foodProductImplausibleMessage": "{productName} found, but the nutrition value looks implausible ({kcal} kcal / 100 g). Please add it manually.",
+  "@foodProductImplausibleMessage": {
+    "placeholders": {
+      "productName": { "type": "String" },
+      "kcal": { "type": "int" }
+    }
+  },
+  "foodProductNoNutritionMessage": "{productName} found, but without nutrition info. Please add it manually.",
+  "@foodProductNoNutritionMessage": {
+    "placeholders": {
+      "productName": { "type": "String" }
+    }
+  },
+
+  "notifChannelName": "Eatova reminders",
+  "notifChannelDescription": "Daily streak reminder in the evening.",
+  "notifStreakSaveTitle": "Save your streak",
+  "notifStreakSaveBody": "Your {streak}-day streak is waiting — one photo is enough.",
+  "@notifStreakSaveBody": {
+    "placeholders": {
+      "streak": { "type": "int" }
+    }
+  },
+  "notifStreakStartTitle": "Start a streak",
+  "notifStreakStartBody": "One log is enough to start your streak."
 }

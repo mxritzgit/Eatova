@@ -310,7 +310,7 @@ void main() {
           isA<ProductWithoutNutritionException>()
               .having((e) => e.isImplausible, 'isImplausible', isFalse)
               .having(
-                (e) => e.userMessage,
+                (e) => e.userMessage(),
                 'userMessage',
                 contains('ohne Nährwertangaben'),
               ),

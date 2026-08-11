@@ -300,7 +300,7 @@ class FitnessRecipe {
       portionNotes: '${displayPortion(sprache)} · '
           '${displayDescription(sprache)} '
           '${displayProfessionalHint(sprache)}',
-      sourceLabel: 'Eatova Rezept',
+      sourceLabel: MealResultSource.recipe.code,
       brand: 'Eatova',
     );
   }

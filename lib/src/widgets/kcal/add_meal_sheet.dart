@@ -430,7 +430,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
     await showMealAnalysisSheet(
       context,
       slot: _selectedSlot,
-      resultFuture: widget.analyzer.analyze(selection.request),
+      resultFuture: widget.analyzer.analyze(
+        selection.request.withLanguage(context.l10n.localeName),
+      ),
       previewImage: selection.previewBytes,
       onAdd: widget.onAdd,
       onUpdateMeal: widget.onUpdateMeal,

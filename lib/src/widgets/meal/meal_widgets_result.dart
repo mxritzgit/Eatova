@@ -43,7 +43,9 @@ class _MealResultCardState extends State<MealResultCard> {
     final t = context.t;
     final l10n = context.l10n;
     final result = widget.result;
-    final isBarcode = result.sourceLabel == 'OpenFoodFacts';
+    final isBarcode =
+        MealResultSource.resolve(result.sourceLabel) ==
+            MealResultSource.openFoodFacts;
 
     return AppCard(
       key: const ValueKey('analyse-result-card'),
@@ -58,7 +60,7 @@ class _MealResultCardState extends State<MealResultCard> {
               // deshalb den Marken-Akzent bzw. den gedaempften Ton, nicht
               // eine Makro-Farbe (Farb-Schloss aus dem Token-Vertrag).
               StatusPill(
-                label: result.sourceLabel,
+                label: result.resolvedSourceLabel(l10n),
                 color: isBarcode ? t.ink2 : t.accent,
               ),
               const Spacer(),
@@ -239,7 +241,7 @@ class _MealResultCardState extends State<MealResultCard> {
                     label: l10n.foodInfoBarcodeLabel, value: result.barcode!),
               _InfoLine(
                 label: l10n.foodInfoSourceLabel,
-                value: result.sourceLabel,
+                value: result.resolvedSourceLabel(l10n),
               ),
               _InfoLine(
                 label: l10n.foodInfoConfidenceLabel,
@@ -336,7 +338,7 @@ class _PortionLine extends StatelessWidget {
     } else if (result.isAdjusted) {
       label = l10n.foodPortionManuallyAdjusted(result.estimatedGrams);
     } else {
-      label = l10n.foodPortionLabelPrefixed(result.portionLabel);
+      label = l10n.foodPortionLabelPrefixed(result.resolvedPortionLabel(l10n));
     }
     return Padding(
       key: const ValueKey('analyse-portion-confirm-box'),

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -148,7 +149,12 @@ void main() {
       expect(r.kcalPer100G, closeTo(400, 0.001)); // 200 * 100 / 50
       expect(r.confidence, 'Hoch'); // high -> Hoch
       expect(r.protein, '8 g');
-      expect(r.sourceLabel, 'Foto-KI');
+      // Scan/Coach-PR (2026-08-11): fromEdgeFunction schreibt jetzt den
+      // sprachneutralen Code statt des deutschen Anzeigetexts — s.
+      // MealResultSource-Doku in meal_analysis_result.dart.
+      expect(r.sourceLabel, 'photoAi');
+      expect(r.resolvedSourceLabel(deL10n), 'Foto-KI');
+      expect(r.resolvedSourceLabel(enL10n), 'Photo AI');
     });
 
     test('bekanntes Obst nutzt Referenz-kcal-Dichte', () {

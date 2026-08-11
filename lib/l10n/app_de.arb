@@ -1164,5 +1164,43 @@
   "coachErrorSessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich neu an, dann antwortet der Coach wieder.",
   "coachErrorQuotaFallback": "Tageslimit erreicht. Morgen geht's weiter.",
   "coachErrorTooManyRequests": "Zu viele Anfragen. Bitte versuch es gleich nochmal.",
-  "coachErrorRequestFailed": "Der Coach konnte deine Anfrage nicht verarbeiten."
+  "coachErrorRequestFailed": "Der Coach konnte deine Anfrage nicht verarbeiten.",
+
+  "foodSourceAiEstimate": "KI-Schätzung",
+  "foodSourcePhotoAi": "Foto-KI",
+  "foodSourceRecipe": "Eatova Rezept",
+  "foodPortionEstimated": "{grams} g geschätzt",
+  "@foodPortionEstimated": {
+    "placeholders": {
+      "grams": { "type": "int" }
+    }
+  },
+  "foodImageTooLargeError": "Das Bild ist zu groß. Bitte ein kleineres Foto auswählen.",
+  "foodReauthRequiredError": "Bitte erneut anmelden, bevor du ein Foto analysierst.",
+  "foodAnalysisRateLimitError": "Zu viele Foto-Analysen. Bitte später erneut versuchen.",
+  "foodProductImplausibleMessage": "{productName} gefunden, aber die Nährwertangabe ist unplausibel ({kcal} kcal / 100 g). Bitte manuell eintragen.",
+  "@foodProductImplausibleMessage": {
+    "placeholders": {
+      "productName": { "type": "String" },
+      "kcal": { "type": "int" }
+    }
+  },
+  "foodProductNoNutritionMessage": "{productName} gefunden, aber ohne Nährwertangaben. Bitte manuell eintragen.",
+  "@foodProductNoNutritionMessage": {
+    "placeholders": {
+      "productName": { "type": "String" }
+    }
+  },
+
+  "notifChannelName": "Eatova Erinnerungen",
+  "notifChannelDescription": "Tägliche Streak-Erinnerung am Abend.",
+  "notifStreakSaveTitle": "Streak retten",
+  "notifStreakSaveBody": "Deine {streak}-Tage-Serie wartet — ein Foto genügt.",
+  "@notifStreakSaveBody": {
+    "placeholders": {
+      "streak": { "type": "int" }
+    }
+  },
+  "notifStreakStartTitle": "Streak starten",
+  "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten."
 }

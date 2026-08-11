@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
@@ -214,7 +215,12 @@ void main() {
       expect(back.mealName, 'Mahlzeit');
       expect(back.caloriesKcal, 300);
       expect(back.items, isEmpty);
-      expect(back.sourceLabel, 'KI-Schätzung');
+      // Scan/Coach-PR (2026-08-11): der Fallback fuer eine fehlende
+      // sourceLabel-Angabe ist jetzt der sprachneutrale Code, nicht mehr der
+      // deutsche Anzeigetext direkt — s. MealResultSource-Doku.
+      expect(back.sourceLabel, 'aiEstimate');
+      expect(back.resolvedSourceLabel(deL10n), 'KI-Schätzung');
+      expect(back.resolvedSourceLabel(enL10n), 'AI estimate');
     });
   });
 

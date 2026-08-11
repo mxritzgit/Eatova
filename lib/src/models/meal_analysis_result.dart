@@ -1,3 +1,4 @@
+import '../l10n/l10n.dart';
 import '../services/food_kcal_db.dart';
 import 'meal_component.dart';
 import 'model_limits.dart';
@@ -6,6 +7,78 @@ import 'model_limits.dart';
 /// fuer fehlende Makros liefern — `MacroProgress._parseMacroG` liest daraus 0
 /// und traegt damit nichts Erfundenes in die Tagesringe ein.
 const String _makroUnbekannt = '-';
+
+/// Die [MealResultSource.code]-Werte als eigene `static const`-Konstanten:
+/// ein Instanzfeld-Zugriff wie `MealResultSource.aiEstimate.code` ist KEIN
+/// gueltiger konstanter Ausdruck (Dart lehnt das beim Default-Parameter von
+/// `MealAnalysisResult.sourceLabel` ab), deshalb die Codes hier separat.
+/// [MealResultSource.code] liest aus derselben Quelle — ein Wert existiert
+/// nur einmal.
+abstract final class _MealResultSourceCodes {
+  static const String aiEstimate = 'aiEstimate';
+  static const String photoAi = 'photoAi';
+  static const String openFoodFacts = 'OpenFoodFacts';
+  static const String recipe = 'recipe';
+}
+
+/// Sprachneutrale Herkunfts-Klassifizierung eines Scan-Ergebnisses
+/// (Scan/Coach-PR, 2026-08-11).
+///
+/// [MealAnalysisResult.sourceLabel] bleibt bewusst ein roher `String` —
+/// Rueckwaertskompatibilitaet: Persistenz (meals_sync.dart) UND ~25
+/// Bestandstests konstruieren `MealAnalysisResult` direkt mit einem
+/// String-Literal (`sourceLabel: 'Foto-KI'` etc.), das aendert dieser PR
+/// nicht. NEU ist die AUFLOESUNG dieses Rohwerts fuer die ANZEIGE: [resolve]
+/// ordnet ihn einem der vier bekannten Ursprnge zu — dem ab jetzt
+/// geschriebenen neutralen [code], dem deutschen Bestandswert ([legacyDe],
+/// vor diesem PR schrieb jeder Client woertlich diesen String) oder —
+/// Verteidigungslinie, analog `FitnessRecipe._resolvePlaceholder` — dem
+/// englischen Anzeigetext, falls ihn je ein Client persistiert haette. Kein
+/// Treffer -> `null`, der Aufrufer zeigt den Rohwert dann UNVERAENDERT
+/// (Pass-through fuer unbekannte Werte, i18n-design.md §5).
+enum MealResultSource {
+  aiEstimate(_MealResultSourceCodes.aiEstimate, legacyDe: 'KI-Schätzung'),
+  photoAi(_MealResultSourceCodes.photoAi, legacyDe: 'Foto-KI'),
+  // Markenname — bereits sprachneutral, code == legacyDe absichtlich gleich.
+  openFoodFacts(_MealResultSourceCodes.openFoodFacts,
+      legacyDe: 'OpenFoodFacts'),
+  recipe(_MealResultSourceCodes.recipe, legacyDe: 'Eatova Rezept');
+
+  const MealResultSource(this.code, {required this.legacyDe});
+
+  /// Der ab diesem PR geschriebene, sprachneutrale Persistenz-Wert (neue
+  /// Zeilen UND `MealAnalysisResult`-Default). Kurz genug fuer
+  /// `LoggedMealLimits.sourceLabelMaxChars`/`FavoriteMealLimits.sourceLabelMaxChars`
+  /// (80 Zeichen) — keine DB-Migration noetig.
+  final String code;
+
+  /// Der deutsche Bestandswert, den JEDER Client vor diesem PR geschrieben
+  /// hat (Alt-Zeilen in `logged_meals`/`favorite_meals`).
+  final String legacyDe;
+
+  /// Anzeigetext in der Sprache von [l10n].
+  String label(AppLocalizations l10n) => switch (this) {
+        MealResultSource.aiEstimate => l10n.foodSourceAiEstimate,
+        MealResultSource.photoAi => l10n.foodSourcePhotoAi,
+        // Markenname, keine Uebersetzung noetig/erwuenscht.
+        MealResultSource.openFoodFacts => 'OpenFoodFacts',
+        MealResultSource.recipe => l10n.foodSourceRecipe,
+      };
+
+  /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.sourceLabel`)
+  /// einem bekannten Ursprung zu, oder liefert `null` fuer alles Unbekannte
+  /// (Pass-through-Fall, s. Klassendoku).
+  static MealResultSource? resolve(String raw) {
+    for (final value in values) {
+      if (value.code == raw || value.legacyDe == raw) return value;
+    }
+    // Verteidigungslinie: ein englisches Anzeige-Label, falls je persistiert.
+    for (final value in values) {
+      if (value.label(enL10n) == raw) return value;
+    }
+    return null;
+  }
+}
 
 class MealAnalysisResult {
   const MealAnalysisResult({
@@ -20,7 +93,7 @@ class MealAnalysisResult {
     required this.portionNotes,
     this.items = const [],
     this.isAdjusted = false,
-    this.sourceLabel = 'KI-Schätzung',
+    this.sourceLabel = _MealResultSourceCodes.aiEstimate,
     this.barcode,
     this.brand,
     this.explicitZeroKcal = false,
@@ -37,6 +110,13 @@ class MealAnalysisResult {
   final String portionNotes;
   final List<MealComponent> items;
   final bool isAdjusted;
+
+  /// ROHER Herkunfts-Wert, wie er persistiert wird — s. [MealResultSource]
+  /// fuer die Kompatibilitaets- und Anzeigelogik. Ab diesem PR ein neutraler
+  /// [MealResultSource.code] (z. B. `'photoAi'`); Alt-Zeilen tragen den
+  /// deutschen Bestandswert (z. B. `'Foto-KI'`); beides — und jeder sonstige
+  /// String — bleibt hier unveraendert stehen. Fuer die Anzeige immer
+  /// [resolvedSourceLabel] verwenden, NIE dieses Feld direkt rendern.
   final String sourceLabel;
   final String? barcode;
   final String? brand;
@@ -52,7 +132,23 @@ class MealAnalysisResult {
   final bool explicitZeroKcal;
 
   String get kcalRange => '$caloriesKcal kcal';
-  String get portionLabel => '$estimatedGrams g geschätzt';
+
+  /// Anzeige des Herkunfts-Werts in der Sprache von [l10n]. Loest bekannte
+  /// Rohwerte (neutraler Code seit diesem PR ODER deutscher Bestandswert
+  /// davor) ueber [MealResultSource] auf; ein unbekannter Rohwert wird
+  /// UNVERAENDERT angezeigt (Pass-through, s. [MealResultSource]-Klassendoku).
+  String resolvedSourceLabel(AppLocalizations l10n) {
+    final source = MealResultSource.resolve(sourceLabel);
+    return source == null ? sourceLabel : source.label(l10n);
+  }
+
+  /// Ersetzt den bis Scan/Coach-PR hartkodiert deutschen `portionLabel`-Getter
+  /// (`'$estimatedGrams g geschätzt'`). Anders als [sourceLabel] wird dieser
+  /// Text NIE persistiert (nur [estimatedGrams], eine reine Zahl, ist Teil des
+  /// Payloads) — es gibt hier also keine Altzeilen-Kompatibilitaetsfrage, nur
+  /// eine fehlende Anzeige-Sprache, die dieser Aufruf ergaenzt.
+  String resolvedPortionLabel(AppLocalizations l10n) =>
+      l10n.foodPortionEstimated(estimatedGrams);
 
   /// Bewusst **nicht** ueber [effectiveKcalPer100G]: `0 kcal / 100 g` ist bei
   /// Open Food Facts eine gueltige Angabe (Wasser, Tee), waehrend dieselbe 0
@@ -317,7 +413,7 @@ class MealAnalysisResult {
                   ? 'KI-Schätzung aus dem Foto mit Einzelposten. Bitte Bestandteile und Gramm prüfen.'
                   : 'KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt vermessen; bitte Portion bestätigen oder Gewicht anpassen.'),
       items: normalizedItems,
-      sourceLabel: 'Foto-KI',
+      sourceLabel: MealResultSource.photoAi.code,
     );
   }
 
@@ -363,7 +459,7 @@ class MealAnalysisResult {
       fat: _macroForGrams(fat100, servingGrams),
       confidence: 'Datenbank',
       portionNotes: details,
-      sourceLabel: 'OpenFoodFacts',
+      sourceLabel: MealResultSource.openFoodFacts.code,
       barcode: barcode,
       brand: brand,
       // Die 0 traegt ihre Herkunft: nur eine AUSDRUECKLICH gemeldete 0

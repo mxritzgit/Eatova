@@ -4,12 +4,34 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../l10n/l10n.dart';
 import '../models/meal_analysis_request.dart';
 import '../models/meal_analysis_result.dart';
 import 'eatova_http.dart';
 
 abstract class MealAnalyzer {
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request);
+}
+
+/// Sprachpaket fuer [request] — `'en'` -> Englisch, sonst (inkl. unbekannter
+/// Werte) Deutsch. Spiegelt den Server-Default (`analyze-meal/index.ts`,
+/// `normalizeLanguage`): Abwaertskompatibilitaet ist auf beiden Seiten
+/// derselbe Fallback.
+AppLocalizations _l10nForRequest(MealAnalysisRequest request) =>
+    request.language == 'en' ? enL10n : deL10n;
+
+/// Baut den JSON-Body fuer die `analyze-meal`-Function aus [request] — eigene,
+/// von HTTP entkoppelte Funktion, damit `language`/`portionHint`/
+/// `freeTextHint` ohne Netzwerk-Fake testbar sind (Scan/Coach-PR, 2026-08-11).
+Map<String, dynamic> buildAnalyzeMealBody(MealAnalysisRequest request) {
+  final imageBytes = request.imageBytes;
+  final hint = EdgeFunctionMealAnalyzer._cleanHint(request.freeTextHint);
+  return <String, dynamic>{
+    if (imageBytes != null) 'imageBase64': base64Encode(imageBytes),
+    'portionHint': request.portionHint?.name ?? MealPortionHint.normal.name,
+    if (hint != null) 'freeTextHint': hint,
+    'language': request.language,
+  };
 }
 
 class EdgeFunctionMealAnalyzer implements MealAnalyzer {
@@ -26,25 +48,21 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
 
   @override
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {
+    final l10n = _l10nForRequest(request);
     final imageBytes = request.imageBytes;
     if (imageBytes == null || imageBytes.isEmpty) {
       throw const FormatException('No image bytes available for analysis.');
     }
     if (imageBytes.length > _maxImageBytes) {
-      throw const FormatException(
-        'Das Bild ist zu groß. Bitte ein kleineres Foto auswählen.',
-      );
+      throw FormatException(l10n.foodImageTooLargeError);
     }
 
     final session = Supabase.instance.client.auth.currentSession;
     final accessToken = session?.accessToken;
     if (accessToken == null || accessToken.isEmpty) {
-      throw const AuthException(
-        'Bitte erneut anmelden, bevor du ein Foto analysierst.',
-      );
+      throw AuthException(l10n.foodReauthRequiredError);
     }
 
-    final freeTextHint = _cleanHint(request.freeTextHint);
     final client = createHttpClient(HttpTimeoutPolicy.mealAnalysis);
     try {
       final uri = Uri.parse('$_supabaseUrl$_functionPath');
@@ -59,24 +77,15 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
           httpRequest.headers.set('apikey', _supabaseAnonKey);
           httpRequest.headers.set('Authorization', 'Bearer $accessToken');
         },
-        body: jsonEncode({
-          'imageBase64': base64Encode(imageBytes),
-          'portionHint':
-              request.portionHint?.name ?? MealPortionHint.normal.name,
-          if (freeTextHint != null) 'freeTextHint': freeTextHint,
-        }),
+        body: jsonEncode(buildAnalyzeMealBody(request)),
       );
       final decoded = _decodeResponse(response.body);
 
       if (response.statusCode == 401 || response.statusCode == 403) {
-        throw const AuthException(
-          'Bitte erneut anmelden, bevor du ein Foto analysierst.',
-        );
+        throw AuthException(l10n.foodReauthRequiredError);
       }
       if (response.statusCode == 429) {
-        throw const HttpException(
-          'Zu viele Foto-Analysen. Bitte später erneut versuchen.',
-        );
+        throw HttpException(l10n.foodAnalysisRateLimitError);
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final message =
