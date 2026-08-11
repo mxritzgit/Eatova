@@ -19,6 +19,8 @@ import {
   normalizeMealResult,
   optionalInt,
   optionalNumber,
+  redactedContentMeta,
+  unparseableShape,
 } from "./normalize.ts";
 
 function assert(condition: boolean, message: string): void {
@@ -243,4 +245,51 @@ Deno.test("der Widerspruch aus B1 wird NICHT serverseitig ueberschrieben", () =>
   assertEquals(result.caloriesKcal, 850, "Modellwert bleibt unangetastet");
   assertEquals(result.estimatedGrams, 300, "Modellwert bleibt unangetastet");
   assertEquals(result.kcalPer100G, 260, "Modellwert bleibt unangetastet");
+});
+
+// --- Log-Redaktion (Security-Review 2026-08-11, Finding 4, CWE-532) --------
+//
+// REGRESSION: bis 2026-08-11 loggte index.ts bei unparsebarem Modell-Output
+// `raw: rawContent.slice(0, 500)` — der Output ist aus Essensfoto + Nutzer-
+// Hint abgeleitet, private Infos wanderten also in operative Logs. index.ts
+// baut die Log-Metadaten seither ausschliesslich aus redactedContentMeta +
+// unparseableShape; diese Tests sichern ab, dass darin kein Inhalt steckt.
+
+Deno.test("CWE-532: redactedContentMeta traegt keinen Inhalt, nur Laenge + Digest", async () => {
+  // Realistischer Worst Case: das Modell zitiert den Freitext-Hint des
+  // Nutzers und liefert dabei kaputtes JSON.
+  const secret = 'Ich esse low-carb wegen Diabetes Typ 2 {"mealName": "Sala';
+  const meta = await redactedContentMeta(secret);
+
+  const logged = JSON.stringify(meta);
+  assert(!logged.includes("Diabetes"), "Klartext darf nicht im Log-Objekt landen");
+  assert(!logged.includes(secret.slice(0, 16)), "auch kein Praefix des Inhalts");
+
+  assertEquals(meta.len, secret.length, "Laenge bleibt als Debug-Metadatum");
+  assert(/^[0-9a-f]{12}$/.test(meta.sha256), "Digest ist ein 12-Zeichen-Hex-Praefix");
+  assertEquals(Object.keys(meta).length, 2, "Allowlist: exakt len + sha256, sonst nichts");
+});
+
+Deno.test("CWE-532: Digest ist deterministisch und inhaltsabhaengig (Dedupe)", async () => {
+  // Bekannter SHA-256-Vektor: sha256("") beginnt mit e3b0c44298fc — pinnt
+  // den Algorithmus, damit ein spaeterer Umbau Log-Korrelationen nicht
+  // still entwertet.
+  assertEquals((await redactedContentMeta("")).sha256, "e3b0c44298fc", "SHA-256-Leerstring-Vektor");
+
+  const a1 = await redactedContentMeta("kein json A");
+  const a2 = await redactedContentMeta("kein json A");
+  const b = await redactedContentMeta("kein json B");
+  assertEquals(a1.sha256, a2.sha256, "gleicher Inhalt -> gleicher Digest");
+  assert(a1.sha256 !== b.sha256, "anderer Inhalt -> anderer Digest");
+});
+
+Deno.test("CWE-532: unparseableShape kategorisiert ohne Inhalt", () => {
+  // 'empty': extractJson kann z. B. aus "```json\n```" einen leeren String
+  // machen, obwohl rawContent selbst nicht leer war.
+  assertEquals(unparseableShape("", new SyntaxError("x")), "empty", "leer nach extractJson");
+  assertEquals(unparseableShape("   ", new SyntaxError("x")), "empty", "nur Whitespace");
+  // JSON.parse wirft SyntaxError -> not_json (abgeschnittenes/kein JSON).
+  assertEquals(unparseableShape('{"a": 1', new SyntaxError("x")), "not_json", "abgeschnittenes JSON");
+  // Der isRecord-Guard in index.ts wirft einen gewoehnlichen Error -> not_object.
+  assertEquals(unparseableShape("[1, 2]", new Error("not an object")), "not_object", "Array statt Objekt");
 });

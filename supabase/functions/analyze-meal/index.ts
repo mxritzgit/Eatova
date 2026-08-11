@@ -1,6 +1,12 @@
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { positiveIntFromEnv } from '../_shared/env.ts';
-import { isRecord, kcalPer100GMismatch, normalizeMealResult } from './normalize.ts';
+import {
+  isRecord,
+  kcalPer100GMismatch,
+  normalizeMealResult,
+  redactedContentMeta,
+  unparseableShape,
+} from './normalize.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -524,7 +530,14 @@ async function callOpenRouter(body: ParsedBody, prompt: string, requestId: strin
     throw error;
   }
   if (!response.ok) {
-    console.error('OpenRouter error', { requestId, status: response.status, body: text.slice(0, 500) });
+    // Fehler-Body nicht roh loggen (CWE-532, Security-Review 2026-08-11):
+    // Provider-Fehler (z. B. Moderation) können den Nutzer-Input spiegeln.
+    // Status + Länge + Digest-Präfix reichen zur Diagnose.
+    console.error('OpenRouter error', {
+      requestId,
+      status: response.status,
+      ...(await redactedContentMeta(text)),
+    });
     throw new HttpError(502, 'provider_error', 'Analyse konnte nicht abgeschlossen werden.');
   }
 
@@ -564,13 +577,18 @@ async function callOpenRouter(body: ParsedBody, prompt: string, requestId: strin
     const parsed = JSON.parse(jsonText) as unknown;
     if (!isRecord(parsed)) throw new Error('not an object');
     return parsed;
-  } catch (_) {
+  } catch (parseError) {
+    // Security-Review 2026-08-11, Finding 4 (CWE-532): früher stand hier
+    // `raw: rawContent.slice(0, 500)` — der Modell-Output ist aus Essensfoto
+    // + Nutzer-Hint abgeleitet und gehört nicht in operative Logs. Stattdessen
+    // nur Allowlist-Metadaten: Länge, SHA-256-Präfix und Form-Kategorie
+    // (Redaktion + Begründung: normalize.ts).
     console.error('Invalid model JSON', {
       requestId,
       model: OPENROUTER_MODEL,
       finishReason,
-      len: rawContent.length,
-      raw: rawContent.slice(0, 500),
+      ...(await redactedContentMeta(rawContent)),
+      shape: unparseableShape(jsonText, parseError),
     });
     throw new HttpError(502, 'provider_invalid_json', 'Analyse-Antwort war ungültig.');
   }

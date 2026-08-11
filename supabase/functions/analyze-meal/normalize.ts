@@ -156,3 +156,40 @@ export function kcalPer100GMismatch(
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+// ---------------------------------------------------------------------------
+// Log-Redaktion fuer rohen Provider-Content (Security-Review 2026-08-11,
+// Finding 4, CWE-532): Modell-Output und Provider-Fehler-Bodies sind aus dem
+// Essensfoto + Nutzer-Hint abgeleitet — private Ernaehrungs-/Gesundheits-/
+// Freitext-Infos gehoeren nicht in operative Logs. index.ts loggt statt des
+// Inhalts nur die Allowlist-Metadaten aus diesen zwei Helfern; hier
+// ausgelagert (gleiches Muster wie der Rest der Datei), damit
+// normalize_test.ts absichern kann, dass der Inhalt selbst nie im
+// Log-Objekt landet.
+// ---------------------------------------------------------------------------
+
+export type UnparseableShape = 'empty' | 'not_json' | 'not_object';
+
+/**
+ * Grobe Form-Kategorie des unparsebaren Modell-Outputs — genug, um im Log
+ * "leer nach extractJson" von "kein JSON" oder "JSON, aber kein Objekt" zu
+ * unterscheiden, ohne den Inhalt zu zeigen. `parseError` ist der Fehler aus
+ * dem JSON.parse/isRecord-Block in index.ts: JSON.parse wirft SyntaxError
+ * (-> not_json), der isRecord-Guard einen gewoehnlichen Error (-> not_object).
+ */
+export function unparseableShape(jsonText: string, parseError: unknown): UnparseableShape {
+  if (!jsonText.trim()) return 'empty';
+  return parseError instanceof SyntaxError ? 'not_json' : 'not_object';
+}
+
+/**
+ * Redaktions-Ersatz fuer den frueheren `raw:`-Slice: Laenge + SHA-256-Praefix
+ * (12 Hex-Zeichen). Der Digest erlaubt Dedupe/Korrelation ("dieselbe kaputte
+ * Antwort wie in Request X?") und den Abgleich mit einer konkret vorliegenden
+ * Antwort, verraet aber nichts ueber den Inhalt.
+ */
+export async function redactedContentMeta(content: string): Promise<{ len: number; sha256: string }> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return { len: content.length, sha256: hex.slice(0, 12) };
+}
