@@ -23,8 +23,9 @@ import 'package:eatova/src/widgets/design/design.dart';
 //
 // Der Weg: In-App-Auswahl (Kamera/Galerie) ueber die BESTEHENDE
 // `MealPhotoInput`-Pipeline (die scrubt EXIF), Ablage lokal ueber
-// [RecipeImageStore], Referenz `local:<slug>.jpg` im vorhandenen Feld
-// `imageAsset`. Kein Supabase-Bucket, keine zweite Pipeline.
+// [RecipeImageStore], Referenz `local:<name>.jpg` im vorhandenen Feld
+// `imageAsset` (der Name kommt seit Finding 5 zufaellig aus dem Store, nicht
+// mehr aus dem Slug). Kein Supabase-Bucket, keine zweite Pipeline.
 //
 // Diese Suite deckt die vier Punkte ab, an denen so etwas schiefgeht:
 //   * Das Bild landet ueberhaupt am Rezept und ueberlebt den Neustart.
@@ -87,6 +88,11 @@ class _TestImageStore extends RecipeImageStore {
   /// Was das Sheet abgelegt hat — Referenz und Bytes.
   final Map<String, Uint8List> abgelegt = <String, Uint8List>{};
 
+  /// Laufende Nummer statt Random.secure: der Widget-Test braucht nur
+  /// Eindeutigkeit, die echte Zufaelligkeit prueft
+  /// test/services/recipe_image_store_test.dart.
+  int _laufnummer = 0;
+
   @override
   bool get baseResolved => true;
 
@@ -96,8 +102,9 @@ class _TestImageStore extends RecipeImageStore {
       );
 
   @override
-  Future<String?> save({required String slug, required Uint8List bytes}) async {
-    final reference = RecipeImageStore.referenceForSlug(slug);
+  Future<String?> save({required Uint8List bytes}) async {
+    final reference =
+        '${RecipeImageStore.referencePrefix}test_${_laufnummer++}.jpg';
     if (!ordner.existsSync()) ordner.createSync(recursive: true);
     _datei(reference).writeAsBytesSync(bytes);
     abgelegt[reference] = bytes;
@@ -129,8 +136,9 @@ class _TestImageStore extends RecipeImageStore {
 
 /// Legt eine Datei an, als waere sie in einer frueheren Sitzung gespeichert
 /// worden — synchron, damit der Widget-Test nicht auf echtes IO wartet.
+/// Der Name ist hier frei waehlbar; die Anzeige haengt nur an der Referenz.
 String _legeAb(_TestImageStore store, String slug, Uint8List bytes) {
-  final reference = RecipeImageStore.referenceForSlug(slug);
+  final reference = '${RecipeImageStore.referencePrefix}$slug.jpg';
   if (!store.ordner.existsSync()) store.ordner.createSync(recursive: true);
   store._datei(reference).writeAsBytesSync(bytes);
   return reference;
@@ -365,8 +373,8 @@ void main() {
 
       expect(capture.created, hasLength(1));
       final rezept = capture.created.single;
-      expect(rezept.imageAsset,
-          RecipeImageStore.referenceForSlug(rezept.slug));
+      // Seit Finding 5 vergibt der Store den Namen (zufaellig) — das Rezept
+      // traegt exakt die Referenz, die save() zurueckgab, nichts Abgeleitetes.
       expect(RecipeImageStore.isLocalReference(rezept.imageAsset), isTrue);
       expect(_store.abgelegt.keys, <String>[rezept.imageAsset]);
       expect(_store.resolveSync(rezept.imageAsset), isNotNull);
@@ -445,7 +453,7 @@ void main() {
       // Referenz vorhanden (kommt ueber die Serverzeile), Datei nicht.
       final rezept = _eigenes(
         slug: 'user_fremd',
-        imageAsset: RecipeImageStore.referenceForSlug('user_fremd'),
+        imageAsset: '${RecipeImageStore.referencePrefix}user_fremd.jpg',
       );
 
       _pinViewport(tester);

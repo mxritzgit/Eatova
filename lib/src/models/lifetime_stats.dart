@@ -175,9 +175,12 @@ class LifetimeStats {
     );
   }
 
-  /// Serialisiert fuer ein upsert auf public.lifetime_stats. session_start
-  /// wird bewusst NICHT mitgeschrieben — der erste Insert setzt es per
-  /// DB-Default, spaetere Saves sollen es nicht ueberschreiben.
+  /// Serialisiert ins Spaltenformat von public.lifetime_stats. Seit
+  /// 20260811120000_lifetime_stats_integrity.sql gibt es KEINEN direkten
+  /// Client-Write auf die Tabelle mehr (Schreibpfad sind ausschliesslich die
+  /// RPCs) — die Map dient nur noch als Wire-Format-Guard in Tests.
+  /// session_start wird bewusst NICHT mitgeschrieben — der erste Insert setzt
+  /// es per DB-Default, spaetere Saves sollen es nicht ueberschreiben.
   Map<String, dynamic> toRow() {
     return <String, dynamic>{
       'workouts_completed': workoutsCompleted,

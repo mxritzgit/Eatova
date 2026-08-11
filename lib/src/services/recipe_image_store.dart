@@ -1,5 +1,6 @@
 import 'dart:developer' as dev;
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show compute, visibleForTesting;
@@ -17,16 +18,36 @@ import 'meal_photo_compressor.dart';
 /// App-Dokumentenverzeichnis dieses Geraets, und das Rezept sagt das auch.
 ///
 /// **Der Marker.** [FitnessRecipe.imageAsset] traegt fuer ein eigenes Foto
-/// `local:<slug>.jpg` statt eines Asset-Pfades. Das Feld wandert unveraendert
+/// `local:<name>.jpg` statt eines Asset-Pfades. Das Feld wandert unveraendert
 /// durch `toRow()/fromRow()` (Wire-Format von `user_recipes` UND Cache-Format)
 /// — ein ZWEITES Geraet liest die Referenz, findet die Datei nicht und faellt
 /// sichtbar auf den Platzhalter zurueck, statt einen toten Pfad zu laden.
 /// Alte Zeilen ohne Bild tragen weiterhin `''` und laufen durch denselben
 /// Zweig; abwaertskompatibel, weil kein neues Feld entsteht.
 ///
-/// **Der Dateiname** leitet sich stabil vom Rezept-Slug ab. Nichts muss
-/// zusaetzlich persistiert werden: Slug rein, Pfad raus, ein Neustart findet
-/// dieselbe Datei wieder.
+/// **Ein Namensraum pro Nutzer (Security-Review 2026-08-11, Finding 5).**
+/// Frueher lagen alle Dateien flach in `recipe_images/` und der Name leitete
+/// sich aus dem Slug ab (`user_<ms>` — Millisekunden sind erratbar). Ein
+/// SPAETER auf demselben Geraet angemeldetes Konto konnte ein eigenes Rezept
+/// mit einer geratenen Referenz anlegen und bekam das Kuechenfoto des
+/// Vorgaengers gerendert — `fromRow()` reicht `image_asset` ungeprueft durch.
+/// Jetzt gilt:
+///
+///   * Die Dateien liegen unter `recipe_images/<uid>/`; [resolve], [save]
+///     und [deleteFor] arbeiten NUR im Namensraum der via [setActiveUser]
+///     gebundenen User-ID. Ohne angemeldeten Nutzer keine Aufloesung und
+///     keine Ablage (fail-closed).
+///   * Neue Dateien bekommen einen Namen aus [Random.secure] — nichts
+///     Slug- oder Zeit-Abgeleitetes, nichts Erratbares.
+///   * Ein Identitaetswechsel innerhalb der Prozess-Laufzeit (anderer User
+///     ODER Session-Verlust, nicht nur das explizite Abmelden) purgt den
+///     Namensraum des Vorgaengers sofort — s. [setActiveUser]. Den Haken
+///     setzt der AuthGate zentral fuer JEDEN Auth-Uebergang.
+///   * Alt-Bestand (flache Dateien aus der Zeit vor den Namensraeumen)
+///     wandert beim ersten Zugriff in den Namensraum des dann angemeldeten
+///     Nutzers: das Geraet war bisher de facto EIN Namensraum, der erste
+///     Angemeldete „erbt" ihn — nicht schlechter als der Status quo, aber
+///     die Fotos der Bestandsnutzer bleiben erhalten.
 ///
 /// **EXIF ist Pflicht.** Ein Kuechenfoto traegt sonst die GPS-Koordinaten der
 /// Wohnung — und im Unterschied zum Upload-Pfad dauerhaft auf der Platte.
@@ -41,20 +62,47 @@ class RecipeImageStore {
   /// Praefix, das eine lokal abgelegte Datei von einem Bundle-Asset trennt.
   static const String referencePrefix = 'local:';
 
-  /// Unterordner im App-Dokumentenverzeichnis.
+  /// Wurzel-Unterordner im App-Dokumentenverzeichnis. Darunter liegt pro
+  /// Nutzer ein eigener Namensraum `recipe_images/<uid>/`.
   static const String folderName = 'recipe_images';
 
   final Future<Directory> Function() _resolveBaseDirectory;
 
-  /// Gecacht nach dem ersten erfolgreichen Aufloesen — danach kommt
-  /// [resolveSync] ohne await aus und die Bildkacheln bauen flackerfrei.
-  Directory? _base;
+  /// Wurzel (`recipe_images/`), gecacht nach dem ersten Aufloesen.
+  Directory? _root;
 
   /// Kein Ablageort verfuegbar (z.B. Plugin-Channel fehlt im Widget-Test).
   /// Dann liefert der Store still null statt bei jedem Bild neu zu scheitern.
-  bool _baseUnavailable = false;
+  bool _rootUnavailable = false;
 
-  Future<Directory?>? _inFlight;
+  Future<Directory?>? _rootInFlight;
+
+  /// Die User-ID, an die der Store gerade gebunden ist — null heisst: niemand
+  /// ist angemeldet, und resolve/save/deleteFor verweigern (fail-closed).
+  String? _activeUserId;
+
+  /// Namensraum-Verzeichnis, aufgeloest UND legacy-migriert, gueltig fuer
+  /// [_namespaceUserId]. Nach dem ersten Aufloesen kommt [resolveSync] ohne
+  /// await aus und die Bildkacheln bauen flackerfrei.
+  Directory? _namespace;
+  String? _namespaceUserId;
+  Future<Directory?>? _namespaceInFlight;
+  String? _namespaceInFlightUserId;
+
+  /// Wartungs-Kette: Purge (Identitaetswechsel), Legacy-Migration und
+  /// [clear] laufen strikt NACHEINANDER. Ohne die Kette koennte die Migration
+  /// eines Wechsels A→B die flachen Alt-Dateien noch schnell in Bs Namensraum
+  /// ziehen, bevor der Purge sie wegraeumt — genau das Leck, das dieser
+  /// Umbau schliesst.
+  Future<void> _maintenance = Future<void>.value();
+
+  Future<T> _afterMaintenance<T>(Future<T> Function() action) {
+    final run = _maintenance.then((_) => action());
+    // Die Aktionen fangen intern alles; der catchError ist die Notbremse,
+    // damit ein Fehler die Kette nicht fuer immer vergiftet.
+    _maintenance = run.then<void>((_) {}).catchError((Object _) {});
+    return run;
+  }
 
   // --- Prozessweite Instanz -------------------------------------------------
   // Die Bildkacheln (`_RecipeImage`) liegen tief im Baum und teils hinter
@@ -71,15 +119,48 @@ class RecipeImageStore {
   @visibleForTesting
   static void resetInstance() => _instance = RecipeImageStore();
 
+  // --- Identitaets-Bindung --------------------------------------------------
+
+  /// Bindet den Store an die User-ID [userId] — null heisst: niemand ist
+  /// angemeldet.
+  ///
+  /// Der Wechsel des Namensraums passiert SYNCHRON (vor dem ersten await):
+  /// ab der Rueckkehr dieses Aufrufs loest kein resolve mehr in den alten
+  /// Namensraum auf, egal ob das Purgen dahinter noch laeuft.
+  ///
+  /// Bei einem Identitaetswechsel innerhalb der Prozess-Laufzeit — vorher war
+  /// ein ANDERER Nutzer gebunden; auch der Uebergang zu null (Session-Verlust,
+  /// serverseitiger Widerruf) zaehlt — wird der Namensraum des Vorgaengers
+  /// lokal gepurgt. FAIL-CLOSED und bewusst auch dann, wenn derselbe Nutzer
+  /// sich gleich wieder anmeldet: im Zweifel ist kein Foto besser als eines,
+  /// das dem naechsten Konto auf diesem Geraet in die Haende faellt. Das
+  /// explizite Abmelden raeumt zusaetzlich ueber [clear]
+  /// (home_store_sync.signOutCleanup) — die beiden Wege sind idempotent.
+  ///
+  /// Ein Kaltstart mit Session-Restore laeuft ueber `null -> <uid>` und purgt
+  /// NICHTS — sonst ueberlebte kein Foto einen App-Neustart.
+  Future<void> setActiveUser(String? userId) {
+    final previous = _activeUserId;
+    if (previous == userId) return Future<void>.value();
+    _activeUserId = userId;
+    if (_namespaceUserId != userId) {
+      _namespace = null;
+      _namespaceUserId = null;
+    }
+    // Erster gebundener Nutzer dieses Prozesses: nichts zu purgen. Die
+    // flachen Alt-Dateien bleiben liegen, bis seine Migration sie erbt.
+    if (previous == null) return Future<void>.value();
+    return _afterMaintenance(() => _purgeNamespace(previous));
+  }
+
+  @visibleForTesting
+  String? get activeUserId => _activeUserId;
+
   // --- Referenzen -----------------------------------------------------------
 
   /// True, wenn [imageAsset] auf eine hier abgelegte Datei zeigt.
   static bool isLocalReference(String imageAsset) =>
       imageAsset.startsWith(referencePrefix);
-
-  /// Die Referenz, die ein Rezept mit dem Slug [slug] traegt.
-  static String referenceForSlug(String slug) =>
-      '$referencePrefix${_fileNameForSlug(slug)}';
 
   /// Dateiname aus einer Referenz — null, wenn es keine eigene ist.
   ///
@@ -93,7 +174,21 @@ class RecipeImageStore {
     return _sanitize(raw);
   }
 
-  static String _fileNameForSlug(String slug) => '${_sanitize(slug)}.jpg';
+  /// Name fuer eine NEUE Datei: 128 Bit aus [Random.secure] als Hex.
+  ///
+  /// Frueher leitete sich der Name aus dem Slug ab (`user_<ms>.jpg`) —
+  /// Millisekunden sind vorhersagbar, und eine fremde Serverzeile konnte so
+  /// gezielt die Datei eines frueheren Nutzers referenzieren (Finding 5).
+  /// Persistiert werden muss trotzdem nichts extra: die Referenz selbst
+  /// wandert im Rezept-Feld `image_asset` mit.
+  static String _randomFileName() {
+    final rng = Random.secure();
+    final hex = StringBuffer();
+    for (var i = 0; i < 16; i++) {
+      hex.write(rng.nextInt(256).toRadixString(16).padLeft(2, '0'));
+    }
+    return 'img_$hex.jpg';
+  }
 
   /// Nur `A-Z a-z 0-9 _ - .` ueberleben; alles andere wird zu `_`. Damit kann
   /// weder ein Pfadtrenner noch ein `..`-Segment entstehen.
@@ -116,41 +211,60 @@ class RecipeImageStore {
 
   // --- Lesen ----------------------------------------------------------------
 
-  /// Die Datei zu [imageAsset] — null, wenn es keine eigene Referenz ist, der
-  /// Ablageort fehlt oder die Bytes auf diesem Geraet nie ankamen.
+  /// Die Datei zu [imageAsset] — null, wenn es keine eigene Referenz ist, KEIN
+  /// Nutzer angemeldet ist, der Ablageort fehlt oder die Bytes auf diesem
+  /// Geraet (in DIESEM Namensraum) nie ankamen.
   Future<File?> resolve(String imageAsset) async {
     final name = _fileNameFor(imageAsset);
     if (name == null) return null;
-    final base = await _ensureBase();
-    if (base == null) return null;
-    final file = File('${base.path}/$name');
+    final namespace = await _ensureNamespace();
+    if (namespace == null) return null;
+    final file = File('${namespace.path}/$name');
     return await file.exists() ? file : null;
   }
 
-  /// Wie [resolve], aber ohne await — liefert null, solange der Ablageort noch
-  /// nicht aufgeloest ist. Erlaubt der Bildkachel, im ersten Frame schon das
-  /// richtige Bild zu zeigen, statt einen Platzhalter aufblitzen zu lassen.
+  /// Wie [resolve], aber ohne await — liefert null, solange der Namensraum
+  /// noch nicht aufgeloest (und der Alt-Bestand migriert) ist. Erlaubt der
+  /// Bildkachel, im ersten Frame schon das richtige Bild zu zeigen, statt
+  /// einen Platzhalter aufblitzen zu lassen.
   File? resolveSync(String imageAsset) {
     final name = _fileNameFor(imageAsset);
-    final base = _base;
-    if (name == null || base == null) return null;
-    final file = File('${base.path}/$name');
+    final namespace = _syncNamespace();
+    if (name == null || namespace == null) return null;
+    final file = File('${namespace.path}/$name');
     return file.existsSync() ? file : null;
   }
 
-  /// True, sobald feststeht, ob es einen Ablageort gibt — danach ist
-  /// [resolveSync] verlaesslich.
-  bool get baseResolved => _base != null || _baseUnavailable;
+  /// Der Namensraum fuer synchrone Zugriffe — nur wenn er zur AKTUELL
+  /// gebundenen User-ID gehoert. Nach einem Wechsel ist der alte Eintrag
+  /// damit sofort unwirksam, auch bevor das Purgen durch ist.
+  Directory? _syncNamespace() {
+    final uid = _activeUserId;
+    if (uid == null) return null;
+    if (_namespaceUserId != uid) return null;
+    return _namespace;
+  }
+
+  /// True, sobald feststeht, was [resolveSync] antworten wird — entweder ist
+  /// der Namensraum des aktiven Nutzers bereit, oder die Antwort ist
+  /// verlaesslich null (kein Ablageort, niemand angemeldet).
+  bool get baseResolved {
+    if (_rootUnavailable) return true;
+    final uid = _activeUserId;
+    if (uid == null) return true;
+    return _namespace != null && _namespaceUserId == uid;
+  }
 
   // --- Schreiben ------------------------------------------------------------
 
-  /// Legt [bytes] als Bild des Rezepts [slug] ab und liefert die Referenz fuer
-  /// `FitnessRecipe.imageAsset`. null heisst: nicht abgelegt (kein Ablageort,
-  /// nicht dekodierbar, Schreibfehler) — der Aufrufer speichert das Rezept
-  /// dann ohne Bild statt mit einer Referenz ins Leere.
-  Future<String?> save({required String slug, required Uint8List bytes}) async {
-    final base = await _ensureBase();
-    if (base == null) return null;
+  /// Legt [bytes] als Rezept-Bild ab und liefert die Referenz fuer
+  /// `FitnessRecipe.imageAsset`. null heisst: nicht abgelegt (niemand
+  /// angemeldet, kein Ablageort, nicht dekodierbar, Schreibfehler) — der
+  /// Aufrufer speichert das Rezept dann ohne Bild statt mit einer Referenz
+  /// ins Leere.
+  Future<String?> save({required Uint8List bytes}) async {
+    final namespace = await _ensureNamespace();
+    if (namespace == null) return null;
 
     final Uint8List scrubbed;
     try {
@@ -162,14 +276,14 @@ class RecipeImageStore {
       return null;
     }
 
-    final reference = referenceForSlug(slug);
+    final name = _randomFileName();
     try {
       // Der Ordner entsteht erst hier — Lesen legt bewusst nichts an, sonst
       // haette `clear()` ihn direkt danach wieder auf der Platte.
-      if (!await base.exists()) await base.create(recursive: true);
-      final file = File('${base.path}/${_fileNameFor(reference)}');
+      if (!await namespace.exists()) await namespace.create(recursive: true);
+      final file = File('${namespace.path}/$name');
       await file.writeAsBytes(scrubbed, flush: true);
-      return reference;
+      return '$referencePrefix$name';
     } catch (e, s) {
       dev.log('RecipeImageStore: Schreiben fehlgeschlagen',
           error: e, stackTrace: s, name: 'recipe_image_store');
@@ -193,15 +307,16 @@ class RecipeImageStore {
 
   // --- Aufraeumen -----------------------------------------------------------
 
-  /// Loescht das Bild zu [imageAsset]. No-Op fuer Bundle-Assets und leere
-  /// Referenzen. Laeuft beim Loeschen eines Eigen-Rezepts.
+  /// Loescht das Bild zu [imageAsset] im Namensraum des aktiven Nutzers.
+  /// No-Op fuer Bundle-Assets, leere Referenzen und ohne angemeldeten Nutzer.
+  /// Laeuft beim Loeschen eines Eigen-Rezepts.
   Future<void> deleteFor(String imageAsset) async {
     final name = _fileNameFor(imageAsset);
     if (name == null) return;
-    final base = await _ensureBase();
-    if (base == null) return;
+    final namespace = await _ensureNamespace();
+    if (namespace == null) return;
     try {
-      final file = File('${base.path}/$name');
+      final file = File('${namespace.path}/$name');
       if (await file.exists()) await file.delete();
     } catch (e) {
       dev.log('RecipeImageStore: Loeschen fehlgeschlagen',
@@ -209,50 +324,151 @@ class RecipeImageStore {
     }
   }
 
-  /// Raeumt den kompletten Ordner.
+  /// Raeumt den kompletten Wurzel-Ordner — ALLE Namensraeume und den
+  /// flachen Alt-Bestand.
   ///
   /// Rezept-Fotos sind PII (ein Kuechenfoto zeigt die Wohnung) und muessen
   /// beim Ausloggen bzw. der Konto-Loeschung genauso verschwinden wie die
-  /// uebrigen Slots in `LocalCache.clear()`.
-  Future<void> clear() async {
-    final base = await _ensureBase();
-    if (base == null) return;
+  /// uebrigen Slots in `LocalCache.clear()`. Bewusst breiter als der
+  /// Transitions-Purge in [setActiveUser]: wer sich abmeldet, laesst auf dem
+  /// Geraet gar nichts zurueck.
+  Future<void> clear() {
+    // Ueber die Wartungs-Kette, damit keine parallel laufende Migration eine
+    // Datei in einen Namensraum schiebt, waehrend der Ordner faellt.
+    return _afterMaintenance(() async {
+      final root = await _ensureRoot();
+      if (root == null) return;
+      try {
+        if (await root.exists()) await root.delete(recursive: true);
+      } catch (e) {
+        dev.log('RecipeImageStore: Raeumen fehlgeschlagen',
+            error: e, name: 'recipe_image_store');
+      }
+      // [_root]/[_namespace] bleiben stehen: die PFADE sind weiter gueltig,
+      // nur die Ordner sind weg. Das naechste [save] legt sie wieder an.
+    });
+  }
+
+  /// Purgt den Namensraum von [uid] und den flachen Alt-Bestand.
+  ///
+  /// Die flachen Dateien stammen aus der Zeit VOR den Namensraeumen und
+  /// gehoeren damit dem bisherigen Geraete-Nutzer — beim Identitaetswechsel
+  /// fallen sie mit, auch wenn seine Migration nie gelaufen ist (er hat die
+  /// Rezepte schlicht nie geoeffnet). Fail-closed; Fehler werden geloggt,
+  /// nie weitergereicht.
+  Future<void> _purgeNamespace(String uid) async {
+    final root = await _ensureRoot();
+    if (root == null) return;
     try {
-      if (await base.exists()) await base.delete(recursive: true);
-    } catch (e) {
-      dev.log('RecipeImageStore: Raeumen fehlgeschlagen',
-          error: e, name: 'recipe_image_store');
+      final dir = Directory('${root.path}/${_sanitize(uid)}');
+      if (await dir.exists()) await dir.delete(recursive: true);
+      if (await root.exists()) {
+        await for (final entity in root.list(followLinks: false)) {
+          if (entity is File) await entity.delete();
+        }
+      }
+    } catch (e, s) {
+      dev.log('RecipeImageStore: Purge fehlgeschlagen',
+          error: e, stackTrace: s, name: 'recipe_image_store');
     }
-    // [_base] bleibt stehen: der PFAD ist weiter gueltig, nur der Ordner ist
-    // weg. Das naechste [save] legt ihn wieder an.
   }
 
   // --- Ablageort ------------------------------------------------------------
 
-  Future<Directory?> _ensureBase() {
-    final known = _base;
-    if (known != null) return Future<Directory?>.value(known);
-    if (_baseUnavailable) return Future<Directory?>.value();
-    return _inFlight ??= _openBase();
+  /// Namensraum des aktiven Nutzers — aufgeloest und legacy-migriert. null,
+  /// wenn niemand angemeldet ist oder es keinen Ablageort gibt.
+  Future<Directory?> _ensureNamespace() {
+    final uid = _activeUserId;
+    if (uid == null) return Future<Directory?>.value();
+    final known = _namespace;
+    if (known != null && _namespaceUserId == uid) {
+      return Future<Directory?>.value(known);
+    }
+    if (_rootUnavailable) return Future<Directory?>.value();
+    final inFlight = _namespaceInFlight;
+    if (inFlight != null && _namespaceInFlightUserId == uid) return inFlight;
+    final future = _openNamespace(uid);
+    _namespaceInFlight = future;
+    _namespaceInFlightUserId = uid;
+    return future;
   }
 
-  /// Loest den Pfad auf — legt den Ordner bewusst NICHT an. Das tut nur
-  /// [save]; sonst brauechte ein blosser Lesezugriff Schreibrechte, und
+  Future<Directory?> _openNamespace(String uid) async {
+    try {
+      final root = await _ensureRoot();
+      if (root == null) return null;
+      final namespace = Directory('${root.path}/${_sanitize(uid)}');
+      // In der Wartungs-Kette NACH einem evtl. anstehenden Purge: die
+      // Migration eines neuen Nutzers darf keine Dateien erben, die der
+      // Wechsel gerade wegraeumt.
+      await _afterMaintenance(() => _migrateLegacyInto(root, namespace));
+      // Waehrenddessen gewechselt? Dann gehoert das Ergebnis niemandem mehr.
+      if (_activeUserId != uid) return null;
+      _namespace = namespace;
+      _namespaceUserId = uid;
+      return namespace;
+    } finally {
+      if (_namespaceInFlightUserId == uid) {
+        _namespaceInFlight = null;
+        _namespaceInFlightUserId = null;
+      }
+    }
+  }
+
+  /// Alt-Bestand uebernehmen: vor den Namensraeumen lagen die Dateien FLACH
+  /// in `recipe_images/`. Das Geraet war de facto EIN Namensraum — der erste
+  /// angemeldete Nutzer erbt ihn. Die Referenzen in seinen Rezeptzeilen
+  /// (`local:user_<ms>.jpg`) loesen danach unveraendert auf, weil nur der
+  /// Ordner wechselt, nie der Dateiname.
+  Future<void> _migrateLegacyInto(Directory root, Directory namespace) async {
+    try {
+      if (!await root.exists()) return;
+      await for (final entity in root.list(followLinks: false)) {
+        if (entity is! File) continue;
+        try {
+          if (!await namespace.exists()) {
+            await namespace.create(recursive: true);
+          }
+          final name = entity.uri.pathSegments.last;
+          await entity.rename('${namespace.path}/$name');
+        } catch (e) {
+          // Nicht verschiebbar (Kollision, Rechte): liegen lassen. Flach ist
+          // ab jetzt UNERREICHBAR — [resolve] liest nur Namensraeume — und
+          // der naechste Identitaetswechsel bzw. [clear] raeumt die Datei weg.
+          dev.log('RecipeImageStore: Legacy-Datei nicht migriert',
+              error: e, name: 'recipe_image_store');
+        }
+      }
+    } catch (e, s) {
+      dev.log('RecipeImageStore: Legacy-Migration fehlgeschlagen',
+          error: e, stackTrace: s, name: 'recipe_image_store');
+    }
+  }
+
+  Future<Directory?> _ensureRoot() {
+    final known = _root;
+    if (known != null) return Future<Directory?>.value(known);
+    if (_rootUnavailable) return Future<Directory?>.value();
+    return _rootInFlight ??= _openRoot();
+  }
+
+  /// Loest den Wurzel-Pfad auf — legt den Ordner bewusst NICHT an. Das tut
+  /// nur [save]; sonst brauechte ein blosser Lesezugriff Schreibrechte, und
   /// [clear] haette den Ordner beim naechsten Bild sofort wieder da.
-  Future<Directory?> _openBase() async {
+  Future<Directory?> _openRoot() async {
     try {
       final dir = await _resolveBaseDirectory();
-      _base = dir;
+      _root = dir;
       return dir;
     } catch (e, s) {
       // Kein Ablageort (fehlender Plugin-Channel im Widget-Test, volle Platte).
       // Die App laeuft ohne Bilder weiter — sie sind Beiwerk, kein Datum.
       dev.log('RecipeImageStore: kein Ablageort',
           error: e, stackTrace: s, name: 'recipe_image_store');
-      _baseUnavailable = true;
+      _rootUnavailable = true;
       return null;
     } finally {
-      _inFlight = null;
+      _rootInFlight = null;
     }
   }
 

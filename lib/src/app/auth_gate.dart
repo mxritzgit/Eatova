@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
 import '../screens/auth_screen.dart';
+import '../services/recipe_image_store.dart';
 import '../widgets/common/app_snack.dart';
 
 class AuthGate extends StatefulWidget {
@@ -41,10 +42,25 @@ class _AuthGateState extends State<AuthGate> {
     _user = initial;
     // Session-Restore bei App-Start zaehlt nicht als fresh login.
     _freshLogin = false;
+    // Finding 5 (Security-Review 2026-08-11): der Rezept-Foto-Store ist an
+    // die aktive User-ID gebunden. Der Kaltstart bindet den restaurierten
+    // Nutzer (null -> uid purgt nichts, s. setActiveUser) — alle SPAETEREN
+    // Uebergaenge laufen durch _onAuthEvent.
+    unawaited(RecipeImageStore.instance.setActiveUser(initial?.id));
     _subscription = widget.authRepository.authStateChanges.listen(_onAuthEvent);
   }
 
   void _onAuthEvent(EatovaUser? user) {
+    // Finding 5: der Gate ist die EINE Stelle, durch die jeder Auth-Uebergang
+    // laeuft — auch unfreiwilliger Session-Verlust und der direkte Wechsel
+    // A -> B, die kein signOutCleanup sehen. Deshalb haengt die Bindung des
+    // Foto-Stores hier, VOR dem mounted-Check (auch ein Event waehrend des
+    // Abbaus muss den Wechsel purgen) und vor dem setState (kein Frame des
+    // neuen Kontos sieht den alten Namensraum; der Namensraum wechselt in
+    // setActiveUser synchron, nur das Purgen des Vorgaengers laeuft nach —
+    // erreichbar ist der ab dem Wechsel ohnehin nicht mehr). Ein
+    // Token-Refresh (dieselbe id) ist dort ein No-Op.
+    unawaited(RecipeImageStore.instance.setActiveUser(user?.id));
     if (!mounted) return;
     final previous = _user;
     final wasLoggedOut = previous == null;
@@ -128,6 +144,8 @@ class _AuthGateState extends State<AuthGate> {
     if (oldWidget.authRepository == widget.authRepository) return;
     _subscription?.cancel();
     _user = widget.authRepository.currentUser;
+    // Auch ein Repository-Tausch ist ein potenzieller Identitaetswechsel.
+    unawaited(RecipeImageStore.instance.setActiveUser(_user?.id));
     _freshLogin = false;
     _subscription = widget.authRepository.authStateChanges.listen(_onAuthEvent);
   }

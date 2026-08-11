@@ -348,22 +348,31 @@ jobs:
       # Unit-Tests der Edge Functions. Weiterhin ohne externe Dependencies:
       #   coach-chat/prefilter_test.ts   -  9 Tests, Layer-1-Blocklist (rein)
       #   coach-chat/guardrails_test.ts  -  7 Tests, Layer-2-Weichen (rein)
-      #   coach-chat/handler_test.ts     - 12 Tests, End-to-End ueber
+      #   coach-chat/handler_test.ts     - 24 Tests, End-to-End ueber
       #                                    handleRequest, fetch ist gestubbt
+      #                                    (inkl. Quota-vor-Classifier,
+      #                                    CWE-770-Fix 2026-08-11; +4 aus dem
+      #                                    Message-/History-Groessen-Fix,
+      #                                    CWE-400 2026-08-11; +3 aus dem
+      #                                    Anon-Key-Reject + Auth-Fail-
+      #                                    Limiter, CWE-400 2026-08-11; +3 aus
+      #                                    den Provider-Deadlines, Finding 6,
+      #                                    CWE-400 2026-08-11)
       #   coach-chat/handler_sentinel_test.ts
       #                                  -  7 Tests, Sentinel-Fehlerpfade
       #                                    (Quota-Row, Provider, History,
       #                                    Session-Check, Store, Rate-Limit;
       #                                    Sentinel-Rest 2026-08-08)
       #   _shared/client_ip_test.ts      - 15 Tests, IP-Normalisierung/Subject
-      #   analyze-meal/normalize_test.ts - 11 Tests, Normalisierung der
+      #   analyze-meal/normalize_test.ts - 14 Tests, Normalisierung der
       #                                    Modell-Antwort (Welle 2 +
-      #                                    confidence-Sentinel, 2026-08-08)
+      #                                    confidence-Sentinel, 2026-08-08;
+      #                                    +3 aus der i18n-Runde 2026-08-10)
       #   search-key/wire_response_contract_test.ts
       #                                  -  6 Tests, Antwort-Vertrag gegen den
       #                                    echten Handler (Welle 5 +
       #                                    Rate-Limit-Shape, 2026-08-08)
-      # Summe: 67 Tests. `deno test` ohne Pfadfilter sammelt alle sieben
+      # Summe: 82 Tests. `deno test` ohne Pfadfilter sammelt alle sieben
       # Dateien automatisch ein - eine neue *_test.ts-Datei braucht nur diese
       # Aufzaehlung nachgezogen, der Aufruf unten bleibt unveraendert.
       #

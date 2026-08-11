@@ -18,7 +18,13 @@ import '../models/lifetime_stats.dart';
 ///     fort (liest last_workout_date aus der DB statt aus In-Memory).
 ///     Gibt die frische Zeile zurueck.
 /// Siehe Migrationen 20260604120000_lifetime_increment_rpcs.sql +
-/// 20260804120000_tracking_streak.sql.
+/// 20260804120000_tracking_streak.sql. Seit
+/// 20260811120000_lifetime_stats_integrity.sql sind direkte Client-Writes auf
+/// die Tabelle auch serverseitig entzogen (Grants + Policies weg); nur das
+/// SELECT in [load] liest weiterhin direkt. record_tracking_day verlangt
+/// seitdem einen Quell-Beweis (logged_meals.local_day = p_day) und lehnt
+/// Zukunfts-Tage ab — beide Fehler sind P0001 und laufen im Fehlerfall ueber
+/// den bestehenden Outbox-Retry-Pfad.
 class LifetimeStatsSync {
   LifetimeStatsSync(this._client, this._userId);
 
