@@ -968,7 +968,7 @@
   "settingsWeightGoalPickerTitle": "Weight goal & pace",
   "settingsWeightGoalPickerGroupLabel": "GOAL",
 
-  "settingsPlanHeroEyebrowManual": "YOUR DAILY TARGET · MANUAL",
+  "settingsPlanHeroEyebrowManual": "YOUR DAILY GOAL · MANUAL",
   "settingsPlanHeroEyebrow": "YOUR DAILY GOAL",
   "settingsPlanHeroMaintenance": "Maintenance {kcal} · {paceLabel}",
   "@settingsPlanHeroMaintenance": {
