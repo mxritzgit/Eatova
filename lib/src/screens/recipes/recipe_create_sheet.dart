@@ -428,9 +428,24 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // groesser. Bleibt das Trimmen.
     final name = _name.text.trim();
     final ingredients = _ingredients.text.trim();
-    final portion = _portion.text.trim().isEmpty
-        ? l10n.foodPortionFallback
-        : _portion.text.trim();
+    // Platzhalter-Fix (Inhalte-PR, 2026-08-11, Branch-Review-Finding): dieses
+    // Sheet hat KEIN eigenes Feld fuer description/preparation/
+    // professionalHint — bisher fuellte `_save` sie unconditional mit dem
+    // aktuell-lokalisierten ARB-Text und PERSISTIERTE ihn. Wechselte der
+    // Nutzer spaeter die App-Sprache, blieb die alte Sprache fuer immer in
+    // der Zeile stehen. Neu: leer speichern (neutraler Marker); die Anzeige
+    // loest ihn ueber `FitnessRecipe.display*` in die AKTUELLE Locale auf
+    // (s. `fitness_recipe.dart`). Dieselbe Logik gilt fuer die Portion: das
+    // Feld ist l10n-abhaengig VORBEFUELLT (`foodPortionFallback`, s.
+    // didChangeDependencies) — liess der Nutzer den Vorschlag unveraendert
+    // stehen ODER leerte er ihn, ist das ebenfalls "kein echter Wert" und
+    // wird nicht mehr persistiert. `_RecipeField.veraendert` (dirty-Check,
+    // vergleicht gegen den l10n-Vorschlag als `start`) ist die verlaessliche
+    // Unterscheidung — robuster als ein String-Vergleich gegen den aktuellen
+    // ARB-Wortlaut.
+    final portionField =
+        _felder.firstWhere((feld) => feld.controller == _portion);
+    final portion = portionField.veraendert ? _portion.text.trim() : '';
     final slug = FitnessRecipe.userRecipeSlug();
 
     // Das Bild bekommt seinen Namen aus dem Slug. Scheitert die Ablage (kein
@@ -456,11 +471,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       FitnessRecipe(
         slug: slug,
         title: name,
-        description: l10n.recipesOwnTitle,
+        description: '',
         portion: portion,
-        ingredients: ingredients.isEmpty ? l10n.recipesNoDataProvided : ingredients,
-        preparation: l10n.recipesNoPreparationYet,
-        professionalHint: l10n.recipesSelfCreatedHint,
+        ingredients: ingredients,
+        preparation: '',
+        professionalHint: '',
         imageAsset: imageAsset,
         caloriesKcal: _zahl(_kcal),
         proteinG: _zahl(_protein),
