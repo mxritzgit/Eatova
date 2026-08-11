@@ -7,15 +7,11 @@ class _CoachHero extends StatelessWidget {
   const _CoachHero({
     required this.name,
     required this.onDisclosureTap,
-    required this.onSuggestion,
   });
   final String name;
 
   /// Oeffnet das (i)-Sheet mit den Details (welche Daten, wohin).
   final VoidCallback onDisclosureTap;
-
-  /// Legt einen Vorschlag ins Eingabefeld (sendet nicht).
-  final ValueChanged<String> onSuggestion;
 
   /// Byte-gleich zu `greetingForHour` (today_texts.dart) — beide lasen bis
   /// zur Coach-Migration (Paket 4) unabhaengige Texte (die Kopie schon aus
@@ -62,7 +58,6 @@ class _CoachHero extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             _CoachAiNote(onTap: onDisclosureTap),
-            _SuggestionList(onSuggestion: onSuggestion),
           ],
         ),
       ),
@@ -140,99 +135,6 @@ class _CoachAiNote extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Vorschlags-Zeilen: Lime-Punkt, Text, Chevron. Legen den Text ins Feld statt
-// direkt zu senden — die Quota ist knapp, der User behaelt die Kontrolle vor
-// dem Abschicken.
-//
-// Sie haengen am Hero und damit an `isHero`, stehen aber INNERHALB seines
-// SingleChildScrollView. Zwei Gruende: als Geschwister der Nachrichtenliste
-// (so lagen sie bisher) sprengten drei zweizeilige Zeilen bei textScaler 2.0
-// die Screen-Column um 225 px — dort kann nichts scrollen. Und in der
-// Nachrichtenliste selbst (so macht es die Vorlage) erschienen sie auch bei
-// _historyUnavailable, also „Frag doch mal…" ueber einem Banner, das sagt,
-// der Verlauf sei nicht ladbar.
-// ---------------------------------------------------------------------------
-class _SuggestionList extends StatelessWidget {
-  const _SuggestionList({required this.onSuggestion});
-
-  final ValueChanged<String> onSuggestion;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    final suggestions = <String>[
-      l10n.coachSuggestionMeal,
-      l10n.coachSuggestionProtein,
-      l10n.coachSuggestionSleep,
-    ];
-    return Padding(
-      // Horizontal 0: der Seitenrand kommt aus der Schale.
-      padding: const EdgeInsets.fromLTRB(0, 18, 0, 0),
-      child: Column(
-        // min + stretch ist Pflicht: die Liste steht in einem
-        // SingleChildScrollView (unbegrenzte Hoehe), und die Zeilen sollen
-        // die volle Breite nehmen.
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          for (var i = 0; i < suggestions.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Material(
-                color: t.surf,
-                borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  key: ValueKey<String>('coach-suggestion-$i'),
-                  onTap: () => onSuggestion(suggestions[i]),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: t.line),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 15, vertical: 13),
-                    child: Row(
-                      children: <Widget>[
-                        Container(
-                          width: 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: t.lime,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            suggestions[i],
-                            style: AppType.ui(
-                              13,
-                              weight: FontWeight.w500,
-                              color: t.ink,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.chevron_right_rounded,
-                          size: 16,
-                          color: t.ink2,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }
