@@ -27,6 +27,15 @@ void main() {
       'Bottom navigation switches between Heute, Food, Rezepte and Coach', (
     WidgetTester tester,
   ) async {
+    // Geraetesprache festnageln (Muster `flows/recipes_flow_test.dart`):
+    // `EatovaApp` loest ohne Override ueber `resolveEatovaLocale` auf, statt
+    // fest auf `de` zu pinnen — ohne diesen Pin haengt der Testausgang vom
+    // Locale des Testhosts ab. Bis zum Inhalte-PR (2026-08-11) hatte dieser
+    // Test keine deutschen Roh-Text-Assertions, nur ValueKeys; seit der
+    // Rezeptkatalog selbst zweisprachig ist (`recipeCatalogForLocale`),
+    // pruefen die Rezepttitel unten wortgleiches Deutsch und brauchen den Pin.
+    tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(const EatovaApp());
 
     // Heute ist der Default-Tab (Index 0) — und beim Kaltstart der EINZIGE

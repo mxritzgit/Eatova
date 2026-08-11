@@ -21,3 +21,11 @@ extension L10nX on BuildContext {
 /// deshalb bleiben bestehende Tests, die diese Funktionen kontextfrei rufen,
 /// unveraendert gruen.
 final AppLocalizations deL10n = lookupAppLocalizations(const Locale('de'));
+
+/// Englisches Sprachpaket OHNE BuildContext (Spiegel von [deL10n],
+/// Inhalte-PR 2026-08-11). Gebraucht dort, wo BEIDE Sprachen kontextfrei
+/// vergleichbar sein müssen — z. B. `FitnessRecipe._resolvePlaceholder`
+/// erkennt vor diesem PR persistierte deutsche UND seither möglich
+/// englische Platzhalter-Werte eigener Rezepte, unabhängig von der gerade
+/// aktiven Anzeigesprache.
+final AppLocalizations enL10n = lookupAppLocalizations(const Locale('en'));

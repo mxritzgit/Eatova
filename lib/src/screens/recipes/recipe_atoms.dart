@@ -5,6 +5,42 @@ part of 'recipes_screen.dart';
 // gemeinsam nutzen: Badge, Kategorie-Pille, Rezept-Bild und Kennzahlen-Zeile.
 // ---------------------------------------------------------------------------
 
+/// Übersetzt einen neutralen Kategorie-/Filter-Wert (ein [recipeFilters]-
+/// Eintrag oder die `Eigene`-Markierung von Eigen-Rezepten) in seine
+/// Anzeige-Form der aktiven Sprache (Inhalte-PR, 2026-08-11).
+///
+/// Der Wert selbst bleibt die Logik-Identität — Filter-Vergleich
+/// (`_RecipesScreenState.filteredRecipes`), Diät-Matching
+/// (`FitnessRecipe.matchesDiet`), `ValueKey`s (`recipe-filter-$filter`) — und
+/// ist unter `de` byte-gleich zum Vor-Migrations-Stand: [recipeFilters]
+/// selbst wird NICHT angefasst. Getrennt nach dem `MealSlot`-Muster
+/// (`theme/meal_slot_style.dart`): dort trägt das Enum die neutrale
+/// Identität, eine separate `label(l10n)`-Funktion die Anzeige.
+///
+/// Ein unbekannter Wert (sollte nicht vorkommen, s. Wächter-Test) wird
+/// unverändert durchgereicht statt zu crashen — dieselbe fail-soft-Regel wie
+/// bei anderen Anzeige-Mappings in diesem Paket.
+///
+/// Die Vergleichs-Literale sind bewusst DOPPELT gequotet (Muster
+/// [recipeFilters]/`categories` in den Katalogdateien): sie sind Content-
+/// Identität, keine übersetzte UI-Zeichenkette, und fallen damit wie das
+/// Original schon durch den Hartkodierungs-Wächter (der nur einfach
+/// gequotete `'...'` prüft, s. dessen Heuristik-Kommentar).
+String recipeCategoryLabel(String category, AppLocalizations l10n) {
+  return switch (category) {
+    "Alle" => l10n.recipesFilterAll,
+    "High Protein" => l10n.recipesFilterHighProtein,
+    "Hauptgericht" => l10n.recipesFilterMainCourse,
+    "Frühstück" => l10n.recipesFilterBreakfast,
+    "Fisch" => l10n.recipesFilterFish,
+    "Vegetarisch" => l10n.recipesFilterVegetarian,
+    "Vegan" => l10n.recipesFilterVegan,
+    "Low Carb" => l10n.recipesFilterLowCarb,
+    "Eigene" => l10n.recipesCategoryOwn,
+    _ => category,
+  };
+}
+
 /// Kleines Etikett — gefuellt als Markierung auf einem Foto („EMPFOHLEN",
 /// „Match"), ungefuellt als ruhiger Hinweis auf einer Karte.
 ///

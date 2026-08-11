@@ -352,6 +352,15 @@
     }
   },
   "recipesAllTitle": "All recipes",
+  "recipesFilterAll": "All",
+  "recipesFilterHighProtein": "High Protein",
+  "recipesFilterMainCourse": "Main Course",
+  "recipesFilterBreakfast": "Breakfast",
+  "recipesFilterFish": "Fish",
+  "recipesFilterVegetarian": "Vegetarian",
+  "recipesFilterVegan": "Vegan",
+  "recipesFilterLowCarb": "Low Carb",
+  "recipesCategoryOwn": "Own",
   "recipesResultsCount": "{count, plural, one{1 match} other{{count} matches}}",
   "@recipesResultsCount": {
     "placeholders": {

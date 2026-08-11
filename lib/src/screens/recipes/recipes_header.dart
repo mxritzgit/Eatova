@@ -114,6 +114,7 @@ class _RecipeFilterChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return SizedBox(
       // Die Leiste waechst mit der Schrift mit, statt bei 38 px zu reissen.
       // Gedeckelt, damit sie bei doppelter Schrift nicht den halben Screen
@@ -127,10 +128,13 @@ class _RecipeFilterChips extends StatelessWidget {
           final filter = recipeFilters[index];
           // Die Leiste gibt ihren Kindern eine feste Hoehe; `Center` laesst
           // dem Chip seine natuerliche Groesse und haelt ihn mittig.
+          // `key`/`onTap`/`selected` haengen weiter am NEUTRALEN `filter`-
+          // Wert (Logik-Identitaet); nur das sichtbare `label` laeuft ueber
+          // die ARB (recipeCategoryLabel, Inhalte-PR).
           return Center(
             child: FilterChipPill(
               key: ValueKey('recipe-filter-$filter'),
-              label: filter,
+              label: recipeCategoryLabel(filter, l10n),
               selected: selected == filter,
               onTap: () => onSelected(filter),
             ),
