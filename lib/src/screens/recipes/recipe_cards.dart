@@ -109,6 +109,7 @@ class _RecipeListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(rCard),
@@ -137,7 +138,8 @@ class _RecipeListTile extends StatelessWidget {
                 children: [
                   if (recipe.categories.isNotEmpty) ...[
                     Text(
-                      recipe.categories.first.toUpperCase(),
+                      recipeCategoryLabel(recipe.categories.first, l10n)
+                          .toUpperCase(),
                       // Einheitlich `accent`: die Vorlage faerbt diese Zeile
                       // nach MealSlot in Makro-Toenen — unsere Karten tragen
                       // aber Rezept-KATEGORIEN, und Makro-Farben kodieren laut
@@ -159,7 +161,7 @@ class _RecipeListTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    recipe.description,
+                    recipe.displayDescription(l10n),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.ui(11.5, color: t.ink2, height: 1.4),

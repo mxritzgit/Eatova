@@ -159,8 +159,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
     }
   }
 
+  /// Bestandskatalog der AKTIVEN App-Sprache (Inhalte-PR, 2026-08-11) —
+  /// vorher fest `fitnessRecipes` (immer deutsch). `context.l10n.localeName`
+  /// ist bereits auf `de`/`en` aufgeloest (System-Wahl inklusive, s.
+  /// `resolveEatovaLocale`); ein Sprachwechsel waehrend der Screen offen ist
+  /// rebuildet automatisch (`Localizations` ist ein InheritedWidget).
+  List<FitnessRecipe> get _catalog =>
+      recipeCatalogForLocale(context.l10n.localeName);
+
   List<FitnessRecipe> get _allRecipes =>
-      <FitnessRecipe>[..._userRecipes, ...fitnessRecipes];
+      <FitnessRecipe>[..._userRecipes, ..._catalog];
 
   List<FitnessRecipe> get filteredRecipes {
     final normalizedQuery = query.trim().toLowerCase();
@@ -341,9 +349,15 @@ class _RecipesScreenState extends State<RecipesScreen> {
           ),
           const SizedBox(height: 22),
           SectionHeading(
+            // Inhalte-PR: `selectedFilter` bleibt die neutrale Logik-
+            // Identitaet (Filtervergleich oben, ValueKeys der Chips) — die
+            // Ueberschrift zeigt ihre ARB-Anzeigeform, wie schon der Chip
+            // selbst (recipeCategoryLabel, recipes_header.dart). Der
+            // "Alle"-Sonderfall bekommt weiterhin den laengeren, eigenen
+            // Titel ("Alle Rezepte" statt nur "Alle").
             title: selectedFilter == 'Alle'
                 ? l10n.recipesAllTitle
-                : selectedFilter,
+                : recipeCategoryLabel(selectedFilter, l10n),
             trailing: l10n.recipesResultsCount(visibleRecipes.length),
           ),
           const SizedBox(height: 12),

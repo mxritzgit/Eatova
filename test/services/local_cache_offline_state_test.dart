@@ -170,13 +170,20 @@ void main() {
       // Format entstanden, saehe ein Rezept nach dem Offline-Kaltstart anders
       // aus als nach dem Online-Boot (kein Loeschen-Knopf, weil die UI an
       // userCreated haengt).
+      //
+      // Seit dem Inhalte-PR (2026-08-11, Platzhalter-Fix) setzt `fromRow`
+      // professionalHint NEUTRAL ('') statt fest deutsch — der Roundtrip
+      // ueberschreibt den `_recipe()`-Fixture-Wert also unabhaengig davon,
+      // was reingeschrieben wurde (dieselbe Zusicherung wie vorher: die
+      // Tabelle fuehrt die Spalte nicht, fromRow gewinnt immer). Die Anzeige
+      // loest die leere Zeichenkette erst spaeter ueber
+      // `FitnessRecipe.displayProfessionalHint` in die aktuelle Locale auf.
       final cache = _cache(InMemoryKeyValueStore());
       await cache.writeUserRecipes([_recipe('user_1')]);
 
       final back = (await cache.readUserRecipes())!.single;
       expect(back.userCreated, isTrue);
-      expect(back.professionalHint,
-          'Selbst angelegt. Werte beruhen auf deinen Angaben.');
+      expect(back.professionalHint, '');
     });
 
     test('leere Liste ist NICHT dasselbe wie kein Cache', () async {

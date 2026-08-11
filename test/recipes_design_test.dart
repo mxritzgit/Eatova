@@ -597,6 +597,12 @@ void main() {
         // „Rezepte" -> „Recipes", „Empfehlungen" -> „Recommendations".
         expect(find.text('Recipes'), findsOneWidget);
         expect(find.text('Recommendations'), findsOneWidget);
+        // Inhalte-PR (2026-08-11): der Bestandskatalog selbst ist zweisprachig
+        // — unter en steht die echte englische Uebersetzung im Baum, nicht
+        // nur die Screen-Chrome. Erstes Rezept des Katalogs
+        // (hahnchen_mit_reis_and_brokkoli), erscheint garantiert ohne Scrollen
+        // im Empfehlungs-Karussell.
+        expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
       });
     }
   });

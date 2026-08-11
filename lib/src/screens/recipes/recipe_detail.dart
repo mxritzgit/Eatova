@@ -30,8 +30,8 @@ class RecipeDetailScreen extends StatelessWidget {
   }
 
   void _add(BuildContext context, MealSlot slot) {
-    onAddMeal(recipe.toMealResult(), slot);
     final l10n = context.l10n;
+    onAddMeal(recipe.toMealResult(l10n), slot);
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(recipe.caloriesKcal, slot.label(l10n)),
@@ -94,7 +94,7 @@ class RecipeDetailScreen extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                recipe.description,
+                recipe.displayDescription(l10n),
                 style: AppType.ui(14, color: t.ink2, height: 1.45),
               ),
               if (recipe.categories.isNotEmpty) ...[
@@ -104,7 +104,7 @@ class RecipeDetailScreen extends StatelessWidget {
                   runSpacing: 8,
                   children: [
                     for (final category in recipe.categories)
-                      _CategoryPill(label: category),
+                      _CategoryPill(label: recipeCategoryLabel(category, l10n)),
                   ],
                 ),
               ],
@@ -118,19 +118,19 @@ class RecipeDetailScreen extends StatelessWidget {
               const SizedBox(height: 18),
               _RecipeInfoSection(
                 title: l10n.recipesSectionPortion,
-                body: recipe.portion,
+                body: recipe.displayPortion(l10n),
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionIngredients,
-                body: recipe.ingredients,
+                body: recipe.displayIngredients(l10n),
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionPreparation,
-                body: recipe.preparation,
+                body: recipe.displayPreparation(l10n),
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionProHint,
-                body: recipe.professionalHint,
+                body: recipe.displayProfessionalHint(l10n),
                 highlight: true,
               ),
             ],

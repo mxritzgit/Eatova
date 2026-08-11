@@ -154,9 +154,20 @@ import 'package:flutter_test/flutter_test.dart';
 ///    NICHT locale-abhaengig formatiert — ein EN-Leser koennte Tag/Monat
 ///    vertauschen. Kein Hartkodierungs-Fund im engeren Sinn (keine deutschen
 ///    Woerter), aber eine offene Anschlussfrage fuer den Scan/Coach-PR.
-///  * Unveraendert seit Paket 3/dem Vertrag: die Auth-Screens (eigene Runde)
-///    und der `fitness_recipe.dart`-Katalog (30 Rezepte, Content statt
-///    Screen-Text) — beide Ziel: Inhalte-PR.
+///  * Unveraendert: die Auth-Screens (eigene Runde) — Ziel: die geplante
+///    Auth-Runde, s. Spec §4.
+///
+/// Inhalte-PR (2026-08-11): der `fitness_recipe.dart`-Katalog-Punkt aus der
+/// Restliste ist erledigt. Der Bestandskatalog (30 Rezepte) zog in ZWEI
+/// Dateien pro Sprache um (Spec §5): `lib/src/models/recipe_catalog_de.dart`
+/// und `recipe_catalog_en.dart`. `fitness_recipe.dart` selbst traegt seither
+/// nur noch die Klasse, `recipeFilters` (bleibt neutral/unuebersetzt, s.
+/// Kommentar dort) und die beiden Resolver — steht jetzt komplett in
+/// [_migriertePfade]. `recipe_catalog_en.dart` MUSS englisch bleiben und
+/// steht ebenfalls drin. `recipe_catalog_de.dart` TRAEGT bewusst deutschen
+/// Content (das ist ihr Zweck, s. Datei-Kommentar dort) und bleibt — analog
+/// zu `main.dart`s Boot-Fehlerschirm — eine dauerhafte, dokumentierte
+/// Ausnahme AUSSERHALB von [_migriertePfade].
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',
@@ -182,6 +193,8 @@ const List<String> _migriertePfade = <String>[
   'lib/src/app/home_store_sync.dart',
   'lib/src/app/home_store_tracking.dart',
   'lib/src/widgets/design/rows.dart',
+  'lib/src/models/fitness_recipe.dart',
+  'lib/src/models/recipe_catalog_en.dart',
 ];
 
 /// Dokumentierte Einzelausnahmen (Datei -> Literale), NICHT dieselbe Idee wie

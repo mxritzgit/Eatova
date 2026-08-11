@@ -1,6 +1,12 @@
+import '../l10n/l10n.dart';
 import 'macro_progress.dart';
 import 'meal_analysis_result.dart';
+import 'recipe_catalog_de.dart';
+import 'recipe_catalog_en.dart';
 import 'user_profile.dart';
+
+export 'recipe_catalog_de.dart' show recipeCatalogDe;
+export 'recipe_catalog_en.dart' show recipeCatalogEn;
 
 class FitnessRecipe {
   const FitnessRecipe({
@@ -157,9 +163,16 @@ class FitnessRecipe {
   }
 
   /// Baut ein FitnessRecipe aus einer public.user_recipes-Zeile. Defensiv:
-  /// fehlende/falsch-getypte Spalten fallen auf Defaults zurueck. professionalHint
-  /// existiert in der Tabelle nicht und wird neutral gesetzt. userCreated ist
-  /// per Definition true — alle Zeilen dieser Tabelle sind selbst angelegt.
+  /// fehlende/falsch-getypte Spalten fallen auf einen LEEREN String zurueck —
+  /// NICHT mehr auf einen hartkodierten deutschen Platzhaltertext (Inhalte-PR,
+  /// 2026-08-11, Branch-Review-Finding: `fromRow` injizierte den Platzhalter
+  /// bisher unconditional, unabhaengig von der aktiven App-Sprache). Die leere
+  /// Zeichenkette ist der neutrale Marker "kein Wert hinterlegt"; die Anzeige
+  /// loest ihn erst zur Laufzeit — s. [displayDescription] & Geschwister —
+  /// in die aktuelle Locale auf. `professionalHint` existiert in
+  /// der Tabelle ohnehin nicht (nie befuellt, immer '') — bleibt aus demselben
+  /// Grund neutral statt fest deutsch. userCreated ist per Definition true —
+  /// alle Zeilen dieser Tabelle sind selbst angelegt.
   factory FitnessRecipe.fromRow(Map<String, dynamic> row) {
     final rawCategories = row['categories'];
     final categories = rawCategories is List
@@ -178,12 +191,11 @@ class FitnessRecipe {
     return FitnessRecipe(
       slug: slug,
       title: row['title']?.toString() ?? 'Eigenes Rezept',
-      description: row['description']?.toString() ?? 'Eigenes Rezept',
-      portion: row['portion']?.toString() ?? '1 Portion',
-      ingredients: row['ingredients']?.toString() ?? 'Keine Angabe',
-      preparation: row['preparation']?.toString() ??
-          'Eigenes Rezept — keine Zubereitung hinterlegt.',
-      professionalHint: 'Selbst angelegt. Werte beruhen auf deinen Angaben.',
+      description: row['description']?.toString() ?? '',
+      portion: row['portion']?.toString() ?? '',
+      ingredients: row['ingredients']?.toString() ?? '',
+      preparation: row['preparation']?.toString() ?? '',
+      professionalHint: '',
       imageAsset: row['image_asset']?.toString() ?? '',
       caloriesKcal: _toInt(row['calories_kcal']),
       proteinG: _toInt(row['protein_g']),
@@ -202,7 +214,80 @@ class FitnessRecipe {
     return 0;
   }
 
-  MealAnalysisResult toMealResult() {
+  /// Loest EINEN Platzhalter-Wert zur Anzeigezeit auf (Inhalte-PR,
+  /// 2026-08-11). `value` ist entweder echter Nutzertext, der leere Marker
+  /// (seit diesem PR persistiert `_save()`/`fromRow()` keinen Platzhaltertext
+  /// mehr) oder — Rueckwaertskompatibilitaet — ein VOR diesem PR gespeicherter
+  /// deutscher Platzhalter (die einzige Sprache, die es vorher gab). [select]
+  /// liest denselben ARB-Key aus [deL10n]/[enL10n]/der aktiven `l10n`: matcht
+  /// `value` einen der beiden bekannten Wortlaute (oder ist leer), gilt er als
+  /// Platzhalter und wird durch die AKTUELLE Locale-Fassung ersetzt. Alles
+  /// andere ist echter Nutzertext und bleibt unangetastet.
+  ///
+  /// Bekannte Luecke (dokumentiert, nicht behoben): ein Nutzer, der zufällig
+  /// wortgleich mit einem Platzhalter tippt (z. B. „Keine Angabe" als eigene
+  /// Zutatenliste), sieht seinen Text ebenfalls uebersetzt. Seiten-Effekt ist
+  /// kosmetisch (derselbe Platzhalter-Wortlaut in der jeweils anderen
+  /// Sprache), kein Datenverlust — die gespeicherte Zeile bleibt unveraendert.
+  String _resolvePlaceholder(
+    String value,
+    AppLocalizations l10n,
+    String Function(AppLocalizations) select,
+  ) {
+    if (value.isEmpty || value == select(deL10n) || value == select(enL10n)) {
+      return select(l10n);
+    }
+    return value;
+  }
+
+  /// Anzeige-Wert von [description]. Das Anlege-Sheet hat kein eigenes
+  /// Beschreibungsfeld — bei [userCreated] war/ist der Wert bis auf echten
+  /// Nutzertext (theoretisch moeglich ueber `fromRow`, praktisch nie durchs
+  /// Sheet) IMMER ein Platzhalter. Bestandsrezepte liefern ihren Text
+  /// unveraendert.
+  String displayDescription(AppLocalizations l10n) => userCreated
+      ? _resolvePlaceholder(description, l10n, (x) => x.recipesOwnTitle)
+      : description;
+
+  /// Anzeige-Wert von [portion]. Das Sheet befuellt das Feld l10n-abhaengig
+  /// vor (`foodPortionFallback`) — laesst der Nutzer es unveraendert oder
+  /// leert er es, persistiert `_save()` seit diesem PR NICHTS mehr (leerer
+  /// Marker statt Platzhaltertext).
+  String displayPortion(AppLocalizations l10n) => userCreated
+      ? _resolvePlaceholder(portion, l10n, (x) => x.foodPortionFallback)
+      : portion;
+
+  /// Anzeige-Wert von [ingredients]. Hat ein echtes Formularfeld — nur bei
+  /// leerer Eingabe griff bisher der Platzhalter.
+  String displayIngredients(AppLocalizations l10n) => userCreated
+      ? _resolvePlaceholder(ingredients, l10n, (x) => x.recipesNoDataProvided)
+      : ingredients;
+
+  /// Anzeige-Wert von [preparation]. Kein Formularfeld — wie [description]
+  /// bei [userCreated] immer ein Platzhalter, nie echter Nutzertext.
+  String displayPreparation(AppLocalizations l10n) => userCreated
+      ? _resolvePlaceholder(
+          preparation, l10n, (x) => x.recipesNoPreparationYet)
+      : preparation;
+
+  /// Anzeige-Wert von [professionalHint]. Kein Formularfeld UND keine
+  /// DB-Spalte (`fromRow` setzt immer '') — bei [userCreated] IMMER ein
+  /// Platzhalter.
+  String displayProfessionalHint(AppLocalizations l10n) => userCreated
+      ? _resolvePlaceholder(
+          professionalHint, l10n, (x) => x.recipesSelfCreatedHint)
+      : professionalHint;
+
+  /// [l10n] optional, Default [deL10n] (Muster `sync_error_messages.dart`):
+  /// kontextfreie Aufrufer (Tests, s. `recipe_create_sheet_test.dart`) bleiben
+  /// unveraendert deutsch. `portionNotes` baut auf den AUFGELOESTEN
+  /// Anzeige-Werten auf ([displayPortion]/[displayDescription]/
+  /// [displayProfessionalHint]) statt der Rohdaten — sonst wanderte bei einem
+  /// frisch angelegten Eigen-Rezept (seit diesem PR moeglicherweise leere
+  /// Felder, s. [FitnessRecipe.fromRow]) eine leere Luecke in die geloggte
+  /// Mahlzeit.
+  MealAnalysisResult toMealResult([AppLocalizations? l10n]) {
+    final sprache = l10n ?? deL10n;
     return MealAnalysisResult(
       mealName: title,
       caloriesKcal: caloriesKcal,
@@ -212,7 +297,9 @@ class FitnessRecipe {
       carbs: '$carbsG g',
       fat: '$fatG g',
       confidence: 'Rezept',
-      portionNotes: '$portion · $description $professionalHint',
+      portionNotes: '${displayPortion(sprache)} · '
+          '${displayDescription(sprache)} '
+          '${displayProfessionalHint(sprache)}',
       sourceLabel: 'Eatova Rezept',
       brand: 'Eatova',
     );
@@ -230,485 +317,19 @@ const recipeFilters = <String>[
   "Low Carb",
 ];
 
-const fitnessRecipes = <FitnessRecipe>[
-  FitnessRecipe(
-    slug: "hahnchen_mit_reis_and_brokkoli",
-    title: "Hähnchen mit Reis & Brokkoli",
-    description: "Klassischer Lean-Bulk- oder Definitions-Teller mit viel Protein, gut planbaren Kohlenhydraten und Gemüsevolumen.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 180 g Hähnchenbrustfilet, roh\n- 75 g Vollkornreis oder Naturreis, roh\n- 220 g Brokkoli, frisch oder TK\n- 8 g Olivenöl\n- 1 TL Zitronensaft\n- 1 kleine Knoblauchzehe, fein gerieben\n- 1/2 TL Paprikapulver edelsüß\n- Salz, schwarzer Pfeffer, Petersilie nach Geschmack",
-    preparation: "1. Reis in leicht gesalzenem Wasser garen, bis er locker und körnig ist. Danach kurz ausdampfen lassen.\n2. Hähnchen mit Zitronensaft, Knoblauch, Paprika, Salz, Pfeffer und der Hälfte des Öls einreiben.\n3. In einer heißen Pfanne oder Grillpfanne 4–5 Minuten pro Seite braten, bis das Fleisch außen goldbraun ist und innen saftig bleibt. Vor dem Anschneiden 3 Minuten ruhen lassen.\n4. Brokkoli dämpfen oder in wenig Wasser garen, dann mit restlichem Öl, Salz und Pfeffer abschmecken.\n5. Alles in drei klaren Bereichen anrichten: Hähnchen geschnitten, Reis als lockere Portion, Brokkoli daneben.",
-    professionalHint: "Für Meal Prep Hähnchen und Reis getrennt vom Brokkoli lagern, damit der Brokkoli beim Aufwärmen nicht zu weich wird.",
-    imageAsset: "assets/recipes/hahnchen_mit_reis_and_brokkoli.jpg",
-    caloriesKcal: 590,
-    proteinG: 55,
-    carbsG: 62,
-    fatG: 12,
-    estimatedGrams: 483,
-    categories: <String>["High Protein", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "lachs_mit_sukartoffel_and_spargel",
-    title: "Lachs mit Süßkartoffel & Spargel",
-    description: "Proteinreicher Teller mit Omega-3-Fetten, komplexen Kohlenhydraten und viel Gemüse.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 180 g Lachsfilet\n- 300 g Süßkartoffel, in Spalten\n- 200 g grüner Spargel\n- 10 g Olivenöl\n- 1 TL Zitronensaft\n- 1 TL körniger Senf optional\n- 1/2 TL Knoblauchpulver\n- Salz, Pfeffer, Dill oder Petersilie",
-    preparation: "1. Süßkartoffelspalten mit der Hälfte des Öls, Salz, Pfeffer und Knoblauchpulver mischen. Bei 200 °C Ober-/Unterhitze 25–30 Minuten rösten.\n2. Spargelenden entfernen, Spargel mit etwas Öl, Salz und Pfeffer würzen und für die letzten 10–12 Minuten mit aufs Blech geben.\n3. Lachs trocken tupfen, mit Zitronensaft, Salz, Pfeffer und optional etwas Senf würzen.\n4. Lachs in der Pfanne auf mittlerer Hitze zuerst auf der Hautseite 4 Minuten braten, wenden und 2–3 Minuten fertig garen.\n5. Auf einem Teller anrichten: Lachs vorne, Süßkartoffeln seitlich, Spargel als grüner Block im Hintergrund.",
-    professionalHint: "Für eine kalorienärmere Version nur 5 g Öl verwenden oder die Süßkartoffelportion auf 220 g reduzieren.",
-    imageAsset: "assets/recipes/lachs_mit_sukartoffel_and_spargel.jpg",
-    caloriesKcal: 640,
-    proteinG: 43,
-    carbsG: 55,
-    fatG: 29,
-    estimatedGrams: 690,
-    categories: <String>["Fisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "putensteak_mit_quinoa_and_ofengemuse",
-    title: "Putensteak mit Quinoa & Ofengemüse",
-    description: "Sehr magerer, proteinreicher Teller mit Quinoa und farbigem Gemüse für eine moderne Fitness-Optik.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 200 g Putenbruststeak, roh\n- 70 g Quinoa, roh\n- 250 g Ofengemüse: Zucchini, Paprika, Karotte\n- 10 g Olivenöl\n- 1 TL Zitronensaft\n- 1/2 TL Paprikapulver\n- 1/2 TL italienische Kräuter\n- Salz, Pfeffer, frische Petersilie",
-    preparation: "1. Quinoa gründlich waschen und mit der doppelten Menge Wasser 12–15 Minuten köcheln lassen. Danach 5 Minuten quellen lassen.\n2. Gemüse in gleichmäßige Stücke schneiden, mit 6 g Olivenöl, Salz, Pfeffer und Kräutern mischen. Bei 200 °C etwa 20–25 Minuten rösten.\n3. Putensteak mit Zitronensaft, Paprika, Salz, Pfeffer und restlichem Öl würzen.\n4. In einer sehr heißen Grillpfanne je nach Dicke 3–5 Minuten pro Seite braten. Kurz ruhen lassen und in Scheiben schneiden.\n5. Quinoa als lockeren Hügel anrichten, Putenstreifen danebenlegen und das Ofengemüse farbig daneben platzieren.",
-    professionalHint: "Pute wird schnell trocken. Nicht zu lange braten und nach dem Garen unbedingt kurz ruhen lassen.",
-    imageAsset: "assets/recipes/putensteak_mit_quinoa_and_ofengemuse.jpg",
-    caloriesKcal: 610,
-    proteinG: 58,
-    carbsG: 57,
-    fatG: 15,
-    estimatedGrams: 530,
-    categories: <String>["High Protein", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "rindersteak_mit_kartoffeln_and_bohnen",
-    title: "Rindersteak mit Kartoffeln & Bohnen",
-    description: "Kräftiger High-Protein-Teller für eine herzhafte Fitness-Mahlzeit mit Steak.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 200 g mageres Rindersteak, z. B. Hüfte oder Rumpsteak\n- 280 g Kartoffeln, festkochend\n- 220 g grüne Bohnen\n- 10 g Olivenöl\n- 1 kleine Knoblauchzehe\n- 1 Zweig Rosmarin oder 1/2 TL getrocknet\n- Salz, Pfeffer, grobe Chiliflocken optional",
-    preparation: "1. Kartoffeln halbieren oder vierteln, mit 6 g Öl, Salz, Pfeffer und Rosmarin mischen. Bei 200 °C 25–30 Minuten rösten.\n2. Bohnen in Salzwasser 5–7 Minuten blanchieren, anschließend kurz in der Pfanne mit Knoblauch und 2 g Öl schwenken.\n3. Steak 30 Minuten vor dem Braten aus dem Kühlschrank nehmen, trocken tupfen und kräftig salzen.\n4. In einer sehr heißen Pfanne mit restlichem Öl je nach Dicke 2–4 Minuten pro Seite braten. Danach pfeffern und 5 Minuten ruhen lassen.\n5. Steak in Scheiben schneiden und mit Kartoffeln und Bohnen sauber getrennt auf dem Teller anrichten.",
-    professionalHint: "Für Definitionsphasen ein mageres Stück wählen und sichtbares Fett entfernen. Für Muskelaufbau die Kartoffelportion erhöhen.",
-    imageAsset: "assets/recipes/rindersteak_mit_kartoffeln_and_bohnen.jpg",
-    caloriesKcal: 670,
-    proteinG: 52,
-    carbsG: 48,
-    fatG: 28,
-    estimatedGrams: 710,
-    categories: <String>["High Protein", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "garnelen_mit_vollkornnudeln_and_zucchini",
-    title: "Garnelen mit Vollkornnudeln & Zucchini",
-    description: "Leichter Pasta-Teller mit viel Protein, ideal als sportliche Alternative zu klassischer Pasta.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 200 g Garnelen, geschält\n- 85 g Vollkorn-Penne, roh\n- 250 g Zucchini, in Bändern oder Scheiben\n- 8 g Olivenöl\n- 1 Knoblauchzehe, fein gehackt\n- 1 TL Zitronensaft\n- 1 EL gehackte Petersilie\n- Salz, Pfeffer, Chiliflocken optional",
-    preparation: "1. Vollkornnudeln al dente kochen und 50 ml Nudelwasser aufheben.\n2. Zucchini mit einem Sparschäler in Bänder schneiden oder in dünne Scheiben schneiden. Kurz in 3 g Öl anbraten, damit sie bissfest bleiben.\n3. Garnelen trocken tupfen und mit Salz, Pfeffer, Knoblauch und Zitronensaft würzen.\n4. In einer heißen Pfanne mit restlichem Öl 1–2 Minuten pro Seite braten, bis sie rosa und saftig sind. Nicht übergaren.\n5. Nudeln mit etwas Nudelwasser, Petersilie und Gewürzen mischen. Garnelen, Pasta und Zucchini in separaten Bereichen anrichten.",
-    professionalHint: "Bei gegarten Garnelen nur kurz erhitzen, sonst werden sie gummiartig. Die Zucchini bewusst bissfest lassen.",
-    imageAsset: "assets/recipes/garnelen_mit_vollkornnudeln_and_zucchini.jpg",
-    caloriesKcal: 560,
-    proteinG: 48,
-    carbsG: 68,
-    fatG: 11,
-    estimatedGrams: 543,
-    categories: <String>["Fisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "omelett_mit_spinat_and_avocado",
-    title: "Omelett mit Spinat & Avocado",
-    description: "Low-Carb-Frühstück oder Abendessen mit realistischen Portionsgrößen, cremiger Avocado und einem großen Omelett.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 3 ganze Eier\n- 150 g Eiklar zusätzlich, für mehr Protein und Volumen\n- 80 g frischer Spinat\n- 80 g Avocado, in Scheiben\n- 120 g Cherrytomaten\n- 5 g Olivenöl oder Butter\n- 30 g körniger Frischkäse oder Feta light optional\n- Salz, Pfeffer, Schnittlauch",
-    preparation: "1. Spinat kurz in einer beschichteten Pfanne zusammenfallen lassen, leicht salzen und beiseitestellen.\n2. Eier und Eiklar mit Salz, Pfeffer und Schnittlauch verquirlen.\n3. Öl oder Butter in die Pfanne geben, Eiermasse bei mittlerer Hitze stocken lassen. Nicht zu heiß braten, damit das Omelett saftig bleibt.\n4. Spinat und optional Frischkäse auf eine Hälfte geben, Omelett zusammenklappen und kurz fertig garen.\n5. Mit Avocadoscheiben und halbierten Cherrytomaten auf dem Teller anrichten.",
-    professionalHint: "Die Kombination aus 3 Eiern plus Eiklar passt zur sichtbaren Größe des Omeletts und liefert deutlich mehr Protein als ein kleines 1-Ei-Omelett.",
-    imageAsset: "assets/recipes/omelett_mit_spinat_and_avocado.jpg",
-    caloriesKcal: 620,
-    proteinG: 36,
-    carbsG: 18,
-    fatG: 44,
-    estimatedGrams: 465,
-    categories: <String>["Frühstück", "Low Carb"],
-  ),
-  FitnessRecipe(
-    slug: "thunfisch_mit_couscous_and_gemuse",
-    title: "Thunfisch mit Couscous & Gemüse",
-    description: "Edler Fitness-Teller mit angebratenem Thunfisch, Couscous und buntem Gemüse.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 200 g Thunfischsteak, sehr frisch\n- 80 g Couscous, roh\n- 250 g Gemüse: Brokkoli, Zucchini, Paprika\n- 8 g Olivenöl\n- 1 TL Zitronensaft\n- 1 TL Sojasauce optional\n- 1 TL Sesam oder Pfefferkruste optional\n- Salz, Pfeffer, Petersilie",
-    preparation: "1. Couscous mit heißer Gemüsebrühe im Verhältnis 1:1,2 übergießen, abdecken und 5–7 Minuten quellen lassen. Danach mit einer Gabel lockern.\n2. Gemüse in einer Pfanne oder im Ofen bissfest garen und mit Salz, Pfeffer und etwas Öl würzen.\n3. Thunfisch trocken tupfen, leicht salzen und optional in Pfeffer oder Sesam wenden.\n4. In einer sehr heißen Pfanne mit wenig Öl pro Seite nur 45–75 Sekunden scharf anbraten, damit die Mitte rosa bleibt.\n5. Kurz ruhen lassen, in gleichmäßige Scheiben schneiden und mit Couscous und buntem Gemüse anrichten.",
-    professionalHint: "Nur sehr frischen Thunfisch verwenden. Wer ihn durchgegart möchte, brät ihn länger, verliert aber die saftige Optik.",
-    imageAsset: "assets/recipes/thunfisch_mit_couscous_and_gemuse.jpg",
-    caloriesKcal: 600,
-    proteinG: 56,
-    carbsG: 58,
-    fatG: 15,
-    estimatedGrams: 538,
-    categories: <String>["Fisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "tofu_mit_reis_and_edamame",
-    title: "Tofu mit Reis & Edamame",
-    description: "Veganer High-Protein-Teller mit knusprigem Tofu, Edamame und Reis.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 200 g fester Tofu, abgetropft\n- 75 g Reis, roh\n- 150 g Edamame, geschält\n- 8 g Sesamöl oder neutrales Öl\n- 1 EL Sojasauce\n- 1 TL Limettensaft\n- 1 TL Ahornsirup optional\n- 1 TL Sesam\n- Frühlingszwiebel, Pfeffer, Chili optional",
-    preparation: "1. Reis garen und ausdampfen lassen, damit er locker bleibt.\n2. Tofu gut trocken pressen und in dicke Scheiben oder Rechtecke schneiden.\n3. Sojasauce, Limettensaft, optional Ahornsirup und etwas Pfeffer verrühren. Tofu darin 10 Minuten marinieren.\n4. Tofu in einer heißen beschichteten Pfanne mit Öl von beiden Seiten goldbraun anbraten.\n5. Edamame 3–5 Minuten in Salzwasser erhitzen und abgießen.\n6. Tofu, Reis und Edamame klar getrennt anrichten und mit Sesam sowie Frühlingszwiebel toppen.",
-    professionalHint: "Für mehr Protein 250 g Tofu verwenden oder zusätzlich 100 g Sojajoghurt-Dip separat einplanen.",
-    imageAsset: "assets/recipes/tofu_mit_reis_and_edamame.jpg",
-    caloriesKcal: 610,
-    proteinG: 35,
-    carbsG: 78,
-    fatG: 18,
-    estimatedGrams: 433,
-    categories: <String>["Vegetarisch", "Vegan", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "hahnchen_mit_sukartoffel_and_bohnen",
-    title: "Hähnchen mit Süßkartoffel & Bohnen",
-    description: "Meal-Prep-tauglicher Teller mit magerem Hähnchen, gerösteter Süßkartoffel und grünen Bohnen.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 190 g Hähnchenbrustfilet, roh\n- 300 g Süßkartoffel, gewürfelt\n- 220 g grüne Bohnen\n- 10 g Olivenöl\n- 1/2 TL Paprikapulver\n- 1/2 TL Knoblauchpulver\n- 1 TL Zitronensaft\n- Salz, Pfeffer, Petersilie",
-    preparation: "1. Süßkartoffelwürfel mit 6 g Öl, Paprika, Knoblauchpulver, Salz und Pfeffer mischen. Bei 200 °C 25–30 Minuten rösten.\n2. Bohnen 5–7 Minuten blanchieren und anschließend kurz in der Pfanne schwenken.\n3. Hähnchen mit Zitronensaft, Salz, Pfeffer und etwas Öl würzen.\n4. In der Grillpfanne goldbraun braten, bis es innen gar, aber saftig ist. Danach 3 Minuten ruhen lassen und in Scheiben schneiden.\n5. Alles anrichten: Hähnchen vorne links, Süßkartoffeln als orangefarbener Block, Bohnen rechts.",
-    professionalHint: "Sehr gut für 2–3 Tage Meal Prep geeignet. Beim Aufwärmen etwas Wasser zum Hähnchen geben, damit es saftig bleibt.",
-    imageAsset: "assets/recipes/hahnchen_mit_sukartoffel_and_bohnen.jpg",
-    caloriesKcal: 620,
-    proteinG: 55,
-    carbsG: 60,
-    fatG: 16,
-    estimatedGrams: 720,
-    categories: <String>["High Protein", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "putenballchen_mit_reis_and_gemuse",
-    title: "Putenbällchen mit Reis & Gemüse",
-    description: "Familienfreundliches Fitness-Gericht mit saftigen Putenbällchen, Reis und Gemüse.",
-    portion: "1 großer Fitness-Teller / 1 Hauptmahlzeit",
-    ingredients: "- 220 g Putenhack, möglichst mager\n- 75 g Reis, roh\n- 250 g Gemüse: Brokkoli und Karotten\n- 1 Ei Größe M\n- 20 g Haferflocken, fein\n- 1 kleine Zwiebel, sehr fein gewürfelt\n- 1 TL Senf\n- 8 g Olivenöl\n- Salz, Pfeffer, Paprika, Petersilie",
-    preparation: "1. Reis garen und ausdampfen lassen.\n2. Putenhack mit Ei, Haferflocken, Zwiebel, Senf, Salz, Pfeffer, Paprika und Petersilie mischen. 5–6 gleichmäßige Bällchen formen.\n3. Bällchen in einer Pfanne mit Öl rundherum 8–10 Minuten braten oder bei 200 °C 15–18 Minuten im Ofen garen.\n4. Brokkoli und Karotten dämpfen oder kurz kochen, bis sie bissfest und farbintensiv sind.\n5. Reis hinten auf dem Teller platzieren, Putenbällchen vorne und Gemüse seitlich anrichten.",
-    professionalHint: "Haferflocken und Ei sorgen dafür, dass die Bällchen saftig bleiben. Für extra Saftigkeit 1 EL Magerquark in die Masse geben.",
-    imageAsset: "assets/recipes/putenballchen_mit_reis_and_gemuse.jpg",
-    caloriesKcal: 650,
-    proteinG: 55,
-    carbsG: 65,
-    fatG: 18,
-    estimatedGrams: 573,
-    categories: <String>["High Protein", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "protein_pancakes_mit_beeren",
-    title: "Protein-Pancakes mit Beeren",
-    description: "Fluffige High-Protein-Pancakes mit Skyr und frischen Beeren als Power-Frühstück.",
-    portion: "1 Portion / 4–5 kleine Pancakes",
-    ingredients: "- 40 g feine Haferflocken\n- 2 ganze Eier\n- 150 g Magerquark oder Skyr\n- 1 kleine Banane, ca. 90 g\n- 1 TL Backpulver\n- 100 g gemischte Beeren\n- 1 TL Öl für die Pfanne\n- Zimt, 1 TL Ahornsirup optional",
-    preparation: "1. Haferflocken, Eier, Quark, Banane, Backpulver und Zimt zu einem glatten Teig mixen.\n2. Eine beschichtete Pfanne bei mittlerer Hitze mit wenig Öl erhitzen.\n3. Kleine Pancakes ausbacken, pro Seite 1,5–2 Minuten, bis sie goldbraun sind. Nicht zu heiß, sonst werden sie außen dunkel und innen roh.\n4. Pancakes stapeln, mit Beeren toppen und optional mit etwas Ahornsirup beträufeln.",
-    professionalHint: "Die Banane bringt natürliche Süße — bei Diät weglassen und stattdessen etwas Süßstoff plus 10 g mehr Haferflocken nehmen.",
-    imageAsset: "assets/recipes/protein_pancakes_mit_beeren.jpg",
-    caloriesKcal: 500,
-    proteinG: 37,
-    carbsG: 58,
-    fatG: 13,
-    estimatedGrams: 470,
-    categories: <String>["Frühstück", "High Protein", "Vegetarisch"],
-  ),
-  FitnessRecipe(
-    slug: "overnight_oats_mit_skyr_and_banane",
-    title: "Overnight Oats mit Skyr & Banane",
-    description: "Vorbereitetes High-Protein-Frühstück zum Mitnehmen mit Haferflocken, Skyr und Banane.",
-    portion: "1 Glas / 1 Frühstücksportion",
-    ingredients: "- 60 g Haferflocken\n- 150 g Skyr oder Magerquark\n- 120 ml Milch oder Sojadrink\n- 1 TL Chiasamen\n- 1/2 Banane, in Scheiben\n- 80 g Beeren\n- 1 TL Honig oder Ahornsirup\n- Zimt nach Geschmack",
-    preparation: "1. Haferflocken, Skyr, Milch, Chiasamen und Zimt in einem Glas verrühren.\n2. Abgedeckt über Nacht in den Kühlschrank stellen, mindestens 4 Stunden.\n3. Am Morgen kurz umrühren, bei Bedarf einen Schuss Milch unterrühren.\n4. Mit Bananenscheiben, Beeren und einem Klecks Honig toppen.",
-    professionalHint: "Über Nacht quellen die Haferflocken auf und werden cremig. Die Chiasamen binden zusätzlich Flüssigkeit und liefern Ballaststoffe.",
-    imageAsset: "assets/recipes/overnight_oats_mit_skyr_and_banane.jpg",
-    caloriesKcal: 450,
-    proteinG: 30,
-    carbsG: 62,
-    fatG: 9,
-    estimatedGrams: 470,
-    categories: <String>["Frühstück", "Vegetarisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "skyr_bowl_mit_beeren_and_granola",
-    title: "Skyr-Bowl mit Beeren & Granola",
-    description: "Cremige High-Protein-Bowl mit isländischem Skyr, frischen Beeren und knusprigem Granola.",
-    portion: "1 Schüssel / 1 Frühstücksportion",
-    ingredients: "- 250 g Skyr natur\n- 40 g Granola oder Knuspermüsli\n- 120 g gemischte Beeren\n- 10 g Nüsse, grob gehackt\n- 1 TL Honig\n- 1 TL Leinsamen optional",
-    preparation: "1. Skyr glatt rühren und in eine Schüssel geben.\n2. Beeren waschen und auf dem Skyr verteilen.\n3. Granola und gehackte Nüsse darüberstreuen.\n4. Mit einem Faden Honig und optional Leinsamen abschließen.",
-    professionalHint: "Granola erst kurz vor dem Essen darüber geben, damit es knusprig bleibt. Für weniger Zucker ein ungesüßtes Granola wählen.",
-    imageAsset: "assets/recipes/skyr_bowl_mit_beeren_and_granola.jpg",
-    caloriesKcal: 430,
-    proteinG: 38,
-    carbsG: 48,
-    fatG: 9,
-    estimatedGrams: 420,
-    categories: <String>["Frühstück", "High Protein", "Vegetarisch"],
-  ),
-  FitnessRecipe(
-    slug: "shakshuka_mit_eiern_and_feta",
-    title: "Shakshuka mit Eiern & Feta",
-    description: "Würzige Tomaten-Paprika-Pfanne mit pochierten Eiern und Feta — proteinreich und low carb.",
-    portion: "1 Pfanne / 1 große Portion",
-    ingredients: "- 3 Eier\n- 400 g passierte Tomaten\n- 1 rote Paprika, in Streifen\n- 1/2 Zwiebel\n- 1 Knoblauchzehe\n- 40 g Feta\n- 8 g Olivenöl\n- 1 TL Paprikapulver, 1/2 TL Kreuzkümmel\n- Salz, Pfeffer, Petersilie",
-    preparation: "1. Zwiebel und Paprika in Öl glasig anbraten, Knoblauch und Gewürze kurz mitrösten.\n2. Passierte Tomaten zugeben und 8–10 Minuten einköcheln, mit Salz und Pfeffer abschmecken.\n3. Mit einem Löffel drei Mulden in die Sauce drücken und je ein Ei hineingleiten lassen.\n4. Zugedeckt 6–8 Minuten pochieren, bis das Eiweiß gestockt, das Eigelb aber noch cremig ist.\n5. Mit zerbröseltem Feta und Petersilie bestreuen und direkt aus der Pfanne servieren.",
-    professionalHint: "Das Eigelb soll noch leicht flüssig sein. Lieber etwas früher von der Hitze nehmen — es gart nach.",
-    imageAsset: "assets/recipes/shakshuka_mit_eiern_and_feta.jpg",
-    caloriesKcal: 480,
-    proteinG: 28,
-    carbsG: 22,
-    fatG: 30,
-    estimatedGrams: 600,
-    categories: <String>["Frühstück", "Vegetarisch", "Low Carb"],
-  ),
-  FitnessRecipe(
-    slug: "ruhrei_mit_vollkornbrot_and_avocado",
-    title: "Rührei mit Vollkornbrot & Avocado",
-    description: "Sättigendes Frühstück mit cremigem Rührei, Avocado und Vollkornbrot.",
-    portion: "1 Teller / 1 Frühstücksportion",
-    ingredients: "- 3 Eier\n- 1 Scheibe Vollkornbrot, ca. 50 g\n- 70 g Avocado\n- 100 g Cherrytomaten\n- 5 g Butter oder Öl\n- 1 EL Milch\n- Salz, Pfeffer, Schnittlauch",
-    preparation: "1. Eier mit Milch, Salz und Pfeffer verquirlen.\n2. Butter in einer Pfanne bei niedriger Hitze schmelzen, Eier hineingeben und langsam zu cremigem Rührei stocken lassen — ständig sanft rühren.\n3. Vollkornbrot toasten.\n4. Avocado in Scheiben oder grob zerdrückt auf das Brot geben, leicht salzen.\n5. Rührei, Avocadobrot und halbierte Cherrytomaten anrichten, mit Schnittlauch bestreuen.",
-    professionalHint: "Rührei bei niedriger Hitze garen und früh von der Platte ziehen — so bleibt es cremig statt trocken.",
-    imageAsset: "assets/recipes/ruhrei_mit_vollkornbrot_and_avocado.jpg",
-    caloriesKcal: 540,
-    proteinG: 28,
-    carbsG: 34,
-    fatG: 31,
-    estimatedGrams: 380,
-    categories: <String>["Frühstück", "Vegetarisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "chicken_wrap_mit_joghurt_dressing",
-    title: "Chicken-Wrap mit Joghurt-Dressing",
-    description: "Handlicher High-Protein-Wrap mit Hähnchen, knackigem Gemüse und leichtem Joghurt-Dressing.",
-    portion: "1 großer Wrap",
-    ingredients: "- 160 g Hähnchenbrustfilet\n- 1 Vollkorn-Tortilla, ca. 65 g\n- 60 g Eisbergsalat\n- 1/2 Tomate, 1/4 Gurke\n- 60 g griechischer Joghurt 2%\n- 1 TL Senf, 1 TL Zitronensaft\n- 6 g Öl\n- Salz, Pfeffer, Paprika",
-    preparation: "1. Hähnchen in Streifen schneiden, mit Salz, Pfeffer und Paprika würzen und in Öl goldbraun anbraten.\n2. Für das Dressing Joghurt, Senf, Zitronensaft, Salz und Pfeffer verrühren.\n3. Tortilla kurz in einer trockenen Pfanne erwärmen, damit sie geschmeidig wird.\n4. Salat, Tomate, Gurke und Hähnchen mittig auflegen, Dressing darüber geben.\n5. Seiten einschlagen und fest aufrollen. Halbieren und servieren.",
-    professionalHint: "Den Wrap nicht überfüllen, sonst reißt die Tortilla. Das Joghurt-Dressing spart gegenüber Mayo viele Kalorien.",
-    imageAsset: "assets/recipes/chicken_wrap_mit_joghurt_dressing.jpg",
-    caloriesKcal: 560,
-    proteinG: 48,
-    carbsG: 52,
-    fatG: 16,
-    estimatedGrams: 380,
-    categories: <String>["Hauptgericht", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "hahnchen_curry_mit_reis",
-    title: "Hähnchen-Curry mit Reis",
-    description: "Cremiges Curry mit zarten Hähnchenstücken, leichter Kokosnote und Reis.",
-    portion: "1 große Portion",
-    ingredients: "- 180 g Hähnchenbrustfilet, gewürfelt\n- 80 g Reis, roh\n- 100 ml Kokosmilch light\n- 100 g passierte Tomaten\n- 1/2 Zwiebel, 1 Knoblauchzehe\n- 100 g Paprika\n- 8 g Öl\n- 1 EL Currypaste oder Currypulver\n- Salz, Koriander oder Petersilie",
-    preparation: "1. Reis garen und warm halten.\n2. Zwiebel und Knoblauch in Öl anschwitzen, Currypaste kurz mitrösten.\n3. Hähnchenwürfel zugeben und rundherum anbraten.\n4. Paprika, passierte Tomaten und Kokosmilch zufügen, 10–12 Minuten köcheln lassen, bis das Hähnchen gar und die Sauce sämig ist.\n5. Mit Salz abschmecken und mit Reis sowie frischem Koriander servieren.",
-    professionalHint: "Light-Kokosmilch spart Fett, ohne die Cremigkeit ganz zu verlieren. Für mehr Schärfe etwas Chili oder Ingwer zugeben.",
-    imageAsset: "assets/recipes/hahnchen_curry_mit_reis.jpg",
-    caloriesKcal: 640,
-    proteinG: 50,
-    carbsG: 70,
-    fatG: 16,
-    estimatedGrams: 560,
-    categories: <String>["Hauptgericht", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "rinderhack_chili_mit_bohnen",
-    title: "Rinderhack-Chili mit Bohnen",
-    description: "Herzhaftes Chili con Carne mit magerem Rinderhack, Kidneybohnen und Mais — perfekt zum Vorkochen.",
-    portion: "1 große Schüssel",
-    ingredients: "- 180 g mageres Rinderhack\n- 120 g Kidneybohnen, gegart\n- 80 g Mais\n- 200 g passierte Tomaten\n- 1/2 Zwiebel, 1 Knoblauchzehe\n- 1/2 Paprika\n- 8 g Öl\n- 1 TL Paprikapulver, 1/2 TL Kreuzkümmel, Chili\n- Salz, Pfeffer",
-    preparation: "1. Zwiebel, Knoblauch und Paprika in Öl anschwitzen.\n2. Rinderhack zugeben und krümelig anbraten, bis es Farbe nimmt.\n3. Gewürze kurz mitrösten, dann passierte Tomaten, Bohnen und Mais zugeben.\n4. 15–20 Minuten köcheln lassen, gelegentlich umrühren, mit Salz und Pfeffer abschmecken.\n5. In einer Schüssel servieren, optional mit etwas Joghurt und Koriander.",
-    professionalHint: "Je länger das Chili köchelt, desto runder der Geschmack. Schmeckt am nächsten Tag oft noch besser — ideal für Meal Prep.",
-    imageAsset: "assets/recipes/rinderhack_chili_mit_bohnen.jpg",
-    caloriesKcal: 600,
-    proteinG: 47,
-    carbsG: 52,
-    fatG: 22,
-    estimatedGrams: 620,
-    categories: <String>["Hauptgericht", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "rinderstreifen_stir_fry_mit_reis",
-    title: "Rinderstreifen-Stir-Fry mit Reis",
-    description: "Schneller Wok-Teller mit zarten Rinderstreifen, knackigem Gemüse und Reis in Sojasauce.",
-    portion: "1 große Portion",
-    ingredients: "- 180 g mageres Rindfleisch, in Streifen\n- 80 g Reis, roh\n- 200 g Wok-Gemüse: Brokkoli, Paprika, Karotte, Zuckerschoten\n- 8 g Öl\n- 1,5 EL Sojasauce\n- 1 TL Sesamöl, 1 TL Honig\n- 1 cm Ingwer, 1 Knoblauchzehe\n- Sesam, Frühlingszwiebel",
-    preparation: "1. Reis garen und warm stellen.\n2. Rinderstreifen in sehr heißem Öl 1–2 Minuten scharf anbraten und herausnehmen.\n3. Gemüse im selben Wok 3–4 Minuten bissfest braten, Ingwer und Knoblauch zugeben.\n4. Rindfleisch zurück in den Wok, mit Sojasauce, Sesamöl und Honig ablöschen und kurz schwenken.\n5. Mit Reis anrichten, mit Sesam und Frühlingszwiebel bestreuen.",
-    professionalHint: "Den Wok richtig heiß werden lassen und das Fleisch portionsweise anbraten — so brät es scharf an statt zu kochen.",
-    imageAsset: "assets/recipes/rinderstreifen_stir_fry_mit_reis.jpg",
-    caloriesKcal: 620,
-    proteinG: 45,
-    carbsG: 62,
-    fatG: 18,
-    estimatedGrams: 520,
-    categories: <String>["Hauptgericht", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "schweinefilet_mit_kartoffeln_and_brokkoli",
-    title: "Schweinefilet mit Kartoffeln & Brokkoli",
-    description: "Mageres Schweinefilet mit gerösteten Kartoffeln und Brokkoli — viel Protein bei moderatem Fett.",
-    portion: "1 großer Fitness-Teller",
-    ingredients: "- 200 g Schweinefilet\n- 280 g Kartoffeln, festkochend\n- 220 g Brokkoli\n- 10 g Olivenöl\n- 1 Knoblauchzehe\n- 1/2 TL Thymian\n- Salz, Pfeffer, Senf optional",
-    preparation: "1. Kartoffeln in Spalten schneiden, mit 6 g Öl, Salz, Pfeffer und Thymian mischen und bei 200 °C 25–30 Minuten rösten.\n2. Schweinefilet trocken tupfen, salzen und in einer heißen Pfanne mit restlichem Öl rundherum scharf anbraten.\n3. Im Ofen bei 180 °C 8–10 Minuten fertig garen, bis die Kerntemperatur ca. 62 °C beträgt. Dann ruhen lassen.\n4. Brokkoli dämpfen, bis er bissfest ist.\n5. Filet in Medaillons schneiden und mit Kartoffeln und Brokkoli anrichten.",
-    professionalHint: "Schweinefilet ist sehr mager und gart schnell durch. Mit Kerntemperatur arbeiten und ruhen lassen, dann bleibt es saftig.",
-    imageAsset: "assets/recipes/schweinefilet_mit_kartoffeln_and_brokkoli.jpg",
-    caloriesKcal: 580,
-    proteinG: 52,
-    carbsG: 50,
-    fatG: 18,
-    estimatedGrams: 600,
-    categories: <String>["Hauptgericht", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "hahnchen_pesto_pasta",
-    title: "Hähnchen-Pesto-Pasta",
-    description: "Cremige Pasta mit Hähnchen und Pesto — sättigend und proteinreich für nach dem Training.",
-    portion: "1 große Portion",
-    ingredients: "- 170 g Hähnchenbrustfilet\n- 90 g Vollkorn-Pasta, roh\n- 30 g Pesto\n- 100 g Cherrytomaten\n- 50 g Spinat\n- 20 g Parmesan\n- 6 g Öl\n- Salz, Pfeffer",
-    preparation: "1. Pasta al dente kochen und etwas Nudelwasser aufheben.\n2. Hähnchen in Streifen schneiden, würzen und in Öl goldbraun anbraten.\n3. Cherrytomaten halbieren und kurz mitbraten, Spinat zugeben und zusammenfallen lassen.\n4. Pasta, Hähnchen, Pesto und etwas Nudelwasser vermengen, bis eine cremige Sauce entsteht.\n5. Mit gehobeltem Parmesan und Pfeffer servieren.",
-    professionalHint: "Pesto ist kalorienreich — die 30 g bewusst abwiegen. Etwas Nudelwasser macht die Sauce cremig, ohne mehr Öl zu brauchen.",
-    imageAsset: "assets/recipes/hahnchen_pesto_pasta.jpg",
-    caloriesKcal: 660,
-    proteinG: 50,
-    carbsG: 66,
-    fatG: 22,
-    estimatedGrams: 480,
-    categories: <String>["Hauptgericht", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "hahnchen_caesar_salat",
-    title: "Hähnchen-Caesar-Salat",
-    description: "Knackiger Caesar-Salat mit gegrilltem Hähnchen und leichtem Joghurt-Dressing — proteinreich und low carb.",
-    portion: "1 große Salatschüssel",
-    ingredients: "- 180 g Hähnchenbrustfilet\n- 120 g Römersalat\n- 60 g griechischer Joghurt 2%\n- 15 g Parmesan\n- 1 TL Senf, 1 TL Zitronensaft, 1 Sardelle optional\n- 20 g Vollkorn-Croutons\n- 6 g Öl\n- Salz, Pfeffer",
-    preparation: "1. Hähnchen würzen und in Öl goldbraun braten, danach in Streifen schneiden.\n2. Für das Dressing Joghurt, Senf, Zitronensaft, fein gehackte Sardelle, etwas Parmesan, Salz und Pfeffer verrühren.\n3. Römersalat waschen, trocken schleudern und in mundgerechte Stücke zupfen.\n4. Salat mit dem Dressing mischen, Hähnchenstreifen darauf verteilen.\n5. Mit Parmesan und ein paar Croutons toppen.",
-    professionalHint: "Das klassische Caesar-Dressing ist fett- und kalorienreich. Die Joghurt-Variante bringt Cremigkeit bei deutlich weniger Fett.",
-    imageAsset: "assets/recipes/hahnchen_caesar_salat.jpg",
-    caloriesKcal: 470,
-    proteinG: 50,
-    carbsG: 18,
-    fatG: 22,
-    estimatedGrams: 420,
-    categories: <String>["Hauptgericht", "High Protein", "Low Carb"],
-  ),
-  FitnessRecipe(
-    slug: "thunfisch_vollkornpasta",
-    title: "Thunfisch-Vollkornpasta",
-    description: "Schnelle Protein-Pasta mit Thunfisch, Tomatensauce und Vollkornnudeln — ohne viel Aufwand.",
-    portion: "1 große Portion",
-    ingredients: "- 150 g Thunfisch aus der Dose, im eigenen Saft\n- 90 g Vollkorn-Pasta, roh\n- 200 g passierte Tomaten\n- 1/2 Zwiebel, 1 Knoblauchzehe\n- 50 g Erbsen\n- 6 g Olivenöl\n- 1 TL Kräuter, Chili optional\n- Salz, Pfeffer, Petersilie",
-    preparation: "1. Pasta al dente kochen.\n2. Zwiebel und Knoblauch in Öl anschwitzen, passierte Tomaten zugeben und 8 Minuten köcheln lassen.\n3. Erbsen und abgetropften Thunfisch unterheben und kurz miterwärmen.\n4. Mit Salz, Pfeffer und Kräutern abschmecken.\n5. Pasta unter die Sauce mischen und mit Petersilie servieren.",
-    professionalHint: "Thunfisch im eigenen Saft statt in Öl spart Fett und Kalorien. Erst am Ende zugeben, damit er nicht zerfällt.",
-    imageAsset: "assets/recipes/thunfisch_vollkornpasta.jpg",
-    caloriesKcal: 600,
-    proteinG: 45,
-    carbsG: 72,
-    fatG: 13,
-    estimatedGrams: 470,
-    categories: <String>["Fisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "kabeljau_mit_kartoffelpuree_and_erbsen",
-    title: "Kabeljau mit Kartoffelpüree & Erbsen",
-    description: "Magerer Kabeljau auf cremigem Kartoffelpüree mit Erbsen — leicht und proteinreich.",
-    portion: "1 großer Fitness-Teller",
-    ingredients: "- 200 g Kabeljaufilet\n- 280 g Kartoffeln, mehligkochend\n- 100 g Erbsen\n- 60 ml Milch\n- 10 g Butter\n- 1 TL Zitronensaft\n- 6 g Öl\n- Salz, Pfeffer, Dill",
-    preparation: "1. Kartoffeln schälen, in Salzwasser weich kochen, abgießen und mit Milch und Butter zu cremigem Püree stampfen.\n2. Erbsen kurz kochen oder dämpfen.\n3. Kabeljau trocken tupfen, mit Salz, Pfeffer und Zitronensaft würzen.\n4. In einer Pfanne mit etwas Öl auf mittlerer Hitze pro Seite 2–3 Minuten braten, bis das Filet glasig und gerade gar ist.\n5. Püree auf den Teller geben, Kabeljau daraufsetzen, Erbsen daneben, mit Dill bestreuen.",
-    professionalHint: "Kabeljau ist sehr zart und zerfällt leicht. Nur einmal wenden und nicht zu lange braten.",
-    imageAsset: "assets/recipes/kabeljau_mit_kartoffelpuree_and_erbsen.jpg",
-    caloriesKcal: 520,
-    proteinG: 44,
-    carbsG: 50,
-    fatG: 12,
-    estimatedGrams: 640,
-    categories: <String>["Fisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "lachs_poke_bowl",
-    title: "Lachs-Poke-Bowl",
-    description: "Frische Poke-Bowl mit Lachs, Reis, Edamame und Avocado im hawaiianischen Stil.",
-    portion: "1 große Bowl",
-    ingredients: "- 150 g Lachsfilet, sehr frisch, gewürfelt\n- 90 g Sushi- oder Naturreis, roh\n- 60 g Edamame\n- 60 g Avocado\n- 60 g Gurke, 60 g Karotte\n- 1,5 EL Sojasauce, 1 TL Sesamöl, 1 TL Limettensaft\n- Sesam, Frühlingszwiebel, Nori optional",
-    preparation: "1. Reis garen und lauwarm in die Bowl geben.\n2. Lachswürfel mit Sojasauce, Sesamöl und Limettensaft 10 Minuten marinieren.\n3. Edamame kurz kochen, Gurke, Karotte und Avocado in Streifen bzw. Würfel schneiden.\n4. Alle Komponenten sektorenweise auf dem Reis anrichten.\n5. Mit Sesam, Frühlingszwiebel und etwas der Marinade beträufeln.",
-    professionalHint: "Nur fangfrischen Lachs in Sushi-Qualität roh verwenden. Wer rohen Fisch meiden will, brät die Würfel kurz scharf an.",
-    imageAsset: "assets/recipes/lachs_poke_bowl.jpg",
-    caloriesKcal: 620,
-    proteinG: 40,
-    carbsG: 65,
-    fatG: 20,
-    estimatedGrams: 540,
-    categories: <String>["Fisch", "High Protein"],
-  ),
-  FitnessRecipe(
-    slug: "linsen_dal_mit_reis",
-    title: "Linsen-Dal mit Reis",
-    description: "Wärmendes veganes Dal aus roten Linsen mit Reis — proteinreich, ballaststoffstark und günstig.",
-    portion: "1 große Schüssel",
-    ingredients: "- 100 g rote Linsen, roh\n- 80 g Reis, roh\n- 100 g passierte Tomaten\n- 1/2 Zwiebel, 1 Knoblauchzehe, 1 cm Ingwer\n- 100 ml Kokosmilch light\n- 8 g Öl\n- 1 TL Curry, 1/2 TL Kurkuma, 1/2 TL Kreuzkümmel\n- Salz, Koriander, Limette",
-    preparation: "1. Reis garen und warm halten.\n2. Zwiebel, Knoblauch und Ingwer in Öl anschwitzen, Gewürze kurz mitrösten.\n3. Linsen, passierte Tomaten, Kokosmilch und 200 ml Wasser zugeben.\n4. 15–18 Minuten köcheln lassen, bis die Linsen weich sind und das Dal sämig wird. Gelegentlich umrühren.\n5. Mit Salz und Limettensaft abschmecken und mit Reis und Koriander servieren.",
-    professionalHint: "Rote Linsen brauchen kein Einweichen und zerfallen zu einer cremigen Konsistenz. Liefern viel pflanzliches Protein und Ballaststoffe.",
-    imageAsset: "assets/recipes/linsen_dal_mit_reis.jpg",
-    caloriesKcal: 560,
-    proteinG: 26,
-    carbsG: 88,
-    fatG: 10,
-    estimatedGrams: 560,
-    categories: <String>["Vegetarisch", "Vegan", "High Protein", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "kichererbsen_curry_mit_reis",
-    title: "Kichererbsen-Curry mit Reis",
-    description: "Sättigendes veganes Chana-Curry mit Kichererbsen, Tomaten und Reis.",
-    portion: "1 große Schüssel",
-    ingredients: "- 200 g Kichererbsen, gegart\n- 80 g Reis, roh\n- 200 g passierte Tomaten\n- 1/2 Zwiebel, 1 Knoblauchzehe, 1 cm Ingwer\n- 80 g Spinat\n- 8 g Öl\n- 1 EL Currypulver, 1/2 TL Garam Masala\n- Salz, Koriander",
-    preparation: "1. Reis garen und warm halten.\n2. Zwiebel, Knoblauch und Ingwer in Öl anschwitzen, Gewürze kurz mitrösten.\n3. Passierte Tomaten und Kichererbsen zugeben und 12–15 Minuten köcheln lassen.\n4. Spinat unterrühren und zusammenfallen lassen, mit Salz abschmecken.\n5. Mit Reis und frischem Koriander servieren.",
-    professionalHint: "Kichererbsen aus der Dose gut abspülen. Wer es cremiger mag, gibt einen Schuss Kokosmilch oder etwas Sojajoghurt dazu.",
-    imageAsset: "assets/recipes/kichererbsen_curry_mit_reis.jpg",
-    caloriesKcal: 580,
-    proteinG: 22,
-    carbsG: 92,
-    fatG: 12,
-    estimatedGrams: 580,
-    categories: <String>["Vegetarisch", "Vegan", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "falafel_bowl_mit_hummus",
-    title: "Falafel-Bowl mit Hummus",
-    description: "Vegane Mezze-Bowl mit knusprigen Falafeln, Hummus, Quinoa und frischem Gemüse.",
-    portion: "1 große Bowl",
-    ingredients: "- 5 Falafelbällchen, ca. 120 g\n- 60 g Quinoa, roh\n- 50 g Hummus\n- 80 g Gurke, 100 g Cherrytomaten\n- 40 g Rotkohl\n- 1 TL Zitronensaft, Petersilie\n- Salz, Pfeffer",
-    preparation: "1. Quinoa waschen und garen, danach quellen lassen.\n2. Falafeln nach Packung im Ofen oder in der Pfanne knusprig backen.\n3. Gurke, Tomaten und Rotkohl in mundgerechte Stücke schneiden.\n4. Quinoa als Basis in die Bowl geben, Falafeln, Gemüse und einen Löffel Hummus darauf anrichten.\n5. Mit Zitronensaft, Petersilie, Salz und Pfeffer abschließen.",
-    professionalHint: "Falafel aus dem Ofen statt frittiert spart viel Fett. Hummus liefert zusätzlich pflanzliches Protein und macht die Bowl cremig.",
-    imageAsset: "assets/recipes/falafel_bowl_mit_hummus.jpg",
-    caloriesKcal: 600,
-    proteinG: 22,
-    carbsG: 70,
-    fatG: 26,
-    estimatedGrams: 520,
-    categories: <String>["Vegetarisch", "Vegan"],
-  ),
-  FitnessRecipe(
-    slug: "tempeh_stir_fry_mit_reis",
-    title: "Tempeh-Stir-Fry mit Reis",
-    description: "Veganer Wok mit proteinreichem Tempeh, knackigem Gemüse und Reis in würziger Sojasauce.",
-    portion: "1 große Portion",
-    ingredients: "- 160 g Tempeh, gewürfelt\n- 80 g Reis, roh\n- 200 g Wok-Gemüse: Brokkoli, Paprika, Karotte\n- 8 g Öl\n- 1,5 EL Sojasauce, 1 TL Sesamöl, 1 TL Ahornsirup\n- 1 Knoblauchzehe, 1 cm Ingwer\n- Sesam, Frühlingszwiebel",
-    preparation: "1. Reis garen und warm stellen.\n2. Tempehwürfel in heißem Öl rundherum goldbraun anbraten und herausnehmen.\n3. Gemüse im Wok 3–4 Minuten bissfest braten, Knoblauch und Ingwer zugeben.\n4. Tempeh zurückgeben, mit Sojasauce, Sesamöl und Ahornsirup ablöschen und kurz schwenken.\n5. Mit Reis anrichten und mit Sesam und Frühlingszwiebel bestreuen.",
-    professionalHint: "Tempeh kurz dämpfen oder blanchieren vor dem Braten nimmt die leichte Bitterkeit und macht es saftiger.",
-    imageAsset: "assets/recipes/tempeh_stir_fry_mit_reis.jpg",
-    caloriesKcal: 600,
-    proteinG: 34,
-    carbsG: 66,
-    fatG: 20,
-    estimatedGrams: 500,
-    categories: <String>["Vegetarisch", "Vegan", "High Protein", "Hauptgericht"],
-  ),
-  FitnessRecipe(
-    slug: "halloumi_avocado_bowl",
-    title: "Halloumi-Avocado-Bowl",
-    description: "Vegetarische Low-Carb-Bowl mit gebratenem Halloumi, Avocado und buntem Salat.",
-    portion: "1 große Bowl",
-    ingredients: "- 100 g Halloumi\n- 80 g Avocado\n- 120 g Blattsalat und Rucola\n- 100 g Cherrytomaten\n- 60 g Gurke\n- 30 g Kichererbsen, gegart\n- 1 TL Olivenöl, 1 TL Zitronensaft\n- Salz, Pfeffer, Minze optional",
-    preparation: "1. Halloumi in Scheiben schneiden und in einer trockenen oder leicht geölten Pfanne von beiden Seiten goldbraun braten.\n2. Salat, halbierte Cherrytomaten und Gurke in eine Schüssel geben.\n3. Avocado in Scheiben schneiden und dazulegen, Kichererbsen darüberstreuen.\n4. Mit Olivenöl, Zitronensaft, Salz und Pfeffer anmachen.\n5. Den warmen Halloumi obenauf anrichten, optional mit etwas Minze.",
-    professionalHint: "Halloumi ist von Natur aus salzig und fettreich — die 100 g bewusst abwiegen. Er bleibt auch warm schön bissfest.",
-    imageAsset: "assets/recipes/halloumi_avocado_bowl.jpg",
-    caloriesKcal: 560,
-    proteinG: 28,
-    carbsG: 24,
-    fatG: 38,
-    estimatedGrams: 520,
-    categories: <String>["Vegetarisch", "Low Carb"],
-  ),
-];
+/// Rückwärts-kompatibler Alias: eine Reihe von Bestandstests importiert
+/// `fitnessRecipes` kontextfrei (ohne Locale) direkt aus diesem Modul und
+/// pinnt deutsche Titel — Tests sind API, s. i18n-Regel 1 (de bleibt
+/// wortgleich). Zeigt bewusst auf [recipeCatalogDe]; neue,
+/// locale-bewusste Aufrufer nutzen [recipeCatalogForLocale].
+const List<FitnessRecipe> fitnessRecipes = recipeCatalogDe;
+
+/// Wählt den Rezeptkatalog der aktiven App-Sprache (Spec §5, Inhalte-PR
+/// 2026-08-11). [localeName] ist `AppLocalizations.localeName` (kanonisiert
+/// `de`/`en`) — Spiegel von `resolveEatovaLocale`
+/// (`lib/src/app/locale_controller.dart`): alles außer `de` fällt auf
+/// Englisch. Aufrufer reichen `l10n.localeName` durch, kein eigenes
+/// Locale-Lookup hier (Muster `formatThousands`/`kcal_format.dart`).
+List<FitnessRecipe> recipeCatalogForLocale(String localeName) =>
+    localeName == 'de' ? recipeCatalogDe : recipeCatalogEn;
+

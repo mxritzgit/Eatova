@@ -352,6 +352,15 @@
     }
   },
   "recipesAllTitle": "Alle Rezepte",
+  "recipesFilterAll": "Alle",
+  "recipesFilterHighProtein": "High Protein",
+  "recipesFilterMainCourse": "Hauptgericht",
+  "recipesFilterBreakfast": "Frühstück",
+  "recipesFilterFish": "Fisch",
+  "recipesFilterVegetarian": "Vegetarisch",
+  "recipesFilterVegan": "Vegan",
+  "recipesFilterLowCarb": "Low Carb",
+  "recipesCategoryOwn": "Eigene",
   "recipesResultsCount": "{count} Treffer",
   "@recipesResultsCount": {
     "placeholders": {
