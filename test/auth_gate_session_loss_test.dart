@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 /// Auth-Repository, dessen Ereignisse der Test direkt steuert — so laesst sich
@@ -102,6 +103,29 @@ const _user = EatovaUser(
   email: 'moritz@example.com',
   displayName: 'Moritz',
 );
+
+const _andererUser = EatovaUser(
+  id: 'user-2',
+  email: 'zweitkonto@example.com',
+  displayName: 'Zweitkonto',
+);
+
+/// Foto-Store-Double, das nur die Identitaets-Bindungen protokolliert.
+///
+/// Bewusst OHNE echtes IO: `testWidgets` laeuft unter FakeAsync, eine echte
+/// Datei-Operation wuerde dort nie fertig. Was der Purge beim Wechsel tut,
+/// prueft test/services/recipe_image_store_test.dart — hier steht nur die
+/// Zusicherung, dass der Gate JEDEN Uebergang an den Store MELDET (Finding 5,
+/// Security-Review 2026-08-11).
+class _BindungsRekorder extends RecipeImageStore {
+  final List<String?> bindungen = <String?>[];
+
+  @override
+  Future<void> setActiveUser(String? userId) {
+    bindungen.add(userId);
+    return Future<void>.value();
+  }
+}
 
 /// Baut dieselbe Huelle wie EatovaApp: AuthGate als MaterialApp.home. Der
 /// Builder liefert einen Platzhalter-Home mit einem Knopf, der eine Route
@@ -310,5 +334,77 @@ void main() {
     expect(find.byKey(const ValueKey('screen-fake-profile')), findsNothing);
     expect(find.textContaining('Sitzung ist abgelaufen'), findsNothing,
         reason: 'Wer sich selbst abmeldet, hat keine abgelaufene Sitzung');
+  });
+
+  group('Finding 5 — der Gate bindet den Rezept-Foto-Store an die Identitaet',
+      () {
+    // Der Store purgt beim Identitaetswechsel selbst (setActiveUser, eigene
+    // Unit-Tests); der Gate ist die EINE Stelle, durch die JEDER Uebergang
+    // laeuft — auch die, die kein signOutCleanup sehen: unfreiwilliger
+    // Session-Verlust und der direkte Wechsel A -> B.
+
+    testWidgets('Kaltstart bindet den restaurierten Nutzer', (tester) async {
+      final rekorder = _BindungsRekorder();
+      RecipeImageStore.instance = rekorder;
+      addTearDown(RecipeImageStore.resetInstance);
+      final repository = _ScriptedAuthRepository(_user);
+      addTearDown(repository.dispose);
+
+      await _pumpGate(tester, repository);
+
+      expect(rekorder.bindungen, <String?>['user-1'],
+          reason: 'Schon der initState muss binden — sonst rendert der '
+              'erste Frame gegen einen ungebundenen Store.');
+    });
+
+    testWidgets('Session-Verlust meldet null an den Store', (tester) async {
+      final rekorder = _BindungsRekorder();
+      RecipeImageStore.instance = rekorder;
+      addTearDown(RecipeImageStore.resetInstance);
+      final repository = _ScriptedAuthRepository(_user);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository);
+
+      repository.emit(null);
+      await tester.pumpAndSettle();
+
+      expect(rekorder.bindungen, <String?>['user-1', null],
+          reason: 'Der externe Widerruf laeuft NICHT ueber signOutCleanup — '
+              'ohne diese Meldung bliebe der Bestand des Nutzers liegen.');
+    });
+
+    testWidgets('direkter Wechsel A -> B meldet die neue Identitaet',
+        (tester) async {
+      final rekorder = _BindungsRekorder();
+      RecipeImageStore.instance = rekorder;
+      addTearDown(RecipeImageStore.resetInstance);
+      final repository = _ScriptedAuthRepository(_user);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository);
+
+      repository.emit(_andererUser);
+      await tester.pumpAndSettle();
+
+      expect(rekorder.bindungen, <String?>['user-1', 'user-2'],
+          reason: 'Beim Kontowechsel ohne explizites Abmelden muss der Store '
+              'den Wechsel erfahren, BEVOR das neue Konto rendert.');
+    });
+
+    testWidgets('ein Token-Refresh meldet denselben Nutzer erneut (No-Op im '
+        'Store)', (tester) async {
+      final rekorder = _BindungsRekorder();
+      RecipeImageStore.instance = rekorder;
+      addTearDown(RecipeImageStore.resetInstance);
+      final repository = _ScriptedAuthRepository(_user);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository);
+
+      repository.emit(_user);
+      await tester.pumpAndSettle();
+
+      expect(rekorder.bindungen, <String?>['user-1', 'user-1'],
+          reason: 'Dieselbe id darf gemeldet werden — setActiveUser macht '
+              'daraus ein No-Op und purgt nichts.');
+    });
   });
 }

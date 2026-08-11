@@ -448,15 +448,16 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final portion = portionField.veraendert ? _portion.text.trim() : '';
     final slug = FitnessRecipe.userRecipeSlug();
 
-    // Das Bild bekommt seinen Namen aus dem Slug. Scheitert die Ablage (kein
+    // Das Bild bekommt seinen Namen vom Store — kryptografisch zufaellig,
+    // NICHT mehr aus dem Slug abgeleitet (Security-Review 2026-08-11,
+    // Finding 5: `user_<ms>` war erratbar). Scheitert die Ablage (kein
     // Verzeichnis, Bytes nicht dekodierbar, volle Platte), wird das Rezept OHNE
     // Bild gespeichert — eine Referenz ins Leere waere schlimmer als keine.
     var imageAsset = '';
     final bytes = _photoBytes;
     if (bytes != null) {
       setState(() => _saving = true);
-      final referenz =
-          await RecipeImageStore.instance.save(slug: slug, bytes: bytes);
+      final referenz = await RecipeImageStore.instance.save(bytes: bytes);
       if (!mounted) return;
       setState(() => _saving = false);
       if (referenz == null) {
