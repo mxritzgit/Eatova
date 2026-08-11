@@ -23,9 +23,13 @@ export interface ClassifierResult {
   confidence: "low" | "medium" | "high";
 }
 
-// Kategorien, die Layer 2 ohne Quota-Abzug refused. self_harm/eating_disorder
-// routen dabei auf dieselben Krisen-/ED-Antworten wie Layer 1 - wichtig, weil
-// Layer 1 bewusst lasch ist und mehrdeutige Formulierungen erst hier landen.
+// Kategorien, die Layer 2 refused. Seit dem Quota-Fix (2026-08-11, CWE-770)
+// kostet auch eine Layer-2-Refusal den Tages-Slot: der Claim passiert im
+// Handler VOR dem Classifier-Call, sonst waeren mit erschoepfter Quota ueber
+// das Stunden-Gate weiterhin bezahlte Classifier-Calls moeglich (Details:
+// handler.ts). self_harm/eating_disorder routen auf dieselben Krisen-/
+// ED-Antworten wie Layer 1 - wichtig, weil Layer 1 bewusst lasch ist und
+// mehrdeutige Formulierungen erst hier landen.
 export const REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> = new Set([
   "self_harm",
   "eating_disorder",
@@ -48,10 +52,12 @@ export const REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> = new Set([
 // unzulaessigen Bildinhalten mit dem `__REFUSE__`-Marker zu antworten - dort
 // liegt das Bild tatsaechlich vor.
 //
-// Nebeneffekt, der genauso wichtig ist: classify() faellt bei jedem Fehler
-// fail-closed auf `off_topic` zurueck. Waere off_topic im Bild-Set, wuerde ein
-// Ausfall des Klassifizierer-Modells JEDE Bildanfrage ablehnen statt nur die
-// Zusatzpruefung zu verlieren.
+// Nebeneffekt, der genauso wichtig ist: classify() faellt bei unbrauchbarem
+// Modell-Output (kaputtes JSON, unbekannte Kategorie) fail-closed auf
+// `off_topic` zurueck. Waere off_topic im Bild-Set, wuerde so ein Aussetzer
+// JEDE Bildanfrage ablehnen statt nur die Zusatzpruefung zu verlieren.
+// (HTTP-/Netz-Fehler werfen seit dem Quota-Fix 2026-08-11 stattdessen eine
+// Exception - der Handler refundet den Slot und antwortet 502.)
 export const IMAGE_REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> =
   new Set([
     "self_harm",

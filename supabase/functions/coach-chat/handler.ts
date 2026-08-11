@@ -27,7 +27,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 
-import { preFilter } from "./prefilter.ts";
+import { MAX_INPUT_CHARS, preFilter } from "./prefilter.ts";
 import {
   type ClassifierResult,
   CLASSIFIER_CATEGORIES,
@@ -49,6 +49,61 @@ const MAX_CONTENT_LENGTH     = 6_250_000;
 const HISTORY_LIMIT          = 10;
 const REQUEST_USER_LIMIT     = 60;
 const REQUEST_IP_LIMIT       = 120;
+// Pre-Auth-Fail-Limiter (Security-Fix 2026-08-11, CWE-400): deckelt
+// wiederholte FEHLGESCHLAGENE /auth/v1/user-Lookups pro IP, damit anonym
+// wiederholbare Auth-Arbeit nicht unbegrenzt bleibt (Details am Gate unten).
+// Konservativ gegenueber REQUEST_IP_LIMIT (120/10min fuer authentifizierte
+// Requests): ein legitimer Client landet hier hoechstens mit einem
+// abgelaufenen Token und ist nach dem Refresh wieder raus — 30/h reicht.
+const AUTH_FAIL_LIMIT          = 30;
+const AUTH_FAIL_WINDOW_SECONDS = 3600;
+
+// Harte Deadline fuer beide Provider-Roundtrips (Security-Fix 2026-08-11,
+// CWE-400, Finding 6): ohne AbortSignal hing eine Execution bei stillem/
+// langsamem Upstream bis zum aeusseren Plattform-Limit — verbrauchte
+// Concurrency plus ein geclaimter Quota-Slot, der nie sauber refundet
+// wuerde, weil der Plattform-Kill die catch-Bloecke unten gar nicht mehr
+// erreicht. Gleiche Technik wie OPENROUTER_TIMEOUT_MS in analyze-meal:
+// AbortSignal.timeout am fetch deckt den GESAMTEN Roundtrip ab, auch das
+// resp.json()/resp.text() danach — ein Abort bricht den Response-Stream mit.
+// Werte: der Classifier hat max_tokens 50 und antwortet in Sekunden, 15 s
+// sind grosszuegig; der Answer-Call bekommt dieselben 45 s wie analyze-meal.
+// Als mutierbares Objekt exportiert, damit handler_test.ts die Deadlines
+// fuer Haenger-Simulationen verkuerzen kann — die Produktions-Defaults
+// bleiben unveraendert.
+export const PROVIDER_TIMEOUTS_MS = {
+  classify: 15_000,
+  answer: 45_000,
+};
+
+// Timeout erkennen: AbortSignal.timeout rejectet Fetch UND Body-Read mit
+// einer DOMException "TimeoutError". Behandelt wird er wie jeder andere
+// Provider-Infra-Fehler (Refund + sanitisierte Antwort ohne Interna), nur
+// mit dem ehrlichen Statuscode-Paar aus analyze-meal: 502 provider_error /
+// 504 provider_timeout. Der Flutter-Client mappt beide identisch auf die
+// generische Meldung (_failureForStatus: status >= 500 zeigt nie Body-Text).
+function isProviderTimeout(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "TimeoutError";
+}
+
+// Groessen-Vertrag der Nachricht (Security-Fix 2026-08-11, CWE-400).
+// MAX_INPUT_CHARS (1000, prefilter.ts) ist der fachliche Vertrag; der
+// Byte-Deckel ist Guertel + Hosentraeger: 1000 UTF-16-Zeichen sind maximal
+// 3000 UTF-8-Bytes (BMP = 3 Bytes/Zeichen; Astral = 4 Bytes auf 2 Zeichen),
+// 4000 haelt die Invariante "Message passt LOCKER unter den DB-CHECK
+// (16384 Bytes, Migration 20260811130000)" auch dann, wenn sich die
+// Zeichen-Semantik mal aendert.
+const MAX_INPUT_BYTES        = 4_000;
+// History-Hygiene gegen Alt-Rows, die VOR dem Fix oversized persistiert
+// wurden (der too_long-Refusal-Pfad speicherte die volle Nachricht — bis
+// knapp unter die 6,25-MB-Request-Grenze): pro Row ein Zeichen-Cap, der
+// jede legitime Zeile (User <= 1000 Zeichen, Assistant <= 600 Tokens)
+// unangetastet laesst, plus ein Aggregat-Budget fuer den Provider-Request,
+// das aelteste Eintraege zuerst verwirft. Legitime Konversationen bleiben
+// unter dem Budget (10 Rows im Normalfall weit unter 24000 Zeichen); nur
+// Bestands-Muell wird gekappt.
+const HISTORY_ROW_MAX_CHARS  = 4_000;
+const HISTORY_BUDGET_CHARS   = 24_000;
 
 // Session-IDs sind serverseitig erzeugte UUIDs. Strikt validieren, bevor der
 // Wert in PostgREST-Query-URLs interpoliert wird — sonst koennte ein Client
@@ -175,6 +230,10 @@ async function classify(
       "HTTP-Referer": "https://eatova.app",
       "X-Title": "Eatova Coach",
     },
+    // Deadline fuer Fetch UND das resp.json()/text() unten (Finding 6,
+    // s. PROVIDER_TIMEOUTS_MS): der Timeout wirft hier und laeuft ueber den
+    // bestehenden Infra-Fehler-Pfad im Handler (Refund + 504).
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.classify),
     body: JSON.stringify({
       model: MODEL_CLASSIFIER,
       messages: [
@@ -189,9 +248,15 @@ async function classify(
     }),
   });
   if (!resp.ok) {
-    // Fail-closed: wenn der Klassifizierer nicht erreichbar ist, behandeln wir
-    // die Anfrage als off_topic. Lieber falsch ablehnen als unsicher antworten.
-    return { category: "off_topic", confidence: "low" };
+    // Infrastruktur-Fehler -> werfen, gleiches Muster wie answer(). Seit dem
+    // Quota-Fix (2026-08-11, CWE-770) ist der Tages-Slot an dieser Stelle
+    // bereits geclaimt; der Handler refundet ihn im catch und antwortet
+    // ehrlich mit 502, statt hier eine Refusal zu erfinden, die den User
+    // einen Slot kostet, ohne dass je klassifiziert wurde. Unbrauchbarer
+    // Modell-Output (kaputtes JSON, unbekannte Kategorie) bleibt dagegen
+    // fail-closed off_topic - das war ein bezahlter, abgeschlossener Call.
+    const text = await resp.text();
+    throw new Error(`Classifier-Call fehlgeschlagen: ${resp.status} ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
   const raw = data?.choices?.[0]?.message?.content ?? "";
@@ -267,6 +332,10 @@ async function answer(
       "HTTP-Referer": "https://eatova.app",
       "X-Title": "Eatova Coach",
     },
+    // Deadline fuer Fetch UND das resp.json()/text() unten (Finding 6,
+    // s. PROVIDER_TIMEOUTS_MS): der Timeout wirft hier und laeuft ueber die
+    // bestehenden Answer-Refund-Pfade im Handler (Refund + 504).
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
     body: JSON.stringify({
       model: MODEL_ANSWER,
       messages: [
@@ -477,6 +546,26 @@ function retryAfterSeconds(resetAt: string, fallback: number): number {
   return Number.isFinite(ms) ? Math.max(1, Math.ceil(ms / 1000)) : fallback;
 }
 
+// Byte-/Zeichen-Budget der History (Security-Fix 2026-08-11, CWE-400):
+// HISTORY_LIMIT begrenzt nur ROWS, nicht Bytes. Rows, die VOR dem
+// 413-Guard oversized in die DB kamen (oder es kuenftig auf anderem Weg
+// schaffen), werden hier entschaerft (Quarantaene light), statt bei jedem
+// Folge-Request erneut Speicher, Traffic und Provider-Kosten zu
+// amplifizieren: erst pro Row auf HISTORY_ROW_MAX_CHARS kappen, dann von
+// der NEUESTEN Zeile rueckwaerts das Aggregat-Budget fuellen — was aelter
+// ist und nicht mehr passt, faellt raus (rows kommt chronologisch an).
+function capHistoryBudget(rows: HistoryMessage[]): HistoryMessage[] {
+  const kept: HistoryMessage[] = [];
+  let total = 0;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const content = rows[i].content.slice(0, HISTORY_ROW_MAX_CHARS);
+    if (total + content.length > HISTORY_BUDGET_CHARS) break;
+    total += content.length;
+    kept.unshift({ role: rows[i].role, content });
+  }
+  return kept;
+}
+
 // Sentinel-Rest E3: null heisst "History nicht ladbar" — frueher wurde daraus
 // eine leere Liste, der Coach beantwortete Folgefragen ("und davon 200 g?")
 // kommentarlos ohne Kontext, und der Nutzer hielt den Kontextverlust fuer
@@ -500,12 +589,14 @@ async function loadHistory(
   }
   const data = await resp.json();
   if (!Array.isArray(data)) return null;
-  return data
-    .reverse()
-    .map((m: any) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: String(m.content ?? ""),
-    }));
+  return capHistoryBudget(
+    data
+      .reverse()
+      .map((m: any) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: String(m.content ?? ""),
+      })),
+  );
 }
 
 async function storeMessage(
@@ -637,18 +728,47 @@ async function maybeAutoTitle(
 // ---------------------------------------------------------------------------
 // User aus JWT extrahieren
 // ---------------------------------------------------------------------------
+// Drei Ausgaenge statt string|null (Security-Fix 2026-08-11, CWE-400): der
+// Handler muss unterscheiden, ob eine Ablehnung LOKAL entschieden wurde
+// (gratis, kein Roundtrip) oder einen /auth/v1/user-Lookup GEKOSTET hat —
+// nur letztere werden unten pro IP gedeckelt.
+//
+//  - "no_token":       fehlender/kein Bearer-Header, leerer Token oder der
+//                      exakte SUPABASE_ANON_KEY. Der Anon-Key ist KEIN
+//                      Nutzer-Token — er ist absichtlich oeffentlich und wurde
+//                      bis zu diesem Fix trotzdem bei jedem Request an
+//                      /auth/v1/user weitergereicht: anonym wiederholbare
+//                      Edge-+Auth-Arbeit, die nie in einem Application-Bucket
+//                      landete. Jetzt lokal abgewiesen, gleiches Muster wie
+//                      authenticateUser() in analyze-meal und search-key.
+//  - "lookup_failed":  /auth/v1/user hat non-ok geantwortet (ungueltiger/
+//                      abgelaufener Token) — der Roundtrip ist passiert.
+//  - "invalid_user":   200, aber ohne lesbare Id. Auth-Server-Anomalie, kein
+//                      vom Client beliebig wiederholbarer Angriffspfad —
+//                      401 ohne Fail-Bucket, damit ein kaputter Auth-Server
+//                      nicht ganze IPs in den 429 treibt.
+type AuthOutcome =
+  | { ok: true; userId: string }
+  | { ok: false; reason: "no_token" | "lookup_failed" | "invalid_user" };
+
 async function userIdFromJwt(
   authHeader: string | null,
   supabaseUrl: string,
   anonKey: string,
-): Promise<string | null> {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+): Promise<AuthOutcome> {
+  const match = (authHeader ?? "").match(/^Bearer\s+(.+)$/i);
+  if (!match) return { ok: false, reason: "no_token" };
+  const token = match[1].trim();
+  if (!token || token === anonKey) return { ok: false, reason: "no_token" };
   const resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { "Authorization": authHeader, "apikey": anonKey },
+    headers: { "Authorization": `Bearer ${token}`, "apikey": anonKey },
   });
-  if (!resp.ok) return null;
+  if (!resp.ok) return { ok: false, reason: "lookup_failed" };
   const data = await resp.json();
-  return data?.id ?? null;
+  if (typeof data?.id !== "string" || data.id.length === 0) {
+    return { ok: false, reason: "invalid_user" };
+  }
+  return { ok: true, userId: data.id };
 }
 
 // ---------------------------------------------------------------------------
@@ -715,9 +835,57 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "payload_too_large" }, 413);
   }
 
-  // 1) User identifizieren
-  const userId = await userIdFromJwt(req.headers.get("authorization"), supabaseUrl, anonKey);
-  if (!userId) return json({ error: "Unauthorized" }, 401);
+  // 1) User identifizieren. Der exakt bekannte Anon-Key und Nicht-Bearer-
+  // Header sind in userIdFromJwt bereits LOKAL abgewiesen — der oeffentliche
+  // Token kostet keinen Auth-Roundtrip mehr (Security-Fix 2026-08-11,
+  // CWE-400).
+  const auth = await userIdFromJwt(req.headers.get("authorization"), supabaseUrl, anonKey);
+  if (!auth.ok) {
+    if (auth.reason === "lookup_failed") {
+      // Pre-Auth-IP-Limiter fuer Auth-FEHLSCHLAEGE: jeder non-ok Lookup
+      // verbraucht einen Slot im Fail-Bucket der IP; ab Ueberschreitung
+      // antwortet dieselbe Pruefung mit 429 statt 401.
+      //
+      // Zur gewaehlten Semantik: consume_edge_rate_limit ist check+increment
+      // ATOMAR (INSERT ... ON CONFLICT increment, Migration 20260518000100)
+      // — einen reinen "Peek" vor dem Lookup gibt die RPC nicht her, und ein
+      // Consume VOR dem Lookup wuerde jede ERFOLGREICHE Auth mitzaehlen bzw.
+      // den Happy Path um einen DB-Roundtrip verlangsamen. Deshalb: Zaehlung
+      // NUR im Fehlerfall, direkt nach dem fehlgeschlagenen Lookup.
+      // Ueber-Limit-Requests kosten damit weiterhin je einen Auth-Roundtrip,
+      // aber der bekannte oeffentliche Anon-Key ist oben schon gratis
+      // abgewiesen und Fehlversuche pro IP sind sichtbar gedeckelt.
+      //
+      // Subject: dieselbe vertrauenswuerdige IP-Ermittlung wie das IP-Gate
+      // unten (cf-connecting-ip, dann x-forwarded-for von rechts). Eine
+      // verifizierte User-Id gibt es hier nicht — der uid-Fallback ist das
+      // Literal "anon" und damit ein GETEILTES Bucket; akzeptabel, weil darin
+      // ausschliesslich fehlgeschlagene Logins landen (niemand mit gueltigem
+      // Token kann darueber ausgesperrt werden) und der Fallback hinter
+      // Cloudflare ohnehin unerreichbar ist (client_ip.ts).
+      const failGate = await rpcConsumeEdgeRateLimit(
+        serviceKey,
+        supabaseUrl,
+        "coach-chat:auth-fail",
+        clientIpSubject(req, "anon"),
+        AUTH_FAIL_LIMIT,
+        AUTH_FAIL_WINDOW_SECONDS,
+      );
+      // Ein Limiter-Ausfall blockiert die 401 nicht (Daempfer, keine
+      // Auth-Grenze): die Antwort auf einen fehlgeschlagenen Login bleibt in
+      // jedem Fall eine Ablehnung, ein kaputter Zaehler macht daraus keinen
+      // 500 — anders als bei den Gates unten, die bezahlte Arbeit schuetzen.
+      if (!("error" in failGate) && !failGate.allowed) {
+        return json(
+          { error: "rate_limited", reply: "Zu viele fehlgeschlagene Anfragen. Bitte spaeter erneut versuchen." },
+          429,
+          { "Retry-After": String(retryAfterSeconds(failGate.resetAt, failGate.windowSeconds)) },
+        );
+      }
+    }
+    return json({ error: "Unauthorized" }, 401);
+  }
+  const userId = auth.userId;
   // userId stammt aus dem JWT (/auth/v1/user), wird aber unten roh in
   // PostgREST-Query-URLs interpoliert (loadHistory / ensureSession). Strikt
   // gegen das UUID-Muster pruefen — gleiche Defense wie bei session_id, bevor
@@ -797,6 +965,32 @@ export async function handleRequest(req: Request): Promise<Response> {
     .trim()
     .slice(0, 1200);
 
+  // Groessenverletzung ist ein PROTOKOLLFEHLER, keine Konversation
+  // (Security-Fix 2026-08-11, CWE-400): bis zu diesem Fix lief sie als
+  // Layer-1-Refusal ("too_long") durch den Refusal-Pfad unten, der die VOLLE
+  // Nachricht via service_role in chat_messages persistierte — bis knapp
+  // unter die 6,25-MB-Request-Grenze. Spaetere Requests luden bis zu
+  // HISTORY_LIMIT solcher Rows und schickten sie komplett im
+  // OpenRouter-Request mit (Amplifikation von Storage, Memory, Traffic und
+  // Provider-Kosten). Deshalb: VOR Session-Erzeugung und VOR jeder
+  // Persistenz mit 413 ablehnen — kein storeMessage, kein Quota-Claim, kein
+  // LLM-Call. Die uebrigen (inhaltlichen) Prefilter-Gruende behalten unten
+  // ihr Verhalten (Refusal wird gespeichert, 200). Der Client mappt 413 mit
+  // reply-Feld auf genau diesen Text (coach_chat_service.dart,
+  // _failureForStatus -> _serverReply). Byte-Check zusaetzlich zum
+  // Zeichen-Check: Multi-Byte-Zeichen machen 1000 Zeichen >> 1000 Bytes.
+  if (
+    message.length > MAX_INPUT_CHARS ||
+    new TextEncoder().encode(message).byteLength > MAX_INPUT_BYTES
+  ) {
+    return json({
+      error: "message_too_long",
+      reply: refusalForReason("too_long"),
+      refusal: true,
+      refusal_reason: "too_long",
+    }, 413);
+  }
+
   // Session sicherstellen (vor Pre-Filter, damit auch Refusals der richtigen
   // Konversation zugeordnet werden).
   const sessionId = await ensureSession(serviceKey, supabaseUrl, userId, requestedSessionId);
@@ -835,49 +1029,6 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ reply, refusal: true, refusal_reason: pre.reason, session_id: sessionId }, 200);
   }
 
-  // ---------------------------------------------------------------- LAYER 2
-  // Klassifizierer-Call vor dem Quota-Claim. Self-Harm/Eating-Disorder/
-  // Off-Topic/Medical-Risk/Injection refusen wir hier OHNE Quota-Abzug -
-  // der User soll keinen Slot verlieren wenn er eine harmlose Frage stellt
-  // die zufaellig nicht unter Fitness/Ernaehrung faellt. Der LLM-Call selber
-  // ist mit max 50 Tokens billig genug, dass wir den Missbrauch dafuer in
-  // Kauf nehmen (L1 catched die ueblichen Hijack-Versuche eh schon ohne
-  // Call). Layer 2 ist der eigentliche Schutz: der bewusst lasche Layer 1
-  // laesst mehrdeutige Formulierungen ("cutting", "fasten", "ritzen" ohne
-  // Selbstbezug) absichtlich bis hierher durch.
-  //
-  // ACHTUNG - hier stand bis 2026-08-07 `if (!hasImage)`. Das war eine
-  // Regression (eingeschleppt in 5f645c8, als es self_harm/eating_disorder
-  // noch gar nicht gab, und in d860968 uebersehen): "irgendein Bild + Text"
-  // hat Layer 2 komplett uebersprungen und damit genau die beiden Kategorien
-  // ausgehebelt, an denen die Krisen-Antwort mit der Telefonseelsorge-Nummer
-  // haengt. Der Call kostet im Bildpfad exakt dasselbe wie im Textpfad, weil
-  // classify() nur den Text schickt (kein Bild, keine Vision-Tokens).
-  //
-  // Neue Bedingung ist der Text, nicht das Bild: ein Bild ohne Begleittext
-  // hat nichts zu klassifizieren und wuerde im fail-closed off_topic-Default
-  // landen -> jeder legitime Bild-Upload waere abgelehnt. Im Textpfad ist die
-  // Bedingung immer wahr (Layer 1 lehnt leer-ohne-Bild schon als "empty" ab),
-  // der Textpfad bleibt also unveraendert. Details: guardrails.ts.
-  if (shouldRunClassifier(message)) {
-    const activeRefusalCategories = refusalCategoriesFor(hasImage);
-    const cls = await classify(openRouterKey, message);
-    if (activeRefusalCategories.has(cls.category)) {
-      const reply = refusalForReason(cls.category);
-      await storeMessage(serviceKey, supabaseUrl, {
-        user_id: userId, session_id: sessionId, role: "user", content: message,
-        refusal: false,
-      });
-      await storeMessage(serviceKey, supabaseUrl, {
-        user_id: userId, session_id: sessionId, role: "assistant", content: reply,
-        refusal: true, refusal_reason: `classifier_${cls.category}`,
-      });
-      await touchSession(serviceKey, supabaseUrl, sessionId);
-      return json({ reply, refusal: true, refusal_reason: cls.category, session_id: sessionId }, 200);
-    }
-  }
-
-  // ---------------------------------------------------------------- LAYER 3
   // History VOR dem Quota-Claim laden (Sentinel-Rest E3): ist sie nicht
   // ladbar, bricht der Request hier ab, BEVOR ein Tages-Slot verbrannt oder
   // etwas halb persistiert ist — statt kommentarlos ohne Kontext zu
@@ -892,8 +1043,14 @@ export async function handleRequest(req: Request): Promise<Response> {
     history.pop();
   }
 
-  // Erst jetzt wird die Quota reserviert - on-topic Frage, wir machen den
-  // teuren Antwort-Call.
+  // Quota-Claim VOR Layer 2 (Security-Fix 2026-08-11, CWE-770): der
+  // Klassifizierer ist ein bezahlter Provider-Call. Bis zum Fix lief er vor
+  // dem Claim, und Refusals returnten ohne Quota-Verbrauch — ein User mit
+  // erschoepfter Tagesquota konnte so ueber das Stunden-Gate
+  // (REQUEST_USER_LIMIT/h) bis zu 1440 bezahlte Classifier-Calls pro Tag
+  // ausloesen statt DAILY_LIMIT Coach-Operationen. Deshalb: erst den Slot
+  // reservieren, dann der erste bezahlte Call. Bei quota_exceeded kommt der
+  // 429, bevor irgendein Provider-Call passiert.
   const claim = await rpcClaimQuota(serviceKey, supabaseUrl, userId);
   if ("error" in claim) {
     if (claim.error === "quota_exceeded") {
@@ -906,6 +1063,75 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
     return json({ error: claim.error }, 500);
   }
+
+  // ---------------------------------------------------------------- LAYER 2
+  // Refusal-Kategorien kosten den gerade geclaimten Slot BEWUSST: wuerde er
+  // refundet, waere der Quota-Bypass von oben nur verschoben (Refusal
+  // provozieren -> Refund -> naechster Gratis-Classifier-Call, wieder bis zu
+  // 1440/Tag). Refund gibt es nur bei Infrastruktur-Fehlern (catch unten),
+  // bei denen der User keinerlei Leistung bekommen hat — dieselbe Semantik
+  // wie beim Answer-Call. Der Refusal-Response nennt remaining, damit der
+  // Client-Zaehler den Verbrauch mitbekommt. Layer 2 bleibt der eigentliche
+  // Schutz: der bewusst lasche Layer 1 laesst mehrdeutige Formulierungen
+  // ("cutting", "fasten", "ritzen" ohne Selbstbezug) absichtlich bis
+  // hierher durch.
+  //
+  // ACHTUNG - hier stand bis 2026-08-07 `if (!hasImage)`. Das war eine
+  // Regression (eingeschleppt in 5f645c8, als es self_harm/eating_disorder
+  // noch gar nicht gab, und in d860968 uebersehen): "irgendein Bild + Text"
+  // hat Layer 2 komplett uebersprungen und damit genau die beiden Kategorien
+  // ausgehebelt, an denen die Krisen-Antwort mit der Telefonseelsorge-Nummer
+  // haengt. Der Call kostet im Bildpfad exakt dasselbe wie im Textpfad, weil
+  // classify() nur den Text schickt (kein Bild, keine Vision-Tokens).
+  //
+  // Bedingung ist der Text, nicht das Bild: ein Bild ohne Begleittext
+  // hat nichts zu klassifizieren und wuerde im fail-closed off_topic-Default
+  // landen -> jeder legitime Bild-Upload waere abgelehnt. Im Textpfad ist die
+  // Bedingung immer wahr (Layer 1 lehnt leer-ohne-Bild schon als "empty" ab),
+  // der Textpfad bleibt also unveraendert. Details: guardrails.ts.
+  if (shouldRunClassifier(message)) {
+    const activeRefusalCategories = refusalCategoriesFor(hasImage);
+    let cls: ClassifierResult;
+    try {
+      cls = await classify(openRouterKey, message);
+    } catch (e) {
+      // Infrastruktur-Fehler (Netz/HTTP/Deadline): keinerlei Leistung
+      // erbracht -> Slot zurueck und ehrlicher Fehlerstatus, gleiches Muster
+      // wie der Answer-Pfad (Sentinel-Rest E2 + refund_chat_quota). Es ist
+      // noch nichts persistiert, also gibt es auch nichts zu touchen. Der
+      // Timeout (Finding 6) faellt bewusst in DENSELBEN catch — genau ein
+      // Refund, nur der Statuscode unterscheidet 504/502 (analyze-meal-Paar).
+      console.error(`classify failed: ${e instanceof Error ? e.message : String(e)}`);
+      await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+      if (isProviderTimeout(e)) {
+        return json({ error: "provider_timeout", session_id: sessionId }, 504);
+      }
+      return json({ error: "provider_error", session_id: sessionId }, 502);
+    }
+    if (activeRefusalCategories.has(cls.category)) {
+      const reply = refusalForReason(cls.category);
+      await storeMessage(serviceKey, supabaseUrl, {
+        user_id: userId, session_id: sessionId, role: "user", content: message,
+        refusal: false,
+      });
+      await storeMessage(serviceKey, supabaseUrl, {
+        user_id: userId, session_id: sessionId, role: "assistant", content: reply,
+        refusal: true, refusal_reason: `classifier_${cls.category}`,
+      });
+      await touchSession(serviceKey, supabaseUrl, sessionId);
+      return json({
+        reply,
+        refusal: true,
+        refusal_reason: cls.category,
+        session_id: sessionId,
+        // E1: unbekanntes remaining wird weggelassen, nie erfunden.
+        ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
+        daily_limit: DAILY_LIMIT,
+      }, 200);
+    }
+  }
+
+  // ---------------------------------------------------------------- LAYER 3
 
   // User-Message in die Historie schreiben (zaehlt zur Konversation).
   // Sentinel-Rest E5: der Store wird geprueft — scheitert er, gibt es keinen
@@ -942,13 +1168,18 @@ export async function handleRequest(req: Request): Promise<Response> {
     // mit refusal_reason "model_refusal" und HTTP 200 zurueckgegeben. Der
     // Client konnte das nicht von einer echten Refusal unterscheiden, und
     // die Fake-Zeile vergiftete als History den Kontext aller Folgefragen.
-    // Ehrlich: 502, keine erfundene Zeile. Die (echte) User-Message bleibt
+    // Ehrlich: 5xx, keine erfundene Zeile. Die (echte) User-Message bleibt
     // gespeichert, und der geclaimte Slot geht zurueck (refund_chat_quota,
     // Migration 20260808210000) — ein Abend mit Provider-Ausfall darf nicht
-    // alle Tages-Slots verbrennen.
+    // alle Tages-Slots verbrennen. Der Timeout (Finding 6) faellt bewusst in
+    // DENSELBEN catch — genau ein Refund, nur der Statuscode unterscheidet
+    // 504/502 (analyze-meal-Paar).
     console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
     await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     await touchSession(serviceKey, supabaseUrl, sessionId);
+    if (isProviderTimeout(e)) {
+      return json({ error: "provider_timeout", session_id: sessionId }, 504);
+    }
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
 
