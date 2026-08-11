@@ -140,6 +140,27 @@ void main() {
     expect(find.text('Gewicht stabil'), findsNothing);
   });
 
+  testWidgets(
+      'rendert unter EN mit Dezimalrate im Punkt- statt Komma-Format '
+      '(i18n-Nachzieh-Regression)', (tester) async {
+    // Folge-Fund zur EN-Textluecke oben: auch NACH der Textmigration blieb
+    // die ZAHL selbst (`_formatRateKg`) hartkodiert deutsch formatiert — ein
+    // englisches "−0.5 kg/week" mit deutschem Komma ("−0,5") ist dieselbe
+    // Leck-Klasse, nur eine Ebene tiefer. `WeightGoal.lose05kg` hat ein
+    // glattes Wunsch-Tempo von exakt 0,5 kg/Woche (kcalDelta -550 × 7 / 7700),
+    // das macht den Dezimalpunkt in der Zusicherung eindeutig pruefbar.
+    await pumpOhneOverflow(
+      tester,
+      'en Dezimalrate',
+      brightness: Brightness.light,
+      locale: const Locale('en'),
+      profile: const UserProfile(weightGoal: WeightGoal.lose05kg),
+    );
+
+    expect(find.text('−0.5 kg/week'), findsOneWidget);
+    expect(find.text('−0,5 kg/Woche'), findsNothing);
+  });
+
   testWidgets('rendert bei textScale 2.0 (hell)', (tester) async {
     await pumpOhneOverflow(
       tester,

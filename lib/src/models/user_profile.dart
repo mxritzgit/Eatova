@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+
 import '../l10n/l10n.dart';
 
 enum BiologicalSex { male, female, neutral }
@@ -195,32 +197,35 @@ extension WeightGoalInfo on WeightGoal {
 /// damit kein "NaN kg/Woche" in ein Widget gelangt.
 ///
 /// [l10n] ist optional (Default Deutsch, [deL10n]) — dasselbe Muster wie
-/// Paket 6s `sync_error_messages.dart`. Die Zahl selbst ([_formatRateKg])
-/// bleibt bewusst deutsch-kommaformatiert unabhängig von [l10n]: dieselbe
-/// dokumentierte Ripple-Uebergabe wie `target_bmi_hint.dart`s
-/// `targetBmiHintText` vor Paket 7 — eine `intl`-Anbindung der Rate ist NICHT
-/// Teil dieses Pakets (s. Paket-7-Bericht).
+/// Paket 6s `sync_error_messages.dart`. Seit dem Nachzieh-Fix (Paket 7,
+/// 2026-08-11) folgt auch die Zahl selbst ([_formatRateKg]) der Sprache:
+/// ein englisches "−0.5 kg/week" mit deutschem Komma ("−0,5") war dieselbe
+/// Leck-Klasse wie der Text drumherum, nur eine Ebene tiefer.
 String paceLabelForWeeklyRateKg(double signedRateKg, [AppLocalizations? l10n]) {
   final t = l10n ?? deL10n;
   if (!signedRateKg.isFinite || signedRateKg.abs() < weeklyRateNoiseKg) {
     return t.commonPaceStable;
   }
   final sign = signedRateKg > 0 ? '+' : '−';
-  return t.commonPaceRateLabel('$sign${_formatRateKg(signedRateKg.abs())}');
+  return t.commonPaceRateLabel(
+    '$sign${_formatRateKg(signedRateKg.abs(), t.localeName)}',
+  );
 }
 
-/// Formatiert eine kg-Rate deutsch auf höchstens zwei Nachkommastellen:
-/// 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.7245 → "0,72".
+/// Formatiert eine kg-Rate auf höchstens zwei Nachkommastellen, locale-bewusst:
+/// unter `de` 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.7245 → "0,72"; unter
+/// `en` dieselben Werte mit Punkt statt Komma ("0.5" usw.) — byte-identisch
+/// zum Bestand unter `de`.
 ///
 /// Erwartet einen vorzeichenlosen Wert; das Vorzeichen setzt der Aufrufer.
-/// Erst runden, dann formatieren: `1.0009.toStringAsFixed(2)` ergibt "1.00",
-/// und das alte Abschneiden der Nullen hätte daraus "1," gemacht.
-String _formatRateKg(double kg) {
+/// Erst runden, dann formatieren: [NumberFormat]s eigene Rundung auf der
+/// UNGERUNDETEN Rate könnte an der zweiten Nachkommastelle anders runden als
+/// das explizite `(kg * 100).round() / 100` — deshalb bleibt der Rundungs-
+/// schritt in eigener Hand, [NumberFormat] übernimmt nur noch die Anzeige
+/// (Trennzeichen, Nachkommastellen kappen) des bereits gerundeten Werts.
+String _formatRateKg(double kg, String localeName) {
   final gerundet = (kg.abs() * 100).round() / 100;
-  if (gerundet == gerundet.roundToDouble()) return gerundet.toStringAsFixed(0);
-  var text = gerundet.toStringAsFixed(2);
-  if (text.endsWith('0')) text = text.substring(0, text.length - 1);
-  return text.replaceAll('.', ',');
+  return NumberFormat('0.##', localeName).format(gerundet);
 }
 
 class UserProfile {
