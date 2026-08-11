@@ -7,7 +7,10 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/auth/welcome_screen.dart';
 
-// Widget-Tests fuer den Boot-/Willkommens-Screen.
+// Widget-Tests fuer den Boot-/Willkommens-Screen („Fokus finden": der
+// Fokusring der Marke laedt sichtbar und rastet dann in die Wortmarke ein;
+// der Schriftzug ist GEMALT, deshalb suchen die Tests den Marken-Block ueber
+// den Key `boot-mark`, nicht ueber find.text).
 //
 // Der Screen ist ein bewusster Sonderfall der Design-Refactor-Regeln: er ist
 // ein MARKEN-MOMENT und traegt in beiden Anzeige-Modi die Forest-Flaeche mit
@@ -15,9 +18,9 @@ import 'package:eatova/src/widgets/auth/welcome_screen.dart';
 // Marken-Flaeche" nagelt genau das fest — sonst zieht jemand den Screen
 // spaeter „konsistenzhalber" auf t.bg und der Auftritt zerfaellt.
 //
-// ACHTUNG: Der Lade-Komet laeuft als Dauer-Loop (`_loopController.repeat()`).
-// `pumpAndSettle` kehrt hier NIE zurueck. Alle Tests pumpen deshalb in festen
-// Schritten ueber [_tick].
+// ACHTUNG: Der Fokus-Suchlauf laeuft als Dauer-Loop
+// (`_loopController.repeat()`). `pumpAndSettle` kehrt hier NIE zurueck. Alle
+// Tests pumpen deshalb in festen Schritten ueber [_tick].
 
 /// iPhone 14 (393x852 logisch). Der Default-Testviewport (800x600) ist breiter
 /// und hoeher als jedes Telefon und wuerde Ueberlauf verstecken.
@@ -92,7 +95,8 @@ void main() {
         findsOneWidget,
         reason: '$brightness: Screen fehlt',
       );
-      expect(find.text('Eatova'), findsOneWidget, reason: '$brightness');
+      expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget,
+          reason: '$brightness: Marken-Block fehlt');
       expect(tester.takeException(), isNull, reason: '$brightness');
     }
   });
@@ -141,16 +145,18 @@ void main() {
     );
     await _tick(tester, const Duration(milliseconds: 1100));
 
-    expect(find.text('Eatova'), findsOneWidget);
+    expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget);
     expect(find.text('Willkommen, Mira.'), findsNothing);
 
     ready.complete();
     await tester.pump(); // .then feuert
-    await _tick(tester, const Duration(milliseconds: 900)); // Morph + Switcher
+    await _tick(tester, const Duration(milliseconds: 900)); // Einrasten + Switcher
 
     expect(find.text('Willkommen, Mira.'), findsOneWidget);
     expect(find.text('Du bist drin.'), findsOneWidget);
-    expect(find.text('Eatova'), findsNothing);
+    expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget,
+        reason: 'die eingerastete Marke bleibt stehen — der Willkommens-Text '
+            'erscheint darunter, er ersetzt sie nicht');
 
     // Halte-Pause + Exit leerpumpen, sonst haengt ein Timer im Teardown.
     await _tick(tester, const Duration(milliseconds: 2000));
@@ -198,7 +204,7 @@ void main() {
     ready.complete();
     await tester.pump();
     await _tick(tester, const Duration(milliseconds: 1000));
-    expect(fertig, 0, reason: 'Check-Morph + Halte-Pause laufen noch');
+    expect(fertig, 0, reason: 'Einrasten + Halte-Pause laufen noch');
 
     await _tick(tester, const Duration(milliseconds: 1500));
     expect(fertig, 1);
