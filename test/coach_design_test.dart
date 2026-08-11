@@ -246,23 +246,6 @@ void main() {
     expect(tester.widget<Text>(find.text('Meine Antwort')).style?.color, t.ink);
   });
 
-  testWidgets('Vorschlag fuellt nur das Feld und sendet nicht', (tester) async {
-    final svc = _FakeCoach.create();
-    await _pumpCoach(tester, service: svc);
-
-    const vorschlag = 'Was soll ich heute noch essen?';
-    await tester.tap(find.byKey(const ValueKey('coach-suggestion-0')));
-    await tester.pumpAndSettle();
-
-    final field = tester.widget<TextField>(
-      find.byKey(const ValueKey('coach-input')),
-    );
-    expect(field.controller?.text, vorschlag);
-    expect(svc.sendCalls, 0,
-        reason: 'die Quota ist knapp — der Nutzer behaelt die Kontrolle vor '
-            'dem Abschicken');
-  });
-
   testWidgets('Composer-Feld traegt keine Theme-Fuellung und keinen Rahmen',
       (tester) async {
     await _pumpCoach(tester, service: _FakeCoach.create());
@@ -281,15 +264,13 @@ void main() {
     expect(deco.disabledBorder, InputBorder.none);
   });
 
-  testWidgets('Verlauf nicht ladbar zeigt weder Hero noch Vorschlaege',
-      (tester) async {
+  testWidgets('Verlauf nicht ladbar zeigt keinen Hero', (tester) async {
     final svc = _FakeCoach.create()..historyFails = true;
     await _pumpCoach(tester, service: svc);
 
-    expect(find.byKey(const ValueKey('coach-empty')), findsNothing);
-    expect(find.byKey(const ValueKey('coach-suggestion-0')), findsNothing,
-        reason: '„Frag doch mal…" ueber einem Banner, das sagt, der Verlauf '
-            'sei nicht ladbar, waere ein Widerspruch');
+    expect(find.byKey(const ValueKey('coach-empty')), findsNothing,
+        reason: 'der Leerzustand behauptet „noch keine Unterhaltung", '
+            'waehrend der Verlauf existiert — stattdessen Fehler-Banner');
     expect(find.textContaining('Verlauf konnte nicht geladen'), findsOneWidget);
   });
 

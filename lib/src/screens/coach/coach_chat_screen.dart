@@ -732,16 +732,6 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     }
   }
 
-  /// Ein Vorschlag-Chip legt den Text nur ins Feld (statt direkt zu senden) —
-  /// die Quota ist knapp, der User behaelt die Kontrolle vor dem Abschicken.
-  void _applySuggestion(String text) {
-    if (!_canType) return;
-    HapticFeedback.selectionClick();
-    _input.text = text;
-    _input.selection = TextSelection.collapsed(offset: text.length);
-    _inputFocus.requestFocus();
-  }
-
   void _openAttachSheet() {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
@@ -863,7 +853,6 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                     ? _CoachHero(
                         name: widget.userName,
                         onDisclosureTap: _openCoachInfoSheet,
-                        onSuggestion: _applySuggestion,
                       )
                     : _Conversation(
                         controller: _scroll,
@@ -873,9 +862,6 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                       ),
           ),
         ),
-        // Die Vorschlaege haengen weiter an `isHero`, sitzen jetzt aber im
-        // Hero selbst (dort koennen sie scrollen) — Begruendung in
-        // coach_hero.dart.
         if (_error != null) _ErrorBanner(text: _error!),
         const SizedBox(height: 8),
         _Composer(
