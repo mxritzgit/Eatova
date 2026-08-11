@@ -245,11 +245,11 @@ class _MealResultCardState extends State<MealResultCard> {
               ),
               _InfoLine(
                 label: l10n.foodInfoConfidenceLabel,
-                value: result.confidence,
+                value: result.resolvedConfidence(l10n),
               ),
               const SizedBox(height: 12),
               Text(
-                result.portionNotes,
+                result.resolvedPortionNotes(l10n),
                 key: const ValueKey('analyse-portion-notes'),
                 style: AppType.ui(
                   13,

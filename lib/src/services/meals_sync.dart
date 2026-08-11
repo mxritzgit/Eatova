@@ -413,7 +413,7 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
     protein: j['protein']?.toString() ?? '-',
     carbs: j['carbs']?.toString() ?? '-',
     fat: j['fat']?.toString() ?? '-',
-    confidence: j['confidence']?.toString() ?? 'Mittel',
+    confidence: j['confidence']?.toString() ?? MealResultConfidence.medium.code,
     portionNotes: j['portionNotes']?.toString() ?? '',
     items: items,
     isAdjusted: (j['isAdjusted'] as bool?) ?? false,

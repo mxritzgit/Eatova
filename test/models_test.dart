@@ -147,7 +147,11 @@ void main() {
       expect(r.caloriesKcal, 200);
       expect(r.estimatedGrams, 50);
       expect(r.kcalPer100G, closeTo(400, 0.001)); // 200 * 100 / 50
-      expect(r.confidence, 'Hoch'); // high -> Hoch
+      // Review-Fixwelle (2026-08-11): confidence traegt jetzt den
+      // Modell-Rohcode statt der sofortigen deutschen Uebersetzung.
+      expect(r.confidence, 'high');
+      expect(r.resolvedConfidence(deL10n), 'Hoch');
+      expect(r.resolvedConfidence(enL10n), 'High');
       expect(r.protein, '8 g');
       // Scan/Coach-PR (2026-08-11): fromEdgeFunction schreibt jetzt den
       // sprachneutralen Code statt des deutschen Anzeigetexts — s.
@@ -175,8 +179,11 @@ void main() {
       expect(r.carbs, '-');
       expect(r.fat, '-');
       // Sentinel-Rest C: fehlende confidence ist keine Aussage des Modells —
-      // frueher wurde hier 'Mittel' erfunden.
-      expect(r.confidence, 'Unbekannt');
+      // frueher wurde hier 'Mittel' erfunden. Review-Fixwelle (2026-08-11):
+      // der Rohwert ist jetzt der neutrale Code, nicht mehr 'Unbekannt'.
+      expect(r.confidence, 'unknown');
+      expect(r.resolvedConfidence(deL10n), 'Unbekannt');
+      expect(r.resolvedConfidence(enL10n), 'Unknown');
     });
 
     test('Mehr-Komponenten-Name wird lokal aufgesplittet (>=2 Items)', () {
@@ -208,7 +215,10 @@ void main() {
       expect(r.caloriesKcal, 168); // (67 * 250 / 100).round() = 167.5 -> 168
       expect(r.protein, '30 g'); // 12/100g * 250g
       expect(r.fat, '0,5 g'); // 0.2/100g * 250g -> 0,5 (Komma)
-      expect(r.confidence, 'Datenbank');
+      // Review-Fixwelle (2026-08-11): neutraler Code statt 'Datenbank'.
+      expect(r.confidence, 'database');
+      expect(r.resolvedConfidence(deL10n), 'Datenbank');
+      expect(r.resolvedConfidence(enL10n), 'Database');
       expect(r.barcode, '40111');
     });
 

@@ -177,23 +177,41 @@ import 'package:flutter_test/flutter_test.dart';
 ///    Antwortsprache, die die Language Rule im Coach-System-Prompt regelt.
 ///    Die neue Sprach-Hinweiszeile oben aendert daran nichts.
 ///
-/// EINE dokumentierte, NICHT-permanente Luecke bleibt offen (kuenftige
-/// Runde, kein Blocker fuer dieses Paket): `lib/src/models/meal_analysis_result.dart`
-/// traegt jetzt `sourceLabel`/`portionLabel` sprachneutral (s.o.), aber die
-/// UEBRIGEN Textbausteine des Scan-Ergebnisses — `portionNotes` in
-/// `adjustedToGrams`/`adjustedToItems`/`fromEdgeFunction`/`fromOpenFoodFacts`
-/// sowie die `confidence`-Fallbacks ("Unbekannt"/"Hoch"/"Mittel"/"Niedrig")
-/// — sind weiterhin hartkodiertes Deutsch UND werden (anders als
-/// `sourceLabel`) tatsaechlich mit der Mahlzeit persistiert
-/// (`meals_sync.dart`: `portionNotes`). Eine saubere Loesung braucht
-/// dieselbe Rueckwaertskompatibilitaets-Sorgfalt wie der `sourceLabel`-Umbau
-/// (Alt-Zeilen tragen fertigen deutschen Freitext, kein Enum-Mapping moeglich
-/// ohne Text-Matching) — bewusst NICHT Teil dieses PRs (Scope: `sourceLabel`/
-/// `portionLabel`, s. PR-Beschreibung), deshalb bleibt die Datei komplett
-/// AUSSERHALB von [_migriertePfade] (die 10 verbleibenden Umlaut-Funde sind
-/// alle in diesen Textbausteinen; `MealResultSource.legacyDe` traegt
-/// zusaetzlich absichtlich das deutsche Bestandswort `'KI-Schätzung'` als
-/// Kompatibilitäts-DATEN, kein UI-Text).
+/// Review-Fixwelle (2026-08-11, direkt im Anschluss): das Review stufte den
+/// obigen Scope-Cut als zu breit sichtbar ein — `confidence` und die
+/// unconditional-deutsche Fallback-Boilerplate in `fromEdgeFunction` stehen
+/// auf DERSELBEN Analyse-Karte direkt neben `resolvedSourceLabel`, ein
+/// EN-Nutzer haette dort einen Sprachbruch gesehen. Nachgezogen im selben
+/// Muster:
+///  * `confidence` ist jetzt sprachneutral (`MealResultConfidence`-Enum +
+///    `resolvedConfidence`); `high`/`medium`/`low` sind dabei KEIN
+///    Uebersetzungs-Schritt mehr, sondern der Roh-Code vom Modell selbst
+///    bleibt der Persistenz-Wert. `FitnessRecipe.toMealResult()` schreibt
+///    `MealResultConfidence.recipe.code` statt `'Rezept'`.
+///  * Die drei hartkodierten `portionNotes`-Fallbacks in `fromEdgeFunction`
+///    (wenn das Modell kein `explanation` liefert) sind jetzt neutrale
+///    Marker + `resolvedPortionNotes` — Muster `FitnessRecipe._resolvePlaceholder`
+///    (Inhalte-PR): bekannter Alt-Text (deutsch) ODER neuer Marker wird zur
+///    Anzeigezeit durch die aktive Locale ersetzt.
+///  * Der Server-Prompt (`analyze-meal/index.ts`s `languageDirective`) deckt
+///    jetzt auch `explanation` ab, nicht mehr nur `mealName`/`items[].name` —
+///    neue en-Scans begruenden die Portion jetzt englisch. Bereits geloggte
+///    `explanation`-Freitexte (KI-Freitext, quasi Nutzerdaten) bleiben
+///    unangetastet, keine rueckwirkende Uebersetzung.
+///
+/// Trotzdem bleibt `lib/src/models/meal_analysis_result.dart` AUSSERHALB von
+/// [_migriertePfade] — die verbleibenden Umlaut-Funde sind jetzt AUSSCHLIESSLICH:
+///  * `MealResultSource.legacyDe`/`MealResultConfidence.legacyDe`/
+///    `MealResultPortionNote.legacyDe` — bewusste Kompatibilitaets-DATEN
+///    (deutsche Bestandswerte, die die `resolve()`-Methoden erkennen muessen),
+///    kein UI-Text.
+///  * Die `portionNotes`-Saetze in `adjustedToGrams`/`adjustedToItems` (zwei
+///    bzw. drei Formulierungen) sowie in `fromOpenFoodFacts`s `details`-Liste
+///    (`'Nährwerte kommen aus der Produktdatenbank…'`) — GENUIN weiterhin
+///    hartkodiertes Deutsch, nicht Teil dieser Fixwelle. Eine saubere Loesung
+///    braucht dieselbe Rueckwaertskompatibilitaets-Sorgfalt (Alt-Zeilen tragen
+///    fertigen deutschen Freitext, kein Enum-Mapping ohne Text-Matching) —
+///    dokumentierte, kuenftige Folge-Runde, kein Blocker fuer dieses Paket.
 const List<String> _migriertePfade = <String>[
   'lib/src/screens/today/',
   'lib/src/screens/meal_analysis_screen.dart',

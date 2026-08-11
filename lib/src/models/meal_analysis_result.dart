@@ -21,6 +21,22 @@ abstract final class _MealResultSourceCodes {
   static const String recipe = 'recipe';
 }
 
+/// Dieselbe Konstanten-Ausweichlösung wie [_MealResultSourceCodes], fuer
+/// [MealResultConfidence]. `high`/`medium`/`low` sind KEINE Uebersetzung —
+/// es sind die Roh-Codes, die das Modell selbst schon liefert
+/// (`analyze-meal`s Prompt-Schema: `"confidence": "high"|"medium"|"low"`);
+/// die bisherige `_formatConfidence` uebersetzte sie SOFORT beim Parsen nach
+/// Deutsch. Ab diesem PR bleibt der Modell-Wert unveraendert der
+/// Persistenz-Code, die Uebersetzung passiert nur noch bei der Anzeige.
+abstract final class _MealResultConfidenceCodes {
+  static const String high = 'high';
+  static const String medium = 'medium';
+  static const String low = 'low';
+  static const String unknown = 'unknown';
+  static const String database = 'database';
+  static const String recipe = 'recipe';
+}
+
 /// Sprachneutrale Herkunfts-Klassifizierung eines Scan-Ergebnisses
 /// (Scan/Coach-PR, 2026-08-11).
 ///
@@ -80,6 +96,123 @@ enum MealResultSource {
   }
 }
 
+/// Sprachneutrale Sicherheits-Klassifizierung eines Scan-Ergebnisses
+/// (Review-Fixwelle Scan/Coach-PR, 2026-08-11) — dasselbe Muster wie
+/// [MealResultSource], hier fuer [MealAnalysisResult.confidence].
+///
+/// [MealAnalysisResult.confidence] bleibt aus demselben Grund wie
+/// `sourceLabel` ein roher `String` (Bestandstests konstruieren Fixtures mit
+/// String-Literalen wie `confidence: 'Hoch'`). [resolve] ordnet den Rohwert
+/// zu: dem seit diesem PR geschriebenen [code] (fuer `high`/`medium`/`low`
+/// identisch mit dem, was das Modell selbst schon liefert — keine weitere
+/// Übersetzungsebene noetig), dem deutschen Bestandswert ([legacyDe]) oder —
+/// Verteidigungslinie — dem englischen Anzeigetext.
+enum MealResultConfidence {
+  high(_MealResultConfidenceCodes.high, legacyDe: 'Hoch'),
+  medium(_MealResultConfidenceCodes.medium, legacyDe: 'Mittel'),
+  low(_MealResultConfidenceCodes.low, legacyDe: 'Niedrig'),
+  unknown(_MealResultConfidenceCodes.unknown, legacyDe: 'Unbekannt'),
+  database(_MealResultConfidenceCodes.database, legacyDe: 'Datenbank'),
+  recipe(_MealResultConfidenceCodes.recipe, legacyDe: 'Rezept');
+
+  const MealResultConfidence(this.code, {required this.legacyDe});
+
+  /// Der ab diesem PR geschriebene, sprachneutrale Persistenz-Wert.
+  final String code;
+
+  /// Der deutsche Bestandswert, den JEDER Client vor diesem PR geschrieben
+  /// hat.
+  final String legacyDe;
+
+  /// Anzeigetext in der Sprache von [l10n].
+  String label(AppLocalizations l10n) => switch (this) {
+        MealResultConfidence.high => l10n.foodConfidenceHigh,
+        MealResultConfidence.medium => l10n.foodConfidenceMedium,
+        MealResultConfidence.low => l10n.foodConfidenceLow,
+        MealResultConfidence.unknown => l10n.foodConfidenceUnknown,
+        MealResultConfidence.database => l10n.foodConfidenceDatabase,
+        MealResultConfidence.recipe => l10n.foodConfidenceRecipe,
+      };
+
+  /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.confidence`)
+  /// einer bekannten Stufe zu, oder liefert `null` fuer alles Unbekannte
+  /// (Pass-through-Fall — z. B. eine Modell-Antwort ausserhalb des
+  /// vereinbarten `high`/`medium`/`low`-Schemas).
+  static MealResultConfidence? resolve(String raw) {
+    for (final value in values) {
+      if (value.code == raw || value.legacyDe == raw) return value;
+    }
+    for (final value in values) {
+      if (value.label(enL10n) == raw) return value;
+    }
+    return null;
+  }
+}
+
+/// Sprachneutrale Marker fuer die drei hartkodierten Fallback-Texte, die
+/// [MealAnalysisResult.fromEdgeFunction] in `portionNotes` schreibt, wenn das
+/// Modell kein eigenes `explanation` liefert (Review-Fixwelle Scan/Coach-PR,
+/// 2026-08-11).
+///
+/// **Bewusst NUR diese drei Formulierungen**, nicht `portionNotes` generell:
+/// das Feld traegt sonst entweder echten KI-Freitext (`json['explanation']`)
+/// oder von `adjustedToGrams`/`adjustedToItems` rechnerisch gebaute
+/// Anpassungs-Saetze (`'Manuell angepasst: …'` etc.) — beides bleibt bewusst
+/// hartkodiertes Deutsch (s. `MealAnalysisResult`-Klassendoku): KI-Freitext
+/// ist quasi Nutzerdaten (wie ein geloggter Mahlzeitname), keine
+/// UI-Vokabel, und die Anpassungs-Saetze sind eine dokumentierte, separate
+/// Restlücke (s. Waechter-Kommentar in `hartkodierung_waechter_test.dart`).
+/// Muster: `FitnessRecipe._resolvePlaceholder` (Inhalte-PR) — ein bekannter
+/// Alt-Text (deutsch) ODER der neue neutrale [code] wird durch die AKTIVE
+/// Locale ersetzt, alles andere bleibt unangetastet.
+enum MealResultPortionNote {
+  autoSplit(
+    'aiScanAutoSplitNote',
+    legacyDe: 'KI hat als Gesamtgericht erkannt — Bestandteile lokal '
+        'aufgesplittet. Gramm und Kalorien pro Posten prüfen.',
+  ),
+  itemized(
+    'aiScanItemizedNote',
+    legacyDe: 'KI-Schätzung aus dem Foto mit Einzelposten. Bitte '
+        'Bestandteile und Gramm prüfen.',
+  ),
+  plain(
+    'aiScanPlainNote',
+    legacyDe: 'KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt '
+        'vermessen; bitte Portion bestätigen oder Gewicht anpassen.',
+  );
+
+  const MealResultPortionNote(this.code, {required this.legacyDe});
+
+  /// Der ab diesem PR geschriebene, sprachneutrale Persistenz-Wert.
+  final String code;
+
+  /// Der deutsche Bestandswert, den JEDER Client vor diesem PR geschrieben
+  /// hat.
+  final String legacyDe;
+
+  /// Anzeigetext in der Sprache von [l10n].
+  String text(AppLocalizations l10n) => switch (this) {
+        MealResultPortionNote.autoSplit => l10n.foodScanNoteAutoSplit,
+        MealResultPortionNote.itemized => l10n.foodScanNoteItemized,
+        MealResultPortionNote.plain => l10n.foodScanNotePlain,
+      };
+
+  /// Ordnet einen ROHEN, persistierten Wert
+  /// (`MealAnalysisResult.portionNotes`) einem der drei bekannten Fallback-
+  /// Texte zu, oder liefert `null` fuer alles Unbekannte (KI-Freitext,
+  /// Anpassungs-Saetze, Nutzerdaten — Pass-through-Fall).
+  static MealResultPortionNote? resolve(String raw) {
+    for (final value in values) {
+      if (value.code == raw || value.legacyDe == raw) return value;
+    }
+    for (final value in values) {
+      if (value.text(enL10n) == raw) return value;
+    }
+    return null;
+  }
+}
+
 class MealAnalysisResult {
   const MealAnalysisResult({
     required this.mealName,
@@ -106,7 +239,19 @@ class MealAnalysisResult {
   final String protein;
   final String carbs;
   final String fat;
+
+  /// ROHER Sicherheits-Wert, wie er persistiert wird — s.
+  /// [MealResultConfidence] fuer die Kompatibilitaets- und Anzeigelogik.
+  /// Fuer die Anzeige immer [resolvedConfidence] verwenden.
   final String confidence;
+
+  /// ROHER Notiz-Text, wie er persistiert wird. Traegt entweder einen der
+  /// drei bekannten Fallback-Marker aus `fromEdgeFunction`
+  /// (s. [MealResultPortionNote], ueber [resolvedPortionNotes] aufloesbar),
+  /// echten KI-Freitext (`explanation`) oder von `adjustedToGrams`/
+  /// `adjustedToItems` gebaute Anpassungs-Saetze — beide Letzteren bleiben
+  /// bewusst hartkodiertes Deutsch (quasi Nutzerdaten bzw. dokumentierte
+  /// Restlücke, s. [MealResultPortionNote]-Klassendoku).
   final String portionNotes;
   final List<MealComponent> items;
   final bool isAdjusted;
@@ -149,6 +294,26 @@ class MealAnalysisResult {
   /// eine fehlende Anzeige-Sprache, die dieser Aufruf ergaenzt.
   String resolvedPortionLabel(AppLocalizations l10n) =>
       l10n.foodPortionEstimated(estimatedGrams);
+
+  /// Anzeige der Sicherheits-Stufe in der Sprache von [l10n]. Loest bekannte
+  /// Rohwerte (neutraler Code seit diesem PR ODER deutscher Bestandswert
+  /// davor) ueber [MealResultConfidence] auf; ein unbekannter Rohwert wird
+  /// UNVERAENDERT angezeigt (Pass-through).
+  String resolvedConfidence(AppLocalizations l10n) {
+    final level = MealResultConfidence.resolve(confidence);
+    return level == null ? confidence : level.label(l10n);
+  }
+
+  /// Anzeige der Anpassungs-/Scan-Notiz in der Sprache von [l10n]. Loest NUR
+  /// die drei bekannten Fallback-Marker aus `fromEdgeFunction` auf (s.
+  /// [MealResultPortionNote]); echter KI-Freitext und die rechnerischen
+  /// Anpassungs-Texte aus `adjustedToGrams`/`adjustedToItems` sind kein
+  /// UI-Vokabular und bleiben unveraendert (Pass-through) — dieselbe Klammer
+  /// wie [resolvedSourceLabel].
+  String resolvedPortionNotes(AppLocalizations l10n) {
+    final note = MealResultPortionNote.resolve(portionNotes);
+    return note == null ? portionNotes : note.text(l10n);
+  }
 
   /// Bewusst **nicht** ueber [effectiveKcalPer100G]: `0 kcal / 100 g` ist bei
   /// Open Food Facts eine gueltige Angabe (Wasser, Tee), waehrend dieselbe 0
@@ -404,14 +569,14 @@ class MealAnalysisResult {
       carbs: _macroTextFromRaw(carbs),
       fat: _macroTextFromRaw(fat),
       confidence: confidence == null || confidence.isEmpty
-          ? 'Unbekannt'
-          : _formatConfidence(confidence),
+          ? _MealResultConfidenceCodes.unknown
+          : _confidenceCodeFromModel(confidence),
       portionNotes: json['explanation']?.toString() ??
           (autoSplit
-              ? 'KI hat als Gesamtgericht erkannt — Bestandteile lokal aufgesplittet. Gramm und Kalorien pro Posten prüfen.'
+              ? MealResultPortionNote.autoSplit.code
               : normalizedItems.isNotEmpty
-                  ? 'KI-Schätzung aus dem Foto mit Einzelposten. Bitte Bestandteile und Gramm prüfen.'
-                  : 'KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt vermessen; bitte Portion bestätigen oder Gewicht anpassen.'),
+                  ? MealResultPortionNote.itemized.code
+                  : MealResultPortionNote.plain.code),
       items: normalizedItems,
       sourceLabel: MealResultSource.photoAi.code,
     );
@@ -457,7 +622,7 @@ class MealAnalysisResult {
       protein: _macroForGrams(protein100, servingGrams),
       carbs: _macroForGrams(carbs100, servingGrams),
       fat: _macroForGrams(fat100, servingGrams),
-      confidence: 'Datenbank',
+      confidence: _MealResultConfidenceCodes.database,
       portionNotes: details,
       sourceLabel: MealResultSource.openFoodFacts.code,
       barcode: barcode,
@@ -856,14 +1021,19 @@ class MealAnalysisResult {
     return value.replaceFirst(match.group(1)!, formatted.replaceAll('.', ','));
   }
 
-  static String _formatConfidence(String value) {
+  /// Normalisiert eine rohe Modell-Angabe (`'high'`/`'HIGH'`/`'High'` etc.,
+  /// das Modell ist hier nicht strikt) auf den neutralen Persistenz-Code —
+  /// ersetzt das fruehere `_formatConfidence`, das SOFORT nach Deutsch
+  /// uebersetzte. Ein unbekannter Wert bleibt unveraendert (Pass-through,
+  /// identisch zum bisherigen `default: return value`-Zweig).
+  static String _confidenceCodeFromModel(String value) {
     switch (value.toLowerCase()) {
       case 'high':
-        return 'Hoch';
+        return _MealResultConfidenceCodes.high;
       case 'medium':
-        return 'Mittel';
+        return _MealResultConfidenceCodes.medium;
       case 'low':
-        return 'Niedrig';
+        return _MealResultConfidenceCodes.low;
       default:
         return value;
     }

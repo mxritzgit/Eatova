@@ -1191,6 +1191,15 @@
       "productName": { "type": "String" }
     }
   },
+  "foodConfidenceHigh": "High",
+  "foodConfidenceMedium": "Medium",
+  "foodConfidenceLow": "Low",
+  "foodConfidenceUnknown": "Unknown",
+  "foodConfidenceDatabase": "Database",
+  "foodConfidenceRecipe": "Recipe",
+  "foodScanNoteAutoSplit": "AI recognized this as a combined dish — split into items locally. Please check grams and calories per item.",
+  "foodScanNoteItemized": "AI estimate from the photo with individual items. Please check items and grams.",
+  "foodScanNotePlain": "AI estimate from the photo. The size wasn't measured exactly; please confirm the portion or adjust the weight.",
 
   "notifChannelName": "Eatova reminders",
   "notifChannelDescription": "Daily streak reminder in the evening.",

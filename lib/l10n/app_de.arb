@@ -1191,6 +1191,15 @@
       "productName": { "type": "String" }
     }
   },
+  "foodConfidenceHigh": "Hoch",
+  "foodConfidenceMedium": "Mittel",
+  "foodConfidenceLow": "Niedrig",
+  "foodConfidenceUnknown": "Unbekannt",
+  "foodConfidenceDatabase": "Datenbank",
+  "foodConfidenceRecipe": "Rezept",
+  "foodScanNoteAutoSplit": "KI hat als Gesamtgericht erkannt — Bestandteile lokal aufgesplittet. Gramm und Kalorien pro Posten prüfen.",
+  "foodScanNoteItemized": "KI-Schätzung aus dem Foto mit Einzelposten. Bitte Bestandteile und Gramm prüfen.",
+  "foodScanNotePlain": "KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt vermessen; bitte Portion bestätigen oder Gewicht anpassen.",
 
   "notifChannelName": "Eatova Erinnerungen",
   "notifChannelDescription": "Tägliche Streak-Erinnerung am Abend.",

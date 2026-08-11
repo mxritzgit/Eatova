@@ -428,16 +428,21 @@ function sanitizeHint(raw: unknown): string | undefined {
   return collapsed.slice(0, MAX_HINT_CHARS);
 }
 
-// Sprachregel fuer "mealName" und "items[].name" — ersetzt das frühere,
-// hartkodierte "deutsch wenn möglich" in BASE_PROMPT (Scan/Coach-PR,
-// i18n-design.md §5). Der Rest des Prompts (Portionshinweise, Referenzwerte)
-// bleibt deutsch: das ist Systemtext, den das Modell unabhängig von der
-// Ausgabesprache versteht — dieselbe Trennung wie beim Coach-System-Prompt
-// ("Language Rule" steuert nur die ANTWORT, nicht die Prompt-Sprache selbst).
+// Sprachregel fuer "mealName", "items[].name" UND "explanation" — ersetzt
+// das fruehere, hartkodierte "deutsch wenn moeglich" in BASE_PROMPT
+// (Scan/Coach-PR, i18n-design.md §5; Review-Fixwelle 2026-08-11: die Regel
+// deckte urspruenglich nur die Namen ab, "explanation" begruendete die
+// Groesse aber weiterhin unconditional deutsch). Der Rest des Prompts
+// (Portionshinweise, Referenzwerte) bleibt deutsch: das ist Systemtext, den
+// das Modell unabhaengig von der Ausgabesprache versteht — dieselbe Trennung
+// wie beim Coach-System-Prompt ("Language Rule" steuert nur die ANTWORT,
+// nicht die Prompt-Sprache selbst). Alte, bereits geloggte "explanation"-
+// Freitexte bleiben unangetastet (KI-Freitext ist quasi Nutzerdaten, keine
+// rueckwirkende Uebersetzung — s. Client-seitige MealResultPortionNote-Doku).
 function languageDirective(language: Language): string {
   return language === 'en'
-    ? 'Sprachregel: "mealName" und alle "items[].name" auf ENGLISCH formulieren, z. B. "steak", "potatoes" statt "Steak", "Kartoffeln".'
-    : 'Sprachregel: "mealName" und alle "items[].name" auf DEUTSCH formulieren, z. B. "Steak", "Kartoffeln" (Standard).';
+    ? 'Sprachregel: "mealName", alle "items[].name" UND "explanation" auf ENGLISCH formulieren, z. B. "steak", "potatoes" statt "Steak", "Kartoffeln".'
+    : 'Sprachregel: "mealName", alle "items[].name" UND "explanation" auf DEUTSCH formulieren, z. B. "Steak", "Kartoffeln" (Standard).';
 }
 
 function buildPrompt(portionHint: string, freeTextHint: string | undefined, language: Language): string {

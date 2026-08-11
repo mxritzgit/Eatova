@@ -296,7 +296,7 @@ class FitnessRecipe {
       protein: '$proteinG g',
       carbs: '$carbsG g',
       fat: '$fatG g',
-      confidence: 'Rezept',
+      confidence: MealResultConfidence.recipe.code,
       portionNotes: '${displayPortion(sprache)} · '
           '${displayDescription(sprache)} '
           '${displayProfessionalHint(sprache)}',
