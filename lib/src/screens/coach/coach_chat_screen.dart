@@ -16,6 +16,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/chat_message.dart';
@@ -698,8 +700,14 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       _error = null;
     });
     try {
-      final spokenText =
-          await widget.speechInput.listen(localeId: 'de_DE', l10n: l10n);
+      // Diktat-Locale folgt der App-Sprache statt hart 'de_DE' (Scan/Coach-PR,
+      // 2026-08-11): 'en' -> 'en_US', jede andere/unbekannte Sprache bleibt
+      // 'de_DE' — derselbe Fallback wie ueberall sonst in dieser Runde.
+      final speechLocaleId = l10n.localeName == 'en' ? 'en_US' : 'de_DE';
+      final spokenText = await widget.speechInput.listen(
+        localeId: speechLocaleId,
+        l10n: l10n,
+      );
       if (!mounted) return;
       setState(() => _listening = false);
       final text = spokenText?.trim() ?? '';

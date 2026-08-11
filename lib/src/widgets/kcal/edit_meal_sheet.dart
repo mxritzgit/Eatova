@@ -593,7 +593,9 @@ class _SummaryCard extends StatelessWidget {
             ),
           ),
           Text(
-            adjusted ? context.l10n.foodAdjustedLabel : result.sourceLabel,
+            adjusted
+                ? context.l10n.foodAdjustedLabel
+                : result.resolvedSourceLabel(context.l10n),
             style: AppType.ui(
               11,
               weight: FontWeight.w600,

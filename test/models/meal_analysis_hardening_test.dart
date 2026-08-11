@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 
@@ -253,7 +254,9 @@ void main() {
         'estimatedGrams': 150,
         'kcalPer100G': 63,
       });
-      expect(r.confidence, 'Unbekannt');
+      // Review-Fixwelle (2026-08-11): neutraler Code statt 'Unbekannt'.
+      expect(r.confidence, 'unknown');
+      expect(r.resolvedConfidence(deL10n), 'Unbekannt');
     });
 
     test('DB-Grenzen werden geklemmt statt eine 23514 zu provozieren', () {

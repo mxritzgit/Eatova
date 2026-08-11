@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../l10n/l10n.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart';
 import 'eatova_http.dart';
@@ -479,12 +480,19 @@ class ProductWithoutNutritionException implements Exception {
   /// `true`, wenn ein Wert dastand, er aber unmoeglich ist (kJ im kcal-Feld).
   bool get isImplausible => kcalPer100G > 0;
 
-  /// Fertige Meldung fuer die Oberflaeche.
-  String get userMessage => isImplausible
-      ? '$productName gefunden, aber die Nährwertangabe ist unplausibel '
-            '(${kcalPer100G.round()} kcal / 100 g). Bitte manuell eintragen.'
-      : '$productName gefunden, aber ohne Nährwertangaben. '
-            'Bitte manuell eintragen.';
+  /// Fertige Meldung fuer die Oberflaeche, in der Sprache von [l10n].
+  /// [l10n] optional, Default Deutsch ([deL10n]) — dasselbe Muster wie
+  /// `sync_error_messages.dart`: `test/services/open_food_facts_wire_test.dart`
+  /// ruft [userMessage] weiterhin kontextfrei und bleibt damit unveraendert
+  /// gruen; der einzige echte Aufrufer (`mealAnalysisErrorMessage` in
+  /// `meal_analysis_sheet.dart`) hat `context.l10n` bereits aufgeloest und
+  /// reicht es explizit durch.
+  String userMessage([AppLocalizations? l10n]) {
+    final t = l10n ?? deL10n;
+    return isImplausible
+        ? t.foodProductImplausibleMessage(productName, kcalPer100G.round())
+        : t.foodProductNoNutritionMessage(productName);
+  }
 
   @override
   String toString() =>

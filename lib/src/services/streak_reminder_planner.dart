@@ -1,3 +1,4 @@
+import '../l10n/l10n.dart';
 import '../models/lifetime_stats.dart';
 import 'day_math.dart';
 import 'notification_service.dart';
@@ -85,7 +86,20 @@ final DateTime _idEpoch = DateTime(2000, 1, 1);
 ///   „Deine Streak wartet" waere dort dauerhaft falsch — deshalb tragen alle
 ///   spaeteren Slots den Start-Text, der ohne Zahl und ohne Behauptung
 ///   auskommt.
-List<NotificationSpec> planStreakReminders(DateTime now, LifetimeStats stats) {
+/// [l10n] optional, Default Deutsch ([deL10n]) — dasselbe Muster wie
+/// `sync_error_messages.dart`: Aufrufer ohne aktive Locale (Tests) bleiben
+/// unveraendert deutsch. Der einzige echte Aufrufer
+/// (`home_store_profile.dart._rescheduleStreakReminder`) reicht das
+/// aufgeloeste `AppLocalizations` des Stores durch — die geplanten
+/// Erinnerungen sprechen damit die Sprache zum PLANUNGSzeitpunkt (akzeptierte
+/// Eigenschaft, s. i18n-design.md §5: kein Nachuebersetzen bereits geplanter
+/// Notifications bei einem spaeteren Sprachwechsel).
+List<NotificationSpec> planStreakReminders(
+  DateTime now,
+  LifetimeStats stats, [
+  AppLocalizations? l10n,
+]) {
+  final t = l10n ?? deL10n;
   final today = startOfDay(now);
 
   final last = stats.lastTrackedDate;
@@ -111,11 +125,11 @@ List<NotificationSpec> planStreakReminders(DateTime now, LifetimeStats stats) {
     final String title;
     final String body;
     if (i == 0 && streak >= 1) {
-      title = 'Streak retten';
-      body = 'Deine $streak-Tage-Serie wartet — ein Foto genügt.';
+      title = t.notifStreakSaveTitle;
+      body = t.notifStreakSaveBody(streak);
     } else {
-      title = 'Streak starten';
-      body = 'Ein Log genügt, um deine Serie zu starten.';
+      title = t.notifStreakStartTitle;
+      body = t.notifStreakStartBody;
     }
 
     specs.add(NotificationSpec(

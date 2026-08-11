@@ -218,7 +218,9 @@ class MealAnalysisScreen extends StatelessWidget {
     await showMealAnalysisSheet(
       context,
       slot: capture.slot,
-      resultFuture: analyzer.analyze(capture.request),
+      resultFuture: analyzer.analyze(
+        capture.request.withLanguage(context.l10n.localeName),
+      ),
       previewImage: capture.previewBytes,
       onAdd: onAddMeal,
       onUpdateMeal: onUpdateMeal,

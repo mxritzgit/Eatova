@@ -78,8 +78,21 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     // Kein Opt-in -> das OS wird gar nicht erst gefragt.
     if (!enabled) return;
 
+    _syncNotificationLocale();
     await notificationService.init();
     await _applyOsPermission(cache);
+  }
+
+  /// Reicht das aktuelle Sprachpaket an den Notification-Dienst durch, sofern
+  /// er lokalisierbar ist (Muster [_osDeliversNotifications]/`is
+  /// NotificationPermissionProbe`) — s. [NotificationLocalizable]. Vor JEDEM
+  /// `init()`-Aufruf gerufen, damit ein zwischenzeitlicher Sprachwechsel den
+  /// Android-Kanal-Text beim naechsten Anlegen mitnimmt.
+  void _syncNotificationLocale() {
+    final Object service = notificationService;
+    if (service is NotificationLocalizable) {
+      service.setLocalizations(_l10n);
+    }
   }
 
   /// Liest die OS-Ebene gegen und zieht State + Cache nach. Hier laeuft
@@ -148,6 +161,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
       return;
     }
 
+    _syncNotificationLocale();
     await notificationService.init();
     // D11: erst fragen, DANN persistieren. Vorher stand `true` schon im Cache
     // (und im State), bevor der Systemdialog ueberhaupt beantwortet war — bei
@@ -173,8 +187,9 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Guard: ohne erteilte Berechtigung wird nie geplant.
   Future<void> _rescheduleStreakReminder() async {
     if (_reminderState != ReminderState.active) return;
-    await notificationService
-        .scheduleAll(planStreakReminders(DateTime.now(), lifetimeStats));
+    await notificationService.scheduleAll(
+      planStreakReminders(DateTime.now(), lifetimeStats, _l10n),
+    );
   }
 
   /// Schaltet Erinnerungen ein/aus (Settings-Toggle). Oeffentliche Fassade fuer
@@ -196,6 +211,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     if (_reminderState == ReminderState.off) return;
     final cache = _notificationCache;
     if (cache == null) return;
+    _syncNotificationLocale();
     await notificationService.init();
     await _applyOsPermission(cache);
   }

@@ -38,7 +38,7 @@ String mealAnalysisErrorMessage(
     return l10n.foodAnalysisTimeoutMessage;
   }
   if (error is ProductWithoutNutritionException) {
-    return error.userMessage;
+    return error.userMessage(l10n);
   }
   return fallback;
 }

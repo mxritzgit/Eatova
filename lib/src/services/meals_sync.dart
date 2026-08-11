@@ -413,11 +413,11 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
     protein: j['protein']?.toString() ?? '-',
     carbs: j['carbs']?.toString() ?? '-',
     fat: j['fat']?.toString() ?? '-',
-    confidence: j['confidence']?.toString() ?? 'Mittel',
+    confidence: j['confidence']?.toString() ?? MealResultConfidence.medium.code,
     portionNotes: j['portionNotes']?.toString() ?? '',
     items: items,
     isAdjusted: (j['isAdjusted'] as bool?) ?? false,
-    sourceLabel: j['sourceLabel']?.toString() ?? 'KI-Schätzung',
+    sourceLabel: j['sourceLabel']?.toString() ?? MealResultSource.aiEstimate.code,
     barcode: j['barcode']?.toString(),
     brand: j['brand']?.toString(),
     // Fehlender Schluessel -> false: die 0 einer Alt-Zeile bleibt Sentinel.
