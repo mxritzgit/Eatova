@@ -3,6 +3,7 @@
 
 import {
   parseRecipeDraft,
+  parseRecipeRefusal,
   RECIPE_LIMITS,
   recipeImagePrompt,
   recipeSummary,
@@ -101,16 +102,27 @@ Deno.test("recipeSummary nennt Titel + kcal in beiden Sprachen", () => {
   assert(de !== en, "Sprachen unterscheiden sich");
 });
 
-Deno.test("recipeSystemPrompt traegt Sprache + Refusal-Marker + JSON-Auftrag", () => {
+Deno.test("recipeSystemPrompt traegt Sprache + JSON-Refusal + JSON-Auftrag", () => {
   const de = recipeSystemPrompt("de");
   const en = recipeSystemPrompt("en");
   assert(de.includes("German"), "de-Prompt nennt German");
   assert(en.includes("English"), "en-Prompt nennt English");
   for (const p of [de, en]) {
-    assert(p.includes("__REFUSE__"), "Refusal-Marker fehlt");
+    assert(p.includes('"refuse"'), "JSON-Refusal-Feld fehlt");
     assert(p.includes("calories_kcal"), "JSON-Schema fehlt");
     assert(p.includes("ONE"), "Genau-ein-Rezept-Auftrag fehlt");
   }
+});
+
+Deno.test("parseRecipeRefusal: refuse-Feld wird erkannt, sonst null", () => {
+  assertEquals(
+    parseRecipeRefusal('{"refuse": "Ich erstelle nur Essensrezepte."}'),
+    "Ich erstelle nur Essensrezepte.",
+    "Refusal-Satz",
+  );
+  assertEquals(parseRecipeRefusal(VALID), null, "normales Rezept ist keine Refusal");
+  assertEquals(parseRecipeRefusal("kein json"), null, "kein JSON");
+  assertEquals(parseRecipeRefusal('{"refuse": ""}'), null, "leere Refusal zaehlt nicht");
 });
 
 Deno.test("recipeImagePrompt nutzt den Titel und verbietet Text/Personen", () => {
