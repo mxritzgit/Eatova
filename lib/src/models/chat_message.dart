@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'coach_recipe_proposal.dart';
+
 /// Eine einzelne Nachricht im Coach-Chat. role ist user|assistant - die
 /// system-Rolle bleibt serverseitig und wird hier nicht modelliert.
 class ChatMessage {
@@ -10,6 +12,7 @@ class ChatMessage {
     required this.createdAt,
     this.refusal = false,
     this.imageBytes,
+    this.recipeProposal,
   });
 
   final String id;
@@ -22,6 +25,11 @@ class ChatMessage {
   /// speichert aktuell bewusst keine Bilddaten, damit die Tabelle schlank und
   /// privat bleibt.
   final Uint8List? imageBytes;
+
+  /// Rezept-Vorschlag aus /rezept — wie [imageBytes] NUR lokal in der
+  /// laufenden Session ([fromRow] setzt es nie): nach Reload/Session-Wechsel
+  /// bleibt die Text-Zusammenfassung aus dem Verlauf, die Karte ist weg.
+  final CoachRecipeProposal? recipeProposal;
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
     final roleRaw = row['role']?.toString() ?? 'assistant';
@@ -42,6 +50,7 @@ class ChatMessage {
       createdAt: createdAt,
       refusal: refusal ?? this.refusal,
       imageBytes: imageBytes,
+      recipeProposal: recipeProposal,
     );
   }
 }

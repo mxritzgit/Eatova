@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:developer' as dev;
+import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../l10n/l10n.dart';
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
+import '../models/coach_recipe_proposal.dart';
 
 /// Coach-Chat Backend-Brücke.
 ///
@@ -315,6 +318,90 @@ class CoachChatService {
     }
   }
 
+  /// /rezept: laesst die Function ein Rezept + Bild generieren
+  /// (`mode: "recipe"`, Spec 2026-08-12). Kostet 1 Coach-Tages-Slot.
+  ///
+  /// Die Function LIEFERT NUR DATEN — gespeichert wird erst clientseitig,
+  /// nachdem der Nutzer im Sheet bestaetigt hat. Fehler-Mapping identisch zu
+  /// [send] (gleiche `on Functions*`-Arme, gleiche Status-Uebersetzung).
+  Future<CoachRecipeReply> requestRecipe(
+    String wish, {
+    required String sessionId,
+    required String locale,
+    String? userContext,
+  }) async {
+    try {
+      final res = await _client.functions.invoke(
+        'coach-chat',
+        body: {
+          'message': wish,
+          'mode': 'recipe',
+          'locale': locale.toLowerCase().startsWith('en') ? 'en' : 'de',
+          'session_id': sessionId,
+          if (userContext != null && userContext.trim().isNotEmpty)
+            'user_context': userContext.trim(),
+        },
+      );
+      final data = res.data;
+      final map = data is Map ? data : const <dynamic, dynamic>{};
+      final reply =
+          map['reply'] is String ? (map['reply'] as String).trim() : '';
+      final refusal = map['refusal'] == true;
+
+      // Kaputtes Base64 kostet nur das Bild, nie das Rezept.
+      Uint8List? imageBytes;
+      final rawImage = map['image_base64'];
+      if (rawImage is String && rawImage.isNotEmpty) {
+        try {
+          imageBytes = base64Decode(rawImage);
+        } catch (_) {
+          imageBytes = null;
+        }
+      }
+
+      CoachRecipeProposal? proposal;
+      final rawRecipe = map['recipe'];
+      if (!refusal && rawRecipe is Map) {
+        proposal = CoachRecipeProposal.fromJson(
+          rawRecipe,
+          imageBytes: imageBytes,
+        );
+      }
+      // Ein 200 ohne brauchbares Rezept UND ohne Refusal ist keine Antwort.
+      if (reply.isEmpty || (!refusal && proposal == null)) {
+        throw CoachChatException(_l10n.coachErrorEmptyReply);
+      }
+      return CoachRecipeReply(
+        reply: reply,
+        refusal: refusal,
+        proposal: proposal,
+        remaining: map['remaining'] is num
+            ? (map['remaining'] as num).toInt()
+            : null,
+        dailyLimit: map['daily_limit'] is num
+            ? (map['daily_limit'] as num).toInt()
+            : null,
+        sessionId: map['session_id']?.toString() ?? sessionId,
+      );
+    } on CoachQuotaExceeded {
+      rethrow;
+    } on CoachChatException {
+      rethrow;
+    } on FunctionsHttpException catch (e, stack) {
+      _logSendFailure(e, stack);
+      throw _failureForStatus(e.status, e.details);
+    } on FunctionsRelayException catch (e, stack) {
+      _logSendFailure(e, stack);
+      throw CoachChatException(_unreachableMessage);
+    } on FunctionsFetchException catch (e, stack) {
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorNoConnection);
+    } catch (e, stack) {
+      _logSendFailure(e, stack);
+      throw CoachChatException(_unreachableMessage);
+    }
+  }
+
   String get _unreachableMessage => _l10n.coachErrorUnreachable;
 
   void _logSendFailure(Object error, StackTrace stack) {
@@ -419,6 +506,27 @@ class CoachChatReply {
   /// Feld rechnete der Screen jeden remaining-Wert gegen sein angenommenes
   /// Standard-Limit — mit serverseitig anderem Limit war der angezeigte
   /// Zaehler erfunden. null nur bei aelteren Function-Deployments.
+  final int? dailyLimit;
+}
+
+/// Antwort des Recipe-Mode. Bei [refusal] ist [proposal] null und [reply]
+/// der Refusal-Satz; sonst traegt [proposal] das Rezept (ggf. mit Bild) und
+/// [reply] die Text-Zusammenfassung, die auch im Verlauf steht.
+class CoachRecipeReply {
+  const CoachRecipeReply({
+    required this.reply,
+    required this.refusal,
+    required this.sessionId,
+    this.proposal,
+    this.remaining,
+    this.dailyLimit,
+  });
+
+  final String reply;
+  final bool refusal;
+  final String sessionId;
+  final CoachRecipeProposal? proposal;
+  final int? remaining;
   final int? dailyLimit;
 }
 
