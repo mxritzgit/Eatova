@@ -11,12 +11,20 @@ class _Conversation extends StatelessWidget {
     required this.focus,
     required this.messages,
     required this.sending,
+    required this.addedRecipeIds,
+    required this.recipeAddEnabled,
+    required this.onAddRecipe,
   });
 
   final ScrollController controller;
   final FocusNode focus;
   final List<ChatMessage> messages;
   final bool sending;
+
+  /// /rezept-Vorschlaege, die bereits uebernommen wurden (Doppel-Add-Sperre).
+  final Set<String> addedRecipeIds;
+  final bool recipeAddEnabled;
+  final ValueChanged<ChatMessage> onAddRecipe;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +41,13 @@ class _Conversation extends StatelessWidget {
           if (sending && i == messages.length) {
             return const _ThinkingRow();
           }
-          return _MessageView(message: messages[i]);
+          final message = messages[i];
+          return _MessageView(
+            message: message,
+            recipeAdded: addedRecipeIds.contains(message.id),
+            recipeAddEnabled: recipeAddEnabled,
+            onAddRecipe: () => onAddRecipe(message),
+          );
         },
       ),
     );
@@ -41,8 +55,16 @@ class _Conversation extends StatelessWidget {
 }
 
 class _MessageView extends StatelessWidget {
-  const _MessageView({required this.message});
+  const _MessageView({
+    required this.message,
+    this.recipeAdded = false,
+    this.recipeAddEnabled = false,
+    this.onAddRecipe,
+  });
   final ChatMessage message;
+  final bool recipeAdded;
+  final bool recipeAddEnabled;
+  final VoidCallback? onAddRecipe;
 
   @override
   Widget build(BuildContext context) {
@@ -126,14 +148,25 @@ class _MessageView extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                   ],
-                  Text(
-                    message.content,
-                    style: AppType.ui(
-                      13.5,
-                      color: fromUser ? t.onForest : t.ink,
-                      height: 1.5,
+                  // /rezept-Vorschlag: die Karte ersetzt den Text-Inhalt der
+                  // Blase (der reply-Text ist die Verlaufs-Zusammenfassung —
+                  // beides zu zeigen sagte dasselbe zweimal).
+                  if (message.recipeProposal != null)
+                    _RecipeProposalCard(
+                      proposal: message.recipeProposal!,
+                      added: recipeAdded,
+                      enabled: recipeAddEnabled,
+                      onAdd: onAddRecipe,
+                    )
+                  else
+                    Text(
+                      message.content,
+                      style: AppType.ui(
+                        13.5,
+                        color: fromUser ? t.onForest : t.ink,
+                        height: 1.5,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),

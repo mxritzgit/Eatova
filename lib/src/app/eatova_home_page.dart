@@ -797,6 +797,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             userName: _store.userName,
             streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
             userContext: widget.sync != null ? _store.coachContext : null,
+            // /rezept-Vorschlaege laufen nach der Bestaetigung im Sheet ueber
+            // DENSELBEN 3-Netz-Pfad wie das manuelle Rezept-Formular.
+            onCreateRecipe:
+                widget.sync == null ? null : _store.createUserRecipe,
           );
         },
       );

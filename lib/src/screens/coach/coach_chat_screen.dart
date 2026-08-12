@@ -22,8 +22,12 @@ import 'package:intl/intl.dart';
 import '../../l10n/l10n.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
+import '../../models/coach_recipe_proposal.dart';
+import '../../models/fitness_recipe.dart';
 import '../../services/coach_chat_service.dart';
 import '../../services/meal_photo_compressor.dart';
+import '../../services/recipe_image_store.dart';
+import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
@@ -36,6 +40,7 @@ part 'coach_hero.dart';
 part 'coach_orb.dart';
 part 'coach_message_list.dart';
 part 'coach_composer.dart';
+part 'coach_recipe.dart';
 part 'coach_sessions.dart';
 
 /// Coach-Chat: Grok-basierter Fitness-/Ernaehrungs-Coach.
@@ -55,10 +60,19 @@ class CoachChatScreen extends StatefulWidget {
     this.userContext,
     this.imagePicker,
     this.speechInput = const CoachSpeechInput(),
+    this.onCreateRecipe,
   });
 
   final CoachChatService? service;
   final String userName;
+
+  /// Persistenz-Hook fuer /rezept-Vorschlaege — die Schale reicht
+  /// `HomeStore.createUserRecipe` herein (derselbe 3-Netz-Pfad wie das
+  /// manuelle Rezept-Formular). Der Coach selbst hat KEINE Rechte: der Hook
+  /// laeuft ausschliesslich, nachdem der Nutzer im Sheet bestaetigt hat.
+  /// null (Vorschau/Test ohne Sync): die Karte erscheint, der
+  /// Hinzufuegen-Knopf bleibt ohne Wirkung deaktiviert.
+  final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
 
   /// Anzeige-Streak fuer die Pill oben links. Der Aufrufer reicht
   /// `lifetimeStats.effectiveStreakOn(now)` herein — nie `currentStreak`
@@ -102,6 +116,14 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// Der Verlauf der aktiven Session war beim letzten Versuch nicht ladbar —
   /// dann darf der Hero-Leerzustand ihn nicht als „leer" praesentieren.
   bool _historyUnavailable = false;
+
+  /// Nachrichten, deren /rezept-Vorschlag bereits uebernommen wurde — der
+  /// Karten-Button wird dann zum „Hinzugefuegt"-Zustand (kein Doppel-Add).
+  final Set<String> _addedRecipeMessageIds = <String>{};
+
+  /// Ein Uebernehmen laeuft gerade (Bild ablegen + createUserRecipe) —
+  /// sperrt alle Karten-Buttons, bis der Ausgang da ist.
+  bool _addingRecipe = false;
 
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
@@ -482,6 +504,27 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
 
+    // /rezept- bzw. /recipe-Befehl (Spec 2026-08-12): eigener Pfad ueber
+    // requestRecipe. Nur im reinen Textfall — ein angehaengtes Foto ist eine
+    // normale Coach-Frage (z.B. "was ist das?" mit Bild), kein Rezeptwunsch.
+    final recipeWish = hasImage ? null : _recipeWishFrom(text);
+    if (recipeWish != null) {
+      if (recipeWish.isEmpty) {
+        // Ohne Wunschtext gibt es nichts zu generieren: lokaler Hinweis,
+        // kein Request, kein Tages-Slot.
+        setState(() => _error = l10n.coachRecipeEmptyHint);
+        return;
+      }
+      await _sendRecipeRequest(
+        svc: svc,
+        sessionId: sessionId,
+        wish: recipeWish,
+        displayText: text,
+        l10n: l10n,
+      );
+      return;
+    }
+
     HapticFeedback.selectionClick();
     final displayText = text.isEmpty ? l10n.coachImageDefaultCaption : text;
     final userMsg = ChatMessage(
@@ -562,6 +605,161 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       });
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  /// Erkennt den /rezept- bzw. /recipe-Befehl am Zeilenanfang. Liefert den
+  /// Wunschtext ('' wenn nach dem Befehl nichts steht), sonst null. Beide
+  /// Praefixe gelten unabhaengig von der App-Sprache — wer den englischen
+  /// Befehl kennt, soll ihn auch unter de nutzen koennen (und umgekehrt).
+  static String? _recipeWishFrom(String text) {
+    final match = RegExp(
+      r'^/(rezept|recipe)(?:\s+([\s\S]*))?$',
+      caseSensitive: false,
+    ).firstMatch(text.trim());
+    if (match == null) return null;
+    return (match.group(2) ?? '').trim();
+  }
+
+  /// Spiegel von [_send] fuer den Rezept-Pfad: optimistische User-Blase mit
+  /// der Original-Eingabe (inkl. Befehl), dann requestRecipe. Die Antwort
+  /// wird zur Assistant-Nachricht MIT [ChatMessage.recipeProposal] — die
+  /// Karte lebt nur in dieser Session, der Verlauf traegt die
+  /// Text-Zusammenfassung (reply).
+  Future<void> _sendRecipeRequest({
+    required CoachChatService svc,
+    required String sessionId,
+    required String wish,
+    required String displayText,
+    required AppLocalizations l10n,
+  }) async {
+    HapticFeedback.selectionClick();
+    final userMsg = ChatMessage(
+      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      role: ChatRole.user,
+      content: displayText,
+      createdAt: DateTime.now(),
+    );
+    setState(() {
+      _messages = [..._messages, userMsg];
+      _input.clear();
+      _draft = '';
+      _sending = true;
+      _error = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+
+    try {
+      final res = await svc.requestRecipe(
+        wish,
+        sessionId: sessionId,
+        locale: l10n.localeName,
+        userContext: widget.userContext,
+      );
+      if (!mounted) return;
+      setState(() {
+        _messages = [
+          ..._messages,
+          ChatMessage(
+            id: 'local-r-${DateTime.now().microsecondsSinceEpoch}',
+            role: ChatRole.assistant,
+            content: res.reply,
+            createdAt: DateTime.now(),
+            refusal: res.refusal,
+            recipeProposal: res.proposal,
+          ),
+        ];
+        final rest = res.remaining;
+        if (rest != null) {
+          // Gleiche Quota-Adoption wie in [_send]: der Server hat gerade
+          // Zahlen genannt, ab hier ist der Stand bekannt.
+          final limit = res.dailyLimit ?? _limitFuerAnzeige;
+          final frei = rest.clamp(0, limit);
+          _quota = ChatQuotaSnapshot(
+            used: limit - frei,
+            remaining: frei,
+            dailyLimit: limit,
+          );
+        }
+        _sending = false;
+      });
+      HapticFeedback.lightImpact();
+      unawaited(_refreshSessions());
+    } on CoachQuotaExceeded catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _quota = ChatQuotaSnapshot(
+          used: e.dailyLimit,
+          remaining: 0,
+          dailyLimit: e.dailyLimit,
+        );
+        _error = e.message;
+        _sending = false;
+      });
+    } on CoachChatException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _sending = false;
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  /// Uebernehmen eines /rezept-Vorschlags — der EINZIGE Weg, auf dem aus
+  /// einer Coach-Antwort je etwas gespeichert wird, und er laeuft komplett
+  /// clientseitig ueber den nutzerbestaetigten [CoachChatScreen.onCreateRecipe]-
+  /// Hook (Sheet -> Bild lokal ablegen -> createUserRecipe).
+  Future<void> _addProposalToRecipes(ChatMessage message) async {
+    final proposal = message.recipeProposal;
+    final onCreate = widget.onCreateRecipe;
+    if (proposal == null || onCreate == null || _addingRecipe) return;
+    if (_addedRecipeMessageIds.contains(message.id)) return;
+    HapticFeedback.selectionClick();
+    final confirmed = await showEatovaSheet<bool>(
+      context,
+      _RecipeAddSheet(proposal: proposal),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _addingRecipe = true);
+    var imageAsset = '';
+    final bytes = proposal.imageBytes;
+    if (bytes != null) {
+      final referenz = await RecipeImageStore.instance.save(bytes: bytes);
+      if (!mounted) return;
+      if (referenz == null) {
+        // Wie im manuellen Formular: das Rezept kommt trotzdem, nur ohne
+        // Bild — der Nutzer erfaehrt es.
+        showAppSnack(
+          context,
+          context.l10n.recipesPhotoSaveFailedError,
+          icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
+        );
+      } else {
+        imageAsset = referenz;
+      }
+    }
+
+    final recipe = proposal.toFitnessRecipe(imageAsset: imageAsset);
+    // Luecke-E-Muster (recipes_screen): die Meldung wartet auf den Ausgang,
+    // statt ihn zu behaupten — der Store deckelt die Wartezeit.
+    final ausgang = await onCreate(recipe);
+    if (!mounted) return;
+    setState(() {
+      _addingRecipe = false;
+      _addedRecipeMessageIds.add(message.id);
+    });
+    HapticFeedback.lightImpact();
+    showAppSnack(
+      context,
+      deliveryHint(
+        context.l10n.recipesSavedSuccess(recipe.title),
+        ausgang,
+        context.l10n,
+      ),
+      icon: Icons.bookmark_added_rounded,
+    );
   }
 
   /// Base64 blaeht um +33% auf; die Edge Function kappt bei 6.000.000 Zeichen
@@ -859,6 +1057,13 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                         focus: _inputFocus,
                         messages: _messages,
                         sending: _sending,
+                        addedRecipeIds: _addedRecipeMessageIds,
+                        // Ohne Hook (Vorschau/Test ohne Sync) und waehrend
+                        // eines laufenden Uebernehmens bleiben die
+                        // Karten-Buttons deaktiviert.
+                        recipeAddEnabled:
+                            widget.onCreateRecipe != null && !_addingRecipe,
+                        onAddRecipe: _addProposalToRecipes,
                       ),
           ),
         ),
