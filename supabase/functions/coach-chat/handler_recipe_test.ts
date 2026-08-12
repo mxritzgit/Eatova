@@ -80,7 +80,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   const calls: RecordedCall[] = [];
   const original = globalThis.fetch;
 
-  function route(url: string, method: string, body: string): Response {
+  function route(url: string, method: string, _body: string): Response {
     if (url.includes("/auth/v1/user")) return jsonRes({ id: USER_ID });
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
       return jsonRes({
