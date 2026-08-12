@@ -36,12 +36,24 @@ import {
 } from "./guardrails.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
+import {
+  parseRecipeDraft,
+  parseRecipeRefusal,
+  type RecipeDraft,
+  recipeImagePrompt,
+  recipeSummary,
+  recipeSystemPrompt,
+} from "./recipe.ts";
 
 // Modelle + Tageslimit sind ueber Function-Secrets uebersteuerbar (gleiches
 // Muster wie OPENROUTER_MODEL in analyze-meal); die Defaults sind die bisher
 // hardcodeten Werte.
 const MODEL_ANSWER     = Deno.env.get("COACH_MODEL_ANSWER") ?? "x-ai/grok-4.3";
 const MODEL_CLASSIFIER = Deno.env.get("COACH_MODEL_CLASSIFIER") ?? "x-ai/grok-4.3";
+// Bild-GENERIERUNG (mode: "recipe") laeuft ueber die OpenRouter-Image-API —
+// bewusst ein eigenes Modell: die "-image"-Familie liefert Bilder als Output
+// und taugt NICHT fuer Foto->JSON-Analyse (s. Warnung in analyze-meal).
+const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
 
 const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
 const MAX_IMAGE_BASE64_CHARS = 6_000_000;
@@ -74,6 +86,10 @@ const AUTH_FAIL_WINDOW_SECONDS = 3600;
 export const PROVIDER_TIMEOUTS_MS = {
   classify: 15_000,
   answer: 45_000,
+  // Bild-Generierung: eigenes Budget. Ein Timeout hier ist KEIN
+  // Request-Fehler — das Rezept kommt dann ohne Bild zurueck
+  // (generateRecipeImage ist tolerant, s. dort).
+  image: 30_000,
 };
 
 // Timeout erkennen: AbortSignal.timeout rejectet Fetch UND Body-Read mit
@@ -370,6 +386,210 @@ async function answer(
     reply = "Da kam keine Antwort zurueck - probier es gleich nochmal.";
   }
   return { reply, refusal };
+}
+
+// ---------------------------------------------------------------------------
+// mode: "recipe" — Rezept-Draft + Bild-Generierung (Spec 2026-08-12).
+//
+// Sicherheits-Grundsatz: dieser Pfad LIEFERT NUR DATEN. Kein Tool-Calling,
+// kein Schreibzugriff auf Rezepte/Statistiken/Konto — gespeichert wird
+// ausschliesslich clientseitig, nachdem der Nutzer im Sheet bestaetigt hat.
+// Persistiert wird hier nur der Chat-Verlauf (Text), wie im Chat-Pfad.
+// ---------------------------------------------------------------------------
+
+/// Draft-Call: grok-4.3 mit erzwungenem JSON-Output. Wirft bei Infra-Fehlern
+/// (gleiches Muster wie answer()); Refusal/unlesbar entscheidet der Aufrufer
+/// ueber parseRecipeRefusal/parseRecipeDraft.
+async function draftRecipe(
+  apiKey: string,
+  wish: string,
+  locale: "de" | "en",
+): Promise<string> {
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://eatova.app",
+      "X-Title": "Eatova Coach",
+    },
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
+    body: JSON.stringify({
+      model: MODEL_ANSWER,
+      messages: [
+        { role: "system", content: recipeSystemPrompt(locale) },
+        { role: "user", content: wish },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.4,
+      // Mehr Budget als der Chat (600): Zutatenliste + 8 Schritte brauchen
+      // Platz; das Token-Budget unterscheidet den Call zugleich eindeutig
+      // vom Classifier (50) und vom Answer-Call (600) — darauf stuetzen
+      // sich die Test-Stubs.
+      max_tokens: 900,
+    }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Rezept-Call fehlgeschlagen: ${resp.status} ${text.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return String(data?.choices?.[0]?.message?.content ?? "").trim();
+}
+
+/// Bild-Generierung ueber die OpenRouter-Image-API. TOLERANT: jeder Fehler
+/// (non-ok, Timeout, kaputtes Shape) liefert null — das Rezept kommt dann
+/// ohne Bild zurueck, die Karte zeigt den Platzhalter. Bewusst KEIN Refund
+/// und kein Request-Abbruch: der Nutzer hat die Hauptleistung (das Rezept)
+/// bekommen.
+async function generateRecipeImage(
+  apiKey: string,
+  prompt: string,
+): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const resp = await fetch("https://openrouter.ai/api/v1/images", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://eatova.app",
+        "X-Title": "Eatova Coach",
+      },
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.image),
+      body: JSON.stringify({
+        model: MODEL_IMAGE,
+        prompt,
+        // 4:3 passt zu allen drei Rezept-Kacheln (Hero 280x236, Liste 96x96,
+        // Detail 258 hoch); jpeg, weil RecipeImageStore ohnehin jpeg ablegt.
+        aspect_ratio: "4:3",
+        output_format: "jpeg",
+        resolution: "1K",
+        n: 1,
+      }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error(`recipe image failed: ${resp.status} ${text.slice(0, 200)}`);
+      return null;
+    }
+    const data = await resp.json();
+    const b64 = data?.data?.[0]?.b64_json;
+    if (typeof b64 !== "string" || b64.length === 0) {
+      console.error("recipe image: Antwort ohne b64_json");
+      return null;
+    }
+    const mimeRaw = data?.data?.[0]?.media_type;
+    return {
+      base64: b64,
+      mimeType: typeof mimeRaw === "string" ? safeImageMimeType(mimeRaw) : "image/jpeg",
+    };
+  } catch (e) {
+    console.error(`recipe image failed: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
+/// Der komplette Recipe-Zweig. Laeuft NACH Auth, Rate-Limits, Prefilter,
+/// Session und Quota-Claim (der Slot ist beim Aufruf bereits reserviert);
+/// Layer 2 (Classifier) entfaellt — den Scope haelt der Rezept-Prompt selbst.
+/// Reihenfolge spiegelt den Chat-Pfad: User-Message zuerst persistieren,
+/// dann die bezahlten Calls (E5-Begruendung am Chat-Pfad).
+async function handleRecipeMode(params: {
+  serviceKey: string;
+  supabaseUrl: string;
+  openRouterKey: string;
+  userId: string;
+  sessionId: string;
+  message: string;
+  locale: "de" | "en";
+  remaining: number | null;
+}): Promise<Response> {
+  const {
+    serviceKey,
+    supabaseUrl,
+    openRouterKey,
+    userId,
+    sessionId,
+    message,
+    locale,
+    remaining,
+  } = params;
+
+  const userStored = await storeMessage(serviceKey, supabaseUrl, {
+    user_id: userId, session_id: sessionId, role: "user", content: message,
+  });
+  if (!userStored) {
+    await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    return json({ error: "store_failed" }, 500);
+  }
+  await maybeAutoTitle(serviceKey, supabaseUrl, sessionId, message);
+
+  let raw: string;
+  try {
+    raw = await draftRecipe(openRouterKey, message, locale);
+  } catch (e) {
+    // Infra-Fehler: keinerlei Leistung erbracht -> Refund + ehrlicher
+    // Status, identisch zum Answer-Pfad (Sentinel-Rest E2 + Finding 6).
+    console.error(`recipe draft failed: ${e instanceof Error ? e.message : String(e)}`);
+    await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    if (isProviderTimeout(e)) {
+      return json({ error: "provider_timeout", session_id: sessionId }, 504);
+    }
+    return json({ error: "provider_error", session_id: sessionId }, 502);
+  }
+
+  // Kein Essensrezept: kostet den Slot bewusst (gleiche Begruendung wie die
+  // Layer-2-Refusals — sonst waeren provozierte Refusals Gratis-Calls).
+  const refusalText = parseRecipeRefusal(raw);
+  if (refusalText !== null) {
+    await storeMessage(serviceKey, supabaseUrl, {
+      user_id: userId, session_id: sessionId, role: "assistant",
+      content: refusalText, refusal: true, refusal_reason: "model_refusal",
+    });
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({
+      reply: refusalText,
+      refusal: true,
+      refusal_reason: "model_refusal",
+      session_id: sessionId,
+      ...(remaining === null ? {} : { remaining }),
+      daily_limit: DAILY_LIMIT,
+    }, 200);
+  }
+
+  const draft: RecipeDraft | null = parseRecipeDraft(raw);
+  if (draft === null) {
+    // Unlesbarer Modell-Output = Provider-Infra-Fehler (analyze-meal-Muster
+    // provider_invalid_json): Refund + 502. Bewusst nur die LAENGE loggen —
+    // raw kann Nutzer-Wunschtext spiegeln (Gesundheitsdaten-Regel,
+    // crash_reporter.dart).
+    console.error(`recipe draft unlesbar (${raw.length} Zeichen)`);
+    await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({ error: "provider_error", session_id: sessionId }, 502);
+  }
+
+  const image = await generateRecipeImage(openRouterKey, recipeImagePrompt(draft));
+
+  // Best-effort wie im Chat-Pfad: die Zusammenfassung haelt den Verlauf
+  // koherent (Bild-Bytes werden NIE persistiert — Regel wie bei User-Fotos).
+  const summary = recipeSummary(draft, locale);
+  await storeMessage(serviceKey, supabaseUrl, {
+    user_id: userId, session_id: sessionId, role: "assistant", content: summary,
+  });
+  await touchSession(serviceKey, supabaseUrl, sessionId);
+
+  return json({
+    reply: summary,
+    recipe: draft,
+    ...(image === null
+      ? {}
+      : { image_base64: image.base64, image_mime_type: image.mimeType }),
+    ...(remaining === null ? {} : { remaining }),
+    daily_limit: DAILY_LIMIT,
+    session_id: sessionId,
+  }, 200);
 }
 
 // ---------------------------------------------------------------------------
@@ -946,6 +1166,11 @@ export async function handleRequest(req: Request): Promise<Response> {
     ? safeImageMimeType(body.image_mime_type)
     : "image/jpeg";
   const hasImage = imageBase64.length > 0;
+  // mode: "recipe" (Spec 2026-08-12): Rezept-JSON + Bild statt Chat-Antwort.
+  // Alles davor (Auth, Limits, Groessen, Session, Prefilter, Quota) gilt
+  // unveraendert; die Weiche sitzt hinter dem Quota-Claim.
+  const isRecipeMode = body?.mode === "recipe";
+  const locale: "de" | "en" = body?.locale === "en" ? "en" : "de";
   const requestedSessionId =
     typeof body?.session_id === "string" && SESSION_ID_RE.test(body.session_id)
       ? body.session_id
@@ -1034,13 +1259,18 @@ export async function handleRequest(req: Request): Promise<Response> {
   // etwas halb persistiert ist — statt kommentarlos ohne Kontext zu
   // antworten. Die aktuelle User-Message ist noch nicht gespeichert, kann
   // hier also auch nicht enthalten sein; der pop unten bleibt als
-  // Defensiv-Netz.
-  const history = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
-  if (history === null) {
-    return json({ error: "history_unavailable" }, 500);
-  }
-  if (history.length > 0 && history[history.length - 1].role === "user") {
-    history.pop();
+  // Defensiv-Netz. Der Recipe-Mode braucht keine History (der Wunsch steht
+  // komplett in der Nachricht) und spart sich den Roundtrip.
+  let history: HistoryMessage[] = [];
+  if (!isRecipeMode) {
+    const loaded = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
+    if (loaded === null) {
+      return json({ error: "history_unavailable" }, 500);
+    }
+    history = loaded;
+    if (history.length > 0 && history[history.length - 1].role === "user") {
+      history.pop();
+    }
   }
 
   // Quota-Claim VOR Layer 2 (Security-Fix 2026-08-11, CWE-770): der
@@ -1062,6 +1292,24 @@ export async function handleRequest(req: Request): Promise<Response> {
       }, 429);
     }
     return json({ error: claim.error }, 500);
+  }
+
+  // ------------------------------------------------------------ RECIPE-MODE
+  // Weiche NACH dem Quota-Claim (1 Slot pro Rezept, Refund-Semantik im
+  // Zweig selbst) und OHNE Layer 2: der Rezept-Prompt haelt seinen engen
+  // Scope selbst (nur Essensrezepte, JSON-Refusal), ein Classifier-Call
+  // waere ein zweiter bezahlter Call fuer dieselbe Aussage.
+  if (isRecipeMode) {
+    return await handleRecipeMode({
+      serviceKey,
+      supabaseUrl,
+      openRouterKey,
+      userId,
+      sessionId,
+      message,
+      locale,
+      remaining: claim.remaining,
+    });
   }
 
   // ---------------------------------------------------------------- LAYER 2
