@@ -75,7 +75,7 @@ class CoachRecipeProposal {
   /// Baut das Eigen-Rezept nach denselben Regeln wie das manuelle Formular
   /// (recipe_create_sheet.dart:_save): frischer user_-Slug, Kategorie
   /// "Eigene", kein professionalHint (die Tabelle fuehrt die Spalte nicht).
-  /// [imageAsset] ist die RecipeImageStore-Referenz ('local:<name>.jpg')
+  /// [imageAsset] ist die RecipeImageStore-Referenz (`local:<name>.jpg`)
   /// oder '' wenn kein Bild gespeichert werden konnte.
   FitnessRecipe toFitnessRecipe({required String imageAsset}) {
     return FitnessRecipe(
