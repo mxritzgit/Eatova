@@ -124,13 +124,6 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// dann darf der Hero-Leerzustand ihn nicht als „leer" praesentieren.
   bool _historyUnavailable = false;
 
-  /// Slug des aus einer Karte erzeugten Eigen-Rezepts, pro Message-Id.
-  /// „Hinzugefuegt" gilt nur, solange das Rezept WIRKLICH noch existiert
-  /// ([_isRecipeAdded] prueft gegen [CoachChatScreen.userRecipeSlugs]) —
-  /// loescht der Nutzer es im Rezepte-Tab, wird der Karten-Button von
-  /// selbst wieder aktiv.
-  final Map<String, String> _createdRecipeSlugByMessage = <String, String>{};
-
   /// Ein Uebernehmen laeuft gerade (Bild ablegen + createUserRecipe) —
   /// sperrt alle Karten-Buttons, bis der Ausgang da ist.
   bool _addingRecipe = false;
@@ -657,11 +650,15 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     _inputFocus.requestFocus();
   }
 
-  /// „Hinzugefuegt" nur, wenn diese Karte in DIESER Sitzung ein Rezept
-  /// erzeugt hat UND es noch existiert (Live-Slugs der Schale).
+  /// „Hinzugefügt" ist eine reine ABLEITUNG: der Karten-Slug ist
+  /// deterministisch aus der Message-Id (FitnessRecipe.coachProposalSlug),
+  /// die Live-Slugs kommen aus der Schale. Kein eigener Zustand — damit
+  /// übersteht der Status App-Neustarts und Zweitgeräte, und Löschen im
+  /// Rezepte-Tab reaktiviert den Button von selbst (Spec 2026-08-13).
   bool _isRecipeAdded(ChatMessage message) {
-    final slug = _createdRecipeSlugByMessage[message.id];
-    return slug != null && widget.userRecipeSlugs.contains(slug);
+    if (message.recipeProposal == null) return false;
+    return widget.userRecipeSlugs
+        .contains(FitnessRecipe.coachProposalSlug(message.id));
   }
 
   /// Reload-Karten (Nachtrag 2026-08-13): Proposals aus dem Verlauf kommen
@@ -823,14 +820,16 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       }
     }
 
-    final recipe = proposal.toFitnessRecipe(imageAsset: imageAsset);
+    final recipe = proposal.toFitnessRecipe(
+      imageAsset: imageAsset,
+      slug: FitnessRecipe.coachProposalSlug(message.id),
+    );
     // Luecke-E-Muster (recipes_screen): die Meldung wartet auf den Ausgang,
     // statt ihn zu behaupten — der Store deckelt die Wartezeit.
     final ausgang = await onCreate(recipe);
     if (!mounted) return;
     setState(() {
       _addingRecipe = false;
-      _createdRecipeSlugByMessage[message.id] = recipe.slug;
     });
     HapticFeedback.lightImpact();
     showAppSnack(
