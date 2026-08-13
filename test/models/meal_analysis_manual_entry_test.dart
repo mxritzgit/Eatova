@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/meals_sync.dart';
 
 // Manueller Eintrag (Spec 2026-08-13): Etikett-Werte pro 100 g plus die
 // gegessene Portion — die Factory rechnet die Portionswerte aus und traegt
@@ -73,4 +75,45 @@ void main() {
       MealResultPortionNote.manual,
     );
   });
+
+  test(
+    'die manual-Codes lösen in de UND en auf die richtigen Anzeigetexte auf',
+    () {
+      final r = MealAnalysisResult.manualEntry(
+        name: 'Bauern-Mozzarella',
+        kcalPer100G: 265,
+        grams: 125,
+      );
+      expect(r.resolvedSourceLabel(deL10n), 'Manuell');
+      expect(r.resolvedSourceLabel(enL10n), 'Manual');
+      expect(r.resolvedConfidence(deL10n), 'Eigene Angabe');
+      expect(r.resolvedConfidence(enL10n), 'Own entry');
+      expect(
+        r.resolvedPortionNotes(deL10n),
+        'Nährwerte manuell nach Etikett eingetragen (pro 100 g).',
+      );
+      expect(
+        r.resolvedPortionNotes(enL10n),
+        'Nutrition entered manually from the label (per 100 g).',
+      );
+    },
+  );
+
+  test(
+    'mealResultToJson/mealResultFromJson-Roundtrip erhaelt die manual-Felder',
+    () {
+      final r = MealAnalysisResult.manualEntry(
+        name: 'Wasser',
+        kcalPer100G: 0,
+        grams: 500,
+      );
+      final json = mealResultToJson(r);
+      final back = mealResultFromJson(json);
+      expect(back.sourceLabel, r.sourceLabel);
+      expect(back.confidence, r.confidence);
+      expect(back.portionNotes, r.portionNotes);
+      expect(back.explicitZeroKcal, r.explicitZeroKcal);
+      expect(back.explicitZeroKcal, isTrue);
+    },
+  );
 }

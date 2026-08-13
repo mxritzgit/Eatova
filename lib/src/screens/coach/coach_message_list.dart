@@ -21,8 +21,10 @@ class _Conversation extends StatelessWidget {
   final List<ChatMessage> messages;
   final bool sending;
 
-  /// „Hinzugefuegt"-Zustand einer /recipe-Karte — der Screen entscheidet
-  /// (erzeugt in dieser Sitzung UND das Rezept existiert noch).
+  /// „Hinzugefuegt"-Zustand einer /recipe-Karte — der Screen entscheidet,
+  /// reine Ableitung aus den live geladenen Rezept-Slugs: der Slug wird
+  /// deterministisch aus der Message-Id gebildet (Spec 2026-08-13), keine
+  /// Sitzungslokalitaet mehr.
   final bool Function(ChatMessage message) recipeAddedFor;
   final bool recipeAddEnabled;
   final ValueChanged<ChatMessage> onAddRecipe;
@@ -74,106 +76,114 @@ class _MessageView extends StatelessWidget {
     final imageBytes = message.imageBytes;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: LayoutBuilder(builder: (context, constraints) {
-        // Der Deckel stammt aus der Vorlage (290), der Anteil aus der
-        // bisherigen Blase — auf schmalen Geraeten gewinnt er, damit die
-        // Gegenseite als Einzug sichtbar bleibt und man sieht, wer spricht.
-        // Bewusst aus den Layout-Constraints statt aus MediaQuery: die Blase
-        // ist ein Anteil der LISTE, nicht des Bildschirms (die Schale setzt
-        // links und rechts 20 px).
-        final maxBubble = constraints.maxWidth.isFinite
-            ? math.min(290.0, constraints.maxWidth * 0.82)
-            : 290.0;
-        return Align(
-          alignment: fromUser ? Alignment.centerRight : Alignment.centerLeft,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxBubble),
-            child: Container(
-              decoration: BoxDecoration(
-                color: fromUser ? t.forest : t.surf,
-                border: Border.all(color: fromUser ? t.forest : t.line),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(20),
-                  topRight: const Radius.circular(20),
-                  bottomLeft: Radius.circular(fromUser ? 20 : 6),
-                  bottomRight: Radius.circular(fromUser ? 6 : 20),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Der Deckel stammt aus der Vorlage (290), der Anteil aus der
+          // bisherigen Blase — auf schmalen Geraeten gewinnt er, damit die
+          // Gegenseite als Einzug sichtbar bleibt und man sieht, wer spricht.
+          // Bewusst aus den Layout-Constraints statt aus MediaQuery: die Blase
+          // ist ein Anteil der LISTE, nicht des Bildschirms (die Schale setzt
+          // links und rechts 20 px).
+          final maxBubble = constraints.maxWidth.isFinite
+              ? math.min(290.0, constraints.maxWidth * 0.82)
+              : 290.0;
+          return Align(
+            alignment: fromUser ? Alignment.centerRight : Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxBubble),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: fromUser ? t.forest : t.surf,
+                  border: Border.all(color: fromUser ? t.forest : t.line),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(20),
+                    topRight: const Radius.circular(20),
+                    bottomLeft: Radius.circular(fromUser ? 20 : 6),
+                    bottomRight: Radius.circular(fromUser ? 6 : 20),
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (message.refusal) ...<Widget>[
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(
+                            Icons.info_outline_rounded,
+                            size: 12,
+                            color: t.warning,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            context.l10n.coachRefusalLabel,
+                            style: AppType.ui(
+                              10.5,
+                              weight: FontWeight.w700,
+                              color: t.warning,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+                    // Bilder gibt es nur an der eigenen Nachricht: die Historie
+                    // aus Supabase speichert bewusst keine Bilddaten.
+                    if (imageBytes != null && fromUser) ...<Widget>[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(rCard),
+                        child: LayoutBuilder(
+                          builder: (context, bildConstraints) {
+                            // Gepickte Bilder sind bis 1600px breit — Decode auf
+                            // die Bubble-Breite begrenzen statt voll im Speicher.
+                            final dpr = MediaQuery.devicePixelRatioOf(context);
+                            final w = bildConstraints.maxWidth.isFinite
+                                ? bildConstraints.maxWidth
+                                : 320.0;
+                            return Image.memory(
+                              imageBytes,
+                              height: 160,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              cacheWidth: (w * dpr).round().clamp(1, 1600),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    // /rezept-Vorschlag: die Karte ersetzt den Text-Inhalt der
+                    // Blase (der reply-Text ist die Verlaufs-Zusammenfassung —
+                    // beides zu zeigen sagte dasselbe zweimal).
+                    if (message.recipeProposal != null)
+                      _RecipeProposalCard(
+                        proposal: message.recipeProposal!,
+                        added: recipeAdded,
+                        enabled: recipeAddEnabled,
+                        onAdd: onAddRecipe,
+                      )
+                    else
+                      Text(
+                        message.content,
+                        style: AppType.ui(
+                          13.5,
+                          color: fromUser ? t.onForest : t.ink,
+                          height: 1.5,
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  if (message.refusal) ...<Widget>[
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Icon(Icons.info_outline_rounded,
-                            size: 12, color: t.warning),
-                        const SizedBox(width: 5),
-                        Text(
-                          context.l10n.coachRefusalLabel,
-                          style: AppType.ui(
-                            10.5,
-                            weight: FontWeight.w700,
-                            color: t.warning,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                  ],
-                  // Bilder gibt es nur an der eigenen Nachricht: die Historie
-                  // aus Supabase speichert bewusst keine Bilddaten.
-                  if (imageBytes != null && fromUser) ...<Widget>[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(rCard),
-                      child: LayoutBuilder(
-                        builder: (context, bildConstraints) {
-                          // Gepickte Bilder sind bis 1600px breit — Decode auf
-                          // die Bubble-Breite begrenzen statt voll im Speicher.
-                          final dpr = MediaQuery.devicePixelRatioOf(context);
-                          final w = bildConstraints.maxWidth.isFinite
-                              ? bildConstraints.maxWidth
-                              : 320.0;
-                          return Image.memory(
-                            imageBytes,
-                            height: 160,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            cacheWidth: (w * dpr).round().clamp(1, 1600),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  // /rezept-Vorschlag: die Karte ersetzt den Text-Inhalt der
-                  // Blase (der reply-Text ist die Verlaufs-Zusammenfassung —
-                  // beides zu zeigen sagte dasselbe zweimal).
-                  if (message.recipeProposal != null)
-                    _RecipeProposalCard(
-                      proposal: message.recipeProposal!,
-                      added: recipeAdded,
-                      enabled: recipeAddEnabled,
-                      onAdd: onAddRecipe,
-                    )
-                  else
-                    Text(
-                      message.content,
-                      style: AppType.ui(
-                        13.5,
-                        color: fromUser ? t.onForest : t.ink,
-                        height: 1.5,
-                      ),
-                    ),
-                ],
-              ),
             ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 }
@@ -237,8 +247,7 @@ class _ThinkingRowState extends State<_ThinkingRow>
                         width: 5,
                         height: 5,
                         decoration: BoxDecoration(
-                          color:
-                              t.ink2.withValues(alpha: 0.28 + 0.55 * wert),
+                          color: t.ink2.withValues(alpha: 0.28 + 0.55 * wert),
                           shape: BoxShape.circle,
                         ),
                       ),
