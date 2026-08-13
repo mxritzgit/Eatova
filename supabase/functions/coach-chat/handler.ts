@@ -489,6 +489,50 @@ async function generateRecipeImage(
   }
 }
 
+/// Persistiert die Assistant-Zeile eines Rezept-Vorschlags MIT dem
+/// Rezept-JSON (Spalte chat_messages.recipe, Migration 20260813090000) und
+/// liefert ihre id zurueck — der Client legt das generierte Bild lokal
+/// unter dieser id ab und baut die Karte nach einem Reload aus Verlauf +
+/// Datei wieder auf. null = nicht gespeichert oder id nicht lesbar; die
+/// Response laesst assistant_message_id dann weg (Karte bleibt ephemer,
+/// wie vor dem Nachtrag — kein Fehler).
+async function storeRecipeMessage(
+  serviceKey: string,
+  supabaseUrl: string,
+  row: {
+    user_id: string;
+    session_id: string;
+    content: string;
+    recipe: RecipeDraft;
+  },
+): Promise<string | null> {
+  const resp = await fetch(`${supabaseUrl}/rest/v1/chat_messages?select=id`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${serviceKey}`,
+      "apikey": serviceKey,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation",
+    },
+    body: JSON.stringify({
+      user_id: row.user_id,
+      session_id: row.session_id,
+      role: "assistant",
+      content: row.content,
+      refusal: false,
+      refusal_reason: null,
+      recipe: row.recipe,
+    }),
+  });
+  if (!resp.ok) {
+    console.error(`storeRecipeMessage failed: ${resp.status}`);
+    return null;
+  }
+  const data = await resp.json();
+  const id = Array.isArray(data) ? data[0]?.id : data?.id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 /// Der komplette Recipe-Zweig. Laeuft NACH Auth, Rate-Limits, Prefilter,
 /// Session und Quota-Claim (der Slot ist beim Aufruf bereits reserviert);
 /// Layer 2 (Classifier) entfaellt — den Scope haelt der Rezept-Prompt selbst.
@@ -573,10 +617,11 @@ async function handleRecipeMode(params: {
   const image = await generateRecipeImage(openRouterKey, recipeImagePrompt(draft));
 
   // Best-effort wie im Chat-Pfad: die Zusammenfassung haelt den Verlauf
-  // koherent (Bild-Bytes werden NIE persistiert — Regel wie bei User-Fotos).
+  // koherent; das Rezept-JSON wandert in die Zeile (Reload-Karte), die
+  // Bild-Bytes werden NIE persistiert — Regel wie bei User-Fotos.
   const summary = recipeSummary(draft, locale);
-  await storeMessage(serviceKey, supabaseUrl, {
-    user_id: userId, session_id: sessionId, role: "assistant", content: summary,
+  const assistantMessageId = await storeRecipeMessage(serviceKey, supabaseUrl, {
+    user_id: userId, session_id: sessionId, content: summary, recipe: draft,
   });
   await touchSession(serviceKey, supabaseUrl, sessionId);
 
@@ -586,6 +631,10 @@ async function handleRecipeMode(params: {
     ...(image === null
       ? {}
       : { image_base64: image.base64, image_mime_type: image.mimeType }),
+    // Der Client legt das Bild lokal unter dieser id ab (Reload-Karte).
+    ...(assistantMessageId === null
+      ? {}
+      : { assistant_message_id: assistantMessageId }),
     ...(remaining === null ? {} : { remaining }),
     daily_limit: DAILY_LIMIT,
     session_id: sessionId,

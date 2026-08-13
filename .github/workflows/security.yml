@@ -372,7 +372,15 @@ jobs:
       #                                  -  6 Tests, Antwort-Vertrag gegen den
       #                                    echten Handler (Welle 5 +
       #                                    Rate-Limit-Shape, 2026-08-08)
-      # Summe: 82 Tests. `deno test` ohne Pfadfilter sammelt alle sieben
+      #   coach-chat/recipe_test.ts      -  9 Tests, Rezept-Draft-Logik
+      #                                    (Parse/Klemmen/Prompts,
+      #                                    /recipe-Feature 2026-08-12)
+      #   coach-chat/handler_recipe_test.ts
+      #                                  -  8 Tests, End-to-End Recipe-Mode
+      #                                    (Quota/Refund/Bild-tolerant +
+      #                                    recipe-Spalte & Message-Id,
+      #                                    Nachtrag 2026-08-13)
+      # Summe: 99 Tests. `deno test` ohne Pfadfilter sammelt alle neun
       # Dateien automatisch ein - eine neue *_test.ts-Datei braucht nur diese
       # Aufzaehlung nachgezogen, der Aufruf unten bleibt unveraendert.
       #

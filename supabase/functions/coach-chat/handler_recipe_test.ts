@@ -11,6 +11,7 @@ import { handleRequest } from "./handler.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
+const ASSISTANT_MSG_ID = "33333333-3333-4333-8333-333333333333";
 const BASE_URL = "https://supabase.test.invalid";
 const IMAGE_B64 = "aGFsbG8taWNoLWJpbi1laW4tYmlsZA==";
 
@@ -132,7 +133,15 @@ function installFetch(options: StubOptions = {}): FetchStub {
       });
     }
     if (url.includes("/rest/v1/chat_messages")) {
-      if (method === "POST") return new Response(null, { status: 201 });
+      if (method === "POST") {
+        // Die Rezept-Assistant-Zeile (traegt das recipe-JSON) wird mit
+        // return=representation eingefuegt — der Handler braucht ihre id
+        // fuer assistant_message_id (Reload-Karte, Nachtrag 2026-08-13).
+        if (_body.includes('"recipe"')) {
+          return jsonRes([{ id: ASSISTANT_MSG_ID }], 201);
+        }
+        return new Response(null, { status: 201 });
+      }
       // GET = loadHistory — darf im Recipe-Mode nie passieren; die Tests
       // pruefen das ueber callsTo, deshalb hier kein Wurf.
       return jsonRes([]);
@@ -224,7 +233,7 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
       c.url.includes("/rest/v1/chat_messages") && c.method === "GET"
     );
     assertEquals(historyReads.length, 0, "keine History-Query");
-    // Verlauf: User-Wunsch + Assistant-Summary.
+    // Verlauf: User-Wunsch + Assistant-Summary MIT Rezept-JSON (Reload-Karte).
     const stores = stub.calls.filter((c) =>
       c.url.includes("/rest/v1/chat_messages") && c.method === "POST"
     );
@@ -232,6 +241,16 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
     assert(
       stores[1].body.includes("Rezeptvorschlag"),
       "Assistant-Zeile ist die Summary",
+    );
+    assert(
+      stores[1].body.includes('"recipe"') &&
+        stores[1].body.includes('"Huehnchenauflauf"'),
+      "Assistant-Zeile traegt das Rezept-JSON",
+    );
+    assertEquals(
+      body.assistant_message_id,
+      ASSISTANT_MSG_ID,
+      "assistant_message_id fuer die lokale Bild-Ablage",
     );
   } finally {
     stub.restore();
