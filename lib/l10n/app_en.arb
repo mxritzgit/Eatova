@@ -1174,6 +1174,7 @@
   "foodSourceAiEstimate": "AI estimate",
   "foodSourcePhotoAi": "Photo AI",
   "foodSourceRecipe": "Eatova recipe",
+  "foodSourceManual": "Manual",
   "foodPortionEstimated": "{grams} g estimated",
   "@foodPortionEstimated": {
     "placeholders": {
@@ -1202,9 +1203,11 @@
   "foodConfidenceUnknown": "Unknown",
   "foodConfidenceDatabase": "Database",
   "foodConfidenceRecipe": "Recipe",
+  "foodConfidenceManual": "Own entry",
   "foodScanNoteAutoSplit": "AI recognized this as a combined dish — split into items locally. Please check grams and calories per item.",
   "foodScanNoteItemized": "AI estimate from the photo with individual items. Please check items and grams.",
   "foodScanNotePlain": "AI estimate from the photo. The size wasn't measured exactly; please confirm the portion or adjust the weight.",
+  "foodManualEntryNote": "Nutrition entered manually from the label (per 100 g).",
 
   "notifChannelName": "Eatova reminders",
   "notifChannelDescription": "Daily streak reminder in the evening.",

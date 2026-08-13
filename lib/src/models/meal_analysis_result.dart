@@ -19,6 +19,7 @@ abstract final class _MealResultSourceCodes {
   static const String photoAi = 'photoAi';
   static const String openFoodFacts = 'OpenFoodFacts';
   static const String recipe = 'recipe';
+  static const String manual = 'manual';
 }
 
 /// Dieselbe Konstanten-Ausweichlösung wie [_MealResultSourceCodes], fuer
@@ -35,6 +36,7 @@ abstract final class _MealResultConfidenceCodes {
   static const String unknown = 'unknown';
   static const String database = 'database';
   static const String recipe = 'recipe';
+  static const String manual = 'manual';
 }
 
 /// Sprachneutrale Herkunfts-Klassifizierung eines Scan-Ergebnisses
@@ -58,7 +60,10 @@ enum MealResultSource {
   // Markenname — bereits sprachneutral, code == legacyDe absichtlich gleich.
   openFoodFacts(_MealResultSourceCodes.openFoodFacts,
       legacyDe: 'OpenFoodFacts'),
-  recipe(_MealResultSourceCodes.recipe, legacyDe: 'Eatova Rezept');
+  recipe(_MealResultSourceCodes.recipe, legacyDe: 'Eatova Rezept'),
+  // Manueller Eintrag (Spec 2026-08-13). legacyDe ist hier nur ein
+  // Resolve-Alias — Alt-Zeilen mit diesem Wert gibt es nicht.
+  manual(_MealResultSourceCodes.manual, legacyDe: 'Manuell');
 
   const MealResultSource(this.code, {required this.legacyDe});
 
@@ -79,6 +84,7 @@ enum MealResultSource {
         // Markenname, keine Uebersetzung noetig/erwuenscht.
         MealResultSource.openFoodFacts => 'OpenFoodFacts',
         MealResultSource.recipe => l10n.foodSourceRecipe,
+        MealResultSource.manual => l10n.foodSourceManual,
       };
 
   /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.sourceLabel`)
@@ -113,7 +119,8 @@ enum MealResultConfidence {
   low(_MealResultConfidenceCodes.low, legacyDe: 'Niedrig'),
   unknown(_MealResultConfidenceCodes.unknown, legacyDe: 'Unbekannt'),
   database(_MealResultConfidenceCodes.database, legacyDe: 'Datenbank'),
-  recipe(_MealResultConfidenceCodes.recipe, legacyDe: 'Rezept');
+  recipe(_MealResultConfidenceCodes.recipe, legacyDe: 'Rezept'),
+  manual(_MealResultConfidenceCodes.manual, legacyDe: 'Eigene Angabe');
 
   const MealResultConfidence(this.code, {required this.legacyDe});
 
@@ -132,6 +139,7 @@ enum MealResultConfidence {
         MealResultConfidence.unknown => l10n.foodConfidenceUnknown,
         MealResultConfidence.database => l10n.foodConfidenceDatabase,
         MealResultConfidence.recipe => l10n.foodConfidenceRecipe,
+        MealResultConfidence.manual => l10n.foodConfidenceManual,
       };
 
   /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.confidence`)
@@ -152,9 +160,11 @@ enum MealResultConfidence {
 /// Sprachneutrale Marker fuer die drei hartkodierten Fallback-Texte, die
 /// [MealAnalysisResult.fromEdgeFunction] in `portionNotes` schreibt, wenn das
 /// Modell kein eigenes `explanation` liefert (Review-Fixwelle Scan/Coach-PR,
-/// 2026-08-11).
+/// 2026-08-11), sowie den vierten Marker [manual] fuer
+/// [MealAnalysisResult.manualEntry] (Spec 2026-08-13) — derselbe Fall wie ein
+/// fehlendes `explanation`, nur ohne Modellantwort ueberhaupt.
 ///
-/// **Bewusst NUR diese drei Formulierungen**, nicht `portionNotes` generell:
+/// **Bewusst NUR diese vier Formulierungen**, nicht `portionNotes` generell:
 /// das Feld traegt sonst entweder echten KI-Freitext (`json['explanation']`)
 /// oder von `adjustedToGrams`/`adjustedToItems` rechnerisch gebaute
 /// Anpassungs-Saetze (`'Manuell angepasst: …'` etc.) — beides bleibt bewusst
@@ -180,6 +190,10 @@ enum MealResultPortionNote {
     'aiScanPlainNote',
     legacyDe: 'KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt '
         'vermessen; bitte Portion bestätigen oder Gewicht anpassen.',
+  ),
+  manual(
+    'manualEntryNote',
+    legacyDe: 'Nährwerte manuell nach Etikett eingetragen (pro 100 g).',
   );
 
   const MealResultPortionNote(this.code, {required this.legacyDe});
@@ -196,6 +210,7 @@ enum MealResultPortionNote {
         MealResultPortionNote.autoSplit => l10n.foodScanNoteAutoSplit,
         MealResultPortionNote.itemized => l10n.foodScanNoteItemized,
         MealResultPortionNote.plain => l10n.foodScanNotePlain,
+        MealResultPortionNote.manual => l10n.foodManualEntryNote,
       };
 
   /// Ordnet einen ROHEN, persistierten Wert
@@ -619,9 +634,9 @@ class MealAnalysisResult {
       caloriesKcal: calories,
       estimatedGrams: servingGrams,
       kcalPer100G: kcalPer100G,
-      protein: _macroForGrams(protein100, servingGrams),
-      carbs: _macroForGrams(carbs100, servingGrams),
-      fat: _macroForGrams(fat100, servingGrams),
+      protein: macroForGrams(protein100, servingGrams),
+      carbs: macroForGrams(carbs100, servingGrams),
+      fat: macroForGrams(fat100, servingGrams),
       confidence: _MealResultConfidenceCodes.database,
       portionNotes: details,
       sourceLabel: MealResultSource.openFoodFacts.code,
@@ -632,6 +647,39 @@ class MealAnalysisResult {
       // erfuellt die Bedingung nie, weil der Detektor die Rohfelder liest.
       explicitZeroKcal:
           kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
+    );
+  }
+
+  /// Baut das Ergebnis eines MANUELL eingetragenen Lebensmittels
+  /// (manual_meal_sheet, Spec 2026-08-13): Etikett-Werte pro 100 g plus die
+  /// gegessene Portion. Anders als bei den Parser-Fabriken oben sind die
+  /// Eingaben formularvalidiert — die Klemmen sind reine Defensiv-Schicht,
+  /// keine Reparatur.
+  factory MealAnalysisResult.manualEntry({
+    required String name,
+    required int kcalPer100G,
+    required int grams,
+    int? proteinPer100G,
+    int? carbsPer100G,
+    int? fatPer100G,
+  }) {
+    final zielGramm = clampPortionGrams(grams);
+    final dichte = clampKcalPer100G(kcalPer100G);
+    final kalorien = clampMealCaloriesKcal(dichte * zielGramm / 100);
+    return MealAnalysisResult(
+      mealName: clampMealName(name),
+      caloriesKcal: kalorien,
+      estimatedGrams: zielGramm,
+      kcalPer100G: dichte,
+      protein: macroForGrams(proteinPer100G?.toDouble(), zielGramm),
+      carbs: macroForGrams(carbsPer100G?.toDouble(), zielGramm),
+      fat: macroForGrams(fatPer100G?.toDouble(), zielGramm),
+      confidence: _MealResultConfidenceCodes.manual,
+      portionNotes: 'manualEntryNote',
+      sourceLabel: _MealResultSourceCodes.manual,
+      // Eine AUSDRÜCKLICH eingetragene 0 (Wasser, Zero) ist eine Messung,
+      // kein Unbekannt-Sentinel — nur sie darf die Log-Bremse passieren.
+      explicitZeroKcal: kcalPer100G == 0,
     );
   }
 
@@ -923,7 +971,11 @@ class MealAnalysisResult {
     return null;
   }
 
-  static String _macroForGrams(double? per100G, int grams) {
+  /// Skaliert einen 100-g-Makrowert auf [grams] und formatiert ihn. Oeffentlich
+  /// (statt `_macroForGrams`), weil sowohl [fromOpenFoodFacts] als auch die
+  /// manuelle Factory [manualEntry] denselben Formatierer brauchen — beide
+  /// starten von Etikett-Werten pro 100 g.
+  static String macroForGrams(double? per100G, int grams) {
     if (per100G == null || !per100G.isFinite) {
       return _makroUnbekannt;
     }
