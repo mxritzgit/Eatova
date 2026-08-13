@@ -11,7 +11,7 @@ class _Conversation extends StatelessWidget {
     required this.focus,
     required this.messages,
     required this.sending,
-    required this.addedRecipeIds,
+    required this.recipeAddedFor,
     required this.recipeAddEnabled,
     required this.onAddRecipe,
   });
@@ -21,8 +21,9 @@ class _Conversation extends StatelessWidget {
   final List<ChatMessage> messages;
   final bool sending;
 
-  /// /rezept-Vorschlaege, die bereits uebernommen wurden (Doppel-Add-Sperre).
-  final Set<String> addedRecipeIds;
+  /// „Hinzugefuegt"-Zustand einer /recipe-Karte — der Screen entscheidet
+  /// (erzeugt in dieser Sitzung UND das Rezept existiert noch).
+  final bool Function(ChatMessage message) recipeAddedFor;
   final bool recipeAddEnabled;
   final ValueChanged<ChatMessage> onAddRecipe;
 
@@ -44,7 +45,7 @@ class _Conversation extends StatelessWidget {
           final message = messages[i];
           return _MessageView(
             message: message,
-            recipeAdded: addedRecipeIds.contains(message.id),
+            recipeAdded: recipeAddedFor(message),
             recipeAddEnabled: recipeAddEnabled,
             onAddRecipe: () => onAddRecipe(message),
           );

@@ -366,4 +366,63 @@ void main() {
               'Alt-Bestand mit.');
     });
   });
+
+  group('/recipe-Vorschlagsbilder (Nachtrag 2026-08-13)', () {
+    final bytes = Uint8List.fromList(List<int>.generate(64, (i) => i));
+
+    test('Roundtrip unter der Message-Id, Referenz ist deterministisch',
+        () async {
+      expect(
+        await store.saveProposalImage(messageId: 'msg-1', bytes: bytes),
+        isTrue,
+      );
+      expect(await store.readProposalImage('msg-1'), bytes);
+      // Deterministisch — die Reload-Karte findet ihr Bild ohne Index.
+      expect(
+        RecipeImageStore.proposalReference('msg-1'),
+        'local:proposal_msg-1.jpg',
+      );
+    });
+
+    test('ueberlebt den Neustart (frischer Store, gleiche Platte)', () async {
+      await store.saveProposalImage(messageId: 'msg-1', bytes: bytes);
+      final neu = await neustart();
+      expect(await neu.readProposalImage('msg-1'), bytes);
+    });
+
+    test('ohne angemeldeten Nutzer: kein Save, kein Read (fail-closed)',
+        () async {
+      final ohne = RecipeImageStore(baseDirectory: () async => wurzel);
+      expect(
+        await ohne.saveProposalImage(messageId: 'msg-1', bytes: bytes),
+        isFalse,
+      );
+      expect(await ohne.readProposalImage('msg-1'), isNull);
+    });
+
+    test('Cap: aelteste Vorschlagsbilder fallen, Rezept-Fotos bleiben',
+        () async {
+      // Ein Rezept-Foto (img_*) als Kontrollgruppe fuer den Prune.
+      final fotoRef = await store.save(bytes: _geotaggedJpeg());
+      expect(fotoRef, isNotNull);
+
+      final ueberCap = RecipeImageStore.proposalImageCap + 3;
+      for (var i = 0; i < ueberCap; i++) {
+        expect(
+          await store.saveProposalImage(messageId: 'msg-$i', bytes: bytes),
+          isTrue,
+        );
+        // mtime traegt die Prune-Reihenfolge — Mindestabstand gegen
+        // Zeitstempel-Gleichstand auf groben Dateisystemen.
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      expect(await store.readProposalImage('msg-0'), isNull,
+          reason: 'das aelteste Vorschlagsbild faellt am Cap');
+      expect(await store.readProposalImage('msg-${ueberCap - 1}'), isNotNull,
+          reason: 'das juengste bleibt');
+      expect(await store.resolve(fotoRef!), isNotNull,
+          reason: 'Rezept-Fotos (img_*) beruehrt der Prune nie');
+    });
+  });
 }

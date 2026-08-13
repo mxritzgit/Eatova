@@ -121,6 +121,26 @@ Chat: Vorschlagskarte (ephemer, nur laufende Session)
   (slug user_*, userCreated, Kategorien); Doppel-Add gesperrt; ARB-Parität;
   EN-Render-Smoke; Hartkodierungs-Wächter bleibt grün.
 
+## Nachtrag 2026-08-13 (Nutzer-Feedback nach dem ersten Test)
+
+1. **Karte + Bild ueberleben den Reload.** Neue Spalte
+   `chat_messages.recipe jsonb` (Migration 20260813090000): die
+   Assistant-Zeile traegt das geklemmte Rezept-JSON, `fromRow` baut die
+   Karte aus dem Verlauf wieder auf. Die Function liefert zusaetzlich
+   `assistant_message_id`; der Client legt die Bild-Bytes unter dieser Id
+   lokal ab (RecipeImageStore, deterministische `proposal_<id>.jpg`-Namen,
+   Cap 24, gleiche Purge-/Logout-Regeln wie Rezept-Fotos). Zweitgeraet:
+   Karte mit Platzhalter.
+2. **„Hinzugefuegt" nur solange das Rezept existiert.** Die Karte merkt
+   sich den Slug des erzeugten Rezepts; der Zustand gilt nur, wenn der
+   Slug noch in den Live-Eigen-Rezepten der Schale steht — Loeschen im
+   Rezepte-Tab reaktiviert den Button automatisch.
+3. **Nur noch `/recipe`** (englisch, in beiden App-Sprachen; `/rezept`
+   entfernt). Befehls-Menue: „/" im Composer schlaegt `/recipe` mit
+   lokalisierter Kurzbeschreibung vor, Tap vervollstaendigt. Unbekannte
+   /-Befehle gehen nie ans Modell (lokaler Hinweis statt verbranntem
+   Tages-Slot).
+
 ## Out of Scope
 
 * Bild-Sync über Geräte (Storage-Bucket) — späteres eigenes Feature.

@@ -26,19 +26,24 @@ class ChatMessage {
   /// privat bleibt.
   final Uint8List? imageBytes;
 
-  /// Rezept-Vorschlag aus /rezept — wie [imageBytes] NUR lokal in der
-  /// laufenden Session ([fromRow] setzt es nie): nach Reload/Session-Wechsel
-  /// bleibt die Text-Zusammenfassung aus dem Verlauf, die Karte ist weg.
+  /// Rezept-Vorschlag aus /recipe. Anders als [imageBytes] UEBERLEBT er den
+  /// Reload (Nachtrag 2026-08-13): das Rezept-JSON kommt aus der Spalte
+  /// `chat_messages.recipe` zurueck, [fromRow] baut das Proposal daraus
+  /// wieder auf — nur OHNE Bytes. Das Bild laedt der Screen anschliessend
+  /// aus dem RecipeImageStore nach (geraetelokal; Zweitgeraet = Platzhalter).
   final CoachRecipeProposal? recipeProposal;
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
     final roleRaw = row['role']?.toString() ?? 'assistant';
+    final rawRecipe = row['recipe'];
     return ChatMessage(
       id: row['id']?.toString() ?? '',
       role: roleRaw == 'user' ? ChatRole.user : ChatRole.assistant,
       content: row['content']?.toString() ?? '',
       createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
       refusal: row['refusal'] == true,
+      recipeProposal:
+          rawRecipe is Map ? CoachRecipeProposal.fromJson(rawRecipe) : null,
     );
   }
 

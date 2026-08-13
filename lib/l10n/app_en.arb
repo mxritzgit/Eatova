@@ -475,6 +475,8 @@
   "coachAiNoteBody": "An AI answers here. The tips are an AI estimate, not medical advice.",
   "coachAiNoteCta": "Which data is sent",
   "coachRecipeEmptyHint": "Tell me what recipe you want — e.g. \"/recipe chicken casserole with a photo\".",
+  "coachCommandRecipeDescription": "Creates a new recipe with a matching photo",
+  "coachCommandUnknownHint": "Unknown command. Type \"/\" to see available commands.",
   "coachRecipeCardEyebrow": "RECIPE IDEA",
   "coachRecipeAddButton": "Add recipe",
   "coachRecipeAddedLabel": "Added",

@@ -783,6 +783,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.dailyConsumedKcal,
           _store.macroProgress,
           _store.loggedMeals,
+          // Fuer den „Hinzugefuegt"-Zustand der /recipe-Karten: ein Loeschen
+          // im Rezepte-Tab muss den Karten-Button wieder aktivieren.
+          _store.userRecipes,
         ),
         builder: (context) {
           assert(_countTabBuild(_tabCoach));
@@ -797,10 +800,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             userName: _store.userName,
             streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
             userContext: widget.sync != null ? _store.coachContext : null,
-            // /rezept-Vorschlaege laufen nach der Bestaetigung im Sheet ueber
+            // /recipe-Vorschlaege laufen nach der Bestaetigung im Sheet ueber
             // DENSELBEN 3-Netz-Pfad wie das manuelle Rezept-Formular.
             onCreateRecipe:
                 widget.sync == null ? null : _store.createUserRecipe,
+            userRecipeSlugs: {
+              for (final recipe in _store.userRecipes) recipe.slug,
+            },
           );
         },
       );
