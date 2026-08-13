@@ -97,6 +97,25 @@ class CoachRecipeProposal {
     );
   }
 
+  /// Dasselbe Proposal mit (nachtraeglich von der Platte geladenen)
+  /// Bild-Bytes — fuer die Reload-Karte: das JSON kommt aus dem Verlauf
+  /// (chat_messages.recipe), die Bytes aus dem RecipeImageStore.
+  CoachRecipeProposal withImageBytes(Uint8List bytes) {
+    return CoachRecipeProposal(
+      title: title,
+      description: description,
+      portion: portion,
+      ingredients: ingredients,
+      preparation: preparation,
+      caloriesKcal: caloriesKcal,
+      proteinG: proteinG,
+      carbsG: carbsG,
+      fatG: fatG,
+      estimatedGrams: estimatedGrams,
+      imageBytes: bytes,
+    );
+  }
+
   static int? _toInt(Object? value) {
     if (value is int) return value;
     if (value is num) return value.round();

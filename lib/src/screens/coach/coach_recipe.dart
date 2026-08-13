@@ -207,6 +207,63 @@ class _RecipeAddSheet extends StatelessWidget {
   }
 }
 
+/// Befehls-Menue ueber dem Composer (Nachtrag 2026-08-13): erscheint,
+/// sobald der Entwurf wie ein angefangener Befehl aussieht ("/", "/r", …),
+/// und vervollstaendigt per Tap. Aktuell EIN Befehl (/recipe) — die Liste
+/// waechst mit, sollte je ein zweiter dazukommen.
+class _CommandSuggestions extends StatelessWidget {
+  const _CommandSuggestions({required this.onPick});
+
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Container(
+      key: const ValueKey('coach-command-menu'),
+      margin: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: t.surf,
+        borderRadius: BorderRadius.circular(rCard),
+        border: Border.all(color: t.line),
+        boxShadow: softShadow(t),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: const ValueKey('coach-command-recipe'),
+          // Der Befehl selbst ist bewusst NICHT lokalisiert — nur seine
+          // Beschreibung folgt der App-Sprache.
+          onTap: () => onPick('/recipe'),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '/recipe',
+                  style: AppType.ui(
+                    13.5,
+                    weight: FontWeight.w700,
+                    color: t.accent,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  l10n.coachCommandRecipeDescription,
+                  style: AppType.ui(12, color: t.ink2, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Sektion der Sheet-Vorschau; leere Inhalte fallen komplett weg (kein
 /// Platzhalter-Rauschen — anders als die Detail-Ansicht, die fuer
 /// Bestandsrezepte immer alle Sektionen traegt).

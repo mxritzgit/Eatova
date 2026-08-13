@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/coach_recipe_proposal.dart';
 
 // Coach-Rezept-Generator (Spec 2026-08-12): das Proposal ist die
@@ -54,6 +55,29 @@ void main() {
         CoachRecipeProposal.fromJson(_validJson()..['estimated_g'] = 0);
     expect(proposal, isNotNull);
     expect(proposal!.estimatedGrams, greaterThanOrEqualTo(1));
+  });
+
+  test('ChatMessage.fromRow baut das Proposal aus chat_messages.recipe '
+      '(Reload-Karte, Nachtrag 2026-08-13)', () {
+    final message = ChatMessage.fromRow(<String, dynamic>{
+      'id': 'srv-1',
+      'role': 'assistant',
+      'content': 'Rezeptvorschlag: Huehnchenauflauf.',
+      'refusal': false,
+      'created_at': '2026-08-12T18:00:00Z',
+      'recipe': _validJson(),
+    });
+    expect(message.recipeProposal, isNotNull);
+    expect(message.recipeProposal!.title, 'Huehnchenauflauf');
+    expect(message.recipeProposal!.imageBytes, isNull,
+        reason: 'Bytes kommen nie aus der DB — nur aus dem lokalen Store');
+
+    final ohne = ChatMessage.fromRow(<String, dynamic>{
+      'role': 'assistant',
+      'content': 'normale Antwort',
+      'created_at': '2026-08-12T18:00:00Z',
+    });
+    expect(ohne.recipeProposal, isNull);
   });
 
   test('toFitnessRecipe baut ein Eigen-Rezept nach den Haus-Regeln', () {

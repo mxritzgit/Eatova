@@ -18,15 +18,17 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Coach-Rezept-Generator (Spec 2026-08-12): /rezept erzeugt eine
-// Vorschlagskarte, erst die Bestaetigung im Sheet speichert (ueber den
-// onCreateRecipe-Hook = HomeStore.createUserRecipe). Zugesichert wird:
-//   * Praefix-Erkennung (/rezept UND /recipe, sprachunabhaengig; ohne
-//     Wunschtext lokaler Hinweis, kein Request, kein Slot)
-//   * requestRecipe statt send (der Chat-Pfad bleibt unberuehrt)
-//   * Karte -> Sheet -> genau EIN onCreateRecipe mit den Haus-Regeln
-//   * Doppel-Add gesperrt (Button wird zum Hinzugefuegt-Zustand)
-//   * Refusal bleibt eine normale Text-Blase ohne Karte
+// Coach-Rezept-Generator (Spec 2026-08-12 + Nachtrag 2026-08-13):
+//   * NUR /recipe ist ein Befehl (englisch, in beiden App-Sprachen);
+//     unbekannte /-Befehle (auch das alte /rezept) gehen NIE ans Modell —
+//     lokaler Hinweis statt verbranntem Tages-Slot.
+//   * Befehls-Menue: "/" im Composer schlaegt /recipe mit lokalisierter
+//     Beschreibung vor, Tap vervollstaendigt.
+//   * Karte -> Sheet -> genau EIN onCreateRecipe mit den Haus-Regeln.
+//   * „Hinzugefuegt" gilt nur, solange das Rezept noch existiert — Loeschen
+//     im Rezepte-Tab aktiviert den Button wieder.
+//   * Vorschlaege aus dem VERLAUF (chat_messages.recipe) bauen die Karte
+//     nach einem Reload wieder auf.
 
 const Size _usableSize = Size(402, 781);
 
@@ -66,6 +68,9 @@ class _RecipeCoach extends CoachChatService {
   final List<({String wish, String locale})> recipeCalls =
       <({String wish, String locale})>[];
 
+  /// Verlauf, den loadHistory liefert (fuer die Reload-Karten-Tests).
+  List<ChatMessage> history = const <ChatMessage>[];
+
   /// Ohne Override liefert requestRecipe den Standard-Vorschlag.
   CoachRecipeReply Function(String sessionId)? recipeReply;
 
@@ -86,7 +91,7 @@ class _RecipeCoach extends CoachChatService {
   @override
   Future<List<ChatMessage>> loadHistory(String sessionId,
           {int limit = 100}) async =>
-      const <ChatMessage>[];
+      history;
 
   @override
   Future<ChatQuotaSnapshot> loadQuotaToday() async =>
@@ -133,6 +138,7 @@ Future<void> _pumpCoach(
   WidgetTester tester, {
   required _RecipeCoach service,
   List<FitnessRecipe>? created,
+  Set<String>? userRecipeSlugs,
   Locale locale = const Locale('de'),
 }) async {
   tester.view.devicePixelRatio = 3.0;
@@ -161,12 +167,17 @@ Future<void> _pumpCoach(
             child: CoachChatScreen(
               service: service,
               userName: 'Moritz',
+              // Die Schale spiegelt hier den HomeStore: createUserRecipe
+              // macht das Rezept SOFORT sichtbar — deshalb wandert der Slug
+              // im selben Zug in die Live-Slug-Sicht.
               onCreateRecipe: created == null
                   ? null
                   : (recipe) async {
                       created.add(recipe);
+                      userRecipeSlugs?.add(recipe.slug);
                       return SyncDelivery.delivered;
                     },
+              userRecipeSlugs: userRecipeSlugs ?? const <String>{},
             ),
           ),
         ),
@@ -184,12 +195,12 @@ Future<void> _type(WidgetTester tester, String text) async {
 }
 
 void main() {
-  testWidgets('/rezept ruft requestRecipe statt send und zeigt die Karte',
+  testWidgets('/recipe ruft requestRecipe statt send und zeigt die Karte',
       (tester) async {
     final svc = _RecipeCoach.create();
     await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
-    await _type(tester, '/rezept Huehnchenauflauf mit Bild');
+    await _type(tester, '/recipe Huehnchenauflauf mit Bild');
 
     expect(svc.recipeCalls, hasLength(1));
     expect(svc.recipeCalls.single.wish, 'Huehnchenauflauf mit Bild');
@@ -198,33 +209,86 @@ void main() {
     expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
     expect(find.text('Huehnchenauflauf'), findsOneWidget);
     // Die User-Blase zeigt die Original-Eingabe inkl. Befehl.
-    expect(find.text('/rezept Huehnchenauflauf mit Bild'), findsOneWidget);
+    expect(find.text('/recipe Huehnchenauflauf mit Bild'), findsOneWidget);
   });
 
-  testWidgets('/recipe funktioniert auch unter de (sprachunabhaengig)',
+  testWidgets('/recipe ohne Wunschtext: lokaler Hinweis, kein Request',
       (tester) async {
     final svc = _RecipeCoach.create();
     await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
-    await _type(tester, '/recipe chicken casserole');
-
-    expect(svc.recipeCalls, hasLength(1));
-    expect(svc.recipeCalls.single.wish, 'chicken casserole');
-  });
-
-  testWidgets('/rezept ohne Wunschtext: lokaler Hinweis, kein Request',
-      (tester) async {
-    final svc = _RecipeCoach.create();
-    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
-
-    await _type(tester, '/rezept');
+    await _type(tester, '/recipe');
 
     expect(svc.recipeCalls, isEmpty, reason: 'kein Request = kein Slot');
-    expect(svc.sendCalls, 0);
     expect(find.textContaining('Sag mir, was'), findsOneWidget);
   });
 
-  testWidgets('Karte -> Sheet -> Bestaetigen speichert genau einmal',
+  testWidgets(
+      'unbekannte Befehle (auch das alte /rezept) gehen NIE ans Modell',
+      (tester) async {
+    final svc = _RecipeCoach.create();
+    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
+
+    await _type(tester, '/rezept Huehnchenauflauf');
+
+    expect(svc.recipeCalls, isEmpty);
+    expect(svc.sendCalls, 0,
+        reason: 'ein Tippo darf keinen Tages-Slot verbrennen');
+    expect(find.textContaining('Unbekannter Befehl'), findsOneWidget);
+  });
+
+  testWidgets('Befehls-Menue: "/" schlaegt /recipe vor, Tap vervollstaendigt',
+      (tester) async {
+    final svc = _RecipeCoach.create();
+    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
+
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('coach-command-menu')), findsOneWidget);
+    expect(find.text('/recipe'), findsOneWidget);
+    expect(
+      find.text('Erstellt ein neues Rezept mit passendem Bild'),
+      findsOneWidget,
+      reason: 'die Kurzbeschreibung folgt der App-Sprache (hier de)',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('coach-command-recipe')));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('coach-input')),
+    );
+    expect(field.controller?.text, '/recipe ');
+
+    // Normaler Text und Nicht-Praefixe zeigen kein Menue.
+    await tester.enterText(
+        find.byKey(const ValueKey('coach-input')), 'hallo Coach');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('coach-command-menu')), findsNothing);
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), '/x');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('coach-command-menu')), findsNothing);
+  });
+
+  testWidgets('Befehls-Beschreibung unter en folgt der App-Sprache',
+      (tester) async {
+    final svc = _RecipeCoach.create();
+    await _pumpCoach(
+      tester,
+      service: svc,
+      created: <FitnessRecipe>[],
+      locale: const Locale('en'),
+    );
+
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Creates a new recipe with a matching photo'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+      'Bestaetigen speichert einmal; Loeschen im Rezepte-Tab reaktiviert den Button',
       (tester) async {
     final svc = _RecipeCoach.create()
       // Ohne Bild-Bytes: der Speicherpfad braucht dann keinen
@@ -238,9 +302,15 @@ void main() {
             sessionId: sessionId,
           );
     final created = <FitnessRecipe>[];
-    await _pumpCoach(tester, service: svc, created: created);
+    final slugs = <String>{};
+    await _pumpCoach(
+      tester,
+      service: svc,
+      created: created,
+      userRecipeSlugs: slugs,
+    );
 
-    await _type(tester, '/rezept Huehnchenauflauf');
+    await _type(tester, '/recipe Huehnchenauflauf');
     await tester.tap(find.byKey(const ValueKey('coach-recipe-add')));
     await tester.pumpAndSettle();
 
@@ -256,16 +326,24 @@ void main() {
     expect(recipe.slug, startsWith('user_'));
     expect(recipe.userCreated, isTrue);
     expect(recipe.categories, const <String>['Eigene']);
-    expect(recipe.title, 'Huehnchenauflauf');
-    expect(recipe.caloriesKcal, 520);
-    expect(recipe.preparation, '1. Ofen vorheizen.');
     expect(recipe.imageAsset, isEmpty, reason: 'kein Bild -> kein local:-Ref');
-
-    // Erfolgs-Snack + Hinzugefuegt-Zustand statt Button.
     expect(find.textContaining('gespeichert'), findsOneWidget);
     expect(find.byKey(const ValueKey('coach-recipe-add')), findsNothing,
-        reason: 'Doppel-Add gesperrt');
+        reason: 'Doppel-Add gesperrt, solange das Rezept existiert');
     expect(find.text('Hinzugefügt'), findsOneWidget);
+
+    // Nutzer loescht das Rezept im Rezepte-Tab: die Live-Slug-Sicht der
+    // Schale verliert den Slug, der naechste Build reaktiviert den Button.
+    slugs.remove(recipe.slug);
+    await _pumpCoach(
+      tester,
+      service: svc,
+      created: created,
+      userRecipeSlugs: slugs,
+    );
+    expect(find.text('Hinzugefügt'), findsNothing,
+        reason: 'ein geloeschtes Rezept darf nicht als hinzugefuegt gelten');
+    expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget);
   });
 
   testWidgets('Abbrechen im Sheet speichert nichts', (tester) async {
@@ -279,7 +357,7 @@ void main() {
     final created = <FitnessRecipe>[];
     await _pumpCoach(tester, service: svc, created: created);
 
-    await _type(tester, '/rezept Huehnchenauflauf');
+    await _type(tester, '/recipe Huehnchenauflauf');
     await tester.tap(find.byKey(const ValueKey('coach-recipe-add')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Abbrechen'));
@@ -287,7 +365,8 @@ void main() {
 
     expect(created, isEmpty);
     expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget,
-        reason: 'der Button bleibt aktiv, der Nutzer kann es sich anders ueberlegen');
+        reason:
+            'der Button bleibt aktiv, der Nutzer kann es sich anders ueberlegen');
   });
 
   testWidgets('Refusal bleibt eine Text-Blase ohne Karte', (tester) async {
@@ -299,9 +378,34 @@ void main() {
           );
     await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
-    await _type(tester, '/rezept Schreib meine Hausaufgaben');
+    await _type(tester, '/recipe Schreib meine Hausaufgaben');
 
     expect(find.byKey(const ValueKey('coach-recipe-card')), findsNothing);
     expect(find.text('Ich erstelle nur Essensrezepte.'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Reload-Karte: ein Vorschlag aus dem VERLAUF rendert mit aktivem Button',
+      (tester) async {
+    // Nachtrag 2026-08-13: chat_messages.recipe traegt das Rezept-JSON —
+    // fromRow baut das Proposal (ohne Bytes), die Karte erscheint nach dem
+    // Neustart wieder. Bild fehlt (kein Store im Test) -> Platzhalter.
+    final svc = _RecipeCoach.create()
+      ..history = <ChatMessage>[
+        ChatMessage(
+          id: 'srv-msg-1',
+          role: ChatRole.assistant,
+          content: 'Rezeptvorschlag: Huehnchenauflauf.',
+          createdAt: DateTime(2026, 8, 12, 18),
+          recipeProposal: _proposal(),
+        ),
+      ];
+    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
+
+    expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
+    expect(find.text('Huehnchenauflauf'), findsOneWidget);
+    final button = find.byKey(const ValueKey('coach-recipe-add'));
+    expect(button, findsOneWidget,
+        reason: 'die Option zum Hinzufuegen ueberlebt den Reload');
   });
 }

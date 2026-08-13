@@ -164,7 +164,9 @@ class CoachChatService {
     try {
       final rows = await _client
           .from('chat_messages')
-          .select('id, role, content, refusal, created_at')
+          // `recipe` (Migration 20260813090000): das Rezept-JSON eines
+          // /recipe-Vorschlags — die Karte ueberlebt damit den Reload.
+          .select('id, role, content, refusal, created_at, recipe')
           .eq('user_id', _userId)
           .eq('session_id', sessionId)
           .inFilter('role', ['user', 'assistant'])
@@ -382,6 +384,11 @@ class CoachChatService {
             ? (map['daily_limit'] as num).toInt()
             : null,
         sessionId: map['session_id']?.toString() ?? sessionId,
+        // Fuer die lokale Bild-Ablage (Reload-Karte); fehlt bei aelteren
+        // Function-Deployments oder wenn der Insert scheiterte.
+        assistantMessageId: map['assistant_message_id'] is String
+            ? map['assistant_message_id'] as String
+            : null,
       );
     } on CoachQuotaExceeded {
       rethrow;
@@ -520,6 +527,7 @@ class CoachRecipeReply {
     this.proposal,
     this.remaining,
     this.dailyLimit,
+    this.assistantMessageId,
   });
 
   final String reply;
@@ -528,6 +536,11 @@ class CoachRecipeReply {
   final CoachRecipeProposal? proposal;
   final int? remaining;
   final int? dailyLimit;
+
+  /// id der persistierten Assistant-Zeile (chat_messages) — Schluessel der
+  /// lokalen Bild-Ablage, damit die Karte den Reload ueberlebt. null bei
+  /// aelteren Function-Deployments: die Karte ist dann nur ephemer.
+  final String? assistantMessageId;
 }
 
 class CoachChatException implements Exception {

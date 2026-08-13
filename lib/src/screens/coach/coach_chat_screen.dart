@@ -61,18 +61,25 @@ class CoachChatScreen extends StatefulWidget {
     this.imagePicker,
     this.speechInput = const CoachSpeechInput(),
     this.onCreateRecipe,
+    this.userRecipeSlugs = const <String>{},
   });
 
   final CoachChatService? service;
   final String userName;
 
-  /// Persistenz-Hook fuer /rezept-Vorschlaege — die Schale reicht
+  /// Persistenz-Hook fuer /recipe-Vorschlaege — die Schale reicht
   /// `HomeStore.createUserRecipe` herein (derselbe 3-Netz-Pfad wie das
   /// manuelle Rezept-Formular). Der Coach selbst hat KEINE Rechte: der Hook
   /// laeuft ausschliesslich, nachdem der Nutzer im Sheet bestaetigt hat.
   /// null (Vorschau/Test ohne Sync): die Karte erscheint, der
   /// Hinzufuegen-Knopf bleibt ohne Wirkung deaktiviert.
   final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
+
+  /// Slugs der aktuell existierenden Eigen-Rezepte (Live-Sicht der Schale).
+  /// Traegt den „Hinzugefuegt"-Zustand der Karten: er gilt nur, solange das
+  /// erzeugte Rezept noch existiert — nach einem Loeschen im Rezepte-Tab
+  /// wird der Button von selbst wieder aktiv.
+  final Set<String> userRecipeSlugs;
 
   /// Anzeige-Streak fuer die Pill oben links. Der Aufrufer reicht
   /// `lifetimeStats.effectiveStreakOn(now)` herein — nie `currentStreak`
@@ -117,9 +124,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// dann darf der Hero-Leerzustand ihn nicht als „leer" praesentieren.
   bool _historyUnavailable = false;
 
-  /// Nachrichten, deren /rezept-Vorschlag bereits uebernommen wurde — der
-  /// Karten-Button wird dann zum „Hinzugefuegt"-Zustand (kein Doppel-Add).
-  final Set<String> _addedRecipeMessageIds = <String>{};
+  /// Slug des aus einer Karte erzeugten Eigen-Rezepts, pro Message-Id.
+  /// „Hinzugefuegt" gilt nur, solange das Rezept WIRKLICH noch existiert
+  /// ([_isRecipeAdded] prueft gegen [CoachChatScreen.userRecipeSlugs]) —
+  /// loescht der Nutzer es im Rezepte-Tab, wird der Karten-Button von
+  /// selbst wieder aktiv.
+  final Map<String, String> _createdRecipeSlugByMessage = <String, String>{};
 
   /// Ein Uebernehmen laeuft gerade (Bild ablegen + createUserRecipe) —
   /// sperrt alle Karten-Buttons, bis der Ausgang da ist.
@@ -305,7 +315,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       });
       return;
     }
-    final List<ChatMessage> history;
+    List<ChatMessage> history;
     try {
       history = await svc.loadHistory(activeId);
     } on CoachDataUnavailable {
@@ -320,6 +330,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
     _historyUnavailable = false;
+    history = await _hydrateProposalImages(history);
     // Unbekannt bleibt unbekannt: der zuletzt bekannte Stand (beim Kaltstart
     // keiner) ueberlebt, statt durch eine Vermutung ersetzt zu werden.
     ChatQuotaSnapshot? quota = _quota;
@@ -392,7 +403,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       _activeSessionId = sessionId;
       _messages = const <ChatMessage>[];
     });
-    final List<ChatMessage> history;
+    List<ChatMessage> history;
     try {
       history = await svc.loadHistory(sessionId);
     } on CoachDataUnavailable {
@@ -404,6 +415,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       });
       return;
     }
+    history = await _hydrateProposalImages(history);
     if (!mounted) return;
     setState(() {
       _messages = history;
@@ -504,11 +516,16 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
 
-    // /rezept- bzw. /recipe-Befehl (Spec 2026-08-12): eigener Pfad ueber
-    // requestRecipe. Nur im reinen Textfall — ein angehaengtes Foto ist eine
-    // normale Coach-Frage (z.B. "was ist das?" mit Bild), kein Rezeptwunsch.
-    final recipeWish = hasImage ? null : _recipeWishFrom(text);
-    if (recipeWish != null) {
+    // Slash-Befehle (Nachtrag 2026-08-13: nur noch /recipe). Nur im reinen
+    // Textfall — ein angehaengtes Foto ist eine normale Coach-Frage (z.B.
+    // "was ist das?" mit Bild), kein Befehl. Ein UNBEKANNTER /-Befehl geht
+    // nie ans Modell: das waere ein verbrannter Tages-Slot fuer einen Tippo.
+    if (!hasImage && text.startsWith('/')) {
+      final recipeWish = _recipeWishFrom(text);
+      if (recipeWish == null) {
+        setState(() => _error = l10n.coachCommandUnknownHint);
+        return;
+      }
       if (recipeWish.isEmpty) {
         // Ohne Wunschtext gibt es nichts zu generieren: lokaler Hinweis,
         // kein Request, kein Tages-Slot.
@@ -607,17 +624,71 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
 
-  /// Erkennt den /rezept- bzw. /recipe-Befehl am Zeilenanfang. Liefert den
-  /// Wunschtext ('' wenn nach dem Befehl nichts steht), sonst null. Beide
-  /// Praefixe gelten unabhaengig von der App-Sprache — wer den englischen
-  /// Befehl kennt, soll ihn auch unter de nutzen koennen (und umgekehrt).
+  /// Erkennt den /recipe-Befehl am Zeilenanfang (Nachtrag 2026-08-13:
+  /// englisch als EINZIGE Schreibweise, in beiden App-Sprachen — die
+  /// Discoverability uebernimmt das Befehls-Menue beim Tippen von "/").
+  /// Liefert den Wunschtext ('' wenn nach dem Befehl nichts steht), sonst
+  /// null (kein bzw. unbekannter Befehl).
   static String? _recipeWishFrom(String text) {
     final match = RegExp(
-      r'^/(rezept|recipe)(?:\s+([\s\S]*))?$',
+      r'^/recipe(?:\s+([\s\S]*))?$',
       caseSensitive: false,
     ).firstMatch(text.trim());
     if (match == null) return null;
-    return (match.group(2) ?? '').trim();
+    return (match.group(1) ?? '').trim();
+  }
+
+  /// Das Befehls-Menue erscheint, solange der Entwurf wie ein angefangener
+  /// Befehl aussieht: beginnt mit "/", noch ohne Leerzeichen, und ist ein
+  /// Praefix von "/recipe".
+  bool get _commandMenuVisible {
+    final draft = _draft.trimLeft();
+    if (!draft.startsWith('/')) return false;
+    if (draft.contains(' ') || draft.contains('\n')) return false;
+    return '/recipe'.startsWith(draft.toLowerCase());
+  }
+
+  /// Tap auf einen Menue-Eintrag: Befehl samt trennendem Leerzeichen ins
+  /// Feld, Cursor ans Ende — der Nutzer tippt direkt den Wunsch.
+  void _applyCommand(String command) {
+    HapticFeedback.selectionClick();
+    _input.text = '$command ';
+    _input.selection = TextSelection.collapsed(offset: _input.text.length);
+    _inputFocus.requestFocus();
+  }
+
+  /// „Hinzugefuegt" nur, wenn diese Karte in DIESER Sitzung ein Rezept
+  /// erzeugt hat UND es noch existiert (Live-Slugs der Schale).
+  bool _isRecipeAdded(ChatMessage message) {
+    final slug = _createdRecipeSlugByMessage[message.id];
+    return slug != null && widget.userRecipeSlugs.contains(slug);
+  }
+
+  /// Reload-Karten (Nachtrag 2026-08-13): Proposals aus dem Verlauf kommen
+  /// OHNE Bytes — hier die lokal abgelegten Vorschlagsbilder nachladen
+  /// (RecipeImageStore, gekeyt an der Message-Id). Fehlende Dateien
+  /// (Zweitgeraet, Cap-Prune, Logout dazwischen) bleiben Platzhalter.
+  Future<List<ChatMessage>> _hydrateProposalImages(
+    List<ChatMessage> history,
+  ) async {
+    final result = List<ChatMessage>.of(history);
+    for (var i = 0; i < result.length; i++) {
+      final message = result[i];
+      final proposal = message.recipeProposal;
+      if (proposal == null || proposal.imageBytes != null) continue;
+      final bytes =
+          await RecipeImageStore.instance.readProposalImage(message.id);
+      if (bytes == null) continue;
+      result[i] = ChatMessage(
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        refusal: message.refusal,
+        recipeProposal: proposal.withImageBytes(bytes),
+      );
+    }
+    return result;
   }
 
   /// Spiegel von [_send] fuer den Rezept-Pfad: optimistische User-Blase mit
@@ -656,11 +727,22 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         userContext: widget.userContext,
       );
       if (!mounted) return;
+      // Reload-Karte (Nachtrag 2026-08-13): das Bild unter der SERVER-
+      // Message-Id lokal ablegen — dieselbe Id traegt die Nachricht, damit
+      // Verlaufs-Rekonstruktion und Live-Karte denselben Schluessel nutzen.
+      final serverId = res.assistantMessageId;
+      final imageBytes = res.proposal?.imageBytes;
+      if (serverId != null && imageBytes != null) {
+        unawaited(RecipeImageStore.instance.saveProposalImage(
+          messageId: serverId,
+          bytes: imageBytes,
+        ));
+      }
       setState(() {
         _messages = [
           ..._messages,
           ChatMessage(
-            id: 'local-r-${DateTime.now().microsecondsSinceEpoch}',
+            id: serverId ?? 'local-r-${DateTime.now().microsecondsSinceEpoch}',
             role: ChatRole.assistant,
             content: res.reply,
             createdAt: DateTime.now(),
@@ -713,7 +795,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     final proposal = message.recipeProposal;
     final onCreate = widget.onCreateRecipe;
     if (proposal == null || onCreate == null || _addingRecipe) return;
-    if (_addedRecipeMessageIds.contains(message.id)) return;
+    if (_isRecipeAdded(message)) return;
     HapticFeedback.selectionClick();
     final confirmed = await showEatovaSheet<bool>(
       context,
@@ -748,7 +830,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     if (!mounted) return;
     setState(() {
       _addingRecipe = false;
-      _addedRecipeMessageIds.add(message.id);
+      _createdRecipeSlugByMessage[message.id] = recipe.slug;
     });
     HapticFeedback.lightImpact();
     showAppSnack(
@@ -1057,7 +1139,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                         focus: _inputFocus,
                         messages: _messages,
                         sending: _sending,
-                        addedRecipeIds: _addedRecipeMessageIds,
+                        recipeAddedFor: _isRecipeAdded,
                         // Ohne Hook (Vorschau/Test ohne Sync) und waehrend
                         // eines laufenden Uebernehmens bleiben die
                         // Karten-Buttons deaktiviert.
@@ -1068,6 +1150,9 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
           ),
         ),
         if (_error != null) _ErrorBanner(text: _error!),
+        // Befehls-Menue (Nachtrag 2026-08-13): erscheint beim Tippen von "/"
+        // direkt ueber dem Composer; Tap vervollstaendigt den Befehl.
+        if (_commandMenuVisible) _CommandSuggestions(onPick: _applyCommand),
         const SizedBox(height: 8),
         _Composer(
           controller: _input,

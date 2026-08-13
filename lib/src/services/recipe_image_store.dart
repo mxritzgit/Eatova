@@ -305,6 +305,98 @@ class RecipeImageStore {
     }
   }
 
+  // --- /rezept-Vorschlagsbilder (Nachtrag 2026-08-13) -----------------------
+  // Das KI-Bild eines Coach-Rezept-Vorschlags soll den Reload ueberleben:
+  // das Rezept-JSON kommt aus chat_messages.recipe zurueck, die Bytes liegen
+  // HIER — unter einem DETERMINISTISCHEN Namen pro Chat-Message-Id, damit
+  // die Karte ihr Bild ohne eigenen Index wiederfindet. Gleiche
+  // Lebensdauer-Regeln wie Rezept-Fotos (Namensraum pro User, Purge bei
+  // Identitaetswechsel, clear() beim Logout); zusaetzlich kappt jeder Save
+  // den Bestand auf die juengsten [proposalImageCap] Dateien — Vorschlaege,
+  // die nie uebernommen werden, sollen die Platte nicht fuellen.
+  //
+  // Kein EXIF-Scrub: die Bytes stammen aus der EIGENEN Image-API der
+  // Function (maschinell erzeugtes JPEG, keine Kamera-Metadaten, keine
+  // Koordinaten) — der [save]-Scrub gilt fuer NUTZER-Fotos. Beim Uebernehmen
+  // ins Rezept laeuft trotzdem [save] (eigene Kopie, eigener Lebenszyklus).
+
+  /// Obergrenze gleichzeitig vorgehaltener Vorschlagsbilder pro Nutzer.
+  static const int proposalImageCap = 24;
+
+  static const String _proposalPrefix = 'proposal_';
+
+  /// `local:`-Referenz des Vorschlagsbilds zu [messageId] (chat_messages.id).
+  static String proposalReference(String messageId) =>
+      '$referencePrefix$_proposalPrefix${_sanitize(messageId)}.jpg';
+
+  /// Legt das Vorschlagsbild ab. false = nicht abgelegt (niemand angemeldet,
+  /// kein Ablageort, Schreibfehler) — die Karte lebt dann nur bis zum Reload,
+  /// wie vor dem Nachtrag. Kappt danach den Bestand (aelteste zuerst).
+  Future<bool> saveProposalImage({
+    required String messageId,
+    required Uint8List bytes,
+  }) async {
+    final namespace = await _ensureNamespace();
+    if (namespace == null) return false;
+    try {
+      if (!await namespace.exists()) await namespace.create(recursive: true);
+      final name = '$_proposalPrefix${_sanitize(messageId)}.jpg';
+      final file = File('${namespace.path}/$name');
+      await file.writeAsBytes(bytes, flush: true);
+      await _pruneProposalImages(namespace);
+      return true;
+    } catch (e, s) {
+      dev.log('RecipeImageStore: Vorschlagsbild nicht abgelegt',
+          error: e, stackTrace: s, name: 'recipe_image_store');
+      return false;
+    }
+  }
+
+  /// Bytes des Vorschlagsbilds zu [messageId] — null, wenn es (auf diesem
+  /// Geraet, in diesem Namensraum) nicht liegt.
+  Future<Uint8List?> readProposalImage(String messageId) async {
+    final file = await resolve(proposalReference(messageId));
+    if (file == null) return null;
+    try {
+      return await file.readAsBytes();
+    } catch (e) {
+      dev.log('RecipeImageStore: Vorschlagsbild nicht lesbar',
+          error: e, name: 'recipe_image_store');
+      return null;
+    }
+  }
+
+  /// Aelteste Vorschlagsbilder ueber [proposalImageCap] hinaus loeschen.
+  /// Rezept-Fotos (img_*-Dateien) bleiben unberuehrt.
+  Future<void> _pruneProposalImages(Directory namespace) async {
+    try {
+      final proposals = <File>[];
+      await for (final entity in namespace.list(followLinks: false)) {
+        if (entity is! File) continue;
+        if (entity.uri.pathSegments.last.startsWith(_proposalPrefix)) {
+          proposals.add(entity);
+        }
+      }
+      if (proposals.length <= proposalImageCap) return;
+      final dated = <(File, DateTime)>[];
+      for (final file in proposals) {
+        dated.add((file, (await file.stat()).modified));
+      }
+      dated.sort((a, b) => a.$2.compareTo(b.$2));
+      for (final entry in dated.take(dated.length - proposalImageCap)) {
+        try {
+          await entry.$1.delete();
+        } catch (_) {
+          // Einzelner Fehlschlag: beim naechsten Save faellt die Datei erneut
+          // unter den Cap-Kandidaten — kein Grund, den Save scheitern zu lassen.
+        }
+      }
+    } catch (e) {
+      dev.log('RecipeImageStore: Vorschlags-Prune fehlgeschlagen',
+          error: e, name: 'recipe_image_store');
+    }
+  }
+
   // --- Aufraeumen -----------------------------------------------------------
 
   /// Loescht das Bild zu [imageAsset] im Namensraum des aktiven Nutzers.
