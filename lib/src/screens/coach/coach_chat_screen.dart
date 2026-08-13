@@ -495,7 +495,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     final typedText = textOverride ?? _input.text;
     final text = typedText.trim();
     final hasImage = imageBytes != null && imageBytes.isNotEmpty;
-    if (svc == null || sessionId == null || _sending || (text.isEmpty && !hasImage)) return;
+    if (svc == null ||
+        sessionId == null ||
+        _sending ||
+        (text.isEmpty && !hasImage)) {
+      return;
+    }
     // Der Service haelt bewusst keinen BuildContext (s. `coach_chat_service.dart`)
     // — hier, unmittelbar vor dem Sendeversuch, ist `l10n` frisch aus dem
     // Context gelesen und wird nur fuer die Fallback-Fehlertexte gebraucht.
@@ -504,8 +509,9 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     // unbekannt, laeuft der Versuch bewusst zum Server — der weiss es genau
     // und antwortet notfalls mit 429 (-> CoachQuotaExceeded weiter unten).
     if (_kontingentErschoepft) {
-      setState(() =>
-          _error = l10n.coachErrorDailyLimitReached(_limitFuerAnzeige));
+      setState(
+        () => _error = l10n.coachErrorDailyLimitReached(_limitFuerAnzeige),
+      );
       return;
     }
 
@@ -657,8 +663,9 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// Rezepte-Tab reaktiviert den Button von selbst (Spec 2026-08-13).
   bool _isRecipeAdded(ChatMessage message) {
     if (message.recipeProposal == null) return false;
-    return widget.userRecipeSlugs
-        .contains(FitnessRecipe.coachProposalSlug(message.id));
+    return widget.userRecipeSlugs.contains(
+      FitnessRecipe.coachProposalSlug(message.id),
+    );
   }
 
   /// Reload-Karten (Nachtrag 2026-08-13): Proposals aus dem Verlauf kommen
@@ -673,8 +680,9 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       final message = result[i];
       final proposal = message.recipeProposal;
       if (proposal == null || proposal.imageBytes != null) continue;
-      final bytes =
-          await RecipeImageStore.instance.readProposalImage(message.id);
+      final bytes = await RecipeImageStore.instance.readProposalImage(
+        message.id,
+      );
       if (bytes == null) continue;
       result[i] = ChatMessage(
         id: message.id,
@@ -730,10 +738,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       final serverId = res.assistantMessageId;
       final imageBytes = res.proposal?.imageBytes;
       if (serverId != null && imageBytes != null) {
-        unawaited(RecipeImageStore.instance.saveProposalImage(
-          messageId: serverId,
-          bytes: imageBytes,
-        ));
+        unawaited(
+          RecipeImageStore.instance.saveProposalImage(
+            messageId: serverId,
+            bytes: imageBytes,
+          ),
+        );
       }
       setState(() {
         _messages = [
@@ -1117,7 +1127,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         ),
         Expanded(
           child: AnimatedSwitcher(
-            duration: motionDuration(context, const Duration(milliseconds: 220)),
+            duration: motionDuration(
+              context,
+              const Duration(milliseconds: 220),
+            ),
             child: _loading
                 ? const Center(
                     key: ValueKey('coach-loading'),
@@ -1129,23 +1142,23 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                     ),
                   )
                 : isHero
-                    ? _CoachHero(
-                        name: widget.userName,
-                        onDisclosureTap: _openCoachInfoSheet,
-                      )
-                    : _Conversation(
-                        controller: _scroll,
-                        focus: _inputFocus,
-                        messages: _messages,
-                        sending: _sending,
-                        recipeAddedFor: _isRecipeAdded,
-                        // Ohne Hook (Vorschau/Test ohne Sync) und waehrend
-                        // eines laufenden Uebernehmens bleiben die
-                        // Karten-Buttons deaktiviert.
-                        recipeAddEnabled:
-                            widget.onCreateRecipe != null && !_addingRecipe,
-                        onAddRecipe: _addProposalToRecipes,
-                      ),
+                ? _CoachHero(
+                    name: widget.userName,
+                    onDisclosureTap: _openCoachInfoSheet,
+                  )
+                : _Conversation(
+                    controller: _scroll,
+                    focus: _inputFocus,
+                    messages: _messages,
+                    sending: _sending,
+                    recipeAddedFor: _isRecipeAdded,
+                    // Ohne Hook (Vorschau/Test ohne Sync) und waehrend
+                    // eines laufenden Uebernehmens bleiben die
+                    // Karten-Buttons deaktiviert.
+                    recipeAddEnabled:
+                        widget.onCreateRecipe != null && !_addingRecipe,
+                    onAddRecipe: _addProposalToRecipes,
+                  ),
           ),
         ),
         if (_error != null) _ErrorBanner(text: _error!),

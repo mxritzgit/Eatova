@@ -58,8 +58,10 @@ enum MealResultSource {
   aiEstimate(_MealResultSourceCodes.aiEstimate, legacyDe: 'KI-Schätzung'),
   photoAi(_MealResultSourceCodes.photoAi, legacyDe: 'Foto-KI'),
   // Markenname — bereits sprachneutral, code == legacyDe absichtlich gleich.
-  openFoodFacts(_MealResultSourceCodes.openFoodFacts,
-      legacyDe: 'OpenFoodFacts'),
+  openFoodFacts(
+    _MealResultSourceCodes.openFoodFacts,
+    legacyDe: 'OpenFoodFacts',
+  ),
   recipe(_MealResultSourceCodes.recipe, legacyDe: 'Eatova Rezept'),
   // Manueller Eintrag (Spec 2026-08-13). legacyDe ist hier nur ein
   // Resolve-Alias — Alt-Zeilen mit diesem Wert gibt es nicht.
@@ -79,13 +81,13 @@ enum MealResultSource {
 
   /// Anzeigetext in der Sprache von [l10n].
   String label(AppLocalizations l10n) => switch (this) {
-        MealResultSource.aiEstimate => l10n.foodSourceAiEstimate,
-        MealResultSource.photoAi => l10n.foodSourcePhotoAi,
-        // Markenname, keine Uebersetzung noetig/erwuenscht.
-        MealResultSource.openFoodFacts => 'OpenFoodFacts',
-        MealResultSource.recipe => l10n.foodSourceRecipe,
-        MealResultSource.manual => l10n.foodSourceManual,
-      };
+    MealResultSource.aiEstimate => l10n.foodSourceAiEstimate,
+    MealResultSource.photoAi => l10n.foodSourcePhotoAi,
+    // Markenname, keine Uebersetzung noetig/erwuenscht.
+    MealResultSource.openFoodFacts => 'OpenFoodFacts',
+    MealResultSource.recipe => l10n.foodSourceRecipe,
+    MealResultSource.manual => l10n.foodSourceManual,
+  };
 
   /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.sourceLabel`)
   /// einem bekannten Ursprung zu, oder liefert `null` fuer alles Unbekannte
@@ -133,14 +135,14 @@ enum MealResultConfidence {
 
   /// Anzeigetext in der Sprache von [l10n].
   String label(AppLocalizations l10n) => switch (this) {
-        MealResultConfidence.high => l10n.foodConfidenceHigh,
-        MealResultConfidence.medium => l10n.foodConfidenceMedium,
-        MealResultConfidence.low => l10n.foodConfidenceLow,
-        MealResultConfidence.unknown => l10n.foodConfidenceUnknown,
-        MealResultConfidence.database => l10n.foodConfidenceDatabase,
-        MealResultConfidence.recipe => l10n.foodConfidenceRecipe,
-        MealResultConfidence.manual => l10n.foodConfidenceManual,
-      };
+    MealResultConfidence.high => l10n.foodConfidenceHigh,
+    MealResultConfidence.medium => l10n.foodConfidenceMedium,
+    MealResultConfidence.low => l10n.foodConfidenceLow,
+    MealResultConfidence.unknown => l10n.foodConfidenceUnknown,
+    MealResultConfidence.database => l10n.foodConfidenceDatabase,
+    MealResultConfidence.recipe => l10n.foodConfidenceRecipe,
+    MealResultConfidence.manual => l10n.foodConfidenceManual,
+  };
 
   /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.confidence`)
   /// einer bekannten Stufe zu, oder liefert `null` fuer alles Unbekannte
@@ -178,17 +180,20 @@ enum MealResultConfidence {
 enum MealResultPortionNote {
   autoSplit(
     'aiScanAutoSplitNote',
-    legacyDe: 'KI hat als Gesamtgericht erkannt — Bestandteile lokal '
+    legacyDe:
+        'KI hat als Gesamtgericht erkannt — Bestandteile lokal '
         'aufgesplittet. Gramm und Kalorien pro Posten prüfen.',
   ),
   itemized(
     'aiScanItemizedNote',
-    legacyDe: 'KI-Schätzung aus dem Foto mit Einzelposten. Bitte '
+    legacyDe:
+        'KI-Schätzung aus dem Foto mit Einzelposten. Bitte '
         'Bestandteile und Gramm prüfen.',
   ),
   plain(
     'aiScanPlainNote',
-    legacyDe: 'KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt '
+    legacyDe:
+        'KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt '
         'vermessen; bitte Portion bestätigen oder Gewicht anpassen.',
   ),
   manual(
@@ -207,11 +212,11 @@ enum MealResultPortionNote {
 
   /// Anzeigetext in der Sprache von [l10n].
   String text(AppLocalizations l10n) => switch (this) {
-        MealResultPortionNote.autoSplit => l10n.foodScanNoteAutoSplit,
-        MealResultPortionNote.itemized => l10n.foodScanNoteItemized,
-        MealResultPortionNote.plain => l10n.foodScanNotePlain,
-        MealResultPortionNote.manual => l10n.foodManualEntryNote,
-      };
+    MealResultPortionNote.autoSplit => l10n.foodScanNoteAutoSplit,
+    MealResultPortionNote.itemized => l10n.foodScanNoteItemized,
+    MealResultPortionNote.plain => l10n.foodScanNotePlain,
+    MealResultPortionNote.manual => l10n.foodManualEntryNote,
+  };
 
   /// Ordnet einen ROHEN, persistierten Wert
   /// (`MealAnalysisResult.portionNotes`) einem der drei bekannten Fallback-
@@ -379,7 +384,9 @@ class MealAnalysisResult {
     final dichte = effectiveKcalPer100G;
     final int neueKcal;
     if (estimatedGrams > 0 && caloriesKcal > 0) {
-      neueKcal = clampMealCaloriesKcal(caloriesKcal * zielGramm / estimatedGrams);
+      neueKcal = clampMealCaloriesKcal(
+        caloriesKcal * zielGramm / estimatedGrams,
+      );
     } else if (dichte != null) {
       neueKcal = clampMealCaloriesKcal(dichte * zielGramm / 100);
     } else {
@@ -391,7 +398,9 @@ class MealAnalysisResult {
     final factor = estimatedGrams <= 0 ? 1.0 : zielGramm / estimatedGrams;
     final adjustedItems = hasItemizedBreakdown
         ? items
-              .map((item) => item.adjustedToGrams((item.grams * factor).round()))
+              .map(
+                (item) => item.adjustedToGrams((item.grams * factor).round()),
+              )
               .toList(growable: false)
         : items;
 
@@ -440,9 +449,7 @@ class MealAnalysisResult {
     );
 
     final summe = _macrosFromItems(adjustedItems);
-    final basis = items.isNotEmpty
-        ? items
-        : <MealComponent>[asSingleComponent];
+    final basis = items.isNotEmpty ? items : <MealComponent>[asSingleComponent];
     final gleichmaessigerFaktor = summe == null
         ? _uniformFactor(adjustedItems, basis)
         : null;
@@ -495,9 +502,13 @@ class MealAnalysisResult {
       json['mealName']?.toString() ?? 'Unbekannte Mahlzeit',
     );
     final items = _readItems(json);
-    final itemCalories = items.fold<int>(0, (sum, item) => sum + item.caloriesKcal);
+    final itemCalories = items.fold<int>(
+      0,
+      (sum, item) => sum + item.caloriesKcal,
+    );
     final itemGrams = items.fold<int>(0, (sum, item) => sum + item.grams);
-    final calories = _readPositiveInt(json, const [
+    final calories =
+        _readPositiveInt(json, const [
           'caloriesKcal',
           'kcal',
           'calories',
@@ -509,7 +520,8 @@ class MealAnalysisResult {
     // Nur eine echte Modellangabe zaehlt als bekannte Portion. Die 150 g
     // weiter unten sind ein Default und duerfen nicht als Bezugsgroesse fuer
     // eine hergeleitete Dichte durchgehen.
-    final gemesseneGramm = _readPositiveInt(json, const [
+    final gemesseneGramm =
+        _readPositiveInt(json, const [
           'estimatedGrams',
           'portionGrams',
           'grams',
@@ -526,7 +538,8 @@ class MealAnalysisResult {
     //      Teilstrings ('Apfelkuchen' enthaelt 'apfel') und weiss nichts von
     //      der Zubereitung, ist also die schwaechste Quelle
     //   4. zuletzt die Herleitung mit der Default-Portion
-    final kcalPer100G = _readPlausibleDouble(json, const [
+    final kcalPer100G =
+        _readPlausibleDouble(json, const [
           'kcalPer100G',
           'caloriesPer100G',
           'caloriesPer100g',
@@ -556,8 +569,9 @@ class MealAnalysisResult {
     final resolvedGrams = clampMealEstimatedG(
       estimatedGrams > 0 ? estimatedGrams : itemGrams,
     );
-    var normalizedItems =
-        itemGrams > 0 || itemCalories > 0 ? items : const <MealComponent>[];
+    var normalizedItems = itemGrams > 0 || itemCalories > 0
+        ? items
+        : const <MealComponent>[];
 
     // If the upstream model returned the meal as a single (or empty) entry
     // but the meal name describes multiple foods, expand it client-side
@@ -586,12 +600,13 @@ class MealAnalysisResult {
       confidence: confidence == null || confidence.isEmpty
           ? _MealResultConfidenceCodes.unknown
           : _confidenceCodeFromModel(confidence),
-      portionNotes: json['explanation']?.toString() ??
+      portionNotes:
+          json['explanation']?.toString() ??
           (autoSplit
               ? MealResultPortionNote.autoSplit.code
               : normalizedItems.isNotEmpty
-                  ? MealResultPortionNote.itemized.code
-                  : MealResultPortionNote.plain.code),
+              ? MealResultPortionNote.itemized.code
+              : MealResultPortionNote.plain.code),
       items: normalizedItems,
       sourceLabel: MealResultSource.photoAi.code,
     );
@@ -604,10 +619,8 @@ class MealAnalysisResult {
     final nutriments = product['nutriments'] is Map<String, dynamic>
         ? product['nutriments'] as Map<String, dynamic>
         : <String, dynamic>{};
-    final productName = _firstNonEmptyString(product, const [
-          'product_name',
-          'generic_name',
-        ]) ??
+    final productName =
+        _firstNonEmptyString(product, const ['product_name', 'generic_name']) ??
         'Produkt $barcode';
     final brand = clampBrand(_firstNonEmptyString(product, const ['brands']));
     final kcalPer100G = _offKcalPer100G(product, nutriments) ?? 0;
@@ -645,8 +658,7 @@ class MealAnalysisResult {
       // Die 0 traegt ihre Herkunft: nur eine AUSDRUECKLICH gemeldete 0
       // (Wasser, Zero) ist eine Messung — der Parser-Fallback `?? 0` oben
       // erfuellt die Bedingung nie, weil der Detektor die Rohfelder liest.
-      explicitZeroKcal:
-          kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
+      explicitZeroKcal: kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
     );
   }
 
@@ -692,7 +704,8 @@ class MealAnalysisResult {
             .map(
               (item) => MealComponent.fromJson(
                 item.map(
-                  (itemKey, itemValue) => MapEntry(itemKey.toString(), itemValue),
+                  (itemKey, itemValue) =>
+                      MapEntry(itemKey.toString(), itemValue),
                 ),
               ),
             )
@@ -760,10 +773,9 @@ class MealAnalysisResult {
 
     final generisch = _readDouble(nutriments, const ['energy_100g']);
     if (generisch != null) {
-      final einheit = _firstNonEmptyString(
-        nutriments,
-        const ['energy_unit'],
-      )?.toLowerCase();
+      final einheit = _firstNonEmptyString(nutriments, const [
+        'energy_unit',
+      ])?.toLowerCase();
       final wert = einheit == 'kcal'
           ? generisch
           : generisch / PlausibilityLimits.kjPerKcal;
@@ -811,10 +823,10 @@ class MealAnalysisResult {
   }
 
   static bool _offBasisIst100G(Map<String, dynamic> product) {
-    final basis = product['nutrition_data_per']?.toString().toLowerCase().replaceAll(
-      RegExp(r'\s+'),
-      '',
-    );
+    final basis = product['nutrition_data_per']
+        ?.toString()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), '');
     return basis == '100g';
   }
 

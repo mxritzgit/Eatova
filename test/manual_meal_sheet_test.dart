@@ -15,10 +15,7 @@ class _ResultHalter {
   MealAnalysisResult? result;
 }
 
-Future<_ResultHalter> _open(
-  WidgetTester tester, {
-  String? initialName,
-}) async {
+Future<_ResultHalter> _open(WidgetTester tester, {String? initialName}) async {
   final halter = _ResultHalter();
   await tester.pumpWidget(
     MaterialApp(
@@ -54,44 +51,68 @@ Future<_ResultHalter> _open(
   return halter;
 }
 
-FilledButton _saveButton(WidgetTester tester) => tester.widget<FilledButton>(
-      find.byKey(const ValueKey('manual-meal-save')),
-    );
+FilledButton _saveButton(WidgetTester tester) =>
+    tester.widget<FilledButton>(find.byKey(const ValueKey('manual-meal-save')));
 
 void main() {
-  testWidgets('Save sperrt, bis Name + kcal/100 g + Gramm gültig sind',
-      (tester) async {
+  testWidgets('Save sperrt, bis Name + kcal/100 g + Gramm gültig sind', (
+    tester,
+  ) async {
     await _open(tester);
-    expect(_saveButton(tester).onPressed, isNull,
-        reason: 'leeres Formular (Gramm ist mit 100 vorbelegt) sperrt');
+    expect(
+      _saveButton(tester).onPressed,
+      isNull,
+      reason: 'leeres Formular (Gramm ist mit 100 vorbelegt) sperrt',
+    );
 
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-name')), 'Bauern-Mozzarella');
+      find.byKey(const ValueKey('manual-meal-name')),
+      'Bauern-Mozzarella',
+    );
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-kcal100')), '2000');
+      find.byKey(const ValueKey('manual-meal-kcal100')),
+      '2000',
+    );
     await tester.pump();
-    expect(_saveButton(tester).onPressed, isNull,
-        reason: '2000 kcal/100 g ist physikalisch unmöglich');
-    expect(find.text('0–900 kcal'), findsOneWidget,
-        reason: 'Ablehnen mit Bereichs-Fehler statt stiller Klemmung');
+    expect(
+      _saveButton(tester).onPressed,
+      isNull,
+      reason: '2000 kcal/100 g ist physikalisch unmöglich',
+    );
+    expect(
+      find.text('0–900 kcal'),
+      findsOneWidget,
+      reason: 'Ablehnen mit Bereichs-Fehler statt stiller Klemmung',
+    );
 
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-kcal100')), '265');
+      find.byKey(const ValueKey('manual-meal-kcal100')),
+      '265',
+    );
     await tester.pump();
     expect(_saveButton(tester).onPressed, isNotNull);
   });
 
-  testWidgets('liefert das gerechnete Ergebnis samt Vorschau zurück',
-      (tester) async {
+  testWidgets('liefert das gerechnete Ergebnis samt Vorschau zurück', (
+    tester,
+  ) async {
     final halter = await _open(tester);
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-name')), 'Bauern-Mozzarella');
+      find.byKey(const ValueKey('manual-meal-name')),
+      'Bauern-Mozzarella',
+    );
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-kcal100')), '265');
+      find.byKey(const ValueKey('manual-meal-kcal100')),
+      '265',
+    );
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-grams')), '125');
+      find.byKey(const ValueKey('manual-meal-grams')),
+      '125',
+    );
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-protein')), '18');
+      find.byKey(const ValueKey('manual-meal-protein')),
+      '18',
+    );
     await tester.pump();
 
     expect(find.byKey(const ValueKey('manual-meal-computed')), findsOneWidget);
@@ -112,15 +133,22 @@ void main() {
     expect(r.explicitZeroKcal, isFalse);
   });
 
-  testWidgets('0 kcal (Wasser) ist speicherbar und trägt explicitZeroKcal',
-      (tester) async {
+  testWidgets('0 kcal (Wasser) ist speicherbar und trägt explicitZeroKcal', (
+    tester,
+  ) async {
     final halter = await _open(tester);
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-name')), 'Wasser');
+      find.byKey(const ValueKey('manual-meal-name')),
+      'Wasser',
+    );
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-kcal100')), '0');
+      find.byKey(const ValueKey('manual-meal-kcal100')),
+      '0',
+    );
     await tester.enterText(
-        find.byKey(const ValueKey('manual-meal-grams')), '500');
+      find.byKey(const ValueKey('manual-meal-grams')),
+      '500',
+    );
     await tester.pump();
     expect(_saveButton(tester).onPressed, isNotNull);
 
@@ -132,8 +160,9 @@ void main() {
     expect(halter.result?.explicitZeroKcal, isTrue);
   });
 
-  testWidgets('initialName belegt das Namensfeld vor (Such-CTA)',
-      (tester) async {
+  testWidgets('initialName belegt das Namensfeld vor (Such-CTA)', (
+    tester,
+  ) async {
     await _open(tester, initialName: 'Bauernmozzarella');
     final feld = tester.widget<TextField>(
       find.byKey(const ValueKey('manual-meal-name')),

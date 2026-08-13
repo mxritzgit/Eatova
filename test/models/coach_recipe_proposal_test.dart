@@ -13,23 +13,25 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 // FitnessRecipe.kcalPer100G durch 0 teilen).
 
 Map<String, dynamic> _validJson() => <String, dynamic>{
-      'title': 'Huehnchenauflauf',
-      'description': 'Cremig und proteinreich.',
-      'portion': '1 grosse Portion',
-      'ingredients': '- 250 g Haehnchenbrust\n- 150 g Brokkoli',
-      'preparation': '1. Ofen vorheizen.\n2. Backen.',
-      'calories_kcal': 520,
-      'protein_g': 48,
-      'carbs_g': 32,
-      'fat_g': 18,
-      'estimated_g': 450,
-    };
+  'title': 'Huehnchenauflauf',
+  'description': 'Cremig und proteinreich.',
+  'portion': '1 grosse Portion',
+  'ingredients': '- 250 g Haehnchenbrust\n- 150 g Brokkoli',
+  'preparation': '1. Ofen vorheizen.\n2. Backen.',
+  'calories_kcal': 520,
+  'protein_g': 48,
+  'carbs_g': 32,
+  'fat_g': 18,
+  'estimated_g': 450,
+};
 
 void main() {
   test('fromJson uebernimmt alle Felder samt Bild-Bytes', () {
     final bytes = Uint8List.fromList([1, 2, 3]);
-    final proposal =
-        CoachRecipeProposal.fromJson(_validJson(), imageBytes: bytes);
+    final proposal = CoachRecipeProposal.fromJson(
+      _validJson(),
+      imageBytes: bytes,
+    );
 
     expect(proposal, isNotNull);
     expect(proposal!.title, 'Huehnchenauflauf');
@@ -41,10 +43,7 @@ void main() {
   });
 
   test('ohne Titel oder ohne kcal -> null (unbrauchbarer Vorschlag)', () {
-    expect(
-      CoachRecipeProposal.fromJson(_validJson()..remove('title')),
-      isNull,
-    );
+    expect(CoachRecipeProposal.fromJson(_validJson()..remove('title')), isNull);
     expect(
       CoachRecipeProposal.fromJson(_validJson()..remove('calories_kcal')),
       isNull,
@@ -52,8 +51,9 @@ void main() {
   });
 
   test('Defensiv-Klemme: estimated_g 0 wird nie uebernommen (Division!)', () {
-    final proposal =
-        CoachRecipeProposal.fromJson(_validJson()..['estimated_g'] = 0);
+    final proposal = CoachRecipeProposal.fromJson(
+      _validJson()..['estimated_g'] = 0,
+    );
     expect(proposal, isNotNull);
     expect(proposal!.estimatedGrams, greaterThanOrEqualTo(1));
   });
@@ -70,8 +70,11 @@ void main() {
     });
     expect(message.recipeProposal, isNotNull);
     expect(message.recipeProposal!.title, 'Huehnchenauflauf');
-    expect(message.recipeProposal!.imageBytes, isNull,
-        reason: 'Bytes kommen nie aus der DB — nur aus dem lokalen Store');
+    expect(
+      message.recipeProposal!.imageBytes,
+      isNull,
+      reason: 'Bytes kommen nie aus der DB — nur aus dem lokalen Store',
+    );
 
     final ohne = ChatMessage.fromRow(<String, dynamic>{
       'role': 'assistant',
@@ -82,11 +85,10 @@ void main() {
   });
 
   test('toFitnessRecipe baut ein Eigen-Rezept nach den Haus-Regeln', () {
-    final recipe = CoachRecipeProposal.fromJson(_validJson())!
-        .toFitnessRecipe(
-          imageAsset: 'local:img_abc.jpg',
-          slug: FitnessRecipe.coachProposalSlug('test-msg'),
-        );
+    final recipe = CoachRecipeProposal.fromJson(_validJson())!.toFitnessRecipe(
+      imageAsset: 'local:img_abc.jpg',
+      slug: FitnessRecipe.coachProposalSlug('test-msg'),
+    );
 
     expect(recipe.slug, 'user_coach_test-msg');
     expect(recipe.userCreated, isTrue);
@@ -94,8 +96,11 @@ void main() {
     expect(recipe.title, 'Huehnchenauflauf');
     expect(recipe.description, 'Cremig und proteinreich.');
     expect(recipe.preparation, startsWith('1.'));
-    expect(recipe.professionalHint, isEmpty,
-        reason: 'user_recipes hat keine professional_hint-Spalte');
+    expect(
+      recipe.professionalHint,
+      isEmpty,
+      reason: 'user_recipes hat keine professional_hint-Spalte',
+    );
     expect(recipe.imageAsset, 'local:img_abc.jpg');
     expect(recipe.caloriesKcal, 520);
     expect(recipe.estimatedGrams, 450);
@@ -104,6 +109,9 @@ void main() {
   test('coachProposalSlug erzeugt deterministischen Slug aus Message-Id', () {
     // Spec 2026-08-13: der Slug kommt vom Aufrufer (Message-Id der Karte),
     // damit „Hinzugefuegt" nach Neustart eine reine Ableitung bleibt.
-    expect(FitnessRecipe.coachProposalSlug('srv-msg-1'), 'user_coach_srv-msg-1');
+    expect(
+      FitnessRecipe.coachProposalSlug('srv-msg-1'),
+      'user_coach_srv-msg-1',
+    );
   });
 }
