@@ -19,6 +19,7 @@ import '../common/motion.dart';
 import '../design/design.dart';
 import 'edit_meal_sheet.dart';
 import 'existing_meals_list.dart';
+import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
 import 'meal_suggestion_item.dart';
 import 'slot_selector.dart';
@@ -461,6 +462,18 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
+  // ─── Manueller Eintrag ────────────────────────────────────────────────
+
+  /// Einstieg fuer eigene Naehrwerte (Spec 2026-08-13). Das Formular baut nur
+  /// das Ergebnis; geloggt wird hier ueber [_handleAdd] — inklusive der
+  /// 0-kcal-Bremse (eine manuelle 0 traegt explicitZeroKcal und passiert sie)
+  /// und des Erfolgs-Snacks. [initialName] kommt vom Such-CTA.
+  Future<void> _openManualEntry({String? initialName}) async {
+    final result = await showManualMealSheet(context, initialName: initialName);
+    if (result == null || !mounted) return;
+    _handleAdd('manual:${FavoriteMeal.idFor(result)}', result);
+  }
+
   // ─── Hinzufuegen ──────────────────────────────────────────────────────
 
   void _handleAdd(String itemKey, MealAnalysisResult result) {
@@ -553,6 +566,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
               onCamera: () => _pickAndAnalyze(ImageSource.camera),
               onGallery: () => _pickAndAnalyze(ImageSource.gallery),
               onBarcode: _scanBarcode,
+              onManual: () => _openManualEntry(),
             ),
             _SearchBar(
               controller: _searchController,
@@ -799,6 +813,7 @@ class _SheetHeader extends StatelessWidget {
     required this.onCamera,
     required this.onGallery,
     required this.onBarcode,
+    required this.onManual,
   });
 
   final MealSlot slot;
@@ -807,6 +822,7 @@ class _SheetHeader extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onGallery;
   final VoidCallback onBarcode;
+  final VoidCallback onManual;
 
   @override
   Widget build(BuildContext context) {
@@ -857,6 +873,12 @@ class _SheetHeader extends StatelessWidget {
               icon: Icons.qr_code_scanner_rounded,
               tooltip: l10n.foodScanBarcodeTooltip,
               onPressed: onBarcode,
+            ),
+            _HeaderIconButton(
+              keyValue: const ValueKey('manual-entry-button'),
+              icon: Icons.edit_rounded,
+              tooltip: l10n.foodManualEntryTooltip,
+              onPressed: onManual,
             ),
             const SizedBox(width: 2),
           ],
