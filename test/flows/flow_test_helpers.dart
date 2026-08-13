@@ -235,3 +235,27 @@ class EmptyThenSuccessProductLookupService implements ProductLookupService {
     return FakeProductLookupService.productSuggestions;
   }
 }
+
+/// Suche findet NIE etwas — der Weg zum „Manuell eintragen"-CTA
+/// (Spec 2026-08-13).
+class NeverFindsProductLookupService implements ProductLookupService {
+  @override
+  Future<MealAnalysisResult> lookupBarcode(String barcode) async =>
+      FakeProductLookupService.salamiPizza;
+
+  @override
+  Future<List<ProductSearchResult>> searchProducts(String query) async =>
+      const <ProductSearchResult>[];
+}
+
+/// Suche schlaegt IMMER fehl — der Fehler-Hinweis darf den CTA NICHT zeigen.
+class AlwaysFailingProductLookupService implements ProductLookupService {
+  @override
+  Future<MealAnalysisResult> lookupBarcode(String barcode) async =>
+      FakeProductLookupService.salamiPizza;
+
+  @override
+  Future<List<ProductSearchResult>> searchProducts(String query) async {
+    throw Exception('OpenFoodFacts down');
+  }
+}
