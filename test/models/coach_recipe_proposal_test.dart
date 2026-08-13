@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/coach_recipe_proposal.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
 
 // Coach-Rezept-Generator (Spec 2026-08-12): das Proposal ist die
 // Client-Sicht auf das Server-Wire-Format (snake_case) des Recipe-Mode.
@@ -82,9 +83,12 @@ void main() {
 
   test('toFitnessRecipe baut ein Eigen-Rezept nach den Haus-Regeln', () {
     final recipe = CoachRecipeProposal.fromJson(_validJson())!
-        .toFitnessRecipe(imageAsset: 'local:img_abc.jpg');
+        .toFitnessRecipe(
+          imageAsset: 'local:img_abc.jpg',
+          slug: FitnessRecipe.coachProposalSlug('test-msg'),
+        );
 
-    expect(recipe.slug, startsWith('user_'));
+    expect(recipe.slug, 'user_coach_test-msg');
     expect(recipe.userCreated, isTrue);
     expect(recipe.categories, const <String>['Eigene']);
     expect(recipe.title, 'Huehnchenauflauf');
@@ -95,5 +99,11 @@ void main() {
     expect(recipe.imageAsset, 'local:img_abc.jpg');
     expect(recipe.caloriesKcal, 520);
     expect(recipe.estimatedGrams, 450);
+  });
+
+  test('coachProposalSlug erzeugt deterministischen Slug aus Message-Id', () {
+    // Spec 2026-08-13: der Slug kommt vom Aufrufer (Message-Id der Karte),
+    // damit „Hinzugefuegt" nach Neustart eine reine Ableitung bleibt.
+    expect(FitnessRecipe.coachProposalSlug('srv-msg-1'), 'user_coach_srv-msg-1');
   });
 }

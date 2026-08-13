@@ -73,13 +73,16 @@ class CoachRecipeProposal {
   }
 
   /// Baut das Eigen-Rezept nach denselben Regeln wie das manuelle Formular
-  /// (recipe_create_sheet.dart:_save): frischer user_-Slug, Kategorie
-  /// "Eigene", kein professionalHint (die Tabelle fuehrt die Spalte nicht).
-  /// [imageAsset] ist die RecipeImageStore-Referenz (`local:<name>.jpg`)
-  /// oder '' wenn kein Bild gespeichert werden konnte.
-  FitnessRecipe toFitnessRecipe({required String imageAsset}) {
+  /// (recipe_create_sheet.dart:_save) — nur der Slug kommt vom AUFRUFER:
+  /// für Karten-Vorschläge ist er deterministisch aus der Message-Id
+  /// (FitnessRecipe.coachProposalSlug), NICHT gewürfelt — sonst wäre
+  /// „Hinzugefügt" nach dem Neustart nicht mehr herleitbar (Spec 2026-08-13).
+  FitnessRecipe toFitnessRecipe({
+    required String imageAsset,
+    required String slug,
+  }) {
     return FitnessRecipe(
-      slug: FitnessRecipe.userRecipeSlug(),
+      slug: slug,
       title: title,
       description: description,
       portion: portion,

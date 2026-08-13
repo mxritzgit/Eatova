@@ -141,6 +141,14 @@ class FitnessRecipe {
   static String userRecipeSlug() =>
       'user_${DateTime.now().millisecondsSinceEpoch}';
 
+  /// Slug für ein aus einer /recipe-Karte übernommenes Rezept —
+  /// DETERMINISTISCH aus der Chat-Message-Id (Spec 2026-08-13). Damit ist
+  /// „Hinzugefügt" auf der Karte eine reine Ableitung aus den Live-Slugs:
+  /// sie übersteht den Neustart, synct aufs Zweitgerät, und ein Doppel-Tap
+  /// läuft in den Upsert-Konflikt (user_id, slug) statt in ein Duplikat.
+  static String coachProposalSlug(String messageId) =>
+      'user_coach_$messageId';
+
   /// Serialisiert dieses Rezept fuer ein upsert auf public.user_recipes.
   /// user_id setzt der Sync; id/created_at/updated_at vergibt die DB per
   /// Default bzw. Trigger. categories landet als text[].
