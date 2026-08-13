@@ -406,7 +406,7 @@ void main() {
       final fotoRef = await store.save(bytes: _geotaggedJpeg());
       expect(fotoRef, isNotNull);
 
-      final ueberCap = RecipeImageStore.proposalImageCap + 3;
+      const ueberCap = RecipeImageStore.proposalImageCap + 3;
       for (var i = 0; i < ueberCap; i++) {
         expect(
           await store.saveProposalImage(messageId: 'msg-$i', bytes: bytes),
