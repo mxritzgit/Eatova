@@ -1208,6 +1208,21 @@
   "foodScanNoteItemized": "KI-Schätzung aus dem Foto mit Einzelposten. Bitte Bestandteile und Gramm prüfen.",
   "foodScanNotePlain": "KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt vermessen; bitte Portion bestätigen oder Gewicht anpassen.",
   "foodManualEntryNote": "Nährwerte manuell nach Etikett eingetragen (pro 100 g).",
+  "foodManualEntryTitle": "Eigene Nährwerte",
+  "foodManualEntrySubtitle": "Werte vom Etikett pro 100 g — deine Portion rechnet Eatova aus.",
+  "foodManualEntryTooltip": "Manuell eintragen",
+  "foodManualEntryCta": "Manuell eintragen",
+  "foodManualNameHint": "z. B. Bauern-Mozzarella",
+  "foodManualGroupNutrition": "Nährwerte",
+  "foodManualPer100GSuffix": "pro 100 g",
+  "foodManualGroupPortion": "Deine Portion",
+  "foodManualComputedKcal": "= {kcal} kcal für {grams} g",
+  "@foodManualComputedKcal": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "grams": { "type": "int" }
+    }
+  },
 
   "notifChannelName": "Eatova Erinnerungen",
   "notifChannelDescription": "Tägliche Streak-Erinnerung am Abend.",
