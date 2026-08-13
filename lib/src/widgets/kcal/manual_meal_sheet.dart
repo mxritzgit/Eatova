@@ -109,25 +109,25 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   }
 
   String? get _kcal100Fehler => _bereichsFehler(
-        _kcal100,
-        min: _kcal100Min,
-        max: _kcal100Max,
-        bereichstext: context.l10n.recipesRangeErrorKcal,
-      );
+    _kcal100,
+    min: _kcal100Min,
+    max: _kcal100Max,
+    bereichstext: context.l10n.recipesRangeErrorKcal,
+  );
 
   String? get _gramsFehler => _bereichsFehler(
-        _grams,
-        min: _gramsMin,
-        max: _gramsMax,
-        bereichstext: context.l10n.recipesRangeErrorGrams,
-      );
+    _grams,
+    min: _gramsMin,
+    max: _gramsMax,
+    bereichstext: context.l10n.recipesRangeErrorGrams,
+  );
 
   String? _makroFehler(TextEditingController controller) => _bereichsFehler(
-        controller,
-        min: _macroMin,
-        max: _macroMax,
-        bereichstext: context.l10n.recipesRangeErrorGrams,
-      );
+    controller,
+    min: _macroMin,
+    max: _macroMax,
+    bereichstext: context.l10n.recipesRangeErrorGrams,
+  );
 
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
@@ -181,13 +181,12 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
       padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
       child: Container(
         key: const ValueKey('manual-meal-sheet'),
-        constraints: BoxConstraints(
-          maxHeight: mediaQuery.size.height * 0.92,
-        ),
+        constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.92),
         decoration: BoxDecoration(
           color: t.bg,
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(rSheet)),
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(rSheet),
+          ),
         ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
@@ -361,11 +360,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
 /// des `_SheetGroup`-Musters aus recipe_create_sheet.dart; beide Sheets
 /// sprechen dieselbe Formular-Sprache.
 class _ManualGroup extends StatelessWidget {
-  const _ManualGroup({
-    required this.label,
-    required this.child,
-    this.trailing,
-  });
+  const _ManualGroup({required this.label, required this.child, this.trailing});
 
   final String label;
   final Widget child;
@@ -497,8 +492,9 @@ class _ManualField extends StatelessWidget {
                     cursorOpacityAnimates: false,
                     controller: controller,
                     maxLength: maxChars,
-                    keyboardType:
-                        numeric ? TextInputType.number : TextInputType.text,
+                    keyboardType: numeric
+                        ? TextInputType.number
+                        : TextInputType.text,
                     inputFormatters: numeric
                         ? [FilteringTextInputFormatter.digitsOnly]
                         : null,

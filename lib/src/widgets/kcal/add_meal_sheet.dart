@@ -168,6 +168,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   List<ProductSearchResult> _productSuggestions = const <ProductSearchResult>[];
   bool _isSearchingProducts = false;
   String? _productSearchMessage;
+
   /// True NUR nach einer endgueltig leeren (fehlerfreien) Suche — der einzige
   /// Zustand, in dem der „Manuell eintragen"-CTA erscheint. Netz-Fehler und
   /// Min-Zeichen-Hinweis heissen „Suche kaputt/zu kurz", nicht „gibt es
@@ -319,8 +320,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _productSuggestions = cached;
         _isSearchingProducts = false;
-        _productSearchMessage =
-            cached.isEmpty ? context.l10n.foodSearchNoResultsHint : null;
+        _productSearchMessage = cached.isEmpty
+            ? context.l10n.foodSearchNoResultsHint
+            : null;
         _searchCameUpEmpty = cached.isEmpty;
       });
       return;
@@ -353,8 +355,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _productSuggestions = suggestions;
         _isSearchingProducts = false;
-        _productSearchMessage =
-            suggestions.isEmpty ? context.l10n.foodSearchNoResultsHint : null;
+        _productSearchMessage = suggestions.isEmpty
+            ? context.l10n.foodSearchNoResultsHint
+            : null;
         _searchCameUpEmpty = suggestions.isEmpty;
       });
     } catch (_) {
@@ -365,8 +368,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
       }
       setState(() {
         _isSearchingProducts = false;
-        _productSearchMessage =
-            showTransientError ? context.l10n.foodSearchUnreachableHint : null;
+        _productSearchMessage = showTransientError
+            ? context.l10n.foodSearchUnreachableHint
+            : null;
         _searchCameUpEmpty = false;
       });
     }
@@ -668,9 +672,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
             // Formular, mit dem Suchbegriff als Namens-Vorbelegung.
             TextButton.icon(
               key: const ValueKey('manual-entry-cta'),
-              onPressed: () => _openManualEntry(
-                initialName: _searchController.text.trim(),
-              ),
+              onPressed: () =>
+                  _openManualEntry(initialName: _searchController.text.trim()),
               icon: const Icon(Icons.edit_rounded, size: 18),
               label: Text(context.l10n.foodManualEntryCta),
             ),
@@ -869,10 +872,7 @@ class _SheetHeader extends StatelessWidget {
             ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              title,
-              style: AppType.display(18, color: t.ink),
-            ),
+            child: Text(title, style: AppType.display(18, color: t.ink)),
           ),
           // Foto/Galerie/Barcode nur im normalen Add-Modus. Im Such-Modus
           // bleibt der Kopf schlank — die Suche hat ihre eigenen Aktions-
@@ -1085,11 +1085,7 @@ class _EmptyState extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 32),
       child: Column(
         children: [
-          IconTile(
-            icon: Icons.restaurant_outlined,
-            color: t.accent,
-            size: 56,
-          ),
+          IconTile(icon: Icons.restaurant_outlined, color: t.accent, size: 56),
           const SizedBox(height: 14),
           Text(
             context.l10n.foodEmptyStateTitle,

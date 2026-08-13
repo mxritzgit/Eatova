@@ -74,38 +74,46 @@ void main() {
     expect(find.byKey(const ValueKey('manual-entry-button')), findsNothing);
   });
 
-  testWidgetsRobust('Leersuche bietet den manuellen Eintrag mit Vorbelegung an',
-      (WidgetTester tester) async {
-    await tester.pumpWidget(
-      EatovaApp(productService: NeverFindsProductLookupService()),
-    );
+  testWidgetsRobust(
+    'Leersuche bietet den manuellen Eintrag mit Vorbelegung an',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(
+        EatovaApp(productService: NeverFindsProductLookupService()),
+      );
 
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('food-search')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-Food')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('food-search')));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.byKey(const ValueKey('kcal-product-search-input')),
-      'Bauernmozzarella',
-    );
-    // Debounce (1000 ms) + 2 Leer-Retries (je 600 ms) abwarten.
-    await tester.pump(const Duration(milliseconds: 1100));
-    await tester.pump(const Duration(milliseconds: 1300));
-    await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('kcal-product-search-input')),
+        'Bauernmozzarella',
+      );
+      // Debounce (1000 ms) + 2 Leer-Retries (je 600 ms) abwarten.
+      await tester.pump(const Duration(milliseconds: 1100));
+      await tester.pump(const Duration(milliseconds: 1300));
+      await tester.pumpAndSettle();
 
-    final cta = find.byKey(const ValueKey('manual-entry-cta'));
-    expect(cta, findsOneWidget,
-        reason: 'endgueltig nichts gefunden -> direkter Weg ins Formular');
+      final cta = find.byKey(const ValueKey('manual-entry-cta'));
+      expect(
+        cta,
+        findsOneWidget,
+        reason: 'endgueltig nichts gefunden -> direkter Weg ins Formular',
+      );
 
-    await tester.tap(cta);
-    await tester.pumpAndSettle();
-    final nameFeld = tester.widget<TextField>(
-      find.byKey(const ValueKey('manual-meal-name')),
-    );
-    expect(nameFeld.controller?.text, 'Bauernmozzarella',
-        reason: 'der erfolglose Suchbegriff ist der wahrscheinlichste Name');
-  });
+      await tester.tap(cta);
+      await tester.pumpAndSettle();
+      final nameFeld = tester.widget<TextField>(
+        find.byKey(const ValueKey('manual-meal-name')),
+      );
+      expect(
+        nameFeld.controller?.text,
+        'Bauernmozzarella',
+        reason: 'der erfolglose Suchbegriff ist der wahrscheinlichste Name',
+      );
+    },
+  );
 
   testWidgetsRobust('Netz-Fehler zeigt KEINEN manuellen CTA', (
     WidgetTester tester,

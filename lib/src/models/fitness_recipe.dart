@@ -46,7 +46,8 @@ class FitnessRecipe {
   /// Erlaubt der UI, sie ohne Image.asset darzustellen.
   final bool userCreated;
 
-  double get kcalPer100G => estimatedGrams <= 0 ? 0 : caloriesKcal * 100 / estimatedGrams;
+  double get kcalPer100G =>
+      estimatedGrams <= 0 ? 0 : caloriesKcal * 100 / estimatedGrams;
 
   /// 0..1 wie gut dieses Rezept zu den noch offenen Tagesmakros passt.
   /// Bewertet anhand der Restmengen (Protein/KH/Fett, mit Protein doppelt
@@ -82,9 +83,7 @@ class FitnessRecipe {
       kcalScore = 0.3;
     } else {
       final ratio = caloriesKcal / remaining.kcal;
-      kcalScore = ratio <= 1
-          ? 0.5 + 0.5 * ratio
-          : (1 / ratio).clamp(0.0, 1.0);
+      kcalScore = ratio <= 1 ? 0.5 + 0.5 * ratio : (1 / ratio).clamp(0.0, 1.0);
     }
 
     final macroPart = (pScore + cScore + fScore) / 4.0; // weights sum to 4
@@ -123,7 +122,8 @@ class FitnessRecipe {
     final isVegetarian = isVegan || categories.contains('Vegetarisch');
     // Fleisch = ein Hauptgericht/Protein-Teller, der weder als Fisch noch als
     // vegetarisch/vegan markiert ist (Hähnchen, Pute, Rind, Schwein …).
-    final isMeat = !isFish &&
+    final isMeat =
+        !isFish &&
         !isVegetarian &&
         (categories.contains('Hauptgericht') ||
             categories.contains('High Protein'));
@@ -146,8 +146,7 @@ class FitnessRecipe {
   /// „Hinzugefügt" auf der Karte eine reine Ableitung aus den Live-Slugs:
   /// sie übersteht den Neustart, synct aufs Zweitgerät, und ein Doppel-Tap
   /// läuft in den Upsert-Konflikt (user_id, slug) statt in ein Duplikat.
-  static String coachProposalSlug(String messageId) =>
-      'user_coach_$messageId';
+  static String coachProposalSlug(String messageId) => 'user_coach_$messageId';
 
   /// Serialisiert dieses Rezept fuer ein upsert auf public.user_recipes.
   /// user_id setzt der Sync; id/created_at/updated_at vergibt die DB per
@@ -274,8 +273,7 @@ class FitnessRecipe {
   /// Anzeige-Wert von [preparation]. Kein Formularfeld — wie [description]
   /// bei [userCreated] immer ein Platzhalter, nie echter Nutzertext.
   String displayPreparation(AppLocalizations l10n) => userCreated
-      ? _resolvePlaceholder(
-          preparation, l10n, (x) => x.recipesNoPreparationYet)
+      ? _resolvePlaceholder(preparation, l10n, (x) => x.recipesNoPreparationYet)
       : preparation;
 
   /// Anzeige-Wert von [professionalHint]. Kein Formularfeld UND keine
@@ -283,7 +281,10 @@ class FitnessRecipe {
   /// Platzhalter.
   String displayProfessionalHint(AppLocalizations l10n) => userCreated
       ? _resolvePlaceholder(
-          professionalHint, l10n, (x) => x.recipesSelfCreatedHint)
+          professionalHint,
+          l10n,
+          (x) => x.recipesSelfCreatedHint,
+        )
       : professionalHint;
 
   /// [l10n] optional, Default [deL10n] (Muster `sync_error_messages.dart`):
@@ -305,7 +306,8 @@ class FitnessRecipe {
       carbs: '$carbsG g',
       fat: '$fatG g',
       confidence: MealResultConfidence.recipe.code,
-      portionNotes: '${displayPortion(sprache)} · '
+      portionNotes:
+          '${displayPortion(sprache)} · '
           '${displayDescription(sprache)} '
           '${displayProfessionalHint(sprache)}',
       sourceLabel: MealResultSource.recipe.code,
@@ -340,4 +342,3 @@ const List<FitnessRecipe> fitnessRecipes = recipeCatalogDe;
 /// Locale-Lookup hier (Muster `formatThousands`/`kcal_format.dart`).
 List<FitnessRecipe> recipeCatalogForLocale(String localeName) =>
     localeName == 'de' ? recipeCatalogDe : recipeCatalogEn;
-

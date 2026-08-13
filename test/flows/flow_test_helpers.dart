@@ -62,10 +62,7 @@ void testWidgetsRobust(
 ///
 /// [kcal] ist die reine Zahl mit Tausenderpunkt („252", „1.234"): der Hero
 /// setzt Zahl und Beschriftung als getrennte Texte.
-Future<void> expectTagestotalAufHeute(
-  WidgetTester tester,
-  String kcal,
-) async {
+Future<void> expectTagestotalAufHeute(WidgetTester tester, String kcal) async {
   // Eine offene Bestaetigungs-Snackbar liegt ueber der Navigationsleiste und
   // finge sonst den Tap auf `nav-Heute`.
   await tester.pump(const Duration(seconds: 5));
@@ -164,22 +161,20 @@ class FakeMealCameraLauncher implements MealCameraLauncher {
 }
 
 class FakeProductLookupService implements ProductLookupService {
-  static final MealAnalysisResult salamiPizza = MealAnalysisResult.fromOpenFoodFacts(
-    const <String, dynamic>{
-      'code': '4001724012345',
-      'product_name': 'Die Ofenfrische Salami',
-      'brands': 'Dr. Oetker',
-      'quantity': '390 g',
-      'serving_quantity': 100,
-      'nutriments': <String, dynamic>{
-        'energy-kcal_100g': 252,
-        'proteins_100g': 10,
-        'carbohydrates_100g': 31,
-        'fat_100g': 9,
-      },
-    },
-    '4001724012345',
-  );
+  static final MealAnalysisResult salamiPizza =
+      MealAnalysisResult.fromOpenFoodFacts(const <String, dynamic>{
+        'code': '4001724012345',
+        'product_name': 'Die Ofenfrische Salami',
+        'brands': 'Dr. Oetker',
+        'quantity': '390 g',
+        'serving_quantity': 100,
+        'nutriments': <String, dynamic>{
+          'energy-kcal_100g': 252,
+          'proteins_100g': 10,
+          'carbohydrates_100g': 31,
+          'fat_100g': 9,
+        },
+      }, '4001724012345');
 
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) async => salamiPizza;

@@ -38,18 +38,18 @@ final Uint8List _pngBytes = base64Decode(
 );
 
 CoachRecipeProposal _proposal({Uint8List? imageBytes}) => CoachRecipeProposal(
-      title: 'Huehnchenauflauf',
-      description: 'Cremig und proteinreich.',
-      portion: '1 grosse Portion',
-      ingredients: '- 250 g Haehnchenbrust',
-      preparation: '1. Ofen vorheizen.',
-      caloriesKcal: 520,
-      proteinG: 48,
-      carbsG: 32,
-      fatG: 18,
-      estimatedGrams: 450,
-      imageBytes: imageBytes,
-    );
+  title: 'Huehnchenauflauf',
+  description: 'Cremig und proteinreich.',
+  portion: '1 grosse Portion',
+  ingredients: '- 250 g Haehnchenbrust',
+  preparation: '1. Ofen vorheizen.',
+  caloriesKcal: 520,
+  proteinG: 48,
+  carbsG: 32,
+  fatG: 18,
+  estimatedGrams: 450,
+  imageBytes: imageBytes,
+);
 
 class _RecipeCoach extends CoachChatService {
   _RecipeCoach(super.client, super.userId);
@@ -76,22 +76,23 @@ class _RecipeCoach extends CoachChatService {
 
   @override
   Future<List<ChatSession>> loadSessions() async => <ChatSession>[
-        ChatSession(
-          id: 's1',
-          title: 'Chat A',
-          createdAt: DateTime(2026, 8, 1),
-          lastMessageAt: DateTime(2026, 8, 12),
-          messageCount: 0,
-        ),
-      ];
+    ChatSession(
+      id: 's1',
+      title: 'Chat A',
+      createdAt: DateTime(2026, 8, 1),
+      lastMessageAt: DateTime(2026, 8, 12),
+      messageCount: 0,
+    ),
+  ];
 
   @override
   Future<String?> ensureDefaultSession() async => 's1';
 
   @override
-  Future<List<ChatMessage>> loadHistory(String sessionId,
-          {int limit = 100}) async =>
-      history;
+  Future<List<ChatMessage>> loadHistory(
+    String sessionId, {
+    int limit = 100,
+  }) async => history;
 
   @override
   Future<ChatQuotaSnapshot> loadQuotaToday() async =>
@@ -158,9 +159,9 @@ Future<void> _pumpCoach(
         GlobalCupertinoLocalizations.delegate,
       ],
       home: MediaQuery(
-        data: MediaQueryData.fromView(tester.view).copyWith(
-          disableAnimations: true,
-        ),
+        data: MediaQueryData.fromView(
+          tester.view,
+        ).copyWith(disableAnimations: true),
         child: Scaffold(
           body: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
@@ -195,8 +196,9 @@ Future<void> _type(WidgetTester tester, String text) async {
 }
 
 void main() {
-  testWidgets('/recipe ruft requestRecipe statt send und zeigt die Karte',
-      (tester) async {
+  testWidgets('/recipe ruft requestRecipe statt send und zeigt die Karte', (
+    tester,
+  ) async {
     final svc = _RecipeCoach.create();
     await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
@@ -212,8 +214,9 @@ void main() {
     expect(find.text('/recipe Huehnchenauflauf mit Bild'), findsOneWidget);
   });
 
-  testWidgets('/recipe ohne Wunschtext: lokaler Hinweis, kein Request',
-      (tester) async {
+  testWidgets('/recipe ohne Wunschtext: lokaler Hinweis, kein Request', (
+    tester,
+  ) async {
     final svc = _RecipeCoach.create();
     await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
@@ -224,21 +227,26 @@ void main() {
   });
 
   testWidgets(
-      'unbekannte Befehle (auch das alte /rezept) gehen NIE ans Modell',
-      (tester) async {
-    final svc = _RecipeCoach.create();
-    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
+    'unbekannte Befehle (auch das alte /rezept) gehen NIE ans Modell',
+    (tester) async {
+      final svc = _RecipeCoach.create();
+      await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
-    await _type(tester, '/rezept Huehnchenauflauf');
+      await _type(tester, '/rezept Huehnchenauflauf');
 
-    expect(svc.recipeCalls, isEmpty);
-    expect(svc.sendCalls, 0,
-        reason: 'ein Tippo darf keinen Tages-Slot verbrennen');
-    expect(find.textContaining('Unbekannter Befehl'), findsOneWidget);
-  });
+      expect(svc.recipeCalls, isEmpty);
+      expect(
+        svc.sendCalls,
+        0,
+        reason: 'ein Tippo darf keinen Tages-Slot verbrennen',
+      );
+      expect(find.textContaining('Unbekannter Befehl'), findsOneWidget);
+    },
+  );
 
-  testWidgets('Befehls-Menue: "/" schlaegt /recipe vor, Tap vervollstaendigt',
-      (tester) async {
+  testWidgets('Befehls-Menue: "/" schlaegt /recipe vor, Tap vervollstaendigt', (
+    tester,
+  ) async {
     final svc = _RecipeCoach.create();
     await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
@@ -261,7 +269,9 @@ void main() {
 
     // Normaler Text und Nicht-Praefixe zeigen kein Menue.
     await tester.enterText(
-        find.byKey(const ValueKey('coach-input')), 'hallo Coach');
+      find.byKey(const ValueKey('coach-input')),
+      'hallo Coach',
+    );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('coach-command-menu')), findsNothing);
     await tester.enterText(find.byKey(const ValueKey('coach-input')), '/x');
@@ -269,8 +279,9 @@ void main() {
     expect(find.byKey(const ValueKey('coach-command-menu')), findsNothing);
   });
 
-  testWidgets('Befehls-Beschreibung unter en folgt der App-Sprache',
-      (tester) async {
+  testWidgets('Befehls-Beschreibung unter en folgt der App-Sprache', (
+    tester,
+  ) async {
     final svc = _RecipeCoach.create();
     await _pumpCoach(
       tester,
@@ -288,114 +299,135 @@ void main() {
   });
 
   testWidgets(
-      'Bestaetigen speichert einmal; Loeschen im Rezepte-Tab reaktiviert den Button',
-      (tester) async {
-    final svc = _RecipeCoach.create()
-      // Ohne Bild-Bytes: der Speicherpfad braucht dann keinen
-      // RecipeImageStore (Plugin-Channel) — das Bild testet der Karten-Test.
-      ..recipeReply = (sessionId) => CoachRecipeReply(
-            reply: 'Rezeptvorschlag: Huehnchenauflauf.',
-            refusal: false,
-            proposal: _proposal(),
-            remaining: 4,
-            dailyLimit: 5,
-            sessionId: sessionId,
-          );
-    final created = <FitnessRecipe>[];
-    final slugs = <String>{};
-    await _pumpCoach(
-      tester,
-      service: svc,
-      created: created,
-      userRecipeSlugs: slugs,
-    );
+    'Bestaetigen speichert einmal; Loeschen im Rezepte-Tab reaktiviert den Button',
+    (tester) async {
+      final svc = _RecipeCoach.create()
+        // Ohne Bild-Bytes: der Speicherpfad braucht dann keinen
+        // RecipeImageStore (Plugin-Channel) — das Bild testet der Karten-Test.
+        ..recipeReply = (sessionId) => CoachRecipeReply(
+          reply: 'Rezeptvorschlag: Huehnchenauflauf.',
+          refusal: false,
+          proposal: _proposal(),
+          remaining: 4,
+          dailyLimit: 5,
+          sessionId: sessionId,
+        );
+      final created = <FitnessRecipe>[];
+      final slugs = <String>{};
+      await _pumpCoach(
+        tester,
+        service: svc,
+        created: created,
+        userRecipeSlugs: slugs,
+      );
 
-    await _type(tester, '/recipe Huehnchenauflauf');
-    await tester.tap(find.byKey(const ValueKey('coach-recipe-add')));
-    await tester.pumpAndSettle();
+      await _type(tester, '/recipe Huehnchenauflauf');
+      await tester.tap(find.byKey(const ValueKey('coach-recipe-add')));
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('coach-recipe-sheet')), findsOneWidget);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('coach-recipe-sheet-confirm')),
-    );
-    await tester.tap(find.byKey(const ValueKey('coach-recipe-sheet-confirm')));
-    await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('coach-recipe-sheet')), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('coach-recipe-sheet-confirm')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('coach-recipe-sheet-confirm')),
+      );
+      await tester.pumpAndSettle();
 
-    expect(created, hasLength(1));
-    final recipe = created.single;
-    expect(recipe.slug, startsWith('user_coach_'),
-        reason: 'deterministischer Karten-Slug statt user_<ms> (Spec 2026-08-13)');
-    expect(recipe.userCreated, isTrue);
-    expect(recipe.categories, const <String>['Eigene']);
-    expect(recipe.imageAsset, isEmpty, reason: 'kein Bild -> kein local:-Ref');
-    expect(find.textContaining('gespeichert'), findsOneWidget);
-    expect(find.byKey(const ValueKey('coach-recipe-add')), findsNothing,
-        reason: 'Doppel-Add gesperrt, solange das Rezept existiert');
-    expect(find.text('Hinzugefügt'), findsOneWidget);
+      expect(created, hasLength(1));
+      final recipe = created.single;
+      expect(
+        recipe.slug,
+        startsWith('user_coach_'),
+        reason:
+            'deterministischer Karten-Slug statt user_<ms> (Spec 2026-08-13)',
+      );
+      expect(recipe.userCreated, isTrue);
+      expect(recipe.categories, const <String>['Eigene']);
+      expect(
+        recipe.imageAsset,
+        isEmpty,
+        reason: 'kein Bild -> kein local:-Ref',
+      );
+      expect(find.textContaining('gespeichert'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('coach-recipe-add')),
+        findsNothing,
+        reason: 'Doppel-Add gesperrt, solange das Rezept existiert',
+      );
+      expect(find.text('Hinzugefügt'), findsOneWidget);
 
-    // Nutzer loescht das Rezept im Rezepte-Tab: die Live-Slug-Sicht der
-    // Schale verliert den Slug, der naechste Build reaktiviert den Button.
-    slugs.remove(recipe.slug);
-    await _pumpCoach(
-      tester,
-      service: svc,
-      created: created,
-      userRecipeSlugs: slugs,
-    );
-    expect(find.text('Hinzugefügt'), findsNothing,
-        reason: 'ein geloeschtes Rezept darf nicht als hinzugefuegt gelten');
-    expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget);
-  });
+      // Nutzer loescht das Rezept im Rezepte-Tab: die Live-Slug-Sicht der
+      // Schale verliert den Slug, der naechste Build reaktiviert den Button.
+      slugs.remove(recipe.slug);
+      await _pumpCoach(
+        tester,
+        service: svc,
+        created: created,
+        userRecipeSlugs: slugs,
+      );
+      expect(
+        find.text('Hinzugefügt'),
+        findsNothing,
+        reason: 'ein geloeschtes Rezept darf nicht als hinzugefuegt gelten',
+      );
+      expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget);
+    },
+  );
 
   testWidgets(
-      'Neustart: Verlaufs-Karte kennt „Hinzugefügt", solange das Rezept existiert',
-      (tester) async {
-    // DER Bug der Spec 2026-08-13: Karte aus dem Verlauf + Rezept existiert
-    // noch -> frueher fragte die Karte erneut. Der Slug ist jetzt aus der
-    // Message-Id ableitbar, die In-Memory-Map ist weg.
-    final svc = _RecipeCoach.create()
-      ..history = <ChatMessage>[
-        ChatMessage(
-          id: 'srv-msg-1',
-          role: ChatRole.assistant,
-          content: 'Rezeptvorschlag: Huehnchenauflauf.',
-          createdAt: DateTime(2026, 8, 12, 18),
-          recipeProposal: _proposal(),
-        ),
-      ];
-    final slugs = <String>{FitnessRecipe.coachProposalSlug('srv-msg-1')};
-    await _pumpCoach(
-      tester,
-      service: svc,
-      created: <FitnessRecipe>[],
-      userRecipeSlugs: slugs,
-    );
+    'Neustart: Verlaufs-Karte kennt „Hinzugefügt", solange das Rezept existiert',
+    (tester) async {
+      // DER Bug der Spec 2026-08-13: Karte aus dem Verlauf + Rezept existiert
+      // noch -> frueher fragte die Karte erneut. Der Slug ist jetzt aus der
+      // Message-Id ableitbar, die In-Memory-Map ist weg.
+      final svc = _RecipeCoach.create()
+        ..history = <ChatMessage>[
+          ChatMessage(
+            id: 'srv-msg-1',
+            role: ChatRole.assistant,
+            content: 'Rezeptvorschlag: Huehnchenauflauf.',
+            createdAt: DateTime(2026, 8, 12, 18),
+            recipeProposal: _proposal(),
+          ),
+        ];
+      final slugs = <String>{FitnessRecipe.coachProposalSlug('srv-msg-1')};
+      await _pumpCoach(
+        tester,
+        service: svc,
+        created: <FitnessRecipe>[],
+        userRecipeSlugs: slugs,
+      );
 
-    expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
-    expect(find.text('Hinzugefügt'), findsOneWidget);
-    expect(find.byKey(const ValueKey('coach-recipe-add')), findsNothing,
-        reason: 'das Rezept existiert noch — kein zweites Angebot');
+      expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
+      expect(find.text('Hinzugefügt'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('coach-recipe-add')),
+        findsNothing,
+        reason: 'das Rezept existiert noch — kein zweites Angebot',
+      );
 
-    // Loeschen im Rezepte-Tab reaktiviert den Button (Live-Sicht).
-    slugs.clear();
-    await _pumpCoach(
-      tester,
-      service: svc,
-      created: <FitnessRecipe>[],
-      userRecipeSlugs: slugs,
-    );
-    expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget);
-    expect(find.text('Hinzugefügt'), findsNothing);
-  });
+      // Loeschen im Rezepte-Tab reaktiviert den Button (Live-Sicht).
+      slugs.clear();
+      await _pumpCoach(
+        tester,
+        service: svc,
+        created: <FitnessRecipe>[],
+        userRecipeSlugs: slugs,
+      );
+      expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget);
+      expect(find.text('Hinzugefügt'), findsNothing);
+    },
+  );
 
   testWidgets('Abbrechen im Sheet speichert nichts', (tester) async {
     final svc = _RecipeCoach.create()
       ..recipeReply = (sessionId) => CoachRecipeReply(
-            reply: 'Rezeptvorschlag: Huehnchenauflauf.',
-            refusal: false,
-            proposal: _proposal(),
-            sessionId: sessionId,
-          );
+        reply: 'Rezeptvorschlag: Huehnchenauflauf.',
+        refusal: false,
+        proposal: _proposal(),
+        sessionId: sessionId,
+      );
     final created = <FitnessRecipe>[];
     await _pumpCoach(tester, service: svc, created: created);
 
@@ -406,18 +438,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(created, isEmpty);
-    expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget,
-        reason:
-            'der Button bleibt aktiv, der Nutzer kann es sich anders ueberlegen');
+    expect(
+      find.byKey(const ValueKey('coach-recipe-add')),
+      findsOneWidget,
+      reason:
+          'der Button bleibt aktiv, der Nutzer kann es sich anders ueberlegen',
+    );
   });
 
   testWidgets('Refusal bleibt eine Text-Blase ohne Karte', (tester) async {
     final svc = _RecipeCoach.create()
       ..recipeReply = (sessionId) => CoachRecipeReply(
-            reply: 'Ich erstelle nur Essensrezepte.',
-            refusal: true,
-            sessionId: sessionId,
-          );
+        reply: 'Ich erstelle nur Essensrezepte.',
+        refusal: true,
+        sessionId: sessionId,
+      );
     await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
     await _type(tester, '/recipe Schreib meine Hausaufgaben');
@@ -427,27 +462,31 @@ void main() {
   });
 
   testWidgets(
-      'Reload-Karte: ein Vorschlag aus dem VERLAUF rendert mit aktivem Button',
-      (tester) async {
-    // Nachtrag 2026-08-13: chat_messages.recipe traegt das Rezept-JSON —
-    // fromRow baut das Proposal (ohne Bytes), die Karte erscheint nach dem
-    // Neustart wieder. Bild fehlt (kein Store im Test) -> Platzhalter.
-    final svc = _RecipeCoach.create()
-      ..history = <ChatMessage>[
-        ChatMessage(
-          id: 'srv-msg-1',
-          role: ChatRole.assistant,
-          content: 'Rezeptvorschlag: Huehnchenauflauf.',
-          createdAt: DateTime(2026, 8, 12, 18),
-          recipeProposal: _proposal(),
-        ),
-      ];
-    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
+    'Reload-Karte: ein Vorschlag aus dem VERLAUF rendert mit aktivem Button',
+    (tester) async {
+      // Nachtrag 2026-08-13: chat_messages.recipe traegt das Rezept-JSON —
+      // fromRow baut das Proposal (ohne Bytes), die Karte erscheint nach dem
+      // Neustart wieder. Bild fehlt (kein Store im Test) -> Platzhalter.
+      final svc = _RecipeCoach.create()
+        ..history = <ChatMessage>[
+          ChatMessage(
+            id: 'srv-msg-1',
+            role: ChatRole.assistant,
+            content: 'Rezeptvorschlag: Huehnchenauflauf.',
+            createdAt: DateTime(2026, 8, 12, 18),
+            recipeProposal: _proposal(),
+          ),
+        ];
+      await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
 
-    expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
-    expect(find.text('Huehnchenauflauf'), findsOneWidget);
-    final button = find.byKey(const ValueKey('coach-recipe-add'));
-    expect(button, findsOneWidget,
-        reason: 'die Option zum Hinzufuegen ueberlebt den Reload');
-  });
+      expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
+      expect(find.text('Huehnchenauflauf'), findsOneWidget);
+      final button = find.byKey(const ValueKey('coach-recipe-add'));
+      expect(
+        button,
+        findsOneWidget,
+        reason: 'die Option zum Hinzufuegen ueberlebt den Reload',
+      );
+    },
+  );
 }
