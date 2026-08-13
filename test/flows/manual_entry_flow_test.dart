@@ -80,6 +80,21 @@ void main() {
     // sie liegt im Inhalt, nicht im (dort schlanken) Kopf.
     expect(find.byKey(const ValueKey('manual-entry-button')), findsOneWidget);
 
+    // Invariante: der Leerzustand sitzt horizontal MITTIG (Referenz ist die
+    // volle Breite der Suchleiste, keine Fixzahl). Auf dem Geraet hing der
+    // Block ohne eigene Breite an der linken Kante, seit die Manuell-Zeile
+    // die Inhalts-Spalte auf volle Breite zieht (Nutzer-Befund 2026-08-14);
+    // die Test-Umgebung reproduziert DIESEN Constraint-Fall nicht 1:1 —
+    // die Assertion sichert die Invariante, nicht den Repro.
+    final leerTitel = find.text('Search above or scan a barcode');
+    expect(leerTitel, findsOneWidget);
+    final suchleiste = find.byKey(const ValueKey('kcal-product-search-card'));
+    expect(
+      (tester.getCenter(leerTitel).dx - tester.getCenter(suchleiste).dx).abs(),
+      lessThan(1.0),
+      reason: 'Leerzustand muss horizontal mittig sitzen',
+    );
+
     // Ab aktiver Suche uebernimmt der Ergebnisbereich (inkl. Leersuche-CTA);
     // die stehende Zeile verschwindet, damit nicht zwei Eingaenge konkurrieren.
     await tester.enterText(

@@ -1138,24 +1138,35 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 32),
-      child: Column(
-        children: [
-          IconTile(icon: Icons.restaurant_outlined, color: t.accent, size: 56),
-          const SizedBox(height: 14),
-          Text(
-            context.l10n.foodEmptyStateTitle,
-            textAlign: TextAlign.center,
-            style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            context.l10n.foodEmptyStateSubtitle,
-            textAlign: TextAlign.center,
-            style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-          ),
-        ],
+    // Volle Breite erzwingen: die Inhalts-Spalte des Sheets richtet ihre
+    // Kinder links aus und ist seit der Manuell-Zeile (PR #38) immer
+    // viewport-breit — ohne eigene Breite hing dieser Block deshalb an der
+    // linken Kante, statt sich zu zentrieren (Nutzer-Befund 2026-08-14).
+    return SizedBox(
+      width: double.infinity,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Column(
+          children: [
+            IconTile(
+              icon: Icons.restaurant_outlined,
+              color: t.accent,
+              size: 56,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              context.l10n.foodEmptyStateTitle,
+              textAlign: TextAlign.center,
+              style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              context.l10n.foodEmptyStateSubtitle,
+              textAlign: TextAlign.center,
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+            ),
+          ],
+        ),
       ),
     );
   }
