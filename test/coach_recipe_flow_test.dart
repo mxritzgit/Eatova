@@ -323,7 +323,8 @@ void main() {
 
     expect(created, hasLength(1));
     final recipe = created.single;
-    expect(recipe.slug, startsWith('user_'));
+    expect(recipe.slug, startsWith('user_coach_'),
+        reason: 'deterministischer Karten-Slug statt user_<ms> (Spec 2026-08-13)');
     expect(recipe.userCreated, isTrue);
     expect(recipe.categories, const <String>['Eigene']);
     expect(recipe.imageAsset, isEmpty, reason: 'kein Bild -> kein local:-Ref');
@@ -344,6 +345,47 @@ void main() {
     expect(find.text('Hinzugefügt'), findsNothing,
         reason: 'ein geloeschtes Rezept darf nicht als hinzugefuegt gelten');
     expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget);
+  });
+
+  testWidgets(
+      'Neustart: Verlaufs-Karte kennt „Hinzugefügt", solange das Rezept existiert',
+      (tester) async {
+    // DER Bug der Spec 2026-08-13: Karte aus dem Verlauf + Rezept existiert
+    // noch -> frueher fragte die Karte erneut. Der Slug ist jetzt aus der
+    // Message-Id ableitbar, die In-Memory-Map ist weg.
+    final svc = _RecipeCoach.create()
+      ..history = <ChatMessage>[
+        ChatMessage(
+          id: 'srv-msg-1',
+          role: ChatRole.assistant,
+          content: 'Rezeptvorschlag: Huehnchenauflauf.',
+          createdAt: DateTime(2026, 8, 12, 18),
+          recipeProposal: _proposal(),
+        ),
+      ];
+    final slugs = <String>{FitnessRecipe.coachProposalSlug('srv-msg-1')};
+    await _pumpCoach(
+      tester,
+      service: svc,
+      created: <FitnessRecipe>[],
+      userRecipeSlugs: slugs,
+    );
+
+    expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
+    expect(find.text('Hinzugefügt'), findsOneWidget);
+    expect(find.byKey(const ValueKey('coach-recipe-add')), findsNothing,
+        reason: 'das Rezept existiert noch — kein zweites Angebot');
+
+    // Loeschen im Rezepte-Tab reaktiviert den Button (Live-Sicht).
+    slugs.clear();
+    await _pumpCoach(
+      tester,
+      service: svc,
+      created: <FitnessRecipe>[],
+      userRecipeSlugs: slugs,
+    );
+    expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget);
+    expect(find.text('Hinzugefügt'), findsNothing);
   });
 
   testWidgets('Abbrechen im Sheet speichert nichts', (tester) async {
