@@ -168,6 +168,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
   List<ProductSearchResult> _productSuggestions = const <ProductSearchResult>[];
   bool _isSearchingProducts = false;
   String? _productSearchMessage;
+  /// True NUR nach einer endgueltig leeren (fehlerfreien) Suche — der einzige
+  /// Zustand, in dem der „Manuell eintragen"-CTA erscheint. Netz-Fehler und
+  /// Min-Zeichen-Hinweis heissen „Suche kaputt/zu kurz", nicht „gibt es
+  /// nicht", und bieten den CTA bewusst nicht an (Spec 2026-08-13).
+  bool _searchCameUpEmpty = false;
 
   String? _expandedItemKey;
   final Set<String> _justAddedKeys = <String>{};
@@ -279,6 +284,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _isSearchingProducts = false;
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = null;
+        _searchCameUpEmpty = false;
       });
       return;
     }
@@ -301,6 +307,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = context.l10n.foodSearchMinCharsHint;
+        _searchCameUpEmpty = false;
       });
       return;
     }
@@ -314,6 +321,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _isSearchingProducts = false;
         _productSearchMessage =
             cached.isEmpty ? context.l10n.foodSearchNoResultsHint : null;
+        _searchCameUpEmpty = cached.isEmpty;
       });
       return;
     }
@@ -324,6 +332,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSuggestions = const <ProductSearchResult>[];
         _isSearchingProducts = false;
         _productSearchMessage = context.l10n.foodSearchNoResultsHint;
+        _searchCameUpEmpty = true;
       });
       return;
     }
@@ -346,6 +355,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _isSearchingProducts = false;
         _productSearchMessage =
             suggestions.isEmpty ? context.l10n.foodSearchNoResultsHint : null;
+        _searchCameUpEmpty = suggestions.isEmpty;
       });
     } catch (_) {
       if (!mounted) return;
@@ -357,6 +367,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _isSearchingProducts = false;
         _productSearchMessage =
             showTransientError ? context.l10n.foodSearchUnreachableHint : null;
+        _searchCameUpEmpty = false;
       });
     }
   }
@@ -649,7 +660,22 @@ class _AddMealSheetState extends State<AddMealSheet> {
       );
     }
     if (_productSuggestions.isEmpty && _productSearchMessage != null) {
-      return _HintBlock(text: _productSearchMessage!);
+      return Column(
+        children: [
+          _HintBlock(text: _productSearchMessage!),
+          if (_searchCameUpEmpty)
+            // Der Hofladen-Moment: endgueltig nichts gefunden -> direkt ins
+            // Formular, mit dem Suchbegriff als Namens-Vorbelegung.
+            TextButton.icon(
+              key: const ValueKey('manual-entry-cta'),
+              onPressed: () => _openManualEntry(
+                initialName: _searchController.text.trim(),
+              ),
+              icon: const Icon(Icons.edit_rounded, size: 18),
+              label: Text(context.l10n.foodManualEntryCta),
+            ),
+        ],
+      );
     }
     if (_productSuggestions.isEmpty) {
       return const SizedBox.shrink();
