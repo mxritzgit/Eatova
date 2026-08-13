@@ -581,7 +581,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
               onCamera: () => _pickAndAnalyze(ImageSource.camera),
               onGallery: () => _pickAndAnalyze(ImageSource.gallery),
               onBarcode: _scanBarcode,
-              onManual: () => _openManualEntry(),
             ),
             _SearchBar(
               controller: _searchController,
@@ -610,6 +609,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Stehender Eingang zum manuellen Eintrag — solange nicht
+                    // aktiv gesucht wird; ab da uebernimmt der Kontext-CTA
+                    // unter "nichts gefunden" (_buildSearchResults).
+                    if (!_searchActive) ...[
+                      _ManualEntryRow(onTap: () => _openManualEntry()),
+                      const SizedBox(height: 16),
+                    ],
                     if (_slotMeals.isNotEmpty) ...[
                       ExistingMealsList(
                         meals: _slotMeals,
@@ -842,7 +848,6 @@ class _SheetHeader extends StatelessWidget {
     required this.onCamera,
     required this.onGallery,
     required this.onBarcode,
-    required this.onManual,
   });
 
   final MealSlot slot;
@@ -851,7 +856,6 @@ class _SheetHeader extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onGallery;
   final VoidCallback onBarcode;
-  final VoidCallback onManual;
 
   @override
   Widget build(BuildContext context) {
@@ -872,7 +876,17 @@ class _SheetHeader extends StatelessWidget {
             ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(title, style: AppType.display(18, color: t.ink)),
+            // Einzeilig, immer (Nutzer-Feedback 2026-08-13): ein viertes
+            // Header-Icon hatte "Breakfast" umbrechen lassen. Das Icon ist
+            // raus (der manuelle Eintrag hat jetzt seine beschriftete Zeile
+            // unter der Slot-Wahl), und der Titel bleibt auch bei langen
+            // Slot-Namen/grosser Schrift auf einer Zeile.
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppType.display(18, color: t.ink),
+            ),
           ),
           // Foto/Galerie/Barcode nur im normalen Add-Modus. Im Such-Modus
           // bleibt der Kopf schlank — die Suche hat ihre eigenen Aktions-
@@ -899,12 +913,6 @@ class _SheetHeader extends StatelessWidget {
               icon: Icons.qr_code_scanner_rounded,
               tooltip: l10n.foodScanBarcodeTooltip,
               onPressed: onBarcode,
-            ),
-            _HeaderIconButton(
-              keyValue: const ValueKey('manual-entry-button'),
-              icon: Icons.edit_rounded,
-              tooltip: l10n.foodManualEntryTooltip,
-              onPressed: onManual,
             ),
             const SizedBox(width: 2),
           ],
@@ -1048,6 +1056,55 @@ class _SectionLabel extends StatelessWidget {
     return Text(
       text.toUpperCase(),
       style: AppType.eyebrow(context.t.ink2, size: 11),
+    );
+  }
+}
+
+/// Stehender Eingang zum manuellen Eintrag (Nutzer-Feedback 2026-08-13):
+/// das vierte Header-Icon quetschte den Slot-Titel zweizeilig und war als
+/// nackter Stift kaum zu entdecken. Jetzt eine BESCHRIFTETE Zeile in voller
+/// Breite direkt unter der Slot-Wahl — Text schlaegt Icon bei der
+/// Auffindbarkeit. Optik der Suchleisten-Kapsel (46 px, surf, line-Rand),
+/// damit die beiden Eingaenge dieselbe Formsprache sprechen.
+class _ManualEntryRow extends StatelessWidget {
+  const _ManualEntryRow({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Material(
+      color: t.surf,
+      borderRadius: BorderRadius.circular(rControl),
+      child: InkWell(
+        key: const ValueKey('manual-entry-button'),
+        borderRadius: BorderRadius.circular(rControl),
+        onTap: onTap,
+        child: Container(
+          height: 46,
+          padding: const EdgeInsets.symmetric(horizontal: 13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(rControl),
+            border: Border.all(color: t.line),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.edit_rounded, size: 18, color: t.accent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  context.l10n.foodManualEntryCta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 20, color: t.ink2),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

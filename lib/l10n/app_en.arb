@@ -1210,7 +1210,6 @@
   "foodManualEntryNote": "Nutrition entered manually from the label (per 100 g).",
   "foodManualEntryTitle": "Custom nutrition",
   "foodManualEntrySubtitle": "Label values per 100 g — Eatova calculates your portion.",
-  "foodManualEntryTooltip": "Add manually",
   "foodManualEntryCta": "Add manually",
   "foodManualNameHint": "e.g. farm mozzarella",
   "foodManualGroupNutrition": "Nutrition",

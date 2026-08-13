@@ -1210,7 +1210,6 @@
   "foodManualEntryNote": "Nährwerte manuell nach Etikett eingetragen (pro 100 g).",
   "foodManualEntryTitle": "Eigene Nährwerte",
   "foodManualEntrySubtitle": "Werte vom Etikett pro 100 g — deine Portion rechnet Eatova aus.",
-  "foodManualEntryTooltip": "Manuell eintragen",
   "foodManualEntryCta": "Manuell eintragen",
   "foodManualNameHint": "z. B. Bauern-Mozzarella",
   "foodManualGroupNutrition": "Nährwerte",

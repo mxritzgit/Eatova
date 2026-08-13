@@ -1,6 +1,8 @@
-// Manueller Eintrag (Spec 2026-08-13), Einstieg 1: das vierte Header-Icon im
-// Add-Meal-Sheet oeffnet das Formular; das Ergebnis loggt ueber denselben
-// Pfad wie eine Such-/Favoriten-Zeile in den gewaehlten Slot.
+// Manueller Eintrag (Spec 2026-08-13), Einstieg 1: die beschriftete
+// "Manuell eintragen"-Zeile unter der Slot-Wahl oeffnet das Formular
+// (Nutzer-Feedback 2026-08-13: vorher ein viertes Header-Icon — quetschte
+// den Slot-Titel zweizeilig und war als nackter Stift kaum auffindbar);
+// das Ergebnis loggt ueber denselben Pfad wie eine Such-/Favoriten-Zeile.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +12,7 @@ import 'package:eatova/main.dart';
 import 'flow_test_helpers.dart';
 
 void main() {
-  testWidgetsRobust('Header-Icon: manueller Eintrag landet im Tagestotal', (
+  testWidgetsRobust('Manuell-Zeile: manueller Eintrag landet im Tagestotal', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -20,7 +22,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    // Slot-Tap oeffnet das Add-Sheet im normalen Modus (Header-Icons an).
+    // Slot-Tap oeffnet das Add-Sheet im normalen Modus.
     // ensureVisible: der Snack-Slot ist der vierte und liegt unter dem Falz
     // (Muster food_diary_screen_test.dart „Der Plus-Knopf...").
     final addSnack = find.byKey(const ValueKey('food-slot-add-snack'));
@@ -28,7 +30,11 @@ void main() {
     await tester.tap(addSnack);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('manual-entry-button')));
+    // Der Header traegt nur noch Kamera/Galerie/Barcode + X — der manuelle
+    // Eintrag ist die beschriftete Zeile im Inhalt.
+    final manualRow = find.byKey(const ValueKey('manual-entry-button'));
+    await tester.ensureVisible(manualRow);
+    await tester.tap(manualRow);
     await tester.pumpAndSettle();
 
     await tester.enterText(
@@ -58,7 +64,7 @@ void main() {
     await expectTagestotalAufHeute(tester, '331');
   });
 
-  testWidgetsRobust('Such-Modus zeigt das Header-Icon NICHT', (
+  testWidgetsRobust('Manuell-Zeile: sichtbar bis die Suche aktiv wird', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -70,7 +76,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
 
-    // Der Kopf bleibt im Such-Modus schlank (wie Kamera/Galerie/Barcode).
+    // Auch im Such-Modus steht die Zeile bereit, solange nicht gesucht wird —
+    // sie liegt im Inhalt, nicht im (dort schlanken) Kopf.
+    expect(find.byKey(const ValueKey('manual-entry-button')), findsOneWidget);
+
+    // Ab aktiver Suche uebernimmt der Ergebnisbereich (inkl. Leersuche-CTA);
+    // die stehende Zeile verschwindet, damit nicht zwei Eingaenge konkurrieren.
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      'Dr Oetker',
+    );
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('manual-entry-button')), findsNothing);
   });
 
