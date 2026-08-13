@@ -687,7 +687,7 @@ class MealAnalysisResult {
       carbs: macroForGrams(carbsPer100G?.toDouble(), zielGramm),
       fat: macroForGrams(fatPer100G?.toDouble(), zielGramm),
       confidence: _MealResultConfidenceCodes.manual,
-      portionNotes: 'manualEntryNote',
+      portionNotes: MealResultPortionNote.manual.code,
       sourceLabel: _MealResultSourceCodes.manual,
       // Eine AUSDRÜCKLICH eingetragene 0 (Wasser, Zero) ist eine Messung,
       // kein Unbekannt-Sentinel — nur sie darf die Log-Bremse passieren.
