@@ -1208,6 +1208,21 @@
   "foodScanNoteItemized": "AI estimate from the photo with individual items. Please check items and grams.",
   "foodScanNotePlain": "AI estimate from the photo. The size wasn't measured exactly; please confirm the portion or adjust the weight.",
   "foodManualEntryNote": "Nutrition entered manually from the label (per 100 g).",
+  "foodManualEntryTitle": "Custom nutrition",
+  "foodManualEntrySubtitle": "Label values per 100 g — Eatova calculates your portion.",
+  "foodManualEntryTooltip": "Add manually",
+  "foodManualEntryCta": "Add manually",
+  "foodManualNameHint": "e.g. farm mozzarella",
+  "foodManualGroupNutrition": "Nutrition",
+  "foodManualPer100GSuffix": "per 100 g",
+  "foodManualGroupPortion": "Your portion",
+  "foodManualComputedKcal": "= {kcal} kcal for {grams} g",
+  "@foodManualComputedKcal": {
+    "placeholders": {
+      "kcal": { "type": "int" },
+      "grams": { "type": "int" }
+    }
+  },
 
   "notifChannelName": "Eatova reminders",
   "notifChannelDescription": "Daily streak reminder in the evening.",
