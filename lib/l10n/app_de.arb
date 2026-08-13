@@ -1174,6 +1174,7 @@
   "foodSourceAiEstimate": "KI-Schätzung",
   "foodSourcePhotoAi": "Foto-KI",
   "foodSourceRecipe": "Eatova Rezept",
+  "foodSourceManual": "Manuell",
   "foodPortionEstimated": "{grams} g geschätzt",
   "@foodPortionEstimated": {
     "placeholders": {
@@ -1202,9 +1203,11 @@
   "foodConfidenceUnknown": "Unbekannt",
   "foodConfidenceDatabase": "Datenbank",
   "foodConfidenceRecipe": "Rezept",
+  "foodConfidenceManual": "Eigene Angabe",
   "foodScanNoteAutoSplit": "KI hat als Gesamtgericht erkannt — Bestandteile lokal aufgesplittet. Gramm und Kalorien pro Posten prüfen.",
   "foodScanNoteItemized": "KI-Schätzung aus dem Foto mit Einzelposten. Bitte Bestandteile und Gramm prüfen.",
   "foodScanNotePlain": "KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt vermessen; bitte Portion bestätigen oder Gewicht anpassen.",
+  "foodManualEntryNote": "Nährwerte manuell nach Etikett eingetragen (pro 100 g).",
 
   "notifChannelName": "Eatova Erinnerungen",
   "notifChannelDescription": "Tägliche Streak-Erinnerung am Abend.",
