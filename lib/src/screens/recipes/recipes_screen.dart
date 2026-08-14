@@ -225,12 +225,30 @@ class _RecipesScreenState extends State<RecipesScreen> {
           .where((r) => r.slug != recipe.slug)
           .toList(growable: true);
     });
-    // Das eigene Foto geht mit. Es ist PII (ein Kuechenfoto zeigt die
-    // Wohnung) und haette sonst kein Ende: der Slug ist weg, niemand wuerde
-    // die Datei je wieder anfassen. No-Op fuer Bestandsrezepte
-    // (Bundle-Asset) und fuer Eigen-Rezepte ohne Bild.
-    await RecipeImageStore.instance.deleteFor(recipe.imageAsset);
     final ausgang = await _melde(widget.onDeleteRecipe?.call(recipe.slug));
+    // Das eigene Foto geht mit — aber ERST, wenn die Loeschung wirklich
+    // zugestellt ist. Es ist PII (ein Kuechenfoto zeigt die Wohnung) und
+    // haette sonst kein Ende: der Slug ist weg, niemand wuerde die Datei je
+    // wieder anfassen. No-Op fuer Bestandsrezepte (Bundle-Asset) und fuer
+    // Eigen-Rezepte ohne Bild.
+    //
+    // Bis zum Audit 2026-08-14 fiel die Datei SOFORT, noch vor jeder Antwort.
+    // Landet die Op stattdessen in der Outbox und wird dort endgueltig
+    // verworfen, blendet `_restoreDroppedDeletes` das Rezept bewusst wieder
+    // ein — mit einer `local:`-Referenz, deren Bytes es dann nicht mehr gab.
+    // Das Foto lag ausschliesslich auf diesem Geraet: der Verlust war
+    // endgueltig, waehrend das Rezept selbst zurueckkam. Deshalb haengt der
+    // Datei-Loesch an derselben Quelle, aus der auch die Erfolgsmeldung ihre
+    // Deckung zieht.
+    //
+    // Der Preis ist die Gegenrichtung: eine eingereihte Loeschung, die die
+    // Outbox SPAETER zustellt, laesst die Datei liegen — weder Store noch
+    // Screen erfahren von dieser Zustellung. Ein liegengebliebenes Foto ist
+    // der leichtere Fehler als ein zerstoertes Rezept, und es faellt
+    // spaetestens mit `RecipeImageStore.clear()` beim Abmelden.
+    if (ausgang == SyncDelivery.delivered) {
+      await RecipeImageStore.instance.deleteFor(recipe.imageAsset);
+    }
     if (!mounted) return;
     showAppSnack(
       context,
