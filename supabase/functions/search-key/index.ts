@@ -20,6 +20,7 @@
 
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { positiveIntFromEnv } from '../_shared/env.ts';
+import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -102,8 +103,10 @@ Deno.serve(async (request) => {
       return rateLimitedResponse(request, userLimit, requestId);
     }
 
-    // Opportunistic cleanup; ignore failures so user requests are not blocked.
-    void pruneRateLimits();
+    // Bewusst ohne await: die Aufraeumarbeit darf den Request nicht aufhalten.
+    // Warum die Fehlerbehandlung zwingend IN der Funktion sitzt (eine Rejection
+    // hier waere unbehandelt und beendete den Isolate): ../_shared/rate_limit_prune.ts.
+    void pruneRateLimits({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY });
 
     const disabled = MIRROR_SEARCH_KEY === KILL_SWITCH;
     // NIEMALS den Key loggen. Nur, ob ausgeliefert wurde.
@@ -242,18 +245,6 @@ async function consumeRateLimit(
     resetAt: String(data.resetAt ?? new Date(Date.now() + windowSeconds * 1000).toISOString()),
     windowSeconds: Number(data.windowSeconds ?? windowSeconds),
   };
-}
-
-async function pruneRateLimits() {
-  await fetch(`${SUPABASE_URL}/rest/v1/rpc/prune_edge_rate_limits`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'content-type': 'application/json',
-    },
-    body: '{}',
-  });
 }
 
 function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId: string): Response {
