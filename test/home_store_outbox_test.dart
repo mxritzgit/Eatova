@@ -135,6 +135,13 @@ class _FakeServer {
   int mealsCounted = 0;
   int weightLogsCounted = 0;
 
+  /// `p_request_id` JEDES increment_lifetime_stats-Aufrufs, in Reihenfolge —
+  /// auch der abgelehnten (die Aufzeichnung laeuft vor [statsOffline]). Das ist
+  /// der Beweis-Kanal fuer Befund B: ein Retry desselben Delta-Buendels muss
+  /// dieselbe Id tragen, sonst kann der Server ihn nicht als Wiederholung
+  /// erkennen und zaehlt ein zweites Mal.
+  final List<String?> statsRequestIds = <String?>[];
+
   http.Client client() => MockClient(_handle);
 
   Future<http.Response> _handle(http.Request req) async {
@@ -167,8 +174,11 @@ class _FakeServer {
         request: req);
 
     if (path.contains('/rpc/increment_lifetime_stats')) {
-      if (statsOffline) return fail();
       final body = jsonDecode(req.body) as Map<String, dynamic>;
+      // VOR dem Ausfall-Schalter: gerade der gescheiterte Versuch ist der, mit
+      // dem der spaetere Retry verglichen wird.
+      statsRequestIds.add(body['p_request_id'] as String?);
+      if (statsOffline) return fail();
       mealsCounted += (body['p_meals'] as num?)?.toInt() ?? 0;
       weightLogsCounted += (body['p_weight_logs'] as num?)?.toInt() ?? 0;
       return ok(_statsRow());
@@ -391,6 +401,34 @@ class _OutboxLesefehlerCache extends LocalCache {
       return Future<List<SyncOp>?>.error(StateError('Outbox-Slot unlesbar'));
     }
     return super.readOutbox();
+  }
+}
+
+/// Dasselbe fuer den DELTAS-Slot (W7b): die zweite Haelfte des kill-sicheren
+/// Sync-Zustands hatte bis zum Audit 2026-08-14 keine Bremse — ein
+/// fehlgeschlagener Lesevorgang beim Boot liess den naechsten Flush den Slot
+/// bei 0 beginnend niederschreiben, und die nie verbuchten Mahlzeiten der
+/// Vorsession fehlten dauerhaft in den Lebenszeit-Zaehlern.
+///
+/// [kaputteVersuche] steuert, ob der Slot nur VORUEBERGEHEND unlesbar ist
+/// (1 = Bremse greift, Nachhydration gelingt) oder DAUERHAFT (2 = auch die
+/// Nachhydration scheitert; danach muss der normale Schreibpfad wieder
+/// uebernehmen, sonst koennte die Sitzung nie mehr etwas ablegen).
+class _DeltaLesefehlerCache extends LocalCache {
+  _DeltaLesefehlerCache(super.store, super.userId, {this.kaputteVersuche = 1});
+
+  final int kaputteVersuche;
+  int leseversuche = 0;
+
+  @override
+  Future<({int meals, int weightLogs, String? requestId})?>
+      readPendingStatsDeltas() {
+    leseversuche++;
+    if (leseversuche <= kaputteVersuche) {
+      return Future<({int meals, int weightLogs, String? requestId})?>.error(
+          StateError('Deltas-Slot unlesbar'));
+    }
+    return super.readPendingStatsDeltas();
   }
 }
 
@@ -801,6 +839,190 @@ void main() {
     expect(b.server.mealsCounted, 1);
     final after = await b.cache.readPendingStatsDeltas();
     expect(after!.meals, 0, reason: 'Delta wurde verbucht, nicht dupliziert');
+  });
+
+  // --- Befund B: Idempotenz-Schluessel der Stats-Deltas ---------------------
+  //
+  // `increment_lifetime_stats` ADDIERT. Bricht die Verbindung NACH dem Commit
+  // ab, reiht der catch-Zweig dasselbe Delta wieder ein — und ohne
+  // Wiedererkennung zaehlt der Retry ein zweites Mal, dauerhaft und ohne
+  // Neuberechnungspfad. Seit der Migration 20260814120000_audit_rls_guard.sql
+  // haelt der Server verbrauchte `p_request_id` fest; der Schutz steht und
+  // faellt aber damit, dass der Client bei einem Retry DIESELBE Id sendet. Eine
+  // pro Versuch neu erzeugte Id waere fuer den Server ein neuer Vorgang — der
+  // Fix waere reine Fassade. Genau das pruefen diese beiden Tests.
+
+  test(
+      'Retry des Stats-Deltas sendet DIESELBE Anfrage-Id — auch ueber einen '
+      'Kaltstart hinweg; erst ein verbuchtes Buendel bekommt eine neue',
+      () async {
+    final kv = InMemoryKeyValueStore();
+
+    // Session 1: Mahlzeiten-Write kommt durch, nur der Stats-RPC faellt aus.
+    final a = _setup(kv: kv);
+    await _boot(a.store);
+    a.server.statsOffline = true;
+    a.store.addResultToDailyTotal(_result('Bowl'));
+    await _settle();
+    a.store.flushPendingWrites();
+    await _settle();
+
+    expect(a.server.statsRequestIds, isNotEmpty,
+        reason: 'der Flush muss den Server ueberhaupt erreicht haben');
+    final id = a.server.statsRequestIds.first;
+    expect(id, isNotNull, reason: 'ohne Id ist der Aufruf rein additiv');
+    expect(a.server.statsRequestIds.toSet(), <String?>{id},
+        reason: 'mehrere Versuche desselben Buendels sind EIN Vorgang');
+
+    // Die Id liegt beim Buendel, nicht nur im Speicher — sonst ueberlebt sie
+    // den App-Kill nicht und der naechste Versuch waere wieder ein neuer
+    // Vorgang.
+    expect((await a.cache.readPendingStatsDeltas())!.requestId, id);
+
+    // Session 2 (Kaltstart, RPC weiterhin kaputt): der Boot-Flush ist der
+    // eigentliche Retry — und er traegt die Id des ERSTEN Versuchs.
+    final b = _setup(kv: kv);
+    b.server.statsOffline = true;
+    await _boot(b.store);
+    b.store.flushPendingWrites();
+    await _settle();
+
+    expect(b.server.statsRequestIds, isNotEmpty);
+    expect(b.server.statsRequestIds.toSet(), <String?>{id},
+        reason: 'eine frisch erzeugte Id koennte der Server nicht als '
+            'Wiederholung erkennen — er wuerde ein zweites Mal addieren');
+
+    // Zustellung: derselbe Vorgang kommt endlich durch.
+    b.server.statsOffline = false;
+    b.store.flushPendingWrites();
+    await _settle();
+    expect(b.server.statsRequestIds.last, id);
+    expect(b.server.mealsCounted, 1);
+    expect((await b.cache.readPendingStatsDeltas())!.meals, 0);
+
+    // Und die Gegenprobe: ein NEUES Buendel ist ein neuer Vorgang. Erbte es die
+    // verbrauchte Id, wuerde der Server es als Wiederholung abtun und die
+    // Mahlzeit zaehlte nie.
+    b.store.addResultToDailyTotal(_result('Zweite Bowl'));
+    await _settle();
+    b.store.flushPendingWrites();
+    await _settle();
+    expect(b.server.statsRequestIds.last, isNot(id));
+    expect(b.server.mealsCounted, 2);
+  });
+
+  test(
+      'Bestandsdaten: ein persistiertes Buendel OHNE Anfrage-Id (aelterer '
+      'Build) geht nicht verloren — es bekommt eine nachtraeglich, und die '
+      'haelt', () async {
+    final kv = InMemoryKeyValueStore();
+    // Exakt die Wire-Form von vorher: Zahlen, kein 'request_id'.
+    await LocalCache(kv, 'user-outbox')
+        .writePendingStatsDeltas(meals: 2, weightLogs: 1);
+
+    final s = _setup(kv: kv);
+    s.server.statsOffline = true;
+    await _boot(s.store);
+    s.store.flushPendingWrites();
+    await _settle();
+
+    // Weder an `null` gescheitert noch stillschweigend verworfen: das Buendel
+    // ist gesendet worden, mit einer nachtraeglich vergebenen Id …
+    expect(s.server.statsRequestIds, isNotEmpty);
+    final id = s.server.statsRequestIds.first;
+    expect(id, isNotNull);
+    expect(s.server.statsRequestIds.toSet(), <String?>{id});
+
+    // … die ab jetzt beim Buendel liegt (sonst waere jeder weitere Versuch
+    // wieder ein neuer Vorgang).
+    final pending = await s.cache.readPendingStatsDeltas();
+    expect(pending!.requestId, id);
+    expect(pending.meals, 2);
+    expect(pending.weightLogs, 1);
+
+    // Und die alten Zahlen kommen vollstaendig an.
+    s.server.statsOffline = false;
+    s.store.flushPendingWrites();
+    await _settle();
+    expect(s.server.mealsCounted, 2);
+    expect(s.server.weightLogsCounted, 1);
+  });
+
+  // --- W7b: die Bremse fuer den Deltas-Slot ---------------------------------
+  //
+  // Fuer die Outbox gibt es sie seit Luecke F (`_outboxHydrationFailed`), fuer
+  // die pendenden Deltas fehlte sie: `readPendingStatsDeltasOrThrow` meldete
+  // den Lesefehler zwar, aber niemand hielt daraufhin den Schreibpfad an.
+  // `_persistPendingStatsDeltas` schreibt den Slot IMMER komplett neu — genau
+  // der Schaden, den der Docstring der Methode benennt.
+
+  test(
+      'ein kaputter pending_stats-Slot loest die Bremse aus, statt still eine '
+      'leere Menge zu liefern', () async {
+    final kv = InMemoryKeyValueStore();
+    // Vorsession: drei nie verbuchte Mahlzeiten liegen im Slot, mit ihrer
+    // Anfrage-Id.
+    await LocalCache(kv, 'user-outbox')
+        .writePendingStatsDeltas(meals: 3, weightLogs: 0, requestId: 'alt-id');
+
+    final cache = _DeltaLesefehlerCache(kv, 'user-outbox');
+    final s = _setup(kv: kv, injizierterCache: cache);
+    // Der Stats-RPC bleibt aus: so kann kein Flush die Zahlen wegraeumen und
+    // der Test misst wirklich den Slot-Inhalt.
+    s.server.statsOffline = true;
+    await _boot(s.store);
+    expect(cache.leseversuche, 1,
+        reason: 'Vorbedingung: die Hydration hat den Slot nicht gesehen');
+
+    // Eine neue Mahlzeit — ihr Delta laeuft in _persistPendingStatsDeltas.
+    s.store.addResultToDailyTotal(_result('Bowl'));
+    await _settle();
+
+    expect(cache.leseversuche, greaterThan(1),
+        reason: 'ohne Bremse schriebe der Flush den Slot ungeprueft nieder — '
+            'die Nachhydration waere toter Code');
+    final pending =
+        await LocalCache(kv, 'user-outbox').readPendingStatsDeltas();
+    expect(pending!.meals, 4,
+        reason: 'ein verschluckter Lesefehler liess den Slot bei 0 anfangen: '
+            'drei nie verbuchte Mahlzeiten fehlten danach dauerhaft in den '
+            'Lebenszeit-Zaehlern');
+    expect(pending.requestId, 'alt-id',
+        reason: 'die Id des nachgelesenen Buendels gewinnt — nur sie kann '
+            'serverseitig schon verbucht sein');
+  });
+
+  test(
+      'ein DAUERHAFT unlesbarer pending_stats-Slot blockiert das Persistieren '
+      'nicht auf Dauer — die Nachhydration laeuft genau einmal', () async {
+    final kv = InMemoryKeyValueStore();
+    await LocalCache(kv, 'user-outbox')
+        .writePendingStatsDeltas(meals: 3, weightLogs: 0);
+
+    final cache = _DeltaLesefehlerCache(kv, 'user-outbox', kaputteVersuche: 2);
+    final s = _setup(kv: kv, injizierterCache: cache);
+    s.server.statsOffline = true;
+    await _boot(s.store);
+
+    s.store.addResultToDailyTotal(_result('Bowl'));
+    await _settle();
+
+    expect(cache.leseversuche, 2,
+        reason: 'Hydration + GENAU EIN Nachlesevorgang');
+    expect(
+        (await LocalCache(kv, 'user-outbox').readPendingStatsDeltas())!.meals,
+        1,
+        reason: 'nach dem zweiten Fehlschlag ist der Slot mit diesem Code '
+            'ohnehin nicht mehr verbuchbar — ab da gilt wieder der normale '
+            'Schreibpfad, sonst koennte die Sitzung nie mehr etwas ablegen');
+
+    // Und jedes weitere Delta laeuft ohne einen dritten Lesevorgang durch.
+    s.store.addResultToDailyTotal(_result('Zweite Bowl'));
+    await _settle();
+    expect(cache.leseversuche, 2);
+    expect(
+        (await LocalCache(kv, 'user-outbox').readPendingStatsDeltas())!.meals,
+        2);
   });
 
   test(
