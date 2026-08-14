@@ -548,11 +548,14 @@ void main() {
       );
     });
 
-    test('uebersetzt eine bereits vergebene Adresse', () {
+    test('uebersetzt eine bereits vergebene Adresse — ohne sie zu bestaetigen',
+        () {
       expect(
         accountChangeErrorMessage(const AuthException(
             'A user with this email address has already been registered')),
-        'Diese E-Mail-Adresse wird bereits verwendet.',
+        deL10n.settingsAccountEmailNotAvailable,
+        reason: 'die alte Meldung („wird bereits verwendet") bestaetigte '
+            'fremde Kontoexistenz (Audit 2026-08-14)',
       );
     });
 

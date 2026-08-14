@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
+import '../l10n/l10n.dart';
 import '../services/secure_screen.dart';
 import 'auth_code_screen.dart';
 import '../theme/app_colors.dart';
@@ -53,6 +54,10 @@ class _AuthScreenState extends State<AuthScreen> {
   bool get _busy => _loading || _oauthLoading != null;
 
   Future<void> _startOAuth(EatovaOAuthProvider provider) async {
+    // Der Doppel-Tap-Riegel liegt hier UND an der Knopf-Sperre (`enabled`):
+    // die Sperre am Knopf greift erst mit dem naechsten Frame
+    // (Konvention aus account_change_sheets.dart:122-124).
+    if (_busy) return;
     setState(() {
       _error = null;
       _message = null;
@@ -69,6 +74,9 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    // Riegel wie in [_startOAuth] — `_busy` schaltet sofort, der CTA erst
+    // mit dem naechsten Frame.
+    if (_busy) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     final name = _nameController.text.trim();
@@ -94,12 +102,16 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() => _loading = true);
     try {
       if (_isRegister) {
-        await widget.authRepository.signUp(
+        final ergebnis = await widget.authRepository.signUp(
           email: email,
           password: password,
           displayName: name,
         );
         if (!mounted) return;
+        if (ergebnis == SignUpOutcome.emailAlreadyRegistered) {
+          _zeigeNeutralenLoginHinweis();
+          return;
+        }
         setState(
           () => _message =
               'Bestätigungs-Code unterwegs an $email (10 Minuten gültig).',
@@ -118,10 +130,38 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = _friendlyError(error));
+      if (_isRegister && _isExistingAccount(error)) {
+        _zeigeNeutralenLoginHinweis();
+      } else {
+        setState(() => _error = _friendlyError(error));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Antwort auf „zu dieser Adresse gibt es schon ein Konto" — in BEIDEN
+  /// Spielarten, in denen GoTrue den Fall meldet:
+  ///
+  ///  * still, als [SignUpOutcome.emailAlreadyRegistered] (Mail-Bestaetigung
+  ///    an): die Antwort sieht aus wie eine frische Registrierung, nur das
+  ///    `identities`-Array ist leer und es geht keine Mail raus;
+  ///  * laut, als `AuthException` (Mail-Bestaetigung aus) — [_isExistingAccount].
+  ///
+  /// Beide Wege enden hier, weil die Code-Seite ohne Mail eine Sackgasse ist.
+  /// Die Anzeige bleibt NEUTRAL: sie sagt nicht, OB das Konto existiert
+  /// (Hauslinie gegen Konto-Enumeration, auth_repository.dart:48-51) — sie
+  /// bietet nur den Ausweg an, den es in beiden Faellen gibt.
+  void _zeigeNeutralenLoginHinweis() {
+    setState(() {
+      _isRegister = false;
+      _message = context.l10n.authSignupExistingAccountHint;
+    });
+  }
+
+  bool _isExistingAccount(Object error) {
+    final raw = error.toString().toLowerCase();
+    return raw.contains('already registered') || raw.contains('already exists');
   }
 
   /// Eigene Seite fuer den Code-Flow (6-stelliger OTP statt Mail-Link):
@@ -145,9 +185,10 @@ class _AuthScreenState extends State<AuthScreen> {
     if (raw.contains('invalid login') || raw.contains('invalid credentials')) {
       return 'E-Mail oder Passwort stimmt nicht.';
     }
-    if (raw.contains('already registered') || raw.contains('already exists')) {
-      return 'Diese E-Mail ist schon registriert. Versuch Login.';
-    }
+    // Kein eigener Zweig fuer 'already registered': dieser Fall gehoert in
+    // [_isExistingAccount] und wird dort neutral beantwortet. Eine Meldung
+    // wie „Diese E-Mail ist schon registriert" bestaetigt einem Fremden die
+    // Kontoexistenz — genau das, was auth_repository.dart:48-51 ausschliesst.
     if (raw.contains('email not confirmed')) {
       return 'Bitte bestätige zuerst deine E-Mail.';
     }

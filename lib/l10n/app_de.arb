@@ -1233,5 +1233,19 @@
     }
   },
   "notifStreakStartTitle": "Streak starten",
-  "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten."
+  "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten.",
+
+  "authCodeRateLimited": "Zu viele Anfragen in kurzer Zeit. Der Versand ist vorübergehend gesperrt — bitte warte etwa eine Minute, bevor du es erneut versuchst.",
+  "authCodeResendCountdown": "Neuen Code in {sekunden} s anfordern",
+  "authCodeThrottleWait": "Zu viele Anfragen. Der nächste Code ist in {sekunden} s möglich.",
+  "authCodeTooManyAttempts": "Zu viele falsche Codes. Fordere aus Sicherheitsgründen einen neuen Code an.",
+  "authSignupExistingAccountHint": "Falls es zu dieser Adresse schon ein Konto gibt, melde dich bitte an.",
+  "coachInfoLimitUnknown": "Wie viele Fragen heute frei sind, lässt sich gerade nicht abrufen. Reset um Mitternacht (UTC).",
+  "settingsAccountEmailNotAvailable": "Diese Adresse können wir nicht übernehmen. Falls es dazu schon ein Konto gibt, melde dich damit an; sonst prüfe bitte die Schreibweise.",
+  "settingsDeleteAccountCheckingCta": "Wird geprüft…",
+  "settingsDeleteAccountCodeFieldLabel": "Bestätigungs-Code",
+  "settingsDeleteAccountCodeSentTo": "Zur Sicherheit schicken wir dir einen 6-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn wird nichts gelöscht.",
+  "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 6-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
+  "settingsDeleteAccountRequestCta": "Code anfordern",
+  "settingsDeleteAccountRequestingCta": "Code wird angefordert…"
 }

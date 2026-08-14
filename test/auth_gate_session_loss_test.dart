@@ -85,11 +85,12 @@ class _ScriptedAuthRepository implements AuthRepository {
   Future<void> signIn({required String email, required String password}) async {}
 
   @override
-  Future<void> signUp({
+  Future<SignUpOutcome> signUp({
     required String email,
     required String password,
     required String displayName,
-  }) async {}
+  }) async =>
+      SignUpOutcome.created;
 
   @override
   Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {}
