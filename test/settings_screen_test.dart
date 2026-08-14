@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -41,6 +42,11 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     String? email = 'jonas@example.com',
+    /// Die Auth-Schicht. Seit dem Sicherheits-Audit 2026-08-14 traegt sie
+    /// nicht nur Passwort- und Adresswechsel, sondern auch die
+    /// Re-Authentifizierung vor der Kontoloeschung — ohne sie entfaellt der
+    /// Loesch-Block ersatzlos.
+    AuthRepository? authRepository,
     VoidCallback? onOpenGoals,
     Future<void> Function()? onSignOut,
     Future<void> Function()? onDeleteAccount,
@@ -83,6 +89,7 @@ void main() {
                 MaterialPageRoute<void>(
                   builder: (_) => SettingsScreen(
                     email: email,
+                    authRepository: authRepository,
                     onOpenGoals: onOpenGoals,
                     onSignOut: onSignOut,
                     onDeleteAccount: onDeleteAccount,
@@ -111,6 +118,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(finder);
     await tester.pumpAndSettle();
+  }
+
+  /// Gegenstelle fuer die Zeilen, die an der Auth-Schicht haengen — dieselbe
+  /// wie in `test/account_change_flows_test.dart` und
+  /// `test/delete_account_reauth_test.dart`.
+  InMemoryAuthRepository baueRepo() {
+    final repo = InMemoryAuthRepository(
+      initialUser: const EatovaUser(id: 'u1', email: 'jonas@example.com'),
+    );
+    addTearDown(repo.dispose);
+    return repo;
   }
 
   // --- Grundgeruest ---------------------------------------------------------
@@ -295,24 +313,46 @@ void main() {
 
   testWidgets('ohne beide Gefahren-Callbacks fehlt die ganze Gruppe',
       (tester) async {
-    await pump(tester);
+    // MIT Auth-Schicht, damit der Fall wirklich die fehlenden Callbacks misst
+    // und nicht bloss das fehlende Repository.
+    await pump(tester, authRepository: baueRepo());
 
     expect(find.text('GEFAHRENZONE'), findsNothing);
     expect(find.byKey(const ValueKey('settings-delete-account')), findsNothing);
   });
 
-  testWidgets('„Konto löschen" verlangt das getippte Wort', (tester) async {
+  testWidgets('„Konto löschen" verlangt das getippte Wort und danach den Code',
+      (tester) async {
+    // Seit dem Sicherheits-Audit 2026-08-14 sind es ZWEI Huerden, und dieser
+    // Fall haelt fest, dass KEINE von beiden allein loescht. Bis dahin genuegte
+    // das getippte Wort — das direkt daneben als Hinweistext stand.
+    //
+    // Die Wort-Huerde ist dabei NICHT entfallen: sie faengt weiter das
+    // Versehen ab, bevor ueberhaupt eine Mail rausgeht. Der Code faengt den
+    // fremden Finger am entsperrten Geraet.
+    //
+    // Die Feinheiten des zweiten Schritts (zu kurzer Code, abgelehnter Code,
+    // Doppel-Tap) liegen in `test/delete_account_reauth_test.dart`.
+    final repo = baueRepo();
     var geloescht = 0;
-    await pump(tester, onDeleteAccount: () async => geloescht++);
+    await pump(
+      tester,
+      authRepository: repo,
+      onDeleteAccount: () async => geloescht++,
+    );
 
     await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
-    expect(find.text('Konto endgültig löschen'), findsOneWidget);
+    // Schritt 1 traegt den Loesch-Knopf gar nicht: hier wird nichts geloescht,
+    // hier wird der Code angefordert.
+    expect(find.text('Code anfordern'), findsOneWidget);
+    expect(find.text('Konto endgültig löschen'), findsNothing);
 
-    // Ohne das Wort: der Knopf ist scharfgeschaltet-los und tut nichts.
-    await tester.tap(find.text('Konto endgültig löschen'));
+    // Ohne das Wort ist der Knopf nicht scharf — es geht nicht einmal eine
+    // Mail raus.
+    await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
+    expect(repo.passwordResets, isEmpty);
     expect(geloescht, 0);
-    expect(find.text('Konto endgültig löschen'), findsOneWidget);
 
     // Ein FALSCHES Wort schaltet ebenfalls nicht scharf.
     await tester.enterText(
@@ -320,25 +360,60 @@ void main() {
       'löschen bitte',
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Konto endgültig löschen'));
+    await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
+    expect(repo.passwordResets, isEmpty);
     expect(geloescht, 0);
 
-    // Und mit dem Wort laeuft es durch — Seite zu, dann der Callback.
+    // Mit dem Wort geht der Code raus (Kleinschreibung genuegt: die Huerde
+    // schuetzt vor dem Versehen, nicht vor der Shift-Taste) — geloescht ist
+    // damit aber NICHTS.
     await tester.enterText(
       find.byKey(const ValueKey('settings-delete-confirm-field')),
       'löschen',
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Code anfordern'));
+    await tester.pumpAndSettle();
+
+    expect(repo.passwordResets, <String>['jonas@example.com']);
+    expect(geloescht, 0, reason: 'das getippte Wort allein loescht nichts');
+    expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-delete-code-field')),
+      findsOneWidget,
+    );
+
+    // Auch der Loesch-Knopf selbst loescht nicht, solange kein Code steht.
+    await tester.tap(find.text('Konto endgültig löschen'));
+    await tester.pumpAndSettle();
+    expect(repo.verifiedCodes, isEmpty);
+    expect(geloescht, 0);
+    expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
+
+    // Erst der vom SERVER bestaetigte Code laeuft durch — Seite zu, dann der
+    // Callback.
+    await tester.enterText(
+      find.byKey(const ValueKey('settings-delete-code-field')),
+      '123456',
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Konto endgültig löschen'));
     await tester.pumpAndSettle();
 
+    expect(repo.verifiedCodes, <String>['jonas@example.com:123456']);
     expect(geloescht, 1);
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
   });
 
   testWidgets('ohne onDeleteAccount fehlt der Loesch-Block', (tester) async {
-    await pump(tester, onSignOut: () async {});
+    // Auch hier mit Repository: die Zeile fehlt wegen des fehlenden Callbacks,
+    // nicht wegen der fehlenden Auth-Schicht.
+    await pump(
+      tester,
+      authRepository: baueRepo(),
+      onSignOut: () async {},
+    );
 
     expect(find.text('GEFAHRENZONE'), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-sign-out')), findsOneWidget);

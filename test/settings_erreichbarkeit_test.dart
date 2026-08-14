@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_app.dart';
+import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -80,6 +81,18 @@ void main() {
     // genuegt deshalb nicht: beide Praeferenz-Zeilen muessen DA sein.
     expect(find.byKey(const ValueKey('settings-language')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsOneWidget);
+
+    // Dasselbe Muster fuer die Auth-Schicht: seit dem Sicherheits-Audit
+    // 2026-08-14 haengen an ihr drei Zeilen — Passwortwechsel, Adresswechsel
+    // UND die Kontoloeschung. Reicht die Schale das Repository nicht durch,
+    // verschwinden alle drei STILL (kein Analyzer-Fehler, kein Absturz). Diese
+    // Zeile ist der Waechter dafuer, dass die Schale es tut.
+    expect(
+      find.byKey(const ValueKey('settings-change-password')),
+      findsOneWidget,
+      reason: 'ohne durchgereichtes AuthRepository entfaellt auch der '
+          'Loesch-Block ersatzlos',
+    );
   });
 
   testWidgets('die Bearbeiten-Knoepfe im Profil fuehren auf „Profil & Ziele"',
@@ -171,9 +184,23 @@ void main() {
     // „Tagesdaten zurücksetzen" fehlt hier bewusst: die Aktion ist ersatzlos
     // gestrichen, nicht umgezogen (Nutzer-Entscheid). Die Negativ-Zusicherung
     // dazu haelt `goals_screen_render_test`.
+    //
+    // Seit dem Sicherheits-Audit 2026-08-14 gehoert das [AuthRepository] zur
+    // vollen Verdrahtung: die Kontoloeschung verlangt eine echte
+    // Re-Authentifizierung per Mail-Code und entfaellt ohne Auth-Schicht
+    // ersatzlos. Die App reicht es immer durch (`eatova_app.dart` baut es
+    // notfalls selbst und gibt es an `EatovaHomePage` weiter, die es an diesen
+    // Screen haengt) — dass sie das TUT, prueft der erste Fall dieser Datei am
+    // gebooteten `EatovaApp`. Hier steht deshalb dieselbe Verdrahtung wie im
+    // Betrieb, nur mit der In-Memory-Gegenstelle.
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
+
+    final repo = InMemoryAuthRepository(
+      initialUser: const EatovaUser(id: 'u1', email: 'jonas@example.com'),
+    );
+    addTearDown(repo.dispose);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -188,6 +215,7 @@ void main() {
         ],
         home: SettingsScreen(
           email: 'jonas@example.com',
+          authRepository: repo,
           onOpenGoals: () {},
           onSignOut: () async {},
           onDeleteAccount: () async {},
