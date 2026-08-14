@@ -43,9 +43,6 @@ dependencies:
   # bricht der Build, sobald das Paket aus der transitiven Kette fiele.
   intl: ^0.20.2
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
   # clock erlaubt es, die Uhrzeit pro Zone festzunageln (withClock) — fuer
   # deterministische Tests der zeitbasierten Slot-Heuristik. Default ist
   # DateTime.now(), das Laufzeit-Verhalten bleibt unveraendert.

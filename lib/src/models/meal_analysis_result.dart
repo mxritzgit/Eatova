@@ -296,8 +296,6 @@ class MealAnalysisResult {
   /// lesen `false` und bleiben blockiert wie bisher.
   final bool explicitZeroKcal;
 
-  String get kcalRange => '$caloriesKcal kcal';
-
   /// Anzeige des Herkunfts-Werts in der Sprache von [l10n]. Loest bekannte
   /// Rohwerte (neutraler Code seit diesem PR ODER deutscher Bestandswert
   /// davor) ueber [MealResultSource] auf; ein unbekannter Rohwert wird

@@ -59,8 +59,6 @@ class LifetimeStats {
 
   final DateTime sessionStart;
 
-  Duration get sessionDuration => DateTime.now().difference(sessionStart);
-
   /// C7: die eingefrorenen Legacy-Zaehler ([workoutsCompleted], [waterTotalMl],
   /// [stepsRecorded]) sind hier bewusst NICHT mehr aenderbar — sie haben
   /// keinen Schreiber mehr und werden nur noch durchgereicht. Der Konstruktor
