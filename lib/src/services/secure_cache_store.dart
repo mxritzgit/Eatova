@@ -320,12 +320,18 @@ class PluginSecureKeyStore implements SecureKeyStore {
 /// abbildet:
 ///   (a) Erststart / frische Installation  -> DEK praegen ist richtig
 ///   (b) Der Keystore hat den Eintrag verloren -> DEK praegen zerstoert Daten
-/// Traegt daneben zwei weitere Bits, die denselben Vorfall ueberleben muessen
-/// wie der Sentinel selbst: den Strike-Zaehler des Aufgabe-Budgets und den
-/// Nutzerhinweis. Beide gehoeren fachlich zum Sentinel — sie beschreiben
-/// dessen Nachspiel — und teilen seine Haltbarkeitszusage (gehen NUR gemeinsam
-/// mit den Blobs verloren). Ein eigener Speicher waere ein zweiter Ort mit
-/// derselben Anforderung.
+/// Traegt daneben drei weitere Bits, die denselben Vorfall ueberleben muessen
+/// wie der Sentinel selbst: den Strike-Zaehler des Aufgabe-Budgets, den
+/// Nutzerhinweis und den Marker fuer den beendeten Klartext-Migrationspfad.
+/// Alle drei gehoeren fachlich zum Sentinel — sie beschreiben dessen Nachspiel
+/// — und teilen seine Haltbarkeitszusage (gehen NUR gemeinsam mit den Blobs
+/// verloren). Ein eigener Speicher waere ein zweiter Ort mit derselben
+/// Anforderung.
+///
+/// Das ist eine Aussage ueber HALTBARKEIT, nicht ueber Integritaet: keines der
+/// vier Bits ist gegen jemanden geschuetzt, der in die Prefs-Datei schreiben
+/// kann. Wo das den Unterschied macht, steht bei
+/// [CacheKeyProvider.plaintextMigrationClosedKey].
 abstract class DekSentinelStore {
   Future<bool> isProvisioned();
   Future<void> markProvisioned();
@@ -340,6 +346,14 @@ abstract class DekSentinelStore {
   /// Hinterlegt "der lokale Cache musste aufgegeben werden" fuer die UI.
   /// Wird von [CacheKeyProvider.consumeCacheResetNotice] gelesen und geloescht.
   Future<void> raiseCacheResetNotice();
+
+  /// Ob der Klartext-Migrationspfad zu ist — siehe
+  /// [CacheKeyProvider.plaintextMigrationClosedKey].
+  Future<bool> isPlaintextMigrationClosed();
+
+  /// Setzt den Marker. Einweg: es gibt keinen Weg zurueck in den migrierbaren
+  /// Zustand, ausser die Blobs gehen ohnehin mit verloren.
+  Future<void> closePlaintextMigration();
 }
 
 /// A1/iOS: Blick auf die verschluesselten Cache-Slots, OHNE den DEK zu
@@ -389,6 +403,90 @@ class PrefsCacheCiphertextProbe implements CacheCiphertextProbe {
     for (final key in keys) {
       await prefs.remove(key);
     }
+  }
+}
+
+/// W7a: Aufzaehlung der Slots, die noch KLARTEXT aus einer Installation von
+/// VOR der Verschluesselung tragen koennen.
+///
+/// Gegenstueck zu [CacheCiphertextProbe] und bewusst eine EIGENE Naht statt
+/// zweier weiterer Methoden dort: die Ciphertext-Probe gehoert dem Bootstrap,
+/// diese hier dem Dekorator — und `implements CacheCiphertextProbe` gibt es
+/// auch ausserhalb dieser Datei, wo ein zusaetzliches Interface-Member ein
+/// Compile-Fehler waere.
+///
+/// Der Blick geht direkt auf SharedPreferences, weil [KeyValueStore] nur nach
+/// EINEM bekannten Key fragen kann und den Namensraum nicht aufzaehlt — und
+/// genau die Slots, die nie gelesen werden (fremde uid, `pending_stats`,
+/// `notifications_enabled`), sind der Grund fuer den Sweep.
+abstract class LegacyPlaintextProbe {
+  /// Kandidaten: Keys, die [isLegacyCacheSlotKey] erfuellen und deren Wert ein
+  /// nicht-leerer String OHNE [cacheCipherMagic] ist.
+  Future<List<String>> plaintextCacheKeys();
+}
+
+/// Die Slot-Namen von `LocalCache`, hier bewusst NOCH EINMAL aufgeschrieben.
+///
+/// WARUM EINE ERLAUBNISLISTE und nicht schlicht "alles unter `eatova.v1.`":
+/// in demselben Prefs-Namensraum liegen `eatova.v1.locale`,
+/// `eatova.v1.theme_mode`, `eatova.v1.search_credentials` und
+/// `eatova.v1.otp_guard.*` — die werden OHNE den Dekorator gelesen. Ein Sweep
+/// ueber den ganzen Praefix wuerde sie verschluesseln und damit dauerhaft und
+/// lautlos zerstoeren. Das ist der umgekehrte Fehler des Fundes, den der Sweep
+/// behebt, und er waere schlimmer, weil er JEDE Installation trifft.
+///
+/// WARUM DIE DOPPELUNG VERTRETBAR IST: die Menge der Slots, die ueberhaupt
+/// Klartext enthalten KANN, ist historisch und abgeschlossen — sie stammt aus
+/// der Zeit vor [EncryptedKeyValueStore]. Ein spaeter hinzugefuegter Slot wird
+/// von Anfang an durch den Dekorator geschrieben und traegt immer das Magic;
+/// er fehlt hier also zu Recht. (`daily` steht mit drin: der Legacy-Slot des
+/// frueheren Heute-Tabs traegt eine Mood-Freitextnotiz und wird nur fuer den
+/// AKTUELLEN User geraeumt — der eines fremden Users lag sonst weiter roh da.)
+const Set<String> legacyCacheSlotNames = <String>{
+  'profile',
+  'daily',
+  'stats',
+  'notifications_enabled',
+  'logged_meals',
+  'favorites',
+  'weight_log',
+  'outbox',
+  'pending_stats',
+  'user_recipes',
+  'daily_activity',
+};
+
+/// Ob [key] ein Cache-Slot der Form `eatova.v1.<slot>.<uid>` ist.
+///
+/// Die uid selbst wird NICHT geprueft (sie ist eine beliebige Fremdkennung) —
+/// nur Praefix und Slot-Name. Keys mit weniger als vier Segmenten sind
+/// Steuerbits ([CacheKeyProvider.dekProvisionedKey] & Co.) und fallen durch.
+@visibleForTesting
+bool isLegacyCacheSlotKey(String key) {
+  final parts = key.split('.');
+  if (parts.length < 4) return false;
+  if (parts[0] != 'eatova' || parts[1] != 'v1') return false;
+  return legacyCacheSlotNames.contains(parts[2]);
+}
+
+/// Production-Implementierung: SharedPreferences.
+class PrefsLegacyPlaintextProbe implements LegacyPlaintextProbe {
+  const PrefsLegacyPlaintextProbe();
+
+  @override
+  Future<List<String>> plaintextCacheKeys() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hits = <String>[];
+    for (final key in prefs.getKeys()) {
+      if (!isLegacyCacheSlotKey(key)) continue;
+      // `get` statt `getString`: im selben Namensraum liegen auch bool-, int-
+      // und List-Werte, und `getString` wuerde darauf einen TypeError werfen.
+      final value = prefs.get(key);
+      if (value is! String || value.isEmpty) continue;
+      if (value.startsWith(cacheCipherMagic)) continue;
+      hits.add(key);
+    }
+    return hits;
   }
 }
 
@@ -447,6 +545,18 @@ class PrefsDekSentinelStore implements DekSentinelStore {
   Future<void> raiseCacheResetNotice() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(CacheKeyProvider.cacheResetNoticeKey, true);
+  }
+
+  @override
+  Future<bool> isPlaintextMigrationClosed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(CacheKeyProvider.plaintextMigrationClosedKey) ?? false;
+  }
+
+  @override
+  Future<void> closePlaintextMigration() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(CacheKeyProvider.plaintextMigrationClosedKey, true);
   }
 }
 
@@ -508,6 +618,61 @@ class CacheKeyProvider {
   /// Wird von [consumeCacheResetNotice] gelesen und dabei geloescht.
   static const String cacheResetNoticeKey = 'eatova.v1.cache_reset_notice';
 
+  /// SEC/W7a: Marker "der Klartext-Migrationspfad ist zu".
+  ///
+  /// Ohne ihn nimmt [EncryptedKeyValueStore.getString] jeden Slot ohne
+  /// [cacheCipherMagic] UNBEFRISTET als migrierbaren Legacy-Wert an. Echten
+  /// Legacy-Klartext kann es aber nur aus Installationen von VOR der
+  /// Verschluesselung geben — seit [EncryptedKeyValueStore] schreibt, traegt
+  /// jeder Wert das Magic. Der Marker beendet also einen UEBERGANGSZUSTAND,
+  /// der sonst dauerhaft offen bliebe: danach ist ein magic-loser Slot kein
+  /// Erbstueck mehr, sondern ein unlesbarer Wert, der verworfen und gemeldet
+  /// wird. Mehr behauptet er nicht — siehe "GRENZE DER ZUSAGE".
+  ///
+  /// GESETZT WIRD ER, WENN DER SWEEP DURCH IST: der erste Start nach dem
+  /// Update migriert ALLE geerbten Klartext-Slots aktiv
+  /// ([EncryptedKeyValueStore.migrateAllLegacySlots]) und schliesst den Pfad
+  /// erst danach.
+  ///
+  /// FRUEHER STAND ER BEIM SENTINEL ([_markProvisioned]) — das war ein
+  /// Datenverlustpfad: der Marker gilt GLOBAL, die Slots liegen PRO UID
+  /// (`eatova.v1.<slot>.<uid>`). Meldet sich nach dem Update zuerst Nutzer A
+  /// an, schliesst DESSEN Bootstrap den Pfad, bevor je ein Slot von Nutzer B
+  /// gelesen wurde; B's nie zugestellte Outbox faellt beim naechsten Start in
+  /// [ExpiredPlaintextCacheSlot] und ist weg, ohne dass B jemals die Chance
+  /// auf eine Migration hatte. Warum der Sweep und nicht ein Marker pro uid,
+  /// steht bei [EncryptedKeyValueStore.migrateAllLegacySlots].
+  ///
+  /// BESTANDSSCHUTZ: der Marker wird NUR gesetzt, wenn der Sweep jeden
+  /// gefundenen Slot danach tatsaechlich verschluesselt vorfindet. Scheitert
+  /// er (Prefs-Fehler, Schreibfehler), bleibt der Pfad offen und der naechste
+  /// Start wiederholt ihn. "Pfad zu" heisst damit immer: es gibt nichts mehr
+  /// zu erben.
+  ///
+  /// GRENZE DER ZUSAGE: der Marker liegt in DERSELBEN Prefs-Datei wie die
+  /// Klartext-Slots, um die es geht. Wer dort `eatova.v1.outbox.<uid>`
+  /// hineinschreiben kann, loescht im selben Zug dieses Bool; der naechste
+  /// Start sieht "Marker abwesend", sweept wieder und wertet den
+  /// untergeschobenen Wert sogar zu einem gueltig signierten EATOVA1-Blob auf.
+  /// Gegen einen Angreifer mit Schreibzugriff auf die Prefs-Datei leistet der
+  /// Marker also NICHTS — er befristet einen Migrationspfad, er sichert keine
+  /// Integritaet. Die einzige Integritaetsaussage dieser Datei ist der
+  /// GCM-Tag samt AAD, und die gilt ausschliesslich fuer Slots MIT Magic. Was
+  /// gegen den Root-Fall bleibt, ist Sichtbarkeit: [ExpiredPlaintextCacheSlot]
+  /// hat deshalb einen eigenen Ein-Schuss-Zaehler.
+  ///
+  /// KEIN Marker im OS-Keystore, obwohl er dort nicht mit einem Texteditor zu
+  /// kippen waere. Zwei Gruende: (1) `ThisDeviceOnly`-Eintraege sind von
+  /// Backup und Geraetewechsel ausgeschlossen, SharedPreferences nicht (siehe
+  /// [PluginSecureKeyStore.iosOptions]). Nach einem Restore waere der Marker
+  /// weg und die eingespielten Prefs — inklusive etwaiger Klartext-Slots
+  /// FREMDER Herkunft — wieder migrierbar; der Pfad ginge also genau dort auf,
+  /// wo der Inhalt am wenigsten vertrauenswuerdig ist. (2) Er kostet einen
+  /// zweiten Plugin-Roundtrip pro Kaltstart, gegen den der Dateikopf die ganze
+  /// Envelope-Konstruktion gebaut hat.
+  static const String plaintextMigrationClosedKey =
+      'eatova.v1.cache_plaintext_migrated';
+
   /// Wie viele App-Starts in Folge abgebrochen wird, bevor der DEK als
   /// ENDGUELTIG verloren gilt.
   ///
@@ -543,6 +708,21 @@ class CacheKeyProvider {
   /// Bootstrap wird bewusst NICHT memoisiert — ohne dieses Flag waere das
   /// Budget nach einer einzigen Session aufgebraucht.
   static bool _vanishStrikeCounted = false;
+
+  /// Stand des Klartext-Markers VOR dem Bootstrap dieses Prozesses.
+  ///
+  /// Fail-closed vorbelegt: solange kein Bootstrap gelaufen ist, gibt es auch
+  /// keinen DEK und damit keinen Store, der migrieren duerfte.
+  static bool _legacyPlaintextAccepted = false;
+
+  /// Ob dieser App-Start Legacy-Klartext noch uebernehmen darf. Wird von
+  /// [EncryptedKeyValueStore.create] NACH [obtain] gelesen und entscheidet
+  /// dort zweierlei: ob der Sweep laeuft und ob ein magic-loser Slot beim Read
+  /// noch migriert statt verworfen wird (siehe [plaintextMigrationClosedKey]).
+  ///
+  /// Der Schnappschuss entsteht im Bootstrap, also VOR dem Sweep, der ihn
+  /// schliesst — der migrierende Lauf sieht damit noch `true`.
+  static bool get legacyPlaintextAccepted => _legacyPlaintextAccepted;
 
   /// Liefert den DEK (32 Bytes) oder null, wenn er weder gelesen noch angelegt
   /// werden konnte.
@@ -608,6 +788,7 @@ class CacheKeyProvider {
   static void debugReset() {
     _pending = null;
     _vanishStrikeCounted = false;
+    _legacyPlaintextAccepted = false;
   }
 
   static Future<Uint8List?> _bootstrap(
@@ -615,6 +796,12 @@ class CacheKeyProvider {
     DekSentinelStore sentinel,
     CacheCiphertextProbe probe,
   ) async {
+    // Der Stand von VOR dem Sweep ist massgeblich fuer diesen App-Start:
+    // derselbe Start schliesst den Marker gleich mit, und wer ihn danach
+    // liest, wuerde die Legacy-Werte der Bestandsnutzer verwerfen statt sie zu
+    // migrieren.
+    _legacyPlaintextAccepted = !await _plaintextMigrationClosed(sentinel);
+
     final String? stored;
     try {
       stored = await keyStore.read(dekStorageKey);
@@ -860,14 +1047,57 @@ class CacheKeyProvider {
     }
   }
 
+  /// Marker lesen. FAIL CLOSED: wer nicht sagen kann, ob die Migration schon
+  /// gelaufen ist, uebernimmt keinen Klartext mehr. Der Marker liegt in
+  /// DENSELBEN SharedPreferences wie die Legacy-Werte — faellt der Read aus,
+  /// gibt es dort ohnehin nichts zu uebernehmen; die Gegenrichtung wuerde den
+  /// Migrationspfad per Prefs-Fehler wieder aufsperren.
+  ///
+  /// Dieselbe Ko-Lokation ist auf dem SCHREIB-Weg kein Vorteil, sondern die
+  /// Grenze der Zusage: wer die Legacy-Werte legen kann, kann den Marker
+  /// entfernen ([plaintextMigrationClosedKey]).
+  static Future<bool> _plaintextMigrationClosed(
+      DekSentinelStore sentinel) async {
+    try {
+      return await sentinel.isPlaintextMigrationClosed();
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Klartext-Marker nicht lesbar — fail closed',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+      return true;
+    }
+  }
+
   /// Best effort: schlaegt das Setzen fehl, degradiert das Verhalten auf den
   /// Stand VOR dieser Aenderung (naechster Keystore-Reset praegt neu) — es
   /// wird dadurch nie schlimmer, also kein Grund den Bootstrap abzubrechen.
+  ///
+  /// Der Klartext-Marker faehrt hier BEWUSST NICHT mehr mit: er ist global,
+  /// die Slots sind pro uid, und der Sentinel steht schon nach dem Bootstrap
+  /// des ERSTEN Nutzers. Wer beides koppelt, schliesst den Migrationspfad fuer
+  /// alle anderen, bevor deren Slots je gelesen wurden
+  /// ([plaintextMigrationClosedKey]). Der Marker gehoert deshalb ans Ende des
+  /// Sweeps, nicht ans Praegen.
   static Future<void> _markProvisioned(DekSentinelStore sentinel) async {
     try {
       await sentinel.markProvisioned();
     } catch (e, s) {
       dev.log('CacheKeyProvider: Sentinel-Write fehlgeschlagen',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+    }
+  }
+
+  /// Schliesst den Klartext-Pfad. Aufrufer ist AUSSCHLIESSLICH
+  /// [EncryptedKeyValueStore.migrateAllLegacySlots], und zwar erst, wenn kein
+  /// geerbter Klartext-Slot mehr uebrig ist ([plaintextMigrationClosedKey]).
+  ///
+  /// Best effort: schlaegt das Setzen fehl, bleibt der Pfad einen Start
+  /// laenger offen — das ist die harmlose Richtung, der Sweep ist idempotent.
+  static Future<void> _closePlaintextMigration(
+      DekSentinelStore sentinel) async {
+    try {
+      await sentinel.closePlaintextMigration();
+    } catch (e, s) {
+      dev.log('CacheKeyProvider: Klartext-Marker nicht schreibbar',
           error: e, stackTrace: s, name: 'secure_cache_store');
     }
   }
@@ -901,15 +1131,41 @@ class CacheKeyProvider {
 /// den die bestehenden Tests mit einem [InMemoryKeyValueStore] und rohen
 /// Klartext-Werten benutzen.
 class EncryptedKeyValueStore implements KeyValueStore {
-  EncryptedKeyValueStore(this._inner, this._cipher);
+  /// [acceptLegacyPlaintext] ist der Migrationspfad aus
+  /// [CacheKeyProvider.plaintextMigrationClosedKey]. Der Default steht auf
+  /// `true`, weil der Dekorator produktiv NUR ueber [create] entsteht und der
+  /// blanke Konstruktor damit den Zustand behaelt, den die bestehenden Tests
+  /// mit rohen Klartext-Werten voraussetzen.
+  EncryptedKeyValueStore(this._inner, this._cipher,
+      {bool acceptLegacyPlaintext = true})
+      : _acceptLegacyPlaintext = acceptLegacyPlaintext;
 
   final KeyValueStore _inner;
   final CacheCipher _cipher;
+  final bool _acceptLegacyPlaintext;
 
   /// Wird nur EINMAL pro Prozess an [CrashReporter] gemeldet — ein kaputter
   /// DEK macht ALLE Slots unlesbar, das waeren sonst neun identische Reports
   /// pro Kaltstart.
   static bool _undecryptableReported = false;
+
+  /// SEC: eigener Zaehler fuer [ExpiredPlaintextCacheSlot], KEIN gemeinsamer.
+  ///
+  /// Der Marker aus [CacheKeyProvider.plaintextMigrationClosedKey] haelt einen
+  /// Angreifer mit Schreibzugriff nicht auf (dort steht, warum) — was gegen
+  /// diesen Fall bleibt, ist die Meldung. Sie darf nicht davon abhaengen, ob
+  /// vorher zufaellig ein kaputter Ciphertext denselben Schuss verbraucht hat:
+  /// nach einem Keystore-Reset scheitert JEDER Slot, und ausgerechnet der
+  /// untergeschobene waere danach still.
+  static bool _expiredPlaintextReported = false;
+
+  /// Setzt beide Ein-Schuss-Zaehler zurueck (nur Tests). Sie sind pro PROZESS
+  /// gedacht; ein Testlauf ist aber viele simulierte Prozesse in einem.
+  @visibleForTesting
+  static void debugResetReportGuards() {
+    _undecryptableReported = false;
+    _expiredPlaintextReported = false;
+  }
 
   /// Baut den Dekorator auf dem OS-Keystore-DEK. Gibt null zurueck, wenn der
   /// DEK weder gelesen noch angelegt werden konnte — der Aufrufer
@@ -920,6 +1176,7 @@ class EncryptedKeyValueStore implements KeyValueStore {
     SecureKeyStore? keyStore,
     DekSentinelStore? sentinelStore,
     CacheCiphertextProbe? probe,
+    LegacyPlaintextProbe? legacyProbe,
   }) async {
     final dek = await CacheKeyProvider.obtain(
       keyStore: keyStore,
@@ -927,7 +1184,22 @@ class EncryptedKeyValueStore implements KeyValueStore {
       probe: probe,
     );
     if (dek == null) return null;
-    return EncryptedKeyValueStore(inner, AesGcmCacheCipher(dek));
+    final store = EncryptedKeyValueStore(
+      inner,
+      AesGcmCacheCipher(dek),
+      acceptLegacyPlaintext: CacheKeyProvider.legacyPlaintextAccepted,
+    );
+    // W7a: der Sweep laeuft VOR der Rueckgabe. `LocalCache.create` haengt
+    // direkt daran, der Aufrufer bekommt also nie einen Store, der noch mitten
+    // in der Migration steckt. Er kostet einen Prefs-Durchlauf — aber nur auf
+    // dem einen Start, an dem der Marker noch offen ist.
+    if (CacheKeyProvider.legacyPlaintextAccepted) {
+      await store.migrateAllLegacySlots(
+        legacyProbe ?? const PrefsLegacyPlaintextProbe(),
+        sentinelStore ?? const PrefsDekSentinelStore(),
+      );
+    }
+    return store;
   }
 
   /// PERF-G9: Seit die Verschluesselung im Isolate laeuft, ist [setString]
@@ -957,20 +1229,24 @@ class EncryptedKeyValueStore implements KeyValueStore {
       }
     }
 
+    // Ein Slot ohne Magic, nachdem die Migration durch ist: ab hier ist das
+    // kein Legacy-Wert mehr, sondern ein Wert, der weder Tag noch AAD
+    // vorweisen kann — also derselbe Fall wie ein kaputter Ciphertext, und
+    // derselbe Pfad.
+    if (!_acceptLegacyPlaintext) {
+      await _onUndecryptable(
+          key, const ExpiredPlaintextCacheSlot(), StackTrace.current);
+      return null;
+    }
+
     // Legacy-Klartext aus einer Installation vor dieser Aenderung.
     //
-    // EAGER migrieren, nicht auf Write-Through warten: die Slots `outbox`,
-    // `pending_stats` und `notifications_enabled` werden nur bei ihren eigenen
-    // Ereignissen geschrieben und laegen sonst womoeglich wochenlang weiter im
-    // Klartext.
+    // Bleibt neben [migrateAllLegacySlots] bestehen: der Sweep raeumt auf, was
+    // beim Start DA war — dieser Zweig faengt, was waehrend des migrierenden
+    // Starts noch dazukommt, und er ist der Pfad, den die Tests mit dem
+    // blanken Konstruktor treiben.
     try {
-      await _enqueueWrite(key, () async {
-        // Der Isolate-Hop macht ein Fenster auf, in dem ein regulaerer
-        // setString denselben Slot schon neu geschrieben haben kann. Dann ist
-        // der Klartext von oben veraltet und darf ihn NICHT ueberschreiben.
-        if (await _inner.getString(key) != raw) return;
-        await _inner.setString(key, await _cipher.encrypt(key, raw));
-      });
+      await _migrateLegacyPlaintext(key, raw);
     } catch (e) {
       // Eigener try/catch: ein Migrations-Fehler degradiert zu "bleibt
       // Klartext, naechster Read versucht es erneut" — NIEMALS zu einem
@@ -982,6 +1258,103 @@ class EncryptedKeyValueStore implements KeyValueStore {
     }
     return raw;
   }
+
+  /// W7a: zieht ALLE geerbten Klartext-Slots ein und schliesst danach den
+  /// Migrationspfad ([CacheKeyProvider.plaintextMigrationClosedKey]).
+  ///
+  /// --- Warum der Sweep und nicht ein Marker PRO UID -------------------------
+  ///
+  /// Der Fund: der Marker ist global, die Slots sind pro uid. Wer nach dem
+  /// Update zuerst startet, schliesst den Pfad fuer alle anderen.
+  ///
+  /// Ein Marker pro uid haette den Fund zwar entschaerft, aber drei Probleme:
+  ///   (1) Diese Datei KENNT die uid nicht. Der DEK ist app-weit, der Dekorator
+  ///       sitzt unter [LocalCache] und sieht nur Slot-Keys. Die uid daraus zu
+  ///       schnitzen hiesse, den Key-Aufbau von `local_cache.dart` hier ein
+  ///       zweites Mal zu behaupten — und den Marker fuer jede fremde uid zu
+  ///       fuehren, die je in den Prefs auftaucht.
+  ///   (2) Es gibt keinen Zeitpunkt "fuer diese uid fertig". Welcher Slot noch
+  ///       Klartext ist, weiss nur der Read, und `outbox`, `pending_stats`,
+  ///       `notifications_enabled` werden womoeglich nie gelesen. Ein Marker,
+  ///       der nach dem ersten Read faellt, laesst die uebrigen acht Slots
+  ///       derselben uid genauso fallen wie vorher B's ganzen Namensraum.
+  ///   (3) Fuer eine uid, die sich auf diesem Geraet NIE wieder anmeldet,
+  ///       bliebe der Klartext-Pfad fuer immer offen — also genau dort, wo er
+  ///       am laengsten offen steht, und ohne dass je jemand hinschaut.
+  ///
+  /// Der Sweep dreht das um: er migriert in dem einen Moment, in dem die App
+  /// den geerbten Werten noch traut, JEDEN Slot — auch den von Nutzer B, den
+  /// niemand liest. Danach ist der Pfad fuer alle gleichzeitig zu, und der
+  /// Zustand ist ehrlich pruefbar ("es liegt kein magic-loser Cache-Slot mehr
+  /// da"), statt nur behauptet.
+  ///
+  /// PREIS, den man kennen muss: waehrend dieses einen Starts wird auch ein
+  /// UNTERGESCHOBENER Klartext-Slot uebernommen, den vorher nur ein Read
+  /// erwischt haette. Das ist derselbe Vertrauensmoment, nur vollstaendig
+  /// ausgenutzt — unterscheiden liesse sich beides nicht, weil geerbter
+  /// Klartext per Definition keine Signatur hat. Die Bedingung "Bestandsnutzer
+  /// verlieren nichts" entscheidet den Fall: der echte Verlust ist sicher, der
+  /// Angriff setzt Schreibzugriff voraus, gegen den der Marker ohnehin nichts
+  /// ausrichtet ([CacheKeyProvider.plaintextMigrationClosedKey]).
+  Future<void> migrateAllLegacySlots(
+      LegacyPlaintextProbe probe, DekSentinelStore sentinel) async {
+    final List<String> keys;
+    try {
+      keys = await probe.plaintextCacheKeys();
+    } catch (e, s) {
+      // Marker NICHT setzen: wer nicht aufzaehlen kann, weiss nicht, ob noch
+      // etwas zu erben war. Der naechste Start versucht es erneut.
+      dev.log('EncryptedKeyValueStore: Klartext-Sweep nicht aufzaehlbar',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+      return;
+    }
+
+    for (final key in keys) {
+      final String? raw;
+      try {
+        raw = await _inner.getString(key);
+      } catch (e, s) {
+        dev.log('EncryptedKeyValueStore: Klartext-Sweep, Read fehlgeschlagen',
+            error: e, stackTrace: s, name: 'secure_cache_store');
+        return;
+      }
+      // Zwischen Aufzaehlung und Read kann ein regulaerer Write gelaufen sein.
+      if (raw == null || raw.isEmpty || raw.startsWith(cacheCipherMagic)) {
+        continue;
+      }
+      try {
+        await _migrateLegacyPlaintext(key, raw);
+        // NACHPRUEFEN statt vertrauen: der Marker ist einweg, und ein still
+        // gescheiterter Write wuerde den Slot beim naechsten Start in den
+        // Verwerfen-Pfad kippen. Lieber ein Start mehr mit offenem Marker.
+        final after = await _inner.getString(key);
+        if (after != null &&
+            after.isNotEmpty &&
+            !after.startsWith(cacheCipherMagic)) {
+          dev.log('EncryptedKeyValueStore: Klartext-Sweep unvollstaendig',
+              name: 'secure_cache_store');
+          return;
+        }
+      } catch (e, s) {
+        dev.log('EncryptedKeyValueStore: Klartext-Sweep, Write fehlgeschlagen',
+            error: e, stackTrace: s, name: 'secure_cache_store');
+        return;
+      }
+    }
+
+    await CacheKeyProvider._closePlaintextMigration(sentinel);
+  }
+
+  /// Schreibt einen magic-losen Wert verschluesselt in seinen Slot zurueck.
+  /// Wirft, wenn das misslingt — die Aufrufer entscheiden, was das bedeutet.
+  Future<void> _migrateLegacyPlaintext(String key, String raw) =>
+      _enqueueWrite(key, () async {
+        // Der Isolate-Hop macht ein Fenster auf, in dem ein regulaerer
+        // setString denselben Slot schon neu geschrieben haben kann. Dann ist
+        // der Klartext von oben veraltet und darf ihn NICHT ueberschreiben.
+        if (await _inner.getString(key) != raw) return;
+        await _inner.setString(key, await _cipher.encrypt(key, raw));
+      });
 
   @override
   Future<void> setString(String key, String value) =>
@@ -1035,8 +1408,13 @@ class EncryptedKeyValueStore implements KeyValueStore {
       dev.log('EncryptedKeyValueStore: remove nach Decrypt-Fehler scheiterte',
           error: e, name: 'secure_cache_store');
     }
-    if (_undecryptableReported) return;
-    _undecryptableReported = true;
+    if (error is ExpiredPlaintextCacheSlot) {
+      if (_expiredPlaintextReported) return;
+      _expiredPlaintextReported = true;
+    } else {
+      if (_undecryptableReported) return;
+      _undecryptableReported = true;
+    }
     // NUR Fehlertyp und Key-Name — nie der Wert. crash_reporter.dart haelt
     // diese Einschraenkung fuer Gesundheitsdaten explizit fest. Auch das
     // Fehler-OBJEKT geht bewusst nicht roh raus: eine FormatException aus
@@ -1064,6 +1442,23 @@ String redactUserSegment(String key) {
   final parts = key.split('.');
   if (parts.length <= 3) return key;
   return '${parts.sublist(0, parts.length - 1).join('.')}.<uid>';
+}
+
+/// Grund fuer den Undecryptable-Pfad in [EncryptedKeyValueStore.getString],
+/// wenn ein Slot nach abgeschlossener Migration ohne [cacheCipherMagic]
+/// auftaucht.
+///
+/// Eigener Typ statt einer FormatException, damit der Crash-Report ihn von
+/// einem kaputten Ciphertext unterscheidet: das hier ist der einzige Fall in
+/// dieser Datei, der auf einen SCHREIBZUGRIFF von aussen hindeuten kann —
+/// deshalb auch ein eigener Ein-Schuss-Zaehler im Dekorator.
+/// Traegt bewusst keinen Key und keinen Wert.
+class ExpiredPlaintextCacheSlot implements Exception {
+  const ExpiredPlaintextCacheSlot();
+
+  @override
+  String toString() => 'ExpiredPlaintextCacheSlot: Klartext-Slot nach '
+      'abgeschlossener Migration — verworfen statt uebernommen';
 }
 
 /// Bereinigtes Fehlerobjekt fuer den Crash-Report: traegt ausschliesslich

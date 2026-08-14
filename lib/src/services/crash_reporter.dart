@@ -34,7 +34,8 @@ import 'package:supabase_flutter/supabase_flutter.dart'
 /// 2. [sanitizeSentryEvent] als `beforeSend` — unbehandelte Fehler, die
 ///    `FlutterErrorIntegration`, `OnErrorIntegration` und
 ///    `RunZonedGuardedIntegration` an der Facade vorbei abgreifen.
-///    (`test/services/crash_reporter_before_send_test.dart`)
+///    (`test/services/crash_reporter_before_send_test.dart`,
+///    `test/services/crash_reporter_mechanism_test.dart`)
 /// 3. [sanitizeSentryBreadcrumb] als `beforeBreadcrumb` — der
 ///    Breadcrumb-Strom, den `beforeSend` NICHT abdeckt: Breadcrumbs werden
 ///    in den nativen Scope gespiegelt, und ein nativer Crash-Report geht
@@ -499,6 +500,8 @@ const Set<String> _sanitisiertPerKonstruktion = <String>{
 /// |---|---|---|
 /// | `exceptions[].value` | sanitisiert | siehe [sanitizeForReport] |
 /// | `exceptions[].type`/`stackTrace` | durch | Typnamen und Zeilennummern, keine Werte |
+/// | `exceptions[].mechanism.data`/`.meta` | auf dieselbe Allowlist reduziert | `PlatformExceptionEventProcessor` legt dort `message` der `PlatformException` ab — siehe [_redigiereMechanismus] |
+/// | `exceptions[].mechanism` (Rest) | ohne `description`/`helpLink` durch | Freitext bzw. interpolierbare URL; `handled`, `source` und die Gruppen-IDs sind Konstanten und Indizes |
 /// | `contexts` | Allowlist | `flutter_error_details` traegt den Diagnostics-Baum |
 /// | `message` | auf `template` reduziert | `formatted`/`params` SIND die Laufzeitwerte |
 /// | `breadcrumbs` | gefiltert | zweite Reihe hinter [sanitizeSentryBreadcrumb] |
@@ -535,6 +538,12 @@ SentryEvent? sanitizeSentryEvent(SentryEvent event, Hint hint) {
       event.user = null;
       for (final SentryException e in event.exceptions ?? const []) {
         e.value = e.type ?? 'Exception';
+        final Mechanism? mechanismus = e.mechanism;
+        // Leerer Bezugswert = nichts ueberlebt: sonst haenge hier noch das
+        // rohe `data['message']` des PlatformExceptionEventProcessor dran.
+        if (mechanismus != null) {
+          e.mechanism = _redigiereMechanismus(mechanismus, '');
+        }
       }
     } catch (_) {
       // Bewusst schlucken: beforeSend darf unter keinen Umstaenden werfen.
@@ -562,10 +571,76 @@ void _sanitisiereExceptions(SentryEvent event) {
     // `type` ist per Konstruktion ein Typname
     // (`sentry_exception_factory.dart:64`), also selbst schon sauber — die
     // Nutzerdaten stecken ausschliesslich in `value`.
-    e.value = e.throwable == null
+    final String wert = e.throwable == null
         ? SanitizedError(e.type ?? 'Exception').toString()
         : sanitizeForReport(e.throwable as Object).toString();
+    e.value = wert;
+
+    final Mechanism? mechanismus = e.mechanism;
+    if (mechanismus != null) {
+      e.mechanism = _redigiereMechanismus(mechanismus, wert);
+    }
   }
+}
+
+/// C1, Leck 4 (Audit 2026-08-14): `mechanism` traegt Freitext, den ein
+/// Event-Prozessor VOR `beforeSend` anlegt.
+///
+/// `PlatformExceptionEventProcessor` schreibt `code` UND `message` der
+/// `PlatformException` nach `mechanism.data`
+/// (`platform_exception_event_processor.dart:27-38`), und
+/// `sentry_client.dart:160-177` laesst alle Event-Prozessoren vor
+/// `beforeSend` laufen. Genau die `message`, die [sanitizeForReport] auf der
+/// `value`-Seite zurueckhaelt, ging damit ueber `mechanism.data` doch hinaus —
+/// bei Google Sign-In ist das die Server-Begruendung samt Konto.
+///
+/// Bewusst KEIN zweiter, eigener Filter: ein Feld ueberlebt nur, wenn es als
+/// `schluessel=wert` woertlich schon im sanitisierten [wert] steht. Damit kann
+/// `mechanism` per Konstruktion keinen String tragen, den die Allowlist in
+/// [sanitizeForReport] nicht ohnehin durchgelassen hat — auch dann nicht, wenn
+/// eine kuenftige sentry_flutter-Version ein weiteres Feld dazulegt.
+///
+/// Neues Objekt statt Zuweisung am Bestand: `Mechanism.meta` hat nur einen
+/// Getter auf eine `Map.unmodifiable` (`mechanism.dart:36`), der Konstruktor
+/// ist der einzige Weg, `meta` zu leeren. `copyWith` scheidet aus — es ist in
+/// sentry 9.26 deprecated und wuerde `data`/`meta` per `??` gerade wieder
+/// einsetzen.
+Mechanism _redigiereMechanismus(Mechanism mechanism, String wert) => Mechanism(
+      type: mechanism.type,
+      // `description` ist Freitext (bei `SentryHttpClient` die rohe
+      // Fehlerbegruendung), `helpLink` laut Protokoll eine "possibly
+      // interpolated with error parameters"-URL — beides bleibt draussen.
+      handled: mechanism.handled,
+      synthetic: mechanism.synthetic,
+      // Diese vier halten die Exception-Gruppe zusammen, die
+      // `ExceptionGroupEventProcessor` noch vor `beforeSend` aufbaut. Es sind
+      // Indizes und Feldnamen aus dem Quelltext, keine Laufzeitwerte.
+      isExceptionGroup: mechanism.isExceptionGroup,
+      source: mechanism.source,
+      exceptionId: mechanism.exceptionId,
+      parentId: mechanism.parentId,
+      data: _nurSchonDurchgelassene(mechanism.data, wert),
+      meta: _nurSchonDurchgelassene(mechanism.meta, wert),
+    );
+
+/// Behaelt nur die Felder, die als `schluessel=wert` bereits im sanitisierten
+/// Exception-Wert stehen.
+///
+/// Steht das Paar dort, ist auch der Wert selbst schon Teil dessen, was
+/// ohnehin hinausgeht — es kann also nichts Neues entkommen. Alles andere
+/// faellt weg, auch verschachtelte Eintraege wie `meta['errno']`, deren
+/// `toString()` nie zur `name=wert`-Form von [_feld] passt.
+Map<String, dynamic>? _nurSchonDurchgelassene(
+  Map<String, dynamic> felder,
+  String wert,
+) {
+  final Map<String, dynamic> gefiltert = <String, dynamic>{};
+  for (final MapEntry<String, dynamic> feld in felder.entries) {
+    if (wert.contains('${feld.key}=${feld.value}')) {
+      gefiltert[feld.key] = feld.value;
+    }
+  }
+  return gefiltert.isEmpty ? null : gefiltert;
 }
 
 /// C1, Leck 2. `Contexts` ist eine `MapView`; die Schluessel werden vorher

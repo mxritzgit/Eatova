@@ -103,6 +103,12 @@ class FetchedSearchCredentials {
   final String baseUrl;
   final String searchKey;
   final Duration ttl;
+
+  /// Der Server hat den Mirror ausdruecklich abgeschaltet: BEIDE Felder leer
+  /// (Secret `EATOVA_MIRROR_SEARCH_KEY=disabled`, HTTP 200). Nur beide —
+  /// eine halb leere Antwort ist ein kaputter Server, kein Kill-Switch, und
+  /// wird bereits im Fetcher verworfen.
+  bool get isKillSwitch => baseUrl.trim().isEmpty && searchKey.trim().isEmpty;
 }
 
 /// Test-Seam fuer das Holen frischer Credentials.
@@ -110,6 +116,20 @@ class FetchedSearchCredentials {
 /// Vertrag: [fetch] wirft NIE und liefert bei jedem Fehler (kein Netz, kein
 /// Token, 4xx/5xx, kaputtes JSON) `null`. `null` heisst ausschliesslich
 /// „diesmal nichts geholt" — NIE „Mirror abschalten".
+///
+/// „Mirror abschalten" sagt der Server auf dem EINEN dafuer vorgesehenen Weg:
+/// 200 mit beiden Feldern leer. Das kommt als [FetchedSearchCredentials] mit
+/// [FetchedSearchCredentials.isKillSwitch] zurueck — ein NICHT-`null`-Wert,
+/// weil der Store ihn uebernehmen und den alten Key aus Speicher UND Platte
+/// werfen muss. Waere auch das `null`, liefe der Kill-Switch ins Leere und
+/// jeder installierte Build suchte mit dem abgeflossenen Key weiter.
+///
+/// Der abgeschaltete Zustand ueberlebt den Neustart: er wird als Leer/Leer-
+/// Eintrag persistiert und von [_CachedEntry.tryParse] wieder als
+/// [SearchCredentials.disabled] gelesen. Ohne das griffe der Hebel nur fuer
+/// die laufende Sitzung — jeder Kaltstart faende den Slot ungueltig, raeumte
+/// ihn weg und suchte bis zum Ende des Fetches wieder mit dem
+/// einkompilierten [SearchConfig.fallbackMirrorSearchKey].
 abstract class SearchKeyFetcher {
   const SearchKeyFetcher();
 
@@ -202,21 +222,41 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
       final baseUrl = decoded['mirrorBaseUrl'];
       final searchKey = decoded['searchKey'];
       if (baseUrl is! String || searchKey is! String) return null;
+      final ttlRaw = decoded['ttlSeconds'];
+      final ttl =
+          ttlRaw is num ? Duration(seconds: ttlRaw.round()) : _fallbackTtl;
+      final trimmedBaseUrl = baseUrl.trim();
+      final trimmedKey = searchKey.trim();
+
+      // Beide Felder leer = Kill-Switch der Function. Der muss VOR dem
+      // https-Zwang stehen: eine leere URL ist nicht `https`, der Zwang
+      // machte aus der Abschaltung sonst ein `null` — und `null` heisst
+      // „behalte, was du hast". Genau daran scheiterte der Kill-Switch
+      // vorher still: Log sagte „disabled", jedes Geraet suchte weiter.
+      if (trimmedBaseUrl.isEmpty && trimmedKey.isEmpty) {
+        dev.log('search-key meldet Kill-Switch — Mirror wird abgeschaltet',
+            name: 'search_credentials');
+        return FetchedSearchCredentials(baseUrl: '', searchKey: '', ttl: ttl);
+      }
+      // Nur EINES der beiden Felder leer ist kein Kill-Switch, sondern ein
+      // kaputter Server (halbes Secret-Update). Bestand behalten.
+      if (trimmedBaseUrl.isEmpty || trimmedKey.isEmpty) {
+        dev.log('search-key lieferte halb leere Credentials — verworfen',
+            name: 'search_credentials');
+        return null;
+      }
       // Ein non-https-Mirror aus der Server-Antwort wird gar nicht erst
       // uebernommen (kein Klartext-Key-Versand, kein Wegschreiben auf Platte).
-      if (!SearchCredentials.isSecureBaseUrl(baseUrl)) {
+      if (!SearchCredentials.isSecureBaseUrl(trimmedBaseUrl)) {
         dev.log('search-key lieferte non-https mirrorBaseUrl — verworfen',
             name: 'search_credentials');
         return null;
       }
-      final ttlRaw = decoded['ttlSeconds'];
 
       return FetchedSearchCredentials(
-        baseUrl: baseUrl.trim(),
-        searchKey: searchKey.trim(),
-        ttl: ttlRaw is num
-            ? Duration(seconds: ttlRaw.round())
-            : _fallbackTtl,
+        baseUrl: trimmedBaseUrl,
+        searchKey: trimmedKey,
+        ttl: ttl,
       );
     } catch (e, st) {
       dev.log(
@@ -465,11 +505,16 @@ class SearchCredentialsStore {
   }
 
   Future<SearchCredentials> _adopt(FetchedSearchCredentials fetched) async {
-    final credentials = SearchCredentials(
-      baseUrl: fetched.baseUrl.trim(),
-      searchKey: fetched.searchKey.trim(),
-      source: SearchCredentialsOrigin.network,
-    );
+    // Der Kill-Switch wird wie jede andere Antwort uebernommen — auch auf die
+    // Platte: erst das Ueberschreiben des Slots nimmt dem alten Key seine
+    // letzte Bleibe. Nur die Herkunft ist eine andere.
+    final credentials = fetched.isKillSwitch
+        ? SearchCredentials.disabled
+        : SearchCredentials(
+            baseUrl: fetched.baseUrl.trim(),
+            searchKey: fetched.searchKey.trim(),
+            source: SearchCredentialsOrigin.network,
+          );
     final entry = _CachedEntry(
       credentials: credentials,
       fetchedAt: _clock(),
@@ -620,17 +665,33 @@ class _CachedEntry {
       final ttlRaw = decoded['ttl_seconds'];
       if (baseUrl is! String || key is! String) return null;
       if (fetchedAtRaw is! String || ttlRaw is! num) return null;
+      final trimmedBaseUrl = baseUrl.trim();
+      final abgeschaltet = trimmedBaseUrl.isEmpty && key.trim().isEmpty;
+      // Beide Felder leer heisst hier dasselbe wie in der Server-Antwort:
+      // Kill-Switch. Der Eintrag entsteht ausschliesslich aus [_adopt] — der
+      // Store schreibt sonst nie leer — und muss den Neustart UEBERLEBEN.
+      // Fiele er hier durch, raeumte ihn `_readFromDisk` weg und jeder
+      // Kaltstart fuehre den Mirror bis zum Ende des Fetches wieder mit dem
+      // einkompilierten [SearchConfig.fallbackMirrorSearchKey] an — also
+      // womoeglich mit genau dem Key, dessentwegen der Hebel gezogen wurde.
+      // Halb leere Eintraege bleiben ungueltig (kaputte Platte, kein Hebel):
+      // sie scheitern unveraendert am https-Zwang.
+      //
       // Ein auf Platte manipulierter (oder aus einer alten http-Version
       // stammender) Eintrag mit non-https-Mirror ist ungueltig.
-      if (!SearchCredentials.isSecureBaseUrl(baseUrl)) return null;
+      if (!abgeschaltet && !SearchCredentials.isSecureBaseUrl(baseUrl)) {
+        return null;
+      }
       final fetchedAt = DateTime.tryParse(fetchedAtRaw);
       if (fetchedAt == null) return null;
       return _CachedEntry(
-        credentials: SearchCredentials(
-          baseUrl: baseUrl,
-          searchKey: key,
-          source: SearchCredentialsOrigin.cache,
-        ),
+        credentials: abgeschaltet
+            ? SearchCredentials.disabled
+            : SearchCredentials(
+                baseUrl: baseUrl,
+                searchKey: key,
+                source: SearchCredentialsOrigin.cache,
+              ),
         fetchedAt: fetchedAt,
         ttl: SearchCredentialsStore.clampTtl(Duration(seconds: ttlRaw.round())),
       );
