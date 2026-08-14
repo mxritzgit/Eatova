@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -30,6 +31,7 @@ void main() {
     double textScale = 1.0,
     String? email = 'jonas.schmidt.mit.langer.adresse@beispiel-mail.de',
     bool mitScope = true,
+    bool mitAuth = true,
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
@@ -51,6 +53,17 @@ void main() {
     final controller = ThemeModeController();
     addTearDown(controller.dispose);
 
+    // Seit dem Sicherheits-Audit 2026-08-14 haengen an der Auth-Schicht drei
+    // Zeilen (Passwort, Adresse, Loeschen) — ohne sie ist das hier nicht mehr
+    // der dichteste Fall, sondern eine halbe Seite. Die Gegenstelle ist
+    // dieselbe wie in den Verhaltens-Tests.
+    final repo = mitAuth
+        ? InMemoryAuthRepository(
+            initialUser: EatovaUser(id: 'u1', email: email),
+          )
+        : null;
+    if (repo != null) addTearDown(repo.dispose);
+
     // Alle Callbacks gesetzt: das ist der VOLLE Screen, also der dichteste
     // Fall. Die ausgeduennten Varianten koennen konstruktiv nicht mehr
     // ueberlaufen als dieser.
@@ -66,6 +79,7 @@ void main() {
       ],
       home: SettingsScreen(
         email: email,
+        authRepository: repo,
         onOpenGoals: () {},
         onSignOut: () async {},
         onDeleteAccount: () async {},
@@ -131,6 +145,36 @@ void main() {
       textScale: 2.0,
     );
 
+    // Die Zeile liegt seit dem Audit 2026-08-14 unterhalb des Viewports: die
+    // KONTO-Gruppe traegt jetzt drei statt einer Zeile (Adresse, Passwort,
+    // Adresswechsel). Die Seite ist eine lazy ListView — ohne Scrollen
+    // existiert die Pille gar nicht erst im Baum. Der Overflow-Waechter laeuft
+    // dabei mit, denn genau beim Bau der Zeile faellt er an.
+    final overflows = <String>[];
+    final prior = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exception.toString().contains('overflowed')) {
+        overflows.add(details.summary.toString());
+        return;
+      }
+      prior?.call(details);
+    };
+
+    try {
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('settings-theme-mode')),
+        300,
+        scrollable: find.descendant(
+          of: find.byKey(const ValueKey('screen-settings')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = prior;
+    }
+
+    expect(overflows, isEmpty, reason: overflows.join('\n'));
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('settings-theme-mode-dark')),
@@ -140,8 +184,8 @@ void main() {
 
   testWidgets('die ausgeduennte Seite rendert ebenfalls sauber',
       (tester) async {
-    // Ohne Mailadresse und ohne ThemeModeScope faellt die halbe Seite weg —
-    // eine leere [SettingsGroup] waere hier die Bruchstelle.
+    // Ohne Mailadresse, ohne Auth-Schicht und ohne ThemeModeScope faellt die
+    // halbe Seite weg — eine leere [SettingsGroup] waere hier die Bruchstelle.
     await pumpOhneOverflow(
       tester,
       'ohne Konto @2.0',
@@ -149,6 +193,7 @@ void main() {
       textScale: 2.0,
       email: null,
       mitScope: false,
+      mitAuth: false,
     );
 
     expect(find.text('KONTO'), findsNothing);
@@ -159,6 +204,13 @@ void main() {
     // Eigene Route ueber der Seite — die Faelle oben erreichen sie nicht. Der
     // Titel, drei Zeilen Erklaertext, ein Eingabefeld und ein 52-px-Knopf sind
     // bei doppelter Schrift der engste Platz der App.
+    //
+    // Seit dem Audit 2026-08-14 hat das Sheet ZWEI Schritte, und der zweite
+    // ist der engere: sein Untertitel traegt die volle Mailadresse (hier
+    // absichtlich lang), darunter ein beschriftetes Ziffernfeld und der Knopf.
+    // Geprueft wird deshalb nicht nur Schritt 1, sondern der ganze Weg — und
+    // am Ende, dass der Loesch-Knopf erreichbar bleibt statt unten
+    // abgeschnitten zu werden.
     await pumpOhneOverflow(
       tester,
       'Loesch-Sheet Grundzustand',
@@ -193,13 +245,48 @@ void main() {
       await tester.tap(oeffner);
       await tester.pumpAndSettle();
 
-      expect(find.text('Konto endgültig löschen'), findsOneWidget);
+      // Schritt 1: das getippte Wort. Der Loesch-Knopf traegt hier noch nicht
+      // seine Beschriftung — er fordert erst den Code an.
+      expect(find.text('Code anfordern'), findsOneWidget);
 
       await tester.enterText(
         find.byKey(const ValueKey('settings-delete-confirm-field')),
         'LÖSCHEN',
       );
       await tester.pumpAndSettle();
+
+      // Schritt 2: der Code. Untertitel mit voller Mailadresse, beschriftetes
+      // Ziffernfeld, 52-px-Knopf.
+      await tester.tap(find.text('Code anfordern'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('settings-delete-code-field')),
+        findsOneWidget,
+      );
+      expect(find.text('Konto endgültig löschen'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('settings-delete-code-field')),
+        '123456',
+      );
+      await tester.pumpAndSettle();
+
+      // Der Kern der Zusage: der Knopf, der die Loeschung ausloest, ist bei
+      // doppelter Schrift noch zu erreichen und liegt vollstaendig im Bild.
+      // Ein Overflow-Zaehler allein wuerde das nicht bemerken — ein Sheet, aus
+      // dem der Knopf unten herausragt, meldet keinen RenderFlex-Fehler.
+      final knopf = find.text('Konto endgültig löschen');
+      await tester.ensureVisible(knopf);
+      await tester.pumpAndSettle();
+      final rect = tester.getRect(knopf);
+      final bild = tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(rect.left, greaterThanOrEqualTo(0.0), reason: 'links beschnitten');
+      expect(rect.right, lessThanOrEqualTo(bild.width),
+          reason: 'rechts beschnitten');
+      expect(rect.top, greaterThanOrEqualTo(0.0), reason: 'oben beschnitten');
+      expect(rect.bottom, lessThanOrEqualTo(bild.height),
+          reason: 'unten beschnitten');
     } finally {
       FlutterError.onError = prior;
     }

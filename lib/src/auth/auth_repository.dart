@@ -41,6 +41,28 @@ extension EatovaOAuthProviderLabel on EatovaOAuthProvider {
   };
 }
 
+/// Ergebnis von [AuthRepository.signUp].
+///
+/// GoTrue verschleiert eine schon vergebene Adresse bei aktiver
+/// Mail-Bestaetigung bewusst: `POST /signup` antwortet wie bei einer frischen
+/// Registrierung — gleicher Status, gleiche Form — nur mit LEEREM
+/// `identities`-Array, und es geht keine Mail raus. Ohne diese Unterscheidung
+/// verspricht die UI einen Code, der nie kommt.
+///
+/// Der Wert bleibt REPOSITORY-INTERN in dem Sinn, dass er nichts ueber ein
+/// fremdes Konto in die UI traegt: er sagt dem Aufrufer nur, dass der
+/// Registrier-Weg hier nicht weitergeht — welchen Satz der Nutzer dann sieht,
+/// entscheidet die UI — und der bleibt neutral (Hauslinie gegen
+/// Konto-Enumeration, siehe `AuthRepository.sendPasswordReset`).
+enum SignUpOutcome {
+  /// Registrierung angenommen: Konto angelegt, Bestaetigungscode unterwegs.
+  created,
+
+  /// Zu dieser Adresse gibt es bereits ein Konto (leeres `identities`-Array).
+  /// Es kommt KEINE Mail — die Code-Seite waere eine Sackgasse.
+  emailAlreadyRegistered,
+}
+
 abstract class AuthRepository {
   EatovaUser? get currentUser;
   Stream<EatovaUser?> get authStateChanges;
@@ -86,6 +108,12 @@ abstract class AuthRepository {
   /// `security_update_password_require_reauthentication` lehnt GoTrue eine
   /// Aenderung ohne gueltige Nonce ab. Sonst koennte, wer eine fremde
   /// Sitzung erbeutet, das Passwort ohne Zugriff aufs Postfach tauschen.
+  ///
+  /// EINSCHRAENKUNG (Audit 2026-08-14, ungeklaert): ob der Server die Nonce
+  /// wirklich bei JEDER Sitzung verlangt, ist aus dem Repo nicht belegbar —
+  /// der Recovery-Weg kommt ohne sie durch. Der Widerspruch steht bei
+  /// [AuthRepository.updatePassword]; bis er am Live-Projekt geklaert ist,
+  /// ist die Nonce hier moeglicherweise nur eine Huerde der App.
   Future<void> confirmPasswordChange({
     required String code,
     required String newPassword,
@@ -106,7 +134,13 @@ abstract class AuthRepository {
     required String code,
   });
   Future<void> signIn({required String email, required String password});
-  Future<void> signUp({
+
+  /// Registriert die Adresse und meldet zurueck, OB der Weg weitergeht —
+  /// siehe [SignUpOutcome]. Vorher war der Rueckgabewert `void` und die
+  /// `AuthResponse` fiel auf den Boden; der Aufrufer konnte die schon
+  /// vergebene Adresse deshalb nicht von einer frischen unterscheiden und
+  /// schob die Code-Seite vor eine Mail, die nie kam (Audit 2026-08-14).
+  Future<SignUpOutcome> signUp({
     required String email,
     required String password,
     required String displayName,
@@ -174,6 +208,24 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> updatePassword(String newPassword) async {
+    // OFFENER WIDERSPRUCH (Audit 2026-08-14) — bewusst NICHT geraderueckt:
+    // Dieser Aufruf setzt das Passwort OHNE Nonce, [confirmPasswordChange]
+    // MIT; beide landen auf PUT /auth/v1/user. Laut supabase/AUTH_EMAIL_OTP.md
+    // steht `security_update_password_require_reauthentication` auf true.
+    // Genau eine der beiden Varianten muss falsch sein:
+    //  (1) Der Server verlangt die Nonce immer — dann endet „Passwort
+    //      vergessen" fuer JEDEN Nutzer hier in einer Sackgasse (der Fehler
+    //      faellt in account_change_messages.dart in die Generik).
+    //  (2) Der Server verlangt sie nur, wenn die Sitzung nicht frisch ist —
+    //      dann kommt dieser Weg durch (verifyRecoveryCode legt die Sitzung
+    //      unmittelbar davor an) und die Nonce in confirmPasswordChange ist
+    //      serverseitig wirkungslos fuer genau die frischen Sitzungen.
+    // Aus dem Repo ist keins von beidem belegbar; (2) passt dazu, dass der
+    // Recovery-Weg seit 2026-08-08 unbeanstandet laeuft, waehrend die
+    // Reauth-Pflicht erst am 2026-08-10 dazukam. Eine Aenderung auf Verdacht
+    // zerstoert im Fall (2) „Passwort vergessen" fuer alle. Bis zur Klaerung
+    // am Live-Projekt haelt test/auth_enumeration_test.dart beide
+    // Wire-Formate fest, damit ein spaeterer Eingriff auffaellt.
     await _client.auth.updateUser(UserAttributes(password: newPassword));
   }
 
@@ -187,6 +239,10 @@ class SupabaseAuthRepository implements AuthRepository {
     required String code,
     required String newPassword,
   }) async {
+    // Gegenstueck zum Widerspruch in [updatePassword]: hier laeuft die Nonce
+    // mit. Ueberspringt GoTrue sie bei frischen Sitzungen, schuetzt sie genau
+    // die Sitzungsklasse nicht, gegen die der Doc-Kommentar der Schnittstelle
+    // sie ins Feld fuehrt. Nicht auf Verdacht anfassen (Audit 2026-08-14).
     await _client.auth.updateUser(
       UserAttributes(password: newPassword, nonce: code.trim()),
     );
@@ -221,7 +277,7 @@ class SupabaseAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signUp({
+  Future<SignUpOutcome> signUp({
     required String email,
     required String password,
     required String displayName,
@@ -231,11 +287,19 @@ class SupabaseAuthRepository implements AuthRepository {
     // signup-Flow), nicht ueber einen Confirm-Link. Kein redirect_to =>
     // keine stille Reaktivierung des Deep-Link-Wegs bei einem Template-
     // Rueckfall (Sicherheits-Audit 2026-08-09).
-    await _client.auth.signUp(
+    final antwort = await _client.auth.signUp(
       email: email.trim(),
       password: password,
       data: {'display_name': displayName.trim()},
     );
+    final identitaeten = antwort.user?.identities;
+    // Nur das LEERE Array ist das Signal. Fehlt das Feld ganz (null), hat der
+    // Server nichts behauptet — dann als frische Registrierung behandeln, statt
+    // aus einer Wissensluecke eine Aussage ueber ein fremdes Konto zu machen.
+    if (identitaeten != null && identitaeten.isEmpty) {
+      return SignUpOutcome.emailAlreadyRegistered;
+    }
+    return SignUpOutcome.created;
   }
 
   @override
@@ -357,11 +421,12 @@ class PreviewAuthRepository implements AuthRepository {
   Future<void> signIn({required String email, required String password}) async {}
 
   @override
-  Future<void> signUp({
+  Future<SignUpOutcome> signUp({
     required String email,
     required String password,
     required String displayName,
-  }) async {}
+  }) async =>
+      SignUpOutcome.created;
 
   @override
   Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {}
@@ -392,6 +457,10 @@ class InMemoryAuthRepository implements AuthRepository {
   /// Fuer Tests: laesst den naechsten Verify-Aufruf scheitern (falscher/
   /// abgelaufener Code).
   bool verifyFails = false;
+
+  /// Fuer Tests: Adressen, zu denen es schon ein Konto gibt — [signUp]
+  /// antwortet darauf mit [SignUpOutcome.emailAlreadyRegistered].
+  final Set<String> existingEmails = <String>{};
 
   @override
   Future<void> sendPasswordReset(String email) async {
@@ -513,13 +582,18 @@ class InMemoryAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signUp({
+  Future<SignUpOutcome> signUp({
     required String email,
     required String password,
     required String displayName,
   }) async {
+    if (existingEmails.contains(email.trim())) {
+      // Wie GoTrue: kein Fehler, kein Konto, keine Mail — nur das Signal.
+      return SignUpOutcome.emailAlreadyRegistered;
+    }
     _user = EatovaUser(id: 'test-user', email: email, displayName: displayName);
     _controller.add(_user);
+    return SignUpOutcome.created;
   }
 
   @override
@@ -609,7 +683,7 @@ class UnavailableAuthRepository implements AuthRepository {
       _fail();
 
   @override
-  Future<void> signUp({
+  Future<SignUpOutcome> signUp({
     required String email,
     required String password,
     required String displayName,

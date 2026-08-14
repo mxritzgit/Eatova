@@ -55,6 +55,12 @@ interface StubOptions {
   /** Kategorie, die der gestubbte Klassifizierer zurueckgibt. */
   classifierCategory?: string;
   /**
+   * ROH-Content der Klassifizierer-Antwort — ueberschreibt classifierCategory.
+   * Fuer den Parse-Ausfall (W1): kaputtes JSON / unbekannte Kategorie, also
+   * ein bezahlter Call, nach dem KEINE Klassifikation vorliegt.
+   */
+  classifierContent?: string;
+  /**
    * Verhalten von claim_chat_quota. "ok" (Default) liefert einen Slot,
    * "exhausted" antwortet mit EX_QUOTA_EXCEEDED (Tageslimit erreicht),
    * "forbidden" laesst den Test laut scheitern, wenn der Claim ueberhaupt
@@ -219,7 +225,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
         return jsonRes({
           choices: [{
             message: {
-              content: JSON.stringify({
+              content: options.classifierContent ?? JSON.stringify({
                 category: options.classifierCategory ?? "fitness",
                 confidence: "high",
               }),
@@ -561,6 +567,90 @@ Deno.test("Textpfad unveraendert: on-topic laeuft durch bis zur Antwort", async 
       !JSON.stringify(stub.answerBodies()[0]).includes("image_url"),
       "Textpfad darf kein image_url schicken",
     );
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// W1 (2026-08-14): unbrauchbarer Modell-Output ist seit dem Fix von einem
+// echten off_topic unterscheidbar (ClassifierResult.parseFailed). Reagieren
+// darf darauf NUR der Rezept-Pfad (handler_recipe_test.ts) — Chat- und
+// Bildpfad muessen sich exakt wie vorher verhalten. Genau das sichern die
+// beiden Tests hier ab.
+// ---------------------------------------------------------------------------
+
+Deno.test("W1-Gegenprobe: echtes off_topic im Chat bleibt die normale Off-Topic-Refusal", async () => {
+  // Der Klassifizierer hat geantwortet und "off_topic" gesagt. Das ist KEIN
+  // Parse-Ausfall und darf deshalb weder eskalieren (classifier_unusable)
+  // noch zu einem Fehlerstatus fuehren: 200 mit dem freundlichen
+  // Off-Topic-Text, wie seit jeher.
+  const stub = installFetch({ classifierCategory: "off_topic" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Erklaer mir bitte die franzoesische Revolution",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.reply, OFF_TOPIC_REPLY, "unveraenderter Off-Topic-Text");
+    assertEquals(body.refusal, true, "refusal");
+    assertEquals(body.refusal_reason, "off_topic", "refusal_reason bleibt die Kategorie");
+    assertEquals(body.remaining, 4, "remaining aus dem Quota-Claim");
+    assertEquals(stub.answerBodies().length, 0, "kein Answer-Call");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("W1: unparsbare Classifier-Antwort aendert den Chat-Pfad nicht (off_topic-Refusal)", async () => {
+  // Im Chat liegt off_topic im Refusal-Set — der fail-closed-Default faengt
+  // den Aussetzer also weiterhin selbst ab. Die Antwort muss byteweise die
+  // von "echtes off_topic" sein: der Nutzer soll fuer denselben Vorgang nicht
+  // ploetzlich einen anderen Text bekommen.
+  for (
+    const content of [
+      "Ich denke, das ist Fitness.", // gar kein JSON
+      '{"category":"banane","confidence":"high"}', // unbekannte Kategorie
+      '{"category":', // abgeschnittenes JSON
+    ]
+  ) {
+    const stub = installFetch({ classifierContent: content });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: "Wie viel Protein brauche ich beim Cutting?",
+      }));
+      assertEquals(res.status, 200, `${content}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.reply, OFF_TOPIC_REPLY, `${content}: unveraenderter Text`);
+      assertEquals(body.refusal_reason, "off_topic", `${content}: refusal_reason`);
+      assertEquals(stub.answerBodies().length, 0, `${content}: kein Answer-Call`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${content}: kein Refund`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("W1: unparsbare Classifier-Antwort blockt den Bildpfad nicht", async () => {
+  // Der Bildpfad reagiert bewusst NICHT auf den Parse-Ausfall: dort steht mit
+  // Layer 3 eine zweite Krisen-Schicht (CRISIS RULE im ANSWER_SYSTEM_PROMPT,
+  // die das Bild tatsaechlich sieht), und eine Refusal wuerde bei jedem
+  // Aussetzer legitime Bild-Uploads treffen.
+  const stub = installFetch({
+    classifierContent: "Ich denke, das ist Fitness.",
+    answerContent: "Auf dem Teller sind etwa 600 kcal.",
+  });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "was ist das hier?",
+      image_base64: IMAGE_BASE64,
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.reply, "Auf dem Teller sind etwa 600 kcal.", "Antwort kommt vom Modell");
+    assertEquals(body.refusal, false, "keine Refusal");
+    assertEquals(stub.answerBodies().length, 1, "Answer-Call laeuft");
   } finally {
     stub.restore();
   }

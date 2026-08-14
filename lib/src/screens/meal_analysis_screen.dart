@@ -111,13 +111,6 @@ class MealAnalysisScreen extends StatelessWidget {
   final MealPhotoInput photoInput;
   final MealCameraLauncher cameraLauncher;
   final int dailyConsumedKcal;
-
-  /// Nur noch durchgereicht: die drei Makro-Balken sassen in der entfernten
-  /// Kalorien-Karte und stehen heute im Tab „Heute"
-  /// (`today_screen.dart`, `today-macros-card`). Das Feld bleibt in der
-  /// Signatur, weil `eatova_home_page.dart` es setzt — es zu streichen waere
-  /// eine Aenderung an einer Datei, die diesem Paket nicht gehoert (steht als
-
   final UserProfile profile;
   final List<FavoriteMeal> favorites;
   final List<LoggedMeal> loggedMeals;

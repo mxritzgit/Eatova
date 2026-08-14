@@ -60,7 +60,7 @@ class EatovaApp extends StatefulWidget {
   State<EatovaApp> createState() => _EatovaAppState();
 }
 
-class _EatovaAppState extends State<EatovaApp> {
+class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
   late final ThemeModeController _themeMode;
   late final bool _eigenerController;
   late final LocaleController _locale;
@@ -69,6 +69,10 @@ class _EatovaAppState extends State<EatovaApp> {
   @override
   void initState() {
     super.initState();
+    // AUDIT 2026-08-14, Deeplink-Route-Waechter: MUSS hier in initState
+    // haengen und nicht irgendwo tiefer. Die Reihenfolge ist der ganze Trick,
+    // s. [didPushRouteInformation].
+    WidgetsBinding.instance.addObserver(this);
     _eigenerController = widget.themeModeController == null;
     _themeMode = widget.themeModeController ?? ThemeModeController();
     if (_eigenerController) {
@@ -88,10 +92,73 @@ class _EatovaAppState extends State<EatovaApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_eigenerController) _themeMode.dispose();
     if (_eigenerLocale) _locale.dispose();
     super.dispose();
   }
+
+  /// AUDIT 2026-08-14 — fernausloesbare Fehlerberichte ueber den
+  /// BROWSABLE-Intent-Filter.
+  ///
+  /// Der Intent-Filter in `android/app/src/main/AndroidManifest.xml` ist
+  /// BROWSABLE: jede fremde App und jede Webseite darf `eatova://…` schicken.
+  /// Android reicht so eine URI beim `onNewIntent` NICHT nur an `app_links`
+  /// weiter (dort greift das Session-Praedikat aus
+  /// `EatovaSupabaseConfig.isOAuthCallbackDeeplink`), sondern zusaetzlich als
+  /// ROUTE ueber `SystemChannels.navigation` an das Framework — aus
+  /// `eatova://login-callback/#access_token=…` wird der Routenname
+  /// `/#access_token=…`.
+  ///
+  /// Diese App hat KEINE benannten Routen: kein `routes:`-Tabelle, kein
+  /// `onGenerateRoute`, kein Router — nur `home:` und imperative
+  /// `Navigator.push`-Aufrufe. `_WidgetsAppState.didPushRouteInformation`
+  /// ruft aber ungebremst `navigator.pushNamed(name)`, und dort scheitert
+  /// jeder Name ausser `/`:
+  ///
+  ///   Could not find a generator for route RouteSettings("/#access_token=…")
+  ///   in the _WidgetsAppState. … Unfortunately, onUnknownRoute was not set.
+  ///
+  /// Das landet via `FlutterError.reportError` in den globalen Handlern aus
+  /// `main.dart` (`_installGlobalErrorHandlers`) und damit in Sentry. Ein
+  /// Angreifer kann so aus der Ferne beliebig viele Fehlerberichte erzeugen
+  /// und die echten Meldungen im Fehlerbudget zudecken. Am 2026-08-14 auf dem
+  /// Emulator per `adb shell am start -a android.intent.action.VIEW -d
+  /// "eatova://login-callback/#access_token=FAKE&…"` reproduziert.
+  ///
+  /// WARUM HIER UND NICHT `onUnknownRoute`/`onGenerateRoute`: beide koennen
+  /// den Push nur UMLENKEN, nicht abbestellen. `WidgetsApp._onUnknownRoute`
+  /// verlangt eine Route zurueck (`result!`, app.dart:1590-1602) — ein `null`
+  /// wirft im Debug per assert und im Release als TypeError. Jeder Handler
+  /// dort muesste also eine (leere) Seite auf den Stapel legen, die der
+  /// Nutzer wegtippen muss und die sich bei Wiederholung stapelt. Genau das
+  /// soll nicht passieren.
+  ///
+  /// Der Beobachter dagegen sitzt VOR dem Navigator:
+  /// `WidgetsBinding.handlePushRoute`/`_handlePushRouteInformation`
+  /// (binding.dart:1256-1303) fragt die Beobachter in
+  /// REGISTRIERUNGSREIHENFOLGE, bis einer `true` meldet. `_EatovaAppState`
+  /// registriert sich in `initState` und liegt UEBER der `MaterialApp` — der
+  /// Widget-Lebenszyklus garantiert damit, dass wir vor
+  /// `_WidgetsAppState.initState` (app.dart:1464-1469) in der Liste stehen.
+  /// `true` = „behandelt", die Zustellung endet hier: kein `pushNamed`, keine
+  /// Exception, kein Frame, kein Eintrag im Navigationsstapel. Der Nutzer
+  /// bleibt exakt da, wo er ist.
+  ///
+  /// Bewusst OHNE Filterung auf „unbekannt": adressierbar waere hoechstens
+  /// `/`, und der zeigt bereits auf `home` — ein Push davon legte nur eine
+  /// zweite Kopie der laufenden App auf den Stapel. Es gibt also keinen
+  /// Routennamen, den eine fremde App sinnvoll schicken koennte.
+  ///
+  /// KEINE Auswirkung auf den echten OAuth-Rueckweg: der laeuft ueber den
+  /// `app_links`-EventChannel in `SupabaseAuth._handleIncomingLinks` und das
+  /// `detectSessionInUriPredicate` in `supabase_config.dart` — ein voellig
+  /// anderer Kanal als `SystemChannels.navigation`. `eatova://login-callback/
+  /// ?code=…` wird dort unveraendert ausgetauscht; hier faellt nur der
+  /// sinnlose Routen-Nachhall desselben Intents weg.
+  @override
+  Future<bool> didPushRouteInformation(RouteInformation routeInformation) =>
+      Future<bool>.value(true);
 
   @override
   Widget build(BuildContext context) {

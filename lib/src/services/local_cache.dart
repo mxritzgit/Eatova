@@ -385,22 +385,76 @@ class LocalCache {
     return ops;
   }
 
+  /// Wie [readOutbox], meldet einen LESEFEHLER aber, statt ihn zu schlucken.
+  ///
+  /// Die Boot-Hydration ist der einzige Leser, fuer den „Slot ist leer" und
+  /// „Slot war nicht lesbar" zwei verschiedene Dinge sind: nur im zweiten Fall
+  /// darf der naechste Enqueue den persistierten Blob NICHT ueberschreiben —
+  /// bis zu [kOutboxMaxOps] nie zugestellte Writes haengen daran (der Schutz
+  /// selbst sitzt in `_persistOutbox`, home_store_sync.dart). Ueber [_readJson]
+  /// ist diese Unterscheidung nicht zu haben: der faengt jeden Fehler selbst ab
+  /// und liefert `null`, was ueberall sonst „nichts Brauchbares da" heisst.
+  ///
+  /// Alle uebrigen Leser bleiben bewusst auf [readOutbox]. Fuer die ist ein
+  /// kaputter Slot genau das, wonach er aussieht (kein Cache) — sie haetten von
+  /// einem Wurf nichts als einen zusaetzlichen Fehlerpfad.
+  Future<List<SyncOp>?> readOutboxOrThrow() async {
+    final ops = await readOutbox();
+    if (ops != null) return ops;
+    await _assertSlotEmpty(_outboxKey, 'outbox');
+    return null;
+  }
+
+  /// Schreibt die pendenden Lifetime-Deltas samt ihrer Anfrage-Id.
+  ///
+  /// [requestId] ist der Idempotenz-Schluessel des Buendels
+  /// (`increment_lifetime_stats(p_request_id)`, Migration
+  /// 20260814120000_audit_rls_guard.sql). Er MUSS zusammen mit den Zahlen
+  /// liegen und nicht daneben: der Retry nach einem Abbruch ist nur dann
+  /// wirksam, wenn er DIESELBE Id sendet — eine frisch erzeugte waere fuer den
+  /// Server ein neuer Vorgang und zaehlte ein zweites Mal.
+  ///
+  /// `null` wird bewusst als FEHLENDER Schluessel geschrieben, nicht als
+  /// `'request_id': null`: so ist die Wire-Form eines leeren Buendels exakt die
+  /// alte, und ein Downgrade auf einen aelteren Build liest den Slot weiter.
   Future<void> writePendingStatsDeltas({
     required int meals,
     required int weightLogs,
+    String? requestId,
   }) =>
       _writeJson(_pendingStatsKey, <String, dynamic>{
         'meals': meals,
         'weight_logs': weightLogs,
+        if (requestId != null) 'request_id': requestId,
       });
 
-  Future<({int meals, int weightLogs})?> readPendingStatsDeltas() async {
+  /// Liest die pendenden Deltas. [requestId] ist `null`, wenn der Slot von
+  /// einem aelteren Build stammt (Bestandsdaten kennen den Schluessel nicht) —
+  /// der Aufrufer vergibt ihn dann nach.
+  Future<({int meals, int weightLogs, String? requestId})?>
+      readPendingStatsDeltas() async {
     final json = await _readJson(_pendingStatsKey);
     if (json == null) return null;
+    final rid = json['request_id'];
     return (
       meals: _int(json['meals'], 0),
       weightLogs: _int(json['weight_logs'], 0),
+      requestId: rid is String && rid.isNotEmpty ? rid : null,
     );
+  }
+
+  /// Wie [readPendingStatsDeltas], meldet einen Lesefehler aber (Begruendung
+  /// s. [readOutboxOrThrow] — die Deltas sind die zweite Haelfte desselben
+  /// kill-sicheren Sync-Zustands). Derselbe Mangel: der naechste Flush schreibt
+  /// den Slot komplett neu, und ein verschluckter Lesefehler laesst ihn dabei
+  /// bei 0 anfangen — die Lebenszeit-Zaehler des Nutzers blieben um die
+  /// liegengebliebenen Mahlzeiten zu niedrig.
+  Future<({int meals, int weightLogs, String? requestId})?>
+      readPendingStatsDeltasOrThrow() async {
+    final deltas = await readPendingStatsDeltas();
+    if (deltas != null) return deltas;
+    await _assertSlotEmpty(_pendingStatsKey, 'pending_stats');
+    return null;
   }
 
   /// Raeumt die User-Slots.
@@ -573,6 +627,38 @@ class LocalCache {
     }
   }
 
+  /// Wirft [UnreadableCacheSlot], wenn [key] doch einen Rohwert traegt — oder
+  /// wenn der Store ihn gar nicht erst herausgibt.
+  ///
+  /// Gegenprobe fuer die `OrThrow`-Leser: die haben ueber den toleranten Pfad
+  /// `null` bekommen, und `null` deckt dort BEIDES ab — leerer Slot und
+  /// verschluckter Lesefehler. Der Roh-Blick trennt die zwei.
+  ///
+  /// Bewusst DANACH und nicht davor: der gesunde Fall (Slot da und lesbar)
+  /// kostet damit keinen zweiten Store-Zugriff, der unter
+  /// [EncryptedKeyValueStore] ein zweites Entschluesseln des ganzen Blobs
+  /// waere. Bezahlt wird nur der leere und der kaputte Slot.
+  ///
+  /// NICHT abgedeckt: ein nicht entschluesselbarer Slot. Den raeumt
+  /// [EncryptedKeyValueStore] beim Lesen selbst weg und liefert `null` — hier
+  /// kommt dann ein leerer Slot an. Das ist auch richtig so: es ist nichts
+  /// mehr da, was ein Ueberschreiben noch verlieren koennte.
+  Future<void> _assertSlotEmpty(String key, String slot) async {
+    final String? raw;
+    try {
+      raw = await _store.getString(key);
+    } catch (e) {
+      // NUR der Fehlertyp geht raus. Der Aufrufer meldet den Wurf an den
+      // CrashReporter, und z.B. eine FormatException traegt ihre Quelle in der
+      // Message — das waere hier der entschluesselte Slot-Inhalt, also
+      // Gesundheitsdaten (gleiche Regel wie bei [UndecryptableCacheSlot]).
+      throw UnreadableCacheSlot(slot, e.runtimeType.toString());
+    }
+    if (raw != null && raw.isNotEmpty) {
+      throw UnreadableCacheSlot(slot, 'Inhalt nicht deserialisierbar');
+    }
+  }
+
   // ---- (De)Serialisierung -------------------------------------------------
   // Bewusst hier statt auf den Modellen: die Modelle bleiben unveraendert
   // (keine fremden Aenderungen ausserhalb meiner File-Ownership), und der
@@ -605,4 +691,26 @@ class LocalCache {
     final day = d.day.toString().padLeft(2, '0');
     return '$y-$m-$day';
   }
+}
+
+/// Ein Sync-Zustands-Slot war belegt, liess sich aber nicht lesen (Store-Fehler
+/// oder strukturell kaputter Inhalt). Wird ausschliesslich von
+/// [LocalCache.readOutboxOrThrow] und [LocalCache.readPendingStatsDeltasOrThrow]
+/// geworfen.
+///
+/// Traegt NUR den Slot-Kurznamen und den Fehlertyp: nicht den Storage-Key (der
+/// enthaelt die User-ID) und nie den Wert (die Slots fuehren Gesundheitsdaten).
+/// Das Objekt geht aus dem Hydrations-Pfad in den Crash-Report — dieselbe
+/// Einschraenkung wie bei [UndecryptableCacheSlot].
+class UnreadableCacheSlot implements Exception {
+  const UnreadableCacheSlot(this.slot, this.reason);
+
+  /// Kurzname wie `outbox`, bewusst nicht der Storage-Key.
+  final String slot;
+
+  /// Fehlertyp bzw. Kurzbegruendung, nie ein Wert.
+  final String reason;
+
+  @override
+  String toString() => 'UnreadableCacheSlot($slot): $reason';
 }

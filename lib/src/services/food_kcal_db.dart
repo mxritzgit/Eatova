@@ -259,11 +259,14 @@ String _capitalize(String s) {
 
 /// Tries to expand a single combined meal into per-ingredient MealComponents.
 ///
-/// Returns an empty list when the meal name can't be split into ≥ 2 parts —
-/// the caller should keep the original (single) item in that case.
+/// Returns an empty list when the meal name can't be split into ≥ 2 parts, or
+/// when [totalKcal] / [totalGrams] are missing (≤ 0) — the caller should keep
+/// the original (single) item in those cases.
 ///
-/// The math preserves the AI's totals: gram counts scale so they sum to
-/// [totalGrams], and per-item kcal scale so they sum to [totalKcal].
+/// With both totals present the math preserves them: gram counts scale so they
+/// sum to [totalGrams], and per-item kcal scale so they sum to [totalKcal].
+/// The local table only contributes the *ratios* between the items, never an
+/// absolute number of its own.
 List<MealComponent> autoSplitItems({
   required String mealName,
   required int totalGrams,
@@ -272,6 +275,16 @@ List<MealComponent> autoSplitItems({
   final names = splitMealName(mealName);
   if (names.length < 2) return const <MealComponent>[];
 
+  // Sentinel-Regel: 0 ist im Analyse-Modell die dokumentierte Unbekannt-Form,
+  // kein Messwert (s. MealAnalysisResult.fromJson, "Sentinel-Rest C"). Ohne
+  // Gesamt-kcal bzw. -Gramm gibt es hier nichts zu verteilen — die Posten
+  // bekaemen die ungeskalierten Referenzwerte der lokalen Tabelle auf Basis nie
+  // gemessener Default-Portionen. Diese Fantasiezahlen stehen im
+  // "Anpassen"-Sheet vorbelegt und landen mit einem Tap im Tagebuch, als waeren
+  // sie gemessen. Eine fehlende Zahl ist harmloser als eine falsche, die
+  // praezise aussieht.
+  if (totalKcal <= 0 || totalGrams <= 0) return const <MealComponent>[];
+
   final lookups = names.map(_lookup).toList();
   final defaultGramsSum = lookups.fold<int>(
     0,
@@ -279,8 +292,7 @@ List<MealComponent> autoSplitItems({
   );
   if (defaultGramsSum <= 0) return const <MealComponent>[];
 
-  final gramFactor =
-      totalGrams > 0 ? totalGrams / defaultGramsSum : 1.0;
+  final gramFactor = totalGrams / defaultGramsSum;
 
   final scaledGrams = <int>[];
   for (final entry in lookups) {
@@ -293,8 +305,10 @@ List<MealComponent> autoSplitItems({
     (i) => lookups[i].kcalPer100G * scaledGrams[i] / 100.0,
   );
   final naiveKcalSum = naiveKcal.fold<double>(0, (s, v) => s + v);
-  final kcalFactor =
-      (totalKcal > 0 && naiveKcalSum > 0) ? totalKcal / naiveKcalSum : 1.0;
+  // Ohne positive Basis liesse sich der KI-Gesamtwert nicht verteilen; ein
+  // Faktor 1.0 wuerde ihn stillschweigend auf 0 verschlucken.
+  if (naiveKcalSum <= 0) return const <MealComponent>[];
+  final kcalFactor = totalKcal / naiveKcalSum;
 
   final items = <MealComponent>[];
   for (var i = 0; i < names.length; i++) {

@@ -15,6 +15,7 @@ import '../../theme/theme_mode_controller.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/shared/data_export_sheet.dart';
+import 'account_change_messages.dart';
 import 'account_change_sheets.dart';
 import 'settings_controls.dart';
 
@@ -68,9 +69,10 @@ class SettingsScreen extends StatefulWidget {
   /// wird dann ausgeblendet statt mit einem Platzhalter gefuellt.
   final String? email;
 
-  /// Traegt die Konto-Aenderungen (Passwort, Mailadresse). Null in Preview/
-  /// Tests ohne Auth — die beiden Zeilen entfallen dann, statt ins Leere zu
-  /// fuehren.
+  /// Traegt die Konto-Aenderungen (Passwort, Mailadresse) und seit dem Audit
+  /// vom 2026-08-14 auch die Re-Authentifizierung vor der Kontoloeschung. Null
+  /// in Preview/Tests ohne Auth — die betroffenen Zeilen entfallen dann, statt
+  /// ins Leere zu fuehren.
   final AuthRepository? authRepository;
 
   /// Fuehrt auf „Profil & Ziele".
@@ -372,6 +374,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- GEFAHRENZONE ---------------------------------------------------------
 
   List<Widget> _gefahrenzone(AppTokens t, AppLocalizations l10n) {
+    final repo = widget.authRepository;
+    final email = _adresse;
     return _gruppe(
       l10n.settingsGroupDangerZone,
       <Widget>[
@@ -381,14 +385,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: l10n.settingsSignOutTitle,
             onTap: _signOut,
           ),
-        if (widget.onDeleteAccount != null) _deleteBlock(t, l10n),
+        // Ohne Auth-Schicht ODER ohne bekannte Adresse gibt es nichts, wogegen
+        // sich der Nutzer erneut ausweisen koennte — und dann entfaellt die
+        // Zeile ersatzlos, statt die unwiderrufliche Aktion ohne zweite Huerde
+        // anzubieten (dieselbe Regel wie fuer Passwort- und Adresswechsel).
+        if (widget.onDeleteAccount != null && repo != null && email != null)
+          _deleteBlock(t, l10n, repo, email),
       ],
       labelColor: t.danger,
       borderColor: t.danger.withValues(alpha: 0.35),
     );
   }
 
-  Widget _deleteBlock(AppTokens t, AppLocalizations l10n) {
+  Widget _deleteBlock(
+    AppTokens t,
+    AppLocalizations l10n,
+    AuthRepository repo,
+    String email,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(
@@ -426,7 +440,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             borderRadius: BorderRadius.circular(13),
             child: InkWell(
               key: const ValueKey('settings-delete-account'),
-              onTap: _openDeleteSheet,
+              onTap: () => _openDeleteSheet(repo, email),
               borderRadius: BorderRadius.circular(13),
               child: Padding(
                 padding:
@@ -444,14 +458,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           height: 1.45,
                         ),
                       ),
-                      // Die Vorlage verspricht zusaetzlich eine Passwort-
-                      // Bestaetigung und „Daten werden nach 30 Tagen
-                      // geloescht". Beides waere hier gelogen: die App kann
-                      // kein Passwort pruefen (kein AuthRepository auf dieser
-                      // Route), und die Loeschung laeuft sofort und
-                      // unwiderruflich.
+                      // Die Vorlage verspricht zusaetzlich eine Bestaetigung
+                      // der Identitaet und „Daten werden nach 30 Tagen
+                      // geloescht". Das Erste gibt es seit dem Sicherheits-
+                      // Audit vom 2026-08-14 wirklich (zweiter Schritt mit
+                      // Mail-Code, [_DeleteAccountSheet]) und der Satz nennt
+                      // es. Das Zweite bleibt gelogen: die Loeschung laeuft
+                      // sofort und unwiderruflich, es gibt keine Frist.
                       TextSpan(
-                        text: l10n.settingsDeleteAccountPromptSuffix,
+                        text: l10n.settingsDeleteAccountPromptSuffixCode,
                       ),
                     ],
                     style: AppType.ui(11.5, color: t.ink2, height: 1.45),
@@ -480,14 +495,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await abmelden();
   }
 
-  Future<void> _openDeleteSheet() async {
+  Future<void> _openDeleteSheet(AuthRepository repo, String email) async {
     final loeschen = widget.onDeleteAccount;
     if (loeschen == null) return;
-    // Die Tipp-Bestaetigung ist die staerkere Absicherung als der
-    // Ja/Nein-Dialog im Profil (`confirm-delete-account`): ein Dialog ist mit
-    // zwei Taps weg, „LÖSCHEN" tippt niemand versehentlich.
-    final bestaetigt =
-        await showEatovaSheet<bool>(context, const _DeleteAccountSheet());
+    // Zwei verschiedene Huerden, weil sie zwei verschiedene Faelle abfangen:
+    // das getippte Wort das Versehen (ein Ja/Nein-Dialog wie im Profil ist mit
+    // zwei Taps weg), der Mail-Code den fremden Finger am entsperrten Geraet.
+    // Der zweite Teil ist seit dem Audit vom 2026-08-14 Pflicht: `delete_
+    // account()` prueft serverseitig nur `auth.uid()` und alles haengt per
+    // `on delete cascade` daran — die Hemmschwelle liegt vollstaendig hier.
+    final bestaetigt = await showEatovaSheet<bool>(
+      context,
+      _DeleteAccountSheet(
+        key: const ValueKey<String>('delete-account-sheet'),
+        authRepository: repo,
+        email: email,
+      ),
+    );
     if (bestaetigt != true || !mounted) return;
     final navigator = Navigator.of(context);
     await navigator.maybePop();
@@ -720,12 +744,45 @@ class _AboutRow extends StatelessWidget {
   }
 }
 
-/// Die Tipp-Bestaetigung fuer die Kontoloeschung.
+enum _LoeschSchritt { wort, code }
+
+/// Die zweistufige Bestaetigung fuer die Kontoloeschung.
 ///
-/// Poppt mit `true`, sobald der Nutzer „LÖSCHEN" getippt und die Aktion
-/// ausgeloest hat; sonst mit `null`.
+/// Poppt mit `true`, sobald der Nutzer „LÖSCHEN" getippt UND den Code aus
+/// seinem Postfach bestaetigt hat; sonst mit `null`.
+///
+/// WARUM DER ZWEITE SCHRITT (Sicherheits-Audit 2026-08-14)
+/// Bis dahin genuegte das getippte Wort — das direkt daneben als Hinweistext
+/// stand. Damit war die einzige unwiderrufliche Aktion der App schwaecher
+/// gesichert als der Passwortwechsel daneben, der einen Mail-Code verlangt:
+/// zwanzig Sekunden am entsperrten Telefon loeschten Profil, Tagebuch,
+/// Gewicht, Coach-Verlauf und Rezepte. Beide Schritte leben wie in
+/// `account_change_sheets.dart` im SELBEN Sheet: der zweite braucht den ersten,
+/// und ein Sheet, das sich schliesst und sofort wieder oeffnet, sieht aus wie
+/// ein Fehler.
+///
+/// WARUM DER RECOVERY-CODE UND NICHT `startPasswordChange()`
+/// Semantisch waere die Reauth-Mail von GoTrue (`reauthenticate()`) die
+/// passendere: sie sagt genau „bestaetige diese Aktion". Ihre Nonce laesst sich
+/// aber ausschliesslich ZUSAMMEN mit einem neuen Passwort einloesen
+/// ([AuthRepository.confirmPasswordChange]) — es gibt keinen Weg, sie allein
+/// pruefen zu lassen, und heimlich das Passwort zu tauschen kommt nicht in
+/// Frage. [AuthRepository.sendPasswordReset] + [AuthRepository.verifyRecoveryCode]
+/// ist deshalb das einzige vorhandene Paar, bei dem der SERVER den Code
+/// wirklich prueft. Eine Bestaetigung, die die App selbst „abnickt", waere
+/// Theater.
 class _DeleteAccountSheet extends StatefulWidget {
-  const _DeleteAccountSheet();
+  const _DeleteAccountSheet({
+    super.key,
+    required this.authRepository,
+    required this.email,
+  });
+
+  final AuthRepository authRepository;
+
+  /// Die Adresse, an die der Code geht — Pflicht, weil er gegen genau sie
+  /// verifiziert wird.
+  final String email;
 
   @override
   State<_DeleteAccountSheet> createState() => _DeleteAccountSheetState();
@@ -733,10 +790,17 @@ class _DeleteAccountSheet extends StatefulWidget {
 
 class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
   final TextEditingController _confirm = TextEditingController();
+  final TextEditingController _code = TextEditingController();
+
+  _LoeschSchritt _schritt = _LoeschSchritt.wort;
+  bool _busy = false;
+  String? _fehler;
+  String? _codeFehler;
 
   @override
   void dispose() {
     _confirm.dispose();
+    _code.dispose();
     super.dispose();
   }
 
@@ -746,29 +810,128 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
   /// einer `static const`.
   bool _scharf(String wort) => _confirm.text.trim().toUpperCase() == wort;
 
+  Future<void> _codeAnfordern(String wort) async {
+    // Der Doppel-Tap-Riegel liegt hier UND an `actionEnabled`: die Sperre am
+    // Knopf greift erst mit dem naechsten Frame. Ein zweiter Mailversand
+    // liefe ausserdem in die GoTrue-Drosselung und verbraenne den ersten Code.
+    if (_busy || !_scharf(wort)) return;
+    setState(() {
+      _busy = true;
+      _fehler = null;
+    });
+    try {
+      await widget.authRepository.sendPasswordReset(widget.email);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _fehler = accountChangeErrorMessage(error, context.l10n);
+      });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _schritt = _LoeschSchritt.code;
+    });
+  }
+
+  Future<void> _loeschenBestaetigen() async {
+    if (_busy) return;
+    final l10n = context.l10n;
+    final code = _code.text.trim();
+    // Was die App selbst wissen kann, faengt sie hier ab: ein zu kurzer Code
+    // laeuft absehbar in einen Serverfehler und ist danach verbrannt.
+    if (!isAccountCode(code)) {
+      setState(() {
+        _fehler = null;
+        _codeFehler = kAccountCodeInvalid(l10n);
+      });
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _fehler = null;
+      _codeFehler = null;
+    });
+    try {
+      await widget.authRepository
+          .verifyRecoveryCode(email: widget.email, code: code);
+    } catch (error) {
+      if (!mounted) return;
+      // Kein Zuruecksetzen des Feldes: wer sich vertippt, soll korrigieren
+      // koennen statt neu anzufangen.
+      setState(() {
+        _busy = false;
+        _fehler = accountChangeErrorMessage(error, context.l10n);
+      });
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final wort = l10n.settingsDeleteConfirmWord;
+    final ersterSchritt = _schritt == _LoeschSchritt.wort;
     // Der Scroller sitzt seit 2026-08-10 in [SheetScaffold] selbst — die
     // Ueberlaufgefahr bei grosser Systemschrift betrifft jedes Sheet, nicht
     // nur dieses.
     return SheetScaffold(
       title: l10n.settingsDeleteAccountTitle,
-      subtitle: l10n.settingsDeleteAccountSheetSubtitle,
+      subtitle: ersterSchritt
+          ? l10n.settingsDeleteAccountSheetSubtitle
+          : l10n.settingsDeleteAccountCodeSentTo(widget.email),
       destructive: true,
-      actionLabel: l10n.settingsDeleteAccountActionLabel,
-      actionEnabled: _scharf(wort),
-      onAction: () => Navigator.of(context).pop(true),
+      actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
+      actionEnabled: ersterSchritt ? !_busy && _scharf(wort) : !_busy,
+      onAction:
+          ersterSchritt ? () => _codeAnfordern(wort) : _loeschenBestaetigen,
       children: <Widget>[
-        SheetField(
-          key: const ValueKey('settings-delete-confirm-field'),
-          label: l10n.settingsDeleteAccountFieldLabel(wort),
-          hint: wort,
-          controller: _confirm,
-          onChanged: (_) => setState(() {}),
-        ),
+        if (ersterSchritt)
+          SheetField(
+            key: const ValueKey('settings-delete-confirm-field'),
+            label: l10n.settingsDeleteAccountFieldLabel(wort),
+            hint: wort,
+            controller: _confirm,
+            enabled: !_busy,
+            onChanged: (_) => setState(() {}),
+          )
+        else
+          SheetField(
+            key: const ValueKey('settings-delete-code-field'),
+            label: l10n.settingsDeleteAccountCodeFieldLabel,
+            hint: '••••••',
+            controller: _code,
+            enabled: !_busy,
+            keyboardType: TextInputType.number,
+            errorText: _codeFehler,
+          ),
+        if (_fehler != null)
+          SettingsNote(
+            key: const ValueKey('settings-delete-error'),
+            _fehler!,
+            tone: context.t.danger,
+            icon: Icons.error_outline_rounded,
+            boxed: true,
+          ),
       ],
     );
+  }
+
+  String _aktionsBeschriftung(AppLocalizations l10n, bool ersterSchritt) {
+    if (_busy) {
+      return ersterSchritt
+          ? l10n.settingsDeleteAccountRequestingCta
+          : l10n.settingsDeleteAccountCheckingCta;
+    }
+    // Der Loesch-Knopf traegt seine Beschriftung erst im ZWEITEN Schritt: im
+    // ersten loescht er nichts, er fordert den Code an.
+    return ersterSchritt
+        ? l10n.settingsDeleteAccountRequestCta
+        : l10n.settingsDeleteAccountActionLabel;
   }
 }

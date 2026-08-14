@@ -122,12 +122,18 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     bereichstext: context.l10n.recipesRangeErrorGrams,
   );
 
-  String? _makroFehler(TextEditingController controller) => _bereichsFehler(
-    controller,
-    min: _macroMin,
-    max: _macroMax,
-    bereichstext: context.l10n.recipesRangeErrorGrams,
-  );
+  /// Makro-Felder tragen DEZIMALWERTE (s. [_makroOderNull]) — die
+  /// Bereichsprüfung läuft deshalb auf der geparsten Zahl und nicht über
+  /// [_bereichsFehler], das eine reine Ziffernfolge erwartet. Die Grenzen
+  /// bleiben ganzzahlig, weil der Fehlertext `int`-Platzhalter führt.
+  String? _makroFehler(TextEditingController controller) {
+    if (controller.text.trim().isEmpty) return null;
+    final wert = _makroOderNull(controller);
+    if (wert == null || wert < _macroMin || wert > _macroMax) {
+      return context.l10n.recipesRangeErrorGrams(_macroMin, _macroMax);
+    }
+    return null;
+  }
 
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
@@ -146,6 +152,15 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     return text.isEmpty ? null : int.tryParse(text);
   }
 
+  /// Makro-Wert pro 100 g als Dezimalzahl, Komma ODER Punkt als Trenner —
+  /// dasselbe Muster wie `_MacroField` in meal_widgets_adjust.dart: 0,5 g
+  /// Fett muss eingebbar sein.
+  double? _makroOderNull(TextEditingController controller) {
+    final text = controller.text.trim();
+    if (text.isEmpty) return null;
+    return double.tryParse(text.replaceAll(',', '.'));
+  }
+
   /// Gerechnete Portion für die Vorschauzeile — nur wenn beide Pflichtzahlen
   /// gültig dastehen, sonst null (keine Vorschau aus halben Eingaben).
   int? get _vorschauKcal {
@@ -159,15 +174,45 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   void _save() {
     if (!_isValid) return;
     HapticFeedback.selectionClick();
-    Navigator.of(context).pop(
-      MealAnalysisResult.manualEntry(
-        name: _name.text,
-        kcalPer100G: _zahlOderNull(_kcal100)!,
-        grams: _zahlOderNull(_grams)!,
-        proteinPer100G: _zahlOderNull(_protein),
-        carbsPer100G: _zahlOderNull(_carbs),
-        fatPer100G: _zahlOderNull(_fat),
-      ),
+    Navigator.of(context).pop(_ergebnis());
+  }
+
+  /// Baut das Ergebnis aus [MealAnalysisResult.manualEntry] und setzt NUR die
+  /// drei Makro-Strings nach.
+  ///
+  /// **Zwang, den der Code nicht zeigt:** die Factory nimmt die Makros pro
+  /// 100 g heute als `int` — ein getipptes „3,5" müsste dort auf 4 gerundet
+  /// werden und wäre für 125 g um ein halbes Gramm falsch. Ihre Signatur
+  /// liegt in `models/meal_analysis_result.dart` und bleibt in diesem
+  /// Durchgang unangetastet; solange sie `int` führt, skaliert dieses Sheet
+  /// die drei Werte mit demselben ÖFFENTLICHEN Formatierer nach, den die
+  /// Factory selbst benutzt. Alles Übrige — Klemmen, Herkunfts-Codes,
+  /// `explicitZeroKcal` — kommt unverändert aus der Factory.
+  MealAnalysisResult _ergebnis() {
+    final basis = MealAnalysisResult.manualEntry(
+      name: _name.text,
+      kcalPer100G: _zahlOderNull(_kcal100)!,
+      grams: _zahlOderNull(_grams)!,
+    );
+    final gramm = basis.estimatedGrams;
+    String makro(TextEditingController controller) =>
+        MealAnalysisResult.macroForGrams(_makroOderNull(controller), gramm);
+    return MealAnalysisResult(
+      mealName: basis.mealName,
+      caloriesKcal: basis.caloriesKcal,
+      estimatedGrams: gramm,
+      kcalPer100G: basis.kcalPer100G,
+      protein: makro(_protein),
+      carbs: makro(_carbs),
+      fat: makro(_fat),
+      confidence: basis.confidence,
+      portionNotes: basis.portionNotes,
+      items: basis.items,
+      isAdjusted: basis.isAdjusted,
+      sourceLabel: basis.sourceLabel,
+      barcode: basis.barcode,
+      brand: basis.brand,
+      explicitZeroKcal: basis.explicitZeroKcal,
     );
   }
 
@@ -256,6 +301,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                             label: l10n.todayMacroProtein,
                             unit: 'g',
                             numeric: true,
+                            decimal: true,
                             dot: t.protein,
                             errorText: _makroFehler(_protein),
                           ),
@@ -273,6 +319,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                             label: l10n.recipesNutritionCarbsLabel,
                             unit: 'g',
                             numeric: true,
+                            decimal: true,
                             dot: t.carbs,
                             errorText: _makroFehler(_carbs),
                           ),
@@ -285,6 +332,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                             label: l10n.todayMacroFat,
                             unit: 'g',
                             numeric: true,
+                            decimal: true,
                             dot: t.fat,
                             errorText: _makroFehler(_fat),
                           ),
@@ -417,6 +465,7 @@ class _ManualField extends StatelessWidget {
     this.hint,
     this.unit,
     this.numeric = false,
+    this.decimal = false,
     this.maxChars,
     this.errorText,
     this.dot,
@@ -428,6 +477,11 @@ class _ManualField extends StatelessWidget {
   final String? hint;
   final String? unit;
   final bool numeric;
+
+  /// Nur mit [numeric] sinnvoll: lässt Komma und Punkt zusätzlich zu den
+  /// Ziffern durch. Trägt allein das Feld, dessen Wert gebrochen sein darf —
+  /// kcal/100 g und die Portionsgramm bleiben ganzzahlig.
+  final bool decimal;
   final int? maxChars;
   final String? errorText;
   final Color? dot;
@@ -436,6 +490,15 @@ class _ManualField extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final hasError = errorText != null;
+    final zifferntastatur = decimal
+        ? const TextInputType.numberWithOptions(decimal: true)
+        : TextInputType.number;
+    // `digitsOnly` schluckt das Trennzeichen STUMM: aus „3,5" würde 35 — ein
+    // Faktor 10 in den Ringen, in der Datenbank und im 90-Tage-Schnitt, den
+    // die richtig bleibenden Kalorien nirgends verraten.
+    final ziffernfilter = decimal
+        ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+        : FilteringTextInputFormatter.digitsOnly;
     final kopfzeile = unit == null
         ? label.toUpperCase()
         : '${label.toUpperCase()} · ${unit!.toUpperCase()}';
@@ -493,11 +556,9 @@ class _ManualField extends StatelessWidget {
                     controller: controller,
                     maxLength: maxChars,
                     keyboardType: numeric
-                        ? TextInputType.number
+                        ? zifferntastatur
                         : TextInputType.text,
-                    inputFormatters: numeric
-                        ? [FilteringTextInputFormatter.digitsOnly]
-                        : null,
+                    inputFormatters: numeric ? [ziffernfilter] : null,
                     textCapitalization: numeric
                         ? TextCapitalization.none
                         : TextCapitalization.sentences,

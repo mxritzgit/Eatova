@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -99,24 +100,45 @@ void main() {
   testWidgets('falscher Code: Hinweis + Neuanfordern statt Weiterkommen',
       (tester) async {
     final repo = InMemoryAuthRepository();
-    await _pumpCode(tester, repo, flow: AuthCodeFlow.recovery);
-    await tester.tap(find.byKey(const ValueKey('code-primary')));
-    await tester.pumpAndSettle();
+    // Seit dem Versand-Riegel (Audit 2026-08-14, s.
+    // auth_code_cooldown_test.dart) geht nach einem erfolgreichen Code 60 s
+    // lang kein zweiter raus — ein SOFORTIGES Neuanfordern loest deshalb
+    // bewusst keine zweite Mail mehr aus. Die Aussage des Tests bleibt aber
+    // dieselbe („Neuanfordern stoesst den Reset erneut an"), nur mit der Uhr
+    // unter Kontrolle des Tests: der Screen liest sie ueber `clock.now()`.
+    var jetzt = DateTime(2026, 8, 14, 9, 30);
+    await withClock(Clock(() => jetzt), () async {
+      await _pumpCode(tester, repo, flow: AuthCodeFlow.recovery);
+      await tester.tap(find.byKey(const ValueKey('code-primary')));
+      await tester.pumpAndSettle();
 
-    repo.verifyFails = true;
-    await tester.enterText(find.byKey(const ValueKey('code-field')), '000000');
-    await tester.tap(find.byKey(const ValueKey('code-primary')));
-    await tester.pumpAndSettle();
+      repo.verifyFails = true;
+      await tester.enterText(
+          find.byKey(const ValueKey('code-field')), '000000');
+      await tester.tap(find.byKey(const ValueKey('code-primary')));
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('code-error')), findsOneWidget);
-    expect(find.textContaining('abgelaufen'), findsOneWidget);
-    expect(find.byKey(const ValueKey('code-field')), findsOneWidget,
-        reason: 'kein Weiterkommen mit falschem Code');
+      expect(find.byKey(const ValueKey('code-error')), findsOneWidget);
+      expect(find.textContaining('abgelaufen'), findsOneWidget);
+      expect(find.byKey(const ValueKey('code-field')), findsOneWidget,
+          reason: 'kein Weiterkommen mit falschem Code');
 
-    await tester.tap(find.byKey(const ValueKey('code-resend')));
-    await tester.pumpAndSettle();
-    expect(repo.passwordResets, hasLength(2),
-        reason: 'Neuanfordern stoesst den Reset erneut an');
+      await tester.tap(find.byKey(const ValueKey('code-resend')));
+      await tester.pumpAndSettle();
+      expect(repo.passwordResets, hasLength(1),
+          reason: 'innerhalb des Cooldowns geht keine zweite Mail raus');
+
+      jetzt = jetzt.add(const Duration(seconds: 61));
+      await tester.tap(find.byKey(const ValueKey('code-resend')));
+      await tester.pumpAndSettle();
+      expect(repo.passwordResets, hasLength(2),
+          reason: 'nach dem Cooldown stoesst Neuanfordern den Reset erneut an');
+
+      // Der Countdown haengt an einem `Timer.periodic`; ohne Abbau meldet
+      // flutter_test am Testende einen offenen Timer.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
   });
 
   testWidgets('Signup-Flow: startet direkt beim Code und prueft ihn',

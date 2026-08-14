@@ -32,7 +32,7 @@ final List<Map<String, dynamic>> _mealRows = List.generate(5, (i) {
 
 class _FakePostgrest {
   final List<http.Request> requests = <http.Request>[];
-  bool failWorkoutSets = false;
+  bool failChatMessages = false;
 
   http.Client client() => MockClient(_handle);
 
@@ -75,15 +75,12 @@ class _FakePostgrest {
           from, (to + 1).clamp(0, _mealRows.length));
       return ok(slice);
     }
-    if (path.contains('/workout_sets')) {
-      if (failWorkoutSets) {
+    if (path.contains('/chat_messages')) {
+      if (failChatMessages) {
         return http.Response(jsonEncode({'message': 'kaputt'}), 500,
             headers: const {'Content-Type': 'application/json'},
             request: req);
       }
-      return ok(const <dynamic>[]);
-    }
-    if (path.contains('/chat_messages')) {
       return ok([
         <String, dynamic>{
           'id': 'msg-1',
@@ -166,11 +163,11 @@ void main() {
   test('eine nicht lesbare Tabelle macht den Export nicht kaputt — sie wird '
       'als unvollstaendig ausgewiesen', () async {
     final (service, server) = setup();
-    server.failWorkoutSets = true;
+    server.failChatMessages = true;
     final json =
         jsonDecode(await service.buildExportJson()) as Map<String, dynamic>;
 
-    expect(json['unvollstaendig'], contains('workout_sets'),
+    expect(json['unvollstaendig'], contains('chat_messages'),
         reason: 'ein Fehler darf nicht still eine leere Sektion vortaeuschen');
     expect(json['logged_meals'], hasLength(_mealRows.length),
         reason: 'die uebrigen Sektionen bleiben vollstaendig');

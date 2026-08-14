@@ -112,6 +112,18 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   bool _outboxHydrationFailed = false;
   bool _outboxRepairInFlight = false;
 
+  /// Dasselbe fuer den Deltas-Slot (W7b) — die zweite Haelfte desselben
+  /// kill-sicheren Sync-Zustands, und derselbe Schaden:
+  /// [_persistPendingStatsDeltas] schreibt den Slot IMMER komplett neu, ein
+  /// verschluckter Lesefehler liesse ihn also bei 0 anfangen und die
+  /// Lebenszeit-Zaehler blieben um die liegengebliebenen Mahlzeiten zu
+  /// niedrig — genau der Schaden, den der Docstring von
+  /// [LocalCache.readPendingStatsDeltasOrThrow] benennt. Bewusst dieselbe
+  /// Mechanik wie oben (Merker + einmalige Nachhydration), kein zweiter,
+  /// abweichender Weg.
+  bool _statsHydrationFailed = false;
+  bool _statsRepairInFlight = false;
+
   /// Der dezente Queue-Hinweis (Offline ODER "wird automatisch erneut
   /// versucht") wird pro Fehler-Episode nur EINMAL gezeigt (Reset beim
   /// naechsten Sync-Erfolg) — sonst wuerde jede weitere Aktion erneut toasten.
@@ -168,6 +180,20 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
+
+  /// Idempotenz-Schluessel des AKTUELL pendenden Delta-Buendels — dieselbe Id,
+  /// die `increment_lifetime_stats(p_request_id)` serverseitig 30 Tage lang
+  /// festhaelt (Migration 20260814120000_audit_rls_guard.sql).
+  ///
+  /// Invariante: nicht-`null` genau dann, wenn Deltas pendieren. Er entsteht
+  /// mit dem ersten Delta eines Buendels ([_queueStatsDelta]), wandert mit den
+  /// Zahlen in den Cache-Slot ([_persistPendingStatsDeltas]) und ueberlebt
+  /// damit den Kaltstart. Eine NEUE Id gibt es erst, wenn ein Buendel
+  /// nachweislich verbucht ist und ein frisches beginnt — genau darin liegt der
+  /// Schutz: nur ein Retry mit derselben Id kann serverseitig als Wiederholung
+  /// erkannt werden.
+  String? _pendingStatsRequestId;
+
   bool _statsFlushInFlight = false;
   Timer? _statsSaveDebounce;
 
@@ -696,8 +722,27 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         // Die Entitaet ist wieder serverseitig vorhanden — der Live-Pfad darf
         // sie wieder anfassen (A6).
         _orphanedEntities.remove(op.entityKey);
-        _outbox = [..._outbox]..removeAt(i);
-        _persistOutbox();
+        // Wie im Fehlerzweig ueber Identitaet statt ueber den Laufindex: der
+        // konnte waehrend des await veralten, und dann entfernte `removeAt(i)`
+        // eine FREMDE Op. Zwei Pfade kuerzen die Queue genau in diesem
+        // Fenster — _clearQueuedTrackingDay (feuert _performOp fuer jede
+        // nachgeholte Mahlzeit selbst, ungeawaitet) und _dequeueDeliveredOp
+        // eines parallel zugestellten Live-Writes. Der Preis war entweder eine
+        // still verworfene, nie zugestellte Mahlzeit (waehrend die zugestellte
+        // liegenblieb und beim naechsten Replay doppelt zaehlte) oder ein
+        // RangeError, der ausserhalb des inneren try liegt: der riss
+        // signOutCleanup VOR _clearCache ab, der PII-Cache blieb liegen und
+        // der Logout kam nie zustande.
+        final at = _outbox.indexWhere((o) => identical(o, op));
+        if (at >= 0) {
+          _outbox = [..._outbox]..removeAt(at);
+          _persistOutbox();
+          // Die nachgerueckte Op steht jetzt an dieser Position.
+          i = at;
+        } else {
+          // Schon anderswo entfernt — an dieser Position steht eine andere Op.
+          i++;
+        }
       }
     } finally {
       _outboxReplayInFlight = false;
@@ -1159,6 +1204,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///    lassen wuerde nur die Writes DIESER Sitzung mit in den Abgrund ziehen.
   ///    Ab hier gilt wieder der normale Schreibpfad.
   ///
+  /// Gelesen wird ueber die WERFENDE Variante (W7b): mit dem toleranten
+  /// [LocalCache.readOutbox] liefen die beiden Faelle, die dieser Pfad gerade
+  /// trennen soll, wieder zusammen — ein kaputter Blob kam als `null` an,
+  /// also ununterscheidbar von „Slot leer", und der zweite Fehlschlag lief
+  /// still an Log und Crash-Report vorbei.
+  ///
   /// Laeuft hoechstens einmal gleichzeitig; danach ist [_outboxHydrationFailed]
   /// in beiden Faellen false, der Pfad also einmalig.
   Future<void> _repairOutboxHydration() async {
@@ -1166,7 +1217,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _outboxRepairInFlight = true;
     List<SyncOp>? blob;
     try {
-      blob = await _cache?.readOutbox();
+      blob = await _cache?.readOutboxOrThrow();
     } catch (e, st) {
       dev.log('Outbox-Nachhydration fehlgeschlagen — der persistierte Blob '
           'ist unlesbar und damit ohnehin unzustellbar',
@@ -1209,11 +1260,71 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   void _persistPendingStatsDeltas() {
+    // W7b, exakt die Bremse aus [_persistOutbox]: der In-Memory-Stand ist NUR
+    // dann eine gueltige Fassung des Slots, wenn die Hydration ihn lesen
+    // konnte. Sonst sind `_pendingMealsDelta`/`_pendingWeightLogsDelta` die
+    // Zahlen dieser Sitzung, und sie hier zu schreiben vernichtet die
+    // liegengebliebenen Deltas der Vorsession samt ihrer Anfrage-Id.
+    if (_statsHydrationFailed) {
+      unawaited(_repairStatsHydration());
+      return;
+    }
     unawaited(_cache?.writePendingStatsDeltas(
           meals: _pendingMealsDelta,
           weightLogs: _pendingWeightLogsDelta,
+          requestId: _pendingStatsRequestId,
         ) ??
         Future<void>.value());
+  }
+
+  /// Holt eine gescheiterte Deltas-Hydration nach, bevor zum ersten Mal
+  /// geschrieben wird — die Entsprechung zu [_repairOutboxHydration], mit
+  /// derselben Begruendung und demselben Ablauf (zweiter Lesevorgang statt
+  /// dauerhafter Schreibsperre; gelingt er, sind die nachgelesenen Zahlen die
+  /// aelteren und werden addiert; scheitert er erneut, war der Slot ohnehin
+  /// verloren und der normale Schreibpfad uebernimmt wieder).
+  ///
+  /// Ebenfalls ueber die werfende Lesevariante, sonst kaeme ein kaputter Slot
+  /// als „ist halt leer" an und der Fehlschlag bliebe unsichtbar.
+  ///
+  /// Laeuft hoechstens einmal gleichzeitig; danach ist [_statsHydrationFailed]
+  /// in beiden Faellen false, der Pfad also einmalig.
+  Future<void> _repairStatsHydration() async {
+    if (_statsRepairInFlight) return;
+    _statsRepairInFlight = true;
+    ({int meals, int weightLogs, String? requestId})? blob;
+    try {
+      blob = await _cache?.readPendingStatsDeltasOrThrow();
+    } catch (e, st) {
+      dev.log('Deltas-Nachhydration fehlgeschlagen — der persistierte Slot '
+          'ist unlesbar und damit ohnehin nicht mehr verbuchbar',
+          error: e, stackTrace: st, name: 'eatova_sync');
+      unawaited(
+          CrashReporter.capture(e, st, context: 'pending-stats-rehydrate'));
+    } finally {
+      _statsRepairInFlight = false;
+      _statsHydrationFailed = false;
+    }
+    if (_disposed) return;
+    if (blob != null && (blob.meals != 0 || blob.weightLogs != 0)) {
+      // Nur die Tatsache, keine Zahlen: der Slot fuehrt Mahlzeiten- und
+      // Gewichts-Zaehler, und dieser Text geht ins Reporting.
+      CrashReporter.breadcrumb('pending-stats-rehydrate: deltas restored');
+      _pendingMealsDelta += blob.meals;
+      _pendingWeightLogsDelta += blob.weightLogs;
+      // Die Id des NACHGELESENEN Buendels gewinnt, nicht die der Sitzung: von
+      // beiden kann nur sie serverseitig schon verbucht sein (sie gehoert zu
+      // einem Flush, der gescheitert sein KANN, nachdem der Server committet
+      // hat). Dieselbe Abwaegung wie in [_flushStatsDelta]: lieber ein
+      // begrenzter Ausfall im Abbruchfenster als eine dauerhafte
+      // Ueberzaehlung, die kein Pfad je wieder korrigiert. Der Boot-Pfad kommt
+      // mit `??=` zum selben Ergebnis — dort ist die Sitzungs-Id noch nie
+      // gesetzt.
+      final wiedergefunden = blob.requestId;
+      if (wiedergefunden != null) _pendingStatsRequestId = wiedergefunden;
+      _scheduleOutboxRetry();
+    }
+    _persistPendingStatsDeltas();
   }
 
   // --- Streak-Tage (Zweitpruefung 2026-08-10) -------------------------------
@@ -1292,6 +1403,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (sync == null) return;
     _pendingMealsDelta += meals;
     _pendingWeightLogsDelta += weightLogs;
+    // Ein frisches Buendel bekommt seine Anfrage-Id hier — und NUR hier.
+    // `??=` ist der ganze Punkt: solange das Buendel offen ist (also bis es
+    // verbucht wurde), behaelt es seine Id, egal wie viele Deltas noch
+    // dazukommen und wie oft der Flush scheitert.
+    _pendingStatsRequestId ??= uuidV4();
     // Pendende Deltas kill-sicher machen (DATA-7): ein App-Kill im Debounce-
     // Fenster oder nach fehlgeschlagenem Flush verliert sie nicht mehr — der
     // naechste Boot hydriert und flusht sie nach.
@@ -1310,8 +1426,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     final meals = _pendingMealsDelta;
     final weightLogs = _pendingWeightLogsDelta;
     if (meals == 0 && weightLogs == 0) return;
+    // Bestandsdaten: ein Buendel, das ein aelterer Build persistiert hat (oder
+    // das die Boot-Hydration ohne Id vorgefunden hat), traegt keine — es wird
+    // hier nachtraeglich eine vergeben, statt an `null` zu scheitern oder das
+    // Buendel zu verwerfen. Ab diesem Moment gilt fuer es dieselbe Regel wie
+    // fuer jedes andere: sie bleibt, bis es verbucht ist.
+    final requestId = _pendingStatsRequestId ?? uuidV4();
     _pendingMealsDelta = 0;
     _pendingWeightLogsDelta = 0;
+    // Die Id wird MIT den Zahlen zurueckgesetzt: was waehrend des Fluges neu
+    // eingereiht wird, gehoert zu einem anderen Buendel und bekommt in
+    // [_queueStatsDelta] seine eigene Id. Wuerde es diese hier erben, koennte
+    // der Server es als Wiederholung abtun und es waere still verloren.
+    _pendingStatsRequestId = null;
     // In-Flight-Stand sofort persistieren: ein Kill WAEHREND des RPCs zaehlt
     // die Deltas schlimmstenfalls nicht — besser als ein Doppel-Increment
     // beim naechsten Boot (der Server ADDIERT, ein Replay eines bereits
@@ -1322,6 +1449,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       final fresh = await s.lifetimeStats.increment(
         meals: meals,
         weightLogs: weightLogs,
+        requestId: requestId,
       );
       if (!_disposed) {
         _mutate(() {
@@ -1336,11 +1464,32 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     } catch (e, st) {
       // DATA-7: kein roter Fehler-Toast, kein Rollback — die Deltas gehen
       // zurueck in die (persistierte) Queue und laufen ueber die Retry-Pfade.
+      //
+      // Frueher war genau das der Preis (Audit 2026-08-14, Befund B): der RPC
+      // war rein additiv, ein Abbruch NACH dem Commit liess das Wiedereinreihen
+      // ein zweites Mal zaehlen, und `meals_logged` stand dauerhaft zu hoch —
+      // ohne Neuberechnungspfad. Seit der Server `p_request_id` kennt
+      // (Migration 20260814120000_audit_rls_guard.sql) traegt das Buendel
+      // seinen Idempotenz-Schluessel mit: der Retry sendet DIESELBE Id, eine
+      // bereits verbuchte wird serverseitig erkannt und nicht noch einmal
+      // addiert. Deshalb geht hier auch die Id zurueck in den pendenden Stand —
+      // mit einer frisch erzeugten waere der Retry fuer den Server ein neuer
+      // Vorgang und der Schutz eine Fassade.
+      //
+      // Bleibt ein enger Rest: wurde WAEHREND des Fluges ein neues Buendel
+      // eroeffnet, verschmelzen beide hier zu einem, und dessen Id ist die des
+      // gescheiterten (nur die kann serverseitig schon verbucht sein). Kam der
+      // gescheiterte Aufruf doch durch, zaehlt die Handvoll waehrend des Fluges
+      // geloggter Deltas nicht mit. Das ist ein begrenzter AUSFALL im seltenen
+      // Abbruchfenster statt einer dauerhaften Ueberzaehlung — und der weit
+      // haeufigere Fall (Offline-Flush, der den Server nie erreicht hat) bleibt
+      // vollstaendig korrekt.
       dev.log('Statistik-Sync failed — Deltas bleiben gequeued',
           error: e, name: 'eatova_sync');
       unawaited(CrashReporter.capture(e, st, context: 'lifetime-stats-flush'));
       _pendingMealsDelta += meals;
       _pendingWeightLogsDelta += weightLogs;
+      _pendingStatsRequestId = requestId;
       _persistPendingStatsDeltas();
       if (!_disposed) {
         _notifyQueued(e);

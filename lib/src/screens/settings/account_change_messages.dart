@@ -87,12 +87,19 @@ String accountChangeErrorMessage(Object error, [AppLocalizations? l10n]) {
     return t.settingsAccountRateLimited;
   }
 
+  // Konto-Enumeration (Audit 2026-08-14): Der Server verraet hier, dass die
+  // Zieladresse belegt ist. Frueher gab die App das woertlich weiter („Diese
+  // E-Mail-Adresse wird bereits verwendet") — damit konnte JEDER angemeldete
+  // Nutzer fremde Adressen durchprobieren und bekam die Kontoexistenz
+  // bestaetigt. Das widerspricht der Hauslinie, die der Reset-Pfad verteidigt
+  // (auth_repository.dart, `sendPasswordReset`). Der Satz behauptet jetzt
+  // nichts mehr, sondern nennt nur den Ausweg, den es in BEIDEN Faellen gibt.
   if (raw.contains('already registered') ||
       raw.contains('already been registered') ||
       raw.contains('already in use') ||
       raw.contains('already exists') ||
       raw.contains('email_exists')) {
-    return t.settingsAccountEmailInUse;
+    return t.settingsAccountEmailNotAvailable;
   }
 
   if (raw.contains('email') &&

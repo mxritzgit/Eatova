@@ -1233,5 +1233,19 @@
     }
   },
   "notifStreakStartTitle": "Start a streak",
-  "notifStreakStartBody": "One log is enough to start your streak."
+  "notifStreakStartBody": "One log is enough to start your streak.",
+
+  "authCodeRateLimited": "Too many requests in a short time. Sending is paused for now — please wait about a minute before trying again.",
+  "authCodeResendCountdown": "Request a new code in {sekunden} s",
+  "authCodeThrottleWait": "Too many requests. The next code can be requested in {sekunden} s.",
+  "authCodeTooManyAttempts": "Too many incorrect codes. For security reasons, please request a new code.",
+  "authSignupExistingAccountHint": "If an account already exists for this address, please sign in.",
+  "coachInfoLimitUnknown": "How many questions are left today can't be retrieved right now. Resets at midnight (UTC).",
+  "settingsAccountEmailNotAvailable": "We can't switch to this address. If an account already exists for it, sign in with that one; otherwise please check the spelling.",
+  "settingsDeleteAccountCheckingCta": "Checking…",
+  "settingsDeleteAccountCodeFieldLabel": "Confirmation code",
+  "settingsDeleteAccountCodeSentTo": "For security, we're sending you a 6-digit code to {adresse}. It's valid for 10 minutes — without it, nothing is deleted.",
+  "settingsDeleteAccountPromptSuffixCode": " and then to confirm a 6-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
+  "settingsDeleteAccountRequestCta": "Request code",
+  "settingsDeleteAccountRequestingCta": "Requesting code…"
 }

@@ -11,8 +11,17 @@
 Eatova makes everyday food logging fast: snap a meal photo and get an itemized
 nutrition estimate, scan a barcode, or search a self-hosted product index —
 then let an AI coach answer training and nutrition questions with your actual
-daily numbers as context. The app ships three tabs (**Food**, **Rezepte**,
-**Coach**), is fully localized in German, and targets Android and iOS only.
+daily numbers as context. The app ships four tabs (**Heute**, **Food**,
+**Rezepte**, **Coach**), is localized in German and English once you're
+signed in, and targets Android and iOS only.
+
+> **i18n scope:** everything behind sign-in follows the language picker
+> (`gen_l10n` over `lib/l10n/app_de.arb` / `app_en.arb`), guarded by
+> `test/l10n/hartkodierung_waechter_test.dart`. The sign-in/sign-up flow
+> itself (`lib/src/screens/auth_screen.dart`,
+> `lib/src/screens/auth_code_screen.dart`) is **not** part of that migration
+> yet and remains hard-coded German — an English-language device sees German
+> text on the very first screen.
 
 > **Note on the name:** the app is **Eatova** (formerly ShiftFit/FitPilot).
 > The Dart package is now named `eatova` as well, so package name, app name,
@@ -31,6 +40,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## Features
 
+- **Today** — the day at a glance: calorie hero, macro rings, and the logging
+  streak. The landing tab; the Food tab is the diary itself.
 - **Food tracking** — calorie and macro tracking per meal slot (breakfast,
   lunch, dinner, snacks) with:
   - **AI photo analysis** — in-app camera or gallery photo; the `analyze-meal`
@@ -39,22 +50,32 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
   - **Barcode scanning** — product nutrition via `mobile_scanner`.
   - **Product search** — live text search against a self-hosted Meilisearch
     index of Open Food Facts, with the public Open Food Facts API as fallback.
+  - **Manual entry** — a form for label values per 100 g plus the portion, for
+    everything the scan, the barcode and the search do not find.
   - **History & editing** — swipe-to-delete, an edit sheet for logged meals,
     pinned favorites, and a date strip to log onto past days.
 - **Trends** — weight, calories, and macros over selectable 7/30/90-day
   ranges, computed from real logged history, with goal corridor overlays.
+  A full page opened from the Food tab, not a tab of its own.
 - **Recipes** — browse recipes and add them straight to the tracker (on the
-  day currently selected in the Food tab).
+  day currently selected in the Food tab), plus your own recipes with a photo.
 - **AI Coach** — chat coach for training and nutrition questions with session
   management, image input, speech input (iOS), a compact snapshot of your
   remaining macros as context, a daily quota, and layered safety filtering.
-- **Profile & stats** — weight log with chart, streaks and lifetime stats,
-  achievements, goal management, and a JSON data export.
+  The `/recipe` command returns a generated recipe with an AI picture as a
+  card; it lands in your recipes only after you confirm it, and the picture
+  stays on the device.
+- **Profile & stats** — weight log with chart, a stat bar (streak, record,
+  meals logged, weigh-ins), body values, daily goals, and the Apple Health
+  connection. Language, theme, the JSON data export, sign-out and account
+  deletion live on the Settings page behind the gear icon; the reminder toggle
+  sits with the daily goals.
 - **Offline robustness** — a durable write-through cache plus a sync outbox:
   logging works offline and reconciles with Supabase when connectivity
   returns; a cold start offline shows the last known state.
-- **Reminders** — local, on-device notifications (hydration, caffeine cut-off,
-  sleep runway, streak-at-risk). No push infrastructure required.
+- **Reminders** — one local, on-device notification type: the evening
+  streak-at-risk nudge, planned as dated single shots over a four-week horizon
+  (daily for the first week, then weekly). No push infrastructure required.
 - **Health integration** — reads daily steps, body-weight history, and sleep
   duration from Apple HealthKit on iOS, and writes back a body-weight entry
   when you log a weigh-in; the step count drives the calories-burned estimate.
@@ -69,12 +90,13 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 | Layer            | Technology                                                        |
 | ---------------- | ----------------------------------------------------------------- |
-| App              | [Flutter](https://flutter.dev) / Dart (SDK `^3.11.5`), German locale |
+| App              | [Flutter](https://flutter.dev) / Dart (SDK `^3.11.5`), German + English (`gen_l10n`/ARB) |
 | Backend          | [Supabase](https://supabase.com) — Auth, Postgres + RLS           |
 | Serverless       | Supabase Edge Functions (Deno / TypeScript)                       |
 | Product search   | Self-hosted [Meilisearch](https://www.meilisearch.com) index of [Open Food Facts](https://world.openfoodfacts.org), OFF API fallback |
 | AI meal analysis | Gemini vision model via [OpenRouter](https://openrouter.ai)       |
 | AI coach         | Grok via OpenRouter, with server-side quota + safety layers       |
+| AI recipe image  | Gemini image model via the OpenRouter image API (`/recipe` only)  |
 | Health           | Apple HealthKit (`package:health`, iOS only) — read: steps, weight, sleep · write: weight |
 | Crash reporting  | [Sentry](https://sentry.io) (optional, DSN via dart-define)       |
 
@@ -93,8 +115,9 @@ Key Flutter packages: `supabase_flutter`, `camera`, `image_picker`,
 │                                 │ ──────► │  Auth · Postgres (RLS)           │
 │  screens · widgets · theme      │         │  Edge Functions (Deno):          │
 │  models · services · config     │         │   · analyze-meal ──► OpenRouter  │
-│                                 │         │   · coach-chat   ──► (Gemini /   │
-│  LocalCache + SyncOutbox        │         │                       Grok)      │
+│  l10n (de + en)                 │         │   · coach-chat   ──► (Grok text, │
+│                                 │         │                    Gemini image) │
+│  LocalCache + SyncOutbox        │         │   · search-key                   │
 │  (offline write-through)        │         └──────────────────────────────────┘
 └──────────────┬──────────────────┘
                │
@@ -116,28 +139,34 @@ a local write-through cache and an outbox, so the app stays usable offline.
 
 ```text
 lib/
+├── l10n/                     # app_de.arb / app_en.arb (source of truth)
 ├── main.dart                 # Entry point; exports EatovaApp for tests
 └── src/
     ├── app/                  # MaterialApp, auth gate, home shell + store
     ├── auth/                 # Auth repository
     ├── config/               # Supabase, search index + legal link config
+    ├── l10n/                 # l10n helper + generated/ (gen_l10n output)
     ├── models/               # Pure data models and mapping logic
     ├── screens/              # Top-level screens (auth, onboarding, food/meal,
-    │   └── coach/            #   recipes, trends, profile; coach as library)
+    │   ├── coach/            #   trends, profile), large ones as part-based
+    │   ├── recipes/          #   libraries in their own folder
+    │   ├── settings/
+    │   └── today/
     ├── services/             # Sync, outbox, cache, analyzers, external APIs
     ├── theme/                # Central colors and app theme
     └── widgets/              # Reusable UI, grouped by feature
-        ├── app_shell/  auth/  common/  shared/
+        ├── auth/  common/  design/  shared/
         ├── kcal/  meal/  profile/
 
 test/
 ├── flows/                    # End-to-end widget flows (auth, navigation,
 │                             #   scan, logging, search, recipes) + helpers
-├── models/  services/  widgets/
+├── app/  l10n/  models/  screens/  services/  theme/  widgets/
 └── *_test.dart               # Screen-/feature-level suites
 
 supabase/
-├── functions/                # Edge Functions (analyze-meal, coach-chat)
+├── functions/                # Edge Functions (analyze-meal, coach-chat,
+│                             #   search-key) + _shared/
 ├── migrations/               # Versioned SQL schema (RLS, grants, features)
 └── OAUTH_SETUP.md            # OAuth provider setup guide
 ```
@@ -154,6 +183,9 @@ folders. Desktop and web scaffolding was removed on purpose (services use
 - Pure data objects → `lib/src/models/`
 - External API / sync logic → `lib/src/services/` (don't call APIs from widgets)
 - Colors and theme → `lib/src/theme/` only
+- User-facing text → a key in `lib/l10n/app_de.arb` **and** `app_en.arb`, never
+  a string literal in a widget (`test/l10n/hartkodierung_waechter_test.dart`
+  fails on hard-coded text)
 - Keep `lib/main.dart` small
 
 ---
@@ -250,7 +282,11 @@ The Supabase project is fully versioned in `supabase/`:
   - `analyze-meal` — accepts a meal photo and returns a structured, itemized
     nutrition estimate from a Gemini vision model (via OpenRouter).
   - `coach-chat` — the AI coach endpoint (Grok via OpenRouter), with
-    server-side daily quota and layered safety filtering.
+    server-side daily quota and layered safety filtering. Its `mode: "recipe"`
+    branch drafts a recipe and generates the card picture through the
+    OpenRouter image API; it returns data only and never writes user rows.
+  - `search-key` — hands the client the base URL plus the search-only key of
+    the product index at runtime (see "Product-search key rotation").
 - **`OAUTH_SETUP.md`** — step-by-step OAuth provider configuration.
 
 To work against your own project, apply the migrations with the Supabase CLI
@@ -307,8 +343,10 @@ flutter test
 The suite is split by concern: end-to-end widget flows live in `test/flows/`
 (shared fakes and the viewport-pinning `testWidgetsRobust` wrapper in
 `test/flows/flow_test_helpers.dart`), unit suites in `test/models/` and
-`test/services/`, widget-level suites in `test/widgets/` and the remaining
-screen suites at the `test/` root. Widget tests rely on stable `Key` values
+`test/services/`, widget- and screen-level suites in `test/widgets/`,
+`test/screens/`, `test/app/` and `test/theme/`, the localization guards in
+`test/l10n/` (ARB parity, hard-coded-text watchdog, locale wiring), and the
+remaining suites at the `test/` root. Widget tests rely on stable `Key` values
 and label strings (test pins) — when changing UI, keep those identifiers
 intact or update the corresponding tests in the same change.
 
@@ -319,14 +357,19 @@ intact or update the corresponding tests in the same change.
 `.github/workflows/security.yml` runs on every push/PR to `main`, on a weekly
 schedule, and on demand:
 
-- `flutter analyze` and `flutter test`
+- `flutter analyze` + `flutter test`, with a coverage floor check
+- Android debug build (APK) and Android release build (AAB with R8), the latter
+  against a throw-away keystore plus a check that R8 actually ran
 - `flutter pub outdated` (informational)
+- secret scanning (gitleaks)
 - [OSV-Scanner](https://google.github.io/osv-scanner/) against `pubspec.lock`
-  with SARIF upload
+  and the Deno dependencies, with SARIF upload
 - `deno lint` and `deno check` for the Edge Functions
+- Supabase migration drift against the Management API
 
-The weekly cron run catches newly published CVEs in dependencies that were
-clean at merge time.
+`.github/workflows/ios.yml` builds the iOS app without code signing. The weekly
+cron run catches newly published CVEs in dependencies that were clean at merge
+time.
 
 ---
 

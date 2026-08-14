@@ -57,7 +57,7 @@ class _CancelingAuthRepository implements AuthRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> signUp({
+  Future<SignUpOutcome> signUp({
     required String email,
     required String password,
     required String displayName,

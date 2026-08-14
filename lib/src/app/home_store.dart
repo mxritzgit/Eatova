@@ -377,6 +377,13 @@ class HomeStore extends _HomeStoreBase
   /// naechste Write repariert ihn. [onFehler] laeuft nur beim WURF (nicht bei
   /// einem leeren Slot) — der Unterschied traegt fuer die Outbox: „konnte
   /// nicht gelesen werden" ist etwas anderes als „ist leer".
+  ///
+  /// Damit der Unterschied hier ueberhaupt ankommt, MUESSEN die beiden
+  /// Sync-Zustands-Slots ueber die werfenden Lesevarianten kommen
+  /// ([LocalCache.readOutboxOrThrow] /
+  /// [LocalCache.readPendingStatsDeltasOrThrow]): jeder andere LocalCache-Leser
+  /// faengt seinen Fehler selbst ab und liefert `null`, kann [onFehler] also
+  /// nie ausloesen.
   Future<T?> _leseSlot<T>(
     String slot,
     Future<T?> Function() read, {
@@ -404,10 +411,10 @@ class HomeStore extends _HomeStoreBase
     final cachedMeals = await _leseSlot('logged_meals', cache.readLoggedMeals);
     final cachedFavorites = await _leseSlot('favorites', cache.readFavorites);
     final cachedWeightLog = await _leseSlot('weight_log', cache.readWeightLog);
-    final cachedOutbox = await _leseSlot('outbox', cache.readOutbox,
+    final cachedOutbox = await _leseSlot('outbox', cache.readOutboxOrThrow,
         onFehler: () => outboxLesefehler = true);
     final cachedDeltas = await _leseSlot(
-        'pending_stats', cache.readPendingStatsDeltas,
+        'pending_stats', cache.readPendingStatsDeltasOrThrow,
         onFehler: () => deltaLesefehler = true);
     final cachedRecipes =
         await _leseSlot('user_recipes', cache.readUserRecipes);
@@ -417,6 +424,11 @@ class HomeStore extends _HomeStoreBase
     // Der persistierte Blob bleibt unangetastet, solange wir ihn nicht lesen
     // konnten — sonst schriebe der naechste Write ihn nieder (s. dort).
     _outboxHydrationFailed = outboxLesefehler;
+    // Dieselbe Bremse fuer die zweite Haelfte des Sync-Zustands (W7b): ohne
+    // sie schriebe der naechste Flush den Deltas-Slot bei 0 beginnend nieder,
+    // und die nie verbuchten Mahlzeiten der Vorsession fehlten dauerhaft in
+    // den Lebenszeit-Zaehlern.
+    _statsHydrationFailed = deltaLesefehler;
     // Ab hier spiegelt der In-Memory-Zustand den Blob (die Uebernahme unten
     // ist synchron) — signOutCleanup darf `_outbox.length` wieder glauben.
     // Bewusst NUR am Sync-Zustand (Outbox + Deltas) festgemacht: ein
@@ -453,6 +465,12 @@ class HomeStore extends _HomeStoreBase
     if (cachedDeltas != null) {
       _pendingMealsDelta += cachedDeltas.meals;
       _pendingWeightLogsDelta += cachedDeltas.weightLogs;
+      // Die Anfrage-Id des Buendels MUSS den Kaltstart mitmachen: der Flush
+      // gleich nach dem Boot ist ein Retry, und ein Retry wirkt nur mit
+      // DERSELBEN Id (Befund B). `??=`, weil ein hier schon laufendes Buendel
+      // Vorrang hat; ein Slot aus einem aelteren Build traegt gar keine — die
+      // vergibt `_flushStatsDelta` dann nach.
+      _pendingStatsRequestId ??= cachedDeltas.requestId;
     }
     if (cachedProfile == null &&
         cachedStats == null &&
@@ -489,6 +507,38 @@ class HomeStore extends _HomeStoreBase
         };
       }
       _applyPendingOpsToState();
+      dailyConsumedKcal = consumedKcalForFoodDate(today);
+      macroProgress = macroProgressForFoodDate(today);
+    });
+  }
+
+  /// Zieht die beiden Tageswerte nach, wenn die Nachhydration der Outbox Ops
+  /// zurueckgeholt hat.
+  ///
+  /// `_repairOutboxHydration` ist der einzige Aufrufer von
+  /// `_applyPendingOpsToState`, der sie nicht selbst neu rechnet:
+  /// [_hydrateFromCache] und [_bootFromSupabase] tun es an Ort und Stelle,
+  /// `_mergeArchiveMeals` braucht es nicht (nachgeladene Alt-Tage liegen nie
+  /// auf heute). Eine ueber den Reparaturpfad zurueckgeholte HEUTIGE Mahlzeit
+  /// stuende sonst im Tagebuch, fehlte aber in Tagesbilanz und Makro-Ringen,
+  /// bis irgendein anderer Anlass neu rechnet. Solange der Lesefehler nie
+  /// ankam, war der Pfad unerreichbar und der Fehler latent — seit den
+  /// werfenden Lesevarianten hat er einen realen Ausloeser.
+  ///
+  /// Ein Override statt der Zeile direkt am Reparaturpfad, weil der im
+  /// Sync-Part liegt und dieser Schnitt ihn nicht anfassen durfte (Audit
+  /// 2026-08-14). Wandert die Nachrechnung dort hinein, faellt der Override
+  /// ersatzlos weg — doppelt gerechnet waere sie nur redundant, nie falsch.
+  @override
+  Future<void> _repairOutboxHydration() async {
+    final mealsVorher = loggedMeals;
+    await super._repairOutboxHydration();
+    // Nur wenn wirklich etwas zurueckkam: der Normalfall (nichts nachzuholen,
+    // oder nur Ops ohne Mahlzeit) darf weder rechnen noch ein zweites Mal
+    // benachrichtigen.
+    if (_disposed || identical(loggedMeals, mealsVorher)) return;
+    final today = clock.now();
+    _mutate(() {
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });

@@ -13,6 +13,11 @@ class EatovaSupabaseConfig {
 
   static const String oauthRedirectUrl = 'eatova://login-callback/';
 
+  /// Scheme und Host des einzigen legitimen Rueckwegs, abgeleitet aus
+  /// [oauthRedirectUrl] statt erneut literalisiert — sonst koennte ein
+  /// spaeterer Wechsel des Schemas das Praedikat unbemerkt taub machen.
+  static final Uri _oauthRedirect = Uri.parse(oauthRedirectUrl);
+
   // Supabase Anon-Key ist by-design im Client-Bundle extrahierbar
   // (JWT mit role:anon). Defaults im Source sind daher KEIN Secret-Leak
   // — sie machen `flutter run` ohne extra Flags reproduzierbar moeglich.
@@ -75,6 +80,10 @@ class EatovaSupabaseConfig {
         // (SharedPreferencesGotrueAsyncStorage) — siehe
         // [SecurePkceAsyncStorage].
         pkceAsyncStorage: buildPkceStorage(),
+        // Ohne dieses Praedikat entscheidet die Default-Heuristik von
+        // supabase_flutter, was ein Login ist — siehe
+        // [isOAuthCallbackDeeplink].
+        detectSessionInUriPredicate: isOAuthCallbackDeeplink,
       ),
     );
     _wireOAuthSheetDismiss();
@@ -99,6 +108,63 @@ class EatovaSupabaseConfig {
     SecureKeyStore? secureStore,
   }) =>
       SecurePkceAsyncStorage(secureStore: secureStore);
+
+  /// Entscheidet, welcher eingehende Deep-Link ueberhaupt als Auth-Rueckweg
+  /// behandelt wird (`detectSessionInUriPredicate`).
+  ///
+  /// OHNE diesen Override greift die Default-Heuristik von supabase_flutter
+  /// (supabase_auth.dart:222-233): jede URI mit `access_token`, `code`,
+  /// `error`, `error_code` oder `error_description` — im Query ODER im
+  /// Fragment — geht an `getSessionFromUrl`. Und dort ist der PKCE-Zwang
+  /// abschaltbar: gotrue-2.27.1 `gotrue_client.dart:1014-1019` prueft den
+  /// Flow-Typ nur, wenn KEIN `access_token` in der URL steht. Ein
+  /// `eatova://login-callback/#access_token=…&refresh_token=…` wird also ohne
+  /// Code-Verifier zur Session gemacht.
+  ///
+  /// Der Intent-Filter in `android/app/src/main/AndroidManifest.xml` ist
+  /// BROWSABLE — jede fremde App und jede Webseite darf so eine URI schicken.
+  /// Der Schaden ist nicht Datenabfluss, sondern das Gegenteil: der Nutzer
+  /// protokolliert seine Gesundheitsdaten unbemerkt in ein Angreiferkonto
+  /// (oder wird still zwangsabgemeldet).
+  ///
+  /// Durchgelassen wird deshalb ausschliesslich der echte PKCE-Rueckweg:
+  /// unser Scheme, unser Host, ein `code` im Query. Implicit-Flow-Token
+  /// werden hart abgelehnt — auch im Fragment, das `queryParameters` nicht
+  /// sieht, `getSessionFromUrl` aber sehr wohl (es ersetzt `#` durch `?`
+  /// bzw. `&`, bevor es liest).
+  ///
+  /// `error`/`error_description` fallen bewusst mit durch: die App zeigt
+  /// daraus ohnehin nichts an, und ein Fremd-Deep-Link koennte sonst eine
+  /// erfundene Fehlermeldung in den Auth-Stream schieben. Reset und
+  /// E-Mail-Wechsel laufen ueber 6-stellige Codes (siehe
+  /// `auth_repository.dart`), es gibt also keinen Recovery-Link, der hier
+  /// noch durchmuesste.
+  @visibleForTesting
+  static bool isOAuthCallbackDeeplink(Uri uri) {
+    if (uri.scheme != _oauthRedirect.scheme ||
+        uri.host != _oauthRedirect.host) {
+      return false;
+    }
+    try {
+      final query = uri.queryParameters;
+      final fragment = Uri.splitQueryString(uri.fragment);
+      bool traegt(String name) =>
+          query.containsKey(name) || fragment.containsKey(name);
+
+      if (traegt('access_token') ||
+          traegt('refresh_token') ||
+          traegt('token_type')) {
+        return false;
+      }
+      return query.containsKey('code');
+    } on FormatException {
+      // Kaputte Prozent-Escapes lassen `queryParameters`/`splitQueryString`
+      // werfen. Hier NICHT durchreichen: supabase_flutter ruft das Praedikat
+      // VOR seinem try/catch (`_handleDeeplink`, supabase_auth.dart:302-303),
+      // eine Exception liefe als unbehandelter Zonen-Fehler durch die App.
+      return false;
+    }
+  }
 
   /// SFSafariViewController (iOS) / Chrome Custom Tab (Android) wissen
   /// nicht von alleine dass der OAuth-Flow durch ist - die Sheet bleibt

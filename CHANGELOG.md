@@ -6,6 +6,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
+## [Unreleased]
+
+### Added
+
+- **English localization** — everything behind sign-in speaks German and
+  English (`gen_l10n` over `lib/l10n/app_de.arb` / `app_en.arb`): screens, the
+  recipe catalog, the AI scan, dictation and the service texts all follow the
+  chosen language. The picker sits in the settings; without a choice a German
+  device gets German and every other device English. `test/l10n/` guards ARB
+  parity and hard-coded text. **Not yet covered:** the sign-in/sign-up flow
+  (`auth_screen.dart`, `auth_code_screen.dart`) is still hard-coded German —
+  it predates this package and was never folded into it.
+- **Heute tab** — the day at a glance (calorie hero, macros, streak) as the
+  landing tab; the Food tab becomes the diary itself. Four tabs instead of
+  three, in the order Heute · Food · Rezepte · Coach.
+- **New design language** — token-based theme with a light mode, and the
+  settings as a page of their own (language, appearance, data export,
+  sign-out, account deletion) instead of a block inside the profile. The
+  profile screen was reworked around an identity header and a stat bar.
+- **Coach recipe generator (`/recipe`)** — the coach drafts a recipe and has a
+  picture generated for the card; the pair costs one quota slot. The proposal
+  carries data only: it becomes one of your recipes after an explicit
+  confirmation in the sheet, the returned picture is stored on the device and
+  never on the server, and after a restart the card is rebuilt from the chat
+  history plus that local file. A
+  failed image is not a failed recipe — the card falls back to a placeholder
+  and the slot is not refunded.
+- **Manual meal entry** — a form for label values per 100 g plus the portion,
+  reachable as a labelled row in the add sheet and from the empty state of the
+  product search. Logged with its own source marker instead of a faked scan
+  result.
+- **Password reset and six-digit e-mail codes** — recovery and sign-up
+  confirmation run through OTP codes on their own screen instead of mail
+  links. The send confirmation stays neutral about whether an account exists.
+- **Food calendar** — 30 scrollable days with a visible archive chip.
+- **Encrypted local cache** — the write-through cache (diary, weight series,
+  body values, profile) is AES-256-GCM encrypted. Only the 32-byte key lives
+  in the OS keystore (Android Keystore / iOS Keychain); the blobs stay in
+  SharedPreferences.
+- **Photos for your own recipes** — stored in the app's own directory, removed
+  with the recipe, on sign-out and on account deletion. A recipe row only ever
+  carries a `local:` reference, so a second device shows the placeholder
+  instead of a broken image.
+- **Splash** — the brand focus ring loads and locks in, replacing the flash.
+
+### Changed
+
+- Calories burned are frozen per day instead of showing 0 for archive days.
+- The coach's empty state no longer suggests example questions.
+
+### Fixed
+
+- **Review 2026-08-08, six waves** — data-loss paths, silently wrong health
+  numbers, UI/navigation/state, the Android and iOS platform layer, plus wire
+  tests against the silent switches; CI builds the real release artifact.
+- **Sentinel class** — states that passed themselves off as data (auth,
+  notification permission probe, profile values), and the quota RPC guard with
+  its slot refund.
+- The streak reminder no longer falls silent after two weeks away: dated
+  single shots over a four-week horizon (daily for the first week, then
+  weekly) instead of a seven-day window that only refilled on use.
+- Coach: the "added" state of a recipe card survives a restart (the slug is
+  derived from the message id instead of an in-memory map).
+
+### Security
+
+- All seven findings of the security review of 2026-08-11 and the hardening
+  points of the audit of 2026-08-09.
+- Coach: a Layer-2 bypass for images is closed; the rate-limit subject is taken
+  from `cf-connecting-ip` or the rightmost `x-forwarded-for` entry, so a
+  client-supplied header can no longer aim at someone else's bucket; poison
+  operations can no longer wedge the sync outbox.
+
 ## [1.1.0] - 2026-08-07
 
 ### Added

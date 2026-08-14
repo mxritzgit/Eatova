@@ -380,7 +380,11 @@ jobs:
       #                                    (Quota/Refund/Bild-tolerant +
       #                                    recipe-Spalte & Message-Id,
       #                                    Nachtrag 2026-08-13)
-      # Summe: 99 Tests. `deno test` ohne Pfadfilter sammelt alle neun
+      #   _shared/rate_limit_prune_test.ts
+      #                                  -  Kapselung des Fire-and-Forget-Prune
+      #                                    (Audit 2026-08-14: ein rejectendes
+      #                                    fetch beendete sonst den Isolate)
+      # Summe: 127 Tests. `deno test` ohne Pfadfilter sammelt alle zehn
       # Dateien automatisch ein - eine neue *_test.ts-Datei braucht nur diese
       # Aufzaehlung nachgezogen, der Aufruf unten bleibt unveraendert.
       #
@@ -401,6 +405,8 @@ jobs:
   supabase-migration-drift:
     name: Supabase migration drift (Management API)
     runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.secrets.outputs.available }}
     # Faellt nur, wenn eine Repo-Migration NICHT in der Live-Migrationshistorie
     # (supabase_migrations.schema_migrations) registriert ist. Nutzt die
     # Management-API (kein DB-Passwort/CLI-Login noetig).
@@ -430,6 +436,55 @@ jobs:
     #                           Actions-Secrets sind dort nicht sichtbar.
     #   3. Fremdes Repo       - jemand hat das Projekt geforkt und pusht auf sein
     #                           eigenes main. Kein Supabase-Projekt, kein Fehler.
+    #
+    # --- Audit 2026-08-14: das Management-Token gehoert in keinen PR-Lauf -----
+    # SUPABASE_ACCESS_TOKEN ist ein KONTOWEITER sbp_-PAT (nicht projektgebunden),
+    # und der Endpunkt unten (/database/query) fuehrt damit beliebiges SQL auf der
+    # Produktivdatenbank aus. Bei `pull_request` fuehrt GitHub die Workflow-Datei
+    # aus dem PR-HEAD aus: wer einen Branch in diesem Repo pushen darf, konnte den
+    # Schritt umschreiben und den Token ausleiten. Die Fork-Richtung war abgesichert
+    # (an Fork-PRs liefert GitHub grundsaetzlich keine Secrets), die Branch-Richtung
+    # nicht.
+    #
+    # Deshalb laeuft der Abgleich ab jetzt nur noch bei push/schedule/
+    # workflow_dispatch: bei pull_request wird der Token gar nicht erst
+    # interpoliert und der abfragende Schritt nicht ausgefuehrt.
+    #
+    # Preis: Drift faellt nicht mehr im PR auf, sondern im push-Lauf unmittelbar
+    # nach dem Merge (plus woechentlich per schedule). Das ist vertretbar, weil der
+    # Check die LIVE-DB gegen den Repo-Stand haelt — die Migration eines PRs ist vor
+    # dem Merge ohnehin noch nicht angewendet.
+    #
+    # Was die Bedingung NICHT leistet: sie steht in derselben Datei, die ein
+    # PR-Head aendern kann. Sie nimmt den Token aus dem ehrlichen Pfad und macht
+    # jeden Versuch, ihn zurueckzuholen, als Diff sichtbar — eine Schranke ist sie
+    # nicht. Der Audit-Punkt gilt damit als offen, nicht als geschlossen.
+    #
+    # Die Schranke ist ein Repo-Schritt, kein Code-Schritt; die Reihenfolge ist
+    # der eigentliche Inhalt der Liste:
+    #   1. Environment `supabase-drift` anlegen, Deployment-Branch-Policy auf
+    #      `main` beschraenken.
+    #   2. SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF aus den Repo-Secrets
+    #      loeschen und als Environment-Secrets dieser Environment neu setzen.
+    #   3. Den Token rotieren — er lag bisher jedem PR-Lauf offen.
+    #   4. `environment: supabase-drift` im Job `supabase-migration-drift-live`
+    #      einkommentieren.
+    # Wer mit 4 anfaengt, legt die Environment ungeschuetzt an; das Secret loest
+    # dann weiter auf und die Absicherung ist nur scheinbar da.
+    #
+    # Warum die Environment an den nachgelagerten Job gehoert und nicht an diesen:
+    # eine verletzte Deployment-Branch-Policy ueberspringt den Job nicht, sie laesst
+    # ihn FAILEN ("Branch is not allowed to deploy to ... due to environment
+    # protection rules"). An diesem Job — einem der sieben Pflicht-Checks — waere
+    # damit jeder PR dauerhaft rot und kein Merge mehr moeglich. Deshalb traegt den
+    # Token der Job `supabase-migration-drift-live` weiter unten, der bei
+    # pull_request gar nicht erst anlaeuft: ein uebersprungener Job erzeugt kein
+    # Deployment und stoesst die Policy nicht an.
+    #
+    # Der Job bleibt bei PRs GRUEN und meldet weiter — er ist einer der sieben
+    # Pflicht-Checks der Branch-Protection, und ein Pflicht-Check, der nicht meldet,
+    # blockiert jeden Merge dauerhaft. Damit daraus kein stiller No-Op wie vor G7
+    # wird, schreibt der Skip seinen Grund sichtbar in die Job-Summary.
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -439,24 +494,46 @@ jobs:
       - name: Check Supabase secrets
         id: secrets
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-          # Die `&&`-Kurzschluesse sind wichtig: bei einem push-Event existiert
-          # github.event.pull_request gar nicht, der Vergleich allein wuerde
-          # dann faelschlich "Fork" ergeben.
-          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          # Bei pull_request bewusst LEER interpoliert: der Token darf einen Lauf,
+          # dessen Workflow-Datei aus dem PR-Head stammt, gar nicht erst erreichen
+          # (Audit 2026-08-14, siehe Job-Kommentar).
+          SUPABASE_ACCESS_TOKEN: ${{ github.event_name != 'pull_request' && secrets.SUPABASE_ACCESS_TOKEN || '' }}
+          SUPABASE_PROJECT_REF: ${{ github.event_name != 'pull_request' && secrets.SUPABASE_PROJECT_REF || '' }}
+          IS_PR: ${{ github.event_name == 'pull_request' }}
           IS_DEPENDABOT: ${{ github.actor == 'dependabot[bot]' }}
           IS_UPSTREAM: ${{ github.repository == 'mxritzgit/Eatova' }}
         run: |
           set -euo pipefail
+          # PR zuerst — und zwar unabhaengig davon, ob die Secrets ankommen:
+          # der Skip ist hier eine Entscheidung, kein Mangel. Fork-PRs fallen
+          # damit ebenfalls hierher (sie bekommen die Secrets ohnehin nie).
+          if [ "$IS_PR" = "true" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            REASON="pull_request-Lauf — das Supabase-Management-Token wird hier bewusst nicht ausgegeben."
+            echo "::notice::Migration-Drift-Check uebersprungen: $REASON"
+            {
+              echo "### Supabase Migration-Drift: in PRs bewusst ausgesetzt"
+              echo ""
+              echo "$REASON"
+              echo ""
+              echo "Der Abgleich laeuft beim **Push auf \`main\`** — also unmittelbar nach dem Merge dieses PRs —"
+              echo "und zusaetzlich woechentlich per \`schedule\`. Faellt er dort, weicht die Live-DB vom Repo ab."
+              echo ""
+              echo "Grund: \`SUPABASE_ACCESS_TOKEN\` ist ein kontoweiter PAT auf einem Endpunkt, der beliebiges SQL"
+              echo "auf der Produktivdatenbank ausfuehrt, und bei \`pull_request\` stammt die Workflow-Datei aus dem"
+              echo "PR-Head."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] && [ -n "${SUPABASE_PROJECT_REF:-}" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "available=false" >> "$GITHUB_OUTPUT"
 
-          if [ "$IS_FORK_PR" = "true" ] || [ "$IS_DEPENDABOT" = "true" ] || [ "$IS_UPSTREAM" != "true" ]; then
-            REASON="Fork-PR/Dependabot/fremdes Repo — Secrets sind hier strukturell nicht verfuegbar."
+          if [ "$IS_DEPENDABOT" = "true" ] || [ "$IS_UPSTREAM" != "true" ]; then
+            REASON="Dependabot/fremdes Repo — Secrets sind hier strukturell nicht verfuegbar."
             echo "::notice::Migration-Drift-Check uebersprungen: $REASON"
             {
               echo "### Supabase Migration-Drift: uebersprungen"
@@ -485,13 +562,32 @@ jobs:
           echo "::error::SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF sind im Upstream-Repo nicht gesetzt — der Migration-Drift-Check kann nicht laufen. Details und Setz-Befehle stehen in der Job-Summary."
           exit 1
 
+  # Der einzige Job, der den Management-Token wirklich anfasst — bewusst von
+  # `supabase-migration-drift` getrennt, damit die Environment-Schranke (siehe
+  # Kommentar dort) an einem Job haengt, der bei pull_request gar nicht erst
+  # anlaeuft. Er ist KEIN Pflicht-Check der Branch-Protection: er laeuft bei PRs
+  # nie und wuerde als Pflicht-Check jeden Merge blockieren.
+  supabase-migration-drift-live:
+    name: Supabase migration drift (Live-Abgleich)
+    runs-on: ubuntu-latest
+    needs: supabase-migration-drift
+    # Doppelte Wache neben der leeren Interpolation im Vorgaenger-Job: der Job,
+    # der den Token braucht, laeuft in PR-Laeufen nicht an — auch dann nicht, wenn
+    # jemand den Output-Weg darueber umbaut.
+    if: needs.supabase-migration-drift.outputs.available == 'true' && github.event_name != 'pull_request'
+    # environment: supabase-drift
+    # ^ Erst einkommentieren, wenn die Environment samt Deployment-Branch-Policy
+    #   `main` existiert und die Secrets dorthin umgezogen sind. Vorher legt
+    #   GitHub sie ungeschuetzt an (Reihenfolge siehe Job-Kommentar oben).
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
       # Fragt die registrierte Migrationshistorie der Live-DB ueber die
       # Management-API ab und vergleicht sie gegen die Dateinamen in
       # supabase/migrations/. Eine Repo-Version, die nicht registriert ist ->
       # Drift -> Job failt. Kein `supabase db push --dry-run` mehr: das brauchte
       # ein zusaetzliches SUPABASE_DB_PASSWORD-Secret + DB-Login.
       - name: Migration drift check (Management API)
-        if: steps.secrets.outputs.available == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}

@@ -155,7 +155,15 @@ mixin _HomeStoreMealsPart
         // Genau die Seiteneffekte, die _performOp beim Nachspielen selbst
         // uebernimmt — deshalb laufen sie nur nach der LIVE-Zustellung.
         _queueStatsDelta(meals: 1);
-        if (targetIsToday) _recordTrackingDay();
+        // Der Tag der MAHLZEIT, nicht der der Zustellung: dieser Callback
+        // laeuft erst nach dem Netz-Roundtrip. Ein Log um 23:59:58 mit drei
+        // Sekunden Laufzeit buchte sonst p_day = D+1 — fuer den gibt es keine
+        // Quellzeile in logged_meals, record_tracking_day wirft
+        // EX_DAY_NOT_LOGGED, Tag D bleibt fuer immer ungezaehlt und die
+        // unerfuellbare Op retryt bis zur Verwurfs-Frist. Der Replay-Pfad
+        // (_performOp) uebergibt aus demselben Grund schon immer den Tag der
+        // Mahlzeit.
+        if (targetIsToday) _recordTrackingDay(day: targetDate);
       },
     );
     return entry.id;
@@ -287,7 +295,10 @@ mixin _HomeStoreMealsPart
     _cacheLoggedMeals();
     if (recordToday) {
       unawaited(_rescheduleStreakReminder());
-      _recordTrackingDay();
+      // Wie im Live-Log und im Replay: der Tag kommt aus derselben Quelle, die
+      // auch in die Server-Zeile geht (logged_meals.local_day =
+      // effectiveLocalDay) — genau die vergleicht der Quell-Beweis des RPCs.
+      _recordTrackingDay(day: DateTime.parse(updated.effectiveLocalDay));
     }
     _syncOrQueue(
       'Mahlzeit-Update',

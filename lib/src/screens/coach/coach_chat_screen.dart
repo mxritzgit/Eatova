@@ -115,7 +115,6 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   ChatQuotaSnapshot? _quota;
   String? _activeSessionId;
   bool _loading = true;
-  bool _sending = false;
   bool _listening = false;
   String _draft = '';
   String? _error;
@@ -127,6 +126,28 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// Ein Uebernehmen laeuft gerade (Bild ablegen + createUserRecipe) —
   /// sperrt alle Karten-Buttons, bis der Ausgang da ist.
   bool _addingRecipe = false;
+
+  /// Wie viele Sende-Auftraege (Chat oder Rezept) gerade unterwegs sind.
+  ///
+  /// Frueher stand hier ein `bool _sending`, das [_switchToSession] beim
+  /// Wechsel auf `false` zurueckstellte, damit die neue Sitzung nicht am
+  /// Sende-Zustand der alten haengt. Damit liessen sich zwei Anfragen parallel
+  /// absetzen: in A abschicken, wechseln, in B abschicken — zwei Tages-Slots
+  /// aus einem Bedienschritt, und der Quota-Stand der verworfenen Antwort fiel
+  /// weg, sodass die Anzeige weiter „5 frei" behauptete.
+  ///
+  /// Der Zaehler haengt am NUTZER, nicht an der Sitzung: das Kontingent tut
+  /// das auch. Der Sitzungswechsel bleibt jederzeit moeglich (er ist keine
+  /// Anfrage), er faelscht den Sende-Zustand nur nicht mehr — der Composer
+  /// oeffnet wieder, sobald die laufende Anfrage einen Ausgang hat.
+  ///
+  /// Heruntergezaehlt wird ausschliesslich in [_sendevorgangBeendet], und das
+  /// steht in einem `finally`: ein Auftrag, dessen Antwort wegen eines
+  /// Sitzungswechsels verworfen wird, muss den Zaehler genauso freigeben wie
+  /// ein erfolgreicher — sonst bliebe der Composer fuer immer gesperrt.
+  int _laufendeSendungen = 0;
+
+  bool get _sending => _laufendeSendungen > 0;
 
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
@@ -387,6 +408,16 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     setState(() => _sessions = sessions);
   }
 
+  /// Wechselt die angezeigte Unterhaltung.
+  ///
+  /// Jeder Ausgang prueft `_activeSessionId != sessionId` — derselbe Vergleich
+  /// wie in [_send], nur mit dem ganzen Verlauf statt einer einzelnen Blase.
+  /// `mounted` allein genuegt nicht: der Screen bleibt seit D6 dauerhaft
+  /// gemountet, und zwei schnelle Wechsel A -> B -> C sind ein Wisch. Ohne den
+  /// Vergleich schriebe der langsame Load von A seinen Verlauf in die Ansicht,
+  /// waehrend oben C draufsteht — Chatverlaeufe unter fremdem Sitzungs-Label,
+  /// und im Fehler-Arm sogar der Fehlerzustand einer laengst verlassenen
+  /// Sitzung.
   Future<void> _switchToSession(String sessionId) async {
     final svc = widget.service;
     if (svc == null) return;
@@ -400,7 +431,9 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     try {
       history = await svc.loadHistory(sessionId);
     } on CoachDataUnavailable {
-      if (!mounted) return;
+      // Auch der Fehler gehoert der Sitzung, die ihn ausgeloest hat: sonst
+      // traegt C das Banner und den `_historyUnavailable`-Zustand von A.
+      if (!mounted || _activeSessionId != sessionId) return;
       setState(() {
         _loading = false;
         _historyUnavailable = true;
@@ -409,7 +442,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
     history = await _hydrateProposalImages(history);
-    if (!mounted) return;
+    if (!mounted || _activeSessionId != sessionId) return;
     setState(() {
       _messages = history;
       _historyUnavailable = false;
@@ -422,10 +455,15 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     final svc = widget.service;
     if (svc == null) return;
     HapticFeedback.selectionClick();
+    // Dieselbe Pruefung wie in [_switchToSession], nur gegen den Stand VOR dem
+    // Anlegen: hat der Nutzer waehrenddessen die Sitzung gewechselt, gehoert
+    // ihm die Ansicht — die frisch angelegte Sitzung steht in der Liste und
+    // bleibt einen Tap entfernt.
+    final vorher = _activeSessionId;
     final id = await svc.createSession();
     if (id == null) return;
     await _refreshSessions();
-    if (!mounted) return;
+    if (!mounted || _activeSessionId != vorher) return;
     setState(() {
       _activeSessionId = id;
       _messages = const <ChatMessage>[];
@@ -550,12 +588,13 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       createdAt: DateTime.now(),
       imageBytes: imageBytes,
     );
+    final entwurf = _input.text;
 
     setState(() {
       _messages = [..._messages, userMsg];
       _input.clear();
       _draft = '';
-      _sending = true;
+      _laufendeSendungen++;
       _error = null;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
@@ -568,7 +607,15 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         imageMimeType: hasImage ? (imageMimeType ?? 'image/jpeg') : null,
         userContext: widget.userContext,
       );
-      if (!mounted) return;
+      // Der Tages-Slot ist auch dann verbraucht, wenn die Antwort gleich
+      // verworfen wird — deshalb VOR dem Sitzungs-Vergleich.
+      _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
+      // Antwort UND Fehler gehoeren der Sitzung, aus der die Frage kam. Der
+      // Sitzungs-Knopf bleibt waehrend des Sendens bedienbar — ohne diesen
+      // Vergleich landete die Antwort auf Sitzung A als Blase in Sitzung B,
+      // ohne die zugehoerige Frage. `mounted` allein deckt das nicht ab: der
+      // Screen bleibt seit D6 dauerhaft gemountet.
+      if (!mounted || _activeSessionId != sessionId) return;
       setState(() {
         _messages = [
           ..._messages,
@@ -580,21 +627,6 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
             refusal: res.refusal,
           ),
         ];
-        final rest = res.remaining;
-        if (rest != null) {
-          // Der Server hat gerade Zahlen genannt — ab hier ist der Stand
-          // bekannt, auch wenn er es vorher nicht war. Das Limit kommt seit
-          // E10 vom Server mit; nur aeltere Function-Deployments fallen auf
-          // den bisherigen Anzeige-Stand zurueck.
-          final limit = res.dailyLimit ?? _limitFuerAnzeige;
-          final frei = rest.clamp(0, limit);
-          _quota = ChatQuotaSnapshot(
-            used: limit - frei,
-            remaining: frei,
-            dailyLimit: limit,
-          );
-        }
-        _sending = false;
       });
       HapticFeedback.lightImpact();
       // Sessions im Hintergrund neu laden, damit Auto-Titel / last_message_at
@@ -602,25 +634,78 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (e) {
       if (!mounted) return;
+      // Der Server hat das Limit ausdruecklich genannt — belastbarer geht es
+      // nicht, also ersetzt das jeden vorherigen Stand, egal welche Sitzung
+      // inzwischen offen ist. Das Limit gilt dem Nutzer, nicht der Sitzung.
       setState(() {
-        // Der Server hat das Limit ausdruecklich genannt — belastbarer geht es
-        // nicht, also ersetzt das jeden vorherigen Stand.
         _quota = ChatQuotaSnapshot(
           used: e.dailyLimit,
           remaining: 0,
           dailyLimit: e.dailyLimit,
         );
-        _error = e.message;
-        _sending = false;
       });
+      if (_activeSessionId != sessionId) return;
+      _entwurfZurueck(entwurf);
+      setState(() => _error = e.message);
     } on CoachChatException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.message;
-        _sending = false;
-      });
+      if (!mounted || _activeSessionId != sessionId) return;
+      _entwurfZurueck(entwurf);
+      setState(() => _error = e.message);
+    } finally {
+      // In JEDEM Ausgang — auch in den `return`s oben, in denen die Antwort
+      // wegen eines Sitzungswechsels verworfen wird. Bliebe der Zaehler dort
+      // stehen, waere der Composer bis zum Kaltstart gesperrt.
+      _sendevorgangBeendet();
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  /// Uebernimmt einen Kontingent-Stand, den der Server gerade genannt hat.
+  ///
+  /// Bewusst VOR dem Sitzungs-Vergleich aufgerufen: das Kontingent gehoert dem
+  /// Nutzer, nicht der Sitzung. Wird die Antwort verworfen, weil inzwischen
+  /// eine andere Unterhaltung offen ist, ist der Tages-Slot trotzdem weg — die
+  /// Zahl mit der Antwort fallenzulassen hiesse, weiter „N frei" zu behaupten.
+  ///
+  /// Das Limit kommt seit E10 vom Server mit; nur aeltere Function-Deployments
+  /// fallen auf den bisherigen Anzeige-Stand zurueck.
+  void _quotaUebernehmen({required int? remaining, required int? dailyLimit}) {
+    if (remaining == null || !mounted) return;
+    final limit = dailyLimit ?? _limitFuerAnzeige;
+    final frei = remaining.clamp(0, limit);
+    setState(() {
+      _quota = ChatQuotaSnapshot(
+        used: limit - frei,
+        remaining: frei,
+        dailyLimit: limit,
+      );
+    });
+  }
+
+  /// Gegenstueck zu `_laufendeSendungen++`: gehoert in ein `finally`, damit
+  /// wirklich jeder Ausgang zaehlt. Nach dem Unmount bleibt nur die reine
+  /// Buchhaltung — ein setState waere dort ein Fehler.
+  void _sendevorgangBeendet() {
+    final rest = math.max(0, _laufendeSendungen - 1);
+    if (!mounted) {
+      _laufendeSendungen = rest;
+      return;
+    }
+    setState(() => _laufendeSendungen = rest);
+  }
+
+  /// Der getippte Text nach einem Fehlschlag zurueck ins Feld: gesendet wurde
+  /// er nicht, und eine lange Frage nach einem Netzabbruch neu zu tippen ist
+  /// der teuerste Weg, einen Fehler zu melden.
+  ///
+  /// Ein inzwischen NEU getippter Entwurf gewinnt: Tippen ist waehrend einer
+  /// laufenden Antwort ausdruecklich erlaubt (s. [_canType]), und den gerade
+  /// entstehenden Text zu ueberschreiben waere schlimmer als der Verlust des
+  /// alten.
+  void _entwurfZurueck(String entwurf) {
+    if (entwurf.isEmpty || _input.text.isNotEmpty) return;
+    _input.text = entwurf;
+    _input.selection = TextSelection.collapsed(offset: entwurf.length);
   }
 
   /// Erkennt den /recipe-Befehl am Zeilenanfang (Nachtrag 2026-08-13:
@@ -715,11 +800,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       content: displayText,
       createdAt: DateTime.now(),
     );
+    final entwurf = _input.text;
     setState(() {
       _messages = [..._messages, userMsg];
       _input.clear();
       _draft = '';
-      _sending = true;
+      _laufendeSendungen++;
       _error = null;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
@@ -731,7 +817,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         locale: l10n.localeName,
         userContext: widget.userContext,
       );
-      if (!mounted) return;
+      // Wie in [_send]: der Slot ist verbraucht, auch wenn die Karte gleich
+      // verworfen wird.
+      _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
+      // Sitzungs-Vergleich wie in [_send]: die Karte gehoert der Sitzung, aus
+      // der der Wunsch kam.
+      if (!mounted || _activeSessionId != sessionId) return;
       // Reload-Karte (Nachtrag 2026-08-13): das Bild unter der SERVER-
       // Message-Id lokal ablegen — dieselbe Id traegt die Nachricht, damit
       // Verlaufs-Rekonstruktion und Live-Karte denselben Schluessel nutzen.
@@ -757,39 +848,28 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
             recipeProposal: res.proposal,
           ),
         ];
-        final rest = res.remaining;
-        if (rest != null) {
-          // Gleiche Quota-Adoption wie in [_send]: der Server hat gerade
-          // Zahlen genannt, ab hier ist der Stand bekannt.
-          final limit = res.dailyLimit ?? _limitFuerAnzeige;
-          final frei = rest.clamp(0, limit);
-          _quota = ChatQuotaSnapshot(
-            used: limit - frei,
-            remaining: frei,
-            dailyLimit: limit,
-          );
-        }
-        _sending = false;
       });
       HapticFeedback.lightImpact();
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (e) {
       if (!mounted) return;
+      // Wie in [_send]: das Limit gilt dem Nutzer, nicht der Sitzung.
       setState(() {
         _quota = ChatQuotaSnapshot(
           used: e.dailyLimit,
           remaining: 0,
           dailyLimit: e.dailyLimit,
         );
-        _error = e.message;
-        _sending = false;
       });
+      if (_activeSessionId != sessionId) return;
+      _entwurfZurueck(entwurf);
+      setState(() => _error = e.message);
     } on CoachChatException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.message;
-        _sending = false;
-      });
+      if (!mounted || _activeSessionId != sessionId) return;
+      _entwurfZurueck(entwurf);
+      setState(() => _error = e.message);
+    } finally {
+      _sendevorgangBeendet();
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
@@ -1101,11 +1181,18 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// (i) im Kopf, den Hinweis im Leerzustand und den Quota-Hinweis.
   void _openCoachInfoSheet() {
     HapticFeedback.selectionClick();
-    final limit = _limitFuerAnzeige;
-    final remaining = _restFuerAnzeige.clamp(0, limit);
+    final quota = _quota;
     showEatovaSheet<void>(
       context,
-      _CoachInfoSheet(remaining: remaining, dailyLimit: limit),
+      // Nur ein echter Snapshot darf Zahlen zeigen: [_restFuerAnzeige] haette
+      // hier nach einem gescheiterten Quota-RPC das Standardlimit eingesetzt
+      // und daraus „5 von 5 Fragen heute frei" gemacht.
+      quota == null
+          ? const _CoachInfoSheetUnbekannt()
+          : _CoachInfoSheet(
+              remaining: quota.remaining.clamp(0, quota.dailyLimit),
+              dailyLimit: quota.dailyLimit,
+            ),
     );
   }
 
@@ -1183,6 +1270,94 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
           onQuotaTap: _openCoachInfoSheet,
         ),
       ],
+    );
+  }
+}
+
+/// (i)-Sheet fuer den Fall „Tageskontingent unbekannt" — Zwilling von
+/// [_CoachInfoSheet] ohne dessen Zahlenteil.
+///
+/// [_CoachInfoSheet] nimmt zwei `int` und kann den Fall deshalb gar nicht
+/// darstellen: liegt kein Snapshot vor, bekaeme es
+/// [ChatQuotaSnapshot.standardTageslimit] gereicht und behauptete nach einem
+/// gescheiterten Quota-RPC „5 von 5 Fragen heute frei" — samt vollem Balken.
+/// Genau das ist die Anzeige-Haelfte der Luege, die Migration 20260808210000
+/// (chat_quota_honesty) serverseitig abstellt: ein Nutzer mit verbrauchtem
+/// Kontingent liest sonst ausgerechnet dann „alles frei", wenn die App nichts
+/// weiss. Eine falsche Zahl, die praezise aussieht, ist schaedlicher als eine
+/// fehlende.
+///
+/// Deshalb hier eine zahlenlose Zeile und KEIN Balken: ein leerer Balken laese
+/// sich als „verbraucht" lesen, ein voller als „alles frei" — beides waere
+/// wieder eine Behauptung.
+///
+/// Der C8-Offenlegungsteil ist bewusst derselbe wie im Zwilling; seine Texte
+/// kommen aus denselben l10n-Keys, eine Textaenderung wirkt hier wie dort.
+/// Zusammenlegen liesse sich beides nur ueber die Signatur von
+/// [_CoachInfoSheet] (nullable Snapshot statt zwei `int`) — das ist ein
+/// Eingriff in `coach_composer.dart` und steht als einziger Punkt aus.
+///
+/// Bis dahin sind es zwei Bauplaene fuer denselben, datenschutzrechtlich
+/// relevanten Block. Damit eine kuenftige Aenderung nicht nur eine der beiden
+/// Kopien erreicht, prueft `test/coach_ai_disclosure_test.dart` BEIDE
+/// Fassungen gegen dieselbe Liste von l10n-Keys: wer hier eine Zeile
+/// hinzufuegt, entfernt oder umsortiert, ohne den Zwilling nachzuziehen,
+/// bekommt genau einen roten Test.
+class _CoachInfoSheetUnbekannt extends StatelessWidget {
+  const _CoachInfoSheetUnbekannt();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            key: const ValueKey('coach-info-sheet'),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                l10n.coachTitle,
+                style:
+                    AppType.display(20, weight: FontWeight.w700, color: t.ink),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                l10n.coachInfoIntro,
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
+              ),
+              const SizedBox(height: 18),
+              _InfoLabel(l10n.coachInfoDataLabel),
+              const SizedBox(height: 8),
+              _InfoBullet(l10n.coachInfoBulletWeight),
+              _InfoBullet(l10n.coachInfoBulletMacros),
+              _InfoBullet(l10n.coachInfoBulletMeals),
+              const SizedBox(height: 12),
+              Text(
+                l10n.coachInfoProvider,
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
+              ),
+              const SizedBox(height: 20),
+              Container(height: 1, color: t.line),
+              const SizedBox(height: 18),
+              _InfoLabel(l10n.coachInfoLimitLabel),
+              const SizedBox(height: 6),
+              Text(
+                l10n.coachInfoLimitUnknown,
+                key: const ValueKey('coach-info-limit-unbekannt'),
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
