@@ -78,6 +78,29 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   from `cf-connecting-ip` or the rightmost `x-forwarded-for` entry, so a
   client-supplied header can no longer aim at someone else's bucket; poison
   operations can no longer wedge the sync outbox.
+- **Account deletion: the server now enforces the re-authentication it always
+  displayed** — the confirmation sheet already asked for a fresh six-digit
+  code, but `delete_account()` itself only checked `auth.uid()`; a captured
+  session token could call the RPC directly and skip the code entirely. The
+  function now requires a JWT with an `otp`/`recovery` entry in the `amr`
+  claim from the last five minutes and rejects everything else with
+  `EX_REAUTH_REQUIRED` (SQLSTATE 28000); the client shows a dedicated
+  "confirmation expired" message for that case. **Takes effect once the
+  migration is applied** — not yet live at the time of this entry.
+- **Sync: lifetime counters no longer double-count on a killed replay** — a
+  meal or weight write interrupted between server delivery and the local
+  bookkeeping used to log its lifetime-stats delta again on the next boot.
+  The increment is now its own idempotent outbox operation with an id derived
+  from the original write, so a repeated replay can no longer inflate
+  `meals_logged`/`weight_logs`.
+- **Coach: Layer-1/2 refusal texts follow the chat's locale** — the
+  eleven-entry refusal catalog (medical risk, eating disorder, self-harm
+  including the crisis reply, off-topic, and so on) is now bilingual on the
+  server, and the chat request carries the app's locale so English sessions
+  get English refusals instead of German ones. The recipe path picks this up
+  as soon as the function is deployed; the **chat path only takes effect once
+  the app build that sends the locale ships** — existing chat clients keep
+  getting German refusals in English sessions until then.
 
 ## [1.1.0] - 2026-08-07
 
