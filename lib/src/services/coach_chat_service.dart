@@ -40,6 +40,11 @@ class CoachChatService {
 
   set l10n(AppLocalizations value) => _l10n = value;
 
+  /// Request-locale fuer die Edge Function — dieselbe Normalisierung wie in
+  /// [requestRecipe] (:341); alles ausser en faellt serverseitig ohnehin auf de.
+  String get _localeCode =>
+      _l10n.localeName.toLowerCase().startsWith('en') ? 'en' : 'de';
+
   // -------------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------------
@@ -263,6 +268,7 @@ class CoachChatService {
         body: {
           'message': message,
           'session_id': sessionId,
+          'locale': _localeCode,
           if (imageBase64 != null && imageBase64.isNotEmpty)
             'image_base64': imageBase64,
           if (imageMimeType != null && imageMimeType.isNotEmpty)
