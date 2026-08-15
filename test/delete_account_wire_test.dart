@@ -51,8 +51,16 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 
 const Map<String, String> _jsonHeader = {'Content-Type': 'application/json'};
 
-http.Response _json(Object? koerper, {int status = 200}) =>
-    http.Response(jsonEncode(koerper), status, headers: _jsonHeader);
+/// `request:` ist Pflicht, nicht Kosmetik: `PostgrestBuilder._parseResponse`
+/// greift ungeprueft auf `response.request!` zu (postgrest 2.9.1, Z. 462 im
+/// Erfolgs- und Z. 551 im Fehlerzweig). Echte HTTP-Clients setzen das Feld
+/// selbst (`IOClient.send`), `MockClient` reicht dagegen nur durch, was der
+/// Handler mitgibt — fehlt es, scheitert JEDER RPC im Test an einem
+/// TypeError, noch bevor die `PostgrestException` entsteht. Hausmuster,
+/// siehe `test/coach_quota_unbekannt_test.dart`.
+http.Response _json(http.Request req, Object? koerper, {int status = 200}) =>
+    http.Response(jsonEncode(koerper), status,
+        request: req, headers: _jsonHeader);
 
 Map<String, dynamic> _userJson() => {
       'id': 'u1',
@@ -108,17 +116,17 @@ void main() {
       final client = _clientAm(MockClient((req) async {
         final pfad = req.url.path;
         if (pfad.endsWith('/token')) {
-          return _json(_sessionJson('login-jwt'));
+          return _json(req, _sessionJson('login-jwt'));
         }
         if (pfad.endsWith('/verify')) {
-          return _json(_sessionJson('reauth-jwt'));
+          return _json(req, _sessionJson('reauth-jwt'));
         }
         if (pfad.endsWith('/rpc/delete_account')) {
           rpcAuth.add(req.headers['Authorization'] ?? '<ohne Authorization>');
           // `returns void` -> leerer Body, wie PostgREST ihn liefert.
-          return http.Response('', 204);
+          return http.Response('', 204, request: req);
         }
-        return _json(<String, dynamic>{});
+        return _json(req, <String, dynamic>{});
       }));
       addTearDown(client.dispose);
 
@@ -149,9 +157,9 @@ void main() {
         () async {
       final client = _clientAm(MockClient((req) async {
         if (req.url.path.endsWith('/rpc/delete_account')) {
-          return _json(_reauthFehlerBody(), status: 403);
+          return _json(req, _reauthFehlerBody(), status: 403);
         }
-        return _json(<String, dynamic>{});
+        return _json(req, <String, dynamic>{});
       }));
       addTearDown(client.dispose);
 
@@ -236,9 +244,9 @@ void main() {
     (HomeStore, LocalCache, _SpyNotificationService, List<String>) baueStore() {
       final client = _clientAm(MockClient((req) async {
         if (req.url.path.endsWith('/rpc/delete_account')) {
-          return _json(_reauthFehlerBody(), status: 403);
+          return _json(req, _reauthFehlerBody(), status: 403);
         }
-        return _json(<String, dynamic>{});
+        return _json(req, <String, dynamic>{});
       }));
       addTearDown(client.dispose);
 
