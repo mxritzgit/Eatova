@@ -313,6 +313,8 @@ void main() {
         SyncOp.recipeDelete('user_123'),
         SyncOp.profileUpsert(const UserProfile()),
         SyncOp.trackingDay('2026-08-10'),
+        SyncOp.statsIncrement(
+            requestId: '6561746f-7661-6d73-f461-74732d726964', meals: 1),
       ];
       expect(ops.map((o) => o.attempts), everyElement(0));
       // Vollstaendigkeit statt einer Zahl im Testnamen: wer eine Op-Familie
@@ -673,6 +675,123 @@ void main() {
       expect(capped.queue.last.entityId, 'w-${kOutboxMaxOps * 3 - 1}');
       // Idempotent: ein zweiter Durchlauf findet nichts mehr zu kappen.
       expect(capOutbox(capped.queue).dropped, isEmpty);
+    });
+  });
+
+  // --- Fix 3: der Zaehler-Folgeeintrag (statsIncrement) ---------------------
+  //
+  // Er traegt seine Server-Request-Id als entityId und ist damit die einzige
+  // Op-Familie, deren IDENTITAET zugleich ihr Idempotenz-Schluessel ist. Zwei
+  // Eigenschaften duerfen deshalb nie kippen: das Wire-Format muss
+  // verlustfrei roundtrippen (sonst sendet der Retry etwas anderes), und der
+  // Eintrag darf NIE koalesziert werden (das verschluckte einen Zaehler,
+  // dessen Id serverseitig womoeglich schon verbucht ist).
+
+  group('SyncOp.statsIncrement (Fix 3)', () {
+    const rid = '6561746f-7661-6d73-f461-74732d726964';
+
+    test('Roundtrip: Id, Zahlen und Klassifizierung ueberleben den Blob', () {
+      final op = SyncOp.statsIncrement(requestId: rid, meals: 1);
+      expect(op.entityId, rid,
+          reason: 'die entityId IST die Request-Id — daran haengt der '
+              'Server-Dedup');
+      expect(op.entityKey, 'stats:$rid');
+      expect(op.isDelete, isFalse);
+      expect(op.isUpsert, isFalse,
+          reason: 'jeder Eintrag ist eine eigene idempotente Einheit und wird '
+              'immer angehaengt, nie ersetzt');
+
+      final back = SyncOp.tryFromJson(op.toJson())!;
+      expect(back.kind, SyncOpKind.statsIncrement);
+      expect(back.entityId, rid);
+      expect(back.statsMeals, 1);
+      expect(back.statsWeightLogs, 0);
+      expect(back.entityKey, 'stats:$rid');
+    });
+
+    test('Gewichts-Eintrag roundtrippt genauso', () {
+      final back = SyncOp.tryFromJson(
+          SyncOp.statsIncrement(requestId: rid, weightLogs: 1).toJson())!;
+      expect(back.statsWeightLogs, 1);
+      expect(back.statsMeals, 0);
+    });
+
+    test('Wire-Sparsamkeit: nur gesetzte Schluessel stehen im Blob', () {
+      final op = SyncOp.statsIncrement(requestId: rid, meals: 1);
+      expect(op.payload, <String, dynamic>{'meals': 1},
+          reason: 'ein 0-Schluessel waere Ballast in jedem persistierten '
+              'Eintrag');
+    });
+
+    test('korrupte/fehlende Zahlen liefern 0 statt zu werfen', () {
+      // So sieht ein manipulierter/halb geschriebener Blob aus. Der Store
+      // macht daraus den A8-Verwurf — ein Increment ueber 0 waere ein
+      // Request, der nur eine Request-Id verbraucht.
+      final kaputt = SyncOp.tryFromJson(<String, dynamic>{
+        'kind': 'statsIncrement',
+        'entity_id': rid,
+        'queued_at': '2026-08-15T10:00:00.000Z',
+        'payload': <String, dynamic>{'meals': 'eins'},
+      })!;
+      expect(kaputt.statsMeals, 0);
+      expect(kaputt.statsWeightLogs, 0);
+    });
+
+    test(
+        'enqueueCoalesced haengt IMMER an — auch beim zweiten Eintrag mit '
+        'demselben entityKey', () {
+      final erste = enqueueCoalesced(
+          const <SyncOp>[], SyncOp.statsIncrement(requestId: rid, meals: 1));
+      final zweite = enqueueCoalesced(
+          erste, SyncOp.statsIncrement(requestId: rid, meals: 1));
+      expect(zweite, hasLength(2),
+          reason: 'Ersetzen wuerde einen Zaehler verschlucken; ein Duplikat '
+              'ist dagegen serverseitig ein No-op (gleiche Id)');
+      final fremde = enqueueCoalesced(
+          zweite,
+          SyncOp.statsIncrement(
+              requestId: '00000000-0000-4000-8000-000000000000',
+              weightLogs: 1));
+      expect(fremde, hasLength(3));
+    });
+
+    test('Rueckwaertskompatibilitaet: alte Blobs parsen unveraendert', () {
+      // Exakt die Wire-Form von VOR Fix 3 (kein statsIncrement weit und
+      // breit): sie muss Eintrag fuer Eintrag unveraendert durchkommen.
+      final alt = <Map<String, dynamic>>[
+        SyncOp.mealInsert(_meal('m-alt'), trackDay: true).toJson(),
+        SyncOp.trackingDay('2026-08-10').toJson(),
+        SyncOp.mealDelete('m-weg').toJson(),
+      ];
+      final gelesen = alt.map(SyncOp.tryFromJson).toList();
+      expect(gelesen.every((o) => o != null), isTrue);
+      expect(gelesen.map((o) => o!.kind).toList(), <SyncOpKind>[
+        SyncOpKind.mealInsert,
+        SyncOpKind.trackingDay,
+        SyncOpKind.mealDelete,
+      ]);
+      expect(gelesen.first!.trackDay, isTrue,
+          reason: 'eine Alt-Op behaelt alles, was der neue Replay fuer ihren '
+              'Folgeeintrag braucht — es gibt keinen Migrationspfad');
+    });
+
+    test('ein unbekannter Kind reisst die uebrige Queue nicht mit', () {
+      // Die Gegenrichtung (Downgrade): ein ALTER Build liest einen NEUEN
+      // Blob. `statsIncrement` ist dort unbekannt und faellt PRO EINTRAG weg —
+      // dieselbe bewusste Klasse wie beim attempts-Feld.
+      final gemischt = <Map<String, dynamic>>[
+        SyncOp.mealInsert(_meal('m-neu'), trackDay: false).toJson(),
+        <String, dynamic>{
+          'kind': 'einKuenftigerKind',
+          'entity_id': 'x',
+          'queued_at': '2026-08-15T10:00:00.000Z',
+          'payload': <String, dynamic>{},
+        },
+      ];
+      final gelesen =
+          gemischt.map(SyncOp.tryFromJson).whereType<SyncOp>().toList();
+      expect(gelesen, hasLength(1));
+      expect(gelesen.single.entityId, 'm-neu');
     });
   });
 }

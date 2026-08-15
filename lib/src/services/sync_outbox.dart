@@ -87,7 +87,10 @@ const int kOutboxDeleteMaxAttempts = 64;
 ///  * *Delete -> Deletes sind von Natur aus idempotent (0 Zeilen beim Retry).
 /// mealInsert vs. mealUpsert: NUR ein nachgeholter Erst-Insert zaehlt beim
 /// Replay die Lifetime-Stats (+1 Mahlzeit, ggf. Streak-Tag); Update/Restore
-/// laufen als mealUpsert ohne Zaehlung — exakt wie im Online-Pfad.
+/// laufen als mealUpsert ohne Zaehlung — exakt wie im Online-Pfad. Die Zaehlung
+/// selbst laeuft seit Fix 3 nicht mehr im Erfolgszweig der Op, sondern ueber
+/// einen eigenen [SyncOpKind.statsIncrement]-Eintrag, den der Replay ATOMAR mit
+/// der Entfernung der Quell-Op erzeugt (s. dort).
 enum SyncOpKind {
   mealInsert,
   mealUpsert,
@@ -118,6 +121,19 @@ enum SyncOpKind {
   /// trotzdem gerissen — ohne Hinweis und ohne irgendeine Stelle, die es je
   /// reparieren koennte.
   trackingDay,
+
+  /// Fix 3 (Review PR #40): der Lifetime-Zaehler einer NACHGEHOLTEN
+  /// zaehlenden Op (mealInsert/weightInsert) als eigener, idempotenter
+  /// Eintrag. [SyncOp.entityId] IST die Server-Request-Id
+  /// (`increment_lifetime_stats(p_request_id)`) — deterministisch aus der
+  /// Quell-UUID abgeleitet (deriveStatsRequestId), damit jede Wiederholung
+  /// (erneuter Replay, erneute Erzeugung nach Kill) dieselbe Id sendet und
+  /// der Server sie als EINEN Vorgang verbucht. Entsteht ausschliesslich im
+  /// Replay-Loop, atomar mit der Entfernung der Quell-Op (derselbe
+  /// Blob-Write) — genau das schliesst das Kill-Fenster zwischen
+  /// Delta-Persistenz und Op-Entfernung, das meals_logged dauerhaft +1
+  /// treiben konnte.
+  statsIncrement,
 }
 
 /// Eine persistierbare, nachholbare Sync-Operation.
@@ -246,9 +262,26 @@ class SyncOp {
         payload: const <String, dynamic>{},
       );
 
+  /// Der Zaehler-Folgeeintrag einer nachgeholten zaehlenden Op
+  /// ([SyncOpKind.statsIncrement]).
+  ///
+  /// [requestId] MUSS aus `deriveStatsRequestId` stammen (Stabilitaet ueber
+  /// Wiederholungen ist die ganze Idempotenz-Garantie) und wird zugleich
+  /// [entityId]. Payload-Schluessel als int, obwohl heute immer 1 —
+  /// Wire-Format nicht enger schneiden als noetig.
+  factory SyncOp.statsIncrement({
+    required String requestId,
+    int meals = 0,
+    int weightLogs = 0,
+  }) =>
+      SyncOp._(kind: SyncOpKind.statsIncrement, entityId: requestId, payload: {
+        if (meals > 0) 'meals': meals,
+        if (weightLogs > 0) 'weight_logs': weightLogs,
+      });
+
   /// Kollisionsfreier Entitaets-Schluessel ueber alle Op-Familien
   /// (`meal:<id>`, `weight:<id>`, `favorite:<key>`, `recipe:<slug>`,
-  /// `profile:self`, `tracking:<YYYY-MM-DD>`).
+  /// `profile:self`, `tracking:<YYYY-MM-DD>`, `stats:<request-uuid>`).
   String get entityKey => switch (kind) {
         SyncOpKind.mealInsert ||
         SyncOpKind.mealUpsert ||
@@ -263,6 +296,7 @@ class SyncOp {
           'recipe:$entityId',
         SyncOpKind.profileUpsert => 'profile:$entityId',
         SyncOpKind.trackingDay => 'tracking:$entityId',
+        SyncOpKind.statsIncrement => 'stats:$entityId',
       };
 
   /// True fuer die drei Loesch-Familien.
@@ -289,6 +323,12 @@ class SyncOp {
   /// Upsert ist: die Payload ist leer, „ersetzen" ist damit dasselbe wie
   /// „behalten" — und ohne Koaleszenz haengte sich fuer denselben Tag bei
   /// jedem weiteren Log eine zusaetzliche, voellig gleiche Op an.
+  ///
+  /// [SyncOpKind.statsIncrement] zaehlt BEWUSST NICHT dazu: jeder Eintrag ist
+  /// eine eigene idempotente Einheit mit eigener Request-Id. Er wird nie
+  /// koalesziert, sondern immer angehaengt (FIFO) — ein „Ersetzen" wuerde
+  /// einen Zaehler verschlucken, dessen Id serverseitig womoeglich schon
+  /// verbucht ist.
   bool get isUpsert =>
       kind == SyncOpKind.mealInsert ||
       kind == SyncOpKind.mealUpsert ||
@@ -342,6 +382,21 @@ class SyncOp {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Die Zahlen eines [SyncOpKind.statsIncrement]-Eintrags. Defensiv wie die
+  /// uebrigen Zugriffe: fehlend/nicht-numerisch -> 0. Ein Eintrag, der danach
+  /// gar nichts mehr zaehlt, ist unzustellbar und laeuft im Store in den
+  /// A8-Verwurfspfad — ein Aufruf mit 0/0 waere ein Request ohne Wirkung, der
+  /// nur eine Request-Id verbraucht.
+  int get statsMeals {
+    final raw = payload['meals'];
+    return raw is num ? raw.toInt() : 0;
+  }
+
+  int get statsWeightLogs {
+    final raw = payload['weight_logs'];
+    return raw is num ? raw.toInt() : 0;
   }
 
   /// Das Profil der Op — null, wenn die Payload unlesbar oder unvollstaendig
@@ -494,7 +549,9 @@ List<SyncOp> enqueueCoalesced(
 ///  (d) In der ANLEGE-Richtung ueberlebt die Korrektheit pro Entitaet einen
 ///      Kopf-Trim: jeder Write ist ein VOLLER Zeilen-Upsert auf eine
 ///      Client-UUID (keine Deltas), verloren geht einzig der Stats-/Streak-
-///      Seiteneffekt eines mealInsert — ein Zaehler, kein Nutzer-Inhalt. Fuer
+///      Seiteneffekt eines mealInsert — ein Zaehler, kein Nutzer-Inhalt. Seit
+///      Fix 3 gilt dasselbe woertlich fuer einen gekappten
+///      [SyncOpKind.statsIncrement]-Eintrag: er IST der Zaehler. Fuer
 ///      Deletes gilt das ausdruecklich NICHT: „idempotent" heisst nur, dass
 ///      ein Retry schadlos ist, nicht dass ein Verwurf folgenlos waere. Beim
 ///      Delete ueberlebt die Serverzeile, der lokale Zustand nicht — der
