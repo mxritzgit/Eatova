@@ -1182,9 +1182,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // Zustellversuch, sonst zieht der Logout die Streak-Grundlage weg.
     // Nach dem Replay: der holt seit Fix 3 zwar keine Buendel-Deltas mehr nach
     // (er zaehlt ueber eigene statsIncrement-Eintraege, die er im selben Lauf
-    // mit zustellt), kann aber weiterhin ein LIVE gebuchtes Delta durch seinen
-    // Erfolg ausloesen — und ein hier bereits pendendes Buendel muss so oder so
-    // vor dem Raeumen seinen Zustellversuch bekommen.
+    // mit zustellt), aber ein waehrend des Replays fertig werdender Live-Write
+    // kann noch ein Delta buchen — und ein hier bereits pendendes Buendel muss
+    // so oder so vor dem Raeumen seinen Zustellversuch bekommen.
     await _flushStatsDelta();
     // Nur was die Zustellung nicht losgeworden ist, rechtfertigt einen
     // überlebenden Slot. Maßgeblich ist der Store-Zustand — er ist der

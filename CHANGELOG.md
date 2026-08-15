@@ -85,8 +85,7 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   function now requires a JWT with an `otp`/`recovery` entry in the `amr`
   claim from the last five minutes and rejects everything else with
   `EX_REAUTH_REQUIRED` (SQLSTATE 28000); the client shows a dedicated
-  "confirmation expired" message for that case. **Takes effect once the
-  migration is applied** — not yet live at the time of this entry.
+  "confirmation expired" message for that case.
 - **Sync: lifetime counters no longer double-count on a killed replay** — a
   meal or weight write interrupted between server delivery and the local
   bookkeeping used to log its lifetime-stats delta again on the next boot.

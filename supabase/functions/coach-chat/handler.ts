@@ -667,7 +667,7 @@ async function handleRecipeMode(params: {
 // ---------------------------------------------------------------------------
 // Refusal-Texte fuer L1/L2
 // ---------------------------------------------------------------------------
-// Sprach-Typ des Requests; Parse-/Fallback-Regel siehe handleRequest (:1237):
+// Sprach-Typ des Requests; Parse-/Fallback-Regel siehe handleRequest:
 // alles ausser exakt "en" ist "de" (analyze-meal-Muster normalizeLanguage).
 type CoachLocale = "de" | "en";
 
