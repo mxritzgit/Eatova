@@ -17,8 +17,16 @@ import 'package:eatova/src/theme/app_theme.dart';
 // Bis dahin genuegte das getippte Wort „LÖSCHEN" — das direkt daneben als
 // Hinweistext stand. Die einzige unwiderrufliche Aktion der App war damit
 // schwaecher gesichert als der Passwortwechsel eine Gruppe darueber, der einen
-// Mail-Code verlangt; serverseitig prueft `delete_account()` nur `auth.uid()`,
-// die Hemmschwelle liegt also vollstaendig in der Oberflaeche.
+// Mail-Code verlangt.
+//
+// Seit der Nachpruefung 2026-08-15 haengt die Hemmschwelle nicht mehr allein
+// an dieser Oberflaeche: `delete_account()` lehnt jedes JWT ohne frischen
+// 'otp'/'recovery'-Eintrag im `amr`-Claim ab (Migration
+// 20260815120000_delete_account_reauth.sql, EX_REAUTH_REQUIRED). Diese Datei
+// deckt weiterhin die UI-Haelfte ab — dass die Oberflaeche ueberhaupt zu so
+// einer Sitzung fuehrt und ohne sie nichts ausloest. Die Wire-Haelfte (neues
+// Token am RPC, Fehler-Roundtrip, Store-Verhalten bei Ablehnung) liegt in
+// `test/delete_account_wire_test.dart`.
 //
 // Drei Zusicherungen tragen die Datei:
 //

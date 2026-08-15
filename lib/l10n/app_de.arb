@@ -1246,6 +1246,7 @@
   "settingsDeleteAccountCodeFieldLabel": "Bestätigungs-Code",
   "settingsDeleteAccountCodeSentTo": "Zur Sicherheit schicken wir dir einen 6-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn wird nichts gelöscht.",
   "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 6-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
+  "settingsDeleteAccountReauthExpired": "Die Bestätigung ist abgelaufen. Bitte starte die Kontolöschung neu und fordere einen neuen Code an.",
   "settingsDeleteAccountRequestCta": "Code anfordern",
   "settingsDeleteAccountRequestingCta": "Code wird angefordert…"
 }

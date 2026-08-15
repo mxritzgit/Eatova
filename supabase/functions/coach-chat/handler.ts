@@ -667,36 +667,95 @@ async function handleRecipeMode(params: {
 // ---------------------------------------------------------------------------
 // Refusal-Texte fuer L1/L2
 // ---------------------------------------------------------------------------
-function refusalForReason(reason: string): string {
+// Sprach-Typ des Requests; Parse-/Fallback-Regel siehe handleRequest:
+// alles ausser exakt "en" ist "de" (analyze-meal-Muster normalizeLanguage).
+type CoachLocale = "de" | "en";
+
+// DE-Spalte ist WOERTLICH der Vor-Lokalisierungs-Stand (ASCII-Umlaute ue/ae/
+// oe und einfacher Bindestrich - sind Bestand, keine "Korrektur"). EN-Spalte:
+// Lokalisierung 2026-08-15 (design-fix2.md Abschnitt 4.2). self_harm haelt
+// in BEIDEN Sprachen 0800 111 0 111 verbatim (Konsistenz mit Layer 3, CRISIS
+// RULE oben) und ergaenzt fuer EN findahelpline.com als sprachbasierte
+// Zusatzressource (Begruendung: design-fix2.md Abschnitt 3).
+const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
+  medical_risk: {
+    de: "Zu Steroiden, SARMs oder Performance-Enhancern gebe ich keine Empfehlungen - das ist medizinisches Gelaende und kann gefaehrlich sein. Frag deinen Arzt. Ich helfe dir gern bei natuerlichem Training und Ernaehrung.",
+    en: "I don't give recommendations on steroids, SARMs or performance enhancers - that's medical territory and can be dangerous. Please talk to your doctor. I'm happy to help you with natural training and nutrition.",
+  },
+  eating_disorder: {
+    de: "Da gehe ich nicht mit. Wenn du das Gefuehl hast, dass dein Essverhalten dich belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle. Ich kann dir gern bei einer ausgewogenen, alltagstauglichen Ernaehrung helfen.",
+    en: "I won't go along with that. If you feel your eating is weighing on you, please talk to a doctor or a counselling service. I'm happy to help you with balanced, everyday nutrition.",
+  },
+  illegal_drugs: {
+    de: "Dazu gebe ich keine Auskunft. Ich bin nur fuer Training und Ernaehrung da.",
+    en: "I can't help with that. I'm only here for training and nutrition.",
+  },
+  self_harm: {
+    de: "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.",
+    en: "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines for your country. You are not alone.",
+  },
+  off_topic: {
+    de: "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in Eatova. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.",
+    en: "That's outside my area - I'm the fitness and nutrition coach in Eatova. Feel free to ask me about your next workout or your macros.",
+  },
+  classifier_unusable: {
+    de: "Das konnte ich gerade nicht sicher einordnen - da ist bei mir etwas schiefgelaufen. Formulier es bitte nochmal, dann versuche ich es erneut.",
+    en: "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.",
+  },
+  injection: {
+    de: "Schoener Versuch. Ich bleibe dein Fitness- und Ernaehrungs-Coach. Was willst du zu Training oder Ernaehrung wissen?",
+    en: "Nice try. I'm staying your fitness and nutrition coach. What would you like to know about training or nutrition?",
+  },
+  too_long: {
+    de: "Deine Nachricht ist zu lang. Bitte fasse dich kuerzer (max. 1000 Zeichen).",
+    en: "Your message is too long. Please keep it shorter (max. 1000 characters).",
+  },
+  empty: {
+    de: "Schreib mir eine Frage zu Training oder Ernaehrung.",
+    en: "Send me a question about training or nutrition.",
+  },
+  image_too_large: {
+    de: "Das Bild ist zu gross. Bitte schick ein kleineres oder komprimiertes Bild.",
+    en: "The image is too large. Please send a smaller or compressed image.",
+  },
+  fallback: {
+    de: "Das geht ueber meinen Bereich hinaus - ich bin nur fuer Training und Ernaehrung da.",
+    en: "That's outside my area - I'm only here for training and nutrition.",
+  },
+};
+
+function refusalForReason(reason: string, locale: CoachLocale): string {
   switch (reason) {
     case "doping":
     case "medical_risk":
-      return "Zu Steroiden, SARMs oder Performance-Enhancern gebe ich keine Empfehlungen - das ist medizinisches Gelaende und kann gefaehrlich sein. Frag deinen Arzt. Ich helfe dir gern bei natuerlichem Training und Ernaehrung.";
+      return REFUSAL_TEXTS.medical_risk[locale];
     case "eating_disorder":
-      return "Da gehe ich nicht mit. Wenn du das Gefuehl hast, dass dein Essverhalten dich belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle. Ich kann dir gern bei einer ausgewogenen, alltagstauglichen Ernaehrung helfen.";
+      return REFUSAL_TEXTS.eating_disorder[locale];
     case "illegal_drugs":
-      return "Dazu gebe ich keine Auskunft. Ich bin nur fuer Training und Ernaehrung da.";
+      return REFUSAL_TEXTS.illegal_drugs[locale];
     case "self_harm":
-      return "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.";
+      return REFUSAL_TEXTS.self_harm[locale];
     case "off_topic_homework":
     case "off_topic":
-      return "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in Eatova. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.";
+      return REFUSAL_TEXTS.off_topic[locale];
     // W1 (2026-08-14): Layer 2 hat gar nicht klassifiziert (unbrauchbarer
     // Modell-Output). Bewusst KEINE Krisen-Antwort — wir wissen ja nichts
     // ueber die Anfrage, und die Telefonseelsorge-Nummer auf einen
     // Pasta-Wunsch zu schicken waere sein eigener Schaden. Nur: keine
     // Generierung ohne gelaufene Pruefung.
     case "classifier_unusable":
-      return "Das konnte ich gerade nicht sicher einordnen - da ist bei mir etwas schiefgelaufen. Formulier es bitte nochmal, dann versuche ich es erneut.";
+      return REFUSAL_TEXTS.classifier_unusable[locale];
     case "prompt_injection":
     case "injection":
-      return "Schoener Versuch. Ich bleibe dein Fitness- und Ernaehrungs-Coach. Was willst du zu Training oder Ernaehrung wissen?";
+      return REFUSAL_TEXTS.injection[locale];
     case "too_long":
-      return "Deine Nachricht ist zu lang. Bitte fasse dich kuerzer (max. 1000 Zeichen).";
+      return REFUSAL_TEXTS.too_long[locale];
     case "empty":
-      return "Schreib mir eine Frage zu Training oder Ernaehrung.";
+      return REFUSAL_TEXTS.empty[locale];
+    case "image_too_large":
+      return REFUSAL_TEXTS.image_too_large[locale];
     default:
-      return "Das geht ueber meinen Bereich hinaus - ich bin nur fuer Training und Ernaehrung da.";
+      return REFUSAL_TEXTS.fallback[locale];
   }
 }
 
@@ -1234,7 +1293,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   // Alles davor (Auth, Limits, Groessen, Session, Prefilter, Quota, Layer 2)
   // gilt unveraendert; die Weiche sitzt hinter dem Classifier-Block.
   const isRecipeMode = body?.mode === "recipe";
-  const locale: "de" | "en" = body?.locale === "en" ? "en" : "de";
+  const locale: CoachLocale = body?.locale === "en" ? "en" : "de";
   const requestedSessionId =
     typeof body?.session_id === "string" && SESSION_ID_RE.test(body.session_id)
       ? body.session_id
@@ -1276,7 +1335,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   ) {
     return json({
       error: "message_too_long",
-      reply: refusalForReason("too_long"),
+      reply: refusalForReason("too_long", locale),
       refusal: true,
       refusal_reason: "too_long",
     }, 413);
@@ -1290,7 +1349,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   if (hasImage && imageBase64.length > MAX_IMAGE_BASE64_CHARS) {
     return json({
       error: "image_too_large",
-      reply: "Das Bild ist zu gross. Bitte schick ein kleineres oder komprimiertes Bild.",
+      reply: refusalForReason("image_too_large", locale),
       refusal: true,
       refusal_reason: "image_too_large",
     }, 413);
@@ -1307,7 +1366,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   // veraendert (Flutter behandelt fehlendes Feld als "kein Update").
   const pre = preFilter(message, hasImage);
   if (!pre.ok) {
-    const reply = refusalForReason(pre.reason);
+    const reply = refusalForReason(pre.reason, locale);
     await storeMessage(serviceKey, supabaseUrl, {
       user_id: userId, session_id: sessionId, role: "user", content: message,
       refusal: false,
@@ -1430,7 +1489,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       refuseOnUnusableOutput: isRecipeMode,
     });
     if (refusalReason !== null) {
-      const reply = refusalForReason(refusalReason);
+      const reply = refusalForReason(refusalReason, locale);
       await storeMessage(serviceKey, supabaseUrl, {
         user_id: userId, session_id: sessionId, role: "user", content: message,
         refusal: false,

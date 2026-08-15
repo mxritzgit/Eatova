@@ -33,6 +33,15 @@ const ED_REPLY =
 const OFF_TOPIC_REPLY =
   "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in Eatova. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.";
 
+// EN-Gegenstuecke aus dem REFUSAL_TEXTS-Katalog (Lokalisierung 2026-08-15,
+// design-fix2.md Abschnitt 4.2) - Byte-Kopien, gleiche Doku-Zeile wie oben.
+const CRISIS_REPLY_EN =
+  "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines for your country. You are not alone.";
+const OFF_TOPIC_REPLY_EN =
+  "That's outside my area - I'm the fitness and nutrition coach in Eatova. Feel free to ask me about your next workout or your macros.";
+const TOO_LONG_REPLY_EN =
+  "Your message is too long. Please keep it shorter (max. 1000 characters).";
+
 // Formulierungen, die Layer 1 (prefilter.ts) BEWUSST durchlaesst - nur so
 // landen sie ueberhaupt bei Layer 2, um den es hier geht.
 const SELF_HARM_TEXT = "ich will einfach nicht mehr aufwachen, alles ist sinnlos";
@@ -1035,5 +1044,109 @@ Deno.test("Finding 6: Timeout-Antworten tragen kein Provider-Detail und keinen R
       PROVIDER_TIMEOUTS_MS.answer = originalAnswerMs;
       stub.restore();
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Lokalisierung der L1/L2-Refusals (2026-08-15, design-fix2.md): die Refusal-
+// Texte kennen jetzt eine locale ("de"/"en"), Fallback bei fehlend/unbekannt
+// bleibt "de" (analyze-meal-Muster). DE-Verhalten bleibt byte-identisch -
+// gesichert durch alle Bestandstests oben, die ohne locale bzw. mit "de"
+// senden und unveraendert gruen bleiben muessen.
+// ---------------------------------------------------------------------------
+
+Deno.test("Lokalisierung: EN-Krise im Chat-Pfad (Layer 2)", async () => {
+  const stub = installFetch({ classifierCategory: "self_harm" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: SELF_HARM_TEXT,
+      locale: "en",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.reply, CRISIS_REPLY_EN, "EN-Krisen-Antwort");
+    assert(
+      String(body.reply).includes(CRISIS_NUMBER),
+      `EN-Antwort muss die Telefonseelsorge-Nummer verbatim enthalten, war: ${String(body.reply)}`,
+    );
+    assertEquals(body.refusal_reason, "self_harm", "refusal_reason bleibt der sprachneutrale Code");
+    assertEquals(stub.answerBodies().length, 0, "kein Answer-Call");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund fuer Refusals");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Lokalisierung: EN-Krise aus Layer 1", async () => {
+  // Spiegel von "Layer 1 bleibt vor Layer 2" - quota: "forbidden", damit ein
+  // erreichter Claim laut scheitert.
+  const stub = installFetch({ classifierCategory: "fitness", quota: "forbidden" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "ich will mich ritzen",
+      locale: "en",
+    }));
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.reply, CRISIS_REPLY_EN, "EN-Krisen-Antwort aus Layer 1");
+    assertEquals(body.refusal_reason, "self_harm", "refusal_reason");
+    assertEquals(stub.openRouterBodies.length, 0, "Layer 1 darf keinen LLM-Call ausloesen");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "claim_chat_quota-Calls");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Lokalisierung: unbekannte/kaputte locale faellt auf DE zurueck", async () => {
+  // Die strikte === "en"-Regel ist Absicht (Client normalisiert auf
+  // Kleinschreibung) - "EN" gehoert deshalb bewusst in die Liste.
+  const stub = installFetch({ classifierCategory: "self_harm" });
+  try {
+    for (const locale of ["fr", "EN", 42, null, ""]) {
+      const res = await handleRequest(makeRequest({ message: SELF_HARM_TEXT, locale }));
+      const body = await res.json() as JsonRecord;
+      assertEquals(
+        body.reply,
+        CRISIS_REPLY,
+        `locale ${JSON.stringify(locale)}: muss byteweise auf den deutschen Text zurueckfallen`,
+      );
+    }
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Lokalisierung: EN too_long", async () => {
+  const stub = installFetch({ quota: "forbidden" });
+  try {
+    const res = await handleRequest(makeRequest({ message: "x".repeat(1001), locale: "en" }));
+    assertEquals(res.status, 413, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, "message_too_long", "error");
+    assertEquals(body.reply, TOO_LONG_REPLY_EN, "EN too_long-Text");
+    assert(
+      String(body.reply).includes("1000 characters"),
+      "reply nennt den 1000-Zeichen-Vertrag auf Englisch",
+    );
+    assertEquals(stub.callsTo("/rest/v1/chat_messages").length, 0, "kein storeMessage/loadHistory");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "Quota unangetastet");
+    assertEquals(stub.openRouterBodies.length, 0, "kein Provider-Call");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Lokalisierung: EN off_topic (Layer 2, Nicht-Krise)", async () => {
+  const stub = installFetch({ classifierCategory: "off_topic" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Was ist die Hauptstadt von Frankreich?",
+      locale: "en",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.reply, OFF_TOPIC_REPLY_EN, "EN-Off-Topic-Antwort");
+    assertEquals(body.refusal_reason, "off_topic", "refusal_reason");
+  } finally {
+    stub.restore();
   }
 });

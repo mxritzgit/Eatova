@@ -171,6 +171,12 @@ MealAnalysisResult _result(String name) => MealAnalysisResult(
       sourceLabel: 'Foto-KI',
     );
 
+/// Die Ids sind bewusst KEINE UUIDs: dieser Test misst die Positionslogik des
+/// Replay-Loops, nicht die Zaehler. Aus einer nicht-UUID-Id laesst sich keine
+/// Stats-Request-Id ableiten (Fix 3, `_statsFollowUpFor`), es entsteht also
+/// kein Folgeeintrag, der die Queue waehrend des Laufs zusaetzlich veraendern
+/// wuerde. Wer sie auf UUID-Form hebt, prueft hier zusaetzlich die
+/// Eintrags-Erzeugung — dann aber auch die Queue-Erwartungen mitziehen.
 LoggedMeal _meal(String id) => LoggedMeal(
       id: id,
       result: _result(id),

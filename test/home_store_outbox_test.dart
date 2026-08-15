@@ -22,6 +22,7 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart'
     show SyncDelivery, outboxDeleteLossHint, outboxLossHint;
 import 'package:eatova/src/services/sync_outbox.dart';
+import 'package:eatova/src/services/uuid.dart' show deriveStatsRequestId;
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // DATA-7 Datenverlust-Fix: ein fehlgeschlagener Sync-Write rollt den lokalen
@@ -50,6 +51,9 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 //  10. Die Queue ist gedeckelt — beim Einreihen UND beim Hydrieren.
 //  11. Luecke A: Eigen-Rezepte haben (wie Mahlzeiten/Favoriten) einen lokalen
 //      Write-Through-Cache und ueberleben damit einen Kaltstart ohne Netz.
+//  12. Fix 3: der Zaehler einer NACHGEHOLTEN Op laeuft als eigener
+//      statsIncrement-Eintrag mit abgeleiteter Request-Id — atomar mit der
+//      Op-Entfernung erzeugt, exactly-once ueber App-Kills hinweg.
 
 /// Zustandsbehafteter Fake-PostgREST: zeichnet Requests auf, fuehrt Upserts/
 /// Deletes auf In-Memory-Tabellen aus und laesst sich offline schalten.
@@ -142,6 +146,13 @@ class _FakeServer {
   /// erkennen und zaehlt ein zweites Mal.
   final List<String?> statsRequestIds = <String?>[];
 
+  /// Server-Dedup der Migration 20260814120000: verbrauchte `p_request_id`.
+  /// Nur ERFOLGREICHE Aufrufe verbrauchen (der echte RPC laeuft in einer
+  /// Transaktion — ein 500 committet den Marker nicht). Ohne diesen Zustand
+  /// addierte der Fake blind und konnte gar nicht zeigen, ob ein Retry
+  /// serverseitig als Wiederholung ankommt.
+  final Set<String> verbrauchteStatsIds = <String>{};
+
   http.Client client() => MockClient(_handle);
 
   Future<http.Response> _handle(http.Request req) async {
@@ -177,8 +188,14 @@ class _FakeServer {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       // VOR dem Ausfall-Schalter: gerade der gescheiterte Versuch ist der, mit
       // dem der spaetere Retry verglichen wird.
-      statsRequestIds.add(body['p_request_id'] as String?);
+      final rid = body['p_request_id'] as String?;
+      statsRequestIds.add(rid);
       if (statsOffline) return fail();
+      if (rid != null && !verbrauchteStatsIds.add(rid)) {
+        // Wiederholung: NICHT addieren, aktuelle Zeile liefern — exakt das
+        // FOUND-Verhalten der Migration (`on conflict do nothing` + FOUND).
+        return ok(_statsRow());
+      }
       mealsCounted += (body['p_meals'] as num?)?.toInt() ?? 0;
       weightLogsCounted += (body['p_weight_logs'] as num?)?.toInt() ?? 0;
       return ok(_statsRow());
@@ -404,6 +421,18 @@ class _OutboxLesefehlerCache extends LocalCache {
   }
 }
 
+/// Cache, dessen OUTBOX-Writes nie die „Platte" erreichen — die eine Haelfte
+/// des Kill-Fensters: der Deltas-/sonstige Slot committet, der Outbox-Blob
+/// nicht. Lesen bleibt echt (der geseedete Blob der „Vorsession"), damit die
+/// naechste Sitzung genau den Stand vorfindet, den ein App-Kill zwischen den
+/// beiden Writes hinterlaesst.
+class _EingefrorenerOutboxCache extends LocalCache {
+  _EingefrorenerOutboxCache(super.store, super.userId);
+
+  @override
+  Future<void> writeOutbox(List<SyncOp> ops) async {}
+}
+
 /// Dasselbe fuer den DELTAS-Slot (W7b): die zweite Haelfte des kill-sicheren
 /// Sync-Zustands hatte bis zum Audit 2026-08-14 keine Bremse — ein
 /// fehlgeschlagener Lesevorgang beim Boot liess den naechsten Flush den Slot
@@ -437,8 +466,15 @@ class _DeltaLesefehlerCache extends LocalCache {
   _FakeServer server,
   LocalCache cache,
   _SnackCapture snacks,
-}) _setup({InMemoryKeyValueStore? kv, LocalCache? injizierterCache}) {
-  final server = _FakeServer();
+}) _setup({
+  InMemoryKeyValueStore? kv,
+  LocalCache? injizierterCache,
+  // Zwei Sitzungen, die sich denselben Server teilen (Kill-Simulation): der
+  // Dedup-Zustand (verbrauchteStatsIds) und die Tabellen muessen den
+  // „Neustart" ueberleben, sonst prueft der Test nur einen frischen Server.
+  _FakeServer? geteilterServer,
+}) {
+  final server = geteilterServer ?? _FakeServer();
   final client = SupabaseClient(
     'https://example.supabase.co',
     'test-anon-key',
@@ -946,6 +982,237 @@ void main() {
     await _settle();
     expect(s.server.mealsCounted, 2);
     expect(s.server.weightLogsCounted, 1);
+  });
+
+  // --- Fix 3: exactly-once fuer die Zaehler NACHGEHOLTER Ops ----------------
+  //
+  // Fuer den INHALT war der Replay immer idempotent (jeder Write ist ein
+  // voller Upsert auf die Client-UUID), fuer seinen ZAEHLER nicht:
+  // `_performOp` persistierte das +1 SOFORT in den Deltas-Slot, waehrend die
+  // Op erst einen zweiten Blob-Write spaeter aus der Outbox fiel. Ein App-Kill
+  // dazwischen liess den naechsten Boot BEIDES vorfinden — Delta und Op — und
+  // die Mahlzeit ein zweites Mal zaehlen, unter einer frischen Buendel-Id und
+  // damit am Server-Dedup vorbei. `meals_logged` stand danach dauerhaft +1,
+  // ohne Neuberechnungspfad.
+  //
+  // Seit Fix 3 erzeugt der Replay stattdessen einen eigenen
+  // statsIncrement-Eintrag: ATOMAR mit der Entfernung der Quell-Op (ein
+  // Listenupdate, ein Blob-Write — es gibt kein Fenster mehr) und mit einer
+  // aus der Quell-UUID ABGELEITETEN Request-Id. Jede Wiederholung ist fuer den
+  // Server derselbe Vorgang, auch die nach einem Kill neu ERZEUGTE.
+
+  test(
+      'Fix 3: Kill nach der Replay-Zustellung, VOR der Op-Entfernung — der '
+      'naechste Boot zaehlt die Mahlzeit NICHT ein zweites Mal', () async {
+    const mealId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    final abgeleitet = deriveStatsRequestId(mealId)!;
+    final kv = InMemoryKeyValueStore();
+    // EIN Server fuer beide Sitzungen: sein Dedup-Zustand ist genau das, was
+    // den Neustart ueberleben muss.
+    final server = _FakeServer();
+    // Der Blob der Vorsession: eine liegengebliebene Mahlzeit. Die Id ist
+    // bewusst UUID-foermig — aus einer anderen liesse sich keine Request-Id
+    // ableiten und es gaebe gar keinen Folgeeintrag.
+    await _seedRawOutbox(kv, <Map<String, dynamic>>[
+      SyncOp.mealInsert(
+        LoggedMeal(
+            id: mealId, result: _result('Kill-Bowl'), loggedAt: DateTime.now()),
+        trackDay: false,
+      ).toJson(),
+    ]);
+
+    // Sitzung A: Zustellung und Increment laufen durch, der OUTBOX-Write
+    // erreicht die Platte aber nie — exakt der Kill zwischen den beiden
+    // Commits.
+    final a = _setup(
+      kv: kv,
+      geteilterServer: server,
+      injizierterCache: _EingefrorenerOutboxCache(kv, 'user-outbox'),
+    );
+    await _boot(a.store);
+    // Den Debounce des (auf HEAD noch vorhandenen) Buendel-Flushes abkuerzen:
+    // ohne ihn bliebe das alte +1 im Speicher haengen und der Befund waere
+    // nicht gemessen, sondern nur nicht ausgeloest.
+    a.store.flushPendingWrites();
+    await _settle();
+
+    expect(server.mealRows.keys, contains(mealId),
+        reason: 'Vorbedingung: die Mahlzeit ist zugestellt');
+    expect(server.mealsCounted, 1,
+        reason: 'Vorbedingung: sie ist genau einmal gezaehlt');
+    expect(kv.snapshot['eatova.v1.outbox.user-outbox'],
+        contains('"entity_id":"$mealId"'),
+        reason: 'Vorbedingung: der persistierte Blob traegt die Op WEITERHIN '
+            '— sonst prueft dieser Test gar nichts');
+    // Kein explizites dispose(): den Teardown haengt _setup selbst an, und die
+    // Sitzung hat nach dem Flush keinen Ausloeser mehr. Der „Kill" ist der
+    // Zustand, den sie auf der Platte hinterlaesst.
+
+    // Sitzung B: derselbe Blob, derselbe Server.
+    final b = _setup(kv: kv, geteilterServer: server);
+    await _boot(b.store);
+    b.store.flushPendingWrites();
+    await _settle();
+
+    expect(server.mealsCounted, 1,
+        reason: 'DER Befund: vorher buchte der Boot-Replay ein zweites +1 — '
+            'unter frischer Buendel-Id, also fuer den Server ein neuer '
+            'Vorgang, den nichts deduplizieren konnte');
+    expect(
+        server.statsRequestIds
+            .whereType<String>()
+            .where((id) => id == abgeleitet),
+        hasLength(greaterThanOrEqualTo(2)),
+        reason: 'Sitzung A verbucht, Sitzung B wiederholt — und beide senden '
+            'DIESELBE, aus der Meal-UUID abgeleitete Id');
+    expect(server.verbrauchteStatsIds, <String>{abgeleitet},
+        reason: 'serverseitig ist das EIN Vorgang, kein zweiter');
+    expect(server.mealRows, hasLength(1),
+        reason: 'Beifang: der Inhalt war schon immer idempotent');
+    expect(b.store.pendingOutbox, isEmpty);
+    expect(await b.cache.readOutbox(), isEmpty,
+        reason: 'nach dem zweiten Lauf ist der Blob wirklich leer');
+  });
+
+  test(
+      'Fix 3: ein serverseitig bereits verbuchter statsIncrement-Eintrag '
+      'verlaesst die Queue als ERFOLG, ohne erneut zu addieren', () async {
+    const rid = '6561746f-7661-6d73-f461-74732d726964';
+    final kv = InMemoryKeyValueStore();
+    // Die Vorsession hat den Eintrag zugestellt — nur die ANTWORT ging
+    // verloren, also liegt er noch in der Queue.
+    await _seedRawOutbox(kv, <Map<String, dynamic>>[
+      SyncOp.statsIncrement(requestId: rid, meals: 1).toJson(),
+    ]);
+
+    final s = _setup(kv: kv);
+    s.server.verbrauchteStatsIds.add(rid);
+    s.server.mealsCounted = 1;
+    await _boot(s.store);
+
+    expect(s.server.statsRequestIds, contains(rid),
+        reason: 'Vorbedingung: der Retry hat den Server erreicht');
+    expect(s.server.mealsCounted, 1,
+        reason: 'FOUND-Zweig der Migration: eine verbrauchte Id addiert nicht '
+            'noch einmal, sie liefert nur die aktuelle Zeile');
+    expect(s.store.pendingOutbox, isEmpty,
+        reason: 'der Eintrag ist kein Gift — das Server-Verhalten macht den '
+            'Retry gruen, er wird als Erfolg abgeraeumt');
+    expect(await s.cache.readOutbox(), isEmpty);
+  });
+
+  test(
+      'Fix 3: faellt increment_lifetime_stats aus, bleibt NUR der '
+      'Zaehler-Eintrag liegen — mit stabiler Id ueber Versuche und Neustarts',
+      () async {
+    final kv = InMemoryKeyValueStore();
+    final server = _FakeServer();
+
+    // Sitzung A: offline geloggt -> mealInsert liegt in der Queue.
+    final a = _setup(kv: kv, geteilterServer: server);
+    await _boot(a.store);
+    server.offline = true;
+    final mealId = a.store.addResultToDailyTotal(_result('Nachhol-Bowl'));
+    await _settle();
+    expect(a.store.pendingOutbox.map((o) => o.kind),
+        contains(SyncOpKind.mealInsert),
+        reason: 'Vorbedingung');
+
+    // Netz zurueck, aber der Zaehler-RPC faellt aus.
+    server.offline = false;
+    server.statsOffline = true;
+    a.store.flushPendingWrites();
+    await _settle();
+
+    final abgeleitet = deriveStatsRequestId(mealId)!;
+    expect(server.mealRows.keys, contains(mealId),
+        reason: 'der Inhalt ist durch — nur sein Zaehler nicht');
+    expect(a.store.pendingOutbox.map((o) => o.kind).toList(),
+        <SyncOpKind>[SyncOpKind.statsIncrement],
+        reason: 'Mahlzeit, Favorit und Streak-Tag sind zugestellt; liegen '
+            'bleibt genau der Zaehler');
+    expect(a.store.pendingOutbox.single.entityId, abgeleitet,
+        reason: 'die entityId IST die Request-Id');
+    expect((await a.cache.readPendingStatsDeltas())?.meals ?? 0, 0,
+        reason: 'DER Beweis, dass der alte Pfad tot ist: der Replay fasst das '
+            'Buendel nicht mehr an (vorher stand hier 1)');
+    expect(server.statsRequestIds, contains(abgeleitet));
+
+    // Kaltstart, RPC weiterhin kaputt: der Boot-Replay wiederholt.
+    final b = _setup(kv: kv, geteilterServer: server);
+    await _boot(b.store);
+    b.store.flushPendingWrites();
+    await _settle();
+
+    expect(b.store.pendingOutbox.map((o) => o.kind).toList(),
+        <SyncOpKind>[SyncOpKind.statsIncrement]);
+    expect(server.statsRequestIds.whereType<String>().toSet(),
+        <String>{abgeleitet},
+        reason: 'eine pro Versuch neu erzeugte Id koennte der Server nicht als '
+            'Wiederholung erkennen — er wuerde ein zweites Mal addieren');
+
+    // Und endlich durch.
+    server.statsOffline = false;
+    b.store.flushPendingWrites();
+    await _settle();
+
+    expect(server.mealsCounted, 1);
+    expect(server.verbrauchteStatsIds, <String>{abgeleitet});
+    expect(b.store.pendingOutbox, isEmpty);
+  });
+
+  test(
+      'Fix 3: dasselbe fuer das Gewicht — der nachgeholte weightInsert zaehlt '
+      'ueber seinen eigenen Eintrag, nicht ueber das Buendel', () async {
+    final s = _setup();
+    await _boot(s.store);
+
+    // Unklarer Ausgang: der Server wendet den Write an, antwortet aber 500 —
+    // der Live-Pfad zaehlt deshalb NICHT (onDelivered bleibt aus).
+    s.server.ambiguousWrites = true;
+    s.store.logWeight(80.5);
+    await _settle();
+    final op = s.store.pendingOutbox
+        .singleWhere((o) => o.kind == SyncOpKind.weightInsert);
+    final abgeleitet = deriveStatsRequestId(op.entityId)!;
+
+    s.server.ambiguousWrites = false;
+    s.store.flushPendingWrites();
+    await _settle();
+
+    expect(s.server.weightLogsCounted, 1);
+    expect(s.server.statsRequestIds, <String?>[abgeleitet],
+        reason: 'genau EIN Increment, und seine Id ist aus der weight_log-UUID '
+            'abgeleitet — kein Buendel beteiligt');
+    expect((await s.cache.readPendingStatsDeltas())?.weightLogs ?? 0, 0);
+    expect(s.store.pendingOutbox, isEmpty);
+  });
+
+  test(
+      'Fix 3: der Verwurf eines Zaehler-Eintrags ist STILL — er ist kein '
+      'Nutzer-Inhalt, „etwas fehlt" waere die falsche Meldung', () async {
+    const rid = '6561746f-7661-6d73-f461-74732d726964';
+    final kv = InMemoryKeyValueStore();
+    // Budget aufgebraucht UND seit ueber 24 h liegen: beides muss zusammen-
+    // kommen, sonst greift die Notbremse nicht (A4).
+    await _seedRawOutbox(kv, <Map<String, dynamic>>[
+      SyncOp.statsIncrement(requestId: rid, meals: 1).toJson()
+        ..['queued_at'] = DateTime.now()
+            .subtract(const Duration(hours: 25))
+            .toIso8601String()
+        ..['attempts'] = kOutboxMaxAttempts - 1,
+    ]);
+
+    final s = _setup(kv: kv);
+    s.server.statsOffline = true; // aktive Ablehnung (500) zaehlt
+    await _boot(s.store);
+
+    expect(s.store.pendingOutbox, isEmpty, reason: 'verworfen');
+    expect(s.server.mealsCounted, 0);
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty,
+        reason: 'die Mahlzeit ist laengst zugestellt — es fehlt kein Eintrag, '
+            'nur ein Zaehler. Der Snack waere gelogen.');
+    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()), isEmpty);
   });
 
   // --- W7b: die Bremse fuer den Deltas-Slot ---------------------------------

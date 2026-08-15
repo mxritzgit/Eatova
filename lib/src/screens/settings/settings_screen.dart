@@ -501,9 +501,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Zwei verschiedene Huerden, weil sie zwei verschiedene Faelle abfangen:
     // das getippte Wort das Versehen (ein Ja/Nein-Dialog wie im Profil ist mit
     // zwei Taps weg), der Mail-Code den fremden Finger am entsperrten Geraet.
-    // Der zweite Teil ist seit dem Audit vom 2026-08-14 Pflicht: `delete_
-    // account()` prueft serverseitig nur `auth.uid()` und alles haengt per
-    // `on delete cascade` daran — die Hemmschwelle liegt vollstaendig hier.
+    // Der zweite Teil ist seit dem Audit vom 2026-08-14 Pflicht — und seit der
+    // Nachpruefung 2026-08-15 nicht mehr allein unsere Zusage: Migration
+    // 20260815120000_delete_account_reauth.sql laesst `delete_account()` jedes
+    // JWT ablehnen, dessen `amr`-Claim keinen 'otp'/'recovery'-Eintrag aus den
+    // letzten 5 Minuten traegt (EX_REAUTH_REQUIRED). Das Sheet liefert genau
+    // so eine Sitzung, weil `verifyRecoveryCode` sie unmittelbar davor anlegt.
+    // Die UI-Huerden bleiben trotzdem noetig: sie fangen Versehen und fremden
+    // Finger ab, BEVOR ueberhaupt eine Mail rausgeht.
     final bestaetigt = await showEatovaSheet<bool>(
       context,
       _DeleteAccountSheet(
@@ -771,6 +776,18 @@ enum _LoeschSchritt { wort, code }
 /// ist deshalb das einzige vorhandene Paar, bei dem der SERVER den Code
 /// wirklich prueft. Eine Bestaetigung, die die App selbst „abnickt", waere
 /// Theater.
+///
+/// SEIT DER NACHPRUEFUNG 2026-08-15 ERZWINGT IHN AUCH DIE DATENBANK
+/// `delete_account()` verlangt ein JWT mit einem 'otp'/'recovery'-Eintrag im
+/// `amr`-Claim, der juenger als 5 Minuten ist (Migration
+/// 20260815120000_delete_account_reauth.sql) — sonst `EX_REAUTH_REQUIRED`.
+/// Genau so eine Sitzung entsteht durch [AuthRepository.verifyRecoveryCode]:
+/// GoTrue legt beim Verify eine NEUE Session an, und der Supabase-Client holt
+/// das Access-Token pro Request frisch. Fuer dieses Sheet aendert sich damit
+/// nichts — aber wer die Reihenfolge umbaut (Code-Schritt ueberspringen, den
+/// Loesch-Aufruf minutenlang aufschieben, ihn hinter einen erneuten Login
+/// haengen), bricht ab jetzt den Server-Vertrag und nicht nur eine
+/// Hausregel.
 class _DeleteAccountSheet extends StatefulWidget {
   const _DeleteAccountSheet({
     super.key,

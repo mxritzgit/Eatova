@@ -73,6 +73,14 @@ interface StubOptions {
 /** Antwort-Text des Chat-Answer-Calls (max_tokens 600). */
 const ANSWER_TEXT = "Peil heute noch 30 g Protein an, dann passt die Bilanz.";
 
+// EN-Gegenstuecke aus dem REFUSAL_TEXTS-Katalog (Lokalisierung 2026-08-15,
+// design-fix2.md Abschnitt 4.2) - Byte-Kopien, gleicher Refusal-Block wie im
+// Chat-Pfad (handler.ts, gemeinsamer Layer-2-Block).
+const CRISIS_REPLY_EN =
+  "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines for your country. You are not alone.";
+const CLASSIFIER_UNUSABLE_REPLY_EN =
+  "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.";
+
 /**
  * Die drei OpenRouter-Chat-Calls unterscheiden sich eindeutig ueber ihr
  * Token-Budget (Classifier 50, Answer 600, Draft 900) — dieselbe Konvention
@@ -456,6 +464,37 @@ Deno.test("Krise im Rezept-Modus: Krisen-Antwort, KEIN Draft-Call", async () => 
   }
 });
 
+Deno.test("Lokalisierung: EN-Krise im Rezept-Pfad", async () => {
+  // Spiegel des Tests oben, nur mit locale: "en" - Katalog-Text statt
+  // Ad-hoc-Assertion auf die Nummer.
+  const stub = installFetch({ classifierCategory: "self_harm" });
+  try {
+    const res = await handleRequest(makeRecipeRequest({
+      locale: "en",
+      message: "i don't want to live anymore, make me one last recipe",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.refusal, true, "refusal");
+    assertEquals(body.reply, CRISIS_REPLY_EN, "EN-Krisen-Antwort");
+    assert(
+      String(body.reply).includes("0800 111 0 111"),
+      `EN-Antwort muss die Nummer verbatim enthalten, war: ${String(body.reply)}`,
+    );
+    assert(!("recipe" in body), "kein Rezept");
+    assert(!("image_base64" in body), "kein Bild");
+    assertEquals(
+      stub.callsTo("chat/completions").length,
+      1,
+      "nur der Classifier — kein Draft-Call",
+    );
+    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+  } finally {
+    stub.restore();
+  }
+});
+
 Deno.test("Essstoerung im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () => {
   const stub = installFetch({ classifierCategory: "eating_disorder" });
   try {
@@ -570,6 +609,24 @@ Deno.test("W1: unparsbare Classifier-Antwort im Rezept-Modus -> Refusal, KEIN Dr
     } finally {
       stub.restore();
     }
+  }
+});
+
+Deno.test("Lokalisierung: classifier_unusable EN im Rezept-Pfad", async () => {
+  const stub = installFetch({ classifierContent: '{"category":' });
+  try {
+    const res = await handleRequest(makeRecipeRequest({
+      locale: "en",
+      message: "i don't want to live anymore, make me one last recipe",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.refusal, true, "refusal");
+    assertEquals(body.refusal_reason, "classifier_unusable", "refusal_reason");
+    assertEquals(body.reply, CLASSIFIER_UNUSABLE_REPLY_EN, "EN-classifier_unusable-Text");
+    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+  } finally {
+    stub.restore();
   }
 });
 

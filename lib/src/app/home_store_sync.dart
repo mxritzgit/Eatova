@@ -192,6 +192,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// nachweislich verbucht ist und ein frisches beginnt — genau darin liegt der
   /// Schutz: nur ein Retry mit derselben Id kann serverseitig als Wiederholung
   /// erkannt werden.
+  ///
+  /// Seit Fix 3 traegt das Buendel ausschliesslich LIVE-Deltas: was der Replay
+  /// nachholt, zaehlt ueber seinen eigenen
+  /// [SyncOpKind.statsIncrement]-Eintrag mit abgeleiteter Id. Ein
+  /// Replay-Rueckstau kann ein in-flight-Buendel damit nicht mehr aufblaehen.
   String? _pendingStatsRequestId;
 
   bool _statsFlushInFlight = false;
@@ -211,12 +216,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Snack mit freundlicher, klassifizierter Meldung — NIE der rohe
   /// Exception-Text (Schema-Leakage, unlesbar). Die Roh-Exception geht an
   /// dev.log + CrashReporter.
-  void _reportSyncError(String operation, Object error, StackTrace stack) {
+  ///
+  /// [message] ersetzt NUR den Snack-Text — fuer Aufrufer, die ueber den
+  /// Fehler mehr wissen als die generische Klassifikation (Kontoloeschung:
+  /// [deleteAccountErrorMessage] kennt die serverseitige Reauth-Ablehnung).
+  /// Log und CrashReporter bleiben bewusst unberuehrt: eine Meldung, die der
+  /// Aufrufer praeziser fassen kann, ist deshalb nicht weniger meldenswert.
+  void _reportSyncError(String operation, Object error, StackTrace stack,
+      {String? message}) {
     dev.log('$operation failed', error: error, name: 'eatova_sync');
     unawaited(CrashReporter.capture(error, stack, context: operation));
     if (_disposed) return;
     _emitSnack(
-      directSyncErrorMessage(error, _l10n),
+      message ?? directSyncErrorMessage(error, _l10n),
       icon: Icons.error_outline_rounded,
       tone: SnackTone.error,
       duration: kSnackError,
@@ -251,8 +263,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// nie bemerken.
   ///
   /// [onDelivered] laeuft NUR nach einer erfolgreichen LIVE-Zustellung — fuer
-  /// die Zaehler-Seiteneffekte, die der Replay-Pfad in [_performOp] selbst
-  /// erledigt (Lifetime-Delta, Streak-Tag). Wird die Op stattdessen
+  /// die Zaehler-Seiteneffekte, die der Replay-Pfad selbst erledigt
+  /// (Streak-Tag in [_performOp], Lebenszeit-Zaehler seit Fix 3 ueber den
+  /// [SyncOpKind.statsIncrement]-Folgeeintrag). Wird die Op stattdessen
   /// eingereiht, bleibt der Callback bewusst aus, sonst zaehlte der Wert
   /// doppelt.
   ///
@@ -371,6 +384,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// bleibt aber ein mealInsert und zaehlt beim Replay ein zweites Mal. Also
   /// in diesem Fall anhaengen statt ersetzen; die Reihenfolge pro Entitaet
   /// bleibt dabei erhalten (FIFO), nur die Queue ist um einen Eintrag laenger.
+  ///
+  /// Die Regel traegt nach Fix 3 unveraendert weiter — und sie ist weiterhin
+  /// load-bearing: die Live-Zaehlung laeuft ueber die Buendel-Id, die
+  /// Replay-Zaehlung ueber die aus der Quell-UUID abgeleitete Id des
+  /// [SyncOpKind.statsIncrement]-Eintrags. Das sind fuer den Server ZWEI
+  /// verschiedene Vorgaenge, sie dedupen sich also nicht gegenseitig; die
+  /// Exklusivitaet der beiden Pfade bleibt die Schutzmauer.
   bool _koaleszenzUnsicher(SyncOp op) {
     final laufend = _inFlightOps[op.entityKey];
     return laufend != null &&
@@ -452,7 +472,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// der falschen Meldung („der Eintrag ist wieder da").
   void _notifyDroppedOps(List<SyncOp> dropped) {
     final deletes = dropped.where((o) => o.isDelete).length;
-    if (dropped.length > deletes) _notifyOutboxLoss();
+    // statsIncrement-Eintraege sind Zaehler, kein Nutzer-Inhalt — fuer sie
+    // waere „ein Eintrag fehlt" die falsche Meldung (s. Verwurfs-Zweig des
+    // Replays). Geloggt sind sie ueber den Cap-Breadcrumb so oder so.
+    final inhalte = dropped
+        .where((o) => !o.isDelete && o.kind != SyncOpKind.statsIncrement)
+        .length;
+    if (inhalte > 0) _notifyOutboxLoss();
     if (deletes > 0) _notifyOutboxLoss(deletesLost: true);
   }
 
@@ -688,13 +714,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             // Verluste dem Nutzer Gegenteiliges bedeuten.
             if (op.isDelete) {
               droppedDeletes.add(op);
-            } else {
+            } else if (op.kind != SyncOpKind.statsIncrement) {
               droppedWrites = true;
             }
             // A6: die Entitaet ist ab jetzt potenziell verwaist (lokal da,
             // serverseitig nicht). Kuenftige Writes muessen deshalb ueber die
             // Outbox laufen, wo sie als voller Upsert ankommen.
-            _orphanedEntities.add(op.entityKey);
+            //
+            // Beides gilt NUR fuer Inhalts-Ops: auf 'stats:<uuid>' schreibt nie
+            // wieder jemand, und der Verlust ist ein Zaehler, kein Eintrag —
+            // der „etwas fehlt"-Snack waere hier gelogen (die Mahlzeit ist
+            // laengst zugestellt). dev.log + Crash-Report laufen fuer ihn
+            // weiter ueber den gemeinsamen Pfad oberhalb.
+            if (op.kind != SyncOpKind.statsIncrement) {
+              _orphanedEntities.add(op.entityKey);
+            }
             if (at >= 0) {
               _outbox = [..._outbox]..removeAt(at);
               _persistOutbox();
@@ -734,13 +768,40 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         // signOutCleanup VOR _clearCache ab, der PII-Cache blieb liegen und
         // der Logout kam nie zustande.
         final at = _outbox.indexWhere((o) => identical(o, op));
+        // Fix 3: Entfernung der Op und Erzeugung ihres Zaehler-Folgeeintrags
+        // sind EIN Listenupdate und damit EIN persistierter Blob-Write — ein
+        // Kill trifft entweder den Zustand davor (Op da, kein Eintrag; der
+        // naechste Replay wiederholt idempotent und erzeugt den Eintrag mit
+        // DERSELBEN abgeleiteten Id neu) oder danach (Eintrag da, Op weg).
+        // Das Fenster „Delta persistiert, Op noch da" existiert nicht mehr.
+        // Angehaengt wird ans Ende: der Loop erreicht den Eintrag noch im
+        // selben Lauf (die while-Bedingung liest die Laenge frisch). Der
+        // Duplikat-Check ist Queue-Hygiene, keine Korrektheitsbedingung —
+        // auch ein doppelter Eintrag waere dank identischer Id serverseitig
+        // ein No-op.
+        final followUp = _statsFollowUpFor(op);
+        final followUpId = followUp?.entityId;
+        bool traegtFollowUp(List<SyncOp> q) =>
+            followUpId != null &&
+            q.any((o) =>
+                o.kind == SyncOpKind.statsIncrement &&
+                o.entityId == followUpId);
         if (at >= 0) {
-          _outbox = [..._outbox]..removeAt(at);
+          final next = [..._outbox]..removeAt(at);
+          if (followUp != null && !traegtFollowUp(next)) next.add(followUp);
+          _outbox = next;
           _persistOutbox();
           // Die nachgerueckte Op steht jetzt an dieser Position.
           i = at;
         } else {
           // Schon anderswo entfernt — an dieser Position steht eine andere Op.
+          // Der Folgeeintrag entsteht trotzdem: sollte ein koaleszierter
+          // Zwilling (Reparatur-Merge) spaeter erneut spielen, erzeugt er
+          // dieselbe Id — lokal faengt ihn der Check, serverseitig der Dedup.
+          if (followUp != null && !traegtFollowUp(_outbox)) {
+            _outbox = [..._outbox, followUp];
+            _persistOutbox();
+          }
           i++;
         }
       }
@@ -817,15 +878,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   /// Fuehrt EINE Outbox-Op gegen den Server aus. Wirft bei Sync-Fehler (der
   /// Replay-Loop behaelt die Op dann) und bei nicht lesbarer Payload
-  /// ([_CorruptOpPayload] — die Op wird dann verworfen, A8). Nachgelagerte
-  /// Zaehler laufen wie im jeweiligen Online-Erfolgspfad.
+  /// ([_CorruptOpPayload] — die Op wird dann verworfen, A8).
+  ///
+  /// Der LEBENSZEIT-Zaehler einer zaehlenden Op wird hier bewusst NICHT mehr
+  /// gebucht (Fix 3): er lief bis dahin ueber [_queueStatsDelta], also ueber
+  /// einen zweiten, SOFORT persistierten Slot — waehrend die Op selbst erst
+  /// einen Blob-Write spaeter aus der Outbox fiel. Ein Kill dazwischen zaehlte
+  /// beim naechsten Boot ein zweites Mal. Stattdessen erzeugt der Replay-Loop
+  /// beim Entfernen der Op ihren [SyncOpKind.statsIncrement]-Folgeeintrag,
+  /// atomar im selben Blob-Write (s. [_statsFollowUpFor], [_replayOutbox]).
+  /// Der Streak-Tag bleibt hier: [_recordTrackingDay] ist serverseitig pro Tag
+  /// idempotent, ihn doppelt zu senden kostet nichts.
   Future<void> _performOp(EatovaSync s, SyncOp op) async {
     switch (op.kind) {
       case SyncOpKind.mealInsert:
         final meal = op.meal;
         if (meal == null) throw _CorruptOpPayload(op.kind);
         await s.meals.insertLoggedMeal(meal);
-        _queueStatsDelta(meals: 1);
         // Streak-Tag der MAHLZEIT verbuchen, nicht "heute" — der Replay kann
         // Tage spaeter laufen. record_tracking_day ist idempotent pro Tag und
         // fuer Tage vor dem letzten gezaehlten Tag ein Server-No-op.
@@ -843,7 +912,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         final ts = op.recordedAt;
         if (kg == null || ts == null) throw _CorruptOpPayload(op.kind);
         await s.tracking.insertWeight(kg, ts, id: op.entityId);
-        _queueStatsDelta(weightLogs: 1);
       case SyncOpKind.favoriteUpsert:
         final fav = op.favorite;
         if (fav == null) throw _CorruptOpPayload(op.kind);
@@ -865,6 +933,32 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         final p = op.profile;
         if (p == null) throw _CorruptOpPayload(op.kind);
         await s.profile.save(p);
+      case SyncOpKind.statsIncrement:
+        final meals = op.statsMeals;
+        final weightLogs = op.statsWeightLogs;
+        // Leeres Increment oder eine entityId ohne UUID-Form koennen nie
+        // sinnvoll zugestellt werden (der RPC-Parameter ist uuid) — A8-Pfad,
+        // wie jede unlesbare Payload.
+        if ((meals <= 0 && weightLogs <= 0) || !isUuidShape(op.entityId)) {
+          throw _CorruptOpPayload(op.kind);
+        }
+        // entityId IST die Request-Id: jede Wiederholung sendet dieselbe,
+        // der Server addiert einen bereits verbuchten Eintrag nicht erneut
+        // und liefert nur die aktuelle Zeile — der Eintrag verlaesst die
+        // Queue dann als normaler Erfolg.
+        final frischeZeile = await s.lifetimeStats.increment(
+          meals: meals,
+          weightLogs: weightLogs,
+          requestId: op.entityId,
+        );
+        if (_disposed) return;
+        _mutate(() {
+          lifetimeStats = frischeZeile;
+          // Wie in _flushStatsDelta: die Serverzeile ist fuer die Zaehler
+          // autoritativ, fuer einen noch nicht zugestellten Streak-Tag nicht.
+          _overlayPendingTrackingDays();
+        });
+        _cacheLifetimeStats();
       case SyncOpKind.trackingDay:
         // Der Tag steckt im entityId (YYYY-MM-DD), nicht in der Payload — ein
         // unlesbarer Wert ist trotzdem der A8-Fall: er wird nie zustellbar.
@@ -878,6 +972,40 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         });
         _cacheLifetimeStats();
     }
+  }
+
+  /// Der Zaehler-Folgeeintrag einer erfolgreich nachgespielten Op — oder
+  /// null, wenn die Op nicht zaehlt. Ersetzt das fruehere
+  /// `_queueStatsDelta` in [_performOp]: das persistierte sein +1 SOFORT in
+  /// den Deltas-Slot, waehrend die Op erst einen zweiten Write spaeter aus
+  /// der Outbox fiel — ein App-Kill dazwischen liess den naechsten Boot die
+  /// Op erneut spielen und ein zweites +1 buchen, unter frischer Buendel-Id
+  /// und damit am Server-Dedup vorbei. Der Folgeeintrag entsteht stattdessen
+  /// ATOMAR mit der Entfernung (derselbe Blob-Write, s. [_replayOutbox]) und
+  /// traegt eine aus der Quell-UUID ABGELEITETE Request-Id — jede
+  /// Wiederholung ist fuer den Server derselbe Vorgang.
+  SyncOp? _statsFollowUpFor(SyncOp op) {
+    final zaehltMeal = op.kind == SyncOpKind.mealInsert;
+    final zaehltWeight = op.kind == SyncOpKind.weightInsert;
+    if (!zaehltMeal && !zaehltWeight) return null;
+    final requestId = deriveStatsRequestId(op.entityId);
+    if (requestId == null) {
+      // entityId ist keine UUID — aus unseren Factories unmoeglich
+      // (uuidV4 in home_store_meals / home_store_tracking), also nur ueber
+      // einen manipulierten/fremden Blob erreichbar. Der Zaehler entfaellt
+      // fuer diese eine Op (derselbe bewusste Preis wie beim capOutbox-
+      // Kopf-Trim: ein Zaehler, kein Nutzer-Inhalt). NUR das Op-Kind ins
+      // Reporting, nie die Payload.
+      dev.log('Outbox: Stats-Request-Id nicht ableitbar (${op.kind.name}) — '
+          'Zaehler-Folgeeintrag entfaellt', name: 'eatova_sync');
+      CrashReporter.breadcrumb('stats-rid underivable: ${op.kind.name}');
+      return null;
+    }
+    return SyncOp.statsIncrement(
+      requestId: requestId,
+      meals: zaehltMeal ? 1 : 0,
+      weightLogs: zaehltWeight ? 1 : 0,
+    );
   }
 
   /// Spiegelt noch nicht synchronisierte Outbox-Ops in den (gecachten oder
@@ -957,6 +1085,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           final tag = DateTime.tryParse(op.entityId);
           if (tag == null) break;
           lifetimeStats = lifetimeStats.recordTrackedDay(tag);
+        case SyncOpKind.statsIncrement:
+          // Kein State-Effekt: die Anzeige der Lebenszeit-Zaehler folgt der
+          // Serverzeile — exakt wie bei den pendenden Buendel-Deltas, deren
+          // Anzeige-Grenzfaelle dokumentiert offen sind. Der Eintrag wirkt
+          // ausschliesslich beim Replay.
+          break;
       }
     }
     if (mealsTouched) {
@@ -983,7 +1117,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     try {
       await sync?.deleteAccount();
     } catch (e, st) {
-      _reportSyncError('Konto-Löschung', e, st);
+      // Die serverseitige Reauth-Ablehnung (Migration 20260815120000,
+      // EX_REAUTH_REQUIRED) braucht einen eigenen Satz: „bitte spaeter
+      // erneut" waere falsch — spaeter erneut zu tippen hilft nicht, der
+      // Mail-Code muss neu angefordert werden.
+      _reportSyncError('Konto-Löschung', e, st,
+          message: deleteAccountErrorMessage(e, _l10n));
       return false;
     }
     // D9: geplante Erinnerungen liegen im OS, nicht in unserem Cache — ohne
@@ -1041,8 +1180,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // `increment_lifetime_stats` (eigener RPC) scheitert. Dann ist die Queue
     // leer und die Deltas stehen — also braucht auch dieser Kanal seinen
     // Zustellversuch, sonst zieht der Logout die Streak-Grundlage weg.
-    // Nach dem Replay, weil ein nachgeholter mealInsert selbst ein Delta
-    // erzeugt (_queueStatsDelta).
+    // Nach dem Replay: der holt seit Fix 3 zwar keine Buendel-Deltas mehr nach
+    // (er zaehlt ueber eigene statsIncrement-Eintraege, die er im selben Lauf
+    // mit zustellt), aber ein waehrend des Replays fertig werdender Live-Write
+    // kann noch ein Delta buchen — und ein hier bereits pendendes Buendel muss
+    // so oder so vor dem Raeumen seinen Zustellversuch bekommen.
     await _flushStatsDelta();
     // Nur was die Zustellung nicht losgeworden ist, rechtfertigt einen
     // überlebenden Slot. Maßgeblich ist der Store-Zustand — er ist der
@@ -1396,6 +1538,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   // --- Lifetime-Stats-Deltas ------------------------------------------------
 
+  /// Bucht ein Lebenszeit-Delta ins pendende Buendel.
+  ///
+  /// Seit Fix 3 ist das exklusiv der LIVE-Pfad (`onDelivered` in
+  /// home_store_meals/home_store_tracking). Der Replay zaehlt ueber seinen
+  /// eigenen [SyncOpKind.statsIncrement]-Eintrag — nicht hierueber: dieser
+  /// Slot committet SOFORT, die Op fiel erst einen Write spaeter aus der
+  /// Outbox, und ein Kill dazwischen zaehlte beim naechsten Boot doppelt.
   void _queueStatsDelta({
     int meals = 0,
     int weightLogs = 0,
