@@ -216,12 +216,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Snack mit freundlicher, klassifizierter Meldung — NIE der rohe
   /// Exception-Text (Schema-Leakage, unlesbar). Die Roh-Exception geht an
   /// dev.log + CrashReporter.
-  void _reportSyncError(String operation, Object error, StackTrace stack) {
+  ///
+  /// [message] ersetzt NUR den Snack-Text — fuer Aufrufer, die ueber den
+  /// Fehler mehr wissen als die generische Klassifikation (Kontoloeschung:
+  /// [deleteAccountErrorMessage] kennt die serverseitige Reauth-Ablehnung).
+  /// Log und CrashReporter bleiben bewusst unberuehrt: eine Meldung, die der
+  /// Aufrufer praeziser fassen kann, ist deshalb nicht weniger meldenswert.
+  void _reportSyncError(String operation, Object error, StackTrace stack,
+      {String? message}) {
     dev.log('$operation failed', error: error, name: 'eatova_sync');
     unawaited(CrashReporter.capture(error, stack, context: operation));
     if (_disposed) return;
     _emitSnack(
-      directSyncErrorMessage(error, _l10n),
+      message ?? directSyncErrorMessage(error, _l10n),
       icon: Icons.error_outline_rounded,
       tone: SnackTone.error,
       duration: kSnackError,
@@ -1110,7 +1117,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     try {
       await sync?.deleteAccount();
     } catch (e, st) {
-      _reportSyncError('Konto-Löschung', e, st);
+      // Die serverseitige Reauth-Ablehnung (Migration 20260815120000,
+      // EX_REAUTH_REQUIRED) braucht einen eigenen Satz: „bitte spaeter
+      // erneut" waere falsch — spaeter erneut zu tippen hilft nicht, der
+      // Mail-Code muss neu angefordert werden.
+      _reportSyncError('Konto-Löschung', e, st,
+          message: deleteAccountErrorMessage(e, _l10n));
       return false;
     }
     // D9: geplante Erinnerungen liegen im OS, nicht in unserem Cache — ohne

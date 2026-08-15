@@ -137,6 +137,34 @@ String directSyncErrorMessage(Object error, [AppLocalizations? l10n]) {
       : t.commonGenericRetryError;
 }
 
+/// True fuer die serverseitige Re-Auth-Ablehnung von `delete_account()`
+/// (Migration 20260815120000_delete_account_reauth.sql): der RPC verlangt ein
+/// JWT, dessen `amr`-Claim einen 'otp'/'recovery'-Eintrag aus den letzten
+/// 5 Minuten traegt, und wirft sonst `EX_REAUTH_REQUIRED` mit SQLSTATE 28000
+/// (PostgREST macht daraus HTTP 403).
+///
+/// Beides pruefen — der Message-Token ist die praezisere Zusicherung (er
+/// kommt woertlich aus der Migration), der errcode ueberlebt auch eine
+/// umformulierte Meldung. Ein blosser HTTP-403 ohne diese beiden Merkmale
+/// zaehlt bewusst NICHT: `code` traegt dann '403', und ein abgelaufener Token
+/// ist etwas anderes als eine fehlende Re-Authentifizierung.
+bool isReauthRequiredError(Object error) =>
+    error is PostgrestException &&
+    (error.code == '28000' || error.message == 'EX_REAUTH_REQUIRED');
+
+/// Fehlertext fuer die Kontoloeschung: die Re-Auth-Ablehnung bekommt einen
+/// eigenen Satz, weil der generische „bitte spaeter erneut" hier in die Irre
+/// fuehrt — spaeter erneut zu tippen hilft nicht, der Nutzer muss den Flow
+/// samt neuem Mail-Code neu starten. Alles andere laeuft unveraendert ueber
+/// [directSyncErrorMessage].
+String deleteAccountErrorMessage(Object error, [AppLocalizations? l10n]) {
+  final t = l10n ?? deL10n;
+  if (isReauthRequiredError(error)) {
+    return t.settingsDeleteAccountReauthExpired;
+  }
+  return directSyncErrorMessage(error, t);
+}
+
 /// Hinweis, dass die Outbox Ops ENDGUELTIG verworfen hat (Gift-Op, aufgebrauchtes
 /// Versuchs-Budget oder Queue-Cap). Echter Datenverlust — der User erfaehrt
 /// davon, aber wie ueberall hier OHNE technische Details: kein SQLSTATE, kein

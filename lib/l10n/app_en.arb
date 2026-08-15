@@ -1247,5 +1247,6 @@
   "settingsDeleteAccountCodeSentTo": "For security, we're sending you a 6-digit code to {adresse}. It's valid for 10 minutes — without it, nothing is deleted.",
   "settingsDeleteAccountPromptSuffixCode": " and then to confirm a 6-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
   "settingsDeleteAccountRequestCta": "Request code",
-  "settingsDeleteAccountRequestingCta": "Requesting code…"
+  "settingsDeleteAccountRequestingCta": "Requesting code…",
+  "settingsDeleteAccountReauthExpired": "Your confirmation has expired. Please restart the account deletion and request a new code."
 }
