@@ -22,7 +22,7 @@ You enter and the app stores the following, tied to your account:
 
 - **Account / sign-in:** your email address, and either a password or — if you
   choose "Continue with Google" — the identity token Google issues for you (see
-  "Google Sign-In" below). We email you a six-digit one-time code, valid for
+  "Google Sign-In" below). We email you an eight-digit one-time code, valid for
   ten minutes, for: confirming your address after sign-up, resetting a
   forgotten password, changing your password while signed in, changing your
   email address (two codes — one to the old, one to the new address, both
@@ -211,7 +211,7 @@ You can, at any time:
 - **Delete** your account and all associated data — in-app via Profile →
   Einstellungen → Konto löschen, which removes your auth record; every app
   table hangs off it with `on delete cascade` and is deleted with it. You
-  confirm the deletion with a six-digit one-time code emailed to you, on top
+  confirm the deletion with an eight-digit one-time code emailed to you, on top
   of typing the confirmation word — deletion is immediate and irreversible
   once confirmed, there is no grace period.
 - **Withdraw consent** for Apple Health or voice input (in iOS Settings → Privacy)

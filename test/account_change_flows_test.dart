@@ -24,7 +24,7 @@ import 'package:eatova/src/theme/app_theme.dart';
 // Drei Zusicherungen tragen die Datei:
 //
 //   1. Kein Server-Aufruf, den die App vorher als aussichtslos erkennen kann
-//      (Wiederholung stimmt nicht, Code hat keine 6 Ziffern, Adresse ist
+//      (Wiederholung stimmt nicht, Code hat keine 8 Ziffern, Adresse ist
 //      keine).
 //   2. Beide E-Mail-Codes gehen an die RICHTIGE Adresse — ein einzelner Code
 //      schliesst den Vorgang nicht ab. Das ist der ganze Sinn der „sicheren
@@ -233,12 +233,12 @@ void main() {
       final repo = baueRepo();
       await oeffnePasswortSchritt2(tester, repo);
 
-      await schreibe(tester, 'password-change-code', '123456');
+      await schreibe(tester, 'password-change-code', '12345678');
       await schreibe(tester, 'password-change-new', 'geheim99');
       await schreibe(tester, 'password-change-repeat', 'geheim99');
       await tippe(tester, find.text('Passwort jetzt ändern'));
 
-      expect(repo.usedNonces, <String>['123456']);
+      expect(repo.usedNonces, <String>['12345678']);
       expect(repo.passwordUpdates, <String>['geheim99']);
       // Zurueck in den Einstellungen, mit Bestaetigung.
       expect(
@@ -254,7 +254,7 @@ void main() {
       final repo = baueRepo();
       await oeffnePasswortSchritt2(tester, repo);
 
-      await schreibe(tester, 'password-change-code', '123456');
+      await schreibe(tester, 'password-change-code', '12345678');
       await schreibe(tester, 'password-change-new', 'geheim99');
       await schreibe(tester, 'password-change-repeat', 'geheim98');
       await tippe(tester, find.text('Passwort jetzt ändern'));
@@ -273,7 +273,7 @@ void main() {
       final repo = baueRepo();
       await oeffnePasswortSchritt2(tester, repo);
 
-      await schreibe(tester, 'password-change-code', '123456');
+      await schreibe(tester, 'password-change-code', '12345678');
       await schreibe(tester, 'password-change-new', 'kurz');
       await schreibe(tester, 'password-change-repeat', 'kurz');
       await tippe(tester, find.text('Passwort jetzt ändern'));
@@ -285,7 +285,7 @@ void main() {
       );
     });
 
-    testWidgets('ein Code mit weniger als 6 Ziffern blockt VOR dem Aufruf',
+    testWidgets('ein Code mit weniger als 8 Ziffern blockt VOR dem Aufruf',
         (tester) async {
       final repo = baueRepo();
       await oeffnePasswortSchritt2(tester, repo);
@@ -296,7 +296,7 @@ void main() {
       await tippe(tester, find.text('Passwort jetzt ändern'));
 
       expect(repo.usedNonces, isEmpty);
-      expect(find.text('Der Code hat 6 Ziffern.'), findsOneWidget);
+      expect(find.text('Der Code hat 8 Ziffern.'), findsOneWidget);
     });
 
     testWidgets('der Knopf sperrt waehrend des Aufrufs und sagt es',
@@ -336,7 +336,7 @@ void main() {
       final repo = baueRepo();
       await oeffnePasswortSchritt2(tester, repo);
 
-      await schreibe(tester, 'password-change-code', '000000');
+      await schreibe(tester, 'password-change-code', '00000000');
       await schreibe(tester, 'password-change-new', 'geheim99');
       await schreibe(tester, 'password-change-repeat', 'geheim99');
       repo.verifyFails = true;
@@ -358,7 +358,7 @@ void main() {
             .widget<TextField>(find.byKey(const ValueKey('password-change-code')))
             .controller
             ?.text,
-        '000000',
+        '00000000',
       );
       expect(
         find.byKey(const ValueKey('password-change-sheet')),
@@ -404,13 +404,13 @@ void main() {
       final repo = baueRepo();
       await oeffneMailSchritt2(tester, repo);
 
-      await schreibe(tester, 'email-change-code-old', '111111');
-      await schreibe(tester, 'email-change-code-new', '222222');
+      await schreibe(tester, 'email-change-code-old', '11111111');
+      await schreibe(tester, 'email-change-code-new', '22222222');
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
       expect(repo.verifiedCodes, <String>[
-        'alt@eatova.de:111111',
-        'neu@eatova.de:222222',
+        'alt@eatova.de:11111111',
+        'neu@eatova.de:22222222',
       ]);
       expect(repo.currentUser?.email, 'neu@eatova.de');
       expect(find.byKey(const ValueKey('email-change-sheet')), findsNothing);
@@ -423,7 +423,7 @@ void main() {
       final repo = baueRepo();
       await oeffneMailSchritt2(tester, repo);
 
-      await schreibe(tester, 'email-change-code-old', '111111');
+      await schreibe(tester, 'email-change-code-old', '11111111');
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
       // Nicht einmal der eine Code geht raus: ein halb bestaetigter Wechsel
@@ -431,7 +431,7 @@ void main() {
       expect(repo.verifiedCodes, isEmpty);
       expect(repo.currentUser?.email, 'alt@eatova.de');
       expect(find.byKey(const ValueKey('email-change-sheet')), findsOneWidget);
-      expect(find.text('Der Code hat 6 Ziffern.'), findsOneWidget);
+      expect(find.text('Der Code hat 8 Ziffern.'), findsOneWidget);
     });
 
     testWidgets('eine ungueltige Adresse blockt VOR dem Aufruf',
@@ -468,8 +468,8 @@ void main() {
       final repo = baueRepo();
       await oeffneMailSchritt2(tester, repo);
 
-      await schreibe(tester, 'email-change-code-old', '000000');
-      await schreibe(tester, 'email-change-code-new', '222222');
+      await schreibe(tester, 'email-change-code-old', '00000000');
+      await schreibe(tester, 'email-change-code-new', '22222222');
       repo.verifyFails = true;
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
@@ -481,7 +481,7 @@ void main() {
                 find.byKey(const ValueKey('email-change-code-new')))
             .controller
             ?.text,
-        '222222',
+        '22222222',
       );
       expect(find.byKey(const ValueKey('email-change-sheet')), findsOneWidget);
     });
@@ -501,21 +501,21 @@ void main() {
       await schreibe(tester, 'email-change-new-address', 'neu@eatova.de');
       await tippe(tester, find.text('Codes anfordern'));
 
-      await schreibe(tester, 'email-change-code-old', '111111');
-      await schreibe(tester, 'email-change-code-new', '999999');
+      await schreibe(tester, 'email-change-code-old', '11111111');
+      await schreibe(tester, 'email-change-code-new', '99999999');
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
       // Erster Code durch, zweiter abgelehnt.
-      expect(repo.verifiedCodes, <String>['alt@eatova.de:111111']);
+      expect(repo.verifiedCodes, <String>['alt@eatova.de:11111111']);
       expect(repo.currentUser?.email, 'alt@eatova.de');
 
       // Zweiter Anlauf, diesmal mit dem richtigen zweiten Code.
-      await schreibe(tester, 'email-change-code-new', '222222');
+      await schreibe(tester, 'email-change-code-new', '22222222');
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
       expect(repo.verifiedCodes, <String>[
-        'alt@eatova.de:111111',
-        'neu@eatova.de:222222',
+        'alt@eatova.de:11111111',
+        'neu@eatova.de:22222222',
       ], reason: 'der erste Code darf NICHT erneut eingereicht werden');
       expect(find.text('E-Mail-Adresse geändert.'), findsOneWidget);
       await raeumeToastAb(tester);
@@ -526,8 +526,8 @@ void main() {
       final repo = baueRepo();
       await oeffneMailSchritt2(tester, repo);
 
-      await schreibe(tester, 'email-change-code-old', '111111');
-      await schreibe(tester, 'email-change-code-new', '222222');
+      await schreibe(tester, 'email-change-code-old', '11111111');
+      await schreibe(tester, 'email-change-code-new', '22222222');
       await tippe(tester, find.text('Adresse jetzt ändern'));
       await raeumeToastAb(tester);
 

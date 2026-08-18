@@ -136,7 +136,7 @@ class EatovaSupabaseConfig {
   /// `error`/`error_description` fallen bewusst mit durch: die App zeigt
   /// daraus ohnehin nichts an, und ein Fremd-Deep-Link koennte sonst eine
   /// erfundene Fehlermeldung in den Auth-Stream schieben. Reset und
-  /// E-Mail-Wechsel laufen ueber 6-stellige Codes (siehe
+  /// E-Mail-Wechsel laufen ueber 8-stellige Codes (siehe
   /// `auth_repository.dart`), es gibt also keinen Recovery-Link, der hier
   /// noch durchmuesste.
   @visibleForTesting

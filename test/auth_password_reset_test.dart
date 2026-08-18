@@ -52,7 +52,7 @@ void main() {
     final body = jsonDecode(captured!.body) as Map<String, dynamic>;
     expect(body['email'], 'user@example.com',
         reason: 'getrimmt wie bei signIn');
-    // KEIN redirect_to: der Reset laeuft ueber den 6-stelligen Code, nicht
+    // KEIN redirect_to: der Reset laeuft ueber den 8-stelligen Code, nicht
     // ueber einen Mail-Link. Ein redirect_to wuerde den kaperbaren
     // eatova://-Deep-Link-Weg reaktivieren, falls das Server-Template je auf
     // {{ .ConfirmationURL }} zurueckfaellt (Sicherheits-Audit 2026-08-09).

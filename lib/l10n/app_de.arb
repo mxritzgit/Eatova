@@ -994,7 +994,7 @@
 
   "settingsAccountEmailInvalid": "Bitte gib eine gültige E-Mail ein.",
   "settingsAccountEmailUnchanged": "Das ist bereits deine Adresse — hier gibt es nichts zu ändern.",
-  "settingsAccountCodeInvalid": "Der Code hat 6 Ziffern.",
+  "settingsAccountCodeInvalid": "Der Code hat 8 Ziffern.",
   "settingsAccountPasswordTooShort": "Das Passwort braucht mindestens 8 Zeichen.",
   "settingsAccountPasswordMismatch": "Die beiden Passwörter stimmen nicht überein.",
   "settingsAccountCodeRejected": "Der Code stimmt nicht oder ist abgelaufen. Fordere einen neuen an.",
@@ -1005,13 +1005,13 @@
   "settingsAccountPasswordSameAsOld": "Das neue Passwort muss sich vom bisherigen unterscheiden.",
   "settingsAccountPasswordWeak": "Dieses Passwort ist zu schwach. Nimm ein längeres oder ungewöhnlicheres.",
 
-  "settingsPasswordChangeCodeSentTo": "Zur Sicherheit schicken wir dir zuerst einen 6-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
+  "settingsPasswordChangeCodeSentTo": "Zur Sicherheit schicken wir dir zuerst einen 8-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
   "@settingsPasswordChangeCodeSentTo": {
     "placeholders": {
       "adresse": { "type": "String" }
     }
   },
-  "settingsPasswordChangeCodeSentDefault": "Zur Sicherheit schicken wir dir zuerst einen 6-stelligen Code an deine hinterlegte Adresse. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
+  "settingsPasswordChangeCodeSentDefault": "Zur Sicherheit schicken wir dir zuerst einen 8-stelligen Code an deine hinterlegte Adresse. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
   "settingsPasswordChangeStep2Subtitle": "Trag den Code aus der E-Mail zusammen mit deinem neuen Passwort ein.",
   "settingsPasswordChangeCodeFieldLabel": "Bestätigungs-Code",
   "settingsPasswordChangeNewLabel": "Neues Passwort",
@@ -1244,8 +1244,8 @@
   "settingsAccountEmailNotAvailable": "Diese Adresse können wir nicht übernehmen. Falls es dazu schon ein Konto gibt, melde dich damit an; sonst prüfe bitte die Schreibweise.",
   "settingsDeleteAccountCheckingCta": "Wird geprüft…",
   "settingsDeleteAccountCodeFieldLabel": "Bestätigungs-Code",
-  "settingsDeleteAccountCodeSentTo": "Zur Sicherheit schicken wir dir einen 6-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn wird nichts gelöscht.",
-  "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 6-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
+  "settingsDeleteAccountCodeSentTo": "Zur Sicherheit schicken wir dir einen 8-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn wird nichts gelöscht.",
+  "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 8-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
   "settingsDeleteAccountReauthExpired": "Die Bestätigung ist abgelaufen. Bitte starte die Kontolöschung neu und fordere einen neuen Code an.",
   "settingsDeleteAccountRequestCta": "Code anfordern",
   "settingsDeleteAccountRequestingCta": "Code wird angefordert…"

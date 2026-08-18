@@ -188,7 +188,7 @@ void main() {
 
       for (var versuch = 1; versuch <= 5; versuch++) {
         repo.verifyFails = true;
-        await tester.enterText(_codeFeld, '00000$versuch');
+        await tester.enterText(_codeFeld, '0000000$versuch');
         await tester.tap(_primaerKnopf);
         await tester.pumpAndSettle();
       }
@@ -250,7 +250,7 @@ void main() {
 
       for (var versuch = 1; versuch <= 5; versuch++) {
         repo.verifyFails = true;
-        await tester.enterText(_codeFeld, '00000$versuch');
+        await tester.enterText(_codeFeld, '0000000$versuch');
         await tester.tap(_primaerKnopf);
         await tester.pumpAndSettle();
       }

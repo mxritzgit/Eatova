@@ -994,7 +994,7 @@
 
   "settingsAccountEmailInvalid": "Please enter a valid email address.",
   "settingsAccountEmailUnchanged": "That's already your address — there's nothing to change here.",
-  "settingsAccountCodeInvalid": "The code has 6 digits.",
+  "settingsAccountCodeInvalid": "The code has 8 digits.",
   "settingsAccountPasswordTooShort": "The password needs at least 8 characters.",
   "settingsAccountPasswordMismatch": "The two passwords don't match.",
   "settingsAccountCodeRejected": "The code is wrong or has expired. Request a new one.",
@@ -1005,13 +1005,13 @@
   "settingsAccountPasswordSameAsOld": "The new password must be different from the old one.",
   "settingsAccountPasswordWeak": "This password is too weak. Use a longer or more unusual one.",
 
-  "settingsPasswordChangeCodeSentTo": "For security, we'll first send you a 6-digit code to {adresse}. It's valid for 10 minutes — without it, the password can't be changed.",
+  "settingsPasswordChangeCodeSentTo": "For security, we'll first send you an 8-digit code to {adresse}. It's valid for 10 minutes — without it, the password can't be changed.",
   "@settingsPasswordChangeCodeSentTo": {
     "placeholders": {
       "adresse": { "type": "String" }
     }
   },
-  "settingsPasswordChangeCodeSentDefault": "For security, we'll first send you a 6-digit code to your saved address. It's valid for 10 minutes — without it, the password can't be changed.",
+  "settingsPasswordChangeCodeSentDefault": "For security, we'll first send you an 8-digit code to your saved address. It's valid for 10 minutes — without it, the password can't be changed.",
   "settingsPasswordChangeStep2Subtitle": "Enter the code from the email along with your new password.",
   "settingsPasswordChangeCodeFieldLabel": "Confirmation code",
   "settingsPasswordChangeNewLabel": "New password",
@@ -1244,8 +1244,8 @@
   "settingsAccountEmailNotAvailable": "We can't switch to this address. If an account already exists for it, sign in with that one; otherwise please check the spelling.",
   "settingsDeleteAccountCheckingCta": "Checking…",
   "settingsDeleteAccountCodeFieldLabel": "Confirmation code",
-  "settingsDeleteAccountCodeSentTo": "For security, we're sending you a 6-digit code to {adresse}. It's valid for 10 minutes — without it, nothing is deleted.",
-  "settingsDeleteAccountPromptSuffixCode": " and then to confirm a 6-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
+  "settingsDeleteAccountCodeSentTo": "For security, we're sending you an 8-digit code to {adresse}. It's valid for 10 minutes — without it, nothing is deleted.",
+  "settingsDeleteAccountPromptSuffixCode": " and then to confirm an 8-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
   "settingsDeleteAccountReauthExpired": "Your confirmation has expired. Please restart the account deletion and request a new code.",
   "settingsDeleteAccountRequestCta": "Request code",
   "settingsDeleteAccountRequestingCta": "Requesting code…"

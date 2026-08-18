@@ -268,7 +268,7 @@ void main() {
 
       await tester.enterText(
         find.byKey(const ValueKey('settings-delete-code-field')),
-        '123456',
+        '12345678',
       );
       await tester.pumpAndSettle();
 
