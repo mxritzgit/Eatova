@@ -591,7 +591,7 @@ class _CodeFeld extends StatelessWidget {
                         isDense: true,
                         contentPadding:
                             const EdgeInsets.symmetric(vertical: 15),
-                        hintText: '••••••',
+                        hintText: '••••••••',
                         hintStyle:
                             AppType.ui(14, color: t.ink2, letterSpacing: 5),
                       ),

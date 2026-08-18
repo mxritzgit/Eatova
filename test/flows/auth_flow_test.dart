@@ -52,10 +52,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // Seit dem OTP-Flow folgt auf die Registrierung die Code-Seite: die
-    // E-Mail wird mit dem 6-stelligen Code aus der Mail bestaetigt (statt
+    // E-Mail wird mit dem 8-stelligen Code aus der Mail bestaetigt (statt
     // Link), erst danach liegt die Home-Page frei.
     expect(find.byKey(const ValueKey('auth-code-screen')), findsOneWidget);
-    await tester.enterText(find.byKey(const ValueKey('code-field')), '123456');
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '12345678');
     await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 

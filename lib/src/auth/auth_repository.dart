@@ -73,13 +73,13 @@ abstract class AuthRepository {
   /// Konto-Enumerations-Leck.
   Future<void> sendPasswordReset(String email);
 
-  /// Prueft den 6-stelligen Code aus der Passwort-Reset-Mail (OTP statt
+  /// Prueft den 8-stelligen Code aus der Passwort-Reset-Mail (OTP statt
   /// Link, {{ .Token }}-Template; Gueltigkeit mailer_otp_exp = 10 Min).
   /// Erfolg stellt die Session her — danach setzt [updatePassword] das neue
   /// Passwort.
   Future<void> verifyRecoveryCode({required String email, required String code});
 
-  /// Prueft den 6-stelligen Code aus der Registrierungs-Bestaetigung.
+  /// Prueft den 8-stelligen Code aus der Registrierungs-Bestaetigung.
   Future<void> verifySignupCode({required String email, required String code});
 
   /// Fordert die Registrierungs-Bestaetigung erneut an (neuer Code).
@@ -104,16 +104,15 @@ abstract class AuthRepository {
   /// Setzt das neue Passwort — nur zusammen mit dem Code aus
   /// [startPasswordChange].
   ///
-  /// Der Code ist Pflicht, nicht Zierde: mit
-  /// `security_update_password_require_reauthentication` lehnt GoTrue eine
-  /// Aenderung ohne gueltige Nonce ab. Sonst koennte, wer eine fremde
-  /// Sitzung erbeutet, das Passwort ohne Zugriff aufs Postfach tauschen.
-  ///
-  /// EINSCHRAENKUNG (Audit 2026-08-14, ungeklaert): ob der Server die Nonce
-  /// wirklich bei JEDER Sitzung verlangt, ist aus dem Repo nicht belegbar —
-  /// der Recovery-Weg kommt ohne sie durch. Der Widerspruch steht bei
-  /// [AuthRepository.updatePassword]; bis er am Live-Projekt geklaert ist,
-  /// ist die Nonce hier moeglicherweise nur eine Huerde der App.
+  /// GEKLAERT (2026-08-18, GoTrue-Quellcode internal/api/user.go): mit
+  /// `security_update_password_require_reauthentication` verlangt GoTrue die
+  /// Nonce NUR, wenn keine Sitzung vorliegt oder die Sitzung aelter als
+  /// 24 Stunden ist (gemessen an `session.CreatedAt`). Bei juengeren
+  /// Sitzungen wird der Code serverseitig weder verlangt noch geprueft —
+  /// auch ein falscher Code aendert dann das Passwort. Die Nonce schuetzt
+  /// also nur Alt-Sitzungen; fuer frische ist sie eine reine App-Huerde.
+  /// Restrisiko und warum das so bleibt: [AuthRepository.updatePassword]
+  /// und supabase/AUTH_EMAIL_OTP.md, Abschnitt „Nonce-Semantik".
   Future<void> confirmPasswordChange({
     required String code,
     required String newPassword,
@@ -172,7 +171,7 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> sendPasswordReset(String email) async {
-    // BEWUSST OHNE redirectTo: der Reset laeuft ueber den 6-stelligen Code
+    // BEWUSST OHNE redirectTo: der Reset laeuft ueber den 8-stelligen Code
     // ({{ .Token }}-Template, AuthCodeScreen), nicht ueber einen Mail-Link.
     // Ein redirect_to wuerde nur dann greifen, wenn jemand das Server-Template
     // auf {{ .ConfirmationURL }} zuruecksetzt — und reaktivierte damit still
@@ -208,24 +207,27 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> updatePassword(String newPassword) async {
-    // OFFENER WIDERSPRUCH (Audit 2026-08-14) — bewusst NICHT geraderueckt:
-    // Dieser Aufruf setzt das Passwort OHNE Nonce, [confirmPasswordChange]
-    // MIT; beide landen auf PUT /auth/v1/user. Laut supabase/AUTH_EMAIL_OTP.md
-    // steht `security_update_password_require_reauthentication` auf true.
-    // Genau eine der beiden Varianten muss falsch sein:
-    //  (1) Der Server verlangt die Nonce immer — dann endet „Passwort
-    //      vergessen" fuer JEDEN Nutzer hier in einer Sackgasse (der Fehler
-    //      faellt in account_change_messages.dart in die Generik).
-    //  (2) Der Server verlangt sie nur, wenn die Sitzung nicht frisch ist —
-    //      dann kommt dieser Weg durch (verifyRecoveryCode legt die Sitzung
-    //      unmittelbar davor an) und die Nonce in confirmPasswordChange ist
-    //      serverseitig wirkungslos fuer genau die frischen Sitzungen.
-    // Aus dem Repo ist keins von beidem belegbar; (2) passt dazu, dass der
-    // Recovery-Weg seit 2026-08-08 unbeanstandet laeuft, waehrend die
-    // Reauth-Pflicht erst am 2026-08-10 dazukam. Eine Aenderung auf Verdacht
-    // zerstoert im Fall (2) „Passwort vergessen" fuer alle. Bis zur Klaerung
-    // am Live-Projekt haelt test/auth_enumeration_test.dart beide
-    // Wire-Formate fest, damit ein spaeterer Eingriff auffaellt.
+    // WIDERSPRUCH AUFGELOEST (2026-08-18, GoTrue-Quellcode
+    // internal/api/user.go, UserUpdate): Fall (2) aus dem Audit 2026-08-14
+    // ist belegt. `security_update_password_require_reauthentication`
+    // prueft die Nonce nur bei `session == nil` oder Sitzungen aelter als
+    // 24 h (`session.CreatedAt + 24h`); bei juengeren ueberspringt der
+    // Server den kompletten Nonce-Block. Deshalb kommt dieser Aufruf OHNE
+    // Nonce durch: [verifyRecoveryCode] legt die Sitzung unmittelbar davor
+    // an.
+    //
+    // NICHT „geraderuecken": „Passwort vergessen" haengt an genau dieser
+    // Frische-Ausnahme. Aendert GoTrue die Semantik (Nonce immer), endet
+    // dieser Weg fuer ALLE Nutzer in einer Sackgasse — das Wire-Format in
+    // test/auth_enumeration_test.dart macht so einen Eingriff sichtbar.
+    //
+    // RESTRISIKO (dokumentiert in supabase/AUTH_EMAIL_OTP.md): wer eine
+    // fremde Sitzung erbeutet, die juenger als 24 h ist, tauscht das
+    // Passwort ohne Postfach-Zugriff. Das Postfach bleibt trotzdem Wurzel
+    // des Vertrauens: Mail-Recovery setzt jederzeit ein neues Passwort und
+    // beendet dabei alle anderen Sitzungen (GoTrue: LogoutAllExceptMe),
+    // und die Mailadresse selbst ist dank secure_email_change (zwei Codes)
+    // nicht ohne das alte Postfach zu uebernehmen.
     await _client.auth.updateUser(UserAttributes(password: newPassword));
   }
 
@@ -239,10 +241,11 @@ class SupabaseAuthRepository implements AuthRepository {
     required String code,
     required String newPassword,
   }) async {
-    // Gegenstueck zum Widerspruch in [updatePassword]: hier laeuft die Nonce
-    // mit. Ueberspringt GoTrue sie bei frischen Sitzungen, schuetzt sie genau
-    // die Sitzungsklasse nicht, gegen die der Doc-Kommentar der Schnittstelle
-    // sie ins Feld fuehrt. Nicht auf Verdacht anfassen (Audit 2026-08-14).
+    // Die Nonce wirkt serverseitig nur bei Sitzungen ab 24 h Alter; bei
+    // juengeren ignoriert GoTrue sie komplett — auch einen falschen Code
+    // (Details bei [updatePassword]). Sie bleibt trotzdem drin: fuer
+    // Alt-Sitzungen ist sie Pflicht, und die Code-Mail macht den Wechsel
+    // fuer den Kontobesitzer sichtbar.
     await _client.auth.updateUser(
       UserAttributes(password: newPassword, nonce: code.trim()),
     );
@@ -283,7 +286,7 @@ class SupabaseAuthRepository implements AuthRepository {
     required String displayName,
   }) async {
     // BEWUSST OHNE emailRedirectTo: die Registrierung bestaetigt die E-Mail
-    // ueber den 6-stelligen Code ({{ .Token }}-Template, AuthCodeScreen im
+    // ueber den 8-stelligen Code ({{ .Token }}-Template, AuthCodeScreen im
     // signup-Flow), nicht ueber einen Confirm-Link. Kein redirect_to =>
     // keine stille Reaktivierung des Deep-Link-Wegs bei einem Template-
     // Rueckfall (Sicherheits-Audit 2026-08-09).

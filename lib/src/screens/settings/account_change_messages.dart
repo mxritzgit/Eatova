@@ -22,8 +22,14 @@ import '../../services/sync_error_messages.dart' show isNetworkSyncError;
 /// zu dem, den der Login schon zeigt.
 const int kAccountMinPasswordLength = 8;
 
-/// Laenge des E-Mail-Codes (GoTrue `mailer_otp_length` = 6).
-const int kAccountCodeLength = 6;
+/// Laenge des E-Mail-Codes (GoTrue `mailer_otp_length` = 8).
+///
+/// Seit 2026-08-18 acht statt sechs Stellen: /auth/v1/verify ist nur pro IP
+/// rate-limitiert und ein falscher Versuch verbraucht den Code nicht — bei
+/// sechs Stellen erreichte ein verteilter Angreifer zweistellige Trefferquoten
+/// pro 10-Minuten-Fenster, bei acht sinkt das um Faktor 100. Wer den Wert
+/// aendert, MUSS die Server-Config nachziehen (supabase/AUTH_EMAIL_OTP.md).
+const int kAccountCodeLength = 8;
 
 // Alle sechs Funktionen unten nehmen ein OPTIONALES [AppLocalizations] mit
 // Deutsch-Default ([deL10n]) statt eines Pflichtparameters: dieselbe
@@ -55,7 +61,7 @@ bool isPlausibleAccountEmail(String value) {
   return adresse.contains('@') && adresse.contains('.');
 }
 
-/// Genau sechs Ziffern. Der Formatter am Feld filtert bereits Nicht-Ziffern —
+/// Genau [kAccountCodeLength] Ziffern. Der Formatter am Feld filtert bereits Nicht-Ziffern —
 /// diese Pruefung faengt den zu kurzen Rest ab, bevor er als sicherer
 /// Serverfehler zurueckkommt.
 bool isAccountCode(String value) =>

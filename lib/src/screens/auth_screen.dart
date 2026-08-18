@@ -117,7 +117,7 @@ class _AuthScreenState extends State<AuthScreen> {
               'Bestätigungs-Code unterwegs an $email (10 Minuten gültig).',
         );
         // Direkt zur Code-Eingabe: die Bestaetigung laeuft ueber den
-        // 6-stelligen Code aus der Mail, nicht mehr ueber einen Link.
+        // 8-stelligen Code aus der Mail, nicht mehr ueber einen Link.
         await Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => AuthCodeScreen(
             authRepository: widget.authRepository,
@@ -164,7 +164,7 @@ class _AuthScreenState extends State<AuthScreen> {
     return raw.contains('already registered') || raw.contains('already exists');
   }
 
-  /// Eigene Seite fuer den Code-Flow (6-stelliger OTP statt Mail-Link):
+  /// Eigene Seite fuer den Code-Flow (8-stelliger OTP statt Mail-Link):
   /// E-Mail wird vorbefuellt, eingeben/aendern passiert dort.
   void _forgotPassword() {
     setState(() {

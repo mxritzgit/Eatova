@@ -12,6 +12,7 @@ import '../services/local_cache.dart'
 import '../services/secure_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/common/app_snack.dart';
+import 'settings/account_change_messages.dart' show kAccountCodeLength;
 
 /// Welcher Code-Flow laeuft: Passwort-Reset oder Registrierungs-Bestaetigung.
 enum AuthCodeFlow { recovery, signup }
@@ -81,9 +82,10 @@ class _ThrottleState {
 /// eine gepatchte App) umgeht ihn trivial, [maxAttempts] eingeschlossen: er
 /// zaehlt schlicht keine Fehlversuche mehr mit. Als KOSTEN- und
 /// MISSBRAUCHSBREMSE fuer den gutartigen Fall (diese App, dieses Geraet)
-/// taugt er; als BRUTE-FORCE-SCHUTZ fuer den 6-stelligen Code NICHT. Der
-/// echte Schutz muss serverseitig kommen (GoTrue-Rate-Limits, Code-Ablauf
-/// nach mailer_otp_exp, ggf. IP-Sperren).
+/// taugt er; als BRUTE-FORCE-SCHUTZ fuer den Ziffern-Code NICHT. Der
+/// echte Schutz muss serverseitig kommen (8-stelliger Keyspace,
+/// GoTrue-Rate-Limits, Code-Ablauf nach mailer_otp_exp, ggf. IP-Sperren —
+/// Rechnung in supabase/AUTH_EMAIL_OTP.md).
 class _OtpSendThrottle {
   _OtpSendThrottle(this._injected);
 
@@ -188,7 +190,8 @@ class _OtpSendThrottle {
   }
 }
 
-/// Eigene Seite fuer die 6-stelligen E-Mail-Codes (OTP statt Mail-Link).
+/// Eigene Seite fuer die 8-stelligen E-Mail-Codes (OTP statt Mail-Link,
+/// Laenge zentral in [kAccountCodeLength]).
 ///
 ///  * [AuthCodeFlow.recovery]: E-Mail eingeben -> Code anfordern -> Code
 ///    pruefen (verifyOTP recovery, stellt die Session her) -> neues Passwort
@@ -468,7 +471,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       setState(() {
         _step = _Step.code;
         _message = 'Falls ein Konto mit dieser E-Mail existiert, ist der '
-            '6-stellige Code unterwegs. Er ist 10 Minuten gültig.';
+            '8-stellige Code unterwegs. Er ist 10 Minuten gültig.';
       });
     });
   }
@@ -496,8 +499,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   Future<void> _verify() async {
     if (_locked) return;
     final code = _code.text.trim();
-    if (code.length != 6) {
-      setState(() => _error = 'Der Code hat 6 Ziffern.');
+    if (code.length != kAccountCodeLength) {
+      setState(() => _error = 'Der Code hat $kAccountCodeLength Ziffern.');
       return;
     }
     final email = _guardEmail;
@@ -601,7 +604,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
               Text(
                 switch (_step) {
                   _Step.email =>
-                    'Wir schicken dir einen 6-stelligen Code per E-Mail.',
+                    'Wir schicken dir einen 8-stelligen Code per E-Mail.',
                   _Step.code => _isRecovery
                       ? 'Gib den Code aus der E-Mail an ${_email.text.trim()} ein.'
                       : 'Bestätige deine E-Mail ${_email.text.trim()} mit dem '
@@ -843,8 +846,8 @@ class _CapsuleFieldState extends State<_CapsuleField> {
   }
 }
 
-/// Grosse Code-Kapsel: 6 Ziffern, weit gesperrt, tabular — die Zahl ist der
-/// Held der Seite.
+/// Grosse Code-Kapsel: [kAccountCodeLength] Ziffern, weit gesperrt, tabular —
+/// die Zahl ist der Held der Seite.
 class _CodeField extends StatelessWidget {
   const _CodeField({
     required this.fieldKey,
@@ -878,7 +881,7 @@ class _CodeField extends StatelessWidget {
         autofillHints: const [AutofillHints.oneTimeCode],
         inputFormatters: [
           FilteringTextInputFormatter.digitsOnly,
-          LengthLimitingTextInputFormatter(6),
+          LengthLimitingTextInputFormatter(kAccountCodeLength),
         ],
         textAlign: TextAlign.center,
         cursorColor: lime,
@@ -890,7 +893,7 @@ class _CodeField extends StatelessWidget {
           fontFeatures: [FontFeature.tabularFigures()],
         ),
         decoration: const InputDecoration(
-          hintText: '······',
+          hintText: '········',
           hintStyle: TextStyle(color: textMuted, letterSpacing: 10),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,

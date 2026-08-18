@@ -37,7 +37,7 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   reachable as a labelled row in the add sheet and from the empty state of the
   product search. Logged with its own source marker instead of a faked scan
   result.
-- **Password reset and six-digit e-mail codes** — recovery and sign-up
+- **Password reset and eight-digit e-mail codes** — recovery and sign-up
   confirmation run through OTP codes on their own screen instead of mail
   links. The send confirmation stays neutral about whether an account exists.
 - **Food calendar** — 30 scrollable days with a visible archive chip.
@@ -79,7 +79,7 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   client-supplied header can no longer aim at someone else's bucket; poison
   operations can no longer wedge the sync outbox.
 - **Account deletion: the server now enforces the re-authentication it always
-  displayed** — the confirmation sheet already asked for a fresh six-digit
+  displayed** — the confirmation sheet already asked for a fresh e-mail
   code, but `delete_account()` itself only checked `auth.uid()`; a captured
   session token could call the RPC directly and skip the code entirely. The
   function now requires a JWT with an `otp`/`recovery` entry in the `amr`
@@ -100,6 +100,28 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   as soon as the function is deployed; the **chat path only takes effect once
   the app build that sends the locale ships** — existing chat clients keep
   getting German refusals in English sessions until then.
+- **E-mail codes lengthened to eight digits** — GoTrue's `/verify` endpoint is
+  rate-limited per IP only and a wrong attempt does not consume the code, so a
+  distributed attacker had a double-digit success chance against a six-digit
+  code within its ten-minute lifetime; eight digits cut that by a factor of
+  100. Input fields, validation and texts follow `kAccountCodeLength`; the
+  server-side `mailer_otp_length` is flipped together with this change (an
+  older build truncates the longer code — see `supabase/AUTH_EMAIL_OTP.md`
+  for the rollout order).
+- **The reauthentication-nonce contradiction is resolved** — verified against
+  the GoTrue source: with `security_update_password_require_reauthentication`
+  the nonce is only demanded for sessions older than 24 hours; fresh sessions
+  skip the check entirely, which is exactly why the recovery flow works
+  without one. Documented in `supabase/AUTH_EMAIL_OTP.md`, including the
+  accepted residual risk and the `require_current_password` lever deliberately
+  not pulled.
+- **`profiles.email` no longer goes stale after an address change** — the
+  bootstrap trigger only fired on user creation, so the GDPR data export
+  served the old address; a new `AFTER UPDATE OF email` trigger reuses the
+  same function to keep the mirror in sync.
+- **Legacy `fitpilot://` redirect URIs dropped from the auth allow-list** —
+  no app registers that scheme since the rebrand, so a malicious app could
+  have claimed it conflict-free as an OAuth redirect target.
 
 ## [1.1.0] - 2026-08-07
 

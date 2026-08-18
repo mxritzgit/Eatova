@@ -6,7 +6,7 @@ import 'package:flutter/widgets.dart';
 typedef SecureScreenInvoker = Future<void> Function(bool secure);
 
 /// Schutz gegen Screenshots und das Vorschaubild im App-Umschalter für
-/// sensible Screens (Sicherheits-Audit 2026-08-09): der 6-stellige Code,
+/// sensible Screens (Sicherheits-Audit 2026-08-09): der 8-stellige Code,
 /// das Passwort-Feld und die Gesundheitsdaten sollen nicht im
 /// Android-Recents-Thumbnail bzw. iOS-App-Switcher-Snapshot auftauchen.
 ///

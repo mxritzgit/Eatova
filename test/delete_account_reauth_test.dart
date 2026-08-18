@@ -228,10 +228,10 @@ void main() {
     var geloescht = 0;
     await oeffneCodeSchritt(tester, repo, () async => geloescht++);
 
-    await schreibe(tester, 'settings-delete-code-field', '123456');
+    await schreibe(tester, 'settings-delete-code-field', '12345678');
     await tippe(tester, find.text('Konto endgültig löschen'));
 
-    expect(repo.verifiedCodes, <String>['jonas@eatova.de:123456']);
+    expect(repo.verifiedCodes, <String>['jonas@eatova.de:12345678']);
     expect(geloescht, 1);
     // Erst schliessen, dann loeschen — sonst raeumt der AuthGate die Seite
     // unter dem Nutzer weg und erklaert ihm eine „abgelaufene Sitzung".
@@ -261,7 +261,7 @@ void main() {
     var geloescht = 0;
     await oeffneCodeSchritt(tester, repo, () async => geloescht++);
 
-    await schreibe(tester, 'settings-delete-code-field', '000000');
+    await schreibe(tester, 'settings-delete-code-field', '00000000');
     repo.verifyFails = true;
     await tippe(tester, find.text('Konto endgültig löschen'));
 
@@ -274,7 +274,7 @@ void main() {
     // Sheet bleibt offen, die Eingabe steht noch — wer sich vertippt, soll
     // korrigieren koennen statt von vorn anzufangen.
     expect(find.byKey(const ValueKey('delete-account-sheet')), findsOneWidget);
-    expect(find.text('000000'), findsOneWidget);
+    expect(find.text('00000000'), findsOneWidget);
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
   });
 
@@ -357,7 +357,7 @@ void main() {
         find.byKey(const ValueKey('settings-delete-code-field')),
         findsOneWidget,
       );
-      await schreibe(tester, 'settings-delete-code-field', '123456');
+      await schreibe(tester, 'settings-delete-code-field', '12345678');
     } finally {
       FlutterError.onError = prior;
     }

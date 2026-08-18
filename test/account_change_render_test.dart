@@ -144,7 +144,7 @@ void main() {
           await schreibe(tester, 'password-change-repeat', 'anders');
           await tippeAktion(tester, 'Passwort jetzt ändern');
 
-          expect(find.text('Der Code hat 6 Ziffern.'), findsOneWidget);
+          expect(find.text('Der Code hat 8 Ziffern.'), findsOneWidget);
         });
       });
 
@@ -170,8 +170,8 @@ void main() {
 
           // Zwei Code-Felder mit je einer langen Adresse darueber, dazu der
           // Doppel-Code-Hinweis und ein abgelehnter Code.
-          await schreibe(tester, 'email-change-code-old', '111111');
-          await schreibe(tester, 'email-change-code-new', '222222');
+          await schreibe(tester, 'email-change-code-old', '11111111');
+          await schreibe(tester, 'email-change-code-new', '22222222');
           repo.verifyFails = true;
           await tippeAktion(tester, 'Adresse jetzt ändern');
 

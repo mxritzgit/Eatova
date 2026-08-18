@@ -389,6 +389,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // sich der Nutzer erneut ausweisen koennte — und dann entfaellt die
         // Zeile ersatzlos, statt die unwiderrufliche Aktion ohne zweite Huerde
         // anzubieten (dieselbe Regel wie fuer Passwort- und Adresswechsel).
+        //
+        // GEPRUEFT (Befund-Verifikation 2026-08-18): ein Konto ohne
+        // E-Mail-Adresse kann in diesem Setup nicht entstehen (aktive Provider
+        // sind nur E-Mail und Google; GoTrue legt Google-Konten ohne
+        // email-Claim gar nicht an, und der native Flow liefert den Claim
+        // immer). Der null-Zweig ist reine Defensive fuer Tests/Previews —
+        // fuer jeden real existierenden Nutzer ist die Loeschung erreichbar,
+        // eine DSGVO-Luecke entsteht hier nicht.
         if (widget.onDeleteAccount != null && repo != null && email != null)
           _deleteBlock(t, l10n, repo, email),
       ],
@@ -921,7 +929,7 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
           SheetField(
             key: const ValueKey('settings-delete-code-field'),
             label: l10n.settingsDeleteAccountCodeFieldLabel,
-            hint: '••••••',
+            hint: '••••••••',
             controller: _code,
             enabled: !_busy,
             keyboardType: TextInputType.number,

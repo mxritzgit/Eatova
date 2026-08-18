@@ -114,7 +114,7 @@ void main() {
     test('lehnt eine URI ohne code und ohne Token ab', () {
       expect(_laesstDurch('eatova://login-callback/'), isFalse);
       expect(_laesstDurch('eatova://login-callback/?foo=bar'), isFalse);
-      // Reset und E-Mail-Wechsel laufen ueber 6-stellige Codes (siehe
+      // Reset und E-Mail-Wechsel laufen ueber 8-stellige Codes (siehe
       // `auth_repository.dart:140` und `:197`) — es gibt keinen
       // Recovery-Link, der hier durchmuesste.
       expect(_laesstDurch('eatova://login-callback/?type=recovery'), isFalse);

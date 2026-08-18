@@ -7,7 +7,7 @@ import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// 6-stelliger Code-Flow (OTP statt Mail-Link, 2026-08-09):
+// 8-stelliger Code-Flow (OTP statt Mail-Link, 2026-08-09):
 //
 //  * „Passwort vergessen?" fuehrt auf eine EIGENE Seite: E-Mail -> Code
 //    anfordern (neutral bestaetigt — keine Konto-Enumeration) -> Code
@@ -81,11 +81,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const ValueKey('code-field')), '482913');
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '48291357');
     await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    expect(repo.verifiedCodes, ['user@example.com:482913']);
+    expect(repo.verifiedCodes, ['user@example.com:48291357']);
     expect(
         find.byKey(const ValueKey('code-password-field')), findsOneWidget);
 
@@ -114,7 +114,7 @@ void main() {
 
       repo.verifyFails = true;
       await tester.enterText(
-          find.byKey(const ValueKey('code-field')), '000000');
+          find.byKey(const ValueKey('code-field')), '00000000');
       await tester.tap(find.byKey(const ValueKey('code-primary')));
       await tester.pumpAndSettle();
 
@@ -149,11 +149,11 @@ void main() {
     expect(find.byKey(const ValueKey('code-field')), findsOneWidget,
         reason: 'die Adresse steht fest — kein E-Mail-Schritt');
 
-    await tester.enterText(find.byKey(const ValueKey('code-field')), '135791');
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '13579246');
     await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
-    expect(repo.verifiedCodes, ['user@example.com:135791']);
+    expect(repo.verifiedCodes, ['user@example.com:13579246']);
   });
 
   testWidgets('Signup-Flow: Neuanfordern nutzt resendSignupCode',

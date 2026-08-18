@@ -395,13 +395,13 @@ void main() {
     // Callback.
     await tester.enterText(
       find.byKey(const ValueKey('settings-delete-code-field')),
-      '123456',
+      '12345678',
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Konto endgültig löschen'));
     await tester.pumpAndSettle();
 
-    expect(repo.verifiedCodes, <String>['jonas@example.com:123456']);
+    expect(repo.verifiedCodes, <String>['jonas@example.com:12345678']);
     expect(geloescht, 1);
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
   });
