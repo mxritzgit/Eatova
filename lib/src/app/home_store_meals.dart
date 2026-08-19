@@ -249,8 +249,8 @@ mixin _HomeStoreMealsPart
     HapticFeedback.lightImpact();
     _applyLoggedMealDetails(updated, recordToday: movedToToday);
     final message = dayChanged
-        ? 'Mahlzeit auf ${_moveDayLabel(updated.loggedAt)} verschoben.'
-        : 'Mahlzeit aktualisiert.';
+        ? _l10n.mealMovedTo(_moveDayLabel(updated.loggedAt))
+        : _l10n.mealUpdated;
     _emitSnack(
       message,
       icon: Icons.check_circle_rounded,
@@ -307,19 +307,27 @@ mixin _HomeStoreMealsPart
     );
   }
 
-  /// Deutsches Kurzlabel fuer den Zieltag der Verschiebe-Bestaetigung.
+  /// Kurzlabel fuer den Zieltag der Verschiebe-Bestaetigung.
   ///
   /// B5: [daysBetween] statt `.difference().inDays` — ueber die
   /// Fruehjahrsumstellung (23-Stunden-Tag) meldete die Absolutzeit-Rechnung 0
   /// Tage fuer den Vortag, die Bestaetigung behauptete also „auf heute
   /// verschoben", waehrend die Mahlzeit auf gestern lag.
+  ///
+  /// Review 2026-08-19: die drei Faelle waren hart deutsch geblieben, obwohl
+  /// die Datei als migriert galt. Das Datum kommt jetzt aus `intl` statt aus
+  /// `${target.day}.${target.month}.` — das Skeleton `Md` liefert unter `de`
+  /// zeichengleich „28.3." (CLDR-Muster `d.M.`), unter `en` das dort uebliche
+  /// „3/28"; die Praeposition, die es nur im Deutschen gibt, traegt der
+  /// ARB-Text ([AppLocalizations.dayLabelOnDate] = „den {datum}" / „{datum}").
   String _moveDayLabel(DateTime day) {
     final today = DateUtils.dateOnly(clock.now());
     final target = DateUtils.dateOnly(day);
     final offset = daysBetween(today, target);
-    if (offset == 0) return 'heute';
-    if (offset == 1) return 'gestern';
-    return 'den ${target.day}.${target.month}.';
+    if (offset == 0) return _l10n.dayLabelToday;
+    if (offset == 1) return _l10n.dayLabelYesterday;
+    _ensureDateSymbols();
+    return _l10n.dayLabelOnDate(DateFormat.Md(_l10n.localeName).format(target));
   }
 
   void removeLoggedMeal(String id) {
@@ -378,13 +386,47 @@ mixin _HomeStoreMealsPart
       addedAt: clock.now(),
       pinned: wasPinned,
     );
-    favorites =
-        _cappedFavorites([entry, ...favorites.where((f) => f.id != id)]);
+    final vorDemDeckel = [entry, ...favorites.where((f) => f.id != id)];
+    final nachDemDeckel = _cappedFavorites(vorDemDeckel);
+    favorites = nachDemDeckel;
     _syncOrQueue(
       'Favorit',
       () => sync!.meals.upsertFavorite(entry),
       () => SyncOp.favoriteUpsert(entry),
     );
+    _forgetDroppedRecents(vorDemDeckel, nachDemDeckel);
+  }
+
+  /// Reicht den lokalen Recents-Deckel an den Server durch (Review
+  /// 2026-08-19).
+  ///
+  /// [_cappedFavorites] warf den aeltesten Auto-Recent bis dahin nur aus der
+  /// In-Memory-Liste; serverseitig blieb die Zeile stehen, und favorite_meals
+  /// wuchs mit jeder distinkten Mahlzeit weiter. Sichtbar wurde das erst nach
+  /// dem naechsten Kaltstart: der Boot-Load brachte die ganze Historie zurueck
+  /// ins Add-Sheet.
+  ///
+  /// Angeheftete Favoriten stehen ausserhalb der Recents-Quote, der Deckel kann
+  /// sie also gar nicht treffen — der `pinned`-Filter hier ist trotzdem
+  /// bewusst gesetzt: eine Loeschung, die der Nutzer nie angeordnet hat, ist
+  /// der teurere Fehler, und der Filter ist billiger als das Vertrauen darauf,
+  /// dass [_cappedFavorites] sich nie aendert.
+  ///
+  /// Bewusst ohne Undo-Snack: die Recents sind eine automatisch gefuehrte
+  /// Vorschlagsliste, kein Nutzer-Inhalt — ihr Nachrutschen ist der erwartete
+  /// Ablauf, keine Meldung wert.
+  void _forgetDroppedRecents(
+      List<FavoriteMeal> vorher, List<FavoriteMeal> nachher) {
+    if (vorher.length == nachher.length) return;
+    final behalten = nachher.map((f) => f.id).toSet();
+    for (final gefallen in vorher) {
+      if (gefallen.pinned || behalten.contains(gefallen.id)) continue;
+      _syncOrQueue(
+        'Favorit-Delete',
+        () => sync!.meals.deleteFavorite(gefallen.id),
+        () => SyncOp.favoriteDelete(gefallen.id),
+      );
+    }
   }
 
   List<FavoriteMeal> _cappedFavorites(List<FavoriteMeal> source) {
@@ -458,7 +500,8 @@ mixin _HomeStoreMealsPart
       () => SyncOp.favoriteDelete(id),
     );
     if (removed != null) {
-      _showUndoSnackBar('Favorit entfernt', () => _restoreFavorite(removed));
+      _showUndoSnackBar(
+          _l10n.commonFavoriteRemoved, () => _restoreFavorite(removed));
     }
   }
 
@@ -529,4 +572,17 @@ mixin _HomeStoreMealsPart
       aufruferMeldetAusgang: true,
     );
   }
+}
+
+/// Einmalige Initialisierung der `intl`-Datumssymbole — derselbe Bool-Waechter
+/// wie in `today_texts.dart`/`edit_meal_sheet.dart` (dort jeweils dateiprivat,
+/// daher nicht wiederverwendbar). `initializeDateFormatting()` laedt seine
+/// CLDR-Tabelle **synchron** (kein Netz-/Asset-Zugriff), der Waechter spart nur
+/// den wiederholten Aufbau. Ohne ihn wirft `DateFormat.Md('de')` eine
+/// LocaleDataException — die deutschen Muster sind bis dahin nicht geladen.
+bool _dateSymbolsReady = false;
+void _ensureDateSymbols() {
+  if (_dateSymbolsReady) return;
+  initializeDateFormatting();
+  _dateSymbolsReady = true;
 }

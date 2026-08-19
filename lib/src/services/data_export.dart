@@ -29,6 +29,11 @@ import 'package:supabase/supabase.dart';
 /// Eine bei [einSeitenLimit] abgeschnittene Sektion ist etwas anderes als eine
 /// fehlende und steht deshalb getrennt unter `gekappt`: sonst haelt der
 /// Empfaenger die Kappungsgrenze fuer seinen vollstaendigen Datenbestand.
+///
+/// Weil hier JEDER Sektionsfehler einzeln abgefangen wird, wirft
+/// [buildExportJson] offline NIE — wer nur am ausbleibenden Fehler misst, haelt
+/// deshalb auch eine Auskunft fuer vollstaendig, in der keine einzige Sektion
+/// steht. Wie viel wirklich ankam, sagt [exportUmfangAus].
 class DataExportService {
   DataExportService(this._client, this._userId, {this.pageSize = 1000});
 
@@ -44,6 +49,11 @@ class DataExportService {
   /// diesem Limit. Nur das Tagebuch waechst unbegrenzt und paginiert deshalb.
   /// Wird die Grenze doch erreicht, steht die Sektion unter `gekappt`.
   static const int einSeitenLimit = 10000;
+
+  /// Format-Kennung im Kopf jeder Auskunft. Steht als Konstante hier, weil
+  /// [exportUmfangAus] daran erkennt, dass ein Text ueberhaupt eine Auskunft
+  /// DIESES Services ist und nicht irgendein anderes JSON.
+  static const String formatKennung = 'eatova-export/1';
 
   /// `user_id`-gefilterte Tabellen mit einer Zeile-gehoert-dem-User-Policy.
   /// `profiles` (Schluessel `id`) und `logged_meals` (paginiert) laufen
@@ -79,12 +89,14 @@ class DataExportService {
   /// Die komplette Auskunft als eingerücktes JSON.
   Future<String> buildExportJson() async {
     final export = <String, dynamic>{
-      'format': 'eatova-export/1',
+      'format': formatKennung,
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
       'userId': _userId,
     };
     final unvollstaendig = <String>[];
-    final gekappt = <String>[];
+    // Sektion -> Zeilen, die der Server WIRKLICH fuer diesen Nutzer haelt.
+    // `null`, wenn er nicht mitgezaehlt hat (siehe [_rows]).
+    final gekappt = <String, int?>{};
 
     Future<void> sektion(
       String name,
@@ -113,34 +125,92 @@ class DataExportService {
       export['unvollstaendig'] = unvollstaendig;
     }
     if (gekappt.isNotEmpty) {
+      final gezaehlt = <String, int>{
+        for (final eintrag in gekappt.entries)
+          if (eintrag.value != null) eintrag.key: eintrag.value!,
+      };
       export['gekappt'] = <String, dynamic>{
         'grenzeProSektion': einSeitenLimit,
-        'sektionen': gekappt,
+        'sektionen': gekappt.keys.toList(),
+        // [einSeitenLimit] ist nur UNSERE Grenze; PostgREST kappt zusaetzlich
+        // bei `db-max-rows`. Ohne die echte Zeilenzahl haelt der Empfaenger
+        // sonst wieder eine fremde Grenze fuer seinen Datenbestand — derselbe
+        // Fehler, gegen den `gekappt` ueberhaupt eingefuehrt wurde.
+        if (gezaehlt.isNotEmpty) 'zeilenAufDemServer': gezaehlt,
       };
     }
     return const JsonEncoder.withIndent('  ').convert(export);
   }
 
+  /// Eine Sektion in einem Rutsch — die Kappung erkannt am Zaehler des
+  /// Servers, nicht an einer Vermutung ueber ihn.
+  ///
+  /// Bis 2026-08-19 forderte diese Methode EINE Zeile ueber der Grenze an und
+  /// schloss aus „eine zuviel gekommen" auf eine Kappung. Das setzt voraus,
+  /// dass der Server so viele Zeilen ueberhaupt herausgibt — PostgREST tut das
+  /// nicht: bei gesetztem `db-max-rows` (Supabase-Default 1000) schneidet es
+  /// STILL auf sein eigenes Maximum ab. Die Zeile, an der die Erkennung hing,
+  /// kam dann nie an, der Hinweis blieb aus, und der Empfaenger hielt 1000
+  /// Zeilen fuer seinen vollstaendigen Datenbestand.
+  ///
+  /// `Prefer: count=exact` laesst den Server im SELBEN Request mitzaehlen (die
+  /// Zahl kommt als `Content-Range` zurueck). Zaehlt er mehr, als angekommen
+  /// ist, wurde gekappt — unabhaengig davon, WER gekappt hat.
   Future<List<Map<String, dynamic>>> _rows(
     String tabelle, {
-    required List<String> gekappt,
+    required Map<String, int?> gekappt,
     String keySpalte = 'user_id',
   }) async {
+    final (alle, aufDemServer) = await _seiteMitZaehler(tabelle, keySpalte);
+
+    if (aufDemServer != null && aufDemServer > alle.length) {
+      gekappt[tabelle] = aufDemServer;
+      return alle;
+    }
     // Eine Zeile ueber der Grenze mitholen und wieder abschneiden: nur so
-    // laesst sich „genau [einSeitenLimit] Zeilen vorhanden" von „es liegen
-    // mehr dahinter" unterscheiden. Ein falscher Kappungs-Hinweis waere
-    // derselbe Fehler wie ein falsches `unvollstaendig`.
-    final rows = await _client
-        .from(tabelle)
-        .select('*')
-        .eq(keySpalte, _userId)
-        .limit(einSeitenLimit + 1);
-    final alle = rows.map((r) => Map<String, dynamic>.of(r)).toList();
+    // laesst sich ohne Zaehler „genau [einSeitenLimit] Zeilen vorhanden" von
+    // „es liegen mehr dahinter" unterscheiden. Ein falscher Kappungs-Hinweis
+    // waere derselbe Fehler wie ein falsches `unvollstaendig`.
     if (alle.length > einSeitenLimit) {
-      gekappt.add(tabelle);
+      gekappt[tabelle] = null;
       return alle.sublist(0, einSeitenLimit);
     }
     return alle;
+  }
+
+  /// Eine Seite plus — wenn der Server ihn mitschickt — seinen Zeilen-Zaehler.
+  ///
+  /// Der Zaehler ist `null`, wenn die Antwort kein `Content-Range` mit
+  /// Gesamtzahl trug (Proxy davor, aeltere Gegenstelle): postgrest-dart wirft
+  /// dann beim Auspacken, und daran darf die Auskunft nicht scheitern. Der
+  /// Rueckfall holt eine Zeile ueber der Grenze und erkennt damit wenigstens
+  /// die SELBST gesetzte Kappung. Ein echter Fehler (500, RLS) wirft im
+  /// zweiten Anlauf erneut und landet wie bisher unter `unvollstaendig`.
+  Future<(List<Map<String, dynamic>>, int?)> _seiteMitZaehler(
+    String tabelle,
+    String keySpalte,
+  ) async {
+    try {
+      final antwort = await _client
+          .from(tabelle)
+          .select('*')
+          .eq(keySpalte, _userId)
+          .limit(einSeitenLimit)
+          .count(CountOption.exact);
+      return (
+        antwort.data.map((r) => Map<String, dynamic>.of(r)).toList(),
+        antwort.count,
+      );
+    } catch (e, st) {
+      dev.log('DataExport: $tabelle ohne Server-Zaehler',
+          error: e, stackTrace: st, name: 'data_export');
+      final rows = await _client
+          .from(tabelle)
+          .select('*')
+          .eq(keySpalte, _userId)
+          .limit(einSeitenLimit + 1);
+      return (rows.map((r) => Map<String, dynamic>.of(r)).toList(), null);
+    }
   }
 
   /// Das Tagebuch ist die einzige unbegrenzt wachsende Tabelle —
@@ -166,5 +236,63 @@ class DataExportService {
       von += pageSize;
     }
     return rows;
+  }
+}
+
+/// Wie vollstaendig eine fertige Auskunft WIRKLICH ist.
+///
+/// Nicht dasselbe wie „der Abruf hat nicht geworfen":
+/// [DataExportService.buildExportJson] faengt jeden Sektionsfehler einzeln ab
+/// und wirft offline nie. Ohne diese Unterscheidung meldet das Export-Sheet
+/// eine vollstaendige Auskunft auch dann, wenn KEINE einzige Sektion ankam.
+enum ExportUmfang {
+  /// Jede Sektion da, nichts abgeschnitten.
+  vollstaendig,
+
+  /// Mindestens eine Sektion fehlt oder wurde gekappt.
+  teilweise,
+
+  /// Nicht eine einzige Sektion ist angekommen.
+  nichtsGeladen,
+}
+
+/// Liest den Umfang aus dem fertigen Export-JSON.
+///
+/// `null` heisst „keine Auskunft dieses Formats" — Sitzungs-Auszug,
+/// Rueckfall-Text, unvollstaendiges JSON. Darueber ist hier nichts zu sagen,
+/// und Raten waere derselbe Fehler wie die Vollstaendigkeits-Behauptung, gegen
+/// die diese Funktion antritt.
+///
+/// Bewusst ein voller `jsonDecode` und keine Textsuche: die Sektionsnamen
+/// stehen ueber die ganze Datei verteilt, und eine Heuristik auf Rohtext haette
+/// bei einem Nutzerwert, der zufaellig wie ein Schluessel aussieht, still das
+/// Falsche gemeldet. Der Aufrufer ruft das genau EINMAL pro Auskunft auf, nicht
+/// pro Frame.
+ExportUmfang? exportUmfangAus(String json) {
+  final auskunft = _alsAuskunft(json);
+  if (auskunft == null) return null;
+
+  final geladen =
+      DataExportService.alleExportTabellen.where(auskunft.containsKey).length;
+  if (geladen == 0) return ExportUmfang.nichtsGeladen;
+  if (geladen < DataExportService.alleExportTabellen.length ||
+      auskunft.containsKey('unvollstaendig') ||
+      auskunft.containsKey('gekappt')) {
+    return ExportUmfang.teilweise;
+  }
+  return ExportUmfang.vollstaendig;
+}
+
+/// Dekodiert [json], wenn es eine Auskunft aus [DataExportService] ist — sonst
+/// `null`. Die Format-Kennung ist die Bedingung: ein fremdes JSON hat keine
+/// Sektionen dieses Namens, saehe hier also wie eine leere Auskunft aus.
+Map<String, dynamic>? _alsAuskunft(String json) {
+  try {
+    final wert = jsonDecode(json);
+    if (wert is! Map<String, dynamic>) return null;
+    if (wert['format'] != DataExportService.formatKennung) return null;
+    return wert;
+  } catch (_) {
+    return null;
   }
 }

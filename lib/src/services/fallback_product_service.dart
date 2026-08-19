@@ -23,6 +23,12 @@ import 'open_food_facts_product_service.dart';
 ///  * **G2 — Fehler werden klassifiziert statt pauschal geschluckt.** Das
 ///    frühere `catch (_) {}` verschluckte auch einen Parse-Fehler, und genau
 ///    das machte die Ein-Token-Abschaltung des Barcode-Scans unsichtbar.
+///    Klassifiziert werden BEIDE Beine: OFF ist produktiv immer das
+///    Fallback-Bein, und die Formataenderung, die [_istErwartet] beschreibt,
+///    passiert genau dort. Nur zieht der Fallback keinen weiteren nach —
+///    sein Fehler wird gemeldet und danach unveraendert weitergereicht,
+///    damit die Oberflaeche „nicht gefunden" weiterhin von „Netz weg"
+///    unterscheiden kann.
 class FallbackProductService implements ProductLookupService {
   const FallbackProductService(this.primary, this.fallback);
 
@@ -40,7 +46,13 @@ class FallbackProductService implements ProductLookupService {
       _meldeWennUnerwartet(error, stack, 'product.search.primary');
       // fall through to OFF
     }
-    return _nurLoggbare(await fallback.searchProducts(query));
+    try {
+      return _nurLoggbare(await fallback.searchProducts(query));
+    } catch (error, stack) {
+      _meldeWennUnerwartet(error, stack, 'product.search.fallback');
+      // Kein Bein mehr uebrig: der Aufrufer muss den Fehler sehen.
+      rethrow;
+    }
   }
 
   @override
@@ -60,7 +72,15 @@ class FallbackProductService implements ProductLookupService {
     } catch (error, stack) {
       _meldeWennUnerwartet(error, stack, 'product.barcode.primary');
     }
-    return fallback.lookupBarcode(barcode);
+    try {
+      return await fallback.lookupBarcode(barcode);
+    } catch (error, stack) {
+      // ProductNotFoundException und ProductWithoutNutritionException sind
+      // hier der REGELFALL (Barcode nicht im OFF-Bestand) und stehen deshalb
+      // auf der Erwartet-Liste — gemeldet wird nur, was darueber hinausgeht.
+      _meldeWennUnerwartet(error, stack, 'product.barcode.fallback');
+      rethrow;
+    }
   }
 
   /// Loggbar ist ein Treffer mit brauchbarer Energie ODER einer GEMESSENEN 0

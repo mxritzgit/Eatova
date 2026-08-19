@@ -429,8 +429,12 @@ class _OutboxLesefehlerCache extends LocalCache {
 class _EingefrorenerOutboxCache extends LocalCache {
   _EingefrorenerOutboxCache(super.store, super.userId);
 
+  // `false` ist hier die Wahrheit: der Blob erreicht die „Platte" nie
+  // (LocalCache.writeOutbox meldet seit dem durable Schreibweg genau das
+  // zurueck). Der Aufrufer wertet es nicht aus, das Testverhalten bleibt
+  // damit unveraendert.
   @override
-  Future<void> writeOutbox(List<SyncOp> ops) async {}
+  Future<bool> writeOutbox(List<SyncOp> ops) async => false;
 }
 
 /// Dasselbe fuer den DELTAS-Slot (W7b): die zweite Haelfte des kill-sicheren

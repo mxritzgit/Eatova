@@ -15,7 +15,6 @@ class HealthAuthEvidence {
     required this.writeGrant,
     this.steps,
     this.latestWeightKg,
-    this.sleepMinutes,
   });
 
   /// Wahrheitsgemaesser WRITE-Status fuer Gewicht.
@@ -39,16 +38,17 @@ class HealthAuthEvidence {
   /// Juengstes gelesenes Gewicht (kg), falls vorhanden.
   final double? latestWeightKg;
 
-  /// Schlafminuten der letzten Nacht, falls vorhanden.
-  final int? sleepMinutes;
-
   /// Positives LESE-Signal: irgendein Datum ist tatsaechlich angekommen.
   ///
-  /// Bewusst eine Disjunktion ueber drei Quellen — ein einzelner Ruhetag mit
-  /// 0 Schritten ist real, „0 Schritte UND kein Gewicht UND kein Schlaf" ist
+  /// Bewusst eine Disjunktion ueber beide gelesenen Quellen — ein einzelner
+  /// Ruhetag mit 0 Schritten ist real, „0 Schritte UND kein Gewicht" ist
   /// dagegen der Fingerabdruck eines fehlenden Lesezugriffs.
-  bool get hasReadEvidence =>
-      (steps ?? 0) > 0 || (latestWeightKg ?? 0) > 0 || (sleepMinutes ?? 0) > 0;
+  ///
+  /// Der Schlafwert war hier bis 2026-08-19 die dritte Quelle. Er ist raus,
+  /// weil kein Feature ihn nutzt und der SLEEP-Scope deshalb gar nicht mehr
+  /// angefragt wird (s. [AppleHealthService._types]) — ein Signal aus einem
+  /// nie erteilten Scope waere dauerhaft null gewesen.
+  bool get hasReadEvidence => (steps ?? 0) > 0 || (latestWeightKg ?? 0) > 0;
 }
 
 /// Leitet aus [HealthAuthEvidence] den [HealthAuthState] ab und haelt die
@@ -65,8 +65,9 @@ class HealthAuthVerifier {
 
   /// Wie lange eine einmal gesehene Lese-Evidenz ohne neue Evidenz weiter
   /// traegt. Deckt Ruhetage/Urlaub ab, ohne einen echten Entzug ewig zu
-  /// kaschieren. Nur relevant fuer Nutzer, die WRITE nie freigegeben haben —
-  /// mit WRITE == true gibt es ein dauerhaftes ehrliches Signal.
+  /// kaschieren. Gilt fuer ALLE Nutzer, auch fuer die mit erteiltem WRITE:
+  /// der Share-Status sagt nichts ueber den Lesepfad, ein nachtraeglich
+  /// entzogener Lesezugriff darf nicht am Schreib-Schalter haengenbleiben.
   final Duration evidenceTtl;
 
   DateTime? _lastReadEvidenceAt;
@@ -80,11 +81,18 @@ class HealthAuthVerifier {
 
   /// Bewertet einen Zugriff. Die Reihenfolge der Regeln ist die Aussage:
   ///  1. echte Lesedaten schlagen alles,
-  ///  2. wahrheitsgemaess erteiltes WRITE haelt die Verbindung am Leben,
-  ///  3. ein wahrheitsgemaess ENTZOGENES WRITE ist der einzige harte Beweis
+  ///  2. ein wahrheitsgemaess ENTZOGENES WRITE ist der einzige harte Beweis
   ///     fuer [HealthAuthState.denied],
-  ///  4. frische Evidenz traegt ueber Ruhetage,
-  ///  5. sonst: [HealthAuthState.unverified] — wir wissen es schlicht nicht.
+  ///  3. frische Evidenz traegt ueber Ruhetage,
+  ///  4. sonst: [HealthAuthState.unverified] — wir wissen es schlicht nicht.
+  ///
+  /// Was hier bewusst NICHT (mehr) steht: „WRITE ist erteilt" allein ergibt
+  /// kein [HealthAuthState.granted]. Das HealthKit-Sheet fuehrt Schreiben und
+  /// Lesen als zwei unabhaengige Abschnitte — wer nur den Gewichts-Schreib-
+  /// schalter umlegt, hat zum Lesen nichts freigegeben und bekaeme sonst
+  /// dauerhaft 0 Schritte unter einem gruenen „Synchronisiert". Der
+  /// Schreibpfad haengt nicht daran: `writeWeight` gated am Share-Status
+  /// selbst, nicht am hier abgeleiteten Gesamtzustand.
   HealthAuthState resolve(HealthAuthEvidence e, {required DateTime now}) {
     final write = e.writeGrant;
     if (write == true) _writeGrantSeen = true;
@@ -96,12 +104,7 @@ class HealthAuthVerifier {
       return _state = HealthAuthState.granted;
     }
 
-    // 2) Kein Lesesignal, aber HealthKit bestaetigt den Schreibzugriff auf
-    //    Gewicht. Der Nutzer hat also im Sheet etwas eingeschaltet — ein
-    //    0-Schritte-Tag ist dann ein echter Ruhetag, kein Berechtigungsloch.
-    if (write == true) return _state = HealthAuthState.granted;
-
-    // 3) WRITE war schon einmal bestaetigt und ist jetzt weg: der Nutzer hat in
+    // 2) WRITE war schon einmal bestaetigt und ist jetzt weg: der Nutzer hat in
     //    den iOS-Einstellungen abgeschaltet. Das ist der einzige Pfad, auf dem
     //    `denied` auf iOS ueberhaupt wahrheitsgemaess entstehen kann — alte
     //    Evidenz verfaellt hier sofort.
@@ -110,8 +113,11 @@ class HealthAuthVerifier {
       return _state = HealthAuthState.denied;
     }
 
-    // 4) Ruhetags-Toleranz fuer Nur-Lesen-Nutzer: vor kurzem kamen Daten an,
-    //    heute nicht — ein einzelner leerer Tag kippt die Verifikation nicht.
+    // 3) Ruhetags-Toleranz: vor kurzem kamen Daten an, heute nicht — ein
+    //    einzelner leerer Tag kippt die Verifikation nicht. Bewusst OHNE
+    //    Sonderweg fuer WRITE == true: sonst haelt ein Nutzer, der spaeter nur
+    //    den Lesezugriff entzieht, den granted-Zustand mit dem verbliebenen
+    //    Schreib-Schalter unbegrenzt am Leben.
     final last = _lastReadEvidenceAt;
     if (last != null) {
       if (now.difference(last) <= evidenceTtl) {
@@ -121,8 +127,9 @@ class HealthAuthVerifier {
       _lastReadEvidenceAt = null;
     }
 
-    // 5) Nichts spricht fuer einen funktionierenden Zugriff. „Sheet lief durch"
-    //    ist kein Beweis — also unverifiziert statt granted.
+    // 4) Nichts spricht fuer einen funktionierenden Zugriff. „Sheet lief durch"
+    //    ist kein Beweis, eine reine Schreib-Freigabe genauso wenig — also
+    //    unverifiziert statt granted.
     return _state = HealthAuthState.unverified;
   }
 
@@ -139,7 +146,6 @@ class HealthAuthVerifier {
       stepsToday: e.steps ?? 0,
       fetchedAt: now,
       latestWeightKg: e.latestWeightKg,
-      lastSleepMinutes: e.sleepMinutes,
     );
   }
 
@@ -173,22 +179,32 @@ class AppleHealthService implements HealthService {
   // Typen + per-Typ-Permission laufen als PARALLELE Listen (package:health
   // erwartet permissions[i] passend zu types[i]) — ein Eintrag darf also nie
   // einzeln entfernt werden, sonst verrutscht die Autorisierung still.
-  // Steps + Sleep sind READ-only, Gewicht ist READ_WRITE (Import vorbefuellen
+  // Steps sind READ-only, Gewicht ist READ_WRITE (Import vorbefuellen
   // + Write-Back nach dem Wiegen).
   //
-  // WORKOUT ist bewusst NICHT mehr dabei: geschrieben haben wir nie ein
-  // Workout (es gab und gibt keinen writeWorkout-Pfad), und seit dem Aus des
-  // Training-Tabs (a267e15) kann es auch keinen mehr geben. Der HealthKit-
-  // Dialog fragt damit keinen Scope mehr an, den die App nie nutzt.
+  // Die Liste ist die Anspruchsgrundlage fuer den Zwecktext in
+  // `ios/Runner/Info.plist` (NSHealthShareUsageDescription /
+  // NSHealthUpdateUsageDescription). Wer hier einen Scope ergaenzt, muss dort
+  // nachziehen UND ein Feature vorweisen koennen, das ihn benutzt — Apple
+  // lehnt im Review sowohl Scopes ohne sichtbaren Nutzen als auch Zwecktexte
+  // ab, die mehr versprechen als die App tut (Guideline 5.1.1).
+  //
+  // WORKOUT ist bewusst NICHT dabei: geschrieben haben wir nie ein Workout
+  // (es gab und gibt keinen writeWorkout-Pfad), und seit dem Aus des
+  // Training-Tabs (a267e15) kann es auch keinen mehr geben.
+  //
+  // SLEEP_ASLEEP ist seit 2026-08-19 aus demselben Grund raus: der Wert wurde
+  // gelesen, floss aber in kein einziges Feature — weder Food-Tab noch Trends
+  // noch Coach lesen `HealthSnapshot.lastSleepMinutes`. Das Schlafziel in den
+  // Einstellungen (`profiles.daily_sleep_goal_minutes`) ist ein reiner
+  // Profilwert und hat mit HealthKit nichts zu tun.
   static const List<HealthDataType> _types = [
     HealthDataType.STEPS,
     HealthDataType.WEIGHT,
-    HealthDataType.SLEEP_ASLEEP,
   ];
   static const List<HealthDataAccess> _permissions = [
     HealthDataAccess.READ,
     HealthDataAccess.READ_WRITE,
-    HealthDataAccess.READ,
   ];
 
   Future<void> _ensureConfigured() async {
@@ -236,8 +252,8 @@ class AppleHealthService implements HealthService {
   /// `access`-Int (`lib/src/health_plugin.dart:112-133`), und
   /// `HealthDataAccess { READ, WRITE, READ_WRITE }` gibt WRITE den Index 1 —
   /// genau den `case 1`, der nativ `status == .sharingAuthorized` liefert.
-  /// Mit der bisherigen Liste (READ / READ_WRITE / READ) war das Ergebnis auf
-  /// iOS dagegen IMMER `null`.
+  /// Mit der vollen Typenliste (READ / READ_WRITE) war das Ergebnis auf iOS
+  /// dagegen IMMER `null`.
   Future<bool?> _readWriteGrant() async {
     try {
       return await _health.hasPermissions(
@@ -275,19 +291,10 @@ class AppleHealthService implements HealthService {
       _reportError('readSnapshot.weight', e, st);
     }
 
-    int? sleepMinutes;
-    try {
-      final sleep = await _rawLastSleep(before: now);
-      if (sleep != null) sleepMinutes = sleep.minutesAsleep;
-    } catch (e, st) {
-      _reportError('readSnapshot.sleep', e, st);
-    }
-
     return HealthAuthEvidence(
       writeGrant: writeGrant,
       steps: steps,
       latestWeightKg: latestWeight,
-      sleepMinutes: sleepMinutes,
     );
   }
 
@@ -439,40 +446,15 @@ class AppleHealthService implements HealthService {
     return samples;
   }
 
+  /// Immer `null`: Der SLEEP-Scope wird seit 2026-08-19 nicht mehr angefragt
+  /// (s. [_types]), also gaebe eine HealthKit-Abfrage hier ohnehin nur eine
+  /// leere Antwort — und ein Lesezugriff auf einen nie erteilten Scope hat in
+  /// einer App nichts zu suchen, die Apple genau darauf prueft.
+  ///
+  /// Die Methode bleibt vorerst am Interface, weil sie in mehreren
+  /// HealthService-Fakes der Testsuite ueberschrieben wird; ihr Abbau samt
+  /// [SleepSample] und `HealthSnapshot.lastSleepMinutes` gehoert in einen
+  /// eigenen Schritt.
   @override
-  Future<SleepSample?> readLastSleep({DateTime? before}) async {
-    if (!Platform.isIOS) return null;
-    try {
-      await _ensureConfigured();
-      return await _rawLastSleep(before: before);
-    } catch (e, st) {
-      _reportError('readLastSleep', e, st);
-      return null;
-    }
-  }
-
-  /// Ungegateter Lesepfad fuer Schlaf — siehe [_rawWeightSamples].
-  Future<SleepSample?> _rawLastSleep({DateTime? before}) async {
-    final to = before ?? DateTime.now();
-    final from = to.subtract(const Duration(hours: 36));
-    final points = await _health.getHealthDataFromTypes(
-      types: const [HealthDataType.SLEEP_ASLEEP],
-      startTime: from,
-      endTime: to,
-    );
-    if (points.isEmpty) return null;
-    // Gruppiere alle "asleep"-Phasen, die zur letzten Nacht gehoeren: wir
-    // nehmen das spaeteste End-Datum und summieren alle Phasen, deren Start
-    // innerhalb von 18h davor liegt (ein zusammenhaengender Schlaf).
-    points.sort((a, b) => a.dateTo.compareTo(b.dateTo));
-    final lastEnd = points.last.dateTo;
-    final windowStart = lastEnd.subtract(const Duration(hours: 18));
-    var minutes = 0;
-    for (final p in points) {
-      if (p.dateFrom.isBefore(windowStart)) continue;
-      minutes += p.dateTo.difference(p.dateFrom).inMinutes;
-    }
-    if (minutes <= 0) return null;
-    return SleepSample(minutesAsleep: minutes, end: lastEnd);
-  }
+  Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
 }

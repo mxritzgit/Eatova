@@ -1307,5 +1307,6 @@
   "exportShareFile": "Als Datei teilen",
   "exportPreviewShortened": "Vorschau gekürzt — die vollständigen Daten stecken in der Datei.",
   "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
-  "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal."
+  "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal.",
+  "commonFavoriteRemoved": "Favorit entfernt"
 }

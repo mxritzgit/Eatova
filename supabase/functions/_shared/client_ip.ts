@@ -66,6 +66,9 @@ function normalizeIpv4(value: string): string | null {
  * umgehen, weil Provider Endkunden regulaer ein ganzes /64 zuteilen und die
  * unteren 64 Bit pro Verbindung rotieren duerfen. Ein Limit auf der vollen
  * Adresse waere damit gar kein Limit.
+ *
+ * Ausnahme: IPv4-in-IPv6 ("::ffff:1.2.3.4") kommt als volle IPv4 zurueck,
+ * siehe Begruendung unten.
  */
 function normalizeIpv6(value: string): string | null {
   let text = value.toLowerCase();
@@ -129,6 +132,28 @@ function normalizeIpv6(value: string): string | null {
     if (!IPV6_GROUP_RE.test(group)) return null;
   }
 
+  const words = groups.map((group) => Number.parseInt(group, 16));
+
+  // IPv4-in-IPv6 ("::ffff:203.0.113.7", gleichwertig "::ffff:cb00:7107") ist
+  // kein eigenes IPv6-Netz, sondern ein IPv4-Client auf einem Dual-Stack-
+  // Socket. Die /64-Kuerzung unten schneidet genau die zwei Gruppen ab, in
+  // denen die IPv4 steckt - ALLE so ankommenden Clients laegen damit in EINEM
+  // Bucket ("0:0:0:0::/64") und ein einzelner Absender koennte jeden anderen
+  // aussperren. Deshalb auf die volle IPv4 aufloesen: das ist zugleich genau
+  // das Subject, das derselbe Client ueber einen reinen IPv4-Header bekaeme.
+  //
+  // Bewusst nur die gemappte Form (0:0:0:0:0:ffff:x:x). Die veraltete
+  // IPv4-kompatible Form "::a.b.c.d" bleibt im IPv6-Pfad, sonst wuerden "::"
+  // und "::1" als 0.0.0.0 bzw. 0.0.0.1 gebucht - beides keine Absender.
+  if (words[5] === 0xffff && words.slice(0, 5).every((word) => word === 0)) {
+    return [
+      words[6] >> 8,
+      words[6] & 0xff,
+      words[7] >> 8,
+      words[7] & 0xff,
+    ].join(".");
+  }
+
   // Auf /64 kuerzen und die ersten vier Gruppen kanonisch (ohne fuehrende
   // Nullen) schreiben, damit "2001:0db8:..." und "2001:db8:..." dasselbe
   // Bucket treffen.
@@ -141,7 +166,8 @@ function normalizeIpv6(value: string): string | null {
 
 /**
  * Akzeptiert ausschliesslich echte IP-Literale und gibt sie kanonisch zurueck
- * (IPv4 als Punktnotation, IPv6 als `<praefix>::/64`). Alles andere -> null.
+ * (IPv4 als Punktnotation, IPv6 als `<praefix>::/64`, IPv4-in-IPv6 als die
+ * eingebettete IPv4 in Punktnotation). Alles andere -> null.
  *
  * Erlaubte Schreibweisen: "1.2.3.4", "1.2.3.4:51234", "2001:db8::1",
  * "[2001:db8::1]:443", "::ffff:1.2.3.4", "fe80::1%eth0".

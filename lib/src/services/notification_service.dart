@@ -176,8 +176,17 @@ class LocalNotificationService
     tzdata.initializeTimeZones();
     await _setLocalTimezone();
 
+    // Das Small Icon wertet Android seit API 21 NUR ueber den Alphakanal aus
+    // und faerbt das Ergebnis selbst ein (minSdk 26 — der Fall tritt immer
+    // ein). @mipmap/ic_launcher ist ein vollflaechig deckendes Bitmap, sein
+    // Alphakanal ist ueberall 255; in der Statusleiste kam davon ein weisses
+    // Quadrat an. Deshalb das eigene, monochrome Vektor-Drawable, dessen Form
+    // allein in der Transparenz steckt (res/drawable/ic_notification.xml,
+    // Fokusring der Wortmarke). Es ist der DEFAULT fuer alle Nudges —
+    // AndroidNotificationDetails.icon bleibt in _details() bewusst leer,
+    // sonst muesste jede Aufrufstelle den Verweis mitpflegen.
     const androidInit =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@drawable/ic_notification');
     const iosInit = DarwinInitializationSettings(
       // Permission NICHT beim Init erzwingen — der explizite Schritt laeuft
       // ueber requestPermission() (Onboarding-gesteuert).

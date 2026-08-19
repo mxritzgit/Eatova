@@ -721,9 +721,20 @@ class _DayPicker extends StatelessWidget {
       selected: selected,
     );
 
+    // Diese Hoehe ist nicht nur die des Streifens: eine waagerechte ListView
+    // gibt ihren Kindern eine STRAFFE Querachse, sie ist damit gleichzeitig
+    // die Hoehe jedes Chips. Fest verdrahtet blieben nach dem 9+9-Polster
+    // 40 px fuer zwei mitskalierende Textzeilen — ab rund 1,4facher
+    // Systemschrift lief der Chip ueber. Gleiche Technik wie [MacroBar]:
+    // mitwachsen lassen, gedeckelt, damit der Streifen bei 2.0 nicht das
+    // halbe Sheet frisst. Bei Normalschrift bleiben es exakt die 58 des
+    // Entwurfs.
+    final scaler = MediaQuery.textScalerOf(context);
+    final hoehe = scaler.scale(58).clamp(58.0, 100.0);
+
     return SizedBox(
       key: const ValueKey('edit-meal-day-picker'),
-      height: 58,
+      height: hoehe,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         // +1: „Anderes Datum…"-Eintrag am Ende (Kalender).

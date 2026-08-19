@@ -26,6 +26,7 @@ import '../../models/coach_recipe_proposal.dart';
 import '../../models/fitness_recipe.dart';
 import '../../services/coach_chat_service.dart';
 import '../../services/meal_photo_compressor.dart';
+import '../../services/meal_photo_temp_file.dart';
 import '../../services/recipe_image_store.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
@@ -98,13 +99,24 @@ class CoachChatScreen extends StatefulWidget {
   State<CoachChatScreen> createState() => _CoachChatScreenState();
 }
 
-class _CoachChatScreenState extends State<CoachChatScreen> {
+class _CoachChatScreenState extends State<CoachChatScreen>
+    with WidgetsBindingObserver {
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
   final FocusNode _inputFocus = FocusNode();
 
   List<ChatMessage> _messages = const <ChatMessage>[];
   List<ChatSession> _sessions = const <ChatSession>[];
+
+  /// Die zuletzt NICHT zugestellte Frage — Kennzeichnung und Wiederhol-Auftrag
+  /// in einem. null heisst „alles, was im Verlauf steht, ist auch rausgegangen".
+  ///
+  /// Die Nachricht selbst bleibt im Verlauf stehen: sie ist Nutzerinhalt, und
+  /// ihn aus der Liste zu nehmen hiesse, ihn zu verlieren, sobald ein zweiter
+  /// Fehlschlag diesen Zeiger ueberschreibt. Nur EIN Auftrag wird gehalten —
+  /// der juengste; ein aelterer verliert seine Kennzeichnung, seine Blase
+  /// bleibt.
+  _FehlgeschlageneSendung? _fehlgeschlagen;
 
   /// `null` heisst „ich weiss es nicht" — nicht „voll" und nicht „leer".
   ///
@@ -186,6 +198,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _input.addListener(() {
       if (_draft != _input.text) setState(() => _draft = _input.text);
     });
@@ -214,7 +227,13 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   ///
   /// ACHTUNG: das haengt an der Verdrahtung in `eatova_home_page.dart`
   /// (`TickerMode(enabled: i == tab, …)` im Tab-Stack). Faellt das `TickerMode`
-  /// dort weg, faellt alles hier still aus.
+  /// dort weg, faellt der Tab-Zweig hier still aus.
+  ///
+  /// Der Flankenwechsel allein deckt aber nur den Tab-WECHSEL ab, und genau
+  /// daran haengt die Mitternachts-Aussperrung: wer den Coach-Tab oben liegen
+  /// laesst und die App in den Hintergrund schickt, erzeugt beim Zurueckholen
+  /// keine Flanke. Deshalb zieht [didChangeAppLifecycleState] denselben Pfad
+  /// zusaetzlich beim Resume nach.
   bool _sichtbar = true;
 
   /// Setzt den lokalisierten „nicht eingeloggt"-Text genau einmal — nicht in
@@ -250,6 +269,11 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   /// Alles, was frueher der Tab-Wechsel nebenbei erledigte, weil der Screen
   /// unmountete und komplett neu hochfuhr. Seit D6 bleibt er gemountet — was
   /// hier nicht steht, passiert bis zum Kaltstart nicht mehr.
+  ///
+  /// Zwei Aufrufer, weil einer nicht reicht: [didChangeDependencies] (Wechsel
+  /// zurueck auf den Coach-Tab) und [didChangeAppLifecycleState] (die App
+  /// kommt aus dem Hintergrund, waehrend der Coach-Tab schon oben liegt) —
+  /// dasselbe Paar wie beim Tageswechsel des Stores (`home_store.dart:708`).
   Future<void> _beiRueckkehr(CoachChatService svc) async {
     // Heilungspfad: ging der erste Bootstrap ohne Session aus (offline beim
     // ersten Coach-Besuch), blieb `_activeSessionId` bisher fuer den REST DES
@@ -266,8 +290,32 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     if (mounted && _error != null) setState(() => _error = null);
   }
 
+  /// Zweiter Ausloeser fuer den Nachziehpfad — [didChangeDependencies] allein
+  /// haengt am Flankenwechsel des `TickerMode` und damit am TAB-Wechsel.
+  ///
+  /// Wer um 23:50 seinen letzten Tages-Slot verbraucht und die App AUF DEM
+  /// COACH-TAB in den Hintergrund schickt, kommt am naechsten Morgen auf genau
+  /// denselben Tab zurueck: der Ticker war nie aus, es gibt keine Flanke. Und
+  /// weil bei erschoepftem Kontingent auch keine `send()`-Antwort mehr kommt,
+  /// die den Zaehler korrigieren koennte, blieb der Composer bis zum Kaltstart
+  /// gesperrt — ueber die Tagesgrenze hinweg, an der der Server laengst wieder
+  /// Slots vergibt.
+  ///
+  /// Der Resume ist der Moment, in dem der Nutzer den Screen wieder ansieht;
+  /// dieselben Schranken wie im Tab-Pfad gelten auch hier, damit ein Resume in
+  /// einem anderen Tab keinen Request ausloest.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) return;
+    final svc = widget.service;
+    if (!_sichtbar || svc == null || _loading) return;
+    unawaited(_beiRueckkehr(svc));
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _scroll.dispose();
     _inputFocus.dispose();
@@ -368,6 +416,9 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       _messages = history;
       _quota = quota;
       _loading = false;
+      // Der Verlauf kommt frisch vom Server — ein Wiederhol-Auftrag auf eine
+      // lokale Blase, die es jetzt nicht mehr gibt, waere ins Leere gerichtet.
+      _fehlgeschlagen = null;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
@@ -426,6 +477,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       _loading = true;
       _activeSessionId = sessionId;
       _messages = const <ChatMessage>[];
+      // Die nicht zugestellte Frage gehoert der verlassenen Sitzung: ihre
+      // Blase ist mit dem Verlauf weg, ihr Wiederhol-Auftrag wuerde sonst in
+      // der neuen Sitzung landen.
+      _fehlgeschlagen = null;
     });
     List<ChatMessage> history;
     try {
@@ -468,6 +523,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       _activeSessionId = id;
       _messages = const <ChatMessage>[];
       _error = null;
+      _fehlgeschlagen = null;
     });
   }
 
@@ -508,17 +564,35 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
   }
 
   void _scrollToEnd() {
-    if (!_scroll.hasClients) return;
-    final ziel = _scroll.position.maxScrollExtent + 240;
+    // Bewusst NICHT ueber `_scroll.position`: [build] steckt den Verlauf in
+    // einen AnimatedSwitcher (220 ms) und gibt jeder `_Conversation` denselben
+    // Controller. Beim Sitzungswechsel (Verlauf -> Spinner -> Verlauf) haengen
+    // deshalb kurzzeitig ZWEI ListViews daran — die ausblendende und die
+    // eintretende. `position` ist `_positions.single` und wirft dann, und
+    // `hasClients` faengt das nicht ab: es prueft nur, ob ueberhaupt eine
+    // Liste angehaengt ist.
+    //
+    // Ans Ende gehoert ohnehin nur die zuletzt angehaengte: die ausblendende
+    // ist im naechsten Frame weg, und sie mitzuziehen waere ein Ruckeln im
+    // Uebergang.
+    final positionen = _scroll.positions;
+    if (positionen.isEmpty) return;
+    final liste = positionen.last;
+    // `maxScrollExtent` haelt ein `assert(hasContentDimensions)`: eine gerade
+    // erst angehaengte Liste kennt ihre Ausmasse noch nicht. Im
+    // Post-Frame-Callback ist das der Normalfall nicht, aber der Aufruf kommt
+    // auch aus dem Sendepfad — und dort ist die Reihenfolge nicht garantiert.
+    if (!liste.hasContentDimensions) return;
+    final ziel = liste.maxScrollExtent + 240;
     final dauer = motionDuration(context, const Duration(milliseconds: 260));
     // Kein `animateTo(..., Duration.zero)`: DrivenScrollActivity haelt darauf
     // ein `assert(duration > Duration.zero)`. Unter reduzierter Bewegung
     // springt der Verlauf ans Ende, statt dorthin zu gleiten.
     if (dauer == Duration.zero) {
-      _scroll.jumpTo(ziel.clamp(0.0, _scroll.position.maxScrollExtent));
+      liste.jumpTo(ziel.clamp(0.0, liste.maxScrollExtent));
       return;
     }
-    _scroll.animateTo(ziel, duration: dauer, curve: Curves.easeOutCubic);
+    liste.animateTo(ziel, duration: dauer, curve: Curves.easeOutCubic);
   }
 
   Future<void> _send({
@@ -589,6 +663,16 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       imageBytes: imageBytes,
     );
     final entwurf = _input.text;
+    // Wiederhol-Auftrag fuer den Fehlerfall, VOR dem Request gebaut: dieselbe
+    // Blase, derselbe Text, dasselbe Bild. [_wiederholen] nimmt die Nachricht
+    // dann wieder aus dem Verlauf und schickt genau das erneut — statt eine
+    // zweite Blase mit demselben Inhalt anzulegen.
+    final auftrag = _FehlgeschlageneSendung(
+      messageId: userMsg.id,
+      text: displayText,
+      imageBytes: imageBytes,
+      imageMimeType: imageMimeType,
+    );
 
     setState(() {
       _messages = [..._messages, userMsg];
@@ -646,11 +730,21 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       });
       if (_activeSessionId != sessionId) return;
       _entwurfZurueck(entwurf);
-      setState(() => _error = e.message);
+      // Auch hier gekennzeichnet: der Slot war schon weg, die Frage ist nicht
+      // rausgegangen. Der Wiederhol-Knopf haengt an [_canInteract] und bleibt
+      // bei erschoepftem Kontingent aus — die Kennzeichnung bleibt trotzdem,
+      // sonst saehe die Blase aus wie abgeschickt.
+      setState(() {
+        _error = e.message;
+        _fehlgeschlagen = auftrag;
+      });
     } on CoachChatException catch (e) {
       if (!mounted || _activeSessionId != sessionId) return;
       _entwurfZurueck(entwurf);
-      setState(() => _error = e.message);
+      setState(() {
+        _error = e.message;
+        _fehlgeschlagen = auftrag;
+      });
     } finally {
       // In JEDEM Ausgang — auch in den `return`s oben, in denen die Antwort
       // wegen eines Sitzungswechsels verworfen wird. Bliebe der Zaehler dort
@@ -692,6 +786,42 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       return;
     }
     setState(() => _laufendeSendungen = rest);
+  }
+
+  /// Wiederholt die zuletzt NICHT zugestellte Frage.
+  ///
+  /// Der Kern: die Nachricht wird zuerst aus dem Verlauf GENOMMEN und dann
+  /// unveraendert neu abgeschickt — der Versuch ersetzt damit dieselbe Blase,
+  /// statt eine zweite mit demselben Text anzulegen. Genau darueber machte ein
+  /// Netzabbruch bisher aus einer Frage zwei: die Blase blieb als ganz normale
+  /// Nachricht stehen, der zurueckgelegte Entwurf ging beim naechsten Tap auf
+  /// „Senden" ein zweites Mal raus, und die Sitzung trug die Frage doppelt.
+  ///
+  /// Das Bild faehrt mit: es liegt nur lokal in der Blase (die Historie
+  /// speichert bewusst keine Bilddaten), waere also nach einem Fehlschlag ohne
+  /// diesen Auftrag verloren — der Nutzer muesste es neu auswaehlen.
+  Future<void> _wiederholen() async {
+    final auftrag = _fehlgeschlagen;
+    if (auftrag == null || !_canInteract) return;
+    // Der zurueckgelegte Entwurf gehoert zu genau dieser Nachricht und geht im
+    // Wiederholversuch auf. Ein INZWISCHEN neu getippter Text ist dagegen ein
+    // anderer und muss ueberleben: [_send] leert das Feld unbedingt, auch mit
+    // `textOverride`.
+    final fremderEntwurf =
+        _input.text.trim() == auftrag.text.trim() ? '' : _input.text;
+    setState(() {
+      _messages = _messages
+          .where((m) => m.id != auftrag.messageId)
+          .toList(growable: false);
+      _fehlgeschlagen = null;
+      _error = null;
+    });
+    await _send(
+      textOverride: auftrag.text,
+      imageBytes: auftrag.imageBytes,
+      imageMimeType: auftrag.imageMimeType,
+    );
+    if (mounted) _entwurfZurueck(fremderEntwurf);
   }
 
   /// Der getippte Text nach einem Fehlschlag zurueck ins Feld: gesendet wurde
@@ -801,6 +931,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       createdAt: DateTime.now(),
     );
     final entwurf = _input.text;
+    // Wie in [_send]: [displayText] traegt den Befehl mit („/recipe …"), der
+    // Wiederholversuch laeuft deshalb von selbst wieder in diesen Zweig.
+    final auftrag = _FehlgeschlageneSendung(
+      messageId: userMsg.id,
+      text: displayText,
+    );
     setState(() {
       _messages = [..._messages, userMsg];
       _input.clear();
@@ -863,11 +999,17 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
       });
       if (_activeSessionId != sessionId) return;
       _entwurfZurueck(entwurf);
-      setState(() => _error = e.message);
+      setState(() {
+        _error = e.message;
+        _fehlgeschlagen = auftrag;
+      });
     } on CoachChatException catch (e) {
       if (!mounted || _activeSessionId != sessionId) return;
       _entwurfZurueck(entwurf);
-      setState(() => _error = e.message);
+      setState(() {
+        _error = e.message;
+        _fehlgeschlagen = auftrag;
+      });
     } finally {
       _sendevorgangBeendet();
     }
@@ -994,6 +1136,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     HapticFeedback.selectionClick();
     // Vor dem ersten `await` gegriffen: sicherer Context-Zugriff.
     final l10n = context.l10n;
+    // Die Kopie, die der Picker im App-Cache anlegt — sie wird im `finally`
+    // wieder geloescht. Ohne das bleiben Essens- und Fortschrittsfotos des
+    // Nutzers unbegrenzt auf dem Geraet liegen, auch nach der Kontoloeschung.
+    XFile? aufnahme;
     try {
       final image = await _picker.pickImage(
         source: source,
@@ -1004,6 +1150,7 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
         maxWidth: 1600,
       );
       if (image == null) return;
+      aufnahme = image;
       final raw = await image.readAsBytes();
       final bytes = await _scrubImage(raw);
       if (!mounted) return;
@@ -1024,6 +1171,12 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = l10n.coachErrorImageLoadFailed);
+    } finally {
+      // Erst hier: die Bytes sind zu diesem Zeitpunkt gelesen, gescrubbt und
+      // verschickt — der Pfad wird danach nur noch fuer den MIME-Typ gebraucht,
+      // nicht mehr der Inhalt.
+      final datei = aufnahme;
+      if (datei != null) await deleteMealPhotoTempFile(datei.path);
     }
   }
 
@@ -1248,6 +1401,10 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
                   ),
           ),
         ),
+        // Direkt unter dem Verlauf und damit unmittelbar an der Blase, um die
+        // es geht: die fehlgeschlagene Frage ist die letzte im Verlauf.
+        if (_fehlgeschlagen != null)
+          _UnsentNotice(canRetry: _canInteract, onRetry: _wiederholen),
         if (_error != null) _ErrorBanner(text: _error!),
         // Befehls-Menue (Nachtrag 2026-08-13): erscheint beim Tippen von "/"
         // direkt ueber dem Composer; Tap vervollstaendigt den Befehl.
@@ -1270,6 +1427,108 @@ class _CoachChatScreenState extends State<CoachChatScreen> {
           onQuotaTap: _openCoachInfoSheet,
         ),
       ],
+    );
+  }
+}
+
+/// Ein Sendeversuch, der den Server nie erreicht hat — Kennzeichnung UND
+/// Wiederhol-Auftrag.
+///
+/// Haelt bewusst alles, was der zweite Versuch braucht, statt ihn aus dem
+/// Eingabefeld zu rekonstruieren: [text] ist der angezeigte Text (beim
+/// Bild-Fall die Standard-Bildunterschrift, beim Rezept-Fall inklusive
+/// „/recipe"), [imageBytes] das bereits gescrubbte Bild. Nur so bleibt der
+/// Wiederholversuch BITGLEICH — und kostet nicht noch einmal Auswahl,
+/// Kompression und EXIF-Scrub.
+class _FehlgeschlageneSendung {
+  const _FehlgeschlageneSendung({
+    required this.messageId,
+    required this.text,
+    this.imageBytes,
+    this.imageMimeType,
+  });
+
+  /// Id der Blase im Verlauf. Der Wiederholversuch nimmt genau sie heraus —
+  /// deshalb entsteht keine zweite.
+  final String messageId;
+
+  final String text;
+  final Uint8List? imageBytes;
+  final String? imageMimeType;
+}
+
+/// „Nicht gesendet" unter dem Verlauf, mit dem Wiederhol-Knopf daneben.
+///
+/// Rechtsbuendig wie die Nutzer-Blasen: der Fehlerzustand gehoert der EIGENEN
+/// Nachricht. Ohne diese Zeile sah eine nie abgeschickte Frage exakt aus wie
+/// eine zugestellte — der einzige Weg zurueck war „nochmal tippen", und der
+/// erzeugte eine zweite Blase mit demselben Inhalt.
+///
+/// Der Knopf verschwindet, statt deaktiviert dazustehen, wenn gerade nichts
+/// gesendet werden kann (laufende Anfrage, erschoepftes Kontingent): ein
+/// wirkungsloser Knopf ist eine Aufforderung, die nicht eingeloest wird. Die
+/// Kennzeichnung bleibt in beiden Faellen.
+class _UnsentNotice extends StatelessWidget {
+  const _UnsentNotice({required this.canRetry, required this.onRetry});
+
+  final bool canRetry;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Padding(
+      key: const ValueKey('coach-unsent'),
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: <Widget>[
+          Icon(Icons.error_outline_rounded, size: 13, color: t.warning),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              l10n.coachMessageNotSent,
+              style: AppType.ui(
+                11.5,
+                weight: FontWeight.w600,
+                color: t.warning,
+              ),
+            ),
+          ),
+          if (canRetry) ...<Widget>[
+            const SizedBox(width: 6),
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(rPill),
+              child: InkWell(
+                key: const ValueKey('coach-unsent-retry'),
+                onTap: onRetry,
+                borderRadius: BorderRadius.circular(rPill),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(Icons.refresh_rounded, size: 14, color: t.accent),
+                      const SizedBox(width: 5),
+                      Text(
+                        l10n.coachMessageRetry,
+                        style: AppType.ui(
+                          11.5,
+                          weight: FontWeight.w700,
+                          color: t.accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

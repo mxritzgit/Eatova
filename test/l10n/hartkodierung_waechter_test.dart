@@ -26,10 +26,12 @@ import 'package:flutter_test/flutter_test.dart';
 ///     jemals eines dieser Zeichen, wäre das ohnehin ein eigener Fehler
 ///     (Keys sind sprachneutral und bleiben unverändert, Spec §4).
 ///
-/// Was die Heuristik NICHT fängt (bewusste Lücke, s. Bericht): deutsche
-/// Wörter ganz ohne Umlaut/ß (z. B. „Hallo", „Fett", „Makros"). Die
-/// vollständige Extraktion ist Handarbeit pro Paket — dieser Test ist ein
-/// Rückfallnetz, kein Ersatz dafür.
+/// Was der Zeichenfilter NICHT fängt (bewusste Lücke, s. Bericht): deutsche
+/// Wörter ganz ohne Umlaut/ß (z. B. „Hallo", „Fett", „Makros"). Seit dem
+/// Review 2026-08-19 liegt darüber eine ZWEITE Lage, die einen Teil dieser
+/// Klasse sieht — s. [_anzeigeWoerterOhneUmlaut]. Die vollständige Extraktion
+/// bleibt Handarbeit pro Paket; dieser Test ist ein Rückfallnetz, kein Ersatz
+/// dafür.
 ///
 /// Paket 1 (Heute, 2026-08-10) ist der erste Eintrag. Spätere Pakete hängen
 /// hier einfach an (docs/I18N_PAKETE.md, Paketzuschnitt-Tabelle) — NICHT
@@ -277,19 +279,99 @@ const Map<String, List<String>> _bekannteAusnahmen = <String, List<String>>{
   ],
 };
 
+/// ZWEITE LAGE (Review 2026-08-19): deutsche Anzeige-Wörter OHNE Umlaut.
+///
+/// Der Zeichenfilter ist für diese Klasse strukturell blind, und genau daran
+/// ist er einmal vorbeigelaufen: `home_store_meals.dart` stand seit der
+/// Fixwelle 2026-08-11 in [_migriertePfade] und galt als vollständig
+/// migriert — die Bestätigung des Bearbeiten-Sheets („Mahlzeit
+/// aktualisiert.", „… verschoben.") und die Tageslabel des
+/// Verschiebe-Hinweises („heute"/„gestern") trugen trotzdem hartes Deutsch.
+/// Kein einziger Umlaut, also kein einziger Fund.
+///
+/// AUSWAHL — kurz gehalten und AUSSCHLIESSLICH kleingeschrieben:
+///  * Zeit-Adverbien (heute/gestern/morgen) und Bestätigungs-Partizipien
+///    (gespeichert/aktualisiert/verschoben/geloescht/hinzugefuegt) sind das
+///    Vokabular von Snack- und Statustexten. Sie tragen fast nie einen
+///    Umlaut und fallen deshalb systematisch durch Lage 1.
+///  * Deutsche SUBSTANTIVE (Mahlzeit, Favorit, Rezept, Tag) stehen bewusst
+///    NICHT auf der Liste: sie sind in diesem Repo die
+///    Outbox-Operationslabels von `_syncOrQueue`/`_reportSyncError`
+///    ('Mahlzeit-Update', 'Favorit-Delete', 'Tag-Nachladen') — reiner
+///    dev.log-/CrashReporter-Text, dieselbe Kategorie wie 'Konto-Löschung'
+///    in [_bekannteAusnahmen] (Spec §4). Eine Liste, die sie aufnimmt,
+///    bestünde zur Hälfte aus Ausnahmen und überlebte keine Woche.
+///  * Der Abgleich läuft groß-/kleinschreibungsGENAU. Das ist der
+///    eigentliche Trennschnitt und kein Detail: `keyId: 'Heute'`
+///    (eatova_home_page.dart) ist ein sprachneutraler ValueKey, „heute" im
+///    Fließtext ist Anzeige. Deutsche Nomen und Bezeichner stehen groß,
+///    Adverbien und Partizipien klein — die Schreibung trennt beide
+///    zuverlässiger als jede Ausnahmeliste.
+///
+/// NICHT auf der Liste, obwohl es hingehörte: „entfernt". Der einzige heutige
+/// Fund dieser Form (`'Favorit entfernt'`, `home_store_meals.dart`) hat noch
+/// keinen ARB-Schlüssel — das Wort würde den Wächter rot stellen, ohne dass
+/// ihn jemand grün bekommt. Sobald der Schlüssel existiert, gehört es dazu
+/// (gemeldet im Review 2026-08-19).
+const List<String> _anzeigeWoerterOhneUmlaut = <String>[
+  'heute',
+  'gestern',
+  'morgen',
+  'gespeichert',
+  'aktualisiert',
+  'verschoben',
+  'geloescht',
+  'hinzugefuegt',
+];
+
+final RegExp _literal = RegExp(r"'[^'\n]*'");
+final RegExp _deutschesZeichen = RegExp('[äöüÄÖÜß„]');
+
+/// Literale, die in diesem Repo Schlüssel/Pfad/Kanal-Id sind: durchgängig
+/// ASCII-Kleinschreibung, gegliedert durch `-`/`_`/`.`/`/`
+/// ('analyse-portion-notes', 'assets/icons/logo.png'). Nur die WORT-Lage
+/// lässt sie aus — ein Listenwort darin wäre Teil eines Bezeichners, kein
+/// Satz. Lage 1 bleibt unberührt: ein Umlaut in einem Schlüssel ist ohnehin
+/// ein eigener Fehler (Keys sind sprachneutral, Spec §4).
+final RegExp _bezeichnerLiteral = RegExp(r'^[a-z0-9]+([-_./][a-z0-9]+)+$');
+
+final List<RegExp> _wortTreffer = _anzeigeWoerterOhneUmlaut
+    .map((wort) => RegExp('\\b$wort\\b'))
+    .toList(growable: false);
+
+/// Beide Lagen für EIN Literal — inklusive der umschließenden Quotes, so wie
+/// [_literal] es liefert. Eigene Funktion, damit die Selbstprüfung unten sie
+/// direkt füttern kann, statt über den Dateibaum zu gehen.
+bool _istDeutscheHartkodierung(String literalMitQuotes) {
+  if (_deutschesZeichen.hasMatch(literalMitQuotes)) return true;
+  final inhalt = literalMitQuotes.substring(1, literalMitQuotes.length - 1);
+  if (_bezeichnerLiteral.hasMatch(inhalt)) return false;
+  return _wortTreffer.any((treffer) => treffer.hasMatch(inhalt));
+}
+
+String _ohneKommentare(String quelle) => quelle
+    .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
+    .split('\n')
+    .map((zeile) {
+      final i = zeile.indexOf('//');
+      return i < 0 ? zeile : zeile.substring(0, i);
+    })
+    .join('\n');
+
+/// Alle Funde einer Quelldatei, als `pfad: literal` formatiert. [ausnahmen]
+/// ist der Eintrag aus [_bekannteAusnahmen] — er deckt BEIDE Lagen ab, ein
+/// dokumentierter Einzelfall bleibt also dokumentiert.
+List<String> _fundeIn(String relativ, String quelle, List<String> ausnahmen) {
+  final funde = <String>[];
+  for (final match in _literal.allMatches(_ohneKommentare(quelle))) {
+    final text = match.group(0)!;
+    if (ausnahmen.contains(text)) continue;
+    if (_istDeutscheHartkodierung(text)) funde.add('$relativ: $text');
+  }
+  return funde;
+}
+
 void main() {
-  final RegExp literal = RegExp(r"'[^'\n]*'");
-  final RegExp deutschesZeichen = RegExp('[äöüÄÖÜß„]');
-
-  String ohneKommentare(String quelle) => quelle
-      .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
-      .split('\n')
-      .map((zeile) {
-        final i = zeile.indexOf('//');
-        return i < 0 ? zeile : zeile.substring(0, i);
-      })
-      .join('\n');
-
   /// Akzeptiert sowohl einen Verzeichnis-Pfad (endet auf `/`, rekursiv
   /// durchsucht) als auch den Pfad einer einzelnen `.dart`-Datei — Paket 2
   /// hat Screen-Dateien ohne eigenen Ordner (z. B.
@@ -317,24 +399,81 @@ void main() {
     for (final pfad in _migriertePfade) {
       for (final datei in dartDateien(pfad)) {
         final relativ = datei.path.replaceAll(r'\', '/');
-        final quelle = ohneKommentare(datei.readAsStringSync());
-        final ausnahmen = _bekannteAusnahmen[relativ] ?? const <String>[];
-        for (final match in literal.allMatches(quelle)) {
-          final text = match.group(0)!;
-          if (deutschesZeichen.hasMatch(text) && !ausnahmen.contains(text)) {
-            funde.add('$relativ: $text');
-          }
-        }
+        funde.addAll(_fundeIn(
+          relativ,
+          datei.readAsStringSync(),
+          _bekannteAusnahmen[relativ] ?? const <String>[],
+        ));
       }
     }
     expect(
       funde,
       isEmpty,
       reason: 'Diese String-Literale tragen noch deutsche Hartkodierungen '
-          '(Umlaut/ß/„) unter einem als migriert gemeldeten Pfad — entweder '
-          'fehlt die ARB-Extraktion, oder der Pfad wurde zu früh '
+          '(Umlaut/ß/„ oder ein Wort aus _anzeigeWoerterOhneUmlaut) unter '
+          'einem als migriert gemeldeten Pfad — entweder fehlt die '
+          'ARB-Extraktion, oder der Pfad wurde zu früh '
           'eingetragen:\n${funde.join('\n')}',
     );
+  });
+
+  group('die Wort-Lage (umlautlose Anzeige-Texte)', () {
+    test('sieht genau die Klasse, an der der Zeichenfilter vorbeilief', () {
+      // Wörtlich die Zeilen, die `home_store_meals.dart` bis zum Review
+      // 2026-08-19 unbemerkt trug — hier als Literale nachgestellt, damit die
+      // Selbstprüfung nicht daran hängt, dass die Datei ewig so bleibt.
+      const uebersehen = <String>[
+        r"'Mahlzeit auf ${_moveDayLabel(updated.loggedAt)} verschoben.'",
+        "'Mahlzeit aktualisiert.'",
+        "'heute'",
+        "'gestern'",
+        "'Rezept gespeichert.'",
+      ];
+      for (final probe in uebersehen) {
+        expect(_istDeutscheHartkodierung(probe), isTrue, reason: probe);
+        expect(_deutschesZeichen.hasMatch(probe), isFalse,
+            reason: 'sonst hätte Lage 1 gereicht und die Probe taugt nicht: '
+                '$probe');
+      }
+    });
+
+    test('lässt Bezeichner, Operationslabels und Englisch in Ruhe', () {
+      // Die Formen, die dieselben Wörter tragen KÖNNTEN, ohne Anzeige zu
+      // sein — Schlüssel, Diagnosetext, Pfad, fremde Sprache.
+      const durchgelassen = <String>[
+        "'Heute'", // ValueKey-Id der Navigation (eatova_home_page.dart)
+        "'Mahlzeit-Update'", // Outbox-Operationslabel, nur dev.log
+        "'Tag-Nachladen'",
+        "'analyse-portion-notes'", // ValueKey
+        "'assets/images/onboarding.png'",
+        // Der Grund für [_bezeichnerLiteral]: ein Schlüssel darf ein
+        // Listenwort tragen, ohne Anzeige zu sein — er wird nie gerendert.
+        "'food-heute-strip'",
+        "'Meal updated.'", // englischer Protokolltext
+      ];
+      for (final probe in durchgelassen) {
+        expect(_istDeutscheHartkodierung(probe), isFalse, reason: probe);
+      }
+    });
+
+    test('löst in Kommentaren nicht aus', () {
+      // Dieselbe Falle wie beim Zeichenfilter: der Wächter erklärt sich in
+      // deutschen Kommentaren und würde sich sonst selbst rot stellen.
+      const quelle = '''
+// heute verschoben und gespeichert — reiner Erklärtext
+/* gestern aktualisiert */
+/// heute
+const x = 'today';
+''';
+      expect(_fundeIn('probe.dart', quelle, const <String>[]), isEmpty);
+    });
+
+    test('eine dokumentierte Ausnahme deckt beide Lagen', () {
+      const quelle = "const x = 'heute';";
+      expect(_fundeIn('probe.dart', quelle, const <String>[]), hasLength(1));
+      expect(_fundeIn('probe.dart', quelle, const <String>["'heute'"]),
+          isEmpty);
+    });
   });
 
   test('die migrierten Pfade existieren wirklich (kein Tippfehler)', () {

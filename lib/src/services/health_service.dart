@@ -43,8 +43,11 @@ class HealthSnapshot {
   /// damit identisch zum Steps-only-Snapshot von vorher).
   final double? latestWeightKg;
 
-  /// Schlafdauer der letzten Nacht in Minuten, falls verfuegbar. Null = keine
-  /// Daten / nicht autorisiert.
+  /// Schlafdauer der letzten Nacht in Minuten.
+  ///
+  /// Bleibt seit 2026-08-19 immer null — der Apple-Service fragt den
+  /// SLEEP-Scope nicht mehr an (s. [readLastSleep]). Das Feld existiert nur
+  /// noch, bis die HealthService-Fakes der Testsuite nachgezogen sind.
   final int? lastSleepMinutes;
 }
 
@@ -67,9 +70,11 @@ abstract class HealthService {
   void reset();
 
   /// Triggers the system permission prompt. Returns the resulting auth state.
-  /// Fragt READ (Steps/Weight/Sleep) UND WRITE (Weight) in einem Zug an,
-  /// sodass der Write-Back-Pfad nach einem erfolgreichen Connect sofort nutzbar
-  /// ist — kein zweiter Permission-Dialog spaeter.
+  /// Fragt READ (Steps/Weight) UND WRITE (Weight) in einem Zug an, sodass der
+  /// Write-Back-Pfad nach einem erfolgreichen Connect sofort nutzbar ist —
+  /// kein zweiter Permission-Dialog spaeter. Mehr Scopes als diese beiden
+  /// duerfen es nicht werden, solange kein Feature sie liest: der Zwecktext in
+  /// `ios/Runner/Info.plist` muss zu jedem angefragten Scope passen.
   Future<HealthAuthState> requestAuthorization();
 
   /// Reads today's step count (plus optional weight/sleep). Returns null when
@@ -100,7 +105,14 @@ abstract class HealthService {
   });
 
   /// Liest den letzten zusammenhaengenden Schlaf-Block vor [before] (Default:
-  /// jetzt). Null wenn nicht unterstuetzt / nicht autorisiert / keine Daten.
+  /// jetzt).
+  ///
+  /// Liefert seit 2026-08-19 in JEDER Implementierung null: der SLEEP-Scope
+  /// wird nicht mehr angefragt, weil ihn kein Feature liest (der Schlafwert
+  /// floss nur in die Auth-Evidenz), und Apple lehnt HealthKit-Scopes ohne
+  /// sichtbaren Nutzen im Review ab. Der Vertrag bleibt vorerst am Interface
+  /// stehen, weil mehrere Test-Fakes ihn ueberschreiben — wer ihn abbaut, muss
+  /// [SleepSample] und [HealthSnapshot.lastSleepMinutes] gleich mitnehmen.
   Future<SleepSample?> readLastSleep({DateTime? before});
 }
 

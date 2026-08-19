@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../l10n/l10n.dart';
 import '../services/food_kcal_db.dart';
 import 'meal_component.dart';
@@ -233,6 +235,139 @@ enum MealResultPortionNote {
   }
 }
 
+/// Sprachneutrale Kodierung des Produkt-Hinweises, den
+/// [MealAnalysisResult.fromOpenFoodFacts] in `portionNotes` schreibt
+/// (Komplettreview 2026-08-19, Fund 4).
+///
+/// Bis dahin baute die Fabrik dort einen fertigen DEUTSCHEN Absatz
+/// (`'OpenFoodFacts Barcode 4001724012345. Marke: … Du kannst das gegessene
+/// Gewicht weiter anpassen.'`) und persistierte ihn. Ein englischer Nutzer las
+/// diesen Text unter korrekt uebersetzten Labels auf Deutsch, und kein
+/// Sprachwechsel wurde ihn je wieder los — das Feld liegt im Payload.
+///
+/// Anders als bei [MealResultPortionNote] reicht ein fester Marker hier
+/// nicht: der Absatz traegt VARIABLEN (Barcode, Marke, Packungsgroesse,
+/// Portionsangabe der Datenbank). Persistiert wird deshalb ein Marker MIT
+/// Nutzlast — [_prefix] plus die vier Werte als JSON —, aufgeloest wird er
+/// erst zur Anzeigezeit ([text]). Unter [deL10n] ist das Ergebnis wortgleich
+/// mit dem bisherigen Absatz (i18n-Regel 1: de bleibt byte-identisch).
+///
+/// **Alt-Zeilen bleiben lesbar UND werden uebersetzt.** [resolve] erkennt
+/// neben der neuen Kodierung auch den deutschen Bestandsabsatz und liest
+/// dessen vier Werte ueber [_legacyDe] zurueck — dieselbe Idee wie
+/// [MealResultSource.legacyDe], nur dass ein Absatz mit Variablen ein Muster
+/// statt eines Literals braucht. Passt das Muster nicht (von Hand veraenderter
+/// oder noch aelterer Text), bleibt der Rohtext unveraendert stehen
+/// (Pass-through, i18n-design.md §5) — lesbar ist er in jedem Fall.
+class MealResultOffNote {
+  const MealResultOffNote({
+    required this.barcode,
+    this.brand,
+    this.package,
+    this.serving,
+  });
+
+  /// Praefix des persistierten Werts. Kurz und sprachneutral, damit er in
+  /// derselben Spalte lebt wie die Marker aus [MealResultPortionNote].
+  static const String _prefix = 'offProductNote:';
+
+  final String barcode;
+  final String? brand;
+
+  /// Packungsgroesse laut OFF (`quantity`), z. B. `'390 g'`.
+  final String? package;
+
+  /// Portionsangabe laut OFF (`serving_size`), z. B. `'100 g'`.
+  final String? serving;
+
+  /// Der sprachneutrale Wert fuer `portionNotes`.
+  String encode() {
+    final werte = <String, String>{
+      'barcode': barcode,
+      if (brand != null) 'brand': brand!,
+      if (package != null) 'package': package!,
+      if (serving != null) 'serving': serving!,
+    };
+    return '$_prefix${jsonEncode(werte)}';
+  }
+
+  /// Anzeigetext in der Sprache von [l10n].
+  String text(AppLocalizations l10n) => <String>[
+    l10n.mealNotesOffSource(barcode),
+    if (brand != null) l10n.mealNotesOffBrand(brand!),
+    if (package != null) l10n.mealNotesOffPackage(package!),
+    if (serving != null) l10n.mealNotesOffServing(serving!),
+    l10n.mealNotesOffDatabase,
+    l10n.mealNotesAdjustWeight,
+  ].join(' ');
+
+  /// Ordnet einen ROHEN, persistierten Wert zu: neue Kodierung oder deutscher
+  /// Bestandsabsatz. Alles andere -> `null` (Pass-through-Fall).
+  static MealResultOffNote? resolve(String raw) => raw.startsWith(_prefix)
+      ? _fromJson(raw.substring(_prefix.length))
+      : _fromLegacyDe(raw);
+
+  /// Ein beschaedigter Marker ist kein Grund, die Zeile zu verlieren: der
+  /// Aufrufer zeigt dann den Rohwert, wie bei jedem unbekannten Text.
+  static Object? _jsonOderNull(String rohesJson) {
+    try {
+      return jsonDecode(rohesJson);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  static MealResultOffNote? _fromJson(String rohesJson) {
+    final gelesen = _jsonOderNull(rohesJson);
+    if (gelesen is! Map) return null;
+    final barcode = gelesen['barcode'];
+    // Der fehlende Schluessel disqualifiziert den Marker; ein LEERER Barcode
+    // nicht — die Produktsuche liefert Treffer ohne `code` (s.
+    // `ProductSearchResult.fromOpenFoodFacts`), und der Bestandsabsatz schrieb
+    // dafuer schon immer 'OpenFoodFacts Barcode .'.
+    if (barcode == null) return null;
+    return MealResultOffNote(
+      barcode: barcode.toString().trim(),
+      brand: _nichtLeer(gelesen['brand']),
+      package: _nichtLeer(gelesen['package']),
+      serving: _nichtLeer(gelesen['serving']),
+    );
+  }
+
+  /// Muster des deutschen Bestandsabsatzes. Bewusst Kompatibilitaets-DATEN,
+  /// kein UI-Text (dieselbe Rolle wie [MealResultSource.legacyDe]): die
+  /// Wortlaute sind die Fassung VOR dem Komplettreview 2026-08-19 und duerfen
+  /// sich nie wieder aendern — sonst verlieren Alt-Zeilen ihre Uebersetzung.
+  /// Die drei mittleren Gruppen sind optional, weil `fromOpenFoodFacts` sie
+  /// schon damals nur bei vorhandenem Feld schrieb.
+  static final RegExp _legacyDe = RegExp(
+    r'^OpenFoodFacts Barcode (.+?)\.'
+    r'(?: Marke: (.+?)\.)?'
+    r'(?: Packung: (.+?)\.)?'
+    r'(?: Portion laut Datenbank: (.+?)\.)?'
+    r' Nährwerte kommen aus der Produktdatenbank, nicht aus einer Foto-Schätzung\.'
+    r' Du kannst das gegessene Gewicht weiter anpassen\.$',
+  );
+
+  static MealResultOffNote? _fromLegacyDe(String raw) {
+    final treffer = _legacyDe.firstMatch(raw);
+    if (treffer == null) return null;
+    final barcode = _nichtLeer(treffer.group(1));
+    if (barcode == null) return null;
+    return MealResultOffNote(
+      barcode: barcode,
+      brand: _nichtLeer(treffer.group(2)),
+      package: _nichtLeer(treffer.group(3)),
+      serving: _nichtLeer(treffer.group(4)),
+    );
+  }
+
+  static String? _nichtLeer(Object? wert) {
+    final wertText = wert?.toString().trim();
+    return wertText == null || wertText.isEmpty ? null : wertText;
+  }
+}
+
 class MealAnalysisResult {
   const MealAnalysisResult({
     required this.mealName,
@@ -268,10 +403,12 @@ class MealAnalysisResult {
   /// ROHER Notiz-Text, wie er persistiert wird. Traegt entweder einen der
   /// drei bekannten Fallback-Marker aus `fromEdgeFunction`
   /// (s. [MealResultPortionNote], ueber [resolvedPortionNotes] aufloesbar),
-  /// echten KI-Freitext (`explanation`) oder von `adjustedToGrams`/
-  /// `adjustedToItems` gebaute Anpassungs-Saetze — beide Letzteren bleiben
-  /// bewusst hartkodiertes Deutsch (quasi Nutzerdaten bzw. dokumentierte
-  /// Restlücke, s. [MealResultPortionNote]-Klassendoku).
+  /// den kodierten OFF-Produkthinweis aus `fromOpenFoodFacts`
+  /// (s. [MealResultOffNote], ebenfalls aufloesbar), echten KI-Freitext
+  /// (`explanation`) oder von `adjustedToGrams`/`adjustedToItems` gebaute
+  /// Anpassungs-Saetze — beide Letzteren bleiben bewusst hartkodiertes Deutsch
+  /// (quasi Nutzerdaten bzw. dokumentierte Restlücke, s.
+  /// [MealResultPortionNote]-Klassendoku).
   final String portionNotes;
   final List<MealComponent> items;
   final bool isAdjusted;
@@ -322,15 +459,18 @@ class MealAnalysisResult {
     return level == null ? confidence : level.label(l10n);
   }
 
-  /// Anzeige der Anpassungs-/Scan-Notiz in der Sprache von [l10n]. Loest NUR
-  /// die drei bekannten Fallback-Marker aus `fromEdgeFunction` auf (s.
-  /// [MealResultPortionNote]); echter KI-Freitext und die rechnerischen
-  /// Anpassungs-Texte aus `adjustedToGrams`/`adjustedToItems` sind kein
-  /// UI-Vokabular und bleiben unveraendert (Pass-through) — dieselbe Klammer
-  /// wie [resolvedSourceLabel].
+  /// Anzeige der Anpassungs-/Scan-Notiz in der Sprache von [l10n]. Loest die
+  /// bekannten Fallback-Marker aus `fromEdgeFunction` (s.
+  /// [MealResultPortionNote]) und den OFF-Produkthinweis aus
+  /// `fromOpenFoodFacts` (s. [MealResultOffNote], inklusive der deutschen
+  /// Alt-Zeilen) auf; echter KI-Freitext und die rechnerischen Anpassungs-Texte
+  /// aus `adjustedToGrams`/`adjustedToItems` sind kein UI-Vokabular und bleiben
+  /// unveraendert (Pass-through) — dieselbe Klammer wie [resolvedSourceLabel].
   String resolvedPortionNotes(AppLocalizations l10n) {
     final note = MealResultPortionNote.resolve(portionNotes);
-    return note == null ? portionNotes : note.text(l10n);
+    if (note != null) return note.text(l10n);
+    final offNote = MealResultOffNote.resolve(portionNotes);
+    return offNote == null ? portionNotes : offNote.text(l10n);
   }
 
   /// Bewusst **nicht** ueber [effectiveKcalPer100G]: `0 kcal / 100 g` ist bei
@@ -518,6 +658,14 @@ class MealAnalysisResult {
     // Nur eine echte Modellangabe zaehlt als bekannte Portion. Die 150 g
     // weiter unten sind ein Default und duerfen nicht als Bezugsgroesse fuer
     // eine hergeleitete Dichte durchgehen.
+    //
+    // Reihenfolge seit dem Komplettreview 2026-08-19 (Fund 3): explizite
+    // Modellangabe, dann die POSTENSUMME (strukturierte Zahlen), erst zuletzt
+    // der Erklaertext — und der nur noch, wenn er GENAU EINE Grammangabe
+    // traegt. Der Prompt verlangt in `explanation` ausdruecklich eine
+    // Groessen-Begruendung, die typischerweise mehrere Grammzahlen nennt
+    // ('120 g Nudeln mit 80 g Sauce'); die erste davon ist dann eben NICHT
+    // das Gesamtgewicht, und sie schlug bisher trotzdem die Postensumme.
     final gemesseneGramm =
         _readPositiveInt(json, const [
           'estimatedGrams',
@@ -526,15 +674,15 @@ class MealAnalysisResult {
           'weightG',
           'estimatedWeightG',
         ]) ??
-        _positive(_estimateGramsFromText(json['explanation']?.toString())) ??
-        (itemGrams > 0 ? itemGrams : null);
+        (itemGrams > 0 ? itemGrams : null) ??
+        _positive(_unambiguousGramsFromText(json['explanation']?.toString()));
     final estimatedGrams = gemesseneGramm ?? 150;
     // Reihenfolge der Fallback-Kette, bewusst so:
     //   1. die explizite, plausible Modelldichte
     //   2. die Herleitung aus den beiden autoritativen Zahlen DIESES Fotos
-    //   3. erst dann die namensbasierte Referenztabelle — sie matcht auf
-    //      Teilstrings ('Apfelkuchen' enthaelt 'apfel') und weiss nichts von
-    //      der Zubereitung, ist also die schwaechste Quelle
+    //   3. erst dann die namensbasierte Referenztabelle — sie kennt nur eine
+    //      Handvoll unverarbeiteter Lebensmittel, weiss nichts von der
+    //      Zubereitung und ist damit die schwaechste Quelle
     //   4. zuletzt die Herleitung mit der Default-Portion
     final kcalPer100G =
         _readPlausibleDouble(json, const [
@@ -561,8 +709,20 @@ class MealAnalysisResult {
     // Fehlende/leere confidence ist keine "mittlere" — sie ist keine Aussage.
     final confidence = json['confidence']?.toString();
     final dichte = clampKcalPer100G(kcalPer100G);
+    // Fund 1b (Komplettreview 2026-08-19): die Gesamtkalorien duerfen nur aus
+    // einer WIRKLICH GEMESSENEN Portion hergeleitet werden. Zuvor stand hier
+    // `estimatedGrams`, also notfalls die Default-Portion von 150 g — zusammen
+    // mit einer namensbasierten Referenzdichte entstand daraus aus einer
+    // zahlenlosen Modellantwort eine loggbare Kalorienzahl ('Apfel' -> 78
+    // kcal), die auf der Karte aussieht wie eine Messung. Ohne belastbare
+    // Zahlen bleibt es bei der etablierten Unbekannt-Form 0 (ohne
+    // explicitZeroKcal): die Log-Guards blockieren sie mit Hinweis.
     final resolvedCalories = clampMealCaloriesKcal(
-      calories > 0 ? calories : (dichte * estimatedGrams / 100).round(),
+      calories > 0
+          ? calories
+          : (gemesseneGramm != null
+                ? (dichte * gemesseneGramm / 100).round()
+                : 0),
     );
     final resolvedGrams = clampMealEstimatedG(
       estimatedGrams > 0 ? estimatedGrams : itemGrams,
@@ -586,6 +746,11 @@ class MealAnalysisResult {
         autoSplit = true;
       }
     }
+    // Fund 2 (Komplettreview 2026-08-19): `items[]` und `caloriesKcal` kamen
+    // bisher unabgeglichen aus derselben Antwort. Wer im Bestandteil-Sheet nur
+    // BESTAETIGTE, bekam ueber `adjustedToItems` die Postensumme als neue
+    // Gesamtzahl — also eine andere Mahlzeit, als auf der Karte stand.
+    normalizedItems = _itemsMitGesamtKcal(normalizedItems, resolvedCalories);
 
     return MealAnalysisResult(
       mealName: mealName,
@@ -629,14 +794,16 @@ class MealAnalysisResult {
     final fat100 = _readDouble(nutriments, const ['fat_100g']);
     final quantity = _firstNonEmptyString(product, const ['quantity']);
     final servingSize = _firstNonEmptyString(product, const ['serving_size']);
-    final details = <String>[
-      'OpenFoodFacts Barcode $barcode.',
-      if (brand != null) 'Marke: $brand.',
-      if (quantity != null) 'Packung: $quantity.',
-      if (servingSize != null) 'Portion laut Datenbank: $servingSize.',
-      'Nährwerte kommen aus der Produktdatenbank, nicht aus einer Foto-Schätzung.',
-      'Du kannst das gegessene Gewicht weiter anpassen.',
-    ].join(' ');
+    // Sprachneutral persistiert, erst zur Anzeigezeit aufgeloest (Fund 4,
+    // Komplettreview 2026-08-19): der fertige deutsche Absatz, der hier
+    // frueher gebaut wurde, ueberlebte im Payload jeden Sprachwechsel. Unter
+    // deL10n liefert `MealResultOffNote.text()` denselben Wortlaut wie bisher.
+    final hinweis = MealResultOffNote(
+      barcode: barcode,
+      brand: brand,
+      package: quantity,
+      serving: servingSize,
+    );
 
     return MealAnalysisResult(
       mealName: clampMealName(
@@ -649,7 +816,7 @@ class MealAnalysisResult {
       carbs: macroForGrams(carbs100, servingGrams),
       fat: macroForGrams(fat100, servingGrams),
       confidence: _MealResultConfidenceCodes.database,
-      portionNotes: details,
+      portionNotes: hinweis.encode(),
       sourceLabel: MealResultSource.openFoodFacts.code,
       barcode: barcode,
       brand: brand,
@@ -1037,6 +1204,10 @@ class MealAnalysisResult {
     return match == null ? null : int.tryParse(match.group(0)!);
   }
 
+  /// Erste Grammangabe eines Textes. Nur noch fuer OFFs `serving_size`
+  /// gedacht — ein Feld, das genau EINE Portionsangabe traegt ('100 g',
+  /// '1 Riegel (30 g)'). Fuer den KI-Erklaertext ist die Frage eine andere,
+  /// s. [_unambiguousGramsFromText].
   static int? _estimateGramsFromText(String? value) {
     if (value == null) {
       return null;
@@ -1045,22 +1216,138 @@ class MealAnalysisResult {
     return match == null ? null : int.tryParse(match.group(1)!);
   }
 
-  static double? _knownKcalPer100G(String mealName) {
-    final lower = mealName.toLowerCase();
-    if (lower.contains('apfel') || lower.contains('apple')) {
-      return 52;
+  /// Gramm aus einem KI-Erklaertext — aber nur, wenn der Text GENAU EINE
+  /// Grammangabe traegt (Fund 3, Komplettreview 2026-08-19).
+  ///
+  /// `explanation` ist laut Prompt eine Groessen-BEGRUENDUNG und nennt
+  /// deshalb typischerweise mehrere Gewichte ('etwa 120 g Nudeln mit 80 g
+  /// Sauce'). Die erste Zahl daraus als GESAMTgewicht zu lesen, ist geraten;
+  /// bei genau einer Angabe ist die Lesart dagegen eindeutig. Das
+  /// Wortende (`\b`, optional 'gramm'/'grams') haelt ausserdem Treffer wie
+  /// '120 gebraten' draussen, die das alte Muster mitnahm.
+  static int? _unambiguousGramsFromText(String? value) {
+    if (value == null) {
+      return null;
     }
-    if (lower.contains('banane') || lower.contains('banana')) {
-      return 89;
+    final treffer = RegExp(
+      r'(\d{2,4})\s*g(?:ramm|rams)?\b',
+    ).allMatches(value.toLowerCase()).toList(growable: false);
+    if (treffer.length != 1) {
+      return null;
     }
-    if (lower.contains('orange')) {
-      return 47;
-    }
-    if (lower.contains('erdbeer') || lower.contains('strawberr')) {
-      return 32;
-    }
-    return null;
+    return int.tryParse(treffer.single.group(1)!);
   }
+
+  /// Referenzdichten fuer eine Handvoll unverarbeiteter Lebensmittel, die das
+  /// Modell haeufig ohne Zahlen zurueckgibt. Schwaechste Quelle der
+  /// Dichte-Kette in [fromEdgeFunction] und bewusst kurz gehalten — fuer
+  /// zusammengesetzte Gerichte gibt es `autoSplitItems`/`food_kcal_db.dart`.
+  static const Map<String, double> _referenzKcalPer100G = <String, double>{
+    'apfel': 52,
+    'äpfel': 52,
+    'apple': 52,
+    'apples': 52,
+    'banane': 89,
+    'bananen': 89,
+    'banana': 89,
+    'bananas': 89,
+    'orange': 47,
+    'orangen': 47,
+    'oranges': 47,
+    'erdbeere': 32,
+    'erdbeeren': 32,
+    'strawberry': 32,
+    'strawberries': 32,
+  };
+
+  /// Referenzdichte zum Mahlzeitnamen — nur bei EXAKTEM Treffer auf dem
+  /// normalisierten Namen (Fund 1a, Komplettreview 2026-08-19).
+  ///
+  /// Vorher war das eine Teilstring-Suche: 'Erdbeerkuchen' enthaelt 'erdbeer'
+  /// und bekam damit 32 kcal/100 g, 'Apfelstrudel' die 52 eines rohen Apfels.
+  /// Die Tabelle kennt nur ganze, unverarbeitete Lebensmittel — sobald der
+  /// Name mehr sagt als sie weiss, ist Schweigen die richtige Antwort.
+  static double? _knownKcalPer100G(String mealName) {
+    final name = mealName.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    return _referenzKcalPer100G[name];
+  }
+
+  /// Nordet die Kalorien der Posten proportional und summengenau auf
+  /// [gesamtKcal] ein (Fund 2, Komplettreview 2026-08-19).
+  ///
+  /// **Der Modell-Gesamtwert gewinnt gegen die Postensumme** — aus demselben
+  /// Grund, aus dem er in [adjustedToGrams] gegen die Dichte gewinnt: er ist
+  /// die Zahl, die gross auf der Karte steht und die der Nutzer bestaetigt;
+  /// die Posten sind seine Aufschluesselung. Damit gilt auch hier
+  /// `adjustedToItems(items).caloriesKcal == caloriesKcal`, blosses
+  /// Bestaetigen verschiebt die Mahlzeit also nicht mehr.
+  ///
+  /// Die Posten behalten ihre Verhaeltnisse zueinander und ihre Gramm (die
+  /// Dichte wird mitgefuehrt); die Makros bleiben unangetastet — sie sind eine
+  /// eigene Modellaussage, keine Ableitung aus den Kalorien. Ohne
+  /// Bezugsgroesse wird nichts gerechnet: eine Postenliste ganz ohne
+  /// Kalorienzahl (der Server liefert dort `null`) bleibt unveraendert, statt
+  /// eine Verteilung zu erfinden.
+  ///
+  /// Die GRAMMsumme bleibt bewusst unangetastet: sie proportional zu
+  /// verschieben hiesse, jeden Posten neu zu gewichten und die Makros mit ihm
+  /// (s. `MealComponent.adjustedToGrams`) — das ist eine eigene Entscheidung
+  /// und nicht die, um die es hier geht.
+  static List<MealComponent> _itemsMitGesamtKcal(
+    List<MealComponent> posten,
+    int gesamtKcal,
+  ) {
+    if (posten.isEmpty || gesamtKcal <= 0) {
+      return posten;
+    }
+    final summe = posten.fold<int>(0, (sum, item) => sum + item.caloriesKcal);
+    if (summe <= 0 || summe == gesamtKcal) {
+      return posten;
+    }
+    final faktor = gesamtKcal / summe;
+    final neu = posten
+        .map(
+          (item) => _mitKcal(
+            item,
+            clampMealCaloriesKcal(item.caloriesKcal * faktor),
+          ),
+        )
+        .toList();
+    // Rundungsrest (hoechstens ein halbes kcal je Posten) auf den groessten
+    // Posten — sonst verfehlt die Summe ihr Ziel um ein paar kcal und die
+    // Invariante oben gaelte nur ungefaehr.
+    final rest =
+        gesamtKcal - neu.fold<int>(0, (sum, item) => sum + item.caloriesKcal);
+    if (rest != 0) {
+      var groesster = 0;
+      for (var i = 1; i < neu.length; i++) {
+        if (neu[i].caloriesKcal > neu[groesster].caloriesKcal) {
+          groesster = i;
+        }
+      }
+      neu[groesster] = _mitKcal(
+        neu[groesster],
+        clampMealCaloriesKcal(neu[groesster].caloriesKcal + rest),
+      );
+    }
+    return List<MealComponent>.of(neu, growable: false);
+  }
+
+  /// [MealComponent] hat kein `copyWith` — der Posten wird deshalb neu
+  /// gebaut. Die Dichte folgt der neuen Kalorienzahl (sonst widerspraeche sie
+  /// dem eigenen Posten), Gramm und Makros bleiben, wie das Modell sie
+  /// gemeldet hat.
+  static MealComponent _mitKcal(MealComponent item, int kcal) => MealComponent(
+    name: item.name,
+    grams: item.grams,
+    caloriesKcal: kcal,
+    kcalPer100G: item.grams > 0 && kcal > 0
+        ? clampKcalPer100G(kcal * 100 / item.grams)
+        : item.kcalPer100G,
+    proteinG: item.proteinG,
+    carbsG: item.carbsG,
+    fatG: item.fatG,
+  );
 
   /// Skaliert die Zahl in einem Makro-Text mit [factor].
   ///

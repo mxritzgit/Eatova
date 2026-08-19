@@ -729,6 +729,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
           SettingsRow(
             title: l10n.goalsFieldManual,
             chevron: false,
+            // Die ganze Zeile schaltet mit. Der Schalter allein war das
+            // einzige Ziel dieser Zeile; wer daneben tippte, traf nichts.
+            // Ein Tap AUF den Schalter gewinnt weiter dessen eigener
+            // Detektor (der innere Erkenner gewinnt die Gesten-Arena), es
+            // wird also nie doppelt umgelegt.
+            onTap: () => _toggleManual(!_manualEnergy),
             trailing: AppToggle(
               key: const ValueKey('settings-manual-energy'),
               value: _manualEnergy,
@@ -826,6 +832,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
             title: l10n.goalsFieldReminders,
             subtitle: l10n.goalsRemindersSubtitle,
             chevron: false,
+            // Wie beim Manuell-Schalter: die ganze Zeile ist das Ziel. Im
+            // blockierten Zustand bleibt sie AUS (null) — sonst haette D11
+            // eine Hintertuer, denn der gesperrte Schalter haengt dann keinen
+            // eigenen Erkenner mehr in die Arena und die Zeile darunter
+            // bekaeme den Tap.
+            onTap: _reminder == ReminderState.blocked
+                ? null
+                : () => setState(
+                      () => _reminder = _reminder == ReminderState.active
+                          ? ReminderState.off
+                          : ReminderState.active,
+                    ),
             trailing: AppToggle(
               key: const ValueKey('settings-notifications'),
               value: _reminder == ReminderState.active,

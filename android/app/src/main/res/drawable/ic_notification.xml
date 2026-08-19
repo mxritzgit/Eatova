@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Kleines Benachrichtigungs-Icon (Small Icon), verdrahtet ueber
+     AndroidInitializationSettings in lib/src/services/notification_service.dart.
+
+     WARUM EIGEN UND WARUM MONOCHROM
+     Android wertet fuer das Small Icon seit API 21 AUSSCHLIESSLICH den
+     Alphakanal aus und faerbt das Ergebnis selbst ein (weiss in der
+     Statusleiste, Akzentfarbe im Schub). minSdk ist 26 — der Fall tritt also
+     immer ein, es gibt keinen Legacy-Pfad, auf dem die Farben ueberleben.
+     Vorher zeigte die App hier @mipmap/ic_launcher; dessen Alphakanal ist
+     ueberall deckend (nachgemessen: min=max=255 in allen mipmap-Dichten),
+     die Statusleiste bekam deshalb ein weisses Quadrat. Die Form muss allein
+     in der Transparenz stecken: weisse Deckflaeche auf leerem Grund.
+
+     MOTIV
+     Der Fokusring aus der Wortmarke „eat(o)va" — Ring, Mittelpunkt, vier
+     Ticks auf 12/3/6/9 Uhr. Aufbau und Verhaeltnisse stammen 1:1 aus
+     _FocusRingPainter in lib/src/widgets/shared/eatova_wordmark.dart,
+     gerechnet auf eine 22dp-Marke in der 24dp-Flaeche (w = 22, Mitte 12/12):
+       Strichstaerke 0.105w = 2.3   Ringradius  0.2575w = 5.65
+       Punktradius   0.10w  = 2.2   Ticks von 0.385w = 8.5 bis 0.5w = 11
+     Wer den Painter umbaut, zieht diese Zahlen mit nach — sonst laufen Marke
+     und Benachrichtigung auseinander.
+
+     WARUM VEKTOR STATT PNG-SATZ
+     Framework-VectorDrawable gibt es ab API 21, minSdk 26 liegt darueber, und
+     vectorDrawables.useSupportLibrary ist NICHT gesetzt (app/build.gradle.kts)
+     — SystemUI kann die Datei also in seinem eigenen Prozess aufloesen. Die
+     Marke bleibt damit in jeder Pixeldichte scharf. Ein gleichnamiges Bitmap
+     in einem dichte-qualifizierten Ordner (drawable-hdpi/ic_notification.png)
+     wuerde diese Datei auf dem jeweiligen Geraet verdraengen und den weissen
+     Block zurueckbringen; es darf keines geben.
+
+     KEIN android:tint. Die Faerbung macht das System; ein eigener Tint wuerde
+     im Schub gegen die Akzentfarbe der Benachrichtigung arbeiten. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Ring -->
+    <path
+        android:pathData="M6.35,12 A5.65,5.65 0 1,0 17.65,12 A5.65,5.65 0 1,0 6.35,12"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.3" />
+
+    <!-- Mittelpunkt -->
+    <path
+        android:pathData="M9.8,12 A2.2,2.2 0 1,0 14.2,12 A2.2,2.2 0 1,0 9.8,12"
+        android:fillColor="#FFFFFFFF" />
+
+    <!-- Ticks auf 12/3/6/9 Uhr; stumpfe Enden wie StrokeCap.butt im Painter. -->
+    <path
+        android:pathData="M12,3.5 L12,1 M20.5,12 L23,12 M12,20.5 L12,23 M3.5,12 L1,12"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.3"
+        android:strokeLineCap="butt" />
+</vector>

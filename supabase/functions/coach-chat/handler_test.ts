@@ -81,6 +81,18 @@ interface StubOptions {
   /** HTTP-Status des Klassifizierer-Calls (Infra-Fehler-Simulation). */
   classifierStatus?: number;
   /**
+   * HTTP-Status des teuren Answer-Calls. 4xx = der Provider hat die EINGABE
+   * abgelehnt (kaputtes Bild, Moderation), 5xx = Ausfall — die Trennung
+   * entscheidet seit dem Befund 2026-08-19 ueber den Refund.
+   */
+  answerStatus?: number;
+  /**
+   * Roh-Body, den der Provider im Fehlerfall liefert. Echte 4xx spiegeln
+   * darin Teile der Nutzereingabe — Grundlage des Log-Redaktions-Tests
+   * (CWE-532).
+   */
+  providerErrorBody?: string;
+  /**
    * Rows, die loadHistory (GET chat_messages) liefert — im PostgREST-Format
    * der Function: absteigend nach created_at, NEUESTE Zeile zuerst.
    */
@@ -229,7 +241,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
         if (options.classifierHangs) return hangUntilAbort(signal);
         if (options.classifierStatus !== undefined) {
           // Infra-Fehler des Klassifizierers (Provider antwortet non-ok).
-          return new Response("upstream unavailable", { status: options.classifierStatus });
+          return new Response(
+            options.providerErrorBody ?? "upstream unavailable",
+            { status: options.classifierStatus },
+          );
         }
         return jsonRes({
           choices: [{
@@ -243,6 +258,12 @@ function installFetch(options: StubOptions = {}): FetchStub {
         });
       }
       if (options.answerHangs) return hangUntilAbort(signal);
+      if (options.answerStatus !== undefined) {
+        return new Response(
+          options.providerErrorBody ?? "upstream rejected the request",
+          { status: options.answerStatus },
+        );
+      }
       return jsonRes({
         choices: [{
           message: { content: options.answerContent ?? "Klar, machen wir." },
@@ -1175,5 +1196,222 @@ Deno.test("Auto-Titel: GET und PATCH auf chat_sessions tragen den user_id-Filter
     }
   } finally {
     stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Komplettreview 2026-08-19, Fund 1: der catch um answer() refundete JEDEN
+// geworfenen Fehler — auch den 4xx, den der Client selbst provoziert hatte.
+// Ein base64 aus gueltigen Zeichen, das kein Bild ist, kostete damit einen
+// Quota-Claim, einen bezahlten Classifier-Call und einen bezahlten
+// Vision-Call und bekam den Slot anschliessend zurueck: statt DAILY_LIMIT
+// deckelte nur noch das IP-Gate die bezahlten Calls.
+// ---------------------------------------------------------------------------
+
+Deno.test("Fund 1: client-verschuldeter Provider-4xx behaelt den Slot (kein Refund)", async () => {
+  for (const status of [400, 403, 413, 415, 422]) {
+    const stub = installFetch({ classifierCategory: "fitness", answerStatus: status });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: "Was siehst du auf dem Bild?",
+        image_base64: IMAGE_BASE64,
+        image_mime_type: "image/png",
+      }));
+      assertEquals(res.status, 502, `${status}: Status`);
+      assertEquals(stub.callsTo("claim_chat_quota").length, 1, `${status}: Slot geclaimt`);
+      assertEquals(
+        stub.callsTo("refund_chat_quota").length,
+        0,
+        `${status}: erbrachte (abgerechnete) Arbeit darf NICHT refundiert werden`,
+      );
+      assertEquals(stub.answerBodies().length, 1, `${status}: Answer-Call ist gelaufen`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Fund 1: echter Provider-Ausfall wird weiterhin refundiert", async () => {
+  // Gegenprobe zur Trennung oben — sie darf den Refund nur fuer die
+  // Client-Schuld abschalten. 500/502/503 sind Ausfaelle, 429 die Drossel des
+  // Providers und 402 unser leeres Guthaben: alles nicht die Schuld des
+  // Nutzers, alles refundiert.
+  for (const status of [402, 429, 500, 502, 503]) {
+    const stub = installFetch({ classifierCategory: "fitness", answerStatus: status });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: "Wie oft soll ich pro Woche trainieren?",
+      }));
+      assertEquals(res.status, 502, `${status}: Status`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, `${status}: genau ein Refund`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Fund 1: Classifier-4xx durch den Client behaelt den Slot ebenfalls", async () => {
+  // Derselbe Pfad eine Schicht frueher: ein Moderations-403 auf dem
+  // Klassifizierer ist ein bezahlter Call. Wuerde er refundiert, waere der
+  // Slot ueber eine provozierbare Ablehnung beliebig oft wiederverwendbar —
+  // genau der Bypass, den der CWE-770-Fix geschlossen hat.
+  const stub = installFetch({ classifierStatus: 403 });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Wie viel Protein brauche ich beim Cutting?",
+    }));
+    assertEquals(res.status, 502, "Status");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 1, "Slot geclaimt");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Fund 1: base64 ohne Bild-Header -> 400 VOR Quota-Claim und Provider-Call", async () => {
+  // Der Zeichensatz-Guard sagt nur "sieht aus wie base64": diese Strings
+  // passieren ihn alle und kosteten bis zum Fix je einen Slot und zwei
+  // bezahlte Calls.
+  const cases: { name: string; base64: string }[] = [
+    { name: "Nullbytes", base64: "A".repeat(4096) },
+    { name: "zu kurz fuer jeden Header", base64: "AAAA" },
+    { name: "Text statt Bild", base64: btoa("kein bild sondern nur text, aber sauberes base64") },
+  ];
+  for (const { name, base64 } of cases) {
+    const stub = installFetch({ quota: "forbidden" });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: "Was siehst du auf dem Bild?",
+        image_base64: base64,
+      }));
+      assertEquals(res.status, 400, `${name}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, "Invalid image_base64", `${name}: error`);
+      assertEquals(stub.callsTo("claim_chat_quota").length, 0, `${name}: kein Quota-Claim`);
+      assertEquals(stub.openRouterBodies.length, 0, `${name}: kein Provider-Call`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Fund 1: echte JPEG/PNG/WebP-Header passieren den Guard", async () => {
+  // Gegenprobe: der Kopf-Check darf keinen legitimen Upload abweisen. Die
+  // drei Container, die safeImageMimeType erlaubt — jeweils nur der Header
+  // plus Fuellbytes, mehr sieht der Guard ohnehin nicht an.
+  const headers: { name: string; bytes: number[] }[] = [
+    { name: "JPEG", bytes: [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01] },
+    { name: "PNG", bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d] },
+    { name: "WebP", bytes: [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50] },
+  ];
+  for (const { name, bytes } of headers) {
+    const stub = installFetch({ classifierCategory: "fitness" });
+    try {
+      const base64 = btoa(String.fromCharCode(...bytes, ...new Array<number>(60).fill(0)));
+      const res = await handleRequest(makeRequest({
+        message: "Was siehst du auf dem Bild?",
+        image_base64: base64,
+      }));
+      assertEquals(res.status, 200, `${name}: Status`);
+      assertEquals(stub.answerBodies().length, 1, `${name}: Answer-Call laeuft`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Komplettreview 2026-08-19, Fund 2: Quota- und Rate-Limit-Meldungen waren
+// hart deutsch. Der Client zeigt genau diese Servertexte ungefiltert an
+// (coach_chat_service.dart, `serverReply ?? _l10n…`), englische Nutzer lasen
+// also taeglich deutschen Text.
+// ---------------------------------------------------------------------------
+
+Deno.test("Fund 2: erschoepfte Quota antwortet in der locale des Requests", async () => {
+  const stub = installFetch({ quota: "exhausted" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Wie oft soll ich pro Woche trainieren?",
+      locale: "en",
+    }));
+    assertEquals(res.status, 429, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, "quota_exceeded", "error");
+    assertEquals(
+      body.reply,
+      "Daily limit reached (5 coach questions per day). Back tomorrow.",
+      "EN-Tageslimit-Text",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Fund 2: DE-Tageslimit bleibt woertlich der Bestandstext", async () => {
+  // Der DE-Pfad ist der Bestand und muss byte-identisch bleiben (gleiche
+  // Regel wie bei der Refusal-Lokalisierung 2026-08-15).
+  const stub = installFetch({ quota: "exhausted" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Wie oft soll ich pro Woche trainieren?",
+    }));
+    const body = await res.json() as JsonRecord;
+    assertEquals(
+      body.reply,
+      "Tageslimit erreicht (5 Coach-Fragen pro Tag). Morgen geht's weiter.",
+      "DE-Tageslimit-Text",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Komplettreview 2026-08-19, Fund 3: der Roh-Body einer Provider-Fehlerantwort
+// wanderte ueber die Fehlermeldung ins Function-Log (CWE-532). OpenRouter
+// spiegelt bei 4xx Teile der Nutzereingabe — derselbe Fall, den analyze-meal
+// am 2026-08-11 mit redactedContentMeta geschlossen hat.
+// ---------------------------------------------------------------------------
+
+function captureConsoleError(): { lines: string[]; restore(): void } {
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    lines.push(args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" "));
+  };
+  return { lines, restore: () => { console.error = original; } };
+}
+
+Deno.test("Fund 3: Provider-Fehler-Body landet nicht im Log, nur Status + Digest", async () => {
+  // Realistischer Moderations-Body: er zitiert die Nachricht des Nutzers.
+  const leaked = "input flagged: 'ich haette gern einen plan fuer meine reha nach der OP'";
+  const cases: { name: string; options: StubOptions }[] = [
+    { name: "Answer", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: leaked } },
+    { name: "Classifier", options: { classifierStatus: 400, providerErrorBody: leaked } },
+  ];
+  for (const { name, options } of cases) {
+    const stub = installFetch(options);
+    const logs = captureConsoleError();
+    try {
+      await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
+      const joined = logs.lines.join("\n");
+      assert(
+        !joined.includes(leaked),
+        `${name}: Roh-Body im Log: ${joined}`,
+      );
+      assert(
+        !joined.includes("flagged"),
+        `${name}: Bruchstueck des Roh-Bodys im Log: ${joined}`,
+      );
+      // Was bleiben MUSS: Status und der Digest, sonst ist der Fehler nicht
+      // mehr diagnostizierbar.
+      assert(
+        joined.includes("400") && /sha256=[0-9a-f]{12}/.test(joined),
+        `${name}: Log ohne Status/Digest: ${joined}`,
+      );
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
   }
 });

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/meal_analysis_request.dart';
 import 'meal_photo_compressor.dart';
+import 'meal_photo_temp_file.dart';
 
 class MealPhotoSelection {
   const MealPhotoSelection({
@@ -44,10 +45,20 @@ class DeviceMealPhotoInput implements MealPhotoInput {
       previewBytes = await _scrub(await image.readAsBytes());
     } catch (_) {
       previewBytes = null;
+    } finally {
+      // Datenschutz (Review 2026-08-19): ab hier liegen die Bytes im Speicher,
+      // die Cache-Kopie des Pickers wird nicht mehr gelesen — auch nicht auf
+      // dem Scrub-Fehlerpfad, der das Bild ohnehin verwirft. Ohne das Loeschen
+      // ueberdauerten Essensfotos im App-Cache jede Kontoloeschung. Das
+      // Original in der Galerie ist nicht betroffen, s.
+      // [deleteMealPhotoTempFile].
+      await deleteMealPhotoTempFile(image.path);
     }
 
     return MealPhotoSelection(
       request: MealAnalysisRequest(
+        // Nur ein Etikett fuer die Analyse-Anfrage: den Pfad liest niemand
+        // mehr, die Datei dahinter ist oben bereits geloescht.
         imageId: image.path,
         imageBytes: previewBytes,
       ),

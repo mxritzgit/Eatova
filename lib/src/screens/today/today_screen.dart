@@ -121,49 +121,63 @@ class TodayScreen extends StatelessWidget {
           onSelected: onDateSelected,
         ),
         const SizedBox(height: 14),
-        TodayCalorieHero(
-          consumedKcal: consumedKcal,
-          burnedKcal: burnedKcal,
-          kcalGoal: profile.dailyKcalGoal,
-          streak: streak,
-        ),
-        const SizedBox(height: 14),
-        AppCard(
-          key: const ValueKey('today-macros-card'),
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 5),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              SectionHeading(
-                title: l10n.todayMacrosTitle,
-                trailing: l10n.todayMacrosTrailing,
-              ),
-              const SizedBox(height: 14),
-              MacroBar(
-                label: l10n.todayMacroProtein,
-                value: macroProgress.proteinG.round(),
-                goal: profile.proteinGoalG,
-                unit: 'g',
-                color: t.protein,
-              ),
-              MacroBar(
-                label: l10n.todayMacroCarbs,
-                value: macroProgress.carbsG.round(),
-                goal: profile.carbsGoalG,
-                unit: 'g',
-                color: t.carbs,
-              ),
-              MacroBar(
-                label: l10n.todayMacroFat,
-                value: macroProgress.fatG.round(),
-                goal: profile.fatGoalG,
-                unit: 'g',
-                color: t.fat,
-              ),
-            ],
+        // Hero und Makros folgen demselben Lade-Zustand wie die
+        // Mahlzeiten-Karte weiter unten.
+        //
+        // `consumedKcal` und `macroProgress` sind, solange der Archivtag noch
+        // nachlaedt, die Nullwerte des UNGELADENEN Tages. Blieben die beiden
+        // Flaechen stehen, behauptete der Hero fuer die Dauer des Ladens „2.000
+        // kcal uebrig" und jeder Balken 0 g — eine Aussage ueber Daten, die es
+        // noch gar nicht gibt, und eine Sekunde spaeter springt sie um. Den
+        // Zustand traegt dann die eine Ladekarte unter der Ueberschrift, genau
+        // wie im Food-Tab (meal_analysis_screen.dart:332): Kopfzeile und
+        // Datums-Streifen bleiben stehen, der Tagesblock kollabiert auf den
+        // Spinner. Eine zweite Ladekarte hier oben waere derselbe Satz zweimal.
+        if (!dayLoading) ...<Widget>[
+          TodayCalorieHero(
+            consumedKcal: consumedKcal,
+            burnedKcal: burnedKcal,
+            kcalGoal: profile.dailyKcalGoal,
+            streak: streak,
           ),
-        ),
-        const SizedBox(height: 20),
+          const SizedBox(height: 14),
+          AppCard(
+            key: const ValueKey('today-macros-card'),
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 5),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                SectionHeading(
+                  title: l10n.todayMacrosTitle,
+                  trailing: l10n.todayMacrosTrailing,
+                ),
+                const SizedBox(height: 14),
+                MacroBar(
+                  label: l10n.todayMacroProtein,
+                  value: macroProgress.proteinG.round(),
+                  goal: profile.proteinGoalG,
+                  unit: 'g',
+                  color: t.protein,
+                ),
+                MacroBar(
+                  label: l10n.todayMacroCarbs,
+                  value: macroProgress.carbsG.round(),
+                  goal: profile.carbsGoalG,
+                  unit: 'g',
+                  color: t.carbs,
+                ),
+                MacroBar(
+                  label: l10n.todayMacroFat,
+                  value: macroProgress.fatG.round(),
+                  goal: profile.fatGoalG,
+                  unit: 'g',
+                  color: t.fat,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
         // Auf einem Archivtag waere „Heutige Mahlzeiten" schlicht falsch.
         //
         // Ohne das `trailing: 'Manage'` der Vorlage: [SectionHeading]

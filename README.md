@@ -15,13 +15,27 @@ daily numbers as context. The app ships four tabs (**Heute**, **Food**,
 **Rezepte**, **Coach**), is localized in German and English once you're
 signed in, and targets Android and iOS only.
 
-> **i18n scope:** everything behind sign-in follows the language picker
+> **i18n scope:** the screens behind sign-in follow the language picker
 > (`gen_l10n` over `lib/l10n/app_de.arb` / `app_en.arb`), guarded by
-> `test/l10n/hartkodierung_waechter_test.dart`. The sign-in/sign-up flow
-> itself (`lib/src/screens/auth_screen.dart`,
-> `lib/src/screens/auth_code_screen.dart`) is **not** part of that migration
-> yet and remains hard-coded German — an English-language device sees German
-> text on the very first screen.
+> `test/l10n/hartkodierung_waechter_test.dart` — which since the 2026-08-19
+> review also looks for German display words that carry no umlaut, the class
+> its character filter was blind to. Two things stay outside the picker:
+>
+> - the **sign-in/sign-up flow** itself (`lib/src/screens/auth_screen.dart`,
+>   `lib/src/screens/auth_code_screen.dart`) is **not** part of that migration
+>   and remains hard-coded German — an English-language device sees German text
+>   on the very first screen;
+> - German free text that is **already stored**: the model's own `explanation`
+>   from earlier meal scans, and notes written into log entries before those
+>   notes were resolved at display time. Stored text is your data and is never
+>   retranslated retroactively.
+>
+> The notes on the analysis card (`lib/src/models/meal_analysis_result.dart`)
+> are what the second point is about: source, confidence and portion notes are
+> moving onto neutral markers that are resolved against the picker when the
+> card is drawn, instead of being frozen in German at logging time. New
+> entries follow the picker as that mechanism reaches each of them; the old
+> rows keep the wording they were written with.
 
 > **Note on the name:** the app is **Eatova** (formerly ShiftFit/FitPilot).
 > The Dart package is now named `eatova` as well, so package name, app name,

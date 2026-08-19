@@ -165,6 +165,58 @@ Deno.test("zwei Adressen im selben /64 fallen in dasselbe Bucket", () => {
   assertEquals(a, "ip:2001:db8:85a3:1::/64", "erwartetes /64-Subject");
 });
 
+Deno.test("REGRESSION: IPv4-in-IPv6 bekommt ein Bucket PRO Adresse", () => {
+  // Die alte Fassung rechnete die eingebettete IPv4 in die letzten beiden
+  // Hex-Gruppen um - genau die, die die /64-Kuerzung abschneidet. Jede
+  // "::ffff:..."-Adresse landete damit in "ip:0:0:0:0::/64", also alle
+  // Dual-Stack-Clients in EINEM Bucket: ein einzelner Absender konnte alle
+  // anderen aussperren.
+  assertEquals(normalizeIp("::ffff:203.0.113.7"), "203.0.113.7", "gemappte IPv4");
+  assertEquals(normalizeIp("::ffff:198.51.100.42"), "198.51.100.42", "andere gemappte IPv4");
+
+  const a = subject({ "cf-connecting-ip": "::ffff:203.0.113.7" });
+  const b = subject({ "cf-connecting-ip": "::ffff:198.51.100.42" });
+  assert(a !== b, "zwei gemappte IPv4 duerfen nicht ins selbe Bucket kollabieren");
+  assert(
+    a !== "ip:0:0:0:0::/64" && b !== "ip:0:0:0:0::/64",
+    "das gemeinsame Sammel-Bucket der alten Fassung darf nicht mehr entstehen",
+  );
+
+  // Dieselbe Adresse ueber einen reinen IPv4-Header muss dasselbe Subject
+  // ergeben - sonst haette ein Client zwei Buckets.
+  assertEquals(
+    a,
+    subject({ "cf-connecting-ip": "203.0.113.7" }),
+    "gemappte und blanke Form muessen dasselbe Subject ergeben",
+  );
+});
+
+Deno.test("IPv4-in-IPv6: alle Schreibweisen treffen dasselbe Bucket", () => {
+  // Hex-Schreibweise derselben Adresse (203.0.113.7 = cb00:7107).
+  assertEquals(normalizeIp("::ffff:cb00:7107"), "203.0.113.7", "gemappt in Hex-Notation");
+  assertEquals(
+    normalizeIp("0:0:0:0:0:ffff:203.0.113.7"),
+    "203.0.113.7",
+    "voll ausgeschrieben",
+  );
+  assertEquals(normalizeIp("::FFFF:203.0.113.7"), "203.0.113.7", "Grossschreibung");
+  assertEquals(normalizeIp("[::ffff:203.0.113.7]:443"), "203.0.113.7", "Klammer-Form mit Port");
+  // Ungueltige eingebettete IPv4 bleibt ungueltig - kein Schlupfloch fuer
+  // Fantasiewerte, die die Tabelle aufblaehen.
+  assertEquals(normalizeIp("::ffff:999.1.1.1"), null, "Oktett > 255");
+  assertEquals(normalizeIp("::ffff:01.2.3.4"), null, "fuehrende Null");
+  assertEquals(normalizeIp("::ffff:1.2.3"), null, "zu wenige Oktette");
+});
+
+Deno.test("echte IPv6 bleibt bei der /64-Kuerzung", () => {
+  // Die Sonderbehandlung greift NUR fuer das gemappte Praefix
+  // 0:0:0:0:0:ffff. Alles andere - insbesondere ff-Gruppen an anderer Stelle
+  // und die Kurzformen "::"/"::1" - laeuft weiter ueber den IPv6-Pfad.
+  assertEquals(normalizeIp("2001:db8:85a3:1::ffff:cb00:7107"), "2001:db8:85a3:1::/64", "echte IPv6");
+  assertEquals(normalizeIp("::ffff:0:203.0.113.7"), "0:0:0:0::/64", "IPv4-translated bleibt IPv6");
+  assertEquals(normalizeIp("::1"), "0:0:0:0::/64", "Loopback wird nicht zu 0.0.0.1");
+});
+
 Deno.test("verschiedene /64-Praefixe bleiben verschiedene Buckets", () => {
   const a = subject({ "cf-connecting-ip": "2001:db8:85a3:1::1" });
   const b = subject({ "cf-connecting-ip": "2001:db8:85a3:2::1" });

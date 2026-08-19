@@ -30,13 +30,11 @@ HealthAuthEvidence _ev({
   bool? writeGrant,
   int? steps,
   double? latestWeightKg,
-  int? sleepMinutes,
 }) =>
     HealthAuthEvidence(
       writeGrant: writeGrant,
       steps: steps,
       latestWeightKg: latestWeightKg,
-      sleepMinutes: sleepMinutes,
     );
 
 void main() {
@@ -92,23 +90,24 @@ void main() {
       );
     });
 
-    test('nur Schlafprobe (0 Schritte) reicht als Lese-Beweis', () {
-      final v = HealthAuthVerifier();
-      expect(
-        v.resolve(_ev(writeGrant: false, steps: 0, sleepMinutes: 431),
-            now: DateTime(2026, 8, 8)),
-        HealthAuthState.granted,
-      );
-    });
+    // Die dritte Evidenzquelle „Schlafprobe" stand hier bis zum Review vom
+    // 2026-08-19: der SLEEP-Scope wurde angefragt und gelesen, aber von keinem
+    // Feature genutzt und ist deshalb komplett raus (Apple lehnt Scopes ohne
+    // beobachtbaren Nutzen ab). Die verbliebenen zwei Quellen deckt
+    // apple_health_sleep_scope_write_grant_test ab.
   });
 
   group('HealthAuthVerifier — echter Ruhetag ist kein Fehlalarm', () {
-    test('WRITE wahrheitsgemaess erteilt -> 0 Schritte bleiben granted', () {
+    test('WRITE erteilt, aber schon einmal Lesedaten -> Ruhetag bleibt granted',
+        () {
       final v = HealthAuthVerifier();
 
-      // Nutzer hat im Sheet alles eingeschaltet: WRITE (Gewicht) meldet
-      // truthful true. Telefon lag zuhause -> 0 Schritte, nicht gewogen,
-      // kein Schlaf getrackt. Das ist KEIN Berechtigungsproblem.
+      // Gestern kamen echte Schritte an, WRITE (Gewicht) meldet truthful true.
+      v.resolve(_ev(writeGrant: true, steps: 6100),
+          now: DateTime(2026, 8, 7, 22));
+
+      // Heute lag das Telefon zuhause -> 0 Schritte, nicht gewogen. Das ist
+      // KEIN Berechtigungsproblem.
       final state = v.resolve(
         _ev(writeGrant: true, steps: 0),
         now: DateTime(2026, 8, 8, 22),
@@ -116,6 +115,13 @@ void main() {
 
       expect(state, HealthAuthState.granted);
     });
+
+    // Review 2026-08-19: Die frueher hier stehende Variante OHNE vorherige
+    // Lesedaten (WRITE allein -> granted) war der Fund. Das HealthKit-Sheet
+    // trennt Schreiben und Lesen; wer nur den Gewichts-Schreibschalter umlegt,
+    // gibt zum Lesen nichts frei und bekam dauerhaft 0 Schritte unter einem
+    // gruenen „Synchronisiert". Neuer Vertrag samt Ende-zu-Ende-Fall in
+    // apple_health_sleep_scope_write_grant_test.
 
     test('nur-LESEN-Nutzer: Ruhetag nach frischer Evidenz bleibt granted', () {
       final v = HealthAuthVerifier();
