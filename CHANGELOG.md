@@ -69,6 +69,45 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   weekly) instead of a seven-day window that only refilled on use.
 - Coach: the "added" state of a recipe card survives a restart (the slug is
   derived from the message id instead of an in-memory map).
+- **Full project review of 2026-08-19** — twenty areas reviewed, every serious
+  finding adversarially re-checked, and what survived fixed. The theme was
+  errors being swallowed rather than reported:
+  - **The app can no longer hang on the welcome screen.** Sign-in handed over
+    only after the whole network boot had finished, and none of it carried a
+    timeout — on a captive-portal Wi-Fi the sockets never answer and the app
+    stayed stuck although the encrypted cache already held everything. The
+    cached profile now opens the gate, with an eight-second budget as a
+    backstop.
+  - **Two paths that lost data silently.** A failed write of the offline queue
+    disappeared into an empty `catch` while the screen said "syncing"; and the
+    cache dropped a slot on *any* decryption error, including an isolate that
+    merely failed to start under memory pressure. Both now report, and only a
+    genuinely broken ciphertext is discarded.
+  - **The meal scan no longer invents calories.** With no usable numbers from
+    the model, a substring match against a fruit table plus a 150 g default
+    produced a loggable figure. Unknown stays unknown.
+  - **Personal data is cleared when the session ends, not when the sign-out
+    button is pressed** — an involuntary session end or a user switch used to
+    leave the previous account's cached diary, profile and weight behind.
+  - Coach: a provider error the client caused itself no longer refunds the
+    daily slot, so the paid classifier call stays capped at five a day rather
+    than sixty an hour.
+  - The data export shows a preview instead of rendering megabytes into a
+    single text block, and says honestly when nothing could be loaded.
+  - A fruitless product search costs one request instead of nine, and a
+    throttled search service is named instead of looking like "no results".
+  - Smaller ones: barcode hits during the closing animation no longer close the
+    sheet underneath; the today tab shows a loading state instead of claiming
+    an empty day; toggles and the day picker meet the tap-target and scaling
+    bar; camera photos are removed from the cache after use; Android
+    notifications get a real icon instead of a white square; session-storage,
+    coach and search failures now reach crash reporting.
+  - Apple Health: the sleep permission is no longer requested — nothing used
+    it — and a write-only grant no longer counts as proof that reading works.
+  - `user_recipes` and chat session titles get the size and range limits the
+    hardening migration gave every other client-writable table.
+  - The hard-coded German left in the meal card and the diary confirmations is
+    localized, and the guard test can now see German words without umlauts.
 
 ### Security
 

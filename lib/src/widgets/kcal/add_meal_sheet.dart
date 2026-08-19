@@ -163,7 +163,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       <String, List<ProductSearchResult>>{};
   // Sessions-Cache leerer Suchen: ein einmal erfolglos (aber ohne Fehler)
   // abgefragter Begriff liefert beim erneuten Tippen sofort "nichts gefunden",
-  // statt wieder den vollen Retry-Zyklus zu durchlaufen.
+  // ohne die Dienstkette noch einmal anzufassen.
   final Set<String> _emptyQueryCache = <String>{};
   List<ProductSearchResult> _productSuggestions = const <ProductSearchResult>[];
   bool _isSearchingProducts = false;
@@ -174,6 +174,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// Min-Zeichen-Hinweis heissen „Suche kaputt/zu kurz", nicht „gibt es
   /// nicht", und bieten den CTA bewusst nicht an (Spec 2026-08-13).
   bool _searchCameUpEmpty = false;
+
+  /// Hat der Nutzer die Suche SELBST ausgeloest (Lupe/Enter)? Nur dann gilt
+  /// ein Fragment unterhalb von [_autoSearchMinChars] als aktive Suche. Jeder
+  /// weitere Tastendruck nimmt die Freischaltung zurueck — sonst bliebe die
+  /// Trefferzone offen, waehrend der Debounce laengst nichts mehr schickt.
+  bool _explicitSearchRequested = false;
 
   String? _expandedItemKey;
   final Set<String> _justAddedKeys = <String>{};
@@ -197,6 +203,19 @@ class _AddMealSheetState extends State<AddMealSheet> {
   static const Duration _productSearchRetryDelay = Duration(milliseconds: 600);
   static const int _productSearchMaxAttempts = 3;
   static const Duration _justAddedFadeDelay = Duration(seconds: 2);
+
+  /// Kuerzeste Eingabe, die ueberhaupt eine Suche wert ist — das gilt fuer den
+  /// selbst ausgeloesten Weg (Lupe/Enter).
+  static const int _searchMinChars = 2;
+
+  /// Ab hier schickt der Debounce von SELBST los, bewusst HOEHER als
+  /// [_searchMinChars]. Der Debounce feuert pro Tipp-Pause, und eine
+  /// erfolglose Suche ist teuer: sie faechert sich ueber Mirror + OFF-de +
+  /// OFF-world auf. Ein Zweibuchstaben-Fragment ist praktisch immer auf dem
+  /// Weg zu einem Wort — es kostet also drei Anfragen fuer ein Ergebnis, das
+  /// der naechste Buchstabe ohnehin ueberholt. Wer wirklich nur „Ei" sucht,
+  /// kommt ueber die Lupe weiterhin dran.
+  static const int _autoSearchMinChars = 3;
 
   @override
   void initState() {
@@ -228,7 +247,15 @@ class _AddMealSheetState extends State<AddMealSheet> {
     super.dispose();
   }
 
-  bool get _searchActive => _searchController.text.trim().length >= 2;
+  /// Trefferzone statt Favoriten. Unterhalb von [_autoSearchMinChars] bleiben
+  /// Favoriten/Recents stehen, solange die Suche nicht selbst ausgeloest wurde
+  /// — sonst stuende dort ein leerer Bereich, weil der Debounce fuer so kurze
+  /// Eingaben absichtlich nichts schickt.
+  bool get _searchActive {
+    final length = _searchController.text.trim().length;
+    if (length >= _autoSearchMinChars) return true;
+    return _explicitSearchRequested && length >= _searchMinChars;
+  }
 
   void _removeExisting(String id) {
     setState(() {
@@ -279,9 +306,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final query = value.trim();
     _productSearchDebounce?.cancel();
 
-    if (query.length < 2) {
+    if (query.length < _autoSearchMinChars) {
       _productSearchRequestId++;
       setState(() {
+        // Eine neue Eingabe hebt die Freischaltung durch Lupe/Enter auf: die
+        // Treffer davor gehoeren zu einem anderen Begriff.
+        _explicitSearchRequested = false;
         _isSearchingProducts = false;
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = null;
@@ -294,23 +324,35 @@ class _AddMealSheetState extends State<AddMealSheet> {
     setState(() {});
     _productSearchDebounce = Timer(
       _productSearchDebounceDelay,
-      () => _searchProducts(queryOverride: query, showTransientError: false),
+      () => _searchProducts(
+        queryOverride: query,
+        showTransientError: false,
+        explicit: false,
+      ),
     );
   }
 
+  /// [explicit] trennt Lupe/Enter vom Debounce: nur der selbst ausgeloeste Weg
+  /// schaltet die Trefferzone auch fuer ein Fragment unterhalb von
+  /// [_autoSearchMinChars] frei.
   Future<void> _searchProducts({
     String? queryOverride,
     bool showTransientError = true,
+    bool explicit = true,
   }) async {
     _productSearchDebounce?.cancel();
     final query = (queryOverride ?? _searchController.text).trim();
-    if (query.length < 2) {
+    if (query.length < _searchMinChars) {
       setState(() {
+        _explicitSearchRequested = false;
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = context.l10n.foodSearchMinCharsHint;
         _searchCameUpEmpty = false;
       });
       return;
+    }
+    if (explicit) {
+      _explicitSearchRequested = true;
     }
 
     final cacheKey = _normalizeQuery(query);
@@ -360,20 +402,46 @@ class _AddMealSheetState extends State<AddMealSheet> {
             : null;
         _searchCameUpEmpty = suggestions.isEmpty;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       if (requestId != _productSearchRequestId ||
           query != _searchController.text.trim()) {
         return;
       }
+      final gedrosselt = _istDrosselung(error);
       setState(() {
         _isSearchingProducts = false;
-        _productSearchMessage = showTransientError
-            ? context.l10n.foodSearchUnreachableHint
-            : null;
+        // Eine Drosselung wird IMMER benannt, auch auf dem getippten Weg
+        // (showTransientError == false). Ohne Satz stuende die Trefferzone
+        // stumm da, und der naechste Tastendruck schickte die naechste
+        // Anfrage in dasselbe Limit.
+        _productSearchMessage = gedrosselt
+            ? context.l10n.searchRateLimited
+            : (showTransientError
+                  ? context.l10n.foodSearchUnreachableHint
+                  : null);
+        // Kein „gibt es nicht": eine Drosselung ist keine Auskunft ueber das
+        // Produkt, also auch kein Weg in den Manuell-CTA.
         _searchCameUpEmpty = false;
       });
     }
+  }
+
+  /// Grobe Klassifizierung nach dem Muster von `auth_code_screen.dart`: die
+  /// Suchpfade werfen ein nacktes [Exception]/`HttpException` mit dem
+  /// Statuscode im Text (`… search failed: 429`) — einen eigenen Ausnahmetyp
+  /// gibt es in der Dienstschicht nicht.
+  ///
+  /// Warum ueberhaupt: ein 429 ist die einzige Antwort, die vom Wiederholen
+  /// SCHLECHTER wird. Ohne diese Weiche lief er in denselben Sammelzweig wie
+  /// ein Netzfehler, wurde auf dem getippten Weg gar nicht angezeigt und sah
+  /// damit aus wie „nichts gefunden" — worauf der naechste Tastendruck
+  /// nachlegte.
+  static bool _istDrosselung(Object error) {
+    final raw = error.toString().toLowerCase();
+    return raw.contains('429') ||
+        raw.contains('too many requests') ||
+        raw.contains('rate limit');
   }
 
   Future<List<ProductSearchResult>> _searchWithRetry(
@@ -384,32 +452,34 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final cacheKey = _normalizeQuery(query);
 
     for (var attempt = 0; attempt < _productSearchMaxAttempts; attempt++) {
-      List<ProductSearchResult>? suggestions;
       try {
-        suggestions = await widget.productService.searchProducts(query);
-        lastError = null;
-        // Treffer sind sofort autoritativ und werden gecached.
-        if (suggestions.isNotEmpty) {
+        final suggestions = await widget.productService.searchProducts(query);
+        // Eine erfolgreiche Antwort ist autoritativ — auch die leere. Leer
+        // ist eine Auskunft, kein Fehler.
+        //
+        // Frueher lief sie durch dieselbe Retry-Schleife wie ein Netzfehler,
+        // in der Annahme, der Mirror sei nur kalt. Der Preis dafuer traegt
+        // jede erfolglose Suche: ein Versuch faechert sich in der
+        // Dienstschicht ueber Mirror + OFF-de + OFF-world auf, drei Versuche
+        // machen daraus neun Anfragen fuer ein „gibt es nicht" — und ein
+        // gedrosselter Dienst wurde davon nur noch weiter gedrosselt.
+        // Retries bleiben dort, wo sie hingehoeren: bei echten Fehlern.
+        if (suggestions.isEmpty) {
+          _emptyQueryCache.add(cacheKey);
+        } else {
           _productSearchCache[cacheKey] = suggestions;
-          return suggestions;
         }
-        // Eine leere Antwort kann transient sein (Mirror gerade kalt, Index
-        // noch nicht warm). Sie wird wie ein Fehler über die *begrenzte*
-        // Retry-Schleife (max 3 Versuche, je 600 ms) erneut versucht – nicht
-        // über den langen ~30-s-Zyklus. Erst wenn alle Versuche leer bleiben,
-        // gilt "nichts gefunden" als final und wird gecached.
+        return suggestions;
       } catch (error) {
         lastError = error;
       }
 
       final isLastAttempt = attempt == _productSearchMaxAttempts - 1;
-      if (isLastAttempt || requestId != _productSearchRequestId) {
-        // Nach erschöpften Versuchen: leere (aber fehlerfreie) Antwort ist
-        // jetzt autoritativ -> als Leersuche cachen und zurückgeben.
-        if (lastError == null) {
-          _emptyQueryCache.add(cacheKey);
-          return suggestions ?? const <ProductSearchResult>[];
-        }
+      // Eine Drosselung wird vom Wiederholen schlimmer statt besser: sofort
+      // raus, der Aufrufer benennt sie dem Nutzer.
+      if (isLastAttempt ||
+          _istDrosselung(lastError) ||
+          requestId != _productSearchRequestId) {
         break;
       }
       await Future<void>.delayed(_productSearchRetryDelay);

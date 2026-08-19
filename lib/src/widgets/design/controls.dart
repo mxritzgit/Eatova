@@ -86,7 +86,17 @@ class IconTile extends StatelessWidget {
         color: color == null ? t.tile : color!.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(11),
       ),
-      child: Icon(icon, size: 16, color: color ?? t.ink),
+      // Nicht die volle Kategoriefarbe: der Glyph saesse dann auf seiner
+      // EIGENEN 15-%-Tint und traegt im Hell-Modus rund 2.2:1. Genau dafuer
+      // ist [AppTokens.readableOnTint] gebaut — [MealAvatar] und
+      // [SlotSelector] fahren dieselbe Korrektur, diese Kachel war die letzte
+      // Stelle ohne. Ohne Farbe liegt der Glyph auf `tile` (fast farblos) und
+      // bleibt `ink`.
+      child: Icon(
+        icon,
+        size: 16,
+        color: color == null ? t.ink : t.readableOnTint(color!),
+      ),
     );
   }
 }
@@ -122,28 +132,45 @@ class AppToggle extends StatelessWidget {
       child: Opacity(
         opacity: enabled ? 1 : 0.45,
         child: GestureDetector(
+          // Opak, damit der durchsichtige Saum der Trefferflaeche wirklich
+          // traegt — mit dem Standard `deferToChild` endete das Ziel exakt an
+          // der gezeichneten Kapsel.
+          behavior: HitTestBehavior.opaque,
           onTap: enabled ? () => onChanged(!value) : null,
-          child: AnimatedContainer(
-            duration: motion,
-            curve: Curves.easeOut,
+          // Sichtbar bleiben die 46x27 des Entwurfs — tippbar sind 44 px hoch,
+          // dieselbe Untergrenze, die [SquareIconButton] weiter oben schon
+          // haelt. Die Kapsel haengt als `trailing` in Einstellungszeilen und
+          // war dort mit 27 px das kleinste Ziel der ganzen Seite. Die Zeile
+          // waechst dadurch mit; das ist der Preis, und er faellt nur dort an,
+          // wo wirklich ein Schalter steht.
+          child: SizedBox(
             width: 46,
-            height: 27,
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              color: value ? t.forest : t.tile,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: AnimatedAlign(
-              duration: motion,
-              curve: Curves.easeOut,
-              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: 21,
-                height: 21,
+            height: 44,
+            child: Center(
+              child: AnimatedContainer(
+                duration: motion,
+                curve: Curves.easeOut,
+                width: 46,
+                height: 27,
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                  color: value ? t.lime : t.surf,
-                  shape: BoxShape.circle,
-                  border: value ? null : Border.all(color: t.line),
+                  color: value ? t.forest : t.tile,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: AnimatedAlign(
+                  duration: motion,
+                  curve: Curves.easeOut,
+                  alignment:
+                      value ? Alignment.centerRight : Alignment.centerLeft,
+                  child: Container(
+                    width: 21,
+                    height: 21,
+                    decoration: BoxDecoration(
+                      color: value ? t.lime : t.surf,
+                      shape: BoxShape.circle,
+                      border: value ? null : Border.all(color: t.line),
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -106,6 +106,55 @@ function isProviderTimeout(e: unknown): boolean {
   return e instanceof DOMException && e.name === "TimeoutError";
 }
 
+// Provider-Fehler MIT HTTP-Status (Befund 2026-08-19). Bis hierher warf jeder
+// Provider-Call ein nacktes Error, und die catch-Bloecke unten refundeten
+// deshalb JEDEN geworfenen Fehler. Ein 4xx, das der Client mit seiner Eingabe
+// ausgeloest hat, ist aber erbrachte und beim Provider ABGERECHNETE Arbeit:
+// wer sie refundiert bekommt, kann den Tages-Slot beliebig oft wiederverwenden
+// — dann deckelt nur noch das IP-Gate (120/10min) die bezahlten Calls statt
+// DAILY_LIMIT. Der Status muss den Fehler also bis in den catch begleiten.
+class ProviderError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ProviderError";
+    this.status = status;
+  }
+}
+
+// 4xx, die der CLIENT durch seinen Input verursacht: abgelehntes/kaputtes
+// Bild (400/415/422), beim Provider zu grosses Payload (413), Moderation
+// (403). Bewusst eine Allowlist statt "alles unter 500": 401 (unser Key),
+// 402 (unser Guthaben), 404 (unser Modellname) und 429 (Provider-Drossel)
+// sind UNSERE Ausfaelle und duerfen den Nutzer keinen Slot kosten.
+const CLIENT_FAULT_STATUSES = new Set([400, 403, 413, 415, 422]);
+
+// true = der Slot bleibt verbraucht, weil die Eingabe den bezahlten Call
+// verbrannt hat. Alles andere (Netzwerkfehler, Timeout, 5xx, Provider-429,
+// unbekannter Fehlertyp) gilt als Ausfall und wird refundiert — im Zweifel
+// zugunsten des Nutzers, denn ein nicht erkannter Fehler ist kein Beleg fuer
+// Client-Schuld.
+function isClientFaultFailure(e: unknown): boolean {
+  return e instanceof ProviderError && CLIENT_FAULT_STATUSES.has(e.status);
+}
+
+// Redaktion fuer Provider-Fehler-Bodies (CWE-532, Befund 2026-08-19): hier
+// stand `text.slice(0, 200)` und wanderte ueber die Fehlermeldung ins
+// Function-Log. OpenRouter spiegelt bei 4xx — Moderation, abgelehntes Bild,
+// kaputtes Payload — Teile der NUTZEREINGABE zurueck, und die hat in
+// operativen Logs nichts verloren (dieselbe Regel wie crash_reporter.dart,
+// gleicher Fall wie analyze-meal am 2026-08-11). Statt des Roh-Slices nur
+// Allowlist-Metadaten: Laenge + SHA-256-Praefix. Der Digest erlaubt Dedupe
+// ("dieselbe kaputte Antwort wie im Request davor?") und den Abgleich mit
+// einer konkret vorliegenden Antwort, verraet aber nichts ueber den Inhalt.
+// Inhaltsgleich zu redactedContentMeta (analyze-meal/normalize.ts); geteilt
+// werden koennte sie erst ueber ../_shared/.
+async function redactedBodyMeta(body: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return `len=${body.length} sha256=${hex.slice(0, 12)}`;
+}
+
 // Groessen-Vertrag der Nachricht (Security-Fix 2026-08-11, CWE-400).
 // MAX_INPUT_CHARS (1000, prefilter.ts) ist der fachliche Vertrag; der
 // Byte-Deckel ist Guertel + Hosentraeger: 1000 UTF-16-Zeichen sind maximal
@@ -287,8 +336,13 @@ async function classify(
     // Modell-Output (kaputtes JSON, unbekannte Kategorie) bleibt dagegen
     // fail-closed off_topic - das war ein bezahlter, abgeschlossener Call -,
     // ist seit W1 aber ueber parseFailed als Nicht-Klassifikation erkennbar.
+    // Status statt Roh-Body: der entscheidet oben ueber den Refund und ist
+    // das Einzige, was gefahrlos ins Log darf (redactedBodyMeta).
     const text = await resp.text();
-    throw new Error(`Classifier-Call fehlgeschlagen: ${resp.status} ${text.slice(0, 200)}`);
+    throw new ProviderError(
+      resp.status,
+      `Classifier-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
+    );
   }
   const data = await resp.json();
   const raw = data?.choices?.[0]?.message?.content ?? "";
@@ -324,6 +378,57 @@ function safeImageMimeType(raw: string): string {
 function makeImageDataUrl(imageBase64: string, imageMimeType: string): string {
   const clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
   return `data:${safeImageMimeType(imageMimeType)};base64,${clean}`;
+}
+
+/// Dekodiert NUR den Kopf eines base64-Strings. Bewusst nicht den ganzen
+/// (bis zu 6 MB grossen) String: 12 Bytes zu sehen darf nicht die Arbeit
+/// kosten, die dieser Guard gerade sparen soll.
+function decodeBase64Head(base64: string, bytes: number): Uint8Array | null {
+  // \r\n sind im Zeichensatz-Guard erlaubt (MIME-Zeilenumbrueche), atob
+  // frisst sie aber nicht.
+  const clean = base64.replace(/[\r\n]/g, "");
+  const chunk = clean.slice(0, Math.ceil(bytes / 3) * 4);
+  // atob braucht volle 4er-Bloecke; ein angeschnittener faellt weg.
+  const usable = chunk.slice(0, chunk.length - (chunk.length % 4));
+  if (usable.length === 0) return null;
+  try {
+    const binary = atob(usable);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/// Container-Header der drei Formate, die safeImageMimeType erlaubt.
+///
+/// WARUM (Befund 2026-08-19): der Zeichensatz-Guard im Handler sagt nur "sieht
+/// aus wie base64". Ein 6-MB-"AAAA…" kam damit bis zum Quota-Claim durch,
+/// bezahlte einen Classifier- und einen Vision-Call und endete erst im 4xx des
+/// Providers. Der Kopf-Check kostet nichts und lehnt das VOR dem Claim ab. Er
+/// deckt zugleich die Mindestlaenge ab: unter 16 base64-Zeichen kommen keine
+/// 12 Header-Bytes zusammen.
+///
+/// Bewusst KEINE Vollvalidierung: ein korrekt begonnenes, dahinter aber
+/// verstuemmeltes JPEG faellt weiterhin erst beim Provider auf — dafuer gibt
+/// es die Refund-Trennung (isClientFaultFailure).
+function hasSupportedImageMagic(base64: string): boolean {
+  const head = decodeBase64Head(base64, 12);
+  if (head === null || head.length < 12) return false;
+  // JPEG: FF D8 FF
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return true;
+  // PNG: 89 "PNG" CR LF SUB LF
+  if (
+    head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 &&
+    head[4] === 0x0d && head[5] === 0x0a && head[6] === 0x1a && head[7] === 0x0a
+  ) return true;
+  // WebP: "RIFF" + 4 Byte Laenge + "WEBP"
+  if (
+    head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
+    head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
+  ) return true;
+  return false;
 }
 
 async function answer(
@@ -386,7 +491,10 @@ async function answer(
   });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`Grok-Call fehlgeschlagen: ${resp.status} ${text.slice(0, 200)}`);
+    throw new ProviderError(
+      resp.status,
+      `Grok-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
+    );
   }
   const data = await resp.json();
   let reply: string = data?.choices?.[0]?.message?.content ?? "";
@@ -452,7 +560,10 @@ async function draftRecipe(
   });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`Rezept-Call fehlgeschlagen: ${resp.status} ${text.slice(0, 200)}`);
+    throw new ProviderError(
+      resp.status,
+      `Rezept-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
+    );
   }
   const data = await resp.json();
   return String(data?.choices?.[0]?.message?.content ?? "").trim();
@@ -489,8 +600,10 @@ async function generateRecipeImage(
       }),
     });
     if (!resp.ok) {
+      // Auch hier nur Metadaten: der Bild-Prompt ist aus dem Nutzer-Wunsch
+      // abgeleitet und kann in der Fehlerantwort gespiegelt sein (CWE-532).
       const text = await resp.text();
-      console.error(`recipe image failed: ${resp.status} ${text.slice(0, 200)}`);
+      console.error(`recipe image failed: ${resp.status} (${await redactedBodyMeta(text)})`);
       return null;
     }
     const data = await resp.json();
@@ -597,8 +710,12 @@ async function handleRecipeMode(params: {
   } catch (e) {
     // Infra-Fehler: keinerlei Leistung erbracht -> Refund + ehrlicher
     // Status, identisch zum Answer-Pfad (Sentinel-Rest E2 + Finding 6).
+    // Client-verschuldete 4xx sind KEIN Infra-Fehler und behalten den Slot
+    // (Befund 2026-08-19, Begruendung an isClientFaultFailure).
     console.error(`recipe draft failed: ${e instanceof Error ? e.message : String(e)}`);
-    await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    if (!isClientFaultFailure(e)) {
+      await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    }
     await touchSession(serviceKey, supabaseUrl, sessionId);
     if (isProviderTimeout(e)) {
       return json({ error: "provider_timeout", session_id: sessionId }, 504);
@@ -757,6 +874,51 @@ function refusalForReason(reason: string, locale: CoachLocale): string {
     default:
       return REFUSAL_TEXTS.fallback[locale];
   }
+}
+
+// Limit-Meldungen (Tagesquota + die drei Rate-Limit-Gates). Bewusst NEBEN dem
+// Refusal-Katalog statt darin: das sind keine inhaltlichen Ablehnungen und sie
+// laufen nie durch refusalForReason — zweisprachig aber aus exakt demselben
+// Grund (Befund 2026-08-19). Der Client zeigt `reply` ungefiltert an
+// (coach_chat_service.dart, `serverReply ?? _l10n…`), ein deutscher Text
+// landet also woertlich im englischen UI — beim Tageslimit taeglich, weil es
+// jeden aktiven Nutzer trifft.
+const LIMIT_TEXTS: Record<string, Record<CoachLocale, string>> = {
+  quota_exceeded: {
+    de: `Tageslimit erreicht (${DAILY_LIMIT} Coach-Fragen pro Tag). Morgen geht's weiter.`,
+    en: `Daily limit reached (${DAILY_LIMIT} coach questions per day). Back tomorrow.`,
+  },
+  // 120/10min pro IP — "gleich nochmal" ist hier realistisch.
+  rate_limited_short: {
+    de: "Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen.",
+    en: "Too many coach requests. Please try again in a moment.",
+  },
+  // 60/h pro User — dieselbe Meldung, aber ehrlich ohne "gleich".
+  rate_limited_long: {
+    de: "Zu viele Coach-Anfragen. Bitte später erneut versuchen.",
+    en: "Too many coach requests. Please try again later.",
+  },
+  auth_rate_limited: {
+    de: "Zu viele fehlgeschlagene Anfragen. Bitte spaeter erneut versuchen.",
+    en: "Too many failed requests. Please try again later.",
+  },
+};
+
+// Locale fuer die Meldungen, die VOR dem Body-Read entstehen (die drei
+// Rate-Limit-Gates). Der Request traegt seine locale im JSON-Body — den
+// duerfen wir dort noch nicht lesen, denn genau diese Gates sollen
+// verhindern, dass eine ueberzaehlige Anfrage ueberhaupt bis zu 6,25 MB Body
+// kostet. Bleibt der Accept-Language-Header als einziger frueh verfuegbarer
+// Hinweis; Fallback wie ueberall "de", und wie im Client wird nur die
+// Primaersprache betrachtet (_localeCode, coach_chat_service.dart).
+//
+// GRENZE: der Flutter-Client setzt den Header derzeit nicht — fuer ihn
+// bleiben diese drei Meldungen deutsch. Sie treffen ihn praktisch nie: das
+// Tageslimit (DAILY_LIMIT) greift lange vor 60/h bzw. 120/10min, und genau
+// diese Meldung ist unten aus der Body-locale korrekt lokalisiert.
+function localeFromHeaders(req: Request): CoachLocale {
+  const header = (req.headers.get("accept-language") ?? "").trim().toLowerCase();
+  return header.startsWith("en") ? "en" : "de";
 }
 
 // ---------------------------------------------------------------------------
@@ -1179,6 +1341,11 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Edge function not configured" }, 500);
   }
 
+  // Sprache fuer alle Meldungen, die VOR dem Body-Read rausgehen (die drei
+  // Rate-Limit-Gates); die Body-locale unten ueberschreibt sie fuer alles
+  // danach. Begruendung + Grenze: localeFromHeaders.
+  const headerLocale = localeFromHeaders(req);
+
   // Nur Fast-Path fuer ehrliche Clients (413 ohne Body-Read). Der harte,
   // nicht umgehbare Cap sitzt in readBodyLimited() beim eigentlichen Lesen.
   const contentLength = Number(req.headers.get("content-length") ?? "0");
@@ -1228,7 +1395,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       // 500 — anders als bei den Gates unten, die bezahlte Arbeit schuetzen.
       if (!("error" in failGate) && !failGate.allowed) {
         return json(
-          { error: "rate_limited", reply: "Zu viele fehlgeschlagene Anfragen. Bitte spaeter erneut versuchen." },
+          { error: "rate_limited", reply: LIMIT_TEXTS.auth_rate_limited[headerLocale] },
           429,
           { "Retry-After": String(retryAfterSeconds(failGate.resetAt, failGate.windowSeconds)) },
         );
@@ -1257,7 +1424,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   if ("error" in ipGate) return json({ error: ipGate.error }, 500);
   if (!ipGate.allowed) {
     return json(
-      { error: "rate_limited", reply: "Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen." },
+      { error: "rate_limited", reply: LIMIT_TEXTS.rate_limited_short[headerLocale] },
       429,
       { "Retry-After": String(retryAfterSeconds(ipGate.resetAt, ipGate.windowSeconds)) },
     );
@@ -1274,7 +1441,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   if ("error" in userGate) return json({ error: userGate.error }, 500);
   if (!userGate.allowed) {
     return json(
-      { error: "rate_limited", reply: "Zu viele Coach-Anfragen. Bitte später erneut versuchen." },
+      { error: "rate_limited", reply: LIMIT_TEXTS.rate_limited_long[headerLocale] },
       429,
       { "Retry-After": String(retryAfterSeconds(userGate.resetAt, userGate.windowSeconds)) },
     );
@@ -1367,6 +1534,17 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Invalid image_base64" }, 400);
   }
 
+  // Container-Header pruefen, BEVOR ein Tages-Slot geclaimt und der erste
+  // bezahlte Call abgesetzt wird (Befund 2026-08-19): der Zeichensatz-Guard
+  // darueber sagt nur "sieht aus wie base64". Ein base64-foermiger String
+  // ohne Bild darin lief bis hierher komplett durch — Claim, bezahlter
+  // Classifier-Call, Vision-Call — und wurde erst vom Provider mit 4xx
+  // abgewiesen. Gleiche Antwort wie beim Zeichensatz-Verstoss: ein Client,
+  // der das schickt, hat ein Protokollproblem, keine Konversation.
+  if (hasImage && !hasSupportedImageMagic(imageBase64)) {
+    return json({ error: "Invalid image_base64" }, 400);
+  }
+
   // ---------------------------------------------------------------- LAYER 1
   // Pre-Filter -> kein Quota-Verbrauch, kein LLM-Call. Wir loggen den
   // Versuch in chat_messages aber lassen die Quota komplett unangetastet.
@@ -1419,7 +1597,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     if (claim.error === "quota_exceeded") {
       return json({
         error: "quota_exceeded",
-        reply: `Tageslimit erreicht (${DAILY_LIMIT} Coach-Fragen pro Tag). Morgen geht's weiter.`,
+        reply: LIMIT_TEXTS.quota_exceeded[locale],
         remaining: 0,
         daily_limit: DAILY_LIMIT,
       }, 429);
@@ -1475,7 +1653,14 @@ export async function handleRequest(req: Request): Promise<Response> {
       // Timeout (Finding 6) faellt bewusst in DENSELBEN catch — genau ein
       // Refund, nur der Statuscode unterscheidet 504/502 (analyze-meal-Paar).
       console.error(`classify failed: ${e instanceof Error ? e.message : String(e)}`);
-      await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+      // Refund nur beim AUSFALL (Netz, Timeout, 5xx, Provider-429). Ein 4xx,
+      // das der Client mit seiner Eingabe ausgeloest hat, ist ein bezahlter
+      // Call und kostet den Slot — sonst waere er ueber eine provozierbare
+      // Provider-Ablehnung beliebig oft wiederverwendbar (Befund
+      // 2026-08-19), genau wie es die Layer-2-Refusals oben verhindern.
+      if (!isClientFaultFailure(e)) {
+        await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+      }
       if (isProviderTimeout(e)) {
         return json({ error: "provider_timeout", session_id: sessionId }, 504);
       }
@@ -1588,7 +1773,16 @@ export async function handleRequest(req: Request): Promise<Response> {
     // DENSELBEN catch — genau ein Refund, nur der Statuscode unterscheidet
     // 504/502 (analyze-meal-Paar).
     console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
-    await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    // Der Refund gilt dem AUSFALL, nicht jedem geworfenen Fehler (Befund
+    // 2026-08-19): ein 4xx, das die Eingabe des Clients ausgeloest hat —
+    // ein base64, das den Kopf-Check passiert hat, aber kein dekodierbares
+    // Bild ist; ein Payload, das dem Provider zu gross ist; ein
+    // Moderations-403 — ist bezahlte Arbeit. Wird sie refundiert, deckelt
+    // nicht mehr DAILY_LIMIT die bezahlten Vision-Calls, sondern nur noch
+    // das IP-Gate. Begruendung + Statusliste an isClientFaultFailure.
+    if (!isClientFaultFailure(e)) {
+      await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    }
     await touchSession(serviceKey, supabaseUrl, sessionId);
     if (isProviderTimeout(e)) {
       return json({ error: "provider_timeout", session_id: sessionId }, 504);

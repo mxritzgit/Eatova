@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -74,6 +76,38 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     CrashReporter.capture(error, stackTrace, context: 'barcode-detect');
   }
 
+  /// Schaltet den Analyzer ab und markiert dieses Sheet als erledigt.
+  ///
+  /// **Muss vor JEDEM Pop laufen.** Die Schliess-Animation dauert ~250 ms, und
+  /// erst an deren Ende baut Flutter den [MobileScanner] ab. Bis dahin liefert
+  /// der Analyzer weiter Treffer — frueher fielen die durch die Wache in
+  /// [handleDetect] (`hasReturned` blieb beim Schliessen ungesetzt) und popten
+  /// ein zweites Mal. Der zweite Pop traf dann die darunterliegende Route, also
+  /// das Sheet, aus dem der Scanner geoeffnet wurde, und schloss es mit.
+  ///
+  /// `controller.stop()` kappt die Barcode-Subscription noch synchron; nur der
+  /// Plattform-Stop dahinter ist asynchron. Deshalb wird hier angestossen und
+  /// nicht gewartet — die Ausblendzeit soll nicht daran haengen.
+  void _erkennungBeenden() {
+    if (hasReturned) return;
+    hasReturned = true;
+    unawaited(_analyzerStoppen());
+  }
+
+  Future<void> _analyzerStoppen() async {
+    try {
+      await controller.stop();
+    } catch (_) {
+      // Das Sheet ist auf dem Weg nach draussen und `dispose()` raeumt danach
+      // ohnehin auf — ein fehlgeschlagener Stop hat hier keine Folge mehr.
+    }
+  }
+
+  void _schliessen() {
+    _erkennungBeenden();
+    Navigator.of(context).pop();
+  }
+
   Future<void> _neuStarten() async {
     setState(() {
       _analyzerHaengt = false;
@@ -89,7 +123,14 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   }
 
   void handleDetect(BarcodeCapture capture) {
-    if (hasReturned) {
+    if (hasReturned || !mounted) {
+      return;
+    }
+    // Zweite Wache gegen denselben Doppel-Pop: `hasReturned` deckt nur ab, was
+    // ueber diese Klasse laeuft. Ist die Route nicht mehr die oberste — weil
+    // gerade gepoppt wird oder etwas darueber liegt —, wuerde ein Pop hier die
+    // darunterliegende Route treffen.
+    if (ModalRoute.of(context)?.isCurrent != true) {
       return;
     }
 
@@ -99,8 +140,9 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     for (final barcode in capture.barcodes) {
       final rawValue = barcode.rawValue;
       if (rawValue != null && rawValue.trim().isNotEmpty) {
-        hasReturned = true;
-        Navigator.of(context).pop(rawValue.trim());
+        final code = rawValue.trim();
+        _erkennungBeenden();
+        Navigator.of(context).pop(code);
         return;
       }
     }
@@ -113,121 +155,143 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     // beide Scan-Wege als dasselbe In-App-Muster gelesen werden.
     final panelHeight = mediaQuery.size.height * 0.6;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-      child: SizedBox(
-        height: panelHeight,
-        child: Container(
-          decoration: BoxDecoration(
-            color: context.t.bg,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(rSheet),
+    return PopScope<Object?>(
+      // Reiner Horchposten, kein Veto: `canPop` bleibt true. Wischen,
+      // Barrier-Tap und System-Zurueck poppen an [_schliessen] vorbei — ueber
+      // `onPopInvokedWithResult` erfaehrt das Sheet trotzdem von jedem dieser
+      // Wege und kann den Analyzer abschalten, bevor die Ausblendzeit laeuft
+      // (Begruendung in [_erkennungBeenden]).
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _erkennungBeenden();
+      },
+      child: Padding(
+        padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
+        child: SizedBox(
+          height: panelHeight,
+          child: Container(
+            decoration: BoxDecoration(
+              color: context.t.bg,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(rSheet),
+              ),
             ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              const _SheetHandle(),
-              _HeaderRow(onClose: () => Navigator.of(context).pop()),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(rCard),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        MobileScanner(
-                          controller: controller,
-                          onDetect: handleDetect,
-                          // Ohne diesen Handler ist der Default laut
-                          // mobile_scanner.dart:157-160 woertlich
-                          // `// Do nothing.` — jeder Analysefehler wurde also
-                          // ERSATZLOS verschluckt. `errorBuilder` haengt an
-                          // `controller.value.error`, und Analysefehler setzen
-                          // das nie; der rote Zweig erschien deshalb nie.
-                          //
-                          // Erschwerend: `MobileScanner.kt:225-229` ruft im
-                          // Fehlerpfad kein `imageProxy.close()`. Mit
-                          // STRATEGY_KEEP_ONLY_LATEST liefert CameraX dann
-                          // keinen weiteren Frame — der Analyzer steht nach dem
-                          // ERSTEN Fehlframe still und erholt sich nicht von
-                          // selbst. Der Nutzer sah: Live-Bild, Scanrahmen, nie
-                          // ein Treffer, nie eine Meldung.
-                          onDetectError: handleDetectError,
-                          // Formatfuellend + verzerrungsfrei (croppt statt zu
-                          // stauchen) — wie die Kamera-Vorschau im KI-Scan.
-                          fit: BoxFit.cover,
-                          placeholderBuilder: (_) => const _ScannerLoadingLayer(),
-                          errorBuilder: (_, __) => const _ScannerFailedLayer(),
-                        ),
-                        // Overlays nur solange die Kamera nicht im Fehler-
-                        // Zustand ist — sonst laegen Rahmen + Hinweis mitten
-                        // auf der Fehlermeldung (z.B. Simulator/Berechtigung).
-                        ValueListenableBuilder<MobileScannerState>(
-                          valueListenable: controller,
-                          builder: (context, state, child) => state.error == null
-                              ? child!
-                              : const SizedBox.shrink(),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              const _EdgeScrim(),
-                              const Center(child: _ScanFrame()),
-                              Positioned(
-                                top: 10,
-                                left: 10,
-                                right: 10,
-                                child: Center(
-                                  child: Container(
-                                    key: const ValueKey('barcode-scanner-hint'),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 7,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.42),
-                                      borderRadius: BorderRadius.circular(rPill),
-                                      border: Border.all(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.35),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                const _SheetHandle(),
+                _HeaderRow(onClose: _schliessen),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(rCard),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          MobileScanner(
+                            controller: controller,
+                            onDetect: handleDetect,
+                            // Ohne diesen Handler ist der Default laut
+                            // mobile_scanner.dart:157-160 woertlich
+                            // `// Do nothing.` — jeder Analysefehler wurde also
+                            // ERSATZLOS verschluckt. `errorBuilder` haengt an
+                            // `controller.value.error`, und Analysefehler
+                            // setzen das nie; der rote Zweig erschien deshalb
+                            // nie.
+                            //
+                            // Erschwerend: `MobileScanner.kt:225-229` ruft im
+                            // Fehlerpfad kein `imageProxy.close()`. Mit
+                            // STRATEGY_KEEP_ONLY_LATEST liefert CameraX dann
+                            // keinen weiteren Frame — der Analyzer steht nach
+                            // dem ERSTEN Fehlframe still und erholt sich nicht
+                            // von selbst. Der Nutzer sah: Live-Bild,
+                            // Scanrahmen, nie ein Treffer, nie eine Meldung.
+                            onDetectError: handleDetectError,
+                            // Formatfuellend + verzerrungsfrei (croppt statt zu
+                            // stauchen) — wie die Kamera-Vorschau im KI-Scan.
+                            fit: BoxFit.cover,
+                            placeholderBuilder: (_) =>
+                                const _ScannerLoadingLayer(),
+                            errorBuilder: (_, __) =>
+                                const _ScannerFailedLayer(),
+                          ),
+                          // Overlays nur solange die Kamera nicht im
+                          // Fehler-Zustand ist — sonst laegen Rahmen + Hinweis
+                          // mitten auf der Fehlermeldung
+                          // (z.B. Simulator/Berechtigung).
+                          ValueListenableBuilder<MobileScannerState>(
+                            valueListenable: controller,
+                            builder: (context, state, child) =>
+                                state.error == null
+                                    ? child!
+                                    : const SizedBox.shrink(),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                const _EdgeScrim(),
+                                const Center(child: _ScanFrame()),
+                                Positioned(
+                                  top: 10,
+                                  left: 10,
+                                  right: 10,
+                                  child: Center(
+                                    child: Container(
+                                      key: const ValueKey(
+                                        'barcode-scanner-hint',
                                       ),
-                                    ),
-                                    child: Text(
-                                      context.l10n.foodBarcodeHintText,
-                                      style: const TextStyle(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: -0.1,
-                                        color: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 7,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.42,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          rPill,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        context.l10n.foodBarcodeHintText,
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: -0.1,
+                                          color: Colors.white,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              // Torch-Toggle unten mittig — beim Scannen im
-                              // Dunkeln oft der Unterschied zwischen Treffer
-                              // und Frust.
-                              Positioned(
-                                bottom: 14,
-                                left: 0,
-                                right: 0,
-                                child: Center(
-                                  child: _TorchButton(controller: controller),
+                                // Torch-Toggle unten mittig — beim Scannen im
+                                // Dunkeln oft der Unterschied zwischen Treffer
+                                // und Frust.
+                                Positioned(
+                                  bottom: 14,
+                                  left: 0,
+                                  right: 0,
+                                  child: Center(
+                                    child: _TorchButton(controller: controller),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        if (_analyzerHaengt)
-                          _AnalyzerStalledLayer(onRetry: _neuStarten),
-                      ],
+                          if (_analyzerHaengt)
+                            _AnalyzerStalledLayer(onRetry: _neuStarten),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              SizedBox(height: mediaQuery.viewPadding.bottom + 6),
-            ],
+                SizedBox(height: mediaQuery.viewPadding.bottom + 6),
+              ],
+            ),
           ),
         ),
       ),

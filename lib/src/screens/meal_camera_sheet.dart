@@ -11,6 +11,7 @@ import '../models/logged_meal.dart';
 import '../models/meal_analysis_request.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_compressor.dart';
+import '../services/meal_photo_temp_file.dart';
 import '../theme/app_tokens.dart';
 import '../theme/meal_slot_style.dart';
 import '../widgets/common/motion.dart';
@@ -210,25 +211,38 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     final controller = _controller;
     if (_busy || controller == null || !controller.value.isInitialized) return;
     setState(() => _busy = true);
+    // Steht ausserhalb des try, weil das Aufraeumen ins finally gehoert: die
+    // Aufnahme darf auch dann nicht im Cache liegen bleiben, wenn das Lesen
+    // oder der Scrub scheitert oder das Sheet zwischenzeitlich zu ist.
+    XFile? shot;
     try {
       HapticFeedback.mediumImpact();
-      final file = await controller.takePicture();
-      final raw = await file.readAsBytes();
+      shot = await controller.takePicture();
+      final raw = await shot.readAsBytes();
       // Rohes Kamera-JPEG vor dem Versand auf Galerie-Niveau bringen
       // (laengste Kante 1600 px, q85) und die Metadaten strippen.
       final bytes = await _compress(raw);
       if (!mounted) return;
-      _returnCapture(path: file.path, bytes: bytes);
+      _returnCapture(path: shot.path, bytes: bytes);
     } catch (_) {
       if (!mounted) return;
       setState(() => _busy = false);
       _showError(context.l10n.foodPhotoCaptureFailedMessage);
+    } finally {
+      // Ab hier liegen die Bytes im Speicher (oder sind verloren) — das
+      // Kamera-JPEG im Cache wird von niemandem mehr gelesen. Siehe
+      // [deleteMealPhotoTempFile]: Essensfotos ueberdauerten hier sonst auch
+      // die Kontoloeschung.
+      final temp = shot;
+      if (temp != null) await deleteMealPhotoTempFile(temp.path);
     }
   }
 
   Future<void> _pickFromGallery() async {
     if (_busy) return;
     setState(() => _busy = true);
+    // Wie in [_capture]: der Pfad der Picker-Kopie muss das finally erreichen.
+    XFile? picked;
     try {
       final image = await ImagePicker().pickImage(
         source: ImageSource.gallery,
@@ -239,6 +253,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         if (mounted) setState(() => _busy = false);
         return;
       }
+      picked = image;
       final raw = await image.readAsBytes();
       // Review C4: `image_picker` skaliert zwar, kopiert danach aber ueber
       // ImageResizer.copyExif() die Metadaten inklusive GPS-Sub-IFD zurueck.
@@ -256,9 +271,18 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       if (!mounted) return;
       setState(() => _busy = false);
       _showError(context.l10n.foodImageLoadFailedMessage);
+    } finally {
+      // Geloescht wird nur die Kopie, die `image_picker` wegen
+      // `imageQuality`/`maxWidth` im App-Cache anlegt — das Original in der
+      // Galerie bleibt unangetastet (s. [deleteMealPhotoTempFile]).
+      final temp = picked;
+      if (temp != null) await deleteMealPhotoTempFile(temp.path);
     }
   }
 
+  /// `imageId` ist ein reines Etikett fuer die Analyse-Anfrage: den Pfad liest
+  /// nach dem Pop niemand mehr (der Upload haengt an [bytes]), die Datei
+  /// dahinter ist zu diesem Zeitpunkt bereits geloescht bzw. wird es gleich.
   void _returnCapture({required String path, required Uint8List bytes}) {
     if (!mounted) return;
     Navigator.of(context).pop(

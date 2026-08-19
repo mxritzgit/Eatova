@@ -9,6 +9,7 @@ import '../../config/legal_links.dart';
 import '../../app/locale_controller.dart';
 import '../../auth/auth_repository.dart';
 import '../../l10n/l10n.dart';
+import '../../services/crash_reporter.dart';
 import '../../services/secure_screen.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/theme_mode_controller.dart';
@@ -122,6 +123,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // zuletzt bekannte Adresse die ehrlichere Anzeige.
       if (!mounted || adresse == null || adresse == _sessionEmail) return;
       setState(() => _sessionEmail = adresse);
+    }, onError: (Object e, StackTrace st) {
+      // gotrue speist Fehler AKTIV in diesen Strom ein (notifyException bei
+      // AuthRetryableFetchException). Ohne Handler wird daraus ein
+      // unbehandelter Zonen-Fehler — und der ist ueber den BROWSABLE-Intent
+      // von aussen ausloesbar. Melden, nicht eskalieren.
+      unawaited(CrashReporter.capture(e, st, context: 'settings-session-stream'));
     });
   }
 

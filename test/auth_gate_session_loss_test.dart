@@ -4,8 +4,11 @@
 // Root-Route. Tauscht _onAuthEvent diesen Inhalt gegen den AuthScreen, bleibt
 // alles was der Nutzer darueber gepusht hat (Profil, Trends, ein Dialog, ein
 // Bottom Sheet) sichtbar und bedienbar — mit Daten einer Session, die es nicht
-// mehr gibt. Betroffen ist ausschliesslich der extern ausgeloeste
-// Session-Verlust; die In-App-Abmeldung poppt selbst (profile_screen.dart:137).
+// mehr gibt. Der Gate raeumt deshalb bei JEDEM Identitaetswechsel ab — auch
+// bei der gewollten Abmeldung, deren Knopf seit 2026-08-10 in den
+// Einstellungen sitzt und damit selbst auf einer gepushten Route. Ob dabei
+// „Deine Sitzung ist abgelaufen" faellt, entscheidet seit dem Review
+// 2026-08-19 [IntentionalSignOut] und nicht mehr die Frage, ob Routen wegfielen.
 //
 // Die Tests hier pinnen drei Aussagen fest:
 //   1. Session-Verlust raeumt den Navigator-Stack bis zur Root-Route ab.
@@ -308,6 +311,14 @@ void main() {
                         child: TextButton(
                           key: const ValueKey('sign-out'),
                           onPressed: () async {
+                            // Review 2026-08-19: die Abgrenzung zur
+                            // abgelaufenen Sitzung ist seither dieser Merker
+                            // und nicht mehr „es lag nichts ueber der
+                            // Root-Route" — der Ausloggen-Knopf sitzt in den
+                            // Einstellungen, also selbst auf einer gepushten
+                            // Route. Produktiv setzt ihn
+                            // `_EatovaHomePageState._signOut`.
+                            IntentionalSignOut.mark();
                             Navigator.maybePop(routeContext);
                             await repository.signOut();
                           },

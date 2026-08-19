@@ -109,13 +109,17 @@ void main() {
     // ist dieselbe Behandlung wie beim 5xx — werfen, der
     // FallbackProductService klassifiziert/meldet und zieht zu OFF weiter.
     // Eine ECHTE leere Antwort (`hits: []`) bleibt dagegen eine Antwort.
+    //
+    // Der Typ ist Teil der Zusicherung: eine HttpException waere eine
+    // IOException und damit fuer den FallbackProductService ein erwarteter
+    // Netzfehler — der Alarm bliebe still.
     final stub = await _MirrorStub.start(<int>[200], body200: '{"ok":true}');
     addTearDown(stub.close);
     final source = _FakeSource(_at(stub.baseUrl, _oldKey));
 
     await expectLater(
       MeilisearchProductService(credentials: source).searchProducts('salami'),
-      throwsA(isA<HttpException>()),
+      throwsA(isA<MirrorSchemaException>()),
     );
   });
 

@@ -1,7 +1,10 @@
+import 'dart:developer' as dev;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
+import '../../services/data_export.dart';
 import '../../theme/app_tokens.dart';
 import '../common/app_snack.dart';
 import '../design/design.dart';
@@ -21,6 +24,14 @@ import '../design/design.dart';
 // deshalb bewusst uebernommen und NICHT umbenannt (DESIGN_REFACTOR §6:
 // „Key bleibt Key"). Danach gibt es die Kopie nur noch einmal.
 // ---------------------------------------------------------------------------
+
+/// Gibt die VOLLE Auskunft als Datei heraus — Teilen-Dialog des Systems,
+/// E-Mail-Anhang, Ablage. [inhalt] ist der komplette Export, NICHT die
+/// gekuerzte Vorschau.
+typedef ExportDateiTeiler = Future<void> Function(
+  String inhalt,
+  String dateiname,
+);
 
 /// Oeffnet die Datenauskunft.
 ///
@@ -42,6 +53,7 @@ Future<void> showDataExportSheet(
   required Future<String> Function() snapshot,
   required bool vollstaendig,
   String fallbackSnapshot = '',
+  ExportDateiTeiler? dateiTeilen,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -55,18 +67,20 @@ Future<void> showDataExportSheet(
       snapshot: snapshot(),
       fallbackSnapshot: fallbackSnapshot,
       vollstaendig: vollstaendig,
+      dateiTeilen: dateiTeilen,
     ),
   );
 }
 
-/// Das Innenleben der Datenauskunft: Titel, Herkunfts-Satz, JSON-Block und der
-/// Kopieren-Knopf.
-class DataExportSheet extends StatelessWidget {
+/// Das Innenleben der Datenauskunft: Titel, Herkunfts-Satz, JSON-Vorschau und
+/// die Ausgabewege (Zwischenablage, Datei).
+class DataExportSheet extends StatefulWidget {
   const DataExportSheet({
     super.key,
     required this.snapshot,
     required this.fallbackSnapshot,
     required this.vollstaendig,
+    this.dateiTeilen,
   });
 
   /// Die (asynchron geladene) Auskunft — mit Sync die vollstaendige
@@ -79,6 +93,116 @@ class DataExportSheet extends StatelessWidget {
 
   final bool vollstaendig;
 
+  /// Reicht die volle Auskunft als Datei weiter. Bleibt `null`, solange die App
+  /// kein Teilen-Plugin hat — dann entfaellt der Knopf, statt einen Ausgabeweg
+  /// anzubieten, den es nicht gibt.
+  final ExportDateiTeiler? dateiTeilen;
+
+  /// Ab wieviel Zeichen die Karte nur noch eine Vorschau zeigt.
+  ///
+  /// Ein Jahr Nutzung sind schnell mehrere Megabyte JSON — jede Tagebuchzeile
+  /// mit ihrer JSONB-Nutzlast, eingerueckt. Flutter legt aus einem
+  /// `SelectableText` EINEN Paragraphen an, und `TextPainter.layout` laeuft
+  /// dabei auf dem UI-Isolate: das Sheet fror ein, bis das Layout durch war.
+  /// Die Vorschau ist deshalb hart begrenzt. Die vollstaendigen Daten
+  /// verlassen das Sheet ueber Kopieren bzw. [dateiTeilen] — nicht ueber die
+  /// Textdarstellung.
+  static const int vorschauMaxZeichen = 20 * 1024;
+
+  @override
+  State<DataExportSheet> createState() => _DataExportSheetState();
+}
+
+class _DataExportSheetState extends State<DataExportSheet> {
+  late Future<_Auskunft> _auskunft;
+
+  @override
+  void initState() {
+    super.initState();
+    _auskunft = _aufbereiten();
+  }
+
+  @override
+  void didUpdateWidget(covariant DataExportSheet alt) {
+    super.didUpdateWidget(alt);
+    if (alt.snapshot != widget.snapshot ||
+        alt.fallbackSnapshot != widget.fallbackSnapshot) {
+      _auskunft = _aufbereiten();
+    }
+  }
+
+  /// Kuerzen und Umfang-Lesen laufen ueber den GANZEN Text. In `build` waere
+  /// das eine Megabyte-Arbeit pro Frame; hier passiert es einmal, und zwar
+  /// noch waehrend der Spinner steht.
+  Future<_Auskunft> _aufbereiten() async {
+    try {
+      return _Auskunft.aus(await widget.snapshot);
+    } catch (e, st) {
+      dev.log('DataExport: Auskunft nicht ladbar',
+          error: e, stackTrace: st, name: 'data_export_sheet');
+      return _Auskunft.aus(widget.fallbackSnapshot, fehler: true);
+    }
+  }
+
+  /// Datumsbehafteter Dateiname: mehrere Auskuenfte im Download-Ordner sollen
+  /// sich unterscheiden lassen.
+  String _dateiname() {
+    final jetzt = DateTime.now();
+    String zwei(int n) => n.toString().padLeft(2, '0');
+    return 'eatova-export-${jetzt.year}-${zwei(jetzt.month)}-'
+        '${zwei(jetzt.day)}.json';
+  }
+
+  Future<void> _kopieren(String text) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+    } catch (e, st) {
+      // Die Zwischenablage ist ein Plattformkanal und kann fehlschlagen (kein
+      // Fokus, restriktives OS, sehr grosse Nutzlast). Ohne diesen Fang wuerde
+      // daraus ein unbehandelter Zonen-Fehler — und die Bestaetigung unten
+      // behauptete trotzdem, es sei kopiert.
+      dev.log('DataExport: Kopieren fehlgeschlagen',
+          error: e, stackTrace: st, name: 'data_export_sheet');
+      return;
+    }
+    if (!mounted) return;
+    showAppSnack(
+      context,
+      context.l10n.exportSheetCopiedSnack,
+      icon: Icons.content_copy_rounded,
+    );
+  }
+
+  Future<void> _teilen(String text) async {
+    final teiler = widget.dateiTeilen;
+    if (teiler == null) return;
+    try {
+      await teiler(text, _dateiname());
+    } catch (e, st) {
+      // Ein abgebrochener oder fehlgeschlagener Teilen-Dialog ist kein Grund,
+      // das Sheet zu reissen — die Auskunft liegt weiter davor.
+      dev.log('DataExport: Teilen fehlgeschlagen',
+          error: e, stackTrace: st, name: 'data_export_sheet');
+    }
+  }
+
+  String _untertitel(AppLocalizations l10n, bool laedt, _Auskunft? auskunft) {
+    if (laedt || auskunft == null) return l10n.exportSheetLoadingSubtitle;
+    if (auskunft.fehler) return l10n.exportSheetErrorSubtitle;
+    if (!widget.vollstaendig) return l10n.exportSheetSessionSubtitle;
+    return switch (auskunft.umfang) {
+      // Der Abruf hat nicht geworfen — geladen hat er trotzdem nichts. Ohne
+      // diesen Fall behauptete das Sheet offline eine vollstaendige Auskunft
+      // ueber eine leere Datei.
+      ExportUmfang.nichtsGeladen => l10n.exportNothingLoaded,
+      // Kein eigener Satz fuer „teilweise": der Fehler-Satz ist der
+      // naechstliegende, der KEINE Vollstaendigkeit behauptet und zum erneuten
+      // Oeffnen mit Netz raet — genau das hilft hier.
+      ExportUmfang.teilweise => l10n.exportSheetErrorSubtitle,
+      _ => l10n.exportSheetFullSubtitle,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -88,20 +212,14 @@ class DataExportSheet extends StatelessWidget {
       maxChildSize: 0.95,
       expand: false,
       builder: (context, controller) {
-        return FutureBuilder<String>(
-          future: snapshot,
+        return FutureBuilder<_Auskunft>(
+          future: _auskunft,
           builder: (context, snap) {
             final l10n = context.l10n;
             final laedt = snap.connectionState != ConnectionState.done;
-            final fehler = snap.hasError;
-            final text = snap.data ?? fallbackSnapshot;
-            final untertitel = laedt
-                ? l10n.exportSheetLoadingSubtitle
-                : fehler
-                    ? l10n.exportSheetErrorSubtitle
-                    : vollstaendig
-                        ? l10n.exportSheetFullSubtitle
-                        : l10n.exportSheetSessionSubtitle;
+            final auskunft = snap.data;
+            final text = auskunft?.voll ?? '';
+            final untertitel = _untertitel(l10n, laedt, auskunft);
             // EIN Scroller fuer das ganze Sheet (Kopf + JSON), getrieben vom
             // Controller des DraggableScrollableSheet: bei doppelter
             // Systemschrift waechst der Kopf sonst ueber die Sheet-Hoehe
@@ -122,7 +240,7 @@ class DataExportSheet extends StatelessWidget {
                     children: <Widget>[
                       Expanded(
                         child: Text(
-                          vollstaendig
+                          widget.vollstaendig
                               ? l10n.exportSheetTitleFull
                               : l10n.exportSheetTitleSession,
                           style: AppType.display(20, color: t.ink),
@@ -131,16 +249,7 @@ class DataExportSheet extends StatelessWidget {
                       const SizedBox(width: 10),
                       _CopyButton(
                         enabled: !laedt && text.isNotEmpty,
-                        onCopy: () async {
-                          await Clipboard.setData(ClipboardData(text: text));
-                          if (context.mounted) {
-                            showAppSnack(
-                              context,
-                              l10n.exportSheetCopiedSnack,
-                              icon: Icons.content_copy_rounded,
-                            );
-                          }
-                        },
+                        onCopy: () => _kopieren(text),
                       ),
                     ],
                   ),
@@ -158,7 +267,7 @@ class DataExportSheet extends StatelessWidget {
                   AppCard(
                     padding: const EdgeInsets.all(14),
                     color: t.surf2,
-                    child: laedt
+                    child: laedt || auskunft == null
                         // Feste Hoehe waehrend des Ladens: ohne den JSON-Text
                         // schrumpfte die Karte sonst auf den Spinner zusammen
                         // und das Sheet saehe nach einem Fehler aus.
@@ -175,7 +284,7 @@ class DataExportSheet extends StatelessWidget {
                             ),
                           )
                         : SelectableText(
-                            text,
+                            auskunft.vorschau,
                             style: AppType.display(
                               11.5,
                               weight: FontWeight.w400,
@@ -184,6 +293,26 @@ class DataExportSheet extends StatelessWidget {
                             ),
                           ),
                   ),
+                  if (auskunft?.gekuerzt ?? false) ...<Widget>[
+                    const SizedBox(height: 10),
+                    Text(
+                      l10n.exportPreviewShortened,
+                      key: const ValueKey('profile-export-shortened'),
+                      style: AppType.ui(
+                        11.5,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                  if (widget.dateiTeilen != null) ...<Widget>[
+                    const SizedBox(height: 14),
+                    _ShareFileButton(
+                      enabled: !laedt && text.isNotEmpty,
+                      onShare: () => _teilen(text),
+                    ),
+                  ],
                 ],
               ),
             );
@@ -192,6 +321,59 @@ class DataExportSheet extends StatelessWidget {
       },
     );
   }
+}
+
+/// Die aufbereitete Auskunft: der volle Text fuer die Ausgabewege, die
+/// gekuerzte Fassung fuer die Darstellung und das Urteil ueber ihren Umfang.
+@immutable
+class _Auskunft {
+  const _Auskunft({
+    required this.voll,
+    required this.vorschau,
+    required this.gekuerzt,
+    required this.umfang,
+    required this.fehler,
+  });
+
+  factory _Auskunft.aus(String text, {bool fehler = false}) {
+    const grenze = DataExportSheet.vorschauMaxZeichen;
+    final umfang = fehler ? null : exportUmfangAus(text);
+    if (text.length <= grenze) {
+      return _Auskunft(
+        voll: text,
+        vorschau: text,
+        gekuerzt: false,
+        umfang: umfang,
+        fehler: fehler,
+      );
+    }
+    // An der letzten Zeilengrenze schneiden: eine halb abgeschnittene
+    // JSON-Zeile sieht nach kaputten Daten aus, und genau das soll die
+    // Vorschau nicht suggerieren.
+    final roh = text.substring(0, grenze);
+    final letzterUmbruch = roh.lastIndexOf('\n');
+    return _Auskunft(
+      voll: text,
+      vorschau: letzterUmbruch > 0 ? roh.substring(0, letzterUmbruch) : roh,
+      gekuerzt: true,
+      umfang: umfang,
+      fehler: fehler,
+    );
+  }
+
+  /// Der komplette Export — was kopiert bzw. als Datei herausgegeben wird.
+  final String voll;
+
+  /// Was die Karte zeichnet: hoechstens
+  /// [DataExportSheet.vorschauMaxZeichen] Zeichen.
+  final String vorschau;
+
+  final bool gekuerzt;
+
+  /// `null`, wenn [voll] gar keine Auskunft im Export-Format ist.
+  final ExportUmfang? umfang;
+
+  final bool fehler;
 }
 
 /// Der „Kopieren"-Knopf. Gesperrt, solange die Auskunft laedt — sonst landete
@@ -234,6 +416,50 @@ class _CopyButton extends StatelessWidget {
                       weight: FontWeight.w700,
                       color: t.onForest,
                     ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Der Weg fuer die VOLLEN Daten: eine Datei statt einer Textflaeche. Steht
+/// unter der Karte, weil die Vorschau darueber ausdruecklich nicht alles ist.
+class _ShareFileButton extends StatelessWidget {
+  const _ShareFileButton({required this.enabled, required this.onShare});
+
+  final bool enabled;
+  final Future<void> Function() onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.4,
+        child: Material(
+          key: const ValueKey('profile-export-share'),
+          color: t.tile,
+          borderRadius: BorderRadius.circular(rChip),
+          child: InkWell(
+            onTap: enabled ? onShare : null,
+            borderRadius: BorderRadius.circular(rChip),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(Icons.ios_share_rounded, size: 15, color: t.ink),
+                  const SizedBox(width: 8),
+                  Text(
+                    context.l10n.exportShareFile,
+                    style: AppType.ui(12, weight: FontWeight.w700, color: t.ink),
                   ),
                 ],
               ),

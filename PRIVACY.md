@@ -1,6 +1,6 @@
 # Privacy Policy — Eatova
 
-_Last updated: 2026-08-14_
+_Last updated: 2026-08-19_
 
 > The authoritative, always-current version of this policy (in German, covering
 > both the app and the website) lives at
@@ -34,6 +34,14 @@ You enter and the app stores the following, tied to your account:
 - **Nutrition log:** meals you log (name, calories, macros, portion, barcode/brand
   where applicable, and whether the values came from the AI scan, a barcode, the
   product search or your own manual entry), favorites, and your own recipes.
+  If you add a **photo of your own recipe**, it is re-encoded on your device and
+  its entire metadata container discarded first (see "Photos" below), and the
+  result is stored **only on your device**, in the app's own directory — it is
+  never uploaded to our servers, and a second device shows that recipe with a
+  placeholder. Like other app documents, this on-device copy is included in your
+  operating system's device backup if you use one (on iOS: the iCloud backup of
+  your device); on Android, Eatova excludes its app data from system backups
+  entirely. See "Retention" for when it is deleted.
 - **Weight & progress:** your weight history and your logging streak (the run of
   consecutive days on which you logged a meal), plus lifetime counters (meals
   logged, weigh-ins recorded). Accounts created before August 2026 may still
@@ -237,9 +245,14 @@ Exceptions:
 - **crash reports** are kept only as long as needed to diagnose and fix the
   error. The period is set and enforced by the crash-reporting service, not by
   this app.
-- the **pictures of coach recipes** live only in the app's own directory on your
-  device. They are deleted when you delete the recipe, and all of them are
-  deleted when you sign out or delete your account.
+- the **pictures of recipes** — both the picture generated for a coach recipe
+  and a photo you took of one of your own recipes — live only in the app's own
+  directory on your device. A single picture is deleted when you delete the
+  recipe it belongs to; all of them are deleted when you sign out, when a
+  different account signs in on this device, and when you delete your account.
+  Because they never reach our servers, this deletion on the device is the only
+  one they need. A copy that your operating system's device backup has already
+  taken is governed by that backup, not by the app.
 - a technical **request-deduplication marker** (a request ID, no content) is
   written when certain counters are updated, so a retried request cannot be
   counted twice; each marker is deleted after 30 days regardless.

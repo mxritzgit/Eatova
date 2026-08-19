@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart' show closeInAppWebView;
 
+import '../services/crash_reporter.dart' show CrashReporter;
 import '../services/local_cache.dart' show KeyValueStore, SharedPreferencesStore;
 import '../services/secure_cache_store.dart'
     show PluginSecureKeyStore, SecureKeyStore;
@@ -253,6 +255,48 @@ class SecureSessionLocalStorage extends LocalStorage {
 
   bool _migrationDone = false;
 
+  /// Ein Schuss je Vorgangsart und Prozess.
+  ///
+  /// Ohne diese Bremse waere ausgerechnet der Lesepfad der lauteste: er laeuft
+  /// bei JEDEM Start, und `SupabaseAuth.initialize` fragt die Session dabei
+  /// mehrfach ab (`hasAccessToken()` geht selbst durch [accessToken]). Ein
+  /// dauerhaft beschaedigter Keystore fuellte damit das Sentry-Kontingent mit
+  /// immer demselben Report — genau der Effekt, gegen den
+  /// `CrashReporter.captureSyncFailure` schon einmal gebaut werden musste.
+  ///
+  /// Getrennt nach Vorgang statt EIN Zaehler fuer alles: Lesen und Loeschen
+  /// sind verschiedene Vorfaelle (stiller Zwangs-Logout vs. ein Logout, der
+  /// lokal nicht wirkt), und ein gemeinsamer Zaehler machte den seltenen,
+  /// diagnostisch wertvollen Loeschfehler still, sobald der haeufige
+  /// Lesefehler den Schuss schon verbraucht hat.
+  ///
+  /// Instanzfeld statt statischem Zaehler: [buildSessionStorage] laeuft genau
+  /// einmal je Prozess (aus [EatovaSupabaseConfig.initialize]), die Instanz
+  /// lebt also so lange wie die App. Statisch braeuchte es zusaetzlich eine
+  /// Test-Ruecksetzung; so bringt jeder Test seinen eigenen frischen Zustand
+  /// mit.
+  final Set<String> _gemeldeteVorgaenge = <String>{};
+
+  /// Meldet einen Keystore-Fehler genau einmal je [vorgang].
+  ///
+  /// Das ROHE Fehlerobjekt geht bewusst an die Facade: was davon hinausgeht,
+  /// entscheidet dort die Allowlist in `sanitizeForReport`, nicht diese Datei.
+  /// Bei der `PlatformException` aus flutter_secure_storage bleibt davon der
+  /// Typname plus `code` uebrig — `message` und `details` sind beliebiger
+  /// Plugin-/OS-Text und fallen weg. Der Session-String selbst wird nirgends
+  /// mitgegeben: er steckt in keinem dieser Fehler und haette in einem Report
+  /// nichts verloren.
+  ///
+  /// [vorgang] ist eine Konstante aus diesem Quelltext und landet als
+  /// `context`-Tag. Er sagt, WELCHER Zugriff scheiterte — nicht auf welchen
+  /// Schluessel und erst recht nicht mit welchem Wert.
+  void _meldeEinmal(String vorgang, Object fehler, StackTrace stack) {
+    if (!_gemeldeteVorgaenge.add(vorgang)) return;
+    // `capture` wirft nie und darf hier nicht awaitet werden: alle Aufrufer
+    // sitzen in Pfaden, die supabase_flutter ohne try/catch aufruft.
+    unawaited(CrashReporter.capture(fehler, stack, context: vorgang));
+  }
+
   @override
   Future<void> initialize() => _migrateLegacySession();
 
@@ -288,6 +332,10 @@ class SecureSessionLocalStorage extends LocalStorage {
       // versucht es erneut; KEIN stiller Klartext-Fallback beim Lesen.
       dev.log('SecureSessionLocalStorage: Migration fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
+      // Scheitert die Migration dauerhaft, bleibt die Session genau dort
+      // liegen, wo C5 sie wegholen wollte — im Klartext. Das ist der einzige
+      // Zustand dieser Klasse, der eine Compliance-Zusage still unterlaeuft.
+      _meldeEinmal('session_migrate', e, s);
     }
   }
 
@@ -304,8 +352,13 @@ class SecureSessionLocalStorage extends LocalStorage {
       // Ein Keystore-Fehler bedeutet "diese Session ist nicht lesbar", nicht
       // "die App startet nicht". Der Nutzer landet auf dem Login-Screen; der
       // Eintrag bleibt liegen und ist nach einer Erholung wieder da.
+      //
+      // Gemeldet wird trotzdem: erholt sich der Keystore NICHT, ist genau das
+      // hier ein Zwangs-Logout bei jedem einzelnen Start — und ohne Report
+      // merkt es niemand ausser dem Nutzer, der sich immer wieder anmeldet.
       dev.log('SecureSessionLocalStorage: Session-Read fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
+      _meldeEinmal('session_read', e, s);
       return null;
     }
   }
@@ -315,8 +368,13 @@ class SecureSessionLocalStorage extends LocalStorage {
     try {
       await _secure.write(persistSessionKey, persistSessionString);
     } catch (e, s) {
+      // Der Write ist der Moment, in dem die Session ueberhaupt erst haltbar
+      // wird. Scheitert er, laeuft die App noch bis zum Prozessende weiter und
+      // der Nutzer ist erst beim naechsten Start ausgeloggt — jetzt sieht man
+      // davon nichts.
       dev.log('SecureSessionLocalStorage: Session-Write fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
+      _meldeEinmal('session_write', e, s);
     }
   }
 
@@ -325,8 +383,13 @@ class SecureSessionLocalStorage extends LocalStorage {
     try {
       await _secure.delete(persistSessionKey);
     } catch (e, s) {
+      // Der schwerwiegendste Fall dieser Klasse: das Abmelden wirkt lokal
+      // NICHT, der Refresh-Token bleibt im Keystore. Die UI zeigt laengst den
+      // Login-Screen, der Nutzer haelt sich fuer abgemeldet — sichtbar wird
+      // das ausschliesslich hier.
       dev.log('SecureSessionLocalStorage: Session-Delete fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
+      _meldeEinmal('session_delete', e, s);
     }
     // Sicherheitsnetz: raeumt den Klartext-Slot auch dann, wenn die Migration
     // nie durchlief (z. B. weil der Keystore beim Start defekt war). Ein
@@ -335,8 +398,12 @@ class SecureSessionLocalStorage extends LocalStorage {
       final legacy = _legacyOverride ?? await SharedPreferencesStore.create();
       await legacy.remove(persistSessionKey);
     } catch (e, s) {
+      // Eigener Vorgang und nicht mit `session_delete` zusammengelegt: hier
+      // scheitert das Raeumen des KLARTEXT-Slots, der Token bleibt also
+      // ausgerechnet in seiner ungeschuetzten Fassung liegen.
       dev.log('SecureSessionLocalStorage: Legacy-Purge fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
+      _meldeEinmal('session_legacy_purge', e, s);
     }
   }
 }

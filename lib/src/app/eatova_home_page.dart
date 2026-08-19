@@ -32,6 +32,7 @@ import '../widgets/common/store_selector.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/edit_meal_sheet.dart';
 import '../widgets/shared/settings_sheet.dart';
+import 'auth_gate.dart';
 import 'home_store.dart';
 
 class EatovaHomePage extends StatefulWidget {
@@ -359,6 +360,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// ausloggen (Navigation lebt hier in der Schale).
   Future<void> _deleteAccount() async {
     if (await _store.deleteAccount()) {
+      // Auch die Kontolöschung endet in einem GEWOLLTEN Logout — ohne den
+      // Merker hielte der [AuthGate] ihn für einen Sitzungsverlust und
+      // erklärte dem Nutzer, seine Sitzung sei abgelaufen (Review
+      // 2026-08-19).
+      IntentionalSignOut.mark();
       await widget.onSignOut?.call();
     }
   }
@@ -366,9 +372,23 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// Regulärer Sign-Out: erst den lokalen PII-Cache räumen (M-1), dann die
   /// Session beenden. Reihenfolge zählt — [HomeStore.signOutCleanup] braucht den
   /// noch eingeloggten User für den defensiven Cache-Pfad.
+  ///
+  /// Der Merker steht VOR beidem: das Auth-Ereignis kann dem `signOut` dicht
+  /// auf den Fersen sein, und nur er trennt für den [AuthGate] „abgemeldet"
+  /// von „Sitzung verloren". Seit der Ausloggen-Knopf in den Einstellungen
+  /// sitzt (2026-08-10), also auf einer gepushten Route, taugt die alte
+  /// Abgrenzung („es lag nichts über der Root-Route") nicht mehr.
   Future<void> _signOut() async {
-    await _store.signOutCleanup();
-    await widget.onSignOut?.call();
+    IntentionalSignOut.mark();
+    try {
+      await _store.signOutCleanup();
+      await widget.onSignOut?.call();
+    } catch (_) {
+      // Kam die Abmeldung nicht zustande, gibt es auch keine Absicht, die ein
+      // späteres Auth-Ereignis erklären dürfte.
+      IntentionalSignOut.clear();
+      rethrow;
+    }
   }
 
   Future<void> _openProfile() async {

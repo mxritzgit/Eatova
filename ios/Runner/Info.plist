@@ -100,8 +100,28 @@
 	<string>Eatova wandelt deine diktierte Coach-Frage in Text um. Hat dein iPhone das Sprachmodell für deine Sprache lokal, bleibt das Audio auf dem Gerät; sonst verarbeitet Apple es auf seinen Servern.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Eatova braucht Zugriff auf deine Fotobibliothek, damit du ein bereits vorhandenes Foto einer Mahlzeit oder ein Coach-Bild aus der Galerie zur Analyse auswählen kannst.</string>
+	<!-- Die Health-Zwecktexte muessen exakt die Scopes abdecken, die
+	     `apple_health_service.dart:_types`/`_permissions` anfragen — nicht
+	     mehr und nicht weniger. Apple prueft im Review beides: einen Scope
+	     ohne beobachtbares Feature UND einen Zwecktext, der mehr verspricht
+	     als die App tut (Guideline 5.1.1).
+
+	     Ist-Zustand (belegt, nicht vermutet):
+	       * READ Schritte -> `refreshHealthSteps` schreibt sie in `dailySteps`
+	         und friert den Tageswert ein; daraus kommt die „Verbrannt"-Kachel
+	         und das angepasste Tagesziel (home_store_tracking.dart:60-91).
+	       * READ Gewicht -> `_maybeOfferHealthWeight` bietet das zuletzt in
+	         Health gemessene Gewicht zum Uebernehmen an.
+	       * WRITE Gewicht -> `logWeight` schreibt ein eingetragenes Gewicht
+	         zurueck (home_store_tracking.dart:213).
+
+	     Schlaf stand hier bis 2026-08-19 und ist raus: der Wert wurde zwar
+	     gelesen, aber von keinem Feature angezeigt oder verrechnet — der
+	     Zwecktext versprach damit einen Nutzen, den ein Reviewer in der App
+	     nirgends beobachten kann. Wer den Scope je zurueckholt, braucht zuerst
+	     das Feature, dann den Satz hier. -->
 	<key>NSHealthShareUsageDescription</key>
-	<string>Eatova liest deine Schritte, dein Gewicht und deine Schlafdaten aus Apple Health, damit Tagesziel und Logbuch automatisch aktuell bleiben.</string>
+	<string>Eatova liest deine Schritte und dein Gewicht aus Apple Health, damit dein Tagesziel und dein Gewichtsverlauf automatisch aktuell bleiben.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Eatova schreibt optional dein eingetragenes Gewicht nach Apple Health zurück.</string>
 	<!-- PROD-1 (flutter_local_notifications, on-device): Lokale Notifications

@@ -10,6 +10,7 @@ import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import 'crash_reporter.dart';
 import 'secure_cache_store.dart';
 import 'sync_outbox.dart';
 
@@ -365,9 +366,19 @@ class LocalCache {
   }
 
   // ---- Write-Outbox + pendende Stats-Deltas (DATA-7) ----------------------
+  //
+  // Diese beiden Slots laufen NICHT ueber [_writeJson], sondern ueber
+  // [_writeDurable]. Begruendung dort: sie sind kein Beschleunigungs-Cache,
+  // sondern die Kill-Sicherung selbst.
 
-  Future<void> writeOutbox(List<SyncOp> ops) =>
-      _writeJson(_outboxKey, <String, dynamic>{
+  /// Schreibt die Outbox. `true` = der Blob liegt auf der Platte, `false` =
+  /// er liegt NICHT dort und die Ops ueberleben keinen App-Kill.
+  ///
+  /// Der Rueckgabewert ist der Ausgang, den [_writeJson] nicht hat (siehe
+  /// [_writeDurable]) — auswerten muss ihn niemand, die bestehenden Aufrufer
+  /// duerfen ihn weiter ignorieren.
+  Future<bool> writeOutbox(List<SyncOp> ops) =>
+      _writeDurable(_outboxKey, 'outbox', <String, dynamic>{
         'items': ops.map((o) => o.toJson()).toList(),
       });
 
@@ -417,12 +428,15 @@ class LocalCache {
   /// `null` wird bewusst als FEHLENDER Schluessel geschrieben, nicht als
   /// `'request_id': null`: so ist die Wire-Form eines leeren Buendels exakt die
   /// alte, und ein Downgrade auf einen aelteren Build liest den Slot weiter.
-  Future<void> writePendingStatsDeltas({
+  ///
+  /// Rueckgabe wie bei [writeOutbox]: `false` heisst, die Deltas liegen nur im
+  /// Speicher — ein Kill danach kostet die Lebenszeit-Zaehler dieser Mahlzeiten.
+  Future<bool> writePendingStatsDeltas({
     required int meals,
     required int weightLogs,
     String? requestId,
   }) =>
-      _writeJson(_pendingStatsKey, <String, dynamic>{
+      _writeDurable(_pendingStatsKey, 'pending_stats', <String, dynamic>{
         'meals': meals,
         'weight_logs': weightLogs,
         if (requestId != null) 'request_id': requestId,
@@ -592,7 +606,58 @@ class LocalCache {
     } catch (e) {
       // Ein Cache-Write darf NIE den UI-Pfad killen — er ist reine Beschleunigung
       // fuer den naechsten Kaltstart. Bei Fehler still verwerfen.
+      //
+      // Das gilt AUSDRUECKLICH nur fuer die Spiegel-Slots (Profil, Stats,
+      // Tagebuch, Favoriten, Gewicht, Eigen-Rezepte, Aktivitaet,
+      // Erinnerungs-Flag): deren Inhalt steht auch auf dem Server, ein
+      // verlorener Write kostet einen Netz-Load. Die Sync-Zustands-Slots
+      // gehen deshalb ueber [_writeDurable] — was DORT verloren geht, kennt
+      // niemand sonst.
       dev.log('LocalCache write failed ($key)', error: e, name: 'local_cache');
+    }
+  }
+
+  /// Schreibweg fuer die Sync-Zustands-Slots (Outbox, pendende Stats-Deltas).
+  ///
+  /// Warum getrennt von [_writeJson]: die beiden Slots SIND die
+  /// Kill-Sicherung (DATA-7), kein Beschleunigungs-Cache. Ihr Inhalt existiert
+  /// nirgends sonst — der Server kennt die noch nicht zugestellte Mahlzeit
+  /// nicht, und die Oberflaeche zeigt derweil „wird synchronisiert". Ein still
+  /// verschluckter Fehlschlag (AES-Key nach Backup-Restore oder
+  /// Keystore-Reset unlesbar, Plugin-Kanal-Fehler, `jsonEncode`-Fehler) ist
+  /// hier also Datenverlust ohne jedes Signal — an den Nutzer wie an die
+  /// Diagnose.
+  ///
+  /// Deshalb zwei Unterschiede zum generischen Pfad: der Fehlschlag geht
+  /// (sanitisiert) an den [CrashReporter], und der Aufrufer bekommt ihn als
+  /// `false` zurueck. Geworfen wird weiterhin NICHT — die Aufrufer laufen
+  /// `unawaited` auf dem UI-Pfad, ein Wurf waere dort ein unbehandelter
+  /// Future-Fehler.
+  Future<bool> _writeDurable(
+    String key,
+    String slot,
+    Map<String, dynamic> value,
+  ) async {
+    // Dieselbe Invariante wie in [_writeJson] — sie haengt am Slot, nicht am
+    // Aufrufer. Fuer die beiden Sync-Slots laeuft sie heute leer (entprellt
+    // wird hier bewusst nichts, s. Abschnitt „Entprellte Blob-Writes").
+    _pendingWrites.remove(key);
+    try {
+      await _store.setString(key, jsonEncode(value));
+      return true;
+    } catch (e, s) {
+      dev.log('LocalCache durable write failed ($slot)',
+          error: e, stackTrace: s, name: 'local_cache');
+      // NUR Slot-Kurzname und Fehlertyp gehen raus — nie der Key (er traegt
+      // die User-ID) und nie der Wert (die Slots fuehren Gesundheitsdaten).
+      // Dieselbe Einschraenkung wie bei [UnreadableCacheSlot]: schon eine
+      // FormatException traegt ihre Quelle in der Message.
+      unawaited(CrashReporter.capture(
+        UnwritableCacheSlot(slot, e.runtimeType.toString()),
+        s,
+        context: 'cache_durable_write',
+      ));
+      return false;
     }
   }
 
@@ -713,4 +778,23 @@ class UnreadableCacheSlot implements Exception {
 
   @override
   String toString() => 'UnreadableCacheSlot($slot): $reason';
+}
+
+/// Ein Sync-Zustands-Slot liess sich nicht SCHREIBEN — das Gegenstueck zu
+/// [UnreadableCacheSlot] und der einzige Weg, von einem verlorenen Outbox-
+/// bzw. Deltas-Write ueberhaupt zu erfahren (siehe [LocalCache._writeDurable]).
+///
+/// Dieselbe Einschraenkung wie dort: nur Slot-Kurzname und Fehlertyp, nie der
+/// Storage-Key (User-ID) und nie der Wert (Gesundheitsdaten).
+class UnwritableCacheSlot implements Exception {
+  const UnwritableCacheSlot(this.slot, this.reason);
+
+  /// Kurzname wie `outbox`, bewusst nicht der Storage-Key.
+  final String slot;
+
+  /// Fehlertyp, nie ein Wert.
+  final String reason;
+
+  @override
+  String toString() => 'UnwritableCacheSlot($slot): $reason';
 }

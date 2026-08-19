@@ -578,6 +578,35 @@ class VanishedCacheKey implements Exception {
       'Bootstrap abgebrochen statt neu gepraegt';
 }
 
+/// Bereinigtes Fehlerobjekt fuer den Crash-Report, wenn der DEK-READ geworfen
+/// hat — der Keystore konnte also weder „hier ist er" noch „gibt es nicht"
+/// sagen (siehe [CacheKeyProvider._handleUnreadableDek]).
+///
+/// Traegt neben dem Budget-Stand nur den LAUFZEITTYP des Keystore-Fehlers,
+/// niemals dessen Message: eine `PlatformException` fuehrt dort die rohe
+/// Plugin-/OS-Begruendung mit.
+class UnreadableCacheKey implements Exception {
+  const UnreadableCacheKey({
+    required this.strike,
+    required this.budget,
+    required this.errorType,
+  });
+
+  /// Der wievielte App-Start in Folge ohne verfuegbaren DEK das war.
+  final int strike;
+
+  /// Ab wie vielen Strikes aufgegeben wird ([CacheKeyProvider.vanishStrikeBudget]).
+  final int budget;
+
+  /// Nur der Typname, nie der Fehlertext.
+  final String errorType;
+
+  @override
+  String toString() =>
+      'UnreadableCacheKey($strike/$budget): DEK-Read warf $errorType — '
+      'Bootstrap abgebrochen, Key nicht ueberschrieben';
+}
+
 /// Bereinigtes Fehlerobjekt fuer den Crash-Report, wenn das Strike-Budget
 /// aufgebraucht ist: der DEK gilt als endgueltig verloren, die toten
 /// Ciphertexte wurden geraeumt und ein frischer DEK gepraegt.
@@ -611,7 +640,11 @@ class CacheKeyProvider {
   /// Begruendung siehe [PrefsDekSentinelStore].
   static const String dekProvisionedKey = 'eatova.v1.dek_provisioned';
 
-  /// Zaehler der App-Starts, die den DEK trotz Sentinel vermisst haben.
+  /// Zaehler der App-Starts ohne verfuegbaren DEK: entweder vermisst
+  /// (Keystore meldet „gibt es nicht", obwohl der Sentinel steht) oder
+  /// unlesbar (der Read wirft, s. [_handleUnreadableDek]). Beide Zustaende
+  /// enden in derselben Sackgasse und teilen sich deshalb Zaehler und Budget;
+  /// ein gelungener Read raeumt ihn in beiden Faellen ab.
   static const String dekVanishStrikesKey = 'eatova.v1.dek_vanish_strikes';
 
   /// Flag fuer die UI: der lokale Cache musste aufgegeben werden.
@@ -697,6 +730,12 @@ class CacheKeyProvider {
   /// Cache (Minuten, nicht Tage) — der Preis eines Fehlurteils in der
   /// Gegenrichtung waere ein geraeumter Outbox-Blob. Damit muss die Analyse
   /// oben nicht stimmen, damit die App richtig handelt.
+  ///
+  /// DASSELBE Budget gilt fuer den WERFENDEN Read ([_handleUnreadableDek]).
+  /// Dort ist der transiente Fall sogar der Regelfall (Keystore beim Boot
+  /// noch nicht bereit), der dauerhafte aber ebenso moeglich (beschaedigter
+  /// Wrapping-Key nach einem System-Update). Drei Starts trennen die beiden,
+  /// ohne dass eine der Richtungen still in einer Sackgasse endet.
   static const int vanishStrikeBudget = 3;
 
   /// Memoisierter Bootstrap. MUSS synchron gesetzt werden, bevor irgendein
@@ -815,9 +854,15 @@ class CacheKeyProvider {
       // Dieser Zweig ist erst durch `resetOnError: false` ueberhaupt
       // erreichbar — mit dem 10.x-Default hatte die Java-Seite den Eintrag
       // vorher geloescht und `null` zurueckgemeldet.
+      //
+      // „Aufgeben und naechster Start versucht neu" ist aber nur die halbe
+      // Antwort: sie setzt einen VORUEBERGEHENDEN Fehler voraus. Ein nach
+      // System-Update beschaedigter Keystore-Wrapping-Key ist dauerhaft —
+      // dann ist der Cache still und unsichtbar tot, in jeder kuenftigen
+      // Session. Deshalb Budget, Meldung und Endzustand: [_handleUnreadableDek].
       dev.log('CacheKeyProvider: DEK-Read fehlgeschlagen',
           error: e, stackTrace: s, name: 'secure_cache_store');
-      return null;
+      return _handleUnreadableDek(keyStore, sentinel, probe, e);
     }
 
     if (stored != null && stored.isNotEmpty) {
@@ -850,6 +895,15 @@ class CacheKeyProvider {
       if (!await _mayMintAfterVanishedDek(sentinel, probe)) return null;
     }
 
+    return _mintFreshDek(keyStore, sentinel);
+  }
+
+  /// Praegt einen frischen DEK und legt ihn ab. null = konnte nicht abgelegt
+  /// werden; dann gibt es fuer diese Session keinen Cache.
+  static Future<Uint8List?> _mintFreshDek(
+    SecureKeyStore keyStore,
+    DekSentinelStore sentinel,
+  ) async {
     final fresh = _generateDek();
     try {
       await keyStore.write(dekStorageKey, base64.encode(fresh));
@@ -865,6 +919,84 @@ class CacheKeyProvider {
     // gescheiterter DEK-Write einen Sentinel ohne Key hinterlassen — und der
     // naechste Start liefe in den Abbruch-Zweig oben, dauerhaft.
     await _markProvisioned(sentinel);
+    return fresh;
+  }
+
+  /// Entscheidet den Zustand „der DEK-Read hat GEWORFEN".
+  ///
+  /// Anders als beim verschwundenen DEK ([_mayMintAfterVanishedDek]) ist hier
+  /// UNBEKANNT, ob ueberhaupt noch ein Key existiert — ein Wurf ist kein
+  /// „gibt es nicht". Deshalb bleibt der erste Reflex richtig: aufgeben, den
+  /// vorhandenen Key nicht ueberschreiben, naechster Start versucht neu.
+  ///
+  /// Was fehlte, war das Ende. Ein beschaedigter Wrapping-Key im Keystore
+  /// (Android-System-Update, Secure-Enclave-Wechsel) wirft bei JEDEM Start
+  /// wieder — und dann laeuft die App fuer immer ohne Cache und ohne
+  /// persistierte Outbox weiter, ohne dass irgendwo etwas davon steht. Das ist
+  /// derselbe Sackgassen-Zustand, gegen den [vanishStrikeBudget] gebaut wurde,
+  /// nur ueber den anderen Zweig erreicht — also dasselbe Budget, derselbe
+  /// Zaehler (er misst „Starts in Folge ohne verfuegbaren DEK", und ein
+  /// gelungener Read raeumt ihn in beiden Faellen ab).
+  ///
+  /// REIHENFOLGE beim Aufgeben, und hier anders als im Vanish-Pfad: erst
+  /// praegen, DANN raeumen. Dort ist der DEK nachweislich fort, die Blobs sind
+  /// also ohnehin tot. Hier koennte der alte Key noch existieren — erst wenn
+  /// der Write ihn wirklich ersetzt hat, sind die alten Ciphertexte sicher
+  /// unbrauchbar. Scheitert der Write, ist nichts geraeumt und nichts
+  /// zurueckgesetzt: der naechste Start faengt denselben Vorgang von vorne an.
+  ///
+  /// PREIS, den man kennen muss: haelt der Fehler genau
+  /// [vanishStrikeBudget] Starts an und ist DANN doch voruebergehend gewesen,
+  /// ueberschreibt dieser Pfad einen lesbaren DEK. Der Preis der Gegenrichtung
+  /// ist ein dauerhaft toter Cache — dieselbe Abwaegung wie bei
+  /// [vanishStrikeBudget], nur mit vertauschten Vorzeichen.
+  static Future<Uint8List?> _handleUnreadableDek(
+    SecureKeyStore keyStore,
+    DekSentinelStore sentinel,
+    CacheCiphertextProbe probe,
+    Object error,
+  ) async {
+    final int? strike = await _recordVanishStrike(sentinel);
+    // Schon in diesem Prozess entschieden — nicht doppelt zaehlen, nicht
+    // doppelt melden. `LocalCache.create` laeuft aus Boot UND Logout.
+    if (strike == null) return null;
+
+    if (strike < vanishStrikeBudget) {
+      unawaited(CrashReporter.capture(
+        UnreadableCacheKey(
+          strike: strike,
+          budget: vanishStrikeBudget,
+          errorType: error.runtimeType.toString(),
+        ),
+        StackTrace.current,
+        context: 'cache_dek_unreadable',
+      ));
+      return null;
+    }
+
+    final Uint8List? fresh = await _mintFreshDek(keyStore, sentinel);
+    if (fresh == null) return null;
+
+    // Ab hier ist der alte Key ersetzt: alles, was mit ihm verschluesselt
+    // wurde, ist endgueltig unlesbar. Raeumen statt liegen lassen — es sind
+    // echte Gesundheitsdaten, und `_onUndecryptable` erwischt ohnehin nur die
+    // Slots des AKTUELLEN Users.
+    final List<String>? orphans = await _encryptedSlots(probe);
+    final int purged = orphans?.length ?? 0;
+    if (orphans != null && orphans.isNotEmpty) {
+      await _purgeSlots(probe, orphans);
+    }
+    await _raiseCacheResetNotice(sentinel);
+    await _clearVanishStrikes(sentinel);
+    dev.log(
+        'CacheKeyProvider: DEK-Read warf $vanishStrikeBudget Starts in Folge — '
+        'Key als verloren behandelt, $purged tote Slots geraeumt, neu gepraegt',
+        name: 'secure_cache_store');
+    unawaited(CrashReporter.capture(
+      AbandonedCacheKey(purgedSlots: purged, budget: vanishStrikeBudget),
+      StackTrace.current,
+      context: 'cache_dek_given_up',
+    ));
     return fresh;
   }
 
@@ -1159,12 +1291,24 @@ class EncryptedKeyValueStore implements KeyValueStore {
   /// untergeschobene waere danach still.
   static bool _expiredPlaintextReported = false;
 
-  /// Setzt beide Ein-Schuss-Zaehler zurueck (nur Tests). Sie sind pro PROZESS
+  /// Dritter Ein-Schuss-Zaehler: Reads, die an der AUSFUEHRUNG der
+  /// Entschluesselung scheitern statt am Ciphertext (siehe
+  /// [_provesBrokenCiphertext]).
+  ///
+  /// Bewusst nicht [_undecryptableReported] mitbenutzt: die beiden Faelle
+  /// verlangen entgegengesetzte Reaktionen (raeumen vs. liegen lassen), und
+  /// ein gemeinsamer Zaehler machte ausgerechnet den seltenen, diagnostisch
+  /// wertvollen Fall still, sobald vorher irgendein kaputter Ciphertext
+  /// denselben Schuss verbraucht hat.
+  static bool _cipherUnavailableReported = false;
+
+  /// Setzt alle Ein-Schuss-Zaehler zurueck (nur Tests). Sie sind pro PROZESS
   /// gedacht; ein Testlauf ist aber viele simulierte Prozesse in einem.
   @visibleForTesting
   static void debugResetReportGuards() {
     _undecryptableReported = false;
     _expiredPlaintextReported = false;
+    _cipherUnavailableReported = false;
   }
 
   /// Baut den Dekorator auf dem OS-Keystore-DEK. Gibt null zurueck, wenn der
@@ -1224,7 +1368,13 @@ class EncryptedKeyValueStore implements KeyValueStore {
       try {
         return await _cipher.decrypt(key, raw);
       } catch (e, s) {
-        await _onUndecryptable(key, e, s);
+        // Nicht jeder Wurf aus decrypt() ist eine Aussage UEBER DEN SLOT —
+        // deshalb entscheidet [_provesBrokenCiphertext], ob geraeumt wird.
+        if (_provesBrokenCiphertext(e)) {
+          await _onUndecryptable(key, e, s);
+        } else {
+          _onCipherUnavailable(key, e, s);
+        }
         return null;
       }
     }
@@ -1392,8 +1542,65 @@ class EncryptedKeyValueStore implements KeyValueStore {
   @override
   Future<void> remove(String key) => _enqueueWrite(key, () => _inner.remove(key));
 
-  /// Ein Slot ist nicht entschluesselbar (invalidierter Keystore-Key,
-  /// zurueckgespieltes Backup, Manipulation).
+  /// Ob [error] ein Ciphertext- oder Formatproblem NACHWEIST — nur dann darf
+  /// der Slot geraeumt werden.
+  ///
+  /// Beide Typen entstehen ausschliesslich in [AesGcmCacheCipher.decryptSync]:
+  /// `InvalidCipherTextException` aus der GCM-Tag-Pruefung (falscher DEK,
+  /// falscher Slot/AAD, manipulierter Blob), `FormatException` aus der Magic-,
+  /// base64-, Laengen- und utf8-Pruefung. Ihre Aussage gilt dauerhaft —
+  /// derselbe Blob geht auch beim naechsten Start nicht auf, Wegwerfen ist
+  /// das Self-Healing aus [_onUndecryptable].
+  ///
+  /// Jeder ANDERE Fehler kommt aus dem Transport, nicht aus den Daten:
+  /// [AesGcmCacheCipher.decrypt] ist `compute(...)`, also ein Isolate-Spawn
+  /// pro Read. Scheitert der unter Speicherdruck (`IsolateSpawnException`,
+  /// `RemoteError`, `OutOfMemoryError`), sagt das ueber den Ciphertext GAR
+  /// NICHTS. Ihn daraufhin zu loeschen vernichtet lesbare Daten — bei der
+  /// Outbox bis zu 500 nie zugestellte Writes, die der Server nicht
+  /// rekonstruieren kann. Der naechste Read bekommt seinen Isolate
+  /// wahrscheinlich; ein geloeschter Slot kommt nie zurueck.
+  static bool _provesBrokenCiphertext(Object error) =>
+      error is InvalidCipherTextException || error is FormatException;
+
+  /// Der Read ist gescheitert, ohne dass der Slot etwas dafuer kann (siehe
+  /// [_provesBrokenCiphertext]). Der Slot bleibt LIEGEN, der Aufrufer bekommt
+  /// `null` — fuer ihn ist das derselbe Fall wie ein leerer Cache.
+  ///
+  /// Gemeldet wird einmal pro Prozess: faellt der Isolate-Spawn aus, faellt er
+  /// fuer alle Slots aus, das waeren sonst neun identische Reports pro
+  /// Kaltstart.
+  ///
+  /// Bewusst DERSELBE Fehlertyp wie im Raeum-Pfad, aber ein eigener
+  /// Kontext-Tag: `crash_reporter.dart` laesst den `toString()` von
+  /// [UndecryptableCacheSlot] als „per Konstruktion sanitisiert" durch (die
+  /// Allowlist dort haengt am Typnamen). Ein neuer Typ fiele in den
+  /// zumachenden Default-Zweig und verloere genau die eine Information, fuer
+  /// die diese Meldung existiert — WELCHER Fehler den Read verhindert hat.
+  void _onCipherUnavailable(String key, Object error, StackTrace s) {
+    dev.log(
+        'EncryptedKeyValueStore: Entschluesselung nicht ausfuehrbar ($key) — '
+        'Slot bleibt liegen',
+        error: error,
+        name: 'secure_cache_store');
+    if (_cipherUnavailableReported) return;
+    _cipherUnavailableReported = true;
+    unawaited(CrashReporter.capture(
+      UndecryptableCacheSlot(
+        errorType: error.runtimeType.toString(),
+        storageKey: redactUserSegment(key),
+      ),
+      s,
+      context: 'cache_decrypt_unavailable',
+    ));
+  }
+
+  /// Ein Slot ist nachweislich nicht entschluesselbar (invalidierter
+  /// Keystore-Key, zurueckgespieltes Backup, Manipulation) — oder er traegt
+  /// nach abgeschlossener Migration keinen [cacheCipherMagic] mehr.
+  ///
+  /// NUR fuer diese Faelle, nicht fuer jeden Wurf aus `decrypt()`: die
+  /// Abgrenzung steht in [_provesBrokenCiphertext].
   ///
   /// PRO KEY raeumen, nicht den ganzen Namensraum: der Dekorator sitzt unter
   /// [LocalCache] und hat mit dessen neun Key-Namen nichts zu tun. Da alle

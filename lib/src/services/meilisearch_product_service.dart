@@ -125,7 +125,11 @@ class MeilisearchProductService implements ProductLookupService {
       // Antwort auf eine echte leere Suche ist `hits: []`. Werfen wie beim
       // 5xx: der FallbackProductService klassifiziert/meldet den Fehler
       // (_meldeWennUnerwartet) und zieht zu OpenFoodFacts weiter.
-      throw const HttpException(
+      //
+      // BEWUSST [MirrorSchemaException] und keine [HttpException]: letztere
+      // ist eine IOException und zaehlt dort zu den erwarteten Netzfehlern —
+      // der Alarm haette nie gemeldet.
+      throw const MirrorSchemaException(
         'Mirror search returned a malformed body (no hits list).',
       );
     }
@@ -140,6 +144,27 @@ class MeilisearchProductService implements ProductLookupService {
         .where((product) => product.title.trim().isNotEmpty)
         .toList(growable: false);
   }
+}
+
+/// Der Mirror hat auf einen 2xx etwas geliefert, das keine Suchantwort ist
+/// (Proxy-Fehlerseite, geaendertes Index-Schema).
+///
+/// Der Typ existiert allein wegen der Klassifizierung im
+/// [FallbackProductService]: dort gilt die ganze `IOException`-Familie als
+/// erwarteter Netzfehler und bleibt still. Eine [HttpException] — die
+/// naheliegende Wahl — ist eine IOException, der Schema-Drift-Alarm haette
+/// also nie gemeldet. Deshalb `implements Exception` und sonst nichts: nur
+/// so faellt er in den „unerwartet"-Zweig und erreicht den CrashReporter.
+///
+/// [message] ist eine Konstante aus diesem Service, nie ein Antwort-Body —
+/// im Report landet ohnehin nur der Typname (sanitizeForReport).
+class MirrorSchemaException implements Exception {
+  const MirrorSchemaException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'MirrorSchemaException: $message';
 }
 
 /// Der Mirror hat den Search-Key abgelehnt (401 fehlender Header /

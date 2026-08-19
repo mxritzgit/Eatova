@@ -384,7 +384,15 @@ jobs:
       #                                  -  Kapselung des Fire-and-Forget-Prune
       #                                    (Audit 2026-08-14: ein rejectendes
       #                                    fetch beendete sonst den Isolate)
-      # Summe: 134 Tests. `deno test` ohne Pfadfilter sammelt alle zehn
+      #   analyze-meal/handler_test.ts   -  Auth-, Rate-Limit- und Bildpruef-
+      #                                    Pfade der Scan-Function (Review
+      #                                    2026-08-19: index.ts wurde dafuer in
+      #                                    Server + exportierten Handler
+      #                                    getrennt, Vorbild coach-chat)
+      #   _shared/env_rpc_bounds_test.ts -  Limit-Secrets ausserhalb der
+      #                                    RPC-Grenzen fallen auf den Default
+      #                                    zurueck statt die Function zu reissen
+      # Summe: 164 Tests. `deno test` ohne Pfadfilter sammelt alle zwoelf
       # Dateien automatisch ein - eine neue *_test.ts-Datei braucht nur diese
       # Aufzaehlung nachgezogen, der Aufruf unten bleibt unveraendert.
       #

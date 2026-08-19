@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:typed_data';
@@ -8,6 +9,8 @@ import '../l10n/l10n.dart';
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/coach_recipe_proposal.dart';
+import 'crash_reporter.dart';
+import 'sync_error_messages.dart';
 
 /// Coach-Chat Backend-Brücke.
 ///
@@ -46,6 +49,47 @@ class CoachChatService {
       _l10n.localeName.toLowerCase().startsWith('en') ? 'en' : 'de';
 
   // -------------------------------------------------------------------------
+  // Diagnose
+  // -------------------------------------------------------------------------
+  /// Meldet einen Fehlerpfad an den [CrashReporter] — aber nur, wenn er
+  /// ueberhaupt etwas bedeutet.
+  ///
+  /// Bis zum Komplettreview 2026-08-19 endete JEDER Fehlerarm dieser Klasse
+  /// ausschliesslich in einem `dev.log`, und das schreibt nur in die lokale
+  /// Geraete-/IDE-Konsole. Der Coach war damit der einzige Bereich der App
+  /// ohne einen einzigen Crash-Reporter-Ausloeser: ein Totalausfall der Edge
+  /// Function — 500er ueber Stunden, ein kaputter RPC nach einer Migration —
+  /// war in der Produktion schlicht unsichtbar.
+  ///
+  /// Netzfehler bleiben draussen, dieselbe Klassifizierung wie in
+  /// [CrashReporter.captureSyncFailure] und aus demselben Grund: der Coach
+  /// setzt beim Oeffnen Sitzungsliste, Verlauf UND Tageszaehler ab. Ohne
+  /// diesen Filter erzeugte eine U-Bahn-Fahrt drei Reports pro Tab-Wechsel,
+  /// und das Sentry-Kontingent waere verbraucht, bevor der erste echte
+  /// Ausfall ankommt.
+  ///
+  /// [operation] ist IMMER ein Literal aus dem Quelltext und wird zum
+  /// Sentry-Tag `context`. Nie etwas anderes: Nachrichtentexte, Rezeptwuensche,
+  /// Sitzungstitel und Ids haben in einem Report nichts verloren — die App
+  /// verarbeitet Gesundheitsdaten. Das Fehlerobjekt selbst deckelt ohnehin
+  /// `sanitizeForReport` (Allowlist, s. crash_reporter.dart).
+  static void _melde(String operation, Object error, StackTrace stack) {
+    if (isNetworkSyncError(error)) return;
+    unawaited(CrashReporter.capture(error, stack, context: operation));
+  }
+
+  /// Ob ein Fehlerstatus der Edge Function einen Vorfall beschreibt.
+  ///
+  /// 401/403 (Sitzung abgelaufen), 413 (Bild zu gross) und 429 (Tageslimit
+  /// bzw. Burst-Bremse) sind VORGESEHENE Antworten: sie stehen als Text im
+  /// Banner und sind kein Fehler des Systems, sondern seine Funktionsweise.
+  /// Ein Report daraus waere reines Rauschen — und zwar ausgerechnet
+  /// nutzerproportionales. Alles andere, insbesondere jedes 5xx, ist der
+  /// Ausfall, den sonst niemand sieht.
+  static bool _statusIstVorfall(int status) =>
+      status != 401 && status != 403 && status != 413 && status != 429;
+
+  // -------------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------------
   /// Die Sessions des Nutzers.
@@ -66,6 +110,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      _melde('coach.loadSessions', e, stack);
       throw CoachDataUnavailable('Sessionliste nicht abrufbar', e);
     }
     if (res is! List) {
@@ -73,7 +118,12 @@ class CoachChatService {
         'CoachChatService.loadSessions: unerwartete Form ${res.runtimeType}',
         name: 'eatova.coach',
       );
-      throw const CoachDataUnavailable('Sessionliste in unerwarteter Form');
+      // Gebrochener Vertrag, nie ein Netzfehler: der RPC liefert eine Tabelle.
+      // Der Laufzeittyp bleibt im lokalen Log — den Report ordnet das
+      // `context`-Tag zu, mehr braucht es dafuer nicht.
+      const fehler = CoachDataUnavailable('Sessionliste in unerwarteter Form');
+      _melde('coach.loadSessions.form', fehler, StackTrace.current);
+      throw fehler;
     }
     return res
         .map<ChatSession>((row) =>
@@ -95,6 +145,10 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      // Der `null`-Rueckweg sperrt den Composer fuer den Rest des App-Laufs
+      // (der Screen hat dann keine Sitzung) — kein Zustand, den man nur lokal
+      // loggt.
+      _melde('coach.ensureDefaultSession', e, stack);
       return null;
     }
   }
@@ -115,6 +169,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      _melde('coach.createSession', e, stack);
       return null;
     }
   }
@@ -137,6 +192,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      _melde('coach.renameSession', e, stack);
       throw CoachDataUnavailable('Umbenennen fehlgeschlagen', e);
     }
   }
@@ -153,6 +209,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      _melde('coach.deleteSession', e, stack);
       throw CoachDataUnavailable('Loeschen fehlgeschlagen', e);
     }
   }
@@ -188,6 +245,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      _melde('coach.loadHistory', e, stack);
       // Sentinel-Rest S3: hier stand `return const <ChatMessage>[]` — der
       // Screen setzte die leere Liste als _messages und zeigte den
       // Hero-Leerzustand: der Nutzer sah seinen Verlauf als geloescht, ohne
@@ -226,6 +284,7 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
+      _melde('coach.loadQuotaToday', e, stack);
       throw CoachDataUnavailable('Tageszaehler nicht abrufbar', e);
     }
     // RPC liefert table-return als Liste.
@@ -243,7 +302,13 @@ class CoachChatService {
         'CoachChatService.loadQuotaToday: Antwort ohne verwertbare Zahlen',
         name: 'eatova.coach',
       );
-      throw const CoachDataUnavailable('Tageszaehler ohne verwertbare Zahlen');
+      // Wie oben ein gebrochener Vertrag: der RPC hat geantwortet, nur ohne
+      // die Spalten, die seine Signatur zusagt. Typisch nach einer Migration —
+      // und genau dann muss es jemand erfahren.
+      const fehler =
+          CoachDataUnavailable('Tageszaehler ohne verwertbare Zahlen');
+      _melde('coach.loadQuotaToday.form', fehler, StackTrace.current);
+      throw fehler;
     }
     return ChatQuotaSnapshot(
       used: used,
@@ -293,7 +358,13 @@ class CoachChatService {
           ? (map['reply'] as String).trim()
           : '';
       if (reply.isEmpty) {
-        throw CoachChatException(_l10n.coachErrorEmptyReply);
+        // 2xx ohne Text: die Function hat geantwortet, aber nichts gesagt.
+        // Fuer den Nutzer ein Fehlschlag wie jeder andere, technisch ein
+        // gebrochener Vertrag — und der einzige Ausfall dieser Klasse, den
+        // kein Status verraet.
+        final leer = CoachChatException(_l10n.coachErrorEmptyReply);
+        _melde('coach.send.leereAntwort', leer, StackTrace.current);
+        throw leer;
       }
       return CoachChatReply(
         reply: reply,
@@ -315,6 +386,7 @@ class CoachChatService {
       // Die Edge Function selbst hat mit Nicht-2xx geantwortet
       // (functions_client.dart:265-269).
       _logSendFailure(e, stack);
+      if (_statusIstVorfall(e.status)) _melde('coach.send.http', e, stack);
       throw _failureForStatus(e.status, e.details);
     } on FunctionsRelayException catch (e, stack) {
       // Eigener Typ: der Supabase-Relay VOR der Function hat abgebrochen
@@ -322,13 +394,18 @@ class CoachChatService {
       // lief hier nie, also gibt es auch keine fachliche Aussage im Body —
       // das ist immer eine Infrastruktur-Stoerung.
       _logSendFailure(e, stack);
+      _melde('coach.send.relay', e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
       // Die Anfrage ging gar nicht erst raus (functions_client.dart:206-208).
+      // BEWUSST ohne Report: das ist der Offline-Fall in Reinform, und er
+      // traegt keinen Typ, den [isNetworkSyncError] erkennen wuerde — die
+      // Ausnahme steht deshalb hier und nicht im Filter.
       _logSendFailure(e, stack);
       throw CoachChatException(_l10n.coachErrorNoConnection);
     } catch (e, stack) {
       _logSendFailure(e, stack);
+      _melde('coach.send.unbekannt', e, stack);
       throw CoachChatException(_unreachableMessage);
     }
   }
@@ -384,7 +461,9 @@ class CoachChatService {
       }
       // Ein 200 ohne brauchbares Rezept UND ohne Refusal ist keine Antwort.
       if (reply.isEmpty || (!refusal && proposal == null)) {
-        throw CoachChatException(_l10n.coachErrorEmptyReply);
+        final leer = CoachChatException(_l10n.coachErrorEmptyReply);
+        _melde('coach.recipe.leereAntwort', leer, StackTrace.current);
+        throw leer;
       }
       return CoachRecipeReply(
         reply: reply,
@@ -409,15 +488,19 @@ class CoachChatService {
       rethrow;
     } on FunctionsHttpException catch (e, stack) {
       _logSendFailure(e, stack);
+      if (_statusIstVorfall(e.status)) _melde('coach.recipe.http', e, stack);
       throw _failureForStatus(e.status, e.details);
     } on FunctionsRelayException catch (e, stack) {
       _logSendFailure(e, stack);
+      _melde('coach.recipe.relay', e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
+      // Wie in [send] bewusst ohne Report: die Anfrage ging nie raus.
       _logSendFailure(e, stack);
       throw CoachChatException(_l10n.coachErrorNoConnection);
     } catch (e, stack) {
       _logSendFailure(e, stack);
+      _melde('coach.recipe.unbekannt', e, stack);
       throw CoachChatException(_unreachableMessage);
     }
   }

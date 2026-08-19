@@ -4,6 +4,7 @@ import 'dart:developer' as dev;
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/l10n.dart';
@@ -51,6 +52,26 @@ typedef SnackEmitter = void Function(
   Duration? duration,
   SnackBarAction? action,
 });
+
+/// Hartes Boot-Budget: so lange darf der NETZ-Teil des Starts das
+/// Willkommens-Gate ([HomeStore.profileReady]) hoechstens halten.
+///
+/// Review 2026-08-19: der Completer wurde ausschliesslich am Ende von
+/// `_bootFromSupabase` erfuellt, und auf diesem Weg traegt kein einziger
+/// Schritt ein Timeout — weder der Outbox-Replay noch die sechs Server-Loads
+/// (Supabase-/PostgREST-Aufrufe haben keins, s. [kSyncDeliveryWindow]). In
+/// einem WLAN mit Captive Portal antwortet der Socket nie: kein `then`, kein
+/// `catchError`, und die App stand dauerhaft im WelcomeScreen — obwohl
+/// `_hydrateFromCache` den anzeigefaehigen Zustand laengst geladen hatte.
+///
+/// Das Budget ist die untere Auffanglinie fuer den Fall OHNE brauchbaren
+/// Cache (Erstinstallation, geleerter Speicher): mit Cache-Profil faellt das
+/// Gate schon vorher (s. [HomeStore._hydrateThenBoot]). Bewusst 8 s — laenger
+/// als ein gesunder Mobilfunk-Boot der sechs Loads braucht, kurz genug, dass
+/// ein stummer Socket nicht mehr wie ein Absturz aussieht. Der Boot laeuft
+/// danach im Hintergrund weiter; er verliert nur sein Vorrecht auf den
+/// Bildschirm.
+const Duration kBootNetworkBudget = Duration(seconds: 8);
 
 /// Absolutzeit-Abstand von [now] bis zum Beginn des naechsten Kalendertages in
 /// der lokalen Zone — die Wartezeit fuer den Mitternachts-Timer (B4).
@@ -284,7 +305,23 @@ class HomeStore extends _HomeStoreBase
 
   final Completer<void> _profileReadyCompleter = Completer<void>();
 
+  /// Waechter ueber [kBootNetworkBudget] — armiert in [start], abgeraeumt von
+  /// [_completeProfileReady]. Er ist der einzige Weg aus einem Boot-Schritt,
+  /// der nie antwortet (statt nie zu scheitern), und deckt bewusst die GANZE
+  /// Kette ab: auch ein haengender Cache-/Keystore-Zugriff vor dem ersten
+  /// Netz-Aufruf laeuft in ihn hinein.
+  Timer? _bootBudgetTimer;
+
   Future<void> get profileReady => _profileReadyCompleter.future;
+
+  /// Oeffnet das Willkommens-Gate genau einmal und raeumt den Budget-Waechter
+  /// ab. Jeder Weg, der [profileReady] erfuellt, laeuft hier durch — sonst
+  /// bliebe der Timer nach einem schnellen Boot noch minutenlang armiert.
+  void _completeProfileReady() {
+    _bootBudgetTimer?.cancel();
+    _bootBudgetTimer = null;
+    if (!_profileReadyCompleter.isCompleted) _profileReadyCompleter.complete();
+  }
 
   // --- Boot / Hydration -----------------------------------------------------
 
@@ -292,7 +329,7 @@ class HomeStore extends _HomeStoreBase
   /// zuerst aus dem durablen Cache hydratisieren, dann der Netz-Boot.
   void start() {
     if (sync == null) {
-      if (!_profileReadyCompleter.isCompleted) _profileReadyCompleter.complete();
+      _completeProfileReady();
       return;
     }
     // Such-Credentials im Hintergrund warmlaufen lassen: Platte lesen, bei
@@ -306,6 +343,19 @@ class HomeStore extends _HomeStoreBase
     // sich herziehen. Der Resume-Pfad ([maybeRollOverToToday]) greift dort
     // trotzdem, er haengt an keinem Timer.
     _scheduleMidnightRollover();
+    // VOR dem Boot armieren, nicht darin: der erste Schritt von
+    // [_hydrateThenBoot] ist `LocalCache.create` (OS-Keystore) — auch der kann
+    // haengen, und ein Waechter, der erst danach entsteht, deckt genau den
+    // Fall nicht ab, gegen den er gedacht ist.
+    _bootBudgetTimer = Timer(kBootNetworkBudget, () {
+      _bootBudgetTimer = null;
+      if (_disposed) return;
+      dev.log(
+          'Boot-Budget (${kBootNetworkBudget.inSeconds}s) aufgebraucht — die '
+          'App wird ohne Server-Antwort angezeigt, der Boot laeuft weiter',
+          name: 'eatova_sync');
+      _completeProfileReady();
+    });
     unawaited(_hydrateThenBoot());
   }
 
@@ -327,6 +377,19 @@ class HomeStore extends _HomeStoreBase
       // Logout erhalten muesste — das A2-Fenster ist hier keins.
       _syncStateHydrated = true;
     }
+    // Review 2026-08-19: hat der Cache ein ECHTES Profil geliefert, ist der
+    // Zustand anzeigefaehig — Tagebuch, Favoriten und Ziele stehen, und
+    // `needsOnboarding` ist beantwortet. Ab hier ist der Server-Load eine
+    // Korrektur, kein Startschritt: er darf im Hintergrund weiterlaufen, statt
+    // den WelcomeScreen zu halten, bis ein Socket antwortet (der in einem WLAN
+    // mit Captive Portal nie antwortet).
+    //
+    // BEWUSST an [_hydratedFromRealSource] geknuepft und nicht unbedingt: ohne
+    // Cache-Profil steht `profile` auf den Ctor-Defaults, `needsOnboarding`
+    // waere also `true` — der Nutzer landete fuer die Dauer des Loads im
+    // Onboarding und saehe es wieder verschwinden, sobald das Serverprofil da
+    // ist. Fuer diesen Fall traegt das Boot-Budget ([kBootNetworkBudget]).
+    if (_hydratedFromRealSource) _completeProfileReady();
     // A1/Welle 6: hat der DEK-Wiederanlauf den unlesbaren Cache verworfen,
     // liegt ein persistierter Merker vor. Ein stiller Neuanfang liesse den
     // Nutzer glauben, sein Offline-Tagebuch sei noch da — es ist aber weg
@@ -576,7 +639,17 @@ class HomeStore extends _HomeStoreBase
       }
 
       final loadedFavorites = results[2] as List<FavoriteMeal>?;
-      if (loadedFavorites != null) favorites = loadedFavorites;
+      // Review 2026-08-19: der Deckel auf die automatischen Recents
+      // ([_cappedFavorites], [_maxAutoRecents]) ist eine rein LOKALE Regel —
+      // favorite_meals kennt sie nicht und wuchs bis dahin mit jeder
+      // distinkten Mahlzeit weiter. Ohne das Kappen hier zeigte das Add-Sheet
+      // nach jedem Kaltstart die komplette Historie, obwohl dieselbe Sitzung
+      // sie eine Minute vorher noch auf fuenf begrenzt hatte.
+      // `loadFavorites` liefert added_at DESC — genau die Reihenfolge, auf die
+      // sich der Deckel stuetzt (angeheftete Favoriten bleiben unangetastet).
+      if (loadedFavorites != null) {
+        favorites = _cappedFavorites(loadedFavorites);
+      }
 
       final loadedWeightLog = results[3] as WeightLog?;
       if (loadedWeightLog != null) weightLog = loadedWeightLog;
@@ -607,9 +680,7 @@ class HomeStore extends _HomeStoreBase
       unawaited(_ensureArchiveDayLoaded(selectedFoodDate));
     }
     unawaited(_writeCacheSnapshot());
-    if (!_profileReadyCompleter.isCompleted) {
-      _profileReadyCompleter.complete();
-    }
+    _completeProfileReady();
   }
 
   /// Luecke C: legt die frisch geladene Serverliste UEBER den lokalen Stand,
@@ -772,6 +843,8 @@ class HomeStore extends _HomeStoreBase
     _outboxRetryTimer?.cancel();
     _midnightTimer?.cancel();
     _midnightTimer = null;
+    _bootBudgetTimer?.cancel();
+    _bootBudgetTimer = null;
     sync?.dispose();
     super.dispose();
   }

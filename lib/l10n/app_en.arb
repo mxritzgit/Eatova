@@ -1248,5 +1248,65 @@
   "settingsDeleteAccountPromptSuffixCode": " and then to confirm an 8-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
   "settingsDeleteAccountReauthExpired": "Your confirmation has expired. Please restart the account deletion and request a new code.",
   "settingsDeleteAccountRequestCta": "Request code",
-  "settingsDeleteAccountRequestingCta": "Requesting code…"
+  "settingsDeleteAccountRequestingCta": "Requesting code…",
+  "mealUpdated": "Meal updated.",
+  "mealMovedTo": "Meal moved to {tag}.",
+  "@mealMovedTo": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
+  "dayLabelToday": "today",
+  "dayLabelYesterday": "yesterday",
+  "dayLabelOnDate": "{datum}",
+  "@dayLabelOnDate": {
+    "placeholders": {
+      "datum": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffSource": "Open Food Facts barcode {barcode}.",
+  "@mealNotesOffSource": {
+    "placeholders": {
+      "barcode": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffBrand": "Brand: {marke}.",
+  "@mealNotesOffBrand": {
+    "placeholders": {
+      "marke": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffPackage": "Package: {menge}.",
+  "@mealNotesOffPackage": {
+    "placeholders": {
+      "menge": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffServing": "Serving size per database: {portion}.",
+  "@mealNotesOffServing": {
+    "placeholders": {
+      "portion": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffDatabase": "Nutrition values come from the product database, not from a photo estimate.",
+  "mealNotesAdjustWeight": "You can still adjust the weight you ate.",
+  "coachMessageNotSent": "Not sent",
+  "coachMessageRetry": "Send again",
+  "exportShareFile": "Share as file",
+  "exportPreviewShortened": "Preview shortened — the full data is in the file.",
+  "exportNothingLoaded": "Not a single section could be loaded. Are you online?",
+  "searchRateLimited": "Too many searches — try again in a moment.",
+  "commonFavoriteRemoved": "Favourite removed"
 }
