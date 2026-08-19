@@ -1248,5 +1248,64 @@
   "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 8-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
   "settingsDeleteAccountReauthExpired": "Die Bestätigung ist abgelaufen. Bitte starte die Kontolöschung neu und fordere einen neuen Code an.",
   "settingsDeleteAccountRequestCta": "Code anfordern",
-  "settingsDeleteAccountRequestingCta": "Code wird angefordert…"
+  "settingsDeleteAccountRequestingCta": "Code wird angefordert…",
+  "mealUpdated": "Mahlzeit aktualisiert.",
+  "mealMovedTo": "Mahlzeit auf {tag} verschoben.",
+  "@mealMovedTo": {
+    "placeholders": {
+      "tag": {
+        "type": "String"
+      }
+    }
+  },
+  "dayLabelToday": "heute",
+  "dayLabelYesterday": "gestern",
+  "dayLabelOnDate": "den {datum}",
+  "@dayLabelOnDate": {
+    "placeholders": {
+      "datum": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffSource": "OpenFoodFacts Barcode {barcode}.",
+  "@mealNotesOffSource": {
+    "placeholders": {
+      "barcode": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffBrand": "Marke: {marke}.",
+  "@mealNotesOffBrand": {
+    "placeholders": {
+      "marke": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffPackage": "Packung: {menge}.",
+  "@mealNotesOffPackage": {
+    "placeholders": {
+      "menge": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffServing": "Portion laut Datenbank: {portion}.",
+  "@mealNotesOffServing": {
+    "placeholders": {
+      "portion": {
+        "type": "String"
+      }
+    }
+  },
+  "mealNotesOffDatabase": "Nährwerte kommen aus der Produktdatenbank, nicht aus einer Foto-Schätzung.",
+  "mealNotesAdjustWeight": "Du kannst das gegessene Gewicht weiter anpassen.",
+  "coachMessageNotSent": "Nicht gesendet",
+  "coachMessageRetry": "Erneut senden",
+  "exportShareFile": "Als Datei teilen",
+  "exportPreviewShortened": "Vorschau gekürzt — die vollständigen Daten stecken in der Datei.",
+  "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
+  "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal."
 }
