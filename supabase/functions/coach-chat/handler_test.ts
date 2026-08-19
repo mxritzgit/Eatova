@@ -1150,3 +1150,30 @@ Deno.test("Lokalisierung: EN off_topic (Layer 2, Nicht-Krise)", async () => {
     stub.restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Befund-Verifikation 2026-08-19: maybeAutoTitle las und patchte
+// chat_sessions mit service_role NUR ueber die Session-Id. Sicher war das
+// allein, weil ensureSession vorher den Besitz prueft — eine Invariante,
+// die kein Compiler haelt. Beide Requests muessen den user_id-Filter
+// tragen, damit der Write selbst besitzgebunden ist.
+// ---------------------------------------------------------------------------
+
+Deno.test("Auto-Titel: GET und PATCH auf chat_sessions tragen den user_id-Filter", async () => {
+  const stub = installFetch({});
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich am Tag?" }));
+    assertEquals(res.status, 200, "Status");
+    const sessionCalls = stub.callsTo("/rest/v1/chat_sessions");
+    const patches = sessionCalls.filter((call) => call.method === "PATCH");
+    assertEquals(patches.length, 1, "genau ein Auto-Titel-PATCH");
+    for (const call of sessionCalls) {
+      assert(
+        call.url.includes(`user_id=eq.${USER_ID}`),
+        `chat_sessions-Zugriff ohne user_id-Filter: ${call.method} ${call.url}`,
+      );
+    }
+  } finally {
+    stub.restore();
+  }
+});

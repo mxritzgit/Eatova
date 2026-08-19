@@ -564,6 +564,15 @@ class RecipeImageStore {
     }
   }
 
+  /// Ablage im App-Dokumentordner — mit einer Plattform-Konsequenz, die man
+  /// hier nicht sieht (Befund-Verifikation 2026-08-19): auf iOS liegt
+  /// Documents im Geraete-Backup (iCloud), die Bilder wandern also in Apples
+  /// Cloud, sobald der Nutzer ein Backup aktiviert hat — PRIVACY.md nennt
+  /// das ausdruecklich. Auf Android ist das System-Backup app-weit aus
+  /// (allowBackup="false" + data_extraction_rules.xml), dort bleibt die
+  /// Datei rein lokal. Wer den Ordner wechselt (z. B. nach Caches), tauscht
+  /// Backup-Exposition gegen OS-seitiges Wegputzen der Bilder — bewusst
+  /// nicht getan, die Karten sollen einen Neustart ueberleben.
   static Future<Directory> _appDocumentsFolder() async {
     final documents = await getApplicationDocumentsDirectory();
     return Directory('${documents.path}/$folderName');

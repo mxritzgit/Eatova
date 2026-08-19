@@ -589,7 +589,7 @@ async function handleRecipeMode(params: {
     await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     return json({ error: "store_failed" }, 500);
   }
-  await maybeAutoTitle(serviceKey, supabaseUrl, sessionId, message);
+  await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
 
   let raw: string;
   try {
@@ -1040,12 +1040,20 @@ async function touchSession(
 async function maybeAutoTitle(
   serviceKey: string,
   supabaseUrl: string,
+  userId: string,
   sessionId: string,
   firstUserMessage: string,
 ): Promise<void> {
   // Auto-Titel nur setzen wenn die Session noch den Default-Titel hat.
+  //
+  // user_id=eq. auf BEIDEN Requests (Befund-Verifikation 2026-08-19): die
+  // Calls laufen mit service_role, und sicher war das bisher allein, weil
+  // ensureSession den Besitz vorher geprueft hat — eine Invariante, die kein
+  // Compiler haelt. Mit dem Filter ist der Write selbst besitzgebunden; ein
+  // kuenftiger Aufrufer ohne Besitzpruefung patcht ins Leere statt in eine
+  // fremde Session.
   const check = await fetch(
-    `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&select=title`,
+    `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}&select=title`,
     { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
   );
   if (!check.ok) return;
@@ -1056,7 +1064,7 @@ async function maybeAutoTitle(
   const trimmed = firstUserMessage.trim().replace(/\s+/g, " ");
   if (trimmed.length === 0) return;
   const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
-  await fetch(`${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}`, {
+  await fetch(`${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}`, {
     method: "PATCH",
     headers: {
       "Authorization": `Bearer ${serviceKey}`,
@@ -1553,7 +1561,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   }
   // Erste echte User-Message in der Session? Dann automatisch als Titel
   // uebernehmen, damit die Session-Liste nicht nur "Neue Unterhaltung" zeigt.
-  await maybeAutoTitle(serviceKey, supabaseUrl, sessionId, message);
+  await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
 
   let reply: string;
   let refusal: boolean;

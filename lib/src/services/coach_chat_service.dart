@@ -199,6 +199,13 @@ class CoachChatService {
 
   /// Der Tageszaehler, wie ihn der Server nennt.
   ///
+  /// `p_daily_limit` ist reine Anzeige-Arithmetik (Befund-Verifikation
+  /// 2026-08-19, kein Handlungsbedarf): der RPC ist read-only und rechnet
+  /// `remaining` nur aus dem uebergebenen Wert. Durchgesetzt wird das Limit
+  /// serverseitig in der Edge Function via `claim_chat_quota`
+  /// (service_role-only) — ein manipulierter Client, der hier andere Zahlen
+  /// uebergibt, beluegt ausschliesslich seine eigene Anzeige.
+  ///
   /// Wirft [CoachDataUnavailable], wenn der RPC scheitert ODER keine
   /// verwertbaren Zahlen liefert. Beides hiess frueher „5 von 5 frei":
   /// der `catch` gab `ChatQuotaSnapshot.unknown` zurueck, die `?? 5` im Parser
