@@ -57,7 +57,10 @@ You enter and the app stores the following, tied to your account:
   model**; the prompt for it contains only the generated title and description,
   never your original wording. The generated image is stored **only on your
   device** — it is never uploaded to our servers, and a second device shows the
-  card with a placeholder. See "Where it is stored and who processes it" and
+  card with a placeholder. Like other app documents, this on-device copy is
+  included in your operating system's device backup if you use one (on iOS:
+  the iCloud backup of your device); on Android, Eatova excludes its app data
+  from system backups entirely. See "Where it is stored and who processes it" and
   "Transfers outside the EU/EEA": this feature involves a transfer to the USA.
 - **Apple Health (optional, iOS only):** if you grant permission, the app reads
   your step count, body-weight history, and sleep duration from Apple Health.

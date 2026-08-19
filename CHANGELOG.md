@@ -122,6 +122,16 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 - **Legacy `fitpilot://` redirect URIs dropped from the auth allow-list** —
   no app registers that scheme since the rebrand, so a malicious app could
   have claimed it conflict-free as an OAuth redirect target.
+- **`profiles` writes are now column-scoped** — the row-level policy allowed
+  a manipulated client to set `email`, `display_name` and `avatar_url`
+  directly via PostgREST even though the app never writes them; a forged
+  `email` would have surfaced in the GDPR export. INSERT/UPDATE grants for
+  `authenticated` are now limited to exactly the columns the app writes;
+  the mirror columns stay with their security-definer triggers.
+- **Coach: the auto-title write is owner-bound on its own** — the
+  `chat_sessions` title read and PATCH ran with the service key filtered by
+  session id alone, relying on the caller having checked ownership first;
+  both requests now carry a `user_id` filter as defense in depth.
 
 ## [1.1.0] - 2026-08-07
 
