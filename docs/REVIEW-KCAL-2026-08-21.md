@@ -193,7 +193,7 @@ noch nicht veröffentlicht, Bestandsprofile sind Testprofile.
 | 2 | **Stufentexte** nach Beruf/Alltag (DGE), Überschrift „Beruf und Alltag – im Zweifel eine Stufe tiefer" | „1–2× Sport/Woche" … | „Überwiegend sitzend: Büro, Homeoffice …" … |
 | 3 | **Schritt-Basis je Stufe** (Tudor-Locke-Bänder): nur Schritte darüber zählen als „Verbrannt" | alle Schritte | 5000 / 7500 / 10 000 / 12 500 / 15 000 |
 | 4 | **Untergrenze geschlechtsabhängig** | 1200 für alle | **1200 w / 1500 m / 1350 divers** |
-| 5 | **1-%-Defizitdeckel**: max. 1 % Körpergewicht/Woche = kg × 11 kcal/Tag, auf die Tempo-Stufen (275er-Raster ≙ 0,25 kg/Woche) abgerundet, mit eigenem Hinweistext | −1100 für alle | 60 kg → 550, 78 kg → 825, ≥ 100 kg → 1100 |
+| 5 | **1-%-Defizitdeckel**: max. 1 % Körpergewicht/Woche = kg × 11 kcal/Tag, auf 0,05 kg/Woche abgerundet ((kg ÷ 5) × 55, min. 275), mit eigenem Hinweistext | −1100 für alle | 60 kg → 660 (0,6), 70 kg → 770 (0,7), 78 kg → 825 (0,75), 99 kg → 1045, ≥ 100 kg → 1100 |
 | 6 | **Protein nach Referenzgewicht** (bis BMI 25 Ist-Gewicht, darüber Gewicht bei BMI 25 + 25 % des Überschusses), **Energie-Deckel 35 %** (hart 40 %, falls sonst < 1,2 g/kg) | 1,6 g × Ist-Gewicht, Klemme 400 g | KH garantiert ≥ 35 % der Energie (≥ 105 g) |
 | 7 | **Prognose als Spanne** linear … dynamisch (Bedarf sinkt 22 kcal/Tag pro verlorenem kg, Hall); „frühestens", wenn das Defizit vor dem Ziel aufgebraucht ist | „in ca. 14 Wochen" | „in ca. 14–16 Wochen" |
 | 8 | Footnote: „Schätzung nach Mifflin-St Jeor (typisch ±10 %)" | — | ✓ |
@@ -204,7 +204,7 @@ noch nicht veröffentlicht, Bestandsprofile sind Testprofile.
 | Profil | Erhaltung | Ziel −0,5 kg/Wo | Ziel −1 kg/Wo | 7000 Schritte „Verbrannt" |
 |---|---|---|---|---|
 | Standard 78 kg / 178 cm / 30 J. / divers / sitzend | 1997 → **2330** | 1450 → **1800** | 1200 (Klemme) → **1500** (Deckel 825, −0,75 kg/Wo) | 10 000 Schritte: 288 → **144** |
-| P1 Frau 70 kg / 165 cm / 30 J. / sitzend | 1704 → **1988** | 1200 (Klemme!) → **1450** | 1200 → **1450** (Deckel 550 statt 1100, −0,5 kg/Wo) | 167 → 48 |
+| P1 Frau 70 kg / 165 cm / 30 J. / sitzend | 1704 → **1988** | 1200 (Klemme!) → **1450** | 1200 → **1200** (Deckel 770 statt 1100: 1218 → 1200, −0,7 kg/Wo) | 167 → 48 |
 | P3 Mann 100 kg / 180 cm / 40 J. / sitzend | 2316 → **2702** | 1750 → **2150** | 1200 ohne Warnung → **1600** | 261 → **75** |
 | P5 Mann 130 kg / 175 cm / 45 J. / leicht | 2989 → **3369** | 2450 → 2800 | 1900 → 2250; Protein 208 g → **144 g** | — |
 
