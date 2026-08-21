@@ -179,8 +179,8 @@ void main() {
   testWidgets(
       'manuelles kcal-Ziel misst an der DB-Grenze, nicht an der Rechner-Klemme',
       (tester) async {
-    // Standardprofil: 2200 gespeichert vs. 2350 gerechnet (Kalorien-Review
-    // 2026-08-21: PAL 1,4, Erhaltung 2330, auf 50 gerundet) → Manuell-Modus,
+    // Standardprofil: 2200 gespeichert vs. 2150 gerechnet (Kalorien-Review
+    // 2026-08-21: PAL 1,3 ohne Gehen, Erhaltung 2164, auf 50 gerundet) → Manuell-Modus,
     // die kcal-/Makro-Felder sind sichtbar.
     final resultFuture = await openSettings(tester);
 
@@ -248,7 +248,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Live-Wert des Standardprofils seit dem Kalorien-Review 2026-08-21:
-    // BMR 1665 × PAL 1,4 = 2330 → auf 50 gerundet 2350 (vorher 2000).
-    expect((await resultFuture)!.profile.dailyKcalGoal, 2350);
+    // BMR 1665 × PAL 1,3 = 2164 → auf 50 gerundet 2150 (vorher 2000).
+    expect((await resultFuture)!.profile.dailyKcalGoal, 2150);
   });
 }

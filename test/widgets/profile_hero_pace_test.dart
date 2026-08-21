@@ -23,11 +23,13 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-/// Standardprofil aus dem Review: BMR 1665, Erhaltung 2330 (PAL 1,4), Deckel
-/// 78 × 11 = 858 → auf 0,05 kg/Woche abgerundet 825 kcal/Tag →
-/// 2330 − 825 = 1505 → 1500 kcal. Die neutrale Untergrenze (1350) greift
-/// nicht; reales Defizit 830 kcal/Tag ≙ −0,7545 → Label „−0,75 kg/Woche",
-/// Prognose 14 (linear) bis 16 (dynamisch) Wochen statt 10.
+/// Standardprofil aus dem Review: BMR 1664,5, Erhaltung 2164 (PAL 1,3 —
+/// seit „jeder Schritt zaehlt" ohne Gehen), Deckel 78 × 11 = 858 → auf
+/// 0,05 kg/Woche abgerundet 825 kcal/Tag → 2164 − 825 = 1339 → 1350 kcal.
+/// Das ist exakt die neutrale Untergrenze (1350): uncappedKcal == floor, also
+/// NICHT geklemmt (floorApplied prueft auf „kleiner"). Reales Defizit
+/// 814 kcal/Tag ≙ −0,74 → Label „−0,75 kg/Woche", Prognose 14 (linear) bis
+/// 16 (dynamisch) Wochen statt 10.
 ///
 /// dailyKcalGoal ist auf der Karte reine Anzeige (Tagesziel-Chip) und haelt
 /// hier den Rechner-Wert, damit die Karte in sich stimmig bleibt.
@@ -37,29 +39,36 @@ const _standard = UserProfile(
   ageYears: 30,
   targetWeightKg: 68,
   weightGoal: WeightGoal.lose1kg,
-  dailyKcalGoal: 1500,
+  dailyKcalGoal: 1350,
 );
 
-/// Kleines, aelteres Profil: Erhaltung 1227, Wunsch −275 (der Deckel
-/// 40 × 11 = 440 → 275 greift gerade nicht) → 950 kcal; die 1200er-
-/// Untergrenze (weiblich) hebt das Ziel an und laesst 27 kcal/Tag Defizit
-/// uebrig — unterhalb von weeklyRateNoiseKg. weeksToGoalRange muss hier null
-/// liefern statt einer Fantasie-Wochenzahl; paceWarning formuliert dafuer den
-/// „Stable"-Satz (commonPaceWarningFloorStable) ohne „tatsächliches Tempo".
+/// Kleines Profil: Erhaltung 1237 (BMR 951,5 × 1,3), Wunsch −275 (der Deckel
+/// 40 × 11 = 440 liegt ueber dem Wunsch, greift also nicht) → 962 →
+/// 950 kcal; die 1200er-Untergrenze (weiblich) hebt das Ziel an und laesst
+/// 37 kcal/Tag Defizit uebrig (≙ 0,034 kg/Woche) — unterhalb von
+/// weeklyRateNoiseKg. weeksToGoalRange muss hier null liefern statt einer
+/// Fantasie-Wochenzahl; paceWarning formuliert dafuer den „Stable"-Satz
+/// (commonPaceWarningFloorStable) ohne „tatsächliches Tempo".
+///
+/// 45 statt frueher 60 Jahre: mit der PAL-Leiter ohne Gehen (1,3 statt 1,4)
+/// laege die 60-Jaehrige bei Erhaltung 1139 → 850 → 1200 und damit 61 kcal
+/// UEBER dem Bedarf (+0,055 kg/Woche) — knapp ausserhalb des Rauschbands,
+/// also kein „stabil" mehr.
 const _clampedFlat = UserProfile(
   weightKg: 40,
   heightCm: 150,
-  ageYears: 60,
+  ageYears: 45,
   sex: BiologicalSex.female,
   targetWeightKg: 36,
   weightGoal: WeightGoal.lose025kg,
   dailyKcalGoal: 1200,
 );
 
-/// Profil, bei dem die Untergrenze WIRKLICH klemmt: Erhaltung 1700, Deckel
-/// 55 × 11 = 605 (0,55 kg/Woche) → 1095 → 1100 kcal → 1200 (weiblich). Effektiv
-/// −500 kcal/Tag ≙ −0,4545 → „−0,45 kg/Woche". paceWarning nennt die Klemme
-/// (hoechste Bindungskraft), nicht den ebenfalls greifenden Deckel.
+/// Profil, bei dem die Untergrenze WIRKLICH klemmt: Erhaltung 1578 (BMR 1214
+/// × 1,3), Deckel 55 × 11 = 605 (0,55 kg/Woche) → 973 → 950 kcal → 1200
+/// (weiblich). Effektiv −378 kcal/Tag ≙ −0,3436 → „−0,35 kg/Woche".
+/// paceWarning nennt die Klemme (hoechste Bindungskraft), nicht den ebenfalls
+/// greifenden Deckel.
 const _clampedFloor = UserProfile(
   weightKg: 55,
   heightCm: 160,
@@ -116,7 +125,7 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _standard);
 
-    // Linear: 10 kg / 0,7545 kg pro Woche = 13,3 -> 14. Dynamisch (Bedarf
+    // Linear: 10 kg / 0,74 kg pro Woche = 13,5 -> 14. Dynamisch (Bedarf
     // sinkt um 22 kcal pro verlorenem kg): 16. Beides aus der effektiven
     // Rate, nicht aus den 10 Wochen des Wunsch-Tempos.
     expect(find.text('Noch 10 kg · Ziel in ca. 14–16 Wochen'), findsOneWidget,
@@ -159,26 +168,26 @@ void main() {
     await _pumpCard(tester, _clampedFloor);
 
     // Deckel UND Untergrenze greifen; paceWarning nennt die bindendere
-    // Untergrenze mit dem ungeklemmten 1100er-Wert (Erhaltung 1700 minus
-    // Deckel 605, auf 50 gerundet), nicht den Deckel.
-    expect(find.text('−0,45 kg/Woche'), findsOneWidget);
+    // Untergrenze mit dem ungeklemmten 950er-Wert (Erhaltung 1578 minus
+    // Deckel 605 = 973, auf 50 gerundet), nicht den Deckel.
+    expect(find.text('−0,35 kg/Woche'), findsOneWidget);
     expect(
       find.byTooltip(
         'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
-        '1100 kcal. Dein tatsächliches Tempo ist damit −0,45 kg/Woche statt '
+        '950 kcal. Dein tatsächliches Tempo ist damit −0,35 kg/Woche statt '
         '−1 kg/Woche.',
       ),
       findsOneWidget,
     );
-    expect(find.text('Noch 5 kg · Ziel in ca. 11–13 Wochen'), findsOneWidget,
-        reason: '5 kg / 0,4545 = 11 linear, 13 dynamisch');
+    expect(find.text('Noch 5 kg · Ziel in ca. 15–18 Wochen'), findsOneWidget,
+        reason: '5 kg / 0,3436 = 14,6 → 15 linear, 18 dynamisch');
   });
 
   testWidgets('Ohne Abweichung haengt kein Hinweis am Tempo-Chip',
       (tester) async {
-    // Grosser, aktiver Nutzer (BMR 2040, Erhaltung 3774 bei PAL 1,85): weder
+    // Grosser, aktiver Nutzer (BMR 2040, Erhaltung 3570 bei PAL 1,75): weder
     // die 1500er-Untergrenze noch der Deckel (1100 > 550) greifen, uebrig
-    // bleibt nur die 50er-Rundung des Tagesziels — 3200 statt 3224 ergibt
+    // bleibt nur die 50er-Rundung des Tagesziels — 3000 statt 3020 ergibt
     // rechnerisch −0,52 kg/Woche. Das liegt im Rauschband (weeklyRateNoiseKg),
     // also kein Hinweis — und das 0,05-Raster des Labels zeigt davon genau
     // das gewaehlte „−0,5", nicht mehr die falsche Praezision „−0,52".
@@ -192,7 +201,7 @@ void main() {
         activityLevel: ActivityLevel.active,
         targetWeightKg: 90,
         weightGoal: WeightGoal.lose05kg,
-        dailyKcalGoal: 3200,
+        dailyKcalGoal: 3000,
       ),
     );
 

@@ -28,7 +28,7 @@ Unisex-Untergrenze 1200 kcal und die Protein-Formel nach Ist-Gewicht.
 |---|---|---|
 | **bis Juni 2026** (Commit 2b41335) | `Schritte × kg × 0,00057` | **399 kcal** |
 | **Juni–August 2026** (478bae9 … 243d9d3) | Schrittlänge 0,415 × Größe → 5,23 km × 0,5 kcal/kg/km | 261 kcal |
-| **ab diesem PR** | wie oben, aber nur Schritte **über der Basis der Aktivitätsstufe** (sitzend: 5000) | **75 kcal** |
+| **ab PR #47 / #48** | dieselbe Netto-Formel, **jeder Schritt zählt** — dafür rechnet das Tagesziel mit einer PAL-Leiter **ohne Gehen** (sitzend 1,3 statt 1,4) | **261 kcal** |
 
 Die 399 kcal waren kein Zufall: 0,00057 kcal/Schritt/kg ist exakt der Faktor
 des Omni-Calculators (3,5 MET **brutto** bei 4,8 km/h) — also inklusive des
@@ -39,7 +39,7 @@ mit 0,52–0,63 kcal/kg/km (Weyand 2010, Ludlow & Weyand 2016) sogar leicht
 darüber — 0,5 ist die konservative Untergrenze.
 
 **Der eigentliche Fehler lag aber nicht in der Umrechnung, sondern im
-Modell:** Das Tagesziel enthält über den PAL-Faktor bereits Alltagsbewegung.
+Modell:** Das Tagesziel enthielt über den PAL-Faktor bereits Alltagsbewegung.
 FAO/WHO/UNU-„sedentary" (1,40–1,69) enthält laut FAO-Tabelle 5.1 rund eine
 Stunde Gehen pro Tag (≈ 5000–6000 Schritte); Doubly-Labeled-Water-Daten
 zeigen PAL 1,73 bei ~10 000 Schritten. Wer „leicht aktiv" wählte und 7000
@@ -49,6 +49,18 @@ Alle untersuchten Wettbewerber verhindern das aktiv (Lose It!:
 Schritt-Schwelle je Stufe; MyFitnessPal: Differenz zur Stufen-Projektion,
 negativ möglich; Cronometer: Tracker ersetzt die Stufe; Lifesum/Yazio:
 erzwingen bzw. empfehlen die niedrigste Stufe bei Tracker-Kopplung).
+
+**Entscheidung (Produkt, 2026-08-21):** Jeder Schritt soll sichtbar zählen
+(„Modell B" der Recherche). Damit das keine Doppelzählung ist, klammert die
+PAL-Leiter das Gehen aus: Basis 1,3 = FAO-PAR für Sitzen/leichte Tätigkeiten
+(1,2–1,3) plus nahrungsinduzierte Thermogenese, jede Stufe +0,15 für Stehen,
+körperliche Arbeit und schrittfreien Sport (1,3 / 1,45 / 1,6 / 1,75 / 1,9) —
+die gesamt-inklusive DGE/FAO-Leiter minus ~0,1 Gehanteil (≈ 5000 Schritte).
+Die Stufentexte nennen ausdrücklich nur Tätigkeiten ohne Schritte. Für
+Nutzer ohne Schrittquelle (Android, HealthKit nicht erlaubt) fehlt der
+Gehanteil; der Bedarf ist dort um ~0,1 × BMR konservativ — bewusst so
+belassen (Unterschätzen ist für Abnehmende die sichere Richtung), ein
+automatischer Aufschlag ohne Schrittquelle steht unter den Folgepunkten.
 
 ---
 
@@ -189,9 +201,9 @@ noch nicht veröffentlicht, Bestandsprofile sind Testprofile.
 
 | # | Änderung | Vorher | Nachher |
 |---|---|---|---|
-| 1 | **PAL-Leiter** an FAO/DGE angelehnt | 1,2 / 1,375 / 1,55 / 1,725 / 1,9 | **1,4 / 1,55 / 1,7 / 1,85 / 2,0** |
-| 2 | **Stufentexte** nach Beruf/Alltag (DGE), Überschrift „Beruf und Alltag – im Zweifel eine Stufe tiefer" | „1–2× Sport/Woche" … | „Überwiegend sitzend: Büro, Homeoffice …" … |
-| 3 | **Schritt-Basis je Stufe** (Tudor-Locke-Bänder): nur Schritte darüber zählen als „Verbrannt" | alle Schritte | 5000 / 7500 / 10 000 / 12 500 / 15 000 |
+| 1 | **PAL-Leiter ohne Gehen/Laufen** (FAO-Sitzbasis + Thermogenese; = DGE/FAO-Leiter − 0,1 Gehanteil) | 1,2 / 1,375 / 1,55 / 1,725 / 1,9 („Bürojob" = Bettlägerig-Wert, Texte gesamt-inklusiv) | **1,3 / 1,45 / 1,6 / 1,75 / 1,9**, ausdrücklich ohne Gehen |
+| 2 | **Stufentexte** nur für Tätigkeiten ohne Schritte, Überschrift „Beruf und Alltag ohne Gehen und Laufen – gezählte Schritte kommen automatisch obendrauf" | „1–2× Sport/Woche" … | „Überwiegend sitzend: Büro, Homeoffice, Auto" · „Viel stehend … oder 2–3× Sport ohne Schritte (Kraft, Rad, Schwimmen)" … |
+| 3 | **Jeder Schritt zählt** als „Verbrannt" (ACSM-Netto 0,5 kcal/kg/km) — keine Doppelzählung mehr, weil das Gehen nicht im PAL steckt | alle Schritte auf ein PAL, das Gehen schon enthielt | alle Schritte auf ein PAL ohne Gehen |
 | 4 | **Untergrenze geschlechtsabhängig** | 1200 für alle | **1200 w / 1500 m / 1350 divers** |
 | 5 | **1-%-Defizitdeckel**: max. 1 % Körpergewicht/Woche = kg × 11 kcal/Tag, auf 0,05 kg/Woche abgerundet ((kg ÷ 5) × 55, min. 275), mit eigenem Hinweistext | −1100 für alle | 60 kg → 660 (0,6), 70 kg → 770 (0,7), 78 kg → 825 (0,75), 99 kg → 1045, ≥ 100 kg → 1100 |
 | 6 | **Protein nach Referenzgewicht** (bis BMI 25 Ist-Gewicht, darüber Gewicht bei BMI 25 + 25 % des Überschusses), **Energie-Deckel 35 %** (hart 40 %, falls sonst < 1,2 g/kg) | 1,6 g × Ist-Gewicht, Klemme 400 g | KH garantiert ≥ 35 % der Energie (≥ 105 g) |
@@ -201,12 +213,17 @@ noch nicht veröffentlicht, Bestandsprofile sind Testprofile.
 
 ### Zahlenbeispiele vorher → nachher
 
-| Profil | Erhaltung | Ziel −0,5 kg/Wo | Ziel −1 kg/Wo | 7000 Schritte „Verbrannt" |
+| Profil | Erhaltung (ohne Gehen) | Ziel −0,5 kg/Wo | Ziel −1 kg/Wo | 7000 Schritte „Verbrannt" |
 |---|---|---|---|---|
-| Standard 78 kg / 178 cm / 30 J. / divers / sitzend | 1997 → **2330** | 1450 → **1800** | 1200 (Klemme) → **1500** (Deckel 825, −0,75 kg/Wo) | 10 000 Schritte: 288 → **144** |
-| P1 Frau 70 kg / 165 cm / 30 J. / sitzend | 1704 → **1988** | 1200 (Klemme!) → **1450** | 1200 → **1200** (Deckel 770 statt 1100: 1218 → 1200, −0,7 kg/Wo) | 167 → 48 |
-| P3 Mann 100 kg / 180 cm / 40 J. / sitzend | 2316 → **2702** | 1750 → **2150** | 1200 ohne Warnung → **1600** | 261 → **75** |
-| P5 Mann 130 kg / 175 cm / 45 J. / leicht | 2989 → **3369** | 2450 → 2800 | 1900 → 2250; Protein 208 g → **144 g** | — |
+| Standard 78 kg / 178 cm / 30 J. / divers / sitzend | 1997 → **2164** | 1450 → **1600** | 1200 (Klemme) → **1350** (Deckel 825, −0,75 kg/Wo) | 10 000 Schritte: 288 (unverändert — jeder Schritt zählt) |
+| P1 Frau 70 kg / 165 cm / 30 J. / sitzend | 1704 → **1846** | 1200 (Klemme!) → **1300** | 1200 → **1200** (Deckel 770: 1076 → 1100 → Klemme, −0,6 kg/Wo) | 167 (unverändert) |
+| P3 Mann 100 kg / 180 cm / 40 J. / sitzend | 2316 → **2509** | 1750 → **1950** | 1200 ohne Warnung → **1500** mit Warnung (Männer-Untergrenze) | 261 (unverändert) |
+| P5 Mann 130 kg / 175 cm / 45 J. / leicht | 2989 → **3152** | 2450 → 2600 | 1900 → 2050; Protein 208 g → **144 g** | — |
+
+Die Erhaltung enthält kein Gehen mehr; mit z. B. 7000 Schritten (Standard:
++201 kcal) liegt der effektive Tagesbedarf bei 2365 ≙ PAL 1,42 — im
+FAO-Band für Sitzende (1,40–1,69), konservativ gegenüber DLW-Messungen
+(1,55–1,70).
 
 ### Tests
 
@@ -249,7 +266,9 @@ noch nicht veröffentlicht, Bestandsprofile sind Testprofile.
    BMI < 18,5 nicht anbieten; Hinweis „Schätzung hier ungenauer" bei BMI ≥ 40
    oder Alter ≥ 65; Alter < 18 (Mifflin gilt ab 19; `ageYearsMin` ist 16).
 7. **Android-Schrittquelle** (Health Connect) — heute iOS-only; ohne
-   Schrittquelle gilt nur der PAL (jetzt mit 1,4 wenigstens leitlinienkonform).
+   Schrittquelle fehlt der Gehanteil (~0,1 × BMR). Sinnvoll: +0,1 PAL,
+   solange keine Schrittquelle verbunden ist (braucht Re-Anchoring beim
+   Verbinden, sonst Doppelzählung).
 8. **Adhärenz** statt Rechengenauigkeit: Wochen-Streak „Tage mit ≥ 2
    Mahlzeiten", Re-Engagement in Woche 3–10, Wochen- statt Tagesbilanz,
    neutrale Farben bei Überschreitung, „Zahlen ausblenden"-Option.

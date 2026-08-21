@@ -94,11 +94,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// fuer vergangene Tage der festgeschriebene Tageswert aus [dailyActivity].
   /// 0 heisst "kein Eintrag" — die Kachel zeigt dann „—" statt einer Zahl.
   ///
-  /// Seit dem Kalorien-Review 2026-08-21 zaehlen nur Schritte OBERHALB der
-  /// Basis der gewaehlten Aktivitaetsstufe (`ActivityLevel.baselineSteps`):
-  /// das uebliche Gehpensum steckt schon im PAL des Tagesziels, eine zweite
-  /// Gutschrift waere Doppelzaehlung. Unterhalb der Basis bleibt die Kachel
-  /// deshalb bei „—".
+  /// Jeder Schritt zaehlt (Kalorien-Review 2026-08-21): das Tagesziel rechnet
+  /// mit einer PAL-Leiter OHNE Gehen (`ActivityLevel.palFactor`), deshalb ist
+  /// die volle Schrittsumme hier keine Doppelzaehlung.
   int burnedKcalForFoodDate(DateTime date) {
     if (_isSameFoodDate(date, clock.now())) {
       return estimateKcalBurnedFromSteps(
@@ -106,7 +104,6 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         weightKg: profile.weightKg,
         heightCm: profile.heightCm,
         sex: profile.sex,
-        baselineSteps: profile.activityLevel.baselineSteps,
       );
     }
     return dailyActivity[localDayKey(date)]?.kcal ?? 0;
@@ -125,7 +122,6 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       weightKg: profile.weightKg,
       heightCm: profile.heightCm,
       sex: profile.sex,
-      baselineSteps: profile.activityLevel.baselineSteps,
     );
     // Unveraendert -> raus, OHNE die Map zu ersetzen: die Slice-Selectors
     // vergleichen per Identitaet, und ein Resume ohne neue Schritte darf
