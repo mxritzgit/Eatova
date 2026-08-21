@@ -18,20 +18,51 @@ extension BiologicalSexLabel on BiologicalSex {
       };
 }
 
-/// Alltags-Aktivität ohne gezähltes Training. Multipliziert den Grundumsatz
-/// (BMR) zum Erhaltungsbedarf (TDEE) — die etablierten PAL-Faktoren. Schritte
-/// werden zusätzlich getrennt als „Verbrannt" angerechnet, deshalb ist hier
-/// bewusst der Alltags-Anteil gemeint, nicht das geplante Workout.
+/// Beruf und Alltag. Multipliziert den Grundumsatz (BMR) zum Erhaltungsbedarf
+/// (TDEE) — PAL-Stufen in Anlehnung an FAO/WHO/UNU 2004 und die DGE.
+///
+/// **Seit dem Kalorien-Review 2026-08-21 (docs/REVIEW-KCAL-2026-08-21.md)
+/// beginnt die Leiter bei 1,4, nicht mehr bei 1,2.** 1,2 ist in allen
+/// Leitlinien der Wert für bettlägerige/immobile Menschen; der Büroalltag
+/// ohne Sport liegt bei DGE 1,4–1,5, EFSA 1,4, gemessen (Doubly Labeled
+/// Water) sogar bei 1,55–1,7. Die alten Werte 1,2/1,375/1,55/1,725/1,9 waren
+/// eine Online-Rechner-Konvention ohne Primärquelle.
+///
+/// Gezählte Schritte werden NICHT blind addiert: jede Stufe enthält bereits
+/// das für sie übliche Gehpensum ([baselineSteps], Tudor-Locke-Bänder), nur
+/// Schritte darüber zählen als „Verbrannt" — sonst würde der Alltag doppelt
+/// gutgeschrieben (einmal im PAL, einmal über HealthKit).
 enum ActivityLevel { sedentary, light, moderate, active, athlete }
 
 extension ActivityLevelInfo on ActivityLevel {
   /// Physical Activity Level (PAL) — Multiplikator auf den BMR.
+  ///
+  /// 1,4 sitzend (DGE „überwiegend sitzend"), 1,55 sitzend mit Gehen/Stehen,
+  /// 1,7 überwiegend gehend/stehend, 1,85 körperlich fordernd, 2,0 schwere
+  /// Arbeit plus Training (FAO/WHO/UNU: sedentary 1,40–1,69, active
+  /// 1,70–1,99, vigorous 2,00–2,40).
   double get palFactor => switch (this) {
-        ActivityLevel.sedentary => 1.2,
-        ActivityLevel.light => 1.375,
-        ActivityLevel.moderate => 1.55,
-        ActivityLevel.active => 1.725,
-        ActivityLevel.athlete => 1.9,
+        ActivityLevel.sedentary => 1.4,
+        ActivityLevel.light => 1.55,
+        ActivityLevel.moderate => 1.7,
+        ActivityLevel.active => 1.85,
+        ActivityLevel.athlete => 2.0,
+      };
+
+  /// Schritte pro Tag, die in der Stufe schon „drin" sind. Erst Schritte
+  /// darüber werden als zusätzlicher Verbrauch gutgeschrieben
+  /// (`estimateKcalBurnedFromSteps(baselineSteps: …)`).
+  ///
+  /// Die Bänder folgen Tudor-Locke & Bassett (2004): < 5000 sedentary,
+  /// 5000–7499 low active, 7500–9999 somewhat active, ≥ 10 000 active,
+  /// ≥ 12 500 highly active — dasselbe Schwellenprinzip wie bei Lose It!
+  /// („exclude to prevent double-counting").
+  int get baselineSteps => switch (this) {
+        ActivityLevel.sedentary => 5000,
+        ActivityLevel.light => 7500,
+        ActivityLevel.moderate => 10000,
+        ActivityLevel.active => 12500,
+        ActivityLevel.athlete => 15000,
       };
 
   String label(AppLocalizations l10n) => switch (this) {
@@ -253,8 +284,9 @@ class UserProfile {
   final int ageYears;
   final BiologicalSex sex;
 
-  /// Alltags-Aktivität für den Erhaltungsbedarf (PAL). Default sedentär (1.2),
-  /// damit Bestands-Berechnungen unverändert bleiben.
+  /// Beruf/Alltag für den Erhaltungsbedarf (PAL). Default sitzend (1,4) —
+  /// die konservativste Stufe, die Leitlinien für freilebende Erwachsene
+  /// kennen; „im Zweifel eine Stufe tiefer" gilt auch hier.
   final ActivityLevel activityLevel;
 
   /// Wunschgewicht. Treibt nur die Zeit-Prognose (Wochen bis Ziel), nicht das

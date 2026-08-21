@@ -593,6 +593,21 @@
       "weeks": { "type": "int" }
     }
   },
+  "profileGoalProgressWeeksRange": "Noch {gap} kg · Ziel in ca. {minWeeks}–{maxWeeks} Wochen",
+  "@profileGoalProgressWeeksRange": {
+    "placeholders": {
+      "gap": { "type": "int" },
+      "minWeeks": { "type": "int" },
+      "maxWeeks": { "type": "int" }
+    }
+  },
+  "profileGoalProgressWeeksOpen": "Noch {gap} kg · Ziel frühestens in ca. {minWeeks} Wochen",
+  "@profileGoalProgressWeeksOpen": {
+    "placeholders": {
+      "gap": { "type": "int" },
+      "minWeeks": { "type": "int" }
+    }
+  },
   "profileGoalProgressNoWeeks": "Noch {gap} kg bis zum Wunschgewicht",
   "@profileGoalProgressNoWeeks": {
     "placeholders": {
@@ -750,11 +765,11 @@
   "commonActivityLabelModerate": "Mäßig aktiv",
   "commonActivityLabelActive": "Sehr aktiv",
   "commonActivityLabelAthlete": "Extrem aktiv",
-  "commonActivityDescSedentary": "Bürojob, wenig Bewegung",
-  "commonActivityDescLight": "Leichte Bewegung, 1–2× Sport/Woche",
-  "commonActivityDescModerate": "Aktiver Alltag, 3–5× Sport/Woche",
-  "commonActivityDescActive": "Täglich aktiv, 6–7× Sport/Woche",
-  "commonActivityDescAthlete": "Körperliche Arbeit + tägl. Training",
+  "commonActivityDescSedentary": "Überwiegend sitzend: Büro, Homeoffice, wenig Wege zu Fuß",
+  "commonActivityDescLight": "Sitzend, aber regelmäßig auf den Beinen: Wege zu Fuß oder Rad, Studium, Lehrkraft",
+  "commonActivityDescModerate": "Überwiegend stehend oder gehend (Verkauf, Gastro, Pflege) oder 3–5× Sport à 30–60 min",
+  "commonActivityDescActive": "Körperlich fordernde Arbeit (Handwerk, Bau) oder tägliches intensives Training",
+  "commonActivityDescAthlete": "Schwere körperliche Arbeit plus regelmäßiges Training",
   "commonWeightGoalLabelMaintain": "Gewicht halten",
   "commonWeightGoalLabelGain": "Zunehmen",
   "commonWeightGoalLabelLose": "Abnehmen",
@@ -799,6 +814,14 @@
     "placeholders": {
       "ceiling": { "type": "int" },
       "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningDeficitCap": "Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir nicht: Dein Defizit ist auf {cap} kcal/Tag begrenzt. Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
+  "@commonPaceWarningDeficitCap": {
+    "placeholders": {
+      "cap": { "type": "int" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -897,7 +920,7 @@
   "goalsFieldSex": "Geschlecht",
   "goalsGroupActivityGoal": "AKTIVITÄT & ZIEL",
   "goalsFieldActivity": "Aktivitätslevel",
-  "goalsFieldActivitySubtitle": "Bestimmt deinen Kalorienbedarf.",
+  "goalsFieldActivitySubtitle": "Bestimmt deinen Kalorienbedarf. Gezählte Schritte über dem Üblichen deiner Stufe kommen obendrauf.",
   "goalsFieldTargetWeight": "Wunschgewicht",
   "goalsFieldWeightGoal": "Gewichtsziel",
   "goalsGroupEnergyMacros": "ENERGIE & MAKROS",
@@ -978,7 +1001,7 @@
   },
 
   "settingsSexPickerGroupLabel": "BEEINFLUSST DEINEN GRUNDUMSATZ",
-  "settingsActivityPickerGroupLabel": "ALLTAG OHNE GEZÄHLTES TRAINING",
+  "settingsActivityPickerGroupLabel": "BERUF & ALLTAG · IM ZWEIFEL EINE STUFE TIEFER",
   "settingsWeightGoalPickerTitle": "Gewichtsziel & Tempo",
   "settingsWeightGoalPickerGroupLabel": "ZIEL",
 
@@ -1074,7 +1097,7 @@
   "onboardingWeightStepTitle": "Dein aktuelles Gewicht",
   "onboardingWeightStepSubtitle": "Startpunkt für deinen Plan.",
   "onboardingActivityStepTitle": "Wie aktiv bist du?",
-  "onboardingActivityStepSubtitle": "Dein Alltag ohne gezähltes Training.",
+  "onboardingActivityStepSubtitle": "Beruf und Alltag – im Zweifel eine Stufe tiefer. Gezählte Schritte über dem Üblichen deiner Stufe kommen obendrauf.",
   "onboardingGoalStepTitle": "Was ist dein Ziel?",
   "onboardingGoalStepSubtitle": "Bestimmt deine tägliche Kalorienmenge.",
   "onboardingTargetStepTitle": "Dein Wunschgewicht",
@@ -1160,8 +1183,23 @@
       "weeks": { "type": "int" }
     }
   },
+  "onboardingTimelineEstimateRange": "{targetWeightKg} kg in ca. {minWeeks}–{maxWeeks} Wochen erreichbar – anfangs schneller, später langsamer.",
+  "@onboardingTimelineEstimateRange": {
+    "placeholders": {
+      "targetWeightKg": { "type": "int" },
+      "minWeeks": { "type": "int" },
+      "maxWeeks": { "type": "int" }
+    }
+  },
+  "onboardingTimelineEstimateOpen": "{targetWeightKg} kg frühestens in ca. {minWeeks} Wochen erreichbar – mit sinkendem Gewicht lässt das Tempo nach.",
+  "@onboardingTimelineEstimateOpen": {
+    "placeholders": {
+      "targetWeightKg": { "type": "int" },
+      "minWeeks": { "type": "int" }
+    }
+  },
   "onboardingTimelineUnknown": "Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.",
-  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor. Werte sind jederzeit unter Profil › Einstellungen anpassbar.",
+  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Werte sind jederzeit unter Profil › Einstellungen anpassbar.",
 
   "coachErrorEmptyReply": "Leere Antwort vom Coach.",
   "coachErrorUnreachable": "Der Coach ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.",

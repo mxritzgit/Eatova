@@ -215,8 +215,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String? get _waterError =>
       _fehler(_water, isValidDailyWaterGoalMl, _bereichWasser);
 
-  // Der Manuell-Pfad misst an den DB-Grenzen (800..7000), NICHT an der
-  // engeren 1200er-Untergrenze des Rechners: wer bewusst 1000 setzt, darf das.
+  // Der Manuell-Pfad misst an den DB-Grenzen (800..7000), NICHT an den
+  // engeren Untergrenzen des Rechners (1200/1350/1500 je Geschlecht): wer
+  // bewusst 1000 setzt, darf das.
   String? get _kcalError => _fehler(_kcal, isValidDailyKcalGoal, _bereichKcal);
   String? get _proteinError =>
       _fehler(_protein, isValidProteinGoalG, _bereichProtein);

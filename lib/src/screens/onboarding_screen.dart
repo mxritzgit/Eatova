@@ -180,12 +180,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Größe, Alter, Geschlecht und Aktivität stehen hier alle schon fest —
   /// `calculate` braucht nichts weiter, das Ergebnis ist also ohne jeden
   /// Vorbehalt berechenbar. Vorher stand hier `goal.deltaLabel`, also
-  /// „−1100 kcal / Tag": für das Standardprofil (78 kg / 178 cm / 30 J. /
-  /// neutral / sitzend, Erhaltung 1997) hebt die 1200er-Sicherheitsklemme das
-  /// Ziel aber auf 1200 kcal an — real sind es −797 kcal ≙ −0,72 kg/Woche, und
-  /// „Zügig" und „Ambitioniert" landen **beide** dort. Der Picker versprach
-  /// damit zwei verschiedene Tempi für denselben Plan, und erst der nächste
-  /// Schritt korrigierte.
+  /// „−1100 kcal / Tag": für das damalige Standardprofil (78 kg / 178 cm /
+  /// 30 J. / neutral / sitzend, Erhaltung 1997 bei PAL 1,2) hob die
+  /// Sicherheitsklemme das Ziel aber auf 1200 kcal an — real waren es
+  /// −797 kcal ≙ −0,72 kg/Woche, und „Zügig" und „Ambitioniert" landeten
+  /// **beide** dort. Der Picker versprach damit zwei verschiedene Tempi für
+  /// denselben Plan, und erst der nächste Schritt korrigierte. Seit dem
+  /// Kalorien-Review 2026-08-21 (PAL 1,4, 1-%-Deckel) ergibt dasselbe Profil
+  /// 1450 kcal ≙ −0,8 kg/Woche — die Regel bleibt dieselbe.
   ///
   /// Der Titel behält bewusst das gewählte Tempo: er ist der *Name* der Option
   /// („Ambitioniert · −1 kg/Woche"), und zwei Zeilen mit derselben effektiven
@@ -1194,19 +1196,28 @@ class _SummaryStep extends StatelessWidget {
     final l10n = context.l10n;
     // [targets] ist aus genau diesem Profil berechnet — durchreichen statt
     // `calculate` ein zweites Mal laufen zu lassen.
-    final weeks = const KcalCalculator().weeksToGoal(profile, targets: targets);
+    final weeks =
+        const KcalCalculator().weeksToGoalRange(profile, targets: targets);
     final goal = profile.weightGoal;
 
     // `weeks == null` heisst: es gibt keine ehrliche Prognose (Wunschgewicht
-    // erreicht, Rate im Rundungsrauschen, oder die 1200er-Klemme dreht die
+    // erreicht, Rate im Rundungsrauschen, oder die Klemme dreht die
     // Richtung um — dann isst der Nutzer trotz „abnehmen" im Ueberschuss).
     // Dann lieber gar keine Zahl als eine erfundene; das Warum steht direkt
     // darueber in [KcalTargets.paceWarning].
+    //
+    // Seit dem Kalorien-Review 2026-08-21 eine SPANNE: linear (optimistisch)
+    // bis dynamisch (Bedarf sinkt mit jedem Kilo, Hall-Faustregel). Fehlt
+    // die dynamische Obergrenze, reicht das Defizit bei festem Tagesziel
+    // nicht bis zum Ziel — dann steht hier „fruehestens".
     final timeline = switch (goal) {
       WeightGoal.maintain =>
         l10n.onboardingTimelineMaintain(profile.weightKg),
-      _ when weeks != null =>
-        l10n.onboardingTimelineEstimate(profile.targetWeightKg, weeks),
+      _ when weeks != null => timelineEstimateText(
+          l10n,
+          targetWeightKg: profile.targetWeightKg,
+          weeks: weeks,
+        ),
       _ => l10n.onboardingTimelineUnknown,
     };
 
@@ -1342,9 +1353,10 @@ class _SummaryStep extends StatelessWidget {
               const _BreakdownDivider(),
               // B2: hier steht der **Plan**, nicht der Wunsch. `goal.paceLabel`
               // / `goal.deltaLabel` versprechen −1 kg/Woche und −1100 kcal,
-              // auch wenn die 1200er-Sicherheitsklemme daraus −0,72 kg/Woche
-              // und −797 kcal gemacht hat. Mit der effektiven Rate geht die
-              // Karte auch arithmetisch auf: Erhaltung − Tagesziel = Delta.
+              // auch wenn Sicherheitsklemme oder 1-%-Deckel daraus z. B.
+              // −0,8 kg/Woche und −880 kcal gemacht haben. Mit der effektiven
+              // Rate geht die Karte auch arithmetisch auf: Erhaltung −
+              // Tagesziel = Delta.
               _BreakdownRow(
                 key: const ValueKey('onboarding-summary-goal-row'),
                 label: l10n.onboardingSummaryGoalLabel(
@@ -1495,7 +1507,7 @@ String _signedKcalLabel(int kcal) {
 ///
 /// **Genau zwei [Text]-Kinder** — der Test `onboarding_screen_test` liest alle
 /// Texte der Ziel-Zeile als Liste und vergleicht sie mit
-/// `['Ziel · −0,72 kg/Woche', '−797 kcal']`.
+/// `['Ziel · −0,8 kg/Woche', '−880 kcal']`.
 class _BreakdownRow extends StatelessWidget {
   const _BreakdownRow({
     super.key,

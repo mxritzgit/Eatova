@@ -68,8 +68,8 @@ Future<ActivityLevel?> showActivityPicker(
 
 /// [outcomeFor] liefert den Untertitel jeder Option: den Plan, den sie mit den
 /// Koerperdaten ergibt, die gerade auf der Seite stehen. Frueher stand hier
-/// `option.deltaLabel` („−1100 kcal") — ein Delta, das die 1200er-Klemme fuer
-/// die Mehrheit nie erreicht.
+/// `option.deltaLabel` („−1100 kcal") — ein Delta, das Sicherheitsklemme und
+/// 1-%-Deckel fuer die Mehrheit nie erreichen lassen.
 Future<WeightGoal?> showWeightGoalPicker(
   BuildContext context, {
   required WeightGoal value,

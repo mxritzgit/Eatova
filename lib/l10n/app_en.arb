@@ -593,6 +593,21 @@
       "weeks": { "type": "int" }
     }
   },
+  "profileGoalProgressWeeksRange": "{gap} kg to go · goal in about {minWeeks}–{maxWeeks} weeks",
+  "@profileGoalProgressWeeksRange": {
+    "placeholders": {
+      "gap": { "type": "int" },
+      "minWeeks": { "type": "int" },
+      "maxWeeks": { "type": "int" }
+    }
+  },
+  "profileGoalProgressWeeksOpen": "{gap} kg to go · goal in {minWeeks}+ weeks at the earliest",
+  "@profileGoalProgressWeeksOpen": {
+    "placeholders": {
+      "gap": { "type": "int" },
+      "minWeeks": { "type": "int" }
+    }
+  },
   "profileGoalProgressNoWeeks": "{gap} kg to go until your target weight",
   "@profileGoalProgressNoWeeks": {
     "placeholders": {
@@ -750,11 +765,11 @@
   "commonActivityLabelModerate": "Moderately active",
   "commonActivityLabelActive": "Very active",
   "commonActivityLabelAthlete": "Extremely active",
-  "commonActivityDescSedentary": "Desk job, little movement",
-  "commonActivityDescLight": "Light exercise, 1–2× sport/week",
-  "commonActivityDescModerate": "Active daily life, 3–5× sport/week",
-  "commonActivityDescActive": "Active every day, 6–7× sport/week",
-  "commonActivityDescAthlete": "Physical work + daily training",
+  "commonActivityDescSedentary": "Mostly sitting: office, home office, few trips on foot",
+  "commonActivityDescLight": "Sitting, but regularly on your feet: walking or cycling trips, studying, teaching",
+  "commonActivityDescModerate": "Mostly standing or walking (retail, hospitality, nursing) or 3–5× sport of 30–60 min",
+  "commonActivityDescActive": "Physically demanding work (trades, construction) or daily intense training",
+  "commonActivityDescAthlete": "Heavy physical work plus regular training",
   "commonWeightGoalLabelMaintain": "Maintain weight",
   "commonWeightGoalLabelGain": "Gain weight",
   "commonWeightGoalLabelLose": "Lose weight",
@@ -799,6 +814,14 @@
     "placeholders": {
       "ceiling": { "type": "int" },
       "uncapped": { "type": "int" },
+      "effectivePace": { "type": "String" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningDeficitCap": "We do not recommend losing more than 1% of your body weight per week: your deficit is limited to {cap} kcal/day. Your actual pace is {effectivePace} instead of {promisedPace}.",
+  "@commonPaceWarningDeficitCap": {
+    "placeholders": {
+      "cap": { "type": "int" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -897,7 +920,7 @@
   "goalsFieldSex": "Sex",
   "goalsGroupActivityGoal": "ACTIVITY & GOAL",
   "goalsFieldActivity": "Activity level",
-  "goalsFieldActivitySubtitle": "Determines your calorie needs.",
+  "goalsFieldActivitySubtitle": "Determines your calorie needs. Counted steps beyond what is typical for your level are added on top.",
   "goalsFieldTargetWeight": "Target weight",
   "goalsFieldWeightGoal": "Weight goal",
   "goalsGroupEnergyMacros": "ENERGY & MACROS",
@@ -978,7 +1001,7 @@
   },
 
   "settingsSexPickerGroupLabel": "AFFECTS YOUR BASAL METABOLIC RATE",
-  "settingsActivityPickerGroupLabel": "DAILY LIFE WITHOUT COUNTED TRAINING",
+  "settingsActivityPickerGroupLabel": "JOB & DAILY LIFE · WHEN IN DOUBT, PICK ONE LEVEL LOWER",
   "settingsWeightGoalPickerTitle": "Weight goal & pace",
   "settingsWeightGoalPickerGroupLabel": "GOAL",
 
@@ -1074,7 +1097,7 @@
   "onboardingWeightStepTitle": "Your current weight",
   "onboardingWeightStepSubtitle": "Starting point for your plan.",
   "onboardingActivityStepTitle": "How active are you?",
-  "onboardingActivityStepSubtitle": "Your daily life without counted training.",
+  "onboardingActivityStepSubtitle": "Job and daily life – when in doubt, pick one level lower. Counted steps beyond what is typical for your level are added on top.",
   "onboardingGoalStepTitle": "What's your goal?",
   "onboardingGoalStepSubtitle": "Determines your daily calorie amount.",
   "onboardingTargetStepTitle": "Your target weight",
@@ -1160,8 +1183,23 @@
       "weeks": { "type": "int" }
     }
   },
+  "onboardingTimelineEstimateRange": "{targetWeightKg} kg achievable in approx. {minWeeks}–{maxWeeks} weeks – faster at first, slower later.",
+  "@onboardingTimelineEstimateRange": {
+    "placeholders": {
+      "targetWeightKg": { "type": "int" },
+      "minWeeks": { "type": "int" },
+      "maxWeeks": { "type": "int" }
+    }
+  },
+  "onboardingTimelineEstimateOpen": "{targetWeightKg} kg achievable in approx. {minWeeks}+ weeks at the earliest – the pace slows as your weight drops.",
+  "@onboardingTimelineEstimateOpen": {
+    "placeholders": {
+      "targetWeightKg": { "type": "int" },
+      "minWeeks": { "type": "int" }
+    }
+  },
   "onboardingTimelineUnknown": "No reliable timeframe can be estimated for this goal.",
-  "onboardingSummaryFootnote": "Estimate based on Mifflin-St Jeor. Values can be adjusted anytime under Profile › Settings.",
+  "onboardingSummaryFootnote": "Estimate based on Mifflin-St Jeor (typically ±10%). Values can be adjusted anytime under Profile › Settings.",
 
   "coachErrorEmptyReply": "Empty reply from the coach.",
   "coachErrorUnreachable": "The coach isn't reachable right now. Please try again shortly.",

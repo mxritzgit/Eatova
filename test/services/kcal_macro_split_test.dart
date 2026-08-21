@@ -4,29 +4,38 @@ import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 
-// TEST-1: Makro-Aufteilung in KcalCalculator.calculate (1.6 g Protein/kg,
-// 25% kcal aus Fett, Rest Kohlenhydrate). logic_test.dart deckt den Happy
-// Path ab — hier die exakte Arithmetik + die Rand-/Clamp-Pfade.
+// TEST-1: Makro-Aufteilung in KcalCalculator.calculate. Seit dem
+// Kalorien-Review 2026-08-21 (docs/REVIEW-KCAL-2026-08-21.md):
+//   * Protein = 1,6 g/kg REFERENZGEWICHT (bis BMI 25 das Ist-Gewicht, darueber
+//     Gewicht bei BMI 25 + 25 % des Ueberschusses),
+//   * gedeckelt auf 35 % der Energie (hart 40 %, falls sonst 1,2 g/kg
+//     unterschritten wuerden),
+//   * Fett 25 % der kcal, Kohlenhydrate der Rest — und der ist damit immer
+//     ≥ 35 % der Energie, also ≥ 105 g beim 1200er-Boden.
 //
-// G4 (docs/REVIEW-2026-08-08.md): Die frueheren „Clamp"-Tests erreichten
-// keinen einzigen Clamp — das Decken-Profil kam auf 636 g Kohlenhydrate
-// (Grenze 800), das Boden-Profil auf 18 g (Grenze 0). `lessThanOrEqualTo(800)`
-// war trivial wahr. Die Profile unten sind aus dem gesamten gueltigen
-// Eingaberaum (ProfileLimits) hergeleitet und treffen die Grenzen exakt;
-// jeder dieser Tests wird rot, wenn man den zugehoerigen Clamp entfernt.
+// G4 (docs/REVIEW-2026-08-08.md) bleibt die Leitlinie: Clamp-Tests muessen den
+// Clamp wirklich treffen. Zwei der alten Treffer (negative Kohlenhydrate,
+// 480 g Protein bei 300 kg) sind durch die neue Formel rechnerisch
+// unerreichbar geworden — dafuer sichern die Tests hier die neuen Garantien
+// (KH-Boden, Energie-Deckel), und der DB-Rundgang bleibt.
 
 void main() {
   const calc = KcalCalculator();
 
   group('Makro-Split: exakte Formeln', () {
-    test('Protein = round(1.6 g/kg), Fett = round(25% kcal / 9)', () {
-      const base = UserProfile(); // 78 kg, neutral, sedentary, maintain
+    test('Protein = round(1.6 g/kg Referenz), Fett = round(25% kcal / 9)', () {
+      const base = UserProfile(); // 78 kg / 178 cm (BMI 24,6), maintain
       final t = calc.calculate(base);
 
+      // BMI ≤ 25: Referenz = Ist-Gewicht.
+      expect(
+        KcalCalculator.proteinReferenceWeightKg(weightKg: 78, heightCm: 178),
+        78.0,
+      );
       expect(t.proteinG, (78 * 1.6).round()); // 125
+      expect(t.kcal, 2350);
       // Fett aus 25% des gerundeten Tagesziels.
-      final expectedFat = ((t.kcal * 0.25) / 9).round();
-      expect(t.fatG, expectedFat);
+      expect(t.fatG, ((t.kcal * 0.25) / 9).round()); // 65
     });
 
     test('Carbs = round((kcal - 4*Protein - 9*Fett) / 4)', () {
@@ -47,6 +56,85 @@ void main() {
     });
   });
 
+  group('Makro-Split: Referenzgewicht (Review 2026-08-21)', () {
+    test('bis BMI 25 linear, darueber zaehlt nur ein Viertel des Ueberschusses',
+        () {
+      // 60 kg / 178 cm (BMI 18,9): 96 g wie bisher.
+      expect(calc.calculate(const UserProfile(weightKg: 60)).proteinG, 96);
+      // 90 kg / 178 cm (BMI 28,4): Normalgewicht 79,2 kg + 0,25 × 10,8 =
+      // 81,9 kg → 131 g statt 144 g nach Ist-Gewicht.
+      expect(
+        KcalCalculator.proteinReferenceWeightKg(weightKg: 90, heightCm: 178),
+        closeTo(81.9, 0.05),
+      );
+      expect(calc.calculate(const UserProfile(weightKg: 90)).proteinG, 131);
+      // 130 kg / 175 cm (BMI 42): 76,6 + 0,25 × 53,4 = 89,9 kg → 144 g
+      // statt 208 g — die alte Formel waere bei 1200 kcal auf 69 % Protein
+      // gekommen.
+      expect(
+        calc
+            .calculate(const UserProfile(weightKg: 130, heightCm: 175))
+            .proteinG,
+        144,
+      );
+    });
+
+    test('300 kg treffen die 400-g-Grenze nicht mehr — sie bleibt Vorsorge',
+        () {
+      const schwer = UserProfile(
+        weightKg: ProfileLimits.weightKgMax,
+        heightCm: 180,
+        ageYears: 40,
+        sex: BiologicalSex.male,
+      );
+      final t = calc.calculate(schwer);
+      // Referenz 81 + 0,25 × 219 = 135,75 kg → 217 g (frueher 480 → 400).
+      expect(t.proteinG, 217);
+      expect(t.proteinG, lessThan(ProfileLimits.proteinGoalGMax));
+      expect(isValidProteinGoalG(t.proteinG), isTrue);
+    });
+
+    test('Energie-Deckel: Protein hoechstens 35 %, hart 40 % der kcal', () {
+      // 100 kg / 200 cm (BMI 25 → Referenz 100 kg) / weiblich / −1 kg/Woche:
+      // Ziel 1200 kcal. 1,6 × 100 = 160 g waeren 53 % der Energie; der
+      // 35-%-Deckel (105 g) laege unter 1,2 g/kg (120 g) → harte Grenze 40 %
+      // = 120 g. Kohlenhydrate bleiben bei 106 g.
+      const deckel = UserProfile(
+        weightKg: 100,
+        heightCm: 200,
+        ageYears: 100,
+        sex: BiologicalSex.female,
+        weightGoal: WeightGoal.lose1kg,
+      );
+      final t = calc.calculate(deckel);
+      expect(t.kcal, KcalCalculator.kcalFloor);
+      expect(t.proteinG, 120);
+      expect(t.proteinG * 4, lessThanOrEqualTo(t.kcal * 0.40));
+      expect(t.fatG, 33);
+      expect(t.carbsG, 106);
+      expect(t.carbsG, greaterThanOrEqualTo(KcalCalculator.carbsMinG));
+    });
+
+    test('der alte Carb-Boden-Fall ist entschaerft', () {
+      // 154 kg / 150 cm / 76 J. / weiblich / sitzend / −1 kg pro Woche: mit
+      // 1,6 g × Ist-Gewicht und PAL 1,2 kamen hier 246 g Protein und −20 g
+      // Kohlenhydrate heraus. Jetzt: Erhaltung 2711 − 1100 = 1600 kcal,
+      // Protein 129 g (Referenz 80,7 kg), 172 g Kohlenhydrate.
+      const boden = UserProfile(
+        weightKg: 154,
+        heightCm: 150,
+        ageYears: 76,
+        sex: BiologicalSex.female,
+        weightGoal: WeightGoal.lose1kg,
+      );
+      final t = calc.calculate(boden);
+      expect(t.kcal, 1600);
+      expect(t.proteinG, 129);
+      expect(t.fatG, 44);
+      expect(t.carbsG, 172);
+    });
+  });
+
   group('Makro-Split: Rand- und Clamp-Pfade', () {
     test('alle Makros strikt > 0 fuer normale Profile', () {
       final t = calc.calculate(const UserProfile());
@@ -56,12 +144,11 @@ void main() {
     });
 
     test('Carb-Decke: 800 g werden exakt getroffen und geklemmt', () {
-      // Der EINZIGE Punkt im gesamten gueltigen Eingaberaum (Gewicht 30..300,
-      // Groesse 100..250, Alter 16..100, 3 Geschlechter, 5 PAL-Stufen,
-      // 7 Ziele), an dem der Rest ueber 800 g liegt: 85 kg / 250 cm / 16 J. /
-      // maennlich / athlete / +0,5 kg pro Woche.
-      //   Erhaltung 4441 · +550 = 4991 → gerundet 5000 (kcal-Obergrenze)
-      //   Protein 136 g · Fett 139 g
+      // Der Punkt im gueltigen Eingaberaum, an dem der Rest ueber 800 g
+      // liegt: 85 kg / 250 cm / 16 J. / maennlich / athlete / +0,5 kg pro
+      // Woche.
+      //   Erhaltung 4675 · +550 = 5225 → gerundet 5250 → kcal-Obergrenze 5000
+      //   Protein 136 g (BMI 13,6 → Ist-Gewicht) · Fett 139 g
       //   Rest = 5000 − 544 − 1251 = 3205 kcal → 801,25 g
       // Ohne `clamp` schreibt die App 801 in profiles.carbs_goal_g (Grenze
       // 800) → Constraint 23514.
@@ -82,53 +169,6 @@ void main() {
       expect(ungeklemmt, 801.25, reason: 'ohne Clamp landet 801 in der DB');
       expect(t.carbsG, ProfileLimits.carbsGoalGMax); // 800, nicht 801
       expect(isValidCarbsGoalG(t.carbsG), isTrue);
-    });
-
-    test('Carb-Boden: negativer Rest wird auf 0 geklemmt', () {
-      // 154 kg / 150 cm / 76 J. / weiblich / sitzend / −1 kg pro Woche:
-      //   Erhaltung 2323 · −1100 = 1224 → gerundet 1200 (kcal-Untergrenze)
-      //   Protein 246 g (984 kcal) · Fett 33 g (297 kcal)
-      //   Rest = 1200 − 984 − 297 = −81 kcal → −20,25 g
-      // Ohne `clamp` schreibt die App −20 in profiles.carbs_goal_g → 23514.
-      const boden = UserProfile(
-        weightKg: 154,
-        heightCm: 150,
-        ageYears: 76,
-        sex: BiologicalSex.female,
-        weightGoal: WeightGoal.lose1kg,
-      );
-      final t = calc.calculate(boden);
-
-      expect(t.kcal, KcalCalculator.kcalFloor);
-      expect(t.proteinG, 246);
-      expect(t.fatG, 33);
-      final ungeklemmt = (t.kcal - t.proteinG * 4 - t.fatG * 9) / 4;
-      expect(ungeklemmt, -20.25, reason: 'ohne Clamp landet −20 in der DB');
-      expect(t.carbsG, ProfileLimits.carbsGoalGMin); // 0, nicht −20
-      expect(isValidCarbsGoalG(t.carbsG), isTrue);
-    });
-
-    test('Protein-Decke: 1,6 g/kg ueberschreitet ab 251 kg die 400-g-Grenze',
-        () {
-      // 300 kg ist das Maximum von profiles.weight_kg. 1,6 × 300 = 480 g —
-      // profiles.protein_goal_g erlaubt hoechstens 400.
-      const schwer = UserProfile(
-        weightKg: ProfileLimits.weightKgMax,
-        heightCm: 180,
-        ageYears: 40,
-        sex: BiologicalSex.male,
-      );
-      final t = calc.calculate(schwer);
-
-      expect((schwer.weightKg * 1.6).round(), 480, reason: 'ohne Clamp: 480');
-      expect(t.proteinG, ProfileLimits.proteinGoalGMax); // 400
-      expect(isValidProteinGoalG(t.proteinG), isTrue);
-
-      // Direkt unterhalb der Schwelle bleibt der Wert unveraendert.
-      final knappDrunter = calc.calculate(schwer.copyWith(weightKg: 250));
-      expect(knappDrunter.proteinG, 400);
-      final drunter = calc.calculate(schwer.copyWith(weightKg: 200));
-      expect(drunter.proteinG, 320);
     });
 
     test('Fett-Decke ist rechnerisch unerreichbar, der Clamp ist Vorsorge', () {
@@ -152,18 +192,9 @@ void main() {
       expect(t.fatG, lessThan(ProfileLimits.fatGoalGMax));
       expect(isValidFatGoalG(t.fatG), isTrue);
     });
-
-    test('Protein skaliert linear mit dem Gewicht, unabhaengig vom kcal-Ziel',
-        () {
-      final light = calc.calculate(const UserProfile(weightKg: 60));
-      final heavy = calc.calculate(const UserProfile(weightKg: 90));
-      expect(light.proteinG, (60 * 1.6).round()); // 96
-      expect(heavy.proteinG, (90 * 1.6).round()); // 144
-      expect(heavy.proteinG, greaterThan(light.proteinG));
-    });
   });
 
-  group('Makro-Split: nichts verlaesst calculate() ausserhalb der DB-Grenzen',
+  group('Makro-Split: nichts verlaesst calculate() ausserhalb der Garantien',
       () {
     test('Rundgang durch den gesamten gueltigen Eingaberaum', () {
       // Verstoesse werden gesammelt statt einzeln behauptet: ein
@@ -195,6 +226,7 @@ void main() {
                   final wer = '$weight kg / $height cm / $age J. / '
                       '${sex.name} / ${level.name} / ${goal.name}';
 
+                  // DB-Grenzen (23514).
                   if (!isValidDailyKcalGoal(t.kcal)) {
                     verstoesse.add('$wer: daily_kcal_goal ${t.kcal}');
                   }
@@ -207,6 +239,16 @@ void main() {
                   if (!isValidFatGoalG(t.fatG)) {
                     verstoesse.add('$wer: fat_goal_g ${t.fatG}');
                   }
+                  // Neue Garantien des Reviews 2026-08-21.
+                  if (t.carbsG < KcalCalculator.carbsMinG) {
+                    verstoesse.add('$wer: nur ${t.carbsG} g Kohlenhydrate');
+                  }
+                  if (t.proteinG * 4 > t.kcal * 0.40 + 4) {
+                    verstoesse.add('$wer: Protein ${t.proteinG} g > 40 %');
+                  }
+                  if (t.kcal < KcalCalculator.kcalFloorFor(sex)) {
+                    verstoesse.add('$wer: ${t.kcal} unter der Untergrenze');
+                  }
                 }
               }
             }
@@ -217,7 +259,7 @@ void main() {
       expect(
         verstoesse,
         isEmpty,
-        reason: '${verstoesse.length} Profile schreiben 23514: '
+        reason: '${verstoesse.length} Verstoesse: '
             '${verstoesse.take(5).join(' | ')}',
       );
     });
