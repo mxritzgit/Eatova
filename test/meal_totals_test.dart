@@ -78,4 +78,104 @@ void main() {
       expect(p.kcal, 750);
     });
   });
+
+  // Slot-Aufschlüsselung für den Coach-Kontext (2026-08-21): der Coach soll
+  // „wie viel Protein nur durchs Abendessen?" beantworten können. Die
+  // Aggregation muss tag-genau filtern, je Slot summieren UND zählen, leere
+  // Slots weglassen und die kanonische Slot-Reihenfolge liefern.
+  group('slotTotalsForFoodDate', () {
+    final day = DateTime(2026, 6, 2);
+
+    test('summiert je Slot, leere Slots fehlen, anderer Tag bleibt draußen',
+        () {
+      final meals = [
+        // Abendessen: einmal per Uhrzeit (20:00), einmal erzwungen.
+        _slotMeal(todayEvening, kcal: 400, protein: '30 g', fat: '20 g'),
+        _slotMeal(today,
+            slot: MealSlot.dinner, kcal: 350, protein: '30 g', fat: '20 g'),
+        // Frühstück: ein Eintrag, erzwungen (12:30 wäre sonst Mittagessen).
+        _slotMeal(today,
+            slot: MealSlot.breakfast,
+            kcal: 200,
+            protein: '10 g',
+            carbs: '25 g',
+            fat: '5 g'),
+        // Gestern: darf heute in keinem Slot auftauchen.
+        _slotMeal(yesterday, slot: MealSlot.dinner, kcal: 999),
+      ];
+
+      final bySlot = slotTotalsForFoodDate(meals, day);
+
+      expect(bySlot.keys.toList(), [MealSlot.breakfast, MealSlot.dinner],
+          reason: 'Mittagessen/Snacks ohne Eintrag fehlen komplett');
+
+      final dinner = bySlot[MealSlot.dinner]!;
+      expect(dinner.entries, 2);
+      expect(dinner.macros.kcal, 750);
+      expect(dinner.macros.proteinG, 60);
+      expect(dinner.macros.carbsG, 100);
+      expect(dinner.macros.fatG, 40);
+
+      final breakfast = bySlot[MealSlot.breakfast]!;
+      expect(breakfast.entries, 1);
+      expect(breakfast.macros.kcal, 200);
+      expect(breakfast.macros.proteinG, 10);
+      expect(breakfast.macros.carbsG, 25);
+      expect(breakfast.macros.fatG, 5);
+    });
+
+    test('Tagesfilter greift: gestern hat seine eigenen Slot-Summen', () {
+      final meals = [
+        _slotMeal(today, slot: MealSlot.breakfast, kcal: 200),
+        _slotMeal(yesterday, slot: MealSlot.dinner, kcal: 999),
+      ];
+      final gestern = slotTotalsForFoodDate(meals, DateTime(2026, 6, 1));
+      expect(gestern.keys.toList(), [MealSlot.dinner]);
+      expect(gestern[MealSlot.dinner]!.macros.kcal, 999);
+      expect(gestern[MealSlot.dinner]!.entries, 1);
+    });
+
+    test('Reihenfolge folgt MealSlot.values, nicht der Log-Reihenfolge', () {
+      // Der Store hält loggedMeals neueste-zuerst — hier bewusst verkehrt
+      // herum eingefügt (Snack, Abendessen, Frühstück).
+      final meals = [
+        _slotMeal(today, slot: MealSlot.snack),
+        _slotMeal(today, slot: MealSlot.dinner),
+        _slotMeal(today, slot: MealSlot.breakfast),
+      ];
+      expect(
+        slotTotalsForFoodDate(meals, day).keys.toList(),
+        [MealSlot.breakfast, MealSlot.dinner, MealSlot.snack],
+      );
+    });
+
+    test('forcedSlot schlägt die Uhrzeit-Heuristik', () {
+      final meals = [
+        _slotMeal(todayEvening, slot: MealSlot.breakfast, kcal: 123),
+      ];
+      final bySlot = slotTotalsForFoodDate(meals, day);
+      expect(bySlot.keys.toList(), [MealSlot.breakfast]);
+      expect(bySlot.containsKey(MealSlot.dinner), isFalse);
+    });
+
+    test('leere Liste -> leere Map', () {
+      expect(slotTotalsForFoodDate(const [], day), isEmpty);
+    });
+  });
+}
+
+LoggedMeal _slotMeal(
+  DateTime at, {
+  MealSlot? slot,
+  int kcal = 500,
+  String protein = '30 g',
+  String carbs = '50 g',
+  String fat = '20 g',
+}) {
+  return LoggedMeal(
+    id: 'id-$at-$slot-$kcal',
+    result: _r(kcal: kcal, protein: protein, carbs: carbs, fat: fat),
+    loggedAt: at,
+    forcedSlot: slot,
+  );
 }

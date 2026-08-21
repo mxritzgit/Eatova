@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
@@ -206,8 +208,66 @@ class SheetField extends StatelessWidget {
   }
 }
 
+/// Luft zwischen oberer Safe-Area (Statusleiste, Notch, Dynamic Island) und
+/// der Oberkante eines Sheets.
+const double kSheetTopGap = 12;
+
+/// Untergrenze fuer [sheetMaxHeight]: bei extremen Werten (kleiner Bildschirm,
+/// hohe Tastatur, Querformat) schrumpft ein Sheet nicht unter diese Hoehe —
+/// lieber ragt es in Grenzfaellen an den Rand, als dass der Kopf mit seinen
+/// Aktionen in einem Streifen von wenigen Pixeln verschwindet.
+const double kSheetMinHeight = 320;
+
+/// Die hoechste Hoehe, die ein Bottom-Sheet auf diesem Bildschirm haben darf,
+/// ohne unter die obere Safe-Area zu rutschen.
+///
+/// `size.height - viewPadding.top - viewInsets.bottom - kSheetTopGap`, nie
+/// kleiner als [kSheetMinHeight].
+///
+/// Warum nicht ein fester Anteil (`size.height * 0.92`)? Ein Sheet liegt
+/// oberhalb der Tastatur (`Padding(bottom: viewInsets.bottom)`), und der
+/// Anteil kannte die Tastatur nicht: Sheet-Hoehe plus Tastatur ueberstiegen
+/// die Bildschirmhoehe, die Route klemmte das Sheet auf `Bildschirm minus
+/// Tastatur` — und damit bis an den oberen Rand, unter Statusleiste und
+/// Dynamic Island. Der Kopf mit Kamera/Galerie/Barcode war auf dem iPhone
+/// nicht mehr zu sehen. Ohne Tastatur waren 8 % auf Geraeten mit 59 pt
+/// Safe-Area ohnehin knapp. Mit dieser Formel schrumpft bei offener
+/// Tastatur der Scrollbereich, nicht der sichtbare Kopf.
+///
+/// Reine Funktion ueber den Daten — fuer Sheets im Baum steht
+/// [sheetMaxHeightOf] bereit, das die obere Safe-Area korrekt beschafft.
+double sheetMaxHeight(MediaQueryData mediaQuery) {
+  final available = mediaQuery.size.height -
+      mediaQuery.viewPadding.top -
+      mediaQuery.viewInsets.bottom -
+      kSheetTopGap;
+  return math.max(kSheetMinHeight, available);
+}
+
+/// [sheetMaxHeight] fuer den Build-Kontext eines Sheets.
+///
+/// Im Builder von `showModalBottomSheet` ist `viewPadding.top` bereits 0:
+/// die Route legt `MediaQuery.removePadding(removeTop: true)` um ihr Kind
+/// (damit ein `SafeArea` IM Sheet oben keine Luecke reisst), und
+/// `removePadding` zieht dabei auch `viewPadding.top` auf 0. Die Formel
+/// liefe dort ins Leere. Die Safe-Area des Geraets kennt aber weiterhin der
+/// [FlutterView]; von dort kommt sie, wenn die MediaQuery sie nicht mehr
+/// traegt. `useSafeArea: true` an der Route waere keine Loesung — das setzt
+/// den Wert genauso auf 0 und nimmt dem Sheet zusaetzlich die 12 pt Luft.
+double sheetMaxHeightOf(BuildContext context) {
+  final mediaQuery = MediaQuery.of(context);
+  final viewTop = MediaQueryData.fromView(View.of(context)).viewPadding.top;
+  if (viewTop <= mediaQuery.viewPadding.top) return sheetMaxHeight(mediaQuery);
+  return sheetMaxHeight(
+    mediaQuery.copyWith(
+      viewPadding: mediaQuery.viewPadding.copyWith(top: viewTop),
+    ),
+  );
+}
+
 /// Oeffnet [sheet] als Eatova-Bottom-Sheet: scrollgesteuert, auf [AppTokens.bg],
-/// mit Ziehgriff, [rSheet]-Kappe und Tastatur-Ausgleich.
+/// mit Ziehgriff, [rSheet]-Kappe, Tastatur-Ausgleich und Safe-Area-Deckel
+/// ([sheetMaxHeight]).
 Future<T?> showEatovaSheet<T>(BuildContext context, Widget sheet) {
   final t = context.t;
   return showModalBottomSheet<T>(
@@ -222,7 +282,18 @@ Future<T?> showEatovaSheet<T>(BuildContext context, Widget sheet) {
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
       ),
-      child: sheet,
+      child: ConstrainedBox(
+        // Der Deckel gilt fuer das ganze Sheet; `showDragHandle` setzt den
+        // Griff als `kMinInteractiveDimension` hohes Polster UEBER den
+        // Builder-Inhalt (Stack + Padding in BottomSheet.build), also geht
+        // er hier ab. Ohne Deckel fuellt ein langer Inhalt (SheetScaffold
+        // bei grosser Schrift, offene Tastatur im Feld) den Rest des
+        // Bildschirms bis unter die Statusleiste.
+        constraints: BoxConstraints(
+          maxHeight: sheetMaxHeightOf(sheetContext) - kMinInteractiveDimension,
+        ),
+        child: sheet,
+      ),
     ),
   );
 }

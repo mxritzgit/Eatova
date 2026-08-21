@@ -585,7 +585,9 @@ void main() {
     testWidgets('bei normaler Schrift kommt es ohne Scrollen aus',
         (tester) async {
       // Das ist keine Kosmetik-Pruefung, sondern eine Funktionspruefung.
-      // Sobald der Inhalt den 92-%-Deckel reisst, wird das Sheet scrollbar —
+      // Sobald der Inhalt den Deckel reisst (seit 2026-08-21 `sheetMaxHeight`:
+      // Bildschirm minus Safe-Area minus Tastatur minus 12 px — im
+      // Test-Viewport ohne beides also 840 px), wird das Sheet scrollbar —
       // und dann passieren ZWEI Dinge: der Speichern-Knopf rutscht unter den
       // Bildschirmrand (Taps gehen ins Leere), und der Verwerfen-Schutz
       // verliert seinen Zug-Weg, weil ein Scroller die Gestenarena gegen den
@@ -614,10 +616,16 @@ void main() {
           '(Rest-Scrollweg: $rest px)');
       expect(rest, 0.0,
           reason: 'Das Sheet scrollt — gemessener Inhalt: ${hoehe + rest} px '
-              'auf 852 px Bildschirm (Deckel 92 % = 783,84 px).');
+              'auf 852 px Bildschirm (Deckel sheetMaxHeight = 840 px).');
       // 1179/3 x 2556/3 = 393 x 852 logische Pixel. Der Test-Font ist der
       // schlimmste Fall (jede Glyphe ein volles Geviert) — auf dem Geraet
       // faellt das Sheet mit Archivo deutlich kuerzer aus.
+      //
+      // Die 92 % sind seit dem Safe-Area-Deckel kein Produktwert mehr, die
+      // Schranke bleibt aber BEWUSST bei 783,84 px: auf einem iPhone 14 Pro
+      // (844 px, 59 pt Dynamic Island) sind nur 773 px frei — ein Inhalt, der
+      // hier 784 px braucht, wuerde dort bereits scrollen. Die engere Grenze
+      // ist also die ehrlichere.
       expect(hoehe, lessThan(852 * 0.92));
       // Untergrenze als Plausibilitaets-Anker: waere hier ploetzlich ein
       // Bruchteil, haette das Sheet seinen Inhalt verloren.

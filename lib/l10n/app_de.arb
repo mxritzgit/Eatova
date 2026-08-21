@@ -101,6 +101,15 @@
   "foodEntryDeleteSemantics": "Eintrag löschen",
   "foodPortionFallback": "1 Portion",
   "foodEditMealTitle": "Mahlzeit bearbeiten",
+  "foodMacroSummary": "P {protein} g · K {carbs} g · F {fat} g",
+  "@foodMacroSummary": {
+    "placeholders": {
+      "protein": { "type": "int" },
+      "carbs": { "type": "int" },
+      "fat": { "type": "int" }
+    }
+  },
+  "foodSlotTotalLabel": "Gesamt",
   "foodDiarySlotSummary": "{kcal} kcal · {count, plural, one{{count} Eintrag} other{{count} Einträge}}",
   "@foodDiarySlotSummary": {
     "placeholders": {

@@ -624,7 +624,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
   Widget build(BuildContext context) {
     final t = context.t;
     final mediaQuery = MediaQuery.of(context);
-    final maxHeight = mediaQuery.size.height * 0.92;
+    // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
+    // mit offener Suchfeld-Tastatur schob der feste Anteil das Sheet bis
+    // unter die Dynamic Island — der Kopf mit Kamera/Galerie/Barcode war auf
+    // dem iPhone nicht mehr zu sehen. Jetzt schrumpft der Scrollbereich.
+    final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
 
     // Kein SheetScaffold: das Sheet traegt drei fixe Zonen (Kopf, Suchleiste,
@@ -633,6 +637,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(
+        key: const ValueKey('add-meal-sheet'),
         constraints: BoxConstraints(maxHeight: maxHeight),
         decoration: BoxDecoration(
           color: t.bg,

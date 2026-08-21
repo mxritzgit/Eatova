@@ -97,6 +97,15 @@ Duration durationUntilNextLocalMidnight(DateTime now) {
   return delta > Duration.zero ? delta : const Duration(minutes: 1);
 }
 
+/// Spiegel von `MAX_USER_CONTEXT_CHARS` in coach-chat/guardrails.ts — die
+/// Edge Function schneidet `user_context` hart dort ab (Ende weg). Hier nur
+/// als dokumentierte Obergrenze für die Längen-Tests des
+/// [_HomeStoreBase.coachContext]; der Store kappt selbst nicht, der Server
+/// bleibt die Autorität. Ein Test gleicht den Wert gegen guardrails.ts ab,
+/// damit der Spiegel nicht wieder veraltet (bis 2026-08-21 stand in den
+/// Kommentaren noch der alte Wert 600).
+const int kCoachContextCapChars = 1200;
+
 /// Gemeinsamer Kern der [HomeStore]-Parts: Konstruktor-Dependencies, der von
 /// mehreren Parts geteilte State sowie die kleinen puren Helfer/Sichten
 /// darauf. Die Part-Mixins haengen per `on`-Klausel hieran (bzw. aneinander),
@@ -181,6 +190,23 @@ abstract class _HomeStoreBase extends ChangeNotifier {
 
   /// Kompakter Tages-/Profil-Snapshot für den AI-Coach, damit er konkret statt
   /// generisch beraten kann (z.B. „dir fehlen heute 38 g Protein").
+  ///
+  /// Aufbau in FESTER Reihenfolge, weil die Edge Function `user_context` hart
+  /// bei [kCoachContextCapChars] Zeichen kappt (coach-chat/guardrails.ts,
+  /// `MAX_USER_CONTEXT_CHARS`) und dabei schlicht das Ende abschneidet:
+  ///  1. Sprach-Hinweis (englisch, fürs Modell),
+  ///  2. Körpergewicht, Tagesbilanz, offene Makros (Kernwerte),
+  ///  3. Makros PRO MAHLZEIT-SLOT ([_todaysSlotSummary], seit 2026-08-21),
+  ///  4. die Lebensmittelliste ([_todaysFoodSummary]) — einzige Zeile, die
+  ///     die Kappung treffen darf.
+  ///
+  /// Zeile 3 existiert, weil der Coach bis dahin nur Tagessummen und eine
+  /// Namensliste mit kcal pro Eintrag kannte: auf „wie viel Protein habe ich
+  /// nur durchs Abendessen gegessen?" konnte er nichts Belastbares sagen —
+  /// die Makros pro Eintrag stehen bewusst nicht in der Liste (Platz). Die
+  /// Slot-Summen sind kurz (max. vier Slots, ~250 Zeichen) und stehen VOR der
+  /// Liste, damit sie die Kappung garantiert überleben; die Liste kürzt sich
+  /// stattdessen über `maxFoods`/40-Zeichen-Namen.
   String get coachContext {
     final p = profile;
     final remKcal = p.dailyKcalGoal - dailyConsumedKcal;
@@ -192,7 +218,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       // ein stabiler, IMMER englischer Hinweis fuers Modell (kein UI-Text,
       // deshalb keine ARB-Anbindung), analog einem Protokoll-Feld. Bewusst
       // ZUERST, nicht ans Ende (wie _todaysFoodSummary) angehaengt: die
-      // 600-Zeichen-Kappung der Edge Function darf nur die Essensliste
+      // Zeichen-Kappung der Edge Function darf nur die Essensliste
       // treffen, nie diese Zeile. Die Daten selbst bleiben deutsch — das
       // LLM versteht sie unabhaengig von der App-Sprache, die Language Rule
       // im System-Prompt steuert nur die ANTWORTsprache.
@@ -203,20 +229,49 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
           'Fett $remFat g.',
     ];
+    // Slot-Summen VOR der Essensliste (s. Getter-Doku): kurz, begrenzt auf
+    // vier Slots, und die einzige Quelle fuer Makros je Mahlzeit.
+    final perSlot = _todaysSlotSummary();
+    if (perSlot != null) lines.add(perSlot);
     // Konkrete Lebensmittel-Namen zuletzt anhängen, damit der Coach auf „was
     // habe ich heute gegessen?" antworten kann. Bewusst als LETZTE Zeile: der
-    // 600-Zeichen-Cap der Edge Function kappt so nur die Essensliste, nie die
-    // kcal-/Makro-Kernwerte davor.
+    // Zeichen-Cap der Edge Function kappt so nur die Essensliste, nie die
+    // kcal-/Makro-Kernwerte und Slot-Summen davor.
     final foods = _todaysFoodSummary();
     if (foods != null) lines.add(foods);
     return lines.join(' ');
   }
 
+  /// Makros und kcal PRO MAHLZEIT-SLOT für heute, z. B.
+  /// „Pro Mahlzeit heute: Frühstück 420 kcal (P 25 g, K 50 g, F 12 g,
+  /// 2 Einträge); Abendessen 980 kcal (P 62 g, K 90 g, F 35 g, 5 Einträge)."
+  /// — oder null, wenn heute nichts geloggt ist (dann fehlt die Zeile im
+  /// Kontext komplett statt als leerer Satz).
+  ///
+  /// Nur Slots mit Einträgen, in [MealSlot]-Reihenfolge; die Aggregation
+  /// selbst ist die reine, unit-getestete [totals.slotTotalsForFoodDate].
+  /// Slot-Name über [MealSlotLabel.germanLabel] wie in [_todaysFoodSummary]:
+  /// der Kontext ist bewusst deutsch, das Modell antwortet in der App-Sprache.
+  /// Gramm gerundet — Nachkommastellen aus dem Parser wären hier nur Rauschen.
+  String? _todaysSlotSummary() {
+    final bySlot = totals.slotTotalsForFoodDate(loggedMeals, clock.now());
+    if (bySlot.isEmpty) return null;
+    final parts = bySlot.entries.map((e) {
+      final m = e.value.macros;
+      final n = e.value.entries;
+      final count = n == 1 ? '1 Eintrag' : '$n Einträge';
+      return '${e.key.germanLabel} ${m.kcal} kcal '
+          '(P ${m.proteinG.round()} g, K ${m.carbsG.round()} g, '
+          'F ${m.fatG.round()} g, $count)';
+    }).join('; ');
+    return 'Pro Mahlzeit heute: $parts.';
+  }
+
   /// Kompakte Auflistung der heute geloggten Mahlzeiten (Slot: Name (kcal)),
   /// oder null wenn nichts geloggt ist. Gekappt auf [maxFoods] Einträge und
-  /// die Namen auf 40 Zeichen, damit der Kontext den 600-Zeichen-Rahmen der
-  /// Edge Function nicht sprengt; bei mehr Einträgen signalisiert „…" die
-  /// gekürzte Liste.
+  /// die Namen auf 40 Zeichen, damit der Kontext den Zeichen-Rahmen der Edge
+  /// Function ([kCoachContextCapChars]) nicht sprengt; bei mehr Einträgen
+  /// signalisiert „…" die gekürzte Liste.
   String? _todaysFoodSummary() {
     const maxFoods = 10;
     final meals = mealsForFoodDate(clock.now());

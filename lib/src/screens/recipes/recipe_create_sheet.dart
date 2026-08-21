@@ -538,9 +538,10 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // Speichern-Knopf muss ein `FilledButton` mit `recipe-create-save` bleiben.
     return Container(
       key: const ValueKey('recipe-create-sheet'),
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.92,
-      ),
+      // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
+      // acht Textfelder — mit offener Tastatur schob der feste Anteil die
+      // Oberkante unter Statusleiste/Dynamic Island.
+      constraints: BoxConstraints(maxHeight: sheetMaxHeightOf(context)),
       decoration: BoxDecoration(
         color: t.bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),

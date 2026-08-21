@@ -5,6 +5,7 @@ import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
+import '../design/sheets.dart';
 
 /// Formular für eigene Nährwerte (Spec 2026-08-13): Werte vom Etikett PRO
 /// 100 g plus die gegessene Portion — `MealAnalysisResult.manualEntry`
@@ -226,7 +227,9 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
       padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
       child: Container(
         key: const ValueKey('manual-meal-sheet'),
-        constraints: BoxConstraints(maxHeight: mediaQuery.size.height * 0.92),
+        // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
+        // fuenf Eingabefelder, die Tastatur ist hier praktisch immer offen.
+        constraints: BoxConstraints(maxHeight: sheetMaxHeightOf(context)),
         decoration: BoxDecoration(
           color: t.bg,
           borderRadius: const BorderRadius.vertical(

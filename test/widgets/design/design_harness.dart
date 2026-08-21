@@ -20,6 +20,26 @@ void pinPhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+/// iPhone 14 Pro: 390x844 logisch, 59 pt Dynamic Island, 34 pt Home-Balken —
+/// wahlweise mit offener Tastatur (336 pt). Anders als [pinPhoneViewport]
+/// setzt das auch Safe-Area und Tastatur am [FlutterView], damit Sheets ihre
+/// Hoehe gegen echte Geraete-Insets rechnen (`sheetMaxHeight`).
+void pinIphone14Pro(WidgetTester tester, {bool keyboard = false}) {
+  const dpr = 3.0;
+  tester.view.devicePixelRatio = dpr;
+  tester.view.physicalSize = const Size(390 * dpr, 844 * dpr);
+  tester.view.viewPadding =
+      const FakeViewPadding(top: 59 * dpr, bottom: 34 * dpr);
+  // Mit Tastatur verdeckt diese den Home-Balken: `padding.bottom` faellt
+  // auf 0, `viewPadding.bottom` bleibt — so meldet es auch die Engine.
+  tester.view.padding = keyboard
+      ? const FakeViewPadding(top: 59 * dpr)
+      : const FakeViewPadding(top: 59 * dpr, bottom: 34 * dpr);
+  tester.view.viewInsets =
+      keyboard ? const FakeViewPadding(bottom: 336 * dpr) : FakeViewPadding.zero;
+  addTearDown(tester.view.reset);
+}
+
 /// [child] im vollstaendigen Eatova-Theme, mit dem Seitenrand, den die
 /// Screens spaeter auch setzen (20 px).
 Widget designHarness(
