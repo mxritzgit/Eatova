@@ -262,7 +262,10 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   Widget build(BuildContext context) {
     final t = context.t;
     final mediaQuery = MediaQuery.of(context);
-    final maxHeight = mediaQuery.size.height * 0.92;
+    // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
+    // derselbe Deckel wie im Add-Meal-Sheet, damit der fixe Kopf nie unter
+    // Statusleiste/Dynamic Island geraet.
+    final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
 
     // Bewusst kein SheetScaffold: das braucht einen fixen Titel plus genau

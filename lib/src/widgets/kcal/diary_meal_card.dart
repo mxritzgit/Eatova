@@ -6,6 +6,7 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
+import '../../models/macro_progress.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/motion.dart';
@@ -61,9 +62,12 @@ class DiaryMealCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final color = slot.accentIn(context);
-    final kcal = entries.fold<int>(
-      0,
-      (sum, e) => sum + e.meal.result.caloriesKcal,
+    // kcal UND Makros des Slots aus einer Summe — dieselbe Zahlenbasis wie
+    // die Tagesbilanz (MacroProgress), statt die Gramm-Strings hier noch
+    // einmal zu parsen.
+    final total = entries.fold<MacroProgress>(
+      MacroProgress.empty,
+      (sum, e) => sum.add(e.meal.result),
     );
 
     return AppCard(
@@ -96,11 +100,26 @@ class DiaryMealCard extends StatelessWidget {
                       Text(
                         entries.isEmpty
                             ? l10n.todayMealSlotEmpty
-                            : l10n.foodDiarySlotSummary(kcal, entries.length),
+                            : l10n.foodDiarySlotSummary(
+                                total.kcal,
+                                entries.length,
+                              ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppType.display(11.5, color: t.ink2),
                       ),
+                      // Slot-Makros als eigene Zeile unter der Summe — die
+                      // Summenzeile selbst bleibt unveraendert (Tests lesen
+                      // sie als Ganzes).
+                      if (entries.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 1),
+                        Text(
+                          _macroLine(l10n, total),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.display(11, color: t.ink2),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -135,6 +154,13 @@ class DiaryMealCard extends StatelessWidget {
     );
   }
 }
+
+/// „P 12 g · K 48 g · F 6 g" (en: „P 12 g · C 48 g · F 6 g") — gerundete
+/// Gramm aus einer [MacroProgress]-Summe. Fuer den Slot-Kopf (alle Eintraege)
+/// und jede Verlaufszeile (ein Eintrag) dieselbe Funktion, damit Zeilen und
+/// Kopf nie auseinanderlaufen.
+String _macroLine(AppLocalizations l10n, MacroProgress m) =>
+    l10n.foodMacroSummary(m.proteinG.round(), m.carbsG.round(), m.fatG.round());
 
 /// Der Forest-Plus-Knopf der Slot-Karte.
 class _SlotAddButton extends StatelessWidget {
@@ -394,6 +420,13 @@ class _HistoryEntryState extends State<_HistoryEntry>
     final meal = widget.meal;
     final grams = meal.result.estimatedGrams;
     final amount = grams > 0 ? '~$grams g' : l10n.foodPortionFallback;
+    // Sind alle drei Makros unbekannt (Altbestand ohne Naehrwerte), gibt es
+    // keine Makro-Zeile: „P 0 g · K 0 g · F 0 g" saehe nach einer Messung
+    // aus. Gleiche Regel wie in ExistingMealsList; die Slot-Summe im Kopf
+    // zeigt 0 dagegen immer (wie die Tagesringe).
+    final rowMacros = MacroProgress.empty.add(meal.result);
+    final hasMacros =
+        rowMacros.proteinG > 0 || rowMacros.carbsG > 0 || rowMacros.fatG > 0;
 
     return FadeTransition(
       opacity: _in,
@@ -449,13 +482,29 @@ class _HistoryEntryState extends State<_HistoryEntry>
                           // Der Slot steht hier ein zweites Mal (die Karte
                           // nennt ihn schon): die Zeile bleibt so auch
                           // ausserhalb ihrer Karte selbsterklaerend — und
-                          // edit_meal_sheet_test liest genau dieses Format.
+                          // edit_meal_sheet_test liest genau dieses Format
+                          // als EIN Text-Widget.
                           Text(
                             '${meal.slot.label(l10n)} · $amount',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppType.ui(11, color: t.ink2),
                           ),
+                          // Makros der Mahlzeit als DRITTE Zeile, nicht neben
+                          // „Slot · Menge": neben der kcal-Spalte bleiben bei
+                          // 390 pt und Textskalierung 1.3 nur ~110 pt fuer
+                          // „P 12 g · K 48 g · F 6 g" — die Zeile wuerde
+                          // abgeschnitten (diary_meal_card_macros_test misst
+                          // das mit den echten Schriften).
+                          if (hasMacros) ...<Widget>[
+                            const SizedBox(height: 2),
+                            Text(
+                              _macroLine(l10n, rowMacros),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppType.display(11, color: t.ink2),
+                            ),
+                          ],
                         ],
                       ),
                     ),

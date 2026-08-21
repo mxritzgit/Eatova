@@ -343,7 +343,9 @@ class _EditMealSheetState extends State<EditMealSheet> {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final maxHeight = mediaQuery.size.height * 0.92;
+    // Safe-Area-bewusst statt fester 92 % (sheetMaxHeight): das Sheet darf
+    // nie unter Statusleiste/Dynamic Island ragen.
+    final maxHeight = sheetMaxHeightOf(context);
 
     return PopScope<MealEditOutcome?>(
       // Nur solange wirklich etwas offen ist. Ohne Aenderung schliesst das
