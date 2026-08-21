@@ -23,12 +23,12 @@ void main() {
   const calc = KcalCalculator();
 
   // Standardprofil: 78 kg / 178 cm / 30 J. / neutral / sitzend.
-  // BMR 1664,5 · Erhaltung 2330 (×1,4) · Deckel 825 kcal/Tag (1 % = 858, auf
-  // 0,05 kg/Woche = 0,75 abgerundet).
+  // BMR 1664,5 · Erhaltung 2164 (×1,3, ohne Gehen) · Deckel 825 kcal/Tag
+  // (1 % = 858, auf 0,05 kg/Woche = 0,75 abgerundet).
   const standard = UserProfile();
 
   // Kleineres weibliches Profil: 55 kg / 160 cm / 35 J. / weiblich / sitzend.
-  // BMR 1214 · Erhaltung 1700 (×1,4) · Deckel 605 kcal/Tag (1 % = 0,55
+  // BMR 1214 · Erhaltung 1578 (×1,3) · Deckel 605 kcal/Tag (1 % = 0,55
   // kg/Woche).
   const frau = UserProfile(
     weightKg: 55,
@@ -42,10 +42,10 @@ void main() {
     test('lose1kg: gewuenscht 1100 kcal, ausgegeben 1200 kcal', () {
       final t = calc.calculate(frau.copyWith(weightGoal: WeightGoal.lose1kg));
 
-      expect(t.maintenanceKcal, 1700);
-      // Erst der Deckel: 1700 − 605 = 1095 → auf 50 gerundet 1100.
+      expect(t.maintenanceKcal, 1578);
+      // Erst der Deckel: 1578 − 605 = 973 → auf 50 gerundet 950.
       expect(t.appliedKcalDelta, -605);
-      expect(t.uncappedKcal, 1100);
+      expect(t.uncappedKcal, 950);
       // Dann die Untergrenze fuer Frauen.
       expect(t.floor, KcalCalculator.kcalFloor);
       expect(t.kcal, KcalCalculator.kcalFloor);
@@ -53,15 +53,15 @@ void main() {
       expect(t.ceilingApplied, isFalse);
     });
 
-    test('effektive Rate ist 0,45 kg/Woche, nicht die versprochene 1,0', () {
+    test('effektive Rate ist 0,35 kg/Woche, nicht die versprochene 1,0', () {
       final t = calc.calculate(frau.copyWith(weightGoal: WeightGoal.lose1kg));
 
-      // 1700 − 1200 = 500 kcal/Tag ≙ 500 × 7 / 7700 = 0,4545 kg/Woche.
-      expect(t.effectiveKcalDelta, -500);
-      expect(t.effectiveWeeklyRateKg, closeTo(-0.4545, 0.0005));
+      // 1578 − 1200 = 378 kcal/Tag ≙ 378 × 7 / 7700 = 0,3436 kg/Woche.
+      expect(t.effectiveKcalDelta, -378);
+      expect(t.effectiveWeeklyRateKg, closeTo(-0.3436, 0.0005));
       expect(t.promisedWeeklyRateKg, -1.0);
       expect(t.matchesPromisedPace, isFalse);
-      expect(t.effectivePaceLabel(), '−0,45 kg/Woche');
+      expect(t.effectivePaceLabel(), '−0,35 kg/Woche');
     });
 
     test('lose075kg und lose1kg: identischer Plan ⇒ identisches Versprechen',
@@ -85,13 +85,13 @@ void main() {
       );
     });
 
-    test('weeksToGoal folgt der effektiven Rate: 11 statt 5 Wochen', () {
+    test('weeksToGoal folgt der effektiven Rate: 15 statt 5 Wochen', () {
       final profil = frau.copyWith(weightGoal: WeightGoal.lose1kg);
-      // 5 kg / 0,4545 kg pro Woche = 11 Wochen (versprochen waeren 5).
-      expect(calc.weeksToGoal(profil), 11);
+      // 5 kg / 0,3436 kg pro Woche = 14,6 → 15 Wochen (versprochen waeren 5).
+      expect(calc.weeksToGoal(profil), 15);
       expect(
         calc.weeksToGoalRange(profil),
-        (linearWeeks: 11, dynamicWeeks: 13),
+        (linearWeeks: 15, dynamicWeeks: 18),
       );
     });
 
@@ -100,14 +100,14 @@ void main() {
         standard.copyWith(weightGoal: WeightGoal.lose05kg),
       );
 
-      expect(t.kcal, 1800);
+      expect(t.kcal, 1600);
       expect(t.floorApplied, isFalse);
       expect(t.deficitCapApplied, isFalse);
-      // 2330 − 1800 = 530 statt 550 — reine 50er-Rundung, kein gebrochenes
+      // 2164 − 1600 = 564 statt 550 — reine 50er-Rundung, kein gebrochenes
       // Versprechen (Rauschgrenze 0,05 kg/Woche ≙ 55 kcal/Tag). Das Label
       // rastert auf 0,05 und zeigt deshalb die gewaehlte runde Zahl, nicht
-      // „−0,48".
-      expect(t.effectiveKcalDelta, -530);
+      // „−0,51".
+      expect(t.effectiveKcalDelta, -564);
       expect(t.matchesPromisedPace, isTrue);
       expect(t.effectivePaceLabel(), '−0,5 kg/Woche');
       expect(t.paceWarning(), isNull);
@@ -119,8 +119,8 @@ void main() {
 
       expect(hinweis, isNotNull);
       expect(hinweis, contains('1200'));
-      expect(hinweis, contains('1100'));
-      expect(hinweis, contains('0,45'));
+      expect(hinweis, contains('950'));
+      expect(hinweis, contains('0,35'));
       // Die Untergrenze ist bindender als der Deckel — nur SIE wird genannt.
       expect(hinweis, isNot(contains('1 %')));
     });
@@ -134,7 +134,7 @@ void main() {
       expect(t.maxDeficitKcal, 825);
       expect(t.appliedKcalDelta, -825);
       expect(t.deficitCapApplied, isTrue);
-      expect(t.kcal, 1500);
+      expect(t.kcal, 1350); // 2164 − 825 = 1339 → 1350 = Untergrenze „divers"
       expect(t.floorApplied, isFalse);
       expect(t.effectivePaceLabel(), '−0,75 kg/Woche');
 
@@ -157,8 +157,12 @@ void main() {
       final t = calc.calculate(hundert);
       expect(t.maxDeficitKcal, 1100);
       expect(t.deficitCapApplied, isFalse);
-      expect(t.kcal, 1600);
-      expect(t.paceWarning(), isNull);
+      // Hier greift statt des Deckels die Maenner-Untergrenze (2509 − 1100 =
+      // 1409 → 1400 → 1500); der Hinweis nennt die Untergrenze, nicht 1 %.
+      expect(t.kcal, 1500);
+      expect(t.floorApplied, isTrue);
+      expect(t.paceWarning(), contains('1500'));
+      expect(t.paceWarning(), isNot(contains('1 %')));
     });
 
     test('Deckel = Gewicht × 11 (1 % × 7700 ÷ 7), auf 0,05 kg/Woche abgerundet',
@@ -173,8 +177,8 @@ void main() {
   });
 
   group('B2 · Obergrenze in der Zunahme-Richtung', () {
-    // 160 kg / 200 cm / 20 J. / maennlich / athlete: Erhaltung 5510 kcal.
-    // +550 → 6060 → auf 50 gerundet 6050 → Obergrenze 5000.
+    // 160 kg / 200 cm / 20 J. / maennlich / athlete: Erhaltung 5235 kcal.
+    // +550 → 5785 → auf 50 gerundet 5800 → Obergrenze 5000.
     const gross = UserProfile(
       weightKg: 160,
       heightCm: 200,
@@ -188,13 +192,13 @@ void main() {
     test('Obergrenze macht aus dem Ueberschuss ein Defizit', () {
       final t = calc.calculate(gross);
 
-      expect(t.maintenanceKcal, 5510);
-      expect(t.uncappedKcal, 6050);
+      expect(t.maintenanceKcal, 5235);
+      expect(t.uncappedKcal, 5800);
       expect(t.kcal, KcalCalculator.kcalCeiling);
       expect(t.ceilingApplied, isTrue);
       // Wer +0,5 kg/Woche gewaehlt hat, bekommt real ein Defizit von
-      // 510 kcal/Tag — die Richtung kippt.
-      expect(t.effectiveKcalDelta, -510);
+      // 235 kcal/Tag — die Richtung kippt.
+      expect(t.effectiveKcalDelta, -235);
       expect(t.effectiveWeeklyRateKg, lessThan(0));
       expect(t.matchesPromisedPace, isFalse);
       expect(t.paceWarning(), contains('5000'));
@@ -212,11 +216,11 @@ void main() {
       );
       final t = calc.calculate(profil);
 
-      expect(t.kcal, 2900);
+      expect(t.kcal, 2700);
       expect(t.ceilingApplied, isFalse);
-      expect(t.effectiveKcalDelta, 570);
-      // 10 kg / 0,5182 = 19,3 → 20 Wochen.
-      expect(calc.weeksToGoal(profil), 20);
+      expect(t.effectiveKcalDelta, 536);
+      // 10 kg / 0,4873 = 20,5 → 21 Wochen.
+      expect(calc.weeksToGoal(profil), 21);
     });
   });
 
@@ -224,8 +228,8 @@ void main() {
     test('Erhaltung: stabiles Label, keine Prognose', () {
       final t = calc.calculate(standard);
 
-      // 2330 → 2350 durch die 50er-Rundung: +20 kcal sind Rauschen.
-      expect(t.effectiveKcalDelta, 20);
+      // 2164 → 2150 durch die 50er-Rundung: −14 kcal sind Rauschen.
+      expect(t.effectiveKcalDelta, -14);
       expect(t.effectivePaceLabel(), 'Gewicht stabil');
       expect(t.matchesPromisedPace, isTrue);
       expect(
@@ -236,13 +240,13 @@ void main() {
     });
 
     test('Klemme frisst das Defizit fast vollstaendig ⇒ keine Prognose', () {
-      // 40 kg / 150 cm / 60 J. / weiblich / sitzend: Erhaltung 1227.
-      // −275 → 952 → gerundet 950 → Untergrenze 1200. Rest: −27 kcal/Tag
-      // ≙ 0,025 kg/Woche. Richtung stimmt, das Tempo ist nur bedeutungslos.
+      // 40 kg / 150 cm / 45 J. / weiblich / sitzend: Erhaltung 1237.
+      // −275 → 962 → gerundet 950 → Untergrenze 1200. Rest: −37 kcal/Tag
+      // ≙ 0,034 kg/Woche. Richtung stimmt, das Tempo ist nur bedeutungslos.
       const knapp = UserProfile(
         weightKg: 40,
         heightCm: 150,
-        ageYears: 60,
+        ageYears: 45,
         sex: BiologicalSex.female,
         targetWeightKg: 36,
         weightGoal: WeightGoal.lose025kg,
@@ -250,7 +254,7 @@ void main() {
       final t = calc.calculate(knapp);
 
       expect(t.floorApplied, isTrue);
-      expect(t.effectiveKcalDelta, -27);
+      expect(t.effectiveKcalDelta, -37);
       expect(t.effectiveWeeklyRateKg.abs(), lessThan(weeklyRateNoiseKg));
       expect(t.effectivePaceLabel(), 'Gewicht stabil');
       expect(calc.weeksToGoal(knapp), isNull);
@@ -265,8 +269,8 @@ void main() {
     });
 
     test('Untergrenze kann ein Abnehm-Ziel in einen Ueberschuss drehen', () {
-      // 35 kg / 140 cm / 80 J. / neutral: Erhaltung 1046 — die Untergrenze
-      // 1350 liegt 304 kcal DARUEBER. „Abnehmen" wuerde real Zunehmen
+      // 35 kg / 140 cm / 80 J. / neutral: Erhaltung 971 — die Untergrenze
+      // 1350 liegt 379 kcal DARUEBER. „Abnehmen" wuerde real Zunehmen
       // bedeuten.
       const winzig = UserProfile(
         weightKg: 35,
@@ -278,7 +282,7 @@ void main() {
       final t = calc.calculate(winzig);
 
       expect(t.kcal, KcalCalculator.kcalFloorNeutral);
-      expect(t.effectiveKcalDelta, 304);
+      expect(t.effectiveKcalDelta, 379);
       expect(t.effectiveWeeklyRateKg, greaterThan(0));
       expect(calc.weeksToGoal(winzig), isNull);
     });

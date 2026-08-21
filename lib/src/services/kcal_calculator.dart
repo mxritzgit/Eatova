@@ -4,30 +4,25 @@ import '../l10n/l10n.dart';
 import '../models/model_limits.dart';
 import '../models/user_profile.dart';
 
-/// Schätzt aktive Kilokalorien aus Schritten.
+/// Schätzt aktive Kilokalorien aus Schritten — **jeder Schritt zählt**.
 ///
 /// Das ist bewusst kein fixer "kcal pro Schritt"-Wert. Schritte werden erst
 /// über eine höhenbasierte Schrittlänge in Distanz umgerechnet, dann über den
 /// etablierten Netto-Energieaufwand fürs Gehen geschätzt:
 ///
-///   Distanz km = (steps − baselineSteps) × stepLengthMeters / 1000
+///   Distanz km = steps × stepLengthMeters / 1000
 ///   active kcal ≈ 0.5 × bodyWeightKg × distanceKm
 ///
 /// Die 0.5 kcal/kg/km stammen aus der horizontalen Netto-Komponente der
 /// ACSM-Walking-Gleichung (0.1 ml O2/kg/m × 5 kcal/L O2). Netto ist hier
-/// wichtig: Das Food-Ziel enthält bereits Grundumsatz/Alltag; "Verbrannt" soll
-/// nur den zusätzlichen Bewegungsbonus addieren, nicht Ruheumsatz doppelt.
-/// Messreihen (Weyand 2010, Ludlow & Weyand 2016) liegen bei 0.52–0.63 —
-/// 0.5 ist also die konservative Untergrenze, nicht die Mitte. Die alte
-/// Konstante 0.00057 kcal/Schritt/kg (bis Juni 2026) war der Omni-Calculator-
-/// BRUTTO-Wert inklusive Ruheumsatz und zählte beim Addieren auf BMR×PAL rund
-/// 110–130 kcal doppelt.
-///
-/// [baselineSteps] (Kalorien-Review 2026-08-21): Schritte, die die gewählte
-/// Aktivitätsstufe ohnehin schon enthält ([ActivityLevelInfo.baselineSteps]).
-/// Nur Schritte darüber zählen — sonst stünde der Büro-Alltag einmal im PAL
-/// und ein zweites Mal in „Verbrannt". Default 0 = alles zählt (reine
-/// Umrechnung, z. B. für Tests).
+/// wichtig: Das Food-Ziel enthält bereits Grundumsatz, Thermogenese und den
+/// Alltag OHNE Gehen ([ActivityLevelInfo.palFactor], Kalorien-Review
+/// 2026-08-21); "Verbrannt" addiert nur die Gehkosten selbst, nicht den
+/// Ruheumsatz doppelt. Messreihen (Weyand 2010, Ludlow & Weyand 2016) liegen
+/// bei 0.52–0.63 — 0.5 ist also die konservative Untergrenze, nicht die
+/// Mitte. Die alte Konstante 0.00057 kcal/Schritt/kg (bis Juni 2026) war der
+/// Omni-Calculator-BRUTTO-Wert inklusive Ruheumsatz und zählte beim Addieren
+/// auf BMR×PAL rund 110–130 kcal doppelt.
 ///
 /// Die Schrittlänge nutzt gängige Pedometer-Heuristiken aus der Körpergröße
 /// (männlich 41.5 %, weiblich 41.3 %, neutral 41.4 %) — eine Industrie-
@@ -63,15 +58,12 @@ int estimateKcalBurnedFromSteps({
   required int weightKg,
   required int heightCm,
   BiologicalSex sex = BiologicalSex.neutral,
-  int baselineSteps = 0,
 }) {
   if (steps <= 0 || weightKg <= 0 || heightCm <= 0) {
     return 0;
   }
-  final extraSteps = steps - (baselineSteps < 0 ? 0 : baselineSteps);
-  if (extraSteps <= 0) return 0;
   final distanceKm = estimateWalkingDistanceKm(
-    steps: extraSteps,
+    steps: steps,
     heightCm: heightCm,
     sex: sex,
   );

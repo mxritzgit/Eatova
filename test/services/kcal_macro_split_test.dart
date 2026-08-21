@@ -33,9 +33,9 @@ void main() {
         78.0,
       );
       expect(t.proteinG, (78 * 1.6).round()); // 125
-      expect(t.kcal, 2350);
+      expect(t.kcal, 2150);
       // Fett aus 25% des gerundeten Tagesziels.
-      expect(t.fatG, ((t.kcal * 0.25) / 9).round()); // 65
+      expect(t.fatG, ((t.kcal * 0.25) / 9).round()); // 60
     });
 
     test('Carbs = round((kcal - 4*Protein - 9*Fett) / 4)', () {
@@ -118,8 +118,9 @@ void main() {
     test('der alte Carb-Boden-Fall ist entschaerft', () {
       // 154 kg / 150 cm / 76 J. / weiblich / sitzend / −1 kg pro Woche: mit
       // 1,6 g × Ist-Gewicht und PAL 1,2 kamen hier 246 g Protein und −20 g
-      // Kohlenhydrate heraus. Jetzt: Erhaltung 2711 − 1100 = 1600 kcal,
-      // Protein 129 g (Referenz 80,7 kg), 172 g Kohlenhydrate.
+      // Kohlenhydrate heraus. Jetzt: Erhaltung 2517 − 1100 = 1400 kcal,
+      // Protein 122 g (Referenz 80,7 kg → 129 g, vom 35-%-Deckel auf 122 g
+      // gekuerzt), 140 g Kohlenhydrate.
       const boden = UserProfile(
         weightKg: 154,
         heightCm: 150,
@@ -128,10 +129,10 @@ void main() {
         weightGoal: WeightGoal.lose1kg,
       );
       final t = calc.calculate(boden);
-      expect(t.kcal, 1600);
-      expect(t.proteinG, 129);
-      expect(t.fatG, 44);
-      expect(t.carbsG, 172);
+      expect(t.kcal, 1400);
+      expect(t.proteinG, 122);
+      expect(t.fatG, 39);
+      expect(t.carbsG, 140);
     });
   });
 
@@ -147,7 +148,7 @@ void main() {
       // Der Punkt im gueltigen Eingaberaum, an dem der Rest ueber 800 g
       // liegt: 85 kg / 250 cm / 16 J. / maennlich / athlete / +0,5 kg pro
       // Woche.
-      //   Erhaltung 4675 · +550 = 5225 → gerundet 5250 → kcal-Obergrenze 5000
+      //   Erhaltung 4441 · +550 = 4991 → gerundet 5000 = kcal-Obergrenze
       //   Protein 136 g (BMI 13,6 → Ist-Gewicht) · Fett 139 g
       //   Rest = 5000 − 544 − 1251 = 3205 kcal → 801,25 g
       // Ohne `clamp` schreibt die App 801 in profiles.carbs_goal_g (Grenze

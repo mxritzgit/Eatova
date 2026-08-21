@@ -186,8 +186,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// −797 kcal ≙ −0,72 kg/Woche, und „Zügig" und „Ambitioniert" landeten
   /// **beide** dort. Der Picker versprach damit zwei verschiedene Tempi für
   /// denselben Plan, und erst der nächste Schritt korrigierte. Seit dem
-  /// Kalorien-Review 2026-08-21 (PAL 1,4, 1-%-Deckel) ergibt dasselbe Profil
-  /// 1500 kcal ≙ −0,75 kg/Woche — die Regel bleibt dieselbe.
+  /// Kalorien-Review 2026-08-21 (PAL ohne Gehen 1,3, 1-%-Deckel) ergibt
+  /// dasselbe Profil 1350 kcal ≙ −0,75 kg/Woche — die Regel bleibt dieselbe.
   ///
   /// Der Titel behält bewusst das gewählte Tempo: er ist der *Name* der Option
   /// („Ambitioniert · −1 kg/Woche"), und zwei Zeilen mit derselben effektiven
@@ -1354,7 +1354,7 @@ class _SummaryStep extends StatelessWidget {
               // B2: hier steht der **Plan**, nicht der Wunsch. `goal.paceLabel`
               // / `goal.deltaLabel` versprechen −1 kg/Woche und −1100 kcal,
               // auch wenn Sicherheitsklemme oder 1-%-Deckel daraus z. B.
-              // −0,75 kg/Woche und −830 kcal gemacht haben. Mit der effektiven
+              // −0,75 kg/Woche und −814 kcal gemacht haben. Mit der effektiven
               // Rate geht die Karte auch arithmetisch auf: Erhaltung −
               // Tagesziel = Delta.
               _BreakdownRow(
@@ -1507,7 +1507,7 @@ String _signedKcalLabel(int kcal) {
 ///
 /// **Genau zwei [Text]-Kinder** — der Test `onboarding_screen_test` liest alle
 /// Texte der Ziel-Zeile als Liste und vergleicht sie mit
-/// `['Ziel · −0,75 kg/Woche', '−830 kcal']`.
+/// `['Ziel · −0,75 kg/Woche', '−814 kcal']`.
 class _BreakdownRow extends StatelessWidget {
   const _BreakdownRow({
     super.key,

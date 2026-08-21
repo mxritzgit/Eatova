@@ -8,7 +8,6 @@ import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
@@ -34,16 +33,13 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 //      schreibt nichts fest.
 //   5. clear() raeumt den Slot (M-1: Schritte/kcal sind Gesundheitsdaten).
 //
-// Kalorien-Review 2026-08-21: "Verbrannt" zaehlt nur noch Schritte OBERHALB
-// der Basis der Aktivitaetsstufe (`ActivityLevel.baselineSteps`, sedentary =
-// 5000) — der Alltag steckt schon im PAL des Tagesziels. Die Schrittzahlen
-// hier liegen deshalb deutlich ueber der Basis (12 000 / 9000), damit die
-// Tests weiter etwas Nicht-Null pruefen; ein Tag UNTER der Basis (4000) wird
-// zwar festgeschrieben, liefert aber 0 (Kachel zeigt "—").
+// Kalorien-Review 2026-08-21: "Verbrannt" zaehlt JEDEN Schritt (ACSM-Netto,
+// 0,5 kcal/kg/km) — das Tagesziel rechnet dafuer mit einer PAL-Leiter OHNE
+// Gehen, eine Schritt-Basis gibt es nicht. Auch ein kleiner Tag (4000
+// Schritte) liefert deshalb einen Wert, nicht 0.
 
 /// Health-Double: kontrollierbare heutige Schritte + Historie pro Tag.
 class _FakeHealth implements HealthService {
-  /// Deutlich ueber der sedentary-Basis (5000), s. Kopfkommentar.
   int stepsToday = 12000;
 
   /// Antworten fuer readStepsOnDay, gekeyt per localDayKey. Fehlender
@@ -145,15 +141,13 @@ http.Client _emptyServer() => MockClient((req) async {
   return (store: store, health: health);
 }
 
-/// Dieselbe Rechnung wie HomeStore (home_store_tracking.dart): inklusive der
-/// Schritt-Basis der Aktivitaetsstufe — ohne sie kaeme der alte Brutto-Wert
-/// heraus (12 000 Schritte: 345 statt 201 kcal).
+/// Dieselbe Rechnung wie HomeStore (home_store_tracking.dart): jeder Schritt
+/// zaehlt, keine Basis.
 int _erwarteteKcal(HomeStore store, int steps) => estimateKcalBurnedFromSteps(
       steps: steps,
       weightKg: store.profile.weightKg,
       heightCm: store.profile.heightCm,
       sex: store.profile.sex,
-      baselineSteps: store.profile.activityLevel.baselineSteps,
     );
 
 void main() {
@@ -172,9 +166,9 @@ void main() {
 
     final key = localDayKey(clock.now());
     final kcal = _erwarteteKcal(s.store, 12000);
-    // Standardprofil 78 kg / 178 cm / neutral / sedentary (Basis 5000):
-    // 7000 Extra-Schritte × 0,73692 m = 5,158 km × 78 kg × 0,5 = 201,2 kcal.
-    expect(kcal, 201);
+    // Standardprofil 78 kg / 178 cm / neutral:
+    // 12 000 Schritte × 0,73692 m = 8,843 km × 78 kg × 0,5 = 344,9 kcal.
+    expect(kcal, 345);
     expect(s.store.dailyActivity[key], (steps: 12000, kcal: kcal));
     expect(await s.cache.readDailyActivity(),
         containsPair(key, (steps: 12000, kcal: kcal)));
@@ -192,27 +186,28 @@ void main() {
     expect(s.store.burnedKcalForFoodDate(tageZurueck(1)), 0);
 
     // Archivtag MIT Eintrag (per Backfill geholt): der gespeicherte Wert
-    // (4000 Extra-Schritte ueber der Basis = 115 kcal).
+    // (9000 Schritte × 0,73692 m = 6,632 km × 39 = 258,7 → 259 kcal).
     final gestern = tageZurueck(1);
     s.health.stepsByDay[localDayKey(gestern)] = 9000;
     s.store.setFoodDate(gestern);
     await Future<void>.delayed(Duration.zero);
     final gesternKcal = _erwarteteKcal(s.store, 9000);
-    expect(gesternKcal, 115);
+    expect(gesternKcal, 259);
     expect(s.store.burnedKcalForFoodDate(gestern), gesternKcal);
     // Heute bleibt live — auch wenn fuer heute ein (aelterer) Eintrag steht.
     expect(s.store.burnedKcalForFoodDate(clock.now()),
         _erwarteteKcal(s.store, 12000));
 
-    // Archivtag UNTER der Basis (4000 < 5000): der Tag wird festgeschrieben,
-    // aber ohne Bonus — 0, die Kachel zeigt "—" statt einer Doppelzaehlung.
+    // Kleiner Archivtag (4000 Schritte): auch der zaehlt voll — keine
+    // Schritt-Basis, keine Schwelle (4000 × 0,73692 m = 2,948 km × 39 =
+    // 114,96 → 115 kcal).
     final vorgestern = tageZurueck(2);
     s.health.stepsByDay[localDayKey(vorgestern)] = 4000;
     s.store.setFoodDate(vorgestern);
     await Future<void>.delayed(Duration.zero);
     expect(s.store.dailyActivity[localDayKey(vorgestern)],
-        (steps: 4000, kcal: 0));
-    expect(s.store.burnedKcalForFoodDate(vorgestern), 0);
+        (steps: 4000, kcal: 115));
+    expect(s.store.burnedKcalForFoodDate(vorgestern), 115);
   });
 
   test('Backfill fragt die Historie genau einmal pro Tag und Sitzung',
