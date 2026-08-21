@@ -11,7 +11,7 @@ import 'package:eatova/src/theme/app_theme.dart';
 // B2, Reststelle 1 — derselbe Widerspruch wie in der Plan-Karte, nur eine
 // Gruppe weiter unten im SELBEN Scroll:
 //
-//   Plan-Hero          „Erhaltung 2330 · −0,8 kg/Woche"
+//   Plan-Hero          „Erhaltung 2330 · −0,75 kg/Woche"
 //   Gewichtsziel-Zeile „Abnehmen              −1 kg/Woche"
 //
 // Anders als im Picker gibt es hier zwangslaeufig ein vollstaendiges Profil:
@@ -26,9 +26,10 @@ import 'package:eatova/src/theme/app_theme.dart';
 // Option.
 //
 // Zahlen seit dem Kalorien-Review 2026-08-21 (PAL-Leiter ab 1,4, 1-%-
-// Defizitdeckel kg × 11 kcal/Tag, geschlechtsabhaengige Untergrenze):
-// Standardprofil 78 kg / 178 cm / 30 J. / neutral / sitzend → BMR 1665,
-// Erhaltung 2330, Deckel 858 kcal/Tag, Untergrenze 1350.
+// Defizitdeckel kg × 11 kcal/Tag — auf 0,05 kg/Woche abgerundet, also
+// 55-kcal-Schritte —, geschlechtsabhaengige Untergrenze, Tempo-Labels auf
+// dem 0,05-Raster): Standardprofil 78 kg / 178 cm / 30 J. / neutral / sitzend
+// → BMR 1665, Erhaltung 2330, Deckel 858 → 825 kcal/Tag, Untergrenze 1350.
 void main() {
   /// Profil, dessen gespeicherte Energie-Ziele exakt der Rechnung entsprechen.
   /// Nur dann startet der Screen im Live-Modus (Manuell-Schalter aus).
@@ -47,10 +48,10 @@ void main() {
   }
 
   /// Profil, bei dem Deckel UND Untergrenze greifen: 55 kg / 160 cm / 35 J. /
-  /// weiblich / sitzend → Erhaltung 1700, Deckel 605 kcal/Tag, Untergrenze
-  /// 1200. „Zuegig" (−825) und „Ambitioniert" (−1100) werden beide auf −605
-  /// gedeckelt, landen bei 1100 und werden auf 1200 hochgeklemmt —
-  /// effektiv −500 kcal/Tag ≙ −0,45 kg/Woche.
+  /// weiblich / sitzend → Erhaltung 1700, Deckel 605 kcal/Tag,
+  /// Untergrenze 1200. „Moderat" (−550 → 1150), „Zuegig" (−825) und
+  /// „Ambitioniert" (−1100; beide auf den Deckel 605 → 1100) werden auf 1200
+  /// hochgeklemmt — effektiv −500 kcal/Tag ≙ −0,45 kg/Woche.
   const klemmProfil = UserProfile(
     weightKg: 55,
     heightCm: 160,
@@ -129,8 +130,8 @@ void main() {
     await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
 
     // Die Plan-Karte im selben Scroll: der 1-%-Deckel laesst statt −1100 nur
-    // −858 kcal/Tag zu → 1450 kcal; 2330 − 1450 = 880 kcal ≙ −0,8 kg/Woche.
-    expect(find.text('Erhaltung 2330 · −0,8 kg/Woche'), findsOneWidget);
+    // −825 kcal/Tag zu → 1500 kcal; 2330 − 1500 = 830 kcal ≙ −0,75 kg/Woche.
+    expect(find.text('Erhaltung 2330 · −0,75 kg/Woche'), findsOneWidget);
 
     // Das Bedienelement zeigt weiter die Auswahl — sonst sieht der Nutzer nach
     // dem Tippen etwas anderes, als er getippt hat.
@@ -147,7 +148,7 @@ void main() {
             find.byKey(const ValueKey('settings-weight-goal-effective')),
           )
           .data,
-      'Ergibt 1450 kcal/Tag · −0,8 kg/Woche',
+      'Ergibt 1500 kcal/Tag · −0,75 kg/Woche',
     );
   });
 
@@ -157,15 +158,29 @@ void main() {
     // −0,75 kg/Woche: Erhaltung 2330, Ziel 1500, real −830 kcal ≙ −0,75 kg/Woche.
     // Versprechen und Plan tragen dieselbe Beschriftung — eine erklaerende
     // Zeile waere hier nur Laerm.
-    //
-    // Frueher stand hier −0,5 kg/Woche; seit der PAL-Anhebung ergibt das 1800
-    // kcal, also −530 kcal/Tag ≙ „−0,48 kg/Woche". Das liegt zwar innerhalb
-    // des Rundungsrauschens (kein Warnsatz auf der Plan-Karte), ist aber eine
-    // ANDERE Zeichenkette als „−0,5 kg/Woche" — und die Zusatzzeile vergleicht
-    // bewusst Zeichenketten, nicht Zahlen.
     await openSettings(tester, profile: autoProfil(WeightGoal.lose075kg));
 
     expect(find.text('Erhaltung 2330 · −0,75 kg/Woche'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-weight-goal-effective')),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+      'die 50er-Rundung allein loest keine Zusatzzeile mehr aus',
+      (tester) async {
+    // −0,5 kg/Woche ergibt 1800 kcal, also −530 kcal/Tag ≙ −0,4818 kg/Woche.
+    // Zwischen PAL-Anhebung und 0,05-Raster stand hier „−0,48 kg/Woche" —
+    // innerhalb des Rundungsrauschens (kein Warnsatz auf der Plan-Karte), aber
+    // eine ANDERE Zeichenkette als das gewaehlte „−0,5 kg/Woche", und die
+    // Zusatzzeile vergleicht bewusst Zeichenketten, nicht Zahlen. Seit das
+    // Tempo-Label auf 0,05 rastert, heisst es wieder „−0,5" — die Zeile, die
+    // nur die 50er-Rundung erklaert haette, bleibt weg.
+    await openSettings(tester, profile: autoProfil(WeightGoal.lose05kg));
+
+    expect(find.text('Erhaltung 2330 · −0,5 kg/Woche'), findsOneWidget);
+    expect(find.text('−0,5 kg/Woche'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('settings-weight-goal-effective')),
       findsNothing,
@@ -178,11 +193,12 @@ void main() {
     await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
     await openGoalPicker(tester);
 
-    // „Ambitioniert" wird fuer dieses Profil vom 1-%-Deckel auf 1450 kcal
-    // gebremst, „Zuegig" (−825) passt noch unter den Deckel (858) und ergibt
-    // 1500 — der Untertitel sagt das VOR der Auswahl.
+    // „Ambitioniert" wird fuer dieses Profil vom 1-%-Deckel (858, auf die
+    // 0,05 kg/Woche = 825 abgerundet) auf −825 gebremst und landet damit
+    // wortgleich auf dem Plan von „Zuegig" (−825): beide 1500 kcal — der
+    // Untertitel sagt das VOR der Auswahl.
     expect(
-      optionText('lose1kg', 'Ergibt 1450 kcal/Tag · −0,8 kg/Woche'),
+      optionText('lose1kg', 'Ergibt 1500 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
     expect(
@@ -191,9 +207,10 @@ void main() {
     );
 
     // Wo weder Deckel noch Klemme greifen, steht dieselbe Zeile mit anderer
-    // Zahl — auch wenn die 50er-Rundung das Tempo leicht verschiebt.
+    // Zahl; die 50er-Rundung (−530 statt −550 kcal/Tag) verschwindet im
+    // 0,05-Raster des Labels.
     expect(
-      optionText('lose05kg', 'Ergibt 1800 kcal/Tag · −0,48 kg/Woche'),
+      optionText('lose05kg', 'Ergibt 1800 kcal/Tag · −0,5 kg/Woche'),
       findsOneWidget,
     );
     expect(
@@ -207,7 +224,7 @@ void main() {
   });
 
   testWidgets(
-      'in der Klemme nennen zwei Optionen wortgleich denselben Plan',
+      'in der Klemme nennen drei Optionen wortgleich denselben Plan',
       (tester) async {
     await openSettings(
       tester,
@@ -215,14 +232,19 @@ void main() {
     );
     await openGoalPicker(tester);
 
-    // „Zuegig" und „Ambitioniert" landen fuer dieses Profil beide auf 1200 kcal
-    // — der Untertitel sagt das VOR der Auswahl, wortgleich.
+    // „Moderat", „Zuegig" und „Ambitioniert" landen fuer dieses Profil alle
+    // auf 1200 kcal (Deckel 605, Untergrenze 1200) — der Untertitel sagt das
+    // VOR der Auswahl, wortgleich.
     expect(
       optionText('lose1kg', 'Ergibt 1200 kcal/Tag · −0,45 kg/Woche'),
       findsOneWidget,
     );
     expect(
       optionText('lose075kg', 'Ergibt 1200 kcal/Tag · −0,45 kg/Woche'),
+      findsOneWidget,
+    );
+    expect(
+      optionText('lose05kg', 'Ergibt 1200 kcal/Tag · −0,45 kg/Woche'),
       findsOneWidget,
     );
   });
@@ -236,14 +258,14 @@ void main() {
     await openSettings(tester, profile: const UserProfile());
 
     // Ziel „halten", aber 2200 kcal unter einer Erhaltung von 2330:
-    // −130 kcal/Tag ≙ −0,12 kg/Woche.
+    // −130 kcal/Tag ≙ −0,118 kg/Woche, im 0,05-Raster „−0,1 kg/Woche".
     expect(
       tester
           .widget<Text>(
             find.byKey(const ValueKey('settings-weight-goal-effective')),
           )
           .data,
-      'Ergibt 2200 kcal/Tag · −0,12 kg/Woche',
+      'Ergibt 2200 kcal/Tag · −0,1 kg/Woche',
     );
 
     await openGoalPicker(tester);

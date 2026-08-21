@@ -121,10 +121,10 @@ void main() {
 
     // Berechnetes Tagesziel (Kalorien-Review 2026-08-21): BMR(male,78,178,30)
     // = 1747.5 × 1.7 (moderat) = 2970.75. „−1 kg/Woche" wuenscht −1100, der
-    // 1-%-Defizitdeckel (78 kg × 11 = 858 kcal/Tag) laesst nur −858 zu
-    // → 2112.75 → auf 50 gerundet = 2100. Die Untergrenze fuer Maenner (1500)
-    // greift nicht.
-    expect(result.dailyKcalGoal, 2100);
+    // 1-%-Defizitdeckel (78 kg × 11 = 858, auf die Tempo-Stufe abgerundet =
+    // 825 kcal/Tag) laesst nur −825 zu → 2145.75 → auf 50 gerundet = 2150.
+    // Die Untergrenze fuer Maenner (1500) greift nicht.
+    expect(result.dailyKcalGoal, 2150);
     expect(result.proteinGoalG, greaterThan(0));
     expect(result.carbsGoalG, greaterThan(0));
     expect(result.fatGoalG, greaterThan(0));
@@ -436,41 +436,44 @@ void main() {
       (tester) async {
     // Standardprofil aus dem Review: 78 kg / 178 cm / 30 J. / neutral /
     // sitzend (PAL 1,4), Ziel 68 kg bei −1 kg/Woche. Erhaltung 2330,
-    // gewuenscht −1100 — der 1-%-Defizitdeckel (78 kg × 11 = 858 kcal/Tag)
-    // laesst nur −858 zu → 1472 → auf 50 gerundet 1450. Real sind das
-    // −880 kcal ≙ −0,8 kg/Woche.
+    // gewuenscht −1100 — der 1-%-Defizitdeckel (78 kg × 11 = 858, auf die
+    // Tempo-Stufe abgerundet = 825 kcal/Tag) laesst nur −825 zu → 1505 →
+    // auf 50 gerundet 1500. Real sind das −830 kcal ≙ −0,7545 kg/Woche, auf
+    // dem 0,05-Raster „−0,75 kg/Woche".
     await pumpToSummary(
       tester,
       const UserProfile(weightGoal: WeightGoal.lose1kg, targetWeightKg: 68),
       steps: 10,
     );
 
-    expect(textOfKey(tester, 'onboarding-summary-kcal'), '1450');
-    expect(goalRowTexts(tester), ['Ziel · −0,8 kg/Woche', '−880 kcal']);
+    expect(textOfKey(tester, 'onboarding-summary-kcal'), '1500');
+    expect(goalRowTexts(tester), ['Ziel · −0,75 kg/Woche', '−830 kcal']);
 
     // Das Versprechen darf nirgends mehr als Zusage stehen.
     expect(find.text('Ziel · −1 kg/Woche'), findsNothing);
     expect(find.text('−1100 kcal'), findsNothing);
 
-    // 2330 − 1450 = 880: die Karte rechnet in sich auf.
+    // 2330 − 1500 = 830: die Karte rechnet in sich auf.
     expect(textOfKey(tester, 'onboarding-summary-maintenance'), '2330 kcal');
 
     // Fertiger Warnsatz aus KcalTargets.paceWarning — hier spricht der
-    // Defizitdeckel, nicht die Untergrenze (1450 liegt ueber den 1350 fuer
-    // „divers").
+    // Defizitdeckel, nicht die Untergrenze (1500 liegt ueber den 1350 fuer
+    // „divers"). Weil der Deckel auf 0,05 kg/Woche abgerundet ist, nennt
+    // der Satz runde Zahlen: 825 kcal/Tag und −0,75 kg/Woche, nicht 858 und
+    // −0,78.
     expect(
       textOfKey(tester, 'onboarding-summary-pace-warning'),
       'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir nicht: '
-      'Dein Defizit ist auf 858 kcal/Tag begrenzt. Dein tatsächliches Tempo '
-      'ist damit −0,8 kg/Woche statt −1 kg/Woche.',
+      'Dein Defizit ist auf 825 kcal/Tag begrenzt. Dein tatsächliches Tempo '
+      'ist damit −0,75 kg/Woche statt −1 kg/Woche.',
     );
 
-    // Prognose aus der echten Rate, als Spanne: linear 10 kg / 0,8 = 12,5 →
-    // 13 Wochen (nicht 10), dynamisch mit sinkendem Bedarf (22 kcal pro
-    // verlorenem Kilo) 15 Wochen.
+    // Prognose aus der echten Rate, als Spanne: linear 10 kg / 0,7545 = 13,3
+    // → 14 Wochen (nicht 10), dynamisch mit sinkendem Bedarf (22 kcal pro
+    // verlorenem Kilo) 16 Wochen.
     expect(
       textOfKey(tester, 'onboarding-summary-timeline'),
-      '68 kg in ca. 13–15 Wochen erreichbar – anfangs schneller, später '
+      '68 kg in ca. 14–16 Wochen erreichbar – anfangs schneller, später '
       'langsamer.',
     );
   });
@@ -478,12 +481,14 @@ void main() {
   testWidgets(
       'identischer Plan wird nicht mehr als zwei verschiedene Versprechen ausgewiesen',
       (tester) async {
-    // Fuer das Standardprofil laufen „Zuegig" und „Ambitioniert" seit dem
-    // 1-%-Deckel auseinander (1500 vs. 1450 kcal). In dieselbe Klemme laufen
-    // beide bei 55 kg / 160 cm / 35 J. / weiblich / sitzend: Erhaltung 1700,
-    // Deckel 55 × 11 = 605 — beide Tempi wuenschen mehr (−825 / −1100), beide
-    // bekommen −605 → 1095 → 1100, und die Untergrenze fuer Frauen hebt beide
-    // auf 1200. Real: −500 kcal ≙ −0,45 kg/Woche, fuer beide.
+    // Fuer das Standardprofil fallen „Zuegig" und „Ambitioniert" seit dem auf
+    // auf 0,05 kg/Woche abgerundeten 1-%-Deckel (78 kg → 825 kcal/Tag) wieder
+    // zusammen (beide 1500 kcal) — dort greift aber nur der Deckel. Deckel UND
+    // Untergrenze stapeln sich bei 55 kg / 160 cm / 35 J. / weiblich /
+    // sitzend: Erhaltung 1700, Deckel 55 × 11 = 605 (0,55 kg/Woche) — beide
+    // Tempi wuenschen mehr (−825 / −1100), beide bekommen −605 → 1100, und
+    // die Untergrenze fuer Frauen hebt beide auf 1200. Real: −500 kcal ≙
+    // −0,45 kg/Woche, fuer beide.
     const klemme = UserProfile(
       weightKg: 55,
       heightCm: 160,
@@ -531,7 +536,8 @@ void main() {
   testWidgets('ohne belastbare Prognose steht keine Wochenzahl da',
       (tester) async {
     // 40 kg / 150 cm / 60 J. / weiblich / sitzend: Erhaltung 1227, „Sanft"
-    // wuenscht −275 → 950 → die Untergrenze fuer Frauen hebt auf 1200. Uebrig
+    // wuenscht −275 (der 1-%-Deckel liegt bei mindestens 275 und greift hier
+    // nicht) → 950 → die Untergrenze fuer Frauen hebt auf 1200. Uebrig
     // bleiben −27 kcal ≙ −0,02 kg/Woche — unterhalb des Rundungsrauschens
     // (weeklyRateNoiseKg = 0,05), also „Gewicht stabil". weeksToGoal liefert
     // korrekt null statt einer Fantasie-Wochenzahl aus einer Division durch
@@ -558,18 +564,22 @@ void main() {
       textOfKey(tester, 'onboarding-summary-timeline'),
       'Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.',
     );
+    // Frisst die Klemme das Defizit praktisch ganz, nimmt paceWarning die
+    // eigene Formulierung commonPaceWarningFloorStable — statt des schiefen
+    // „… ist damit Gewicht stabil statt −0,25 kg/Woche".
     expect(
       textOfKey(tester, 'onboarding-summary-pace-warning'),
       'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
-      '950 kcal. Dein tatsächliches Tempo ist damit Gewicht stabil statt '
-      '−0,25 kg/Woche.',
+      '950 kcal. Damit bleibt dein Gewicht praktisch stabil, statt '
+      '−0,25 kg/Woche zu erreichen.',
     );
   });
 
   testWidgets('ohne Sicherheitsklemme steht kein Warnsatz auf der Karte',
       (tester) async {
     // 78 kg / 178 cm / 30 J. / neutral / sitzend bei −0,75 kg/Woche:
-    // Erhaltung 2330, gewuenscht −825 — unter dem 1-%-Deckel von 858 kcal/Tag;
+    // Erhaltung 2330, gewuenscht −825 — genau auf dem 1-%-Deckel von
+    // 825 kcal/Tag (858 auf 0,05 kg/Woche abgerundet), nicht darueber;
     // Ziel 1500 liegt ueber der Untergrenze von 1350 fuer „divers". Keine der
     // drei Grenzen greift, das Versprechen wird gehalten (−830 statt
     // −825 kcal ist reines 50er-Rundungsrauschen).
@@ -613,10 +623,13 @@ void main() {
   // den die Option mit DIESEM Koerper ergibt.
   //
   // Seit dem Kalorien-Review 2026-08-21 (PAL 1,4 statt 1,2, Untergrenze 1350
-  // fuer „divers", 1-%-Defizitdeckel) fallen „Zuegig" und „Ambitioniert" fuer
-  // das Standardprofil nicht mehr zusammen — jetzt ist es der Deckel, der
-  // „Ambitioniert" auf −0,8 kg/Woche drueckt. Das Prinzip ist dasselbe: der
-  // Untertitel sagt, was WIRKLICH herauskommt, bevor der Nutzer waehlt.
+  // fuer „divers", 1-%-Defizitdeckel auf 0,05 kg/Woche abgerundet) fallen
+  // „Zuegig" und „Ambitioniert" fuer das Standardprofil erneut zusammen — jetzt
+  // ist es der Deckel (78 kg → 825 kcal/Tag), der „Ambitioniert" auf genau den
+  // Plan von „Zuegig" drueckt (1500 kcal · −0,75 kg/Woche). Das Prinzip ist
+  // dasselbe: der Untertitel sagt, was WIRKLICH herauskommt, bevor der Nutzer
+  // waehlt — zwei Optionen mit identischem Untertitel sind ehrlicher als zwei
+  // verschiedene Versprechen fuer denselben Plan.
   testWidgets('der Tempo-Picker nennt den Plan, den jede Option ergibt',
       (tester) async {
     await pumpOnboarding(
@@ -635,22 +648,26 @@ void main() {
 
     // Untertitel = Folge, mit DIESEM Koerper gerechnet (78 kg / 178 cm /
     // 30 J. / neutral / sitzend, Erhaltung 2330). „Ambitioniert" wuenscht
-    // −1100, bekommt wegen des 1-%-Deckels (858) nur −858 → 1450 kcal ≙
-    // −0,8 kg/Woche — und genau das steht da, vor der Auswahl, nicht erst in
+    // −1100, bekommt wegen des 1-%-Deckels (825) nur −825 → 1500 kcal ≙
+    // −0,75 kg/Woche — und genau das steht da, vor der Auswahl, nicht erst in
     // der Zusammenfassung.
     expect(
-      paceOptionText('lose1kg', 'Ergibt 1450 kcal/Tag · −0,8 kg/Woche'),
+      paceOptionText('lose1kg', 'Ergibt 1500 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
 
-    // Wo weder Deckel noch Untergrenze greifen, steht dieselbe Zeile mit den
-    // Zahlen, die das gewaehlte Tempo auch wirklich liefert.
+    // „Zuegig" wuenscht −825 und liegt damit genau auf dem Deckel: derselbe
+    // Plan wie „Ambitioniert" — und der Untertitel verschweigt das nicht.
     expect(
       paceOptionText('lose075kg', 'Ergibt 1500 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
+
+    // Wo weder Deckel noch Untergrenze greifen, steht dieselbe Zeile mit den
+    // Zahlen, die das gewaehlte Tempo auch wirklich liefert — auf dem
+    // 0,05-Raster („−0,5" statt „−0,48").
     expect(
-      paceOptionText('lose05kg', 'Ergibt 1800 kcal/Tag · −0,48 kg/Woche'),
+      paceOptionText('lose05kg', 'Ergibt 1800 kcal/Tag · −0,5 kg/Woche'),
       findsOneWidget,
     );
     expect(

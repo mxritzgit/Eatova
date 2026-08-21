@@ -826,6 +826,22 @@
       "promisedPace": { "type": "String" }
     }
   },
+  "commonPaceWarningFloorStable": "Aus Sicherheitsgründen liegt dein Tagesziel bei {floor} kcal statt {uncapped} kcal. Damit bleibt dein Gewicht praktisch stabil, statt {promisedPace} zu erreichen.",
+  "@commonPaceWarningFloorStable": {
+    "placeholders": {
+      "floor": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningCeilingStable": "Dein Tagesziel ist bei {ceiling} kcal gedeckelt (rechnerisch wären es {uncapped} kcal). Damit bleibt dein Gewicht praktisch stabil, statt {promisedPace} zu erreichen.",
+  "@commonPaceWarningCeilingStable": {
+    "placeholders": {
+      "ceiling": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "promisedPace": { "type": "String" }
+    }
+  },
   "commonPaceWarningMismatch": "Dein tatsächliches Tempo ist {effectivePace} statt {promisedPace}.",
   "@commonPaceWarningMismatch": {
     "placeholders": {

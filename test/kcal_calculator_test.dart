@@ -214,6 +214,7 @@ void main() {
       final maintain = calc.calculate(heavy.copyWith(weightGoal: WeightGoal.maintain));
       final lose1kg = calc.calculate(heavy.copyWith(weightGoal: WeightGoal.lose1kg));
       expect(WeightGoal.lose1kg.weeklyRateKg, 1.0);
+      // 110 × 11 = 1210 ≥ 1100: der Deckel greift nicht.
       expect(KcalCalculator.maxDeficitKcalPerDay(110), 1210);
       expect(lose1kg.deficitCapApplied, isFalse);
       expect(lose1kg.appliedKcalDelta, -1100);
@@ -221,26 +222,50 @@ void main() {
     });
 
     test('1-%-Deckel: unter 100 kg wird das Defizit begrenzt', () {
-      // 78 kg → 858 kcal/Tag (78 × 11). "−1 kg/Woche" ergibt damit real
-      // −0,8 kg/Woche — und der Hinweis nennt den Deckel.
+      // 78 kg → 858 kcal/Tag (78 × 11), auf 0,05 kg/Woche abgerundet = 825
+      // (0,75). "−1 kg/Woche" ergibt damit real −0,75 kg/Woche — und der
+      // Hinweis nennt den Deckel mit runden Zahlen.
       final t = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose1kg));
-      expect(KcalCalculator.maxDeficitKcalPerDay(78), 858);
-      expect(t.maxDeficitKcal, 858);
-      expect(t.appliedKcalDelta, -858);
+      expect(KcalCalculator.maxDeficitKcalPerDay(78), 825);
+      expect(t.maxDeficitKcal, 825);
+      expect(t.appliedKcalDelta, -825);
       expect(t.deficitCapApplied, isTrue);
-      expect(t.uncappedKcal, 1450); // 2330,3 − 858 = 1472 → 1450
-      expect(t.kcal, 1450);
+      expect(t.uncappedKcal, 1500); // 2330,3 − 825 = 1505 → 1500
+      expect(t.kcal, 1500);
       expect(t.floorApplied, isFalse);
-      expect(t.effectiveKcalDelta, -880);
-      expect(t.effectiveWeeklyRateKg, closeTo(-0.8, 0.0005));
-      expect(t.effectivePaceLabel(), '−0,8 kg/Woche');
-      expect(t.paceWarning(), contains('858'));
+      expect(t.effectiveKcalDelta, -830);
+      expect(t.effectiveWeeklyRateKg, closeTo(-0.7545, 0.0005));
+      expect(t.effectivePaceLabel(), '−0,75 kg/Woche');
+      expect(t.paceWarning(), contains('825'));
       expect(t.paceWarning(), contains('1 %'));
+      expect(t.paceWarning(), contains('−0,75 kg/Woche statt −1 kg/Woche'));
 
-      // −0,75 kg/Woche (825) liegt unter dem Deckel → unveraendert.
+      // −0,75 kg/Woche (825) trifft den Deckel genau → kein Deckel-Fall,
+      // aber derselbe Plan.
       final t075 = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose075kg));
       expect(t075.deficitCapApplied, isFalse);
       expect(t075.kcal, 1500);
+      expect(t075.paceWarning(), isNull);
+    });
+
+    test('Deckel rastert auf 0,05 kg/Woche (55-kcal-Schritte)', () {
+      // kg × 11, abgerundet auf 55er-Schritte = (kg ÷ 5) × 55, mindestens 275.
+      expect(KcalCalculator.maxDeficitKcalPerDay(30), 330); // 0,3 kg/Woche
+      expect(KcalCalculator.maxDeficitKcalPerDay(45), 495); // 0,45
+      expect(KcalCalculator.maxDeficitKcalPerDay(55), 605); // 0,55
+      expect(KcalCalculator.maxDeficitKcalPerDay(60), 660); // 0,6
+      expect(KcalCalculator.maxDeficitKcalPerDay(70), 770); // 0,7
+      expect(KcalCalculator.maxDeficitKcalPerDay(74), 770); // 814 → 770
+      expect(KcalCalculator.maxDeficitKcalPerDay(78), 825); // 858 → 825
+      expect(KcalCalculator.maxDeficitKcalPerDay(99), 1045); // 1089 → 1045
+      expect(KcalCalculator.maxDeficitKcalPerDay(100), 1100);
+      expect(KcalCalculator.maxDeficitKcalPerDay(130), 1430);
+      for (var kg = 30; kg <= 300; kg++) {
+        final cap = KcalCalculator.maxDeficitKcalPerDay(kg);
+        expect(cap % 55, 0, reason: '$kg kg');
+        expect(cap, lessThanOrEqualTo(kg * 11), reason: '$kg kg');
+        expect(cap, greaterThan(kg * 11 - 55), reason: '$kg kg');
+      }
     });
 
     test('Zunahme-Stufen kennen keinen Deckel', () {
@@ -334,14 +359,14 @@ void main() {
       );
       expect(calc.weeksToGoal(profile), 21);
 
-      // −1 kg/Woche: der 1-%-Deckel laesst 858 kcal zu → Ziel 1450, real
-      // 880 kcal/Tag ≙ 0,8 kg/Woche → 12,5 → 13 Wochen (nicht 10).
+      // −1 kg/Woche: der 1-%-Deckel laesst 825 kcal zu → Ziel 1500, real
+      // 830 kcal/Tag ≙ 0,7545 kg/Woche → 13,25 → 14 Wochen (nicht 10).
       expect(
         calc.weeksToGoal(base.copyWith(
           targetWeightKg: 68,
           weightGoal: WeightGoal.lose1kg,
         )),
-        13,
+        14,
       );
     });
 

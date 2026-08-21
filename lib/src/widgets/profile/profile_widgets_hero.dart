@@ -169,8 +169,8 @@ class GoalPlanCard extends StatelessWidget {
     // B2: Hier liegt ein konkretes Profil vor, also gehoert die EFFEKTIVE
     // Rechnung auf die Karte und nicht das gewaehlte Wunsch-Tempo. Fuer das
     // Standardprofil (78/178/30, sitzend, Ziel 68, −1 kg/Woche) kappt der
-    // 1-%-Deckel das Defizit von 1100 auf 858 kcal: real sind das
-    // −0,8 kg/Woche und 13–15 Wochen, nicht −1 und 10.
+    // 1-%-Deckel das Defizit von 1100 auf 825 kcal: real sind das
+    // −0,75 kg/Woche und 14–16 Wochen, nicht −1 und 10.
     //
     // targets einmal berechnen und an weeksToGoal durchreichen — sonst rechnet
     // calculate() zweimal, und die Karte koennte im Extremfall zwei

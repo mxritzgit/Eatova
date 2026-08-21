@@ -238,21 +238,33 @@ class KcalTargets {
     final t = l10n ?? deL10n;
     final effectivePace = effectivePaceLabel(l10n);
     final promisedPace = goal.paceLabel(l10n);
+    // Frisst die Klemme das Defizit (fast) ganz, hieße der Satz sonst
+    // „… ist damit Gewicht stabil statt −0,25 kg/Woche" — dafür gibt es
+    // eine eigene Formulierung.
+    final stable = effectiveWeeklyRateKg.abs() < weeklyRateNoiseKg;
     if (floorApplied) {
-      return t.commonPaceWarningFloor(
-        floor,
-        uncappedKcal,
-        effectivePace,
-        promisedPace,
-      );
+      return stable
+          ? t.commonPaceWarningFloorStable(floor, uncappedKcal, promisedPace)
+          : t.commonPaceWarningFloor(
+              floor,
+              uncappedKcal,
+              effectivePace,
+              promisedPace,
+            );
     }
     if (ceilingApplied) {
-      return t.commonPaceWarningCeiling(
-        KcalCalculator.kcalCeiling,
-        uncappedKcal,
-        effectivePace,
-        promisedPace,
-      );
+      return stable
+          ? t.commonPaceWarningCeilingStable(
+              KcalCalculator.kcalCeiling,
+              uncappedKcal,
+              promisedPace,
+            )
+          : t.commonPaceWarningCeiling(
+              KcalCalculator.kcalCeiling,
+              uncappedKcal,
+              effectivePace,
+              promisedPace,
+            );
     }
     if (deficitCapApplied) {
       return t.commonPaceWarningDeficitCap(
@@ -308,15 +320,24 @@ class KcalCalculator {
 
   /// Größtes Tagesdefizit, das `calculate` ansetzt: 1 % des Körpergewichts
   /// pro Woche (ISSN, Garthe 2011 — Obergrenze für Abnehmen ohne
-  /// Muskelverlust), in kcal/Tag: kg × 0,01 × 7700 ÷ 7 = kg × 11.
+  /// Muskelverlust), in kcal/Tag: kg × 0,01 × 7700 ÷ 7 = kg × 11 — **auf
+  /// 0,05 kg/Woche abgerundet** (55-kcal-Schritte, also (kg ÷ 5) × 55,
+  /// mindestens 275 ≙ 0,25 kg/Woche), damit das gedeckelte Tempo auf dem
+  /// Anzeige-Raster der Labels liegt: „auf 825 kcal/Tag begrenzt …
+  /// −0,75 kg/Woche" statt „auf 858 … −0,78".
   ///
-  /// Beispiele: 60 kg → 660, 78 kg → 858, 100 kg → 1100. Damit ist
-  /// „−1 kg/Woche" erst ab 100 kg voll erreichbar; darunter meldet
+  /// Beispiele: 60 kg → 660 (0,6), 70 kg → 770 (0,7), 78 kg → 825 (0,75),
+  /// 99 kg → 1045 (0,95), ab 100 kg 1100. Damit ist „−1 kg/Woche" erst ab
+  /// 100 kg erreichbar, „−0,75" ab 75 kg; darunter meldet
   /// [KcalTargets.paceWarning] das tatsächliche Tempo. Leitlinien-Korridore
   /// zum Vergleich: NHLBI 500–1000, AHA/ACC/TOS 500–750, DGE/DAG 500–600
   /// kcal/Tag.
-  static int maxDeficitKcalPerDay(int weightKg) =>
-      weightKg * (kcalPerKgBodyMass ~/ 700);
+  static int maxDeficitKcalPerDay(int weightKg) {
+    // 0,05 kg/Woche ≙ 7700 × 0,05 ÷ 7 = 55 kcal/Tag.
+    final step = (kcalPerKgBodyMass * weeklyRateNoiseKg / 7).round();
+    final floor = WeightGoal.lose025kg.kcalDelta.abs();
+    return math.max(floor, (weightKg ~/ 5) * step);
+  }
 
   /// Hall-Faustregel für [weeksToGoalRange]: pro dauerhaft verlorenem
   /// Kilogramm sinkt der Tagesbedarf um rund 22 kcal (Hall et al. 2011,

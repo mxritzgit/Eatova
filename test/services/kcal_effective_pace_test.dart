@@ -23,11 +23,13 @@ void main() {
   const calc = KcalCalculator();
 
   // Standardprofil: 78 kg / 178 cm / 30 J. / neutral / sitzend.
-  // BMR 1664,5 · Erhaltung 2330 (×1,4) · Deckel 858 kcal/Tag.
+  // BMR 1664,5 · Erhaltung 2330 (×1,4) · Deckel 825 kcal/Tag (1 % = 858, auf
+  // 0,05 kg/Woche = 0,75 abgerundet).
   const standard = UserProfile();
 
   // Kleineres weibliches Profil: 55 kg / 160 cm / 35 J. / weiblich / sitzend.
-  // BMR 1214 · Erhaltung 1700 (×1,4) · Deckel 605 kcal/Tag.
+  // BMR 1214 · Erhaltung 1700 (×1,4) · Deckel 605 kcal/Tag (1 % = 0,55
+  // kg/Woche).
   const frau = UserProfile(
     weightKg: 55,
     heightCm: 160,
@@ -102,10 +104,12 @@ void main() {
       expect(t.floorApplied, isFalse);
       expect(t.deficitCapApplied, isFalse);
       // 2330 − 1800 = 530 statt 550 — reine 50er-Rundung, kein gebrochenes
-      // Versprechen (Rauschgrenze 0,05 kg/Woche ≙ 55 kcal/Tag).
+      // Versprechen (Rauschgrenze 0,05 kg/Woche ≙ 55 kcal/Tag). Das Label
+      // rastert auf 0,05 und zeigt deshalb die gewaehlte runde Zahl, nicht
+      // „−0,48".
       expect(t.effectiveKcalDelta, -530);
       expect(t.matchesPromisedPace, isTrue);
-      expect(t.effectivePaceLabel(), '−0,48 kg/Woche');
+      expect(t.effectivePaceLabel(), '−0,5 kg/Woche');
       expect(t.paceWarning(), isNull);
     });
 
@@ -123,22 +127,22 @@ void main() {
   });
 
   group('Review 2026-08-21 · 1-%-Defizitdeckel', () {
-    test('Standardprofil, −1 kg/Woche: Deckel 858 statt 1100', () {
+    test('Standardprofil, −1 kg/Woche: Deckel 825 statt 1100', () {
       final t = calc.calculate(
         standard.copyWith(weightGoal: WeightGoal.lose1kg),
       );
-      expect(t.maxDeficitKcal, 858);
-      expect(t.appliedKcalDelta, -858);
+      expect(t.maxDeficitKcal, 825);
+      expect(t.appliedKcalDelta, -825);
       expect(t.deficitCapApplied, isTrue);
-      expect(t.kcal, 1450);
+      expect(t.kcal, 1500);
       expect(t.floorApplied, isFalse);
-      expect(t.effectivePaceLabel(), '−0,8 kg/Woche');
+      expect(t.effectivePaceLabel(), '−0,75 kg/Woche');
 
       final hinweis = t.paceWarning();
       expect(hinweis, isNotNull);
       expect(hinweis, contains('1 %'));
-      expect(hinweis, contains('858'));
-      expect(hinweis, contains('−0,8 kg/Woche'));
+      expect(hinweis, contains('825'));
+      expect(hinweis, contains('−0,75 kg/Woche'));
       expect(hinweis, contains('−1 kg/Woche'));
     });
 
@@ -157,9 +161,12 @@ void main() {
       expect(t.paceWarning(), isNull);
     });
 
-    test('Deckel in kcal/Tag = Gewicht × 11 (1 % × 7700 ÷ 7)', () {
-      expect(KcalCalculator.maxDeficitKcalPerDay(60), 660);
-      expect(KcalCalculator.maxDeficitKcalPerDay(78), 858);
+    test('Deckel = Gewicht × 11 (1 % × 7700 ÷ 7), auf 0,05 kg/Woche abgerundet',
+        () {
+      expect(KcalCalculator.maxDeficitKcalPerDay(45), 495); // 0,45
+      expect(KcalCalculator.maxDeficitKcalPerDay(60), 660); // 0,6
+      expect(KcalCalculator.maxDeficitKcalPerDay(78), 825); // 858 → 0,75
+      expect(KcalCalculator.maxDeficitKcalPerDay(99), 1045); // 1089 → 0,95
       expect(KcalCalculator.maxDeficitKcalPerDay(100), 1100);
       expect(KcalCalculator.maxDeficitKcalPerDay(300), 3300);
     });
@@ -248,6 +255,13 @@ void main() {
       expect(t.effectivePaceLabel(), 'Gewicht stabil');
       expect(calc.weeksToGoal(knapp), isNull);
       expect(calc.weeksToGoalRange(knapp), isNull);
+      // Eigener Satz statt „… ist damit Gewicht stabil statt −0,25 kg/Woche".
+      expect(
+        t.paceWarning(),
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        '950 kcal. Damit bleibt dein Gewicht praktisch stabil, statt '
+        '−0,25 kg/Woche zu erreichen.',
+      );
     });
 
     test('Untergrenze kann ein Abnehm-Ziel in einen Ueberschuss drehen', () {
@@ -353,8 +367,21 @@ void main() {
       // Nullen weg und lieferte "+1, kg/Woche".
       expect(paceLabelForWeeklyRateKg(1101 * 7 / kcalPerKgBodyMass),
           '+1 kg/Woche');
-      expect(paceLabelForWeeklyRateKg(-0.7245), '−0,72 kg/Woche');
+      expect(paceLabelForWeeklyRateKg(-0.7245), '−0,7 kg/Woche');
       expect(paceLabelForWeeklyRateKg(-0.999), '−1 kg/Woche');
+    });
+
+    test('das Label rastert auf 0,05 kg/Woche (Review 2026-08-21)', () {
+      // Die 50er-Rundung des Tagesziels verschiebt die Rate um bis zu
+      // ±0,023 — ein gewaehltes „−0,5" darf nicht als „−0,48" erscheinen.
+      expect(paceLabelForWeeklyRateKg(-0.4818), '−0,5 kg/Woche');
+      expect(paceLabelForWeeklyRateKg(0.5182), '+0,5 kg/Woche');
+      expect(paceLabelForWeeklyRateKg(-0.7545), '−0,75 kg/Woche');
+      expect(paceLabelForWeeklyRateKg(-0.2545), '−0,25 kg/Woche');
+      expect(paceLabelForWeeklyRateKg(-0.4545), '−0,45 kg/Woche');
+      expect(paceLabelForWeeklyRateKg(-0.118), '−0,1 kg/Woche');
+      expect(paceLabelForWeeklyRateKg(-0.0245), 'Gewicht stabil');
+      expect(paceLabelForWeeklyRateKg(0.05), '+0,05 kg/Woche');
     });
 
     test('nicht-endliche Raten erreichen kein Widget', () {

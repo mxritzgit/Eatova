@@ -826,6 +826,22 @@
       "promisedPace": { "type": "String" }
     }
   },
+  "commonPaceWarningFloorStable": "For safety, your daily goal is {floor} kcal instead of {uncapped} kcal. That keeps your weight roughly stable instead of reaching {promisedPace}.",
+  "@commonPaceWarningFloorStable": {
+    "placeholders": {
+      "floor": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "promisedPace": { "type": "String" }
+    }
+  },
+  "commonPaceWarningCeilingStable": "Your daily goal is capped at {ceiling} kcal (the calculation would give {uncapped} kcal). That keeps your weight roughly stable instead of reaching {promisedPace}.",
+  "@commonPaceWarningCeilingStable": {
+    "placeholders": {
+      "ceiling": { "type": "int" },
+      "uncapped": { "type": "int" },
+      "promisedPace": { "type": "String" }
+    }
+  },
   "commonPaceWarningMismatch": "Your actual pace is {effectivePace} instead of {promisedPace}.",
   "@commonPaceWarningMismatch": {
     "placeholders": {

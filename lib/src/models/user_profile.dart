@@ -219,7 +219,12 @@ extension WeightGoalInfo on WeightGoal {
 }
 
 /// Label für eine **tatsächliche** Wochenrate (vorzeichenbehaftet, negativ =
-/// abnehmen), z.B. −0,7245 → "−0,72 kg/Woche".
+/// abnehmen), z.B. −0,7545 → "−0,75 kg/Woche".
+///
+/// Die Zahl wird auf das 0,05-Raster gerundet ([_formatRateKg]): die
+/// 50er-Rundung des Tagesziels verschiebt die Rate um bis zu ±0,023 kg/Woche,
+/// und „−0,48 kg/Woche" für ein gewähltes „−0,5" wäre falsche Präzision bei
+/// einer Formel mit ±10 % Unschärfe (Kalorien-Review 2026-08-21).
 ///
 /// Alles unterhalb von [weeklyRateNoiseKg] heißt "Gewicht stabil" — sonst
 /// würde die 50er-Rundung des Tagesziels beim Ziel „halten" ein Tempo von
@@ -243,19 +248,21 @@ String paceLabelForWeeklyRateKg(double signedRateKg, [AppLocalizations? l10n]) {
   );
 }
 
-/// Formatiert eine kg-Rate auf höchstens zwei Nachkommastellen, locale-bewusst:
-/// unter `de` 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.7245 → "0,72"; unter
-/// `en` dieselben Werte mit Punkt statt Komma ("0.5" usw.) — byte-identisch
-/// zum Bestand unter `de`.
+/// Formatiert eine kg-Rate auf das 0,05-Raster, locale-bewusst: unter `de`
+/// 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.4818 → "0,5", 0.7545 → "0,75",
+/// 0.118 → "0,1"; unter `en` dieselben Werte mit Punkt statt Komma ("0.5"
+/// usw.).
 ///
 /// Erwartet einen vorzeichenlosen Wert; das Vorzeichen setzt der Aufrufer.
 /// Erst runden, dann formatieren: [NumberFormat]s eigene Rundung auf der
-/// UNGERUNDETEN Rate könnte an der zweiten Nachkommastelle anders runden als
-/// das explizite `(kg * 100).round() / 100` — deshalb bleibt der Rundungs-
-/// schritt in eigener Hand, [NumberFormat] übernimmt nur noch die Anzeige
-/// (Trennzeichen, Nachkommastellen kappen) des bereits gerundeten Werts.
+/// UNGERUNDETEN Rate könnte anders runden als das explizite
+/// `(kg * 20).round() / 20` — deshalb bleibt der Rundungsschritt in eigener
+/// Hand, [NumberFormat] übernimmt nur noch die Anzeige (Trennzeichen,
+/// Nachkommastellen kappen) des bereits gerundeten Werts. 0,05 ist zugleich
+/// [weeklyRateNoiseKg]: was als „Versprechen gehalten" gilt, zeigt auch
+/// dieselbe Zahl.
 String _formatRateKg(double kg, String localeName) {
-  final gerundet = (kg.abs() * 100).round() / 100;
+  final gerundet = (kg.abs() * 20).round() / 20;
   return NumberFormat('0.##', localeName).format(gerundet);
 }
 
