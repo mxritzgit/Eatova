@@ -29,8 +29,9 @@ const _l10nDelegates = [
 // sie sind der Pruefgegenstand.
 void main() {
   /// Abnehm-Ziel vorbelegt → Zielgewicht- und Tempo-Schritt sind sichtbar,
-  /// der Flow hat alle 11 Schritte. Die Sicherheitsklemme greift, also traegt
-  /// die Zusammenfassung zusaetzlich den Warnsatz.
+  /// der Flow hat alle 11 Schritte. Der 1-%-Defizitdeckel greift (78 kg →
+  /// hoechstens 858 kcal/Tag statt der gewuenschten 1100), also traegt die
+  /// Zusammenfassung zusaetzlich den Warnsatz.
   const vollerFlow = UserProfile(
     weightGoal: WeightGoal.lose1kg,
     targetWeightKg: 68,
@@ -185,8 +186,11 @@ void main() {
 
   testWidgets('die Zusammenfassung bleibt auch ohne Warnsatz heil',
       (tester) async {
-    // Ohne Sicherheitsklemme faellt der Warnkasten weg — anderer Zweig,
-    // andere Hoehenverteilung.
+    // Ohne Sicherheitsklemme und ohne Defizitdeckel faellt der Warnkasten weg
+    // — anderer Zweig, andere Hoehenverteilung. −0,75 kg/Woche beim
+    // Standardprofil (78 kg / 178 cm / 30 J. / neutral / sitzend): gewuenscht
+    // −825 liegt unter dem Deckel von 858, das Ziel 1500 ueber der
+    // Untergrenze von 1350 — keine Grenze greift, kein Warnsatz.
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;
@@ -214,8 +218,7 @@ void main() {
           home: OnboardingScreen(
             firstName: 'Moritz',
             initialProfile: const UserProfile(
-              activityLevel: ActivityLevel.moderate,
-              weightGoal: WeightGoal.lose1kg,
+              weightGoal: WeightGoal.lose075kg,
               targetWeightKg: 68,
             ),
             onComplete: (_) {},

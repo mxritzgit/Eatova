@@ -1,13 +1,18 @@
 // B2: Die Plan-Karte im Profil verspricht ein Tempo, das sie nicht liefert.
 //
 // GoalPlanCard zeigte `goal.paceLabel` — das GEWAEHLTE Tempo — obwohl ein
-// konkretes Profil vorliegt. Fuer das Standardprofil (78 kg / 178 cm / 30 J. /
-// sitzend, Ziel 68 kg, lose1kg) kappt die 1200er-Sicherheitsgrenze das Defizit
-// von 1100 auf 797 kcal: real sind es −0,72 kg/Woche, nicht −1.
+// konkretes Profil vorliegt. Seit dem Kalorien-Review 2026-08-21 bremsen zwei
+// Dinge das Wunsch-Tempo: der 1-%-Defizitdeckel (kg × 11 kcal/Tag, auf die
+// 0,05 kg/Woche = 55-kcal-Schritte abgerundet) und die
+// geschlechtsabhaengige Untergrenze (1200 weiblich / 1500 maennlich / 1350
+// neutral). Fuer das Standardprofil (78 kg / 178 cm / 30 J. / neutral /
+// sitzend, Ziel 68 kg, lose1kg) kappt der Deckel das Defizit von 1100 auf
+// 825 kcal: real sind es −0,75 kg/Woche, nicht −1.
 //
-// KcalTargets (W2-03) liefert dafuer effectivePaceLabel; weeksToGoal rechnet
-// bereits mit der effektiven Rate und liefert null, wenn die Klemme das ganze
-// Defizit frisst — beides wird hier festgenagelt.
+// KcalTargets (W2-03) liefert dafuer effectivePaceLabel (seit dem Review auf
+// das 0,05-Raster gerundet, s. paceLabelForWeeklyRateKg); weeksToGoalRange
+// rechnet mit der effektiven Rate (linear bis dynamisch) und liefert null,
+// wenn die Klemme das ganze Defizit frisst — beides wird hier festgenagelt.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -18,26 +23,49 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-/// Standardprofil aus dem Review: Erhaltung 1997, gewuenscht 900, ausgegeben
-/// 1200 → reales Defizit 797 kcal/Tag ≙ −0,7245 kg/Woche, 14 statt 10 Wochen.
+/// Standardprofil aus dem Review: BMR 1665, Erhaltung 2330 (PAL 1,4), Deckel
+/// 78 × 11 = 858 → auf 0,05 kg/Woche abgerundet 825 kcal/Tag →
+/// 2330 − 825 = 1505 → 1500 kcal. Die neutrale Untergrenze (1350) greift
+/// nicht; reales Defizit 830 kcal/Tag ≙ −0,7545 → Label „−0,75 kg/Woche",
+/// Prognose 14 (linear) bis 16 (dynamisch) Wochen statt 10.
+///
+/// dailyKcalGoal ist auf der Karte reine Anzeige (Tagesziel-Chip) und haelt
+/// hier den Rechner-Wert, damit die Karte in sich stimmig bleibt.
 const _standard = UserProfile(
   weightKg: 78,
   heightCm: 178,
   ageYears: 30,
   targetWeightKg: 68,
   weightGoal: WeightGoal.lose1kg,
+  dailyKcalGoal: 1500,
+);
+
+/// Kleines, aelteres Profil: Erhaltung 1227, Wunsch −275 (der Deckel
+/// 40 × 11 = 440 → 275 greift gerade nicht) → 950 kcal; die 1200er-
+/// Untergrenze (weiblich) hebt das Ziel an und laesst 27 kcal/Tag Defizit
+/// uebrig — unterhalb von weeklyRateNoiseKg. weeksToGoalRange muss hier null
+/// liefern statt einer Fantasie-Wochenzahl; paceWarning formuliert dafuer den
+/// „Stable"-Satz (commonPaceWarningFloorStable) ohne „tatsächliches Tempo".
+const _clampedFlat = UserProfile(
+  weightKg: 40,
+  heightCm: 150,
+  ageYears: 60,
+  sex: BiologicalSex.female,
+  targetWeightKg: 36,
+  weightGoal: WeightGoal.lose025kg,
   dailyKcalGoal: 1200,
 );
 
-/// Kleines, aelteres Profil: die Erhaltung (1209) liegt selbst schon fast auf
-/// der Untergrenze, das Defizit schrumpft auf 9 kcal/Tag. weeksToGoal muss
-/// hier null liefern statt einer Fantasie-Wochenzahl.
-const _clampedFlat = UserProfile(
-  weightKg: 50,
-  heightCm: 155,
-  ageYears: 60,
+/// Profil, bei dem die Untergrenze WIRKLICH klemmt: Erhaltung 1700, Deckel
+/// 55 × 11 = 605 (0,55 kg/Woche) → 1095 → 1100 kcal → 1200 (weiblich). Effektiv
+/// −500 kcal/Tag ≙ −0,4545 → „−0,45 kg/Woche". paceWarning nennt die Klemme
+/// (hoechste Bindungskraft), nicht den ebenfalls greifenden Deckel.
+const _clampedFloor = UserProfile(
+  weightKg: 55,
+  heightCm: 160,
+  ageYears: 35,
   sex: BiologicalSex.female,
-  targetWeightKg: 45,
+  targetWeightKg: 50,
   weightGoal: WeightGoal.lose1kg,
   dailyKcalGoal: 1200,
 );
@@ -78,8 +106,8 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _standard);
 
-    expect(find.text('−0,72 kg/Woche'), findsOneWidget,
-        reason: 'Die 1200er-Klemme laesst nur 797 kcal Defizit uebrig');
+    expect(find.text('−0,75 kg/Woche'), findsOneWidget,
+        reason: 'Der 1-%-Deckel laesst nur 825 statt 1100 kcal Defizit zu');
     expect(find.text('−1 kg/Woche'), findsNothing,
         reason: 'Das gewaehlte Tempo ist ein Wunsch, kein Plan');
   });
@@ -88,20 +116,23 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _standard);
 
-    expect(find.text('Noch 10 kg · Ziel in ca. 14 Wochen'), findsOneWidget,
-        reason: '10 kg / 0,7245 kg pro Woche = 13,8 -> 14, nicht 10');
+    // Linear: 10 kg / 0,7545 kg pro Woche = 13,3 -> 14. Dynamisch (Bedarf
+    // sinkt um 22 kcal pro verlorenem kg): 16. Beides aus der effektiven
+    // Rate, nicht aus den 10 Wochen des Wunsch-Tempos.
+    expect(find.text('Noch 10 kg · Ziel in ca. 14–16 Wochen'), findsOneWidget,
+        reason: 'Spanne aus weeksToGoalRange, untere Grenze 14 statt 10');
   });
 
   testWidgets('Frisst die Klemme das ganze Defizit, wird nichts versprochen',
       (tester) async {
     await _pumpCard(tester, _clampedFlat);
 
-    // weeksToGoal == null -> die Karte darf keine Wochenzahl erfinden.
-    expect(find.text('Noch 5 kg bis zum Wunschgewicht'), findsOneWidget);
+    // weeksToGoalRange == null -> die Karte darf keine Wochenzahl erfinden.
+    expect(find.text('Noch 4 kg bis zum Wunschgewicht'), findsOneWidget);
     expect(find.textContaining('Wochen'), findsNothing);
-    // ... und das Tempo ist ehrlich „stabil", nicht −1 kg/Woche.
+    // ... und das Tempo ist ehrlich „stabil", nicht −0,25 kg/Woche.
     expect(find.text('Gewicht stabil'), findsOneWidget);
-    expect(find.text('−1 kg/Woche'), findsNothing);
+    expect(find.text('−0,25 kg/Woche'), findsNothing);
   });
 
   testWidgets('Weicht der Plan vom Wunsch ab, erklaert die Karte das auf Abruf',
@@ -110,46 +141,70 @@ void main() {
 
     // Der fertige Satz aus KcalTargets.paceWarning haengt als Tooltip/
     // Semantics am Tempo-Chip — kein zweiter Fliesstext-Block auf der Karte
-    // (den zeigt W3-04 im Settings-Sheet), aber auch nicht wortlos.
+    // (den zeigt W3-04 im Settings-Sheet), aber auch nicht wortlos. Fuer das
+    // Standardprofil greift nur der Deckel, also der Deckel-Satz mit dem
+    // abgerundeten 825er-Deckel und dem gerasterten Tempo.
     expect(
       find.byTooltip(
-        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
-        '900 kcal. Dein tatsächliches Tempo ist damit −0,72 kg/Woche statt '
-        '−1 kg/Woche.',
+        'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir '
+        'nicht: Dein Defizit ist auf 825 kcal/Tag begrenzt. Dein tatsächliches '
+        'Tempo ist damit −0,75 kg/Woche statt −1 kg/Woche.',
       ),
       findsOneWidget,
     );
   });
 
+  testWidgets('Klemmt die Untergrenze, nennt der Hinweis die Klemme',
+      (tester) async {
+    await _pumpCard(tester, _clampedFloor);
+
+    // Deckel UND Untergrenze greifen; paceWarning nennt die bindendere
+    // Untergrenze mit dem ungeklemmten 1100er-Wert (Erhaltung 1700 minus
+    // Deckel 605, auf 50 gerundet), nicht den Deckel.
+    expect(find.text('−0,45 kg/Woche'), findsOneWidget);
+    expect(
+      find.byTooltip(
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        '1100 kcal. Dein tatsächliches Tempo ist damit −0,45 kg/Woche statt '
+        '−1 kg/Woche.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Noch 5 kg · Ziel in ca. 11–13 Wochen'), findsOneWidget,
+        reason: '5 kg / 0,4545 = 11 linear, 13 dynamisch');
+  });
+
   testWidgets('Ohne Abweichung haengt kein Hinweis am Tempo-Chip',
       (tester) async {
-    // Grosser, aktiver Nutzer (Erhaltung 3541): die Untergrenze greift nicht,
-    // uebrig bleibt nur die 50er-Rundung des Tagesziels — 3000 statt 2991
-    // ergibt −0,49 statt −0,50 kg/Woche und liegt damit im Rauschband
-    // (weeklyRateNoiseKg), also kein Hinweis.
+    // Grosser, aktiver Nutzer (BMR 2040, Erhaltung 3774 bei PAL 1,85): weder
+    // die 1500er-Untergrenze noch der Deckel (1100 > 550) greifen, uebrig
+    // bleibt nur die 50er-Rundung des Tagesziels — 3200 statt 3224 ergibt
+    // rechnerisch −0,52 kg/Woche. Das liegt im Rauschband (weeklyRateNoiseKg),
+    // also kein Hinweis — und das 0,05-Raster des Labels zeigt davon genau
+    // das gewaehlte „−0,5", nicht mehr die falsche Praezision „−0,52".
     await _pumpCard(
       tester,
       const UserProfile(
         weightKg: 100,
-        heightCm: 190,
+        heightCm: 188,
         ageYears: 28,
         sex: BiologicalSex.male,
         activityLevel: ActivityLevel.active,
         targetWeightKg: 90,
         weightGoal: WeightGoal.lose05kg,
-        dailyKcalGoal: 3000,
+        dailyKcalGoal: 3200,
       ),
     );
 
-    expect(find.text('−0,49 kg/Woche'), findsOneWidget);
-    expect(find.byWidgetPredicate(_isPaceWarningTooltip), findsNothing,
+    final paceValue = find.text('−0,5 kg/Woche');
+    expect(paceValue, findsOneWidget);
+    expect(find.text('−0,52 kg/Woche'), findsNothing,
+        reason: 'Label rastert auf 0,05 kg/Woche');
+    // Der „Ziel anpassen"-IconButton bringt seinen eigenen Tooltip mit — hier
+    // zaehlt nur, dass KEIN Tooltip den Tempo-Chip umschliesst (_MaybeTooltip
+    // reicht das Chip bei paceWarning == null unveraendert durch).
+    expect(find.ancestor(of: paceValue, matching: find.byType(Tooltip)),
+        findsNothing,
         reason: 'Kein Widerspruch -> kein Hinweis');
   });
-}
-
-/// Der „Ziel anpassen"-IconButton bringt seinen eigenen Tooltip mit — hier
-/// zaehlt nur der Tempo-Hinweis.
-bool _isPaceWarningTooltip(Widget widget) {
-  final message = widget is Tooltip ? widget.message : null;
-  return message != null && message.contains('Tempo ist damit');
 }

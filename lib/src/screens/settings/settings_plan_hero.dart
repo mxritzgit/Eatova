@@ -56,8 +56,10 @@ class SettingsPlanHero extends StatelessWidget {
   /// Tempo aus der Zahl, die tatsaechlich auf der Karte steht.
   ///
   /// B2: Hier stand frueher `goal.paceLabel` — das *gewaehlte* Tempo. Fuer das
-  /// Standardprofil ergab das „Erhaltung 1997 · −1 kg/Woche" direkt ueber
-  /// „1200"; 1997 − 1200 = 797 kcal, also −0,72 kg/Woche.
+  /// damalige Standardprofil (PAL 1,2) ergab das „Erhaltung 1997 ·
+  /// −1 kg/Woche" direkt ueber „1200"; 1997 − 1200 = 797 kcal, also
+  /// −0,72 kg/Woche. Seit dem Kalorien-Review 2026-08-21: „Erhaltung 2330 ·
+  /// −0,75 kg/Woche" ueber „1500" (1-%-Deckel statt Klemme).
   String _paceLabel(AppLocalizations l10n) => paceLabelForWeeklyRateKg(
         wochenrateKg(tagesziel: kcal, erhaltung: targets.maintenanceKcal),
         l10n,

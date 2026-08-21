@@ -177,9 +177,10 @@ void main() {
   });
 
   testWidgets(
-      'manuelles kcal-Ziel misst an der DB-Grenze, nicht an der 1200er-Klemme',
+      'manuelles kcal-Ziel misst an der DB-Grenze, nicht an der Rechner-Klemme',
       (tester) async {
-    // Standardprofil: 2200 gespeichert vs. 2000 gerechnet → Manuell-Modus,
+    // Standardprofil: 2200 gespeichert vs. 2350 gerechnet (Kalorien-Review
+    // 2026-08-21: PAL 1,4, Erhaltung 2330, auf 50 gerundet) → Manuell-Modus,
     // die kcal-/Makro-Felder sind sichtbar.
     final resultFuture = await openSettings(tester);
 
@@ -187,8 +188,9 @@ void main() {
     expect(find.text('800–7000 kcal'), findsOneWidget);
     expect(saveHandler(tester), isNull);
 
-    // 1000 liegt unter der Rechner-Untergrenze (1200), ist aber eine bewusste
-    // manuelle Entscheidung und von der DB gedeckt (800..7000).
+    // 1000 liegt unter der Rechner-Untergrenze (1350 fuer „divers",
+    // KcalCalculator.kcalFloorFor), ist aber eine bewusste manuelle
+    // Entscheidung und von der DB gedeckt (800..7000).
     await tippe(tester, 'settings-kcal', '1000');
     expect(saveHandler(tester), isNotNull);
 
@@ -245,6 +247,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('settings-save')));
     await tester.pumpAndSettle();
 
-    expect((await resultFuture)!.profile.dailyKcalGoal, 2000);
+    // Live-Wert des Standardprofils seit dem Kalorien-Review 2026-08-21:
+    // BMR 1665 × PAL 1,4 = 2330 → auf 50 gerundet 2350 (vorher 2000).
+    expect((await resultFuture)!.profile.dailyKcalGoal, 2350);
   });
 }

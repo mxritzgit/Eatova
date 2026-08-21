@@ -18,20 +18,51 @@ extension BiologicalSexLabel on BiologicalSex {
       };
 }
 
-/// Alltags-Aktivität ohne gezähltes Training. Multipliziert den Grundumsatz
-/// (BMR) zum Erhaltungsbedarf (TDEE) — die etablierten PAL-Faktoren. Schritte
-/// werden zusätzlich getrennt als „Verbrannt" angerechnet, deshalb ist hier
-/// bewusst der Alltags-Anteil gemeint, nicht das geplante Workout.
+/// Beruf und Alltag. Multipliziert den Grundumsatz (BMR) zum Erhaltungsbedarf
+/// (TDEE) — PAL-Stufen in Anlehnung an FAO/WHO/UNU 2004 und die DGE.
+///
+/// **Seit dem Kalorien-Review 2026-08-21 (docs/REVIEW-KCAL-2026-08-21.md)
+/// beginnt die Leiter bei 1,4, nicht mehr bei 1,2.** 1,2 ist in allen
+/// Leitlinien der Wert für bettlägerige/immobile Menschen; der Büroalltag
+/// ohne Sport liegt bei DGE 1,4–1,5, EFSA 1,4, gemessen (Doubly Labeled
+/// Water) sogar bei 1,55–1,7. Die alten Werte 1,2/1,375/1,55/1,725/1,9 waren
+/// eine Online-Rechner-Konvention ohne Primärquelle.
+///
+/// Gezählte Schritte werden NICHT blind addiert: jede Stufe enthält bereits
+/// das für sie übliche Gehpensum ([baselineSteps], Tudor-Locke-Bänder), nur
+/// Schritte darüber zählen als „Verbrannt" — sonst würde der Alltag doppelt
+/// gutgeschrieben (einmal im PAL, einmal über HealthKit).
 enum ActivityLevel { sedentary, light, moderate, active, athlete }
 
 extension ActivityLevelInfo on ActivityLevel {
   /// Physical Activity Level (PAL) — Multiplikator auf den BMR.
+  ///
+  /// 1,4 sitzend (DGE „überwiegend sitzend"), 1,55 sitzend mit Gehen/Stehen,
+  /// 1,7 überwiegend gehend/stehend, 1,85 körperlich fordernd, 2,0 schwere
+  /// Arbeit plus Training (FAO/WHO/UNU: sedentary 1,40–1,69, active
+  /// 1,70–1,99, vigorous 2,00–2,40).
   double get palFactor => switch (this) {
-        ActivityLevel.sedentary => 1.2,
-        ActivityLevel.light => 1.375,
-        ActivityLevel.moderate => 1.55,
-        ActivityLevel.active => 1.725,
-        ActivityLevel.athlete => 1.9,
+        ActivityLevel.sedentary => 1.4,
+        ActivityLevel.light => 1.55,
+        ActivityLevel.moderate => 1.7,
+        ActivityLevel.active => 1.85,
+        ActivityLevel.athlete => 2.0,
+      };
+
+  /// Schritte pro Tag, die in der Stufe schon „drin" sind. Erst Schritte
+  /// darüber werden als zusätzlicher Verbrauch gutgeschrieben
+  /// (`estimateKcalBurnedFromSteps(baselineSteps: …)`).
+  ///
+  /// Die Bänder folgen Tudor-Locke & Bassett (2004): < 5000 sedentary,
+  /// 5000–7499 low active, 7500–9999 somewhat active, ≥ 10 000 active,
+  /// ≥ 12 500 highly active — dasselbe Schwellenprinzip wie bei Lose It!
+  /// („exclude to prevent double-counting").
+  int get baselineSteps => switch (this) {
+        ActivityLevel.sedentary => 5000,
+        ActivityLevel.light => 7500,
+        ActivityLevel.moderate => 10000,
+        ActivityLevel.active => 12500,
+        ActivityLevel.athlete => 15000,
       };
 
   String label(AppLocalizations l10n) => switch (this) {
@@ -188,7 +219,12 @@ extension WeightGoalInfo on WeightGoal {
 }
 
 /// Label für eine **tatsächliche** Wochenrate (vorzeichenbehaftet, negativ =
-/// abnehmen), z.B. −0,7245 → "−0,72 kg/Woche".
+/// abnehmen), z.B. −0,7545 → "−0,75 kg/Woche".
+///
+/// Die Zahl wird auf das 0,05-Raster gerundet ([_formatRateKg]): die
+/// 50er-Rundung des Tagesziels verschiebt die Rate um bis zu ±0,023 kg/Woche,
+/// und „−0,48 kg/Woche" für ein gewähltes „−0,5" wäre falsche Präzision bei
+/// einer Formel mit ±10 % Unschärfe (Kalorien-Review 2026-08-21).
 ///
 /// Alles unterhalb von [weeklyRateNoiseKg] heißt "Gewicht stabil" — sonst
 /// würde die 50er-Rundung des Tagesziels beim Ziel „halten" ein Tempo von
@@ -212,19 +248,21 @@ String paceLabelForWeeklyRateKg(double signedRateKg, [AppLocalizations? l10n]) {
   );
 }
 
-/// Formatiert eine kg-Rate auf höchstens zwei Nachkommastellen, locale-bewusst:
-/// unter `de` 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.7245 → "0,72"; unter
-/// `en` dieselben Werte mit Punkt statt Komma ("0.5" usw.) — byte-identisch
-/// zum Bestand unter `de`.
+/// Formatiert eine kg-Rate auf das 0,05-Raster, locale-bewusst: unter `de`
+/// 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.4818 → "0,5", 0.7545 → "0,75",
+/// 0.118 → "0,1"; unter `en` dieselben Werte mit Punkt statt Komma ("0.5"
+/// usw.).
 ///
 /// Erwartet einen vorzeichenlosen Wert; das Vorzeichen setzt der Aufrufer.
 /// Erst runden, dann formatieren: [NumberFormat]s eigene Rundung auf der
-/// UNGERUNDETEN Rate könnte an der zweiten Nachkommastelle anders runden als
-/// das explizite `(kg * 100).round() / 100` — deshalb bleibt der Rundungs-
-/// schritt in eigener Hand, [NumberFormat] übernimmt nur noch die Anzeige
-/// (Trennzeichen, Nachkommastellen kappen) des bereits gerundeten Werts.
+/// UNGERUNDETEN Rate könnte anders runden als das explizite
+/// `(kg * 20).round() / 20` — deshalb bleibt der Rundungsschritt in eigener
+/// Hand, [NumberFormat] übernimmt nur noch die Anzeige (Trennzeichen,
+/// Nachkommastellen kappen) des bereits gerundeten Werts. 0,05 ist zugleich
+/// [weeklyRateNoiseKg]: was als „Versprechen gehalten" gilt, zeigt auch
+/// dieselbe Zahl.
 String _formatRateKg(double kg, String localeName) {
-  final gerundet = (kg.abs() * 100).round() / 100;
+  final gerundet = (kg.abs() * 20).round() / 20;
   return NumberFormat('0.##', localeName).format(gerundet);
 }
 
@@ -253,8 +291,9 @@ class UserProfile {
   final int ageYears;
   final BiologicalSex sex;
 
-  /// Alltags-Aktivität für den Erhaltungsbedarf (PAL). Default sedentär (1.2),
-  /// damit Bestands-Berechnungen unverändert bleiben.
+  /// Beruf/Alltag für den Erhaltungsbedarf (PAL). Default sitzend (1,4) —
+  /// die konservativste Stufe, die Leitlinien für freilebende Erwachsene
+  /// kennen; „im Zweifel eine Stufe tiefer" gilt auch hier.
   final ActivityLevel activityLevel;
 
   /// Wunschgewicht. Treibt nur die Zeit-Prognose (Wochen bis Ziel), nicht das

@@ -168,15 +168,18 @@ class GoalPlanCard extends StatelessWidget {
     final gap = (profile.weightKg - profile.targetWeightKg).abs();
     // B2: Hier liegt ein konkretes Profil vor, also gehoert die EFFEKTIVE
     // Rechnung auf die Karte und nicht das gewaehlte Wunsch-Tempo. Fuer das
-    // Standardprofil (78/178/30, sitzend, Ziel 68, −1 kg/Woche) kappt die
-    // 1200er-Sicherheitsgrenze das Defizit von 1100 auf 797 kcal: real sind
-    // das −0,72 kg/Woche und 14 Wochen, nicht −1 und 10.
+    // Standardprofil (78/178/30, sitzend, Ziel 68, −1 kg/Woche) kappt der
+    // 1-%-Deckel das Defizit von 1100 auf 825 kcal: real sind das
+    // −0,75 kg/Woche und 14–16 Wochen, nicht −1 und 10.
     //
     // targets einmal berechnen und an weeksToGoal durchreichen — sonst rechnet
     // calculate() zweimal, und die Karte koennte im Extremfall zwei
     // Ergebnisse mischen.
     final targets = const KcalCalculator().calculate(profile);
-    final weeks = const KcalCalculator().weeksToGoal(profile, targets: targets);
+    // Spanne linear…dynamisch (Kalorien-Review 2026-08-21), s.
+    // KcalCalculator.weeksToGoalRange.
+    final weeks =
+        const KcalCalculator().weeksToGoalRange(profile, targets: targets);
     // Fertig formulierter Satz aus KcalTargets, sonst null.
     final paceWarning = isMaintain ? null : targets.paceWarning(l10n);
     // Ein Ziel mit Richtung traegt den Marken-Akzent, „halten" bleibt ruhig.
@@ -307,7 +310,7 @@ class GoalPlanCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       weeks != null
-                          ? l10n.profileGoalProgressWeeks(gap, weeks)
+                          ? goalProgressWeeksText(l10n, gap: gap, weeks: weeks)
                           : l10n.profileGoalProgressNoWeeks(gap),
                       style: AppType.ui(
                         13,
