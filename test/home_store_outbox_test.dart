@@ -25,132 +25,79 @@ import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/services/uuid.dart' show deriveStatsRequestId;
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// DATA-7 Datenverlust-Fix: ein fehlgeschlagener Sync-Write rollt den lokalen
-// State NICHT mehr zurueck (der Eintrag des Nutzers war sonst WEG), sondern
-// wandert als persistierte Outbox-Op in die Retry-Queue. Diese Tests treiben
-// den ECHTEN HomeStore mit einem echten EatovaSync ueber einen zustands-
-// behafteten MockClient (schaltbar offline/online) und einem injizierten
-// In-Memory-Cache (debugCache) und sichern:
-//   1. Kein Rollback mehr + Op persistiert + dezenter Offline-Hinweis
-//      (kein roter "Sync (...)"-Toast).
-//   2. Replay ist idempotent und koalesziert (Insert+Update -> EIN Upsert
-//      mit dem neuesten Payload, Stats zaehlen genau 1 Mahlzeit).
-//   3. Gewicht: Live-Write und Retry teilen dieselbe Client-UUID -> Upsert,
-//      ein wiederholter Versuch erzeugt KEIN Duplikat.
-//   4. Kaltstart ohne Netz hydriert das Tagebuch aus dem Cache.
-//   5. Boot-Merge: Outbox-Eintraege ueberleben den Server-Refresh und werden
-//      beim Boot nachgespielt.
-//   6. Pendende Stats-Deltas ueberleben einen App-Neustart.
-//   7. Eine blockierte Entitaet haelt die Ops anderer Entitaeten nicht auf.
-//   8. Server-Fehler (500/Constraint — KEIN Netzfehler) queuen genauso, zeigen
-//      aber die neutrale Retry-Meldung statt "Offline" und leaken nie
-//      Roh-Fehlertext (Schema-Details) in die UI.
-//   9. Gift-Ops (Check-Constraint) werden beim ersten Replay verworfen statt
-//      ewig retryt; 500er verbrennen nur Budget; Netzfehler kosten NICHTS;
-//      attempts ueberleben den App-Neustart.
-//  10. Die Queue ist gedeckelt — beim Einreihen UND beim Hydrieren.
-//  11. Luecke A: Eigen-Rezepte haben (wie Mahlzeiten/Favoriten) einen lokalen
-//      Write-Through-Cache und ueberleben damit einen Kaltstart ohne Netz.
-//  12. Fix 3: der Zaehler einer NACHGEHOLTEN Op laeuft als eigener
-//      statsIncrement-Eintrag mit abgeleiteter Request-Id — atomar mit der
-//      Op-Entfernung erzeugt, exactly-once ueber App-Kills hinweg.
+// DATA-7 data-loss fix: a failed sync write no longer rolls back local state
+// but becomes a persisted outbox op. These tests drive the REAL HomeStore with
+// a real EatovaSync over a stateful MockClient and an injected cache: no
+// rollback, idempotent replay, cold-start hydration, boot merge, attempt budget
+// and queue cap, poison-op drops, and exactly-once counters.
 
-/// Zustandsbehafteter Fake-PostgREST: zeichnet Requests auf, fuehrt Upserts/
-/// Deletes auf In-Memory-Tabellen aus und laesst sich offline schalten.
+/// Stateful fake PostgREST: records requests, applies upserts and deletes to
+/// in-memory tables, and can be switched offline.
 class _FakeServer {
-  /// Alles faellt aus (Netz weg). Requests werden dann NICHT aufgezeichnet —
-  /// [requests] enthaelt nur, was den "Server" wirklich erreicht hat.
+  /// Everything fails; such requests are NOT recorded, so [requests] holds
+  /// only what reached the "server".
   bool offline = false;
 
-  /// Nur increment_lifetime_stats faellt aus (Stats-Delta-Szenarien).
+  /// Only increment_lifetime_stats fails (stats-delta scenarios).
   bool statsOffline = false;
 
-  /// Nur logged_meals-Writes fallen aus (Poison-Entity-Szenario) — als 500,
-  /// also ein RETRYBARER Fehler.
+  /// Only logged_meals writes fail, as a 500 — a RETRYABLE error.
   bool rejectMealWrites = false;
 
-  /// logged_meals-Writes werden dauerhaft und aussichtslos abgelehnt:
-  /// payload-determinierte Constraint-Verletzung. Realistische Wire-Form —
-  /// HTTP 400, aber im Body steht der SQLSTATE, und GENAU DER landet in
-  /// `PostgrestException.code` (der Status ist dort NICHT sichtbar, weil
-  /// `fromJson` `json['code'] ?? '$statusCode'` macht).
+  /// logged_meals writes rejected hopelessly: HTTP 400 with the SQLSTATE in
+  /// the body, which is what `PostgrestException.code` picks up, not the status.
   bool poisonMealWrites = false;
 
-  /// SQLSTATE der Gift-Antwort. Default 23502 (not_null_violation) — der
-  /// bleibt ein SOFORT-Verwurf. 23514 (check_violation) taugt dafuer bewusst
-  /// nicht mehr: das ist der Normalfall einer Nutzereingabe und laeuft seit
-  /// dem Review 2026-08-08 ins Versuchs-Budget statt in den Muell.
+  /// SQLSTATE of the poison answer: 23502 drops at once, 23514 (normal for
+  /// user input) runs into the attempt budget.
   String poisonCode = '23502';
 
-  /// Unklarer Ausgang: der Write wird serverseitig ANGEWENDET, die Antwort
-  /// ist aber ein 500 (Timeout-Simulation) — der Klassiker, der frueher
-  /// Duplikate erzeugte.
+  /// Ambiguous: the write IS applied but the answer is a 500 — the classic
+  /// duplicate maker.
   bool ambiguousWrites = false;
 
-  /// user_recipes-Writes ANTWORTEN NIE. Supabase-/PostgREST-Aufrufe tragen
-  /// kein Timeout (die Policies in eatova_http.dart gelten nur fuer
-  /// Meilisearch/OFF/analyze-meal), ein haengender Request scheitert also
-  /// nicht — dadurch feuert weder `then` noch `catchError`, und es entsteht
-  /// GAR KEINE Outbox-Op. Genau dieser Schalter trennt im Test das
-  /// Cache-Sicherungsnetz vom Outbox-Sicherungsnetz.
+  /// user_recipes writes NEVER answer. PostgREST has no timeout, so a hanging
+  /// request neither resolves nor throws and NO outbox op is created.
   bool hangRecipeWrites = false;
 
-  /// user_recipes-Writes werden mit 500 abgelehnt — der Server ANTWORTET also
-  /// (Luecke E: „Offline" waere in dem Fall gelogen).
+  /// user_recipes writes fail with 500, i.e. the server ANSWERS (gap E:
+  /// "offline" would be a lie there).
   bool rejectRecipeWrites = false;
 
-  /// NUR record_tracking_day faellt aus (500), alles andere laeuft. Genau die
-  /// Kombination, an der der Streak-Tag verschwand: die Mahlzeit kommt an,
-  /// increment_lifetime_stats kommt an — und der Tag nicht.
+  /// ONLY record_tracking_day fails — the combination that lost the streak day.
   bool rejectTrackingDay = false;
 
-  /// Der zuletzt per record_tracking_day verbuchte Tag (`YYYY-MM-DD`), also
-  /// `lifetime_stats.last_workout_date`. Vorher lieferte der Fake dort hart
-  /// `null` und konnte deshalb gar nicht zeigen, ob ein Tag ankommt.
+  /// Last day booked via record_tracking_day, i.e. last_workout_date.
   String? trackedDay;
 
   final List<http.Request> requests = <http.Request>[];
 
-  /// Die eine Zeile aus public.profiles, die zu diesem Nutzer gehoert — oder
-  /// null, wenn es noch keine gibt. Das Profil ist die einzige Sammlung mit
-  /// GENAU EINER Zeile; genau daran haengt Luecke D.
+  /// The single public.profiles row, or null: the only collection with exactly
+  /// one row, which is what gap D hangs on.
   Map<String, dynamic>? profileRow;
   final Map<String, Map<String, dynamic>> mealRows =
       <String, Map<String, dynamic>>{};
   final Map<String, Map<String, dynamic>> weightRows =
       <String, Map<String, dynamic>>{};
 
-  /// favorite_key -> Zeile, wie public.favorite_meals sie fuehrt.
-  ///
-  /// Zweitpruefung 2026-08-10: bis hierher beantwortete der Fake JEDEN
-  /// favorite_meals-/weight_log-GET mit `[]` und quittierte jeden Write mit
-  /// 201, ohne etwas zu merken. Ein Boot-Load nach erfolgreicher Zustellung
-  /// bekam damit eine leere Liste zurueck — und die Inventur konnte gar nicht
-  /// unterscheiden, ob der Store den Stand verliert oder der Fake ihn nie
-  /// hatte. Genau die Falle, vor der der Kommentar am logged_meals-GET warnt
-  /// („Fake bestaetigt Fake").
+  /// favorite_key -> row. Real state, not a blanket `[]`: a forgetful fake
+  /// cannot tell a losing store from itself.
   final Map<String, Map<String, dynamic>> favoriteRows =
       <String, Map<String, dynamic>>{};
 
-  /// Slug -> Zeile, wie public.user_recipes sie fuehrt (Konflikt-Schluessel
-  /// ist (user_id, slug)).
+  /// Slug -> row, as public.user_recipes holds it; conflict key is
+  /// (user_id, slug).
   final Map<String, Map<String, dynamic>> recipeRows =
       <String, Map<String, dynamic>>{};
   int mealsCounted = 0;
   int weightLogsCounted = 0;
 
-  /// `p_request_id` JEDES increment_lifetime_stats-Aufrufs, in Reihenfolge —
-  /// auch der abgelehnten (die Aufzeichnung laeuft vor [statsOffline]). Das ist
-  /// der Beweis-Kanal fuer Befund B: ein Retry desselben Delta-Buendels muss
-  /// dieselbe Id tragen, sonst kann der Server ihn nicht als Wiederholung
-  /// erkennen und zaehlt ein zweites Mal.
+  /// `p_request_id` of EVERY increment_lifetime_stats call, rejected ones
+  /// included. A retry must reuse the id, or the server counts twice.
   final List<String?> statsRequestIds = <String?>[];
 
-  /// Server-Dedup der Migration 20260814120000: verbrauchte `p_request_id`.
-  /// Nur ERFOLGREICHE Aufrufe verbrauchen (der echte RPC laeuft in einer
-  /// Transaktion — ein 500 committet den Marker nicht). Ohne diesen Zustand
-  /// addierte der Fake blind und konnte gar nicht zeigen, ob ein Retry
-  /// serverseitig als Wiederholung ankommt.
+  /// Server-side dedup of migration 20260814120000: consumed `p_request_id`.
+  /// Only SUCCESSFUL calls consume one — a 500 does not commit the marker.
   final Set<String> verbrauchteStatsIds = <String>{};
 
   http.Client client() => MockClient(_handle);
@@ -167,11 +114,8 @@ class _FakeServer {
     http.Response fail() => http.Response(
         jsonEncode({'message': 'kaputt'}), 500,
         headers: const {'Content-Type': 'application/json'}, request: req);
-    // Constraint-Verletzung: der Body traegt den SQLSTATE, deshalb ist
-    // PostgrestException.code hinterher '$poisonCode' und NICHT '400'.
-    // (Body bewusst rein ASCII — http.Response kodiert den String nach der
-    // Charset-Angabe des Content-Type, Default latin1, und wirft sonst
-    // ArgumentError statt die Antwort zu liefern.)
+    // The body carries the SQLSTATE, so PostgrestException.code is
+    // '$poisonCode', not '400'. ASCII-only: http.Response encodes as latin1.
     http.Response poison() => http.Response(
         jsonEncode({
           'code': poisonCode,
@@ -186,14 +130,14 @@ class _FakeServer {
 
     if (path.contains('/rpc/increment_lifetime_stats')) {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
-      // VOR dem Ausfall-Schalter: gerade der gescheiterte Versuch ist der, mit
-      // dem der spaetere Retry verglichen wird.
+      // Recorded before the failure switch: the failed attempt is the one the
+      // later retry is compared against.
       final rid = body['p_request_id'] as String?;
       statsRequestIds.add(rid);
       if (statsOffline) return fail();
       if (rid != null && !verbrauchteStatsIds.add(rid)) {
-        // Wiederholung: NICHT addieren, aktuelle Zeile liefern — exakt das
-        // FOUND-Verhalten der Migration (`on conflict do nothing` + FOUND).
+        // Repeat: do not add, return the current row — the migration's FOUND
+        // behaviour.
         return ok(_statsRow());
       }
       mealsCounted += (body['p_meals'] as num?)?.toInt() ?? 0;
@@ -228,11 +172,8 @@ class _FakeServer {
         mealRows.remove(_eqParam(req, 'id'));
         return ok(const <dynamic>[]);
       }
-      // GET: Zeilen in der vom Client erwarteten Select-Form — MIT
-      // angewandten Filtern wie bei PostgREST: das Boot-Fenster (gte/lt auf
-      // logged_at) und der id=in.(...)-Read der Wiedereinblendung. Ein Fake,
-      // der immer alle Zeilen liefert, hatte das 35-Tage-Loch der
-      // Wiedereinblendung unsichtbar gemacht (Fake bestaetigt Fake).
+      // GET: select shape, WITH PostgREST-like filters. A fake returning every
+      // row hid the 35-day hole in the re-display path.
       Iterable<Map<String, dynamic>> rows = mealRows.values;
       for (final p in req.url.queryParametersAll['logged_at'] ?? const <String>[]) {
         if (p.startsWith('gte.')) {
@@ -266,13 +207,13 @@ class _FakeServer {
     }
     if (path.contains('/profiles')) {
       if (req.method == 'GET') {
-        // maybeSingle() auf einem GET erwartet eine LISTE mit 0 oder 1 Zeile.
+        // maybeSingle() on a GET expects a LIST of 0 or 1 rows.
         return ok(profileRow == null
             ? const <dynamic>[]
             : <Map<String, dynamic>>[profileRow!]);
       }
-      // ProfileSync.save ist ein UPSERT(.select().single()) — PostgREST
-      // liefert dafuer EIN Objekt zurueck, keine Liste.
+      // ProfileSync.save is an upsert with .single(): PostgREST returns ONE
+      // object, not a list.
       for (final row in _rowsOf(req.body)) {
         profileRow = <String, dynamic>{...?profileRow, ...row};
       }
@@ -280,7 +221,7 @@ class _FakeServer {
     }
     if (path.contains('/user_recipes')) {
       if (hangRecipeWrites && req.method != 'GET') {
-        // Nie erfuellte Antwort: der Aufrufer wartet ewig (kein Timeout).
+        // Never-completing answer: the caller waits forever (no timeout).
         return Completer<http.Response>().future;
       }
       if (rejectRecipeWrites && req.method != 'GET') return fail();
@@ -307,7 +248,7 @@ class _FakeServer {
         favoriteRows.remove(_eqParam(req, 'favorite_key'));
         return ok(const <dynamic>[]);
       }
-      // GET in der Select-Form von MealsSync.loadFavorites.
+      // GET in the select shape of MealsSync.loadFavorites.
       return ok(favoriteRows.values
           .map((r) => <String, dynamic>{
                 'favorite_key': r['favorite_key'],
@@ -325,7 +266,7 @@ class _FakeServer {
         }
         return ambiguousWrites ? fail() : http.Response('', 201, request: req);
       }
-      // GET in der Select-Form von TrackingSync.loadWeightLog.
+      // GET in the select shape of TrackingSync.loadWeightLog.
       return ok(weightRows.values
           .map((r) => <String, dynamic>{
                 'recorded_at': r['recorded_at'],
@@ -333,10 +274,9 @@ class _FakeServer {
               })
           .toList());
     }
-    // Uebrige Reads (profiles, lifetime_stats): leer — _safeLoad/maybeSingle
-    // behandeln das als "nichts da", der Boot bleibt gruen.
+    // Remaining reads: empty, which _safeLoad treats as "nothing there".
     if (req.method == 'GET') return ok(const <dynamic>[]);
-    // Uebrige Writes (favorite_meals, user_recipes, ...): Erfolg.
+    // Remaining writes: success.
     return http.Response('', 201, request: req);
   }
 
@@ -390,10 +330,8 @@ class _SnackCapture {
       messages.where((m) => m.startsWith('Offline'));
 }
 
-/// Cache, dessen PROFIL-Slot beim Lesen wirft. Modelliert Luecke F: die
-/// Boot-Hydration liest sieben Slots, und ein einziger Wurf darf die
-/// nachfolgenden — allen voran die Outbox — nicht mitreissen. Die
-/// Schreibpfade bleiben die echten.
+/// Cache whose PROFILE slot throws on read (gap F): one failing boot-hydration
+/// read must not take the later slots, above all the outbox, down with it.
 class _ProfilLesefehlerCache extends LocalCache {
   _ProfilLesefehlerCache(super.store, super.userId);
 
@@ -402,10 +340,8 @@ class _ProfilLesefehlerCache extends LocalCache {
       throw StateError('Profil-Slot unlesbar');
 }
 
-/// Cache, dessen OUTBOX-Slot beim ERSTEN Lesen wirft und danach normal
-/// antwortet. Modelliert die zweite Haelfte von Luecke F: der persistierte
-/// Blob darf nie auf Basis eines fehlgeschlagenen Lesevorgangs ueberschrieben
-/// werden.
+/// Cache whose OUTBOX slot throws on the FIRST read only (gap F, second half):
+/// the persisted blob must never be overwritten off a failed read.
 class _OutboxLesefehlerCache extends LocalCache {
   _OutboxLesefehlerCache(super.store, super.userId);
 
@@ -421,32 +357,19 @@ class _OutboxLesefehlerCache extends LocalCache {
   }
 }
 
-/// Cache, dessen OUTBOX-Writes nie die „Platte" erreichen — die eine Haelfte
-/// des Kill-Fensters: der Deltas-/sonstige Slot committet, der Outbox-Blob
-/// nicht. Lesen bleibt echt (der geseedete Blob der „Vorsession"), damit die
-/// naechste Sitzung genau den Stand vorfindet, den ein App-Kill zwischen den
-/// beiden Writes hinterlaesst.
+/// Cache whose OUTBOX writes never reach storage: the kill window where the
+/// other slots commit and the outbox blob does not. Reads stay real.
 class _EingefrorenerOutboxCache extends LocalCache {
   _EingefrorenerOutboxCache(super.store, super.userId);
 
-  // `false` ist hier die Wahrheit: der Blob erreicht die „Platte" nie
-  // (LocalCache.writeOutbox meldet seit dem durable Schreibweg genau das
-  // zurueck). Der Aufrufer wertet es nicht aus, das Testverhalten bleibt
-  // damit unveraendert.
+  // `false` is the truth here: the blob never reaches storage.
   @override
   Future<bool> writeOutbox(List<SyncOp> ops) async => false;
 }
 
-/// Dasselbe fuer den DELTAS-Slot (W7b): die zweite Haelfte des kill-sicheren
-/// Sync-Zustands hatte bis zum Audit 2026-08-14 keine Bremse — ein
-/// fehlgeschlagener Lesevorgang beim Boot liess den naechsten Flush den Slot
-/// bei 0 beginnend niederschreiben, und die nie verbuchten Mahlzeiten der
-/// Vorsession fehlten dauerhaft in den Lebenszeit-Zaehlern.
-///
-/// [kaputteVersuche] steuert, ob der Slot nur VORUEBERGEHEND unlesbar ist
-/// (1 = Bremse greift, Nachhydration gelingt) oder DAUERHAFT (2 = auch die
-/// Nachhydration scheitert; danach muss der normale Schreibpfad wieder
-/// uebernehmen, sonst koennte die Sitzung nie mehr etwas ablegen).
+/// Same for the DELTAS slot (W7b): a failed boot read used to let the next
+/// flush rewrite the slot from 0, losing the previous session's meals.
+/// [kaputteVersuche] picks a temporary failure (1) or a permanent one (2).
 class _DeltaLesefehlerCache extends LocalCache {
   _DeltaLesefehlerCache(super.store, super.userId, {this.kaputteVersuche = 1});
 
@@ -473,9 +396,8 @@ class _DeltaLesefehlerCache extends LocalCache {
 }) _setup({
   InMemoryKeyValueStore? kv,
   LocalCache? injizierterCache,
-  // Zwei Sitzungen, die sich denselben Server teilen (Kill-Simulation): der
-  // Dedup-Zustand (verbrauchteStatsIds) und die Tabellen muessen den
-  // „Neustart" ueberleben, sonst prueft der Test nur einen frischen Server.
+  // Two sessions sharing one server (kill simulation): dedup state and tables
+  // must survive the "restart".
   _FakeServer? geteilterServer,
 }) {
   final server = geteilterServer ?? _FakeServer();
@@ -483,7 +405,7 @@ class _DeltaLesefehlerCache extends LocalCache {
     'https://example.supabase.co',
     'test-anon-key',
     httpClient: server.client(),
-    // Kein GoTrue-Auto-Refresh-Ticker im Test (siehe clobber_guard_test).
+    // No GoTrue auto-refresh ticker in tests (see clobber_guard_test).
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
   addTearDown(client.dispose);
@@ -502,12 +424,8 @@ class _DeltaLesefehlerCache extends LocalCache {
   return (store: store, server: server, cache: cache, snacks: snacks);
 }
 
-/// Wie [_setup], aber OHNE jeden [LocalCache] — der Zustand, in dem
-/// `LocalCache.create` null liefert (DEK weder lesbar noch neu anlegbar, oder
-/// der Plugin-Kanal ist tot). `debugCache: null` heisst hier wirklich „kein
-/// Cache": der Boot-Pfad faellt danach auf `client.auth.currentUser?.id`
-/// zurueck, und die ist in dieser Test-Schale null — es wird also nie ein
-/// echter SharedPreferences-Kanal angefasst.
+/// Like [_setup] but with NO [LocalCache], the state where `LocalCache.create`
+/// returns null; nothing here touches a real SharedPreferences channel.
 ({HomeStore store, _FakeServer server, _SnackCapture snacks})
     _setupOhneCache() {
   final server = _FakeServer();
@@ -544,7 +462,7 @@ MealAnalysisResult _result(String name, {int kcal = 300}) =>
       sourceLabel: 'Foto-KI',
     );
 
-/// Eigen-Rezept, wie es das Erstell-Sheet baut (recipes_screen).
+/// A user recipe as the create sheet builds it (recipes_screen).
 FitnessRecipe _recipe(String slug, {String title = 'Eigene Bowl'}) =>
     FitnessRecipe(
       slug: slug,
@@ -564,7 +482,7 @@ FitnessRecipe _recipe(String slug, {String title = 'Eigene Bowl'}) =>
       userCreated: true,
     );
 
-/// Serverzeile von public.user_recipes (Select-Form von UserRecipesSync.load).
+/// Server row of public.user_recipes (select shape of UserRecipesSync.load).
 Map<String, dynamic> _serverRecipeRow(String slug,
         {String title = 'Server-Rezept'}) =>
     <String, dynamic>{
@@ -583,7 +501,7 @@ Map<String, dynamic> _serverRecipeRow(String slug,
       'categories': <String>['Eigene'],
     };
 
-/// Ein abgeschlossenes Profil, wie es nach dem Onboarding aussieht.
+/// A completed profile, as it looks after onboarding.
 UserProfile _profile({
   int weightKg = 80,
   int dailyKcalGoal = 2200,
@@ -597,10 +515,8 @@ UserProfile _profile({
       onboardingCompleted: onboardingCompleted,
     );
 
-/// Serverzeile von public.profiles — dieselben Spalten, die ProfileSync
-/// schreibt und liest. Bewusst ausgeschrieben statt aus ProfileSync abgeleitet:
-/// faellt eine Spalte weg, wirft `ProfileSync.load` (leseZahl) und der Boot
-/// hydriert stillschweigend gar nicht — der Test soll das merken.
+/// Server row of public.profiles, spelled out rather than derived: a missing
+/// column makes `ProfileSync.load` throw and the boot hydrate nothing.
 Map<String, dynamic> _serverProfileRow(UserProfile p) => <String, dynamic>{
       'id': 'user-outbox',
       'weight_kg': p.weightKg,
@@ -651,19 +567,15 @@ void main() {
     final id = s.store.addResultToDailyTotal(_result('Offline-Bowl'));
     await _settle();
 
-    // Der Eintrag des Nutzers bleibt stehen — frueher war er hier WEG.
     expect(s.store.loggedMeals.map((m) => m.id), contains(id));
     expect(s.store.dailyConsumedKcal, 300);
 
-    // Insert (und der Auto-Recent-Favorit) haengen als Ops in der Outbox …
     expect(s.store.pendingOutbox.map((o) => o.kind),
         contains(SyncOpKind.mealInsert));
-    // … und zwar PERSISTIERT (App-Kill-sicher).
     final persisted = await s.cache.readOutbox();
     expect(persisted!.map((o) => o.kind), contains(SyncOpKind.mealInsert));
 
-    // UI-Feedback: dezenter deutscher Hinweis, kein roter "Sync (...)"-Toast,
-    // und trotz mehrerer fehlgeschlagener Ops nur EIN Hinweis pro Episode.
+    // A quiet hint, not a red toast, and only ONE per episode.
     expect(s.snacks.messages.where((m) => m.startsWith('Sync (')), isEmpty);
     expect(s.snacks.offlineHints, hasLength(1));
     expect(s.snacks.offlineHints.single,
@@ -679,22 +591,18 @@ void main() {
       'Roh-Details', () async {
     final s = _setup();
     await _boot(s.store);
-    // Server erreichbar, aber logged_meals-Writes werden abgelehnt (der
-    // Postgrest-500/Constraint-Fall) -> im Store kommt eine
-    // PostgrestException an, KEIN Netzwerkfehler.
+    // Server reachable, writes rejected: a PostgrestException, not a net error.
     s.server.rejectMealWrites = true;
 
     final id = s.store.addResultToDailyTotal(_result('Constraint-Bowl'));
     await _settle();
 
-    // Verhalten wie offline: kein Rollback, Op haengt in der Outbox.
+    // Same as offline: no rollback, the op sits in the outbox.
     expect(s.store.loggedMeals.map((m) => m.id), contains(id));
     expect(s.store.pendingOutbox.map((o) => o.kind),
         contains(SyncOpKind.mealInsert));
 
-    // Aber der Text luegt nicht: "Offline" waere falsch (der Server hat ja
-    // geantwortet) — stattdessen die freundliche Retry-Meldung, einmal pro
-    // Episode.
+    // The server answered, so it is the retry message, once per episode.
     expect(s.snacks.offlineHints, isEmpty);
     expect(
       s.snacks.messages.where((m) =>
@@ -703,8 +611,7 @@ void main() {
       hasLength(1),
     );
 
-    // Schema-Leakage-Guard: kein Snack traegt Roh-Fehlertext oder
-    // Tabellen-/Exception-Namen.
+    // Schema-leak guard: no raw error text, no table names.
     for (final m in s.snacks.messages) {
       expect(m, isNot(contains('PostgrestException')));
       expect(m, isNot(contains('logged_meals')));
@@ -725,8 +632,7 @@ void main() {
     s.store.updateLoggedMealResult(id, _result('Bowl', kcal: 500));
     await _settle();
 
-    // Koalesziert: genau EIN Meal-Op, Kind bleibt mealInsert (Stats!),
-    // Payload traegt den neuesten Stand.
+    // Coalesced: ONE op, kind stays mealInsert (stats!), newest payload.
     final mealOps = s.store.pendingOutbox
         .where((o) => o.entityKey == 'meal:$id')
         .toList();
@@ -734,7 +640,6 @@ void main() {
     expect(mealOps.single.kind, SyncOpKind.mealInsert);
     expect(mealOps.single.meal!.result.caloriesKcal, 500);
 
-    // Wieder online: Lifecycle-Flush spielt die Outbox nach.
     s.server.offline = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -746,8 +651,7 @@ void main() {
     expect(row['calories_kcal'], 500);
     expect((row['payload'] as Map)['caloriesKcal'], 500);
 
-    // Genau EIN logged_meals-POST hat den Server erreicht — mit
-    // Upsert-Semantik (Idempotenz-Schluessel: Client-UUID).
+    // ONE POST reached the server, upsert-keyed on the client UUID.
     final posts = s.server.requests
         .where((r) =>
             r.method == 'POST' && r.url.path.contains('/logged_meals'))
@@ -755,8 +659,7 @@ void main() {
     expect(posts, hasLength(1));
     expect(posts.single.headers['Prefer'], contains('resolution=merge-duplicates'));
 
-    // Stats: der nachgeholte Erst-Insert zaehlt genau 1 Mahlzeit.
-    s.store.flushPendingWrites(); // Debounce-Fenster der Delta-Queue abkuerzen
+    s.store.flushPendingWrites(); // short-circuit the delta-queue debounce
     await _settle();
     expect(s.server.mealsCounted, 1);
   });
@@ -767,19 +670,16 @@ void main() {
     final s = _setup();
     await _boot(s.store);
 
-    // Unklarer Ausgang: Server wendet den Write an, antwortet aber 500.
     s.server.ambiguousWrites = true;
     s.store.logWeight(80.5);
     await _settle();
 
-    // Kein Rollback: der Messpunkt bleibt lokal.
     expect(s.store.weightLog.latest?.weightKg, 80.5);
     final op = s.store.pendingOutbox
         .singleWhere((o) => o.kind == SyncOpKind.weightInsert);
     expect(s.server.weightRows, hasLength(1),
         reason: 'der erste Versuch hat die Zeile bereits geschrieben');
 
-    // Retry: gleiche id -> Upsert ueberschreibt statt zu duplizieren.
     s.server.ambiguousWrites = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -801,21 +701,15 @@ void main() {
   test('Kaltstart OHNE Netz: Tagebuch kommt aus dem Cache', () async {
     final kv = InMemoryKeyValueStore();
 
-    // Session 1 (online): Mahlzeit loggen — Write-Through in den Cache.
     final a = _setup(kv: kv);
     await _boot(a.store);
     a.store.addResultToDailyTotal(_result('Gestern-online-Bowl'));
     await _settle();
-    // App wird beendet. Seit G9b sind die Tagebuch-Writes entprellt (400 ms),
-    // damit eine Fuenfer-Serie den Blob nicht fuenfmal verschluesselt. Der
-    // Lifecycle-Uebergang paused|hidden|detached ruft flushPendingWrites()
-    // (eatova_home_page.dart) und erzwingt sie — genau das wird hier
-    // modelliert. Ohne diese Zeile prueft der Test nicht "Cache ueberlebt den
-    // Neustart", sondern "Cache ist innerhalb von 400 ms schon geschrieben".
+    // App shutdown flushes the 400 ms debounced diary writes; without it the
+    // test would only prove the debounce is short.
     a.store.flushPendingWrites();
     await _settle();
 
-    // Session 2 (Kaltstart offline): Tagebuch ist sofort da statt leer.
     final b = _setup(kv: kv);
     b.server.offline = true;
     await _boot(b.store);
@@ -830,7 +724,6 @@ void main() {
       'beim Boot nachgespielt', () async {
     final kv = InMemoryKeyValueStore();
 
-    // Session 1: offline geloggt -> Op + Tagebuch liegen persistiert.
     final a = _setup(kv: kv);
     await _boot(a.store);
     a.server.offline = true;
@@ -838,9 +731,7 @@ void main() {
     await _settle();
     expect((await a.cache.readOutbox())!, isNotEmpty);
 
-    // Session 2: Server kennt bereits eine ANDERE Mahlzeit. Der Boot spielt
-    // die Outbox nach und laedt dann — beide Eintraege sind im State UND auf
-    // dem Server, nichts geht verloren.
+    // Session 2: server knows a DIFFERENT meal; replay-then-load keeps both.
     final b = _setup(kv: kv);
     b.server.mealRows['srv-1'] = _serverMealRow('srv-1');
     await _boot(b.store);
@@ -857,8 +748,7 @@ void main() {
   test('Pendende Stats-Deltas ueberleben den App-Neustart', () async {
     final kv = InMemoryKeyValueStore();
 
-    // Session 1: Meal-Sync ok, aber der Stats-RPC faellt aus -> Delta bleibt
-    // persistiert liegen (frueher: bei App-Kill verloren).
+    // Session 1: meal sync fine, stats RPC fails, so the delta stays.
     final a = _setup(kv: kv);
     await _boot(a.store);
     a.server.statsOffline = true;
@@ -872,7 +762,6 @@ void main() {
     expect(pending, isNotNull);
     expect(pending!.meals, 1);
 
-    // Session 2 (Neustart, RPC gesund): der Boot flusht die Deltas nach.
     final b = _setup(kv: kv);
     await _boot(b.store);
 
@@ -881,16 +770,11 @@ void main() {
     expect(after!.meals, 0, reason: 'Delta wurde verbucht, nicht dupliziert');
   });
 
-  // --- Befund B: Idempotenz-Schluessel der Stats-Deltas ---------------------
+  // --- Finding B: idempotency key of the stats deltas -----------------------
   //
-  // `increment_lifetime_stats` ADDIERT. Bricht die Verbindung NACH dem Commit
-  // ab, reiht der catch-Zweig dasselbe Delta wieder ein — und ohne
-  // Wiedererkennung zaehlt der Retry ein zweites Mal, dauerhaft und ohne
-  // Neuberechnungspfad. Seit der Migration 20260814120000_audit_rls_guard.sql
-  // haelt der Server verbrauchte `p_request_id` fest; der Schutz steht und
-  // faellt aber damit, dass der Client bei einem Retry DIESELBE Id sendet. Eine
-  // pro Versuch neu erzeugte Id waere fuer den Server ein neuer Vorgang — der
-  // Fix waere reine Fassade. Genau das pruefen diese beiden Tests.
+  // `increment_lifetime_stats` ADDS, so a drop after the commit re-queues the
+  // same delta. The server tracks consumed `p_request_id`, which only helps if
+  // the client resends the SAME id.
 
   test(
       'Retry des Stats-Deltas sendet DIESELBE Anfrage-Id — auch ueber einen '
@@ -898,7 +782,6 @@ void main() {
       () async {
     final kv = InMemoryKeyValueStore();
 
-    // Session 1: Mahlzeiten-Write kommt durch, nur der Stats-RPC faellt aus.
     final a = _setup(kv: kv);
     await _boot(a.store);
     a.server.statsOffline = true;
@@ -914,13 +797,10 @@ void main() {
     expect(a.server.statsRequestIds.toSet(), <String?>{id},
         reason: 'mehrere Versuche desselben Buendels sind EIN Vorgang');
 
-    // Die Id liegt beim Buendel, nicht nur im Speicher — sonst ueberlebt sie
-    // den App-Kill nicht und der naechste Versuch waere wieder ein neuer
-    // Vorgang.
+    // The id lives with the bundle, or an app kill makes the retry a new op.
     expect((await a.cache.readPendingStatsDeltas())!.requestId, id);
 
-    // Session 2 (Kaltstart, RPC weiterhin kaputt): der Boot-Flush ist der
-    // eigentliche Retry — und er traegt die Id des ERSTEN Versuchs.
+    // Session 2 (cold start): the boot flush is the retry, with the FIRST id.
     final b = _setup(kv: kv);
     b.server.statsOffline = true;
     await _boot(b.store);
@@ -932,7 +812,6 @@ void main() {
         reason: 'eine frisch erzeugte Id koennte der Server nicht als '
             'Wiederholung erkennen — er wuerde ein zweites Mal addieren');
 
-    // Zustellung: derselbe Vorgang kommt endlich durch.
     b.server.statsOffline = false;
     b.store.flushPendingWrites();
     await _settle();
@@ -940,9 +819,7 @@ void main() {
     expect(b.server.mealsCounted, 1);
     expect((await b.cache.readPendingStatsDeltas())!.meals, 0);
 
-    // Und die Gegenprobe: ein NEUES Buendel ist ein neuer Vorgang. Erbte es die
-    // verbrauchte Id, wuerde der Server es als Wiederholung abtun und die
-    // Mahlzeit zaehlte nie.
+    // Counter-check: a NEW bundle needs a new id, else the server dismisses it.
     b.store.addResultToDailyTotal(_result('Zweite Bowl'));
     await _settle();
     b.store.flushPendingWrites();
@@ -956,7 +833,7 @@ void main() {
       'Build) geht nicht verloren — es bekommt eine nachtraeglich, und die '
       'haelt', () async {
     final kv = InMemoryKeyValueStore();
-    // Exakt die Wire-Form von vorher: Zahlen, kein 'request_id'.
+    // The old wire form: numbers, no 'request_id'.
     await LocalCache(kv, 'user-outbox')
         .writePendingStatsDeltas(meals: 2, weightLogs: 1);
 
@@ -966,21 +843,18 @@ void main() {
     s.store.flushPendingWrites();
     await _settle();
 
-    // Weder an `null` gescheitert noch stillschweigend verworfen: das Buendel
-    // ist gesendet worden, mit einer nachtraeglich vergebenen Id …
+    // Neither tripped up by `null` nor dropped: sent with a retrofitted id …
     expect(s.server.statsRequestIds, isNotEmpty);
     final id = s.server.statsRequestIds.first;
     expect(id, isNotNull);
     expect(s.server.statsRequestIds.toSet(), <String?>{id});
 
-    // … die ab jetzt beim Buendel liegt (sonst waere jeder weitere Versuch
-    // wieder ein neuer Vorgang).
+    // … which now lives with the bundle, keeping further attempts one op.
     final pending = await s.cache.readPendingStatsDeltas();
     expect(pending!.requestId, id);
     expect(pending.meals, 2);
     expect(pending.weightLogs, 1);
 
-    // Und die alten Zahlen kommen vollstaendig an.
     s.server.statsOffline = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -988,22 +862,12 @@ void main() {
     expect(s.server.weightLogsCounted, 1);
   });
 
-  // --- Fix 3: exactly-once fuer die Zaehler NACHGEHOLTER Ops ----------------
+  // --- Fix 3: exactly-once counters for replayed ops ------------------------
   //
-  // Fuer den INHALT war der Replay immer idempotent (jeder Write ist ein
-  // voller Upsert auf die Client-UUID), fuer seinen ZAEHLER nicht:
-  // `_performOp` persistierte das +1 SOFORT in den Deltas-Slot, waehrend die
-  // Op erst einen zweiten Blob-Write spaeter aus der Outbox fiel. Ein App-Kill
-  // dazwischen liess den naechsten Boot BEIDES vorfinden — Delta und Op — und
-  // die Mahlzeit ein zweites Mal zaehlen, unter einer frischen Buendel-Id und
-  // damit am Server-Dedup vorbei. `meals_logged` stand danach dauerhaft +1,
-  // ohne Neuberechnungspfad.
-  //
-  // Seit Fix 3 erzeugt der Replay stattdessen einen eigenen
-  // statsIncrement-Eintrag: ATOMAR mit der Entfernung der Quell-Op (ein
-  // Listenupdate, ein Blob-Write — es gibt kein Fenster mehr) und mit einer
-  // aus der Quell-UUID ABGELEITETEN Request-Id. Jede Wiederholung ist fuer den
-  // Server derselbe Vorgang, auch die nach einem Kill neu ERZEUGTE.
+  // The replay was idempotent for CONTENT but not for its COUNTER: the +1 was
+  // persisted before the op left the outbox, so an app kill made the next boot
+  // count the meal twice. Fix 3 creates a statsIncrement entry ATOMICALLY with
+  // removing the source op, keyed on an id DERIVED from the source UUID.
 
   test(
       'Fix 3: Kill nach der Replay-Zustellung, VOR der Op-Entfernung — der '
@@ -1011,12 +875,10 @@ void main() {
     const mealId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     final abgeleitet = deriveStatsRequestId(mealId)!;
     final kv = InMemoryKeyValueStore();
-    // EIN Server fuer beide Sitzungen: sein Dedup-Zustand ist genau das, was
-    // den Neustart ueberleben muss.
+    // ONE server for both sessions: its dedup state must survive the restart.
     final server = _FakeServer();
-    // Der Blob der Vorsession: eine liegengebliebene Mahlzeit. Die Id ist
-    // bewusst UUID-foermig — aus einer anderen liesse sich keine Request-Id
-    // ableiten und es gaebe gar keinen Folgeeintrag.
+    // The previous session's blob: one stranded meal, UUID-shaped so a request
+    // id can be derived.
     await _seedRawOutbox(kv, <Map<String, dynamic>>[
       SyncOp.mealInsert(
         LoggedMeal(
@@ -1025,18 +887,14 @@ void main() {
       ).toJson(),
     ]);
 
-    // Sitzung A: Zustellung und Increment laufen durch, der OUTBOX-Write
-    // erreicht die Platte aber nie — exakt der Kill zwischen den beiden
-    // Commits.
+    // Session A: delivery and increment land, the OUTBOX write does not.
     final a = _setup(
       kv: kv,
       geteilterServer: server,
       injizierterCache: _EingefrorenerOutboxCache(kv, 'user-outbox'),
     );
     await _boot(a.store);
-    // Den Debounce des (auf HEAD noch vorhandenen) Buendel-Flushes abkuerzen:
-    // ohne ihn bliebe das alte +1 im Speicher haengen und der Befund waere
-    // nicht gemessen, sondern nur nicht ausgeloest.
+    // Short-circuit the bundle-flush debounce, else the +1 never leaves memory.
     a.store.flushPendingWrites();
     await _settle();
 
@@ -1048,11 +906,8 @@ void main() {
         contains('"entity_id":"$mealId"'),
         reason: 'Vorbedingung: der persistierte Blob traegt die Op WEITERHIN '
             '— sonst prueft dieser Test gar nichts');
-    // Kein explizites dispose(): den Teardown haengt _setup selbst an, und die
-    // Sitzung hat nach dem Flush keinen Ausloeser mehr. Der „Kill" ist der
-    // Zustand, den sie auf der Platte hinterlaesst.
+    // No explicit dispose(): the "kill" is just the state left on storage.
 
-    // Sitzung B: derselbe Blob, derselbe Server.
     final b = _setup(kv: kv, geteilterServer: server);
     await _boot(b.store);
     b.store.flushPendingWrites();
@@ -1083,8 +938,7 @@ void main() {
       'verlaesst die Queue als ERFOLG, ohne erneut zu addieren', () async {
     const rid = '6561746f-7661-6d73-f461-74732d726964';
     final kv = InMemoryKeyValueStore();
-    // Die Vorsession hat den Eintrag zugestellt — nur die ANTWORT ging
-    // verloren, also liegt er noch in der Queue.
+    // The previous session delivered it; only the ANSWER was lost.
     await _seedRawOutbox(kv, <Map<String, dynamic>>[
       SyncOp.statsIncrement(requestId: rid, meals: 1).toJson(),
     ]);
@@ -1112,7 +966,6 @@ void main() {
     final kv = InMemoryKeyValueStore();
     final server = _FakeServer();
 
-    // Sitzung A: offline geloggt -> mealInsert liegt in der Queue.
     final a = _setup(kv: kv, geteilterServer: server);
     await _boot(a.store);
     server.offline = true;
@@ -1122,7 +975,6 @@ void main() {
         contains(SyncOpKind.mealInsert),
         reason: 'Vorbedingung');
 
-    // Netz zurueck, aber der Zaehler-RPC faellt aus.
     server.offline = false;
     server.statsOffline = true;
     a.store.flushPendingWrites();
@@ -1142,7 +994,7 @@ void main() {
             'Buendel nicht mehr an (vorher stand hier 1)');
     expect(server.statsRequestIds, contains(abgeleitet));
 
-    // Kaltstart, RPC weiterhin kaputt: der Boot-Replay wiederholt.
+    // Cold start, RPC still broken: the boot replay retries.
     final b = _setup(kv: kv, geteilterServer: server);
     await _boot(b.store);
     b.store.flushPendingWrites();
@@ -1155,7 +1007,6 @@ void main() {
         reason: 'eine pro Versuch neu erzeugte Id koennte der Server nicht als '
             'Wiederholung erkennen — er wuerde ein zweites Mal addieren');
 
-    // Und endlich durch.
     server.statsOffline = false;
     b.store.flushPendingWrites();
     await _settle();
@@ -1171,8 +1022,7 @@ void main() {
     final s = _setup();
     await _boot(s.store);
 
-    // Unklarer Ausgang: der Server wendet den Write an, antwortet aber 500 —
-    // der Live-Pfad zaehlt deshalb NICHT (onDelivered bleibt aus).
+    // Applied but answered 500, so the live path does NOT count.
     s.server.ambiguousWrites = true;
     s.store.logWeight(80.5);
     await _settle();
@@ -1197,8 +1047,7 @@ void main() {
       'Nutzer-Inhalt, „etwas fehlt" waere die falsche Meldung', () async {
     const rid = '6561746f-7661-6d73-f461-74732d726964';
     final kv = InMemoryKeyValueStore();
-    // Budget aufgebraucht UND seit ueber 24 h liegen: beides muss zusammen-
-    // kommen, sonst greift die Notbremse nicht (A4).
+    // Budget spent AND older than 24 h: both are required for the drop (A4).
     await _seedRawOutbox(kv, <Map<String, dynamic>>[
       SyncOp.statsIncrement(requestId: rid, meals: 1).toJson()
         ..['queued_at'] = DateTime.now()
@@ -1208,7 +1057,7 @@ void main() {
     ]);
 
     final s = _setup(kv: kv);
-    s.server.statsOffline = true; // aktive Ablehnung (500) zaehlt
+    s.server.statsOffline = true; // an active rejection (500) counts
     await _boot(s.store);
 
     expect(s.store.pendingOutbox, isEmpty, reason: 'verworfen');
@@ -1219,33 +1068,28 @@ void main() {
     expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()), isEmpty);
   });
 
-  // --- W7b: die Bremse fuer den Deltas-Slot ---------------------------------
+  // --- W7b: the brake for the deltas slot -----------------------------------
   //
-  // Fuer die Outbox gibt es sie seit Luecke F (`_outboxHydrationFailed`), fuer
-  // die pendenden Deltas fehlte sie: `readPendingStatsDeltasOrThrow` meldete
-  // den Lesefehler zwar, aber niemand hielt daraufhin den Schreibpfad an.
-  // `_persistPendingStatsDeltas` schreibt den Slot IMMER komplett neu — genau
-  // der Schaden, den der Docstring der Methode benennt.
+  // The outbox has one since gap F; the deltas had none, and
+  // `_persistPendingStatsDeltas` always rewrites the whole slot.
 
   test(
       'ein kaputter pending_stats-Slot loest die Bremse aus, statt still eine '
       'leere Menge zu liefern', () async {
     final kv = InMemoryKeyValueStore();
-    // Vorsession: drei nie verbuchte Mahlzeiten liegen im Slot, mit ihrer
-    // Anfrage-Id.
+    // Previous session: three unbooked meals in the slot.
     await LocalCache(kv, 'user-outbox')
         .writePendingStatsDeltas(meals: 3, weightLogs: 0, requestId: 'alt-id');
 
     final cache = _DeltaLesefehlerCache(kv, 'user-outbox');
     final s = _setup(kv: kv, injizierterCache: cache);
-    // Der Stats-RPC bleibt aus: so kann kein Flush die Zahlen wegraeumen und
-    // der Test misst wirklich den Slot-Inhalt.
+    // The stats RPC stays down so the test really measures the slot.
     s.server.statsOffline = true;
     await _boot(s.store);
     expect(cache.leseversuche, 1,
         reason: 'Vorbedingung: die Hydration hat den Slot nicht gesehen');
 
-    // Eine neue Mahlzeit — ihr Delta laeuft in _persistPendingStatsDeltas.
+    // Its delta runs into _persistPendingStatsDeltas.
     s.store.addResultToDailyTotal(_result('Bowl'));
     await _settle();
 
@@ -1287,7 +1131,7 @@ void main() {
             'ohnehin nicht mehr verbuchbar — ab da gilt wieder der normale '
             'Schreibpfad, sonst koennte die Sitzung nie mehr etwas ablegen');
 
-    // Und jedes weitere Delta laeuft ohne einen dritten Lesevorgang durch.
+    // And every further delta passes without a third read.
     s.store.addResultToDailyTotal(_result('Zweite Bowl'));
     await _settle();
     expect(cache.leseversuche, 2);
@@ -1308,22 +1152,19 @@ void main() {
     await _settle();
     expect(s.store.pendingOutbox.length, greaterThanOrEqualTo(2));
 
-    // Netz zurueck, aber logged_meals-Writes werden weiter abgelehnt.
     s.server.offline = false;
     s.server.rejectMealWrites = true;
     s.store.flushPendingWrites();
     await _settle();
 
-    // Gewicht (und Favorit) sind durch, die Meal-Op bleibt liegen …
+    // Weight is through, the meal op stays, and nothing rolled back.
     expect(s.server.weightRows, hasLength(1));
     expect(
       s.store.pendingOutbox.map((o) => o.kind),
       [SyncOpKind.mealInsert],
     );
-    // … und der lokale Eintrag steht weiterhin im Tagebuch (kein Rollback).
     expect(s.store.loggedMeals.map((m) => m.id), contains(mealId));
 
-    // Sobald der Server das Meal akzeptiert, raeumt der naechste Flush auf.
     s.server.rejectMealWrites = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -1342,19 +1183,17 @@ void main() {
     await _settle();
     expect(s.server.mealRows.keys, contains(id));
 
-    // Netz weg — dann im Bearbeiten-Sheet Slot + Tag aendern.
     s.server.offline = true;
     final yesterday =
         DateUtils.dateOnly(DateTime.now()).subtract(const Duration(days: 1));
     s.store.updateLoggedMealDetails(id, slot: MealSlot.snack, day: yesterday);
     await _settle();
 
-    // Kein Rollback: der lokale Stand traegt die Aenderung sofort.
     final local = s.store.loggedMeals.singleWhere((m) => m.id == id);
     expect(local.forcedSlot, MealSlot.snack);
     expect(local.localDay, localDayKey(yesterday));
 
-    // Genau EINE mealUpsert-Op mit dem vollen neuen Stand haengt in der Queue.
+    // ONE mealUpsert op with the full new state.
     final ops = s.store.pendingOutbox
         .where((o) => o.entityKey == 'meal:$id')
         .toList();
@@ -1364,7 +1203,6 @@ void main() {
     expect(queued.forcedSlot, MealSlot.snack);
     expect(queued.localDay, localDayKey(yesterday));
 
-    // Wieder online: Replay schreibt die verschobene Zeile idempotent.
     s.server.offline = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -1376,7 +1214,7 @@ void main() {
     final loggedAt = DateTime.parse(row['logged_at'] as String).toLocal();
     expect(DateUtils.isSameDay(loggedAt, yesterday), isTrue);
 
-    // Ein Edit ist KEIN neuer Log: die Lifetime-Stats zaehlen weiterhin 1.
+    // An edit is NOT a new log: the lifetime stats still count 1.
     s.store.flushPendingWrites();
     await _settle();
     expect(s.server.mealsCounted, 1);
@@ -1407,7 +1245,7 @@ void main() {
     expect(DateUtils.isSameDay(loggedAt, yesterday), isTrue);
   });
 
-  // --- Gift-Ops, Versuchs-Budget, Queue-Cap ---------------------------------
+  // --- Poison ops, attempt budget, queue cap --------------------------------
 
   test(
       'Gift-Op (23502 not_null_violation) wird beim ERSTEN Replay verworfen, '
@@ -1420,26 +1258,25 @@ void main() {
     final id = s.store.addResultToDailyTotal(_result('Kaputt-Bowl'));
     await _settle();
 
-    // Der Live-Write klassifiziert nicht — die Op landet erstmal in der Queue.
+    // The live write does not classify: the op is queued first.
     expect(s.store.pendingOutbox.map((o) => o.entityKey),
         contains('meal:$id'));
 
     s.store.flushPendingWrites();
     await _settle();
 
-    // EIN Replay reicht: die Op ist weg, aus dem Speicher UND vom Blob.
+    // ONE replay is enough: the op is gone from memory AND the blob.
     expect(s.store.pendingOutbox.where((o) => o.entityKey == 'meal:$id'),
         isEmpty);
     final persisted = await s.cache.readOutbox();
     expect(persisted!.where((o) => o.entityKey == 'meal:$id'), isEmpty);
 
-    // Genau EIN Verlust-Hinweis, auch nach weiteren Flush-Runden.
+    // ONE loss hint, even after further flush rounds.
     s.store.flushPendingWrites();
     await _settle();
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
 
-    // Schema-Leakage-Guard: kein Snack traegt SQLSTATE, Tabellen-/
-    // Constraint-Namen oder Exception-Typen.
+    // Schema-leak guard.
     for (final m in s.snacks.messages) {
       expect(m, isNot(contains('23502')));
       expect(m, isNot(contains('logged_meals')));
@@ -1475,7 +1312,6 @@ void main() {
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty,
         reason: 'ein 500 ist kein Grund, Nutzerdaten wegzuwerfen');
 
-    // Server erholt sich rechtzeitig -> ganz normaler Sync.
     s.server.rejectMealWrites = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -1505,7 +1341,6 @@ void main() {
         reason: 'ein Offline-Wochenende darf kein Budget kosten');
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty);
 
-    // Wieder online -> die Mahlzeit ist vollstaendig da.
     s.server.offline = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -1518,7 +1353,7 @@ void main() {
       () async {
     final kv = InMemoryKeyValueStore();
 
-    // Session 1: zwei Replays gegen einen 500er -> Zaehler steht auf 2.
+    // Session 1: two replays against a 500 -> the counter is at 2.
     final a = _setup(kv: kv);
     await _boot(a.store);
     a.server.rejectMealWrites = true;
@@ -1540,9 +1375,8 @@ void main() {
         2,
         reason: 'der Zaehler muss PERSISTIERT sein');
 
-    // Session 2 (Neustart, Server weiter kaputt): der Boot-Replay zaehlt
-    // WEITER statt bei 0 zu beginnen — ein Crash-Loop macht Gift sonst
-    // unsterblich.
+    // Session 2 (restart): the replay CONTINUES the count, else a crash loop
+    // makes poison immortal.
     final b = _setup(kv: kv);
     b.server.rejectMealWrites = true;
     await _boot(b.store);
@@ -1577,7 +1411,6 @@ void main() {
     final persisted = await s.cache.readOutbox();
     expect(persisted!.length, lessThanOrEqualTo(kOutboxMaxOps));
 
-    // Der Verlust wird gemeldet — aber nur EINMAL, nicht 5x.
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
   }, timeout: const Timeout(Duration(minutes: 3)));
 
@@ -1585,13 +1418,9 @@ void main() {
       'Hydrations-Cap: eine von einem alten, ungedeckelten Build gewachsene '
       'Queue wird beim Boot gekappt', () async {
     final kv = InMemoryKeyValueStore();
-    // Direkt in den Cache schreiben — dieser Pfad laeuft NIE durch das
-    // Einreihen, der Cap muss hier trotzdem greifen.
+    // Written straight into the cache: no enqueue, yet the cap must bite.
     final seed = LocalCache(kv, 'user-outbox');
-    // Bewusst SCHREIB-Ops: Deletes sind seit dem Review 2026-08-08 vom Cap
-    // ausgenommen (ein verworfener Delete laesst die geloeschte Mahlzeit beim
-    // naechsten Boot vom Server zurueckkehren), eine reine Delete-Queue wuerde
-    // hier also gar nicht gekappt.
+    // WRITE ops on purpose: deletes are cap-exempt (a dropped one resurrects).
     await seed.writeOutbox(<SyncOp>[
       for (var i = 0; i < kOutboxMaxOps + 100; i++)
         SyncOp.weightInsert(
@@ -1602,8 +1431,7 @@ void main() {
     ]);
 
     final s = _setup(kv: kv);
-    // Offline, damit der Boot-Replay die Queue nicht einfach leerraeumt und
-    // der Test dadurch vakuum-gruen wird.
+    // Offline, else the boot replay empties the queue and the test is vacuous.
     s.server.offline = true;
     await _boot(s.store);
 
@@ -1614,25 +1442,20 @@ void main() {
         'legacy-${kOutboxMaxOps + 99}');
   }, timeout: const Timeout(Duration(minutes: 3)));
 
-  // --- Review 2026-08-08: A4 (Budget), A6 (Waise), A8 (korrupte Payload),
-  //     A2 (Logout) -----------------------------------------------------------
+  // --- Review 2026-08-08: A4 (budget), A6 (orphan), A8 (corrupt payload),
+  //     A2 (logout) -----------------------------------------------------------
 
   test(
       'A4: Lifecycle-Churn frisst das Versuchs-Budget nicht mehr auf — 12 '
       'Durchlaeufe in Sekunden lassen die Op stehen', () async {
     final s = _setup();
     await _boot(s.store);
-    // Kurzer Server-Ausfall mit schnellen 500ern.
     s.server.rejectMealWrites = true;
 
     final id = s.store.addResultToDailyTotal(_result('Ausfall-Bowl'));
     await _settle();
 
-    // Ein App-Wechsel loest bis zu 4 flushPendingWrites aus (inactive ->
-    // hidden -> paused beim Wegschalten, hidden -> inactive -> resumed
-    // zurueck). Drei App-Wechsel waehrend eines 5-Minuten-Ausfalls = 12
-    // Durchlaeufe in wenigen Sekunden. Frueher war die Mahlzeit ab dem 8.
-    // Durchlauf DAUERHAFT weg.
+    // One app switch triggers up to four flushes: an outage burns a dozen.
     for (var i = 0; i < 12; i++) {
       s.store.flushPendingWrites();
       await _settle();
@@ -1645,7 +1468,6 @@ void main() {
     );
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty);
 
-    // Der Ausfall geht vorbei — die Mahlzeit landet ganz normal.
     s.server.rejectMealWrites = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -1692,22 +1514,18 @@ void main() {
     s.store.flushPendingWrites();
     await _settle();
 
-    // Vorbedingung: Op verworfen, Mahlzeit lokal noch sichtbar, serverseitig
-    // existiert sie NICHT.
+    // Precondition: op dropped, meal visible locally, absent on the server.
     expect(
         s.store.pendingOutbox.where((o) => o.entityKey == 'meal:$id'), isEmpty);
     expect(s.store.loggedMeals.map((m) => m.id), contains(id));
     expect(s.server.mealRows.keys, isNot(contains(id)));
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
 
-    // Server ist wieder gesund, der Nutzer korrigiert die Portion.
     s.server.poisonMealWrites = false;
     s.store.updateLoggedMealResult(id, _result('Waisen-Bowl', kcal: 500));
     await _settle();
 
-    // Frueher: ein PATCH auf 0 Zeilen. Der ist ein 204, also KEIN Fehler —
-    // _onSyncSuccess feuerte, der Nutzer sah nichts, und die Mahlzeit war beim
-    // naechsten Kaltstart weg.
+    // A PATCH hitting 0 rows is a 204, not an error: silent loss.
     expect(
       s.server.requests.where(
           (r) => r.method == 'PATCH' && r.url.path.contains('/logged_meals')),
@@ -1733,8 +1551,7 @@ void main() {
         'kind': 'mealInsert',
         'entity_id': 'm-korrupt',
         'queued_at': DateTime.now().toIso8601String(),
-        // Nicht-Map-Payload: SyncOp.tryFromJson BEHAELT die Op und setzt {}
-        // ein — genau so ist der Pfad erreichbar.
+        // Non-map payload: tryFromJson KEEPS the op with {}, reaching this.
         'payload': 'kaputt',
       },
     ]);
@@ -1742,16 +1559,13 @@ void main() {
     final s = _setup(kv: kv);
     await _boot(s.store);
 
-    // Die Op ist weg (sie ist unzustellbar) …
     expect(s.store.pendingOutbox, isEmpty);
-    // … sie hat den Server nie erreicht …
     expect(
       s.server.requests.where(
           (r) => r.method == 'POST' && r.url.path.contains('/logged_meals')),
       isEmpty,
     );
-    // … und der Nutzer erfaehrt davon. Frueher war das der EINZIGE Verlustpfad
-    // ohne Snack, ohne Breadcrumb, ohne Crash-Report.
+    // The user is told: this used to be the only silent data-loss path.
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
   });
 
@@ -1759,10 +1573,7 @@ void main() {
       'A2: Ausloggen mit ungesyncten Ops — was der Zustellversuch nicht '
       'losgeworden ist, ueberlebt den Logout', () async {
     final s = _setup();
-    // Echte PII-Basis VOR dem Boot: seit dem A1-Guard schreibt der Boot ohne
-    // echte Hydrationsquelle keinen Default-Snapshot mehr — die erste Fassung
-    // dieses Tests bezog ihr „Profil liegt im Cache" genau aus diesem
-    // Nebeneffekt (Ctor-Defaults als PII).
+    // Real PII before the boot: the A1 guard writes no default snapshot.
     await s.cache.writeProfile(
         const UserProfile(weightKg: 80, onboardingCompleted: true));
     await _boot(s.store);
@@ -1775,11 +1586,11 @@ void main() {
 
     await s.store.signOutCleanup();
 
-    // Die sechs Mahlzeiten aus dem Flugzeug sind NICHT weg …
+    // The six offline meals are NOT gone …
     final surviving = await s.cache.readOutbox();
     expect(surviving, isNotNull);
     expect(surviving!.map((o) => o.entityKey), contains('meal:$id'));
-    // … der uebrige PII-Cache dagegen schon (Audit M-1 bleibt erfuellt).
+    // … while the rest of the PII cache is (audit M-1 still holds).
     expect(await s.cache.readProfile(), isNull);
     expect(await s.cache.readLoggedMeals(), isNull);
     expect(await s.cache.readWeightLog(), isNull);
@@ -1796,11 +1607,9 @@ void main() {
       loggedAt: DateTime.now(),
     );
     await _seedRawOutbox(kv, [
-      // Aeltester Eintrag: ein WRITE — der faellt am Cap zuerst.
+      // Oldest entry is a WRITE, so it falls to the cap first.
       SyncOp.mealInsert(meal, trackDay: false).toJson(),
-      // Danach so viele Deletes, dass der Ueberlauf (503 - 500 = 3) nach dem
-      // einzigen Write auch noch zwei Deletes mitnimmt: der Misch-Fall, in
-      // dem per capOutbox-Reihenfolge ALLE Writes gefallen sind.
+      // Then enough deletes that the overflow takes two after the one write.
       for (var i = 0; i < 502; i++) SyncOp.mealDelete('m-del-$i').toJson(),
     ]);
 
@@ -1829,9 +1638,7 @@ void main() {
     await _seedRawOutbox(kv, [SyncOp.mealInsert(meal, trackDay: false).toJson()]);
 
     final s = _setup(kv: kv);
-    // BEWUSST kein _boot: der Logout kommt, bevor die Hydration den Blob in
-    // den In-Memory-Zustand uebernommen hat. `_outbox` ist dann leer — der
-    // persistierte Blob der Vorsession nicht, und nur er zaehlt.
+    // Deliberately no _boot: `_outbox` is empty, the persisted blob is not.
     await s.store.signOutCleanup();
 
     final surviving = await s.cache.readOutbox();
@@ -1842,7 +1649,7 @@ void main() {
     expect(surviving!.map((o) => o.entityKey), contains('meal:m-vorsession'));
   });
 
-  // --- Verifikation V1 (Welle 6): Restluecken aus A2/A4/A5 ------------------
+  // --- Verification V1 (wave 6): remaining gaps from A2/A4/A5 ---------------
 
   test(
       'L1: ein Delete gegen einen kalten Schema-Cache (400/SQLSTATE) wird '
@@ -1854,8 +1661,7 @@ void main() {
     expect(s.server.mealRows.keys, contains(id),
         reason: 'Vorbedingung: die Zeile steht auf dem Server');
 
-    // Migration laeuft, der Schema-Cache ist kalt: JEDER logged_meals-Write —
-    // auch der DELETE — kommt als 400 mit SQLSTATE im Body zurueck.
+    // Schema cache cold: EVERY logged_meals write, DELETE included, 400s.
     s.server.poisonMealWrites = true;
     s.store.removeLoggedMeal(id);
     await _settle();
@@ -1864,16 +1670,14 @@ void main() {
       await _settle();
     }
 
-    // Frueher: Sofort-Verwurf beim ersten Replay. Die Serverzeile blieb, der
-    // lokale Zustand nicht — der naechste Kaltstart holte die 1800 kcal
-    // zurueck, ohne dass irgendetwas davon erzaehlt haette.
+    // Dropping on the first replay left the server row, so the next cold
+    // start brought the meal back.
     expect(s.store.pendingOutbox.map((o) => o.entityKey), contains('meal:$id'),
         reason: 'die Loeschung darf nicht am Code-Verdikt sterben');
     expect(s.server.mealRows.keys, contains(id));
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty);
     expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()), isEmpty);
 
-    // Die Migration ist durch: die Loeschung geht ganz normal raus.
     s.server.poisonMealWrites = false;
     s.store.flushPendingWrites();
     await _settle();
@@ -1886,7 +1690,7 @@ void main() {
       'wieder ein und sagt es — statt sie still auferstehen zu lassen',
       () async {
     final kv = InMemoryKeyValueStore();
-    // Ein Delete am Ende seines (grossen) Budgets und seiner Frist.
+    // A delete at the end of its budget and its deadline.
     await _seedRawOutbox(kv, [
       SyncOp.mealDelete('m-geist').toJson()
         ..['queued_at'] = DateTime.now()
@@ -1896,31 +1700,27 @@ void main() {
     ]);
 
     final s = _setup(kv: kv);
-    // Boot offline: der Replay ist gratis (Netzfehler), die Op bleibt liegen,
-    // und der Boot-Load bringt die Mahlzeit NICHT mit — nur so beweist der
-    // Test hinterher die Wiedereinblendung und nicht den Boot.
+    // Boot offline: the replay is free and the boot load brings no meal, so
+    // the re-display is what is proven.
     s.server.offline = true;
     await _boot(s.store);
     expect(s.store.pendingOutbox, hasLength(1));
     expect(s.store.loggedMeals, isEmpty);
 
-    // Netz zurueck, die Zeile steht serverseitig weiterhin (1800 kcal), und
-    // der Delete scheitert weiter.
+    // Network back; the row is still there and the delete keeps failing.
     s.server.offline = false;
     s.server.mealRows['m-geist'] = _serverMealRow('m-geist', kcal: 1800);
     s.server.poisonMealWrites = true;
     s.store.flushPendingWrites();
     await _settle();
 
-    // Die Op ist weg — die Queue laeuft wieder leer (sonst: 4-Minuten-Timer
-    // ohne Ende, Cap ausgehebelt, preserveOutbox fuer immer true).
+    // The op is gone and the queue drains, else the retry timer never stops.
     expect(s.store.pendingOutbox, isEmpty);
     expect((await s.cache.readOutbox())!, isEmpty);
-    // … und die Mahlzeit ist wieder sichtbar, samt ihrer Kalorien.
+    // The meal is visible again and the user is told what to do.
     expect(s.store.loggedMeals.map((m) => m.id), contains('m-geist'));
     expect(s.store.dailyConsumedKcal, 1800,
         reason: 'die Kalorien zaehlen wieder — das darf nicht unsichtbar sein');
-    // … und der Nutzer erfaehrt, was zu tun ist.
     expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()),
         hasLength(1));
     for (final m in s.snacks.messages) {
@@ -1946,9 +1746,7 @@ void main() {
     s.server.offline = true;
     await _boot(s.store);
 
-    // Die Zeile ist 60 Tage alt — der Fenster-Load des Boots sieht sie NIE,
-    // nur ein gezielter Read auf die Id kann sie zurueckholen. (Erreichbar
-    // ist so ein Delete ueber den Archiv-Tag-Picker des Edit-Sheets.)
+    // The row is 60 days old: only a targeted read by id brings it back.
     s.server.offline = false;
     final oldRow = _serverMealRow('m-alt', kcal: 1200);
     oldRow['logged_at'] = DateTime.now()
@@ -1990,7 +1788,6 @@ void main() {
     await _settle();
     expect(s.store.loggedMeals.map((m) => m.id), contains('m-geist'));
 
-    // Migration durch — der Nutzer loescht erneut, diesmal klappt es.
     s.server.poisonMealWrites = false;
     s.store.removeLoggedMeal('m-geist');
     await _settle();
@@ -2017,8 +1814,7 @@ void main() {
     s.server.offline = true;
     await _boot(s.store);
 
-    // Online, Server vergiftet: der frische Write stirbt als Gift-Op (23502),
-    // der alte Delete an Budget + Frist — beides in EINEM Replay.
+    // Server poisoned: the fresh write dies as poison, the old delete on age.
     s.server.offline = false;
     s.server.mealRows['m-geist'] = _serverMealRow('m-geist', kcal: 1800);
     s.server.poisonMealWrites = true;
@@ -2027,8 +1823,7 @@ void main() {
     s.store.flushPendingWrites();
     await _settle();
 
-    // Der Episoden-Merker darf die zweite, ANDERE Nachricht nicht schlucken:
-    // beim Write fehlt etwas, bei der Loeschung ist etwas wieder da.
+    // The episode latch must not swallow the second, DIFFERENT message.
     expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
     expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()),
         hasLength(1));
@@ -2038,9 +1833,7 @@ void main() {
   test(
       'Nebenbefund: die 24-h-Frist haengt an der injizierten Uhr, nicht an '
       'DateTime.now() — vorher war sie ueberhaupt nicht pruefbar', () async {
-    // Referenz-Zeitpunkt weit weg von der echten Systemzeit: laeuft die Regel
-    // gegen DateTime.now(), waere die Op hier IMMER 24 h alt und beide Faelle
-    // fielen zusammen.
+    // Reference time far from the system clock, else both cases collapse.
     final queuedAt = DateTime(2030, 5, 17, 8);
     Future<List<SyncOp>> runAt(DateTime now) async {
       final kv = InMemoryKeyValueStore();
@@ -2061,14 +1854,13 @@ void main() {
       });
     }
 
-    // 23 h nach dem Einreihen: das Budget ist aufgebraucht, die Wanduhr sagt
-    // nein — die Mahlzeit bleibt.
+    // 23 h after enqueueing: budget spent, wall clock says no, meal stays.
     expect(
       (await runAt(queuedAt.add(const Duration(hours: 23))))
           .map((o) => o.entityKey),
       contains('meal:m-uhr'),
     );
-    // 25 h: jetzt greift die Notbremse.
+    // 25 h: now the emergency brake bites.
     expect(
       (await runAt(queuedAt.add(const Duration(hours: 25))))
           .map((o) => o.entityKey),
@@ -2081,8 +1873,7 @@ void main() {
       'Lebenszeit-Zaehler ueberleben den Logout', () async {
     final s = _setup();
     await _boot(s.store);
-    // Der Mahlzeiten-Write gelingt, nur increment_lifetime_stats faellt aus:
-    // eigener RPC, eigener Zustand. Die Outbox bleibt dabei LEER.
+    // Only increment_lifetime_stats fails; the outbox stays EMPTY.
     s.server.statsOffline = true;
     s.store.addResultToDailyTotal(_result('Streak-Bowl'));
     await _settle();
@@ -2095,12 +1886,11 @@ void main() {
 
     await s.store.signOutCleanup();
 
-    // Frueher haing preserveOutbox allein an _outbox.length — die Deltas
-    // (Streak-Grundlage) fielen still weg.
+    // preserveOutbox used to hang on _outbox.length alone, dropping deltas.
     final surviving = await s.cache.readPendingStatsDeltas();
     expect(surviving, isNotNull);
     expect(surviving!.meals, 1);
-    // Der uebrige PII-Cache faellt weiterhin (Audit M-1).
+    // The rest of the PII cache is still dropped (audit M-1).
     expect(await s.cache.readProfile(), isNull);
     expect(await s.cache.readLoggedMeals(), isNull);
   });
@@ -2117,7 +1907,6 @@ void main() {
     await _settle();
     expect((await s.cache.readPendingStatsDeltas())!.meals, 1);
 
-    // RPC ist wieder gesund, DANN erst der Logout.
     s.server.statsOffline = false;
     await s.store.signOutCleanup();
 
@@ -2127,14 +1916,10 @@ void main() {
     expect(await s.cache.readProfile(), isNull);
   });
 
-  // --- Luecke A: Eigen-Rezepte bekommen lokale Persistenz -------------------
+  // --- Gap A: user recipes get local persistence ----------------------------
   //
-  // Mahlzeiten, Favoriten, Gewicht und Stats hingen von Anfang an in ZWEI
-  // unabhaengigen Netzen: dem lokalen Write-Through-Cache UND der Outbox.
-  // `user_recipes` hatte nur die Outbox. Faellt die aus — weil sie zugestellt
-  // hat, weil der Cap sie gekappt hat, oder weil sie mangels Antwort nie
-  // entstanden ist — war das selbst angelegte Rezept spurlos weg. Diese Tests
-  // waren allesamt ROT, bevor `user_recipes` einen eigenen Cache-Slot bekam.
+  // Meals, favorites, weight and stats always had TWO nets: the write-through
+  // cache AND the outbox. `user_recipes` only had the outbox.
 
   test(
       'Luecke A: ein im Flugmodus angelegtes Rezept ueberlebt den Kaltstart — '
@@ -2149,19 +1934,15 @@ void main() {
     expect(a.store.userRecipes.map((r) => r.slug), contains('user_flug'),
         reason: 'Vorbedingung: im Flugmodus ist das Rezept sichtbar');
 
-    // Nach der Landung stellt die Outbox zu und ist danach LEER — ab hier
-    // haelt das Rezept lokal nur noch der Cache.
+    // The outbox delivers and empties: only the cache still holds the recipe.
     a.server.offline = false;
     a.store.flushPendingWrites();
     await _settle();
     expect(a.store.pendingOutbox, isEmpty);
-    // App wird beendet: der Lifecycle-Uebergang paused|hidden|detached ruft
-    // flushPendingWrites() und erzwingt die entprellten Cache-Writes
-    // (eatova_home_page.dart) — genau das wird hier modelliert.
+    // App shutdown forces the debounced cache writes.
     a.store.flushPendingWrites();
     await _settle();
 
-    // Kaltstart, wieder ohne Netz.
     final b = _setup(kv: kv);
     b.server.offline = true;
     await _boot(b.store);
@@ -2182,21 +1963,19 @@ void main() {
 
     a.store.createUserRecipe(_recipe('user_haenger'));
     await _settle();
-    // Luecke B: ohne Antwort feuert weder `then` noch `catchError`. Frueher
-    // entstand deshalb GAR KEINE Op — jetzt liegt sie schon vor dem Netz-Write.
+    // Gap B: with no answer neither callback fires, so the op must pre-exist.
     expect(a.store.pendingOutbox.map((o) => o.entityKey),
         contains('recipe:user_haenger'),
         reason: 'die Op darf nicht erst im Fehler-Callback entstehen — der '
             'kommt hier nie');
     a.store.flushPendingWrites();
     await _settle();
-    // Luecke A: unabhaengig von der Outbox traegt der Cache-Slot das Rezept.
+    // Gap A: independently of the outbox, the cache slot holds the recipe.
     expect((await a.cache.readUserRecipes())!.map((r) => r.slug),
         contains('user_haenger'),
         reason: 'zwei unabhaengige Netze — der Cache haelt auch ohne Op');
 
-    // Kaltstart bewusst OHNE Netz: dass ein erfolgreicher Server-Load die
-    // Liste bedingungslos ersetzt (Luecke C), ist ein eigener Schritt.
+    // Cold start deliberately WITHOUT network; gap C has its own test.
     final b = _setup(kv: kv);
     b.server.offline = true;
     await _boot(b.store);
@@ -2211,8 +1990,7 @@ void main() {
       '— frueher waren dabei ALLE weg, nicht nur das neue', () async {
     final kv = InMemoryKeyValueStore();
     final a = _setup(kv: kv);
-    // Echtes Profil im Cache: ohne Hydrationsquelle laesst der A1-Guard
-    // _writeCacheSnapshot() gar nicht erst laufen (s. Test „A2: Ausloggen …").
+    // Real profile in the cache: the A1 guard needs a hydration source.
     await a.cache.writeProfile(
         const UserProfile(weightKg: 80, onboardingCompleted: true));
     a.server.recipeRows['user_alt_1'] = _serverRecipeRow('user_alt_1');
@@ -2269,7 +2047,6 @@ void main() {
     final id = s.store.addResultToDailyTotal(_result('Landung-Bowl'));
     await _settle();
 
-    // Nach der Landung: Netz ist zurueck, DANN erst der Logout.
     s.server.offline = false;
     await s.store.signOutCleanup();
 
@@ -2279,15 +2056,10 @@ void main() {
     expect(await s.cache.readProfile(), isNull);
   });
 
-  // --- Luecke C: der Boot-Load ersetzt die Eigen-Rezepte nicht mehr blind ---
+  // --- Gap C: the boot load no longer blindly replaces user recipes ---------
   //
-  // `_bootFromSupabase` setzte `_userRecipes = loadedRecipes` bedingungslos.
-  // Einzige Gegenkraft war `_applyPendingOpsToState` — und die greift nur,
-  // solange die Op noch in der Queue liegt. Ist sie nie entstanden (haengender
-  // Live-Write, Luecke B) oder am Queue-Cap gefallen, war der Cache-Slot aus
-  // Luecke A wertlos: der erste Start MIT Netz ueberschrieb ihn mit der
-  // Serverliste, und `_writeCacheSnapshot` schrieb den Verlust anschliessend
-  // fest.
+  // `_bootFromSupabase` set `_userRecipes = loadedRecipes` unconditionally, so
+  // with no pending op the first online start overwrote the cache slot.
 
   test(
       'Luecke C: ein nur lokal bekanntes Rezept ueberlebt den Boot MIT Netz — '
@@ -2297,9 +2069,7 @@ void main() {
     final seed = LocalCache(kv, 'user-outbox');
     await seed.writeProfile(
         const UserProfile(weightKg: 80, onboardingCompleted: true));
-    // Der Cache traegt ein Rezept, das der Server NICHT kennt und fuer das
-    // KEINE Outbox-Op existiert — genau der Zustand nach einem haengenden
-    // Live-Write oder einem am Cap gefallenen Eintrag.
+    // A recipe only the cache knows: no server row, no outbox op.
     await seed.writeUserRecipes(<FitnessRecipe>[_recipe('user_nur_lokal')]);
 
     final s = _setup(kv: kv);
@@ -2323,8 +2093,7 @@ void main() {
     final seed = LocalCache(kv, 'user-outbox');
     await seed.writeProfile(
         const UserProfile(weightKg: 80, onboardingCompleted: true));
-    // Der Blob ist VERALTET: die Loeschung lag noch im 400-ms-Entprellfenster,
-    // als die App starb. Die Outbox-Op dagegen liegt sofort auf der Platte.
+    // The blob is STALE: the delete died in the debounce window, the op did not.
     await seed.writeUserRecipes(
         <FitnessRecipe>[_recipe('user_bleibt'), _recipe('user_weg')]);
     await _seedRawOutbox(kv, [SyncOp.recipeDelete('user_weg').toJson()]);
@@ -2353,17 +2122,15 @@ void main() {
     await a.cache.writeProfile(
         const UserProfile(weightKg: 80, onboardingCompleted: true));
     await _boot(a.store);
-    // Flugmodus in seiner unangenehmen Form: der Request scheitert nicht, er
-    // ANTWORTET NIE (Supabase-/PostgREST-Aufrufe tragen kein Timeout).
+    // Airplane mode at its nastiest: the request never fails, it NEVER ANSWERS.
     a.server.hangRecipeWrites = true;
     a.store.createUserRecipe(_recipe('user_flugmodus', title: 'Flug-Bowl'));
     await _settle();
     expect(a.store.userRecipes.map((r) => r.slug), contains('user_flugmodus'),
         reason: 'Vorbedingung: im Flugmodus war das Rezept sichtbar');
-    a.store.flushPendingWrites(); // App wird beendet
+    a.store.flushPendingWrites(); // app shutdown
     await _settle();
 
-    // Flugmodus aus, App auf — der frische Server kennt das Rezept nicht.
     final b = _setup(kv: kv);
     await _boot(b.store);
 
@@ -2372,13 +2139,10 @@ void main() {
             'ersetzte die Liste, und der Boot-Snapshot schrieb das fest');
   });
 
-  // --- Luecke B: die Outbox-Op entsteht VOR dem Netz-Write ------------------
+  // --- Gap B: the outbox op exists BEFORE the network write -----------------
   //
-  // `_syncOrQueue` feuerte den Live-Write und reihte die Op NUR im
-  // `catchError` ein. Zwischen Tap und Fehler existierte der Eintrag nur im
-  // RAM — und wenn der Request haengt statt zu scheitern, entsteht ueberhaupt
-  // nie eine Op. Jetzt: Op anlegen und persistieren, dann zustellen, bei
-  // Erfolg wieder entfernen.
+  // `_syncOrQueue` used to enqueue only in `catchError`, so a hanging request
+  // produced no op at all. Now the op is persisted before delivery.
 
   test(
       'Luecke B: die Op liegt schon in der PERSISTIERTEN Queue, bevor der '
@@ -2388,7 +2152,7 @@ void main() {
     await _boot(s.store);
 
     s.store.createUserRecipe(_recipe('user_sofort'));
-    // Bewusst OHNE _settle: der Live-Write ist noch unterwegs.
+    // No _settle: the live write is still in flight.
     expect(s.store.pendingOutbox.map((o) => o.entityKey),
         contains('recipe:user_sofort'),
         reason: 'zwischen Tap und Antwort existierte das Rezept nur im RAM');
@@ -2402,7 +2166,7 @@ void main() {
     expect(s.store.pendingOutbox, isEmpty,
         reason: 'zugestellt heisst: die Op ist wieder raus');
     expect((await s.cache.readOutbox())!, isEmpty);
-    // Der Erfolgspfad darf keinen Warteschlangen-Hinweis erzeugen.
+    // The success path must not produce a queue hint.
     expect(s.snacks.offlineHints, isEmpty);
     expect(
         s.snacks.messages.where((m) => m.contains('erneut versucht')), isEmpty);
@@ -2417,8 +2181,7 @@ void main() {
     s.store.createUserRecipe(_recipe('user_haenger'));
     await _settle();
 
-    // Zweite, unabhaengige Aenderung: offline eingereiht, danach online
-    // nachgespielt. Sie muss trotz des haengenden Rezept-Requests durchkommen.
+    // A second change must get through despite the hanging recipe request.
     s.server.offline = true;
     final id = s.store.addResultToDailyTotal(_result('Bowl'));
     await _settle();
@@ -2443,10 +2206,7 @@ void main() {
     await _boot(s.store);
 
     final id = s.store.addResultToDailyTotal(_result('Bowl'));
-    // Bewusst OHNE jeden Event-Loop-Durchlauf und direkt am rohen Blob: genau
-    // so sieht ein App-Kill unmittelbar nach dem Tap die Platte. Der
-    // wertvollste Write der App hatte bis hierher sein eigenes
-    // then/catchError — und damit dieselbe Luecke wie _syncOrQueue.
+    // No event-loop turn, raw blob: what an app kill right after the tap sees.
     expect(s.store.pendingOutbox.map((o) => o.entityKey), contains('meal:$id'));
     expect(kv.snapshot['eatova.v1.outbox.user-outbox'],
         contains('"entity_id":"$id"'));
@@ -2492,16 +2252,10 @@ void main() {
     expect(s.server.recipeRows['user_doppelt']!['title'], 'Zweite Fassung',
         reason: 'der juengere Stand gewinnt, die Reihenfolge bleibt');
   });
-  // --- Luecke D: Profil-Aenderungen ueberleben Offline ----------------------
+  // --- Gap D: profile changes survive offline -------------------------------
   //
-  // Der zweite echte Datenverlust — vom Nutzer nie gemeldet, weil er still
-  // passiert. `applySettings`/`completeOnboarding` schrieben in den Cache und
-  // direkt gegen Supabase, OHNE Outbox: offline geaendertes Gewicht/kcal-Ziel/
-  // Diaet lag danach nur im Cache. Der naechste Start MIT Netz hydrierte
-  // daraus, ueberschrieb den Stand mit der ALTEN Serverzeile
-  // (`_bootFromSupabase`) und schrieb die alte Zeile per
-  // `_writeCacheSnapshot` auch noch ueber den Cache. Die Aenderung war
-  // restlos und ohne Hinweis weg.
+  // `applySettings`/`completeOnboarding` wrote cache and Supabase WITHOUT an
+  // outbox, so the next online start overwrote the offline change silently.
 
   test(
       'Luecke D: offline geaendertes Gewicht steht nach dem naechsten '
@@ -2521,11 +2275,10 @@ void main() {
     await _settle();
     expect(a.store.profile.weightKg, 84,
         reason: 'Vorbedingung: offline sieht der Nutzer seinen neuen Wert');
-    a.store.flushPendingWrites(); // App wird beendet
+    a.store.flushPendingWrites(); // app shutdown
     await _settle();
 
-    // Neustart MIT Netz. Der Server kennt weiterhin nur den alten Stand —
-    // genau der Moment, in dem die Aenderung frueher verschwand.
+    // Restart WITH network; the server still knows only the old state.
     final b = _setup(kv: kv);
     b.server.profileRow = _serverProfileRow(_profile(weightKg: 80));
     await _boot(b.store);
@@ -2638,7 +2391,7 @@ void main() {
       'naechsten ONLINE-Start — sonst wirft die Bootstrap-Zeile den Nutzer '
       'zurueck und seine Koerperdaten sind weg', () async {
     final kv = InMemoryKeyValueStore();
-    // Die Zeile, die der Signup-Trigger anlegt: Defaults, Onboarding offen.
+    // The row the signup trigger creates: defaults, onboarding open.
     Map<String, dynamic> bootstrapZeile() =>
         _serverProfileRow(const UserProfile());
 
@@ -2670,10 +2423,7 @@ void main() {
       'Luecke D: eine pendende Profil-Op IST eine echte Quelle — sonst '
       'verschluckt der Clobber-Schutz die naechste Aenderung', () async {
     final kv = InMemoryKeyValueStore();
-    // Nur die Outbox liegt auf der Platte: der Profil-Slot fehlt (korrupt oder
-    // von clear() geraeumt), der Server ist weg. Der Zustand entsteht also
-    // ALLEIN aus der Op — und die traegt ein echtes, vom Nutzer eingegebenes
-    // Profil, keine Ctor-Defaults.
+    // Only the outbox is on storage, so the state comes from the op alone.
     await _seedRawOutbox(kv, <Map<String, dynamic>>[
       SyncOp.profileUpsert(_profile(weightKg: 91, dailyKcalGoal: 1800))
           .toJson(),
@@ -2685,9 +2435,7 @@ void main() {
 
     expect(s.store.profile.weightKg, 91);
 
-    // Der eigentliche Punkt: die naechste Aenderung muss ankommen. Gilt der
-    // Zustand als „nicht aus echter Quelle hydriert", sperrt der A1-Guard sie
-    // stumm weg — kein Cache-Write, keine Op, kein Hinweis.
+    // The point: the next change must land, not be blocked by the A1 guard.
     await s.store.applySettings(
       newProfile: s.store.profile.copyWith(weightKg: 92),
       notificationsEnabled: false,
@@ -2733,13 +2481,10 @@ void main() {
     expect(b.server.profileRow!['diet_preference'], 'vegan');
   });
 
-  // --- Luecke E: der Store MELDET den Ausgang, statt ihn behaupten zu lassen -
+  // --- Gap E: the store REPORTS the outcome instead of letting it be claimed -
   //
-  // Der Rezepte-Screen zeigte „„X" gespeichert." synchron und unbedingt und
-  // bekam vom Store danach ggf. den generischen Warteschlangen-Hinweis
-  // hinterhergeschoben (der den ersten Toast sofort wieder abraeumt). Jetzt
-  // gibt der Store zurueck, was wirklich passiert ist, und ueberlaesst dem
-  // Aufrufer die EINE Meldung.
+  // The recipes screen showed a success toast unconditionally. Now the store
+  // returns what happened and leaves the ONE message to the caller.
 
   test('Luecke E: ein zugestelltes Rezept meldet delivered', () async {
     final s = _setup();
@@ -2773,8 +2518,7 @@ void main() {
       () async {
     final s = _setup();
     await _boot(s.store);
-    // 500 auf user_recipes-Writes: der Server ANTWORTET, „Offline" waere
-    // gelogen.
+    // 500 on user_recipes writes: the server ANSWERS, so "offline" would lie.
     s.server.rejectRecipeWrites = true;
 
     expect(await s.store.createUserRecipe(_recipe('user_500')),
@@ -2796,10 +2540,7 @@ void main() {
   test(
       'Luecke E: ein haengender Write blockiert die Rueckmeldung nicht ewig — '
       'nach dem Feedback-Fenster gilt „liegt in der Warteschlange"', () async {
-    // Supabase-/PostgREST-Aufrufe tragen kein Timeout (Luecke B). Ohne eigenes
-    // Fenster wartete der Aufrufer — und mit ihm die Erfolgsmeldung des
-    // Nutzers — unbegrenzt auf eine Antwort, die nie kommt. Der Test wartet
-    // deshalb bewusst echte [kSyncDeliveryWindow].
+    // PostgREST has no timeout (gap B): the test waits a real window.
     final s = _setup();
     await _boot(s.store);
     s.server.hangRecipeWrites = true;
@@ -2813,13 +2554,10 @@ void main() {
             'in der persistierten Queue');
   }, timeout: const Timeout(Duration(seconds: 30)));
 
-  // --- Luecke F: ein Lesefehler kippt nicht mehr die ganze Outbox -----------
+  // --- Gap F: one read error no longer topples the whole outbox -------------
   //
-  // Alle sieben Cache-Reads der Boot-Hydration lagen in EINEM try, readOutbox
-  // war der sechste. Wirft einer der fuenf davor, blieb `_outbox` leer — und
-  // der naechste `_enqueueOp` schrieb via `_persistOutbox()` eine frische
-  // Ein-Element-Queue ueber den Blob. Bis zu kOutboxMaxOps nicht zugestellte
-  // Writes waren damit endgueltig weg.
+  // All seven boot-hydration reads sat in ONE try. An earlier throw left
+  // `_outbox` empty and the next enqueue overwrote the blob.
 
   test(
       'Luecke F: ein Lesefehler im Profil-Slot laesst die Outbox unangetastet',
@@ -2834,7 +2572,6 @@ void main() {
         contains('meal:$id'),
         reason: 'Vorbedingung: der Blob traegt den nicht zugestellten Write');
 
-    // Kaltstart, bei dem AUSGERECHNET der erste Slot wirft.
     final b = _setup(
       injizierterCache: _ProfilLesefehlerCache(kv, 'user-outbox'),
     );
@@ -2845,8 +2582,7 @@ void main() {
         reason: 'der Wurf im Profil-Slot uebersprang frueher jeden weiteren '
             'Read — auch den der Outbox');
 
-    // Und der Beweis, warum das teuer war: der naechste Write persistiert die
-    // Queue. Stand sie leer da, war der Blob danach ueberschrieben.
+    // Why that was expensive: the next write persists the queue over the blob.
     final zweite = b.store.addResultToDailyTotal(_result('Zweite-Bowl'));
     await _settle();
     final blob = await b.cache.readOutbox();
@@ -2882,21 +2618,16 @@ void main() {
       'meal:$neue',
     ]), reason: 'ein fehlgeschlagener Lesevorgang darf NIE die Grundlage '
         'eines Ueberschreibens sein');
-    // Der nachgeholte Write ist auch wieder sichtbar — er haengt nicht als
-    // unsichtbare Op in der Queue.
+    // The replayed write is visible again, not stuck as an invisible op.
     expect(b.store.loggedMeals.map((m) => m.id), contains(id));
   });
 
   // =========================================================================
-  // GEGENVERIFIKATION (Zweitpruefung 2026-08-10)
+  // COUNTER-VERIFICATION
   //
-  // Alles oben ist von denselben Haenden geschrieben worden wie der jeweilige
-  // Fix — ein Test, der zum Fix passt, beweist nur, dass beide dieselbe
-  // Annahme teilen. Die folgenden Tests gehen von der GEMELDETEN HANDLUNG aus
-  // und greifen die Nachbarfaelle an, die in keiner der vier Runden vorkamen:
-  // die Gegenrichtung (Loeschen), die Kombination (anlegen + loeschen), die
-  // Wiederholung (zwei Starts), den antwortenden Server (500 statt Netz weg),
-  // den fehlenden Cache und den Nutzerwechsel.
+  // The tests above share their authors' assumptions with the fix. These start
+  // from the REPORTED ACTION and attack the neighbours: delete, the
+  // combination, two starts, an answering server, no cache, a user switch.
   // =========================================================================
 
   test(
@@ -2909,9 +2640,7 @@ void main() {
         const UserProfile(weightKg: 80, onboardingCompleted: true));
     await _boot(a.store);
 
-    // Flugmodus an: der Request SCHEITERT (ClientException) — das ist die
-    // Form, die der Nutzer beschrieben hat. Der haengende Request ist der
-    // andere Fall und hat oben seinen eigenen Test.
+    // Airplane mode on: the request FAILS; the hanging case has its own test.
     a.server.offline = true;
     final ausgang =
         await a.store.createUserRecipe(_recipe('user_gemeldet', title: 'Bowl'));
@@ -2919,12 +2648,10 @@ void main() {
     expect(a.store.userRecipes.map((r) => r.slug), contains('user_gemeldet'),
         reason: 'Vorbedingung des Berichts: „war sichtbar"');
 
-    // App zu (Lifecycle paused|hidden|detached).
     a.store.flushPendingWrites();
     await _settle();
 
-    // Flugmodus aus, App auf: NEUER Store, NEUER Server (kennt das Rezept
-    // nicht), DERSELBE Cache.
+    // Airplane mode off, app up: NEW store, NEW server, SAME cache.
     final b = _setup(kv: kv);
     await _boot(b.store);
 
@@ -2959,9 +2686,7 @@ void main() {
     a.store.flushPendingWrites();
     await _settle();
 
-    // Neustart MIT Netz. Der Server fuehrt die Zeile weiter — die Loeschung
-    // ist ja nie angekommen. Ohne Replay-vor-Boot und ohne die Ueberlagerung
-    // durch die pendende Op waere das Rezept jetzt wieder da.
+    // Restart WITH network: without replay-before-boot the recipe would be back.
     final b = _setup(kv: kv);
     b.server.recipeRows['user_bleibt'] = _serverRecipeRow('user_bleibt');
     b.server.recipeRows['user_weg'] = _serverRecipeRow('user_weg');
@@ -2993,11 +2718,7 @@ void main() {
     await s.store.deleteUserRecipe('user_kurz');
     await _settle();
 
-    // Der Delete darf den Upsert NICHT wegkoaleszieren: die Reihenfolge pro
-    // Entitaet ist der ganze Verlass des Replays. Waere nur der Delete
-    // uebrig, entstuende serverseitig nie eine Zeile — das faellt hier nicht
-    // auf, aber der umgekehrte Fall (nur der Upsert bleibt) waere ein
-    // wiederauferstandenes Rezept.
+    // The delete must NOT coalesce away the upsert; the reverse resurrects it.
     expect(
         s.store.pendingOutbox
             .where((o) => o.entityKey == 'recipe:user_kurz')
@@ -3114,9 +2835,7 @@ void main() {
     a.store.flushPendingWrites();
     await _settle();
 
-    // Neustart: Netz da, aber user_recipes-Writes werden abgelehnt. Der
-    // LESENDE Boot-Load laeuft durch und liefert eine LEERE Liste — genau die
-    // Kombination, an der ein „Server gewinnt"-Boot das Rezept verschluckte.
+    // Restart: recipe writes rejected, the READING boot load returns EMPTY.
     final b = _setup(kv: kv);
     b.server.rejectRecipeWrites = true;
     await _boot(b.store);
@@ -3132,7 +2851,6 @@ void main() {
     expect(b.snacks.messages, isNot(contains(outboxLossHint())),
         reason: 'ein retrybarer 500 ist kein Verlust');
 
-    // Erholung vor dem Budget-Ende: der naechste Flush stellt zu.
     b.server.rejectRecipeWrites = false;
     b.store.flushPendingWrites();
     await _settle();
@@ -3185,7 +2903,6 @@ void main() {
         reason: 'Zutaten und Mengen sind Nutzerinhalt — der Slot faellt beim '
             'Logout auch dann, wenn die Outbox erhalten bleibt (M-1)');
 
-    // B meldet sich auf demselben Geraet an.
     final b = _setup(injizierterCache: LocalCache(kv, 'user-b'));
     b.server.offline = true;
     await _boot(b.store);
@@ -3196,8 +2913,7 @@ void main() {
     expect(b.store.pendingOutbox, isEmpty,
         reason: 'auch die beim Logout ERHALTENE Outbox gehoert A, nicht B');
 
-    // A wieder da: die erhaltene Outbox ist der Grund, warum der Rezept-Slot
-    // beim Logout ueberhaupt fallen darf.
+    // A is back: the preserved outbox is why the slot may be dropped on logout.
     final a2 = _setup(injizierterCache: LocalCache(kv, 'user-a'));
     a2.server.offline = true;
     await _boot(a2.store);
@@ -3208,11 +2924,8 @@ void main() {
       'Gegenprobe 9 — EIN Netz faellt aus: der Outbox-Slot ist beim Lesen '
       'kaputt, der Cache traegt allein. Ein Boot MIT Netz darf das Rezept '
       'trotzdem nicht wegwerfen', () async {
-    // Der Kern der ganzen Reparatur, auf dem einzigen Weg geprueft, der ohne
-    // vorgesetzten Cache-Blob auskommt: das Rezept entsteht durch die echte
-    // Nutzer-Handlung, und danach faellt genau EINES der beiden Netze aus.
-    // Bleibt der Bestand, waren es wirklich zwei; faellt er, war die Outbox
-    // immer noch das einzige.
+    // The core of the repair without a pre-seeded blob: real user action, then
+    // ONE of the two nets fails. If it survives, there were two.
     final kv = InMemoryKeyValueStore();
     final a = _setup(kv: kv);
     await a.cache.writeProfile(
@@ -3223,10 +2936,8 @@ void main() {
     a.store.flushPendingWrites();
     await _settle();
 
-    // Kaltstart MIT Netz — und der Outbox-Slot wirft beim Lesen (Luecke F).
-    // Die Op ist fuer diesen Start damit unsichtbar, der Server kennt das
-    // Rezept nicht: genau der Zustand, in dem `_userRecipes = loadedRecipes`
-    // es verschluckte und `_writeCacheSnapshot` den Verlust festschrieb.
+    // Cold start WITH network and a throwing outbox slot (gap F): op invisible,
+    // server does not know the recipe.
     final b =
         _setup(injizierterCache: _OutboxLesefehlerCache(kv, 'user-outbox'));
     await _boot(b.store);
@@ -3241,12 +2952,10 @@ void main() {
             'festschreiben');
   });
 
-  // --- Frage 3: gibt es noch eine Datenart mit nur EINEM Netz? -------------
+  // --- Question 3: is any data kind still down to ONE net? -----------------
   //
-  // Die Inventur in EINER Offline-Sitzung: mutieren, App killen, ohne Netz
-  // neu starten. Fuer jede Sammlung muss BEIDES belegbar sein — der eigene
-  // Cache-Slot (Netz 1) und die persistierte Op (Netz 2). Faellt eines der
-  // beiden aus, ist die Sammlung wieder da, wo `user_recipes` vor dem Fix war.
+  // The inventory in ONE offline session: mutate, kill, restart offline. Every
+  // collection must show BOTH nets — its cache slot and the persisted op.
 
   test(
       'Inventur: jede Nutzer-Sammlung haelt ihren Offline-Stand in ZWEI '
@@ -3267,11 +2976,10 @@ void main() {
       notificationsEnabled: false,
     );
     await _settle();
-    a.store.flushPendingWrites(); // App wird beendet
+    a.store.flushPendingWrites(); // app shutdown
     await _settle();
 
-    // Netz 1 — die Cache-Slots. Jeder einzeln, damit ein fehlender Slot nicht
-    // hinter einem anderen verschwindet.
+    // Net 1, the cache slots, each checked separately.
     expect(
         (await a.cache.readLoggedMeals())!.map((m) => m.id), contains(mealId));
     expect((await a.cache.readFavorites())!.where((f) => f.pinned), isNotEmpty);
@@ -3280,7 +2988,6 @@ void main() {
         contains('user_inventur'));
     expect((await a.cache.readProfile())!.dailyKcalGoal, 1750);
 
-    // Netz 2 — die persistierte Outbox.
     final blob = (await a.cache.readOutbox())!.map((o) => o.kind).toSet();
     expect(
         blob,
@@ -3295,7 +3002,6 @@ void main() {
             'allein am Cache — und ein Kaltstart MIT Netz wuerde sie mit dem '
             'Server-Stand ueberschreiben');
 
-    // Kaltstart OHNE Netz: alles wieder da.
     final b = _setup(kv: kv);
     b.server.offline = true;
     await _boot(b.store);
@@ -3305,8 +3011,7 @@ void main() {
     expect(b.store.userRecipes.map((r) => r.slug), contains('user_inventur'));
     expect(b.store.profile.dailyKcalGoal, 1750);
 
-    // Kaltstart MIT Netz, und der Server kennt nichts davon: der Boot-Merge
-    // + Op-Ueberlagerung muessen ALLE fuenf halten, nicht nur die Rezepte.
+    // Cold start WITH network, empty server: merge + overlay must hold ALL five.
     final c = _setup(kv: kv);
     c.server.profileRow = _serverProfileRow(_profile(weightKg: 80));
     await _boot(c.store);
@@ -3323,16 +3028,11 @@ void main() {
     expect(c.server.profileRow!['daily_kcal_goal'], 1750);
   });
 
-  // --- Der Befund der Inventur: der Streak-Tag hatte NULL Netze ------------
+  // --- The inventory finding: the streak day had ZERO nets -----------------
   //
-  // `_recordTrackingDay` war ein reines fire-and-forget: der RPC lief, sein
-  // Fehler ging an dev.log + CrashReporter, und das war es. Keine Op, kein
-  // Cache-Merker, kein Retry. Der Kommentar behauptete, der optimistische
-  // lokale Stand gelte „bis zum naechsten Load/Log weiter" — tatsaechlich
-  // hielt er 600 ms: dann adoptierte `_flushStatsDelta` die frische
-  // Serverzeile, die den Tag nicht kennt, und `_cacheLifetimeStats` schrieb
-  // den Verlust fest. Die Mahlzeit kam an, die Zaehler kamen an, und die
-  // Streak war trotzdem gerissen.
+  // `_recordTrackingDay` was pure fire-and-forget: no op, no marker, no retry.
+  // The optimistic state held 600 ms, then `_flushStatsDelta` adopted the
+  // server row that does not know the day and pinned the loss.
 
   test(
       'Streak-Tag: scheitert record_tracking_day, landet der Tag in der '
@@ -3340,8 +3040,7 @@ void main() {
       'gleich darauf die Serverzeile adoptiert', () async {
     final s = _setup();
     await _boot(s.store);
-    // NUR der Streak-RPC faellt aus. Mahlzeit und Zaehler kommen an — genau
-    // deshalb war der Verlust unsichtbar.
+    // ONLY the streak RPC fails, which is why the loss was invisible.
     s.server.rejectTrackingDay = true;
 
     final id = s.store.addResultToDailyTotal(_result('Streak-Bowl'));
@@ -3349,8 +3048,7 @@ void main() {
     expect(s.server.mealRows.keys, contains(id),
         reason: 'Vorbedingung: an der Mahlzeit selbst liegt es nicht');
 
-    // Den 600-ms-Debounce des Stats-Flushs wirklich ablaufen lassen: erst da
-    // adoptierte der Store die Serverzeile und verlor den Tag.
+    // Let the 600 ms stats-flush debounce elapse: that is when the day was lost.
     await Future<void>.delayed(const Duration(milliseconds: 900));
     await _settle();
 
@@ -3384,7 +3082,6 @@ void main() {
     await _settle();
     expect(a.server.trackedDay, isNull, reason: 'Vorbedingung: nicht angekommen');
 
-    // Neustart, der RPC laeuft wieder.
     final b = _setup(kv: kv);
     await _boot(b.store);
 
@@ -3437,7 +3134,6 @@ void main() {
         hasLength(1),
         reason: 'Vorbedingung');
 
-    // Der RPC laeuft wieder, der naechste Log stellt live zu.
     s.server.rejectTrackingDay = false;
     s.store.addResultToDailyTotal(_result('Bowl 2'));
     await _settle();
@@ -3451,12 +3147,10 @@ void main() {
   });
 }
 
-/// Schreibt Outbox-Zeilen ROH in den Key-Value-Store, vorbei an
-/// [LocalCache.writeOutbox] und den [SyncOp]-Factories. Nur so lassen sich
-/// Wire-Formen erzeugen, die kein Produktionspfad baut: eine nicht lesbare
-/// Payload (A8) und ein uraltes `queued_at` (A4). Der Slot-Name ist das
-/// dokumentierte Cache-Format `eatova.v1.outbox.<user-id>`, die User-ID die
-/// aus [_setup].
+/// Writes outbox rows RAW into the key-value store, bypassing
+/// [LocalCache.writeOutbox] and the [SyncOp] factories — the only way to build
+/// wire forms no production path creates (unreadable payload A8, ancient
+/// `queued_at` A4).
 Future<void> _seedRawOutbox(
   InMemoryKeyValueStore kv,
   List<Map<String, dynamic>> items,

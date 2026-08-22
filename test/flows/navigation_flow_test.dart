@@ -1,19 +1,11 @@
-// Tab-Navigation (aus test/widget_test.dart aufgeteilt): Bottom-Nav wechselt
-// zwischen den vier Tabs Heute, Food, Rezepte und Coach; prueft die Kern-Pins
-// der jeweiligen Screens.
+// Tab navigation: the bottom nav switches between the four tabs and each
+// screen's core pins hold. Cold start lands on Heute (index 0).
 //
-// Design-Refactor 2026-08-09: aus drei Tabs sind vier geworden, und der
-// Landepunkt beim Kaltstart ist jetzt „Heute" (Index 0) statt Food. Der
-// bestehende Food-Block ist deshalb unveraendert geblieben — er steht nur
-// hinter einem zusaetzlichen Tap auf `nav-Food`, und alle Indizes sind um eins
-// nach hinten gerueckt.
-//
-// Seit D6 (2026-08-08) liegen die Tabs in einem lazy [IndexedStack]: ein einmal
-// besuchter Tab bleibt GEMOUNTET (nur unsichtbar). Die Standard-Finder
-// (`skipOffstage: true`) sehen ihn nicht — bestehende `findsNothing`-Aussagen
-// bleiben also gueltig; wer den gemounteten, unsichtbaren Baum pruefen will,
-// braucht `skipOffstage: false`. Welcher Tab sichtbar ist, sagt der Index des
-// Stacks (`home-tab-stack`).
+// Since D6 the tabs live in a lazy [IndexedStack]: a visited tab stays MOUNTED
+// but invisible. Default finders (`skipOffstage: true`) do not see it, so
+// existing `findsNothing` assertions remain valid; checking the mounted,
+// invisible tree needs `skipOffstage: false`. The visible tab is the stack's
+// index (`home-tab-stack`).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,19 +19,15 @@ void main() {
       'Bottom navigation switches between Heute, Food, Rezepte and Coach', (
     WidgetTester tester,
   ) async {
-    // Geraetesprache festnageln (Muster `flows/recipes_flow_test.dart`):
-    // `EatovaApp` loest ohne Override ueber `resolveEatovaLocale` auf, statt
-    // fest auf `de` zu pinnen — ohne diesen Pin haengt der Testausgang vom
-    // Locale des Testhosts ab. Bis zum Inhalte-PR (2026-08-11) hatte dieser
-    // Test keine deutschen Roh-Text-Assertions, nur ValueKeys; seit der
-    // Rezeptkatalog selbst zweisprachig ist (`recipeCatalogForLocale`),
-    // pruefen die Rezepttitel unten wortgleiches Deutsch und brauchen den Pin.
+    // Pin the device locale: `EatovaApp` resolves via `resolveEatovaLocale`,
+    // so without this the outcome depends on the test host. The recipe catalog
+    // is bilingual and the title assertions below expect German.
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(const EatovaApp());
 
-    // Heute ist der Default-Tab (Index 0) — und beim Kaltstart der EINZIGE
-    // gebaute Tab (D6-Lazy-Building).
+    // Heute is the default tab (index 0) and on cold start the ONLY built one
+    // (D6 lazy building).
     expect(find.byKey(const ValueKey('tab-fixed-0')), findsOneWidget);
     expect(_sichtbarerTab(tester), 0);
     expect(find.byKey(const ValueKey('tab-fixed-1'), skipOffstage: false),
@@ -51,12 +39,11 @@ void main() {
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
     expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
     expect(find.byKey(const ValueKey('today-date-strip')), findsOneWidget);
-    // Der Food-Tab ist noch gar nicht gebaut.
+    // The Food tab is not built yet.
     expect(find.byKey(const ValueKey('screen-kcal-tracker'), skipOffstage: false),
         findsNothing);
 
-    // Ab hier der unveraenderte Food-Block — nur eben nach einem Tap statt
-    // direkt nach dem Boot.
+    // Food block, reached via a tap rather than directly after boot.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     expect(_sichtbarerTab(tester), 1);
@@ -65,11 +52,9 @@ void main() {
     expect(find.byKey(const ValueKey('food-date-strip')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-chip-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-date-chip-3')), findsOneWidget);
-    // Die Kalorien-Karte ist am 2026-08-10 aus dem Food-Tab entfernt worden
-    // („das haben wir ja im Heute-Tab schon"). Statt ihrer Existenz prueft der
-    // Pin jetzt ihre ABWESENHEIT — und dass der Verlauf, der ihren Platz
-    // eingenommen hat, da ist. Das Tagestotal steht im Heute-Tab
-    // (`today-kcal-hero`, weiter oben in diesem Test schon gepinnt).
+    // The calorie card was removed from the Food tab; the pin now asserts its
+    // ABSENCE and that the history took its place. The daily total lives in the
+    // Heute tab (`today-kcal-hero`, pinned above).
     expect(find.byKey(const ValueKey('analyse-daily-kcal-card')), findsNothing);
     expect(find.byKey(const ValueKey('analyse-daily-kcal-total')), findsNothing);
     expect(find.byKey(const ValueKey('kcal-meals-today-card')), findsOneWidget);
@@ -77,7 +62,7 @@ void main() {
     expect(find.byKey(const ValueKey('food-search')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-barcode')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-action-ai')), findsOneWidget);
-    // "Schnell" wurde entfernt (KI-Scan/Barcode haben eigene Flows).
+    // "Schnell" was removed (AI scan and barcode have their own flows).
     expect(find.byKey(const ValueKey('food-action-quick')), findsNothing);
     expect(find.byKey(const ValueKey('analyse-camera-button')), findsNothing);
     expect(find.byKey(const ValueKey('kcal-product-search-card')), findsNothing);
@@ -104,8 +89,8 @@ void main() {
     expect(putenTile, findsOneWidget);
     expect(find.text('Putenbällchen mit Reis & Gemüse'), findsWidgets);
 
-    // Coach-Tab: der CoachOrb im Hero animiert endlos (Spin/Breathe) —
-    // pumpAndSettle wuerde nie settlen, daher begrenzte Frames pumpen.
+    // Coach tab: the CoachOrb animates endlessly, so pumpAndSettle would never
+    // settle — pump a bounded number of frames instead.
     await tester.tap(find.byKey(const ValueKey('nav-Coach')));
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 50));
@@ -115,8 +100,8 @@ void main() {
     expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    // Der CoachOrb tickt weiter, solange sein Tab sichtbar ist — nach dem
-    // Wechsel schaltet ihn der TickerMode stumm, danach settlet es wieder.
+    // The CoachOrb ticks while its tab is visible; after the switch TickerMode
+    // mutes it and the tree settles again.
     await tester.pumpAndSettle();
     expect(_sichtbarerTab(tester), 1);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
@@ -126,9 +111,8 @@ void main() {
     expect(_sichtbarerTab(tester), 0);
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
 
-    // D6: die besuchten Tabs sind noch da (nur unsichtbar) — genau das haelt
-    // Coach-Entwurf, Rezept-Suchtext und Scrollpositionen am Leben. Fuer die
-    // normalen Finder bleiben sie unsichtbar.
+    // D6: visited tabs are still mounted but invisible — that is what keeps the
+    // coach draft, recipe search text and scroll positions alive.
     expect(find.byKey(const ValueKey('tab-fixed-1'), skipOffstage: false),
         findsOneWidget);
     expect(find.byKey(const ValueKey('tab-fixed-2'), skipOffstage: false),
@@ -141,7 +125,7 @@ void main() {
   });
 }
 
-/// Index des sichtbaren Tabs, gelesen am [IndexedStack] der Home-Schale.
+/// Index of the visible tab, read from the home shell's [IndexedStack].
 int? _sichtbarerTab(WidgetTester tester) => tester
     .widget<IndexedStack>(find.byKey(const ValueKey('home-tab-stack')))
     .index;

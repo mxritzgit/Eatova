@@ -1,10 +1,10 @@
-// Slot-Gesamt mit Makros in der „Schon hinzugefuegt"-Liste des Add-Sheets
-// (2026-08-21): der Kopf der Liste zeigt neben der kcal-Summe jetzt auch
-// Protein/KH/Fett des Slots, jede Zeile optional ihre eigenen Makros.
+// Slot totals with macros in the add sheet's already-added list: the header
+// shows the slot's protein/carbs/fat next to the kcal sum, each row optionally
+// its own macros.
 //
-// Die Fixtures tragen bewusst gemischte Schreibweisen ('34 g', '6,5 g',
-// '1.4 g', '-'): Summe und Rundung muessen ueber denselben Parser laufen wie
-// die Tagesringe (MacroProgress), nicht ueber eigenes String-Gefummel.
+// The fixtures mix notations ('34 g', '6,5 g', '1.4 g', '-') on purpose: sum
+// and rounding must go through the same parser as the day rings
+// (MacroProgress), not through ad-hoc string handling.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,9 +42,8 @@ LoggedMeal _meal({
   );
 }
 
-/// Drei Abendessen-Eintraege: kcal 420 + 300 + 0 = 720;
-/// Protein 34 + 6,5 + 0 = 40,5 -> 41; KH 2 + 65 + 0 = 67;
-/// Fett 28 + 1,4 + 0 = 29,4 -> 29. Der dritte Eintrag hat unbekannte Makros.
+/// Three dinner entries: kcal 720, protein 40.5 -> 41, carbs 67, fat
+/// 29.4 -> 29. The third entry has unknown macros.
 final List<LoggedMeal> _meals = <LoggedMeal>[
   _meal(
     id: 'm1',
@@ -75,8 +74,8 @@ final List<LoggedMeal> _meals = <LoggedMeal>[
   ),
 ];
 
-/// 390 pt logische Breite (Vorgabe des Pakets) bei 3x — etwas schmaler als
-/// der iPhone-14-Viewport des Harness (393).
+/// 390 pt logical width at 3x — slightly narrower than the harness viewport
+/// (393).
 void _pin390(WidgetTester tester) {
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3.0;
@@ -84,8 +83,8 @@ void _pin390(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// Der String des Text-Widgets mit [key] — die Keys sitzen direkt auf den
-/// Texten, ein `find.descendant` saehe an der Wurzel vorbei.
+/// The string of the Text widget with [key]; the keys sit directly on the
+/// texts, so `find.descendant` would look past the root.
 String? _textOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(ValueKey(key))).data;
 
@@ -107,10 +106,10 @@ void main() {
     expect(find.byKey(const ValueKey('analyse-existing-meals')), findsOneWidget);
     expect(find.byKey(const ValueKey('analyse-existing-total')), findsOneWidget);
     expect(find.text('Gesamt'), findsOneWidget);
-    // Die kcal-Zahl bleibt ein eigenes Text-Widget mit dem alten Wortlaut —
-    // Flow-Tests suchen genau diesen Text.
+    // The kcal number stays its own Text widget with the old wording; flow
+    // tests search for exactly this text.
     expect(_textOf(tester, 'analyse-existing-total-kcal'), '720 kcal');
-    // 40,5 -> 41 (kaufmaennisch), 29,4 -> 29, Komma UND Punkt geparst.
+    // 40.5 -> 41 (half up), 29.4 -> 29; comma AND dot are parsed.
     expect(
       _textOf(tester, 'analyse-existing-total-macros'),
       'P 41 g · K 67 g · F 29 g',
@@ -127,21 +126,21 @@ void main() {
       _textOf(tester, 'analyse-existing-macros-m1'),
       'P 34 g · K 2 g · F 28 g',
     );
-    // 6,5 -> 7 und 1,4 -> 1 je Zeile gerundet.
+    // 6.5 -> 7 and 1.4 -> 1, rounded per row.
     expect(
       _textOf(tester, 'analyse-existing-macros-m2'),
       'P 7 g · K 65 g · F 1 g',
     );
-    // '-' ueberall -> keine „P 0 g"-Zeile, die eine Messung vortaeuscht.
+    // '-' everywhere -> no "P 0 g" row faking a measurement.
     expect(
       find.byKey(const ValueKey('analyse-existing-macros-m3')),
       findsNothing,
     );
-    // Die kcal/Gramm-Zeile bleibt byte-identisch (edit_meal_sheet_test liest
-    // sie wortgleich) — die Makros stehen darunter, nicht darin.
+    // The kcal/gram row stays byte-identical (edit_meal_sheet_test reads it
+    // verbatim); the macros sit below it, not inside.
     expect(find.text('420 kcal · 200 g'), findsOneWidget);
     expect(find.text('300 kcal · 250 g'), findsOneWidget);
-    // Entfernen-Knopf je Zeile unveraendert vorhanden.
+    // The per-row remove button is still there.
     expect(
       find.byKey(const ValueKey('analyse-existing-remove-m1')),
       findsOneWidget,
@@ -195,7 +194,7 @@ void main() {
     expect(tester.takeException(), isNull);
 
     expect(find.text('420 kcal'), findsOneWidget);
-    // Einmal im Kopf, einmal in der Zeile.
+    // Once in the header, once in the row.
     expect(find.text('P 34 g · K 2 g · F 28 g'), findsNWidgets(2));
   });
 }

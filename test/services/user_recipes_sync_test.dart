@@ -8,9 +8,9 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/services/user_recipes_sync.dart';
 
-// INT-2 / PROD-2: UserRecipesSync wird jetzt verdrahtet (Boot-Load + Create +
-// Delete). Diese Tests verifizieren ueber die PUBLIC API (echter SupabaseClient
-// + Mock-Client) das beobachtbare Persistenz-Verhalten.
+// INT-2 / PROD-2: verifies the observable persistence behaviour of
+// UserRecipesSync (boot load, create, delete) through the public API, using a
+// real SupabaseClient over a mock HTTP client.
 
 UserRecipesSync _sync(
   Future<http.Response> Function(http.Request request) handler,

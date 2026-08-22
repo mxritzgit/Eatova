@@ -12,9 +12,8 @@ class FavoriteMeal {
   final MealAnalysisResult result;
   final DateTime addedAt;
 
-  /// True = vom User explizit als Favorit angeheftet (Herz). False = nur ein
-  /// Auto-Recent (zuletzt geloggt). Das Kappen auf die letzten N betrifft NUR
-  /// die Auto-Recents — angeheftete Favoriten bleiben dauerhaft erhalten.
+  /// True = pinned by the user, false = auto-recent. Capping to the last N
+  /// only affects auto-recents; pinned favorites are kept forever.
   final bool pinned;
 
   FavoriteMeal copyWith({bool? pinned, DateTime? addedAt}) {

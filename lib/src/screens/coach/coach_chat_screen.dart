@@ -1,10 +1,8 @@
-/// Coach-Tab — als Bibliothek aus mehreren `part`-Dateien zusammengesetzt.
+/// Coach tab — a library assembled from the `part` files below.
 ///
-/// Rein mechanischer Split der frueheren 2000-Zeilen-Datei: die kohaerenten
-/// Widget-Gruppen liegen in den unten referenzierten `part of`-Dateien.
-/// Importe + Sichtbarkeit (library-private `_`-Klassen) bleiben unveraendert,
-/// kein Import-Site aendert sich (Einstieg bleibt [CoachChatScreen]).
-/// Der iOS-MethodChannel `eatova/speech` lebt in coach_speech.dart.
+/// Mechanical split only; library-private `_` classes keep their visibility
+/// and [CoachChatScreen] stays the entry point. The iOS MethodChannel
+/// `eatova/speech` lives in coach_speech.dart.
 library;
 
 import 'dart:async';
@@ -44,14 +42,11 @@ part 'coach_composer.dart';
 part 'coach_recipe.dart';
 part 'coach_sessions.dart';
 
-/// Coach-Chat: Grok-basierter Fitness-/Ernaehrungs-Coach.
+/// Coach chat: Grok-based fitness/nutrition coach.
 ///
-/// Design-Refactor 2026-08-09: Kopfzeile mit Forest-Kachel, „KI-Coach" und
-/// Zustandszeile, daneben Streak/(i)/Unterhaltungen. Leerzustand = animierter
-/// [CoachOrb] mit Zeit-Begruessung, C8-Hinweis und den Vorschlags-Zeilen; im
-/// Verlauf Blasen (Nutzer rechts auf [AppTokens.forest], Coach links auf
-/// [AppTokens.surf] mit 1-px-Rand). Der Composer ist eine Kapsel mit
-/// "+"-Attach, Mic und dem Forest/Lime-Senden-Knopf.
+/// Header with state line plus streak/(i)/sessions; empty state is the
+/// animated [CoachOrb] with greeting, AI disclosure and suggestions;
+/// otherwise message bubbles above the composer capsule.
 class CoachChatScreen extends StatefulWidget {
   const CoachChatScreen({
     super.key,
@@ -68,28 +63,23 @@ class CoachChatScreen extends StatefulWidget {
   final CoachChatService? service;
   final String userName;
 
-  /// Persistenz-Hook fuer /recipe-Vorschlaege — die Schale reicht
-  /// `HomeStore.createUserRecipe` herein (derselbe 3-Netz-Pfad wie das
-  /// manuelle Rezept-Formular). Der Coach selbst hat KEINE Rechte: der Hook
-  /// laeuft ausschliesslich, nachdem der Nutzer im Sheet bestaetigt hat.
-  /// null (Vorschau/Test ohne Sync): die Karte erscheint, der
-  /// Hinzufuegen-Knopf bleibt ohne Wirkung deaktiviert.
+  /// Persistence hook for /recipe proposals (`HomeStore.createUserRecipe`).
+  /// The coach itself has no write rights: this runs only after the user
+  /// confirms in the sheet. null (preview/test): card shows, button disabled.
   final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
 
-  /// Slugs der aktuell existierenden Eigen-Rezepte (Live-Sicht der Schale).
-  /// Traegt den „Hinzugefuegt"-Zustand der Karten: er gilt nur, solange das
-  /// erzeugte Rezept noch existiert — nach einem Loeschen im Rezepte-Tab
-  /// wird der Button von selbst wieder aktiv.
+  /// Slugs of the currently existing user recipes (live view from the shell).
+  /// Drives the "added" state of the cards, so deleting a recipe in the
+  /// recipes tab re-enables the button on its own.
   final Set<String> userRecipeSlugs;
 
-  /// Anzeige-Streak fuer die Pill oben links. Der Aufrufer reicht
-  /// `lifetimeStats.effectiveStreakOn(now)` herein — nie `currentStreak`
-  /// direkt, sonst zeigt eine gerissene Kette nicht 0.
+  /// Streak for the pill top left. Callers pass
+  /// `lifetimeStats.effectiveStreakOn(now)`, never `currentStreak` directly —
+  /// a broken chain would otherwise not show 0.
   final int streak;
 
-  /// Kompakter Snapshot von Profil + Tagesbilanz (Restmakros/kcal/Gewicht/
-  /// Streak), den der Coach als Kontext erhält, damit er konkret beraten kann
-  /// ("dir fehlen heute 38 g Protein") statt generisch zu antworten.
+  /// Compact snapshot of profile + daily balance handed to the coach as
+  /// context so it can advise concretely instead of generically.
   final String? userContext;
 
   final ImagePicker? imagePicker;
@@ -108,22 +98,16 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   List<ChatMessage> _messages = const <ChatMessage>[];
   List<ChatSession> _sessions = const <ChatSession>[];
 
-  /// Die zuletzt NICHT zugestellte Frage — Kennzeichnung und Wiederhol-Auftrag
-  /// in einem. null heisst „alles, was im Verlauf steht, ist auch rausgegangen".
+  /// The last undelivered question — marker and retry job in one; null means
+  /// everything in the history went out.
   ///
-  /// Die Nachricht selbst bleibt im Verlauf stehen: sie ist Nutzerinhalt, und
-  /// ihn aus der Liste zu nehmen hiesse, ihn zu verlieren, sobald ein zweiter
-  /// Fehlschlag diesen Zeiger ueberschreibt. Nur EIN Auftrag wird gehalten —
-  /// der juengste; ein aelterer verliert seine Kennzeichnung, seine Blase
-  /// bleibt.
+  /// The message stays in the history (it is user content). Only ONE job is
+  /// held, the newest; an older one loses its marker but keeps its bubble.
   _FehlgeschlageneSendung? _fehlgeschlagen;
 
-  /// `null` heisst „ich weiss es nicht" — nicht „voll" und nicht „leer".
-  ///
-  /// Frueher stand hier `ChatQuotaSnapshot.unknown`, das mit `remaining: 5`
-  /// belegt war. Jeder gescheiterte RPC hat damit ein erschoepftes Kontingent
-  /// wieder aufgefuellt und die Sperre aufgehoben (Review D2). Ein Snapshot
-  /// liegt jetzt nur vor, wenn der Server tatsaechlich Zahlen genannt hat.
+  /// `null` means "unknown" — neither full nor empty. A snapshot exists only
+  /// once the server actually named numbers; a failed RPC must not refill an
+  /// exhausted quota and lift the block (Review D2).
   ChatQuotaSnapshot? _quota;
   String? _activeSessionId;
   bool _loading = true;
@@ -131,63 +115,45 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   String _draft = '';
   String? _error;
 
-  /// Der Verlauf der aktiven Session war beim letzten Versuch nicht ladbar —
-  /// dann darf der Hero-Leerzustand ihn nicht als „leer" praesentieren.
+  /// The active session's history failed to load — the hero empty state must
+  /// then not present it as "empty".
   bool _historyUnavailable = false;
 
-  /// Ein Uebernehmen laeuft gerade (Bild ablegen + createUserRecipe) —
-  /// sperrt alle Karten-Buttons, bis der Ausgang da ist.
+  /// An add is running (store image + createUserRecipe) — locks all card
+  /// buttons until it finishes.
   bool _addingRecipe = false;
 
-  /// Wie viele Sende-Auftraege (Chat oder Rezept) gerade unterwegs sind.
+  /// How many send jobs (chat or recipe) are in flight.
   ///
-  /// Frueher stand hier ein `bool _sending`, das [_switchToSession] beim
-  /// Wechsel auf `false` zurueckstellte, damit die neue Sitzung nicht am
-  /// Sende-Zustand der alten haengt. Damit liessen sich zwei Anfragen parallel
-  /// absetzen: in A abschicken, wechseln, in B abschicken — zwei Tages-Slots
-  /// aus einem Bedienschritt, und der Quota-Stand der verworfenen Antwort fiel
-  /// weg, sodass die Anzeige weiter „5 frei" behauptete.
-  ///
-  /// Der Zaehler haengt am NUTZER, nicht an der Sitzung: das Kontingent tut
-  /// das auch. Der Sitzungswechsel bleibt jederzeit moeglich (er ist keine
-  /// Anfrage), er faelscht den Sende-Zustand nur nicht mehr — der Composer
-  /// oeffnet wieder, sobald die laufende Anfrage einen Ausgang hat.
-  ///
-  /// Heruntergezaehlt wird ausschliesslich in [_sendevorgangBeendet], und das
-  /// steht in einem `finally`: ein Auftrag, dessen Antwort wegen eines
-  /// Sitzungswechsels verworfen wird, muss den Zaehler genauso freigeben wie
-  /// ein erfolgreicher — sonst bliebe der Composer fuer immer gesperrt.
+  /// Counts per USER, not per session, because the quota does too: a plain
+  /// `bool` reset on session switch let two requests run in parallel and burn
+  /// two daily slots from one interaction. Only [_sendevorgangBeendet]
+  /// decrements, from a `finally` — a discarded answer must free the counter
+  /// too, or the composer stays locked forever.
   int _laufendeSendungen = 0;
 
   bool get _sending => _laufendeSendungen > 0;
 
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
-  /// Nur ein *bekanntermassen* leeres Kontingent sperrt.
-  ///
-  /// Ein unbekannter Stand (Kaltstart ohne Netz) sperrt ausdruecklich nicht:
-  /// der Nutzer hat vielleicht noch Fragen frei, und ueber das Limit
-  /// entscheidet ohnehin der Server — er antwortet mit 429, wenn nicht.
-  /// Die Unterscheidung ist nicht „gesperrt vs. frei", sondern „was weiss ich".
+  /// Only a *known* empty quota blocks. An unknown state (cold start without
+  /// network) deliberately does not: the server decides and answers 429.
   bool get _kontingentErschoepft {
     final quota = _quota;
     return quota != null && quota.remaining <= 0;
   }
 
-  /// Rest-Zahl fuer die Anzeige. Widgets brauchen zwingend eine Zahl; bei
-  /// unbekanntem Stand steht hier bewusst das Standardlimit, damit weder
-  /// „Limit fuer heute erreicht" noch „Noch N Fragen heute" behauptet wird.
-  /// Sperr-Entscheidungen laufen NIE ueber diesen Wert, sondern ueber
-  /// [_kontingentErschoepft].
+  /// Remaining count for display only. Widgets need a number, so an unknown
+  /// state falls back to the default limit and claims neither "limit reached"
+  /// nor a concrete count. Blocking decisions use [_kontingentErschoepft].
   int get _restFuerAnzeige =>
       _quota?.remaining ?? ChatQuotaSnapshot.standardTageslimit;
 
   int get _limitFuerAnzeige =>
       _quota?.dailyLimit ?? ChatQuotaSnapshot.standardTageslimit;
 
-  /// Tippen ist auch WAEHREND einer laufenden Antwort erlaubt (sonst wuerde
-  /// das disabled-TextField mitten im Flow die Tastatur schliessen) —
-  /// nur Aktionen (Senden/Mic/Attach) warten auf [_canInteract].
+  /// Typing stays allowed while an answer is in flight — a disabled TextField
+  /// would close the keyboard mid-flow. Only actions wait on [_canInteract].
   bool get _canType =>
       widget.service != null &&
       !_loading &&
@@ -202,46 +168,27 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     _input.addListener(() {
       if (_draft != _input.text) setState(() => _draft = _input.text);
     });
-    // Kein Service = nicht eingeloggt: dieser Zweig braucht den lokalisierten
-    // Fehlertext, und `Localizations.of()` (context.l10n) ist waehrend
-    // initState() noch nicht erlaubt — [didChangeDependencies] uebernimmt ihn
-    // unten, genau einmal, bevor der erste Frame baut.
+    // No service = not logged in; that branch needs a localized error text and
+    // `context.l10n` is not allowed in initState — didChangeDependencies does
+    // it once before the first frame.
     if (widget.service != null) {
       _bootstrap();
     }
   }
 
-  /// Seit D6 haengt dieser Screen im `IndexedStack` und bleibt dauerhaft
-  /// gemountet — `_bootstrap()` laeuft also nur noch EINMAL pro App-Lauf.
-  /// Damit ist jeder einmalige Fehlausgang dauerhaft: der Tageszaehler wurde
-  /// nur noch aus `send()`-Antworten fortgeschrieben (und bei erschoepftem
-  /// Kontingent gibt es keine `send()` mehr, die ihn korrigieren koennte), ein
-  /// Fehlerbanner blieb bis zum Kaltstart stehen, und eine beim ersten Besuch
-  /// gescheiterte Session wurde nie wieder nachgeholt.
+  /// Whether the tab is visible, tracked via `TickerMode`: this screen lives
+  /// in an `IndexedStack` and stays mounted, so `_bootstrap()` runs once per
+  /// app run and a stale quota, error banner or failed session would persist
+  /// until cold start. A flip to `true` triggers [_beiRueckkehr].
   ///
-  /// `TickerMode` ist der Hebel: W3-01 schaltet den Ticker des unsichtbaren
-  /// Tabs stumm, ein Wechsel auf den Coach-Tab flippt ihn also auf `true` und
-  /// loest [_beiRueckkehr] aus — der Moment, in dem der Nutzer den Screen
-  /// wieder ansieht. Kein Timer, kein Aufruf beim Verlassen, kein Request im
-  /// Hintergrund.
-  ///
-  /// ACHTUNG: das haengt an der Verdrahtung in `eatova_home_page.dart`
-  /// (`TickerMode(enabled: i == tab, …)` im Tab-Stack). Faellt das `TickerMode`
-  /// dort weg, faellt der Tab-Zweig hier still aus.
-  ///
-  /// Der Flankenwechsel allein deckt aber nur den Tab-WECHSEL ab, und genau
-  /// daran haengt die Mitternachts-Aussperrung: wer den Coach-Tab oben liegen
-  /// laesst und die App in den Hintergrund schickt, erzeugt beim Zurueckholen
-  /// keine Flanke. Deshalb zieht [didChangeAppLifecycleState] denselben Pfad
-  /// zusaetzlich beim Resume nach.
+  /// Depends on `TickerMode(enabled: i == tab, …)` in `eatova_home_page.dart`;
+  /// remove it there and this branch silently dies. The edge only covers tab
+  /// SWITCHES, so [didChangeAppLifecycleState] runs the same path on resume.
   bool _sichtbar = true;
 
-  /// Setzt den lokalisierten „nicht eingeloggt"-Text genau einmal — nicht in
-  /// [initState] (dort ist noch kein BuildContext fuer die Lokalisierung
-  /// aufgebaut, s. `recipe_create_sheet.dart` fuer dasselbe Muster), aber
-  /// auch nicht bei jedem [didChangeDependencies]-Aufruf (ein Locale-Wechsel
-  /// WAEHREND der Screen ohne Service offen ist, soll den Text nicht erneut
-  /// ueberschreiben — praktisch irrelevant hier, aber konsistent zum Muster).
+  /// Sets the localized "not logged in" text exactly once — not in
+  /// [initState] (no Localizations yet) and not on every
+  /// [didChangeDependencies].
   bool _notEingeloggtGemeldet = false;
 
   @override
@@ -256,54 +203,37 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final wurdeSichtbar = sichtbar && !_sichtbar;
     _sichtbar = sichtbar;
     final svc = widget.service;
-    // Nur beim Wiedersichtbarwerden und nur, wenn der Bootstrap durch ist —
-    // sonst laufen zwei Aufrufe gegeneinander.
+    // Only on becoming visible and only once bootstrap is done, or two calls
+    // race.
     if (!wurdeSichtbar || svc == null || _loading) return;
-    // Nach dem Frame: [_beiRueckkehr] darf setState rufen, und
-    // didChangeDependencies laeuft mitten in der Build-Phase.
+    // After the frame: [_beiRueckkehr] calls setState, and this runs mid-build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_beiRueckkehr(svc));
     });
   }
 
-  /// Alles, was frueher der Tab-Wechsel nebenbei erledigte, weil der Screen
-  /// unmountete und komplett neu hochfuhr. Seit D6 bleibt er gemountet — was
-  /// hier nicht steht, passiert bis zum Kaltstart nicht mehr.
-  ///
-  /// Zwei Aufrufer, weil einer nicht reicht: [didChangeDependencies] (Wechsel
-  /// zurueck auf den Coach-Tab) und [didChangeAppLifecycleState] (die App
-  /// kommt aus dem Hintergrund, waehrend der Coach-Tab schon oben liegt) —
-  /// dasselbe Paar wie beim Tageswechsel des Stores (`home_store.dart:708`).
+  /// Everything a tab switch used to do by unmounting the screen. It stays
+  /// mounted now, so whatever is missing here never happens again until cold
+  /// start. Two callers: [didChangeDependencies] (tab switch) and
+  /// [didChangeAppLifecycleState] (resume on an already-open coach tab).
   Future<void> _beiRueckkehr(CoachChatService svc) async {
-    // Heilungspfad: ging der erste Bootstrap ohne Session aus (offline beim
-    // ersten Coach-Besuch), blieb `_activeSessionId` bisher fuer den REST DES
-    // APP-LAUFS null — der Composer war dauerhaft tot, weil hier nur die Quota
-    // nachgezogen wurde, nie die Session.
+    // Healing path: a bootstrap that ended without a session (offline on the
+    // first visit) would otherwise leave the composer dead for the whole app
+    // run, since only the quota was refreshed here, never the session.
     if (_activeSessionId == null) {
       await _bootstrap();
       return;
     }
     await _refreshQuota(svc);
-    // Das Fehlerbanner ist Rueckmeldung auf eine Aktion, kein Dauerzustand.
-    // Vor D6 raeumte der Tab-Wechsel es mit dem Screen ab; danach stand ein
-    // einmal gesetzter Fehler bis zum Kaltstart im Bild.
+    // The error banner is feedback on an action, not a permanent state.
     if (mounted && _error != null) setState(() => _error = null);
   }
 
-  /// Zweiter Ausloeser fuer den Nachziehpfad — [didChangeDependencies] allein
-  /// haengt am Flankenwechsel des `TickerMode` und damit am TAB-Wechsel.
-  ///
-  /// Wer um 23:50 seinen letzten Tages-Slot verbraucht und die App AUF DEM
-  /// COACH-TAB in den Hintergrund schickt, kommt am naechsten Morgen auf genau
-  /// denselben Tab zurueck: der Ticker war nie aus, es gibt keine Flanke. Und
-  /// weil bei erschoepftem Kontingent auch keine `send()`-Antwort mehr kommt,
-  /// die den Zaehler korrigieren koennte, blieb der Composer bis zum Kaltstart
-  /// gesperrt — ueber die Tagesgrenze hinweg, an der der Server laengst wieder
-  /// Slots vergibt.
-  ///
-  /// Der Resume ist der Moment, in dem der Nutzer den Screen wieder ansieht;
-  /// dieselben Schranken wie im Tab-Pfad gelten auch hier, damit ein Resume in
-  /// einem anderen Tab keinen Request ausloest.
+  /// Second trigger for the refresh path: [didChangeDependencies] only fires
+  /// on a `TickerMode` edge, i.e. on a tab switch. Backgrounding the app while
+  /// the coach tab is already on top produces no edge, so an exhausted quota
+  /// would keep the composer locked past midnight. Same guards as the tab
+  /// path, so a resume on another tab issues no request.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
@@ -322,9 +252,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     super.dispose();
   }
 
-  /// Laeuft nie zweimal gleichzeitig: seit der Heilungspfad in
-  /// [_beiRueckkehr] den Bootstrap erneut anstossen kann, ist das kein
-  /// theoretischer Fall mehr.
+  /// Never runs twice concurrently — [_beiRueckkehr]'s healing path can
+  /// restart the bootstrap, so this is a real case.
   bool _bootstrapLaeuft = false;
 
   Future<void> _bootstrap() async {
@@ -339,17 +268,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   Future<void> _bootstrapIntern() async {
     final svc = widget.service;
-    // Defensiv: `initState` ruft `_bootstrap()` seit der i18n-Migration nur
-    // noch bei vorhandenem Service (der lokalisierte Fehlertext dafuer sitzt
-    // in [didChangeDependencies] — `Localizations.of()` ist waehrend
-    // initState() noch nicht erlaubt). `_beiRueckkehr` reicht ebenfalls immer
-    // einen nicht-nullen Service durch — dieser Zweig ist also nur ein
-    // Sicherheitsnetz und braucht deshalb kein `context.l10n` vor dem ersten
-    // `await`.
+    // Safety net only: both callers already guarantee a non-null service, so
+    // this branch needs no `context.l10n` before the first `await`.
     if (svc == null) return;
-    // Nur im Wiederholungslauf: Spinner zeigen, altes Banner abraeumen. Beim
-    // ersten Lauf aus initState ist `_loading` schon true — dort duerfte gar
-    // kein setState fallen.
+    // Only on a repeat run: show spinner, clear old banner. The first run from
+    // initState already has `_loading == true` and must not call setState.
     if (!_loading) {
       setState(() {
         _loading = true;
@@ -361,8 +284,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     try {
       sessions = await svc.loadSessions();
     } on CoachDataUnavailable {
-      // Offline: „keine Liste bekommen" ist nicht „keine Sessions vorhanden".
-      // Der naechste Schritt fragt ohnehin nach einer Default-Session.
+      // Offline: "no list" is not "no sessions". The next step asks for a
+      // default session anyway.
       sessions = const <ChatSession>[];
     }
     final activeId = sessions.isNotEmpty
@@ -370,7 +293,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         : await svc.ensureDefaultSession();
     if (activeId == null) {
       if (!mounted) return;
-      // Nach mindestens einem `await`: Localizations ist jetzt sicher da.
+      // After at least one `await`: Localizations is guaranteed to be there.
       setState(() {
         _loading = false;
         _error = context.l10n.coachErrorNoSession;
@@ -381,8 +304,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     try {
       history = await svc.loadHistory(activeId);
     } on CoachDataUnavailable {
-      // „Nicht ladbar" ist nicht „leer": ein leeres _messages zeigte den
-      // Hero-Leerzustand und praesentierte den Verlauf als geloescht.
+      // "Not loadable" is not "empty": an empty _messages would show the hero
+      // state and present the history as deleted.
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -393,13 +316,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
     _historyUnavailable = false;
     history = await _hydrateProposalImages(history);
-    // Unbekannt bleibt unbekannt: der zuletzt bekannte Stand (beim Kaltstart
-    // keiner) ueberlebt, statt durch eine Vermutung ersetzt zu werden.
+    // Unknown stays unknown: the last known state survives instead of being
+    // replaced by a guess.
     ChatQuotaSnapshot? quota = _quota;
     try {
       quota = await svc.loadQuotaToday();
     } on CoachDataUnavailable {
-      // absichtlich leer — `quota` behaelt den bekannten Stand.
+      // Intentionally empty — `quota` keeps the known state.
     }
     var refreshedSessions = sessions;
     if (sessions.isEmpty) {
@@ -416,23 +339,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _messages = history;
       _quota = quota;
       _loading = false;
-      // Der Verlauf kommt frisch vom Server — ein Wiederhol-Auftrag auf eine
-      // lokale Blase, die es jetzt nicht mehr gibt, waere ins Leere gerichtet.
+      // Fresh history from the server: a retry job pointing at a local bubble
+      // that no longer exists would target nothing.
       _fehlgeschlagen = null;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
 
-  /// Holt den Tageszaehler neu und uebernimmt ihn in die Anzeige.
+  /// Reloads the daily counter into the display.
   ///
-  /// Der `catch` ist seit W6-07 erreichbarer Code: [CoachChatService
-  /// .loadQuotaToday] wirft, statt einen erfundenen Snapshot zu liefern.
-  /// Vorher fing dieser Block etwas ab, das nie geworfen wurde — waehrend der
-  /// Schaden (ein erschoepftes Kontingent wird von einer Netzstoerung wieder
-  /// aufgefuellt) eine Zeile weiter unten ungehindert passierte.
-  ///
-  /// Regel: eine Netzstoerung darf das Kontingent weder verbrauchen noch
-  /// verschenken. Wir wissen dann schlicht nichts Neues.
+  /// Rule: a network outage must neither consume nor refill the quota —
+  /// [CoachChatService.loadQuotaToday] throws instead of inventing a snapshot.
   Future<void> _refreshQuota(CoachChatService svc) async {
     final ChatQuotaSnapshot frisch;
     try {
@@ -450,25 +367,19 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     try {
       sessions = await svc.loadSessions();
     } on CoachDataUnavailable {
-      // Der letzte bekannte Stand bleibt stehen: eine Netzstoerung darf das
-      // Sessions-Sheet nicht leerraeumen und damit behaupten, es gaebe keine
-      // Unterhaltungen.
+      // Keep the last known state: an outage must not empty the sessions
+      // sheet and claim there are no conversations.
       return;
     }
     if (!mounted) return;
     setState(() => _sessions = sessions);
   }
 
-  /// Wechselt die angezeigte Unterhaltung.
+  /// Switches the displayed conversation.
   ///
-  /// Jeder Ausgang prueft `_activeSessionId != sessionId` — derselbe Vergleich
-  /// wie in [_send], nur mit dem ganzen Verlauf statt einer einzelnen Blase.
-  /// `mounted` allein genuegt nicht: der Screen bleibt seit D6 dauerhaft
-  /// gemountet, und zwei schnelle Wechsel A -> B -> C sind ein Wisch. Ohne den
-  /// Vergleich schriebe der langsame Load von A seinen Verlauf in die Ansicht,
-  /// waehrend oben C draufsteht — Chatverlaeufe unter fremdem Sitzungs-Label,
-  /// und im Fehler-Arm sogar der Fehlerzustand einer laengst verlassenen
-  /// Sitzung.
+  /// Every exit checks `_activeSessionId != sessionId`: the screen stays
+  /// mounted, so `mounted` alone would let a slow load of A write its history
+  /// (or its error state) into the view while C is on screen.
   Future<void> _switchToSession(String sessionId) async {
     final svc = widget.service;
     if (svc == null) return;
@@ -477,17 +388,16 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _loading = true;
       _activeSessionId = sessionId;
       _messages = const <ChatMessage>[];
-      // Die nicht zugestellte Frage gehoert der verlassenen Sitzung: ihre
-      // Blase ist mit dem Verlauf weg, ihr Wiederhol-Auftrag wuerde sonst in
-      // der neuen Sitzung landen.
+      // The undelivered question belongs to the session being left; its retry
+      // job would otherwise land in the new one.
       _fehlgeschlagen = null;
     });
     List<ChatMessage> history;
     try {
       history = await svc.loadHistory(sessionId);
     } on CoachDataUnavailable {
-      // Auch der Fehler gehoert der Sitzung, die ihn ausgeloest hat: sonst
-      // traegt C das Banner und den `_historyUnavailable`-Zustand von A.
+      // The error belongs to the session that caused it, or C would carry A's
+      // banner and `_historyUnavailable` state.
       if (!mounted || _activeSessionId != sessionId) return;
       setState(() {
         _loading = false;
@@ -510,10 +420,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final svc = widget.service;
     if (svc == null) return;
     HapticFeedback.selectionClick();
-    // Dieselbe Pruefung wie in [_switchToSession], nur gegen den Stand VOR dem
-    // Anlegen: hat der Nutzer waehrenddessen die Sitzung gewechselt, gehoert
-    // ihm die Ansicht — die frisch angelegte Sitzung steht in der Liste und
-    // bleibt einen Tap entfernt.
+    // Same check as [_switchToSession], against the state before creating: if
+    // the user switched meanwhile, the view is theirs — the new session is in
+    // the list, one tap away.
     final vorher = _activeSessionId;
     final id = await svc.createSession();
     if (id == null) return;
@@ -533,9 +442,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     try {
       await svc.deleteSession(sessionId);
     } on CoachDataUnavailable {
-      // Sentinel-Rest S8: nicht geloescht ist nicht geloescht — die Session
-      // bleibt in der Liste, und der Nutzer erfaehrt es (Snackbar liegt ueber
-      // dem noch offenen Sessions-Sheet).
+      // S8: not deleted is not deleted — the session stays in the list and the
+      // user is told (snack sits above the still-open sessions sheet).
       if (!mounted) return;
       showAppSnack(
         context,
@@ -552,8 +460,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       if (_sessions.isNotEmpty) {
         await _switchToSession(_sessions.first.id);
       } else {
-        // Letzte Session gelöscht: Default neu anlegen UND nachladen, damit
-        // die Liste (und das Sheet) die neue Session zeigt statt leer zu sein.
+        // Last session deleted: recreate the default AND reload, so list and
+        // sheet show the new session instead of being empty.
         final fallback = await svc.ensureDefaultSession();
         if (fallback != null) {
           await _refreshSessions();
@@ -564,30 +472,21 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   }
 
   void _scrollToEnd() {
-    // Bewusst NICHT ueber `_scroll.position`: [build] steckt den Verlauf in
-    // einen AnimatedSwitcher (220 ms) und gibt jeder `_Conversation` denselben
-    // Controller. Beim Sitzungswechsel (Verlauf -> Spinner -> Verlauf) haengen
-    // deshalb kurzzeitig ZWEI ListViews daran — die ausblendende und die
-    // eintretende. `position` ist `_positions.single` und wirft dann, und
-    // `hasClients` faengt das nicht ab: es prueft nur, ob ueberhaupt eine
-    // Liste angehaengt ist.
-    //
-    // Ans Ende gehoert ohnehin nur die zuletzt angehaengte: die ausblendende
-    // ist im naechsten Frame weg, und sie mitzuziehen waere ein Ruckeln im
-    // Uebergang.
+    // Deliberately not `_scroll.position`: the AnimatedSwitcher in [build]
+    // gives both the outgoing and incoming `_Conversation` the same
+    // controller, so two ListViews are attached briefly and
+    // `_positions.single` throws (`hasClients` does not catch that). Only the
+    // last attached one should scroll; the outgoing one is gone next frame.
     final positionen = _scroll.positions;
     if (positionen.isEmpty) return;
     final liste = positionen.last;
-    // `maxScrollExtent` haelt ein `assert(hasContentDimensions)`: eine gerade
-    // erst angehaengte Liste kennt ihre Ausmasse noch nicht. Im
-    // Post-Frame-Callback ist das der Normalfall nicht, aber der Aufruf kommt
-    // auch aus dem Sendepfad — und dort ist die Reihenfolge nicht garantiert.
+    // `maxScrollExtent` asserts `hasContentDimensions`; a just-attached list
+    // has none yet, and calls from the send path have no guaranteed ordering.
     if (!liste.hasContentDimensions) return;
     final ziel = liste.maxScrollExtent + 240;
     final dauer = motionDuration(context, const Duration(milliseconds: 260));
-    // Kein `animateTo(..., Duration.zero)`: DrivenScrollActivity haelt darauf
-    // ein `assert(duration > Duration.zero)`. Unter reduzierter Bewegung
-    // springt der Verlauf ans Ende, statt dorthin zu gleiten.
+    // No `animateTo(..., Duration.zero)`: DrivenScrollActivity asserts
+    // `duration > Duration.zero`. Reduced motion jumps instead of gliding.
     if (dauer == Duration.zero) {
       liste.jumpTo(ziel.clamp(0.0, liste.maxScrollExtent));
       return;
@@ -600,7 +499,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     Uint8List? imageBytes,
     String? imageMimeType,
   }) async {
-    // Vor dem ersten `await` gegriffen: sicherer Context-Zugriff.
+    // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
     final svc = widget.service;
     final sessionId = _activeSessionId;
@@ -613,13 +512,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         (text.isEmpty && !hasImage)) {
       return;
     }
-    // Der Service haelt bewusst keinen BuildContext (s. `coach_chat_service.dart`)
-    // — hier, unmittelbar vor dem Sendeversuch, ist `l10n` frisch aus dem
-    // Context gelesen und wird nur fuer die Fallback-Fehlertexte gebraucht.
+    // The service deliberately holds no BuildContext; `l10n` is handed in
+    // fresh here, only for the fallback error texts.
     svc.l10n = l10n;
-    // Nur ein bekanntermassen leeres Kontingent blockt hier. Ist der Stand
-    // unbekannt, laeuft der Versuch bewusst zum Server — der weiss es genau
-    // und antwortet notfalls mit 429 (-> CoachQuotaExceeded weiter unten).
+    // Only a known-empty quota blocks. If unknown, the attempt goes to the
+    // server, which answers 429 if needed (-> CoachQuotaExceeded below).
     if (_kontingentErschoepft) {
       setState(
         () => _error = l10n.coachErrorDailyLimitReached(_limitFuerAnzeige),
@@ -627,10 +524,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       return;
     }
 
-    // Slash-Befehle (Nachtrag 2026-08-13: nur noch /recipe). Nur im reinen
-    // Textfall — ein angehaengtes Foto ist eine normale Coach-Frage (z.B.
-    // "was ist das?" mit Bild), kein Befehl. Ein UNBEKANNTER /-Befehl geht
-    // nie ans Modell: das waere ein verbrannter Tages-Slot fuer einen Tippo.
+    // Slash commands (only /recipe), text-only: an attached photo is a normal
+    // coach question, not a command. An unknown /-command never reaches the
+    // model — that would burn a daily slot on a typo.
     if (!hasImage && text.startsWith('/')) {
       final recipeWish = _recipeWishFrom(text);
       if (recipeWish == null) {
@@ -638,8 +534,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         return;
       }
       if (recipeWish.isEmpty) {
-        // Ohne Wunschtext gibt es nichts zu generieren: lokaler Hinweis,
-        // kein Request, kein Tages-Slot.
+        // Nothing to generate without a wish: local hint, no request, no slot.
         setState(() => _error = l10n.coachRecipeEmptyHint);
         return;
       }
@@ -663,10 +558,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       imageBytes: imageBytes,
     );
     final entwurf = _input.text;
-    // Wiederhol-Auftrag fuer den Fehlerfall, VOR dem Request gebaut: dieselbe
-    // Blase, derselbe Text, dasselbe Bild. [_wiederholen] nimmt die Nachricht
-    // dann wieder aus dem Verlauf und schickt genau das erneut — statt eine
-    // zweite Blase mit demselben Inhalt anzulegen.
+    // Retry job built before the request: same bubble, text and image.
+    // [_wiederholen] removes the message from the history and resends exactly
+    // this, instead of creating a second bubble with the same content.
     final auftrag = _FehlgeschlageneSendung(
       messageId: userMsg.id,
       text: displayText,
@@ -691,14 +585,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         imageMimeType: hasImage ? (imageMimeType ?? 'image/jpeg') : null,
         userContext: widget.userContext,
       );
-      // Der Tages-Slot ist auch dann verbraucht, wenn die Antwort gleich
-      // verworfen wird — deshalb VOR dem Sitzungs-Vergleich.
+      // The daily slot is spent even if the answer is discarded — hence
+      // before the session comparison.
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
-      // Antwort UND Fehler gehoeren der Sitzung, aus der die Frage kam. Der
-      // Sitzungs-Knopf bleibt waehrend des Sendens bedienbar — ohne diesen
-      // Vergleich landete die Antwort auf Sitzung A als Blase in Sitzung B,
-      // ohne die zugehoerige Frage. `mounted` allein deckt das nicht ab: der
-      // Screen bleibt seit D6 dauerhaft gemountet.
+      // Answer and error belong to the session the question came from;
+      // switching stays possible while sending, and `mounted` alone does not
+      // cover it because the screen stays mounted.
       if (!mounted || _activeSessionId != sessionId) return;
       setState(() {
         _messages = [
@@ -713,14 +605,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         ];
       });
       HapticFeedback.lightImpact();
-      // Sessions im Hintergrund neu laden, damit Auto-Titel / last_message_at
-      // im Sheet aktuell sind, ohne den Send-Flow zu blockieren.
+      // Refresh sessions in the background so auto title / last_message_at are
+      // current in the sheet without blocking the send flow.
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (e) {
       if (!mounted) return;
-      // Der Server hat das Limit ausdruecklich genannt — belastbarer geht es
-      // nicht, also ersetzt das jeden vorherigen Stand, egal welche Sitzung
-      // inzwischen offen ist. Das Limit gilt dem Nutzer, nicht der Sitzung.
+      // The server named the limit explicitly, so this replaces any prior
+      // state regardless of the open session: the limit is per user.
       setState(() {
         _quota = ChatQuotaSnapshot(
           used: e.dailyLimit,
@@ -730,10 +621,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
       if (_activeSessionId != sessionId) return;
       _entwurfZurueck(entwurf);
-      // Auch hier gekennzeichnet: der Slot war schon weg, die Frage ist nicht
-      // rausgegangen. Der Wiederhol-Knopf haengt an [_canInteract] und bleibt
-      // bei erschoepftem Kontingent aus — die Kennzeichnung bleibt trotzdem,
-      // sonst saehe die Blase aus wie abgeschickt.
+      // Marked here too: the slot was gone, the question did not go out. The
+      // retry button hangs on [_canInteract] and stays off, but the marker
+      // remains — otherwise the bubble would look sent.
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -746,23 +636,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _fehlgeschlagen = auftrag;
       });
     } finally {
-      // In JEDEM Ausgang — auch in den `return`s oben, in denen die Antwort
-      // wegen eines Sitzungswechsels verworfen wird. Bliebe der Zaehler dort
-      // stehen, waere der Composer bis zum Kaltstart gesperrt.
+      // On EVERY exit, including the `return`s that discard the answer after
+      // a session switch — otherwise the composer locks until cold start.
       _sendevorgangBeendet();
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
 
-  /// Uebernimmt einen Kontingent-Stand, den der Server gerade genannt hat.
+  /// Takes over a quota state the server just named.
   ///
-  /// Bewusst VOR dem Sitzungs-Vergleich aufgerufen: das Kontingent gehoert dem
-  /// Nutzer, nicht der Sitzung. Wird die Antwort verworfen, weil inzwischen
-  /// eine andere Unterhaltung offen ist, ist der Tages-Slot trotzdem weg — die
-  /// Zahl mit der Antwort fallenzulassen hiesse, weiter „N frei" zu behaupten.
-  ///
-  /// Das Limit kommt seit E10 vom Server mit; nur aeltere Function-Deployments
-  /// fallen auf den bisherigen Anzeige-Stand zurueck.
+  /// Called before the session comparison on purpose: the quota is per user,
+  /// so a discarded answer still spent the slot. Older function deployments
+  /// send no limit and fall back to the current display value.
   void _quotaUebernehmen({required int? remaining, required int? dailyLimit}) {
     if (remaining == null || !mounted) return;
     final limit = dailyLimit ?? _limitFuerAnzeige;
@@ -776,9 +661,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     });
   }
 
-  /// Gegenstueck zu `_laufendeSendungen++`: gehoert in ein `finally`, damit
-  /// wirklich jeder Ausgang zaehlt. Nach dem Unmount bleibt nur die reine
-  /// Buchhaltung — ein setState waere dort ein Fehler.
+  /// Counterpart to `_laufendeSendungen++`; belongs in a `finally` so every
+  /// exit counts. After unmount only the bookkeeping runs, no setState.
   void _sendevorgangBeendet() {
     final rest = math.max(0, _laufendeSendungen - 1);
     if (!mounted) {
@@ -788,25 +672,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     setState(() => _laufendeSendungen = rest);
   }
 
-  /// Wiederholt die zuletzt NICHT zugestellte Frage.
+  /// Retries the last undelivered question.
   ///
-  /// Der Kern: die Nachricht wird zuerst aus dem Verlauf GENOMMEN und dann
-  /// unveraendert neu abgeschickt — der Versuch ersetzt damit dieselbe Blase,
-  /// statt eine zweite mit demselben Text anzulegen. Genau darueber machte ein
-  /// Netzabbruch bisher aus einer Frage zwei: die Blase blieb als ganz normale
-  /// Nachricht stehen, der zurueckgelegte Entwurf ging beim naechsten Tap auf
-  /// „Senden" ein zweites Mal raus, und die Sitzung trug die Frage doppelt.
-  ///
-  /// Das Bild faehrt mit: es liegt nur lokal in der Blase (die Historie
-  /// speichert bewusst keine Bilddaten), waere also nach einem Fehlschlag ohne
-  /// diesen Auftrag verloren — der Nutzer muesste es neu auswaehlen.
+  /// The message is removed from the history first and then resent unchanged,
+  /// so the attempt replaces the same bubble instead of creating a duplicate.
+  /// The image rides along: it lives only in the local bubble (history stores
+  /// no image data) and would otherwise be lost.
   Future<void> _wiederholen() async {
     final auftrag = _fehlgeschlagen;
     if (auftrag == null || !_canInteract) return;
-    // Der zurueckgelegte Entwurf gehoert zu genau dieser Nachricht und geht im
-    // Wiederholversuch auf. Ein INZWISCHEN neu getippter Text ist dagegen ein
-    // anderer und muss ueberleben: [_send] leert das Feld unbedingt, auch mit
-    // `textOverride`.
+    // The restored draft belongs to this message and is consumed by the
+    // retry. A newly typed text must survive: [_send] always clears the field,
+    // even with `textOverride`.
     final fremderEntwurf =
         _input.text.trim() == auftrag.text.trim() ? '' : _input.text;
     setState(() {
@@ -824,25 +701,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (mounted) _entwurfZurueck(fremderEntwurf);
   }
 
-  /// Der getippte Text nach einem Fehlschlag zurueck ins Feld: gesendet wurde
-  /// er nicht, und eine lange Frage nach einem Netzabbruch neu zu tippen ist
-  /// der teuerste Weg, einen Fehler zu melden.
-  ///
-  /// Ein inzwischen NEU getippter Entwurf gewinnt: Tippen ist waehrend einer
-  /// laufenden Antwort ausdruecklich erlaubt (s. [_canType]), und den gerade
-  /// entstehenden Text zu ueberschreiben waere schlimmer als der Verlust des
-  /// alten.
+  /// Puts the typed text back into the field after a failure — it was never
+  /// sent. A newly typed draft wins: typing is allowed while an answer is in
+  /// flight ([_canType]), and overwriting it would be worse.
   void _entwurfZurueck(String entwurf) {
     if (entwurf.isEmpty || _input.text.isNotEmpty) return;
     _input.text = entwurf;
     _input.selection = TextSelection.collapsed(offset: entwurf.length);
   }
 
-  /// Erkennt den /recipe-Befehl am Zeilenanfang (Nachtrag 2026-08-13:
-  /// englisch als EINZIGE Schreibweise, in beiden App-Sprachen — die
-  /// Discoverability uebernimmt das Befehls-Menue beim Tippen von "/").
-  /// Liefert den Wunschtext ('' wenn nach dem Befehl nichts steht), sonst
-  /// null (kein bzw. unbekannter Befehl).
+  /// Detects the /recipe command at line start — English is the only spelling
+  /// in both app languages; the command menu handles discoverability. Returns
+  /// the wish text ('' if none) or null for no/unknown command.
   static String? _recipeWishFrom(String text) {
     final match = RegExp(
       r'^/recipe(?:\s+([\s\S]*))?$',
@@ -852,9 +722,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return (match.group(1) ?? '').trim();
   }
 
-  /// Das Befehls-Menue erscheint, solange der Entwurf wie ein angefangener
-  /// Befehl aussieht: beginnt mit "/", noch ohne Leerzeichen, und ist ein
-  /// Praefix von "/recipe".
+  /// The command menu shows while the draft looks like a started command:
+  /// starts with "/", no whitespace yet, and is a prefix of "/recipe".
   bool get _commandMenuVisible {
     final draft = _draft.trimLeft();
     if (!draft.startsWith('/')) return false;
@@ -862,8 +731,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return '/recipe'.startsWith(draft.toLowerCase());
   }
 
-  /// Tap auf einen Menue-Eintrag: Befehl samt trennendem Leerzeichen ins
-  /// Feld, Cursor ans Ende — der Nutzer tippt direkt den Wunsch.
+  /// Tap on a menu entry: command plus separating space into the field,
+  /// cursor at the end.
   void _applyCommand(String command) {
     HapticFeedback.selectionClick();
     _input.text = '$command ';
@@ -871,11 +740,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     _inputFocus.requestFocus();
   }
 
-  /// „Hinzugefügt" ist eine reine ABLEITUNG: der Karten-Slug ist
-  /// deterministisch aus der Message-Id (FitnessRecipe.coachProposalSlug),
-  /// die Live-Slugs kommen aus der Schale. Kein eigener Zustand — damit
-  /// übersteht der Status App-Neustarts und Zweitgeräte, und Löschen im
-  /// Rezepte-Tab reaktiviert den Button von selbst (Spec 2026-08-13).
+  /// "Added" is derived, never stored: the card slug comes deterministically
+  /// from the message id and the live slugs from the shell. So the state
+  /// survives restarts and second devices, and deleting re-enables the button.
   bool _isRecipeAdded(ChatMessage message) {
     if (message.recipeProposal == null) return false;
     return widget.userRecipeSlugs.contains(
@@ -883,10 +750,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     );
   }
 
-  /// Reload-Karten (Nachtrag 2026-08-13): Proposals aus dem Verlauf kommen
-  /// OHNE Bytes — hier die lokal abgelegten Vorschlagsbilder nachladen
-  /// (RecipeImageStore, gekeyt an der Message-Id). Fehlende Dateien
-  /// (Zweitgeraet, Cap-Prune, Logout dazwischen) bleiben Platzhalter.
+  /// Proposals loaded from history carry no bytes; this reloads the locally
+  /// stored proposal images (RecipeImageStore, keyed by message id). Missing
+  /// files (second device, cap prune, logout) stay placeholders.
   Future<List<ChatMessage>> _hydrateProposalImages(
     List<ChatMessage> history,
   ) async {
@@ -911,11 +777,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return result;
   }
 
-  /// Spiegel von [_send] fuer den Rezept-Pfad: optimistische User-Blase mit
-  /// der Original-Eingabe (inkl. Befehl), dann requestRecipe. Die Antwort
-  /// wird zur Assistant-Nachricht MIT [ChatMessage.recipeProposal] — die
-  /// Karte lebt nur in dieser Session, der Verlauf traegt die
-  /// Text-Zusammenfassung (reply).
+  /// Mirror of [_send] for the recipe path: optimistic user bubble with the
+  /// original input, then requestRecipe. The answer becomes an assistant
+  /// message with [ChatMessage.recipeProposal]; the history keeps only reply.
   Future<void> _sendRecipeRequest({
     required CoachChatService svc,
     required String sessionId,
@@ -931,8 +795,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       createdAt: DateTime.now(),
     );
     final entwurf = _input.text;
-    // Wie in [_send]: [displayText] traegt den Befehl mit („/recipe …"), der
-    // Wiederholversuch laeuft deshalb von selbst wieder in diesen Zweig.
+    // As in [_send]: [displayText] carries the command, so a retry lands in
+    // this branch again by itself.
     final auftrag = _FehlgeschlageneSendung(
       messageId: userMsg.id,
       text: displayText,
@@ -953,15 +817,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         locale: l10n.localeName,
         userContext: widget.userContext,
       );
-      // Wie in [_send]: der Slot ist verbraucht, auch wenn die Karte gleich
-      // verworfen wird.
+      // As in [_send]: the slot is spent even if the card is discarded.
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
-      // Sitzungs-Vergleich wie in [_send]: die Karte gehoert der Sitzung, aus
-      // der der Wunsch kam.
+      // Session comparison as in [_send]: the card belongs to the session the
+      // wish came from.
       if (!mounted || _activeSessionId != sessionId) return;
-      // Reload-Karte (Nachtrag 2026-08-13): das Bild unter der SERVER-
-      // Message-Id lokal ablegen — dieselbe Id traegt die Nachricht, damit
-      // Verlaufs-Rekonstruktion und Live-Karte denselben Schluessel nutzen.
+      // Store the image under the SERVER message id, so history reconstruction
+      // and the live card use the same key.
       final serverId = res.assistantMessageId;
       final imageBytes = res.proposal?.imageBytes;
       if (serverId != null && imageBytes != null) {
@@ -989,7 +851,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (e) {
       if (!mounted) return;
-      // Wie in [_send]: das Limit gilt dem Nutzer, nicht der Sitzung.
+      // As in [_send]: the limit is per user, not per session.
       setState(() {
         _quota = ChatQuotaSnapshot(
           used: e.dailyLimit,
@@ -1016,10 +878,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
 
-  /// Uebernehmen eines /rezept-Vorschlags — der EINZIGE Weg, auf dem aus
-  /// einer Coach-Antwort je etwas gespeichert wird, und er laeuft komplett
-  /// clientseitig ueber den nutzerbestaetigten [CoachChatScreen.onCreateRecipe]-
-  /// Hook (Sheet -> Bild lokal ablegen -> createUserRecipe).
+  /// Adopting a /recipe proposal — the ONLY way anything from a coach answer
+  /// is ever stored, entirely client-side via the user-confirmed
+  /// [CoachChatScreen.onCreateRecipe] hook.
   Future<void> _addProposalToRecipes(ChatMessage message) async {
     final proposal = message.recipeProposal;
     final onCreate = widget.onCreateRecipe;
@@ -1039,8 +900,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       final referenz = await RecipeImageStore.instance.save(bytes: bytes);
       if (!mounted) return;
       if (referenz == null) {
-        // Wie im manuellen Formular: das Rezept kommt trotzdem, nur ohne
-        // Bild — der Nutzer erfaehrt es.
+        // As in the manual form: the recipe is created anyway, just without
+        // an image, and the user is told.
         showAppSnack(
           context,
           context.l10n.recipesPhotoSaveFailedError,
@@ -1056,8 +917,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       imageAsset: imageAsset,
       slug: FitnessRecipe.coachProposalSlug(message.id),
     );
-    // Luecke-E-Muster (recipes_screen): die Meldung wartet auf den Ausgang,
-    // statt ihn zu behaupten — der Store deckelt die Wartezeit.
+    // Gap-E pattern (recipes_screen): the message waits for the outcome
+    // instead of asserting it; the store caps the wait.
     final ausgang = await onCreate(recipe);
     if (!mounted) return;
     setState(() {
@@ -1075,22 +936,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     );
   }
 
-  /// Base64 blaeht um +33% auf; die Edge Function kappt bei 6.000.000 Zeichen
-  /// (handler.ts:47) und antwortet mit 413. Wir stoppen vorher, damit der
-  /// Nutzer nicht erst Megabyte hochlaedt, um dann eine Absage zu lesen.
+  /// Base64 inflates by +33%, and the edge function cuts off at 6,000,000
+  /// characters (handler.ts:47) with a 413. Stop before the upload, not after.
   static const int _maxImageBytes = 4400000;
 
-  /// Einziger Ausgang fuer Bild-Bytes aus dem Coach (Review C4).
+  /// The only exit for image bytes from the coach (Review C4).
   ///
-  /// [compressMealPhoto] backt die Orientierung ein, verkleinert auf 1600 px
-  /// und leert danach den kompletten EXIF-Container. Ohne diesen Schritt gehen
-  /// Breitengrad, Laengengrad, Hoehe, Aufnahmezeit, Geraetemodell und
-  /// Seriennummer an OpenRouter in den USA: `image_picker` skaliert zwar,
-  /// kopiert die Tags ueber ImageResizer.copyExif() aber wieder zurueck.
-  ///
-  /// `compute()`: Dekodieren + Re-Encoden blockiert sonst den UI-Isolate.
-  /// Scheitert der Isolate-Start, wird im UI-Isolate komprimiert — lieber ein
-  /// kurzer Ruckler als ein Upload mit Koordinaten.
+  /// [compressMealPhoto] bakes in orientation, scales to 1600 px and wipes the
+  /// EXIF container; `image_picker` scales but copies the tags back, so GPS,
+  /// timestamp and device serial would reach OpenRouter otherwise. `compute()`
+  /// keeps decode/re-encode off the UI isolate; if it fails to start, compress
+  /// inline — a stutter beats an upload with coordinates.
   Future<Uint8List> _scrubImage(Uint8List raw) async {
     try {
       return await compute(compressMealPhoto, raw);
@@ -1099,10 +955,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
   }
 
-  /// MIME-Typ aus den TATSAECHLICHEN Bytes statt aus dem Dateinamen: nach dem
-  /// Scrub ist das Bild immer JPEG, auch wenn die Quelle PNG oder WebP hiess.
-  /// Der Datei-Typ-Zweig ist seit dem fail-closed-Scrub (S2: nicht
-  /// dekodierbar => Wurf statt Durchreichen) nur noch Defensiv-Netz.
+  /// MIME type from the ACTUAL bytes, not the file name: after the scrub the
+  /// image is always JPEG even if the source was PNG or WebP. The file-name
+  /// branch is a defensive net since the scrub fails closed (S2).
   String _mimeForBytes(Uint8List bytes, XFile file) {
     if (bytes.length >= 3 &&
         bytes[0] == 0xFF &&
@@ -1134,18 +989,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   Future<void> _pickAndSendImage(ImageSource source) async {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
-    // Vor dem ersten `await` gegriffen: sicherer Context-Zugriff.
+    // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
-    // Die Kopie, die der Picker im App-Cache anlegt — sie wird im `finally`
-    // wieder geloescht. Ohne das bleiben Essens- und Fortschrittsfotos des
-    // Nutzers unbegrenzt auf dem Geraet liegen, auch nach der Kontoloeschung.
+    // The copy the picker leaves in the app cache; deleted in `finally`, or
+    // the user's photos stay on the device forever, even after account
+    // deletion.
     XFile? aufnahme;
     try {
       final image = await _picker.pickImage(
         source: source,
-        // imageQuality/maxWidth duerfen NICHT entfallen: ohne sie reicht iOS
-        // die HEIC-Originaldatei durch, die package:image nicht dekodieren
-        // kann — [_scrubImage] gaebe sie dann ungescrubbt zurueck.
+        // imageQuality/maxWidth must stay: without them iOS passes the HEIC
+        // original through, which package:image cannot decode, so
+        // [_scrubImage] would return it unscrubbed.
         imageQuality: 80,
         maxWidth: 1600,
       );
@@ -1172,9 +1027,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       if (!mounted) return;
       setState(() => _error = l10n.coachErrorImageLoadFailed);
     } finally {
-      // Erst hier: die Bytes sind zu diesem Zeitpunkt gelesen, gescrubbt und
-      // verschickt — der Pfad wird danach nur noch fuer den MIME-Typ gebraucht,
-      // nicht mehr der Inhalt.
+      // Only here: by now the bytes are read, scrubbed and sent — the path is
+      // needed for the MIME type only, not the content.
       final datei = aufnahme;
       if (datei != null) await deleteMealPhotoTempFile(datei.path);
     }
@@ -1215,16 +1069,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       return;
     }
 
-    // Vor dem ersten `await` gegriffen: sicherer Context-Zugriff.
+    // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
     setState(() {
       _listening = true;
       _error = null;
     });
     try {
-      // Diktat-Locale folgt der App-Sprache statt hart 'de_DE' (Scan/Coach-PR,
-      // 2026-08-11): 'en' -> 'en_US', jede andere/unbekannte Sprache bleibt
-      // 'de_DE' — derselbe Fallback wie ueberall sonst in dieser Runde.
+      // Dictation locale follows the app language: 'en' -> 'en_US', anything
+      // else falls back to 'de_DE'.
       final speechLocaleId = l10n.localeName == 'en' ? 'en_US' : 'de_DE';
       final spokenText = await widget.speechInput.listen(
         localeId: speechLocaleId,
@@ -1257,11 +1110,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void _openAttachSheet() {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
-    // showEatovaSheet nimmt ein fertiges Widget statt eines Builders. Der
-    // `Builder` holt den Context UNTERHALB der Sheet-Route zurueck: mit dem
-    // Screen-Context wuerde `pop()` blind die oberste Route treffen — solange
-    // das Sheet oben liegt zufaellig richtig, nach einem Wisch-Schliessen aber
-    // die Home-Route.
+    // showEatovaSheet takes a ready widget, not a builder. The `Builder` gets
+    // a context BELOW the sheet route; with the screen context `pop()` would
+    // hit the top route blindly — the home route after a swipe-dismiss.
     showEatovaSheet<void>(
       context,
       Builder(
@@ -1304,9 +1155,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     HapticFeedback.selectionClick();
     showEatovaSheet<void>(
       context,
-      // StatefulBuilder, damit das Sheet nach einem Delete sofort neu baut:
-      // das Sheet hängt nicht am setState der Page, deshalb sah man die
-      // gelöschte Session sonst erst nach Schließen + Neuöffnen verschwinden.
+      // StatefulBuilder so the sheet rebuilds right after a delete: it does
+      // not hang on the page's setState.
       StatefulBuilder(
         builder: (sheetContext, setSheetState) => _SessionsSheet(
           sessions: _sessions,
@@ -1321,8 +1171,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           },
           onDelete: (id) async {
             await _deleteSession(id);
-            // _sessions wurde in _deleteSession aktualisiert — Sheet mit der
-            // frischen Liste neu zeichnen.
+            // _deleteSession already refreshed _sessions — redraw the sheet.
             if (mounted) setSheetState(() {});
           },
         ),
@@ -1330,16 +1179,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     );
   }
 
-  /// (i)-Sheet: KI-Offenlegung (C8) + Tageskontingent. Erreichbar ueber das
-  /// (i) im Kopf, den Hinweis im Leerzustand und den Quota-Hinweis.
+  /// (i) sheet: AI disclosure (C8) plus daily quota. Reachable from the header
+  /// (i), the empty-state hint and the quota hint.
   void _openCoachInfoSheet() {
     HapticFeedback.selectionClick();
     final quota = _quota;
     showEatovaSheet<void>(
       context,
-      // Nur ein echter Snapshot darf Zahlen zeigen: [_restFuerAnzeige] haette
-      // hier nach einem gescheiterten Quota-RPC das Standardlimit eingesetzt
-      // und daraus „5 von 5 Fragen heute frei" gemacht.
+      // Only a real snapshot may show numbers: [_restFuerAnzeige] would put
+      // the default limit here after a failed quota RPC.
       quota == null
           ? const _CoachInfoSheetUnbekannt()
           : _CoachInfoSheet(
@@ -1351,15 +1199,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Kein Hero, wenn der Verlauf nur NICHT LADBAR war: der Leerzustand
-    // behauptet „noch keine Unterhaltung", waehrend der Verlauf existiert
-    // (Sentinel-Rest S3). Stattdessen leere Konversation + Fehler-Banner.
+    // No hero when the history merely failed to load (S3): the empty state
+    // would claim "no conversation yet". Empty conversation + banner instead.
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
     return Column(
       key: const ValueKey('screen-coach'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Der Kopf bringt seinen Abstand selbst mit (Trennlinie + 14 px).
+        // The header brings its own spacing (divider + 14 px).
         _CoachTopBar(
           streak: widget.streak,
           onInfoTap: _openCoachInfoSheet,
@@ -1377,7 +1224,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     child: SizedBox(
                       width: 22,
                       height: 22,
-                      // Farbe kommt aus progressIndicatorTheme (t.accent).
+                      // Color comes from progressIndicatorTheme (t.accent).
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
@@ -1392,22 +1239,21 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     messages: _messages,
                     sending: _sending,
                     recipeAddedFor: _isRecipeAdded,
-                    // Ohne Hook (Vorschau/Test ohne Sync) und waehrend
-                    // eines laufenden Uebernehmens bleiben die
-                    // Karten-Buttons deaktiviert.
+                    // Card buttons stay disabled without a hook
+                    // (preview/test) and while an add is running.
                     recipeAddEnabled:
                         widget.onCreateRecipe != null && !_addingRecipe,
                     onAddRecipe: _addProposalToRecipes,
                   ),
           ),
         ),
-        // Direkt unter dem Verlauf und damit unmittelbar an der Blase, um die
-        // es geht: die fehlgeschlagene Frage ist die letzte im Verlauf.
+        // Right under the history, next to the bubble it refers to: the failed
+        // question is the last one.
         if (_fehlgeschlagen != null)
           _UnsentNotice(canRetry: _canInteract, onRetry: _wiederholen),
         if (_error != null) _ErrorBanner(text: _error!),
-        // Befehls-Menue (Nachtrag 2026-08-13): erscheint beim Tippen von "/"
-        // direkt ueber dem Composer; Tap vervollstaendigt den Befehl.
+        // Command menu: appears above the composer when typing "/"; a tap
+        // completes the command.
         if (_commandMenuVisible) _CommandSuggestions(onPick: _applyCommand),
         const SizedBox(height: 8),
         _Composer(
@@ -1415,9 +1261,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           focus: _inputFocus,
           enabled: _canType,
           canSend: _canInteract,
-          // Anzeige-Wert, keine Zustandsangabe: bei unbekanntem Stand steht
-          // hier das Standardlimit, damit der Composer weder „Limit fuer
-          // heute erreicht" noch „Noch N Fragen heute" behauptet.
+          // Display value, not a state: an unknown quota shows the default
+          // limit so the composer claims neither exhausted nor a count.
           remaining: _restFuerAnzeige,
           draft: _draft,
           listening: _listening,
@@ -1431,15 +1276,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   }
 }
 
-/// Ein Sendeversuch, der den Server nie erreicht hat — Kennzeichnung UND
-/// Wiederhol-Auftrag.
+/// A send attempt that never reached the server — marker and retry job.
 ///
-/// Haelt bewusst alles, was der zweite Versuch braucht, statt ihn aus dem
-/// Eingabefeld zu rekonstruieren: [text] ist der angezeigte Text (beim
-/// Bild-Fall die Standard-Bildunterschrift, beim Rezept-Fall inklusive
-/// „/recipe"), [imageBytes] das bereits gescrubbte Bild. Nur so bleibt der
-/// Wiederholversuch BITGLEICH — und kostet nicht noch einmal Auswahl,
-/// Kompression und EXIF-Scrub.
+/// Holds everything the second attempt needs instead of reconstructing it from
+/// the input field: [text] is the displayed text, [imageBytes] the already
+/// scrubbed image. Keeps the retry bit-identical and free of a second
+/// compression/EXIF scrub.
 class _FehlgeschlageneSendung {
   const _FehlgeschlageneSendung({
     required this.messageId,
@@ -1448,8 +1290,8 @@ class _FehlgeschlageneSendung {
     this.imageMimeType,
   });
 
-  /// Id der Blase im Verlauf. Der Wiederholversuch nimmt genau sie heraus —
-  /// deshalb entsteht keine zweite.
+  /// Id of the bubble in the history; the retry removes exactly this one, so
+  /// no duplicate appears.
   final String messageId;
 
   final String text;
@@ -1457,17 +1299,12 @@ class _FehlgeschlageneSendung {
   final String? imageMimeType;
 }
 
-/// „Nicht gesendet" unter dem Verlauf, mit dem Wiederhol-Knopf daneben.
+/// "Not sent" under the history, with the retry button next to it.
 ///
-/// Rechtsbuendig wie die Nutzer-Blasen: der Fehlerzustand gehoert der EIGENEN
-/// Nachricht. Ohne diese Zeile sah eine nie abgeschickte Frage exakt aus wie
-/// eine zugestellte — der einzige Weg zurueck war „nochmal tippen", und der
-/// erzeugte eine zweite Blase mit demselben Inhalt.
-///
-/// Der Knopf verschwindet, statt deaktiviert dazustehen, wenn gerade nichts
-/// gesendet werden kann (laufende Anfrage, erschoepftes Kontingent): ein
-/// wirkungsloser Knopf ist eine Aufforderung, die nicht eingeloest wird. Die
-/// Kennzeichnung bleibt in beiden Faellen.
+/// Right-aligned like the user bubbles: the error belongs to the user's own
+/// message, which would otherwise look delivered. The button disappears
+/// instead of sitting disabled when nothing can be sent (request in flight,
+/// quota exhausted); the marker stays in both cases.
 class _UnsentNotice extends StatelessWidget {
   const _UnsentNotice({required this.canRetry, required this.onRetry});
 
@@ -1533,35 +1370,19 @@ class _UnsentNotice extends StatelessWidget {
   }
 }
 
-/// (i)-Sheet fuer den Fall „Tageskontingent unbekannt" — Zwilling von
-/// [_CoachInfoSheet] ohne dessen Zahlenteil.
+/// (i) sheet for "daily quota unknown" — twin of [_CoachInfoSheet] without its
+/// number part.
 ///
-/// [_CoachInfoSheet] nimmt zwei `int` und kann den Fall deshalb gar nicht
-/// darstellen: liegt kein Snapshot vor, bekaeme es
-/// [ChatQuotaSnapshot.standardTageslimit] gereicht und behauptete nach einem
-/// gescheiterten Quota-RPC „5 von 5 Fragen heute frei" — samt vollem Balken.
-/// Genau das ist die Anzeige-Haelfte der Luege, die Migration 20260808210000
-/// (chat_quota_honesty) serverseitig abstellt: ein Nutzer mit verbrauchtem
-/// Kontingent liest sonst ausgerechnet dann „alles frei", wenn die App nichts
-/// weiss. Eine falsche Zahl, die praezise aussieht, ist schaedlicher als eine
-/// fehlende.
+/// [_CoachInfoSheet] takes two `int` and would show the default limit after a
+/// failed quota RPC, i.e. claim a full quota exactly when the app knows
+/// nothing. Hence a number-free line and NO bar: an empty bar reads as spent,
+/// a full one as free, and both would be a claim.
 ///
-/// Deshalb hier eine zahlenlose Zeile und KEIN Balken: ein leerer Balken laese
-/// sich als „verbraucht" lesen, ein voller als „alles frei" — beides waere
-/// wieder eine Behauptung.
-///
-/// Der C8-Offenlegungsteil ist bewusst derselbe wie im Zwilling; seine Texte
-/// kommen aus denselben l10n-Keys, eine Textaenderung wirkt hier wie dort.
-/// Zusammenlegen liesse sich beides nur ueber die Signatur von
-/// [_CoachInfoSheet] (nullable Snapshot statt zwei `int`) — das ist ein
-/// Eingriff in `coach_composer.dart` und steht als einziger Punkt aus.
-///
-/// Bis dahin sind es zwei Bauplaene fuer denselben, datenschutzrechtlich
-/// relevanten Block. Damit eine kuenftige Aenderung nicht nur eine der beiden
-/// Kopien erreicht, prueft `test/coach_ai_disclosure_test.dart` BEIDE
-/// Fassungen gegen dieselbe Liste von l10n-Keys: wer hier eine Zeile
-/// hinzufuegt, entfernt oder umsortiert, ohne den Zwilling nachzuziehen,
-/// bekommt genau einen roten Test.
+/// The C8 disclosure part is deliberately identical to the twin and uses the
+/// same l10n keys. Merging them needs a nullable snapshot in
+/// [_CoachInfoSheet]'s signature (a change in `coach_composer.dart`) and is
+/// still open. Until then `test/coach_ai_disclosure_test.dart` checks BOTH
+/// versions against the same key list, so an unmirrored edit turns red.
 class _CoachInfoSheetUnbekannt extends StatelessWidget {
   const _CoachInfoSheetUnbekannt();
 

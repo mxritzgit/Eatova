@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-// http kommt transitiv ueber supabase_flutter (gotrue fusst darauf);
-// depend_on_referenced_packages ist dafuer in analysis_options.yaml demotet.
+// http arrives transitively via supabase_flutter; the
+// depend_on_referenced_packages lint is demoted in analysis_options.yaml.
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart'
@@ -10,39 +10,29 @@ import 'package:supabase/supabase.dart'
 
 import 'package:eatova/src/auth/auth_repository.dart';
 
-// Konto-Aenderungen aus der App heraus (2026-08-10):
+// In-app account changes:
 //
-//   * Passwort aendern  -> ein Code an die hinterlegte Adresse
-//   * E-Mail aendern    -> je ein Code an die ALTE und die NEUE Adresse
+//   * change password -> one code to the stored address
+//   * change email    -> one code each to the OLD and the NEW address
 //
-// Beide Wege laufen ueber GoTrue-Bordmittel, nicht ueber selbstgebaute
-// Token: `reauthenticate()` + `updateUser(nonce:)` fuer das Passwort,
-// `updateUser(email:)` + zweimal `verifyOTP(emailChange)` fuer die Adresse.
-// Serverseitig ist dafuer `mailer_secure_email_change_enabled` an (deshalb
-// ZWEI Mails) und `security_update_password_require_reauthentication` an
-// (deshalb ist der Code Pflicht und nicht Zierde) — s. supabase/AUTH_EMAIL_OTP.md.
+// Both use GoTrue built-ins, not hand-rolled tokens: `reauthenticate()` +
+// `updateUser(nonce:)` for the password, `updateUser(email:)` plus two
+// `verifyOTP(emailChange)` for the address. Server-side this needs
+// `mailer_secure_email_change_enabled` (two mails) and
+// `security_update_password_require_reauthentication` (code mandatory) —
+// see supabase/AUTH_EMAIL_OTP.md.
 //
-// Die erste Haelfte dieser Datei prueft den Vertrag am
-// [InMemoryAuthRepository]: die Attrappe ist das, was jeder Widget-Test der
-// Einstellungen faehrt, sie muss sich also wie der Server verhalten.
-//
-// Review 2026-08-19, Befund 2: das allein war zu wenig. Die zentrale Zusage
-// „erst NACH beiden Codes traegt das Konto die neue Adresse" war AUSSCHLIESSLICH
-// in der Attrappe implementiert (`_offeneBestaetigungen`) — der Produktivpfad
-// [SupabaseAuthRepository] hatte dafuer null Deckung, und die Attrappe kann per
-// Konstruktion nicht beweisen, dass der echte Weg dieselbe Zusage haelt. Die
-// zweite Haelfte schliesst das am WIRE-Format: echter
-// [SupabaseAuthRepository] ueber einen echten [SupabaseClient] an einem
-// [MockClient], der die GoTrue-Antworten der „sicheren E-Mail-Aenderung"
-// nachstellt. Muster: `test/auth_enumeration_test.dart`,
-// `test/delete_account_wire_test.dart`.
+// First half checks the contract on [InMemoryAuthRepository], the fake every
+// settings widget test drives. Second half covers the production path at the
+// WIRE level: real [SupabaseAuthRepository] over a real [SupabaseClient] on a
+// [MockClient] replaying the secure-email-change responses — the fake alone
+// cannot prove the real path keeps the same promise.
 
 const Map<String, String> _jsonHeader = {'Content-Type': 'application/json'};
 
-/// GoTrue-Nutzerzeile. [email] ist die AKTUELLE Adresse, [neueEmail] die
-/// angefragte: bei aktiver „sicherer E-Mail-Aenderung" traegt der Server beide
-/// nebeneinander, bis der ZWEITE Code da ist — genau das ist der Grund, warum
-/// die App vorher nichts umschreiben darf.
+/// GoTrue user row. [email] is the CURRENT address, [neueEmail] the requested
+/// one: with secure email change the server carries both until the SECOND
+/// code arrives, which is why the app must not rewrite anything earlier.
 Map<String, dynamic> _userJson({
   String email = 'alt@eatova.de',
   String? neueEmail,
@@ -64,10 +54,10 @@ Map<String, dynamic> _sessionJson({String email = 'alt@eatova.de'}) => {
       'user': _userJson(email: email),
     };
 
-/// Roher Supabase-Client am MockClient — wie in `auth_enumeration_test.dart`
-/// bewusst `implicit` statt `pkce`: ohne `Supabase.initialize` gibt es keinen
-/// PKCE-Storage, und `updateUser(email:)` wuerde am fehlenden Code-Verifier
-/// scheitern statt am Testgegenstand. Am Wire-Format aendert das nichts.
+/// Raw Supabase client on the MockClient. `implicit` instead of `pkce` on
+/// purpose: without `Supabase.initialize` there is no PKCE storage, so
+/// `updateUser(email:)` would fail on the missing verifier rather than on the
+/// thing under test. The wire format is unaffected.
 SupabaseClient _clientAm(MockClient transport) => SupabaseClient(
       'https://example.supabase.co',
       'test-anon-key',
@@ -204,14 +194,14 @@ void main() {
     });
   });
 
-  // --- Produktivpfad: SupabaseAuthRepository am Wire ------------------------
+  // --- Production path: SupabaseAuthRepository on the wire ------------------
 
   group('E-Mail aendern (Wire, SupabaseAuthRepository)', () {
-    /// Der komplette Server einer laufenden Adressaenderung. Der ERSTE
-    /// `/verify` liefert bewusst nur die Nutzerzeile ohne `access_token` —
-    /// so antwortet GoTrue bei `mailer_secure_email_change_enabled`, solange
-    /// der zweite Code fehlt; erst der zweite Aufruf gibt eine Sitzung heraus.
-    /// Genau an dieser Antwortform haengt die Zwei-Postfach-Zusage.
+    /// The whole server of an in-flight address change. The FIRST `/verify`
+    /// returns only the user row without `access_token`, as GoTrue does under
+    /// `mailer_secure_email_change_enabled` while the second code is missing;
+    /// only the second call hands out a session. The two-mailbox promise
+    /// hangs on exactly this response shape.
     MockClient serverMitZweiCodes({
       required List<Map<String, dynamic>> verifyKoerper,
       List<http.Request>? userAnfragen,
@@ -245,8 +235,8 @@ void main() {
       });
     }
 
-    /// Angemeldetes Repository am [transport] — `updateUser` verlangt eine
-    /// bestehende Sitzung, sonst wirft GoTrue vor dem Testgegenstand.
+    /// Signed-in repository on [transport]; `updateUser` needs an existing
+    /// session or GoTrue throws before the thing under test.
     Future<SupabaseAuthRepository> angemeldetesRepo(MockClient transport) async {
       final client = _clientAm(transport);
       addTearDown(client.dispose);
@@ -299,12 +289,10 @@ void main() {
       await repo.confirmEmailChange(email: 'neu@eatova.de', code: '22222222');
       expect(repo.currentUser?.email, 'neu@eatova.de');
 
-      // Das Wire-Format, an dem die Zusage haengt: BEIDE Codes gehen als
-      // `email_change` an denselben Endpunkt, unterschieden allein durch die
-      // Adresse. Verrutscht der `type` (GoTrue kennt daneben `signup`,
-      // `recovery`, `email`), verifiziert der Server einen anderen Vorgang —
-      // die zweite Bestaetigung faende nie statt, und der Wechsel bliebe
-      // entweder haengen oder haenge an nur EINEM Postfach.
+      // The wire format the promise hangs on: BOTH codes go to the same
+      // endpoint as `email_change`, told apart only by the address. A wrong
+      // `type` would verify a different operation, so the second confirmation
+      // would never happen.
       expect(verifys.map((k) => k['type']), everyElement('email_change'));
       expect(verifys.first['email'], 'alt@eatova.de');
       expect(verifys.first['token'], '11111111',
@@ -326,7 +314,7 @@ void main() {
               headers: _jsonHeader);
         }
         if (pfad.endsWith('/verify')) {
-          // Wortlaut und Status wie GoTrue bei abgelaufenem/falschem OTP.
+          // Wording and status as GoTrue sends for an expired/wrong OTP.
           return http.Response(
               jsonEncode(<String, dynamic>{
                 'error_code': 'otp_expired',
@@ -365,10 +353,9 @@ void main() {
       expect(gesehen.last, 'neu@eatova.de',
           reason: 'die Schale zeigt die Adresse in den Einstellungen an — '
               'sie muss den Wechsel mitbekommen');
-      // Bewusst „kommt vorher nicht vor" statt „ist vorher immer die alte":
-      // der Strom ist ein ReplaySubject und traegt am Anfang auch den
-      // Sitzungsaufbau (initialSession/signedIn) — geprueft wird die Zusage,
-      // nicht die Zahl der Ereignisse davor.
+      // "Does not appear before" rather than "is always the old one": the
+      // stream is a ReplaySubject and also carries the session setup, so the
+      // promise is checked, not the number of preceding events.
       expect(gesehen.sublist(0, gesehen.length - 1),
           isNot(contains('neu@eatova.de')),
           reason: 'bis zum zweiten Code darf der Strom die neue Adresse nicht '
@@ -408,9 +395,8 @@ void main() {
           reason: 'die Empfaengeradresse zieht der Server aus dem Token — die '
               'App kann hier kein fremdes Postfach adressieren, und genau '
               'deshalb ist der Code ueberhaupt eine Huerde');
-      // Die Gegenprobe (der Code laeuft als `nonce` in `PUT /user` mit) steht
-      // in `test/auth_enumeration_test.dart`, zusammen mit dem
-      // festgenagelten Nonce-Widerspruch aus dem Audit 2026-08-14.
+      // The counterpart (the code travels as `nonce` in `PUT /user`) lives in
+      // `test/auth_enumeration_test.dart`.
     });
   });
 }

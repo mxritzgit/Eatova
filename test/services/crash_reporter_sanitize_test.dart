@@ -1,14 +1,10 @@
-// C1 (REVIEW-2026-08-08): Der Klassen-Header von crash_reporter.dart verspricht
-// woertlich „niemals Nutzerdaten wie Gewicht, Mahlzeiten oder Health-Werte".
-// Diese Datei macht aus dem Versprechen einen Test.
+// C1: crash_reporter.dart's class header promises never to ship user data.
+// This file turns that promise into a test.
 //
-// Die Kette, die den Bruch erzeugt hat:
-//   postgrest/types.dart:46  toString() => '...details: $details...'
-//   sentry/sentry_exception_factory.dart:60  value = throwable.toString()
-// PostgREST fuellt `details` aus PostgreSQLs DETAIL — bei einer CHECK-
-// Verletzung (23514, z.B. `weight_kg between 30 and 300`) ist das die
-// komplette fehlgeschlagene Zeile inkl. E-Mail, Anzeigename, Alter, Groesse
-// und Gewicht.
+// The chain that broke it: PostgrestException.toString() embeds `details`,
+// and Sentry builds its event value from `throwable.toString()`. PostgREST
+// fills `details` from PostgreSQL's DETAIL, which on a CHECK violation (23514)
+// is the entire failing row — email, display name, age, height, weight.
 
 import 'dart:async';
 
@@ -27,16 +23,14 @@ import 'package:supabase_flutter/supabase_flutter.dart'
         PostgrestException,
         StorageException;
 
-/// Die reale DETAIL-Zeile einer 23514-Verletzung auf `public.profiles`.
-/// Enthaelt Identitaet (UUID, E-Mail, Anzeigename) und Art.-9-Gesundheits-
-/// werte (Alter 34, Groesse 178, Gewicht 25).
+/// The real DETAIL line of a 23514 violation on `public.profiles`: identity
+/// (UUID, email, display name) plus Art. 9 health values.
 const String _failingRow =
     'Failing row contains (0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0, '
     'max@example.com, Max, 25, 178, 34).';
 
-/// Alles, was in KEINEM Fall bei Sentry ankommen darf. Bewusst als eine
-/// Liste, die jeder Test durchlaeuft — so faellt eine neue Leck-Stelle auf,
-/// egal welcher Fehlertyp sie aufreisst.
+/// Everything that must NEVER reach Sentry. One list every test walks, so a
+/// new leak shows up regardless of which error type opens it.
 const List<String> _verboten = <String>[
   'max@example.com',
   '@example.com',
@@ -47,7 +41,7 @@ const List<String> _verboten = <String>[
   '34',
 ];
 
-/// Faengt ab, was `Sentry.captureException` bekommen wuerde.
+/// Captures what `Sentry.captureException` would receive.
 class _SentrySpion {
   final List<Object> fehler = <Object>[];
   final List<String?> kontexte = <String?>[];
@@ -65,12 +59,12 @@ class _SentrySpion {
     return fehler.single;
   }
 
-  /// Der String, den Sentry als Event-`value` schreiben wuerde
-  /// (sentry_exception_factory.dart:60 `value = throwable.toString()`).
+  /// The string Sentry would write as the event `value`
+  /// (`value = throwable.toString()`).
   String get sentryValue => einziger.toString();
 
-  /// Der String, den Sentry als Event-`type` schreiben wuerde
-  /// (sentry_exception_factory.dart:64 `throwable.runtimeType.toString()`).
+  /// The string Sentry would write as the event `type`
+  /// (`throwable.runtimeType.toString()`).
   String get sentryType => einziger.runtimeType.toString();
 }
 
@@ -85,8 +79,8 @@ void main() {
     CrashReporter.debugSentrySink = null;
   });
 
-  /// Prueft die Zusage aus dem Klassen-Header gegen den kompletten
-  /// Sentry-Event (type + value).
+  /// Checks the class-header promise against the whole Sentry event
+  /// (type + value).
   void erwarteKeineNutzerdaten() {
     final nutzlast = '${spion.sentryType}|${spion.sentryValue}';
     for (final geheim in _verboten) {
@@ -141,8 +135,8 @@ void main() {
         StackTrace.current,
       );
 
-      // „Exception" allein waere wertlos, „PostgrestException code=23514" ist
-      // die Diagnose: CHECK-Verletzung beim Profil-Upsert.
+      // "Exception" alone is worthless; "PostgrestException code=23514" is the
+      // diagnosis: CHECK violation on the profile upsert.
       expect(spion.sentryValue, contains('PostgrestException'));
       expect(spion.sentryValue, contains('23514'));
     });
@@ -230,8 +224,8 @@ void main() {
 
     test('FunctionException: nur status — details ist der rohe Response-Body',
         () async {
-      // analyze-meal antwortet mit erkannten Lebensmitteln. Der Body ist der
-      // Mahlzeiteninhalt des Nutzers, also Art.-9-nah.
+      // analyze-meal answers with recognised foods, so the body is the user's
+      // meal content — close to Art. 9 data.
       await CrashReporter.capture(
         const FunctionException(
           status: 500,
@@ -367,7 +361,7 @@ void main() {
         () async {
       await CrashReporter.capture(_KaputterToString(), StackTrace.current);
 
-      // Kein Throw nach aussen UND trotzdem ein brauchbarer Report.
+      // No throw escapes AND the report is still usable.
       expect(spion.fehler, hasLength(1));
       expect(spion.sentryValue, contains('_KaputterToString'));
     });
@@ -384,11 +378,9 @@ void main() {
         stack,
       );
 
-      // Begruendung fuer das Behalten: ein Dart-Stacktrace besteht aus
-      // Datei-, Klassen- und Methodennamen plus Zeilennummern — alles zur
-      // Uebersetzungszeit festgelegt. Laufzeitwerte kommen darin nicht vor,
-      // also auch keine Gewichte, Mahlzeiten oder E-Mails. Ohne ihn waere ein
-      // Report nicht mehr zuzuordnen.
+      // A Dart stack trace is file, class and method names plus line numbers,
+      // all fixed at compile time — no runtime values, so no user data. A
+      // report without it could not be attributed at all.
       expect(gesehen, same(stack));
     });
   });
@@ -434,10 +426,8 @@ void main() {
     });
 
     test('bereits sanitisierte App-Typen behalten ihre Kurzfassung', () {
-      // UndecryptableCacheSlot (secure_cache_store.dart) traegt nur einen
-      // Fehlertypnamen und einen um die User-UUID gekuerzten Slot-Key. Genau
-      // diese Information soll erhalten bleiben — sonst waere der Report
-      // wertlos.
+      // UndecryptableCacheSlot carries only an error type name and a slot key
+      // stripped of the user UUID — exactly the information worth keeping.
       final s = sanitizeForReport(
         UndecryptableCacheSlot(
           errorType: 'InvalidCipherTextException',
@@ -454,7 +444,7 @@ void main() {
   });
 }
 
-/// Ein Typ, den die Allowlist nicht kennt — der Default-Fall.
+/// A type the allowlist does not know — the default case.
 class _FremderFehler implements Exception {
   const _FremderFehler(this.payload);
   final String payload;
@@ -463,7 +453,7 @@ class _FremderFehler implements Exception {
   String toString() => '_FremderFehler($payload)';
 }
 
-/// Worst Case fuer jede Reporting-Schicht.
+/// Worst case for any reporting layer.
 class _KaputterToString {
   @override
   String toString() => throw StateError('toString kaputt');

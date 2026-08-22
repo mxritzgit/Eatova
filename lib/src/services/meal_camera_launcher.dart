@@ -6,9 +6,8 @@ import '../models/logged_meal.dart' show MealSlot;
 import '../models/meal_analysis_request.dart';
 import '../screens/meal_camera_sheet.dart';
 
-/// Ergebnis der In-App-Kamera: das Analyse-Request-Objekt (Bild), eine
-/// Vorschau fuer das Ergebnis-Sheet und der vom Nutzer im Kamera-Screen
-/// gewaehlte Slot (Fruehstueck/Mittag/…).
+/// Result of the in-app camera: the analysis request (image), a preview for
+/// the result sheet, and the slot chosen in the camera screen.
 class MealCameraCapture {
   const MealCameraCapture({
     required this.request,
@@ -21,9 +20,9 @@ class MealCameraCapture {
   final MealSlot slot;
 }
 
-/// Startet den Foto-Erfassungs-Flow fuer den KI-Scan. Als Abstraktion, damit
-/// Widget-Tests den (nicht test-baren) Kamera-Screen durch einen Fake ersetzen
-/// koennen — analog zu [MealPhotoInput], aber inklusive Slot-Auswahl.
+/// Starts the photo capture flow for the AI scan. Abstracted so widget tests
+/// can swap the untestable camera screen for a fake; like [MealPhotoInput],
+/// but including slot selection.
 abstract class MealCameraLauncher {
   Future<MealCameraCapture?> launch(
     BuildContext context, {
@@ -31,9 +30,9 @@ abstract class MealCameraLauncher {
   });
 }
 
-/// Produktions-Implementierung: zeigt die In-App-Kamera als animiertes
-/// Bottom-Panel (~60% Hoehe, gleitet von unten ein — kein Vollbild-Wechsel)
-/// und liefert dessen [MealCameraCapture] zurueck (null bei Abbruch/Swipe).
+/// Production implementation: shows the in-app camera as a bottom panel
+/// (~60% height, no full-screen transition) and returns its
+/// [MealCameraCapture], or null when cancelled.
 class InAppMealCameraLauncher implements MealCameraLauncher {
   const InAppMealCameraLauncher();
 
@@ -46,8 +45,7 @@ class InAppMealCameraLauncher implements MealCameraLauncher {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
-      // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
+      // Deliberately not a token: the scrim must darken in both themes.
       barrierColor: Colors.black.withValues(alpha: 0.55),
       builder: (_) => MealCameraSheet(initialSlot: initialSlot),
     );

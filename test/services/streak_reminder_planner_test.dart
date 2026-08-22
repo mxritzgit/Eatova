@@ -4,21 +4,15 @@ import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/streak_reminder_planner.dart';
 
-// Streak-Retter-Planner: pure Funktion (now, stats) -> Specs fuer die
-// kommenden Abende um 20:00. Kernfaelle: heute-schon-getrackt und
-// nach-20-Uhr lassen den heutigen Slot aus (nie in die Vergangenheit
-// planen), IDs sind pro Kalendertag deterministisch (Re-Schedule ohne
-// Duplikate), und die konkrete Streak-Zahl steht NUR im ersten Body
-// (danach waere sie stale).
-//
-// D10 (Review 2026-08-08): Der Horizont lag bei 7 Tagen und wurde nur bei
-// Kaltstart oder Mahlzeit-Log nachgefuellt. Wer eine Woche weder loggt noch
-// die App oeffnet, verlor genau die Erinnerung, die ihn zurueckholen sollte.
-// Der Horizont reicht jetzt vier Wochen (erste Woche taeglich, danach
-// woechentlich) und endet dort bewusst — siehe streak_reminder_planner.dart.
+// Streak rescue planner: pure (now, stats) -> specs for the coming evenings
+// at 20:00. Already tracked today and after 20:00 both skip today's slot, IDs
+// are deterministic per calendar day so a re-schedule does not duplicate, and
+// the streak number is in the FIRST body only. D10 (Review 2026-08-08): the
+// 7-day horizon was refilled only on cold start or meal log, losing the
+// reminder meant to bring an inactive user back. Now four weeks.
 
 void main() {
-  // Mittwoch, 15.07.2026 — Vormittag bzw. Abend als Referenz-Zeitpunkte.
+  // Wednesday 2026-07-15, morning and evening as reference points.
   final wedMorning = DateTime(2026, 7, 15, 9, 30);
   final wedEvening = DateTime(2026, 7, 15, 21, 10);
 
@@ -77,8 +71,7 @@ void main() {
   group('D10 — Horizont ueberlebt eine Woche ohne App-Oeffnung', () {
     test('es wird ueber Tag 7 hinaus geplant', () {
       final specs = planStreakReminders(wedMorning, LifetimeStats());
-      // Der alte 7-Tage-Horizont endete am 21.07. Wer bis dahin weder loggt
-      // noch die App oeffnet, bekam ab dem 22.07. nichts mehr.
+      // The old 7-day horizon ended on 07-21 and left 07-22 on empty.
       final beyondWeek = specs
           .where((s) => s.scheduledFor.isAfter(DateTime(2026, 7, 21, 20)))
           .toList();
@@ -88,8 +81,7 @@ void main() {
     });
 
     test('am achten Abend ohne App-Oeffnung liegt noch ein Reminder vor', () {
-      // Simuliert den Nutzer, der am 15.07. zuletzt geplant hat und danach
-      // eine Woche verschwindet: am 23.07. muss noch etwas ausstehen.
+      // Last planned 07-15, gone a week: 07-23 must still have something.
       final specs = planStreakReminders(wedMorning, LifetimeStats());
       final stillPending = specs
           .where((s) => !s.scheduledFor.isBefore(DateTime(2026, 7, 23)))
@@ -143,9 +135,8 @@ void main() {
     });
 
     test('ID haengt am Kalendertag, nicht an der Listenposition', () {
-      // Heute getrackt vs. nicht getrackt verschiebt das Fenster um einen
-      // Tag — derselbe Kalendertag behaelt trotzdem dieselbe ID, damit ein
-      // Re-Schedule alte Eintraege ueberschreibt statt zu duplizieren.
+      // Tracked vs. not shifts the window a day, yet a calendar day keeps
+      // its ID, so a re-schedule overwrites rather than duplicates.
       final untracked = planStreakReminders(
         wedMorning,
         statsWithStreak(lastTracked: DateTime(2026, 7, 14)),
@@ -154,7 +145,7 @@ void main() {
         wedMorning,
         statsWithStreak(lastTracked: DateTime(2026, 7, 15)),
       );
-      // Donnerstag 16.07. ist in beiden Laeufen geplant — gleiche ID.
+      // Thursday 07-16 is planned in both runs, so same ID.
       final thuA =
           untracked.firstWhere((s) => s.scheduledFor.day == 16);
       final thuB = tracked.firstWhere((s) => s.scheduledFor.day == 16);
@@ -178,10 +169,8 @@ void main() {
     test(
         'D10: ab dem zweiten Abend behauptet KEIN Text mehr, es gaebe eine '
         'laufende Serie', () {
-      // Feuert Spec i>=1, dann hat der Nutzer seit der Planung nicht geloggt
-      // (jeder Log plant neu) — die Serie ist zu diesem Zeitpunkt beweisbar
-      // gerissen. Ein Text wie „Deine Streak wartet" waere dauerhaft falsch,
-      // und je weiter hinten im Horizont, desto falscher.
+      // If spec i>=1 fires the user has not logged since planning (every log
+      // re-plans), so the streak is provably broken.
       final stats = statsWithStreak(
         lastTracked: DateTime(2026, 7, 14),
         days: 12,
@@ -195,8 +184,8 @@ void main() {
 
     test('gerissene Kette (effectiveStreak 0) -> sanfter Start-Text ohne Zahl',
         () {
-      // Zuletzt vorgestern getrackt: currentStreak steht noch auf 3, aber
-      // die Anzeige-Streak ist 0 — der Planner darf nicht "3 retten" sagen.
+      // Last tracked two days ago: currentStreak still reads 3 while the
+      // displayed streak is 0, so the planner must not say 3.
       final stats = statsWithStreak(
         lastTracked: DateTime(2026, 7, 13),
         days: 3,

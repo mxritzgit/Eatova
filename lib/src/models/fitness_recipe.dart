@@ -42,18 +42,16 @@ class FitnessRecipe {
   final int estimatedGrams;
   final List<String> categories;
 
-  /// True für selbst angelegte Rezepte (kein Bild-Asset, eigener Akzent).
-  /// Erlaubt der UI, sie ohne Image.asset darzustellen.
+  /// True for user-created recipes (no image asset), so the UI can render them
+  /// without Image.asset.
   final bool userCreated;
 
   double get kcalPer100G =>
       estimatedGrams <= 0 ? 0 : caloriesKcal * 100 / estimatedGrams;
 
-  /// 0..1 wie gut dieses Rezept zu den noch offenen Tagesmakros passt.
-  /// Bewertet anhand der Restmengen (Protein/KH/Fett, mit Protein doppelt
-  /// gewichtet) plus eines kcal-Fit-Terms. Eine Mahlzeit, die in die
-  /// Restmakros passt ohne deutlich zu überschießen, rankt höher.
-  /// Reine Sortier-Heuristik — keine Ernährungsberatung.
+  /// 0..1 fit against the day's remaining macros (protein weighted double) plus
+  /// a kcal term; filling the remainder without overshooting ranks highest.
+  /// Sorting heuristic only, not nutrition advice.
   double matchScore(MacroProgress remaining) {
     if (remaining.kcal <= 0 &&
         remaining.proteinG <= 0 &&
@@ -63,11 +61,11 @@ class FitnessRecipe {
     }
     double term(double recipeG, double remainingG, double weight) {
       if (remainingG <= 0) {
-        // Kein Bedarf mehr → Überschuss wird leicht bestraft.
+        // Nothing left to fill, so a surplus is penalised lightly.
         return recipeG <= 0 ? weight : weight * 0.35;
       }
       final ratio = recipeG / remainingG;
-      // Optimal nahe 1.0 (deckt den Rest), sanft fallend bei Über-/Unterschuss.
+      // Best near 1.0 (covers the remainder), decaying gently either side.
       final closeness = ratio <= 1
           ? 0.55 + 0.45 * ratio
           : (1 / ratio).clamp(0.0, 1.0);
@@ -90,38 +88,23 @@ class FitnessRecipe {
     return (macroPart * 0.7 + kcalScore * 0.3).clamp(0.0, 1.0);
   }
 
-  /// True wenn dieses Rezept zur Ernährungspräferenz [diet] passt — die
-  /// Grundlage für die Empfehlungs-Filterung (recipes_screen). Rein über die
-  /// bestehenden [categories], damit es deterministisch und ohne Zutaten-Parsing
-  /// bleibt:
-  ///  - `Fisch`            → fischhaltig
-  ///  - `Vegetarisch`      → fleisch- UND fischfrei (markiert die veg/vegane Schiene)
-  ///  - alles übrige mit `Hauptgericht`/`High Protein` ohne diese beiden Marker
-  ///    gilt als Fleischgericht (Hähnchen/Pute/Rind etc.)
-  ///
-  /// Regeln:
-  ///  - [DietPreference.none]        → alles erlaubt
-  ///  - [DietPreference.pescetarian] → kein Fleisch, Fisch erlaubt
-  ///  - [DietPreference.vegetarian]  → kein Fleisch, kein Fisch
-  ///  - [DietPreference.vegan]       → nur explizit mit `Vegan` markierte,
-  ///    rein pflanzliche Gerichte; vegetarische Eier-/Milch-Gerichte (z.B.
-  ///    Omelett, Skyr-Bowl) fallen raus.
-  ///
-  /// Eigen-Rezepte ([userCreated], Kategorie `Eigene`) werden NICHT gefiltert —
-  /// der User kennt seine eigenen Zutaten und soll sie immer sehen.
-  ///
-  /// Keine medizinische Allergie-Garantie, nur eine Empfehlungs-Heuristik.
+  /// True if the recipe fits diet preference [diet], driving recommendation
+  /// filtering. Decided purely from [categories] so it stays deterministic
+  /// without parsing ingredients: `Fisch` means fish, `Vegetarisch`/`Vegan`
+  /// mean meat- and fish-free, anything else tagged `Hauptgericht`/`High
+  /// Protein` counts as meat. Vegan matches only explicitly vegan dishes, so
+  /// egg/dairy vegetarian ones drop out. User recipes are never filtered.
+  /// A recommendation heuristic, not an allergy guarantee.
   bool matchesDiet(DietPreference diet) {
     if (diet == DietPreference.none) return true;
     if (userCreated) return true;
 
     final isFish = categories.contains('Fisch');
     final isVegan = categories.contains('Vegan');
-    // `Vegan` impliziert vegetarisch; zusätzlich gilt der `Vegetarisch`-Tag für
-    // Ei-/Milch-Gerichte, die nicht vegan sind (Omelett, Skyr, Halloumi …).
+    // `Vegan` implies vegetarian; the `Vegetarisch` tag covers non-vegan
+    // egg/dairy dishes.
     final isVegetarian = isVegan || categories.contains('Vegetarisch');
-    // Fleisch = ein Hauptgericht/Protein-Teller, der weder als Fisch noch als
-    // vegetarisch/vegan markiert ist (Hähnchen, Pute, Rind, Schwein …).
+    // Meat = a main/protein dish marked neither fish nor vegetarian/vegan.
     final isMeat =
         !isFish &&
         !isVegetarian &&
@@ -136,21 +119,18 @@ class FitnessRecipe {
     };
   }
 
-  /// Erzeugt einen stabilen Slug fuer ein neu angelegtes User-Rezept.
-  /// Gleiche Konvention wie das Erstell-Sheet (recipes_screen): `user_<ms>`.
+  /// Stable slug for a newly created user recipe: `user_<ms>`, same convention
+  /// as the create sheet.
   static String userRecipeSlug() =>
       'user_${DateTime.now().millisecondsSinceEpoch}';
 
-  /// Slug für ein aus einer /recipe-Karte übernommenes Rezept —
-  /// DETERMINISTISCH aus der Chat-Message-Id (Spec 2026-08-13). Damit ist
-  /// „Hinzugefügt" auf der Karte eine reine Ableitung aus den Live-Slugs:
-  /// sie übersteht den Neustart, synct aufs Zweitgerät, und ein Doppel-Tap
-  /// läuft in den Upsert-Konflikt (user_id, slug) statt in ein Duplikat.
+  /// Slug for a recipe adopted from a /recipe card, derived deterministically
+  /// from the chat message id so the "added" state survives restart and sync,
+  /// and a double tap hits the upsert conflict instead of creating a duplicate.
   static String coachProposalSlug(String messageId) => 'user_coach_$messageId';
 
-  /// Serialisiert dieses Rezept fuer ein upsert auf public.user_recipes.
-  /// user_id setzt der Sync; id/created_at/updated_at vergibt die DB per
-  /// Default bzw. Trigger. categories landet als text[].
+  /// Serialises this recipe for an upsert on public.user_recipes. The sync sets
+  /// user_id; the DB fills id/created_at/updated_at. categories becomes text[].
   Map<String, dynamic> toRow() {
     return <String, dynamic>{
       'slug': slug,
@@ -169,28 +149,20 @@ class FitnessRecipe {
     };
   }
 
-  /// Baut ein FitnessRecipe aus einer public.user_recipes-Zeile. Defensiv:
-  /// fehlende/falsch-getypte Spalten fallen auf einen LEEREN String zurueck —
-  /// NICHT mehr auf einen hartkodierten deutschen Platzhaltertext (Inhalte-PR,
-  /// 2026-08-11, Branch-Review-Finding: `fromRow` injizierte den Platzhalter
-  /// bisher unconditional, unabhaengig von der aktiven App-Sprache). Die leere
-  /// Zeichenkette ist der neutrale Marker "kein Wert hinterlegt"; die Anzeige
-  /// loest ihn erst zur Laufzeit — s. [displayDescription] & Geschwister —
-  /// in die aktuelle Locale auf. `professionalHint` existiert in
-  /// der Tabelle ohnehin nicht (nie befuellt, immer '') — bleibt aus demselben
-  /// Grund neutral statt fest deutsch. userCreated ist per Definition true —
-  /// alle Zeilen dieser Tabelle sind selbst angelegt.
+  /// Builds a FitnessRecipe from a public.user_recipes row. Missing or
+  /// mistyped columns fall back to the empty string — the neutral "no value"
+  /// marker that [displayDescription] & siblings resolve into the active locale
+  /// at render time, rather than a hardcoded German placeholder.
+  /// userCreated is true by definition: every row here is user-made.
   factory FitnessRecipe.fromRow(Map<String, dynamic> row) {
     final rawCategories = row['categories'];
     final categories = rawCategories is List
         ? rawCategories.map((c) => c.toString()).toList(growable: false)
         : const <String>[];
-    // Sentinel-Rest S4: fuer einen fehlenden Slug wurde hier ein FRISCHER
-    // erfunden (userRecipeSlug()). Der Slug ist aber der Konflikt-Schluessel
-    // des Upserts (user_id,slug) — ueber den Outbox-Replay legte jeder Retry
-    // mit korruptem Payload damit eine NEUE Serverzeile an: Duplikate.
-    // Ohne Slug ist der Payload korrupt: Wurf -> SyncOp.recipe -> null ->
-    // _CorruptOpPayload-Drop. Serverzeilen trifft das nie (slug NOT NULL).
+    // Never invent a slug: it is the upsert conflict key (user_id,slug), so a
+    // fresh one per outbox retry would create duplicate server rows. A missing
+    // slug means a corrupt payload -> throw -> _CorruptOpPayload drop.
+    // Server rows are unaffected (slug NOT NULL).
     final slug = row['slug']?.toString();
     if (slug == null || slug.isEmpty) {
       throw const FormatException('user_recipes-Zeile ohne slug');
@@ -221,21 +193,14 @@ class FitnessRecipe {
     return 0;
   }
 
-  /// Loest EINEN Platzhalter-Wert zur Anzeigezeit auf (Inhalte-PR,
-  /// 2026-08-11). `value` ist entweder echter Nutzertext, der leere Marker
-  /// (seit diesem PR persistiert `_save()`/`fromRow()` keinen Platzhaltertext
-  /// mehr) oder — Rueckwaertskompatibilitaet — ein VOR diesem PR gespeicherter
-  /// deutscher Platzhalter (die einzige Sprache, die es vorher gab). [select]
-  /// liest denselben ARB-Key aus [deL10n]/[enL10n]/der aktiven `l10n`: matcht
-  /// `value` einen der beiden bekannten Wortlaute (oder ist leer), gilt er als
-  /// Platzhalter und wird durch die AKTUELLE Locale-Fassung ersetzt. Alles
-  /// andere ist echter Nutzertext und bleibt unangetastet.
+  /// Resolves one placeholder value at render time. `value` is either real user
+  /// text, the empty marker, or a German placeholder stored before i18n.
+  /// [select] reads the same ARB key from [deL10n]/[enL10n]/active `l10n`; if
+  /// `value` is empty or matches either wording it is treated as a placeholder
+  /// and replaced with the current locale's version.
   ///
-  /// Bekannte Luecke (dokumentiert, nicht behoben): ein Nutzer, der zufällig
-  /// wortgleich mit einem Platzhalter tippt (z. B. „Keine Angabe" als eigene
-  /// Zutatenliste), sieht seinen Text ebenfalls uebersetzt. Seiten-Effekt ist
-  /// kosmetisch (derselbe Platzhalter-Wortlaut in der jeweils anderen
-  /// Sprache), kein Datenverlust — die gespeicherte Zeile bleibt unveraendert.
+  /// Known gap: user text that happens to match a placeholder wording is
+  /// translated too. Cosmetic only — the stored row is untouched.
   String _resolvePlaceholder(
     String value,
     AppLocalizations l10n,
@@ -247,38 +212,34 @@ class FitnessRecipe {
     return value;
   }
 
-  /// Anzeige-Wert von [description]. Das Anlege-Sheet hat kein eigenes
-  /// Beschreibungsfeld — bei [userCreated] war/ist der Wert bis auf echten
-  /// Nutzertext (theoretisch moeglich ueber `fromRow`, praktisch nie durchs
-  /// Sheet) IMMER ein Platzhalter. Bestandsrezepte liefern ihren Text
-  /// unveraendert.
+  /// Display value of [description]. The create sheet has no description field,
+  /// so for [userCreated] this is practically always a placeholder; catalog
+  /// recipes return their text unchanged.
   String displayDescription(AppLocalizations l10n) => userCreated
       ? _resolvePlaceholder(description, l10n, (x) => x.recipesOwnTitle)
       : description;
 
-  /// Anzeige-Wert von [portion]. Das Sheet befuellt das Feld l10n-abhaengig
-  /// vor (`foodPortionFallback`) — laesst der Nutzer es unveraendert oder
-  /// leert er es, persistiert `_save()` seit diesem PR NICHTS mehr (leerer
-  /// Marker statt Platzhaltertext).
+  /// Display value of [portion]. The sheet prefills it per locale
+  /// (`foodPortionFallback`); leaving it untouched or empty persists the empty
+  /// marker rather than placeholder text.
   String displayPortion(AppLocalizations l10n) => userCreated
       ? _resolvePlaceholder(portion, l10n, (x) => x.foodPortionFallback)
       : portion;
 
-  /// Anzeige-Wert von [ingredients]. Hat ein echtes Formularfeld — nur bei
-  /// leerer Eingabe griff bisher der Platzhalter.
+  /// Display value of [ingredients]. Has a real form field, so the placeholder
+  /// only applies to empty input.
   String displayIngredients(AppLocalizations l10n) => userCreated
       ? _resolvePlaceholder(ingredients, l10n, (x) => x.recipesNoDataProvided)
       : ingredients;
 
-  /// Anzeige-Wert von [preparation]. Kein Formularfeld — wie [description]
-  /// bei [userCreated] immer ein Platzhalter, nie echter Nutzertext.
+  /// Display value of [preparation]. No form field, so for [userCreated] this
+  /// is always a placeholder.
   String displayPreparation(AppLocalizations l10n) => userCreated
       ? _resolvePlaceholder(preparation, l10n, (x) => x.recipesNoPreparationYet)
       : preparation;
 
-  /// Anzeige-Wert von [professionalHint]. Kein Formularfeld UND keine
-  /// DB-Spalte (`fromRow` setzt immer '') — bei [userCreated] IMMER ein
-  /// Platzhalter.
+  /// Display value of [professionalHint]. Neither a form field nor a DB column
+  /// (`fromRow` always sets ''), so for [userCreated] always a placeholder.
   String displayProfessionalHint(AppLocalizations l10n) => userCreated
       ? _resolvePlaceholder(
           professionalHint,
@@ -287,14 +248,9 @@ class FitnessRecipe {
         )
       : professionalHint;
 
-  /// [l10n] optional, Default [deL10n] (Muster `sync_error_messages.dart`):
-  /// kontextfreie Aufrufer (Tests, s. `recipe_create_sheet_test.dart`) bleiben
-  /// unveraendert deutsch. `portionNotes` baut auf den AUFGELOESTEN
-  /// Anzeige-Werten auf ([displayPortion]/[displayDescription]/
-  /// [displayProfessionalHint]) statt der Rohdaten — sonst wanderte bei einem
-  /// frisch angelegten Eigen-Rezept (seit diesem PR moeglicherweise leere
-  /// Felder, s. [FitnessRecipe.fromRow]) eine leere Luecke in die geloggte
-  /// Mahlzeit.
+  /// [l10n] optional, defaults to [deL10n] so context-free callers (tests) stay
+  /// German. `portionNotes` uses the resolved display values, not the raw
+  /// fields, or a fresh user recipe would log an empty gap.
   MealAnalysisResult toMealResult([AppLocalizations? l10n]) {
     final sprache = l10n ?? deL10n;
     return MealAnalysisResult(
@@ -327,18 +283,14 @@ const recipeFilters = <String>[
   "Low Carb",
 ];
 
-/// Rückwärts-kompatibler Alias: eine Reihe von Bestandstests importiert
-/// `fitnessRecipes` kontextfrei (ohne Locale) direkt aus diesem Modul und
-/// pinnt deutsche Titel — Tests sind API, s. i18n-Regel 1 (de bleibt
-/// wortgleich). Zeigt bewusst auf [recipeCatalogDe]; neue,
-/// locale-bewusste Aufrufer nutzen [recipeCatalogForLocale].
+/// Backwards-compatible alias pointing at [recipeCatalogDe]: existing tests
+/// import `fitnessRecipes` without a locale and pin German titles. New
+/// locale-aware callers use [recipeCatalogForLocale].
 const List<FitnessRecipe> fitnessRecipes = recipeCatalogDe;
 
-/// Wählt den Rezeptkatalog der aktiven App-Sprache (Spec §5, Inhalte-PR
-/// 2026-08-11). [localeName] ist `AppLocalizations.localeName` (kanonisiert
-/// `de`/`en`) — Spiegel von `resolveEatovaLocale`
-/// (`lib/src/app/locale_controller.dart`): alles außer `de` fällt auf
-/// Englisch. Aufrufer reichen `l10n.localeName` durch, kein eigenes
-/// Locale-Lookup hier (Muster `formatThousands`/`kcal_format.dart`).
+/// Picks the recipe catalog for the active app language. [localeName] is
+/// `AppLocalizations.localeName`; mirrors `resolveEatovaLocale` in that
+/// anything but `de` falls back to English. Callers pass `l10n.localeName`
+/// through instead of doing their own locale lookup.
 List<FitnessRecipe> recipeCatalogForLocale(String localeName) =>
     localeName == 'de' ? recipeCatalogDe : recipeCatalogEn;

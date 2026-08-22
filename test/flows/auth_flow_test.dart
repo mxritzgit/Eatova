@@ -1,10 +1,6 @@
-// Auth-Flows (aus test/widget_test.dart aufgeteilt): Registrierung, Login,
-// Logout und die OAuth-Buttons auf dem Auth-Screen.
-//
-// Design-Refactor 2026-08-09: Der Landepunkt nach dem Boot ist nicht mehr der
-// Food-Tab, sondern der neue Tab „Heute" (Index 0, s. eatova_home_page.dart).
-// Die Aussage dieser Tests bleibt „nach dem Auth-Flow sind wir in der App" —
-// nur der Anker wechselt von `screen-kcal-tracker` auf `screen-today`.
+// Auth flows: register, login, logout and the OAuth buttons on the auth
+// screen. The landing point after boot is the "today" tab (index 0), so the
+// anchor here is `screen-today`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -51,9 +47,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
 
-    // Seit dem OTP-Flow folgt auf die Registrierung die Code-Seite: die
-    // E-Mail wird mit dem 8-stelligen Code aus der Mail bestaetigt (statt
-    // Link), erst danach liegt die Home-Page frei.
+    // With the OTP flow, registration leads to the code screen: the email is
+    // confirmed with an 8-digit code before the home page opens.
     expect(find.byKey(const ValueKey('auth-code-screen')), findsOneWidget);
     await tester.enterText(find.byKey(const ValueKey('code-field')), '12345678');
     await tester.tap(find.byKey(const ValueKey('code-primary')));

@@ -6,10 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/eatova_http.dart';
 
-// Tests fuer die gemeinsame dart:io-HTTP-Schicht (eatova_http.dart):
-// echte Loopback-Requests gegen einen lokalen HttpServer (kein Binding,
-// kein flutter_test-HttpOverrides-Mock — plain `test()` laesst dart:io
-// unangetastet) plus ein Pin auf die verifizierten Timeout-Policies.
+// Real loopback requests against a local HttpServer (plain `test()` leaves
+// dart:io untouched), plus a pin on the timeout policies.
 
 void main() {
   test(
@@ -49,7 +47,7 @@ void main() {
         );
 
         expect(response.statusCode, 201);
-        // UTF-8-Dekodierung: Umlaute ueberleben den Transport.
+        // UTF-8 decoding: umlauts survive the transport.
         expect(response.body, '{"gruß":"Müsli"}');
         expect(receivedMethod, 'POST');
         expect(receivedBody, '{"q":"salami"}');
@@ -64,8 +62,8 @@ void main() {
     () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
-      // Verbindung annehmen, aber nie antworten — genau der Haenger, den die
-      // :99-Stelle im alten OFF-Barcode-Pfad endlos ausgesessen haette.
+      // Accept the connection but never answer — the hang the old OFF barcode
+      // path would have waited out forever.
       server.listen((request) {});
 
       const policy = HttpTimeoutPolicy(
@@ -95,8 +93,7 @@ void main() {
     'sendTextRequest folgt Redirects NICHT — der Auth-Header leckt nicht ans '
     'Redirect-Ziel (Sicherheits-Audit 2026-08-09)',
     () async {
-      // Ziel-Server: protokolliert, ob ihn ueberhaupt ein Request erreicht,
-      // und ob er dabei den Authorization-Header traegt.
+      // Target server: records whether a request reaches it and with what.
       final ziel = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => ziel.close(force: true));
       var zielGetroffen = false;
@@ -111,7 +108,6 @@ void main() {
         await request.response.close();
       });
 
-      // Quell-Server: antwortet mit 302 auf den Ziel-Server (Cross-Origin).
       final quelle = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => quelle.close(force: true));
       quelle.listen((request) async {
@@ -139,7 +135,7 @@ void main() {
               .set(HttpHeaders.authorizationHeader, 'Bearer geheim-jwt'),
         );
 
-        // Der Redirect wird NICHT gefolgt: der Aufrufer sieht den 302 selbst.
+        // The redirect is NOT followed: the caller sees the 302 itself.
         expect(response.statusCode, 302);
         expect(zielGetroffen, isFalse,
             reason: 'der Token-tragende Request darf das Redirect-Ziel nie '
@@ -152,7 +148,7 @@ void main() {
   );
 
   test('Timeout-Policies behalten die abgestimmten Werte', () {
-    // Mirror bleibt aggressiv-schnell — der OFF-Fallback haengt dahinter.
+    // The mirror stays aggressively fast — the OFF fallback sits behind it.
     expect(HttpTimeoutPolicy.mirror.connect, const Duration(seconds: 4));
     expect(HttpTimeoutPolicy.mirror.response, const Duration(seconds: 6));
     expect(HttpTimeoutPolicy.mirror.body, const Duration(seconds: 6));
@@ -164,8 +160,7 @@ void main() {
     );
     expect(HttpTimeoutPolicy.openFoodFacts.body, const Duration(seconds: 12));
 
-    // analyze-meal: 15/60/15 — der Client haelt laenger durch als die
-    // Edge Function (45 s serverseitig).
+    // analyze-meal: 15/60/15 — the client outlasts the edge function (45 s).
     expect(HttpTimeoutPolicy.mealAnalysis.connect, const Duration(seconds: 15));
     expect(
       HttpTimeoutPolicy.mealAnalysis.response,

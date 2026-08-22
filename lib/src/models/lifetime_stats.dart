@@ -1,11 +1,9 @@
 import '../services/day_math.dart';
 
-/// Kumulierte Lebenszeit-Zaehler eines Users (1:1 public.lifetime_stats).
+/// Cumulative lifetime counters of a user (1:1 public.lifetime_stats).
 ///
-/// Die Streak ist seit dem Training-Tab-Aus (2026-08-03) eine LOGGING-Streak:
-/// jeder Kalendertag mit mindestens einer geloggten Mahlzeit zaehlt. Die
-/// DB-Spalten heissen historisch weiter current_streak/longest_streak/
-/// last_workout_date — nur die Bedeutung (und die Dart-Namen) sind neu.
+/// The streak is a LOGGING streak: every calendar day with at least one logged
+/// meal counts. The DB columns keep their historic workout names.
 class LifetimeStats {
   LifetimeStats({
     this.workoutsCompleted = 0,
@@ -19,51 +17,42 @@ class LifetimeStats {
     DateTime? sessionStart,
   }) : sessionStart = sessionStart ?? DateTime.now();
 
-  /// DEPRECATED (C7, 2026-08-08) — eingefrorener Legacy-Zaehler ohne
-  /// Schreiber. `incrementWorkouts()` hatte seit dem Training-Tab-Aus
-  /// (a267e15) keinen Aufrufer mehr und ist entfernt; der Wert ist fuer neue
-  /// Konten dauerhaft 0.
-  ///
-  /// Das FELD bleibt bewusst stehen: `workouts_completed` ist eine
-  /// `not null`-Spalte mit `>= 0`-Check in public.lifetime_stats, steht im
-  /// expliziten select von [LifetimeStatsSync.load], ist ein Parameter der
-  /// increment_lifetime_stats-RPC und liegt im LocalCache-JSON bestehender
-  /// Installationen. Ein Entfernen aus dem Wire-Format wuerde beides brechen.
-  /// Nicht per `@Deprecated` annotiert, weil das an jeder Lesestelle
-  /// (LocalCache-Serialisierung, Profil-Export) `flutter analyze` vollschreiben
-  /// wuerde, ohne dass die Stellen etwas anders machen koennten.
+  /// DEPRECATED (C7) — frozen legacy counter with no writer; permanently 0 for
+  /// new accounts. The field stays because `workouts_completed` is a not-null
+  /// column, part of the explicit select, an increment_lifetime_stats RPC
+  /// parameter and lives in existing LocalCache JSON. Not `@Deprecated`: that
+  /// would flood analyze at every read site for no gain.
   final int workoutsCompleted;
 
   final int mealsLogged;
 
-  /// DEPRECATED (C7) — wie [workoutsCompleted]: `addWater()` verschwand mit
-  /// den Wasser-Kacheln des Heute-Tabs, die Spalte `water_total_ml` bleibt.
+  /// DEPRECATED (C7) — like [workoutsCompleted]: `addWater()` is gone, the
+  /// column `water_total_ml` stays.
   final int waterTotalMl;
 
-  /// DEPRECATED (C7) — wie [workoutsCompleted]: `addSteps()` verschwand mit
-  /// dem Heute-Tab, die Spalte `steps_recorded` bleibt. Der aktuelle
-  /// Schrittstand lebt als `HomeStore.dailySteps` und kommt aus HealthKit.
+  /// DEPRECATED (C7) — like [workoutsCompleted]: `addSteps()` is gone, the
+  /// column `steps_recorded` stays. Live step count is `HomeStore.dailySteps`
+  /// from HealthKit.
   final int stepsRecorded;
 
   final int weightLogs;
 
-  /// Aktuelle Logging-Streak in aufeinanderfolgenden Tagen.
+  /// Current logging streak in consecutive days.
   final int currentStreak;
 
-  /// Hoechste je erreichte Streak (Highscore, nie absteigend).
+  /// Highest streak ever reached (never decreases).
   final int longestStreak;
 
-  /// Datum (date-only) des letzten gezaehlten Logging-Tages, oder null.
-  /// Persistiert in der historisch benannten Spalte last_workout_date.
+  /// Date-only of the last counted logging day, or null.
+  /// Persisted in the historically named column last_workout_date.
   final DateTime? lastTrackedDate;
 
   final DateTime sessionStart;
 
-  /// C7: die eingefrorenen Legacy-Zaehler ([workoutsCompleted], [waterTotalMl],
-  /// [stepsRecorded]) sind hier bewusst NICHT mehr aenderbar — sie haben
-  /// keinen Schreiber mehr und werden nur noch durchgereicht. Der Konstruktor
-  /// nimmt sie weiterhin entgegen, damit [fromRow] und der LocalCache die
-  /// bestehenden Werte rekonstruieren koennen.
+  /// C7: the frozen legacy counters ([workoutsCompleted], [waterTotalMl],
+  /// [stepsRecorded]) are deliberately not settable here and only passed
+  /// through; the constructor still takes them so [fromRow] and the LocalCache
+  /// can reconstruct existing values.
   LifetimeStats copyWith({
     int? mealsLogged,
     int? weightLogs,
@@ -90,18 +79,11 @@ class LifetimeStats {
   LifetimeStats incrementWeightLogs() =>
       copyWith(weightLogs: weightLogs + 1);
 
-  /// Verbucht einen getrackten Tag (>= 1 geloggte Mahlzeit) und fuehrt die
-  /// Streak fort.
+  /// Records a tracked day (>= 1 logged meal) and continues the streak.
   ///
-  /// - War der letzte getrackte Tag *gestern* (relativ zu [day]), zaehlt
-  ///   die Streak +1 weiter.
-  /// - Selber Tag: idempotent (doppeltes Loggen am gleichen Tag zaehlt
-  ///   nicht doppelt), nur lastTrackedDate wird auf [day] normalisiert.
-  /// - [day] liegt VOR lastTrackedDate: No-op — der Food-Kalender erlaubt
-  ///   Nachtraege fuer vergangene Tage, die duerfen die laufende Streak
-  ///   weder resetten noch fortschreiben.
-  /// - Sonst (Luecke >= 1 Tag oder erster Log) Reset auf 1.
-  /// longestStreak = max(longestStreak, currentStreak danach).
+  /// Yesterday -> +1; same day -> idempotent; [day] before lastTrackedDate ->
+  /// no-op (back-dated entries must neither reset nor extend the streak);
+  /// otherwise reset to 1. longestStreak = max(longestStreak, new streak).
   LifetimeStats recordTrackedDay(DateTime day) {
     final today = DateTime(day.year, day.month, day.day);
     int nextStreak;
@@ -113,21 +95,20 @@ class LifetimeStats {
         lastTrackedDate!.month,
         lastTrackedDate!.day,
       );
-      // B5: Kalendertage, NICHT `.difference().inDays` — letzteres misst
-      // Absolutzeit und meldet ueber die Fruehjahrsumstellung (23-Stunden-Tag)
-      // fuer den Folgetag 0 statt 1. Die Streak stand dadurch am 30.03. still.
+      // B5: calendar days, not `.difference().inDays` — the latter measures
+      // absolute time and reports 0 instead of 1 across the DST short day.
       final diffDays = daysBetween(today, last);
       if (diffDays < 0) {
-        // Nachtrag fuer einen vergangenen Tag — Streak unangetastet.
+        // Back-dated entry: streak untouched.
         return this;
       }
       if (diffDays == 0) {
-        // Schon heute gezaehlt — idempotent, Streak haelt.
+        // Already counted today: idempotent, streak holds.
         nextStreak = currentStreak < 1 ? 1 : currentStreak;
       } else if (diffDays == 1) {
         nextStreak = currentStreak + 1;
       } else {
-        // Luecke (oder Zukunft) — Streak gerissen, Neustart bei 1.
+        // Gap (or future date): streak broken, restart at 1.
         nextStreak = 1;
       }
     }
@@ -139,26 +120,23 @@ class LifetimeStats {
     );
   }
 
-  /// Streak fuer die ANZEIGE: currentStreak solange die Kette noch lebt
-  /// (letzter getrackter Tag ist heute oder gestern relativ zu [now]),
-  /// sonst 0. currentStreak selbst bleibt bis zum naechsten Log stehen —
-  /// ohne diesen Check wuerde eine laengst gerissene Kette weiter ihren
-  /// alten Wert zeigen.
+  /// Streak for DISPLAY: currentStreak while the chain is alive (last tracked
+  /// day is today or yesterday relative to [now]), else 0. currentStreak itself
+  /// stays put until the next log, so without this check a long-broken chain
+  /// would keep showing its old value.
   int effectiveStreakOn(DateTime now) {
     final last = lastTrackedDate;
     if (last == null) return 0;
     final today = DateTime(now.year, now.month, now.day);
     final lastDay = DateTime(last.year, last.month, last.day);
-    // B5: siehe recordTrackedDay. Ueber die Fruehjahrsumstellung lieferte
-    // `.difference().inDays` fuer 47 Stunden eine 1 — eine gerissene Kette
-    // wurde am 31.03. noch als lebendig angezeigt.
+    // B5: see recordTrackedDay — `.difference().inDays` returned 1 for 47
+    // hours across DST, showing a broken chain as alive.
     final diffDays = daysBetween(today, lastDay);
     return diffDays <= 1 ? currentStreak : 0;
   }
 
-  /// Baut LifetimeStats aus einer public.lifetime_stats-Zeile. Defensiv:
-  /// fehlende/falsch-getypte Spalten fallen auf Defaults zurueck, damit
-  /// ein altes Schema (vor der Streak-Migration) nicht crasht.
+  /// Builds LifetimeStats from a public.lifetime_stats row. Missing or
+  /// mistyped columns fall back to defaults so an old schema does not crash.
   factory LifetimeStats.fromRow(Map<String, dynamic> row) {
     return LifetimeStats(
       workoutsCompleted: _toInt(row['workouts_completed']),
@@ -173,12 +151,10 @@ class LifetimeStats {
     );
   }
 
-  /// Serialisiert ins Spaltenformat von public.lifetime_stats. Seit
-  /// 20260811120000_lifetime_stats_integrity.sql gibt es KEINEN direkten
-  /// Client-Write auf die Tabelle mehr (Schreibpfad sind ausschliesslich die
-  /// RPCs) — die Map dient nur noch als Wire-Format-Guard in Tests.
-  /// session_start wird bewusst NICHT mitgeschrieben — der erste Insert setzt
-  /// es per DB-Default, spaetere Saves sollen es nicht ueberschreiben.
+  /// Serializes to the public.lifetime_stats column format. There is no direct
+  /// client write to the table any more (RPCs only), so this map is just a
+  /// wire-format guard for tests. session_start is deliberately omitted: the
+  /// first insert sets it via DB default and later saves must not overwrite it.
   Map<String, dynamic> toRow() {
     return <String, dynamic>{
       'workouts_completed': workoutsCompleted,

@@ -5,17 +5,13 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meal_totals.dart';
 
-// DATA-6: Der eigentliche Bug, den diese Welle killt.
+// DATA-6: meals used to bucket via isSameDay(.toLocal()) while caffeine took
+// a UTC window from naive local midnight, so across a DST or zone change the
+// same 23:45 local time could land on different "days".
 //
-// Frueher buckete der Meals-Pfad per isSameDay(.toLocal()), waehrend der
-// Koffein-Pfad ein UTC-Fenster aus naiver lokaler Mitternacht nahm. Ueber eine
-// DST-/Zonen-Aenderung hinweg konnten dieselbe 23:45-Ortszeit fuer Mahlzeiten
-// und Koffein in unterschiedlichen „Tagen" landen.
-//
-// Jetzt teilen sich beide denselben kanonischen Schluessel local_day (Client
-// schreibt ihn aus der lokalen Wanduhr). Diese Tests zeigen: ein 23:45-Eintrag
-// bleibt fuer BEIDE Tracks am selben Tag, unabhaengig davon, mit welchem
-// Uhrzeit-Offset spaeter gefiltert wird.
+// Both now share the canonical local_day key, written from the local wall
+// clock. These tests show a 23:45 entry stays on the same day for both
+// tracks, whatever time offset is used to filter later.
 
 MealAnalysisResult _result() => const MealAnalysisResult(
       mealName: 'Spaetes Abendessen',
@@ -33,7 +29,7 @@ void main() {
   group('Meals bucketen 23:45 stabil ueber local_day', () {
     test('Eintrag um 23:45 buckete in seinen lokalen Tag, nicht den Folgetag',
         () {
-      // Mahlzeit um 23:45 lokal am 4. Juni, mit persistiertem local_day.
+      // Meal at 23:45 local on June 4, with a persisted local_day.
       final at2345 = DateTime(2026, 6, 4, 23, 45);
       final meal = LoggedMeal(
         id: 'm1',
@@ -42,25 +38,23 @@ void main() {
         localDay: localDayKey(at2345), // '2026-06-04'
       );
 
-      // Abfrage des Tages mit einer ANDEREN Uhrzeit (00:30) — frueher haette ein
-      // Zonen-/Offset-Wechsel die isSameDay-Zuordnung kippen koennen. Mit
-      // local_day zaehlt nur der Kalendertag.
+      // Query the day at a different time of day; with local_day only the
+      // calendar day counts.
       final hits = mealsForFoodDate([meal], DateTime(2026, 6, 4, 0, 30));
       expect(hits.length, 1);
 
-      // Der Folgetag darf den Eintrag NICHT einsammeln.
+      // The next day must not pick the entry up.
       final nextDay = mealsForFoodDate([meal], DateTime(2026, 6, 5, 12, 0));
       expect(nextDay, isEmpty);
     });
 
     test('Mahlzeit ohne localDay faellt auf isSameDay(.toLocal()) zurueck', () {
-      // Altbestand / home_page-Konstruktion ohne das Feld -> alte Logik bleibt
-      // byte-identisch (keine Pin-Bruecke).
+      // Legacy rows without the field keep the old logic byte-identical.
       final meal = LoggedMeal(
         id: 'legacy',
         result: _result(),
         loggedAt: DateTime(2026, 6, 4, 23, 45),
-        // localDay bewusst null.
+        // localDay deliberately null.
       );
       expect(mealsForFoodDate([meal], DateTime(2026, 6, 4)).length, 1);
       expect(mealsForFoodDate([meal], DateTime(2026, 6, 5)), isEmpty);
@@ -72,15 +66,14 @@ void main() {
         () {
       final ts = DateTime(2026, 6, 4, 23, 45);
 
-      // Meals-Seite: der Schluessel, den meals_sync auf local_day schreibt.
+      // Meals side: the key meals_sync writes to local_day.
       final mealKey = LoggedMeal(
         id: 'm',
         result: _result(),
         loggedAt: ts,
       ).effectiveLocalDay;
 
-      // Koffein-Seite: derselbe localDayKey, den tracking_sync.insertCaffeine
-      // aus demselben lokalen Zeitstempel ableitet.
+      // Caffeine side: the same localDayKey derived from the same timestamp.
       final caffeineKey = localDayKey(ts);
 
       expect(mealKey, caffeineKey);

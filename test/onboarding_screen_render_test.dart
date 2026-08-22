@@ -7,8 +7,8 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Delegates fuer die drei MaterialApp-Instanzen dieser Datei — der Screen
-/// ruft seit Paket 6 (i18n) durchgehend `context.l10n`.
+/// Delegates for the MaterialApp instances here; the screen uses
+/// `context.l10n` throughout.
 const _l10nDelegates = [
   AppLocalizations.delegate,
   GlobalMaterialLocalizations.delegate,
@@ -16,22 +16,14 @@ const _l10nDelegates = [
   GlobalCupertinoLocalizations.delegate,
 ];
 
-// DESIGN_REFACTOR §7.2 / §5: jeder Screen rendert in BEIDEN Helligkeiten und
-// bei Systemschrift 200 % ohne RenderFlex-Overflow.
-//
-// Das Onboarding hat elf Schritte, und mehrere davon sind Layout-Grenzfaelle:
-// drei Geschlechts-Kacheln nebeneinander, die 52er-Ziffer zwischen zwei
-// 52er-Rundknoepfen, und die Zusammenfassung mit Hero, drei Makro-Kacheln,
-// vierzeiliger Aufschluesselung und Warnsatz. Sie werden deshalb alle einzeln
-// durchlaufen statt nur der erste Schritt.
-//
-// Anders als in den Verhaltens-Tests werden Overflows hier NICHT geschluckt —
-// sie sind der Pruefgegenstand.
+// DESIGN_REFACTOR §7.2 / §5: every screen renders in both brightnesses and at
+// 200 % system text without RenderFlex overflow. All eleven onboarding steps
+// are walked because several are layout edge cases. Unlike the behaviour
+// tests, overflows are not swallowed here: they are the subject.
 void main() {
-  /// Abnehm-Ziel vorbelegt → Zielgewicht- und Tempo-Schritt sind sichtbar,
-  /// der Flow hat alle 11 Schritte. Der 1-%-Defizitdeckel greift (78 kg →
-  /// hoechstens 858 kcal/Tag statt der gewuenschten 1100), also traegt die
-  /// Zusammenfassung zusaetzlich den Warnsatz.
+  /// A weight-loss goal makes the target and pace steps visible, so the flow
+  /// has all 11 steps. The 1 % deficit cap applies (858 instead of 1100
+  /// kcal/day), so the summary also carries the warning line.
   const vollerFlow = UserProfile(
     weightGoal: WeightGoal.lose1kg,
     targetWeightKg: 68,
@@ -143,10 +135,9 @@ void main() {
 
   testWidgets('Weiter-Knopf und Zurueck-Pfeil bleiben Knoepfe',
       (tester) async {
-    // Vorher ein FilledButton und ein IconButton — beide trugen `isButton` von
-    // selbst. Jetzt sind es [PrimaryActionButton] und [SquareIconButton], also
-    // InkWells: ohne ausdrueckliche Semantik kuendigt ein Screenreader die
-    // beiden einzigen Navigationsmittel des Onboardings nur noch als Text an.
+    // [PrimaryActionButton] and [SquareIconButton] are InkWells, not material
+    // buttons: without explicit semantics a screen reader announces the only
+    // two navigation controls of the onboarding as plain text.
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -172,12 +163,11 @@ void main() {
       isSemantics(isButton: true),
     );
 
-    // Ein Schritt weiter — jetzt gibt es auch den Zurueck-Pfeil.
+    // One step further, where the back arrow exists.
     await tester.tap(find.byKey(const ValueKey('onboarding-next')));
     await tester.pumpAndSettle();
-    // „Zurück", nicht „Zurueck": das Label wird VORGELESEN, die ASCII-
-    // Umschrift klaenge bei TalkBack wie „zurookk". Der Test pinnt die
-    // Korrektur, statt sie stillschweigend mitzunehmen.
+    // The label is spoken aloud, so it must carry the real umlaut; the ASCII
+    // transliteration would be mispronounced by TalkBack.
     expect(
       tester.getSemantics(find.byKey(const ValueKey('onboarding-back'))),
       isSemantics(isButton: true, label: 'Zurück'),
@@ -186,11 +176,10 @@ void main() {
 
   testWidgets('die Zusammenfassung bleibt auch ohne Warnsatz heil',
       (tester) async {
-    // Ohne Sicherheitsklemme und ohne Defizitdeckel faellt der Warnkasten weg
-    // — anderer Zweig, andere Hoehenverteilung. −0,75 kg/Woche beim
-    // Standardprofil (78 kg / 178 cm / 30 J. / neutral / sitzend): gewuenscht
-    // −825 liegt unter dem Deckel von 858, das Ziel 1500 ueber der
-    // Untergrenze von 1350 — keine Grenze greift, kein Warnsatz.
+    // Without a safety clamp or deficit cap the warning box disappears: a
+    // different branch with a different height distribution. At −0.75 kg/week
+    // on the default profile no limit applies (−825 under the 858 cap, 1500
+    // above the 1350 floor).
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     tester.platformDispatcher.textScaleFactorTestValue = 2.0;

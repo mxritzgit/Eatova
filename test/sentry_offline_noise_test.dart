@@ -7,24 +7,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 
-// Befund aus dem Sentry-Feed (2026-08-10): Drei Issues „SanitizedError:
-// _ClientSocketException" innerhalb einer halben Stunde, alle vom Geraet des
-// Nutzers, alle aus demselben Pfad — RecipeDetailScreen._add ->
-// addResultToDailyTotal -> _syncOrQueue -> MealsSync.insertLoggedMeal ->
-// postgrest -> Socket weg.
+// Sentry feed finding (2026-08-10): three high-priority socket-exception
+// issues from the meal-insert sync path, all produced in airplane mode — the
+// exact case the outbox queue handles: the write is queued, the user is
+// informed, nothing is lost.
 //
-// Entstanden beim Testen im FLUGMODUS. Also genau der Fall, fuer den die App
-// seit heute eine Warteschlange hat: der Write ist eingereiht, der Nutzer ist
-// informiert, nichts ist verloren. Ein Sentry-Issue mit Prioritaet „hoch"
-// behauptet das Gegenteil.
+// Left alone, every meal logged on a train becomes a crash report, burying
+// real errors and burning the Sentry quota.
 //
-// Die Folge waere nicht nur Laerm: Wer in der U-Bahn eine Mahlzeit eintraegt,
-// erzeugt einen Crash-Report. Bei genug Nutzern verschwinden echte Fehler
-// zwischen Tausenden erwarteter Netzausfaelle — und das Sentry-Kontingent ist
-// verbraucht, bevor der erste echte Absturz ankommt.
-//
-// Regel, die diese Tests festhalten: **Ein reiner Netzfehler auf dem
-// Sync-Pfad geht NICHT an Sentry. Alles andere schon.**
+// Rule these tests pin: a pure network error on the sync path does NOT go to
+// Sentry. Everything else does.
 
 void main() {
   final gemeldet = <Object>[];
@@ -41,8 +33,7 @@ void main() {
   group('Netzfehler sind kein Crash', () {
     test('ein SocketException aus dem Sync-Pfad geht NICHT an Sentry',
         () async {
-      // Genau der Fehler aus dem Feed: der Socket bricht weg, waehrend
-      // PostgREST schreibt.
+      // The exact error from the feed: the socket drops mid-write.
       await CrashReporter.captureSyncFailure(
         const SocketException('Connection failed'),
         StackTrace.current,
@@ -55,8 +46,8 @@ void main() {
 
     test('auch ein ClientException (http-Paket) zaehlt als Netzfehler',
         () async {
-      // Der Klassifizierer prueft TYPEN, nicht Meldungstexte — deshalb hier
-      // der echte Typ aus package:http und keine Exception mit passendem Text.
+      // The classifier checks TYPES, not message text — hence the real type
+      // from package:http.
       await CrashReporter.captureSyncFailure(
         ClientException('Failed host lookup'),
         StackTrace.current,
@@ -67,24 +58,23 @@ void main() {
     });
 
     test('ein ECHTER Serverfehler geht weiterhin an Sentry', () async {
-      // 500er, Constraint-Verletzungen, kaputte Antworten: dort liegt ein
-      // Fehler VOR, den niemand sonst bemerkt.
+      // 500s, constraint violations, broken responses: real errors nobody
+      // else would notice.
       await CrashReporter.captureSyncFailure(
         Exception('PostgrestException: 42501 permission denied'),
         StackTrace.current,
         context: 'meal-insert',
       );
 
-      // Die Senke bekommt bewusst den SANITISIERTEN Fehler, nie das rohe
-      // Objekt (es koennte eine halbe profiles-Zeile mitschleppen) — geprueft
-      // wird deshalb, DASS gemeldet wurde, nicht die Identitaet.
+      // The sink gets the SANITIZED error, never the raw object (it could
+      // carry half a profiles row), so this asserts THAT it reported.
       expect(gemeldet, hasLength(1));
     });
 
     test('die Klassifizierung ist dieselbe wie fuer die Nutzer-Meldung', () {
-      // Ein zweiter Schwellenwert waere ein zweiter Ort zum Auseinanderlaufen:
-      // Was dem Nutzer als „Offline" erklaert wird, darf Sentry nicht als
-      // Vorfall sehen — und umgekehrt.
+      // A second threshold would be a second place to drift: what the user is
+      // told is "offline" must not reach Sentry as an incident, and vice
+      // versa.
       expect(isNetworkSyncError(const SocketException('x')), isTrue);
       expect(
         isNetworkSyncError(Exception('PostgrestException: 42501')),
@@ -94,8 +84,8 @@ void main() {
   });
 
   test('capture() selbst bleibt unveraendert — es meldet ALLES', () async {
-    // Der allgemeine Weg ist nicht betroffen: ein Netzfehler ausserhalb des
-    // Sync-Pfads (z. B. beim Bildupload) kann sehr wohl ein Vorfall sein.
+    // The general path is unaffected: a network error outside the sync path
+    // (e.g. an image upload) can well be an incident.
     await CrashReporter.capture(
       const SocketException('Connection failed'),
       StackTrace.current,

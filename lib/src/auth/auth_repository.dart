@@ -41,25 +41,21 @@ extension EatovaOAuthProviderLabel on EatovaOAuthProvider {
   };
 }
 
-/// Ergebnis von [AuthRepository.signUp].
+/// Result of [AuthRepository.signUp].
 ///
-/// GoTrue verschleiert eine schon vergebene Adresse bei aktiver
-/// Mail-Bestaetigung bewusst: `POST /signup` antwortet wie bei einer frischen
-/// Registrierung — gleicher Status, gleiche Form — nur mit LEEREM
-/// `identities`-Array, und es geht keine Mail raus. Ohne diese Unterscheidung
-/// verspricht die UI einen Code, der nie kommt.
+/// With mail confirmation on, GoTrue hides an already-registered address:
+/// `POST /signup` answers like a fresh signup but with an EMPTY `identities`
+/// array and sends no mail. Without this distinction the UI promises a code
+/// that never arrives.
 ///
-/// Der Wert bleibt REPOSITORY-INTERN in dem Sinn, dass er nichts ueber ein
-/// fremdes Konto in die UI traegt: er sagt dem Aufrufer nur, dass der
-/// Registrier-Weg hier nicht weitergeht — welchen Satz der Nutzer dann sieht,
-/// entscheidet die UI — und der bleibt neutral (Hauslinie gegen
-/// Konto-Enumeration, siehe `AuthRepository.sendPasswordReset`).
+/// The value only tells the caller that the signup path stops here; the UI
+/// keeps its message neutral (house line against account enumeration).
 enum SignUpOutcome {
-  /// Registrierung angenommen: Konto angelegt, Bestaetigungscode unterwegs.
+  /// Signup accepted: account created, confirmation code on its way.
   created,
 
-  /// Zu dieser Adresse gibt es bereits ein Konto (leeres `identities`-Array).
-  /// Es kommt KEINE Mail — die Code-Seite waere eine Sackgasse.
+  /// The address already has an account (empty `identities` array). No mail
+  /// is sent, so the code screen would be a dead end.
   emailAlreadyRegistered,
 }
 
@@ -67,78 +63,67 @@ abstract class AuthRepository {
   EatovaUser? get currentUser;
   Stream<EatovaUser?> get authStateChanges;
 
-  /// Stoesst die Passwort-Reset-Mail an. Die UI bestaetigt IMMER neutral —
-  /// ob zur E-Mail ein Konto existiert (oder ein reines Google-Konto ohne
-  /// Passwort), verraet weder Server noch App: alles andere waere ein
-  /// Konto-Enumerations-Leck.
+  /// Triggers the password reset mail. The UI always confirms neutrally:
+  /// neither server nor app reveals whether an account exists, which would be
+  /// an account-enumeration leak.
   Future<void> sendPasswordReset(String email);
 
-  /// Prueft den 8-stelligen Code aus der Passwort-Reset-Mail (OTP statt
-  /// Link, {{ .Token }}-Template; Gueltigkeit mailer_otp_exp = 10 Min).
-  /// Erfolg stellt die Session her — danach setzt [updatePassword] das neue
-  /// Passwort.
+  /// Verifies the 8-digit code from the password reset mail (OTP, not a link;
+  /// mailer_otp_exp = 10 min). Success establishes the session; then
+  /// [updatePassword] sets the new password.
   Future<void> verifyRecoveryCode({required String email, required String code});
 
-  /// Prueft den 8-stelligen Code aus der Registrierungs-Bestaetigung.
+  /// Verifies the 8-digit signup confirmation code.
   Future<void> verifySignupCode({required String email, required String code});
 
-  /// Fordert die Registrierungs-Bestaetigung erneut an (neuer Code).
+  /// Requests a new signup confirmation code.
   Future<void> resendSignupCode(String email);
 
-  /// Setzt das Passwort des angemeldeten Nutzers (Recovery-Abschluss).
+  /// Sets the signed-in user's password (end of recovery).
   Future<void> updatePassword(String newPassword);
 
-  // --- Konto-Aenderungen aus der App heraus (2026-08-10) --------------------
+  // --- In-app account changes -----------------------------------------------
   //
-  // Beide Wege benutzen GoTrue-Bordmittel statt selbstgebauter Token. Die
-  // zugehoerige Server-Konfiguration steht in supabase/AUTH_EMAIL_OTP.md;
-  // ohne sie sind die Codes wirkungslos oder kommen als Link.
+  // Both paths use GoTrue built-ins, not hand-rolled tokens. Server config is
+  // in supabase/AUTH_EMAIL_OTP.md; without it codes are inert or arrive as
+  // links.
 
-  /// Fordert den Bestaetigungscode fuer eine Passwort-Aenderung an — GoTrue
-  /// schickt ihn an die hinterlegte Adresse (`reauthenticate`).
-  ///
-  /// Nur fuer den EINGELOGGTEN Nutzer. Das Gegenstueck fuer „Passwort
-  /// vergessen" (ausgeloggt) ist [sendPasswordReset].
+  /// Requests the confirmation code for a password change; GoTrue sends it to
+  /// the stored address (`reauthenticate`). Signed-in users only; the
+  /// signed-out counterpart is [sendPasswordReset].
   Future<void> startPasswordChange();
 
-  /// Setzt das neue Passwort — nur zusammen mit dem Code aus
+  /// Sets the new password, only together with the code from
   /// [startPasswordChange].
   ///
-  /// GEKLAERT (2026-08-18, GoTrue-Quellcode internal/api/user.go): mit
-  /// `security_update_password_require_reauthentication` verlangt GoTrue die
-  /// Nonce NUR, wenn keine Sitzung vorliegt oder die Sitzung aelter als
-  /// 24 Stunden ist (gemessen an `session.CreatedAt`). Bei juengeren
-  /// Sitzungen wird der Code serverseitig weder verlangt noch geprueft —
-  /// auch ein falscher Code aendert dann das Passwort. Die Nonce schuetzt
-  /// also nur Alt-Sitzungen; fuer frische ist sie eine reine App-Huerde.
-  /// Restrisiko und warum das so bleibt: [AuthRepository.updatePassword]
-  /// und supabase/AUTH_EMAIL_OTP.md, Abschnitt „Nonce-Semantik".
+  /// With `security_update_password_require_reauthentication` GoTrue demands
+  /// the nonce ONLY without a session or for sessions older than 24 h
+  /// (`session.CreatedAt`); for younger ones it is neither required nor
+  /// checked, so even a wrong code changes the password. Residual risk:
+  /// [AuthRepository.updatePassword] and supabase/AUTH_EMAIL_OTP.md.
   Future<void> confirmPasswordChange({
     required String code,
     required String newPassword,
   });
 
-  /// Stoesst die Aenderung der Mailadresse an.
+  /// Starts the email address change.
   ///
-  /// Bei aktiver „sicherer E-Mail-Aenderung" verschickt GoTrue ZWEI Codes:
-  /// einen an die bisherige und einen an die neue Adresse. Erst wenn beide
-  /// ueber [confirmEmailChange] bestaetigt sind, traegt das Konto die neue
-  /// Adresse — ein einzelnes erbeutetes Postfach genuegt also nicht.
+  /// With secure email change GoTrue sends TWO codes, one to the old and one
+  /// to the new address; the account only switches once both are confirmed via
+  /// [confirmEmailChange], so one compromised mailbox is not enough.
   Future<void> startEmailChange(String newEmail);
 
-  /// Bestaetigt EINEN der beiden Codes aus [startEmailChange]. [email] ist
-  /// die Adresse, an die dieser Code ging (alte oder neue).
+  /// Confirms ONE of the two codes from [startEmailChange]; [email] is the
+  /// address that code was sent to.
   Future<void> confirmEmailChange({
     required String email,
     required String code,
   });
   Future<void> signIn({required String email, required String password});
 
-  /// Registriert die Adresse und meldet zurueck, OB der Weg weitergeht —
-  /// siehe [SignUpOutcome]. Vorher war der Rueckgabewert `void` und die
-  /// `AuthResponse` fiel auf den Boden; der Aufrufer konnte die schon
-  /// vergebene Adresse deshalb nicht von einer frischen unterscheiden und
-  /// schob die Code-Seite vor eine Mail, die nie kam (Audit 2026-08-14).
+  /// Registers the address and reports whether the path continues — see
+  /// [SignUpOutcome]. A `void` return dropped the `AuthResponse`, so callers
+  /// showed the code screen for a mail that never came (audit 2026-08-14).
   Future<SignUpOutcome> signUp({
     required String email,
     required String password,
@@ -171,12 +156,10 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> sendPasswordReset(String email) async {
-    // BEWUSST OHNE redirectTo: der Reset laeuft ueber den 8-stelligen Code
-    // ({{ .Token }}-Template, AuthCodeScreen), nicht ueber einen Mail-Link.
-    // Ein redirect_to wuerde nur dann greifen, wenn jemand das Server-Template
-    // auf {{ .ConfirmationURL }} zuruecksetzt — und reaktivierte damit still
-    // den kaperbaren eatova://-Deep-Link-Weg (Sicherheits-Audit 2026-08-09).
-    // Ohne den Parameter im Code ist diese Drift ausgeschlossen.
+    // Deliberately without redirectTo: the reset runs on the 8-digit code, not
+    // a mail link. A redirect_to would only matter if someone reverted the
+    // server template, silently reactivating the hijackable eatova:// deep
+    // link (security audit 2026-08-09).
     await _client.auth.resetPasswordForEmail(email.trim());
   }
 
@@ -207,27 +190,19 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> updatePassword(String newPassword) async {
-    // WIDERSPRUCH AUFGELOEST (2026-08-18, GoTrue-Quellcode
-    // internal/api/user.go, UserUpdate): Fall (2) aus dem Audit 2026-08-14
-    // ist belegt. `security_update_password_require_reauthentication`
-    // prueft die Nonce nur bei `session == nil` oder Sitzungen aelter als
-    // 24 h (`session.CreatedAt + 24h`); bei juengeren ueberspringt der
-    // Server den kompletten Nonce-Block. Deshalb kommt dieser Aufruf OHNE
-    // Nonce durch: [verifyRecoveryCode] legt die Sitzung unmittelbar davor
-    // an.
+    // No nonce here on purpose: GoTrue checks it only when `session == nil` or
+    // the session is older than 24 h, and [verifyRecoveryCode] creates the
+    // session immediately before this call.
     //
-    // NICHT „geraderuecken": „Passwort vergessen" haengt an genau dieser
-    // Frische-Ausnahme. Aendert GoTrue die Semantik (Nonce immer), endet
-    // dieser Weg fuer ALLE Nutzer in einer Sackgasse — das Wire-Format in
-    // test/auth_enumeration_test.dart macht so einen Eingriff sichtbar.
+    // Do not "fix" this — forgot-password depends on that freshness
+    // exception; if GoTrue ever always required the nonce, this path would
+    // dead-end for everyone (test/auth_enumeration_test.dart pins the wire
+    // format).
     //
-    // RESTRISIKO (dokumentiert in supabase/AUTH_EMAIL_OTP.md): wer eine
-    // fremde Sitzung erbeutet, die juenger als 24 h ist, tauscht das
-    // Passwort ohne Postfach-Zugriff. Das Postfach bleibt trotzdem Wurzel
-    // des Vertrauens: Mail-Recovery setzt jederzeit ein neues Passwort und
-    // beendet dabei alle anderen Sitzungen (GoTrue: LogoutAllExceptMe),
-    // und die Mailadresse selbst ist dank secure_email_change (zwei Codes)
-    // nicht ohne das alte Postfach zu uebernehmen.
+    // Residual risk (supabase/AUTH_EMAIL_OTP.md): a stolen session younger
+    // than 24 h can swap the password without mailbox access. The mailbox
+    // stays the root of trust: mail recovery resets the password and ends all
+    // other sessions, and secure_email_change needs both mailboxes.
     await _client.auth.updateUser(UserAttributes(password: newPassword));
   }
 
@@ -241,11 +216,9 @@ class SupabaseAuthRepository implements AuthRepository {
     required String code,
     required String newPassword,
   }) async {
-    // Die Nonce wirkt serverseitig nur bei Sitzungen ab 24 h Alter; bei
-    // juengeren ignoriert GoTrue sie komplett — auch einen falschen Code
-    // (Details bei [updatePassword]). Sie bleibt trotzdem drin: fuer
-    // Alt-Sitzungen ist sie Pflicht, und die Code-Mail macht den Wechsel
-    // fuer den Kontobesitzer sichtbar.
+    // The nonce only bites for sessions 24 h or older (see [updatePassword]).
+    // Kept anyway: mandatory for old sessions, and the code mail makes the
+    // change visible to the account owner.
     await _client.auth.updateUser(
       UserAttributes(password: newPassword, nonce: code.trim()),
     );
@@ -253,9 +226,9 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> startEmailChange(String newEmail) async {
-    // BEWUSST ohne `emailRedirectTo`: der Code-Flow braucht keinen Deep-Link,
-    // und sein Fehlen verhindert, dass ein Server-Template-Rueckfall den
-    // kaperbaren `eatova://`-Link reaktiviert (Sicherheits-Audit 2026-08-09).
+    // Deliberately without `emailRedirectTo`: the code flow needs no deep
+    // link, and its absence blocks a template regression from reactivating
+    // the hijackable `eatova://` link.
     await _client.auth.updateUser(UserAttributes(email: newEmail.trim()));
   }
 
@@ -285,20 +258,18 @@ class SupabaseAuthRepository implements AuthRepository {
     required String password,
     required String displayName,
   }) async {
-    // BEWUSST OHNE emailRedirectTo: die Registrierung bestaetigt die E-Mail
-    // ueber den 8-stelligen Code ({{ .Token }}-Template, AuthCodeScreen im
-    // signup-Flow), nicht ueber einen Confirm-Link. Kein redirect_to =>
-    // keine stille Reaktivierung des Deep-Link-Wegs bei einem Template-
-    // Rueckfall (Sicherheits-Audit 2026-08-09).
+    // Deliberately without emailRedirectTo: signup confirms via the 8-digit
+    // code, not a confirm link, so a template regression cannot silently
+    // reactivate the deep-link path.
     final antwort = await _client.auth.signUp(
       email: email.trim(),
       password: password,
       data: {'display_name': displayName.trim()},
     );
     final identitaeten = antwort.user?.identities;
-    // Nur das LEERE Array ist das Signal. Fehlt das Feld ganz (null), hat der
-    // Server nichts behauptet — dann als frische Registrierung behandeln, statt
-    // aus einer Wissensluecke eine Aussage ueber ein fremdes Konto zu machen.
+    // Only the EMPTY array is the signal. A missing field (null) claims
+    // nothing, so treat it as a fresh signup rather than inventing a statement
+    // about someone else's account.
     if (identitaeten != null && identitaeten.isEmpty) {
       return SignUpOutcome.emailAlreadyRegistered;
     }
@@ -318,25 +289,20 @@ class SupabaseAuthRepository implements AuthRepository {
         },
       );
       if (nativeOk) return;
-      // Technischer Fehler im nativen Flow (keine Play Services, Client
-      // noch nicht propagiert, ...) - Login soll nie kaputter sein als
-      // frueher, also runter in den bewaehrten Web-Flow.
+      // Technical failure in the native flow (no Play Services, client not
+      // propagated yet): fall through to the proven web flow.
     }
     await _signInWithWebOAuth(provider);
   }
 
-  /// Web-OAuth via Browser-Sheet - Standardweg fuer Apple, Fallback fuer
-  /// Google (dort zeigt Google zwangsweise die Supabase-Domain an).
+  /// Web OAuth via browser sheet: the standard path for Apple, the fallback
+  /// for Google (which then shows the Supabase domain).
   ///
-  /// inAppBrowserView oeffnet SFSafariViewController (iOS) bzw. Chrome
-  /// Custom Tabs (Android) - ein Sheet das ueber der App liegt und sich
-  /// automatisch schliesst sobald das eatova://login-callback/ Scheme
-  /// greift. Fuehlt sich an wie "in der App geblieben", waehrend die
-  /// Cookie- und Auth-Logik des echten System-Browsers benutzt wird.
+  /// inAppBrowserView opens SFSafariViewController / Chrome Custom Tabs and
+  /// closes once the eatova://login-callback/ scheme fires, while using the
+  /// system browser's cookie and auth logic.
   ///
-  /// Wichtig: kein inAppWebView - das waere ein embedded WKWebView,
-  /// den Google explizit fuer OAuth blockt (Account-Hijacking-Policy
-  /// seit 2017).
+  /// Never inAppWebView: an embedded WKWebView is blocked by Google for OAuth.
   Future<void> _signInWithWebOAuth(EatovaOAuthProvider provider) async {
     final launched = await _client.auth.signInWithOAuth(
       provider.supabaseProvider,
@@ -400,8 +366,8 @@ class PreviewAuthRepository implements AuthRepository {
   @override
   Future<void> updatePassword(String newPassword) async {}
 
-  // Konto-Aenderungen gibt es im Preview-Betrieb nicht: es steht kein
-  // Postfach hinter dem Vorschau-Nutzer, ein „Code verschickt" waere gelogen.
+  // No account changes in preview mode: there is no mailbox behind the
+  // preview user, so "code sent" would be a lie.
   @override
   Future<void> startPasswordChange() async {}
 
@@ -445,24 +411,23 @@ class InMemoryAuthRepository implements AuthRepository {
   final StreamController<EatovaUser?> _controller =
       StreamController<EatovaUser?>.broadcast();
 
-  /// Fuer Tests: an welche Adressen ein Reset angestossen wurde.
+  /// For tests: addresses a reset was triggered for.
   final List<String> passwordResets = <String>[];
 
-  /// Fuer Tests: welche neuen Passwoerter gesetzt wurden.
+  /// For tests: new passwords that were set.
   final List<String> passwordUpdates = <String>[];
 
-  /// Fuer Tests: verifizierte Codes als 'email:code'.
+  /// For tests: verified codes as 'email:code'.
   final List<String> verifiedCodes = <String>[];
 
-  /// Fuer Tests: erneut angeforderte Signup-Codes.
+  /// For tests: re-requested signup codes.
   final List<String> signupResends = <String>[];
 
-  /// Fuer Tests: laesst den naechsten Verify-Aufruf scheitern (falscher/
-  /// abgelaufener Code).
+  /// For tests: makes the next verify call fail (wrong/expired code).
   bool verifyFails = false;
 
-  /// Fuer Tests: Adressen, zu denen es schon ein Konto gibt — [signUp]
-  /// antwortet darauf mit [SignUpOutcome.emailAlreadyRegistered].
+  /// For tests: addresses that already have an account; [signUp] answers with
+  /// [SignUpOutcome.emailAlreadyRegistered].
   final Set<String> existingEmails = <String>{};
 
   @override
@@ -500,20 +465,20 @@ class InMemoryAuthRepository implements AuthRepository {
     passwordUpdates.add(newPassword);
   }
 
-  // --- Konto-Aenderungen ----------------------------------------------------
+  // --- Account changes ------------------------------------------------------
 
-  /// Fuer Tests: an welche Adressen ein Passwort-Aenderungs-Code ging.
+  /// For tests: addresses a password-change code went to.
   final List<String> reauthRequests = <String>[];
 
-  /// Fuer Tests: welche Codes als Nonce beim Passwortsetzen mitliefen.
+  /// For tests: codes passed as nonce when setting a password.
   final List<String> usedNonces = <String>[];
 
-  /// Fuer Tests: welche neuen Mailadressen angefragt wurden.
+  /// For tests: requested new email addresses.
   final List<String> emailChangeRequests = <String>[];
 
-  /// Laufende Adress-Aenderung: Zieladresse und die noch offenen
-  /// Bestaetigungen. Der Wechsel greift erst, wenn BEIDE weg sind — genau
-  /// das Verhalten von GoTrue bei aktiver „sicherer E-Mail-Aenderung".
+  /// Pending address change: target and the outstanding confirmations. The
+  /// switch only applies once both are gone, like GoTrue's secure email
+  /// change.
   String? _pendingEmail;
   final Set<String> _offeneBestaetigungen = <String>{};
 
@@ -591,7 +556,7 @@ class InMemoryAuthRepository implements AuthRepository {
     required String displayName,
   }) async {
     if (existingEmails.contains(email.trim())) {
-      // Wie GoTrue: kein Fehler, kein Konto, keine Mail — nur das Signal.
+      // Like GoTrue: no error, no account, no mail — just the signal.
       return SignUpOutcome.emailAlreadyRegistered;
     }
     _user = EatovaUser(id: 'test-user', email: email, displayName: displayName);
@@ -618,18 +583,16 @@ class InMemoryAuthRepository implements AuthRepository {
   void dispose() => _controller.close();
 }
 
-/// Auth-Schicht nicht verfuegbar (`Supabase.instance` warf beim App-Build).
+/// Auth layer unavailable (`Supabase.instance` threw during app build).
 ///
-/// Der ehrliche Gegenpol zu [PreviewAuthRepository]: KEIN Nutzer statt eines
-/// erfundenen. AuthGate zeigt damit den Login statt der Home-Page, und ein
-/// Anmeldeversuch scheitert laut statt still ins Leere zu laufen.
+/// The honest counterpart to [PreviewAuthRepository]: no user instead of an
+/// invented one, so AuthGate shows the login and sign-in fails loudly.
 class UnavailableAuthRepository implements AuthRepository {
   const UnavailableAuthRepository(this.cause);
 
-  /// Woran der Aufbau des echten Repositories gescheitert ist. Steht im
-  /// Crash-Report (Capture passiert beim Aufbau); die Nutzer-Meldung unten
-  /// bleibt bewusst generisch — '$cause' kann interne URLs oder
-  /// Assertion-Texte enthalten, das gehoert nicht auf Nutzer-Screens.
+  /// Why building the real repository failed. Goes into the crash report; the
+  /// user-facing message stays generic because '$cause' can contain internal
+  /// URLs or assertion text.
   final Object cause;
 
   static Future<Never> _fail() => Future.error(const AuthException(
@@ -696,25 +659,21 @@ class UnavailableAuthRepository implements AuthRepository {
   @override
   Future<void> signInWithOAuth(EatovaOAuthProvider provider) => _fail();
 
-  /// Bewusst gefahrlos: der Profil-Screen ruft signOut auch in Fehlerpfaden.
+  /// Deliberately harmless: the profile screen calls signOut on error paths.
   @override
   Future<void> signOut() async {}
 }
 
 AuthRepository defaultAuthRepository() => buildDefaultAuthRepository();
 
-/// Sentinel-Fund 1 (Nachverifikation 2026-08-08): vorher fing der Fallback
-/// JEDEN Fehler und antwortete mit [PreviewAuthRepository] — deren
-/// `currentUser` nie null ist. Aus „ich weiss nicht, ob jemand angemeldet
-/// ist" wurde damit die positive Behauptung „angemeldet als preview-user",
-/// gerendert als eingeloggte Ansicht ohne Anmeldung.
+/// Sentinel finding 1 (2026-08-08): the fallback used to catch EVERY error and
+/// return [PreviewAuthRepository], whose `currentUser` is never null — turning
+/// "unknown" into "signed in as preview-user" and rendering the logged-in view.
 ///
-/// [allowPreview] haelt den gewollten Teil am Leben: In Debug/Test (Default
-/// kDebugMode) bleibt der Preview-Komfort erhalten — die Flow-Tests pumpen
-/// `EatovaApp()` ohne Repository und ohne Supabase und landen direkt auf der
-/// Home-Page. Im Release-/Profile-Build gibt es stattdessen
-/// [UnavailableAuthRepository] (Login-Screen, laute Fehler) und der wahre
-/// Grund geht an den CrashReporter.
+/// [allowPreview] keeps the wanted part: on debug/test (default kDebugMode)
+/// flow tests pump `EatovaApp()` without a repository and land on the home
+/// page. Release/profile builds get [UnavailableAuthRepository] instead and
+/// the real cause goes to the CrashReporter.
 @visibleForTesting
 AuthRepository buildDefaultAuthRepository({bool allowPreview = kDebugMode}) {
   try {

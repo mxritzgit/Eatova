@@ -6,8 +6,8 @@ import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Wirft beim OAuth-Start die deutsche Abbruch-Meldung, wie sie
-/// runNativeGoogleSignIn beim User-Abbruch produziert.
+/// Throws the German cancellation message that runNativeGoogleSignIn produces
+/// when the user aborts.
 class _CancelingAuthRepository implements AuthRepository {
   @override
   EatovaUser? get currentUser => null;
@@ -80,11 +80,10 @@ void main() {
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        // Design-Refactor 2026-08: die Wortmarke im Kopf des AuthScreens
-        // (auth_screen.dart:285 -> EatovaWordmark) liest ihre Standardfarben
-        // seit der Token-Migration ueber `context.t`. `AppTokens.of` wirft
-        // absichtlich ohne ThemeExtension — eine nackte MaterialApp stirbt
-        // damit schon im ersten Build, bevor der Fehler-Mapper drankommt.
+        // The wordmark in the AuthScreen header reads its colors via
+        // `context.t`, and `AppTokens.of` throws without the ThemeExtension —
+        // a bare MaterialApp would die in the first build, before the error
+        // mapper runs.
         theme: buildEatovaTheme(Brightness.dark),
         home: AuthScreen(authRepository: _CancelingAuthRepository()),
       ),

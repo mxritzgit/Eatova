@@ -1,10 +1,10 @@
--- Coach-Chat Schema
+-- Coach chat schema.
 --
--- chat_messages       : Konversation pro User (role = user|assistant|system).
--- chat_quota_usage    : Zaehler pro User pro Tag (UTC) - das Rate-Limit.
--- claim_chat_quota()  : atomare RPC fuer die Edge Function, gibt remaining
---                       zurueck oder wirft EX_QUOTA_EXCEEDED. Damit kann
---                       der Client das Limit nicht clientseitig umgehen.
+-- chat_messages      : conversation per user (role = user|assistant|system).
+-- chat_quota_usage   : per-user per-day (UTC) counter, the rate limit.
+-- claim_chat_quota() : atomic RPC for the Edge Function; returns remaining or
+--                      raises EX_QUOTA_EXCEEDED, so the client cannot bypass
+--                      the limit.
 
 -- ---------------------------------------------------------------------------
 -- chat_messages
@@ -31,10 +31,9 @@ create policy "chat_messages_select_own"
   to authenticated
   using (auth.uid() = user_id);
 
--- Schreiben passiert ausschliesslich aus der Edge Function (service_role) -
--- der Client soll keine Messages direkt einfuegen koennen (sonst kann er die
--- Konversationshistorie faelschen). Deshalb keine INSERT/UPDATE/DELETE
--- Policies fuer authenticated.
+-- Writes happen only from the Edge Function (service_role): a client that could
+-- insert messages could forge the conversation history. Hence no
+-- INSERT/UPDATE/DELETE policies for authenticated.
 
 -- ---------------------------------------------------------------------------
 -- chat_quota_usage
@@ -56,16 +55,16 @@ create policy "chat_quota_select_own"
   to authenticated
   using (auth.uid() = user_id);
 
--- INSERT/UPDATE wieder nur service_role.
+-- INSERT/UPDATE again service_role only.
 
 -- ---------------------------------------------------------------------------
--- claim_chat_quota: atomare Reservierung eines Slots
+-- claim_chat_quota: atomic reservation of one slot.
 --
---   - Default-Limit 5/Tag (Parameter p_daily_limit).
+--   - Default limit 5/day (p_daily_limit).
 --   - Returns: { used integer, remaining integer }.
---   - Wirft Exception 'EX_QUOTA_EXCEEDED' wenn der User das Limit erreicht.
---   - SECURITY DEFINER, damit auch service_role-Aufrufe konsistent gegen
---     auth.uid() laufen koennen.
+--   - Raises 'EX_QUOTA_EXCEEDED' once the user hits the limit.
+--   - SECURITY DEFINER so service_role calls run consistently against
+--     auth.uid().
 -- ---------------------------------------------------------------------------
 create or replace function public.claim_chat_quota(
   p_user_id      uuid,
@@ -87,7 +86,7 @@ begin
     values (p_user_id, v_today, 0, now())
     on conflict (user_id, day) do nothing;
 
-  -- Reihe sperren um Race-Conditions bei parallelen Requests zu vermeiden.
+  -- Lock the row to avoid races between parallel requests.
   select used_count into v_used
     from public.chat_quota_usage
     where user_id = p_user_id and day = v_today
@@ -108,15 +107,14 @@ begin
 end;
 $$;
 
--- Nur service_role darf claim_chat_quota aufrufen - der Client geht ueber
--- die Edge Function, die den Service-Role-Key benutzt. Damit ist sicher,
--- dass der User-Client das Limit nicht client-seitig erhoeht.
+-- Only service_role may call claim_chat_quota; the client goes through the Edge
+-- Function, so it cannot raise its own limit.
 revoke all on function public.claim_chat_quota(uuid, integer) from public;
 revoke all on function public.claim_chat_quota(uuid, integer) from authenticated;
 grant execute on function public.claim_chat_quota(uuid, integer) to service_role;
 
 -- ---------------------------------------------------------------------------
--- get_chat_quota_today: read-only, fuer das Frontend (Counter im UI).
+-- get_chat_quota_today: read-only, for the UI counter.
 -- ---------------------------------------------------------------------------
 create or replace function public.get_chat_quota_today(
   p_daily_limit integer default 5

@@ -7,16 +7,13 @@ import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../design/design.dart';
 
-/// Zeigt die bereits geloggten Mahlzeiten fuer den aktuellen Slot+Tag
-/// oben im AddMealSheet — mit X-Button zum Entfernen und (wenn [onEdit]
-/// verdrahtet ist) Tap auf die Zeile zum Bearbeiten.
+/// Shows the meals already logged for the current slot and day at the top of
+/// the add-meal sheet, with an X to remove and (when [onEdit] is wired) a tap
+/// to edit.
 ///
-/// Der Kopf traegt die Slot-Summe als kcal UND Makros (Protein/KH/Fett):
-/// nach dem Hinzufuegen will der Nutzer sehen, „wie viel Protein habe ich
-/// jetzt beim Abendessen" — bis 2026-08-21 stand hier nur die kcal-Zahl.
-/// Gerechnet wird mit [MacroProgress] (dieselbe Parse-/Summenlogik wie die
-/// Tagesringe in `macroProgressForFoodDate`), NICHT durch eigenes Parsen der
-/// String-Felder `result.protein` & Co.
+/// The header carries the slot total as kcal AND macros, computed via
+/// [MacroProgress] — the same parse/sum logic as the daily rings, never by
+/// re-parsing the string fields of `result`.
 class ExistingMealsList extends StatelessWidget {
   const ExistingMealsList({
     super.key,
@@ -30,8 +27,7 @@ class ExistingMealsList extends StatelessWidget {
   final MealSlot slot;
   final ValueChanged<String>? onRemove;
 
-  /// Tap auf eine Zeile oeffnet das Bearbeiten-Sheet. Null -> Zeile nicht
-  /// tippbar (bisheriges Verhalten).
+  /// A row tap opens the edit sheet. Null makes the row non-tappable.
   final ValueChanged<LoggedMeal>? onEdit;
 
   @override
@@ -65,9 +61,9 @@ class ExistingMealsList extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Expanded statt nackter Text: bei grosser Systemschrift
-                    // darf die Versalien-Zeile umbrechen, statt die Row zu
-                    // sprengen.
+                    // Expanded instead of a bare Text so the all-caps line
+                    // wraps at large system font sizes instead of overflowing
+                    // the Row.
                     Expanded(
                       child: Text(
                         context.l10n.foodAlreadyAddedEyebrow,
@@ -101,15 +97,12 @@ class ExistingMealsList extends StatelessWidget {
   }
 }
 
-/// „Gesamt 980 kcal · P 62 g · K 90 g · F 35 g" als Slot-Summe.
+/// The slot total line: label + kcal, then the macros.
 ///
-/// Bewusst ein [Wrap] aus zwei Bloecken (Label+kcal, Makros) statt EINES
-/// durchgehenden Strings: bei 390 pt und Textskala 1.3 passt die ganze Zeile
-/// nicht mehr nebeneinander — ein Wrap setzt dann den kompletten Makro-Block
-/// in die naechste Zeile, waehrend ein einzelner Text irgendwo zwischen
-/// „P 62" und „g" umbraeche oder einen Trennpunkt am Zeilenende haengen
-/// liesse. Die kcal-Zahl bleibt ein eigenes Text-Widget mit dem bisherigen
-/// Wortlaut (`'980 kcal'`), weil Flow-Tests genau diesen Text suchen.
+/// A [Wrap] of two blocks rather than one string: at 390 pt and text scale
+/// 1.3 the whole line no longer fits, and a single Text would break mid-macro
+/// or leave a separator dangling. The kcal number stays its own Text widget
+/// with the existing wording, because flow tests search for exactly it.
 class _SlotTotalLine extends StatelessWidget {
   const _SlotTotalLine({required this.totals});
 
@@ -125,10 +118,9 @@ class _SlotTotalLine extends StatelessWidget {
       runSpacing: 2,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        // Label+kcal ebenfalls als Wrap statt Row: bei doppelter Systemschrift
-        // (EatovaApp-Deckel 2.0) passen „Gesamt" und die Zahl nicht mehr
-        // nebeneinander in 390 pt — eine Row wuerde ueberlaufen, der Wrap
-        // setzt die Zahl unter das Label.
+        // Label+kcal is a Wrap too: at the 2.0 text-scale cap the label and
+        // the number no longer fit side by side in 390 pt, so a Row would
+        // overflow while the Wrap puts the number below the label.
         Wrap(
           spacing: 6,
           runSpacing: 2,
@@ -183,10 +175,9 @@ class _ExistingMealRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final macros = MacroProgress.empty.add(meal.result);
-    // Makros unbekannt (Parser liefert '-', MacroProgress liest 0) -> keine
-    // Zeile „P 0 g · K 0 g · F 0 g", die eine Messung vortaeuschen wuerde.
-    // Die Slot-Summe oben bleibt davon unberuehrt: dort zaehlt 0 ehrlich
-    // als „nichts Bekanntes dazu", genau wie in den Tagesringen.
+    // Unknown macros (parser yields '-', MacroProgress reads 0) get no line,
+    // which would fake a measurement. The slot total above is unaffected:
+    // there a 0 honestly means "nothing known added".
     final hasMacros =
         macros.proteinG > 0 || macros.carbsG > 0 || macros.fatG > 0;
     final row = Padding(
@@ -245,8 +236,8 @@ class _ExistingMealRow extends StatelessWidget {
       ),
     );
     if (onEdit == null) return row;
-    // A11y: die Zeile sieht aus wie reine Anzeige — als Button mit klarer
-    // Aktion ansagen, sonst bleibt der Edit-Tap unentdeckbar.
+    // A11y: the row looks like plain display, so announce it as a button —
+    // otherwise the edit tap is undiscoverable.
     return Semantics(
       button: true,
       hint: context.l10n.foodEditMealTitle,

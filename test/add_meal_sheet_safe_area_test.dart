@@ -1,16 +1,11 @@
-// Nutzer-Befund 2026-08-21 (iPhone 14 Pro): Tipp auf „Dinner" im Food-Tab —
-// das Add-Meal-Sheet oeffnet, aber sein Kopf mit Kamera/Galerie/Barcode liegt
-// unter der Dynamic Island und ist nicht zu sehen.
+// Finding 2026-08-21 (iPhone 14 Pro): the add-meal sheet head with
+// camera/gallery/barcode ended up under the Dynamic Island, because
+// `maxHeight = size.height * 0.92` plus the 336 pt keyboard inset exceeded the
+// screen and the modal route pushed the sheet to y = 0.
 //
-// Ursache: `maxHeight = size.height * 0.92` ueber `Padding(bottom:
-// viewInsets.bottom)`. Mit offener Suchfeld-Tastatur (336 pt) war
-// 0,92 * 844 + 336 > 844; die Modal-Route klemmte das Sheet auf
-// `Bildschirm minus Tastatur` und schob es damit bis an y = 0.
-//
-// Der Test oeffnet das Sheet ueber die ECHTE Route (`showAddMealSheet`) —
-// nur dort greift `MediaQuery.removePadding(removeTop: true)`, das die
-// Safe-Area aus der MediaQuery entfernt — und misst die gerenderte Geometrie
-// gegen die Formel aus `sheetMaxHeight`.
+// The test opens the sheet through the REAL route (`showAddMealSheet`) — only
+// there does `MediaQuery.removePadding(removeTop: true)` apply — and measures
+// the rendered geometry against the `sheetMaxHeight` formula.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -72,8 +67,8 @@ MealAnalysisResult _produkt(int i) => MealAnalysisResult.fromOpenFoodFacts(
       '400000000${i.toString().padLeft(4, '0')}',
     );
 
-/// Genug Favoriten, dass der Scrollbereich jeden Deckel reisst — nur dann
-/// entscheidet der Deckel ueberhaupt, wo der Kopf landet.
+/// Enough favorites to blow past any cap; only then does the cap decide
+/// where the head lands.
 final List<FavoriteMeal> _vieleFavoriten = List<FavoriteMeal>.generate(
   24,
   (i) => FavoriteMeal(
@@ -123,8 +118,8 @@ Future<void> _oeffneSheet(WidgetTester tester) async {
   expect(tester.takeException(), isNull);
 }
 
-/// Beweis, dass der Deckel wirklich greift: der Scrollbereich hat Restweg,
-/// der Inhalt waere also hoeher als das, was das Sheet zeigt.
+/// Proves the cap really bites: the scroll area still has travel left, so the
+/// content is taller than the sheet shows.
 void _erwarteGedeckelt(WidgetTester tester) {
   final rest = tester
       .state<ScrollableState>(
@@ -152,15 +147,14 @@ void main() {
     const deckel = _hoehe - _safeAreaOben - _tastatur - kSheetTopGap;
     expect(sheet.height, lessThanOrEqualTo(deckel));
     expect(sheet.top, greaterThanOrEqualTo(_safeAreaOben + kSheetTopGap));
-    // Das Sheet steht ueber der Tastatur, nicht dahinter.
+    // The sheet sits above the keyboard, not behind it.
     expect(sheet.bottom, lessThanOrEqualTo(_hoehe - _tastatur));
 
-    // Der eigentliche Befund: der Kamera-Knopf im Kopf liegt im sichtbaren
-    // Bereich unterhalb der Safe-Area.
+    // The actual finding: the camera button sits below the safe area.
     final kamera =
         tester.getRect(find.byKey(const ValueKey('analyse-camera-button')));
     expect(kamera.top, greaterThanOrEqualTo(_safeAreaOben));
-    // Und auch Galerie/Barcode/Schliessen — derselbe Kopf, eine Zeile.
+    // Same for gallery/barcode/close — one head row.
     for (final key in const <String>[
       'analyse-gallery-button',
       'analyse-barcode-button',

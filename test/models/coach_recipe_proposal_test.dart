@@ -6,11 +6,10 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/coach_recipe_proposal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 
-// Coach-Rezept-Generator (Spec 2026-08-12): das Proposal ist die
-// Client-Sicht auf das Server-Wire-Format (snake_case) des Recipe-Mode.
-// Der Server klemmt bereits; hier gibt es nur die billige Defensiv-Klemme
-// gegen aeltere/kaputte Function-Antworten (estimated_g 0 wuerde sonst in
-// FitnessRecipe.kcalPer100G durch 0 teilen).
+// Coach recipe generator: the proposal is the client view of the server wire
+// format (snake_case) of recipe mode. The server already clamps; this is only
+// the cheap defensive clamp against old/broken function answers (estimated_g 0
+// would divide by zero in FitnessRecipe.kcalPer100G).
 
 Map<String, dynamic> _validJson() => <String, dynamic>{
   'title': 'Huehnchenauflauf',
@@ -107,8 +106,8 @@ void main() {
   });
 
   test('coachProposalSlug erzeugt deterministischen Slug aus Message-Id', () {
-    // Spec 2026-08-13: der Slug kommt vom Aufrufer (Message-Id der Karte),
-    // damit „Hinzugefuegt" nach Neustart eine reine Ableitung bleibt.
+    // The slug comes from the caller (the card's message id) so "added" stays a
+    // pure derivation after a restart.
     expect(
       FitnessRecipe.coachProposalSlug('srv-msg-1'),
       'user_coach_srv-msg-1',

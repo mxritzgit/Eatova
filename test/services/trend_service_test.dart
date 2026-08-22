@@ -3,9 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
-// Pure Trend-Logik: Tagessummen-Aggregation, dichtes Zeitfenster mit
-// Luecken-Tagen, Durchschnitts- und Ziel-Treffer-Berechnung. Alles ohne
-// Supabase — genau die Funktionen, die der TrendsScreen konsumiert.
+// Pure trend logic: daily-total aggregation, dense window with gap days,
+// averages and goal hits — all without Supabase.
 
 TrendDayTotals _day(
   DateTime day, {
@@ -48,14 +47,13 @@ void main() {
     test('faellt ohne local_day auf den lokalen logged_at-Tag zurueck und '
         'ueberspringt Zeilen ohne jedes Datum', () {
       final totals = aggregateDailyTotals([
-        // Aeltere Zeile ohne local_day: lokaler ISO-String (ohne Z) ->
-        // zeitzonen-unabhaengig derselbe Kalendertag.
+        // No local_day: a local ISO string (no Z) is zone-independent.
         {
           'local_day': null,
           'logged_at': '2026-08-04T12:00:00',
           'calories_kcal': 500,
         },
-        // Defensiv: ganz ohne Datum -> Zeile wird verworfen, kein Crash.
+        // Defensive: no date at all -> row is dropped, no crash.
         {'local_day': null, 'logged_at': null, 'calories_kcal': 999},
       ]);
 
@@ -100,7 +98,7 @@ void main() {
         [
           _day(DateTime(2026, 8, 6), kcal: 2200),
           _day(DateTime(2026, 8, 4), kcal: 1800),
-          // Ausserhalb des 7-Tage-Fensters -> muss verschwinden.
+          // Outside the 7-day window -> must disappear.
           _day(DateTime(2026, 7, 1), kcal: 999),
         ],
         today: today,
@@ -108,11 +106,11 @@ void main() {
       );
 
       expect(window, hasLength(7));
-      // Aeltester zuerst: Index 0 = 31.07., Index 6 = heute.
+      // Oldest first: index 0 = Jul 31, index 6 = today.
       expect(window[0], isNull);
-      expect(window[4]?.kcal, 1800); // 04.08.
-      expect(window[5], isNull); // 05.08. ohne Logs -> Luecke
-      expect(window[6]?.kcal, 2200); // 06.08.
+      expect(window[4]?.kcal, 1800); // Aug 4
+      expect(window[5], isNull); // Aug 5 has no logs -> gap
+      expect(window[6]?.kcal, 2200); // Aug 6
       expect(window.whereType<TrendDayTotals>(), hasLength(2));
     });
 
@@ -122,7 +120,7 @@ void main() {
         today: DateTime(2026, 8, 2),
         days: 7,
       );
-      // 31.07. liegt 2 Tage vor dem 02.08. -> Index days-1-2 = 4.
+      // Jul 31 is 2 days before Aug 2 -> index days-1-2 = 4.
       expect(window[4]?.kcal, 1500);
     });
   });
@@ -140,7 +138,7 @@ void main() {
       );
 
       expect(window, hasLength(3));
-      expect(window.last?.kcal, 350); // heute ist im Fenster
+      expect(window.last?.kcal, 350); // today is in the window
       final completed = completedDaysOf(window);
       expect(completed, hasLength(2));
       expect(completed.map((d) => d?.kcal).toList(), [2200, 2100]);
@@ -149,8 +147,8 @@ void main() {
     test(
       'Review-Szenario: das 350-kcal-Fruehstueck verwaessert nichts mehr',
       () {
-        // Ziel 2200 kcal, 01.-06.08. je exakt 2200 geloggt. Am 07.08. um 08:30
-        // loggt der Nutzer ein 350-kcal-Fruehstueck und oeffnet Trends.
+        // Aug 1-6 logged at exactly the 2200 goal; on Aug 7 the user logs a
+        // 350 kcal breakfast and opens trends.
         final totals = [
           for (var d = 1; d <= 6; d++) _day(DateTime(2026, 8, d), kcal: 2200),
           _day(DateTime(2026, 8, 7), kcal: 350),
@@ -161,12 +159,10 @@ void main() {
           days: 7,
         );
 
-        // Der dokumentierte Fehler, als Beleg: heute mitgerechnet ergibt
-        // (6 x 2200 + 350) / 7 = 1935,71 und 6 von 7 Tagen.
+        // The bug, as evidence: counting today gives 1935.71 over 7 days.
         expect(averageKcalOf(window), closeTo(1935.714, 0.001));
         expect(goalHitsOf(window, goalKcal: 2200).tracked, 7);
 
-        // Ohne den laufenden Tag stimmen alle drei Kennzahlen wieder.
         final completed = completedDaysOf(window);
         expect(averageKcalOf(completed), closeTo(2200, 0.001));
         final hits = goalHitsOf(completed, goalKcal: 2200);
@@ -199,7 +195,7 @@ void main() {
           today: DateTime(2026, 8, 7, 8, 30),
           days: 7,
         );
-        // Das Chart zeigt den laufenden Tag weiterhin.
+        // The chart still shows the running day.
         expect(trackedDaysOf(window), 1);
 
         final completed = completedDaysOf(window);
@@ -208,8 +204,7 @@ void main() {
         final hits = goalHitsOf(completed, goalKcal: 2200);
         expect(hits.hit, 0);
         expect(hits.tracked, 0);
-        // Keine Quote bilden — 0/0 waere NaN. Der Aufrufer muss auf tracked == 0
-        // pruefen; hier wird nur belegt, dass der Nenner sauber 0 ist.
+        // No ratio here — 0/0 would be NaN; the caller must check tracked.
         expect(trackedDaysOf(completed), 0);
       },
     );
@@ -226,7 +221,7 @@ void main() {
         trackedDaysOf(<TrendDayTotals?>[
           _day(DateTime(2026, 8, 1), kcal: 1200),
           null,
-          _day(DateTime(2026, 8, 3), kcal: 0), // 0 kcal ist ein getrackter Tag
+          _day(DateTime(2026, 8, 3), kcal: 0), // 0 kcal is a tracked day
         ]),
         2,
       );
@@ -253,11 +248,11 @@ void main() {
   group('goalHitsOf', () {
     test('zaehlt Tage im ±10%-Korridor, Grenzen inklusive', () {
       final window = <TrendDayTotals?>[
-        _day(DateTime(2026, 8, 1), kcal: 1980), // exakt untere Grenze -> Hit
-        _day(DateTime(2026, 8, 2), kcal: 2420), // exakt obere Grenze -> Hit
-        _day(DateTime(2026, 8, 3), kcal: 1979), // knapp drunter -> Miss
-        _day(DateTime(2026, 8, 4), kcal: 2421), // knapp drueber -> Miss
-        null, // Luecken-Tag: weder Hit noch getrackt
+        _day(DateTime(2026, 8, 1), kcal: 1980), // exact lower bound -> hit
+        _day(DateTime(2026, 8, 2), kcal: 2420), // exact upper bound -> hit
+        _day(DateTime(2026, 8, 3), kcal: 1979), // just under -> miss
+        _day(DateTime(2026, 8, 4), kcal: 2421), // just over -> miss
+        null, // gap day: neither hit nor tracked
       ];
       final hits = goalHitsOf(window, goalKcal: 2200);
       expect(hits.hit, 2);
@@ -293,9 +288,8 @@ void main() {
 
   group('TrendService Query-Grenzen', () {
     test('90-Tage-Fenster mit deterministischem Zeilen-Deckel', () {
-      // Eigener Datenpfad, bewusst groesser als das 35-Tage-Boot-Fenster
-      // des Tagebuchs — und wie dort mit explizitem Limit gegen stilles
-      // PostgREST-Kappen (~27 Logs/Tag Reserve im Fenster).
+      // Own data path, larger than the diary's boot window, with an explicit
+      // limit against silent PostgREST truncation.
       expect(TrendService.trendWindowDays, 90);
       expect(
         TrendService.trendWindowDays,

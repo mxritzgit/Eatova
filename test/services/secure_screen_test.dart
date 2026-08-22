@@ -3,14 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/secure_screen.dart';
 
-// Screenshot-/Recents-Schutz (Sicherheits-Audit 2026-08-09): sensible
-// Screens (Auth-Code, Passwort, Gesundheitsdaten) sollen nicht im
-// Android-Recents-Thumbnail / iOS-App-Switcher-Snapshot landen.
+// Screenshot/recents protection: sensitive screens (auth code, password, health
+// data) must not appear in the Android recents thumbnail or iOS app-switcher
+// snapshot.
 //
-// Der native Teil (FLAG_SECURE / Snapshot-Cover) ist hier nicht testbar —
-// getestet wird die REF-ZAEHLUNG: nur der Wechsel 0<->1 loest den nativen
-// Aufruf aus, damit verschachtelte Guards (AuthScreen -> AuthCodeScreen)
-// das Flag nicht vorzeitig loeschen.
+// The native part is not testable here; what is tested is the REF COUNT — only
+// the 0<->1 transition calls native, so nested guards do not clear the flag
+// early.
 
 void main() {
   test('acquire/release schaltet nur beim Wechsel 0<->1', () async {
@@ -18,11 +17,11 @@ void main() {
     final secure = SecureScreen(invoker: (on) async => calls.add(on));
 
     await secure.acquire(); // 0 -> 1: enable
-    await secure.acquire(); // 1 -> 2: nichts
+    await secure.acquire(); // 1 -> 2: nothing
     expect(calls, [true]);
     expect(secure.activeCount, 2);
 
-    await secure.release(); // 2 -> 1: nichts
+    await secure.release(); // 2 -> 1: nothing
     expect(calls, [true]);
 
     await secure.release(); // 1 -> 0: disable
@@ -77,7 +76,7 @@ void main() {
     expect(calls, [true], reason: 'nur EIN enable trotz zweier Guards');
     expect(secure.activeCount, 2);
 
-    // Nur den inneren entfernen — das Flag muss bleiben.
+    // Remove only the inner guard — the flag must stay.
     await tester.pumpWidget(MaterialApp(
       home: SecureScreenGuard(
         secureScreen: secure,

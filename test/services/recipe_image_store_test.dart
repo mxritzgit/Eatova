@@ -6,24 +6,20 @@ import 'package:image/image.dart' as img;
 
 import 'package:eatova/src/services/recipe_image_store.dart';
 
-// Eigene Rezept-Fotos liegen LOKAL (kein Supabase-Bucket, keine Policies, keine
-// Byte-Warteschlange). Diese Suite haelt die Zusicherungen fest, an denen so
-// eine Ablage steht oder faellt:
+// Own recipe photos live locally (no Supabase bucket, policies or byte queue).
+// This suite pins the guarantees such a store stands or falls on:
 //
-//   1. Der Marker `local:` ist erkennbar. Ein zweites Geraet sieht ihn, findet
-//      keine Datei und faellt sauber auf den Platzhalter zurueck, statt einen
-//      toten Asset-Pfad zu laden.
-//   2. EXIF ist Pflicht-Scrub: ein Kuechenfoto traegt sonst die GPS-Koordinaten
-//      der Wohnung — und zwar dauerhaft auf der Platte, nicht nur im Upload.
-//   3. Loeschen (Rezept) und Raeumen (Logout/Konto) lassen nichts liegen.
-//   4. Finding 5 (Security-Review 2026-08-11): jeder Nutzer hat seinen
-//      eigenen Namensraum, Dateinamen sind nicht erratbar, und ein
-//      Identitaetswechsel purgt den Bestand des Vorgaengers — auch ohne
-//      explizites Abmelden.
+//   1. The `local:` marker is recognizable, so a second device falls back to
+//      the placeholder instead of loading a dead asset path.
+//   2. EXIF scrubbing is mandatory: a kitchen photo would otherwise carry the
+//      home GPS coordinates permanently on disk.
+//   3. Deleting (recipe) and clearing (logout/account) leave nothing behind.
+//   4. Finding 5: every user has their own namespace, file names are not
+//      guessable, and an identity change purges the predecessor's files even
+//      without an explicit sign-out.
 
-/// Ein JPEG mit dem EXIF-Container, den eine OEM-Kamera mit aktiviertem
-/// Standort-Tagging schreibt. Klein gehalten — geprueft wird der Container,
-/// nicht die Skalierung (das macht meal_photo_exif_scrub_test).
+/// A JPEG with the EXIF container an OEM camera with location tagging writes.
+/// Kept small: the container is the subject, not scaling.
 Uint8List _geotaggedJpeg({int width = 320, int height = 240}) {
   final image = img.Image(width: width, height: height);
   img.fillRect(image,
@@ -51,7 +47,7 @@ Uint8List _geotaggedJpeg({int width = 320, int height = 240}) {
   return Uint8List.fromList(img.encodeJpg(image, quality: 92));
 }
 
-/// Sucht die APP1-Exif-Signatur ("Exif\x00\x00") im rohen Byte-Strom.
+/// Looks for the APP1 EXIF signature ("Exif\x00\x00") in the raw bytes.
 bool _hasExifSegment(Uint8List bytes) {
   const signature = <int>[0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
   for (var i = 0; i + signature.length <= bytes.length; i++) {
@@ -67,8 +63,8 @@ bool _hasExifSegment(Uint8List bytes) {
   return false;
 }
 
-/// Das Format, das [RecipeImageStore.save] seit Finding 5 vergibt: 128 Bit
-/// aus Random.secure als Hex — nichts Slug- oder Zeit-Abgeleitetes.
+/// The format [RecipeImageStore.save] assigns since Finding 5: 128 bits from
+/// Random.secure as hex, nothing slug- or time-derived.
 final RegExp _zufallsReferenz = RegExp(r'^local:img_[0-9a-f]{32}\.jpg$');
 
 void main() {
@@ -80,8 +76,8 @@ void main() {
     temp = await Directory.systemTemp.createTemp('eatova_recipe_images_test');
     wurzel = Directory('${temp.path}/recipe_images');
     store = RecipeImageStore(baseDirectory: () async => wurzel);
-    // Die allermeisten Zusicherungen gelten IM Namensraum eines angemeldeten
-    // Nutzers; die Faelle ohne Nutzer prueft die Finding-5-Gruppe explizit.
+    // Almost all guarantees hold inside a signed-in user's namespace; the
+    // Finding 5 group covers the cases without a user.
     await store.setActiveUser('nutzer-a');
   });
 
@@ -89,7 +85,7 @@ void main() {
     if (temp.existsSync()) await temp.delete(recursive: true);
   });
 
-  /// Ein frischer Store auf demselben Verzeichnis = der naechste App-Start.
+  /// A fresh store on the same directory = the next app start.
   Future<RecipeImageStore> neustart({String? userId = 'nutzer-a'}) async {
     final neu = RecipeImageStore(baseDirectory: () async => wurzel);
     await neu.setActiveUser(userId);
@@ -111,8 +107,8 @@ void main() {
 
     test('eine Referenz mit Pfad-Zeichen kann nicht aus dem Ordner ausbrechen',
         () async {
-      // Eine Referenz kommt ungeprueft aus der Serverzeile — eine Datei
-      // AUSSERHALB des Namensraums darf sie nie erreichen.
+      // A reference arrives unvalidated from the server row, so it must never
+      // reach a file outside the namespace.
       final geheim = File('${temp.path}/geheim.jpg');
       await geheim.writeAsBytes(_geotaggedJpeg());
 
@@ -137,8 +133,8 @@ void main() {
     });
 
     test('eine fehlende Datei liefert null statt eines toten Pfades', () async {
-      // Genau der Fall „zweites Geraet": die Referenz kommt ueber die
-      // Serverzeile, die Bytes gibt es hier nie.
+      // The second-device case: the reference arrives via the server row, the
+      // bytes never exist here.
       expect(await store.resolve('local:img_nie_gespeichert.jpg'), isNull);
       expect(store.resolveSync('local:img_nie_gespeichert.jpg'), isNull);
     });
@@ -204,7 +200,7 @@ void main() {
     test('deleteFor auf einem Bundle-Asset ist ein No-Op', () async {
       await store.deleteFor('assets/recipes/lachs.jpg');
       await store.deleteFor('');
-      // Kein Wurf ist die Zusicherung.
+      // Not throwing is the guarantee.
     });
 
     test('clear() raeumt den ganzen Ordner (Logout / Konto-Loeschung)',
@@ -237,7 +233,7 @@ void main() {
       expect(await anonym.save(bytes: _geotaggedJpeg()), isNull);
       expect(await anonym.resolve('local:img_x.jpg'), isNull);
       expect(anonym.resolveSync('local:img_x.jpg'), isNull);
-      // baseResolved sagt „die Antwort steht fest" — und die ist null.
+      // baseResolved means the answer is settled, and it is null.
       expect(anonym.baseResolved, isTrue);
     });
 
@@ -305,8 +301,8 @@ void main() {
         () async {
       final reference = await store.save(bytes: _geotaggedJpeg());
       expect(reference, matches(_zufallsReferenz));
-      // Das alte, vorhersagbare Schema (`user_<ms>.jpg`) darf nie wieder
-      // entstehen — Millisekunden kann ein Angreifer durchprobieren.
+      // The old predictable scheme (`user_<ms>.jpg`) must never return:
+      // milliseconds are brute-forceable.
       expect(reference, isNot(matches(RegExp(r'user_\d+'))));
     });
 
@@ -324,8 +320,8 @@ void main() {
   });
 
   group('Finding 5 — Legacy-Migration (flacher Alt-Bestand)', () {
-    /// Legt eine Datei so ab, wie sie VOR den Namensraeumen lag: flach in
-    /// recipe_images/, Name aus dem Slug abgeleitet.
+    /// Places a file the way it lay before namespaces: flat in
+    /// recipe_images/, name derived from the slug.
     Future<File> legeAltbestandAb(String name) async {
       if (!wurzel.existsSync()) wurzel.createSync(recursive: true);
       final datei = File('${wurzel.path}/$name');
@@ -336,7 +332,7 @@ void main() {
     test('der erste angemeldete Nutzer erbt die flachen Dateien', () async {
       final flach = await legeAltbestandAb('user_1717500000000.jpg');
 
-      // Frischer Store = App-Start nach dem Update, Session-Restore.
+      // Fresh store = app start after the update, with session restore.
       final neu = await neustart();
       final datei = await neu.resolve('local:user_1717500000000.jpg');
 
@@ -353,8 +349,8 @@ void main() {
         'mit, auch wenn der erste ihn nie angefasst hat', () async {
       final flach = await legeAltbestandAb('user_1717500000000.jpg');
 
-      // Nutzer A ist angemeldet, oeffnet die Rezepte aber nie (kein Zugriff,
-      // keine Migration). Dann meldet sich B an.
+      // User A is signed in but never opens the recipes (no access, no
+      // migration). Then B signs in.
       final neu = await neustart();
       await neu.setActiveUser('nutzer-b');
 
@@ -377,7 +373,7 @@ void main() {
         isTrue,
       );
       expect(await store.readProposalImage('msg-1'), bytes);
-      // Deterministisch — die Reload-Karte findet ihr Bild ohne Index.
+      // Deterministic, so the reload card finds its image without an index.
       expect(
         RecipeImageStore.proposalReference('msg-1'),
         'local:proposal_msg-1.jpg',
@@ -402,7 +398,7 @@ void main() {
 
     test('Cap: aelteste Vorschlagsbilder fallen, Rezept-Fotos bleiben',
         () async {
-      // Ein Rezept-Foto (img_*) als Kontrollgruppe fuer den Prune.
+      // A recipe photo (img_*) as the control group for the prune.
       final fotoRef = await store.save(bytes: _geotaggedJpeg());
       expect(fotoRef, isNotNull);
 
@@ -412,8 +408,8 @@ void main() {
           await store.saveProposalImage(messageId: 'msg-$i', bytes: bytes),
           isTrue,
         );
-        // mtime traegt die Prune-Reihenfolge — Mindestabstand gegen
-        // Zeitstempel-Gleichstand auf groben Dateisystemen.
+        // mtime carries the prune order; the delay avoids timestamp ties on
+        // coarse file systems.
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
 

@@ -13,16 +13,13 @@ abstract class MealAnalyzer {
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request);
 }
 
-/// Sprachpaket fuer [request] — `'en'` -> Englisch, sonst (inkl. unbekannter
-/// Werte) Deutsch. Spiegelt den Server-Default (`analyze-meal/index.ts`,
-/// `normalizeLanguage`): Abwaertskompatibilitaet ist auf beiden Seiten
-/// derselbe Fallback.
+/// Bundle for [request] — `'en'` -> English, anything else German. Mirrors the
+/// server default (`analyze-meal/index.ts`, `normalizeLanguage`).
 AppLocalizations _l10nForRequest(MealAnalysisRequest request) =>
     request.language == 'en' ? enL10n : deL10n;
 
-/// Baut den JSON-Body fuer die `analyze-meal`-Function aus [request] — eigene,
-/// von HTTP entkoppelte Funktion, damit `language`/`portionHint`/
-/// `freeTextHint` ohne Netzwerk-Fake testbar sind (Scan/Coach-PR, 2026-08-11).
+/// Builds the JSON body for the `analyze-meal` function. Split off from HTTP so
+/// `language`/`portionHint`/`freeTextHint` are testable without a network fake.
 Map<String, dynamic> buildAnalyzeMealBody(MealAnalysisRequest request) {
   final imageBytes = request.imageBytes;
   final hint = EdgeFunctionMealAnalyzer._cleanHint(request.freeTextHint);
@@ -42,9 +39,9 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   static const String _functionPath = '/functions/v1/analyze-meal';
   static const int _maxImageBytes = 5 * 1000 * 1000;
 
-  // Explizite Timeouts auf JEDER Phase: HttpTimeoutPolicy.mealAnalysis
-  // (15 s connect / 60 s response / 15 s body) — Begruendung der Werte
-  // steht bei der Policy in eatova_http.dart.
+  // Explicit timeouts on EVERY phase: HttpTimeoutPolicy.mealAnalysis
+  // (15 s connect / 60 s response / 15 s body); rationale lives with the
+  // policy in eatova_http.dart.
 
   @override
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {

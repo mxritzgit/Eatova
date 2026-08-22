@@ -11,41 +11,22 @@ import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
-// B5: Sommerzeit-Umstellung ueberspringt einen Tag — die Stelle im
-// Bearbeiten-Sheet (edit_meal_sheet.dart:514 bzw. :504 vor dem Fix).
+// B5: the DST switch skipped a day in the edit sheet's day picker.
 //
-// Frueher:
-//   [for (var i = 0; i < pastDays; i++) today.subtract(Duration(days: i))]
-//   final offset = today.difference(date).inDays;
+// `Duration` is absolute time: on 2026-03-30 in Europe/Berlin (23-hour Sunday)
+// `DateTime(2026, 3, 30).subtract(Duration(days: 1))` yields 2026-03-28 23:00,
+// so Sunday was unreachable and the "yesterday" chip carried the 28th.
 //
-// `Duration` ist Absolutzeit. Am Montag 30.03.2026 in Europe/Berlin
-// (Fruehjahrsumstellung am Sonntag 29.03., ein 23-Stunden-Tag) liefert
-// `DateTime(2026, 3, 30).subtract(Duration(days: 1))` den `2026-03-28 23:00`:
-// der Sonntag war aus dem 35-Chip-Fenster NICHT erreichbar, und der Chip
-// „Gestern" trug den 28.03. Wer eine Mahlzeit bewusst auf Sonntag schob,
-// landete dauerhaft auf Samstag — serverseitig ueber `local_day`.
-//
-// ── Warum dieser Test auf einer UTC-Maschine nicht falsch rot wird ──────────
-//
-// `flutter test` laeuft in der Zone der Maschine; die CI steht auf UTC, wo es
-// gar keine Umstellung gibt. Technik uebernommen aus test/services/
-// day_math_test.dart:
-//
-//   1. Alle Assertions laufen auf (Jahr, Monat, Tag)-Tripeln — zonenunabhaengig.
-//   2. Die Soll-Werte kommen aus einem UTC-Orakel bzw. sind hart notiert; beides
-//      ist in JEDER Zone wahr.
-//   3. Der eine DST-abhaengige Beleg steht unter `if (naiv.day != 29)` und
-//      feuert auf UTC schlicht nicht.
-//   4. Zusaetzlich pruefen zwei Faelle Eigenschaften, die die alte
-//      Duration-/difference-Fassung in JEDER Zone verletzt (nicht normalisierte
-//      Uhrzeit, Differenz ueber Mitternacht) — die bleiben auch auf der CI
-//      aussagekraeftig.
+// Why this test is not falsely red on a UTC machine (CI): all assertions use
+// (year, month, day) triples, expectations come from a UTC oracle or are
+// hardcoded, the one DST-dependent proof sits behind `if (naiv.day != 29)`, and
+// two cases check properties the old version violated in EVERY zone.
 
-/// Kurzform fuer Kalender-Assertions: nur (Jahr, Monat, Tag) zaehlen.
+/// Shorthand for calendar assertions: only (year, month, day) count.
 ({int y, int m, int d}) ymd(DateTime value) =>
     (y: value.year, m: value.month, d: value.day);
 
-/// Der Wert von `_EditMealSheetState._pickerDays`.
+/// The value of `_EditMealSheetState._pickerDays`.
 const int pickerDays = 35;
 
 void main() {
@@ -55,10 +36,8 @@ void main() {
         today: DateTime(2026, 3, 30),
         count: pickerDays,
       );
-      // Die Off-by-one-Falle aus Welle 1: `dayStrip(pastDays: count).reversed`
-      // haette 36 Eintraege, `dayStrip(pastDays: count - 1).reversed` waere
-      // korrekt — aber leicht falsch abgeschrieben. recentDaysDescending nimmt
-      // die ANZAHL und kann sich gar nicht erst verzaehlen.
+      // Off-by-one trap: `dayStrip(pastDays: count).reversed` would give 36
+      // entries. recentDaysDescending takes the COUNT and cannot miscount.
       expect(tage.length, pickerDays);
       expect(ymd(tage.first), (y: 2026, m: 3, d: 30));
       expect(ymd(tage.last), (y: 2026, m: 2, d: 24));
@@ -67,10 +46,9 @@ void main() {
     test(
       'Fruehjahrsumstellung: der 29.03.2026 ist erreichbar und liegt auf Index 1',
       () {
-        // Der dokumentierte Fehler, als Beleg. Nur auf einer Maschine in einer
-        // Zone MIT Umstellung am 29.03.2026 (z. B. Europe/Berlin) rutscht die
-        // Duration-Subtraktion auf den 28.03. um 23:00; auf UTC gibt es hier
-        // nichts zu belegen und der Block laeuft nicht an.
+        // The documented bug as proof. Only in a zone WITH a switch on
+        // 2026-03-29 does the Duration subtraction slip to 03-28 23:00; on UTC
+        // this block does not run.
         final naiv = DateTime(2026, 3, 30).subtract(const Duration(days: 1));
         if (naiv.day != 29) {
           expect(
@@ -81,13 +59,13 @@ void main() {
           expect(naiv.hour, 23);
         }
 
-        // Das gilt in JEDER Zone:
+        // True in EVERY zone:
         final tage = editMealPickerDays(
           today: DateTime(2026, 3, 30),
           count: pickerDays,
         );
         expect(ymd(tage[0]), (y: 2026, m: 3, d: 30));
-        expect(ymd(tage[1]), (y: 2026, m: 3, d: 29)); // der verschluckte Tag
+        expect(ymd(tage[1]), (y: 2026, m: 3, d: 29)); // the swallowed day
         expect(ymd(tage[2]), (y: 2026, m: 3, d: 28));
         expect(
           tage.map(ymd),
@@ -111,9 +89,8 @@ void main() {
     });
 
     test('jeder Eintrag ist auf den Tagesbeginn normalisiert', () {
-      // Zonenunabhaengig rot fuer die Altfassung: `today.subtract(...)` traegt
-      // die Uhrzeit von `today` weiter. Der Wert wandert ueber onSelected in
-      // `_day` und von dort in `local_day`.
+      // Red for the old version in every zone: `today.subtract(...)` carries
+      // the time of day along, and that value ends up in `local_day`.
       for (final tag in editMealPickerDays(
         today: DateTime(2026, 6, 10, 23, 30, 15),
         count: 7,
@@ -145,9 +122,8 @@ void main() {
     });
 
     test('trifft ueber 2024..2030 hinweg immer das UTC-Orakel', () {
-      // UTC kennt keine Sommerzeit: dort IST `add(Duration(days: -i))` die
-      // Kalenderverschiebung. Genau dieses (y, m, d) muss der Picker lokal
-      // ebenfalls treffen.
+      // UTC has no DST, so there `add(Duration(days: -i))` IS the calendar
+      // shift; the picker must hit the same (y, m, d) locally.
       var cursor = DateTime.utc(2024, 1, 1);
       final ende = DateTime.utc(2030, 12, 31);
       var geprueft = 0;
@@ -177,9 +153,8 @@ void main() {
     });
 
     test('ein ausgewaehlter Tag INNERHALB des Fensters wird nicht gedoppelt', () {
-      // Genau die Stelle, an der der alte Bug doppelt zuschlug: der 29.03. war
-      // nicht in der Liste, also haette ihn dieser Zweig als 36. Chip ans Ende
-      // gehaengt — hinter den 24.02.
+      // Where the old bug struck twice: the 29th was missing from the list, so
+      // this branch would have appended it as a 36th chip at the end.
       final tage = editMealPickerDays(
         today: DateTime(2026, 3, 30),
         count: pickerDays,
@@ -209,7 +184,7 @@ void main() {
     test('Fruehjahrsumstellung: der Vortag heisst „Gestern", nicht „Heute"', () {
       final naiv = DateTime(2026, 3, 30).difference(DateTime(2026, 3, 29));
       if (naiv.inDays != 1) {
-        // Beleg, nur in einer Zone mit Umstellung: 23 Stunden -> inDays == 0.
+        // Proof, only in a zone with a switch: 23 hours -> inDays == 0.
         expect(naiv.inHours, 23);
         expect(naiv.inDays, 0);
       }
@@ -230,7 +205,7 @@ void main() {
         ),
         'Gestern',
       );
-      // Zwei Tage zurueck = Samstag, nicht mehr „Gestern".
+      // Two days back is Saturday, no longer "yesterday".
       expect(
         editMealDayChipLabel(
           today: DateTime(2026, 3, 30),
@@ -242,8 +217,8 @@ void main() {
     });
 
     test('Wochentagskuerzel treffen den richtigen Tag', () {
-      // 30.03.2026 ist ein Montag; Anker ist Mittwoch der Folgewoche, damit
-      // kein Tag in den „Heute"/„Gestern"-Nahbereich faellt.
+      // 2026-03-30 is a Monday; the anchor is the following Wednesday so no day
+      // falls into the today/yesterday range.
       expect(DateTime(2026, 3, 30).weekday, DateTime.monday);
       final today = DateTime(2026, 4, 8);
       expect(
@@ -265,8 +240,8 @@ void main() {
     });
 
     test('Uhrzeiten kippen die Beschriftung nicht (Minuten um Mitternacht)', () {
-      // Zonenunabhaengig rot fuer die Altfassung: 10 Minuten Differenz ergeben
-      // `inDays == 0` und damit „Heute" fuer den Vortag.
+      // Red for the old version in every zone: a 10-minute difference gives
+      // `inDays == 0` and thus "today" for the previous day.
       expect(
         editMealDayChipLabel(
           today: DateTime(2026, 6, 10, 0, 5),
@@ -320,7 +295,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(Brightness.dark),
-          // EditMealSheet liest seit der i18n-Migration context.l10n.
+          // EditMealSheet reads context.l10n.
           locale: const Locale('de'),
           supportedLocales: const [Locale('de'), Locale('en')],
           localizationsDelegates: const [
@@ -353,8 +328,7 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      // Nur die im Viewport gebauten Chips pruefen — der ListView baut den
-      // Rest gar nicht.
+      // Only check chips built in the viewport; the ListView skips the rest.
       for (var i = 0; i < 4; i++) {
         final chip = find.byKey(ValueKey('edit-day-chip-$i'));
         expect(chip, findsOneWidget, reason: 'Chip $i fehlt');

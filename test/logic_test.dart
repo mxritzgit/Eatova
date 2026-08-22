@@ -11,9 +11,9 @@ import 'package:eatova/src/services/food_kcal_db.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
-// Reine Logik-Tests für bislang ungetestete, geld-/datenkritische Funktionen
-// (Slot-Heuristik, Streak, Makro-Aggregation, JSON-Roundtrip der Food-History,
-// Auto-Split, Makro-Aufteilung). Alle deterministisch, netz-/UI-frei.
+// Pure logic tests for money- and data-critical functions (slot heuristic,
+// streak, macro aggregation, food-history JSON roundtrip, auto split, macro
+// split). Deterministic, no network or UI.
 
 MealAnalysisResult _result({
   String name = 'Testmahlzeit',
@@ -70,7 +70,7 @@ void main() {
       final m = LoggedMeal(
         id: 'x',
         result: _result(),
-        loggedAt: DateTime(2026, 6, 2, 23, 0), // wäre snack
+        loggedAt: DateTime(2026, 6, 2, 23, 0), // would be snack
         forcedSlot: MealSlot.breakfast,
       );
       expect(m.slot, MealSlot.breakfast);
@@ -99,8 +99,8 @@ void main() {
     test('Lücke ≥ 1 Tag -> Reset auf 1, longestStreak bleibt', () {
       final s = LifetimeStats()
           .recordTrackedDay(day1)
-          .recordTrackedDay(day2) // Streak 2
-          .recordTrackedDay(day4); // Lücke (day3 fehlt)
+          .recordTrackedDay(day2) // streak 2
+          .recordTrackedDay(day4); // gap (day3 missing)
       expect(s.currentStreak, 1);
       expect(s.longestStreak, 2);
     });
@@ -123,7 +123,7 @@ void main() {
     });
     test('fromRow ist defensiv bei fehlenden/falschen Spalten', () {
       final back = LifetimeStats.fromRow(<String, dynamic>{
-        'workouts_completed': '5', // String statt int
+        'workouts_completed': '5', // string instead of int
         'meals_logged': null,
       });
       expect(back.workoutsCompleted, 5);
@@ -199,12 +199,10 @@ void main() {
       expect(back.items[1].caloriesKcal, 320);
     });
     test('leeres JSON ist KORRUPT und wirft (Sentinel-Rest S1)', () {
-      // Die erste Fassung dieses Tests schrieb „sichere Defaults" als Soll
-      // fest — aber eine aus dem Nichts erfundene 0-kcal-Mahlzeit ohne
-      // explicitZeroKcal ist kein sicherer Default: sie wandert in die
-      // Tagesbilanz und ueber den Outbox-Replay als calories_kcal: 0 auf
-      // den Server. mealResultToJson schreibt caloriesKcal seit jeher
-      // unconditional; ein Payload ohne den Schluessel ist kaputt.
+      // "Safe defaults" would not be safe: an invented 0 kcal meal without
+      // explicitZeroKcal enters the daily total and reaches the server as
+      // calories_kcal: 0. mealResultToJson always writes caloriesKcal, so a
+      // payload without the key is broken.
       expect(() => mealResultFromJson(<String, dynamic>{}),
           throwsFormatException);
     });
@@ -215,9 +213,8 @@ void main() {
       expect(back.mealName, 'Mahlzeit');
       expect(back.caloriesKcal, 300);
       expect(back.items, isEmpty);
-      // Scan/Coach-PR (2026-08-11): der Fallback fuer eine fehlende
-      // sourceLabel-Angabe ist jetzt der sprachneutrale Code, nicht mehr der
-      // deutsche Anzeigetext direkt — s. MealResultSource-Doku.
+      // The fallback for a missing sourceLabel is the language-neutral code,
+      // not a German display string (see MealResultSource docs).
       expect(back.sourceLabel, 'aiEstimate');
       expect(back.resolvedSourceLabel(deL10n), 'KI-Schätzung');
       expect(back.resolvedSourceLabel(enL10n), 'AI estimate');
@@ -230,7 +227,7 @@ void main() {
           ['Hähnchen', 'Reis', 'Brokkoli']);
       expect(splitMealName('Lachs & Spargel + Kartoffeln auf einem Teller'),
           contains('Lachs'));
-      expect(splitMealName('Pizza'), ['Pizza']); // nicht teilbar
+      expect(splitMealName('Pizza'), ['Pizza']); // not splittable
     });
     test('autoSplitItems erhält die kcal-Summe der KI', () {
       final items = autoSplitItems(
@@ -240,7 +237,7 @@ void main() {
       );
       expect(items.length, 3);
       final kcalSum = items.fold<int>(0, (s, c) => s + c.caloriesKcal);
-      // Rundung pro Posten -> Summe nahe am Ziel.
+      // Rounded per item, so the sum lands near the target.
       expect(kcalSum, closeTo(700, 3));
       final gramSum = items.fold<int>(0, (s, c) => s + c.grams);
       expect(gramSum, closeTo(600, 3));
@@ -268,7 +265,7 @@ void main() {
       expect(t.carbsG, greaterThan(0));
       expect(t.fatG, greaterThan(0));
       final fromMacros = t.proteinG * 4 + t.carbsG * 4 + t.fatG * 9;
-      expect(fromMacros, closeTo(t.kcal, 60)); // Rundungstoleranz
+      expect(fromMacros, closeTo(t.kcal, 60)); // rounding tolerance
     });
   });
 }

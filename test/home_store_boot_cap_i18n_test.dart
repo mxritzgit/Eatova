@@ -22,37 +22,23 @@ import 'package:eatova/src/services/meals_sync.dart' show mealResultToJson;
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Komplettreview 2026-08-19, Paket „Home-Store-Kern". Drei Befunde, drei
-// Gruppen:
-//
-//   1. Das Willkommens-Gate (profileReady) hing am ENDE des Netz-Boots, und
-//      auf diesem Weg traegt kein Schritt ein Timeout. Ein Socket, der nie
-//      antwortet (WLAN mit Captive Portal), liess die App dauerhaft im
-//      WelcomeScreen stehen — obwohl der Cache den anzeigefaehigen Zustand
-//      laengst geliefert hatte.
-//   2. Der 5er-Deckel auf die automatischen Recents war rein lokal:
-//      favorite_meals wuchs serverseitig mit jeder distinkten Mahlzeit, und
-//      der naechste Kaltstart holte die ganze Historie ins Add-Sheet zurueck.
-//   3. Die Bestaetigungen des Bearbeiten-Sheets waren hart deutsch, obwohl
-//      home_store_meals.dart als i18n-migriert galt.
+// Review 2026-08-19, "home store core": the welcome gate hung on the untimed
+// end of the network boot, so a silent socket stranded the app in the
+// WelcomeScreen; the 5-item recents cap was local only, so favorite_meals grew
+// server-side; and the edit-sheet confirmations were hardcoded German.
 
-/// Fake-PostgREST fuer genau die drei Fragen dieses Pakets: liefert
-/// favorite_meals-Zeilen, zeichnet Loeschungen auf — und kann auf Wunsch
-/// SCHWEIGEN statt zu scheitern. Das Schweigen ist der eigentliche Punkt von
-/// Befund 1: ein Fehler feuert `catchError`, ein stummer Socket feuert gar
-/// nichts.
+/// Fake PostgREST: serves favorite_meals rows, records deletions, and can go
+/// SILENT instead of failing — a silent socket fires no `catchError` at all.
 class _FakeServer {
   _FakeServer({this.schweigt = false});
 
-  /// Kein Request wird je beantwortet (Captive Portal). Bewusst NICHT „wirft":
-  /// gegen einen Wurf war der Boot immer schon robust.
+  /// No request is ever answered. Deliberately not "throws".
   final bool schweigt;
 
-  /// favorite_meals, wie `loadFavorites` sie erwartet — Aufrufer legen sie in
-  /// added_at-absteigender Reihenfolge ab (so sortiert der echte Query).
+  /// favorite_meals rows as `loadFavorites` expects them: added_at descending.
   final List<Map<String, dynamic>> favoriteRows = <Map<String, dynamic>>[];
 
-  /// Jeder favorite_key, den ein DELETE auf favorite_meals getroffen hat.
+  /// Every favorite_key hit by a DELETE on favorite_meals.
   final List<String> geloeschteFavoriten = <String>[];
 
   http.Client client() => MockClient((req) async {
@@ -60,10 +46,7 @@ class _FakeServer {
         final path = req.url.path;
         http.Response ok(Object body) => http.Response(jsonEncode(body), 200,
             headers: const {'Content-Type': 'application/json'}, request: req);
-        // Beide Zaehler-RPCs liefern eine ZEILE (nicht `[]`): `.select()
-        // .single()` wuerde an einer leeren Antwort werfen, und der Store
-        // liefe in seine Fehlerpfade — Rauschen, das mit keinem der drei
-        // Befunde zu tun hat.
+        // A ROW, not `[]`: `.select().single()` throws on an empty answer.
         if (path.contains('/rpc/')) return ok(_statsRow);
         if (path.endsWith('/favorite_meals')) {
           if (req.method == 'DELETE') {
@@ -77,16 +60,12 @@ class _FakeServer {
           if (req.method == 'GET') return ok(favoriteRows);
           return ok(const <dynamic>[]);
         }
-        // Alles Uebrige: leere Sammlung bzw. quittierter Write. Der Boot-Load
-        // findet damit weder Profil noch Mahlzeiten — genau der „frisches
-        // Geraet"-Zustand, den die Gate-Tests brauchen.
+        // Everything else: the "fresh device" state the gate tests need.
         return ok(const <dynamic>[]);
       });
 }
 
-/// Antwortzeile der beiden Zaehler-RPCs (increment_lifetime_stats /
-/// record_tracking_day) — die Werte sind fuer dieses Paket egal, nur die FORM
-/// zaehlt.
+/// Response row of the two counter RPCs; only the SHAPE matters here.
 const Map<String, dynamic> _statsRow = <String, dynamic>{
   'workouts_completed': 0,
   'meals_logged': 0,
@@ -121,15 +100,12 @@ const String _userId = 'user-boot-cap';
   final client = SupabaseClient(
     'https://example.supabase.co',
     'test-anon-key',
-    // Kein GoTrue-Auto-Refresh-Ticker im Test (s. clobber_guard_test.dart).
+    // No GoTrue auto-refresh ticker in tests (see clobber_guard_test.dart).
     httpClient: server.client(),
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
-  // BEWUSST kein `addTearDown(client.dispose)` (Muster clobber_guard_test):
-  // im Schweige-Modus haengt ein Request unbeantwortet in der Luft, und ein
-  // dispose, das darauf wartet, liefe in den Test-Timeout. Da der
-  // GoTrue-Auto-Refresh-Ticker via autoRefreshToken:false aus ist, bleibt kein
-  // pendender Timer zurueck — der Client wird einfach GC'd.
+  // No `addTearDown(client.dispose)`: in silent mode a request hangs forever
+  // and dispose would wait it into the test timeout; no timer is left pending.
   final cache = LocalCache(InMemoryKeyValueStore(), _userId);
   final snacks = _SnackCapture();
   final store = HomeStore(
@@ -144,7 +120,7 @@ const String _userId = 'user-boot-cap';
   return (store: store, server: server, cache: cache, snacks: snacks);
 }
 
-/// Store OHNE Sync — fuer die reinen Textpfade (Befund 3).
+/// Store WITHOUT sync, for the pure text paths (finding 3).
 ({HomeStore store, _SnackCapture snacks}) _setupOhneSync() {
   final snacks = _SnackCapture();
   final store = HomeStore(
@@ -196,9 +172,8 @@ void main() {
 
       s.store.start();
 
-      // Ohne den Fix laeuft das hier in den Test-Timeout: der Completer wurde
-      // erst am Ende von _bootFromSupabase erfuellt, und der Future.wait der
-      // sechs Loads antwortet nie.
+      // Without the fix this times out: the completer only fired at the end of
+      // _bootFromSupabase, whose Future.wait never returns.
       await expectLater(
         s.store.profileReady.timeout(const Duration(seconds: 3)),
         completes,
@@ -235,10 +210,8 @@ void main() {
     test(
         'Kontrolle: ein antwortender Server oeffnet das Gate weiterhin ueber '
         'den regulaeren Boot-Weg', () async {
-      // Kein Cache-Profil, aber ein antwortender Server. Die Wanduhr ist hier
-      // die Aussage: 3 s echte Zeit sind deutlich weniger als das Budget von
-      // [kBootNetworkBudget] — das Gate faellt also am Boot-Ende, nicht am
-      // Waechter. Der darf den Normalfall nicht verschieben.
+      // No cached profile, responding server: 3 s is well under
+      // [kBootNetworkBudget], so the gate opens at boot end, not via the guard.
       final s = _setup();
 
       s.store.start();
@@ -253,8 +226,7 @@ void main() {
   group('Befund 2 — der Recents-Deckel gilt auch serverseitig', () {
     test('der Boot kappt die geladene Favoritenliste auf den Deckel', () async {
       final s = _setup();
-      // Der Server kennt den Deckel nicht: acht Auto-Recents (added_at
-      // absteigend, wie loadFavorites sortiert) plus ein angehefteter Favorit.
+      // The server knows no cap: eight auto recents plus one pinned favorite.
       s.server.favoriteRows.add(_favoriteRow('Angeheftet',
           addedAt: DateTime.utc(2026, 8, 19, 12), pinned: true));
       for (var i = 0; i < 8; i++) {
@@ -287,7 +259,7 @@ void main() {
       await s.store.profileReady.timeout(const Duration(seconds: 3));
       await pumpEventQueue(times: 60);
 
-      // Sechs distinkte Mahlzeiten -> die aelteste faellt aus dem 5er-Deckel.
+      // Six distinct meals -> the oldest falls out of the 5-item cap.
       for (var i = 0; i < 6; i++) {
         s.store.addResultToDailyTotal(_meal('Gericht $i'));
         await pumpEventQueue(times: 60);
@@ -324,9 +296,7 @@ void main() {
   });
 
   group('Befund 3 — die Bestaetigungen folgen der App-Sprache', () {
-    // Uhr festgenagelt: der 30.03.2026 liegt hinter der Fruehjahrsumstellung,
-    // dieselbe Kante, die B5 abgesichert hat (s.
-    // home_store_edit_details_test.dart).
+    // Clock pinned past the spring DST switch — the edge B5 covers.
     void mitUhr(void Function() body) =>
         withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), body);
 

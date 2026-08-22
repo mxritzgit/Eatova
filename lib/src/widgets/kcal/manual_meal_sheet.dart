@@ -7,17 +7,14 @@ import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
 import '../design/sheets.dart';
 
-/// Formular für eigene Nährwerte (Spec 2026-08-13): Werte vom Etikett PRO
-/// 100 g plus die gegessene Portion — `MealAnalysisResult.manualEntry`
-/// rechnet die Portionswerte aus. Für Lebensmittel ohne Datenbank-Eintrag
-/// (Hofladen, Wochenmarkt, lose Ware).
+/// Form for custom nutrition values: label values PER 100 g plus the portion
+/// eaten; `MealAnalysisResult.manualEntry` computes the portion values. For
+/// foods with no database entry.
 ///
-/// Liefert das fertige Ergebnis zurück oder null (abgebrochen); GELOGGT wird
-/// im Aufrufer (Add-Meal-Sheet) — dieselbe Trennung wie beim Analyse-Sheet.
+/// Returns the finished result or null (cancelled); the caller logs it.
 ///
-/// **Bewusst OHNE Verwerfen-Schutz (D5-Kriterium, s. add_meal_sheet.dart):**
-/// hier stehen ein Name und vier Zahlen vom Etikett — in Sekunden erneut
-/// eingetippt, anders als die acht Rezeptfelder.
+/// **Deliberately without a discard guard (D5 criterion):** a name and four
+/// numbers are retyped in seconds, unlike the eight recipe fields.
 Future<MealAnalysisResult?> showManualMealSheet(
   BuildContext context, {
   String? initialName,
@@ -26,7 +23,7 @@ Future<MealAnalysisResult?> showManualMealSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Wie im Add-Meal-Sheet: der Scrim dunkelt in beiden Anzeige-Modi ab.
+    // As in the add-meal sheet: the scrim dims in both display modes.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (sheetContext) => ManualMealSheet(initialName: initialName),
   );
@@ -35,7 +32,7 @@ Future<MealAnalysisResult?> showManualMealSheet(
 class ManualMealSheet extends StatefulWidget {
   const ManualMealSheet({super.key, this.initialName});
 
-  /// Vorbelegung aus der Produktsuche („nichts gefunden" → Suchbegriff).
+  /// Prefill from the product search (nothing found -> search term).
   final String? initialName;
 
   @override
@@ -50,10 +47,9 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   late final TextEditingController _carbs;
   late final TextEditingController _fat;
 
-  // kcal/100 g läuft gegen die PLAUSIBILITÄTS-Grenze (reines Fett ~900),
-  // nicht gegen die DB-Grenze — mehr ist physikalisch unmöglich. Die 0 ist
-  // erlaubt: eine ausdrückliche 0 (Wasser, Zero) ist eine Messung
-  // (MealAnalysisResult.explicitZeroKcal), kein fehlender Wert.
+  // kcal/100 g is bounded by plausibility (pure fat ~900), not by the DB
+  // limit. 0 is allowed: an explicit 0 (water, zero drinks) is a measurement
+  // (MealAnalysisResult.explicitZeroKcal), not a missing value.
   static const int _kcal100Min = 0; // PlausibilityLimits.kcalPer100GMin
   static const int _kcal100Max = 900; // PlausibilityLimits.kcalPer100GMax
   static const int _gramsMin = 1; // PlausibilityLimits.portionGramsMin
@@ -66,16 +62,15 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     super.initState();
     _name = _feld(widget.initialName?.trim() ?? '');
     _kcal100 = _feld();
-    // 100 g als Startwert: die Etikett-Basis selbst — wer die ganze
-    // Referenzmenge isst, muss nichts anfassen.
+    // 100 g as the start value: the label base itself.
     _grams = _feld('100');
     _protein = _feld();
     _carbs = _feld();
     _fat = _feld();
   }
 
-  /// Controller mit Rebuild-Listener — Save-Sperre, Fehlertexte und die
-  /// Vorschauzeile hängen live am Feldinhalt (Muster recipe_create_sheet).
+  /// Controller with a rebuild listener — save lock, error texts and the
+  /// preview line hang live on the field content.
   TextEditingController _feld([String start = '']) {
     final controller = TextEditingController(text: start);
     controller.addListener(() => setState(() {}));
@@ -93,9 +88,8 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     super.dispose();
   }
 
-  /// Fehlertext für ein Ganzzahlfeld oder null. Ein LEERES Feld bekommt
-  /// bewusst keinen Fehler („noch nichts eingegeben" ist kein Eingabefehler);
-  /// fehlende Pflichtwerte sperren allein über [_isValid].
+  /// Error text for an integer field, or null. An EMPTY field gets no error
+  /// on purpose; missing required values block via [_isValid] alone.
   String? _bereichsFehler(
     TextEditingController controller, {
     required int min,
@@ -123,10 +117,9 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     bereichstext: context.l10n.recipesRangeErrorGrams,
   );
 
-  /// Makro-Felder tragen DEZIMALWERTE (s. [_makroOderNull]) — die
-  /// Bereichsprüfung läuft deshalb auf der geparsten Zahl und nicht über
-  /// [_bereichsFehler], das eine reine Ziffernfolge erwartet. Die Grenzen
-  /// bleiben ganzzahlig, weil der Fehlertext `int`-Platzhalter führt.
+  /// Macro fields carry DECIMALS (see [_makroOderNull]), so the range check
+  /// runs on the parsed number rather than [_bereichsFehler], which expects
+  /// digits only. Bounds stay integers because the error text takes `int`.
   String? _makroFehler(TextEditingController controller) {
     if (controller.text.trim().isEmpty) return null;
     final wert = _makroOderNull(controller);
@@ -153,17 +146,16 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     return text.isEmpty ? null : int.tryParse(text);
   }
 
-  /// Makro-Wert pro 100 g als Dezimalzahl, Komma ODER Punkt als Trenner —
-  /// dasselbe Muster wie `_MacroField` in meal_widgets_adjust.dart: 0,5 g
-  /// Fett muss eingebbar sein.
+  /// Macro value per 100 g as a decimal, comma OR dot as separator — 0.5 g of
+  /// fat must be enterable (same pattern as `_MacroField`).
   double? _makroOderNull(TextEditingController controller) {
     final text = controller.text.trim();
     if (text.isEmpty) return null;
     return double.tryParse(text.replaceAll(',', '.'));
   }
 
-  /// Gerechnete Portion für die Vorschauzeile — nur wenn beide Pflichtzahlen
-  /// gültig dastehen, sonst null (keine Vorschau aus halben Eingaben).
+  /// Computed portion for the preview line — only when both required numbers
+  /// are valid, otherwise null.
   int? get _vorschauKcal {
     if (_kcal100Fehler != null || _gramsFehler != null) return null;
     final kcal100 = _zahlOderNull(_kcal100);
@@ -178,17 +170,14 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     Navigator.of(context).pop(_ergebnis());
   }
 
-  /// Baut das Ergebnis aus [MealAnalysisResult.manualEntry] und setzt NUR die
-  /// drei Makro-Strings nach.
+  /// Builds the result from [MealAnalysisResult.manualEntry] and only patches
+  /// the three macro strings.
   ///
-  /// **Zwang, den der Code nicht zeigt:** die Factory nimmt die Makros pro
-  /// 100 g heute als `int` — ein getipptes „3,5" müsste dort auf 4 gerundet
-  /// werden und wäre für 125 g um ein halbes Gramm falsch. Ihre Signatur
-  /// liegt in `models/meal_analysis_result.dart` und bleibt in diesem
-  /// Durchgang unangetastet; solange sie `int` führt, skaliert dieses Sheet
-  /// die drei Werte mit demselben ÖFFENTLICHEN Formatierer nach, den die
-  /// Factory selbst benutzt. Alles Übrige — Klemmen, Herkunfts-Codes,
-  /// `explicitZeroKcal` — kommt unverändert aus der Factory.
+  /// Constraint not visible in the code: the factory takes macros per 100 g as
+  /// `int`, so a typed "3,5" would round to 4 and be half a gram off for
+  /// 125 g. While that signature stays `int`, this sheet scales the three
+  /// values with the same public formatter the factory uses. Everything else —
+  /// clamping, source codes, `explicitZeroKcal` — comes from the factory.
   MealAnalysisResult _ergebnis() {
     final basis = MealAnalysisResult.manualEntry(
       name: _name.text,
@@ -227,8 +216,8 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
       padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
       child: Container(
         key: const ValueKey('manual-meal-sheet'),
-        // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
-        // fuenf Eingabefelder, die Tastatur ist hier praktisch immer offen.
+        // Safe-area and keyboard aware instead of a fixed 92 %: five input
+        // fields, so the keyboard is practically always open.
         constraints: BoxConstraints(maxHeight: sheetMaxHeightOf(context)),
         decoration: BoxDecoration(
           color: t.bg,
@@ -277,9 +266,8 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
               _ManualGroup(
                 label: l10n.foodManualGroupNutrition,
                 trailing: l10n.foodManualPer100GSuffix,
-                // 2×2 statt 4 Spalten: die Felder tragen längere Kopfzeilen
-                // („KALORIEN · KCAL") und bleiben so auch bei großer Schrift
-                // einzeilig.
+                // 2x2 instead of 4 columns: the headers are long and stay on
+                // one line this way even at large font sizes.
                 child: Column(
                   children: [
                     Row(
@@ -378,8 +366,8 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                 ),
               ),
               const SizedBox(height: 14),
-              // FilledButton mit onPressed == null als Sperrsignal — dasselbe
-              // testbare Muster wie recipe-create-save.
+              // FilledButton with onPressed == null as the lock signal — same
+              // testable pattern as recipe-create-save.
               FilledButton.icon(
                 key: const ValueKey('manual-meal-save'),
                 onPressed: _isValid ? _save : null,
@@ -407,9 +395,8 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   }
 }
 
-/// Gruppen-Kopf (Versalien-Label + gedämpfter Zusatz rechts) — lokale Kopie
-/// des `_SheetGroup`-Musters aus recipe_create_sheet.dart; beide Sheets
-/// sprechen dieselbe Formular-Sprache.
+/// Group header (uppercase label plus a muted suffix on the right) — local
+/// copy of the `_SheetGroup` pattern from recipe_create_sheet.dart.
 class _ManualGroup extends StatelessWidget {
   const _ManualGroup({required this.label, required this.child, this.trailing});
 
@@ -456,10 +443,9 @@ class _ManualGroup extends StatelessWidget {
   }
 }
 
-/// Beschriftetes Eingabefeld — lokale Kopie des `_RecipeSheetField`-Musters
-/// (recipe_create_sheet.dart): Versalien-Kopfzeile mit Einheit, Kapsel ohne
-/// InputDecoration-Rahmen, rot nur bei Fehler, Semantics-Label für den
-/// Screenreader.
+/// Labelled input field — local copy of the `_RecipeSheetField` pattern:
+/// uppercase header with unit, capsule without an InputDecoration border, red
+/// only on error, semantics label for the screen reader.
 class _ManualField extends StatelessWidget {
   const _ManualField({
     required this.fieldKey,
@@ -481,9 +467,9 @@ class _ManualField extends StatelessWidget {
   final String? unit;
   final bool numeric;
 
-  /// Nur mit [numeric] sinnvoll: lässt Komma und Punkt zusätzlich zu den
-  /// Ziffern durch. Trägt allein das Feld, dessen Wert gebrochen sein darf —
-  /// kcal/100 g und die Portionsgramm bleiben ganzzahlig.
+  /// Only meaningful with [numeric]: also allows comma and dot. Set only on
+  /// fields whose value may be fractional; kcal/100 g and portion grams stay
+  /// integers.
   final bool decimal;
   final int? maxChars;
   final String? errorText;
@@ -496,9 +482,9 @@ class _ManualField extends StatelessWidget {
     final zifferntastatur = decimal
         ? const TextInputType.numberWithOptions(decimal: true)
         : TextInputType.number;
-    // `digitsOnly` schluckt das Trennzeichen STUMM: aus „3,5" würde 35 — ein
-    // Faktor 10 in den Ringen, in der Datenbank und im 90-Tage-Schnitt, den
-    // die richtig bleibenden Kalorien nirgends verraten.
+    // `digitsOnly` swallows the separator SILENTLY: "3,5" becomes 35 — a
+    // factor of 10 in the rings, the database and the 90-day average, with
+    // the still-correct calories hiding it.
     final ziffernfilter = decimal
         ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
         : FilteringTextInputFormatter.digitsOnly;
@@ -509,9 +495,8 @@ class _ManualField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          // Feste einzeilige Kopfzeile — s. recipe_create_sheet.dart:
-          // ungleich umbrechende Labels ließen die Felder sonst auf
-          // verschiedenen Höhen beginnen.
+          // Fixed one-line header: unevenly wrapping labels would otherwise
+          // start the fields at different heights.
           height: MediaQuery.textScalerOf(context).scale(9.5) * 1.35,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,

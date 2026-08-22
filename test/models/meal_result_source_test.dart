@@ -3,12 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
-// Scan/Coach-PR (2026-08-11): sourceLabel/portionLabel sind seither
-// sprachneutral — s. MealResultSource-Klassendoku in meal_analysis_result.dart
-// fuer die vollstaendige Kompatibilitaetsmatrix. Diese Tests decken beide
-// Halbschritte gezielt ab: die ENUM-AUFLOESUNG (alt-de-Zeile -> Enum ->
-// Anzeige de/en; unbekannter String -> Pass-through) und die Portion, die nie
-// persistiert wurde und deshalb keinen Kompatibilitaets-Fall braucht.
+// sourceLabel/portionLabel are language-neutral since 2026-08-11; the full
+// compatibility matrix lives in the MealResultSource class doc. Covered here:
+// enum resolution (legacy line -> enum -> display, unknown -> pass-through)
+// and the portion, which was never persisted.
 void main() {
   group('MealResultSource.resolve — Kompatibilitaetsmatrix', () {
     test('deutscher Bestandswert (Alt-Zeile) wird erkannt', () {

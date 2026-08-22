@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 import 'coach_recipe_proposal.dart';
 
-/// Eine einzelne Nachricht im Coach-Chat. role ist user|assistant - die
-/// system-Rolle bleibt serverseitig und wird hier nicht modelliert.
+/// A single coach-chat message. Role is user|assistant; the system role stays
+/// server-side and is not modelled here.
 class ChatMessage {
   const ChatMessage({
     required this.id,
@@ -21,16 +21,13 @@ class ChatMessage {
   final DateTime createdAt;
   final bool refusal;
 
-  /// Nur fuer frisch gesendete lokale Nachrichten. Historie aus Supabase
-  /// speichert aktuell bewusst keine Bilddaten, damit die Tabelle schlank und
-  /// privat bleibt.
+  /// Locally sent messages only; Supabase history stores no image data, to keep
+  /// the table small and private.
   final Uint8List? imageBytes;
 
-  /// Rezept-Vorschlag aus /recipe. Anders als [imageBytes] UEBERLEBT er den
-  /// Reload (Nachtrag 2026-08-13): das Rezept-JSON kommt aus der Spalte
-  /// `chat_messages.recipe` zurueck, [fromRow] baut das Proposal daraus
-  /// wieder auf — nur OHNE Bytes. Das Bild laedt der Screen anschliessend
-  /// aus dem RecipeImageStore nach (geraetelokal; Zweitgeraet = Platzhalter).
+  /// Recipe proposal from /recipe. Unlike [imageBytes] it survives a reload:
+  /// [fromRow] rebuilds it from `chat_messages.recipe`, but without bytes. The
+  /// screen then loads the image from the device-local RecipeImageStore.
   final CoachRecipeProposal? recipeProposal;
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
@@ -62,20 +59,12 @@ class ChatMessage {
 
 enum ChatRole { user, assistant }
 
-/// Snapshot der Quota fuer den Counter im UI.
+/// Quota snapshot for the UI counter: numbers the server actually reported.
 ///
-/// Ein Snapshot bedeutet: *der Server hat diese Zahlen genannt*. Es gibt hier
-/// bewusst KEINEN `unknown`-Wert mehr. Der frueher an dieser Stelle stehende
-/// `ChatQuotaSnapshot.unknown` war mit `used: 0, remaining: 5, dailyLimit: 5`
-/// belegt und hiess damit nicht „unbekannt", sondern „volles Kontingent":
-/// `CoachChatService.loadQuotaToday()` lieferte ihn bei JEDEM Fehler, der
-/// Coach-Screen schrieb ihn ungeprueft in seinen Zustand. Eine Netzstoerung
-/// fuellte so ein erschoepftes Kontingent wieder auf — die Sperre fiel, und
-/// der naechste Versuch lief in den 429 des Servers.
-///
-/// „Unbekannt" ist jetzt die *Abwesenheit* eines Snapshots: der Service wirft
-/// `CoachDataUnavailable`, der Screen haelt ein `ChatQuotaSnapshot?` und
-/// behaelt bei einem Fehlschlag seinen letzten bekannten Stand.
+/// There is deliberately no `unknown` value — a fallback snapshot would read as
+/// "full quota" and unlock an exhausted composer. Unknown is the *absence* of a
+/// snapshot: the service throws `CoachDataUnavailable` and the screen keeps its
+/// last known `ChatQuotaSnapshot?`.
 class ChatQuotaSnapshot {
   const ChatQuotaSnapshot({
     required this.used,
@@ -87,13 +76,9 @@ class ChatQuotaSnapshot {
   final int remaining;
   final int dailyLimit;
 
-  /// Tageslimit, mit dem die App rechnet, solange der Server keines genannt
-  /// hat — und zugleich der Wert, den sie beim RPC anfragt.
-  ///
-  /// Reiner ANZEIGE-Ersatz fuer Widgets, die zwingend eine Zahl brauchen
-  /// (Composer-Hinweis, Info-Sheet). Ausdruecklich KEINE Zustandsangabe: ob
-  /// der Composer sperrt, haengt allein daran, ob ueberhaupt ein Snapshot
-  /// vorliegt und was darin steht — nie an dieser Konstante.
+  /// Daily limit assumed until the server names one, and the value requested
+  /// via RPC. Display-only fallback for widgets that need a number; whether the
+  /// composer locks depends solely on the snapshot, never on this constant.
   static const int standardTageslimit = 5;
 
   ChatQuotaSnapshot copyWith({int? used, int? remaining, int? dailyLimit}) {

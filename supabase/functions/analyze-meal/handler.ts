@@ -1,23 +1,12 @@
-// Eatova Foto-Kalorienanalyse - Request-Handler.
+// Eatova photo calorie analysis - request handler.
 //
-// Liegt bewusst NEBEN index.ts (das nur noch `Deno.serve(handleRequest)`
-// aufruft): so laesst sich der komplette Request-Pfad in handler_test.ts
-// end-to-end testen (fetch gestubbt), ohne einen Server zu starten. Vorher
-// stand `Deno.serve` auf Modulebene — die Datei liess sich also gar nicht
-// importieren, ohne einen Port zu belegen, weshalb es fuer authenticateUser,
-// die beiden Rate-Limit-Gates und die Bild-Pruefung keinen einzigen Test gab.
-// Gleiche Trennung wie bei coach-chat (index.ts/handler.ts) und wie sie
-// normalize.ts fuer die Normalisierung schon vorweggenommen hatte.
+// Kept next to index.ts (which only calls `Deno.serve(handleRequest)`) so the
+// whole request path is testable end-to-end without binding a port.
 //
-// Die vier Request-Secrets liest handleRequest PRO REQUEST (frueher beim
-// Modul-Load) und reicht sie als Objekt weiter. Zwei Gruende:
-//  - nur so wirkt Deno.env.set im Test; beim Modul-Load waeren die Werte
-//    bereits gelesen, bevor die Testdatei ueberhaupt laeuft.
-//  - ein Objekt statt mehrerer String-Parameter verhindert das lautlose
-//    Vertauschen von Basis-URL und Key (gleiche Begruendung wie in
-//    ../_shared/rate_limit_prune.ts).
-// Fachlich ist das ein No-Op: in der Edge-Runtime steht die Environment beim
-// Isolate-Start fest und aendert sich waehrend seiner Lebensdauer nicht.
+// handleRequest reads the four secrets PER REQUEST, not at module load: only
+// then does Deno.env.set work in tests. Passing them as one object avoids
+// silently swapping base URL and key. Functionally a no-op, since the edge
+// runtime fixes the environment at isolate start.
 
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { positiveIntFromEnv } from '../_shared/env.ts';
@@ -30,22 +19,16 @@ import {
   unparseableShape,
 } from './normalize.ts';
 
-// Vision-/Analyse-Modell (Bild rein, JSON-Text raus). Aktuell:
-// google/gemini-3.5-flash-lite — echtes Vision→Text-Modell (input: image,
-// output: text), unterstützt response_format/json_object + temperature +
-// reasoning_effort; günstig & schnell. Das OPENROUTER_MODEL-Secret übersteuert
-// diesen Default (Code + Secret bewusst gleich halten, sonst Drift wie 2026-05).
+// Vision model (image in, JSON text out). The OPENROUTER_MODEL secret
+// overrides this default; keep code and secret in sync to avoid drift.
 //
-// Drei Footguns vermeiden:
-//  1) KEINE "-image"-Modelle (gpt-5-image*, gemini-*-flash-image / "Nano Banana"):
-//     die "image"-Familie ist Bild-GENERIERUNG (Output = image) und liefert
-//     keine Foto→JSON-Analyse → provider_invalid_json / 502.
-//  2) KEINE reinen Reasoning-Modelle (gpt-5, gpt-5-mini, …): die lehnen
-//     'temperature' ab ("Unsupported parameter") UND verbrauchen das
-//     max_tokens-Budget mit Reasoning → leerer Output → provider_invalid_json.
-//  3) Gemini-3.x-flash-lite kann "thinking" — deshalb unten reasoning.effort
-//     'minimal', damit Reasoning nicht das max_tokens-Budget frisst (gleiche
-//     Leerer-Output-Falle wie 2).
+// Footguns:
+//  1) No "-image" models: that family generates images and cannot return
+//     photo->JSON analysis (provider_invalid_json / 502).
+//  2) No pure reasoning models: they reject 'temperature' and spend the
+//     max_tokens budget on reasoning -> empty output.
+//  3) gemini-3.x-flash-lite can think, hence reasoning.effort 'minimal'
+//     below (same empty-output trap as 2).
 const OPENROUTER_MODEL = Deno.env.get('OPENROUTER_MODEL') ?? 'google/gemini-3.5-flash-lite';
 const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
   .split(',')
@@ -53,20 +36,15 @@ const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
   .filter(Boolean);
 
 const MAX_CONTENT_LENGTH = 7_000_000;
-// Haengt der LLM-Provider, soll die Function mit sauberem Fehler-JSON
-// antworten statt bis zum Plattform-Kill zu warten. Bewusst UNTER dem
-// Client-Timeout (60 s auf request.close() in meal_analyzer.dart), damit der
-// Nutzer die konkrete provider_timeout-Antwort sieht und nicht in den
-// generischen Client-Timeout laeuft.
+// Deliberately below the 60 s client timeout so a hanging provider yields a
+// clean provider_timeout JSON instead of the generic client timeout.
 const OPENROUTER_TIMEOUT_MS = 45_000;
 const MAX_IMAGE_BYTES = 5_000_000;
 const MIN_IMAGE_BYTES = 128;
 const MAX_HINT_CHARS = 400;
-// Defensiv geparst (positiveIntFromEnv statt Number()): ein nicht-numerisches
-// Secret ergaebe sonst NaN -> JSON `null` -> der SQL-Guard von
-// consume_edge_rate_limit wirft -> die RPC antwortet 500 -> JEDER Request der
-// Function scheitert mit `rate_limit_unavailable`. Ein Tippfehler im Secret
-// haette also einen Totalausfall ausgeloest.
+// positiveIntFromEnv, not Number(): a non-numeric secret would become NaN ->
+// JSON null -> the SQL guard throws -> every request fails with
+// `rate_limit_unavailable`. A typo would be a total outage.
 const USER_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_USER_LIMIT', 20);
 const USER_WINDOW_SECONDS = positiveIntFromEnv('ANALYZE_MEAL_USER_WINDOW_SECONDS', 3600);
 const IP_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_IP_LIMIT', 60);
@@ -146,7 +124,7 @@ type ParsedBody = {
   language: Language;
 };
 
-/** Zugangsdaten dieses Requests. Bewusst ein Objekt (s. Dateikopf). */
+/** Credentials for this request; one object on purpose (see file header). */
 type Secrets = {
   supabaseUrl: string;
   anonKey: string;
@@ -170,9 +148,8 @@ export async function handleRequest(request: Request): Promise<Response> {
     enforceContentLength(request);
 
     const user = await authenticateUser(request, secrets);
-    // Nicht mehr `.split(",")[0]` des x-forwarded-for: Cloudflare HAENGT an,
-    // der linkeste Eintrag ist also der vom Client selbst gesetzte und damit
-    // frei waehlbar. Begruendung + Fallback: ../_shared/client_ip.ts.
+    // Not the leftmost x-forwarded-for entry: Cloudflare appends, so that one
+    // is client-controlled. Reasoning: ../_shared/client_ip.ts.
     const ipSubject = clientIpSubject(request, user.id);
 
     const ipLimit = await consumeRateLimit(secrets, 'analyze-meal:ip', ipSubject, IP_LIMIT, IP_WINDOW_SECONDS);
@@ -185,10 +162,9 @@ export async function handleRequest(request: Request): Promise<Response> {
       return rateLimitedResponse(request, userLimit, requestId);
     }
 
-    // Bewusst ohne await: die Aufraeumarbeit darf den Request nicht aufhalten.
-    // Warum die Fehlerbehandlung zwingend IN der Funktion sitzt (eine Rejection
-    // hier waere unbehandelt und beendete den Isolate mitten im bezahlten
-    // Modellaufruf): ../_shared/rate_limit_prune.ts.
+    // No await: cleanup must not delay the request. Error handling lives
+    // inside the function, since an unhandled rejection here would kill the
+    // isolate mid model call (../_shared/rate_limit_prune.ts).
     void pruneRateLimits({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey });
 
     const body = await parseBody(request);
@@ -196,22 +172,12 @@ export async function handleRequest(request: Request): Promise<Response> {
     const providerResult = await callOpenRouter(secrets, body, prompt, requestId);
     const result = normalizeMealResult(providerResult);
 
-    // caloriesKcal, estimatedGrams und kcalPer100G kommen unabhaengig aus dem
-    // Modell und koennen sich widersprechen (Review 2026-08-08, B1: 260 * 300
-    // / 100 = 780, behauptet werden 850). Der Server MELDET das nur:
-    //
-    //  - Welche der drei Zahlen falsch ist, ist hier nicht entscheidbar.
-    //  - kcalPer100G einfach wegzulassen wuerde die Dart-Seite zuerst in
-    //    _knownKcalPer100G(mealName) schicken (meal_analysis_result.dart:118)
-    //    — eine namensbasierte DB-Schaetzung, die zu diesem Foto gar nichts
-    //    zu sagen hat und zu caloriesKcal genauso schlecht passen kann.
-    //  - Den Wert serverseitig neu zu berechnen wuerde eine Zahl erfinden,
-    //    die das Modell nie geliefert hat, und dem Client die Information
-    //    nehmen, dass es ueberhaupt einen Widerspruch gab.
-    //
-    // Der Abgleich gehoert an die Stelle, die die Zahl benutzt (adjustedToGrams)
-    // — die muss ihn ohnehin fuer OpenFoodFacts/Favoriten/Recents koennen, die
-    // diese Function nie sehen. Hier zaehlen wir nur, wie oft es passiert.
+    // The three numbers come from the model independently and can contradict
+    // each other (Review 2026-08-08, B1). The server only reports it: which
+    // one is wrong is undecidable here, dropping kcalPer100G would push the
+    // client into a name-based estimate, and recomputing would invent a value
+    // the model never returned. Reconciliation belongs where the number is
+    // used (adjustedToGrams); here we just count occurrences.
     const mismatch = kcalPer100GMismatch(result.caloriesKcal, result.estimatedGrams, result.kcalPer100G);
     if (mismatch) {
       console.warn('analyze-meal kcalPer100G widerspricht caloriesKcal/estimatedGrams', {
@@ -271,9 +237,8 @@ function assertConfigured(secrets: Secrets) {
   }
 }
 
-// Nur Fast-Path für ehrliche Clients (413 ohne Body-Read). Der Header ist
-// Client-kontrolliert (weglassbar/fälschbar) — der harte, nicht umgehbare
-// Cap sitzt in readBodyLimited() beim eigentlichen Lesen.
+// Fast path for honest clients only (413 without reading the body). The
+// header is client-controlled; the hard cap sits in readBodyLimited().
 function enforceContentLength(request: Request) {
   const raw = request.headers.get('content-length');
   if (raw != null) {
@@ -284,8 +249,8 @@ function enforceContentLength(request: Request) {
   }
 }
 
-// Body streamen und hart bei maxBytes kappen: sobald mehr ankommt, wird
-// abgebrochen (null = zu groß), bevor der Body vollständig im Speicher landet.
+// Streams the body and aborts at maxBytes (null = too large) before it is
+// fully in memory.
 async function readBodyLimited(request: Request, maxBytes: number): Promise<string | null> {
   if (!request.body) return '';
   const reader = request.body.getReader();
@@ -368,9 +333,8 @@ async function consumeRateLimit(
   }
 
   const data = await response.json() as Partial<RateLimitResult>;
-  // Sentinel-Rest E6, gleicher Guard wie in search-key/index.ts und
-  // coach-chat/handler.ts (dort beide testgedeckt): ein kaputter
-  // Antwort-Shape ist ein Ausfall des Limiters, kein gemessenes Limit.
+  // Sentinel E6, same guard as search-key and coach-chat: a broken response
+  // shape is a limiter outage, not a measured limit.
   if (typeof data.allowed !== 'boolean') {
     console.error(`consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`);
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
@@ -390,8 +354,8 @@ async function parseBody(request: Request): Promise<ParsedBody> {
     throw new HttpError(415, 'unsupported_content_type', 'Bitte JSON senden.');
   }
 
-  // Hart serverseitig gekappt statt dem Content-Length-Header zu vertrauen
-  // (enforceContentLength ist nur der billige Fast-Path).
+  // Capped server-side rather than trusting content-length
+  // (enforceContentLength is only the cheap fast path).
   const raw = await readBodyLimited(request, MAX_CONTENT_LENGTH);
   if (raw === null) {
     throw new HttpError(413, 'payload_too_large', 'Bild ist zu groß. Bitte kleineres Foto wählen.');
@@ -420,9 +384,8 @@ async function parseBody(request: Request): Promise<ParsedBody> {
   return { ...parsedImage, portionHint, freeTextHint, language };
 }
 
-// Default 'de' fuer alte Clients (vor diesem PR gab es kein `language`-Feld)
-// UND fuer jeden unbekannten/kaputten Wert — Abwaertskompatibilitaet ist
-// Pflicht (i18n-design.md §5), kein 400 auf eine fehlende/fremde Angabe.
+// Defaults to 'de' for old clients without a `language` field and for any
+// unknown value: backwards compatibility instead of a 400 (i18n-design.md §5).
 function normalizeLanguage(raw: unknown): Language {
   return raw === 'en' ? 'en' : 'de';
 }
@@ -462,17 +425,10 @@ function sanitizeHint(raw: unknown): string | undefined {
   return collapsed.slice(0, MAX_HINT_CHARS);
 }
 
-// Sprachregel fuer "mealName", "items[].name" UND "explanation" — ersetzt
-// das fruehere, hartkodierte "deutsch wenn moeglich" in BASE_PROMPT
-// (Scan/Coach-PR, i18n-design.md §5; Review-Fixwelle 2026-08-11: die Regel
-// deckte urspruenglich nur die Namen ab, "explanation" begruendete die
-// Groesse aber weiterhin unconditional deutsch). Der Rest des Prompts
-// (Portionshinweise, Referenzwerte) bleibt deutsch: das ist Systemtext, den
-// das Modell unabhaengig von der Ausgabesprache versteht — dieselbe Trennung
-// wie beim Coach-System-Prompt ("Language Rule" steuert nur die ANTWORT,
-// nicht die Prompt-Sprache selbst). Alte, bereits geloggte "explanation"-
-// Freitexte bleiben unangetastet (KI-Freitext ist quasi Nutzerdaten, keine
-// rueckwirkende Uebersetzung — s. Client-seitige MealResultPortionNote-Doku).
+// Output-language rule for "mealName", "items[].name" and "explanation".
+// The rest of the prompt stays German: it is system text the model
+// understands regardless of output language, the same split as the coach
+// system prompt. Already logged explanations are never re-translated.
 function languageDirective(language: Language): string {
   return language === 'en'
     ? 'Sprachregel: "mealName", alle "items[].name" UND "explanation" auf ENGLISCH formulieren, z. B. "steak", "potatoes" statt "Steak", "Kartoffeln".'
@@ -501,8 +457,8 @@ async function callOpenRouter(
   prompt: string,
   requestId: string,
 ): Promise<Record<string, unknown>> {
-  // Modellname (KEIN Key) loggen — damit ein falsch gesetztes OPENROUTER_MODEL-Secret
-  // (z. B. ein Reasoning-Modell, das leeren Content liefert) sofort sichtbar ist.
+  // Log the model name (never the key) so a wrong OPENROUTER_MODEL secret is
+  // immediately visible.
   console.log('analyze-meal openrouter request', { requestId, model: OPENROUTER_MODEL });
   let response: Response;
   let text: string;
@@ -515,10 +471,9 @@ async function callOpenRouter(
         'http-referer': 'https://eatova.app',
         'x-title': 'Eatova',
       },
-      // Harte Obergrenze für den gesamten Provider-Roundtrip (inkl. Body-Read
-      // unten — ein Abort bricht auch den Response-Stream ab). Ohne Signal
-      // hinge die Function bis zum Plattform-Kill, der Client sähe nur einen
-      // Verbindungsabriss statt eines sauberen Fehler-JSONs.
+      // Hard cap on the whole provider roundtrip, including the body read
+      // below. Without it the function would hang until the platform kills it
+      // and the client would see a dropped connection, not an error JSON.
       signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
       body: JSON.stringify({
         model: OPENROUTER_MODEL,
@@ -536,13 +491,11 @@ async function callOpenRouter(
         ],
         response_format: { type: 'json_object' },
         temperature: 0.1,
-        // Gemini-3.x-flash-lite kann "thinking": auf 'minimal' halten, sonst frisst
-        // Reasoning das max_tokens-Budget -> leerer content -> provider_empty_response.
-        // Für OpenAI-Modelle (gpt-4o-mini) ist der Parameter ein harmloser No-Op.
+        // Keep 'minimal': otherwise reasoning eats the max_tokens budget ->
+        // empty content -> provider_empty_response. A no-op on OpenAI models.
         reasoning: { effort: 'minimal' },
-        // 4096: ein realer, voll itemisierter Teller (viele items[] + lange explanation)
-        // sprengte 1400/2048 -> abgeschnittenes JSON -> provider_invalid_json (502) ->
-        // Client wirft -> "Analyse fehlgeschlagen". 4096 out ist günstig & reicht.
+        // 4096: a fully itemized plate overflowed 1400/2048, producing
+        // truncated JSON -> provider_invalid_json (502).
         max_tokens: 4096,
       }),
     });
@@ -563,9 +516,8 @@ async function callOpenRouter(
     throw error;
   }
   if (!response.ok) {
-    // Fehler-Body nicht roh loggen (CWE-532, Security-Review 2026-08-11):
-    // Provider-Fehler (z. B. Moderation) können den Nutzer-Input spiegeln.
-    // Status + Länge + Digest-Präfix reichen zur Diagnose.
+    // Never log the raw error body (CWE-532): provider errors can mirror
+    // user input. Status, length and digest prefix suffice for diagnosis.
     console.error('OpenRouter error', {
       requestId,
       status: response.status,
@@ -592,9 +544,8 @@ async function callOpenRouter(
       ? content
       : '';
 
-  // Leerer Content = Modell hat nichts in 'content' gelegt (typisch für Reasoning-
-  // Modelle, die das Token-Budget mit Reasoning verbrauchen). Klare, eigene Fehlermeldung
-  // + Diagnostik (Modell, finishReason, usage), statt es als "invalid_json" zu tarnen.
+  // Empty content means the model wrote nothing into 'content', typical for
+  // reasoning models. Own error code plus diagnostics, not "invalid_json".
   if (!rawContent.trim()) {
     console.error('Empty model content', {
       requestId,
@@ -611,11 +562,9 @@ async function callOpenRouter(
     if (!isRecord(parsed)) throw new Error('not an object');
     return parsed;
   } catch (parseError) {
-    // Security-Review 2026-08-11, Finding 4 (CWE-532): früher stand hier
-    // `raw: rawContent.slice(0, 500)` — der Modell-Output ist aus Essensfoto
-    // + Nutzer-Hint abgeleitet und gehört nicht in operative Logs. Stattdessen
-    // nur Allowlist-Metadaten: Länge, SHA-256-Präfix und Form-Kategorie
-    // (Redaktion + Begründung: normalize.ts).
+    // CWE-532: model output derives from the photo and the user hint, so only
+    // allowlisted metadata is logged — length, SHA-256 prefix, shape category
+    // (see normalize.ts).
     console.error('Invalid model JSON', {
       requestId,
       model: OPENROUTER_MODEL,

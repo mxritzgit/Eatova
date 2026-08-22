@@ -14,19 +14,14 @@ import 'settings_controls.dart';
 import 'settings_pickers.dart';
 import 'settings_plan_hero.dart';
 
-/// Die Einstellungen — seit dem Design-Refactor 2026-08-09 eine volle Seite
-/// statt eines modalen BottomSheets.
+/// The goal settings, a full page rather than a modal bottom sheet.
 ///
-/// Der Grund ist nicht Geschmack: das Sheet trug ~20 Einstellungen in sechs
-/// Gruppen, mehrere Picker-Sheets zweiter Ebene und einen eigenen Drag-Guard
-/// gegen versehentliches Verwerfen. Als Route entfaellt der Drag-Guard (ein
-/// [PopScope] deckt Zurueck-Knopf und Systemzurueck vollstaendig ab), die
-/// zweite Sheet-Ebene wird zur normalen Navigation, und die Gruppen bekommen
-/// den Platz, den sie brauchen.
+/// As a route the drag guard disappears (a [PopScope] covers back button and
+/// system back), second-level picker sheets become normal navigation, and the
+/// ~20 settings get the room they need.
 ///
-/// Rueckgabe per [Navigator.pop] ist ein [SettingsResult] (oder null bei
-/// Abbruch) — identisch zum bisherigen Sheet, damit die Schale unveraendert
-/// `applySettings` aufrufen kann.
+/// [Navigator.pop] returns a [SettingsResult] (or null on cancel), so the shell
+/// can call `applySettings` unchanged.
 class GoalsScreen extends StatefulWidget {
   const GoalsScreen({
     super.key,
@@ -38,19 +33,18 @@ class GoalsScreen extends StatefulWidget {
 
   final UserProfile profile;
 
-  /// Aufrufer, die den vollen Zustand nicht kennen, uebergeben weiterhin nur
-  /// dieses Flag; daraus wird [ReminderState.off] bzw. [ReminderState.active]
-  /// — „vom System blockiert" laesst sich so allerdings nie anzeigen.
+  /// Callers that do not know the full state pass only this flag; it maps to
+  /// [ReminderState.off]/[ReminderState.active] — "blocked by the system" can
+  /// then never be shown.
   final bool notificationsEnabled;
 
   final ReminderState? reminderState;
 
-  /// Der Weg in die System-Benachrichtigungseinstellungen. Fehlt er, zeigt der
-  /// blockierte Zustand nur den Hinweistext und KEINEN Knopf: ein Knopf, der
-  /// nichts oeffnet, waere dieselbe Sorte Luege wie der Schalter, der D11
-  /// ausgeloest hat. Das Projekt hat aktuell keinen solchen Weg —
-  /// `url_launcher` startet auf Android ausschliesslich ACTION_VIEW-Intents
-  /// und erreicht `Settings.ACTION_APP_NOTIFICATION_SETTINGS` damit nicht.
+  /// Route into the system notification settings. Without it the blocked state
+  /// shows the hint and NO button — a button that opens nothing is the same
+  /// kind of lie as the switch that caused D11. The project currently has no
+  /// such route: `url_launcher` only fires ACTION_VIEW intents on Android and
+  /// cannot reach `Settings.ACTION_APP_NOTIFICATION_SETTINGS`.
   final VoidCallback? onOpenSystemSettings;
 
   @override
@@ -73,18 +67,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
   late int _sleepGoalMinutes;
   late WeightGoal _goal;
 
-  /// True wenn der User kcal/Makros von Hand übersteuert hat. Standardmäßig
-  /// rechnen wir live aus Körper + Aktivität + Ziel — nur wenn die
-  /// gespeicherten Werte davon abweichen (oder der User den Schalter umlegt),
-  /// bleiben manuelle Werte erhalten.
+  /// True when the user overrode kcal/macros by hand. By default they are
+  /// computed live from body, activity and goal; manual values survive only
+  /// when the stored values differ or the switch is flipped.
   late bool _manualEnergy;
 
-  /// Lokaler Zustand der Erinnerungen (PROD-1 / D11). Beim Speichern wird
-  /// daraus [SettingsResult.notificationsEnabled] — und zwar nur bei
-  /// [ReminderState.active], „blockiert" ist kein „an".
+  /// Local reminder state (D11). On save this becomes
+  /// [SettingsResult.notificationsEnabled], but only for
+  /// [ReminderState.active] — "blocked" is not "on".
   late ReminderState _reminder;
 
-  // --- Ausgangsstand fuer die Verwerf-Rueckfrage (D5) ------------------------
+  // --- Baseline for the discard prompt (D5) --------------------------------
   late final ReminderState _reminderStart;
   late final bool _manualStart;
   late final Map<TextEditingController, String> _textStart;
@@ -113,8 +106,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     _sleepGoalMinutes = p.dailySleepGoalMinutes;
     _goal = p.weightGoal;
 
-    // Der Manuell-Schalter wird NICHT persistiert, sondern hier aus dem
-    // Vergleich Profil ↔ Rechner rekonstruiert.
+    // The manual switch is NOT persisted; it is reconstructed by comparing the
+    // profile against the calculator.
     final computed = const KcalCalculator().calculate(p);
     _manualEnergy = p.dailyKcalGoal != computed.kcal ||
         p.proteinGoalG != computed.proteinG ||
@@ -154,23 +147,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
     super.dispose();
   }
 
-  // --- Feldpruefung (C1) ----------------------------------------------------
+  // --- Field validation (C1) -----------------------------------------------
   //
-  // `FilteringTextInputFormatter.digitsOnly` ist ein TYP-Guard, kein
-  // WERTEBEREICHS-Guard. Wer „75,5" tippt, verliert das Komma und schickt 755
-  // an `profiles.weight_kg` (`between 30 and 300`) — PostgreSQL antwortet mit
-  // 23514, und dessen Meldung traegt die komplette fehlgeschlagene Zeile
-  // inklusive E-Mail. Genau das war der Ausloeser des Sentry-Leaks C1.
+  // `FilteringTextInputFormatter.digitsOnly` is a TYPE guard, not a RANGE
+  // guard. Typing "75,5" drops the comma and sends 755 to
+  // `profiles.weight_kg` (`between 30 and 300`); the PostgreSQL 23514 message
+  // carries the whole failed row including the e-mail — the source of the
+  // Sentry leak C1.
   //
-  // Gegen Nutzereingaben ist ABLEHNEN richtig, nicht Klemmen: 755 auf 300 zu
-  // klemmen schriebe eine Zahl ins Profil, die der Nutzer nie gemeint hat.
-  // Die Grenzen stammen aus den echten SQL-Migrationen (model_limits.dart).
+  // For user input REJECT is right, not clamp: clamping 755 to 300 would write
+  // a number the user never meant. Bounds come from the SQL migrations
+  // (model_limits.dart).
 
-  // Alle sechs `_bereichXxx`-Getter interpolieren ihre Zahlen weiterhin aus
-  // [ProfileLimits] (bewusst so, NICHT literalisieren — s. Klassendoku) —
-  // seit der i18n-Migration (Paket 6) ueber ARB-Keys mit {min}/{max}-
-  // Platzhaltern statt `static const String`, damit sie `context.l10n`
-  // erreichen. `settings_validation_test.dart` bleibt unter `de` byte-gleich.
+  // The `_bereichXxx` getters interpolate their numbers from [ProfileLimits]
+  // (deliberately, do NOT inline literals) via ARB keys with {min}/{max}
+  // placeholders, so they can reach `context.l10n`.
   String get _bereichKg => context.l10n
       .settingsRangeErrorKg(ProfileLimits.weightKgMin, ProfileLimits.weightKgMax);
   String get _bereichCm => context.l10n
@@ -190,7 +181,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String get _bereichFett => context.l10n
       .settingsRangeErrorGrams(ProfileLimits.fatGoalGMin, ProfileLimits.fatGoalGMax);
 
-  /// Fehlertext des Feldes oder `null`, wenn der Wert so in die DB darf.
+  /// Error text for the field, or `null` if the value may go to the DB.
   String? _fehler(
     TextEditingController c,
     bool Function(num) gueltig,
@@ -215,17 +206,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String? get _waterError =>
       _fehler(_water, isValidDailyWaterGoalMl, _bereichWasser);
 
-  // Der Manuell-Pfad misst an den DB-Grenzen (800..7000), NICHT an den
-  // engeren Untergrenzen des Rechners (1200/1350/1500 je Geschlecht): wer
-  // bewusst 1000 setzt, darf das.
+  // The manual path validates against the DB bounds (800..7000), not the
+  // calculator's tighter floors (1200/1350/1500 by sex): setting 1000 on
+  // purpose is allowed.
   String? get _kcalError => _fehler(_kcal, isValidDailyKcalGoal, _bereichKcal);
   String? get _proteinError =>
       _fehler(_protein, isValidProteinGoalG, _bereichProtein);
   String? get _carbsError => _fehler(_carbs, isValidCarbsGoalG, _bereichCarbs);
   String? get _fatError => _fehler(_fat, isValidFatGoalG, _bereichFett);
 
-  /// Versteckte Felder zaehlen nicht: im Live-Modus kommen kcal und Makros aus
-  /// der Rechnung, die ihre Grenzen selbst einhaelt.
+  /// Hidden fields do not count: in live mode kcal and macros come from the
+  /// calculation, which respects its own bounds.
   bool get _hatFehler => <String?>[
         _weightError,
         _heightError,
@@ -241,12 +232,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
         ],
       ].any((f) => f != null);
 
-  /// Der Feldwert, sofern er gueltig ist — sonst [fallback].
+  /// The field value if valid, else [fallback].
   ///
-  /// Fuer die Live-Rechnung: waehrend der Nutzer einen ungueltigen Wert stehen
-  /// hat, zeigt die Plan-Karte weiter den letzten sinnvollen Plan statt eines
-  /// Phantasie-Ziels fuer 755 kg. Auf dem Speicherpfad kann der Fallback nicht
-  /// greifen — dort ist [_hatFehler] bereits false.
+  /// For the live calculation: while an invalid value stands, the plan card
+  /// keeps showing the last sensible plan instead of a target for 755 kg. On
+  /// the save path the fallback cannot fire — [_hatFehler] is already false.
   int _wertOder(
     TextEditingController c,
     bool Function(num) gueltig,
@@ -256,17 +246,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return (wert != null && gueltig(wert)) ? wert : fallback;
   }
 
-  /// Profil nur mit den kalorien-relevanten Feldern — Basis für die
-  /// Live-Berechnung (Energie-Felder fließen NICHT in calculate() ein).
+  /// Profile with the calorie-relevant fields only — the basis for the live
+  /// calculation (energy fields do NOT feed into calculate()).
   UserProfile _draftForCalc() {
     final p = widget.profile;
     return p.copyWith(
       weightKg: _wertOder(_weight, isValidProfileWeightKg, p.weightKg),
       heightCm: _wertOder(_height, isValidProfileHeightCm, p.heightCm),
-      // Mindestalter 16 (Art. 8 DSGVO, Gesundheitsdaten) — dieselbe Grenze wie
-      // Onboarding und DB-Constraint. Frueher wurde hier still auf 16
-      // geklemmt; das schrieb einem 12-Jaehrigen ein erfundenes Alter ins
-      // Profil. Jetzt lehnt das Feld ab und der Nutzer korrigiert.
+      // Minimum age 16 (GDPR art. 8, health data) — same bound as onboarding
+      // and the DB constraint. Rejected, not silently clamped: clamping wrote
+      // an invented age into a 12-year-old's profile.
       ageYears: _wertOder(_age, isValidProfileAgeYears, p.ageYears),
       sex: _sex,
       activityLevel: _activity,
@@ -282,20 +271,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
   KcalTargets get _liveTargets =>
       const KcalCalculator().calculate(_draftForCalc());
 
-  // --- Tempo: Auswahl vs. Plan (B2) ----------------------------------------
+  // --- Pace: choice vs. plan (B2) ------------------------------------------
   //
-  // Die Plan-Karte zeigt das effektive Tempo („−0,72 kg/Woche"). Eine Gruppe
-  // weiter unten stand im selben Scroll das versprochene („−1 kg/Woche") —
-  // derselbe Widerspruch, nur verschoben. Die Regel: **Steht auf einem
-  // Bildschirm mehr als eine Tempo-Zeichenkette, muss eine dritte sie
-  // verbinden.** Die Auswahl bleibt oben, die Folge steht darunter.
+  // The plan card shows the effective pace, the goal row the promised one.
+  // Rule: **if more than one pace string is on screen, a third must connect
+  // them.** The choice stays on top, the consequence below it.
 
-  /// Untertitel einer Option im Gewichtsziel-Picker: der Plan, den sie mit den
-  /// Koerperdaten ergibt, die gerade auf der Seite stehen.
+  /// Subtitle of an option in the weight-goal picker: the plan it yields with
+  /// the body data currently on the page.
   ///
-  /// Im Manuell-Modus haengt das Tagesziel nicht mehr am Tempo — dann waere
-  /// jede gerechnete Zahl eine Behauptung ueber etwas, das der Schalter gerade
-  /// abgeschaltet hat.
+  /// In manual mode the daily target no longer depends on pace, so any computed
+  /// number would claim something the switch just turned off.
   String _zielFolge(WeightGoal option) {
     final l10n = context.l10n;
     if (_manualEnergy) return l10n.goalsManualNoChangeHint;
@@ -304,12 +290,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
-  /// Die Zeile unter der Gewichtsziel-Zeile — `null`, solange dort dieselbe
-  /// Tempo-Beschriftung steht wie auf der Plan-Karte.
+  /// The line below the weight-goal row — `null` while it carries the same pace
+  /// label as the plan card.
   ///
-  /// Verglichen werden bewusst die **Zeichenketten**, nicht die Zahlen: der
-  /// Nutzer sieht Text, und genau dann, wenn zwei verschiedene Texte auf dem
-  /// Bildschirm stehen, braucht es die Erklaerung.
+  /// Compares **strings**, not numbers: the user sees text, and the explanation
+  /// is needed exactly when two different texts are on screen.
   String? _zielAbweichung({required int tagesziel, required KcalTargets t}) {
     final l10n = context.l10n;
     final label = paceLabelForWeeklyRateKg(
@@ -323,9 +308,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
   UserProfile _buildProfile() {
     final p = widget.profile;
     final t = _liveTargets;
-    // copyWith erhält Felder die der Screen nicht anfasst — v.a.
-    // onboardingCompleted (sonst landet der User beim Speichern wieder im
-    // Onboarding).
+    // copyWith preserves fields the screen never touches, above all
+    // onboardingCompleted — otherwise saving sends the user back to onboarding.
     return _draftForCalc().copyWith(
       dailyStepsGoal: _wertOder(_steps, isValidDailyStepsGoal, p.dailyStepsGoal),
       dailyWaterGoalMl:
@@ -344,15 +328,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
-  // --- Verwerf-Rueckfrage (D5) ---------------------------------------------
+  // --- Discard prompt (D5) -------------------------------------------------
 
-  /// Hat der Nutzer irgendetwas angefasst? Zehn Zahlenfelder, vier Auswahl-
-  /// felder und zwei Schalter — nichts davon darf kommentarlos verschwinden.
+  /// Did the user touch anything? Ten number fields, four pickers and two
+  /// switches — none of them may vanish silently.
   ///
-  /// Der Anzeige-Modus stand hier frueher mit in der Liste. Er ist seit
-  /// 2026-08-10 in den Einstellungen zuhause ([SettingsScreen]) — als
-  /// Geraeteeinstellung wird er sofort persistiert und liesse sich ohnehin
-  /// nicht verwerfen.
+  /// The theme mode is not in this list: it lives in [SettingsScreen] as a
+  /// device setting, is persisted immediately and cannot be discarded.
   bool get _dirty {
     final p = widget.profile;
     if (_sex != p.sex ||
@@ -366,9 +348,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
     return _textStart.entries.any((e) => e.key.text != e.value);
   }
 
-  /// Laeuft fuer JEDEN abgefangenen Schliess-Versuch — Zurueck-Knopf und
-  /// Systemzurueck laufen beide ueber [Navigator.maybePop] und damit durch das
-  /// [PopScope]. Mehrfach-Versuche stapeln keine Dialoge.
+  /// Guards EVERY intercepted close attempt — back button and system back both
+  /// go through [Navigator.maybePop] and thus the [PopScope]. Repeated attempts
+  /// do not stack dialogs.
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
@@ -377,21 +359,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final verwerfen = await _confirmDiscardChanges(context);
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
-    // Der Dialog ist hier bereits gepoppt — oberste Route ist wieder die
-    // Seite. Bewusst ohne Ergebnis: verworfen ist nicht gespeichert.
+    // The dialog is already popped; the page is the top route again.
+    // Deliberately without a result: discarded is not saved.
     Navigator.of(context).pop();
   }
 
-  /// Text zum aktuellen Erinnerungs-Zustand (D11). Drei Zustaende, drei Saetze
-  /// — „blockiert" ist ausdruecklich kein Fehler, sondern eine Systemeinstellung.
+  /// Text for the current reminder state (D11). Three states, three sentences;
+  /// "blocked" is a system setting, not an error.
   String get _reminderText => switch (_reminder) {
         ReminderState.off => context.l10n.goalsReminderTextOff,
         ReminderState.active => context.l10n.goalsReminderTextActive,
         ReminderState.blocked => context.l10n.goalsReminderTextBlocked,
       };
 
-  /// Bei Live-Modus die Energie-Felder mit der frischen Berechnung füllen,
-  /// damit die Seite konsistent bleibt; danach neu zeichnen.
+  /// In live mode, refill the energy fields from the fresh calculation to keep
+  /// the page consistent, then redraw.
   void _recompute() {
     if (!_manualEnergy) {
       final t = _liveTargets;
@@ -421,7 +403,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       context,
       SettingsResult(
         profile: _buildProfile(),
-        // D11: nur „aktiv" heisst, dass abends wirklich etwas kommt.
+        // D11: only "active" means a reminder actually fires in the evening.
         notificationsEnabled: _reminder == ReminderState.active,
       ),
     );
@@ -462,10 +444,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
       helpText: context.l10n.goalsFieldSleep,
     );
     if (gewaehlt == null || !mounted) return;
-    // Der Time-Picker laesst 0:00 bis 23:59 zu, `daily_sleep_goal_minutes` nur
-    // 180..900. Hier wird geklemmt statt abgelehnt — der Wert kommt aus einem
-    // Picker, und die Zeile zeigt anschliessend genau den Wert, der
-    // gespeichert wird (sichtbar, nicht still).
+    // The time picker allows 0:00..23:59, `daily_sleep_goal_minutes` only
+    // 180..900. Clamped rather than rejected: the value comes from a picker,
+    // and the row then shows exactly what gets saved.
     setState(
       () => _sleepGoalMinutes =
           clampDailySleepGoalMinutes(gewaehlt.hour * 60 + gewaehlt.minute),
@@ -490,28 +471,24 @@ class _GoalsScreenState extends State<GoalsScreen> {
         _manualEnergy ? _wertOder(_fat, isValidFatGoalG, ziele.fatG) : ziele.fatG;
 
     return PopScope<SettingsResult>(
-      // D5: Zurueck-Knopf und Systemzurueck laufen beide ueber
-      // Navigator.maybePop und fragen damit die Pop-Disposition. Der
-      // Drag-Guard des alten Sheets hat als Route kein Gegenstueck mehr — eine
-      // Route kennt weder Barriere noch Wegwisch-Geste.
+      // D5: back button and system back both go through Navigator.maybePop and
+      // therefore ask the pop disposition. A route needs no drag guard — it has
+      // neither barrier nor swipe-to-dismiss.
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         _askDiscard();
       },
-      // Dieselbe Datenklasse wie das Profil (Gewicht, Groesse, Alter,
-      // Wunschgewicht) — also derselbe Screenshot-/Recents-Schutz.
+      // Same data class as the profile (weight, height, age, target weight), so
+      // the same screenshot/recents protection.
       child: SecureScreenGuard(
         child: Scaffold(
           key: const ValueKey('screen-goals'),
           body: SafeArea(
-            // Auch unten: diese Route traegt KEINE Navigationsleiste, die den
-            // Seitenfuss sonst von der Gestenleiste des Systems freihielte —
-            // ohne das lägen „Speichern" und die Rechts-Links am Scroll-Ende
-            // unter dem Balken. (Der Profil-Screen macht es genauso.)
-            // Bewusst KEINE ListView: die Tests lesen „Speichern" und die
-            // Fusszeile, bevor irgendwer scrollt. Eine Lazy-Liste baut beides
-            // gar nicht erst.
+            // Bottom inset too: this route carries no navigation bar, so
+            // without it the save button and legal links would sit under the
+            // system gesture bar. Deliberately NOT a ListView: tests read the
+            // footer before anyone scrolls, and a lazy list never builds it.
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
               child: Column(
@@ -551,24 +528,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
-                  // Hier stand bis 2026-08-10 der Knopf `settings-reset-day`
-                  // („Tagesdaten zurücksetzen"). Er ist auf Nutzer-Entscheid
-                  // ersatzlos entfallen — mit ihm das Feld
-                  // `SettingsResult.resetDay`, `HomeStore.resetTodayData` und
-                  // der Reset-Zweig in `applySettings`. Der Seitenfuss traegt
-                  // damit nur noch „Speichern" und die Rechts-Links.
                   Semantics(
-                    // [PrimaryActionButton] ist ein blankes InkWell und traegt
-                    // weder `isButton` noch einen Enabled-Zustand — der
-                    // FilledButton des alten Sheets tat beides. Ohne diese
-                    // Huelle klaenge das gesperrte „Speichern" fuer einen
-                    // Screenreader wie ein normaler Knopf, der nichts tut.
-                    // (Gehoert eigentlich in die Bibliothek, siehe Bericht.)
+                    // [PrimaryActionButton] is a bare InkWell and carries
+                    // neither `isButton` nor an enabled state. Without this
+                    // wrapper the disabled save button would sound like a
+                    // normal button that does nothing to a screen reader.
                     button: true,
                     enabled: !_hatFehler,
                     child: Opacity(
-                      // PrimaryActionButton kann „gesperrt" selbst nicht
-                      // ausdruecken; dieselbe Loesung wie SheetScaffold.
+                      // PrimaryActionButton cannot express "disabled" itself;
+                      // same solution as SheetScaffold.
                       opacity: _hatFehler ? 0.4 : 1,
                       child: PrimaryActionButton(
                         key: const ValueKey('settings-save'),
@@ -589,7 +558,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
-  // --- Gruppen --------------------------------------------------------------
+  // --- Groups ---------------------------------------------------------------
 
   List<Widget> _koerperGruppe() {
     final l10n = context.l10n;
@@ -645,10 +614,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
       isValidProfileTargetWeightKg,
       p.targetWeightKg,
     );
-    // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze wie im
-    // Onboarding-Zielschritt (unter 18,5 / über 35). Die Sichtbarkeit wird
-    // hier entschieden, damit SettingsGroup keine Trennlinie um ein leeres
-    // Kind zieht.
+    // Soft, non-blocking BMI hint — same bounds as the onboarding goal step
+    // (below 18.5 / above 35). Visibility is decided here so SettingsGroup
+    // does not draw a divider around an empty child.
     final zeigtBmiHinweis = targetBmiHintText(
           heightCm: bmiHeight,
           targetWeightKg: bmiTarget,
@@ -683,17 +651,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
                 targetWeightKg: bmiTarget,
               ),
             ),
-          // Zeile und Zusatzzeile sind EIN Gruppenkind — sonst zoege
-          // SettingsGroup eine Trennlinie zwischen die Zeile und ihre eigene
-          // Fussnote.
+          // Row and its extra line are ONE group child, or SettingsGroup would
+          // draw a divider between the row and its own footnote.
           Column(
             children: <Widget>[
               SettingsRow(
                 key: const ValueKey('settings-weight-goal'),
                 title: l10n.goalsFieldWeightGoal,
                 subtitle: _goal.label(l10n),
-                // Bleibt das GEWAEHLTE Tempo: die Zeile muss zeigen, was der
-                // Nutzer getippt hat. Was daraus wird, steht darunter.
+                // Stays the CHOSEN pace: the row shows what the user picked;
+                // what it turns into is the line below.
                 value: _goal.paceLabel(l10n),
                 onTap: _pickWeightGoal,
               ),
@@ -730,11 +697,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
           SettingsRow(
             title: l10n.goalsFieldManual,
             chevron: false,
-            // Die ganze Zeile schaltet mit. Der Schalter allein war das
-            // einzige Ziel dieser Zeile; wer daneben tippte, traf nichts.
-            // Ein Tap AUF den Schalter gewinnt weiter dessen eigener
-            // Detektor (der innere Erkenner gewinnt die Gesten-Arena), es
-            // wird also nie doppelt umgelegt.
+            // The whole row toggles; tapping beside the switch used to hit
+            // nothing. A tap ON the switch is still won by its own recognizer
+            // (inner wins the gesture arena), so it never toggles twice.
             onTap: () => _toggleManual(!_manualEnergy),
             trailing: AppToggle(
               key: const ValueKey('settings-manual-energy'),
@@ -833,11 +798,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
             title: l10n.goalsFieldReminders,
             subtitle: l10n.goalsRemindersSubtitle,
             chevron: false,
-            // Wie beim Manuell-Schalter: die ganze Zeile ist das Ziel. Im
-            // blockierten Zustand bleibt sie AUS (null) — sonst haette D11
-            // eine Hintertuer, denn der gesperrte Schalter haengt dann keinen
-            // eigenen Erkenner mehr in die Arena und die Zeile darunter
-            // bekaeme den Tap.
+            // Like the manual switch: the whole row is the target. Off (null)
+            // while blocked — otherwise D11 would have a back door, since the
+            // disabled switch adds no recognizer and the row would take the
+            // tap.
             onTap: _reminder == ReminderState.blocked
                 ? null
                 : () => setState(
@@ -848,10 +812,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
             trailing: AppToggle(
               key: const ValueKey('settings-notifications'),
               value: _reminder == ReminderState.active,
-              // D11: im blockierten Zustand NICHT erneut umlegen lassen. Auf
-              // Android 13+ zeigt das System nach zwei Ablehnungen gar
-              // keinen Dialog mehr — der Schalter spraenge sofort zurueck
-              // und die App saehe wieder aus, als laege es an ihr.
+              // D11: do NOT allow toggling while blocked. On Android 13+ the
+              // system stops showing a dialog after two refusals, so the
+              // switch would snap back and look like an app bug.
               enabled: _reminder != ReminderState.blocked,
               semanticLabel: _reminder == ReminderState.blocked
                   ? l10n.goalsReminderBlockedSemantics
@@ -889,22 +852,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// D5: Verwerf-Rueckfrage
+// D5: discard prompt
 // ---------------------------------------------------------------------------
 
-/// „Aenderungen verwerfen?" — die gemeinsame Bestaetigung fuer jeden Weg, eine
-/// ausgefuellte Seite zu verlassen.
+/// "Discard changes?" — the shared confirmation for every way of leaving a
+/// filled page.
 ///
-/// `barrierDismissible: true` (Default) ist Absicht: ein Tap neben den Dialog
-/// ist „Abbrechen", also die harmlose Antwort.
+/// `barrierDismissible: true` (default) is intentional: a tap outside means
+/// cancel, the harmless answer.
 ///
-/// **Mehrfach vorhanden:** dieselbe Bestaetigung steht in
-/// `edit_meal_sheet.dart` und `recipe_create_sheet.dart` (dort jeweils noch
-/// mit `_DiscardDragGuard`, weil beide Sheets geblieben sind). Die Kopien
-/// gehoeren in die gemeinsame Bibliothek zusammengefuehrt — das geht nur
-/// paketuebergreifend.
+/// **Duplicated:** the same confirmation lives in `edit_meal_sheet.dart` and
+/// `recipe_create_sheet.dart` (both still with `_DiscardDragGuard`). The copies
+/// belong in the shared library.
 ///
-/// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
+/// Returns `true` = discard, `false`/dismissed = keep editing.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
   final l10n = context.l10n;
   final verwerfen = await showDialog<bool>(

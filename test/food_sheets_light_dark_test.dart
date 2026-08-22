@@ -1,17 +1,13 @@
-// Pflicht aus DESIGN_REFACTOR §7.2 fuer die Sheets des Food-Pakets:
-// „Mindestens ein Widget-Test pro Screen pumpt ihn unter
-// buildEatovaTheme(Brightness.light) UND (Brightness.dark)."
+// DESIGN_REFACTOR §7.2 for the food sheets: at least one widget test per screen
+// pumps it under buildEatovaTheme(Brightness.light) AND (Brightness.dark).
 //
-// Die bestehenden Sheet-Suiten (add/analyse/edit) pumpen ausschliesslich
-// Dunkel — sie pruefen Ablaeufe, und dafuer genuegt ein Modus. Dieser Test
-// deckt die fehlende Haelfte ab: rendern beide Modi ueberhaupt, ohne Ausnahme
-// und ohne RenderFlex-Overflow? Overflows werden hier bewusst GESAMMELT statt
-// geschluckt — ein Hell-Modus, der eine Zeile sprengt, soll auffallen.
+// The existing sheet suites only pump dark, since they test flows. This covers
+// the missing half: do both modes render without exception and without
+// RenderFlex overflow? Overflows are COLLECTED, not swallowed.
 //
-// Kamera- und Barcode-Sheet fehlen absichtlich: ihre Flaechen liegen auf einem
-// Live-Kamerabild und sind in beiden Modi dunkel (im Code begruendet); ihre
-// Zustaende haengen zudem an Plattform-Fakes, die meal_camera_sheet_test
-// bereits stellt.
+// Camera and barcode sheets are deliberately absent: their surfaces sit on a
+// live camera image and are dark in both modes, and their states depend on
+// platform fakes that meal_camera_sheet_test already provides.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -73,7 +69,7 @@ final FavoriteMeal _favorit = FavoriteMeal(
 
 const Size _viewport = Size(393, 852);
 
-/// Pumpt [inhalt] im Eatova-Theme und liefert die dabei gemeldeten Fehler.
+/// Pumps [inhalt] in the Eatova theme and returns the errors reported.
 Future<List<Object>> _pump(
   WidgetTester tester,
   Brightness brightness,
@@ -95,7 +91,7 @@ Future<List<Object>> _pump(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
-      // Die Sheets lesen seit der i18n-Migration context.l10n.
+      // The sheets read context.l10n.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -141,9 +137,8 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(fehler, isEmpty);
-      // Der Slot-Kopf und die „Schon hinzugefuegt"-Liste stehen in beiden
-      // Modi — die Karte liest ihre Flaeche aus den Tokens, nicht aus einer
-      // Konstanten.
+      // Slot header and the already-added list show in both modes — the card
+      // takes its surface from the tokens, not from a constant.
       expect(find.text('Mittagessen'), findsWidgets);
       expect(
         find.byKey(const ValueKey('analyse-existing-meals')),
@@ -187,8 +182,7 @@ void main() {
             loggedAt: DateTime.now(),
             forcedSlot: MealSlot.dinner,
           ),
-          // Kein echtes Update noetig: das Sheet zeigt nur an, gespeichert
-          // wird in diesem Test nichts.
+          // No real update needed: this test only renders, never saves.
           onUpdateMeal: (_, {result, slot, day}) => null,
           onRemoveMeal: (_) {},
         ),

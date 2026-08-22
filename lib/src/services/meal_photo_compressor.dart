@@ -2,53 +2,25 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
-/// Re-Kompression fuer KI-Scan-Fotos aus der In-App-Kamera.
+/// Recompresses AI-scan photos: longest edge <= [maxDimension] px, JPEG
+/// q[quality]. The in-app camera delivers raw JPEGs without the downscale the
+/// gallery path already gets from `image_picker`, and analyze-meal caps at
+/// 5 MB (base64 = +33 %).
 ///
-/// Das `camera`-Plugin liefert rohe JPEGs (veryHigh ~1080p, hohe Qualitaet)
-/// ohne die Verkleinerung, die der Galerie-Pfad ueber `image_picker`
-/// (imageQuality: 85, maxWidth: 1600) bereits macht. Vor dem Versand an die
-/// analyze-meal Edge Function (5-MB-Cap, Base64 = +33%) wird das Foto hier auf
-/// dieselben Werte gebracht: laengste Kante <= [maxDimension] px, JPEG q[quality].
+/// EXIF scrubbing (C4): neither `image_picker` nor package:image strips
+/// metadata — both copy the container back, GPS sub-IFD included, so a gallery
+/// photo would carry the restaurant's coordinates to the third-party model.
+/// The container is therefore emptied completely (ICC profile stays: colours,
+/// not a person). Order is mandatory bake -> resize -> clear, because
+/// [img.bakeOrientation] reads the orientation from `image.exif`.
 ///
-/// WICHTIG: [img.bakeOrientation] backt die EXIF-Orientierung in die Pixel ein,
-/// BEVOR skaliert wird — Vorschau, LLM-Input und jede spaetere Anzeige sehen
-/// das Bild richtig herum, auch wenn ein Viewer EXIF ignoriert. Der
-/// Rotations-Fix aus 7e39cff (Capture-Orientation-Lock) bleibt damit intakt.
+/// Purely functional (no plugins, no IO) — runs via `compute()` in an isolate.
 ///
-/// DATENSCHUTZ (Review C4): die Funktion ist ausserdem der EXIF-Scrubber fuer
-/// jedes Bild, das die App verlaesst. Weder `image_picker` noch der
-/// JPEG-Decoder von package:image entfernen Metadaten:
-/// `ImageResizer.java:66` kopiert nach dem Skalieren eine explizite Tag-Liste
-/// inklusive GPS-Breitengrad/-Laengengrad/-Hoehe/-Zeitstempel zurueck, und
-/// `_jpeg_quantize_io.dart:224` uebernimmt beim Dekodieren den kompletten
-/// EXIF-Container (`ExifData.from`) und nullt daran nur `orientation` — das
-/// `gps`-Sub-IFD ueberlebt und wird von `jpeg_encoder.dart:61`
-/// (`_writeExif(fp, image.exif)`) wieder in die Ausgabe geschrieben. Ein aus
-/// der Galerie gewaehltes Foto der Systemkamera traegt damit die Koordinaten
-/// des Restaurants bis zur Edge Function und zum Drittanbieter-Modell.
-///
-/// Deshalb wird der Container hier vollstaendig geleert — nicht nur GPS, auch
-/// Geraetemodell, Seriennummer und Aufnahmezeit. Das ICC-Profil bleibt: es
-/// beschreibt Farben, keine Person. Die Reihenfolge ist zwingend
-/// bake -> resize -> leeren: [img.bakeOrientation] liest die Orientierung aus
-/// `image.exif` (`bake_orientation.dart:12-21`); wer vorher leert, bekommt ein
-/// liegendes Foto.
-///
-/// Rein funktional (keine Plugins, kein IO) — laeuft ueber `compute()` in
-/// einem Isolate und ist in VM-Tests direkt testbar.
-///
-/// FAIL-CLOSED (Sentinel-Rest S2): nicht dekodierbare Bytes WERFEN eine
-/// [FormatException] — frueher gingen sie unveraendert (und damit
-/// ungescrubbt: GPS, Geraete-Kennung, Aufnahmezeit) raus, waehrend die
-/// veroeffentlichte Datenschutzerklaerung das Scrubbing als Eigenschaft
-/// JEDES Uploads zusichert. Praktisch bleibt der Wurf selten: der
-/// Kamera-Pfad liefert JPEG, und der Galerie-Pfad laesst `image_picker` mit
-/// `imageQuality`/`maxWidth` erst nach JPEG konvertieren (genau deshalb
-/// duerfen diese Optionen dort nicht entfallen: ohne sie reicht iOS die
-/// HEIC-Originaldatei durch, die package:image nicht dekodieren kann).
-/// Alle Aufrufer sind wurf-sicher: Kamera-/Galerie-Sheet zeigen eine
-/// Fehlermeldung, der Coach haengt kein Bild an, und der Analyzer wirft bei
-/// fehlenden Bytes ohnehin.
+/// FAIL-CLOSED (S2): undecodable bytes THROW a [FormatException] instead of
+/// going out unscrubbed. Rare in practice: the camera path yields JPEG and the
+/// gallery path converts via `imageQuality`/`maxWidth` — which is why those
+/// options must not be dropped, or iOS passes through HEIC that package:image
+/// cannot decode. All callers handle the throw.
 Uint8List compressMealPhoto(
   Uint8List original, {
   int maxDimension = 1600,
@@ -66,16 +38,14 @@ Uint8List compressMealPhoto(
         'Bild nicht dekodierbar — kein ungescrubbter Upload (fail-closed).');
   }
 
-  // JPEGs (Kamera-Pfad) kommen aus decodeImage bereits eingebacken zurueck:
-  // der JPEG-Decoder von package:image wendet die EXIF-Orientierung beim
-  // Dekodieren auf die Pixel an und nullt den Orientation-Tag. bakeOrientation
-  // ist das Sicherheitsnetz fuer Formate, deren Decoder das nicht tun — und
-  // wird uebersprungen, wenn kein Tag (mehr) da ist, um die sonst anfallende
-  // volle Buffer-Kopie zu sparen.
+  // JPEGs come back from decodeImage already baked: the decoder applies the
+  // EXIF orientation and zeroes the tag. bakeOrientation is the safety net for
+  // other formats and is skipped when no tag remains, saving a full buffer
+  // copy.
   final hadOrientation = decoded.exif.imageIfd.hasOrientation &&
       decoded.exif.imageIfd.orientation != 1;
-  // Vor dem Leeren merken: traegt die Quelle ueberhaupt Metadaten? Nur dann
-  // ist die Re-Kompression unten alternativlos.
+  // Note before clearing: does the source carry metadata at all? Only then is
+  // the recompression below unavoidable.
   final hadExif = !decoded.exif.isEmpty;
   var image = hadOrientation ? img.bakeOrientation(decoded) : decoded;
 
@@ -91,18 +61,15 @@ Uint8List compressMealPhoto(
     );
   }
 
-  // Jetzt — nach dem Einbacken der Orientierung und nach dem Skalieren —
-  // faellt der gesamte Metadaten-Container weg. `jpeg_encoder.dart:657`
-  // ueberspringt das APP1-Segment bei leerem Container komplett, die Ausgabe
-  // enthaelt danach also gar kein EXIF mehr.
+  // Now — after baking the orientation and after resizing — the whole metadata
+  // container goes. The encoder skips the APP1 segment for an empty container,
+  // so the output carries no EXIF at all.
   image.exif = img.ExifData();
 
   final encoded = Uint8List.fromList(img.encodeJpg(image, quality: quality));
-  // Verkleinert, gedreht ODER mit Metadaten behaftet: das Ergebnis ist
-  // fachlich bzw. datenschutzrechtlich das richtige Bild und wird uebernommen,
-  // auch wenn es groesser ausfaellt. Der Byte-Spar-Zweig darf kein
-  // Schlupfloch fuer GPS sein — er greift nur, wenn im Original ohnehin keine
-  // Metadaten stehen (dann ist das Original bereits sauber).
+  // Resized, rotated OR carrying metadata: the re-encoded image is the correct
+  // one and is kept even when larger. The byte-saving branch must not be a
+  // loophole for GPS — it only applies when the original had no metadata.
   if (resized || hadOrientation || hadExif) return encoded;
   return encoded.lengthInBytes < original.lengthInBytes ? encoded : original;
 }

@@ -1,24 +1,16 @@
-// G11 — jede Store-Benachrichtigung baute den ganzen Food-Tab neu (W3-01).
+// G11 — every store notification used to rebuild the whole tab (W3-01).
 //
-// Der oberste StoreSelector war sauber gefasst, darunter hing aber jeder Tab
-// in einem blanken `ListenableBuilder(listenable: _store)`. Pro Notify liefen
-// `isLoadingFoodDay`, `consumedKcalForFoodDate`, `macroProgressForFoodDate` und
-// `mealsForFoodDate` unabhaengig — und meal_totals.dart filtert intern nochmal.
-// Bei 210 Mahlzeiten sind das 630 Vergleiche und 3 Listen-Allokationen pro
-// Rebuild, plus 400-500 Element-Rebuilds. Ausloeser laut Review: Boot-
-// Hydration, Boot-Load, Outbox-Replay, Archivtag-Load (zwei Notifies),
-// Health-Refresh (zwei bis drei pro App-Resume).
+// Each tab hung in a bare `ListenableBuilder(listenable: _store)`, so every
+// notify re-ran the day getters independently; at 210 meals that is hundreds
+// of comparisons and element rebuilds per notify (boot hydration, outbox
+// replay, archive-day load, health refresh).
 //
-// Gemessen wird mit dem Zaehler `debugTabBuilds` aus eatova_home_page.dart: er
-// zaehlt pro Tab-Index die tatsaechlichen Builder-Durchlaeufe (unter `assert`,
-// im Release also weg).
+// Measured with `debugTabBuilds` from eatova_home_page.dart, which counts real
+// builder passes per tab index (under `assert`, gone in release).
 //
-// Design-Refactor 2026-08-09: Der neue Tab „Heute" sitzt auf Index 0, Food ist
-// auf 1 gerueckt (Rezepte 2, Coach 3). Index 0 misst also nicht mehr den
-// Food-Tab, sondern Heute. Dessen Selector-Slice
-// (eatova_home_page.dart:553-564) traegt zusaetzlich `lifetimeStats` und
-// `userName` — die Erwartungswerte sind deshalb NACHGEMESSEN und nicht aus der
-// alten Food-Fassung uebernommen.
+// Index 0 is the "Heute" tab (food is 1, recipes 2, coach 3); its selector
+// slice also carries `lifetimeStats` and `userName`, so the expectations below
+// were re-measured for it.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -31,9 +23,8 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Health-Double, das bei jedem Refresh denselben Schrittstand liefert — genau
-/// der Normalfall beim App-Resume: zwei bis drei Notifies, an denen sich fuer
-/// den sichtbaren Tab NICHTS aendert.
+/// Health double returning the same step count on every refresh — the normal
+/// app-resume case: notifies that change NOTHING for the visible tab.
 class _StaticHealth implements HealthService {
   int snapshotCalls = 0;
 
@@ -104,8 +95,8 @@ Future<void> _pumpHome(WidgetTester tester, {HealthService? health}) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
-      // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+      // _navItems() reads context.l10n, so without localizations
+      // AppLocalizations.of() throws while building the bottom nav.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -135,16 +126,14 @@ void main() {
     await _pumpHome(tester, health: health);
     await _pumpFrames(tester);
 
-    // Kaltstart: zwei Heute-Builds — der initiale plus einer fuer den ersten
-    // ECHTEN Schrittstand (0 -> 7000, steckt in der Slice). Genau so soll es
-    // sein: die Fassung unterdrueckt keine relevante Aenderung.
+    // Cold start: two builds — the initial one plus one for the first REAL
+    // step count (0 -> 7000, part of the slice). The slice must not suppress a
+    // relevant change.
     final nachBoot = debugTabBuilds[0]!;
     expect(nachBoot, 2);
 
-    // Drei Resume-Refreshes = sechs Notifies, an denen sich fuer den Heute-Tab
-    // nichts aendert (gleicher Schrittstand, gleiche Mahlzeiten, dieselbe
-    // LifetimeStats-INSTANZ — die wird nur bei echten Ereignissen neu
-    // zugewiesen, ein Health-Refresh fasst sie nicht an).
+    // Three resume refreshes = six notifies that change nothing for this tab
+    // (same steps, same meals, same LifetimeStats instance).
     final store = _storeOf(tester);
     for (var i = 0; i < 3; i++) {
       await store.refreshHealthSteps();
@@ -171,8 +160,8 @@ void main() {
             'und `loggedMeals` und `lifetimeStats` wechseln in EINEM Notify, '
             'ergeben also zusammen genau einen Rebuild');
 
-    // Der Stats-Save laeuft 600 ms debounced — die Zeit auslaufen lassen,
-    // sonst haengt sein Timer im Teardown als „Timer is still pending".
+    // The stats save is debounced by 600 ms; let it run out or its timer stays
+    // pending at teardown.
     await tester.pump(const Duration(milliseconds: 700));
   });
 
@@ -182,7 +171,7 @@ void main() {
     await _pumpFrames(tester);
     final store = _storeOf(tester);
 
-    // Die drei anderen Tabs einmal besuchen (= mounten).
+    // Visit the three other tabs once (= mount them).
     for (final tab in const [1, 2, 3]) {
       store.setTab(tab);
       await _pumpFrames(tester);
@@ -193,7 +182,7 @@ void main() {
     expect(nachBesuch[2], 1, reason: 'Rezepte einmal gebaut');
     expect(nachBesuch[3], 1, reason: 'Coach einmal gebaut');
 
-    // Fuenf weitere Wechsel ueber alle Tabs.
+    // Five more switches across all tabs.
     for (final tab in const [0, 1, 2, 3, 0]) {
       store.setTab(tab);
       await _pumpFrames(tester);
@@ -213,12 +202,12 @@ void main() {
     await _pumpFrames(tester);
     expect(debugTabBuilds[3], 1);
 
-    // Reiner Datumswechsel im Food-Tab: geht den Coach-Kontext nichts an.
+    // A plain date change in the food tab does not concern the coach context.
     store.setFoodDate(DateTime(2026, 8, 7));
     await _pumpFrames(tester);
     expect(debugTabBuilds[3], 1);
 
-    // Eine geloggte Mahlzeit dagegen aendert coachContext -> Rebuild.
+    // A logged meal does change coachContext -> rebuild.
     store.addResultToDailyTotal(_meal('Testmahlzeit'));
     await _pumpFrames(tester);
     expect(debugTabBuilds[3], 2);

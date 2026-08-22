@@ -4,28 +4,19 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/lifetime_stats.dart';
 
-/// Liest und schreibt LifetimeStats gegen public.lifetime_stats. Genau eine
-/// Zeile pro User (primary key user_id). Die Zeile wird beim User-Anlegen
-/// per Bootstrap-Trigger erzeugt.
+/// Reads and writes LifetimeStats against public.lifetime_stats — exactly one
+/// row per user (primary key user_id), created by a bootstrap trigger.
 ///
-/// Schreibpfad seit Audit 2026-06-04: KEIN absolutes read-modify-write-Upsert
-/// mehr (das verlor bei parallelen Geraeten/Tabs Increments via last-write-
-/// wins). Stattdessen serverseitig-atomare RPCs:
-///   * increment_lifetime_stats(p_water,p_steps,p_meals,p_weight_logs,
-///     p_workouts,p_request_id) — addiert die uebergebenen Deltas atomar
-///     (col = col + p_x) und gibt die frische Zeile zurueck. p_request_id ist
-///     optional und macht den Aufruf idempotent (s. [increment]).
-///   * record_tracking_day(p_day) — fuehrt die Logging-Streak persistent
-///     fort (liest last_workout_date aus der DB statt aus In-Memory).
-///     Gibt die frische Zeile zurueck.
-/// Siehe Migrationen 20260604120000_lifetime_increment_rpcs.sql +
-/// 20260804120000_tracking_streak.sql. Seit
-/// 20260811120000_lifetime_stats_integrity.sql sind direkte Client-Writes auf
-/// die Tabelle auch serverseitig entzogen (Grants + Policies weg); nur das
-/// SELECT in [load] liest weiterhin direkt. record_tracking_day verlangt
-/// seitdem einen Quell-Beweis (logged_meals.local_day = p_day) und lehnt
-/// Zukunfts-Tage ab — beide Fehler sind P0001 und laufen im Fehlerfall ueber
-/// den bestehenden Outbox-Retry-Pfad.
+/// Writes go through server-side atomic RPCs, never read-modify-write upserts
+/// (those lost increments across devices via last-write-wins):
+///   * increment_lifetime_stats(...) — adds the given deltas atomically and
+///     returns the fresh row. `p_request_id` makes the call idempotent
+///     (see [increment]).
+///   * record_tracking_day(p_day) — advances the logging streak from the DB.
+/// Direct client writes to the table are revoked server-side; only the SELECT
+/// in [load] reads directly. record_tracking_day requires a source proof
+/// (logged_meals.local_day = p_day) and rejects future days; both raise P0001
+/// and run through the existing outbox retry path.
 class LifetimeStatsSync {
   LifetimeStatsSync(this._client, this._userId);
 
@@ -53,28 +44,23 @@ class LifetimeStatsSync {
     }
   }
 
-  /// Zaehlt die uebergebenen Deltas serverseitig-atomar hoch und liefert die
-  /// frische public.lifetime_stats-Zeile zurueck. Nur die gesetzten Felder
-  /// (water/steps/meals/weightLogs) werden addiert; die uebrigen RPC-Parameter
-  /// defaulten serverseitig auf 0. Die Streak laeuft bewusst NICHT hier —
-  /// dafuer ist [recordTrackingDay] zustaendig (idempotent pro Tag).
+  /// Increments the given deltas server-side-atomically and returns the fresh
+  /// public.lifetime_stats row. Remaining RPC parameters default to 0
+  /// server-side. The streak deliberately does NOT run here — that is
+  /// [recordTrackingDay] (idempotent per day).
   ///
-  /// Negative oder 0-Deltas sind erlaubt (Server clampt mit greatest(x,0));
-  /// ein leeres bzw. komplett-0 Delta ist ein No-op-Call, der einfach die
-  /// aktuelle Zeile zurueckliefert.
+  /// Negative or 0 deltas are allowed (the server clamps with greatest(x,0));
+  /// an all-zero delta is a no-op call returning the current row.
   ///
-  /// [requestId] ist der Idempotenz-Schluessel des Delta-Buendels (Migration
-  /// 20260814120000_audit_rls_guard.sql, `p_request_id`): der Server haelt
-  /// verbrauchte Ids 30 Tage fest und ADDIERT bei einer Wiederholung NICHT
-  /// erneut, sondern liefert nur die aktuelle Zeile. Das ist der einzige Schutz
-  /// gegen den Abbruch NACH dem Commit — ohne Id zaehlt jeder Retry ein zweites
-  /// Mal. Der Aufrufer muss deshalb dieselbe Id wiederverwenden, solange dasselbe
-  /// Buendel offen ist (home_store_sync.dart, `_flushStatsDelta`). `null` faellt
-  /// serverseitig auf das alte, rein additive Verhalten zurueck.
+  /// [requestId] is the bundle's idempotency key (`p_request_id`): the server
+  /// keeps spent ids for 30 days and does NOT add again on a repeat. It is the
+  /// only protection against an abort AFTER the commit, so the caller must
+  /// reuse the same id while the bundle is open. `null` falls back to the old,
+  /// purely additive behaviour.
   ///
-  /// UEBERGANGSPFAD (Audit 2026-08-14, B1): antwortet der Server, dass er diese
-  /// Ueberladung nicht kennt ([_ueberladungFehlt]), wird der Aufruf GENAU EINMAL
-  /// ohne `p_request_id` wiederholt — s. dort.
+  /// TRANSITION PATH (Audit 2026-08-14, B1): if the server does not know this
+  /// overload ([_ueberladungFehlt]), the call is repeated EXACTLY ONCE without
+  /// `p_request_id`.
   Future<LifetimeStats> increment({
     int water = 0,
     int steps = 0,
@@ -85,25 +71,18 @@ class LifetimeStatsSync {
     try {
       return await _rpcIncrement(water, steps, meals, weightLogs, requestId);
     } catch (e, stack) {
-      // Rollout-Entkopplung (Audit 2026-08-14, B1): die Migration
-      // 20260814120000_audit_rls_guard.sql ist abwaerts-, aber NICHT
-      // vorwaertskompatibel. Laeuft dieser Build gegen eine Datenbank, die sie
-      // noch nicht hat, findet PostgREST keine passende Ueberladung und
-      // antwortet PGRST202/404 — und weil der Aufrufer (`_flushStatsDelta`)
-      // jeden Fehler nur zurueck in die Queue legt, froeren Lebenszeit-Zaehler
-      // und Streak dauerhaft ein, ohne dass irgendetwas rot wird. Deshalb hier
-      // EIN Wiederholungsversuch ohne den Schluessel: er trifft die alte,
-      // rein additive Signatur und kostet nur die Idempotenz — und die gibt es
-      // auf einer nicht migrierten Datenbank ohnehin nicht.
+      // Rollout decoupling (Audit 2026-08-14, B1): against a database without
+      // migration 20260814120000_audit_rls_guard.sql, PostgREST finds no
+      // matching overload and answers PGRST202/404. Since the caller only
+      // re-queues every error, counters and streak would freeze silently. So
+      // ONE retry without the key: it hits the old additive signature and only
+      // costs idempotency, which an unmigrated database has no way to offer.
       //
-      // Der Pfad ist bewusst eng: nur bei fehlender Ueberladung, nur wenn
-      // ueberhaupt eine Id mitging, und der Wiederholungsversuch uebergibt
-      // `null` an denselben direkten RPC-Aufruf — er kann also weder bei einem
-      // anderen Fehler greifen noch sich selbst erneut ausloesen.
+      // Deliberately narrow: only on a missing overload, only if an id was
+      // passed, and the retry hands `null` to the same direct RPC call, so it
+      // can neither fire on other errors nor re-trigger itself.
       //
-      // ENTFAELLT, sobald die Migration ueberall live ist: dann kann diese
-      // ganze catch-Verzweigung ersatzlos weg, und `increment` ist wieder ein
-      // einziger RPC-Aufruf mit rethrow.
+      // Remove this whole branch once the migration is live everywhere.
       if (requestId != null && _ueberladungFehlt(e)) {
         dev.log(
             'LifetimeStatsSync.increment: increment_lifetime_stats ohne '
@@ -129,10 +108,8 @@ class LifetimeStatsSync {
     }
   }
 
-  /// Der nackte RPC-Aufruf — ohne Logging, ohne Wiederholungslogik. Existiert,
-  /// damit der Uebergangspfad in [increment] denselben Aufruf ein zweites Mal
-  /// abschicken kann, ohne dabei erneut durch [increment] zu laufen (und damit
-  /// ohne jede Schleifengefahr).
+  /// The bare RPC call, no logging, no retry logic. Exists so the transition
+  /// path in [increment] can resend without looping back through [increment].
   Future<LifetimeStats> _rpcIncrement(
     int water,
     int steps,
@@ -153,23 +130,19 @@ class LifetimeStatsSync {
     return LifetimeStats.fromRow(row);
   }
 
-  /// Sagt der Server „diese Funktion/Signatur kenne ich nicht"?
+  /// Does the server say "I don't know this function/signature"?
   ///
-  /// PostgREST meldet eine nicht aufloesbare Ueberladung als `PGRST202` mit
-  /// HTTP 404. Die Kennung ist wie ueberall sonst (s.
-  /// sync_error_messages.dart) NUR der Code: eine [PostgrestException] traegt
-  /// kein statusCode-Feld, und `fromJson` schreibt den HTTP-Status nur dann
-  /// nach `code`, wenn der Antwort-Body selbst keinen traegt (Proxy/Gateway).
-  /// Deshalb beide Formen — der rohe `'404'` kostet hoechstens einen zweiten,
-  /// ebenso erfolglosen Versuch.
+  /// PostgREST reports an unresolvable overload as `PGRST202` with HTTP 404.
+  /// The check uses the code only: [PostgrestException] has no statusCode
+  /// field, and `fromJson` writes the HTTP status into `code` only when the
+  /// body carries none (proxy/gateway). Hence both forms — the raw `'404'` at
+  /// worst costs one more equally unsuccessful attempt.
   static bool _ueberladungFehlt(Object e) =>
       e is PostgrestException && (e.code == 'PGRST202' || e.code == '404');
 
-  /// Verbucht einen getrackten Tag (>= 1 geloggte Mahlzeit) serverseitig:
-  /// schreibt die Logging-Streak (current/longest/last_workout_date)
-  /// persistent fort. Idempotent pro Tag; Tage VOR dem letzten gezaehlten
-  /// Tag sind serverseitig ein No-op (Food-Kalender-Nachtraege). Gibt die
-  /// frische Zeile zurueck — die Streak-Felder sind jetzt Server-Wahrheit.
+  /// Books a tracked day (>= 1 logged meal) server-side, advancing the logging
+  /// streak. Idempotent per day; days BEFORE the last counted one are a no-op.
+  /// Returns the fresh row — the streak fields are server truth.
   Future<LifetimeStats> recordTrackingDay(DateTime day) async {
     try {
       final row = await _client.rpc(

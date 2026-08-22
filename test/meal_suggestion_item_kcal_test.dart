@@ -1,9 +1,6 @@
-// Lücke 1 + Lücke 3 aus B1 (docs/REVIEW-2026-08-08.md), gemessen am
-// aufgeklappten MealSuggestionItem — dem Kärtchen, das Suchtreffer,
-// angeheftete Favoriten und Recents im AddMealSheet bedient.
-//
-// Die Kernfrage dieser Suite: zeigt die Zahl direkt über dem
-// „Hinzufügen"-Knopf denselben Wert, der beim Tippen geloggt wird?
+// Gaps 1 and 3 from B1 (docs/REVIEW-2026-08-08.md), measured on the expanded
+// MealSuggestionItem. Core question: does the number right above the add
+// button show the value that gets logged on tap?
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -14,11 +11,9 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 
-/// Apfelkuchen wie ihn `fromEdgeFunction` aus einer Antwort ohne Gramm- und
-/// ohne Dichteangabe baut: 420 kcal sind gemessen, die 150 g sind der
-/// Default und die 52 kcal/100 g stammen aus der Namenstabelle
-/// (`_knownKcalPer100G` matcht den Teilstring „apfel"). Die drei Zahlen
-/// passen um den Faktor 5,4 nicht zusammen.
+/// What `fromEdgeFunction` builds from an answer without grams or density:
+/// 420 kcal measured, 150 g default, 52 kcal/100 g from the name table. The
+/// three numbers disagree by a factor of 5.4.
 const MealAnalysisResult apfelkuchen = MealAnalysisResult(
   mealName: 'Apfelkuchen',
   caloriesKcal: 420,
@@ -31,8 +26,8 @@ const MealAnalysisResult apfelkuchen = MealAnalysisResult(
   portionNotes: 'KI-Schätzung aus dem Foto.',
 );
 
-/// Der zweite von V1 gemessene Fall: eine Dichte, die der Server bewusst
-/// NICHT mit Kalorien und Gramm abgleicht.
+/// Second case: a density the server deliberately does NOT reconcile with
+/// calories and grams.
 const MealAnalysisResult fertiggericht = MealAnalysisResult(
   mealName: 'Fertiggericht',
   caloriesKcal: 850,
@@ -47,9 +42,8 @@ const MealAnalysisResult fertiggericht = MealAnalysisResult(
 
 const Key _addKey = ValueKey('suggestion-add');
 
-/// Die einzige Zahl der Form `<n> kcal` im aufgeklappten Kärtchen — die
-/// Live-Vorschau direkt über dem Knopf. Der Untertitel im Kopf endet auf
-/// „/ 100 g" und wird davon nicht erfasst.
+/// The only `<n> kcal` number in the expanded card: the live preview above the
+/// button. The header subtitle ends in "/ 100 g" and is not matched.
 int vorschauKcal(WidgetTester tester) {
   final treffer = tester
       .widgetList<Text>(find.byType(Text))
@@ -69,7 +63,7 @@ Future<List<MealAnalysisResult>> pumpItem(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // MealSuggestionItem liest seit der i18n-Migration context.l10n.
+      // MealSuggestionItem reads context.l10n.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -168,7 +162,7 @@ void main() {
     }
   });
 
-  // ─── Lücke 3: Grenzen ────────────────────────────────────────────────
+  // ─── Gap 3: bounds ───────────────────────────────────────────────────
 
   testWidgets('1200 g sind eine gültige Portion und werden nicht geklemmt', (
     tester,
@@ -204,8 +198,7 @@ void main() {
     await tester.pump();
     expect(geloggt, isEmpty);
 
-    // 0 g ist ebenfalls keine Portion — und eine gültige Eingabe hebt die
-    // Sperre danach wieder auf.
+    // 0 g is no portion either, and a valid entry lifts the lock again.
     await tippeGramm(tester, '0');
     expect(
       find.byKey(const ValueKey('kcal-suggestion-grams-hint')),

@@ -1,18 +1,12 @@
-// W3-07 / B1: Vorschau und Speicherpfad des Bestandteil-Sheets muessen
-// DIESELBE Zahl liefern.
+// W3-07 / B1: preview and save path of the component sheet must produce the
+// SAME number.
 //
-// Welle 2 hat entschieden, dass `caloriesKcal` autoritativ ist und die Dichte
-// daraus hergeleitet wird (`MealComponent.adjustedToGrams`). Die Vorschau in
-// `_MealItemAdjustmentSheet._itemKcalFor` bevorzugte danach weiterhin
-// `kcalPer100G` — bei einem Posten, dessen Dichte nicht zu Gramm und Kalorien
-// passt (die klassische kJ-Zahl im kcal-Feld), zeigte die Zeile deshalb eine
-// andere Zahl, als das Sheet beim Uebernehmen speicherte.
-//
-// Der Referenzfall aus dem Review: {100 g, 521 kcal, 2180 kcal/100 g} auf 30 g
-//   * Zeile zeigte   2180 * 30 / 100          = 654 kcal
-//   * gespeichert war 521  * 30 / 100          = 156 kcal
-//   * die Gesamtzeile darunter zeigte ebenfalls 156 kcal — die Divergenz war
-//     also im selben Sheet gleichzeitig sichtbar.
+// `caloriesKcal` is authoritative and density is derived from it
+// (`MealComponent.adjustedToGrams`), but the preview still preferred
+// `kcalPer100G`. On a component whose density contradicts grams and calories
+// (a kJ value in the kcal field) the row showed one number and the sheet saved
+// another: {100 g, 521 kcal, 2180 kcal/100 g} at 30 g showed 654 and saved
+// 156.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -24,7 +18,7 @@ import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
-/// Viewport-Pinning + Overflow-Toleranz wie in den uebrigen Widget-Suiten.
+/// Viewport pinning plus overflow tolerance, as in the other widget suites.
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   testWidgets(description, (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -43,8 +37,8 @@ void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   });
 }
 
-/// Ein Posten mit widerspruechlicher Dichte: 521 kcal auf 100 g sind 521
-/// kcal/100 g, im Feld steht aber die kJ-Zahl 2180.
+/// A component with contradictory density: 521 kcal per 100 g, but the field
+/// holds the kJ value 2180.
 const _inkonsistent = MealAnalysisResult(
   mealName: 'Nussmus',
   caloriesKcal: 521,
@@ -66,9 +60,8 @@ const _inkonsistent = MealAnalysisResult(
   ],
 );
 
-/// Eine Mahlzeit, deren einziger Posten vollstaendige Makros traegt — die
-/// Voraussetzung dafuer, dass `adjustedToItems` ueberhaupt exakt aufsummieren
-/// darf. 300 g Salat, 200 kcal, 10/20/5 g.
+/// A meal whose only component carries complete macros — the precondition for
+/// `adjustedToItems` to sum exactly. 300 g, 200 kcal, 10/20/5 g.
 const _mitMakros = MealAnalysisResult(
   mealName: 'Salat',
   caloriesKcal: 200,
@@ -93,15 +86,14 @@ const _mitMakros = MealAnalysisResult(
   ],
 );
 
-/// Host mit einem Knopf, der das Anpassen-Sheet oeffnet und dessen Rueckgabe
-/// festhaelt — genau der Wert, den `MealAnalysisSheet` an `adjustedToItems`
-/// weiterreichen wuerde.
+/// Host with a button that opens the adjust sheet and captures its return —
+/// exactly what `MealAnalysisSheet` would pass to `adjustedToItems`.
 Widget _host(MealAnalysisResult result, void Function(Object?) onResult) {
   return MaterialApp(
-    // Die Anpassen-Flaechen lesen ihre Farben seit dem Design-Refactor aus der
-    // AppTokens-ThemeExtension — ohne Eatova-Theme wirft AppTokens.of bewusst.
+    // The adjust surfaces read their colors from the AppTokens
+    // ThemeExtension; without the Eatova theme AppTokens.of throws.
     theme: buildEatovaTheme(Brightness.dark),
-    // showWeightAdjustmentSheet liest seit der i18n-Migration context.l10n.
+    // showWeightAdjustmentSheet reads context.l10n.
     locale: const Locale('de'),
     supportedLocales: const [Locale('de'), Locale('en')],
     localizationsDelegates: const [
@@ -128,10 +120,9 @@ Future<void> _openSheet(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Die Kalorienzahl, die die Postenzeile GERADE ANZEIGT ("30 g · 654 kcal").
-/// Bewusst aus dem gerenderten Text gelesen statt aus dem Modell gerechnet:
-/// nur so vergleicht der Test wirklich Vorschau gegen Speicherpfad, und die
-/// Fehlermeldung nennt beide Zahlen.
+/// The calorie number the component row currently DISPLAYS. Read from the
+/// rendered text, not computed from the model — only that compares preview
+/// against save path.
 int _angezeigteZeilenKcal(WidgetTester tester, int grams) {
   final muster = RegExp('^$grams g · (\\d+) kcal\$');
   final treffer = tester
@@ -147,13 +138,10 @@ int _angezeigteZeilenKcal(WidgetTester tester, int grams) {
 }
 
 void main() {
-  // Regressionsschutz zu Uebergabe 2: `showWeightAdjustmentSheet` baut
-  // ausschliesslich das Bestandteil-Sheet. Das frueher danebenliegende
-  // reine Gewichts-Sheet (`_MealWeightAdjustmentSheet`, Titel "Portion
-  // anpassen", Feld `analyse-weight-input`) war unerreichbar und trug die
-  // B1-Formel `kcalPer100G * grams / 100` weiter mit sich herum; es ist
-  // geloescht. Dieser Test war auch vor dem Loeschen gruen — toter Code
-  // rendert nicht — und haelt lediglich fest, dass niemand ihn zurueckholt.
+  // Regression guard: `showWeightAdjustmentSheet` only builds the component
+  // sheet. The unreachable weight-only sheet still carried the B1 formula
+  // `kcalPer100G * grams / 100` and was deleted; this pins that nobody brings
+  // it back.
   group('B1/Uebergabe 2 — nur noch das Bestandteil-Sheet', () {
     testWidgetsRobust('das Anpassen-Sheet ist das Bestandteil-Sheet',
         (tester) async {
@@ -170,10 +158,9 @@ void main() {
     });
   });
 
-  // B8: Der Bestandteil-Dialog erfasst jetzt optional Makros. `adjustedToItems`
-  // summiert sie exakt, sobald ALLE Posten welche tragen — sonst gilt
-  // "unbekannt" (`-`). Ohne Erfassung im Dialog fiel jede Zusammensetzungs-
-  // aenderung zwangslaeufig auf "unbekannt".
+  // B8: the component dialog optionally captures macros. `adjustedToItems`
+  // sums them exactly once ALL components carry them, otherwise the meal falls
+  // back to unknown (`-`).
   group('B8 — Makros im Bestandteil-Dialog', () {
     testWidgetsRobust(
       'der schnelle Pfad bleibt schnell: Makro-Felder sind eingeklappt',
@@ -183,14 +170,14 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('analyse-item-add-button')));
         await tester.pumpAndSettle();
 
-        // Name, Gramm, Kalorien stehen sofort da …
+        // Name, grams, calories are visible right away …
         expect(find.byKey(const ValueKey('analyse-add-item-name')),
             findsOneWidget);
         expect(find.byKey(const ValueKey('analyse-add-item-grams')),
             findsOneWidget);
         expect(find.byKey(const ValueKey('analyse-add-item-kcal')),
             findsOneWidget);
-        // … die drei Makro-Felder erst nach dem Aufklappen.
+        // … the three macro fields only after expanding.
         expect(find.byKey(const ValueKey('analyse-add-item-protein')),
             findsNothing);
         expect(find.byKey(const ValueKey('analyse-add-item-carbs')),
@@ -246,7 +233,7 @@ void main() {
         expect(brot.fatG, isNull);
         expect(brot.hasMacros, isFalse);
 
-        // Folgerichtig: die Mahlzeit weist ihre Makros als unbekannt aus.
+        // Consequently the meal reports its macros as unknown.
         final angepasst = _mitMakros.adjustedToItems(posten);
         expect(angepasst.protein, '-');
         expect(angepasst.carbs, '-');
@@ -273,7 +260,7 @@ void main() {
             .tap(find.byKey(const ValueKey('analyse-add-item-macros-toggle')));
         await tester.pumpAndSettle();
 
-        // 0 g Protein/KH ist hier eine echte Aussage, kein "unbekannt".
+        // 0 g here is a real statement, not "unknown".
         await tester.enterText(
             find.byKey(const ValueKey('analyse-add-item-protein')), '0');
         await tester.enterText(
@@ -297,7 +284,7 @@ void main() {
         expect(oel.fatG, 20);
         expect(oel.hasMacros, isTrue);
 
-        // Alle Posten tragen Makros -> exakte Summe statt "unbekannt".
+        // All components carry macros -> exact sum instead of "unknown".
         final angepasst = _mitMakros.adjustedToItems(posten);
         expect(angepasst.protein, '10 g');
         expect(angepasst.carbs, '20 g');
@@ -362,8 +349,8 @@ void main() {
           reason: 'Der Hinweis muss die Folge benennen, bevor sie eintritt.',
         );
 
-        // Sobald alle drei Werte stehen, wechselt der Hinweis auf die
-        // positive Aussage — die Mahlzeit behaelt ihre Makros.
+        // Once all three values are set, the hint flips to the positive
+        // statement: the meal keeps its macros.
         await tester
             .tap(find.byKey(const ValueKey('analyse-add-item-macros-toggle')));
         await tester.pumpAndSettle();
@@ -381,9 +368,8 @@ void main() {
     testWidgetsRobust(
       'tragen die uebrigen Posten keine Makros, verspricht der Dialog nichts',
       (tester) async {
-        // _inkonsistent hat einen Posten OHNE Makros. Selbst vollstaendig
-        // ausgefuellte Makros retten die Mahlzeit dann nicht — und genau das
-        // muss dastehen, statt eine exakte Summe zu versprechen.
+        // _inkonsistent has a component WITHOUT macros, so even fully filled
+        // macros cannot save the meal — the hint must say so.
         await tester.pumpWidget(_host(_inkonsistent, (_) {}));
         await _openSheet(tester);
         await tester.tap(find.byKey(const ValueKey('analyse-item-add-button')));
@@ -424,11 +410,11 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Was die Zeile ZEIGT (vor dem Fix: 654 aus der 2180er-Dichte).
+        // What the row SHOWS (before the fix: 654 from the 2180 density).
         final vorschau = _angezeigteZeilenKcal(tester, 30);
 
-        // Die Gesamtzeile rechnete schon immer ueber adjustedToGrams — die
-        // Divergenz stand also im selben Sheet direkt untereinander.
+        // The total row always went through adjustedToGrams, so the divergence
+        // sat in the same sheet.
         expect(find.text('30 g ≈ 156 kcal'), findsOneWidget);
 
         await tester.tap(
@@ -436,7 +422,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Was das Sheet SPEICHERT (immer 521 * 30 / 100 = 156).
+        // What the sheet SAVES (always 521 * 30 / 100 = 156).
         final posten = gespeichert as List<MealComponent>;
         final gespeicherteKcal = posten.single.caloriesKcal;
 
@@ -460,8 +446,8 @@ void main() {
         await tester.pumpWidget(_host(_inkonsistent, (v) => gespeichert = v));
         await _openSheet(tester);
 
-        // Invariante aus Welle 2: adjustedToGrams(estimatedGrams) aendert die
-        // Kalorien nicht. Ohne Tippen muss die Zeile deshalb 521 zeigen.
+        // Invariant: adjustedToGrams(estimatedGrams) does not change the
+        // calories, so without typing the row must show 521.
         expect(find.text('100 g · 521 kcal'), findsOneWidget);
 
         await tester.tap(
@@ -476,9 +462,8 @@ void main() {
     testWidgetsRobust(
       'ohne Kalorienangabe uebernimmt die (plausible) Dichte die Rechnung',
       (tester) async {
-        // 0 kcal heisst "unbekannt" (der alte Clamp-Sentinel), nicht "0 kcal".
-        // Dann ist die Dichte die einzige Bezugsgroesse — 80 kcal/100 g auf
-        // 250 g sind 200 kcal.
+        // 0 kcal means "unknown" (the old clamp sentinel), so density is the
+        // only reference: 80 kcal/100 g at 250 g is 200 kcal.
         const nurDichte = MealAnalysisResult(
           mealName: 'Kartoffeln',
           caloriesKcal: 0,
@@ -522,10 +507,9 @@ void main() {
     testWidgetsRobust(
       'unplausible Dichte ohne Kalorien erfindet nichts (0 kcal statt kJ-Zahl)',
       (tester) async {
-        // Weder Kalorien noch eine brauchbare Dichte: die 2180 sind die
-        // kJ-Zahl und werden von effectiveKcalPer100G verworfen. Die Zeile
-        // darf dann keine Zahl erfinden — 0 ist hier die ehrliche Antwort und
-        // exakt das, was adjustedToGrams speichern wuerde.
+        // Neither calories nor a usable density: the 2180 is the kJ value and
+        // effectiveKcalPer100G drops it. The row must not invent a number —
+        // 0 is what adjustedToGrams would save.
         const nurKJ = MealAnalysisResult(
           mealName: 'Datensatz ohne Naehrwerte',
           caloriesKcal: 0,

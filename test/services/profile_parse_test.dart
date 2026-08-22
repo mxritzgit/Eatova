@@ -3,16 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/profile_sync.dart';
 
-// Table-Tests fuer die reinen Profil-Parser aus profile_sync.dart.
-// parseProfileGoal ist korrektheitskritisch: jede falsche Branch ist ein
-// stiller ±550/±1100 kcal/Tag-Zielbug (das Tagesziel haengt am WeightGoal).
-// Deckt das Legacy-Tempo-Schema (loseFast/loseSteady/gainFast/gainSteady),
-// die kanonischen enum-Namen, null und Muell ab. Netz-/Client-frei.
+// Table tests for the pure profile parsers in profile_sync.dart. A wrong
+// parseProfileGoal branch is a silent ±550 kcal/day target bug, since the
+// daily target hangs off WeightGoal.
 
 void main() {
   group('parseProfileGoal', () {
-    // Legacy-Tempo-Strings -> kg/Woche-Raten. Jede Zeile ist ein geld-/
-    // gesundheitskritisches Mapping, deshalb hier vollstaendig durchdekliniert.
+    // Legacy pace strings -> kg/week rates; health-critical, so spelled out.
     const legacy = <String, WeightGoal>{
       'loseFast': WeightGoal.lose05kg,
       'loseSteady': WeightGoal.lose025kg,
@@ -25,8 +22,7 @@ void main() {
       });
     });
 
-    // Kanonische enum-Namen muessen 1:1 wieder ihren Wert ergeben (Roundtrip
-    // ueber WeightGoal.name, so wie save() schreibt).
+    // Canonical names must round-trip via .name, as save() writes them.
     for (final goal in WeightGoal.values) {
       test('Kanonischer Name "${goal.name}" roundtrippt zu $goal', () {
         expect(parseProfileGoal(goal.name), goal);
@@ -40,11 +36,11 @@ void main() {
     test('unbekannter String -> maintain (kein Crash, kein Default-Delta-Bug)', () {
       expect(parseProfileGoal('voll_random'), WeightGoal.maintain);
       expect(parseProfileGoal(''), WeightGoal.maintain);
-      expect(parseProfileGoal('LoseFast'), WeightGoal.maintain); // case-sensitiv
+      expect(parseProfileGoal('LoseFast'), WeightGoal.maintain); // case-sensitive
     });
 
     test('Legacy-Mappings landen auf den richtigen kcal-Deltas', () {
-      // Doppelte Absicherung: die Rate hinter dem gemappten Goal stimmt.
+      // Second safeguard: the rate behind the mapped goal.
       expect(parseProfileGoal('loseFast').kcalDelta, -550);
       expect(parseProfileGoal('loseSteady').kcalDelta, -275);
       expect(parseProfileGoal('gainFast').kcalDelta, 550);
@@ -63,7 +59,7 @@ void main() {
     });
     test('Muell -> neutral', () {
       expect(parseProfileSex('divers'), BiologicalSex.neutral);
-      expect(parseProfileSex('Male'), BiologicalSex.neutral); // case-sensitiv
+      expect(parseProfileSex('Male'), BiologicalSex.neutral); // case-sensitive
     });
   });
 
@@ -83,7 +79,7 @@ void main() {
   });
 
   group('parseDietPreference', () {
-    // Kanonische enum-Namen roundtrippen 1:1 (so wie save() ueber .name schreibt).
+    // Canonical names round-trip via .name.
     for (final diet in DietPreference.values) {
       test('Name "${diet.name}" roundtrippt zu $diet', () {
         expect(parseDietPreference(diet.name), diet);
@@ -95,7 +91,7 @@ void main() {
     test('Muell -> none (kein Crash, keine stille Einschraenkung)', () {
       expect(parseDietPreference('paleo'), DietPreference.none);
       expect(parseDietPreference(''), DietPreference.none);
-      expect(parseDietPreference('Vegan'), DietPreference.none); // case-sensitiv
+      expect(parseDietPreference('Vegan'), DietPreference.none); // case-sensitive
     });
   });
 }

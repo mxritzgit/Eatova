@@ -1,21 +1,14 @@
-// Tab-Rahmen der Schale — W3-01.
+// Tab frame of the shell — W3-01.
 //
-//  * D6: `buildSelectedScreen()` war ein `switch`, der genau EINEN Teilbaum
-//    erzeugte, und beide Wrapper trugen ein `ValueKey` pro Tab — das Unmounten
-//    war also aktiv erzwungen. Ein getippter Coach-Entwurf war nach einem
-//    Blick in die Rezepte weg, `_bootstrap()` feuerte drei Netzaufrufe pro
-//    Besuch, und das Rezept-Suchfeld verlor seinen Text.
-//  * D7: Repo-weit null Treffer fuer `PopScope`/`WillPopScope` — die
-//    Zurueck-Taste schloss aus dem Coach- oder Rezepte-Tab die App.
+//  * D6: unmounting was actively forced (a `switch` plus a per-tab `ValueKey`),
+//    so a typed coach draft was gone after a trip to the recipes and
+//    `_bootstrap()` fired three network calls per visit.
+//  * D7: no `PopScope` anywhere, so back closed the app from the coach or
+//    recipes tab.
 //
-// Die Tests fahren die echte EatovaHomePage ohne Sync (Preview-Pfad): kein
-// Boot-Gate, kein Onboarding, alle Tabs erreichbar.
-//
-// Design-Refactor 2026-08-09: Der neue Tab „Heute" ist dazugekommen und sitzt
-// auf Index 0. Alle Tab-Indizes sind deshalb um eins nach hinten gerueckt
-// (Heute 0, Food 1, Rezepte 2, Coach 3), und der Kaltstart baut jetzt Heute
-// statt Food. Die geprueften AUSSAGEN sind dieselben geblieben — nur die
-// Nummern und der Name des Wurzel-Tabs haben sich geaendert.
+// The tests boot the real EatovaHomePage without sync (preview path): no boot
+// gate, no onboarding, all tabs reachable. Tab indices: Heute 0, Food 1,
+// recipes 2, coach 3.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -34,8 +27,8 @@ HomeStore _storeOf(WidgetTester tester) =>
     (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
         .debugStore;
 
-/// Tab-Wechsel ueber den Store statt ueber einen Tap auf die Bottom-Nav: der
-/// Coach-Orb animiert endlos, ein `pumpAndSettle` wuerde nie settlen.
+/// Tab switch via the store instead of a tap on the bottom nav: the coach orb
+/// animates forever, so `pumpAndSettle` would never settle.
 Future<void> _goToTab(WidgetTester tester, int tab) async {
   _storeOf(tester).setTab(tab);
   for (var i = 0; i < 12; i++) {
@@ -49,8 +42,8 @@ Future<void> _pumpHome(WidgetTester tester) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  // Headless-Schriftmetriken erzeugen Overflows, die auf dem Geraet nicht
-  // auftreten (gleiche Begruendung wie in test/flows/flow_test_helpers.dart).
+  // Headless font metrics produce overflows that never happen on a device
+  // (same reasoning as test/flows/flow_test_helpers.dart).
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
     if (details.exception.toString().contains('overflowed')) return;
@@ -61,8 +54,8 @@ Future<void> _pumpHome(WidgetTester tester) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
-      // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+      // _navItems() reads context.l10n, so without localizations
+      // AppLocalizations.of() throws while building the bottom nav.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -83,8 +76,8 @@ void main() {
         (tester) async {
       await _pumpHome(tester);
 
-      // skipOffstage: false — sonst uebersieht der Finder auch einen
-      // GEBAUTEN, nur unsichtbaren IndexedStack-Tab und der Test waere blind.
+      // skipOffstage: false, or the finder would miss a BUILT but invisible
+      // IndexedStack tab and the test would be blind.
       expect(find.byType(TodayScreen), findsOneWidget);
       expect(find.byType(MealAnalysisScreen, skipOffstage: false), findsNothing,
           reason: 'Food ist seit dem Refactor Tab 1, nicht mehr der Landepunkt');
@@ -114,10 +107,9 @@ void main() {
 
     testWidgets('der Entwurfs-Controller des Composers ueberlebt den Wechsel',
         (tester) async {
-      // Ohne CoachChatService ist das Eingabefeld disabled — `enterText` liefe
-      // ins Leere. Gemessen wird deshalb der Traeger des Entwurfs: der
-      // TextEditingController lebt in _CoachChatScreenState. Bleibt DIE Instanz
-      // ueber den Tab-Wechsel dieselbe, ueberlebt auch ihr Text.
+      // Without a CoachChatService the field is disabled, so `enterText` would
+      // do nothing. Measure the draft's carrier instead: if the
+      // TextEditingController instance survives the switch, so does its text.
       await _pumpHome(tester);
       await _goToTab(tester, 3);
 
@@ -140,9 +132,9 @@ void main() {
         find.byKey(const ValueKey('recipes-search-input')),
         'Lachs',
       );
-      // Entfokussieren: ein fokussiertes EditableText haelt sich per
-      // AutomaticKeepAliveClientMixin selbst in der lazy ListView am Leben —
-      // der Test wuerde sonst gruen sein, ohne etwas zu beweisen.
+      // Unfocus: a focused EditableText keeps itself alive in the lazy
+      // ListView via AutomaticKeepAliveClientMixin, so the test would be green
+      // without proving anything.
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pump();
 
@@ -161,11 +153,10 @@ void main() {
 
     testWidgets('der Food-Tab bleibt beim Wechsel gemountet', (tester) async {
       await _pumpHome(tester);
-      // Food ist seit dem Refactor Tab 1 und beim Kaltstart noch nicht gebaut
-      // — erst hinschalten, dann messen.
+      // Food is tab 1 and unbuilt at cold start — switch there, then measure.
       await _goToTab(tester, 1);
-      // MealAnalysisScreen ist stateless — Element-Identitaet ist hier das
-      // Mount-Signal: ein Remount wirft das alte Element weg.
+      // MealAnalysisScreen is stateless, so element identity is the mount
+      // signal: a remount throws the old element away.
       final foodElement = tester.element(find.byType(MealAnalysisScreen));
 
       await _goToTab(tester, 2);
@@ -179,9 +170,7 @@ void main() {
   });
 
   group('D7 — Zurueck-Taste', () {
-    // Der Zielpunkt der Zurueck-Taste ist weiterhin Tab 0 — der heisst seit
-    // dem Refactor „Heute" statt „Food". Die Zusicherung (`selectedTab == 0`)
-    // ist deshalb unveraendert richtig, nur die Namen ziehen mit.
+    // Back always targets tab 0.
     testWidgets('aus dem Coach-Tab fuehrt Zurueck auf Heute statt aus der App',
         (tester) async {
       await _pumpHome(tester);
@@ -225,12 +214,12 @@ void main() {
 
     testWidgets('eine gepushte Route poppt zuerst, der Tab bleibt stehen',
         (tester) async {
-      // Rezepte-Tab statt Coach: der CoachOrb animiert endlos, ein
-      // pumpAndSettle waehrend des Coach-Tabs wuerde nie settlen.
+      // Recipes tab, not coach: the CoachOrb animates forever and
+      // pumpAndSettle would never settle there.
       await _pumpHome(tester);
       await _goToTab(tester, 2);
 
-      // Route oeffnen (liegt UEBER dem Home) und mit Zurueck schliessen.
+      // Open a route above home and close it with back.
       Navigator.of(tester.element(find.byType(EatovaHomePage))).push(
         MaterialPageRoute<void>(
           builder: (_) => const Scaffold(key: ValueKey('test-pushed-route')),
@@ -250,12 +239,9 @@ void main() {
   });
 
   group('C8 — KI-Offenlegung im Coach-Tab', () {
-    // Die Offenlegung liegt vollstaendig in den Coach-Screens (Composer-
-    // Platzhalter, antippbarer Hinweis im Leerzustand, (i)-Sheet mit der
-    // Liste der mitgehenden Daten) — nicht mehr im Tab-Rahmen. Eine zweite
-    // Zeile hier waere dieselbe Aussage doppelt, im Leerzustand direkt
-    // uebereinander. Die Inhalte pruefen `test/coach_ai_disclosure_test.dart`
-    // und `test/coach_*`; hier bleibt nur die Aussage, DASS der Tab sie traegt.
+    // The disclosure lives entirely in the coach screens, not in the tab
+    // frame; a second line here would repeat it. The content is checked by
+    // `test/coach_ai_disclosure_test.dart`, this group only asserts presence.
     testWidgets('der Coach-Tab nennt die KI', (tester) async {
       await _pumpHome(tester);
       await _goToTab(tester, 3);

@@ -14,18 +14,17 @@ import 'crash_reporter.dart';
 import 'secure_cache_store.dart';
 import 'sync_outbox.dart';
 
-/// Minimaler async Key-Value-Store hinter [LocalCache]. Abstrahiert
-/// SharedPreferences, damit der Cache OHNE Plugin-Channel unit-getestet werden
-/// kann (siehe [InMemoryKeyValueStore]).
+/// Minimal async key-value store behind [LocalCache]. Abstracts
+/// SharedPreferences so the cache is unit-testable without a plugin channel
+/// (see [InMemoryKeyValueStore]).
 abstract class KeyValueStore {
   Future<String?> getString(String key);
   Future<void> setString(String key, String value);
   Future<void> remove(String key);
 }
 
-/// Plattform-Default: SharedPreferences. Wird in Production via
-/// [LocalCache.create] gebaut. shared_preferences ist bereits transitiv ueber
-/// supabase_flutter vorhanden (gotrue nutzt es fuer die Session).
+/// Platform default: SharedPreferences, built in production via
+/// [LocalCache.create]. Already a transitive dependency of supabase_flutter.
 class SharedPreferencesStore implements KeyValueStore {
   SharedPreferencesStore(this._prefs);
 
@@ -47,7 +46,7 @@ class SharedPreferencesStore implements KeyValueStore {
   Future<void> remove(String key) => _prefs.remove(key);
 }
 
-/// In-Memory-Store fuer Tests (kein Plugin-Channel noetig).
+/// In-memory store for tests (no plugin channel needed).
 class InMemoryKeyValueStore implements KeyValueStore {
   InMemoryKeyValueStore([Map<String, String>? initial])
       : _data = {...?initial};
@@ -70,36 +69,30 @@ class InMemoryKeyValueStore implements KeyValueStore {
   }
 }
 
-/// Duenner Write-Through-Cache (JSON in SharedPreferences) fuer Profil und
-/// lifetime_stats EINES Users (DATA-3).
+/// Thin write-through cache (JSON in SharedPreferences) for one user's data
+/// (DATA-3).
 ///
-/// Zweck: ein Kaltstart OHNE Netz darf nicht die nackten Ctor-Defaults
-/// (78 kg / 178 cm) zeigen — und ein anschliessender Save darf die echte
-/// Server-Zeile NICHT mit diesen Defaults ueberschreiben. Die HomePage
-/// hydratisiert beim Start ZUERST aus diesem Cache (letzter bekannter Stand),
-/// danach erst aus dem Netz; jede persistierte Mutation schreibt parallel hier
-/// rein.
+/// An offline cold start must not show the bare ctor defaults, and a following
+/// save must not overwrite the real server row with them. HomePage hydrates
+/// from this cache first, then from the network; every persisted mutation
+/// writes here too.
 ///
-/// Pro User gekeyt (SharedPreferences ist global). Alle Reads/Writes sind
-/// defensiv: ein korrupter/teilweiser Eintrag liefert null statt zu crashen —
-/// der Netz-Boot bzw. der naechste Write fixt ihn.
+/// Keyed per user (SharedPreferences is global). All reads/writes are
+/// defensive: a corrupt entry yields null instead of crashing.
 class LocalCache {
   LocalCache(this._store, this._userId);
 
   final KeyValueStore _store;
   final String _userId;
 
-  /// Baut den Production-Cache auf SharedPreferences, verschluesselt mit dem
-  /// OS-Keystore-DEK (SEC-1, siehe secure_cache_store.dart). Gibt bei
-  /// Plugin-Fehler (z.B. fehlender Channel im Test ohne Mock) ODER wenn der
-  /// DEK weder gelesen noch angelegt werden kann null zurueck, damit der
-  /// Aufrufer einfach ohne Cache weiterlaeuft statt zu crashen. KEIN
-  /// Klartext-Fallback — lieber kein Cache als ein unverschluesselter.
+  /// Builds the production cache on SharedPreferences, encrypted with the OS
+  /// keystore DEK (SEC-1, secure_cache_store.dart). Returns null on plugin
+  /// error or when the DEK is neither readable nor creatable, so the caller
+  /// runs on without a cache. No plaintext fallback — no cache beats an
+  /// unencrypted one.
   ///
-  /// Der Dekorator wird bewusst NUR hier eingezogen: der oeffentliche
-  /// Konstruktor nimmt weiter einen nackten [KeyValueStore], damit die
-  /// bestehenden Tests ihn unveraendert mit [InMemoryKeyValueStore] und rohen
-  /// Klartext-Werten treiben koennen.
+  /// The decorator is added only here; the public constructor still takes a
+  /// bare [KeyValueStore] so tests can drive plaintext values.
   static Future<LocalCache?> create(String userId) async {
     try {
       final base = await SharedPreferencesStore.create();
@@ -115,70 +108,59 @@ class LocalCache {
     }
   }
 
-  /// Loescht Slots, die es nur noch in Alt-Installationen gibt.
+  /// Deletes slots that only exist in old installations.
   ///
-  /// Aktuell [_legacyDailyKey] (`eatova.v1.daily.<uid>`): wird nie gelesen und
-  /// nie geschrieben, bisher nur in [clear] geraeumt. Eine Installation von
-  /// VOR der Entfernung des Heute-Tabs traegt dort weiterhin einen
-  /// daily_logs-Snapshot INKLUSIVE der Mood-Freitextnotiz — und der
-  /// Verschluesselungs-Dekorator wuerde ihn NIE anfassen, weil er nur beim
-  /// Schreiben verschluesselt und beim Lesen migriert. Der Slot muss also
-  /// ersatzlos weg statt verschluesselt zu werden.
+  /// Currently [_legacyDailyKey]: pre-Today-tab installs still hold a
+  /// daily_logs snapshot including the free-text mood note there, and the
+  /// encrypting decorator would never touch it (it only encrypts on write).
+  /// So the slot must go, not be encrypted.
   ///
-  /// Oeffentlich, damit das ueber den einfachen Konstruktor testbar ist.
+  /// Public so it is testable through the plain constructor.
   Future<void> dropLegacySlots() => _store.remove(_legacyDailyKey);
 
-  // Versions-Prefix erlaubt spaetere Schema-Migrationen ohne Crash auf alten
-  // Eintraegen (unbekannte Keys werden einfach ignoriert).
+  // Version prefix allows later schema migrations without crashing on old
+  // entries (unknown keys are ignored).
   String get _profileKey => 'eatova.v1.profile.$_userId';
 
-  /// Legacy-Slot des frueheren Heute-Tabs (daily_logs-Snapshot inkl. Mood-
-  /// Notiz). Wird nicht mehr geschrieben/gelesen, aber in [clear] weiterhin
-  /// geraeumt, damit Alt-Installationen beim Logout keine PII behalten (M-1).
+  /// Legacy slot of the former Today tab (daily_logs snapshot incl. mood
+  /// note). No longer read or written, but still cleared in [clear] so old
+  /// installs keep no PII after logout (M-1).
   String get _legacyDailyKey => 'eatova.v1.daily.$_userId';
   String get _statsKey => 'eatova.v1.stats.$_userId';
   String get _notificationsKey => 'eatova.v1.notifications_enabled.$_userId';
 
-  // DATA-7 Offline-Persistenz: Tagebuch, Favoriten und Gewichts-Log werden
-  // gespiegelt, damit ein Kaltstart ohne Netz nicht mit leerem Tagebuch
-  // startet. Dazu die Write-Outbox (noch nicht synchronisierte Operationen)
-  // und die pendenden Lifetime-Stats-Deltas — beides muss einen App-Kill
-  // ueberleben. ALLE Slots sind PII und werden in [clear] geraeumt.
+  // DATA-7 offline persistence: diary, favorites and weight log are mirrored
+  // so an offline cold start does not begin with an empty diary. Plus the
+  // write outbox and the pending lifetime-stats deltas, both of which must
+  // survive an app kill. All slots are PII and are cleared in [clear].
   String get _loggedMealsKey => 'eatova.v1.logged_meals.$_userId';
   String get _favoritesKey => 'eatova.v1.favorites.$_userId';
   String get _weightLogKey => 'eatova.v1.weight_log.$_userId';
   String get _outboxKey => 'eatova.v1.outbox.$_userId';
   String get _pendingStatsKey => 'eatova.v1.pending_stats.$_userId';
 
-  /// Luecke A: selbst angelegte Rezepte. Sie waren die EINZIGE Nutzer-Sammlung
-  /// mit nur EINEM Sicherungsnetz — der Outbox. Faellt die aus (zugestellt,
-  /// gekappt, oder nie entstanden, weil der Live-Write ohne Timeout haengt),
-  /// war das Rezept spurlos weg, und ein Kaltstart ohne Netz zeigte gar keine
-  /// Eigen-Rezepte mehr. Jetzt derselbe Write-Through wie Tagebuch/Favoriten.
-  /// Ebenfalls PII (Zutaten/Mengen des Nutzers) -> wird in [clear] geraeumt.
+  /// Gap A: user-created recipes, previously the only user collection with a
+  /// single safety net (the outbox). Now the same write-through as diary and
+  /// favorites. PII (ingredients, amounts) -> cleared in [clear].
   String get _userRecipesKey => 'eatova.v1.user_recipes.$_userId';
 
-  /// Tages-Aktivitaet: Schritte + daraus geschaetzte "Verbrannt"-kcal pro
-  /// lokalem Kalendertag (Key im Blob: YYYY-MM-DD, s. local_day.dart).
-  /// Anders als der Legacy-daily-Slot des frueheren Heute-Tabs traegt er nur
-  /// diese zwei Zahlen — aber auch das sind Gesundheitsdaten, also PII ->
-  /// wird in [clear] geraeumt. Bewusst NUR lokal (keine Supabase-Tabelle):
-  /// Schritte kommen aus dem Health-Store des Geraets, ein Server-Sync wuerde
-  /// Gesundheitsdaten hochladen, die dort nie gebraucht werden.
+  /// Daily activity: steps plus estimated burned kcal per local calendar day
+  /// (blob key: YYYY-MM-DD, see local_day.dart). Health data, so PII ->
+  /// cleared in [clear]. Local only, no Supabase table: a server sync would
+  /// upload health data that is never needed there.
   String get _dailyActivityKey => 'eatova.v1.daily_activity.$_userId';
 
-  // ---- Erinnerungen (PROD-1) ----------------------------------------------
-  // Opt-in-Flag fuer die lokalen Retention-Nudges. Persistiert pro User, damit
-  // ein Kaltstart die geplanten Nudges nur dann wieder aufsetzt, wenn der User
-  // sie aktiviert hat. Wir reusen den vorhandenen JSON-Slot statt eines eigenen
-  // bool-Channels, damit der Wire-Pfad einheitlich (und defensiv) bleibt.
+  // ---- Reminders (PROD-1) -------------------------------------------------
+  // Opt-in flag for the local retention nudges, persisted per user so a cold
+  // start only re-schedules them if the user opted in. Reuses the JSON slot
+  // instead of a bool channel to keep the wire path uniform and defensive.
 
-  /// Schreibt das Erinnerungs-Opt-in-Flag. No-Op bei Plugin-Fehler (s. _writeJson).
+  /// Writes the reminder opt-in flag. No-op on plugin error (see _writeJson).
   Future<void> writeNotificationsEnabled(bool enabled) =>
       _writeJson(_notificationsKey, <String, dynamic>{'enabled': enabled});
 
-  /// Liest das Opt-in-Flag. Fehlt/korrupt -> null (Aufrufer waehlt seinen
-  /// Default, in der App: OFF bis der User opt-in macht).
+  /// Reads the opt-in flag. Missing or corrupt -> null; the caller picks its
+  /// default (in the app: off until the user opts in).
   Future<bool?> readNotificationsEnabled() async {
     final json = await _readJson(_notificationsKey);
     if (json == null) return null;
@@ -186,13 +168,12 @@ class LocalCache {
     return v is bool ? v : null;
   }
 
-  // ---- Profil -------------------------------------------------------------
+  // ---- Profile ------------------------------------------------------------
 
-  // Wire-Format (userProfileToJson/-FromJson) liegt seit Luecke D in
-  // sync_outbox.dart: das Profil hat jetzt ZWEI Persistenzwege — diesen
-  // Cache-Slot und die Outbox-Op. Zwei Kopien desselben Mappings waeren die
-  // Falle, gegen die der Vollstaendigkeits-Test in local_cache_test
-  // geschrieben ist. Schluesselnamen und Defensiv-Verhalten sind unveraendert.
+  // The wire format (userProfileToJson/-FromJson) lives in sync_outbox.dart:
+  // the profile has two persistence paths (this slot and the outbox op), and
+  // two copies of the same mapping is exactly what the completeness test in
+  // local_cache_test guards against.
   Future<void> writeProfile(UserProfile profile) =>
       _writeJson(_profileKey, userProfileToJson(profile));
 
@@ -232,9 +213,9 @@ class LocalCache {
     }
   }
 
-  // ---- Tagebuch / Favoriten / Gewicht (DATA-7) ----------------------------
-  // Listen werden als {'items': [...]} verpackt, damit der defensive
-  // Map-basierte Wire-Pfad (_readJson/_writeJson) unveraendert traegt.
+  // ---- Diary / favorites / weight (DATA-7) --------------------------------
+  // Lists are wrapped as {'items': [...]} so the defensive map-based wire
+  // path (_readJson/_writeJson) carries them unchanged.
 
   Future<void> writeLoggedMeals(List<LoggedMeal> meals) =>
       _writeJson(_loggedMealsKey, <String, dynamic>{
@@ -270,11 +251,10 @@ class LocalCache {
     }
   }
 
-  /// Eigen-Rezepte (Luecke A). Wire-Format ist bewusst die SERVERZEILE
-  /// ([FitnessRecipe.toRow]/[FitnessRecipe.fromRow]): ein aus dem Cache
-  /// gelesenes Rezept ist damit Zeichen fuer Zeichen dasselbe wie ein frisch
-  /// geladenes — inklusive `userCreated: true` und dem festen Profi-Hinweis,
-  /// die `fromRow` setzt (die Tabelle fuehrt beide Spalten nicht).
+  /// User recipes (gap A). The wire format is deliberately the server row
+  /// ([FitnessRecipe.toRow]/[FitnessRecipe.fromRow]), so a cached recipe is
+  /// byte-identical to a freshly loaded one, including the fields `fromRow`
+  /// synthesizes.
   Future<void> writeUserRecipes(List<FitnessRecipe> recipes) =>
       _writeJson(_userRecipesKey, _userRecipesToJson(recipes));
 
@@ -289,17 +269,17 @@ class LocalCache {
     try {
       return items.map(FitnessRecipe.fromRow).toList();
     } catch (e) {
-      // Wie bei Tagebuch/Favoriten: der Slot faellt ALS GANZES aus (null),
-      // der Server-Load bzw. der naechste Write fixt ihn. Ein Rezept ohne
-      // slug wirft in fromRow — der slug ist der Konflikt-Schluessel des
-      // Upserts und darf nie erfunden werden (Sentinel-Rest S4).
+      // Like diary/favorites: the whole slot drops out (null); the server
+      // load or next write fixes it. A recipe without a slug throws in
+      // fromRow — the slug is the upsert conflict key and must never be
+      // invented (S4).
       dev.log('LocalCache.readUserRecipes parse failed', error: e,
           name: 'local_cache');
       return null;
     }
   }
 
-  /// Tages-Aktivitaet (s. [_dailyActivityKey]). Wire-Format:
+  /// Daily activity (see [_dailyActivityKey]). Wire format:
   /// `{'days': {'2026-08-11': {'steps': 8123, 'kcal': 312}}}`.
   Future<void> writeDailyActivity(
     Map<String, ({int steps, int kcal})> days,
@@ -314,10 +294,9 @@ class LocalCache {
         },
       });
 
-  /// Liest die Tages-Aktivitaet. Fehlt/korrupt -> null; einzelne unlesbare
-  /// Tage werden uebersprungen statt den ganzen Slot zu verwerfen (Muster
-  /// wie [readOutbox] — die uebrigen Tage sollen den einen kaputten nicht
-  /// mitreissen).
+  /// Reads the daily activity. Missing or corrupt -> null; single unreadable
+  /// days are skipped rather than dropping the whole slot (as in
+  /// [readOutbox]).
   Future<Map<String, ({int steps, int kcal})>?> readDailyActivity() async {
     final json = await _readJson(_dailyActivityKey);
     final days = json?['days'];
@@ -365,26 +344,23 @@ class LocalCache {
     }
   }
 
-  // ---- Write-Outbox + pendende Stats-Deltas (DATA-7) ----------------------
+  // ---- Write outbox + pending stats deltas (DATA-7) -----------------------
   //
-  // Diese beiden Slots laufen NICHT ueber [_writeJson], sondern ueber
-  // [_writeDurable]. Begruendung dort: sie sind kein Beschleunigungs-Cache,
-  // sondern die Kill-Sicherung selbst.
+  // These two slots go through [_writeDurable], not [_writeJson]: they are
+  // the kill safeguard itself, not a speed-up cache.
 
-  /// Schreibt die Outbox. `true` = der Blob liegt auf der Platte, `false` =
-  /// er liegt NICHT dort und die Ops ueberleben keinen App-Kill.
+  /// Writes the outbox. `true` = the blob is on disk, `false` = it is not and
+  /// the ops will not survive an app kill.
   ///
-  /// Der Rueckgabewert ist der Ausgang, den [_writeJson] nicht hat (siehe
-  /// [_writeDurable]) — auswerten muss ihn niemand, die bestehenden Aufrufer
-  /// duerfen ihn weiter ignorieren.
+  /// The return value is the signal [_writeJson] lacks; existing callers may
+  /// keep ignoring it.
   Future<bool> writeOutbox(List<SyncOp> ops) =>
       _writeDurable(_outboxKey, 'outbox', <String, dynamic>{
         'items': ops.map((o) => o.toJson()).toList(),
       });
 
-  /// Liest die persistierte Outbox. Einzelne korrupte/unbekannte Ops werden
-  /// uebersprungen (SyncOp.tryFromJson) statt die ganze Queue zu verwerfen —
-  /// die uebrigen Writes des Users sollen den einen kaputten nicht mitreissen.
+  /// Reads the persisted outbox. Corrupt or unknown ops are skipped
+  /// (SyncOp.tryFromJson) instead of dropping the whole queue.
   Future<List<SyncOp>?> readOutbox() async {
     final items = await _readItems(_outboxKey);
     if (items == null) return null;
@@ -396,19 +372,14 @@ class LocalCache {
     return ops;
   }
 
-  /// Wie [readOutbox], meldet einen LESEFEHLER aber, statt ihn zu schlucken.
+  /// Like [readOutbox], but reports a READ ERROR instead of swallowing it.
   ///
-  /// Die Boot-Hydration ist der einzige Leser, fuer den „Slot ist leer" und
-  /// „Slot war nicht lesbar" zwei verschiedene Dinge sind: nur im zweiten Fall
-  /// darf der naechste Enqueue den persistierten Blob NICHT ueberschreiben —
-  /// bis zu [kOutboxMaxOps] nie zugestellte Writes haengen daran (der Schutz
-  /// selbst sitzt in `_persistOutbox`, home_store_sync.dart). Ueber [_readJson]
-  /// ist diese Unterscheidung nicht zu haben: der faengt jeden Fehler selbst ab
-  /// und liefert `null`, was ueberall sonst „nichts Brauchbares da" heisst.
-  ///
-  /// Alle uebrigen Leser bleiben bewusst auf [readOutbox]. Fuer die ist ein
-  /// kaputter Slot genau das, wonach er aussieht (kein Cache) — sie haetten von
-  /// einem Wurf nichts als einen zusaetzlichen Fehlerpfad.
+  /// Boot hydration is the only reader for which "slot empty" and "slot
+  /// unreadable" differ: only in the second case must the next enqueue not
+  /// overwrite the persisted blob (up to [kOutboxMaxOps] undelivered writes
+  /// hang on it; the guard itself is in `_persistOutbox`,
+  /// home_store_sync.dart). All other readers stay on [readOutbox], where a
+  /// broken slot is simply "no cache".
   Future<List<SyncOp>?> readOutboxOrThrow() async {
     final ops = await readOutbox();
     if (ops != null) return ops;
@@ -416,21 +387,19 @@ class LocalCache {
     return null;
   }
 
-  /// Schreibt die pendenden Lifetime-Deltas samt ihrer Anfrage-Id.
+  /// Writes the pending lifetime deltas together with their request id.
   ///
-  /// [requestId] ist der Idempotenz-Schluessel des Buendels
-  /// (`increment_lifetime_stats(p_request_id)`, Migration
-  /// 20260814120000_audit_rls_guard.sql). Er MUSS zusammen mit den Zahlen
-  /// liegen und nicht daneben: der Retry nach einem Abbruch ist nur dann
-  /// wirksam, wenn er DIESELBE Id sendet — eine frisch erzeugte waere fuer den
-  /// Server ein neuer Vorgang und zaehlte ein zweites Mal.
+  /// [requestId] is the bundle's idempotency key
+  /// (`increment_lifetime_stats(p_request_id)`). It must be stored WITH the
+  /// numbers: a retry only works if it sends the SAME id — a fresh one would
+  /// count a second time on the server.
   ///
-  /// `null` wird bewusst als FEHLENDER Schluessel geschrieben, nicht als
-  /// `'request_id': null`: so ist die Wire-Form eines leeren Buendels exakt die
-  /// alte, und ein Downgrade auf einen aelteren Build liest den Slot weiter.
+  /// `null` is written as a MISSING key, not `'request_id': null`, so an
+  /// empty bundle keeps the old wire shape and older builds can still read
+  /// the slot.
   ///
-  /// Rueckgabe wie bei [writeOutbox]: `false` heisst, die Deltas liegen nur im
-  /// Speicher — ein Kill danach kostet die Lebenszeit-Zaehler dieser Mahlzeiten.
+  /// Return value as in [writeOutbox]: `false` means the deltas are only in
+  /// memory and a kill loses these meals' lifetime counters.
   Future<bool> writePendingStatsDeltas({
     required int meals,
     required int weightLogs,
@@ -442,9 +411,8 @@ class LocalCache {
         if (requestId != null) 'request_id': requestId,
       });
 
-  /// Liest die pendenden Deltas. [requestId] ist `null`, wenn der Slot von
-  /// einem aelteren Build stammt (Bestandsdaten kennen den Schluessel nicht) —
-  /// der Aufrufer vergibt ihn dann nach.
+  /// Reads the pending deltas. [requestId] is `null` for slots from an older
+  /// build; the caller assigns one then.
   Future<({int meals, int weightLogs, String? requestId})?>
       readPendingStatsDeltas() async {
     final json = await _readJson(_pendingStatsKey);
@@ -457,12 +425,10 @@ class LocalCache {
     );
   }
 
-  /// Wie [readPendingStatsDeltas], meldet einen Lesefehler aber (Begruendung
-  /// s. [readOutboxOrThrow] — die Deltas sind die zweite Haelfte desselben
-  /// kill-sicheren Sync-Zustands). Derselbe Mangel: der naechste Flush schreibt
-  /// den Slot komplett neu, und ein verschluckter Lesefehler laesst ihn dabei
-  /// bei 0 anfangen — die Lebenszeit-Zaehler des Nutzers blieben um die
-  /// liegengebliebenen Mahlzeiten zu niedrig.
+  /// Like [readPendingStatsDeltas], but reports a read error (see
+  /// [readOutboxOrThrow]). The next flush rewrites the slot wholesale, so a
+  /// swallowed read error would restart it at 0 and leave the lifetime
+  /// counters short by the stranded meals.
   Future<({int meals, int weightLogs, String? requestId})?>
       readPendingStatsDeltasOrThrow() async {
     final deltas = await readPendingStatsDeltas();
@@ -471,20 +437,18 @@ class LocalCache {
     return null;
   }
 
-  /// Raeumt die User-Slots.
+  /// Clears the user slots.
   ///
-  /// [preserveOutbox] `true` laesst GENAU [_outboxKey] und [_pendingStatsKey]
-  /// stehen und loescht alles andere (A2): beim Sign-out duerfen ungesyncte
-  /// Mahlzeiten nicht vernichtet werden — sie spielen beim naechsten Login
-  /// desselben Users nach. Die beiden Slots sind seit `7f895f9` verschluesselt
-  /// und per User-ID namensraumgetrennt, die urspruengliche PII-Begruendung
-  /// (Audit M-1) traegt fuer sie also nicht mehr.
+  /// [preserveOutbox] `true` keeps exactly [_outboxKey] and [_pendingStatsKey]
+  /// and deletes everything else (A2): sign-out must not destroy unsynced
+  /// meals — they replay on the same user's next login. Both slots are
+  /// encrypted and namespaced by user id, so the M-1 PII argument no longer
+  /// applies to them.
   ///
-  /// Default `false` = Verhalten wie bisher (Konto-Loeschung raeumt restlos).
+  /// Default `false` = account deletion clears everything.
   Future<void> clear({bool preserveOutbox = false}) async {
-    // Ausstehende entprellte Writes verwerfen, BEVOR geraeumt wird — sonst
-    // schriebe ein noch laufender Debounce-Timer die gerade geloeschte PII
-    // gleich wieder zurueck (G9b).
+    // Drop pending debounced writes BEFORE clearing, or a still-running
+    // debounce timer would write the just-deleted PII straight back (G9b).
     _discardPendingWrites();
 
     await _store.remove(_profileKey);
@@ -494,75 +458,68 @@ class LocalCache {
     await _store.remove(_loggedMealsKey);
     await _store.remove(_favoritesKey);
     await _store.remove(_weightLogKey);
-    // Eigen-Rezepte sind Nutzerinhalt (Zutaten, Mengen) und fallen damit unter
-    // dieselbe M-1-Begruendung wie das Tagebuch — auch bei [preserveOutbox].
+    // User recipes are user content (ingredients, amounts): same M-1 reason
+    // as the diary, even with [preserveOutbox].
     await _store.remove(_userRecipesKey);
-    // Schritte/Burned-kcal sind Gesundheitsdaten — gleiche M-1-Begruendung.
+    // Steps/burned kcal are health data — same M-1 reason.
     await _store.remove(_dailyActivityKey);
     if (preserveOutbox) return;
     await _store.remove(_outboxKey);
     await _store.remove(_pendingStatsKey);
   }
 
-  // ---- Entprellte Blob-Writes (G9b) ---------------------------------------
-  // Tagebuch, Favoriten, Gewichts-Log und Eigen-Rezepte sind Spiegel des
-  // Server-Stands und werden bei JEDER Mutation komplett neu geschrieben —
-  // jedes Mal der ganze Blob durch jsonEncode + AES-GCM + base64. Gemessen:
-  // 91,5 ms bei 210 Mahlzeiten auf Desktop-JIT, mobiles AOT-ARM 2-4x
-  // langsamer. Eine Fuenfer-Serie (hinzufuegen, korrigieren, loeschen, ...)
-  // kostete das fuenfmal, weil jeder Aufruf sofort schrieb.
+  // ---- Debounced blob writes (G9b) ----------------------------------------
+  // Diary, favorites, weight log and user recipes are mirrors of the server
+  // state and get fully rewritten on every mutation: the whole blob through
+  // jsonEncode + AES-GCM + base64, measured at 91.5 ms for 210 meals on
+  // desktop JIT (mobile AOT 2-4x slower). The debounced variants collapse all
+  // calls within [writeDebounce] into one write per slot.
   //
-  // Die entprellten Varianten fassen alle Aufrufe innerhalb von
-  // [writeDebounce] zu EINEM Write pro Slot zusammen.
-  //
-  // BEWUSST NICHT entprellt sind die Outbox und die pendenden Stats-Deltas:
-  // die SIND der Kill-Sicherungs-Mechanismus (DATA-7) und muessen sofort auf
-  // der Platte liegen. Ein Verlust der vier Spiegel-Slots kostet dagegen nur
-  // einen Netz-Load beim naechsten Kaltstart — die zugehoerigen Writes leben
-  // ohnehin in der (sofort persistierten) Outbox. Profil und lifetime_stats
-  // bleiben ebenfalls sofort: kleine Maps, vernachlaessigbare Krypto-Kosten.
+  // Deliberately NOT debounced: outbox and pending stats deltas — they are
+  // the kill safeguard (DATA-7) and must hit disk at once. Losing a mirror
+  // slot only costs a network load. Profile and lifetime_stats stay immediate
+  // too: small maps, negligible crypto cost.
 
-  /// Fenster, in dem mehrere entprellte Writes zu einem zusammenfallen.
-  /// Laeuft ab dem ERSTEN Aufruf (kein cancel+restart), damit eine lange
-  /// Serie den Write nicht unbegrenzt vor sich herschiebt.
+  /// Window in which several debounced writes collapse into one. Runs from
+  /// the FIRST call (no cancel+restart), so a long series cannot push the
+  /// write out indefinitely.
   static const Duration writeDebounce = Duration(milliseconds: 400);
 
   final Map<String, Map<String, dynamic>> _pendingWrites =
       <String, Map<String, dynamic>>{};
   Timer? _debounceTimer;
 
-  /// True, solange mindestens ein entprellter Write aussteht.
+  /// True while at least one debounced write is pending.
   bool get hasPendingWrites => _pendingWrites.isNotEmpty;
 
-  /// Entprellter Write-Through fuers Tagebuch. Ersetzt [writeLoggedMeals] auf
-  /// dem heissen Mutations-Pfad.
+  /// Debounced write-through for the diary; replaces [writeLoggedMeals] on
+  /// the hot mutation path.
   void writeLoggedMealsDebounced(List<LoggedMeal> meals) =>
       _scheduleWrite(_loggedMealsKey, <String, dynamic>{
         'items': meals.map(loggedMealToJson).toList(),
       });
 
-  /// Entprellter Write-Through fuer die Favoriten.
+  /// Debounced write-through for the favorites.
   void writeFavoritesDebounced(List<FavoriteMeal> favorites) =>
       _scheduleWrite(_favoritesKey, <String, dynamic>{
         'items': favorites.map(favoriteMealToJson).toList(),
       });
 
-  /// Entprellter Write-Through fuers Gewichts-Log.
+  /// Debounced write-through for the weight log.
   void writeWeightLogDebounced(WeightLog log) =>
       _scheduleWrite(_weightLogKey, _weightLogToJson(log));
 
-  /// Entprellter Write-Through fuer die Eigen-Rezepte (Luecke A). Gleiche
-  /// Begruendung wie oben: der Slot wird bei jeder Mutation komplett neu
-  /// geschrieben, und ein Verlust kostet nur einen Netz-Load — der zugehoerige
-  /// Write liegt in der (sofort persistierten) Outbox.
+  /// Debounced write-through for the user recipes (gap A). Same reasoning:
+  /// the slot is rewritten on every mutation and losing it only costs a
+  /// network load.
   void writeUserRecipesDebounced(List<FitnessRecipe> recipes) =>
       _scheduleWrite(_userRecipesKey, _userRecipesToJson(recipes));
 
-  /// Schreibt alle ausstehenden entprellten Writes SOFORT weg.
+  /// Flushes all pending debounced writes immediately.
   ///
-  /// MUSS beim App-Pause/Hidden/Detach laufen (und vor jedem Logout, den
-  /// [clear] selbst nicht abdeckt) — sonst verliert ein Kill innerhalb des
-  /// [writeDebounce]-Fensters den letzten Spiegel-Stand.
+  /// Must run on app pause/hidden/detach (and before any logout [clear] does
+  /// not cover), or a kill inside the [writeDebounce] window loses the last
+  /// mirror state.
   Future<void> flush() async {
     _debounceTimer?.cancel();
     _debounceTimer = null;
@@ -570,8 +527,8 @@ class LocalCache {
   }
 
   void _scheduleWrite(String key, Map<String, dynamic> value) {
-    // Letzter Stand gewinnt: der Slot wird ohnehin immer als Ganzes
-    // geschrieben, ein aelterer Blob desselben Slots ist wertlos.
+    // Last state wins: the slot is always written whole, so an older blob of
+    // the same slot is worthless.
     _pendingWrites[key] = value;
     _debounceTimer ??= Timer(writeDebounce, () {
       _debounceTimer = null;
@@ -597,50 +554,38 @@ class LocalCache {
   // ---- Low-level ----------------------------------------------------------
 
   Future<void> _writeJson(String key, Map<String, dynamic> value) async {
-    // Ein sofortiger Write auf denselben Slot macht einen noch ausstehenden
-    // entprellten Write ungueltig — sonst ueberschriebe der spaeter den
-    // frischeren Stand.
+    // An immediate write to the same slot invalidates a pending debounced
+    // one, which would otherwise overwrite the fresher state later.
     _pendingWrites.remove(key);
     try {
       await _store.setString(key, jsonEncode(value));
     } catch (e) {
-      // Ein Cache-Write darf NIE den UI-Pfad killen — er ist reine Beschleunigung
-      // fuer den naechsten Kaltstart. Bei Fehler still verwerfen.
+      // A cache write must never kill the UI path — it is pure speed-up for
+      // the next cold start, so failures are dropped silently.
       //
-      // Das gilt AUSDRUECKLICH nur fuer die Spiegel-Slots (Profil, Stats,
-      // Tagebuch, Favoriten, Gewicht, Eigen-Rezepte, Aktivitaet,
-      // Erinnerungs-Flag): deren Inhalt steht auch auf dem Server, ein
-      // verlorener Write kostet einen Netz-Load. Die Sync-Zustands-Slots
-      // gehen deshalb ueber [_writeDurable] — was DORT verloren geht, kennt
-      // niemand sonst.
+      // This holds only for the mirror slots, whose content also lives on the
+      // server. Sync-state slots go through [_writeDurable] instead: what is
+      // lost there exists nowhere else.
       dev.log('LocalCache write failed ($key)', error: e, name: 'local_cache');
     }
   }
 
-  /// Schreibweg fuer die Sync-Zustands-Slots (Outbox, pendende Stats-Deltas).
+  /// Write path for the sync-state slots (outbox, pending stats deltas).
   ///
-  /// Warum getrennt von [_writeJson]: die beiden Slots SIND die
-  /// Kill-Sicherung (DATA-7), kein Beschleunigungs-Cache. Ihr Inhalt existiert
-  /// nirgends sonst — der Server kennt die noch nicht zugestellte Mahlzeit
-  /// nicht, und die Oberflaeche zeigt derweil „wird synchronisiert". Ein still
-  /// verschluckter Fehlschlag (AES-Key nach Backup-Restore oder
-  /// Keystore-Reset unlesbar, Plugin-Kanal-Fehler, `jsonEncode`-Fehler) ist
-  /// hier also Datenverlust ohne jedes Signal — an den Nutzer wie an die
-  /// Diagnose.
+  /// Separate from [_writeJson] because these two slots ARE the kill
+  /// safeguard (DATA-7), not a speed-up cache: their content exists nowhere
+  /// else, so a silently swallowed failure is data loss without any signal.
   ///
-  /// Deshalb zwei Unterschiede zum generischen Pfad: der Fehlschlag geht
-  /// (sanitisiert) an den [CrashReporter], und der Aufrufer bekommt ihn als
-  /// `false` zurueck. Geworfen wird weiterhin NICHT — die Aufrufer laufen
-  /// `unawaited` auf dem UI-Pfad, ein Wurf waere dort ein unbehandelter
-  /// Future-Fehler.
+  /// Hence two differences: the failure goes (sanitized) to the
+  /// [CrashReporter], and the caller gets `false`. Still never throws — the
+  /// callers run `unawaited` on the UI path.
   Future<bool> _writeDurable(
     String key,
     String slot,
     Map<String, dynamic> value,
   ) async {
-    // Dieselbe Invariante wie in [_writeJson] — sie haengt am Slot, nicht am
-    // Aufrufer. Fuer die beiden Sync-Slots laeuft sie heute leer (entprellt
-    // wird hier bewusst nichts, s. Abschnitt „Entprellte Blob-Writes").
+    // Same invariant as in [_writeJson]: it belongs to the slot, not the
+    // caller. A no-op for the two sync slots, which are never debounced.
     _pendingWrites.remove(key);
     try {
       await _store.setString(key, jsonEncode(value));
@@ -648,10 +593,9 @@ class LocalCache {
     } catch (e, s) {
       dev.log('LocalCache durable write failed ($slot)',
           error: e, stackTrace: s, name: 'local_cache');
-      // NUR Slot-Kurzname und Fehlertyp gehen raus — nie der Key (er traegt
-      // die User-ID) und nie der Wert (die Slots fuehren Gesundheitsdaten).
-      // Dieselbe Einschraenkung wie bei [UnreadableCacheSlot]: schon eine
-      // FormatException traegt ihre Quelle in der Message.
+      // Only slot name and error type leave: never the key (holds the user
+      // id) and never the value (health data). Even a FormatException carries
+      // its source in the message.
       unawaited(CrashReporter.capture(
         UnwritableCacheSlot(slot, e.runtimeType.toString()),
         s,
@@ -661,9 +605,8 @@ class LocalCache {
     }
   }
 
-  /// Liest eine als {'items': [...]} verpackte Listen-Slot-Zeile und liefert
-  /// die Map-Eintraege. Fehlt der Slot oder ist er strukturell kaputt -> null
-  /// (Aufrufer behandelt das wie "kein Cache").
+  /// Reads a list slot wrapped as {'items': [...]} and returns its map
+  /// entries. Missing or structurally broken -> null ("no cache").
   Future<List<Map<String, dynamic>>?> _readItems(String key) async {
     final json = await _readJson(key);
     final items = json?['items'];
@@ -675,9 +618,8 @@ class LocalCache {
   }
 
   Future<Map<String, dynamic>?> _readJson(String key) async {
-    // Ein noch ausstehender entprellter Write ist der aktuellste Stand — ohne
-    // diesen Durchgriff haette der Slot zwischen Schedule und Write ein
-    // Read-after-Write-Loch (Boot-Hydration, Test, Diagnose).
+    // A pending debounced write is the newest state; without this passthrough
+    // the slot would have a read-after-write hole between schedule and write.
     final pending = _pendingWrites[key];
     if (pending != null) return pending;
     try {
@@ -692,31 +634,28 @@ class LocalCache {
     }
   }
 
-  /// Wirft [UnreadableCacheSlot], wenn [key] doch einen Rohwert traegt — oder
-  /// wenn der Store ihn gar nicht erst herausgibt.
+  /// Throws [UnreadableCacheSlot] if [key] does carry a raw value, or if the
+  /// store refuses to hand it over.
   ///
-  /// Gegenprobe fuer die `OrThrow`-Leser: die haben ueber den toleranten Pfad
-  /// `null` bekommen, und `null` deckt dort BEIDES ab — leerer Slot und
-  /// verschluckter Lesefehler. Der Roh-Blick trennt die zwei.
+  /// Counter-check for the `OrThrow` readers: their tolerant path returns
+  /// `null` for both an empty slot and a swallowed read error; the raw look
+  /// separates the two.
   ///
-  /// Bewusst DANACH und nicht davor: der gesunde Fall (Slot da und lesbar)
-  /// kostet damit keinen zweiten Store-Zugriff, der unter
-  /// [EncryptedKeyValueStore] ein zweites Entschluesseln des ganzen Blobs
-  /// waere. Bezahlt wird nur der leere und der kaputte Slot.
+  /// Deliberately AFTER, not before: the healthy case costs no second store
+  /// access, which under [EncryptedKeyValueStore] would decrypt the blob
+  /// again. Only empty and broken slots pay.
   ///
-  /// NICHT abgedeckt: ein nicht entschluesselbarer Slot. Den raeumt
-  /// [EncryptedKeyValueStore] beim Lesen selbst weg und liefert `null` — hier
-  /// kommt dann ein leerer Slot an. Das ist auch richtig so: es ist nichts
-  /// mehr da, was ein Ueberschreiben noch verlieren koennte.
+  /// Not covered: an undecryptable slot — [EncryptedKeyValueStore] clears it
+  /// on read and returns `null`, so it arrives here as empty. Correct, since
+  /// nothing is left that overwriting could lose.
   Future<void> _assertSlotEmpty(String key, String slot) async {
     final String? raw;
     try {
       raw = await _store.getString(key);
     } catch (e) {
-      // NUR der Fehlertyp geht raus. Der Aufrufer meldet den Wurf an den
-      // CrashReporter, und z.B. eine FormatException traegt ihre Quelle in der
-      // Message — das waere hier der entschluesselte Slot-Inhalt, also
-      // Gesundheitsdaten (gleiche Regel wie bei [UndecryptableCacheSlot]).
+      // Only the error type leaves. The caller reports the throw to the
+      // CrashReporter, and e.g. a FormatException carries its source in the
+      // message — here the decrypted slot content, i.e. health data.
       throw UnreadableCacheSlot(slot, e.runtimeType.toString());
     }
     if (raw != null && raw.isNotEmpty) {
@@ -724,12 +663,10 @@ class LocalCache {
     }
   }
 
-  // ---- (De)Serialisierung -------------------------------------------------
-  // Bewusst hier statt auf den Modellen: die Modelle bleiben unveraendert
-  // (keine fremden Aenderungen ausserhalb meiner File-Ownership), und der
-  // Cache besitzt sein eigenes, versioniertes Wire-Format. Das Profil-Mapping
-  // ist seit Luecke D die Ausnahme: es liegt in sync_outbox.dart, weil Cache
-  // UND Outbox-Op dieselben Bytes brauchen (Begruendung dort).
+  // ---- (De)serialization --------------------------------------------------
+  // Here rather than on the models: the cache owns its own versioned wire
+  // format. The profile mapping is the exception — it lives in
+  // sync_outbox.dart because cache and outbox op need the same bytes.
 
   static Map<String, dynamic> _statsToJson(LifetimeStats s) => <String, dynamic>{
         'workouts_completed': s.workoutsCompleted,
@@ -758,41 +695,39 @@ class LocalCache {
   }
 }
 
-/// Ein Sync-Zustands-Slot war belegt, liess sich aber nicht lesen (Store-Fehler
-/// oder strukturell kaputter Inhalt). Wird ausschliesslich von
-/// [LocalCache.readOutboxOrThrow] und [LocalCache.readPendingStatsDeltasOrThrow]
-/// geworfen.
+/// A sync-state slot was occupied but unreadable (store error or structurally
+/// broken content). Thrown only by [LocalCache.readOutboxOrThrow] and
+/// [LocalCache.readPendingStatsDeltasOrThrow].
 ///
-/// Traegt NUR den Slot-Kurznamen und den Fehlertyp: nicht den Storage-Key (der
-/// enthaelt die User-ID) und nie den Wert (die Slots fuehren Gesundheitsdaten).
-/// Das Objekt geht aus dem Hydrations-Pfad in den Crash-Report — dieselbe
-/// Einschraenkung wie bei [UndecryptableCacheSlot].
+/// Carries only the short slot name and the error type: never the storage key
+/// (holds the user id) and never the value (health data), because the object
+/// goes into the crash report.
 class UnreadableCacheSlot implements Exception {
   const UnreadableCacheSlot(this.slot, this.reason);
 
-  /// Kurzname wie `outbox`, bewusst nicht der Storage-Key.
+  /// Short name like `outbox`, deliberately not the storage key.
   final String slot;
 
-  /// Fehlertyp bzw. Kurzbegruendung, nie ein Wert.
+  /// Error type or short reason, never a value.
   final String reason;
 
   @override
   String toString() => 'UnreadableCacheSlot($slot): $reason';
 }
 
-/// Ein Sync-Zustands-Slot liess sich nicht SCHREIBEN — das Gegenstueck zu
-/// [UnreadableCacheSlot] und der einzige Weg, von einem verlorenen Outbox-
-/// bzw. Deltas-Write ueberhaupt zu erfahren (siehe [LocalCache._writeDurable]).
+/// A sync-state slot could not be WRITTEN — counterpart to
+/// [UnreadableCacheSlot] and the only way to learn about a lost outbox or
+/// deltas write (see [LocalCache._writeDurable]).
 ///
-/// Dieselbe Einschraenkung wie dort: nur Slot-Kurzname und Fehlertyp, nie der
-/// Storage-Key (User-ID) und nie der Wert (Gesundheitsdaten).
+/// Same restriction: only slot name and error type, never the storage key
+/// (user id) and never the value (health data).
 class UnwritableCacheSlot implements Exception {
   const UnwritableCacheSlot(this.slot, this.reason);
 
-  /// Kurzname wie `outbox`, bewusst nicht der Storage-Key.
+  /// Short name like `outbox`, deliberately not the storage key.
   final String slot;
 
-  /// Fehlertyp, nie ein Wert.
+  /// Error type, never a value.
   final String reason;
 
   @override

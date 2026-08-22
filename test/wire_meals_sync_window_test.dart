@@ -1,39 +1,25 @@
-// Wire-Test fuer das Boot-Fenster des Tagebuchs (docs/REVIEW-2026-08-08.md, G2,
-// Schalter 1: `meals_sync.dart:26` -> `loggedMealsWindowDays = 0`).
+// Wire test for the diary boot window (docs/REVIEW-2026-08-08.md, G2).
 //
-// WARUM DIESE DATEI NEBEN sync_query_bounds_test.dart STEHT
+// WHY THIS FILE SITS NEXT TO sync_query_bounds_test.dart
 //
-// `test/services/sync_query_bounds_test.dart` prueft die Grenzen gegen die
-// Konstanten, die sie testet:
+// That test asserts the bounds against the very constants it tests, so setting
+// `loggedMealsWindowDays = 0` feeds the 0 into both sides: the assertion still
+// passes while every cold start shows an empty diary. Its MockClient also
+// answers every request with the same row list, so the `gte` filter is
+// inspected but never applied.
 //
-//     expect(params['limit'], '${MealsSync.loggedMealsMaxRows}');
-//     expect(age.inDays, inInclusiveRange(
-//       MealsSync.loggedMealsWindowDays - 1, MealsSync.loggedMealsWindowDays));
+// This file inverts that:
 //
-// Setzt jemand `loggedMealsWindowDays = 0`, wandert die 0 in BEIDE Seiten der
-// Behauptung: der Cutoff liegt dann 0 Tage zurueck, `inInclusiveRange(-1, 0)`
-// ist erfuellt, der Test bleibt gruen — und jeder Kaltstart zeigt ein leeres
-// Tagebuch. Derselbe Test laesst ausserdem den MockClient jede Anfrage mit
-// DERSELBEN Zeilenliste beantworten: der `gte`-Filter, um den es geht, hat auf
-// dem Rueckweg keinerlei Wirkung. Er wird angeschaut, aber nie angewandt.
+//   * a real loopback `HttpServer` speaks PostgREST — it parses and APPLIES
+//     `gte`/`lt`, `order` and `limit`, so rows outside the window do not come
+//     back, as in Postgres;
+//   * the service runs its full chain over it: URL -> socket -> bytes ->
+//     jsonDecode -> `_mealFromRow` -> `LoggedMeal`;
+//   * NO assertion names `loggedMealsWindowDays` or `loggedMealsMaxRows`. The
+//     EFFECT is checked with fixed numbers.
 //
-// Diese Datei dreht das um:
-//
-//   * Ein echter Loopback-`HttpServer` spricht PostgREST: er PARST
-//     `logged_at=gte.…` / `lt.…`, `order=…` und `limit=…` aus der URL und
-//     WENDET SIE AN. Was ausserhalb des angefragten Fensters liegt, kommt
-//     nicht zurueck — genauso wie in Postgres.
-//   * Der Service faehrt seine vollstaendige Kette darueber: postgrest-dart
-//     baut die URL -> echter Socket -> Bytes -> jsonDecode -> `_mealFromRow`
-//     -> `LoggedMeal`. Kein MockClient, kein vorgefertigtes Zeilen-Literal.
-//   * KEINE Behauptung nennt `loggedMealsWindowDays` oder
-//     `loggedMealsMaxRows`. Geprueft wird die WIRKUNG mit festen Zahlen:
-//     „eine vor zwei Stunden geloggte Mahlzeit ist nach dem Kaltstart da",
-//     „eine 30 Tage alte auch", „eine 300 Tage alte nicht".
-//
-// Die Gegenprobe zum Fake selbst steht in der letzten Gruppe: dort wird der
-// Server ohne den Service direkt per HTTP befragt, damit „der Filter greift"
-// nicht selbst nur eine Behauptung ueber den Fake ist.
+// The last group queries the fake directly over HTTP, so "the filter applies"
+// is not itself just a claim about the fake.
 
 import 'dart:convert';
 import 'dart:io';
@@ -44,17 +30,16 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
-/// Loopback-Server, der die PostgREST-Semantik der drei Operatoren
-/// implementiert, die `MealsSync` benutzt: `eq`, `gte`, `lt` — dazu `order`
-/// und `limit`. Alles andere ist bewusst nicht implementiert und wirft, damit
-/// eine spaeter dazukommende Filterart hier auffaellt statt still zu wirken.
+/// Loopback server implementing the PostgREST semantics `MealsSync` uses:
+/// `eq`, `gte`, `lt`, plus `order` and `limit`. Anything else throws, so a
+/// newly used filter surfaces here instead of silently passing.
 class _PostgrestFake {
   _PostgrestFake._(this._server);
 
   final HttpServer _server;
 
-  /// Tabellenname -> Zeilen. Die Zeilen sind das, was „in der Datenbank
-  /// steht"; was der Client sieht, entscheidet allein die Query.
+  /// Table name -> rows. The rows are what is "in the database"; what the
+  /// client sees is decided by the query alone.
   final Map<String, List<Map<String, dynamic>>> tables =
       <String, List<Map<String, dynamic>>>{};
 
@@ -100,8 +85,7 @@ class _PostgrestFake {
     await request.response.close();
   }
 
-  /// Die eigentliche Emulation: filtern -> sortieren -> deckeln -> Spalten
-  /// projizieren.
+  /// The emulation itself: filter -> sort -> cap -> project columns.
   List<Map<String, dynamic>> _query(String tabelle, Uri uri) {
     final bestand = tables[tabelle];
     if (bestand == null) throw StateError('Unbekannte Tabelle: $tabelle');
@@ -120,7 +104,7 @@ class _PostgrestFake {
 
     final order = uri.queryParameters['order'];
     if (order != null) {
-      // `logged_at.desc.nullslast` -> Spalte, Richtung.
+      // `logged_at.desc.nullslast` -> column, direction.
       final teile = order.split('.');
       final spalte = teile[0];
       final absteigend = teile.length > 1 && teile[1] == 'desc';
@@ -155,9 +139,8 @@ class _PostgrestFake {
     final operator = filter.substring(0, punkt);
     final wert = filter.substring(punkt + 1);
     if (!zeile.containsKey(spalte)) {
-      // Lieber laut scheitern als still alles wegfiltern: ein Filter auf eine
-      // Spalte, die es nicht gibt, ist in Postgres ein Fehler — hier waere er
-      // sonst ein leeres Ergebnis, das wie ein bestandener Test aussieht.
+      // Fail loudly rather than filter everything away: in Postgres a filter
+      // on a missing column is an error, here it would look like a pass.
       throw StateError('Zeile hat keine Spalte "$spalte": $zeile');
     }
     final zelle = zeile[spalte];
@@ -166,9 +149,8 @@ class _PostgrestFake {
       case 'eq':
         return zelle?.toString() == wert;
       case 'gte':
-        // timestamptz-Vergleich auf der Zeitachse, nicht auf dem String —
-        // Postgres vergleicht Instants, egal in welchem Offset sie notiert
-        // sind.
+        // timestamptz comparison on the timeline, not on the string: Postgres
+        // compares instants regardless of the offset they are written in.
         return !_instant(zelle).isBefore(_instant(wert));
       case 'lt':
         return _instant(zelle).isBefore(_instant(wert));
@@ -194,8 +176,8 @@ class _PostgrestFake {
   }
 }
 
-/// Eine `logged_meals`-Zeile, wie PostgREST sie liefert: `logged_at` ist eine
-/// UTC-Instant-Notation, der Payload das JSONB der App.
+/// A `logged_meals` row as PostgREST delivers it: `logged_at` is a UTC
+/// instant, the payload the app's JSONB.
 Map<String, dynamic> _zeile({
   required String id,
   required DateTime loggedAt,
@@ -236,8 +218,7 @@ void main() {
     client = SupabaseClient(
       server.url,
       'test-anon-key',
-      // Kein GoTrue-Auto-Refresh-Ticker im Test (Muster aus
-      // sync_query_bounds_test.dart).
+      // No GoTrue auto-refresh ticker in tests.
       authOptions: const AuthClientOptions(autoRefreshToken: false),
     );
   });
@@ -248,8 +229,8 @@ void main() {
   });
 
   group('Boot-Fenster: was im Fenster liegt, sieht die App auch', () {
-    // DAS ist die Wache gegen Schalter 1. Keine dieser Zahlen kommt aus
-    // MealsSync — sie beschreiben, was ein Nutzer erwartet.
+    // The guard against a zeroed window. None of these numbers come from
+    // MealsSync; they describe what a user expects.
     setUp(() {
       final jetzt = DateTime.now().toUtc();
       server.tables['logged_meals'] = <Map<String, dynamic>>[
@@ -362,9 +343,8 @@ void main() {
         () async {
       final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
 
-      // Zonenunabhaengig pruefbar: `.toLocal()` liefert immer isUtc == false,
-      // auch auf einer UTC-Maschine. Faellt das weg, buckete jede Mahlzeit
-      // spaeter nach UTC-Kalendertag (siehe wire_local_day_probe.dart).
+      // Zone-independent: `.toLocal()` always yields isUtc == false, even on
+      // a UTC machine. Without it, meals would bucket by UTC calendar day.
       for (final meal in meals) {
         expect(
           meal.loggedAt.isUtc,
@@ -375,7 +355,7 @@ void main() {
               'Wanduhr-Felder.',
         );
       }
-      // Der Instant selbst bleibt derselbe.
+      // The instant itself is unchanged.
       final erste = meals.first.loggedAt.toUtc().toIso8601String();
       expect(
         erste,
@@ -414,10 +394,9 @@ void main() {
   });
 
   group('Tages-Query: halboffenes Fenster der lokalen Wanduhr', () {
-    // Wirkungsprobe fuer loadLoggedMealsForDay: der Server filtert auf den
-    // UEBERSETZTEN Instants, der Test denkt in Ortszeit. Damit ist die
-    // Uebersetzung lokale Mitternacht -> UTC Teil der Behauptung und nicht
-    // nur eine nachgerechnete Formel.
+    // Effect check for loadLoggedMealsForDay: the server filters translated
+    // instants while the test thinks in local time, so the local-midnight ->
+    // UTC translation is part of the assertion, not a re-derived formula.
     setUp(() {
       server.tables['logged_meals'] = <Map<String, dynamic>>[
         _zeile(id: 'vortag-2345', loggedAt: DateTime(2026, 3, 13, 23, 45)),
@@ -464,9 +443,8 @@ void main() {
   });
 
   group('Der PostgREST-Fake verhaelt sich wie PostgREST', () {
-    // Ohne diese Gruppe waere „der Filter greift" eine Behauptung ueber den
-    // Fake statt ueber den Service. Hier wird der Server ohne Supabase-Client
-    // direkt per HTTP befragt.
+    // Without this group, "the filter applies" would be a claim about the
+    // fake. Here the server is queried directly over HTTP.
     setUp(() {
       server.tables['probe'] = <Map<String, dynamic>>[
         <String, dynamic>{'id': 'a', 'at': '2026-03-14T00:00:00Z', 'u': 'x'},
@@ -502,7 +480,7 @@ void main() {
 
     test('ein Fenster, das JETZT beginnt, liefert nichts Vergangenes',
         () async {
-      // Genau die Wirkung von loggedMealsWindowDays = 0.
+      // Exactly the effect of loggedMealsWindowDays = 0.
       final jetzt = DateTime.now().toUtc().toIso8601String();
       expect(ids(await hole('at=gte.$jetzt')), isEmpty);
     });

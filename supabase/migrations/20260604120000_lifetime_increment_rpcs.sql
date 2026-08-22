@@ -1,34 +1,16 @@
--- FitPilot — atomare Lifetime-Stats- & Streak-RPCs (Audit 2026-06-04).
+-- Atomic lifetime-stats and streak RPCs (audit 2026-06-04). Additive and
+-- idempotent.
 --
--- Bisher liest der Client lifetime_stats, addiert clientseitig und schreibt die
--- Summe zurueck (read-modify-write). Bei parallelen Geraeten/Tabs geht so ein
--- Increment verloren (last-write-wins ueberschreibt). Diese beiden RPCs machen
--- das Hochzaehlen serverseitig atomar (UPDATE col = col + p_x), sodass kein
--- Increment mehr verloren geht. Die Streak-Logik (record_workout_day) liest
--- last_workout_date PERSISTIERT aus der DB statt aus dem fluechtigen
--- In-Memory-State — ueberlebt App-Neustart und Geraetewechsel.
+-- Client-side read-modify-write lost increments on parallel devices, so these
+-- increment server-side (col = col + p_x) and read last_workout_date from the
+-- DB, letting the streak survive restarts and device switches.
 --
--- Rein additiv & idempotent (create or replace function / on conflict upsert).
--- Aufsetzpunkt: 20260516160000_app_data_schema.sql (lifetime_stats mit
--- workouts_completed, meals_logged, water_total_ml, steps_recorded, weight_logs)
--- + 20260530090000_streak_and_weekly_plan.sql (current_streak, longest_streak,
--- last_workout_date). Grant-/search_path-Stil gespiegelt von
--- 20260517220000_security_hardening.sql + 20260602120100_regrant_chat_session_rpcs.sql.
---
--- WICHTIG: Beide RPCs sind security definer + user-scoped (auth.uid()), daher
--- sicher an authenticated zu granten. Sie legen die lifetime_stats-Zeile per
--- upsert an, falls sie fehlt (Erst-User vor Bootstrap-Trigger), damit ein
--- Increment nie auf 0 Zeilen laeuft.
---
--- HINWEIS: Das Client-Wiring (lib/src/services/lifetime_stats_sync.dart +
--- daily_log_sync.dart) erfolgt in der Integrations-Welle, NICHT hier. Status der
--- Migration selbst: am 2026-06-07 gegen die Live-DB verifiziert — angewendet UND
--- in supabase_migrations.schema_migrations registriert (beide RPCs vorhanden).
+-- Both are security definer and user-scoped via auth.uid(), hence safe to
+-- grant to authenticated, and upsert the row so an increment never hits 0.
 
 -- ---------------------------------------------------------------------------
--- 1) increment_lifetime_stats — atomares Hochzaehlen der Kumulativ-Zaehler.
---    Jeder Parameter default 0, sodass der Caller nur die relevanten Felder
---    setzt. WHERE user_id = auth.uid() => nur die eigene Zeile.
+-- 1) increment_lifetime_stats — atomic bump of the cumulative counters. Each
+--    parameter defaults to 0; the row is scoped to auth.uid().
 -- ---------------------------------------------------------------------------
 create or replace function public.increment_lifetime_stats(
   p_water       integer default 0,
@@ -50,9 +32,7 @@ begin
     raise exception 'EX_USER_REQUIRED' using errcode = '22023';
   end if;
 
-  -- Zeile sicherstellen (Erst-User vor Bootstrap-Trigger), dann atomar
-  -- hochzaehlen. on conflict do update mit demselben col = col + p_x, damit
-  -- der erste Aufruf eines neuen Users nicht auf 0 Zeilen laeuft.
+  -- Ensure the row exists (new user before the bootstrap trigger).
   insert into public.lifetime_stats as ls (
     user_id,
     water_total_ml,
@@ -86,14 +66,10 @@ grant execute on function public.increment_lifetime_stats(integer, integer, inte
   to authenticated;
 
 -- ---------------------------------------------------------------------------
--- 2) record_workout_day — persistente Streak-Fortschreibung fuer EINEN Tag.
---    Liest last_workout_date aus der DB (nicht aus In-Memory-State):
---      * p_day == last_workout_date      -> idempotent, keine Streak-Aenderung
---                                           (auch workouts_completed bleibt gleich)
+-- 2) record_workout_day — persistent streak update for ONE day:
+--      * p_day == last_workout_date      -> idempotent, nothing changes
 --      * p_day == last_workout_date + 1  -> current_streak + 1
---      * sonst (Luecke / NULL / Zukunft) -> current_streak = 1
---    longest_streak = greatest(longest_streak, current_streak),
---    last_workout_date = p_day, workouts_completed + 1 (ausser im idempotenten Fall).
+--      * otherwise (gap / NULL / future) -> current_streak = 1
 -- ---------------------------------------------------------------------------
 create or replace function public.record_workout_day(p_day date)
 returns public.lifetime_stats
@@ -114,9 +90,8 @@ begin
     raise exception 'EX_DAY_REQUIRED' using errcode = '22023';
   end if;
 
-  -- Zeile sicherstellen, falls der User noch keine lifetime_stats hat. Beim
-  -- frischen Insert ist last_workout_date NULL -> der erste Workout-Tag startet
-  -- die Streak bei 1 (else-Zweig unten).
+  -- On a fresh insert last_workout_date is NULL, so the first day starts the
+  -- streak at 1 (else branch below).
   insert into public.lifetime_stats (user_id)
   values (v_uid)
   on conflict (user_id) do nothing;
@@ -126,16 +101,16 @@ begin
   where user_id = v_uid
   for update;
 
-  -- Idempotenz: gleicher Tag schon gezaehlt -> Zeile unveraendert zurueckgeben.
+  -- Idempotence: same day already counted -> return the row unchanged.
   if v_last is not null and v_last = p_day then
     select * into v_row from public.lifetime_stats where user_id = v_uid;
     return v_row;
   end if;
 
   if v_last is not null and p_day = v_last + 1 then
-    v_new_streak := null;  -- Signal: bestehende Streak + 1 (unten aufgeloest)
+    v_new_streak := null;  -- signal: existing streak + 1 (resolved below)
   else
-    v_new_streak := 1;     -- Luecke, erster Tag, NULL oder Zukunfts-/Rueckdatum
+    v_new_streak := 1;     -- gap, first day, NULL, or a future/back date
   end if;
 
   update public.lifetime_stats as ls set

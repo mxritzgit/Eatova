@@ -1,22 +1,17 @@
-// Liefert der App die Zugangsdaten des eigenen Meilisearch-Mirrors
-// (Basis-URL + Search-only-Key) zur LAUFZEIT.
+// Serves the app the credentials of our own Meilisearch mirror (base URL +
+// search-only key) at RUNTIME.
 //
-// Warum es diese Function gibt: der Key steckte bis 2026-08-07 als
-// `String.fromEnvironment`-Default im Binary. Ein einkompilierter Key laesst
-// sich nicht rotieren — beim Wechsel waere jeder bereits installierte Build
-// auf einen Schlag von der Suche abgeschnitten (still, weil der
-// FallbackProductService klaglos auf OpenFoodFacts umschwenkt). Ueber diesen
-// Endpunkt holt der Client den aktuellen Key nach und ersetzt ihn beim
-// naechsten 403 des Mirrors innerhalb einer einzigen Suche.
+// A compiled-in key cannot be rotated: a swap would cut every installed build
+// off from search at once, silently, since FallbackProductService falls back to
+// OpenFoodFacts. Via this endpoint the client refetches the current key and
+// replaces it on the mirror's next 403 within a single search.
 //
-// URL und Key reisen ZUSAMMEN: ein Umzug des Mirrors ist damit ein einziges
-// Secret-Update und kann nie im Zustand "neue URL, alter Key" haengen.
+// URL and key travel TOGETHER, so moving the mirror is one secret update and
+// can never hang in "new URL, old key".
 //
-// JWT-Pflicht ist unproblematisch: die Produktsuche laeuft ausschliesslich
-// post-login (main.dart initialisiert Supabase vor runApp, der gesamte
-// App-Body haengt hinter dem AuthGate). Einen anonymen Suchpfad gibt es nicht.
-// Es wird KEINE config.toml angelegt — der Plattform-Default
-// `verify_jwt = true` gilt bereits.
+// Requiring a JWT is fine: product search only runs post-login, behind the
+// AuthGate. No config.toml is added — the platform default `verify_jwt = true`
+// already applies.
 
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { positiveIntFromEnv } from '../_shared/env.ts';
@@ -26,21 +21,20 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-// Kill-Switch-Sentinel. Steht das Secret exakt auf 'disabled', bekommt der
-// Client leere Credentials und schaltet den Mirror hart ab (direkt OFF).
+// Kill-switch sentinel. If the secret is exactly 'disabled', the client gets
+// empty credentials and turns the mirror off (straight to OFF).
 //
-// Ein FEHLENDES Secret ist ausdruecklich KEIN Kill-Switch, sondern eine
-// Fehlkonfiguration (500). Der Unterschied ist wichtig: bei 500 behaelt der
-// Client seinen funktionierenden Compile-Time-Default, statt die Mirror-Suche
-// wegen eines vergessenen `secrets set` still zu verlieren.
+// A MISSING secret is explicitly NOT a kill switch but a misconfiguration
+// (500): on 500 the client keeps its working compile-time default instead of
+// silently losing mirror search to a forgotten `secrets set`.
 const KILL_SWITCH = 'disabled';
 const MIRROR_SEARCH_KEY = (Deno.env.get('EATOVA_MIRROR_SEARCH_KEY') ?? '').trim();
 const MIRROR_BASE_URL = (Deno.env.get('EATOVA_MIRROR_BASE_URL') ?? 'https://eatova.de/meili').trim();
 
-// TTL-Grenzen (der Client klemmt identisch nach). Die TTL ist NICHT der
-// Rotations-Mechanismus — das ist der 403-Pfad im Client. Ihr einziger Job
-// ist, einen Wechsel der Basis-URL zu verbreiten: der erzeugt
-// Verbindungsfehler statt 403 und kann sich deshalb nicht selbst heilen.
+// TTL bounds (the client clamps identically). The TTL is NOT the rotation
+// mechanism — that is the client's 403 path. Its only job is to propagate a
+// base-URL change, which causes connection errors instead of 403 and therefore
+// cannot heal itself.
 const MIN_TTL_SECONDS = 3_600;
 const MAX_TTL_SECONDS = 604_800;
 const DEFAULT_TTL_SECONDS = 43_200;
@@ -51,17 +45,14 @@ const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Grosszuegig genug fuer App-Starts hinter einem Carrier-NAT, eng genug, dass
-// niemand den Endpunkt als Key-Orakel durchprobiert.
-//
-// Sentinel-Rest E8: als einzige Function nutzte search-key hier noch das
-// nackte `Number(...)`-Muster — ein Tippfehler im Secret wurde zu NaN ->
-// JSON `null` -> SQL-Guard wirft -> jeder Request `rate_limit_unavailable`
-// (genau die Klasse, die _shared/env.ts fuer die anderen schon schliesst).
+// Generous enough for app starts behind a carrier NAT, tight enough that nobody
+// can use the endpoint as a key oracle. `positiveIntFromEnv` instead of bare
+// `Number(...)`: a typo in the secret became NaN -> JSON `null` -> SQL guard
+// throws -> every request `rate_limit_unavailable`.
 const IP_LIMIT = positiveIntFromEnv('SEARCH_KEY_IP_LIMIT', 120);
 const IP_WINDOW_SECONDS = positiveIntFromEnv('SEARCH_KEY_IP_WINDOW_SECONDS', 600);
-// 20/h/User: ein gesunder Client holt den Key ~2x taeglich (TTL 12 h) plus
-// einmal pro Rotation. Alles darueber ist eine Schleife.
+// 20/h/user: a healthy client fetches the key ~2x daily (TTL 12 h) plus once
+// per rotation. Anything above that is a loop.
 const USER_LIMIT = positiveIntFromEnv('SEARCH_KEY_USER_LIMIT', 20);
 const USER_WINDOW_SECONDS = positiveIntFromEnv('SEARCH_KEY_USER_WINDOW_SECONDS', 3600);
 
@@ -88,9 +79,8 @@ Deno.serve(async (request) => {
     assertConfigured();
 
     const user = await authenticateUser(request);
-    // Nicht `.split(',')[0]` des x-forwarded-for: Cloudflare HAENGT an, der
-    // linkeste Eintrag ist also der vom Client selbst gesetzte. Begruendung,
-    // Normalisierung und der uid-Fallback: ../_shared/client_ip.ts.
+    // Not `.split(',')[0]` of x-forwarded-for: Cloudflare APPENDS, so the
+    // leftmost entry is client-controlled. See ../_shared/client_ip.ts.
     const ipSubject = clientIpSubject(request, user.id);
 
     const ipLimit = await consumeRateLimit('search-key:ip', ipSubject, IP_LIMIT, IP_WINDOW_SECONDS);
@@ -103,13 +93,13 @@ Deno.serve(async (request) => {
       return rateLimitedResponse(request, userLimit, requestId);
     }
 
-    // Bewusst ohne await: die Aufraeumarbeit darf den Request nicht aufhalten.
-    // Warum die Fehlerbehandlung zwingend IN der Funktion sitzt (eine Rejection
-    // hier waere unbehandelt und beendete den Isolate): ../_shared/rate_limit_prune.ts.
+    // No await on purpose: cleanup must not hold up the request. Error handling
+    // lives INSIDE the function (an unhandled rejection here would kill the
+    // isolate) — see ../_shared/rate_limit_prune.ts.
     void pruneRateLimits({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY });
 
     const disabled = MIRROR_SEARCH_KEY === KILL_SWITCH;
-    // NIEMALS den Key loggen. Nur, ob ausgeliefert wurde.
+    // NEVER log the key. Only whether one was issued.
     console.log('search-key issued', { requestId, disabled, ttlSeconds: TTL_SECONDS });
 
     return jsonResponse(
@@ -122,16 +112,14 @@ Deno.serve(async (request) => {
       },
       200,
       {
-        // Bewusste Ausnahme vom Haus-'no-store': das hier ist geteilte
-        // KONFIGURATION, kein nutzerspezifischer Inhalt — jeder angemeldete
-        // Client bekommt exakt dieselbe Antwort. Der Body traegt aber einen
-        // Credential, also darf er NIE in einen geteilten Cache: 'private'
-        // erlaubt ausschliesslich den Browser-/Client-Cache.
-        // max-age == ttlSeconds, damit HTTP-Cache und Client-TTL nicht
-        // auseinanderlaufen.
+        // Deliberate exception from the house 'no-store': this is shared
+        // CONFIGURATION, identical for every signed-in client. The body carries
+        // a credential though, so it must never reach a shared cache —
+        // 'private' allows the browser/client cache only. max-age == ttlSeconds
+        // keeps HTTP cache and client TTL in step.
         'cache-control': `private, max-age=${TTL_SECONDS}`,
-        // Authorization gehoert in den Cache-Key: die Antwort haengt an einem
-        // gueltigen Token, ein anderer Nutzer darf keinen Treffer erben.
+        // Authorization belongs in the cache key: another user must not inherit
+        // a hit.
         'vary': 'Origin, Authorization',
       },
     );
@@ -157,7 +145,7 @@ function assertConfigured() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
     throw new HttpError(500, 'server_misconfigured', 'Server-Konfiguration unvollständig.');
   }
-  // Fehlend/leer = Fehlkonfiguration, NICHT Kill-Switch (siehe KILL_SWITCH).
+  // Missing/empty = misconfiguration, NOT kill switch (see KILL_SWITCH).
   if (!MIRROR_SEARCH_KEY) {
     throw new HttpError(500, 'server_misconfigured', 'Suchkonfiguration unvollständig.');
   }
@@ -180,8 +168,8 @@ async function authenticateUser(request: Request): Promise<AuthUser> {
   }
 
   const token = match[1].trim();
-  // Der Anon-Key ist KEIN Nutzer-Token. Ohne diese Zeile koennte jeder mit dem
-  // (oeffentlichen) Anon-Key den Search-Key abholen.
+  // The anon key is NOT a user token — without this anyone holding the public
+  // anon key could fetch the search key.
   if (!token || token === SUPABASE_ANON_KEY) {
     throw new HttpError(401, 'user_token_required', 'Bitte erneut anmelden.');
   }
@@ -230,10 +218,10 @@ async function consumeRateLimit(
   }
 
   const data = await response.json() as Partial<RateLimitResult>;
-  // Sentinel-Rest E6: `data.allowed === true` machte aus einem kaputten
-  // Antwort-Shape (RPC-Signaturaenderung, Proxy-Body) ein `allowed: false` —
-  // ein 429 samt erfundener rateLimit-Zahlen, obwohl nie ein Limit gemessen
-  // wurde. Ein kaputter Shape ist ein Ausfall des Limiters, kein Limit.
+  // E6: `data.allowed === true` turned a broken response shape (RPC signature
+  // change, proxy body) into `allowed: false` — a 429 with invented numbers
+  // although no limit was ever measured. A broken shape is a limiter outage,
+  // not a limit.
   if (typeof data.allowed !== 'boolean') {
     console.error(`consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`);
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
@@ -276,8 +264,8 @@ function jsonResponse(
     headers: {
       ...Object.fromEntries(responseHeaders(request)),
       'content-type': 'application/json; charset=utf-8',
-      // Fehler-Antworten behalten damit das 'no-store' aus responseHeaders();
-      // nur der 200er ueberschreibt es oben bewusst.
+      // Error responses keep the 'no-store' from responseHeaders(); only the
+      // 200 overrides it deliberately above.
       ...extraHeaders,
     },
   });

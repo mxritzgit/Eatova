@@ -1,31 +1,24 @@
--- FitPilot — Streak-Durability + persistenter Wochenplan
+-- FitPilot — streak durability + persistent weekly plan
 --
--- Rein additiv & idempotent (add column if not exists / create table if
--- not exists / drop policy if exists vor create). Aufsetzpunkt:
--- 20260516160000_app_data_schema.sql (legt daily_logs + lifetime_stats an,
--- set_updated_at() stammt aus 20260516150000_create_profiles.sql).
+-- Gives workout streak, lifetime stats and the weekly plan real storage;
+-- all three were in-memory only and reset on every app restart.
+-- Purely additive and idempotent. Builds on
+-- 20260516160000_app_data_schema.sql.
 --
--- Behoben wird: workoutStreak/lifetimeStats waren rein in-memory und
--- resetteten bei jedem App-Neustart; der Wochenplan war ebenfalls
--- fluechtig. Diese Migration gibt allen dreien eine echte Heimat.
---
--- WICHTIG (42501): Diese Migration wird per raw SQL ueber die Supabase-
--- Management-API angewendet, NICHT ueber den Dashboard-Tabelleneditor.
--- Dabei werden Tabellen-GRANTs fuer die authenticated-Rolle NICHT
--- automatisch gesetzt (Postgres prueft Privileges VOR RLS). Die neue
--- Tabelle weekly_plans braucht daher explizite Grants — unten gesetzt,
--- analog zu 20260516180000_grants.sql.
+-- 42501: applied as raw SQL via the Supabase Management API, which does NOT
+-- set table GRANTs for the authenticated role (Postgres checks privileges
+-- BEFORE RLS). weekly_plans therefore needs the explicit grants below.
 
 -- ---------------------------------------------------------------------------
--- 1) daily_logs — robustes Workout-Signal
---    completed_block_ids wird bei Voll-Abschluss vom Client geleert, taugt
---    also nicht als History. workout_completed bleibt true fuer den Tag.
+-- 1) daily_logs — robust workout signal
+--    The client clears completed_block_ids on full completion, so it is no
+--    history. workout_completed stays true for the day.
 -- ---------------------------------------------------------------------------
 alter table public.daily_logs
   add column if not exists workout_completed boolean not null default false;
 
 -- ---------------------------------------------------------------------------
--- 2) lifetime_stats — Streak-Felder (1:1 Dart LifetimeStats)
+-- 2) lifetime_stats — streak fields (1:1 with Dart LifetimeStats)
 -- ---------------------------------------------------------------------------
 alter table public.lifetime_stats
   add column if not exists current_streak    integer not null default 0,
@@ -33,7 +26,7 @@ alter table public.lifetime_stats
   add column if not exists last_workout_date date;
 
 -- ---------------------------------------------------------------------------
--- 3) weekly_plans — ein 7-Tage-Plan pro User (Index 0=Mo .. 6=So)
+-- 3) weekly_plans — one 7-day plan per user (index 0=Mon .. 6=Sun)
 -- ---------------------------------------------------------------------------
 create table if not exists public.weekly_plans (
   user_id     uuid primary key references auth.users(id) on delete cascade,
@@ -67,17 +60,15 @@ create policy "weekly_plans_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 4) GRANTs — bei raw-SQL-Apply NICHT automatisch. Ohne diese kriegt der
---    eingeloggte User trotz RLS-Policy ein 42501 auf weekly_plans.
---    daily_logs/lifetime_stats hatten ihre Grants schon (alte Migration),
---    aber wir ziehen sie idempotent nach — grant ist re-runnable.
+-- 4) GRANTs — not automatic on raw-SQL apply. Without them the logged-in
+--    user hits 42501 on weekly_plans despite the RLS policy.
+--    daily_logs/lifetime_stats already had theirs; repeated idempotently.
 -- ---------------------------------------------------------------------------
 grant select, insert, update, delete on public.weekly_plans to authenticated;
 grant all                            on public.weekly_plans to service_role;
 grant select, insert, update, delete on public.daily_logs     to authenticated;
 grant select, insert, update, delete on public.lifetime_stats to authenticated;
 
--- Default Privileges sind in 20260516180000_grants.sql bereits fuer das
--- public-Schema gesetzt; neue Tabellen vom postgres-Owner erben die Grants
--- normalerweise. Die expliziten Grants oben sind das Sicherheitsnetz fuer
--- den raw-Management-API-Pfad.
+-- Default privileges for the public schema are set in
+-- 20260516180000_grants.sql; the explicit grants above are the safety net
+-- for the raw Management API path.

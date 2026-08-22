@@ -1,14 +1,11 @@
-// Tests fuer den Layer-1-Pre-Filter (BANNED_PATTERNS + preFilter).
+// Tests for the layer-1 pre-filter (BANNED_PATTERNS + preFilter).
 //
-// Kernidee: Layer 1 muss lieber zu lasch als zu scharf sein - legitime
-// Fitness-/Ernaehrungsfragen ("Cutting", "Fasten 3 Tage", "Brot ritzen")
-// duerfen NIE ohne LLM-Call in einer Refusal landen; eindeutige
-// Missbrauchs-/Krisenformulierungen muessen weiterhin deterministisch
-// gefangen werden.
+// Layer 1 must err on the lax side: legitimate fitness/nutrition questions
+// must never be refused without an LLM call, while unambiguous abuse and
+// crisis wording must still be caught deterministically.
 //
-// Bewusst ohne externe Test-Dependencies (die Edge Functions sind
-// dependency-frei, siehe deno-edge-functions in security.yml) - fuer
-// Tabellen-Tests reicht ein Mini-Assert.
+// No external test dependencies - the edge functions are dependency-free, and
+// a mini assert is enough for table tests.
 
 import { MAX_INPUT_CHARS, preFilter } from "./prefilter.ts";
 
@@ -34,22 +31,22 @@ function expectBlock(message: string, reason: string): void {
 }
 
 Deno.test("legitime Fitness-/Ernaehrungsfragen passieren Layer 1", () => {
-  // "Cutting" = Definitionsphase, Kernvokabular der Zielgruppe.
+  // "Cutting" is core vocabulary of the target audience.
   expectPass("Wie viel Protein brauche ich beim Cutting?");
   expectPass("Bin gerade im Cutting - wie gross sollte mein Kaloriendefizit sein?");
-  // "Fasten X Tage" ist eine legitime Ernaehrungsfrage (frueher geblockt).
+  // Fasting for N days is a legitimate nutrition question.
   expectPass("Fasten 3 Tage am Stueck - ist das ok?");
   expectPass("Ich moechte 5 Tage fasten, worauf muss ich achten?");
-  // "ritzen" ohne Selbstbezug = Backhandwerk.
+  // "ritzen" without self-reference is baking.
   expectPass("Warum muss man Brot vor dem Backen ritzen?");
-  // "act as" ist normales Englisch, keine Injection (frueher geblockt).
+  // "act as" is ordinary English, not an injection.
   expectPass("Can a protein shake act as a meal replacement?");
-  // Harmloses "du bist jetzt mein Coach" ist keine Roleplay-Injection.
+  // A harmless "you are my coach now" is not a roleplay injection.
   expectPass("Du bist jetzt mein Coach - erstell mir einen Trainingsplan!");
   expectPass("Du bist jetzt mein Ernaehrungscoach, oder?");
-  // "Hausaufgaben" als Kontextwort ist kein Homework-Hijack (frueher geblockt).
+  // "Hausaufgaben" as a context word is not a homework hijack.
   expectPass("Wenig Zeit wegen Hausaufgaben - wie kurz kann mein Workout sein?");
-  // Plan-Anfragen an den Coach sind on-topic.
+  // Plan requests to the coach are on topic.
   expectPass("Schreib mir einen Ernaehrungsplan fuer die Woche.");
   expectPass("Was ist ein gutes Kaloriendefizit zum Abnehmen?");
   expectPass("Hi Coach!");
@@ -94,15 +91,14 @@ Deno.test("Basisfaelle: leer, zu lang, Bild ohne Text", () => {
   expectBlock("", "empty");
   expectBlock("   ", "empty");
   expectBlock("x".repeat(MAX_INPUT_CHARS + 1), "too_long");
-  // Bild ohne Text ist erlaubt (Vision-Flow).
+  // Image without text is allowed (vision flow).
   const res = preFilter("", true);
   if (!res.ok) throw new Error("Bild ohne Text haette passieren muessen");
 });
 
-// Ein angehaengtes Bild darf NUR die "empty"-Ablehnung unterdruecken. Alles
-// andere (Laenge + saemtliche BANNED_PATTERNS) muss weiterhin greifen - sonst
-// waere "irgendein Bild dranhaengen" ein Layer-1-Bypass, analog zu dem
-// Layer-2-Bypass, der am 2026-08-07 in index.ts gefixt wurde.
+// An attached image may suppress ONLY the "empty" rejection. Length and every
+// BANNED_PATTERN must still apply, or attaching any image would be a layer-1
+// bypass.
 Deno.test("Layer 1 blockt weiterhin MIT angehaengtem Bild", () => {
   const cases: { message: string; reason: string }[] = [
     { message: "ich will mich ritzen", reason: "self_harm" },
@@ -128,16 +124,16 @@ Deno.test("Layer 1 blockt weiterhin MIT angehaengtem Bild", () => {
 });
 
 Deno.test("Bild unterdrueckt ausschliesslich die empty-Ablehnung", () => {
-  // ohne Bild: empty
+  // without image: empty
   const withoutImage = preFilter("   ", false);
   if (withoutImage.ok || withoutImage.reason !== "empty") {
     throw new Error("Whitespace ohne Bild haette als 'empty' blocken muessen");
   }
-  // mit Bild: durchlassen
+  // with image: pass
   if (!preFilter("   ", true).ok) {
     throw new Error("Whitespace MIT Bild haette passieren muessen");
   }
-  // legitime Caption mit Bild
+  // legitimate caption with image
   if (!preFilter("Was ist das hier?", true).ok) {
     throw new Error("Legitime Bild-Caption haette passieren muessen");
   }

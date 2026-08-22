@@ -1,8 +1,7 @@
 part of 'profile_widgets.dart';
 
-/// Die Gewichts-Karte: grosse aktuelle Zahl, Delta-Pille, Verlaufslinie ueber
-/// die echte Historie, darunter der Fortschritt Richtung Wunschgewicht — und
-/// als Abschluss die Aktion „Gewicht loggen".
+/// Weight card: current value, delta pill, sparkline over the real history,
+/// progress towards the target weight, and the log-weight action.
 class WeightCard extends StatelessWidget {
   const WeightCard({
     super.key,
@@ -97,7 +96,7 @@ class WeightCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              // A11y: Verlaufslinie ist nur gezeichnet -> Spanne als Sprachwert.
+              // A11y: the sparkline is painted only -> announce the range.
               Semantics(
                 label: l10n.profileWeightHistorySemanticsLabel,
                 value: hatVerlauf
@@ -114,8 +113,8 @@ class WeightCard extends StatelessWidget {
                           ],
                         ),
                       )
-                    // Unter zwei Messungen zeichnet die Sparkline nichts —
-                    // eine leere 74-px-Flaeche saehe wie ein Ladefehler aus.
+                    // Below two measurements the sparkline draws nothing, and
+                    // an empty 74 px area would look like a loading error.
                     : Padding(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         child: Text(
@@ -150,12 +149,11 @@ class WeightCard extends StatelessWidget {
     );
   }
 
-  /// Fortschritt vom ERSTEN gemessenen Gewicht zum Wunschgewicht.
+  /// Progress from the FIRST measured weight to the target weight.
   ///
-  /// Liegt das Ziel praktisch auf dem Startwert („halten"), faellt die Zeile
-  /// ganz weg: ein 100-%-Balken fuer ein Ziel, das keines ist, waere eine
-  /// erfundene Erfolgsmeldung — und (start − ziel) waere zugleich der Nenner
-  /// einer Division durch Null.
+  /// If the target sits on the start value ("maintain") the row is dropped: a
+  /// 100 % bar for a non-goal would be a fake success, and (start - target)
+  /// would be a zero denominator.
   List<Widget> _buildGoalProgress(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
@@ -166,8 +164,8 @@ class WeightCard extends StatelessWidget {
     final spanne = (start - ziel).abs();
     if (spanne < 0.1) return const <Widget>[];
 
-    // Laeuft das Gewicht in die falsche Richtung, klemmt der Wert auf 0 —
-    // gewollt, ein negativer Balken hilft niemandem.
+    // Weight moving the wrong way clamps to 0 on purpose; a negative bar
+    // helps nobody.
     final fortschritt = ((start - _current) / (start - ziel)).clamp(0.0, 1.0);
     final prozent = (fortschritt * 100).round();
 
@@ -216,22 +214,17 @@ class WeightCard extends StatelessWidget {
     ];
   }
 
-  /// **D5, bewusst OHNE Verwerf-Rueckfrage.**
+  /// **D5, deliberately WITHOUT a discard prompt.**
   ///
-  /// Das Sheet haelt genau ein Feld, und das ist beim Oeffnen bereits mit dem
-  /// zuletzt geloggten Gewicht gefuellt — derselbe Wert steht gross auf der
-  /// Karte dahinter. Wer versehentlich schliesst, verliert das Eintippen von
-  /// zwei, drei Ziffern, deren Ausgangswert er direkt vor sich sieht. Eine
-  /// Rueckfrage kostet hier bei JEDEM Schliessen einen Extra-Tap und schuetzt
-  /// dafuer fast nichts; sie waere mehr Stoerung als Schutz. Die Sheets mit
-  /// Rueckfrage (Bestandteile, Bearbeiten, Rezept anlegen, Einstellungen)
-  /// halten dagegen vielteilige Formulare, deren Inhalt nirgends sonst steht.
+  /// One field, prefilled with the last logged weight that is also shown large
+  /// on the card behind; an accidental dismiss costs two or three keystrokes.
+  /// A prompt would cost an extra tap on every close and protect almost
+  /// nothing. Sheets with multi-part forms do keep their prompt.
   ///
-  /// Was hier trotzdem faellt, ist `showDragHandle: true`: `app_theme.dart`
-  /// setzt global `false`, und der Griff der Route liegt als Stack-Geschwister
-  /// NEBEN dem builder-Kind (`bottom_sheet.dart:397-410`) — ein Ort, an dem
-  /// kein Sheet ihn je erreichen kann. Gezeichnet wird er jetzt wie ueberall
-  /// sonst IM Sheet, siehe [_ProfileSheetGrabber].
+  /// No `showDragHandle: true` either: the theme sets it false globally, and
+  /// the route's handle is a stack sibling NEXT TO the builder child, where no
+  /// sheet can reach it. Drawn inside the sheet instead, see
+  /// [_ProfileSheetGrabber].
   Future<void> _promptWeight(BuildContext context) async {
     final result = await showModalBottomSheet<double>(
       context: context,
@@ -252,7 +245,7 @@ class WeightCard extends StatelessWidget {
   }
 }
 
-/// Die BMI-Karte: Halbkreis-Skala, Zonen-Chip und die uebrigen Koerperdaten.
+/// BMI card: semicircle gauge, zone chip and the remaining body data.
 class BmiCard extends StatelessWidget {
   const BmiCard({super.key, required this.profile, required this.log});
 
@@ -301,7 +294,7 @@ class BmiCard extends StatelessWidget {
             child: SizedBox(
               width: 190,
               height: 108,
-              // A11y: Gauge ist reines CustomPaint -> Wert + Zone ansagen.
+              // A11y: the gauge is pure CustomPaint -> announce value + zone.
               child: Semantics(
                 label: 'BMI',
                 value: '${formatBmiDe(bmi, l10n)} · $bmiLabel',
@@ -356,8 +349,8 @@ class BmiCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          // Wrap statt Row: bei grosser Systemschrift brechen die beiden
-          // Angaben untereinander, statt die Zeile zu sprengen.
+          // Wrap instead of Row: at large system font the two entries stack
+          // instead of overflowing the line.
           Wrap(
             spacing: 16,
             runSpacing: 6,
@@ -378,10 +371,9 @@ class BmiCard extends StatelessWidget {
     );
   }
 
-  /// `isScrollControlled`, weil die vier Zonen-Zeilen plus Erklaerungsabsatz
-  /// bei doppelter Systemschrift deutlich hoeher werden als die 9/16
-  /// Bildschirmhoehe, die ein ungesteuertes Sheet maximal bekommt (gemessen:
-  /// 1087 px Ueberlauf). Der Inhalt scrollt zusaetzlich, siehe [_BmiInfoSheet].
+  /// `isScrollControlled` because at 2x system font the four zone rows plus
+  /// the explanation exceed the 9/16 screen height an uncontrolled sheet gets
+  /// (measured 1087 px overflow). The content scrolls too, see [_BmiInfoSheet].
   static void _showBmiInfoSheet(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -392,14 +384,12 @@ class BmiCard extends StatelessWidget {
   }
 }
 
-/// Der Griff der Profil-Sheets — im Sheet gezeichnet statt an der Route.
+/// Grab handle of the profile sheets — drawn in the sheet, not on the route.
 ///
-/// Die Dismiss-Semantik muss dabei mitwandern: der Route-Griff bot
-/// TalkBack/VoiceOver eine Tap-Aktion an (`bottom_sheet.dart:368`), und beide
-/// Sheets hier haben keinen Schliessen-Knopf. Auf Android bietet auch die
-/// Barriere keine Dismiss-Semantik an (`modal_barrier.dart`,
-/// `platformSupportsDismissingBarrier`) — ohne diese Aktion saesse ein
-/// Screenreader-Nutzer fest.
+/// The dismiss semantics must move along: the route handle offered a tap
+/// action to TalkBack/VoiceOver, neither sheet here has a close button, and on
+/// Android the barrier offers no dismiss semantics either — without this a
+/// screen-reader user would be stuck.
 class _ProfileSheetGrabber extends StatelessWidget {
   const _ProfileSheetGrabber();
 
@@ -437,10 +427,9 @@ class _BmiInfoSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // Name UND Farbe kommen aus [BMIGaugePainter] — eine zweite, hier
-    // abgeschriebene Zuordnung waere genau die Stelle, an der die Legende
-    // spaeter still von Skala und Zonen-Chip abweicht. Die Stuetzwerte liegen
-    // jeweils mitten in ihrer Zone.
+    // Name AND colour come from [BMIGaugePainter]; a second copy here is where
+    // the legend would silently drift from gauge and zone chip. The sample
+    // values sit in the middle of their zone.
     final zones = <(String, String, Color)>[
       for (final z in <(double, String)>[
         (17.0, '< 18.5'),
@@ -454,9 +443,8 @@ class _BmiInfoSheet extends StatelessWidget {
           BMIGaugePainter.colorFor(t, z.$1),
         ),
     ];
-    // Griff bleibt oben stehen, der Rest scrollt: bei doppelter Systemschrift
-    // ist die Zonen-Liste hoeher als der Bildschirm, und ein Erklaer-Sheet, das
-    // seine unterste Zone abschneidet, erklaert nichts.
+    // Handle stays pinned, the rest scrolls: at 2x system font the zone list
+    // is taller than the screen.
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
@@ -509,8 +497,8 @@ class _BmiInfoSheet extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // Flexible: die Bereichsangabe („18.5 – 24.9") ist bei
-                        // 200 % Systemschrift breiter als der Rest der Zeile.
+                        // Flexible: the range text is wider than the rest of
+                        // the row at 200 % system font.
                         Flexible(
                           child: Padding(
                             padding: const EdgeInsets.only(left: 8),
@@ -583,10 +571,9 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
           Text(l10n.profileLogWeightCta,
               style: AppType.display(20, color: t.ink)),
           const SizedBox(height: 16),
-          // Bewusst ein lokales TextField statt SheetField: der Fokus muss
-          // beim Oeffnen im Feld stehen (`autofocus`), und SheetField kennt
-          // diesen Parameter nicht. Die InputDecoration kommt trotzdem aus dem
-          // Theme, ist also bereits tokenbasiert.
+          // Local TextField instead of SheetField: the field must hold focus
+          // on open (`autofocus`), which SheetField does not expose. The
+          // InputDecoration still comes from the theme.
           TextField(
             key: const ValueKey('profile-weight-input'),
             cursorOpacityAnimates: false,
@@ -616,13 +603,11 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
   }
 }
 
-/// Die Veraenderung seit der ersten Messung.
+/// The change since the first measurement.
 ///
-/// Abweichung von der Vorlage: dort steht die Pille in `lime` bei 45 %
-/// Deckkraft mit `ink`-Text — im Dunkelmodus waere das heller Text auf heller
-/// Flaeche. Hier traegt sie die volle Lime-Flaeche mit `onLime` (das
-/// dokumentierte Paar, in beiden Modi dunkel auf hell); „stabil" bleibt ruhig
-/// auf `tile`.
+/// Full lime surface with `onLime` (the documented pair, dark on light in both
+/// modes) instead of the mock's 45 %-opacity lime with `ink`, which would be
+/// light on light in dark mode. The flat state stays quiet on `tile`.
 class _DeltaPill extends StatelessWidget {
   const _DeltaPill({required this.delta});
 
@@ -636,7 +621,7 @@ class _DeltaPill extends StatelessWidget {
     final icon = isFlat
         ? Icons.remove_rounded
         : (delta > 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded);
-    // U+2212 als Minus, wie ueberall sonst in der App (paceLabel).
+    // U+2212 as minus, as everywhere else in the app (paceLabel).
     final label = isFlat
         ? l10n.profileStable
         : '${delta > 0 ? '+' : '−'}${formatKgDe(delta.abs(), l10n)} kg';
@@ -676,10 +661,9 @@ class _BodyMetric extends StatelessWidget {
       children: <Widget>[
         Icon(icon, color: t.ink2, size: 13),
         const SizedBox(width: 6),
-        // Flexible + Ellipsis: als starres Row-Kind mass der Text seine volle
-        // Einzeilenbreite und sprengte bei grosser Systemschrift die Zeile —
-        // auch innerhalb eines Wrap, der nur den UMBRUCH regelt, nicht die
-        // Breite eines einzelnen Kindes.
+        // Flexible + ellipsis: as a rigid Row child the text measured its full
+        // single-line width and overflowed at large system font — a Wrap only
+        // controls line breaks, not the width of one child.
         Flexible(
           child: Text(
             label,
@@ -721,7 +705,7 @@ class _InfoButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // A11y: 44x44 Hit-Target, Chip + Glyph bleiben optisch 28/15.
+    // A11y: 44x44 hit target; chip and glyph stay visually 28/15.
     return Tooltip(
       message: tooltip,
       child: SizedBox(

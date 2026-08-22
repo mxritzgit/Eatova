@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
 
-/// Eatova-Wortmarke: „eat" + Kamera-Fokusring als „o" + „va".
+/// Eatova wordmark: "eat" + camera focus ring as the "o" + "va".
 ///
-/// Der Fokusring (Kreis, Mittelpunkt-Dot, vier Ticks auf 12/3/6/9 Uhr) ist
-/// das Scan-Motiv des Brandings (Logo-Entscheid 2026-08); gezeichnet als
-/// CustomPaint statt Bild-Asset, damit die Marke in jeder Größe und
-/// Pixeldichte scharf bleibt.
+/// The ring (circle, centre dot, four ticks at 12/3/6/9) is the brand's scan
+/// motif, drawn with CustomPaint rather than an image asset so it stays sharp
+/// at any size and pixel density.
 class EatovaWordmark extends StatelessWidget {
   const EatovaWordmark({
     super.key,
@@ -18,19 +17,13 @@ class EatovaWordmark extends StatelessWidget {
 
   final double fontSize;
 
-  /// Ohne Angabe nimmt die Marke das **Marken-Flächenpaar** aus [AppTokens]:
-  /// `onForest` für die Schrift, `lime` für den Ring.
+  /// Defaults to the brand surface pair from [AppTokens]: `onForest` for the
+  /// text, `lime` for the ring.
   ///
-  /// Bewusst NICHT `ink`/`accent`: die Wortmarke steht heute ausschließlich
-  /// auf `auth_screen.dart`, und dieser Screen ist in beiden Anzeige-Modi
-  /// dunkel (`backgroundColor: bg` aus `app_colors.dart`, unmigriert und in
-  /// dieser Runde tabu). Mit `ink`/`accent` wäre die Marke im Hellmodus
-  /// nahezu schwarz auf nahezu schwarz — also unsichtbar. `onForest` und
-  /// `lime` sind in beiden Paletten hell und kontrast-gesichert; das ist
-  /// dieselbe Begründung, aus der `welcome_screen.dart` dem Anzeige-Modus
-  /// bewusst nicht folgt (DESIGN_REFACTOR §2, Nachtrag).
-  ///
-  /// Wer die Marke auf eine helle Karte setzt, übergibt beide Farben selbst.
+  /// Deliberately not `ink`/`accent`: the wordmark only appears on the dark
+  /// auth screen, which stays dark in both themes, so `ink` would be near
+  /// black on near black in light mode. Callers placing it on a light card
+  /// pass both colors themselves.
   final Color? textColor;
   final Color? ringColor;
 
@@ -44,8 +37,8 @@ class EatovaWordmark extends StatelessWidget {
       height: 1.0,
       color: textColor ?? t.onForest,
     );
-    // Ring etwas größer als die x-Höhe und leicht nach unten versetzt,
-    // damit er optisch auf der Mittellinie der Kleinbuchstaben sitzt.
+    // Slightly larger than the x-height and nudged down so it sits optically
+    // on the lowercase midline.
     final ringBox = fontSize * 0.82;
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -80,7 +73,7 @@ class _FocusRingPainter extends CustomPainter {
     final stroke = w * 0.105;
     final tick = w * 0.115;
     final gap = w * 0.075;
-    // Ticks enden am Rand der Box; daraus ergibt sich der Ring-Radius.
+    // Ticks end at the box edge, which fixes the ring radius.
     final ringRadius = w / 2 - tick - gap - stroke / 2;
 
     canvas.drawCircle(

@@ -1,22 +1,18 @@
-// G3 (REVIEW-2026-08-08): Diese Datei hatte 6 Tests und insgesamt 3
-// `expect()`-Aufrufe. Ein leeres `capture() async {}` haette sie alle
-// bestanden — nichts unterschied „schluckt Fehler sicher" von „verwirft
-// jeden Crash, auch mit DSN".
+// G3: an empty `capture() async {}` used to pass this whole file — nothing
+// distinguished "swallows errors safely" from "drops every crash, DSN or not".
 //
-// Jeder Test hier belegt jetzt BEIDE Richtungen: dass capture nicht wirft
-// UND dass es den Report tatsaechlich weiterreicht. Beobachtet wird ueber
-// CrashReporter.debugSentrySink / debugBreadcrumbSink — die einzige Stelle,
-// an der ohne DSN, ohne Netz und ohne Sentry-Hub sichtbar wird, was Sentry
-// bekaeme.
+// Every test now proves BOTH directions: capture does not throw AND it
+// actually forwards the report. Observed via CrashReporter.debugSentrySink /
+// debugBreadcrumbSink, the only place that shows what Sentry would get without
+// a DSN, network or hub.
 //
-// Die Sanitisierung selbst (C1) hat ihre eigene Datei:
-// test/services/crash_reporter_sanitize_test.dart.
+// Sanitisation itself (C1) lives in crash_reporter_sanitize_test.dart.
 
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Fehlerobjekt, dessen toString() selbst wirft — der Worst Case fuer
-/// jede Logging-/Reporting-Schicht. CrashReporter muss auch das schlucken.
+/// Error object whose toString() throws — the worst case for any reporting
+/// layer. CrashReporter must swallow this too.
 class _ThrowingToString {
   @override
   String toString() => throw StateError('toString kaputt');
@@ -45,17 +41,15 @@ void main() {
 
   group('CrashReporter ohne DSN (Dev/CI/Tests)', () {
     test('DSN ist leer, Facade inaktiv, kein Sentry-Hub', () {
-      // Tests laufen ohne --dart-define=SENTRY_DSN — die Facade muss dann
-      // vollstaendig no-op sein (kein Sentry-Hub, kein Netzwerk). isActive
-      // ist die einzige Schranke davor, also wird sie hier festgenagelt.
+      // Tests run without --dart-define=SENTRY_DSN, so the facade must be a
+      // full no-op. `isActive` is the only gate, so it is pinned here.
       expect(CrashReporter.dsn, isEmpty);
       expect(CrashReporter.isActive, isFalse);
     });
 
     test('capture reicht den Fehler weiter statt ihn zu verschlucken',
         () async {
-      // Der eigentliche Punkt von G3: ein leeres `capture() async {}` faellt
-      // genau hier durch.
+      // The point of G3: an empty `capture() async {}` fails exactly here.
       await CrashReporter.capture(
         Exception('sync kaputt'),
         StackTrace.current,
@@ -80,9 +74,8 @@ void main() {
     });
 
     test('capture nimmt jeden Fehlertyp an und meldet jeden einzeln', () async {
-      // Dart erlaubt `throw` fuer jedes Objekt — die Facade muss alles
-      // annehmen, was in einem catch (Object e) landen kann, und darf dabei
-      // keinen Aufruf unter den Tisch fallen lassen.
+      // Dart allows `throw` on any object, so the facade must accept anything
+      // a catch (Object e) can hold and must not drop a single call.
       await CrashReporter.capture('nur ein String', StackTrace.empty);
       await CrashReporter.capture(42, StackTrace.empty);
       await CrashReporter.capture(
@@ -101,9 +94,7 @@ void main() {
 
     test('capture ueberlebt ein Fehlerobjekt mit werfendem toString() '
         'und meldet es trotzdem', () async {
-      // Vorher belegte dieser Test nur „wirft nicht" — was auch ein stiller
-      // Totalausfall erfuellt haette. Jetzt muss der Report ankommen, und
-      // zwar OHNE dass irgendwer toString() aufgerufen hat.
+      // The report must arrive, and WITHOUT anyone calling toString().
       await CrashReporter.capture(_ThrowingToString(), StackTrace.current);
 
       expect(gemeldet, hasLength(1));
@@ -117,7 +108,7 @@ void main() {
         throw StateError('Senke kaputt');
       };
 
-      // Reporting darf den Fehlerpfad des Aufrufers nie mitreissen.
+      // Reporting must never tear down the caller's error path.
       await expectLater(
         CrashReporter.capture(Exception('x'), StackTrace.current),
         completes,
@@ -127,7 +118,7 @@ void main() {
     test('capture ist ohne Senke und ohne DSN ein sauberer No-Op', () {
       CrashReporter.debugSentrySink = null;
 
-      // Der Produktionspfad in Dev/CI: kein Hub, kein Netz, kein Throw.
+      // The production path in dev/CI: no hub, no network, no throw.
       expect(CrashReporter.isActive, isFalse);
       expect(
         CrashReporter.capture(
@@ -153,9 +144,8 @@ void main() {
       CrashReporter.breadcrumb('outbox-cap: 3 ops dropped');
       CrashReporter.breadcrumb('');
 
-      // Wortlaut unveraendert: der Aufrufer verantwortet den Inhalt (siehe
-      // breadcrumb-Doku), die Facade darf ihn nicht stillschweigend
-      // umschreiben oder verwerfen.
+      // Wording unchanged: the caller owns the content, the facade must not
+      // silently rewrite or drop it.
       expect(spuren, <String>[
         'outbox replay gestartet',
         'outbox-cap: 3 ops dropped',
@@ -168,8 +158,8 @@ void main() {
 
       CrashReporter.breadcrumb('outbox replay gestartet');
 
-      // Nach Breadcrumbs bleibt die Facade inaktiv — nichts wurde lazy
-      // initialisiert, kein Hub ist entstanden.
+      // The facade stays inactive after breadcrumbs — nothing lazily
+      // initialised, no hub created.
       expect(CrashReporter.isActive, isFalse);
       expect(spuren, isEmpty);
     });

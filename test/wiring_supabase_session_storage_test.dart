@@ -1,58 +1,26 @@
-// VERDRAHTUNGS-WAECHTER C5 — der Session-Storage am Produktionspfad.
+// WIRING GUARD C5 — the session storage on the production path.
 //
-// `test/services/session_storage_test.dart` treibt `SecureSessionLocalStorage`
-// sehr gruendlich: Persistenz im Keystore, Einmal-Migration, Logout, defekter
-// Keystore, Key-Gleichheit. Es betritt die Klasse aber ausschliesslich ueber
-// `EatovaSupabaseConfig.buildSessionStorage(...)` — also ueber genau die Naht,
-// die die Produktion danach nicht mehr benutzt.
+// `test/services/session_storage_test.dart` exercises
+// `SecureSessionLocalStorage` thoroughly, but only through
+// `EatovaSupabaseConfig.buildSessionStorage(...)` — the seam production does
+// not use. What makes those properties effective is the `localStorage:
+// buildSessionStorage()` override in supabase_config.dart; without it the
+// Supabase default `SharedPreferencesLocalStorage` puts both tokens in
+// plaintext next to the encrypted health blobs. Deleting those lines left all
+// other tests green.
 //
-// Die drei Zeilen, die die geprueften Eigenschaften ueberhaupt erst wirksam
-// machen, sind diese hier (lib/src/config/supabase_config.dart:71-73):
+// This test drives the REAL `EatovaSupabaseConfig.initialize()` without
+// touching the network: both storages run on their packages' in-memory test
+// platforms, and the access token is deliberately NOT a JWT, so `expiresAt`
+// stays null, `isExpired` is false and `recoverSession` never refreshes.
+// `Supabase` is a process singleton, so initialize runs once here and is
+// disposed in tearDown.
 //
-//     authOptions: FlutterAuthClientOptions(
-//       localStorage: buildSessionStorage(),
-//     ),
-//
-// Ohne sie greift der Default aus `Supabase.initialize`
-// (supabase_flutter-2.17.1/lib/src/supabase.dart:128-137):
-// `SharedPreferencesLocalStorage`. Access- UND Refresh-Token liegen dann als
-// Klartext-JSON in genau der `FlutterSharedPreferences.xml`, deren
-// Health-Blobs seit 7f895f9 AES-256-GCM-verschluesselt sind — der Angreifer,
-// gegen den die Verschluesselung gebaut wurde (Extraktion vom RUHENDEN
-// Geraet), nimmt dann einfach den Refresh-Token und holt sich Mahlzeiten,
-// Gewicht, Schlaf und Coach-Chat ueber das Netz.
-//
-// Vor dieser Datei blieben nach dem Loeschen der drei Zeilen 21 von 21 Tests
-// gruen, bei sauberem `flutter analyze`.
-//
-// WIE HIER GEPRUEFT WIRD (und warum das trotz `Supabase.initialize` geht)
-//
-// Der Test faehrt den ECHTEN `EatovaSupabaseConfig.initialize()`. Das ist
-// moeglich, ohne das Netz anzufassen:
-//   * SharedPreferences und flutter_secure_storage laufen ueber die
-//     In-Memory-Test-Plattformen der jeweiligen Pakete
-//     (`setMockInitialValues`) — kein Plugin-Channel.
-//   * Der Access-Token der vorgelegten Session ist bewusst KEIN JWT. `Session`
-//     leitet `expiresAt` aus dem JWT-Payload ab (gotrue-2.27.1
-//     `types/session.dart:76-82`); scheitert das, ist `expiresAt == null` und
-//     `isExpired` liefert `false`. `recoverSession` nimmt damit den
-//     Nicht-Ablauf-Zweig und ruft NIE `_callRefreshToken` — es gibt keinen
-//     HTTP-Verkehr.
-//   * `Supabase` ist ein Prozess-Singleton: `initialize` laeuft deshalb genau
-//     einmal, in genau dieser Datei, und wird im tearDown entsorgt.
-//
-// Beobachtet wird das Ergebnis der Einmal-Migration, weil sie das schaerfste
-// beobachtbare Unterscheidungsmerkmal der beiden Storages ist:
-//
-//   mit den drei Zeilen : Klartext wandert aus SharedPreferences in den
-//                         Keystore und wird dort geraeumt
-//   ohne die drei Zeilen: der Klartext bleibt liegen, der Keystore bleibt leer
-//
-// EINSTUFUNG: stark — geprueft wird, WO die Token nach einem echten App-Start
-// physisch liegen, nicht ob eine Quelltextzeile existiert. Der Waechter
-// ueberlebt Umbenennungen (`buildSessionStorage`, `SecureSessionLocalStorage`),
-// Umformatierung und jeden Umbau der Konfiguration, solange die Token am Ende
-// im Keystore und nicht im Klartext landen.
+// It observes the result of the one-time migration, the sharpest observable
+// difference between the two storages: with the override the plaintext moves
+// into the keystore and is wiped, without it the plaintext stays and the
+// keystore stays empty. The guard survives renames and reformatting because
+// it checks WHERE the tokens physically end up.
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -61,12 +29,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:eatova/src/config/supabase_config.dart';
 
-/// Der Generalschluessel zum Konto. Taucht er irgendwo in SharedPreferences
-/// auf, ist C5 zurueck.
+/// The master key to the account. If it shows up anywhere in
+/// SharedPreferences, C5 is back.
 const String _refreshToken = 'refresh-o5Xq7c9aTtZZ-nicht-im-klartext';
 
-/// Bewusst KEIN JWT (siehe Kopfkommentar): so bleibt `expiresAt` null, die
-/// Session gilt als nicht abgelaufen und `recoverSession` geht nie ins Netz.
+/// Deliberately NOT a JWT (see the header): `expiresAt` stays null, the
+/// session counts as unexpired and `recoverSession` never hits the network.
 const String _accessToken = 'access-token-ohne-jwt-struktur';
 
 const String _userId = '11111111-2222-3333-4444-555555555555';
@@ -81,9 +49,8 @@ const String _bestandsSession = '{"access_token":"$_accessToken",'
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  /// Der In-Memory-Keystore, den `TestFlutterSecureStoragePlatform` bedient.
-  /// Was hier landet, laege auf dem Geraet im Android Keystore / der iOS
-  /// Keychain.
+  /// The in-memory keystore served by `TestFlutterSecureStoragePlatform`.
+  /// What lands here would live in the Android Keystore / iOS Keychain.
   final Map<String, String> keystore = <String, String>{};
 
   tearDownAll(() async {
@@ -98,31 +65,30 @@ void main() {
     () async {
       final key = EatovaSupabaseConfig.sessionPersistKey;
 
-      // Ausgangslage: ein Bestandsnutzer, dessen Session noch aus der Zeit vor
-      // C5 im Klartext in SharedPreferences steht.
+      // Starting point: an existing user whose pre-C5 session still sits in
+      // plaintext in SharedPreferences.
       SharedPreferences.setMockInitialValues(<String, Object>{
         key: _bestandsSession,
-        // Ein unbeteiligter Nachbar-Eintrag, damit die Aussage „der
-        // Klartext-Slot wurde geraeumt" nicht mit „die Prefs sind leer"
-        // verwechselt werden kann.
+        // An unrelated neighbouring entry, so "the plaintext slot was wiped"
+        // cannot be confused with "the prefs are empty".
         'eatova_irgendein_anderer_slot': '{"harmlos":true}',
       });
       keystore.clear();
       FlutterSecureStorage.setMockInitialValues(keystore);
 
-      // Der echte Produktionspfad. Genau hier haengen die drei Zeilen.
+      // The real production path.
       await EatovaSupabaseConfig.initialize();
 
-      // 1) Der Token liegt im Keystore. Ohne `authOptions` bliebe diese Map
-      //    leer — `SharedPreferencesLocalStorage` fasst sie nie an.
+      // 1) The token is in the keystore. Without `authOptions` this map would
+      //    stay empty — SharedPreferencesLocalStorage never touches it.
       expect(keystore[key], isNotNull,
           reason: 'Ohne den localStorage-Override greift der Supabase-Default '
               'SharedPreferencesLocalStorage und der Keystore bleibt leer.');
       expect(keystore[key], contains(_refreshToken));
 
-      // 2) Und er liegt NIRGENDWO mehr im Klartext. Bewusst ueber ALLE
-      //    Prefs-Werte gesucht, nicht nur ueber den bekannten Slot: ein
-      //    zusaetzlicher Klartext-Ablageort waere derselbe Schaden.
+      // 2) And it is nowhere in plaintext. Searched across ALL prefs values,
+      //    not just the known slot: another plaintext location is the same
+      //    damage.
       final prefs = await SharedPreferences.getInstance();
       final alleWerte =
           prefs.getKeys().map((k) => prefs.get(k).toString()).join('\n');
@@ -136,9 +102,8 @@ void main() {
       expect(prefs.containsKey('eatova_irgendein_anderer_slot'), isTrue,
           reason: 'Nur der Session-Slot wird geraeumt, nicht der ganze Store.');
 
-      // 3) Die Umstellung darf Bestandsnutzer NICHT ausloggen — sonst waere
-      //    der sichere Speicherort mit einem Massen-Logout erkauft. Die
-      //    Session muss aus dem Keystore heraus wiederhergestellt worden sein.
+      // 3) The migration must not log existing users out — the session has to
+      //    be recovered from the keystore.
       final session = Supabase.instance.client.auth.currentSession;
       expect(session, isNotNull,
           reason: 'Ohne funktionierende Migration waere beim Update JEDER '
@@ -152,16 +117,13 @@ void main() {
     'PKCE-Verdrahtung: der Code-Verifier landet im Keystore, nicht im '
     'Klartext in SharedPreferences',
     () async {
-      // `getOAuthSignInUrl` erzeugt den PKCE-Verifier und SPEICHERT ihn ueber
-      // den konfigurierten `pkceAsyncStorage` — ohne Browser, ohne Netz (die
-      // Authorize-URL wird nur lokal gebaut). Das ist derselbe Speicherpfad,
-      // den `signInWithOAuth` nimmt.
+      // `getOAuthSignInUrl` creates the PKCE verifier and stores it through
+      // the configured `pkceAsyncStorage` — no browser, no network, and the
+      // same storage path `signInWithOAuth` takes.
       //
-      // Der Verifier ist kurzlebig, aber kein Pappkamerad: wer ihn UND den
-      // Callback-Link abgreift, kann den Code-Austausch selbst machen. Vor
-      // allem aber ist er der letzte Auth-Baustein, der noch im Klartext in
-      // FlutterSharedPreferences.xml lag (Default:
-      // SharedPreferencesGotrueAsyncStorage).
+      // The verifier is short-lived but real: whoever grabs it AND the
+      // callback link can do the code exchange. It was the last auth artifact
+      // still stored in plaintext by default.
       await Supabase.instance.client.auth
           .getOAuthSignInUrl(provider: OAuthProvider.google);
 

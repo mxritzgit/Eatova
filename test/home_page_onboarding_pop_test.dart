@@ -1,19 +1,15 @@
-// D7 x D4 — die beiden PopScopes duerfen sich nie begegnen (W3-01).
+// D7 x D4 — the two PopScopes must never meet (W3-01).
 //
-// Seit D4 bringt die OnboardingScreen ein eigenes `PopScope` mit
-// (onboarding_screen.dart, `canPop: _index == 0`). `ModalRoute
-// .onPopInvokedWithResult` ruft ALLE in der Route registrierten PopScopes auf —
-// stuenden das der Schale (Tab-Rueckkehr, D7) und das des Onboardings
-// gleichzeitig im Baum, ginge ein Systemzurueck einen Onboarding-Schritt
-// zurueck UND wechselte gleichzeitig den Tab.
+// `ModalRoute.onPopInvokedWithResult` calls ALL PopScopes registered in the
+// route, so with the shell's (tab return, D7) and the onboarding's in the tree
+// at once, a system back would step back in onboarding AND switch the tab.
 //
-// Absicherung: das PopScope der Schale liegt HINTER dem Early-Return
-// `if (_store.needsOnboarding) return OnboardingScreen(...)`. Dieser Test
-// haelt die Reihenfolge fest, damit der naechste, der sie anfasst, es merkt.
+// Safeguard: the shell's PopScope sits BEHIND the early return
+// `if (_store.needsOnboarding) return OnboardingScreen(...)`. This test pins
+// that order.
 //
-// Der Aufbau spiegelt test/clobber_guard_test.dart: `needsOnboarding` verlangt
-// einen echten EatovaSync, also faehrt der Test die Page ueber einen
-// MockClient-Supabase hoch.
+// Setup mirrors test/clobber_guard_test.dart: `needsOnboarding` needs a real
+// EatovaSync, so the page boots over a MockClient Supabase.
 
 import 'dart:convert';
 
@@ -35,8 +31,8 @@ HomeStore _storeOf(WidgetTester tester) =>
     (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
         .debugStore;
 
-/// Leerer Fake-Server: jeder Read liefert `[]` (kein Profil -> kein
-/// `onboarding_completed` -> Onboarding-Gate), jeder Write ein leeres Objekt.
+/// Empty fake server: every read returns `[]` (no profile -> no
+/// `onboarding_completed` -> onboarding gate), every write an empty object.
 http.Client _emptyServer() => MockClient((req) async {
       final isWrite = req.method == 'POST' ||
           req.method == 'PATCH' ||
@@ -50,8 +46,8 @@ http.Client _emptyServer() => MockClient((req) async {
     });
 
 EatovaSync _sync() {
-  // autoRefreshToken: false — sonst bleibt GoTrues 10s-Ticker als pending
-  // Timer in der FakeAsync-Zone haengen (s. clobber_guard_test.dart).
+  // autoRefreshToken: false, or GoTrue's 10s ticker stays a pending timer in
+  // the FakeAsync zone (see clobber_guard_test.dart).
   final supa = SupabaseClient(
     'https://example.supabase.co',
     'test-anon-key',
@@ -73,8 +69,8 @@ Future<void> _pumpOnboarding(WidgetTester tester) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  // Reduzierte Bewegung: kollabiert die Welcome-Dauern auf Duration.zero,
-  // sonst haengt der indeterminate Boot-Spinner (s. clobber_guard_test.dart).
+  // Reduced motion collapses the welcome durations to Duration.zero; the
+  // indeterminate boot spinner would otherwise hang.
   tester.platformDispatcher.accessibilityFeaturesTestValue =
       const FakeAccessibilityFeatures(disableAnimations: true);
   addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
@@ -86,9 +82,8 @@ Future<void> _pumpOnboarding(WidgetTester tester) async {
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  // theme: seit dem Design-Refactor 2026-08-09 lesen Onboarding und Schale
-  // ihre Farben ueber `context.t`; AppTokens.of wirft bewusst, wenn die
-  // ThemeExtension fehlt. Die Testlogik darunter ist unveraendert.
+  // theme: onboarding and shell read colors via `context.t`, and AppTokens.of
+  // throws on purpose when the ThemeExtension is missing.
   await tester.pumpWidget(MaterialApp(
     theme: buildEatovaTheme(Brightness.light),
     locale: const Locale('de'),
@@ -120,10 +115,8 @@ void main() {
     await _pumpOnboarding(tester);
     expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
 
-    // Der Store steht auf einem Nicht-Food-Tab. Waere das PopScope der Schale
-    // waehrend des Onboardings mit im Baum, schaltete der Pop hier auf 0 —
-    // der Nutzer saehe gleichzeitig einen Onboarding-Schritt zurueck und
-    // landete hinter dem Onboarding auf Food.
+    // The store sits on a non-food tab. With the shell's PopScope in the tree
+    // during onboarding, the pop would switch it to 0.
     final store = _storeOf(tester);
     store.setTab(2);
     await _drain(tester, rounds: 4);

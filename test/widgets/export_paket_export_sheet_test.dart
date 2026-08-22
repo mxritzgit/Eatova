@@ -1,16 +1,13 @@
-// Komplettreview 2026-08-19, Paket „export" — drei Aussagen ueber das
-// Datenauskunfts-Sheet:
+// Three claims about the data-export sheet:
 //
-// 1. Der volle Export darf NICHT als ein einziger Paragraph in die Karte. Ein
-//    Jahr Nutzung sind mehrere Megabyte JSON; `TextPainter.layout` laeuft auf
-//    dem UI-Isolate und fror das Sheet ein. Gezeigt wird eine Vorschau, die
-//    vollen Daten gehen ueber Zwischenablage bzw. Datei hinaus.
-// 2. Vollstaendigkeit wird nicht mehr behauptet, wenn nichts (oder nur ein
-//    Teil) geladen wurde. `buildExportJson` faengt jeden Sektionsfehler
-//    einzeln ab und wirft offline nie — am ausbleibenden Fehler ist der Umfang
-//    also nicht ablesbar.
-// 3. `Clipboard.setData` ist ein Plattformkanal und kann fehlschlagen. Dann
-//    gibt es keine Erfolgsmeldung und keinen unbehandelten Zonen-Fehler.
+// 1. The full export must NOT go into the card as one paragraph: a year of use
+//    is megabytes of JSON and `TextPainter.layout` on the UI isolate froze the
+//    sheet. Only a preview is shown; the full data leaves via clipboard/file.
+// 2. Completeness is not claimed when nothing (or only part) loaded.
+//    `buildExportJson` catches each section error separately and never throws
+//    offline, so the absence of an error says nothing about the scope.
+// 3. `Clipboard.setData` is a platform channel and can fail — then there is no
+//    success message and no unhandled zone error.
 
 import 'dart:convert';
 
@@ -24,8 +21,8 @@ import 'package:eatova/src/services/data_export.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/shared/data_export_sheet.dart';
 
-/// Eine Auskunft im echten Format: alle Sektionen da, [mahlzeiten] Zeilen
-/// Tagebuch mit JSONB-Nutzlast — so waechst der Text im Feld wirklich.
+/// An export in the real format: all sections present and [mahlzeiten] diary
+/// rows with JSONB payload, so the text really grows.
 String _export({
   int mahlzeiten = 0,
   Iterable<String>? sektionen,
@@ -68,9 +65,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    // `theme: buildEatovaTheme(...)` ist Pflicht: die Karten lesen ihre Farben
-    // ueber `AppTokens.of`, und das nackte MaterialApp haengt die
-    // ThemeExtension nicht ans Theme.
+    // `theme: buildEatovaTheme(...)` is mandatory: the cards read colors via
+    // `AppTokens.of`, and a bare MaterialApp carries no ThemeExtension.
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.dark),
@@ -174,9 +170,8 @@ void main() {
     });
 
     testWidgets('kam KEINE Sektion an, sagt das Sheet genau das', (tester) async {
-      // Offline scheitert jede Sektion einzeln — `buildExportJson` wirft
-      // trotzdem nicht. Vorher stand hier „Vollständige Kopie deiner
-      // gespeicherten Daten" ueber einer Auskunft ohne einen einzigen Datensatz.
+      // Offline every section fails individually and `buildExportJson` still
+      // does not throw — which used to claim a full copy over an empty export.
       await zeigeSheet(
         tester,
         auskunft: _export(
@@ -208,10 +203,9 @@ void main() {
 
   group('die Zwischenablage ist ein Plattformkanal', () {
     testWidgets('gelingt die Kopie, bestaetigt das Sheet sie', (tester) async {
-      // Ohne Mock-Handler beantwortet der Test-Messenger den Kanal gar nicht,
-      // und `invokeMethod` macht daraus eine MissingPluginException — der
-      // Erfolgsfall waere also gar nicht erreichbar und der Test pruefte
-      // stillschweigend den Fehlerpfad mit.
+      // Without a mock handler the test messenger never answers the channel and
+      // `invokeMethod` raises MissingPluginException, so the success case would
+      // be unreachable and this test would silently check the failure path.
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
         (call) async => null,
@@ -222,9 +216,8 @@ void main() {
       await zeigeSheet(tester, auskunft: _export());
 
       await tester.tap(find.byKey(const ValueKey('profile-export-copy')));
-      // NICHT pumpAndSettle: der Toast raeumt sich nach kSnackShort selbst ab,
-      // und pumpAndSettle laeuft genau bis dorthin — die Bestaetigung waere
-      // beim Pruefen schon wieder weg (und der Test damit blind).
+      // NOT pumpAndSettle: the toast dismisses itself after kSnackShort and
+      // pumpAndSettle runs right past it, leaving the test blind.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 

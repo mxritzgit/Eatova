@@ -3,23 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
-// B5-Anwendung im Trend-Pfad: das dichte Trend-Fenster und der daraus
-// abgeleitete Kennzahlen-Ausschnitt muessen ueber eine Sommerzeit-Umstellung
-// hinweg jeden Kalendertag genau einmal enthalten.
+// B5 in the trend path: the dense trend window and the metrics slice derived
+// from it must contain every calendar day exactly once across a DST switch.
 //
-// Die Fruehjahrsumstellung 2026 faellt in Europe/Berlin auf Sonntag den
-// 29.03. (ein 23-Stunden-Tag). `today.subtract(Duration(days: n))` landet von
-// dort aus auf `2026-03-28 23:00` — derselbe localDayKey wie der 28.03., also
-// waere der 29.03. aus dem Fenster verschwunden und der 28.03. doppelt drin.
+// On a 23-hour DST day `today.subtract(Duration(days: n))` lands at 23:00 of
+// the day before, which shares a localDayKey with it — so one day would drop
+// out of the window and another appear twice.
 //
-// Zeitzonen-Unabhaengigkeit (die CI laeuft auf einer UTC-Maschine): geprueft
-// werden ausschliesslich Eigenschaften, die in JEDER Zone gelten muessen —
-// Assertions auf (Jahr, Monat, Tag)-Tripeln und ein Property-Test gegen ein
-// UTC-Orakel (UTC kennt keine Sommerzeit, dort IST `add(Duration(days: n))`
-// exakt die Kalenderverschiebung). Dieselbe Technik wie in
-// test/services/day_math_test.dart.
+// Zone independence (CI runs on UTC): only properties that hold in EVERY zone
+// are asserted — (year, month, day) triples and a property test against a UTC
+// oracle, where `add(Duration(days: n))` IS the calendar shift.
 
-/// Kurzform fuer Kalender-Assertions: nur (Jahr, Monat, Tag) zaehlen.
+/// Shorthand for calendar assertions: only (year, month, day) count.
 ({int y, int m, int d}) ymd(DateTime value) =>
     (y: value.year, m: value.month, d: value.day);
 
@@ -29,15 +24,15 @@ TrendDayTotals _day(DateTime day, int kcal) =>
 void main() {
   group('denseTrendWindow ueber die Fruehjahrsumstellung 2026-03-29', () {
     test('enthaelt den 29.03. genau einmal und den 28.03. nicht doppelt', () {
-      // Beleg des Fehlermusters — nur auf einer Maschine in einer Zone MIT
-      // Umstellung am 29.03.2026 ueberhaupt beobachtbar.
+      // Evidence of the failure pattern, observable only in a zone with a DST
+      // switch on 2026-03-29.
       final naiv = DateTime(2026, 3, 30).subtract(const Duration(days: 1));
       if (naiv.day != 29) {
         expect(ymd(naiv), (y: 2026, m: 3, d: 28));
         expect(naiv.hour, 23);
       }
 
-      // Ein Total pro Tag vom 24.03. bis 30.03., kcal = Tagesnummer * 100.
+      // One total per day from the 24th to the 30th, kcal = day * 100.
       final totals = [
         for (var d = 24; d <= 30; d++) _day(DateTime(2026, 3, d), d * 100),
       ];
@@ -48,14 +43,14 @@ void main() {
       );
 
       expect(window, hasLength(7));
-      // Aeltester zuerst: 24.03. ... 30.03., lueckenlos und doppelfrei.
+      // Oldest first, without gaps or duplicates.
       expect(window.map((t) => t?.kcal).toList(), [
         2400,
         2500,
         2600,
         2700,
         2800,
-        2900, // der Tag, den Duration-Arithmetik verschluckt
+        2900, // the day Duration arithmetic swallows
         3000,
       ]);
     });
@@ -127,8 +122,8 @@ void main() {
       var geprueft = 0;
       while (!cursor.isAfter(ende)) {
         final heute = DateTime(cursor.year, cursor.month, cursor.day);
-        // Die Soll-Tage kommen aus UTC — dort ist Duration-Arithmetik exakt
-        // die Kalenderverschiebung, egal in welcher Zone der Test laeuft.
+        // The expected days come from UTC, where Duration arithmetic is
+        // exactly the calendar shift regardless of the test's zone.
         final totals = <TrendDayTotals>[];
         for (var k = 0; k < days; k++) {
           final orakel = cursor.subtract(Duration(days: k));
@@ -153,8 +148,8 @@ void main() {
     });
 
     test('der erste Fenstertag entspricht addDays(heute, -(days - 1))', () {
-      // Genau die Rechnung, die trends_screen.dart fuer die Achsen-Beschriftung
-      // „ab dem …" und fuer die Wochentags-Kuerzel des Painters benutzt.
+      // Exactly the calculation trends_screen.dart uses for the axis label and
+      // the painter's weekday abbreviations.
       for (final days in [7, 30, 90]) {
         for (final anker in [
           DateTime(2026, 3, 30),

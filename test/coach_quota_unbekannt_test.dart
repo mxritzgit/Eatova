@@ -12,26 +12,21 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// W6-07 — „unbekannt" darf nicht „voll" heissen.
+// W6-07 — "unknown" must not mean "full".
 //
-// Die Kette, die Verifizierer V2 belegt hat:
-//   1. loadQuotaToday() faengt JEDEN Fehler und liefert ChatQuotaSnapshot.unknown
-//   2. `unknown` war definiert als used: 0, remaining: 5, dailyLimit: 5 — also
-//      nicht „unbekannt", sondern „volles Kontingent"
-//   3. _refreshQuota schrieb das ungeprueft in _quota
-// Ergebnis: 5/5 verbraucht, Composer korrekt gesperrt, Tab-Wechsel, RPC
-// scheitert (Flugmodus/abgelaufener Token) -> Anzeige springt auf „5 uebrig",
-// Composer wieder offen, naechster Versuch laeuft in den 429.
+// loadQuotaToday() swallowed every error and returned
+// ChatQuotaSnapshot.unknown, which was defined as a FULL quota, and
+// _refreshQuota wrote that straight into _quota. A failing RPC after an
+// exhausted quota therefore reopened the composer and the next attempt hit 429.
 //
-// Diese Tests fahren bewusst die ECHTE Kette: echter CoachChatService auf
-// einem echten SupabaseClient, dessen HTTP-Schicht durch MockClient ersetzt
-// ist. Kein Fake ueberschreibt loadQuotaToday() — sonst prueft der Test die
-// Attrappe statt der Fehlerbehandlung, die den Schaden anrichtet.
+// These tests run the REAL chain: a real CoachChatService on a real
+// SupabaseClient whose HTTP layer is a MockClient. No fake overrides
+// loadQuotaToday(), otherwise the test would check the stub instead of the
+// error handling that does the damage.
 
-/// `request:` ist Pflicht, nicht Kosmetik: `PostgrestBuilder._parseResponse`
-/// greift ungeprueft auf `response.request!` zu — ohne diesen Durchstich
-/// scheitert JEDER RPC im Test an einem TypeError, und die Tests wuerden nur
-/// den Fehlerpfad des Services pruefen statt seines Erfolgspfads.
+/// `request:` is mandatory: `PostgrestBuilder._parseResponse` dereferences
+/// `response.request!`, so without it every RPC in the test fails with a
+/// TypeError and only the service's error path would be exercised.
 http.Response _json(http.Request req, Object? body, int status) => http.Response(
       jsonEncode(body),
       status,
@@ -39,26 +34,26 @@ http.Response _json(http.Request req, Object? body, int status) => http.Response
       headers: const {'Content-Type': 'application/json'},
     );
 
-/// Gefakter Supabase-Backend-Endpunkt: routet auf die RPC-/Function-Pfade,
-/// die [CoachChatService] wirklich anspricht.
+/// Fake Supabase backend: routes the RPC/function paths [CoachChatService]
+/// actually calls.
 class _Backend {
   int quotaCalls = 0;
   int sessionCalls = 0;
 
-  /// Ab dem wievielten `get_chat_quota_today` der RPC scheitert (1-basiert).
+  /// From which `get_chat_quota_today` call on the RPC fails (1-based).
   int quotaScheitertAbCall = 1 << 30;
 
-  /// Ab dem wievielten `ensure_default_chat_session` der RPC klappt.
+  /// From which `ensure_default_chat_session` call on the RPC succeeds.
   int sessionKlapptAbCall = 1;
 
-  /// Zeile, die `get_chat_quota_today` im Erfolgsfall liefert.
+  /// Row `get_chat_quota_today` returns on success.
   Map<String, Object?> quotaZeile = const {
     'used': 5,
     'remaining': 0,
     'daily_limit': 5,
   };
 
-  /// Statuscode der Edge Function `coach-chat`.
+  /// Status code of the `coach-chat` Edge Function.
   int sendStatus = 200;
 
   http.Client client() => MockClient(_handle);
@@ -93,13 +88,13 @@ class _Backend {
         'session_id': 's1',
       }, 200);
     }
-    // chat_messages-Select und alles andere: leer.
+    // chat_messages select and everything else: empty.
     return _json(req, <dynamic>[], 200);
   }
 }
 
-/// `stopAutoRefresh()` ist Pflicht: GoTrue startet im Konstruktor einen
-/// periodischen Timer, an dem jeder Widget-Test scheitert.
+/// `stopAutoRefresh()` is mandatory: GoTrue starts a periodic timer in its
+/// constructor that every widget test would trip over.
 CoachChatService _service(_Backend backend) {
   final client = SupabaseClient(
     'https://example.supabase.co',
@@ -110,13 +105,12 @@ CoachChatService _service(_Backend backend) {
   return CoachChatService(client, 'user-123');
 }
 
-/// Mikrofon, das immer absagt — der kuerzeste Weg zu einem Fehlerbanner OHNE
-/// Netz.
+/// Microphone that always refuses — the shortest path to an error banner
+/// without networking.
 ///
-/// Bewusst nicht ueber ein gescheitertes `send()`: `functions.invoke` laeuft
-/// unter dem FakeAsync eines Widget-Tests nie an (die Anfrage geht nicht
-/// einmal raus, die Future bleibt haengen) — der Test wuerde dann still gar
-/// nichts pruefen. Fuer das Banner ist die Quelle des Fehlers ohnehin egal.
+/// Not via a failed `send()`: `functions.invoke` never runs under a widget
+/// test's FakeAsync (the future just hangs), so the test would silently check
+/// nothing. The banner does not care where the error came from.
 class _StummesMikro extends CoachSpeechInput {
   const _StummesMikro();
 
@@ -132,7 +126,7 @@ class _StummesMikro extends CoachSpeechInput {
   }
 }
 
-/// Nachbau des Tab-Rahmens seit D6: [IndexedStack] + [TickerMode].
+/// Replica of the tab shell: [IndexedStack] + [TickerMode].
 class _TabHost extends StatefulWidget {
   const _TabHost({
     required this.service,
@@ -177,9 +171,8 @@ class _TabHostState extends State<_TabHost> {
       );
 }
 
-/// Delegates + feste Locale `de`: der Coach ruft seit der i18n-Migration
-/// (Paket 4) context.l10n — ohne Lokalisierung wirft AppLocalizations.of()
-/// beim ersten Build (Muster: home_page_tabs_test.dart).
+/// Delegates + fixed locale `de`: the coach calls context.l10n, so
+/// AppLocalizations.of() would throw on the first build without them.
 const List<LocalizationsDelegate<dynamic>> _l10nDelegates = [
   AppLocalizations.delegate,
   GlobalMaterialLocalizations.delegate,
@@ -189,8 +182,8 @@ const List<LocalizationsDelegate<dynamic>> _l10nDelegates = [
 
 Future<void> _pumpHost(WidgetTester tester, CoachChatService svc) async {
   await tester.pumpWidget(MaterialApp(
-    // Ohne das Eatova-Theme wirft `AppTokens.of` — der Screen liest seine
-    // Farben seit dem Design-Refactor ueber `context.t`.
+    // Without the Eatova theme `AppTokens.of` throws; the screen reads its
+    // colours via `context.t`.
     theme: buildEatovaTheme(Brightness.dark),
     locale: const Locale('de'),
     supportedLocales: const [Locale('de'), Locale('en')],
@@ -201,7 +194,7 @@ Future<void> _pumpHost(WidgetTester tester, CoachChatService svc) async {
   await tester.pump(const Duration(milliseconds: 500));
 }
 
-/// Ein Tab-Wechsel. Zweimal aufrufen = weg und zurueck.
+/// One tab switch. Call twice for away and back.
 Future<void> _wechsleTab(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('switch-tab')));
   await tester.pump();
@@ -229,8 +222,8 @@ void main() {
     });
 
     test('eine Antwort ohne Zahlen darf keine Zahlen erfinden', () async {
-      // Leere Table-Return-Liste: der RPC war erreichbar, hat aber keine Zeile
-      // geliefert. `?? 5` machte daraus lautlos „5 uebrig".
+      // Empty table return: the RPC was reachable but returned no row. `?? 5`
+      // silently turned that into "5 left".
       final client = SupabaseClient(
         'https://example.supabase.co',
         'test-anon-key',
@@ -269,8 +262,8 @@ void main() {
           reason: 'Bootstrap: 5/5 verbraucht');
       expect(_composerTippbar(tester), isFalse);
 
-      await _wechsleTab(tester); // weg
-      await _wechsleTab(tester); // und zurueck -> RPC scheitert
+      await _wechsleTab(tester); // away
+      await _wechsleTab(tester); // and back -> RPC fails
 
       expect(backend.quotaCalls, 2, reason: 'die Rueckkehr fragt nach');
       expect(find.text('Limit für heute erreicht'), findsOneWidget,

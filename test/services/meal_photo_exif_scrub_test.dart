@@ -5,7 +5,7 @@ import 'package:image/image.dart' as img;
 
 import 'package:eatova/src/services/meal_photo_compressor.dart';
 
-/// GPS-Tag-IDs im `gps`-Sub-IFD (EXIF-Spezifikation).
+/// GPS tag IDs in the `gps` sub-IFD (EXIF spec).
 const int _tagGpsVersionId = 0x0000;
 const int _tagGpsLatitudeRef = 0x0001;
 const int _tagGpsLatitude = 0x0002;
@@ -16,8 +16,8 @@ const int _tagGpsAltitude = 0x0006;
 const int _tagGpsTimeStamp = 0x0007;
 const int _tagGpsDateStamp = 0x001d;
 
-/// package:image exportiert `Rational` nicht. Ueber einen Ein-Element-Wert
-/// kommt man trotzdem an Instanzen, ohne den Typnamen schreiben zu muessen.
+/// package:image does not export `Rational`; a one-element value yields
+/// instances without naming the type.
 img.IfdValueRational _rationals(List<List<int>> parts) {
   final value = img.IfdValueRational(parts.first[0], parts.first[1]);
   for (final part in parts.skip(1)) {
@@ -26,9 +26,8 @@ img.IfdValueRational _rationals(List<List<int>> parts) {
   return value;
 }
 
-/// Ein realistisches Handy-JPEG: Motiv-Pixel plus der EXIF-Container, den eine
-/// OEM-Kamera mit aktiviertem Standort-Tagging schreibt — GPS-Sub-IFD
-/// (Berlin, Brandenburger Tor), Geraetemodell, Seriennummer, Aufnahmezeit.
+/// A realistic phone JPEG: pixels plus the EXIF container an OEM camera writes
+/// with location tagging on — GPS sub-IFD, device model, serial, capture time.
 Uint8List _geotaggedJpeg({
   int width = 480,
   int height = 360,
@@ -36,8 +35,8 @@ Uint8List _geotaggedJpeg({
   int quality = 92,
 }) {
   final image = img.Image(width: width, height: height);
-  // Zwei Farbfelder statt Flaeche: damit die Orientierungs-Pruefung unten
-  // sehen kann, wo oben ist.
+  // Two color fields instead of one fill, so the orientation check below can
+  // tell which side is up.
   img.fillRect(image,
       x1: 0,
       y1: 0,
@@ -90,8 +89,8 @@ Uint8List _geotaggedJpeg({
   return Uint8List.fromList(img.encodeJpg(image, quality: quality));
 }
 
-/// Sucht die APP1-Exif-Signatur ("Exif\x00\x00") im rohen Byte-Strom. Das ist
-/// die Ebene, auf die es ankommt: was hier steht, verlaesst das Geraet.
+/// Searches the raw byte stream for the APP1 Exif signature ("Exif\x00\x00").
+/// That is the level that matters: whatever stands here leaves the device.
 bool _hasExifSegment(Uint8List bytes) {
   const signature = <int>[0x45, 0x78, 0x69, 0x66, 0x00, 0x00]; // Exif\0\0
   for (var i = 0; i + signature.length <= bytes.length; i++) {
@@ -107,7 +106,7 @@ bool _hasExifSegment(Uint8List bytes) {
   return false;
 }
 
-/// Sammelt alle GPS-Tags, die nach dem Dekodieren noch im Ergebnis stehen.
+/// Collects the GPS tags still present in the result after decoding.
 List<int> _gpsTagsIn(Uint8List bytes) {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) return const <int>[];
@@ -167,9 +166,9 @@ void main() {
     test(
         'kleine geotaggte Fotos werden NICHT durchgereicht, nur weil die '
         'Re-Kompression Bytes kostet', () {
-      // Der Byte-Spar-Zweig darf kein Schlupfloch sein: ein kleines, stark
-      // komprimiertes Foto mit GPS wuerde sonst unveraendert (= mit
-      // Koordinaten) rausgehen, weil das Neu-Encodieren groesser ausfaellt.
+      // The byte-saving branch must not be a loophole: a small, heavily
+      // compressed photo with GPS would otherwise go out unchanged, because
+      // re-encoding comes out larger.
       final original = _geotaggedJpeg(width: 320, height: 240, quality: 40);
 
       final scrubbed = compressMealPhoto(original);
@@ -181,9 +180,9 @@ void main() {
 
     test('Orientierung wird VOR dem Leeren eingebacken, Bild bleibt richtig '
         'herum', () {
-      // Orientation 6 (90 Grad CW): links rot, rechts blau -> nach dem Drehen
-      // muss rot OBEN liegen. Wuerde erst geleert und dann gebacken, bliebe
-      // das Bild liegend.
+      // Orientation 6 (90 degrees CW): left red, right blue, so after rotating
+      // red must be on TOP. Clearing EXIF before baking would leave the image
+      // landscape.
       final original =
           _geotaggedJpeg(width: 480, height: 240, orientation: 6);
 

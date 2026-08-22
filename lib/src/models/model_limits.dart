@@ -1,105 +1,75 @@
-/// Grenzwerte der PostgreSQL-Check-Constraints als Client-Konstanten.
+/// PostgreSQL check-constraint bounds as client-side constants.
 ///
-/// ## Warum es diese Datei gibt
+/// `digitsOnly` is a *type* guard, not a *range* guard: "75,5" typed into a
+/// weight field loses the comma and sends 755 kg, which the DB rejects with
+/// `23514` and the outbox sync then drops.
 ///
-/// Jede Spalte in Supabase, die der Nutzer beeinflussen kann, traegt eine
-/// `check`-Constraint — der Client validierte bisher nichts davon.
-/// `FilteringTextInputFormatter.digitsOnly` ist ein **Typ**-Guard, kein
-/// **Wertebereichs**-Guard, und das wurde ueberall verwechselt ausser bei
-/// `age_years` (docs/REVIEW-2026-08-08.md, Kapitel I).
+/// ## Clamp or reject?
 ///
-/// Konkret: Wer "75,5" in ein Gewichtsfeld tippt, verliert das Komma und
-/// schickt 755 kg an die DB. Ergebnis ist PostgreSQL-Fehler `23514`, und der
-/// Outbox-Sync verwarf diese Ops bislang sofort — reproduzierbar, nicht
-/// zuordenbar, ohne Korrekturfenster fuer den Nutzer.
+/// * **Reject** (`isValid…`) whatever the user types (weight, height, age,
+///   target weight, daily goals, manually corrected kcal/grams). Clamping
+///   755 kg to 300 kg silently falsifies the input; show a field error instead.
+/// * **Clamp** (`clamp…`) whatever comes from a foreign source with nobody to
+///   ask: meal-scan model output, Open Food Facts fields, derived values
+///   (`adjustedToGrams`), recipe conversions. A clamped value beats a dropped
+///   write.
+/// * **Text is always truncated, never rejected.** Exception: `meal_name` and
+///   `favorite_key` have a *minimum* length of 1 — the empty string is a
+///   `23514` violation, see [isValidMealName] / [isValidFavoriteKey].
+/// * Clamps belong at the model boundary, one place per data source, not in
+///   every widget. Field validation on top is UX, not safety.
 ///
-/// ## Clamp oder Ablehnung?
+/// ## DB bound vs. plausibility bound
 ///
-/// Beides ist hier vorhanden, und die Wahl ist bewusst zu treffen:
+/// [LoggedMealLimits] & co. mirror exactly what the DB accepts;
+/// [PlausibilityLimits] mirrors what is physically sensible (e.g. kcal/100 g
+/// has no DB column at all but cannot exceed 900). The caller picks which one.
 ///
-/// * **Ablehnen** (`isValid…`) bei allem, was der Nutzer **selbst tippt**:
-///   Gewicht, Groesse, Alter, Wunschgewicht, Tagesziele, manuell korrigierte
-///   Kalorien/Gramm. 755 kg auf 300 kg zu klemmen ist eine *stille
-///   Verfaelschung* — der Nutzer wollte 75,5 kg und bekaeme 300 kg ins Profil
-///   geschrieben, ohne es zu merken. Solche Eingaben gehoeren mit einer
-///   Feldfehlermeldung zurueckgewiesen.
+/// ## Non-finite numbers
 ///
-/// * **Klemmen** (`clamp…`) bei allem, was aus einer **fremden Quelle** kommt
-///   und wo es keinen Menschen gibt, den man fragen koennte: Modellantworten
-///   der Meal-Scan-Function, Open-Food-Facts-Felder, abgeleitete Werte aus
-///   Skalierungen (`adjustedToGrams`), Rezept-Konvertierungen. Hier ist ein
-///   geklemmter Wert besser als ein verworfener Schreibvorgang.
+/// `double.nan` means "no value" and is invalid for every [isValid] function;
+/// `clamp…` returns `fallback`, which defaults to the **lower bound** — that
+/// is where B1 (0 kcal instead of "unknown") came from, so pass an explicit
+/// fallback if you need another. `infinity` clamps to the upper bound,
+/// `-infinity` to the lower; nothing here throws.
 ///
-/// * **Texte werden immer gekuerzt, nie abgelehnt.** Ein 300 Zeichen langes
-///   OFF-Etikett ist echte Produktinformation; sie auf 160 zu kuerzen verliert
-///   nichts Entscheidendes. Einzige Ausnahme: `meal_name` und `favorite_key`
-///   haben eine **Mindest**laenge von 1 — der leere String ist eine
-///   `23514`-Verletzung, kein harmloser Default. Dafuer gibt es
-///   [isValidMealName] bzw. [isValidFavoriteKey].
-///
-/// * Die Clamps gehoeren an die **Modellgrenze**, eine Stelle pro Datenquelle
-///   (`MealAnalysisResult.fromOpenFoodFacts`, `adjustedToGrams`,
-///   `FitnessRecipe.toMealResult`, `KcalCalculator.calculate`,
-///   `_buildProfile()`), nicht in jedes Widget. Feldvalidierung obendrauf ist
-///   UX, nicht Sicherheit.
-///
-/// ## DB-Grenze vs. Plausibilitaetsgrenze
-///
-/// Beides wird getrennt gefuehrt. [LoggedMealLimits] & Co. bilden exakt ab,
-/// was die DB akzeptiert; [PlausibilityLimits] bildet ab, was physikalisch
-/// sinnvoll ist. Beispiel: die DB kennt gar keine Spalte fuer kcal/100 g
-/// (das Feld lebt im `payload`-JSON), aber ueber 900 kcal/100 g ist
-/// unmoeglich — das ist reines Fett. OFF liefert dort regelmaessig die
-/// kJ-Zahl. Der Aufrufer waehlt bewusst, gegen welche der beiden Grenzen er
-/// prueft.
-///
-/// ## Nicht-endliche Zahlen
-///
-/// `double.nan` bedeutet "kein Wert" und ist fuer **jede** [isValid]-Funktion
-/// ungueltig. Die `clamp…`-Funktionen liefern dafuer den `fallback`, der
-/// standardmaessig die **Untergrenze** ist. Genau daraus entstand B1
-/// (0 kcal statt "unbekannt") — wer einen anderen Ersatzwert braucht, muss
-/// ihn explizit uebergeben. `infinity` clampt auf die Obergrenze,
-/// `-infinity` auf die Untergrenze; keine Funktion in dieser Datei wirft.
-///
-/// Die Datei ist bewusst **abhaengigkeitsfrei** (kein Flutter-, kein
-/// Paket-Import), damit sie aus Modellen, Services und Tests gleichermassen
-/// nutzbar ist.
+/// The file is deliberately dependency-free so models, services and tests can
+/// all use it.
 library;
 
 // ---------------------------------------------------------------------------
 // profiles
 // ---------------------------------------------------------------------------
 
-/// Grenzen der Tabelle `public.profiles`.
+/// Bounds of table `public.profiles`.
 abstract final class ProfileLimits {
   // profiles_biometrics_range_check
-  // Quelle: supabase/migrations/20260807090000_profiles_age_minimum_16.sql
+  // Source: supabase/migrations/20260807090000_profiles_age_minimum_16.sql
   //   check (weight_kg between 30 and 300 and
   //          height_cm between 100 and 250 and
   //          age_years between 16 and 100)
-  // Diese Migration ERSETZT die Fassung aus 20260517220000_security_hardening.sql
-  // (dort noch age_years between 13 and 100). Es zaehlt der Endzustand.
+  // Replaces the version in 20260517220000_security_hardening.sql
+  // (age_years between 13 and 100); the final state wins.
 
-  /// `weight_kg` ist eine `integer`-Spalte — Nachkommastellen gibt es nicht.
+  /// `weight_kg` is an `integer` column — no decimals.
   static const int weightKgMin = 30;
   static const int weightKgMax = 300;
 
   static const int heightCmMin = 100;
   static const int heightCmMax = 250;
 
-  /// Mindestalter 16 wegen Art. 8 DSGVO (Gesundheitsdaten, Art. 9).
+  /// Minimum age 16 per GDPR Art. 8 (health data, Art. 9).
   static const int ageYearsMin = 16;
   static const int ageYearsMax = 100;
 
   // profiles_target_weight_range_check
-  // Quelle: supabase/migrations/20260523000000_onboarding_fields.sql
+  // Source: supabase/migrations/20260523000000_onboarding_fields.sql
   //   check (target_weight_kg between 30 and 300)
   static const int targetWeightKgMin = 30;
   static const int targetWeightKgMax = 300;
 
   // profiles_goals_range_check
-  // Quelle: supabase/migrations/20260517220000_security_hardening.sql
+  // Source: supabase/migrations/20260517220000_security_hardening.sql
   static const int dailyStepsGoalMin = 1000;
   static const int dailyStepsGoalMax = 100000;
 
@@ -112,8 +82,8 @@ abstract final class ProfileLimits {
   static const int dailySleepGoalMinutesMin = 180;
   static const int dailySleepGoalMinutesMax = 900;
 
-  /// Makro-Tagesziele. Das sind die Grenzen, die `KcalCalculator.calculate`
-  /// treffen muss — nicht die 0..1000 der Mahlzeiten-Makros.
+  /// Daily macro goals — the bounds `KcalCalculator.calculate` must hit, not
+  /// the 0..1000 of per-meal macros.
   static const int proteinGoalGMin = 0;
   static const int proteinGoalGMax = 400;
 
@@ -124,18 +94,18 @@ abstract final class ProfileLimits {
   static const int fatGoalGMax = 300;
 
   // profiles_display_name_length_check / profiles_avatar_url_length_check
-  // Quelle: supabase/migrations/20260517220000_security_hardening.sql
+  // Source: supabase/migrations/20260517220000_security_hardening.sql
   //   check (char_length(display_name) <= 80)
   //   check (avatar_url is null or char_length(avatar_url) <= 2048)
   static const int displayNameMaxChars = 80;
   static const int avatarUrlMaxChars = 2048;
 
   // profiles_sex_check
-  // Quelle: supabase/migrations/20260516160000_app_data_schema.sql
+  // Source: supabase/migrations/20260516160000_app_data_schema.sql
   static const Set<String> sexValues = {'male', 'female', 'neutral'};
 
   // profiles_activity_level_check
-  // Quelle: supabase/migrations/20260523000000_onboarding_fields.sql
+  // Source: supabase/migrations/20260523000000_onboarding_fields.sql
   static const Set<String> activityLevelValues = {
     'sedentary',
     'light',
@@ -145,7 +115,7 @@ abstract final class ProfileLimits {
   };
 
   // profiles_weight_goal_check
-  // Quelle: supabase/migrations/20260602120000_profiles_weight_goal.sql
+  // Source: supabase/migrations/20260602120000_profiles_weight_goal.sql
   static const Set<String> weightGoalValues = {
     'lose1kg',
     'lose075kg',
@@ -157,7 +127,7 @@ abstract final class ProfileLimits {
   };
 
   // profiles_diet_preference_check
-  // Quelle: supabase/migrations/20260604140000_profiles_diet_preference.sql
+  // Source: supabase/migrations/20260604140000_profiles_diet_preference.sql
   static const Set<String> dietPreferenceValues = {
     'none',
     'vegetarian',
@@ -170,13 +140,13 @@ abstract final class ProfileLimits {
 // logged_meals
 // ---------------------------------------------------------------------------
 
-/// Grenzen der Tabelle `public.logged_meals`.
+/// Bounds of table `public.logged_meals`.
 ///
-/// Quelle der Bereiche: `logged_meals_safe_ranges_check` in
+/// Source: `logged_meals_safe_ranges_check` in
 /// supabase/migrations/20260517220000_security_hardening.sql.
 abstract final class LoggedMealLimits {
   //   char_length(meal_name) between 1 and 160
-  /// Der leere Name ist eine Constraint-Verletzung, kein Default.
+  /// The empty name is a constraint violation, not a default.
   static const int mealNameMinChars = 1;
   static const int mealNameMaxChars = 160;
 
@@ -191,8 +161,8 @@ abstract final class LoggedMealLimits {
   //   (protein_g is null or protein_g between 0 and 1000)
   //   (carbs_g   is null or carbs_g   between 0 and 1000)
   //   (fat_g     is null or fat_g     between 0 and 1000)
-  /// Gilt identisch fuer `protein_g`, `carbs_g` und `fat_g`. Die Spalten sind
-  /// `numeric` (nullable) — daher `double`, nicht `int`.
+  /// Same for `protein_g`, `carbs_g` and `fat_g`. The columns are `numeric`
+  /// (nullable), hence `double`, not `int`.
   static const double macroGMin = 0;
   static const double macroGMax = 1000;
 
@@ -204,12 +174,13 @@ abstract final class LoggedMealLimits {
   static const int sourceLabelMaxChars = 80;
 
   //   octet_length(payload::text) <= 200000
-  /// **Bytes**, nicht Zeichen — `octet_length` auf dem JSON-Text.
+  /// **Bytes**, not characters — `octet_length` on the JSON text.
   static const int payloadMaxBytes = 200000;
 
-  // Spalten-Constraint aus supabase/migrations/20260516160000_app_data_schema.sql:
+  // Column constraint from
+  // supabase/migrations/20260516160000_app_data_schema.sql:
   //   forced_slot text check (forced_slot in ('breakfast','lunch','dinner','snack'))
-  /// `null` ist erlaubt (die Spalte ist nullable).
+  /// `null` is allowed (the column is nullable).
   static const Set<String> forcedSlotValues = {
     'breakfast',
     'lunch',
@@ -222,16 +193,15 @@ abstract final class LoggedMealLimits {
 // favorite_meals
 // ---------------------------------------------------------------------------
 
-/// Grenzen der Tabelle `public.favorite_meals`.
+/// Bounds of table `public.favorite_meals`.
 ///
-/// Quelle: `favorite_meals_safe_ranges_check` in
+/// Source: `favorite_meals_safe_ranges_check` in
 /// supabase/migrations/20260517220000_security_hardening.sql.
 abstract final class FavoriteMealLimits {
   //   char_length(favorite_key) between 1 and 180
-  /// `favorite_key` ist Teil des Primaerschluessels (`barcode:…` / `name:…`).
-  /// Kuerzen muss deshalb schon bei der **Schluesselbildung** passieren
-  /// (`FavoriteMeal.idFor`), nicht erst beim Schreiben — sonst zeigen lokaler
-  /// Cache und Serverzeile auf verschiedene Schluessel.
+  /// `favorite_key` is part of the primary key (`barcode:…` / `name:…`), so
+  /// truncation must happen at key construction (`FavoriteMeal.idFor`), not at
+  /// write time — otherwise local cache and server row use different keys.
   static const int favoriteKeyMinChars = 1;
   static const int favoriteKeyMaxChars = 180;
 
@@ -249,10 +219,9 @@ abstract final class FavoriteMealLimits {
   static const int sourceLabelMaxChars = 80;
   static const int payloadMaxBytes = 200000;
 
-  /// `favorite_meals` hat **keine** Makro-Spalten (die Tabellendefinition in
-  /// 20260516160000_app_data_schema.sql kennt nur `calories_kcal` und
-  /// `estimated_g`); Makros liegen ausschliesslich im `payload`-JSON. Wer
-  /// Makros klemmen will, nimmt die Grenzen von [LoggedMealLimits].
+  /// `favorite_meals` has no macro columns (only `calories_kcal` and
+  /// `estimated_g`); macros live in the `payload` JSON. To clamp macros, use
+  /// the bounds of [LoggedMealLimits].
   static const bool hasMacroColumns = false;
 }
 
@@ -260,22 +229,22 @@ abstract final class FavoriteMealLimits {
 // weight_log
 // ---------------------------------------------------------------------------
 
-/// Grenzen der Tabelle `public.weight_log`.
+/// Bounds of table `public.weight_log`.
 abstract final class WeightLogLimits {
-  // Zwei Constraints wirken gleichzeitig, die engere gewinnt:
+  // Two constraints apply at once, the tighter one wins:
   //   * check (weight_kg > 0)
   //     — supabase/migrations/20260516160000_app_data_schema.sql
   //   * weight_log_safe_range_check: check (weight_kg between 20 and 400)
   //     — supabase/migrations/20260517220000_security_hardening.sql
   //
-  // ACHTUNG: bewusst weiter als profiles.weight_kg (30..300). Ein Messpunkt
-  // im Gewichtsverlauf darf ausserhalb des Profilbereichs liegen.
+  // Deliberately wider than profiles.weight_kg (30..300): a measurement in the
+  // weight history may fall outside the profile range.
   static const double weightKgMin = 20;
   static const double weightKgMax = 400;
 
-  /// Spaltentyp `numeric(5,2)` — zwei Nachkommastellen, Maximum 999.99
-  /// (die Check-Constraint ist mit 400 die engere Grenze).
-  /// Quelle: supabase/migrations/20260516160000_app_data_schema.sql
+  /// Column type `numeric(5,2)` — two decimals, max 999.99 (the check
+  /// constraint at 400 is tighter).
+  /// Source: supabase/migrations/20260516160000_app_data_schema.sql
   static const int weightKgDecimals = 2;
 }
 
@@ -283,9 +252,9 @@ abstract final class WeightLogLimits {
 // user_recipes
 // ---------------------------------------------------------------------------
 
-/// Grenzen der Tabelle `public.user_recipes`.
+/// Bounds of table `public.user_recipes`.
 ///
-/// Quelle: supabase/migrations/20260530091000_user_recipes.sql
+/// Source: supabase/migrations/20260530091000_user_recipes.sql
 ///   check (calories_kcal >= 0), (protein_g >= 0), (carbs_g >= 0),
 ///   (fat_g >= 0), (estimated_g >= 0)
 abstract final class UserRecipeLimits {
@@ -295,48 +264,44 @@ abstract final class UserRecipeLimits {
   static const int fatGMin = 0;
   static const int estimatedGMin = 0;
 
-  /// Die Tabelle kennt **keine** Obergrenzen — nur `>= 0`. Faktische Grenze
-  /// ist der `integer`-Typ (2 147 483 647). Sobald ein Rezept als Mahlzeit
-  /// geloggt wird, gelten die deutlich strengeren [LoggedMealLimits]; die
-  /// sind beim Konvertieren (`FitnessRecipe.toMealResult`) anzuwenden.
+  /// The table has no upper bounds, only `>= 0`; the effective limit is the
+  /// `integer` type. Once a recipe is logged as a meal the much stricter
+  /// [LoggedMealLimits] apply, enforced in `FitnessRecipe.toMealResult`.
   static const bool hasDbUpperBound = false;
 }
 
 // ---------------------------------------------------------------------------
-// Plausibilitaet — bewusst KEINE DB-Entsprechung
+// Plausibility — deliberately no DB counterpart
 // ---------------------------------------------------------------------------
 
-/// Grenzen, die die Datenbank **nicht** kennt, die aber physikalisch bzw.
-/// fachlich gelten. Sie sind strenger als die DB-Grenzen und dienen dazu,
-/// offensichtlichen Datenmuell aus fremden Quellen zu erkennen.
+/// Bounds the database does not know but that hold physically. Stricter than
+/// the DB bounds; they catch obvious junk from foreign sources.
 abstract final class PlausibilityLimits {
-  /// Reines Fett hat ~900 kcal/100 g — mehr ist unmoeglich.
+  /// Pure fat is ~900 kcal/100 g — more is impossible.
   ///
-  /// Open Food Facts liefert in `energy-kcal_100g` regelmaessig die
-  /// **kJ**-Zahl (2180 statt 521 kcal). Es gibt keine DB-Spalte dafuer, das
-  /// Feld lebt im `payload`-JSON — die Pruefung muss also der Client machen.
-  /// Quelle: docs/REVIEW-2026-08-08.md, B7.
+  /// Open Food Facts regularly puts the **kJ** number into `energy-kcal_100g`.
+  /// There is no DB column for it (the field lives in the `payload` JSON), so
+  /// the client must check. Source: docs/REVIEW-2026-08-08.md, B7.
   static const double kcalPer100GMin = 0;
   static const double kcalPer100GMax = 900;
 
-  /// Eine Portion von 0 g ist von der DB erlaubt (`estimated_g >= 0`), aber
-  /// als Mahlzeit sinnlos — und sie fuehrt in `adjustedToGrams` zur
-  /// Division durch die Ursprungsportion.
+  /// A 0 g portion is DB-legal (`estimated_g >= 0`) but meaningless as a meal
+  /// and divides by the base portion in `adjustedToGrams`.
   static const int portionGramsMin = 1;
   static const int portionGramsMax = LoggedMealLimits.estimatedGMax;
 
-  /// Umrechnungsfaktor kJ -> kcal, fuer den fehlenden OFF-Fallback.
+  /// kJ -> kcal factor, for the missing OFF fallback.
   static const double kjPerKcal = 4.184;
 }
 
 // ---------------------------------------------------------------------------
-// Interne Helfer
+// Internal helpers
 // ---------------------------------------------------------------------------
 
 int _clampInt(num value, int min, int max, int? fallback) {
   if (value.isNaN) return _clampInt(fallback ?? min, min, max, min);
-  // Der Vergleich vor dem Runden ist Absicht: `.round()` auf einem sehr
-  // grossen double (1e300) laeuft sonst aus dem int64-Bereich.
+  // Compare before rounding: `.round()` on a huge double (1e300) would
+  // overflow int64.
   if (value <= min) return min;
   if (value >= max) return max;
   return value.round();
@@ -355,47 +320,38 @@ bool _isWithin(num value, num min, num max) {
 }
 
 // ---------------------------------------------------------------------------
-// Text: Laenge und Kuerzen
+// Text: length and truncation
 // ---------------------------------------------------------------------------
 
-/// Zeichenzahl nach PostgreSQL-Semantik: `char_length()` zaehlt **Code
-/// Points**, `String.length` in Dart dagegen UTF-16-Code-Units.
-///
-/// Fuer `'🥗'` liefert Postgres 1, Dart 2. Wer gegen eine
-/// `char_length`-Constraint prueft, muss deshalb hierueber gehen.
+/// Character count with PostgreSQL semantics: `char_length()` counts code
+/// points, Dart's `String.length` counts UTF-16 code units (`'🥗'` is 1 vs. 2).
+/// Any check against a `char_length` constraint must go through here.
 int charLength(String value) => value.runes.length;
 
-/// Kuerzt [value] auf hoechstens [maxChars] **Code Points**.
+/// Truncates [value] to at most [maxChars] code points.
 ///
-/// Der Schnitt erfolgt an Runengrenzen: `substring(0, 160)` wuerde ein
-/// Emoji, das genau ueber der Grenze liegt, zwischen High- und
-/// Low-Surrogate zerteilen und einen String hinterlassen, der kein gueltiges
-/// UTF-16 mehr ist (und den Postgres/JSON-Encoder zum Stolpern bringt).
-///
-/// Bekannte Grenze: zusammengesetzte Grapheme-Cluster (Familien-Emoji mit
-/// Zero-Width-Joiner, Flaggen, Hautton-Modifier) koennen an einer Runengrenze
-/// auseinanderfallen. Das Ergebnis bleibt gueltiges UTF-16 und
-/// constraint-konform — es kann nur anders aussehen als erwartet. Fuer
-/// Grapheme-Cluster-Treue braeuchte es `package:characters`; diese Datei
-/// bleibt bewusst abhaengigkeitsfrei.
+/// Cuts on rune boundaries; `substring(0, 160)` would split an emoji between
+/// its surrogates and leave invalid UTF-16. Known limit: composed grapheme
+/// clusters (ZWJ emoji, flags, skin tones) may fall apart — the result stays
+/// valid UTF-16 and constraint-compliant. Cluster fidelity would need
+/// `package:characters`; this file stays dependency-free.
 String truncateToChars(String value, int maxChars) {
   if (maxChars <= 0) return '';
-  if (value.length <= maxChars) return value; // schneller Pfad: reines ASCII
+  if (value.length <= maxChars) return value; // fast path: pure ASCII
   final runes = value.runes.toList(growable: false);
   if (runes.length <= maxChars) return value;
   return String.fromCharCodes(runes.take(maxChars));
 }
 
 // ---------------------------------------------------------------------------
-// Text-Clamps (Kuerzen) und Text-Pruefungen
+// Text clamps (truncation) and text checks
 // ---------------------------------------------------------------------------
 
 const String _mealNameFallback = 'Mahlzeit';
 const String _favoriteKeyFallback = 'name:mahlzeit';
 
-/// Macht [value] fuer `meal_name` schreibbar: trimmen, leere Namen durch
-/// [fallback] ersetzen (die Constraint verlangt mindestens 1 Zeichen) und auf
-/// 160 Code Points kuerzen.
+/// Makes [value] writable as `meal_name`: trim, replace empty names with
+/// [fallback] (the constraint requires >= 1 char), truncate to 160 code points.
 String clampMealName(String value, {String fallback = _mealNameFallback}) {
   final getrimmt = value.trim();
   var basis = getrimmt.isEmpty ? fallback.trim() : getrimmt;
@@ -404,19 +360,18 @@ String clampMealName(String value, {String fallback = _mealNameFallback}) {
   return gekuerzt.isEmpty ? _mealNameFallback : gekuerzt;
 }
 
-/// `true`, wenn [value] die Constraint `char_length(meal_name) between 1 and
-/// 160` erfuellt. Fuer Formulare: leere Namen gehoeren abgelehnt, zu lange
-/// gekuerzt.
+/// `true` if [value] satisfies `char_length(meal_name) between 1 and 160`.
+/// For forms: reject empty names, truncate overlong ones.
 bool isValidMealName(String value) {
   final laenge = charLength(value.trim());
   return laenge >= LoggedMealLimits.mealNameMinChars &&
       laenge <= LoggedMealLimits.mealNameMaxChars;
 }
 
-/// Macht [value] fuer `favorite_key` schreibbar (1..180 Zeichen).
+/// Makes [value] writable as `favorite_key` (1..180 chars).
 ///
-/// Siehe die Warnung an [FavoriteMealLimits.favoriteKeyMaxChars]: das gehoert
-/// in die Schluesselbildung, nicht ans Schreiben.
+/// See the warning on [FavoriteMealLimits.favoriteKeyMaxChars]: this belongs
+/// in key construction, not at write time.
 String clampFavoriteKey(String value, {String fallback = _favoriteKeyFallback}) {
   final getrimmt = value.trim();
   var basis = getrimmt.isEmpty ? fallback.trim() : getrimmt;
@@ -424,34 +379,32 @@ String clampFavoriteKey(String value, {String fallback = _favoriteKeyFallback}) 
   return truncateToChars(basis, FavoriteMealLimits.favoriteKeyMaxChars);
 }
 
-/// `true`, wenn [value] die Constraint `char_length(favorite_key) between 1
-/// and 180` erfuellt.
+/// `true` if [value] satisfies `char_length(favorite_key) between 1 and 180`.
 bool isValidFavoriteKey(String value) {
   final laenge = charLength(value.trim());
   return laenge >= FavoriteMealLimits.favoriteKeyMinChars &&
       laenge <= FavoriteMealLimits.favoriteKeyMaxChars;
 }
 
-/// Kuerzt `brand` auf 120 Zeichen. `null` und leere/nur-Leerzeichen-Werte
-/// werden zu `null` — die Spalte ist nullable, ein leerer Markenname traegt
-/// keine Information.
+/// Truncates `brand` to 120 chars. `null` and blank values become `null`: the
+/// column is nullable and an empty brand carries no information.
 String? clampBrand(String? value) =>
     _clampNullableText(value, LoggedMealLimits.brandMaxChars);
 
-/// Kuerzt `barcode` auf 64 Zeichen (nullable).
+/// Truncates `barcode` to 64 chars (nullable).
 String? clampBarcode(String? value) =>
     _clampNullableText(value, LoggedMealLimits.barcodeMaxChars);
 
-/// Kuerzt `source_label` auf 80 Zeichen (nullable).
+/// Truncates `source_label` to 80 chars (nullable).
 String? clampSourceLabel(String? value) =>
     _clampNullableText(value, LoggedMealLimits.sourceLabelMaxChars);
 
-/// Kuerzt `avatar_url` auf 2048 Zeichen (nullable).
+/// Truncates `avatar_url` to 2048 chars (nullable).
 String? clampAvatarUrl(String? value) =>
     _clampNullableText(value, ProfileLimits.avatarUrlMaxChars);
 
-/// Kuerzt `display_name` auf 80 Zeichen. Die Spalte ist `not null default ''`
-/// und hat **keine** Mindestlaenge — der leere String bleibt daher erlaubt.
+/// Truncates `display_name` to 80 chars. The column is `not null default ''`
+/// with no minimum length, so the empty string stays allowed.
 String clampDisplayName(String value) =>
     truncateToChars(value.trim(), ProfileLimits.displayNameMaxChars);
 
@@ -463,27 +416,26 @@ String? _clampNullableText(String? value, int maxChars) {
 }
 
 // ---------------------------------------------------------------------------
-// Zahl-Clamps: profiles
+// Numeric clamps: profiles
 // ---------------------------------------------------------------------------
 
-/// Klemmt auf `profiles.weight_kg` (30..300, ganzzahlig).
+/// Clamps to `profiles.weight_kg` (30..300, integer).
 ///
-/// **Nur als letzte Bremse vor der DB benutzen.** Bei Nutzereingaben ist
-/// [isValidProfileWeightKg] richtig: "75,5" wird durch `digitsOnly` zu 755,
-/// und 755 auf 300 zu klemmen schreibt eine Zahl ins Profil, die der Nutzer
-/// nie gemeint hat.
+/// Last resort before the DB only. For user input use
+/// [isValidProfileWeightKg]: "75,5" becomes 755 via `digitsOnly`, and clamping
+/// 755 to 300 writes a number the user never meant.
 int clampProfileWeightKg(num value, {int? fallback}) =>
     _clampInt(value, ProfileLimits.weightKgMin, ProfileLimits.weightKgMax, fallback);
 
-/// Klemmt auf `profiles.height_cm` (100..250).
+/// Clamps to `profiles.height_cm` (100..250).
 int clampProfileHeightCm(num value, {int? fallback}) =>
     _clampInt(value, ProfileLimits.heightCmMin, ProfileLimits.heightCmMax, fallback);
 
-/// Klemmt auf `profiles.age_years` (16..100).
+/// Clamps to `profiles.age_years` (16..100).
 int clampProfileAgeYears(num value, {int? fallback}) =>
     _clampInt(value, ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax, fallback);
 
-/// Klemmt auf `profiles.target_weight_kg` (30..300).
+/// Clamps to `profiles.target_weight_kg` (30..300).
 int clampProfileTargetWeightKg(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.targetWeightKgMin,
@@ -491,7 +443,7 @@ int clampProfileTargetWeightKg(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `profiles.daily_steps_goal` (1000..100000).
+/// Clamps to `profiles.daily_steps_goal` (1000..100000).
 int clampDailyStepsGoal(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.dailyStepsGoalMin,
@@ -499,7 +451,7 @@ int clampDailyStepsGoal(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `profiles.daily_kcal_goal` (800..7000).
+/// Clamps to `profiles.daily_kcal_goal` (800..7000).
 int clampDailyKcalGoal(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.dailyKcalGoalMin,
@@ -507,7 +459,7 @@ int clampDailyKcalGoal(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `profiles.daily_water_goal_ml` (500..12000).
+/// Clamps to `profiles.daily_water_goal_ml` (500..12000).
 int clampDailyWaterGoalMl(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.dailyWaterGoalMlMin,
@@ -515,7 +467,7 @@ int clampDailyWaterGoalMl(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `profiles.daily_sleep_goal_minutes` (180..900).
+/// Clamps to `profiles.daily_sleep_goal_minutes` (180..900).
 int clampDailySleepGoalMinutes(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.dailySleepGoalMinutesMin,
@@ -523,8 +475,8 @@ int clampDailySleepGoalMinutes(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `profiles.protein_goal_g` (0..400) — das `proteinG.clamp(0, 400)`
-/// aus `KcalCalculator.calculate`.
+/// Clamps to `profiles.protein_goal_g` (0..400) — the `proteinG.clamp(0, 400)`
+/// from `KcalCalculator.calculate`.
 int clampProteinGoalG(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.proteinGoalGMin,
@@ -532,7 +484,7 @@ int clampProteinGoalG(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `profiles.carbs_goal_g` (0..800).
+/// Clamps to `profiles.carbs_goal_g` (0..800).
 int clampCarbsGoalG(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.carbsGoalGMin,
@@ -540,17 +492,17 @@ int clampCarbsGoalG(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `profiles.fat_goal_g` (0..300) — das `fatG.clamp(0, 300)` aus
+/// Clamps to `profiles.fat_goal_g` (0..300) — the `fatG.clamp(0, 300)` from
 /// `KcalCalculator.calculate`.
 int clampFatGoalG(num value, {int? fallback}) =>
     _clampInt(value, ProfileLimits.fatGoalGMin, ProfileLimits.fatGoalGMax, fallback);
 
 // ---------------------------------------------------------------------------
-// Zahl-Clamps: logged_meals / favorite_meals
+// Numeric clamps: logged_meals / favorite_meals
 // ---------------------------------------------------------------------------
 
-/// Klemmt auf `calories_kcal` (0..10000). Gilt fuer `logged_meals` und
-/// `favorite_meals` gleichermassen.
+/// Clamps to `calories_kcal` (0..10000), same for `logged_meals` and
+/// `favorite_meals`.
 int clampMealCaloriesKcal(num value, {int? fallback}) => _clampInt(
   value,
   LoggedMealLimits.caloriesKcalMin,
@@ -558,10 +510,9 @@ int clampMealCaloriesKcal(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt auf `estimated_g` (0..10000, DB-Grenze).
+/// Clamps to `estimated_g` (0..10000, DB bound).
 ///
-/// Fuer Portionsgroessen, die eine Mahlzeit beschreiben sollen, ist
-/// [clampPortionGrams] (ab 1 g) die richtige Wahl.
+/// For portion sizes describing a meal use [clampPortionGrams] (from 1 g).
 int clampMealEstimatedG(num value, {int? fallback}) => _clampInt(
   value,
   LoggedMealLimits.estimatedGMin,
@@ -569,10 +520,10 @@ int clampMealEstimatedG(num value, {int? fallback}) => _clampInt(
   fallback,
 );
 
-/// Klemmt `protein_g` / `carbs_g` / `fat_g` einer Mahlzeit auf 0..1000.
+/// Clamps a meal's `protein_g` / `carbs_g` / `fat_g` to 0..1000.
 ///
-/// Nicht zu verwechseln mit den Tages**zielen** im Profil (0..400 / 0..800 /
-/// 0..300) — dafuer gibt es [clampProteinGoalG] & Co.
+/// Not the daily *goals* in the profile (0..400 / 0..800 / 0..300) — those are
+/// [clampProteinGoalG] & co.
 double clampMealMacroG(num value, {double? fallback}) => _clampDouble(
   value,
   LoggedMealLimits.macroGMin,
@@ -581,13 +532,12 @@ double clampMealMacroG(num value, {double? fallback}) => _clampDouble(
 );
 
 // ---------------------------------------------------------------------------
-// Zahl-Clamps: weight_log
+// Numeric clamps: weight_log
 // ---------------------------------------------------------------------------
 
-/// Klemmt auf `weight_log.weight_kg` (20..400) und rundet auf zwei
-/// Nachkommastellen — der Spaltentyp ist `numeric(5,2)` und wuerde
-/// serverseitig ohnehin runden. Mitzurunden haelt lokalen Cache und
-/// Serverzeile identisch.
+/// Clamps to `weight_log.weight_kg` (20..400) and rounds to two decimals: the
+/// column is `numeric(5,2)` and would round server-side anyway, so rounding
+/// here keeps local cache and server row identical.
 double clampWeightLogKg(num value, {double? fallback}) {
   final geklemmt = _clampDouble(
     value,
@@ -598,8 +548,7 @@ double clampWeightLogKg(num value, {double? fallback}) {
   return roundToDecimals(geklemmt, WeightLogLimits.weightKgDecimals);
 }
 
-/// Rundet [value] auf [decimals] Nachkommastellen (kaufmaennisch, wie
-/// PostgreSQL `numeric`).
+/// Rounds [value] to [decimals] decimals (half-up, like PostgreSQL `numeric`).
 double roundToDecimals(double value, int decimals) {
   if (!value.isFinite) return value;
   var faktor = 1.0;
@@ -610,10 +559,10 @@ double roundToDecimals(double value, int decimals) {
 }
 
 // ---------------------------------------------------------------------------
-// Zahl-Clamps: Plausibilitaet
+// Numeric clamps: plausibility
 // ---------------------------------------------------------------------------
 
-/// Klemmt kcal/100 g auf 0..900 (physikalische Grenze, keine DB-Grenze).
+/// Clamps kcal/100 g to 0..900 (physical bound, not a DB bound).
 double clampKcalPer100G(num value, {double? fallback}) => _clampDouble(
   value,
   PlausibilityLimits.kcalPer100GMin,
@@ -621,9 +570,9 @@ double clampKcalPer100G(num value, {double? fallback}) => _clampDouble(
   fallback,
 );
 
-/// Klemmt eine Portionsgroesse auf 1..10000 g — strenger als die DB-Grenze
-/// [LoggedMealLimits.estimatedGMin] (0 g), weil eine 0-g-Portion in
-/// `adjustedToGrams` keine sinnvolle Bezugsgroesse ist.
+/// Clamps a portion size to 1..10000 g — stricter than the DB bound
+/// [LoggedMealLimits.estimatedGMin] (0 g), because a 0 g portion is no usable
+/// reference in `adjustedToGrams`.
 int clampPortionGrams(num value, {int? fallback}) => _clampInt(
   value,
   PlausibilityLimits.portionGramsMin,
@@ -632,87 +581,87 @@ int clampPortionGrams(num value, {int? fallback}) => _clampInt(
 );
 
 // ---------------------------------------------------------------------------
-// Pruefungen: fuer Nutzereingaben, die abgelehnt statt verbogen werden sollen
+// Checks: for user input that should be rejected, not bent into range
 // ---------------------------------------------------------------------------
 
-/// `true`, wenn [value] `profiles.weight_kg` (30..300) erfuellt.
-/// `NaN` und `infinity` sind immer ungueltig.
+/// `true` if [value] satisfies `profiles.weight_kg` (30..300).
+/// `NaN` and `infinity` are always invalid.
 bool isValidProfileWeightKg(num value) =>
     _isWithin(value, ProfileLimits.weightKgMin, ProfileLimits.weightKgMax);
 
-/// `true`, wenn [value] `profiles.height_cm` (100..250) erfuellt.
+/// `true` if [value] satisfies `profiles.height_cm` (100..250).
 bool isValidProfileHeightCm(num value) =>
     _isWithin(value, ProfileLimits.heightCmMin, ProfileLimits.heightCmMax);
 
-/// `true`, wenn [value] `profiles.age_years` (16..100) erfuellt.
+/// `true` if [value] satisfies `profiles.age_years` (16..100).
 bool isValidProfileAgeYears(num value) =>
     _isWithin(value, ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax);
 
-/// `true`, wenn [value] `profiles.target_weight_kg` (30..300) erfuellt.
+/// `true` if [value] satisfies `profiles.target_weight_kg` (30..300).
 bool isValidProfileTargetWeightKg(num value) =>
     _isWithin(value, ProfileLimits.targetWeightKgMin, ProfileLimits.targetWeightKgMax);
 
-/// `true`, wenn [value] `profiles.daily_steps_goal` (1000..100000) erfuellt.
+/// `true` if [value] satisfies `profiles.daily_steps_goal` (1000..100000).
 bool isValidDailyStepsGoal(num value) =>
     _isWithin(value, ProfileLimits.dailyStepsGoalMin, ProfileLimits.dailyStepsGoalMax);
 
-/// `true`, wenn [value] `profiles.daily_kcal_goal` (800..7000) erfuellt.
+/// `true` if [value] satisfies `profiles.daily_kcal_goal` (800..7000).
 bool isValidDailyKcalGoal(num value) =>
     _isWithin(value, ProfileLimits.dailyKcalGoalMin, ProfileLimits.dailyKcalGoalMax);
 
-/// `true`, wenn [value] `profiles.daily_water_goal_ml` (500..12000) erfuellt.
+/// `true` if [value] satisfies `profiles.daily_water_goal_ml` (500..12000).
 bool isValidDailyWaterGoalMl(num value) => _isWithin(
   value,
   ProfileLimits.dailyWaterGoalMlMin,
   ProfileLimits.dailyWaterGoalMlMax,
 );
 
-/// `true`, wenn [value] `profiles.daily_sleep_goal_minutes` (180..900) erfuellt.
+/// `true` if [value] satisfies `profiles.daily_sleep_goal_minutes` (180..900).
 bool isValidDailySleepGoalMinutes(num value) => _isWithin(
   value,
   ProfileLimits.dailySleepGoalMinutesMin,
   ProfileLimits.dailySleepGoalMinutesMax,
 );
 
-/// `true`, wenn [value] `profiles.protein_goal_g` (0..400) erfuellt.
+/// `true` if [value] satisfies `profiles.protein_goal_g` (0..400).
 bool isValidProteinGoalG(num value) =>
     _isWithin(value, ProfileLimits.proteinGoalGMin, ProfileLimits.proteinGoalGMax);
 
-/// `true`, wenn [value] `profiles.carbs_goal_g` (0..800) erfuellt.
+/// `true` if [value] satisfies `profiles.carbs_goal_g` (0..800).
 bool isValidCarbsGoalG(num value) =>
     _isWithin(value, ProfileLimits.carbsGoalGMin, ProfileLimits.carbsGoalGMax);
 
-/// `true`, wenn [value] `profiles.fat_goal_g` (0..300) erfuellt.
+/// `true` if [value] satisfies `profiles.fat_goal_g` (0..300).
 bool isValidFatGoalG(num value) =>
     _isWithin(value, ProfileLimits.fatGoalGMin, ProfileLimits.fatGoalGMax);
 
-/// `true`, wenn [value] `calories_kcal` (0..10000) erfuellt.
+/// `true` if [value] satisfies `calories_kcal` (0..10000).
 bool isValidMealCaloriesKcal(num value) => _isWithin(
   value,
   LoggedMealLimits.caloriesKcalMin,
   LoggedMealLimits.caloriesKcalMax,
 );
 
-/// `true`, wenn [value] `estimated_g` (0..10000) erfuellt.
+/// `true` if [value] satisfies `estimated_g` (0..10000).
 bool isValidMealEstimatedG(num value) =>
     _isWithin(value, LoggedMealLimits.estimatedGMin, LoggedMealLimits.estimatedGMax);
 
-/// `true`, wenn [value] `protein_g`/`carbs_g`/`fat_g` (0..1000) erfuellt.
+/// `true` if [value] satisfies `protein_g`/`carbs_g`/`fat_g` (0..1000).
 bool isValidMealMacroG(num value) =>
     _isWithin(value, LoggedMealLimits.macroGMin, LoggedMealLimits.macroGMax);
 
-/// `true`, wenn [value] `weight_log.weight_kg` (20..400) erfuellt.
+/// `true` if [value] satisfies `weight_log.weight_kg` (20..400).
 bool isValidWeightLogKg(num value) =>
     _isWithin(value, WeightLogLimits.weightKgMin, WeightLogLimits.weightKgMax);
 
-/// `true`, wenn [value] als kcal/100 g physikalisch moeglich ist (0..900).
+/// `true` if [value] is physically possible as kcal/100 g (0..900).
 bool isPlausibleKcalPer100G(num value) => _isWithin(
   value,
   PlausibilityLimits.kcalPer100GMin,
   PlausibilityLimits.kcalPer100GMax,
 );
 
-/// `true`, wenn [value] als Portionsgroesse plausibel ist (1..10000 g).
+/// `true` if [value] is a plausible portion size (1..10000 g).
 bool isPlausiblePortionGrams(num value) => _isWithin(
   value,
   PlausibilityLimits.portionGramsMin,

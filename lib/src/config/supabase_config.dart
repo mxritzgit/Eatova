@@ -15,16 +15,14 @@ class EatovaSupabaseConfig {
 
   static const String oauthRedirectUrl = 'eatova://login-callback/';
 
-  /// Scheme und Host des einzigen legitimen Rueckwegs, abgeleitet aus
-  /// [oauthRedirectUrl] statt erneut literalisiert — sonst koennte ein
-  /// spaeterer Wechsel des Schemas das Praedikat unbemerkt taub machen.
+  /// Scheme and host of the only legitimate callback, derived from
+  /// [oauthRedirectUrl] rather than literalised again — a later scheme change
+  /// would otherwise silently deafen the predicate.
   static final Uri _oauthRedirect = Uri.parse(oauthRedirectUrl);
 
-  // Supabase Anon-Key ist by-design im Client-Bundle extrahierbar
-  // (JWT mit role:anon). Defaults im Source sind daher KEIN Secret-Leak
-  // — sie machen `flutter run` ohne extra Flags reproduzierbar moeglich.
-  // Override fuer CI / staging / prod via --dart-define-from-file=dart_defines.json
-  // bleibt unveraendert moeglich, der dart-define hat Vorrang vor dem Default.
+  // The Supabase anon key is extractable from the client bundle by design
+  // (JWT with role:anon), so source defaults are NOT a secret leak — they make
+  // `flutter run` work without extra flags. dart-define overrides win.
   static const String url = String.fromEnvironment(
     'SUPABASE_URL',
     defaultValue: 'https://ftoozzvmduptrvrrrshb.supabase.co',
@@ -36,10 +34,9 @@ class EatovaSupabaseConfig {
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0b296enZtZHVwdHJ2cnJyc2hiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4NDEyOTAsImV4cCI6MjA5MzQxNzI5MH0.5kx8LowjRc8q8uWqJmUGU8ZjCnplSRDC1NGhm-oG7to',
   );
 
-  // Google-OAuth-Client-IDs (GCP-Projekt inlaid-marker-469401-v6, siehe
+  // Google OAuth client IDs (GCP project inlaid-marker-469401-v6, see
   // docs/superpowers/specs/2026-08-05-google-native-signin-design.md).
-  // Client-IDs sind oeffentlich (im Bundle extrahierbar), KEINE Secrets -
-  // gleiches Muster wie SUPABASE_URL oben.
+  // Client IDs are public, NOT secrets — same pattern as SUPABASE_URL above.
   static const String googleWebClientId = String.fromEnvironment(
     'GOOGLE_WEB_CLIENT_ID',
     defaultValue:
@@ -52,47 +49,43 @@ class EatovaSupabaseConfig {
         '534676906581-h9no9hlboqtm3mfn56r95sg5c7n8no0u.apps.googleusercontent.com',
   );
 
-  /// Storage-Key der persistierten Session.
+  /// Storage key of the persisted session.
   ///
-  /// MUSS Zeichen fuer Zeichen dem Default aus `Supabase.initialize`
-  /// entsprechen (supabase_flutter-2.17.1, `lib/src/supabase.dart:132-133`):
-  /// `"sb-${Uri.parse(url).host.split(".").first}-auth-token"`. Waehlten wir
-  /// einen eigenen Namen, faende die Einmal-Migration die Bestands-Session
-  /// nicht und JEDER vorhandene Nutzer waere beim Update ausgeloggt.
+  /// MUST match the `Supabase.initialize` default byte for byte
+  /// (supabase_flutter-2.17.1, `lib/src/supabase.dart:132-133`). A custom name
+  /// would make the one-shot migration miss existing sessions and log every
+  /// user out on update.
   static final String sessionPersistKey =
       'sb-${Uri.parse(url).host.split('.').first}-auth-token';
 
   static Future<void> initialize() async {
-    // supabase_flutter 2.14 hat den Init-Parameter `anonKey` zugunsten von
-    // `publishableKey` deprecatet (akzeptiert weiterhin den Legacy-anon-JWT).
-    // Unser interner Konstanten-Name bleibt `anonKey` (liest SUPABASE_ANON_KEY).
+    // supabase_flutter 2.14 deprecated the `anonKey` init parameter in favour
+    // of `publishableKey` (legacy anon JWT still accepted); the internal
+    // constant keeps the name `anonKey`.
     //
-    // C5: OHNE `authOptions` greift `SharedPreferencesLocalStorage` und legt
-    // Access- UND Refresh-Token als Klartext-JSON in genau die Datei, deren
-    // Health-Blobs seit 7f895f9 AES-256-GCM-verschluesselt sind. Der
-    // Angreifer, gegen den die Verschluesselung gebaut wurde (Extraktion vom
-    // ruhenden Geraet), nimmt dann einfach den Refresh-Token.
+    // C5: WITHOUT `authOptions`, `SharedPreferencesLocalStorage` stores access
+    // and refresh token as plaintext JSON in the same file whose health blobs
+    // are AES-256-GCM encrypted — an attacker with the device at rest just
+    // takes the refresh token.
     await Supabase.initialize(
       url: url,
       publishableKey: anonKey,
       authOptions: FlutterAuthClientOptions(
         localStorage: buildSessionStorage(),
-        // Ohne diesen Override laege der PKCE-Code-Verifier als letzter
-        // Klartext-Auth-Baustein in SharedPreferences
-        // (SharedPreferencesGotrueAsyncStorage) — siehe
+        // Without this override the PKCE code verifier would be the last
+        // plaintext auth item in SharedPreferences — see
         // [SecurePkceAsyncStorage].
         pkceAsyncStorage: buildPkceStorage(),
-        // Ohne dieses Praedikat entscheidet die Default-Heuristik von
-        // supabase_flutter, was ein Login ist — siehe
-        // [isOAuthCallbackDeeplink].
+        // Without this predicate supabase_flutter's default heuristic decides
+        // what counts as a login — see [isOAuthCallbackDeeplink].
         detectSessionInUriPredicate: isOAuthCallbackDeeplink,
       ),
     );
     _wireOAuthSheetDismiss();
   }
 
-  /// Baut den Session-Storage. Die optionalen Nahtstellen existieren nur fuer
-  /// Tests — in Produktion ist beides null.
+  /// Builds the session storage. The optional seams exist for tests only; in
+  /// production both are null.
   @visibleForTesting
   static SecureSessionLocalStorage buildSessionStorage({
     SecureKeyStore? secureStore,
@@ -104,43 +97,27 @@ class EatovaSupabaseConfig {
         legacyStore: legacyStore,
       );
 
-  /// Baut den PKCE-Verifier-Storage — analoge Naht zu [buildSessionStorage].
+  /// Builds the PKCE verifier storage — same seam as [buildSessionStorage].
   @visibleForTesting
   static SecurePkceAsyncStorage buildPkceStorage({
     SecureKeyStore? secureStore,
   }) =>
       SecurePkceAsyncStorage(secureStore: secureStore);
 
-  /// Entscheidet, welcher eingehende Deep-Link ueberhaupt als Auth-Rueckweg
-  /// behandelt wird (`detectSessionInUriPredicate`).
+  /// Decides which incoming deep link is treated as an auth callback
+  /// (`detectSessionInUriPredicate`).
   ///
-  /// OHNE diesen Override greift die Default-Heuristik von supabase_flutter
-  /// (supabase_auth.dart:222-233): jede URI mit `access_token`, `code`,
-  /// `error`, `error_code` oder `error_description` — im Query ODER im
-  /// Fragment — geht an `getSessionFromUrl`. Und dort ist der PKCE-Zwang
-  /// abschaltbar: gotrue-2.27.1 `gotrue_client.dart:1014-1019` prueft den
-  /// Flow-Typ nur, wenn KEIN `access_token` in der URL steht. Ein
-  /// `eatova://login-callback/#access_token=…&refresh_token=…` wird also ohne
-  /// Code-Verifier zur Session gemacht.
+  /// The supabase_flutter default sends any URI carrying `access_token`,
+  /// `code` or an error param (query OR fragment) to `getSessionFromUrl`,
+  /// which skips the PKCE check whenever an `access_token` is present. Since
+  /// the Android intent filter is BROWSABLE, any app or web page could hand us
+  /// a session and log the user into an attacker account.
   ///
-  /// Der Intent-Filter in `android/app/src/main/AndroidManifest.xml` ist
-  /// BROWSABLE — jede fremde App und jede Webseite darf so eine URI schicken.
-  /// Der Schaden ist nicht Datenabfluss, sondern das Gegenteil: der Nutzer
-  /// protokolliert seine Gesundheitsdaten unbemerkt in ein Angreiferkonto
-  /// (oder wird still zwangsabgemeldet).
-  ///
-  /// Durchgelassen wird deshalb ausschliesslich der echte PKCE-Rueckweg:
-  /// unser Scheme, unser Host, ein `code` im Query. Implicit-Flow-Token
-  /// werden hart abgelehnt — auch im Fragment, das `queryParameters` nicht
-  /// sieht, `getSessionFromUrl` aber sehr wohl (es ersetzt `#` durch `?`
-  /// bzw. `&`, bevor es liest).
-  ///
-  /// `error`/`error_description` fallen bewusst mit durch: die App zeigt
-  /// daraus ohnehin nichts an, und ein Fremd-Deep-Link koennte sonst eine
-  /// erfundene Fehlermeldung in den Auth-Stream schieben. Reset und
-  /// E-Mail-Wechsel laufen ueber 8-stellige Codes (siehe
-  /// `auth_repository.dart`), es gibt also keinen Recovery-Link, der hier
-  /// noch durchmuesste.
+  /// Only the real PKCE callback passes: our scheme, our host, a `code` in the
+  /// query. Implicit-flow tokens are rejected, fragment included.
+  /// `error`/`error_description` are dropped too — nothing renders them, and
+  /// reset/email change run over 8-digit codes, so no recovery link needs to
+  /// get through here.
   @visibleForTesting
   static bool isOAuthCallbackDeeplink(Uri uri) {
     if (uri.scheme != _oauthRedirect.scheme ||
@@ -160,22 +137,17 @@ class EatovaSupabaseConfig {
       }
       return query.containsKey('code');
     } on FormatException {
-      // Kaputte Prozent-Escapes lassen `queryParameters`/`splitQueryString`
-      // werfen. Hier NICHT durchreichen: supabase_flutter ruft das Praedikat
-      // VOR seinem try/catch (`_handleDeeplink`, supabase_auth.dart:302-303),
-      // eine Exception liefe als unbehandelter Zonen-Fehler durch die App.
+      // Broken percent escapes make `queryParameters`/`splitQueryString`
+      // throw. Do NOT rethrow: supabase_flutter calls the predicate BEFORE its
+      // own try/catch, so it would surface as an unhandled zone error.
       return false;
     }
   }
 
-  /// SFSafariViewController (iOS) / Chrome Custom Tab (Android) wissen
-  /// nicht von alleine dass der OAuth-Flow durch ist - die Sheet bleibt
-  /// offen bis der User sie manuell schliesst. Hier hoeren wir auf den
-  /// signedIn-Event und dismissen die Sheet sobald die Session da ist.
-  ///
-  /// closeInAppWebView ist ein No-Op wenn gar kein in-app Browser auf
-  /// ist - also unbedenklich bei Session-Restore oder Email/Password-
-  /// Login (wo keine Sheet aufging).
+  /// Dismisses the in-app OAuth sheet on `signedIn`: SFSafariViewController /
+  /// Chrome Custom Tab do not close themselves when the flow completes.
+  /// closeInAppWebView is a no-op when no in-app browser is open, so session
+  /// restore and email/password login are unaffected.
   static void _wireOAuthSheetDismiss() {
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       if (data.event == AuthChangeEvent.signedIn) {
@@ -185,26 +157,15 @@ class EatovaSupabaseConfig {
   }
 }
 
-/// C5-Nachtrag: der PKCE-Code-Verifier im OS-Keystore statt in
-/// SharedPreferences.
+/// C5 follow-up: the PKCE code verifier in the OS keystore instead of
+/// SharedPreferences, where it was the last plaintext auth item.
 ///
-/// Der Verifier ist kurzlebig (lebt vom Start des OAuth-Flows bis zum
-/// Code-Austausch), aber wer ihn UND den abgefangenen Callback-Link hat, kann
-/// den Austausch selbst durchfuehren. Vor allem war er nach C5 der letzte
-/// Auth-Baustein, der noch im Klartext in `FlutterSharedPreferences.xml` lag
-/// (gotrue-Default: `SharedPreferencesGotrueAsyncStorage`).
+/// Deliberately no catch policy: all three methods run only during an
+/// interactive OAuth flow, never at boot, so a keystore error should surface
+/// as a login error rather than a later "code verifier missing".
 ///
-/// Bewusst OHNE catch-Politik: die drei Methoden laufen nur waehrend eines
-/// interaktiven OAuth-Flows (nie beim Boot). Ein Keystore-Fehler soll dort
-/// als Login-Fehler sichtbar werden — ein verschluckter `setItem`-Fehler
-/// wuerde denselben Flow Minuten spaeter mit einem unverstaendlicheren
-/// „code verifier missing" scheitern lassen.
-///
-/// Keine Migration noetig: betroffen waere nur ein OAuth-Flow, der GENAU
-/// waehrend des App-Updates offen war — der Nutzer tippt dann schlicht noch
-/// einmal auf „Mit Google anmelden". Ein liegen gebliebener Alt-Verifier in
-/// den Prefs ist ohne zugehoerigen Autorisierungs-Code wertlos und verfaellt
-/// mit ihm.
+/// No migration needed: only a flow open exactly across the app update is
+/// affected, and a stale verifier is worthless without its auth code.
 class SecurePkceAsyncStorage extends GotrueAsyncStorage {
   SecurePkceAsyncStorage({SecureKeyStore? secureStore})
       : _secure = secureStore ?? const PluginSecureKeyStore();
@@ -222,25 +183,16 @@ class SecurePkceAsyncStorage extends GotrueAsyncStorage {
   Future<void> removeItem({required String key}) => _secure.delete(key);
 }
 
-/// C5: Session-Persistenz im OS-Keystore statt in SharedPreferences.
+/// C5: session persistence in the OS keystore instead of SharedPreferences.
+/// The session string carries the refresh token — the master key to all
+/// server-side health data.
 ///
-/// Der Session-String enthaelt Access- UND Refresh-Token. Der Refresh-Token
-/// ist der Generalschluessel: mit ihm holt sich ein Angreifer beliebig neue
-/// Access-Tokens und liest ueber das Netz Mahlzeiten, Gewicht, Schlaf und
-/// Coach-Chat — ohne einen einzigen der verschluesselten Cache-Blobs
-/// anzufassen.
+/// No envelope like the cache: ~1 kB, written only on login and token refresh,
+/// so the hot-path argument in `secure_cache_store.dart` does not apply.
 ///
-/// Bewusst KEIN Envelope wie beim Cache: der Session-String ist ~1 kB und
-/// wird nur beim Login und beim Token-Refresh geschrieben (nicht bei jeder
-/// Mahlzeit). Die Begruendung im Header von `secure_cache_store.dart`, die den
-/// Plugin-Channel aus dem heissen Pfad haelt, trifft hier also nicht zu — hier
-/// ist der Keystore direkt der einfachere und staerkere Weg.
-///
-/// Die Keystore-Optionen (`resetOnError: false`,
-/// `first_unlock_this_device`) kommen aus [PluginSecureKeyStore] und werden
-/// bewusst WIEDERVERWENDET statt neu erfunden: `first_unlock` ist noetig,
-/// damit der Token-Refresh im Hintergrund nach einem Reboot funktioniert, und
-/// `_this_device` haelt ihn aus der iCloud-Keychain.
+/// Keystore options (`resetOnError: false`, `first_unlock_this_device`) are
+/// reused from [PluginSecureKeyStore]: `first_unlock` keeps background token
+/// refresh working after a reboot, `_this_device` keeps it out of iCloud.
 class SecureSessionLocalStorage extends LocalStorage {
   SecureSessionLocalStorage({
     required this.persistSessionKey,
@@ -255,61 +207,40 @@ class SecureSessionLocalStorage extends LocalStorage {
 
   bool _migrationDone = false;
 
-  /// Ein Schuss je Vorgangsart und Prozess.
+  /// One report per operation kind per process.
   ///
-  /// Ohne diese Bremse waere ausgerechnet der Lesepfad der lauteste: er laeuft
-  /// bei JEDEM Start, und `SupabaseAuth.initialize` fragt die Session dabei
-  /// mehrfach ab (`hasAccessToken()` geht selbst durch [accessToken]). Ein
-  /// dauerhaft beschaedigter Keystore fuellte damit das Sentry-Kontingent mit
-  /// immer demselben Report — genau der Effekt, gegen den
-  /// `CrashReporter.captureSyncFailure` schon einmal gebaut werden musste.
-  ///
-  /// Getrennt nach Vorgang statt EIN Zaehler fuer alles: Lesen und Loeschen
-  /// sind verschiedene Vorfaelle (stiller Zwangs-Logout vs. ein Logout, der
-  /// lokal nicht wirkt), und ein gemeinsamer Zaehler machte den seltenen,
-  /// diagnostisch wertvollen Loeschfehler still, sobald der haeufige
-  /// Lesefehler den Schuss schon verbraucht hat.
-  ///
-  /// Instanzfeld statt statischem Zaehler: [buildSessionStorage] laeuft genau
-  /// einmal je Prozess (aus [EatovaSupabaseConfig.initialize]), die Instanz
-  /// lebt also so lange wie die App. Statisch braeuchte es zusaetzlich eine
-  /// Test-Ruecksetzung; so bringt jeder Test seinen eigenen frischen Zustand
-  /// mit.
+  /// The read path runs on EVERY start and several times per boot, so a
+  /// permanently broken keystore would fill the Sentry quota with the same
+  /// report. Split per operation because read and delete failures are
+  /// different incidents, and a shared counter would silence the rare delete
+  /// failure behind the frequent read one. Instance field, not static:
+  /// [buildSessionStorage] runs once per process, and tests get fresh state.
   final Set<String> _gemeldeteVorgaenge = <String>{};
 
-  /// Meldet einen Keystore-Fehler genau einmal je [vorgang].
+  /// Reports a keystore error exactly once per [vorgang].
   ///
-  /// Das ROHE Fehlerobjekt geht bewusst an die Facade: was davon hinausgeht,
-  /// entscheidet dort die Allowlist in `sanitizeForReport`, nicht diese Datei.
-  /// Bei der `PlatformException` aus flutter_secure_storage bleibt davon der
-  /// Typname plus `code` uebrig — `message` und `details` sind beliebiger
-  /// Plugin-/OS-Text und fallen weg. Der Session-String selbst wird nirgends
-  /// mitgegeben: er steckt in keinem dieser Fehler und haette in einem Report
-  /// nichts verloren.
+  /// The RAW error goes to the facade; the allowlist in `sanitizeForReport`
+  /// decides what leaves. For a `PlatformException` only type name and `code`
+  /// survive. The session string is never passed along.
   ///
-  /// [vorgang] ist eine Konstante aus diesem Quelltext und landet als
-  /// `context`-Tag. Er sagt, WELCHER Zugriff scheiterte — nicht auf welchen
-  /// Schluessel und erst recht nicht mit welchem Wert.
+  /// [vorgang] is a constant from this source and becomes the `context` tag:
+  /// it says WHICH access failed, not on which key or with which value.
   void _meldeEinmal(String vorgang, Object fehler, StackTrace stack) {
     if (!_gemeldeteVorgaenge.add(vorgang)) return;
-    // `capture` wirft nie und darf hier nicht awaitet werden: alle Aufrufer
-    // sitzen in Pfaden, die supabase_flutter ohne try/catch aufruft.
+    // `capture` never throws and must not be awaited here: every caller sits
+    // in a path supabase_flutter invokes without try/catch.
     unawaited(CrashReporter.capture(fehler, stack, context: vorgang));
   }
 
   @override
   Future<void> initialize() => _migrateLegacySession();
 
-  /// EINMAL-MIGRATION der Bestandsnutzer.
+  /// ONE-SHOT migration for existing users: their session lives in
+  /// SharedPreferences, the new storage reads only the keystore. Runs in
+  /// `initialize()`, before the first `hasAccessToken()`.
   ///
-  /// Ohne sie waeren beim naechsten Update ALLE eingeloggten Nutzer
-  /// ausgeloggt: ihre Session liegt in SharedPreferences, der neue Storage
-  /// liest aber nur den Keystore. Laeuft in `initialize()`, also VOR dem
-  /// ersten `hasAccessToken()` von `SupabaseAuth.initialize`
-  /// (supabase_auth.dart:105-107).
-  ///
-  /// Reihenfolge: erst in den Keystore schreiben, DANN den Klartext raeumen.
-  /// Andersherum wuerde ein Fehler beim Schreiben die Session vernichten.
+  /// Order matters: write to the keystore first, THEN purge the plaintext —
+  /// the other way round a write failure would destroy the session.
   Future<void> _migrateLegacySession() async {
     if (_migrationDone) return;
     _migrationDone = true;
@@ -322,19 +253,18 @@ class SecureSessionLocalStorage extends LocalStorage {
       if (existing == null || existing.isEmpty) {
         await _secure.write(persistSessionKey, plain);
       }
-      // Auch wenn der Keystore schon eine (neuere) Session hatte: der
-      // Klartext-Rest muss weg. Er ist genau das Leck, um das es geht.
+      // Even if the keystore already held a newer session, the plaintext
+      // leftover must go — it is exactly the leak in question.
       await legacy.remove(persistSessionKey);
     } catch (e, s) {
-      // NIEMALS werfen: `SupabaseAuth.initialize` ruft `initialize()` ohne
-      // try/catch — eine Exception hier waere ein Boot-Fehler der ganzen App.
-      // Die Session bleibt dann im Klartext liegen und der naechste Start
-      // versucht es erneut; KEIN stiller Klartext-Fallback beim Lesen.
+      // NEVER throw: `SupabaseAuth.initialize` calls `initialize()` without
+      // try/catch, so an exception here would fail the whole app boot. The
+      // session stays in plaintext and the next start retries; there is no
+      // silent plaintext fallback on the read path.
       dev.log('SecureSessionLocalStorage: Migration fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
-      // Scheitert die Migration dauerhaft, bleibt die Session genau dort
-      // liegen, wo C5 sie wegholen wollte — im Klartext. Das ist der einzige
-      // Zustand dieser Klasse, der eine Compliance-Zusage still unterlaeuft.
+      // A permanently failing migration leaves the session in plaintext — the
+      // only state of this class that silently breaks a compliance promise.
       _meldeEinmal('session_migrate', e, s);
     }
   }
@@ -349,13 +279,10 @@ class SecureSessionLocalStorage extends LocalStorage {
       final value = await _secure.read(persistSessionKey);
       return (value == null || value.isEmpty) ? null : value;
     } catch (e, s) {
-      // Ein Keystore-Fehler bedeutet "diese Session ist nicht lesbar", nicht
-      // "die App startet nicht". Der Nutzer landet auf dem Login-Screen; der
-      // Eintrag bleibt liegen und ist nach einer Erholung wieder da.
-      //
-      // Gemeldet wird trotzdem: erholt sich der Keystore NICHT, ist genau das
-      // hier ein Zwangs-Logout bei jedem einzelnen Start — und ohne Report
-      // merkt es niemand ausser dem Nutzer, der sich immer wieder anmeldet.
+      // A keystore error means "this session is unreadable", not "the app
+      // won't start": the user lands on the login screen and the entry
+      // survives. Still reported — if the keystore never recovers this is a
+      // forced logout on every start that nobody else would notice.
       dev.log('SecureSessionLocalStorage: Session-Read fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
       _meldeEinmal('session_read', e, s);
@@ -368,10 +295,9 @@ class SecureSessionLocalStorage extends LocalStorage {
     try {
       await _secure.write(persistSessionKey, persistSessionString);
     } catch (e, s) {
-      // Der Write ist der Moment, in dem die Session ueberhaupt erst haltbar
-      // wird. Scheitert er, laeuft die App noch bis zum Prozessende weiter und
-      // der Nutzer ist erst beim naechsten Start ausgeloggt — jetzt sieht man
-      // davon nichts.
+      // The write is what makes the session durable. If it fails the app runs
+      // on until process end and the user is logged out on the next start,
+      // with nothing visible now.
       dev.log('SecureSessionLocalStorage: Session-Write fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
       _meldeEinmal('session_write', e, s);
@@ -383,24 +309,21 @@ class SecureSessionLocalStorage extends LocalStorage {
     try {
       await _secure.delete(persistSessionKey);
     } catch (e, s) {
-      // Der schwerwiegendste Fall dieser Klasse: das Abmelden wirkt lokal
-      // NICHT, der Refresh-Token bleibt im Keystore. Die UI zeigt laengst den
-      // Login-Screen, der Nutzer haelt sich fuer abgemeldet — sichtbar wird
-      // das ausschliesslich hier.
+      // The worst case of this class: the logout does NOT take effect locally
+      // and the refresh token stays in the keystore, while the UI already
+      // shows the login screen. Only visible here.
       dev.log('SecureSessionLocalStorage: Session-Delete fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
       _meldeEinmal('session_delete', e, s);
     }
-    // Sicherheitsnetz: raeumt den Klartext-Slot auch dann, wenn die Migration
-    // nie durchlief (z. B. weil der Keystore beim Start defekt war). Ein
-    // Logout muss den Token in JEDEM Fall vom Geraet nehmen.
+    // Safety net: purges the plaintext slot even if the migration never ran.
+    // A logout must remove the token from the device in EVERY case.
     try {
       final legacy = _legacyOverride ?? await SharedPreferencesStore.create();
       await legacy.remove(persistSessionKey);
     } catch (e, s) {
-      // Eigener Vorgang und nicht mit `session_delete` zusammengelegt: hier
-      // scheitert das Raeumen des KLARTEXT-Slots, der Token bleibt also
-      // ausgerechnet in seiner ungeschuetzten Fassung liegen.
+      // Own operation, not merged with `session_delete`: this is the PLAINTEXT
+      // slot failing to clear, so the token stays in its unprotected form.
       dev.log('SecureSessionLocalStorage: Legacy-Purge fehlgeschlagen',
           error: e, stackTrace: s, name: 'supabase_config');
       _meldeEinmal('session_legacy_purge', e, s);

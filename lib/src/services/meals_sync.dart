@@ -9,48 +9,41 @@ import '../models/meal_analysis_result.dart';
 import '../models/meal_component.dart';
 import 'crash_reporter.dart';
 
-/// Liest und schreibt LoggedMeal + FavoriteMeal gegen public.logged_meals
-/// und public.favorite_meals. MealAnalysisResult wandert als JSONB-
-/// Payload, plus ein paar denormalisierte Spalten fuer schnelle Filter
-/// (calories_kcal, barcode, brand). Eine Instanz gehoert einem user_id.
+/// Reads and writes LoggedMeal + FavoriteMeal against public.logged_meals and
+/// public.favorite_meals. MealAnalysisResult travels as a JSONB payload plus a
+/// few denormalised filter columns. One instance belongs to one user_id.
 class MealsSync {
   MealsSync(this._client, this._userId);
 
   final SupabaseClient _client;
   final String _userId;
 
-  /// Boot-Fenster fuer das Tagebuch (Tage zurueck ab jetzt). Die UI zeigt
-  /// bis zu 31 Tage Historie (scrollbare Datums-Chips, visiblePastDays in
-  /// meal_analysis_screen.dart); Streak-/Lifetime-Zahlen kommen serverseitig
-  /// aus lifetime_stats bzw. record_tracking_day — NICHT aus dieser Liste.
-  /// 35 Tage liegen also grosszuegig ueber dem UI-Bedarf. Ohne Fenster lud
-  /// jeder Kaltstart ALLE jemals geloggten Mahlzeiten inkl. JSONB-Payload.
+  /// Boot window for the diary (days back from now). The UI shows at most 31
+  /// days of history and streak/lifetime numbers come from the server, so 35
+  /// is generous. Without a window every cold start loaded ALL meals ever
+  /// logged, JSONB payload included.
   static const int loggedMealsWindowDays = 35;
 
-  /// Defensiver Zeilen-Deckel obendrauf (~28 Logs/Tag im Fenster): PostgREST
-  /// kappt bei gesetztem db-max-rows STILL — mit explizitem Limit ist die
-  /// Obergrenze stattdessen deterministisch und dank order desc verschwinden
-  /// hoechstens die AELTESTEN Eintraege des Fensters, nie aktuelle.
+  /// Defensive row cap on top (~28 logs/day in the window): PostgREST truncates
+  /// SILENTLY at db-max-rows, while an explicit limit is deterministic and,
+  /// thanks to order desc, only ever drops the OLDEST rows of the window.
   static const int loggedMealsMaxRows = 1000;
 
-  /// Zeilen-Deckel fuer den On-Demand-Tages-Query ([loadLoggedMealsForDay]):
-  /// ~50 Logs an EINEM Tag liegen weit jenseits realistischer Nutzung, und
-  /// ein explizites Limit haelt die Obergrenze (wie beim Fenster-Query)
-  /// deterministisch statt vom stillen db-max-rows abzuhaengen.
+  /// Row cap for the on-demand day query ([loadLoggedMealsForDay]): ~50 logs on
+  /// ONE day is far beyond realistic use, and an explicit limit beats depending
+  /// on the silent db-max-rows.
   static const int loggedMealsDayMaxRows = 50;
 
-  /// Favoriten-Deckel: client-seitig existieren ohnehin nur 5 Auto-Recents
-  /// plus angeheftete Favoriten (home_store._cappedFavorites) — 200 liegt
-  /// weit ueber jedem realistischen Pin-Bestand.
+  /// Favourites cap: the client only keeps 5 auto-recents plus pinned
+  /// favourites, so 200 is far above any realistic pin count.
   static const int favoritesLimit = 200;
 
   // ---------- logged_meals ----------
 
   Future<List<LoggedMeal>> loadLoggedMeals() async {
     try {
-      // Fenster auf logged_at (timestamptz, Index user_id+logged_at desc) statt
-      // local_day: aeltere Zeilen koennen local_day=null tragen und wuerden bei
-      // einem local_day-Filter kommentarlos fehlen.
+      // Window on logged_at (indexed user_id+logged_at desc), not local_day:
+      // older rows may carry local_day=null and would silently be missing.
       final cutoffIso = DateTime.now()
           .toUtc()
           .subtract(const Duration(days: loggedMealsWindowDays))
@@ -70,14 +63,12 @@ class MealsSync {
     }
   }
 
-  /// Laedt gezielt die Zeilen einer Id-Menge — OHNE Datumsfenster.
+  /// Loads specific rows by id — WITHOUT the date window.
   ///
-  /// Einziger Aufrufer ist die Wiedereinblendung nach einem endgueltig
-  /// verworfenen Delete (`_restoreDroppedDeletes`): die betroffene Zeile kann
-  /// beliebig alt sein (Delete via Archiv-Tag-Picker), und der Fenster-Load
-  /// [loadLoggedMeals] wuerde sie dann nicht finden — der „wieder da"-Hinweis
-  /// loege. Die Id-Menge ist klein (die verworfenen Delete-Ops EINES
-  /// Ereignisses), das Fenster-Limit reicht als Obergrenze.
+  /// Only caller is the re-display after a permanently dropped delete
+  /// (`_restoreDroppedDeletes`): that row can be arbitrarily old, so the
+  /// windowed [loadLoggedMeals] would miss it and the "it's back" hint would
+  /// lie. The id set is small, so the window limit suffices.
   Future<List<LoggedMeal>> loadLoggedMealsByIds(Set<String> ids) async {
     if (ids.isEmpty) return const <LoggedMeal>[];
     try {
@@ -96,17 +87,15 @@ class MealsSync {
     }
   }
 
-  /// Laedt die Mahlzeiten EINES lokalen Kalendertags — der On-Demand-Pfad
-  /// fuer Tage ausserhalb des [loggedMealsWindowDays]-Boot-Fensters
-  /// (Kalender-Auswahl im Food-Tab). Halboffenes Fenster
-  /// [Tag 00:00, Folgetag 00:00) der LOKALEN Wanduhr, nach UTC uebersetzt auf
-  /// logged_at — analog zum Fenster-Query, weil Alt-Zeilen local_day=null
-  /// tragen koennen und bei einem local_day-Filter kommentarlos fehlten.
+  /// Loads the meals of ONE local calendar day — the on-demand path for days
+  /// outside the [loggedMealsWindowDays] boot window. Half-open local wall
+  /// clock window [day 00:00, next day 00:00) translated to UTC on logged_at,
+  /// because old rows may carry local_day=null.
   Future<List<LoggedMeal>> loadLoggedMealsForDay(DateTime day) async {
     try {
       final start = DateTime(day.year, day.month, day.day);
-      // day+1 statt +Duration(days: 1): der Konstruktor normalisiert auf die
-      // naechste lokale Mitternacht, auch ueber eine DST-Kante hinweg.
+      // day+1 instead of +Duration(days: 1): the constructor normalises to the
+      // next local midnight, DST edges included.
       final end = DateTime(day.year, day.month, day.day + 1);
       final rows = await _client
           .from('logged_meals')
@@ -116,11 +105,10 @@ class MealsSync {
           .lt('logged_at', end.toUtc().toIso8601String())
           .order('logged_at', ascending: false)
           .limit(loggedMealsDayMaxRows)
-          // Kein postgrest-Auto-Retry (Default: 3 Versuche mit 1s/2s/4s
-          // Backoff): dieser Query laeuft interaktiv hinter einem Spinner —
-          // die stille Retry-Kaskade wuerde den Fehler-Hinweis ~7s
-          // verzoegern. Der Store zeigt sofort die klassifizierte Meldung,
-          // und ein erneuter Tap auf den Tag laedt erneut.
+          // No postgrest auto-retry (default 3 attempts, 1s/2s/4s backoff):
+          // this query runs interactively behind a spinner, where the silent
+          // retry cascade would delay the error by ~7s. Tapping the day again
+          // reloads.
           .retry(enabled: false);
       return _mealsFromRows(rows);
     } catch (e, stack) {
@@ -130,12 +118,11 @@ class MealsSync {
     }
   }
 
-  /// Mappt Server-Zeilen und UEBERSPRINGT kaputte einzeln (Sentinel-Rest S1):
-  /// seit `mealResultFromJson` bei korruptem Payload wirft, wuerde EINE
-  /// kaputte Zeile sonst den gesamten Load reissen — das Tagebuch friere
-  /// dauerhaft auf dem Cache-Stand ein, was schlimmer waere als der Bug.
-  /// Uebersprungene Zeilen gehen an dev.log + CrashReporter, die Daten
-  /// selbst bleiben unangetastet auf dem Server liegen.
+  /// Maps server rows and SKIPS broken ones individually (S1): since
+  /// `mealResultFromJson` throws on a corrupt payload, one bad row would
+  /// otherwise tear down the whole load and freeze the diary on the cache
+  /// state. Skipped rows go to dev.log + CrashReporter; the data stays on the
+  /// server untouched.
   static List<LoggedMeal> _mealsFromRows(List<dynamic> rows) {
     final meals = <LoggedMeal>[];
     for (final row in rows) {
@@ -150,16 +137,15 @@ class MealsSync {
     return meals;
   }
 
-  /// Gemeinsames Zeilen-Mapping von [loadLoggedMeals] und
-  /// [loadLoggedMealsForDay] (identisches Select in beiden Queries).
+  /// Shared row mapping for [loadLoggedMeals] and [loadLoggedMealsForDay]
+  /// (identical select in both queries).
   static LoggedMeal _mealFromRow(dynamic row) {
     return LoggedMeal(
       id: row['id'] as String,
       loggedAt: DateTime.parse(row['logged_at'] as String).toLocal(),
       forcedSlot: _parseSlot(row['forced_slot']?.toString()),
-      // DATA-6: kanonischen lokalen Tages-Schluessel mitfuehren wenn die
-      // Zeile ihn hat. Aeltere Zeilen ohne Spalte/null -> Bucketing faellt
-      // auf isSameDay(.toLocal()) zurueck (siehe meal_totals).
+      // DATA-6: carry the canonical local day key when the row has one. Older
+      // rows without it fall back to isSameDay(.toLocal()) (see meal_totals).
       localDay: row['local_day']?.toString(),
       result: mealResultFromJson(
         (row['payload'] as Map).cast<String, dynamic>(),
@@ -169,17 +155,15 @@ class MealsSync {
 
   Future<void> insertLoggedMeal(LoggedMeal meal) async {
     try {
-      // Upsert auf der Client-UUID statt insert: ein Retry nach einem
-      // unklaren Netzwerk-Timeout (Antwort verloren, Zeile aber geschrieben)
-      // erzeugt so keinen Duplikat-Fehler, sondern bleibt idempotent.
+      // Upsert on the client UUID instead of insert: a retry after an unclear
+      // network timeout (response lost, row written) stays idempotent.
       await _client.from('logged_meals').upsert({
         'id': meal.id,
         'user_id': _userId,
         'logged_at': meal.loggedAt.toUtc().toIso8601String(),
-        // DATA-6: kanonischer lokaler Tages-Schluessel aus der LOKALEN Wanduhr
-        // des Eintrags. Additiv — wird aus loggedAt berechnet wenn die
-        // home_page-Konstruktion ihn (noch) nicht setzt, sodass Koffein und
-        // Mahlzeiten denselben Tag teilen (kein UTC-Drift ueber DST/Zone).
+        // DATA-6: canonical local day key from the entry's LOCAL wall clock,
+        // derived from loggedAt when not set, so entries share the same day
+        // without UTC drift across DST/zones.
         'local_day': meal.effectiveLocalDay,
         'forced_slot': meal.forcedSlot?.name,
         'meal_name': meal.result.mealName,
@@ -205,10 +189,9 @@ class MealsSync {
       await _client
           .from('logged_meals')
           .update({
-            // Seit dem Bearbeiten-Sheet kann ein Update auch Tag/Slot einer
-            // bestehenden Zeile verschieben — logged_at + local_day laufen
-            // daher (wie beim Insert-Upsert) immer mit. Fuer reine
-            // Portions-Updates schreiben sie unveraendert denselben Wert.
+            // An update can also move day/slot of an existing row, so
+            // logged_at + local_day always ride along; portion-only updates
+            // rewrite the same value.
             'logged_at': meal.loggedAt.toUtc().toIso8601String(),
             'local_day': meal.effectiveLocalDay,
             'forced_slot': meal.forcedSlot?.name,
@@ -260,7 +243,7 @@ class MealsSync {
         return FavoriteMeal(
           id: row['favorite_key'] as String,
           addedAt: DateTime.parse(row['added_at'] as String).toLocal(),
-          // Aeltere Zeilen ohne Spalte / null -> false (Auto-Recent).
+          // Older rows without the column / null -> false (auto-recent).
           pinned: (row['pinned'] as bool?) ?? false,
           result: mealResultFromJson(
             (row['payload'] as Map).cast<String, dynamic>(),
@@ -327,9 +310,9 @@ class MealsSync {
   }
 }
 
-/// Serialisiert MealAnalysisResult fuer JSONB-Spalten und liest sie
-/// roundtrip-sicher zurueck. Bewusst hier statt im Model, damit der
-/// Persistence-Aspekt nicht ins Domain-Modell leakt.
+/// Serialises MealAnalysisResult for JSONB columns and reads it back
+/// roundtrip-safe. Kept here, not in the model, so persistence does not leak
+/// into the domain model.
 Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
   return {
     'mealName': r.mealName,
@@ -347,12 +330,10 @@ Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
               'grams': c.grams,
               'caloriesKcal': c.caloriesKcal,
               if (c.kcalPer100G != null) 'kcalPer100G': c.kcalPer100G,
-              // B8: Makros pro Posten. `!= null` und nicht `> 0` — 0 g ist
-              // eine Aussage (Olivenoel hat 0 g Protein), `null` heisst
-              // „unbekannt". Nur wenn ALLE Posten Makros tragen, summiert
-              // adjustedToItems exakt statt nach Masse zu skalieren; ein
-              // verlorenes Feld liesse die gerade korrigierten Werte beim
-              // naechsten Kaltstart still auf `-` zurueckfallen.
+              // B8: per-item macros. `!= null`, not `> 0` — 0 g is a statement
+              // (olive oil has 0 g protein), `null` means unknown. Only if ALL
+              // items carry macros does adjustedToItems sum exactly instead of
+              // scaling by mass.
               if (c.proteinG != null) 'proteinG': c.proteinG,
               if (c.carbsG != null) 'carbsG': c.carbsG,
               if (c.fatG != null) 'fatG': c.fatG,
@@ -362,10 +343,9 @@ Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
     'sourceLabel': r.sourceLabel,
     if (r.barcode != null) 'barcode': r.barcode,
     if (r.brand != null) 'brand': r.brand,
-    // B7-Nachtrag: „gemessene 0 kcal" (Wasser, Zero) muss den Roundtrip
-    // ueberleben, sonst blockiert die Letzt-Bremse den Auto-Recent-Favorit
-    // desselben Produkts. Nur bei true geschrieben — Alt-Zeilen bleiben
-    // byte-identisch.
+    // B7: a measured 0 kcal (water, zero drinks) must survive the roundtrip,
+    // otherwise the last-resort guard blocks the auto-recent favourite of the
+    // same product. Only written when true, so old rows stay byte-identical.
     if (r.explicitZeroKcal) 'explicitZeroKcal': true,
   };
 }
@@ -382,8 +362,8 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
               grams: (item['grams'] as num?)?.toInt() ?? 0,
               caloriesKcal: (item['caloriesKcal'] as num?)?.toInt() ?? 0,
               kcalPer100G: (item['kcalPer100G'] as num?)?.toDouble(),
-              // Fehlender Schluessel bleibt `null` = „unbekannt". Alt-Zeilen
-              // von vor Welle 2 laden damit unveraendert.
+              // A missing key stays `null` = unknown, so older rows load
+              // unchanged.
               proteinG: (item['proteinG'] as num?)?.toDouble(),
               carbsG: (item['carbsG'] as num?)?.toDouble(),
               fatG: (item['fatG'] as num?)?.toDouble(),
@@ -391,15 +371,13 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
           })
           .toList()
       : const <MealComponent>[];
-  // Sentinel-Rest S1: `caloriesKcal` ist Pflicht — mealResultToJson schreibt
-  // es seit jeher unconditional, ein Payload ohne den Schluessel ist korrupt.
-  // Die alte `?? 0`-Fuellung erzeugte exakt die Sorte 0 (ohne
-  // explicitZeroKcal), die B7 muehsam von der gemessenen 0 trennt, und der
-  // Outbox-Replay schrieb sie als `calories_kcal: 0` dauerhaft auf den
-  // Server. Der Wurf laeuft in die ehrlichen Abnehmer: SyncOp.meal -> null
-  // -> _CorruptOpPayload-Drop (A8); LocalCache faengt ihn slotweise; die
-  // Server-Loader ueberspringen die Zeile gemeldet (_mealFromRowOrNull).
-  // Gramm/Dichte behalten dagegen 0 als dokumentierte Unbekannt-Form.
+  // S1: `caloriesKcal` is required — mealResultToJson always writes it, so a
+  // payload without the key is corrupt. The old `?? 0` fill produced exactly
+  // the kind of 0 that B7 separates from a measured 0, and outbox replay wrote
+  // it to the server permanently. The throw lands in honest handlers:
+  // SyncOp.meal -> null -> corrupt-payload drop (A8); LocalCache catches it
+  // per slot; [_mealsFromRows] skips and reports the row. Grams/density keep 0
+  // as their documented unknown form.
   final caloriesRoh = j['caloriesKcal'];
   if (caloriesRoh is! num) {
     throw FormatException(
@@ -420,7 +398,7 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
     sourceLabel: j['sourceLabel']?.toString() ?? MealResultSource.aiEstimate.code,
     barcode: j['barcode']?.toString(),
     brand: j['brand']?.toString(),
-    // Fehlender Schluessel -> false: die 0 einer Alt-Zeile bleibt Sentinel.
+    // Missing key -> false: the 0 of an old row stays a sentinel.
     explicitZeroKcal: (j['explicitZeroKcal'] as bool?) ?? false,
   );
 }

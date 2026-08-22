@@ -12,93 +12,67 @@ import '../models/coach_recipe_proposal.dart';
 import 'crash_reporter.dart';
 import 'sync_error_messages.dart';
 
-/// Coach-Chat Backend-Brücke.
+/// Coach-chat backend bridge.
 ///
-/// Rate-Limit (5/Tag), Safety-Filter und Grok-Call laufen alle in der
-/// Edge Function `coach-chat`. Hier passiert nur:
-///   - Historie aus public.chat_messages laden (RLS schraenkt automatisch
-///     auf den eigenen User ein).
-///   - send() ruft die Edge Function auf und bekommt die Assistant-
-///     Antwort + neuen Quota-Rest zurueck.
-///   - loadQuotaToday() liest den Counter via get_chat_quota_today RPC.
-///   - Sessions: list / create / rename / delete via RPCs.
+/// Rate limit (5/day), safety filter and the model call all live in the
+/// `coach-chat` edge function. This class only loads history from
+/// public.chat_messages (RLS scopes it to the user), invokes the function,
+/// reads the counter via get_chat_quota_today, and manages sessions by RPC.
 class CoachChatService {
   CoachChatService(this._client, this._userId);
 
   final SupabaseClient _client;
   final String _userId;
 
-  /// Sprachpaket fuer die Fallback-Fehlertexte aus [send]/[_failureForStatus]
-  /// (user-sichtbar im Coach-`_ErrorBanner`). Der Service haelt bewusst
-  /// keinen BuildContext — der Coach-Screen liest `context.l10n` ohnehin
-  /// unmittelbar vor jedem Sendeversuch frisch (Aufruf-Trap: nicht in
-  /// initState) und reicht es hier direkt rein, statt die `send()`-Signatur
-  /// zu aendern. Eine geaenderte Signatur haette jeden `@override send(...)`
-  /// in den Test-Doubles (`coach_design_test.dart`,
-  /// `coach_image_privacy_test.dart` u.a.) mitgerissen — mit diesem Setter
-  /// bleiben deren Konstruktoren (`super.client, super.userId`) unveraendert.
-  /// Default Deutsch ([deL10n]): `test/coach_error_mapping_test.dart` ruft
-  /// [send] weiterhin kontextfrei und bleibt damit unveraendert gruen.
+  /// Locale pack for the user-visible fallback error texts. Set via setter
+  /// rather than a `send()` parameter so test doubles overriding `send` stay
+  /// unchanged; the screen refreshes `context.l10n` before each send (not in
+  /// initState). Defaults to German so context-free callers still work.
   AppLocalizations _l10n = deL10n;
 
   set l10n(AppLocalizations value) => _l10n = value;
 
-  /// Request-locale fuer die Edge Function — dieselbe Normalisierung wie in
-  /// [requestRecipe] (:341); alles ausser en faellt serverseitig ohnehin auf de.
+  /// Request locale for the edge function; same normalisation as
+  /// [requestRecipe]. Anything but `en` falls back to `de` server-side anyway.
   String get _localeCode =>
       _l10n.localeName.toLowerCase().startsWith('en') ? 'en' : 'de';
 
   // -------------------------------------------------------------------------
-  // Diagnose
+  // Diagnostics
   // -------------------------------------------------------------------------
-  /// Meldet einen Fehlerpfad an den [CrashReporter] — aber nur, wenn er
-  /// ueberhaupt etwas bedeutet.
+  /// Reports a failure path to the [CrashReporter], but only if it means
+  /// something. Without this the coach would be the one area of the app whose
+  /// outages are invisible in production.
   ///
-  /// Bis zum Komplettreview 2026-08-19 endete JEDER Fehlerarm dieser Klasse
-  /// ausschliesslich in einem `dev.log`, und das schreibt nur in die lokale
-  /// Geraete-/IDE-Konsole. Der Coach war damit der einzige Bereich der App
-  /// ohne einen einzigen Crash-Reporter-Ausloeser: ein Totalausfall der Edge
-  /// Function — 500er ueber Stunden, ein kaputter RPC nach einer Migration —
-  /// war in der Produktion schlicht unsichtbar.
+  /// Network errors are filtered out, same classification as
+  /// [CrashReporter.captureSyncFailure]: opening the coach fires three
+  /// requests, so offline use would drain the Sentry quota.
   ///
-  /// Netzfehler bleiben draussen, dieselbe Klassifizierung wie in
-  /// [CrashReporter.captureSyncFailure] und aus demselben Grund: der Coach
-  /// setzt beim Oeffnen Sitzungsliste, Verlauf UND Tageszaehler ab. Ohne
-  /// diesen Filter erzeugte eine U-Bahn-Fahrt drei Reports pro Tab-Wechsel,
-  /// und das Sentry-Kontingent waere verbraucht, bevor der erste echte
-  /// Ausfall ankommt.
-  ///
-  /// [operation] ist IMMER ein Literal aus dem Quelltext und wird zum
-  /// Sentry-Tag `context`. Nie etwas anderes: Nachrichtentexte, Rezeptwuensche,
-  /// Sitzungstitel und Ids haben in einem Report nichts verloren — die App
-  /// verarbeitet Gesundheitsdaten. Das Fehlerobjekt selbst deckelt ohnehin
-  /// `sanitizeForReport` (Allowlist, s. crash_reporter.dart).
+  /// [operation] must always be a source literal — it becomes the Sentry
+  /// `context` tag, and message texts, titles or ids must never reach a report
+  /// (health data).
   static void _melde(String operation, Object error, StackTrace stack) {
     if (isNetworkSyncError(error)) return;
     unawaited(CrashReporter.capture(error, stack, context: operation));
   }
 
-  /// Ob ein Fehlerstatus der Edge Function einen Vorfall beschreibt.
+  /// Whether an edge-function error status describes an incident.
   ///
-  /// 401/403 (Sitzung abgelaufen), 413 (Bild zu gross) und 429 (Tageslimit
-  /// bzw. Burst-Bremse) sind VORGESEHENE Antworten: sie stehen als Text im
-  /// Banner und sind kein Fehler des Systems, sondern seine Funktionsweise.
-  /// Ein Report daraus waere reines Rauschen — und zwar ausgerechnet
-  /// nutzerproportionales. Alles andere, insbesondere jedes 5xx, ist der
-  /// Ausfall, den sonst niemand sieht.
+  /// 401/403 (session expired), 413 (image too large) and 429 (daily limit or
+  /// burst brake) are intended responses shown in the banner, so reporting
+  /// them would be user-proportional noise. Everything else, 5xx above all,
+  /// is the outage nobody else sees.
   static bool _statusIstVorfall(int status) =>
       status != 401 && status != 403 && status != 413 && status != 429;
 
   // -------------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------------
-  /// Die Sessions des Nutzers.
+  /// The user's sessions.
   ///
-  /// Wirft [CoachDataUnavailable], statt bei einem Fehler eine leere Liste zu
-  /// liefern: „offline" und „du hast noch keine Unterhaltung" sind zwei
-  /// verschiedene Aussagen, und die leere Liste hat die zweite behauptet,
-  /// wenn nur die erste zutraf — das Sessions-Sheet raeumte sich dann selbst
-  /// leer.
+  /// Throws [CoachDataUnavailable] instead of returning an empty list on
+  /// error: "offline" and "no conversations yet" are different statements,
+  /// and the empty list made the sessions sheet clear itself.
   Future<List<ChatSession>> loadSessions() async {
     final dynamic res;
     try {
@@ -118,9 +92,8 @@ class CoachChatService {
         'CoachChatService.loadSessions: unerwartete Form ${res.runtimeType}',
         name: 'eatova.coach',
       );
-      // Gebrochener Vertrag, nie ein Netzfehler: der RPC liefert eine Tabelle.
-      // Der Laufzeittyp bleibt im lokalen Log — den Report ordnet das
-      // `context`-Tag zu, mehr braucht es dafuer nicht.
+      // Broken contract, never a network error: the RPC returns a table. The
+      // runtime type stays in the local log; the report has the `context` tag.
       const fehler = CoachDataUnavailable('Sessionliste in unerwarteter Form');
       _melde('coach.loadSessions.form', fehler, StackTrace.current);
       throw fehler;
@@ -131,7 +104,7 @@ class CoachChatService {
         .toList();
   }
 
-  /// Liefert die Default-Session-ID; legt bei Bedarf eine an.
+  /// Returns the default session id, creating one if needed.
   Future<String?> ensureDefaultSession() async {
     try {
       final res = await _client.rpc('ensure_default_chat_session');
@@ -145,9 +118,8 @@ class CoachChatService {
         stackTrace: stack,
         name: 'eatova.coach',
       );
-      // Der `null`-Rueckweg sperrt den Composer fuer den Rest des App-Laufs
-      // (der Screen hat dann keine Sitzung) — kein Zustand, den man nur lokal
-      // loggt.
+      // A `null` return locks the composer for the rest of the app run (the
+      // screen has no session), so this needs more than a local log.
       _melde('coach.ensureDefaultSession', e, stack);
       return null;
     }
@@ -174,11 +146,9 @@ class CoachChatService {
     }
   }
 
-  /// Sentinel-Rest S8: rename/delete meldeten Fehler frueher nur ins Log und
-  /// kehrten normal zurueck — ein `Future<void>`, das completed, IST fuer den
-  /// Aufrufer die positive Behauptung „ist umbenannt/geloescht". Der Screen
-  /// fuhr mit dem Erfolgsfall fort. Jetzt werfen beide [CoachDataUnavailable],
-  /// dasselbe Muster wie loadSessions/loadQuotaToday/loadHistory.
+  /// Throws [CoachDataUnavailable] on failure, like loadSessions and friends:
+  /// a `Future<void>` that completes asserts "renamed/deleted" to the caller,
+  /// so a swallowed error would let the screen continue as if it succeeded.
   Future<void> renameSession(String sessionId, String title) async {
     try {
       await _client.rpc('rename_chat_session', params: {
@@ -215,10 +185,9 @@ class CoachChatService {
   }
 
   // -------------------------------------------------------------------------
-  // Historie / Quota / Send
+  // History / quota / send
   // -------------------------------------------------------------------------
-  /// Letzte n Nachrichten in chronologischer Reihenfolge, gefiltert auf eine
-  /// Session.
+  /// Last n messages of one session, in chronological order.
   Future<List<ChatMessage>> loadHistory(
     String sessionId, {
     int limit = 100,
@@ -226,8 +195,7 @@ class CoachChatService {
     try {
       final rows = await _client
           .from('chat_messages')
-          // `recipe` (Migration 20260813090000): das Rezept-JSON eines
-          // /recipe-Vorschlags — die Karte ueberlebt damit den Reload.
+          // `recipe`: the proposal JSON, so the card survives a reload.
           .select('id, role, content, refusal, created_at, recipe')
           .eq('user_id', _userId)
           .eq('session_id', sessionId)
@@ -246,30 +214,21 @@ class CoachChatService {
         name: 'eatova.coach',
       );
       _melde('coach.loadHistory', e, stack);
-      // Sentinel-Rest S3: hier stand `return const <ChatMessage>[]` — der
-      // Screen setzte die leere Liste als _messages und zeigte den
-      // Hero-Leerzustand: der Nutzer sah seinen Verlauf als geloescht, ohne
-      // Hinweis und ohne Retry. Exakt das Muster, das loadSessions und
-      // loadQuotaToday bereits abgelegt haben.
+      // Never return an empty list here: the screen would render the empty
+      // state and the user would see their history as deleted.
       throw CoachDataUnavailable('Verlauf nicht abrufbar', e);
     }
   }
 
-  /// Der Tageszaehler, wie ihn der Server nennt.
+  /// The daily counter as the server reports it.
   ///
-  /// `p_daily_limit` ist reine Anzeige-Arithmetik (Befund-Verifikation
-  /// 2026-08-19, kein Handlungsbedarf): der RPC ist read-only und rechnet
-  /// `remaining` nur aus dem uebergebenen Wert. Durchgesetzt wird das Limit
-  /// serverseitig in der Edge Function via `claim_chat_quota`
-  /// (service_role-only) — ein manipulierter Client, der hier andere Zahlen
-  /// uebergibt, beluegt ausschliesslich seine eigene Anzeige.
+  /// `p_daily_limit` is display arithmetic only: the RPC is read-only and
+  /// derives `remaining` from the passed value. The limit is enforced
+  /// server-side via `claim_chat_quota` (service_role only), so a tampered
+  /// client only lies to its own display.
   ///
-  /// Wirft [CoachDataUnavailable], wenn der RPC scheitert ODER keine
-  /// verwertbaren Zahlen liefert. Beides hiess frueher „5 von 5 frei":
-  /// der `catch` gab `ChatQuotaSnapshot.unknown` zurueck, die `?? 5` im Parser
-  /// erfanden dieselben Zahlen aus einer leeren Zeile. Der Aufrufer konnte das
-  /// nicht von einer echten Serverantwort unterscheiden und hat damit eine
-  /// bestehende Sperre aufgehoben.
+  /// Throws [CoachDataUnavailable] if the RPC fails or returns no usable
+  /// numbers — inventing a full quota there would lift an existing lock.
   Future<ChatQuotaSnapshot> loadQuotaToday() async {
     final dynamic res;
     try {
@@ -287,7 +246,7 @@ class CoachChatService {
       _melde('coach.loadQuotaToday', e, stack);
       throw CoachDataUnavailable('Tageszaehler nicht abrufbar', e);
     }
-    // RPC liefert table-return als Liste.
+    // A table-returning RPC arrives as a list.
     var row = const <String, dynamic>{};
     if (res is List && res.isNotEmpty && res.first is Map) {
       row = (res.first as Map).cast<String, dynamic>();
@@ -302,9 +261,8 @@ class CoachChatService {
         'CoachChatService.loadQuotaToday: Antwort ohne verwertbare Zahlen',
         name: 'eatova.coach',
       );
-      // Wie oben ein gebrochener Vertrag: der RPC hat geantwortet, nur ohne
-      // die Spalten, die seine Signatur zusagt. Typisch nach einer Migration —
-      // und genau dann muss es jemand erfahren.
+      // Broken contract again: the RPC answered without the columns its
+      // signature promises. Typical after a migration, so report it.
       const fehler =
           CoachDataUnavailable('Tageszaehler ohne verwertbare Zahlen');
       _melde('coach.loadQuotaToday.form', fehler, StackTrace.current);
@@ -317,16 +275,14 @@ class CoachChatService {
     );
   }
 
-  /// Schickt die User-Nachricht an die Edge Function.
+  /// Sends the user message to the edge function.
   ///
-  /// Fehlerbehandlung liegt komplett in den `on Functions*`-Armen: der
-  /// functions_client liefert Nicht-2xx NICHT als [FunctionResponse.status]
-  /// zurueck, sondern wirft (functions_client.dart:255-269). Nur ein 429 mit
-  /// `error: quota_exceeded` wird zu [CoachQuotaExceeded] — jeder andere
-  /// Fehler, auch ein 429 vom Burst-Rate-Limit, zu [CoachChatException] mit
-  /// einer anzeigbaren deutschen Meldung. Optional kann ein komprimiertes Bild als Base64
-  /// mitgeschickt werden; die eigentliche Vision-/Safety-Logik bleibt
-  /// serverseitig in Supabase.
+  /// All error handling sits in the `on Functions*` arms: functions_client
+  /// throws on non-2xx rather than exposing a status. Only a 429 carrying
+  /// `error: quota_exceeded` becomes [CoachQuotaExceeded]; everything else,
+  /// including a burst-limit 429, becomes a displayable [CoachChatException].
+  /// A compressed image may be attached as base64; vision and safety logic
+  /// stay server-side.
   Future<CoachChatReply> send(
     String message, {
     required String sessionId,
@@ -349,19 +305,16 @@ class CoachChatService {
             'user_context': userContext.trim(),
         },
       );
-      // Hier ankommen heisst: 2xx. functions_client wirft bei jedem anderen
-      // Status (functions_client.dart:255-269), deshalb steht die
-      // Fehlerbehandlung ausschliesslich in den `on Functions*`-Armen unten.
+      // Reaching this point means 2xx: functions_client throws on any other
+      // status, so error handling lives only in the `on Functions*` arms.
       final data = res.data;
       final map = data is Map ? data : const <dynamic, dynamic>{};
       final reply = map['reply'] is String
           ? (map['reply'] as String).trim()
           : '';
       if (reply.isEmpty) {
-        // 2xx ohne Text: die Function hat geantwortet, aber nichts gesagt.
-        // Fuer den Nutzer ein Fehlschlag wie jeder andere, technisch ein
-        // gebrochener Vertrag — und der einzige Ausfall dieser Klasse, den
-        // kein Status verraet.
+        // 2xx without text: a broken contract, and the only failure here that
+        // no status reveals.
         final leer = CoachChatException(_l10n.coachErrorEmptyReply);
         _melde('coach.send.leereAntwort', leer, StackTrace.current);
         throw leer;
@@ -383,24 +336,19 @@ class CoachChatService {
     } on CoachChatException {
       rethrow;
     } on FunctionsHttpException catch (e, stack) {
-      // Die Edge Function selbst hat mit Nicht-2xx geantwortet
-      // (functions_client.dart:265-269).
+      // The edge function itself answered with a non-2xx status.
       _logSendFailure(e, stack);
       if (_statusIstVorfall(e.status)) _melde('coach.send.http', e, stack);
       throw _failureForStatus(e.status, e.details);
     } on FunctionsRelayException catch (e, stack) {
-      // Eigener Typ: der Supabase-Relay VOR der Function hat abgebrochen
-      // (Header `x-relay-error`, functions_client.dart:258-264). Die Function
-      // lief hier nie, also gibt es auch keine fachliche Aussage im Body —
-      // das ist immer eine Infrastruktur-Stoerung.
+      // The Supabase relay in front of the function aborted, so the function
+      // never ran and the body carries no domain meaning: always infra.
       _logSendFailure(e, stack);
       _melde('coach.send.relay', e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
-      // Die Anfrage ging gar nicht erst raus (functions_client.dart:206-208).
-      // BEWUSST ohne Report: das ist der Offline-Fall in Reinform, und er
-      // traegt keinen Typ, den [isNetworkSyncError] erkennen wuerde — die
-      // Ausnahme steht deshalb hier und nicht im Filter.
+      // The request never left the device. Deliberately unreported: the pure
+      // offline case, whose type [isNetworkSyncError] does not recognise.
       _logSendFailure(e, stack);
       throw CoachChatException(_l10n.coachErrorNoConnection);
     } catch (e, stack) {
@@ -410,12 +358,11 @@ class CoachChatService {
     }
   }
 
-  /// /rezept: laesst die Function ein Rezept + Bild generieren
-  /// (`mode: "recipe"`, Spec 2026-08-12). Kostet 1 Coach-Tages-Slot.
+  /// /rezept: has the function generate a recipe plus image (`mode: "recipe"`).
+  /// Costs one daily coach slot.
   ///
-  /// Die Function LIEFERT NUR DATEN — gespeichert wird erst clientseitig,
-  /// nachdem der Nutzer im Sheet bestaetigt hat. Fehler-Mapping identisch zu
-  /// [send] (gleiche `on Functions*`-Arme, gleiche Status-Uebersetzung).
+  /// The function only returns data; saving happens client-side after the user
+  /// confirms in the sheet. Error mapping is identical to [send].
   Future<CoachRecipeReply> requestRecipe(
     String wish, {
     required String sessionId,
@@ -440,7 +387,7 @@ class CoachChatService {
           map['reply'] is String ? (map['reply'] as String).trim() : '';
       final refusal = map['refusal'] == true;
 
-      // Kaputtes Base64 kostet nur das Bild, nie das Rezept.
+      // Broken base64 costs the image only, never the recipe.
       Uint8List? imageBytes;
       final rawImage = map['image_base64'];
       if (rawImage is String && rawImage.isNotEmpty) {
@@ -459,7 +406,7 @@ class CoachChatService {
           imageBytes: imageBytes,
         );
       }
-      // Ein 200 ohne brauchbares Rezept UND ohne Refusal ist keine Antwort.
+      // A 200 with neither a usable recipe nor a refusal is not an answer.
       if (reply.isEmpty || (!refusal && proposal == null)) {
         final leer = CoachChatException(_l10n.coachErrorEmptyReply);
         _melde('coach.recipe.leereAntwort', leer, StackTrace.current);
@@ -476,8 +423,8 @@ class CoachChatService {
             ? (map['daily_limit'] as num).toInt()
             : null,
         sessionId: map['session_id']?.toString() ?? sessionId,
-        // Fuer die lokale Bild-Ablage (Reload-Karte); fehlt bei aelteren
-        // Function-Deployments oder wenn der Insert scheiterte.
+        // Key for the local image store; absent on older function deployments
+        // or if the insert failed.
         assistantMessageId: map['assistant_message_id'] is String
             ? map['assistant_message_id'] as String
             : null,
@@ -495,7 +442,7 @@ class CoachChatService {
       _melde('coach.recipe.relay', e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
-      // Wie in [send] bewusst ohne Report: die Anfrage ging nie raus.
+      // As in [send], deliberately unreported: the request never left.
       _logSendFailure(e, stack);
       throw CoachChatException(_l10n.coachErrorNoConnection);
     } catch (e, stack) {
@@ -516,35 +463,31 @@ class CoachChatService {
     );
   }
 
-  /// Uebersetzt einen Fehlerstatus der Edge Function in die Exception, die der
-  /// Coach-Screen versteht. Rohe Serverdaten landen NIE in der Meldung: nur
-  /// eine von [_serverReply] freigegebene Klartext-Zeile oder ein fester
-  /// deutscher Text.
+  /// Maps an edge-function error status to the exception the coach screen
+  /// understands. Raw server data never reaches the message: only a line
+  /// cleared by [_serverReply], or a fixed text.
   Exception _failureForStatus(int status, dynamic details) {
-    // `details` ist dynamic: bei unserer Function ein JSON-Objekt, beim
-    // Gateway auch mal Klartext oder eine HTML-Seite. Alles ausser einer Map
-    // wird zu einer leeren Map — damit wirft keiner der Zugriffe unten.
+    // `details` is dynamic — JSON from our function, but plain text or an HTML
+    // page from the gateway. Anything but a Map becomes an empty Map so none
+    // of the lookups below throw.
     final map = details is Map ? details : const <dynamic, dynamic>{};
     final serverReply = _serverReply(map);
 
-    // 401/403: die Session ist weg. Der Nutzer soll sich neu anmelden statt
-    // "unbekannter Fehler" zu lesen; die Function schickt hier ohnehin nur
-    // {"error":"Unauthorized"} ohne anzeigbaren Text.
+    // 401/403: the session is gone — prompt a re-login instead of "unknown
+    // error"; the function sends no displayable text here anyway.
     if (status == 401 || status == 403) {
       return CoachChatException(_l10n.coachErrorSessionExpired);
     }
 
     if (status == 429) {
-      // NUR quota_exceeded ist das Tageslimit. `rate_limited` (Burst-Schutz)
-      // traegt kein daily_limit und darf den Composer nicht fuer den Rest des
-      // Tages sperren — der Nutzer darf gleich wieder senden.
+      // Only quota_exceeded is the daily limit. `rate_limited` (burst brake)
+      // carries no daily_limit and must not lock the composer for the day.
       if (map['error'] == 'quota_exceeded') {
         final limit = map['daily_limit'];
         return CoachQuotaExceeded(
           message: serverReply ?? _l10n.coachErrorQuotaFallback,
-          // Der 429er der Function traegt daily_limit immer (handler.ts);
-          // fehlt es (Gateway-Body), bleibt nur der Anzeige-Ersatz — dieselbe
-          // Konstante wie ueberall, kein eigenes Literal.
+          // The function's 429 always carries daily_limit; if a gateway body
+          // omits it, fall back to the shared display constant.
           dailyLimit:
               limit is num ? limit.toInt() : ChatQuotaSnapshot.standardTageslimit,
         );
@@ -561,8 +504,8 @@ class CoachChatService {
     }
 
     if (status >= 500) {
-      // 5xx-Bodies sind Interna ("rpc_unavailable", Gateway-HTML) — nie
-      // anzeigen, auch wenn ein reply-Feld dabei waere.
+      // 5xx bodies are internals ("rpc_unavailable", gateway HTML) — never
+      // display them, even if a reply field is present.
       return CoachChatException(_unreachableMessage);
     }
 
@@ -571,19 +514,16 @@ class CoachChatService {
     );
   }
 
-  /// Gibt den vom Server formulierten Anzeigetext frei — oder null, wenn er
-  /// nicht wie eine fertige deutsche Meldung aussieht.
-  ///
-  /// Bewusst streng: `details` kann eine HTML-Fehlerseite, ein Stacktrace oder
-  /// ein JSON-Fragment sein. Was hier durchfaellt, wird vom Aufrufer durch
-  /// einen festen Text ersetzt — lieber generisch als ein Roh-Dump auf dem
-  /// Bildschirm.
+  /// Clears the server-authored display text, or null if it does not look like
+  /// a finished message. Deliberately strict: `details` may be an HTML error
+  /// page, a stack trace or a JSON fragment, and a generic fallback beats a
+  /// raw dump on screen.
   static String? _serverReply(Map<dynamic, dynamic> details) {
     final raw = details['reply'];
     if (raw is! String) return null;
     final text = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (text.isEmpty || text.length > 240) return null;
-    // Markup- und Dump-Fragmente aussortieren.
+    // Reject markup and dump fragments.
     if (RegExp(r'[<>{}]').hasMatch(text)) return null;
     return text;
   }
@@ -605,16 +545,15 @@ class CoachChatReply {
   final String? refusalReason;
   final int? remaining;
 
-  /// Das Tageslimit, wie der SERVER es nennt (COACH_DAILY_LIMIT). Ohne das
-  /// Feld rechnete der Screen jeden remaining-Wert gegen sein angenommenes
-  /// Standard-Limit — mit serverseitig anderem Limit war der angezeigte
-  /// Zaehler erfunden. null nur bei aelteren Function-Deployments.
+  /// The daily limit as the server names it (COACH_DAILY_LIMIT); without it
+  /// the screen would count against its assumed default and show an invented
+  /// number. null only on older function deployments.
   final int? dailyLimit;
 }
 
-/// Antwort des Recipe-Mode. Bei [refusal] ist [proposal] null und [reply]
-/// der Refusal-Satz; sonst traegt [proposal] das Rezept (ggf. mit Bild) und
-/// [reply] die Text-Zusammenfassung, die auch im Verlauf steht.
+/// Recipe-mode response. On [refusal], [proposal] is null and [reply] holds
+/// the refusal sentence; otherwise [proposal] carries the recipe (possibly
+/// with an image) and [reply] the summary that also lands in the history.
 class CoachRecipeReply {
   const CoachRecipeReply({
     required this.reply,
@@ -633,9 +572,9 @@ class CoachRecipeReply {
   final int? remaining;
   final int? dailyLimit;
 
-  /// id der persistierten Assistant-Zeile (chat_messages) — Schluessel der
-  /// lokalen Bild-Ablage, damit die Karte den Reload ueberlebt. null bei
-  /// aelteren Function-Deployments: die Karte ist dann nur ephemer.
+  /// Id of the persisted assistant row, the key of the local image store so
+  /// the card survives a reload. null on older function deployments, where the
+  /// card is ephemeral.
   final String? assistantMessageId;
 }
 
@@ -646,17 +585,14 @@ class CoachChatException implements Exception {
   String toString() => 'CoachChatException: $message';
 }
 
-/// „Ich weiss es nicht" — der Server hat keinen belastbaren Stand geliefert
-/// (offline, abgelaufener Token, kaputter RPC, Antwort ohne Zahlen).
+/// "Unknown": the server delivered no reliable state (offline, expired token,
+/// broken RPC, answer without numbers).
 ///
-/// Bewusst eine Exception und kein Sentinel-Wert: ein Platzhalter-Objekt sieht
-/// im Aufrufer aus wie eine echte Serverantwort und wird auch so behandelt.
-/// Genau daran ist die Quota-Sperre gescheitert. Wer das hier faengt, muss
-/// entscheiden, ob er seinen letzten bekannten Stand behaelt (Regel: ja) —
-/// er darf ihn nicht durch eine Vermutung ersetzen.
-///
-/// Kein Anzeigetext: das ist kein Fehler, den der Nutzer lesen muss, sondern
-/// eine fehlende Information.
+/// An exception rather than a sentinel value, because a placeholder object
+/// looks like a real server answer to the caller — that is how the quota lock
+/// broke. Whoever catches this keeps their last known state instead of
+/// replacing it with a guess. Carries no display text: this is missing
+/// information, not an error the user must read.
 class CoachDataUnavailable implements Exception {
   const CoachDataUnavailable(this.reason, [this.cause]);
 

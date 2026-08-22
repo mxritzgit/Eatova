@@ -2,17 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/food_kcal_db.dart';
 
-// Regression zum Audit-Befund 2026-08-14: liefert das Scan-Modell keinen
-// brauchbaren Gesamtwert, steht in `caloriesKcal`/`estimatedGrams` die 0 als
-// dokumentierter Unbekannt-Sentinel. `autoSplitItems` lief damit trotzdem
-// durch, fiel auf Faktor 1.0 zurueck und erfand aus den Default-Portionen der
-// lokalen Tabelle Posten (~230 kcal fuer einen realen 700-900-kcal-Teller).
-// Die 0-kcal-Sperre im Sheet blockiert nur das direkte Speichern — im
-// "Anpassen"-Dialog standen die erfundenen Posten bereits vorbelegt und
-// wanderten mit einem Tap ins Tagebuch.
+// Regression (audit 2026-08-14): when the scan model has no usable total, 0 is
+// the documented unknown sentinel. autoSplitItems used to run anyway, fall
+// back to factor 1.0 and invent items from the local table's default portions.
+// The 0 kcal block in the sheet only stops direct saving; the adjust dialog
+// showed the invented items pre-filled, one tap from the diary.
 void main() {
-  // Ein Name, der sicher in >= 2 Posten zerfaellt und in der lokalen Tabelle
-  // steht — ohne die Sperre lieferte er die ungeskalierten Referenzwerte.
+  // A name that reliably splits into >= 2 items and exists in the local table;
+  // without the guard it returned the unscaled reference values.
   const teller = 'Steak mit Ofenkartoffeln und Tomate';
 
   group('autoSplitItems erfindet nichts ohne Gesamtwert', () {
@@ -31,8 +28,8 @@ void main() {
     });
 
     test('fehlendes Gesamtgewicht liefert keine Posten', () {
-      // Ohne Anker waeren die Gramm-Angaben reine Default-Portionen der
-      // Tabelle und die daraus abgeleitete Dichte damit frei erfunden.
+      // Without an anchor the grams would be the table's default portions and
+      // the derived density pure invention.
       expect(
         autoSplitItems(mealName: teller, totalGrams: 0, totalKcal: 800),
         isEmpty,
@@ -57,12 +54,12 @@ void main() {
 
       final kcalSum = items.fold<int>(0, (s, c) => s + c.caloriesKcal);
       final gramSum = items.fold<int>(0, (s, c) => s + c.grams);
-      // Rundung pro Posten -> Summen nahe an den Zielwerten der KI.
+      // Per-item rounding keeps the sums close to the model's targets.
       expect(kcalSum, closeTo(800, 3));
       expect(gramSum, closeTo(480, 3));
 
-      // Die Tabelle liefert nur die Verhaeltnisse: das Steak traegt mehr als
-      // die Tomate, aber kein Posten steht auf seinem Referenzwert.
+      // The table only supplies ratios: the steak outweighs the tomato, but no
+      // item sits on its reference value.
       expect(items.first.caloriesKcal, greaterThan(items.last.caloriesKcal));
       for (final c in items) {
         expect(c.caloriesKcal, greaterThan(0));

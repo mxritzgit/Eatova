@@ -3,16 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
-/// C1, zweite Haelfte: der `beforeSend`-Hook.
+/// C1, second half: the `beforeSend` hook.
 ///
-/// `CrashReporter.capture` sanitisiert nur, was durch die Facade laeuft.
-/// `SentryFlutter.init` installiert zusaetzlich `FlutterErrorIntegration`,
-/// `OnErrorIntegration` und `RunZonedGuardedIntegration` — die greifen
-/// unbehandelte Fehler DIREKT ab. Ohne `beforeSend` geht eine
-/// `PostgrestException` aus einem nicht gefangenen Future roh hinaus.
+/// `CrashReporter.capture` only sanitises what goes through the facade, while
+/// the Sentry integrations pick up unhandled errors DIRECTLY. Without
+/// `beforeSend` a `PostgrestException` from an uncaught future goes out raw.
 void main() {
-  // Exakt die Form, die PostgREST bei einer CHECK-Verletzung liefert:
-  // PostgreSQLs DETAIL enthaelt die komplette fehlgeschlagene Zeile.
+  // Exactly the shape PostgREST returns on a CHECK violation: PostgreSQL's
+  // DETAIL contains the entire failing row.
   const failingRow =
       'Failing row contains (0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0, '
       'max@example.com, Max Mustermann, 25, 178, 34).';
@@ -29,7 +27,7 @@ void main() {
         exceptions: <SentryException>[
           SentryException(
             type: throwable.runtimeType.toString(),
-            // So baut sentry_exception_factory.dart:60 den Wert.
+            // How sentry_exception_factory.dart:60 builds the value.
             value: throwable.toString(),
             throwable: throwable,
           ),
@@ -90,8 +88,8 @@ void main() {
 
     test('ohne throwable faellt der Wert auf den Typnamen zurueck, nie auf den '
         'urspruenglichen value', () {
-      // Diesen Fall gibt es real: aus dem nativen Layer geloggte Events
-      // tragen type und value, aber kein Dart-Objekt.
+      // A real case: events logged from the native layer carry type and value
+      // but no Dart object.
       final event = SentryEvent(
         exceptions: <SentryException>[
           SentryException(type: 'PostgrestException', value: failingRow),
@@ -106,29 +104,14 @@ void main() {
     test(
         'ein Event ohne exceptions wird trotzdem gefiltert — die alte '
         'Erwartung "geht unveraendert durch" war der Bug', () {
-      // Bis Welle 5 stand hier woertlich:
+      // The events C1 leaks through HAVE no `exceptions`:
+      // `FlutterErrorIntegration` builds its event from `throwable` plus
+      // `contexts['flutter_error_details']`, and contexts/breadcrumbs/message/
+      // extra/request hang off the event anyway. So "passes through
+      // unchanged" meant the whole rest of the event went out raw.
       //
-      //   test('ein Event ohne exceptions geht unveraendert durch', () {
-      //     final event = SentryEvent(exceptions: const <SentryException>[]);
-      //     expect(sanitizeSentryEvent(event, Hint()), same(event));
-      //     final ohne = SentryEvent();
-      //     expect(sanitizeSentryEvent(ohne, Hint()), same(ohne));
-      //   });
-      //
-      // Das hat die Luecke als gewolltes Verhalten festgeschrieben. Genau
-      // die Events, die C1 aufreisst, HABEN keine `exceptions`:
-      // `FlutterErrorIntegration` baut sein Event aus `throwable` plus
-      // `contexts['flutter_error_details']` (flutter_error_integration.dart
-      // :66-76) — `exceptions` fuellt erst der Exception-Factory-Lauf im
-      // Client, und `contexts`, `breadcrumbs`, `message`, `extra` und
-      // `request` haengen sowieso am Event, nicht an der Exception.
-      // „Unveraendert durch" hiess also: der ganze Rest des Events geht roh
-      // raus, solange nur die Exception-Liste leer ist.
-      //
-      // Jetzt gilt: der Filter laeuft IMMER ueber das ganze Event. Dass er
-      // dasselbe Objekt zurueckgibt (mutiert statt kopiert), bleibt richtig
-      // und wird hier weiter festgehalten — aber der Inhalt ist danach
-      // gefiltert, nicht unangetastet.
+      // The filter now always runs over the whole event. It still returns the
+      // same object (mutates instead of copying), but the content is filtered.
       final event = SentryEvent(exceptions: const <SentryException>[])
         ..contexts['flutter_error_details'] = <String, String>{
           'information': 'The following RangeError was thrown: 187.4',
@@ -173,17 +156,15 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // C1, Leck 2 (Welle 6): alles am Event ausserhalb von exceptions[].value.
+  // C1, leak 2: everything on the event outside exceptions[].value.
   // ---------------------------------------------------------------------
 
   group('sanitizeSentryEvent — contexts', () {
     test(
         'contexts[flutter_error_details] wird verworfen: information ist der '
         'gerenderte Diagnostics-Baum', () {
-      // sentry_flutter-9.26.0/lib/src/integrations/flutter_error_integration
-      // .dart:38-50,72 haengt genau diese Map ans Event, und
-      // sentry-9.26.0/lib/src/protocol/contexts.dart `toJson` schiebt
-      // unbekannte Schluessel im `default:`-Zweig unveraendert raus.
+      // flutter_error_integration.dart:38-50,72 attaches exactly this map, and
+      // contexts.dart `toJson` passes unknown keys through unchanged.
       final event = SentryEvent()
         ..contexts['flutter_error_details'] = <String, String>{
           'library': 'widgets library',
@@ -256,9 +237,9 @@ void main() {
     test(
         'die interpolierte Fassung wird durch das Template ersetzt, params '
         'fallen weg', () {
-      // `formatted` traegt die eingesetzten Laufzeitwerte, `template` ist ein
-      // Literal aus dem Quelltext. Nur das Literal ist per Konstruktion frei
-      // von Nutzerdaten — und es reicht Sentry zum Gruppieren.
+      // `formatted` carries the substituted runtime values, `template` is a
+      // source literal — free of user data by construction and enough for
+      // Sentry to group by.
       final event = SentryEvent(
         message: SentryMessage(
           'Gewicht 87.4 kg fuer max@example.com konnte nicht gespeichert '
@@ -320,9 +301,9 @@ void main() {
     });
 
     test('user wird verworfen — die App identifiziert bewusst niemanden', () {
-      // sendDefaultPii ist aus und die App ruft nirgends scope.setUser. Ein
-      // gefuelltes user-Objekt kann hier also nur aus einem kuenftigen
-      // Versehen oder aus dem nativen Scope stammen.
+      // sendDefaultPii is off and the app never calls scope.setUser, so a
+      // filled user object can only come from a future slip or the native
+      // scope.
       final event = SentryEvent(
         user: SentryUser(
           id: '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0',
@@ -349,9 +330,8 @@ void main() {
     test(
         'ein console-Breadcrumb wird auch dann noch entfernt, wenn er am '
         'Event haengt statt durch beforeBreadcrumb zu laufen', () {
-      // Zweite Reihe hinter beforeBreadcrumb: `load_contexts_integration
-      // .dart:263` schreibt native Breadcrumbs direkt in `event.breadcrumbs`,
-      // und ein Event kann auch von Hand mit Breadcrumbs gebaut werden.
+      // Second line behind beforeBreadcrumb: load_contexts_integration.dart
+      // writes native breadcrumbs straight into `event.breadcrumbs`.
       final event = SentryEvent(
         breadcrumbs: <Breadcrumb>[
           Breadcrumb.console(message: 'Eatova boot failed: max@example.com'),
@@ -374,9 +354,8 @@ void main() {
   group('sanitizeSentryEvent — Robustheit', () {
     test('der Hook wirft nie: ein Throw in beforeSend verwirft das Event still',
         () {
-      // sentry_client.dart:571 loggt den Throw nur und
-      // sentry_client.dart:580 verwirft dann das Event. Ein kaputter Filter
-      // waere also ein stiller Totalausfall des Crash-Reportings.
+      // sentry_client.dart only logs the throw and then drops the event, so a
+      // broken filter would silently kill crash reporting entirely.
       final event = SentryEvent(message: SentryMessage('x'));
       expect(() => sanitizeSentryEvent(event, Hint()), returnsNormally);
     });

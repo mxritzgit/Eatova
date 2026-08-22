@@ -1,10 +1,6 @@
-// Die BMI-Zonenlabels standen doppelt kodiert im Quelltext: irgendwann hat
-// ein Editor profile_charts.dart als Latin-1 gelesen und als UTF-8
-// zurueckgeschrieben, aus dem „Ü" wurde eine zweistellige Zeichenfolge. Der
-// Nutzer sah das auf der Karte UND im Screenreader-Wert. Dieser Test haelt
-// die Korrektur fest — faellt jemand beim Speichern in dieselbe Falle, wird er
-// hier rot, nicht erst beim Nutzer. (Die kaputte Form steht bewusst NICHT in
-// diesem Kommentar, sonst waere die Testdatei selbst ein Fundort.)
+// Guards against double-encoded BMI zone labels (an editor once read
+// profile_charts.dart as Latin-1 and wrote it back as UTF-8). The broken form
+// is deliberately not spelled out here, or this file would be a source of it.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,9 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/widgets/profile/profile_charts.dart';
 
-// Seit der i18n-Migration (Paket 5, 2026-08-10) braucht `labelFor` ein
-// [AppLocalizations] — hier fest `de` (die Erwartungswerte bleiben wortgleich
-// zum Bestand, Regel 1 aus docs/I18N_PAKETE.md).
+// `labelFor` needs an [AppLocalizations] since the i18n migration; pinned to
+// `de` so the expectations stay verbatim (docs/I18N_PAKETE.md, rule 1).
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
 void main() {

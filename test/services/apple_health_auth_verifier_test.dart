@@ -8,24 +8,12 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-// REVIEW B3 — "verweigerte Berechtigung sieht aus wie 0 Schritte".
-//
-// Die drei Glieder der Kette (alle in health 13.3.1 nachgelesen):
-//  1) hasPermission(type:access:) (HealthDataOperations.swift:91-105) gibt fuer
-//     READ (case 0) und READ_WRITE (default) IMMER nil zurueck — nur WRITE
-//     (case 1) liefert mit `status == .sharingAuthorized` einen echten Bool.
-//  2) requestAuthorization reicht Apples `success` durch
-//     (HealthDataOperations.swift:180-185). Das ist true, SOBALD das Sheet
-//     fehlerfrei angezeigt wurde — auch wenn der Nutzer keinen einzigen
-//     Schalter umgelegt hat.
-//  3) getTotalStepsInInterval (HealthDataReader.swift:872-881) summiert eine
-//     HKStatisticsCollectionQuery und liefert `Int(totalSteps)` — ohne
-//     Leseberechtigung also 0, NIE null.
-//
-// Folge: "Sheet lief durch" darf nicht als granted gelten. [HealthAuthVerifier]
-// leitet den Zustand stattdessen aus echten Signalen ab.
+// REVIEW B3 — "denied permission looks like 0 steps": hasPermission returns
+// nil for READ, `requestAuthorization` succeeds once the sheet was shown, and
+// getTotalStepsInInterval returns 0 rather than null without permission. So
+// "the sheet ran" must not count as granted.
 
-/// Kurzschreibweise fuer die Rohsignale eines Zugriffs.
+/// Shorthand for the raw signals of one access.
 HealthAuthEvidence _ev({
   bool? writeGrant,
   int? steps,
@@ -43,8 +31,6 @@ void main() {
         () {
       final v = HealthAuthVerifier();
 
-      // Genau das Szenario aus dem Review: WRITE ist wahrheitsgemaess aus,
-      // Steps kommen als 0 zurueck (nicht null!), kein Gewicht, kein Schlaf.
       final state = v.resolve(
         _ev(writeGrant: false, steps: 0),
         now: DateTime(2026, 8, 8, 9),
@@ -63,8 +49,7 @@ void main() {
         now: DateTime(2026, 8, 8, 9),
       );
 
-      // Kern des Fixes: KEIN Snapshot mit stepsToday: 0 — sonst rechnet der
-      // Food-Tab burnedKcal = 0 und adjustedGoal = goal + 0, dauerhaft still.
+      // No snapshot with stepsToday 0, or the food tab silently burns 0.
       expect(snap, isNull);
     });
 
@@ -90,11 +75,7 @@ void main() {
       );
     });
 
-    // Die dritte Evidenzquelle „Schlafprobe" stand hier bis zum Review vom
-    // 2026-08-19: der SLEEP-Scope wurde angefragt und gelesen, aber von keinem
-    // Feature genutzt und ist deshalb komplett raus (Apple lehnt Scopes ohne
-    // beobachtbaren Nutzen ab). Die verbliebenen zwei Quellen deckt
-    // apple_health_sleep_scope_write_grant_test ab.
+    // The sleep probe is gone: Apple rejects scopes without observable use.
   });
 
   group('HealthAuthVerifier — echter Ruhetag ist kein Fehlalarm', () {
@@ -102,12 +83,10 @@ void main() {
         () {
       final v = HealthAuthVerifier();
 
-      // Gestern kamen echte Schritte an, WRITE (Gewicht) meldet truthful true.
       v.resolve(_ev(writeGrant: true, steps: 6100),
           now: DateTime(2026, 8, 7, 22));
 
-      // Heute lag das Telefon zuhause -> 0 Schritte, nicht gewogen. Das ist
-      // KEIN Berechtigungsproblem.
+      // Rest day -> 0 steps. NOT a permission problem.
       final state = v.resolve(
         _ev(writeGrant: true, steps: 0),
         now: DateTime(2026, 8, 8, 22),
@@ -116,21 +95,15 @@ void main() {
       expect(state, HealthAuthState.granted);
     });
 
-    // Review 2026-08-19: Die frueher hier stehende Variante OHNE vorherige
-    // Lesedaten (WRITE allein -> granted) war der Fund. Das HealthKit-Sheet
-    // trennt Schreiben und Lesen; wer nur den Gewichts-Schreibschalter umlegt,
-    // gibt zum Lesen nichts frei und bekam dauerhaft 0 Schritte unter einem
-    // gruenen „Synchronisiert". Neuer Vertrag samt Ende-zu-Ende-Fall in
-    // apple_health_sleep_scope_write_grant_test.
+    // Review 2026-08-19: WRITE alone -> granted was the finding — the sheet
+    // separates write and read, so a write-only grant means 0 steps forever.
 
     test('nur-LESEN-Nutzer: Ruhetag nach frischer Evidenz bleibt granted', () {
       final v = HealthAuthVerifier();
 
-      // Gestern kamen echte Schritte an (WRITE hat er nie freigegeben).
       v.resolve(_ev(writeGrant: false, steps: 7400),
           now: DateTime(2026, 8, 7, 20));
 
-      // Heute Ruhetag: 0 Schritte, nichts sonst.
       final state = v.resolve(
         _ev(writeGrant: false, steps: 0),
         now: DateTime(2026, 8, 8, 20),
@@ -185,8 +158,6 @@ void main() {
       v.resolve(_ev(writeGrant: false, steps: 7400),
           now: DateTime(2026, 8, 1, 20));
 
-      // Nutzer nimmt am 2.8. in den iOS-Einstellungen den Lesezugriff weg.
-      // Vier Tage lang kommen nur noch 0-Schritte-Antworten.
       final state = v.resolve(
         _ev(writeGrant: false, steps: 0),
         now: DateTime(2026, 8, 5, 20),
@@ -211,13 +182,10 @@ void main() {
     Future<void> pumpCard(WidgetTester tester, HealthAuthState state) async {
       await tester.pumpWidget(
         MaterialApp(
-          // Design-Refactor 2026-08-09: die Karte liest ihre Farben ueber
-          // `AppTokens.of`, und das wirft absichtlich, wenn die ThemeExtension
-          // fehlt (Verdrahtungs-Detektor). Ein nacktes MaterialApp haengt sie
-          // nicht ans Theme — deshalb hier das echte App-Theme. Keine einzige
-          // Erwartung dieser sechs Faelle wurde angefasst.
+          // `AppTokens.of` throws without the ThemeExtension, so the real
+          // app theme is required.
           theme: buildEatovaTheme(Brightness.dark),
-          // HealthConnectionCard liest seit der i18n-Migration context.l10n.
+          // HealthConnectionCard reads context.l10n.
           locale: const Locale('de'),
           supportedLocales: const [Locale('de'), Locale('en')],
           localizationsDelegates: const [

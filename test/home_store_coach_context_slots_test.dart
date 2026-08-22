@@ -11,17 +11,13 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Coach-Kontext mit Makros PRO MAHLZEIT-SLOT (2026-08-21).
+// Coach context with macros PER MEAL SLOT (2026-08-21): a per-slot line with
+// kcal, P/C/F and entry count sits after the open macros and before the food
+// list.
 //
-// Ausgangslage: Nutzer hat fuenf Mahlzeiten im Abendessen und fragt den Coach
-// „wie viel Protein habe ich nur durchs Dinner gegessen?" — der Coach wusste es
-// nicht, weil `coachContext` nur Tagessummen und eine Namensliste mit kcal pro
-// Eintrag trug. Jetzt steht NACH den offenen Makros und VOR der Essensliste
-// eine Zeile „Pro Mahlzeit heute: …" mit kcal, P/K/F und Eintragszahl je Slot.
-//
-// Die Reihenfolge ist Teil des Vertrags: die Edge Function kappt
-// `user_context` hart bei MAX_USER_CONTEXT_CHARS (guardrails.ts) und schneidet
-// dabei das ENDE ab — die Kappung darf nur die Essensliste treffen.
+// That order is part of the contract: the edge function truncates
+// `user_context` at MAX_USER_CONTEXT_CHARS (guardrails.ts) from the END, so
+// only the food list may be cut.
 
 void _noopSnack(
   String message, {
@@ -63,9 +59,8 @@ MealAnalysisResult _meal(
       sourceLabel: 'Foto-KI',
     );
 
-/// Fuenf Abendessen mit realistischen Namen — Summe 980 kcal, P 62 g, K 90 g,
-/// F 35 g. Protein bewusst mit Nachkommastelle (5 x 12.4 = 62.0), damit der
-/// Rundungspfad im Kontext mitlaeuft.
+/// Five dinners summing to 980 kcal, P 62 g, C 90 g, F 35 g. Protein carries a
+/// decimal (5 x 12.4) so the rounding path is exercised.
 final List<MealAnalysisResult> _fuenfAbendessen = [
   _meal('Hähnchenbrust mit Reis und Brokkoli',
       kcal: 200, protein: '12.4 g', carbs: '18 g', fat: '7 g'),
@@ -84,8 +79,8 @@ const _abendessenZeile =
 const _slotPrefix = 'Pro Mahlzeit heute: ';
 const _listePrefix = 'Heute gegessene Lebensmittel';
 
-/// Donnerstag 19:30 — mitten im Abendessen-Fenster der Uhrzeit-Heuristik, die
-/// Tests erzwingen den Slot trotzdem explizit (so wie das Sheet es tut).
+/// Thursday 19:30, inside the dinner window of the time heuristic; the tests
+/// still pass the slot explicitly, as the sheet does.
 final _heute = DateTime(2026, 8, 20, 19, 30);
 final _gestern = DateTime(2026, 8, 19);
 
@@ -101,8 +96,8 @@ void main() {
         }
 
         final ctx = store.coachContext;
-        // Die Zeile nennt NUR den belegten Slot und geht direkt in die
-        // Essensliste ueber — kein „Frühstück 0 kcal", kein leerer Satz.
+        // The line names ONLY the filled slot and runs straight into the food
+        // list: no zero-kcal slots, no empty sentence.
         expect(ctx, contains('$_slotPrefix$_abendessenZeile. $_listePrefix'));
       });
     });
@@ -130,7 +125,7 @@ void main() {
         final ctx = _store().coachContext;
         expect(ctx, isNot(contains(_slotPrefix)));
         expect(ctx, isNot(contains(_listePrefix)));
-        // Die Kernwerte bleiben trotzdem da.
+        // The core values still show.
         expect(ctx, contains('Makros heute noch offen'));
       });
     });
@@ -138,9 +133,8 @@ void main() {
     test('mehrere Slots in Tagesreihenfolge, Singular bei einem Eintrag', () {
       withClock(Clock.fixed(_heute), () {
         final store = _store();
-        // Bewusst gegen die Tagesreihenfolge geloggt (Abendessen zuerst) —
-        // die Zeile muss trotzdem Frühstück -> Mittagessen -> Abendessen
-        // lesen, nicht neueste-zuerst wie loggedMeals.
+        // Logged against day order (dinner first): the line must still read in
+        // slot order, not newest-first like loggedMeals.
         for (final m in _fuenfAbendessen) {
           store.addResultToDailyTotal(m, slot: MealSlot.dinner);
         }
@@ -149,7 +143,7 @@ void main() {
               kcal: 610, protein: '38 g', carbs: '70 g', fat: '20 g'),
           slot: MealSlot.lunch,
         );
-        // 12.6 + 12.6 = 25.2 -> „P 25 g": Gramm werden gerundet.
+        // 12.6 + 12.6 = 25.2 -> 25 g: grams are rounded.
         store.addResultToDailyTotal(
           _meal('Haferflocken mit Milch',
               kcal: 220, protein: '12.6 g', carbs: '25 g', fat: '6 g'),
@@ -211,9 +205,8 @@ void main() {
         'Slot-Zeile die Server-Kappung', () {
       withClock(Clock.fixed(_heute), () {
         final store = _store();
-        // Schlimmster realistischer Fall: alle vier Slots belegt, mehr
-        // Eintraege als `maxFoods`, Namen ueber der 40-Zeichen-Grenze,
-        // vierstellige kcal.
+        // Worst realistic case: all four slots filled, more entries than
+        // `maxFoods`, over-long names, four-digit kcal.
         const langerName =
             'Überbackene Süßkartoffel-Gnocchi mit Gorgonzola und Rucola';
         for (final slot in MealSlot.values) {
@@ -227,7 +220,7 @@ void main() {
         }
 
         final ctx = store.coachContext;
-        // Genau das, was der Server nach der Kappung behaelt.
+        // Exactly what the server keeps after truncation.
         final behalten = ctx.substring(
             0, ctx.length.clamp(0, kCoachContextCapChars));
         final slotStart = ctx.indexOf(_slotPrefix);
@@ -245,9 +238,8 @@ void main() {
     });
 
     test('der Cap-Spiegel im Store stimmt mit guardrails.ts ueberein', () {
-      // Der Store kappt nicht selbst, er dokumentiert nur die Server-Grenze —
-      // ein veralteter Spiegel (frueher stand hier 600) wuerde die
-      // Laengen-Tests oben wertlos machen.
+      // The store only mirrors the server limit; a stale mirror would make the
+      // length tests above worthless.
       final source =
           File('supabase/functions/coach-chat/guardrails.ts').readAsStringSync();
       final match = RegExp(r'MAX_USER_CONTEXT_CHARS\s*=\s*(\d+)').firstMatch(source);

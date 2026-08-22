@@ -1,29 +1,20 @@
--- Least-Privilege-Härtung der Chat-Session-RPCs (Audit 2026-06-09).
--- Rein additiv + idempotent. Behebt:
+-- Least-privilege hardening of the chat session RPCs (Audit 2026-06-09),
+-- additive and idempotent. Fixes:
 --
---  MEDIUM (2026-06-09): ensure_default_chat_session(uuid) war live für PUBLIC
---    (und damit anon) ausführbar UND akzeptierte ein beliebiges p_user_id,
---    dessen coalesce(p_user_id, auth.uid())-Pfad den null-Guard umging. Folge:
---    ein unauthentifizierter Aufrufer mit dem öffentlichen anon-Key konnte über
---    den SECURITY-DEFINER-INSERT eine chat_sessions-Zeile in einem FREMDEN
---    Account anlegen (RLS-Bypass) bzw. eine fremde Session-UUID zurückbekommen
---    und den FK auf auth.users als User-Existenz-/UUID-Oracle nutzen.
+--  MEDIUM: ensure_default_chat_session(uuid) was PUBLIC-executable and took
+--    any p_user_id, whose coalesce path bypassed the null guard, so an anon
+--    caller could insert a chat_sessions row into a foreign account.
 --
---  LOW (2026-06-09): 5 weitere Chat-RPCs (create/delete/rename/list_chat_session*,
---    get_chat_quota_today) trugen residual PUBLIC EXECUTE. Ursache:
---    20260517220000_security_hardening.sql revoked EXECUTE nur von anon (Z.13)
---    und authenticated (Z.23), NIE von public — anon erbte EXECUTE daher über
---    PUBLIC. Heute harmlos (alle nutzen auth.uid() direkt), aber Least-Privilege-
---    Verstoß und fragil. Konsistent zu claim_chat_quota/touch_chat_session/
---    delete_account, die genau diesen expliziten public-Revoke bereits haben.
+--  LOW: 5 further chat RPCs kept residual PUBLIC EXECUTE, because
+--    20260517220000_security_hardening.sql revoked only from anon and
+--    authenticated.
 --
--- Bewusst NICHT geändert: touch_chat_session/claim_chat_quota erhalten KEINEN
--- in-function auth.uid()-Filter. Sie laufen ausschließlich über service_role
--- (auth.uid() = null); ein harter Filter würde den Edge-Function-Pfad brechen.
--- Ihre Absicherung ist (live verifiziert) der service_role-only-Grant.
+-- Deliberately unchanged: touch_chat_session/claim_chat_quota get NO
+-- in-function auth.uid() filter. They run only via service_role, where a
+-- filter would break the edge-function path; the grant is their safeguard.
 
 -- ---------------------------------------------------------------------------
--- 1) PUBLIC/anon EXECUTE entziehen; authenticated/service_role explizit behalten
+-- 1) Revoke PUBLIC/anon EXECUTE; keep authenticated/service_role explicitly
 -- ---------------------------------------------------------------------------
 revoke execute on function public.ensure_default_chat_session(uuid) from public, anon;
 revoke execute on function public.create_chat_session(text)         from public, anon;
@@ -40,11 +31,8 @@ grant execute on function public.list_chat_sessions()              to authentica
 grant execute on function public.get_chat_quota_today(integer)     to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 2) In-Function-Guard für ensure_default_chat_session: ein eingeloggter Client
---    (auth.uid() gesetzt) darf p_user_id NICHT auf einen fremden User zeigen
---    lassen. service_role hat auth.uid() = null und darf p_user_id frei setzen
---    (Edge-Function-Pfad, ruft mit dem service_role-Key + p_user_id). Der
---    App-Client ruft die RPC ohnehin ohne Parameter auf -> auth.uid().
+-- 2) In-function guard: a logged-in client must not point p_user_id at a
+--    foreign user. service_role has auth.uid() = null and may set it freely.
 -- ---------------------------------------------------------------------------
 create or replace function public.ensure_default_chat_session(
   p_user_id uuid default null
@@ -85,7 +73,6 @@ begin
 end;
 $$;
 
--- create or replace bewahrt zwar die bestehende ACL, aber zur Sicherheit hier
--- nochmal deterministisch festziehen (idempotent).
+-- create or replace preserves the ACL, but pin it down anyway (idempotent).
 revoke execute on function public.ensure_default_chat_session(uuid) from public, anon;
 grant execute on function public.ensure_default_chat_session(uuid) to authenticated, service_role;

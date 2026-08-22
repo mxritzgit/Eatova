@@ -9,17 +9,14 @@ import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'today_texts.dart';
 
-/// Die Mahlzeiten-Karte: vier feste Slot-Zeilen statt einer Liste geloggter
-/// Eintraege.
+/// The meals card: four fixed slot rows instead of a list of logged entries.
 ///
-/// Bewusst anders als der Verlauf im Food-Tab: dort geht es um einzelne
-/// Mahlzeiten (bearbeiten, loeschen), hier um die Frage „welcher Teil meines
-/// Tages steht noch offen?". Ein leerer Slot ist deshalb eine ZEILE, keine
-/// Leerstelle — sonst waere genau die Auskunft weg, um die es geht.
+/// Unlike the food tab history, this answers "which part of my day is still
+/// open?", so an empty slot is a ROW, not a gap.
 class TodayMealsCard extends StatelessWidget {
   const TodayMealsCard({super.key, required this.meals, this.onOpenSlot});
 
-  /// Nur die Mahlzeiten des gewaehlten Tages.
+  /// Only the meals of the selected day.
   final List<LoggedMeal> meals;
 
   final ValueChanged<MealSlot>? onOpenSlot;
@@ -34,10 +31,9 @@ class TodayMealsCard extends StatelessWidget {
           for (final slot in MealSlot.values)
             TodayMealRow(
               slot: slot,
-              // Zuordnung ueber LoggedMeal.slot (logged_meal.dart:60-65):
-              // ein `forcedSlot` gewinnt dort vor der Uhrzeit-Heuristik. Selbst
-              // nach der Uhrzeit zu bucketen wuerde jede manuelle Slot-Wahl
-              // des Nutzers stillschweigend ueberschreiben.
+              // Bucketed via LoggedMeal.slot (logged_meal.dart:60-65), where a
+              // `forcedSlot` beats the time-of-day heuristic. Bucketing by
+              // time here would silently override the user's slot choice.
               meals: meals
                   .where((meal) => meal.slot == slot)
                   .toList(growable: false),
@@ -50,7 +46,7 @@ class TodayMealsCard extends StatelessWidget {
   }
 }
 
-/// Eine Slot-Zeile: Avatar, Name, Untertitel, kcal-Summe.
+/// One slot row: avatar, name, subtitle, kcal sum.
 class TodayMealRow extends StatelessWidget {
   const TodayMealRow({
     super.key,
@@ -74,9 +70,8 @@ class TodayMealRow extends StatelessWidget {
       (summe, meal) => summe + meal.result.caloriesKcal,
     );
 
-    // Material(transparent) unter dem InkWell: die Vorlage setzt das InkWell
-    // direkt in die Karte, dort liegt die Tipp-Welle UNTER der Kartenflaeche
-    // und ist unsichtbar — der Tap wirkt dann tot.
+    // Material(transparent) under the InkWell: placed directly in the card,
+    // the ripple would sit below the card surface and the tap would look dead.
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -141,18 +136,15 @@ class TodayMealRow extends StatelessWidget {
   }
 }
 
-/// Die Schritte-Karte unter dem Kalorien-Hero: Tagesstand, Fortschritt zum
-/// Schrittziel und die daraus geschaetzten kcal — die Rechnung hinter der
-/// VERBRANNT-Kachel, an einer Stelle sichtbar gemacht (Nutzer-Wunsch
-/// 2026-08-22).
+/// The steps card under the calorie hero: daily count, progress towards the
+/// step goal and the kcal estimated from it — the maths behind the burned
+/// tile, made visible in one place.
 ///
-/// Gleiche Anatomie wie eine [TodayMealRow] (Kachel links, Titel + Untertitel,
-/// Zahl + Einheit rechts), darunter ein Balken wie in [MacroBar] — damit die
-/// Karte als Teil derselben Familie gelesen wird und nicht als Fremdkoerper.
+/// Same anatomy as a [TodayMealRow] plus a [MacroBar]-style bar, so the card
+/// reads as part of the same family.
 ///
-/// Die Schale laesst die Karte ganz weg, wenn es keine Schrittquelle gibt
-/// (`TodayScreen.steps == null`): ohne Health-Anbindung stuende hier sonst
-/// jeden Tag „0 / 8.000" — eine Aussage ueber Daten, die es nicht gibt.
+/// The shell omits the card entirely without a step source
+/// (`TodayScreen.steps == null`), rather than claiming "0 / 8,000" every day.
 class TodayStepsCard extends StatelessWidget {
   const TodayStepsCard({
     super.key,
@@ -163,11 +155,11 @@ class TodayStepsCard extends StatelessWidget {
 
   final int steps;
 
-  /// `UserProfile.dailyStepsGoal` (Ziele-Seite, min. 1000).
+  /// `UserProfile.dailyStepsGoal` (goals page, min. 1000).
   final int goal;
 
-  /// Die aus [steps] geschaetzten kcal (HomeStore.burnedKcalForFoodDate).
-  /// 0 heisst „keine Aussage" — der Teil des Untertitels entfaellt dann.
+  /// The kcal estimated from [steps] (HomeStore.burnedKcalForFoodDate).
+  /// 0 means "no statement" and drops that part of the subtitle.
   final int burnedKcal;
 
   @override
@@ -181,7 +173,7 @@ class TodayStepsCard extends StatelessWidget {
     final pct = ziel <= 0 ? 0.0 : (schritte / ziel).clamp(0.0, 1.0);
     final erreicht = ziel > 0 && schritte >= ziel;
 
-    // „≈ 261 kcal verbrannt · Ziel 8.000" bzw. „… · Ziel erreicht".
+    // "~261 kcal burned · goal 8,000" or "… · goal reached".
     final untertitel = <String>[
       if (burnedKcal > 0)
         l10n.todayStepsBurned(formatThousands(burnedKcal, locale)),
@@ -199,9 +191,9 @@ class TodayStepsCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              // Kachel statt Buchstaben-Avatar: Schritte sind kein Slot.
-              // 14 wie das Profil-Badge der Kopfzeile; Lime-Ton, damit sie an
-              // die VERBRANNT-Kachel im Hero anschliesst.
+              // Tile instead of a letter avatar: steps are not a slot. Radius
+              // 14 like the header profile badge, lime to match the burned
+              // tile in the hero.
               Container(
                 width: 40,
                 height: 40,
@@ -265,8 +257,8 @@ class TodayStepsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Derselbe Balken wie [MacroBar] (Hoehe, Radius, Animation), nur
-          // ohne die Label-/Wert-Spalten — die stehen hier schon darueber.
+          // Same bar as [MacroBar] (height, radius, animation) without the
+          // label/value columns — those are already above.
           Semantics(
             label: l10n.todaySemanticsStepsProgress,
             value: l10n.todaySemanticsStepsProgressValue(
@@ -298,7 +290,7 @@ class TodayStepsCard extends StatelessWidget {
   }
 }
 
-/// Das Banner zum KI-Coach — mit einem konkreten Teaser aus den Restmakros.
+/// The AI coach banner, with a concrete teaser from the remaining macros.
 class TodayCoachBanner extends StatelessWidget {
   const TodayCoachBanner({super.key, required this.teaser, this.onTap});
 
@@ -314,9 +306,8 @@ class TodayCoachBanner extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: t.surf2,
-        // 24 wie [AppCard] (und wie die Vorlage): das Banner steht in derselben
-        // Spalte wie die Makro- und Mahlzeiten-Karten und muss deren Ecken
-        // treffen — rCard (22) waere hier der sichtbare Ausreisser.
+        // 24 like [AppCard]: the banner shares a column with the macro and
+        // meal cards and must match their corners; rCard (22) would stand out.
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: t.line),
       ),
@@ -341,10 +332,9 @@ class TodayCoachBanner extends StatelessWidget {
               children: <Widget>[
                 Text(l10n.todayCoachEyebrow, style: AppType.eyebrow(t.ink2)),
                 const SizedBox(height: 6),
-                // Abweichung von der Vorlage (SizedBox(width: 230)): eine feste
-                // Textbreite bricht bei grosser Systemschrift. Die Spalte gibt
-                // dem Text ohnehin die Kartenbreite, der Kreis oben rechts
-                // liegt hinter dem Text und stoert ihn nicht.
+                // No fixed text width: it breaks at large system font sizes.
+                // The column already gives the text the card width, and the
+                // circle top right sits behind it.
                 Text(
                   teaser,
                   style: AppType.display(
@@ -403,9 +393,8 @@ class TodayCoachBanner extends StatelessWidget {
   }
 }
 
-/// Der Tag wird gerade nachgeladen — Spinner statt einer faelschlich leeren
-/// Mahlzeiten-Karte. Text wortgleich zum Food-Tab
-/// (meal_analysis_screen.dart:965).
+/// The day is still loading — spinner instead of a falsely empty meals card.
+/// Text identical to the food tab (meal_analysis_screen.dart:965).
 class TodayDayLoadingCard extends StatelessWidget {
   const TodayDayLoadingCard({super.key});
 

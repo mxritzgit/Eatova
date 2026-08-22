@@ -14,11 +14,10 @@ import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
-// Seit meal_analyzer.dart explizite .timeout(...) auf Request-Abschluss und
-// Body-Lesen traegt, kommt ein haengender LLM-Provider als TimeoutException
-// beim Analyse-Sheet an. Der Nutzer soll dann eine ehrliche "dauert zu
-// lange"-Meldung sehen — nicht die generische "Prüfe Internet, Supabase und
-// OpenRouter"-Meldung, die eine kaputte Verbindung unterstellt.
+// meal_analyzer.dart puts explicit .timeout(...) on request completion and
+// body read, so a hanging LLM provider reaches the analysis sheet as a
+// TimeoutException. The user must then see an honest "takes too long"
+// message, not the generic one implying a broken connection.
 
 const String _fallback =
     'Analyse fehlgeschlagen. Prüfe Internet, Supabase und OpenRouter.';
@@ -35,7 +34,7 @@ Widget _sheetHost(
 }) {
   return MaterialApp(
     theme: buildEatovaTheme(Brightness.dark),
-    // MealAnalysisSheet liest seit der i18n-Migration context.l10n.
+    // MealAnalysisSheet reads context.l10n since the i18n migration.
     locale: const Locale('de'),
     supportedLocales: const [Locale('de'), Locale('en')],
     localizationsDelegates: const [
@@ -57,9 +56,8 @@ Widget _sheetHost(
   );
 }
 
-/// Ein Foto-KI-Ergebnis ohne Kalorienangabe. Ueber Suche und Barcode kommt so
-/// etwas seit Welle 2 nicht mehr an (dort wirft der Service), der Foto-Pfad
-/// laeuft aber an diesem Filter vorbei.
+/// A photo-AI result without calories. Search and barcode no longer deliver
+/// this (their service throws), but the photo path bypasses that filter.
 const _ohneKalorien = MealAnalysisResult(
   mealName: 'Unklarer Teller',
   caloriesKcal: 0,
@@ -73,7 +71,7 @@ const _ohneKalorien = MealAnalysisResult(
   sourceLabel: 'Foto-KI',
 );
 
-/// Dasselbe Ergebnis, nur mit Kalorien — die Gegenprobe zum Guard.
+/// The same result with calories — the counter-check for the guard.
 const _mitKalorien = MealAnalysisResult(
   mealName: 'Klarer Teller',
   caloriesKcal: 420,
@@ -107,9 +105,8 @@ void main() {
       );
     });
 
-    // B7: Der Service WEISS seit Welle 2, dass das Produkt existiert, aber
-    // keine loggbaren Naehrwerte hat. „nicht gefunden" waere dann gelogen —
-    // der Nutzer haelt das Produkt in der Hand.
+    // B7: the service knows the product exists but carries no loggable
+    // nutrition, so "not found" would be a lie — the user is holding it.
     test('ProductWithoutNutritionException -> die Meldung des Fehlers selbst',
         () {
       const ohneAngabe = ProductWithoutNutritionException(
@@ -174,9 +171,9 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  // W2-08s letzte Bremse: `_addToDaily` rief `onAdd` bedingungslos. Suche und
-  // Barcode liefern nichts Unloggbares mehr, der Foto-KI-Pfad laeuft aber an
-  // diesem Filter vorbei.
+  // W2-08's last brake: `_addToDaily` called `onAdd` unconditionally. Search
+  // and barcode deliver nothing unloggable any more, but the photo-AI path
+  // bypasses that filter.
   group('Guard vor onAdd', () {
     testWidgets('0 kcal wird nicht geloggt — und der Nutzer erfaehrt warum',
         (tester) async {
@@ -197,13 +194,13 @@ void main() {
       await tester.pump();
 
       expect(aufrufe, 0, reason: 'nichts Unloggbares darf ins Tagebuch');
-      // Kein stiller Abbruch: es steht da, warum, und was zu tun ist.
+      // No silent abort: the reason and the next step are on screen.
       expect(
         find.textContaining('Ohne Kalorienangabe'),
         findsOneWidget,
       );
       expect(find.textContaining('Anpassen'), findsWidgets);
-      // Der Knopf bleibt bedienbar — nach dem Nachtragen soll er wirken.
+      // The button stays usable — it must work once the values are added.
       expect(find.text('Zu heute hinzugefügt'), findsNothing);
 
       await tester.pump(const Duration(seconds: 4));
@@ -244,14 +241,14 @@ void main() {
     completer.completeError(
       TimeoutException('Future not completed', const Duration(seconds: 60)),
     );
-    await tester.pump(); // Fehler verarbeiten
-    await tester.pump(); // Snack einblenden
+    await tester.pump(); // process the error
+    await tester.pump(); // show the snack
 
     expect(find.text(_timeoutText), findsOneWidget);
     expect(find.text(_fallback), findsNothing);
 
-    // Snack ablaufen lassen (kSnackError 3000 ms + Safety-Net 400 ms), damit
-    // am Testende keine Timer haengen.
+    // Let the snack expire (kSnackError 3000 ms + 400 ms safety net) so no
+    // timers are pending at the end of the test.
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
   });

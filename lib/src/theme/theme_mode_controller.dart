@@ -3,16 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Haelt den Anzeige-Modus (Hell/Dunkel/System) und persistiert ihn.
+/// Holds and persists the display mode (light/dark/system).
 ///
-/// Bewusst SharedPreferences und NICHT der verschluesselte [LocalCache] oder
-/// die Supabase-Profil-Zeile: der Modus muss schon vor dem Login greifen
-/// (Auth-Screens) und darf nicht auf einen Sync warten. Er ist eine Geraete-
-/// Einstellung, keine Konto-Eigenschaft — auf einem zweiten Geraet darf der
-/// Nutzer eine andere Wahl treffen.
+/// SharedPreferences on purpose, not the encrypted cache or the Supabase
+/// profile row: the mode must apply before login and must not wait for a
+/// sync. It is a device setting, not an account property.
 ///
-/// Default ist [ThemeMode.system] (Nutzer-Entscheid 2026-08-09): die App
-/// folgt dem Geraet, bis jemand aktiv umschaltet.
+/// Defaults to [ThemeMode.system] until someone switches explicitly.
 class ThemeModeController extends ChangeNotifier {
   ThemeModeController({ThemeMode initial = ThemeMode.system})
       : _mode = initial;
@@ -22,9 +19,8 @@ class ThemeModeController extends ChangeNotifier {
   ThemeMode _mode;
   ThemeMode get mode => _mode;
 
-  /// Liest den gespeicherten Modus. Fehler und unbekannte Werte fallen still
-  /// auf [ThemeMode.system] zurueck — ein kaputter Prefs-Eintrag darf den
-  /// Start nicht blockieren.
+  /// Reads the stored mode. Errors and unknown values fall back to
+  /// [ThemeMode.system]; a broken prefs entry must not block startup.
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -35,12 +31,12 @@ class ThemeModeController extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {
-      // Prefs nicht verfuegbar (z. B. sehr fruehe Startphase): System bleibt.
+      // Prefs unavailable (e.g. very early startup): system mode stays.
     }
   }
 
-  /// Setzt den Modus und schreibt ihn weg. Ein unveraenderter Wert loest
-  /// weder Schreibvorgang noch Rebuild aus.
+  /// Sets the mode and persists it. An unchanged value triggers neither a
+  /// write nor a rebuild.
   Future<void> setMode(ThemeMode modus) async {
     if (modus == _mode) return;
     _mode = modus;
@@ -49,11 +45,11 @@ class ThemeModeController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(storageKey, modus.name);
     } catch (_) {
-      // Nicht persistiert — die Sitzung laeuft trotzdem im gewaehlten Modus.
+      // Not persisted — the session still runs in the chosen mode.
     }
   }
 
-  /// Nur fuer Tests und synchrone Vorbelegung: setzt ohne zu persistieren.
+  /// Tests and synchronous priming only: sets without persisting.
   @visibleForTesting
   void setModeSync(ThemeMode modus) {
     if (modus == _mode) return;
@@ -61,7 +57,7 @@ class ThemeModeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Loest [ThemeMode.system] gegen die Plattform-Helligkeit auf.
+  /// Resolves [ThemeMode.system] against the platform brightness.
   bool isDark(Brightness plattform) => switch (_mode) {
         ThemeMode.dark => true,
         ThemeMode.light => false,
@@ -77,12 +73,10 @@ class ThemeModeController extends ChangeNotifier {
   }
 }
 
-/// Reicht den [ThemeModeController] an beliebig tiefe Screens durch (der
-/// Schalter sitzt in den Einstellungen, gesetzt wird er ganz oben).
+/// Passes the [ThemeModeController] down to arbitrarily deep screens.
 ///
-/// [InheritedNotifier], damit ein Moduswechsel die Hoerer automatisch neu
-/// baut — der Schalter zeigt so immer den echten Zustand, auch wenn ihn
-/// jemand anders umlegt.
+/// An [InheritedNotifier] so a mode change rebuilds listeners automatically
+/// and the switch always shows the real state.
 class ThemeModeScope extends InheritedNotifier<ThemeModeController> {
   const ThemeModeScope({
     super.key,
@@ -90,9 +84,8 @@ class ThemeModeScope extends InheritedNotifier<ThemeModeController> {
     required super.child,
   }) : super(notifier: controller);
 
-  /// Der Controller, oder null ausserhalb der App-Schale (Previews, Tests,
-  /// die nur ein Einzel-Widget pumpen). Aufrufer sollen dann den Schalter
-  /// ausblenden statt zu werfen.
+  /// The controller, or null outside the app shell (previews, single-widget
+  /// tests). Callers should hide the switch instead of throwing.
   static ThemeModeController? maybeOf(BuildContext context) => context
       .dependOnInheritedWidgetOfExactType<ThemeModeScope>()
       ?.notifier;

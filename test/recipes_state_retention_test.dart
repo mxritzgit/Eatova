@@ -1,21 +1,11 @@
-// D6 (Review 2026-08-08) — Rezepte-Haelfte: Der Rezepte-Tab wirft seinen
-// Zustand weg. Der Review nennt drei Verluste: Suchtext, Kategorie-Filter und
-// Scrollposition.
+// D6 (review 2026-08-08), recipes half: the tab loses search text, category
+// filter and scroll position. Two independent causes, kept apart here:
 //
-// Zwei unabhaengige Ursachen, die diese Suite auseinanderhaelt:
-//
-// 1. RECYCLING — betrifft NUR das Suchfeld und ist ohne jeden Tab-Wechsel
-//    reproduzierbar: der Screen ist eine lazy `ListView`, das Suchfeld liegt
-//    darin an Position 3. Scrollt der User weit genug nach unten, raeumt die
-//    Liste das Element ab; ohne eigenen Controller stirbt der Text mit dem
-//    `EditableText`-State. Der Filter (`query`) im `State` bleibt aber aktiv →
-//    leeres Feld, trotzdem gefilterte Liste. Echter Bug, haengt an KEINER
-//    fremden Datei.
-//
-// 2. UNMOUNT beim Tab-Wechsel — `eatova_home_page.buildSelectedScreen()` baut
-//    per `switch` genau einen Teilbaum. Agent W3-01 ersetzt das durch einen
-//    `IndexedStack`. Da die Datei fremd ist, bildet die Suite beide Varianten
-//    im Harness `_TabHarness` nach und misst, was jeweils ueberlebt.
+// 1. RECYCLING — search field only, no tab switch needed: the screen is a lazy
+//    `ListView`, so scrolling far enough recycles the field while `query` in
+//    the state stays active — empty field, filtered list.
+// 2. UNMOUNT on tab switch — `buildSelectedScreen()` builds one subtree via
+//    `switch`. The harness models that and the `IndexedStack` target.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -42,10 +32,8 @@ Widget _recipesScreen() => RecipesScreen(
       remainingMacros: _remaining,
     );
 
-/// Harness fuer den Tab-Wechsel. Bildet die Home-Schale nach, ohne deren
-/// Store-/Sync-Verdrahtung. [keepAlive] schaltet zwischen dem heutigen Stand
-/// (`switch` → Teilbaum wird unmounted) und dem Ziel von Agent W3-01
-/// (`IndexedStack` → Teilbaum bleibt gemountet) um.
+/// Tab-switch harness modelling the home shell without its store wiring.
+/// [keepAlive] switches between `switch` (unmounts) and `IndexedStack` (keeps).
 class _TabHarness extends StatefulWidget {
   const _TabHarness({required this.keepAlive});
 
@@ -113,15 +101,15 @@ class _TabHarnessState extends State<_TabHarness> {
 }
 
 void _pinViewport(WidgetTester tester) {
-  // Fester Viewport (iPhone 14 portrait). Im 800x600-Default ist die Liste zu
-  // kurz, dann scrollt das Suchfeld gar nicht erst aus dem Cache heraus.
+  // Fixed viewport: at the 800x600 default the list is too short for the
+  // search field to scroll out of the cache at all.
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// Scrollposition der Haupt-Liste (die inneren Carousels sind horizontal).
+/// Scroll position of the main list (the inner carousels are horizontal).
 ScrollPosition _listPosition(WidgetTester tester) {
   final scrollable = find.descendant(
     of: find.byKey(const ValueKey('screen-recipes')),
@@ -140,33 +128,25 @@ String _searchText(WidgetTester tester) => tester
     .controller
     .text;
 
-/// Name des aktiven Kategorie-Chips.
-///
-/// Fragt seit dem Design-Refactor 2026-08-09 direkt `FilterChipPill.selected`
-/// ab. Vorher suchte der Helfer ein `AnimatedContainer` mit limefarbener
-/// `decoration.color` — beides gibt es in der neuen Chip-Pille nicht mehr
-/// (sie faerbt mit `t.forest` und ohne Animation), der Helfer waere still auf
-/// `<keiner>` zurueckgefallen. Gleiche Zusicherung, farb- und tokenfrei
-/// abgelesen.
+/// Name of the active category chip, read from `FilterChipPill.selected`;
+/// colour-based detection would silently fall back to none.
 String _activeFilter(WidgetTester tester) {
   for (final filter in recipeFilters) {
     final chip = find.byKey(ValueKey('recipe-filter-$filter'));
-    if (chip.evaluate().isEmpty) continue; // Chip-Leiste ist lazy.
+    if (chip.evaluate().isEmpty) continue; // the chip row is lazy
     if (tester.widget<FilterChipPill>(chip).selected) return filter;
   }
   return '<keiner>';
 }
 
-/// Tippt den Suchtext, setzt den Kategorie-Filter und scrollt nach unten.
-/// Liefert den erreichten Scroll-Offset zurueck.
+/// Types the search text, sets the filter and scrolls down; returns the offset.
 Future<double> _setUpState(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const ValueKey('recipes-search-input')),
     'reis',
   );
   await tester.pumpAndSettle();
-  // „High Protein" ist Chip 2 und liegt im Test-Font noch vollstaendig im
-  // Viewport — weiter hinten liegende Chips sind horizontal abgeschnitten.
+  // Chip 2 is the last one fully inside the viewport in the test font.
   await tester.tap(find.byKey(const ValueKey('recipe-filter-High Protein')));
   await tester.pumpAndSettle();
 
@@ -209,10 +189,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(_searchText(tester), 'reis');
 
-    // Ziehen statt jumpTo: die Liste nimmt dem Feld beim Ziehen den Fokus
-    // (`keyboardDismissBehavior: onDrag`). Genau das ist die Bedingung, unter
-    // der die Liste das Feld ueberhaupt abraeumen darf — ein fokussiertes
-    // EditableText haelt sich per AutomaticKeepAlive selbst am Leben.
+    // Drag, not jumpTo: dragging unfocuses the field, and only an unfocused
+    // EditableText may be recycled.
     await tester.drag(
       find.byKey(const ValueKey('screen-recipes')),
       const Offset(0, -200),
@@ -291,10 +269,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('harness-tab-1')));
     await tester.pumpAndSettle();
 
-    // 1. Scrollposition — muss VOR dem Hochscrollen geprueft werden.
+    // 1. Scroll position — must be checked BEFORE scrolling back up.
     expect(_listPosition(tester).pixels, offset);
 
-    // 2. Suchtext + Filter: dafuer den Kopf der Liste wieder ins Bild holen.
+    // 2. Search text and filter: bring the list head back into view.
     _listPosition(tester).jumpTo(0);
     await tester.pumpAndSettle();
     expect(_searchText(tester), 'reis');
@@ -317,12 +295,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('harness-tab-1')));
     await tester.pumpAndSettle();
 
-    // Die Scrollposition haengt am PageStorage der Route und ueberlebt auch
-    // das Unmounten des Teilbaums.
+    // The scroll position lives in the route's PageStorage and survives the
+    // unmount.
     expect(_listPosition(tester).pixels, offset);
 
-    // Suchtext + Filter leben dagegen im State des Screens und sind mit ihm
-    // weg — das kann nur W3-01 (IndexedStack) retten, nicht diese Datei.
+    // Search text and filter live in the screen state and go with it; only
+    // the IndexedStack change can save them.
     _listPosition(tester).jumpTo(0);
     await tester.pumpAndSettle();
     expect(_searchText(tester), '');

@@ -28,9 +28,8 @@ class DeviceMealPhotoInput implements MealPhotoInput {
 
   @override
   Future<MealPhotoSelection?> pick(ImageSource source) async {
-    // imageQuality/maxWidth sind NICHT optional: ohne sie reicht iOS die
-    // HEIC-Originaldatei durch, die package:image nicht dekodieren kann —
-    // compressMealPhoto gaebe sie dann ungescrubbt zurueck (Review C4).
+    // imageQuality/maxWidth are NOT optional: without them iOS passes through
+    // the original HEIC, which package:image cannot decode (C4).
     final image = await _picker.pickImage(
       source: source,
       imageQuality: 82,
@@ -46,19 +45,17 @@ class DeviceMealPhotoInput implements MealPhotoInput {
     } catch (_) {
       previewBytes = null;
     } finally {
-      // Datenschutz (Review 2026-08-19): ab hier liegen die Bytes im Speicher,
-      // die Cache-Kopie des Pickers wird nicht mehr gelesen — auch nicht auf
-      // dem Scrub-Fehlerpfad, der das Bild ohnehin verwirft. Ohne das Loeschen
-      // ueberdauerten Essensfotos im App-Cache jede Kontoloeschung. Das
-      // Original in der Galerie ist nicht betroffen, s.
-      // [deleteMealPhotoTempFile].
+      // Privacy: the bytes are in memory, the picker's cache copy is never
+      // read again — also on the scrub error path. Without the delete, meal
+      // photos in the app cache outlived account deletion. The gallery
+      // original is untouched, see [deleteMealPhotoTempFile].
       await deleteMealPhotoTempFile(image.path);
     }
 
     return MealPhotoSelection(
       request: MealAnalysisRequest(
-        // Nur ein Etikett fuer die Analyse-Anfrage: den Pfad liest niemand
-        // mehr, die Datei dahinter ist oben bereits geloescht.
+        // Just a label for the request: nobody reads the path, and the file
+        // behind it is already deleted above.
         imageId: image.path,
         imageBytes: previewBytes,
       ),
@@ -66,17 +63,13 @@ class DeviceMealPhotoInput implements MealPhotoInput {
     );
   }
 
-  /// EXIF leeren, bevor die Bytes das Geraet verlassen — Review C4.
+  /// Clears EXIF before the bytes leave the device (C4). These bytes feed
+  /// `MealAnalysisRequest.imageBytes` and reach the third-party model, so
+  /// without the scrub GPS, capture time and device id travel along.
   ///
-  /// Dieser Pfad ist der dritte von vieren (Kamera-Sheet und Coach-Chat
-  /// scrubben bereits). Er speist `MealAnalysisRequest.imageBytes`, geht also
-  /// direkt an die Edge Function und von dort an das Drittanbieter-Modell in
-  /// den USA. Ohne den Scrub reisen Breitengrad, Laengengrad, Hoehe,
-  /// Aufnahmezeit, Geraetemodell und Seriennummer mit.
-  ///
-  /// `compute()` wie im Kamera-Sheet: Dekodieren + Re-Encoden blockiert sonst
-  /// den UI-Isolate. Scheitert der Isolate-Start, wird synchron komprimiert —
-  /// lieber ein kurzer Ruckler als ein Upload mit Koordinaten.
+  /// `compute()` keeps decode + re-encode off the UI isolate; if the isolate
+  /// fails to start it compresses synchronously — a stutter beats an upload
+  /// with coordinates.
   Future<Uint8List> _scrub(Uint8List raw) async {
     try {
       return await compute(compressMealPhoto, raw);

@@ -1,13 +1,12 @@
 // Eatova Coach-Chat Edge Function - Entrypoint.
 //
-// Bewusst nur die Deno.serve-Verdrahtung: die komplette Request-Logik
-// (3-Schichten-Safety, Rate-Limits, Quota, Persistenz) liegt in handler.ts,
-// damit sie in handler_test.ts end-to-end getestet werden kann, ohne einen
-// Server zu starten. Doku zu den Layern steht im Kopf von handler.ts.
+// Only the Deno.serve wiring: all request logic (3-layer safety, rate
+// limits, quota, persistence) lives in handler.ts so handler_test.ts can
+// drive it end-to-end without starting a server. Layer docs: handler.ts.
 //
-//   handler.ts     - handleRequest() + alle HTTP-/Supabase-/LLM-Helfer
-//   guardrails.ts  - Layer-2-Kategorien und -Weichen (rein, testbar)
-//   prefilter.ts   - Layer-1-Blocklist (rein, testbar)
+//   handler.ts     - handleRequest() + all HTTP/Supabase/LLM helpers
+//   guardrails.ts  - layer-2 categories and branches (pure, testable)
+//   prefilter.ts   - layer-1 blocklist (pure, testable)
 
 import { handleRequest } from "./handler.ts";
 

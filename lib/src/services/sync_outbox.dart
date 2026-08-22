@@ -6,91 +6,65 @@ import '../models/logged_meal.dart';
 import '../models/user_profile.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
 
-/// DATA-7 Write-Outbox: fehlgeschlagene Sync-Writes werden NICHT mehr
-/// zurueckgerollt, sondern als [SyncOp] persistiert (LocalCache) und spaeter
-/// idempotent nachgespielt (Boot, Lifecycle-Flush, naechster Erfolg,
-/// Backoff-Timer). Dieses File enthaelt NUR das serialisierbare Op-Modell und
-/// die (reine, unit-testbare) Einreih-Logik — Replay + Trigger leben im
-/// HomeStore, die Persistenz im LocalCache.
+/// DATA-7 write outbox: failed sync writes are persisted as a [SyncOp]
+/// instead of rolled back, then replayed idempotently. This file holds only
+/// the serializable op model and the pure enqueue logic — replay lives in
+/// HomeStore, persistence in LocalCache.
 
-/// Harte Obergrenze der persistierten Outbox.
+/// Hard cap of the persisted outbox.
 ///
-/// Warum ueberhaupt ein Cap: im systemischen Fehlerfall (z.B. eine neue
-/// Check-Constraint lehnt JEDEN logged_meals-Write ab) traegt jede weitere
-/// Nutzer-Aktion eine eigene Entitaet (frische Meal-UUID) — die Koaleszenz
-/// greift dort nicht, es haengt sich also pro Aktion eine volle Payload-Op an,
-/// und der SharedPreferences-Blob waechst unbegrenzt (JSON-Encode/Decode bei
-/// JEDEM Write, irgendwann ein ANR bzw. ein nicht mehr lesbarer Cache).
+/// Under a systemic failure (e.g. a check constraint rejecting every write)
+/// each action queues its own entity, coalescing never kicks in, and the
+/// SharedPreferences blob grows without bound.
 ///
-/// Warum 500: eine Meal-Op wiegt ~0,3–1 kB JSON, 500 Ops sind also ein
-/// Blob im niedrigen dreistelligen kB-Bereich — das schreibt sich noch in
-/// Millisekunden. Gleichzeitig sind 500 pendende Writes weit mehr, als ein
-/// Nutzer in einer realistischen Offline-Phase erzeugt (ein Vielfaches von
-/// „drei Wochen Urlaub ohne Netz, fuenf Mahlzeiten am Tag"). Wer den Cap
-/// erreicht, steckt nicht in einer Offline-Phase, sondern in einem
-/// systemischen Fehler — und dafuer ist der Cap die Notbremse.
+/// Why 500: a meal op is ~0.3–1 kB JSON, so the blob stays in the low
+/// hundreds of kB and still writes in milliseconds — while 500 pending
+/// writes far exceed any realistic offline phase. Hitting the cap means a
+/// systemic failure, not offline use.
 const int kOutboxMaxOps = 500;
 
-/// Maximale Zustellversuche pro Op, bevor sie endgueltig verworfen wird.
+/// Max delivery attempts per op before it is dropped for good.
 ///
-/// Zaehlt NUR Versuche, die der Server aktiv abgelehnt hat (5xx, 429, unklare
-/// Codes) — Netzfehler sind gratis (siehe classifyOutboxFailure), sonst wuerde
-/// ein Offline-Wochenende das Budget verbrennen und gueltige Nutzerdaten
-/// vernichten. Loesch-Ops ([SyncOp.isDelete]) laufen NICHT hier hinein,
-/// sondern in ihr eigenes, viel groesseres [kOutboxDeleteMaxAttempts]: ihr
-/// Verwurf laesst die geloeschte Zeile beim naechsten Boot vom Server
-/// zurueckkehren.
+/// Counts only active server rejections (5xx, 429, unclear codes); network
+/// errors are free (classifyOutboxFailure), otherwise an offline weekend
+/// would burn the budget and destroy valid user data. Deletes use the much
+/// larger [kOutboxDeleteMaxAttempts] instead.
 ///
-/// Warum 8: der Backoff laeuft 30s → 1m → 2m → 4m (Cap). Acht gezaehlte
-/// Versuche ueberdauern damit locker eine halbe Stunde Server-Ausfall bzw.
-/// (weil Boot und Lifecycle-Flush ebenfalls zaehlen) mehrere App-Starts —
-/// genug, dass ein echter Ausfall sich erholt, aber klein genug, dass eine
-/// wirklich unschreibbare Op nicht Monate lang Akku und Traffic frisst.
+/// Why 8: backoff runs 30s → 1m → 2m → 4m (cap), so eight counted attempts
+/// outlive a half-hour outage and several app starts, yet a truly unwritable
+/// op does not burn battery and traffic for months.
 const int kOutboxMaxAttempts = 8;
 
-/// Maximale Zustellversuche einer LOESCH-Op ([SyncOp.isDelete]).
+/// Max delivery attempts for a DELETE op ([SyncOp.isDelete]).
 ///
-/// Deletes bekommen ein eigenes Budget, weil ihr Verwurf teurer ist als der
-/// eines Writes: der naechste Kaltstart HEILT einen verworfenen Write nicht,
-/// aber er macht einen verworfenen Delete aktiv rueckgaengig — die Serverzeile
-/// ueberlebt, der lokale Zustand nicht, die geloeschte 1800-kcal-Mahlzeit ist
-/// wieder da und zaehlt erneut.
+/// Deletes get their own budget because dropping one is worse than dropping a
+/// write: the next cold start does not merely fail to heal it, it undoes it —
+/// the server row survives, the local state does not, and the deleted meal is
+/// back and counts again.
 ///
-/// Warum ueberhaupt eines (und nicht „nie verwerfen"): eine Op ohne Budget ist
-/// unsterblich, und daran haengt mehr, als es zunaechst aussieht — der
-/// 4-Minuten-Retry-Timer feuert dann dauerhaft ueber alle Sessions, die Outbox
-/// wird nie leer (also nagelt `signOutCleanup` `preserveOutbox` fuer immer auf
-/// true und die Audit-M-1-Eigenschaft „PII ueberlebt den Logout nicht" ist
-/// aufgehoben), und [capOutbox] kann einen Ueberlauf aus lauter Deletes nicht
-/// mehr abbauen. Die Zielkollision „Deletes nie verwerfen" vs. „harte
-/// Obergrenze" ist damit zugunsten einer sehr langen, aber endlichen Frist
-/// entschieden — tragbar nur, weil der Store einen verworfenen Delete lokal
-/// wieder EINBLENDET und meldet (siehe `_restoreDroppedDeletes`), der Verlust
-/// also sichtbar und vom Nutzer reparierbar ist statt still.
+/// Why a budget at all: an op without one is immortal — the retry timer fires
+/// forever, the outbox never empties (so `signOutCleanup` pins
+/// `preserveOutbox` to true, breaking audit M-1), and [capOutbox] can no
+/// longer shed an all-delete overflow. Tolerable only because the store
+/// restores a dropped delete locally and reports it (`_restoreDroppedDeletes`).
 ///
-/// Warum 64 (8x das Schreib-Budget): gezaehlt werden nur aktive
-/// Server-Ablehnungen (Netzfehler sind gratis), und der Backoff steht bei 4
-/// Minuten — 64 gezaehlte Ablehnungen sind also mindestens ein halber
-/// Arbeitstag ununterbrochener Server-Ablehnung. Wirksam wird das Budget
-/// ohnehin erst zusammen mit `kOutboxDeleteMinAge` (UND-Bedingung im Store),
-/// weil Lifecycle-Churn den Zaehler sonst in Sekunden hochtreiben koennte.
+/// Why 64 (8x the write budget): only active server rejections count and the
+/// backoff sits at 4 minutes, so 64 means at least half a working day of
+/// continuous rejection. It only bites together with `kOutboxDeleteMinAge`
+/// (AND condition in the store), since lifecycle churn inflates the counter.
 const int kOutboxDeleteMaxAttempts = 64;
 
-/// Art der nachzuholenden Operation. Jede Op ist fuer sich idempotent
-/// wiederholbar (siehe Doku an den Sync-Methoden):
-///  * mealInsert/mealUpsert -> MealsSync.insertLoggedMeal ist ein Upsert auf
-///    die Client-UUID (onConflict:'id').
-///  * weightInsert -> TrackingSync.insertWeight mit Client-UUID + Upsert.
-///  * favoriteUpsert -> Upsert auf (user_id, favorite_key).
-///  * recipeUpsert -> Upsert auf (user_id, slug).
-///  * profileUpsert -> ProfileSync.save ist ein Upsert auf die User-Id.
-///  * *Delete -> Deletes sind von Natur aus idempotent (0 Zeilen beim Retry).
-/// mealInsert vs. mealUpsert: NUR ein nachgeholter Erst-Insert zaehlt beim
-/// Replay die Lifetime-Stats (+1 Mahlzeit, ggf. Streak-Tag); Update/Restore
-/// laufen als mealUpsert ohne Zaehlung — exakt wie im Online-Pfad. Die Zaehlung
-/// selbst laeuft seit Fix 3 nicht mehr im Erfolgszweig der Op, sondern ueber
-/// einen eigenen [SyncOpKind.statsIncrement]-Eintrag, den der Replay ATOMAR mit
-/// der Entfernung der Quell-Op erzeugt (s. dort).
+/// Kind of pending operation. Every op is idempotently repeatable:
+///  * mealInsert/mealUpsert -> upsert on the client UUID (onConflict:'id').
+///  * weightInsert -> upsert on the client UUID.
+///  * favoriteUpsert -> upsert on (user_id, favorite_key).
+///  * recipeUpsert -> upsert on (user_id, slug).
+///  * profileUpsert -> upsert on the user id.
+///  * *Delete -> inherently idempotent (0 rows on retry).
+/// mealInsert vs. mealUpsert: only a replayed first insert counts lifetime
+/// stats; update/restore run as mealUpsert without counting, as online. The
+/// counting itself happens via a separate [SyncOpKind.statsIncrement] entry
+/// that replay creates atomically with removing the source op.
 enum SyncOpKind {
   mealInsert,
   mealUpsert,
@@ -101,42 +75,28 @@ enum SyncOpKind {
   recipeUpsert,
   recipeDelete,
 
-  /// Luecke D: Profil/Ziele (Gewicht, kcal-Ziel, Diaet, Onboarding-Flag).
-  /// Kam als letzte Op-Familie dazu — bis dahin liefen `applySettings` und
-  /// `completeOnboarding` OHNE Netz gegen Supabase, und der naechste Boot
-  /// ueberschrieb die offline gemachte Aenderung still mit der alten
-  /// Serverzeile.
+  /// Gap D: profile/goals (weight, kcal goal, diet, onboarding flag). Without
+  /// it, an offline `applySettings`/`completeOnboarding` was silently
+  /// overwritten by the stale server row on the next boot.
   profileUpsert,
 
-  /// Zweitpruefung 2026-08-10: ein getrackter Logging-Tag
-  /// (`record_tracking_day`).
+  /// A tracked logging day (`record_tracking_day`), added 2026-08-10.
   ///
-  /// Der Streak-Tag war die letzte Nutzer-Groesse mit **null** Netzen: der RPC
-  /// lief als reines fire-and-forget aus `_recordTrackingDay`, sein Fehler
-  /// wurde geloggt und danach vergessen. Der optimistische lokale Stand hielt
-  /// nicht einmal bis zum naechsten Atemzug — 600 ms spaeter adoptierte
-  /// `_flushStatsDelta` die frische Serverzeile, die den Tag naturgemaess
-  /// nicht kennt, und `_cacheLifetimeStats` schrieb den Verlust fest. Ergebnis:
-  /// der Nutzer hat geloggt, die Mahlzeit ist angekommen, und seine Streak ist
-  /// trotzdem gerissen — ohne Hinweis und ohne irgendeine Stelle, die es je
-  /// reparieren koennte.
+  /// Previously the RPC was fire-and-forget: on failure the optimistic local
+  /// day was overwritten ~600 ms later by the fresh server row, so the streak
+  /// broke silently with nothing able to repair it.
   trackingDay,
 
-  /// Fix 3 (Review PR #40): der Lifetime-Zaehler einer NACHGEHOLTEN
-  /// zaehlenden Op (mealInsert/weightInsert) als eigener, idempotenter
-  /// Eintrag. [SyncOp.entityId] IST die Server-Request-Id
-  /// (`increment_lifetime_stats(p_request_id)`) — deterministisch aus der
-  /// Quell-UUID abgeleitet (deriveStatsRequestId), damit jede Wiederholung
-  /// (erneuter Replay, erneute Erzeugung nach Kill) dieselbe Id sendet und
-  /// der Server sie als EINEN Vorgang verbucht. Entsteht ausschliesslich im
-  /// Replay-Loop, atomar mit der Entfernung der Quell-Op (derselbe
-  /// Blob-Write) — genau das schliesst das Kill-Fenster zwischen
-  /// Delta-Persistenz und Op-Entfernung, das meals_logged dauerhaft +1
-  /// treiben konnte.
+  /// Fix 3 (PR #40): the lifetime counter of a replayed counting op as its
+  /// own idempotent entry. [SyncOp.entityId] IS the server request id
+  /// (`increment_lifetime_stats(p_request_id)`), derived deterministically
+  /// from the source UUID so every repetition books as one event. Created
+  /// only in the replay loop, atomically with removing the source op — that
+  /// closes the kill window that could push meals_logged permanently +1.
   statsIncrement,
 }
 
-/// Eine persistierbare, nachholbare Sync-Operation.
+/// A persistable, replayable sync operation.
 class SyncOp {
   SyncOp._({
     required this.kind,
@@ -144,45 +104,36 @@ class SyncOp {
     required this.payload,
     DateTime? queuedAt,
     this.attempts = 0,
-    // clock.now() statt DateTime.now(): [queuedAt] ist die eine Haelfte der
-    // Verwurfs-Frist (kOutboxMinAgeBeforeDrop / kOutboxDeleteMinAge), und die
-    // war mit der System-Uhr ueberhaupt nicht mit einer kontrollierten Uhr
-    // pruefbar. Der Rest des Stores haengt ohnehin an package:clock.
+    // clock.now(), not DateTime.now(): [queuedAt] is half the drop deadline
+    // (kOutboxMinAgeBeforeDrop / kOutboxDeleteMinAge) and must be testable.
   }) : queuedAt = queuedAt ?? clock.now();
 
   final SyncOpKind kind;
 
-  /// Roh-Schluessel der Entitaet (Meal-UUID, weight_log-UUID, favorite_key,
-  /// Rezept-Slug). Fuer Queue-Logik immer [entityKey] verwenden — der ist
-  /// ueber die Op-Familien hinweg kollisionsfrei.
+  /// Raw entity key (meal UUID, weight_log UUID, favorite_key, recipe slug).
+  /// Queue logic must use [entityKey], which is collision-free across
+  /// op families.
   final String entityId;
   final DateTime queuedAt;
   final Map<String, dynamic> payload;
 
-  /// Wie oft der Server DIESE Payload bereits aktiv abgelehnt hat. Alle
-  /// Factories starten bei 0; hochgezaehlt wird ausschliesslich im
-  /// Replay-Loop, und auch dort nur bei einem gezaehlten Verdikt
-  /// (classifyOutboxFailure) — Netzfehler sind gratis. Erreicht der Zaehler
-  /// [kOutboxMaxAttempts], wird die Op verworfen.
+  /// How often the server actively rejected THIS payload. Factories start at
+  /// 0; only the replay loop increments, and only on a counted verdict
+  /// (classifyOutboxFailure) — network errors are free. At
+  /// [kOutboxMaxAttempts] the op is dropped.
   final int attempts;
 
-  /// Kopie mit einem verbrauchten Zustellversuch. Alles andere — insbesondere
-  /// [queuedAt], die FIFO-Position der Entitaet — bleibt erhalten.
+  /// Copy with one delivery attempt spent. Everything else — notably
+  /// [queuedAt], the entity's FIFO position — is preserved.
   ///
-  /// Gilt auch fuer [isDelete]-Ops. Die zaehlten eine Zeit lang bewusst NICHT
-  /// („Deletes duerfen ewig retryen"), und genau das hat eine unsterbliche Op
-  /// erzeugt: ohne Zaehler wird sie nie verworfen, die Queue laeuft nie leer,
-  /// der Backoff-Timer feuert alle vier Minuten ueber alle Sessions hinweg,
-  /// `signOutCleanup` nagelt `preserveOutbox` dauerhaft auf true (Audit M-1
-  /// ausgehebelt) und [capOutbox] kann den Ueberlauf nicht mehr abbauen.
-  /// Deletes zaehlen deshalb wieder — nur gegen ein viel groesseres Budget
-  /// ([kOutboxDeleteMaxAttempts]).
+  /// Applies to [isDelete] ops too: not counting them made an op immortal
+  /// (queue never empties, retry timer runs forever, `preserveOutbox` pinned
+  /// true, [capOutbox] unable to shed). Deletes count against the much larger
+  /// [kOutboxDeleteMaxAttempts].
   ///
-  /// Der Zaehler wird damit auch fuer Deletes persistiert. Das ist der Preis:
-  /// ein Downgrade auf einen Build ohne die Delete-Regel liest ihn als
-  /// Schreib-Budget und verwirft frueher. Hinnehmbar, weil genau dieser Build
-  /// den Delete ohnehin nach acht eigenen Durchlaeufen verwirft — persistiert
-  /// wird der Verwurf nur vorgezogen, nicht ueberhaupt erst ermoeglicht.
+  /// Price: the counter is persisted for deletes, so a downgrade to a build
+  /// without the delete rule reads it as a write budget and drops earlier —
+  /// acceptable, since that build would drop after eight passes anyway.
   SyncOp incrementAttempt() => SyncOp._(
         kind: kind,
         entityId: entityId,
@@ -232,11 +183,9 @@ class SyncOp {
   factory SyncOp.recipeDelete(String slug) => SyncOp._(
       kind: SyncOpKind.recipeDelete, entityId: slug, payload: const {});
 
-  /// Das Profil ist EINE Zeile pro Nutzer (public.profiles.id = auth-User).
-  /// Deshalb ein fester [entityId] statt eines Schluessels aus den Daten: alle
-  /// Profil-Ops teilen sich denselben [entityKey], koaleszieren dadurch zu
-  /// genau einem Eintrag, und die letzte Aenderung gewinnt. Zwei nebenlaeufige
-  /// Ops wuerden sich beim Replay sonst gegenseitig ueberholen.
+  /// The profile is ONE row per user (public.profiles.id = auth user), so a
+  /// fixed [entityId]: all profile ops share an [entityKey], coalesce into a
+  /// single entry, and the last change wins.
   static const String profileEntityId = 'self';
 
   factory SyncOp.profileUpsert(UserProfile profile) => SyncOp._(
@@ -245,30 +194,27 @@ class SyncOp {
         payload: {'profile': userProfileToJson(profile)},
       );
 
-  /// Ein getrackter Logging-Tag ([LifetimeStatsSync.recordTrackingDay]).
+  /// A tracked logging day ([LifetimeStatsSync.recordTrackingDay]).
   ///
-  /// [localDay] ist der kanonische Tages-Schluessel `YYYY-MM-DD` (localDayKey)
-  /// und zugleich der [entityId]: alle Versuche fuer DENSELBEN Tag teilen sich
-  /// damit einen [entityKey] und koaleszieren zu genau einer Op. Die Payload
-  /// ist leer — der Tag IST die ganze Information.
+  /// [localDay] (`YYYY-MM-DD`) is also the [entityId], so all attempts for the
+  /// same day coalesce into one op. The payload is empty — the day is the
+  /// whole information.
   ///
-  /// Idempotent in beide Richtungen: der RPC zaehlt pro Tag nur einmal und ist
-  /// fuer Tage vor dem zuletzt gezaehlten serverseitig ein No-op. Ein Replay
-  /// kann die Streak also weder doppelt hochzaehlen noch zurueckdrehen — genau
-  /// deshalb darf der Tag ueberhaupt in die Outbox.
+  /// Idempotent both ways: the RPC counts a day once and is a no-op for days
+  /// before the last counted one, so replay can neither double-count nor
+  /// rewind the streak.
   factory SyncOp.trackingDay(String localDay) => SyncOp._(
         kind: SyncOpKind.trackingDay,
         entityId: localDay,
         payload: const <String, dynamic>{},
       );
 
-  /// Der Zaehler-Folgeeintrag einer nachgeholten zaehlenden Op
+  /// Counter follow-up of a replayed counting op
   /// ([SyncOpKind.statsIncrement]).
   ///
-  /// [requestId] MUSS aus `deriveStatsRequestId` stammen (Stabilitaet ueber
-  /// Wiederholungen ist die ganze Idempotenz-Garantie) und wird zugleich
-  /// [entityId]. Payload-Schluessel als int, obwohl heute immer 1 —
-  /// Wire-Format nicht enger schneiden als noetig.
+  /// [requestId] MUST come from `deriveStatsRequestId` — stability across
+  /// repetitions is the whole idempotency guarantee — and becomes the
+  /// [entityId]. Payload values are ints although always 1 today.
   factory SyncOp.statsIncrement({
     required String requestId,
     int meals = 0,
@@ -279,9 +225,9 @@ class SyncOp {
         if (weightLogs > 0) 'weight_logs': weightLogs,
       });
 
-  /// Kollisionsfreier Entitaets-Schluessel ueber alle Op-Familien
-  /// (`meal:<id>`, `weight:<id>`, `favorite:<key>`, `recipe:<slug>`,
-  /// `profile:self`, `tracking:<YYYY-MM-DD>`, `stats:<request-uuid>`).
+  /// Collision-free entity key across all op families (`meal:<id>`,
+  /// `weight:<id>`, `favorite:<key>`, `recipe:<slug>`, `profile:self`,
+  /// `tracking:<YYYY-MM-DD>`, `stats:<request-uuid>`).
   String get entityKey => switch (kind) {
         SyncOpKind.mealInsert ||
         SyncOpKind.mealUpsert ||
@@ -299,36 +245,30 @@ class SyncOp {
         SyncOpKind.statsIncrement => 'stats:$entityId',
       };
 
-  /// True fuer die drei Loesch-Familien.
+  /// True for the three delete families.
   ///
-  /// Sonderstellung im Verwurfs-Pfad: der Verlust eines Deletes ist der
-  /// einzige, den ein Kaltstart nicht nur nicht heilt, sondern aktiv
-  /// RUECKGAENGIG macht — die Serverzeile ueberlebt, der lokale Zustand nicht,
-  /// und der naechste Boot liest vom Server. Deshalb ist ein Delete an jeder
-  /// Verwurfsstelle die LETZTE Wahl: kein Sofort-Verwurf aus dem Fehlercode,
-  /// ein Vielfaches an Zustellversuchen ([kOutboxDeleteMaxAttempts]), im Store
-  /// zusaetzlich eine Wanduhr-Frist, und beim Queue-Cap faellt er erst, wenn
-  /// keine Schreib-Op mehr da ist (siehe [capOutbox], classifyOutboxFailure).
-  /// Unverwerfbar ist er aber NICHT — das waere eine unsterbliche Op; wo er
-  /// faellt, blendet der Store den Eintrag lokal wieder ein und meldet es.
+  /// Special in the drop path: losing a delete is the only loss a cold start
+  /// actively UNDOES (server row survives, local state does not). So a delete
+  /// is the last choice everywhere: no immediate drop from an error code, a
+  /// far larger attempt budget ([kOutboxDeleteMaxAttempts]), a wall-clock
+  /// deadline in the store, and at the queue cap it falls only once no write
+  /// op is left. Not undroppable though — that would be an immortal op; where
+  /// it falls, the store restores the entry locally and reports it.
   bool get isDelete =>
       kind == SyncOpKind.mealDelete ||
       kind == SyncOpKind.favoriteDelete ||
       kind == SyncOpKind.recipeDelete;
 
-  /// True fuer Upsert-artige Ops — nur die duerfen beim Einreihen koalesziert
-  /// (Payload ersetzt) werden.
+  /// True for upsert-like ops — only those may be coalesced (payload
+  /// replaced) on enqueue.
   ///
-  /// [SyncOpKind.trackingDay] zaehlt bewusst dazu, obwohl es kein Zeilen-
-  /// Upsert ist: die Payload ist leer, „ersetzen" ist damit dasselbe wie
-  /// „behalten" — und ohne Koaleszenz haengte sich fuer denselben Tag bei
-  /// jedem weiteren Log eine zusaetzliche, voellig gleiche Op an.
+  /// [SyncOpKind.trackingDay] counts although it is no row upsert: its
+  /// payload is empty, so replacing equals keeping, and without coalescing
+  /// every further log of the same day appended an identical op.
   ///
-  /// [SyncOpKind.statsIncrement] zaehlt BEWUSST NICHT dazu: jeder Eintrag ist
-  /// eine eigene idempotente Einheit mit eigener Request-Id. Er wird nie
-  /// koalesziert, sondern immer angehaengt (FIFO) — ein „Ersetzen" wuerde
-  /// einen Zaehler verschlucken, dessen Id serverseitig womoeglich schon
-  /// verbucht ist.
+  /// [SyncOpKind.statsIncrement] deliberately does NOT count: each entry is
+  /// its own idempotent unit with its own request id and is always appended.
+  /// Replacing would swallow a counter the server may already have booked.
   bool get isUpsert =>
       kind == SyncOpKind.mealInsert ||
       kind == SyncOpKind.mealUpsert ||
@@ -337,7 +277,7 @@ class SyncOp {
       kind == SyncOpKind.profileUpsert ||
       kind == SyncOpKind.trackingDay;
 
-  // ---- Payload-Zugriffe (defensiv: korrupt -> null) ------------------------
+  // ---- Payload accessors (defensive: corrupt -> null) ----------------------
 
   LoggedMeal? get meal {
     final raw = payload['meal'];
@@ -349,9 +289,8 @@ class SyncOp {
     }
   }
 
-  /// Nur fuer [SyncOpKind.mealInsert] relevant: zaehlte der Log-Tag zum
-  /// Zeitpunkt des Loggens fuer die Streak (Mahlzeit fuer HEUTE, kein
-  /// Nachtrag)?
+  /// Only relevant for [SyncOpKind.mealInsert]: did the day count for the
+  /// streak when logged (a meal for today, not a backfill)?
   bool get trackDay => payload['track_day'] == true;
 
   double? get weightKg {
@@ -384,11 +323,9 @@ class SyncOp {
     }
   }
 
-  /// Die Zahlen eines [SyncOpKind.statsIncrement]-Eintrags. Defensiv wie die
-  /// uebrigen Zugriffe: fehlend/nicht-numerisch -> 0. Ein Eintrag, der danach
-  /// gar nichts mehr zaehlt, ist unzustellbar und laeuft im Store in den
-  /// A8-Verwurfspfad — ein Aufruf mit 0/0 waere ein Request ohne Wirkung, der
-  /// nur eine Request-Id verbraucht.
+  /// The numbers of a [SyncOpKind.statsIncrement] entry; missing or
+  /// non-numeric -> 0. An entry that then counts nothing is undeliverable and
+  /// takes the A8 drop path — a 0/0 call would only burn a request id.
   int get statsMeals {
     final raw = payload['meals'];
     return raw is num ? raw.toInt() : 0;
@@ -399,11 +336,10 @@ class SyncOp {
     return raw is num ? raw.toInt() : 0;
   }
 
-  /// Das Profil der Op — null, wenn die Payload unlesbar oder unvollstaendig
-  /// ist. Unvollstaendig zaehlt hier bewusst als unlesbar (siehe
-  /// [userProfileFromJson]): eine Op, die auf halb erfundenen Zahlen sitzt,
-  /// wuerde beim Replay eine echte Serverzeile mit Fantasie ueberschreiben.
-  /// Der Replay wirft dafuer und verwirft die Op (A8-Pfad).
+  /// The op's profile — null if the payload is unreadable or incomplete.
+  /// Incomplete counts as unreadable on purpose (see [userProfileFromJson]):
+  /// an op on half-invented numbers would overwrite a real server row.
+  /// Replay throws and drops the op (A8 path).
   UserProfile? get profile {
     final raw = payload['profile'];
     if (raw is! Map) return null;
@@ -414,12 +350,11 @@ class SyncOp {
     }
   }
 
-  // ---- Wire-Format ---------------------------------------------------------
+  // ---- Wire format ---------------------------------------------------------
 
-  /// [attempts] wird NUR geschrieben, wenn es > 0 ist. Der Normalfall (frisch
-  /// eingereihte Op) bleibt damit byte-identisch zum alten 4-Key-Format:
-  /// ein Downgrade auf einen aelteren Build liest die Queue unveraendert
-  /// weiter, und der persistierte Blob waechst nicht ohne Not.
+  /// [attempts] is written only when > 0, so a freshly queued op stays
+  /// byte-identical to the old 4-key format: a downgrade still reads the
+  /// queue, and the blob does not grow without need.
   Map<String, dynamic> toJson() => <String, dynamic>{
         'kind': kind.name,
         'entity_id': entityId,
@@ -428,8 +363,8 @@ class SyncOp {
         if (attempts > 0) 'attempts': attempts,
       };
 
-  /// Defensiv: unbekannte Kinds / kaputte Eintraege liefern null, damit EINE
-  /// korrupte Op nicht die ganze Queue mitreisst.
+  /// Defensive: unknown kinds and broken entries return null, so one corrupt
+  /// op does not take the whole queue down.
   static SyncOp? tryFromJson(Map<String, dynamic> json) {
     final rawKind = json['kind'];
     if (rawKind is! String) return null;
@@ -448,10 +383,9 @@ class SyncOp {
         ? rawPayload.cast<String, dynamic>()
         : <String, dynamic>{};
     final queuedAt = json['queued_at'];
-    // Fehlend (Legacy-Eintrag eines alten Builds), nicht-numerisch oder
-    // negativ -> 0. Das ist bewusst die SICHERE Richtung: ein zu niedriger
-    // Zaehler kostet hoechstens ein paar zusaetzliche Zustellversuche, ein
-    // aufgeblaehter wuerde gueltige Nutzer-Writes sofort verwerfen.
+    // Missing (legacy entry), non-numeric or negative -> 0: the safe
+    // direction, since a low counter costs a few extra attempts while an
+    // inflated one would drop valid user writes immediately.
     final rawAttempts = json['attempts'];
     final attempts =
         rawAttempts is num && rawAttempts > 0 ? rawAttempts.toInt() : 0;
@@ -466,31 +400,25 @@ class SyncOp {
   }
 }
 
-/// Reiht [op] FIFO in die Queue ein. Koaleszenz haelt die Queue kurz, OHNE die
-/// Reihenfolge pro Entitaet zu brechen:
-///  * Ist die LETZTE gemerkte Op derselben Entitaet ebenfalls ein Upsert,
-///    wird ihr Payload ersetzt statt angehaengt (wiederholtes Editieren
-///    offline waechst nicht). Ein pendender mealInsert behaelt dabei Kind +
-///    track_day, damit die Stats-Zaehlung beim Replay erhalten bleibt.
-///  * Alles andere (Deletes, Upsert nach Delete, fremde Entitaeten) wird
-///    angehaengt — striktes FIFO wahrt insert -> update -> delete.
-/// [appendOnly] MUSS gesetzt sein, solange ein Replay laeuft: der koennte
-/// gerade genau die Op abspielen, deren Payload sonst ersetzt (und beim
-/// Entfernen verloren) wuerde.
+/// Enqueues [op] FIFO. Coalescing keeps the queue short without breaking
+/// per-entity order:
+///  * If the last op of the same entity is also an upsert, its payload is
+///    replaced instead of appended. A pending mealInsert keeps its kind and
+///    track_day so replay still counts the stats.
+///  * Everything else (deletes, upsert after delete, other entities) is
+///    appended — strict FIFO preserves insert -> update -> delete.
+/// [appendOnly] MUST be set while a replay runs: it may be replaying exactly
+/// the op whose payload would be replaced and then lost on removal.
 ///
-/// Beim Koaleszieren startet [SyncOp.attempts] wieder bei 0 — der Zaehler
-/// misst, wie oft der Server GENAU DIESE Payload abgelehnt hat, und die
-/// Payload ist gerade eine andere geworden. Konkret: tippt jemand 200000 kcal
-/// (Check-Constraint, Zaehler klettert) und korrigiert das dann auf 500,
-/// wuerde ein uebernommener Zaehler die korrigierte, voellig gueltige
-/// Aenderung sofort wegwerfen. [SyncOp.queuedAt] bleibt dagegen erhalten: das
-/// ist die FIFO-Position der Entitaet und hat mit der Payload-Gueltigkeit
-/// nichts zu tun.
-/// Bewusst in Kauf genommen: eine dauerhaft kaputte Entitaet, die der Nutzer
-/// immer wieder anfasst, wird nie verworfen. Das ist in Ordnung — die
-/// Koaleszenz haelt sie bei GENAU EINEM Slot (kein Queue-Wachstum), und der
-/// Nutzer arbeitet aktiv daran. Das NICHT durch Uebernehmen des Zaehlers
-/// „reparieren".
+/// Coalescing resets [SyncOp.attempts] to 0 — the counter measures rejections
+/// of THAT payload, and the payload just changed. Otherwise correcting a
+/// rejected 200000 kcal entry to 500 would drop the valid correction at once.
+/// [SyncOp.queuedAt] is kept: it is the FIFO position, unrelated to payload
+/// validity.
+///
+/// Accepted trade-off: a permanently broken entity the user keeps editing is
+/// never dropped. Fine — coalescing holds it at exactly one slot. Do not
+/// "fix" that by carrying the counter over.
 List<SyncOp> enqueueCoalesced(
   List<SyncOp> queue,
   SyncOp op, {
@@ -500,7 +428,7 @@ List<SyncOp> enqueueCoalesced(
     for (var i = queue.length - 1; i >= 0; i--) {
       final existing = queue[i];
       if (existing.entityKey != op.entityKey) continue;
-      if (!existing.isUpsert) break; // Delete dazwischen -> anhaengen.
+      if (!existing.isUpsert) break; // Delete in between -> append.
       final merged = existing.kind == SyncOpKind.mealInsert &&
               op.kind == SyncOpKind.mealUpsert
           ? SyncOp._(
@@ -508,10 +436,10 @@ List<SyncOp> enqueueCoalesced(
               entityId: op.entityId,
               payload: {...op.payload, 'track_day': existing.trackDay},
               queuedAt: existing.queuedAt,
-              // attempts bleibt beim Default 0 — NICHT existing.attempts,
-              // siehe Doku oben.
+              // attempts stays at the default 0 — NOT existing.attempts,
+              // see docs above.
             )
-          : op; // kommt aus einer Factory, hat also ebenfalls attempts == 0.
+          : op; // comes from a factory, so attempts == 0 as well.
       final next = [...queue];
       next[i] = merged;
       return next;
@@ -520,47 +448,31 @@ List<SyncOp> enqueueCoalesced(
   return [...queue, op];
 }
 
-/// Deckelt die Outbox auf [maxOps] und liefert Queue UND Verworfenes getrennt
-/// zurueck.
+/// Caps the outbox at [maxOps] and returns queue and dropped ops separately.
 ///
-/// Bewusst eine eigene, reine Funktion statt eines Parameters an
-/// [enqueueCoalesced]: der Aufrufer MUSS sehen, was verlorengegangen ist (er
-/// meldet es dem Nutzer und loggt es), und der Cap muss auch auf dem
-/// Hydrations-Pfad laufen — eine von einem aelteren, ungedeckelten Build
-/// gewachsene Queue kommt aus dem Cache zurueck, ohne je durch das Einreihen
-/// zu laufen.
+/// A separate pure function rather than a flag on [enqueueCoalesced]: the
+/// caller MUST see what was lost (it reports and logs it), and the cap must
+/// also run on the hydration path, where a queue grown by an older, uncapped
+/// build comes back from cache without ever passing through enqueue.
 ///
-/// Verworfen werden die aeltesten Ops (Kopf der Queue), SCHREIB-Ops zuerst;
-/// [SyncOp.isDelete] kommt erst dran, wenn keine Schreib-Op mehr uebrig ist.
-/// Der Cap bleibt damit eine HARTE Obergrenze — eine Queue aus lauter
-/// unzustellbaren Deletes haette ihn sonst vollstaendig ausgehebelt und genau
-/// das unbegrenzte Blob-Wachstum erzeugt, gegen das er geschrieben wurde.
-/// Tragbar ist das nur, weil der Store einen verworfenen Delete lokal wieder
-/// einblendet und meldet (`_restoreDroppedDeletes`, `outboxDeleteLossHint`).
-/// Begruendung fuer die Reihenfolge:
-///  (a) Drop-Newest wuerde eine volle Queue in einen dauerhaften Total-
-///      Schreibausfall verwandeln: eine volle Queue leert sich per Definition
-///      gerade nicht, also kaeme ab da NIE wieder ein Write durch.
-///  (b) Die neueste Op ist genau das, worauf der Nutzer gerade schaut — der
-///      lokale State wird VOR dem Write mutiert, ein Drop-Newest liesse die
-///      eben eingetragene Mahlzeit beim naechsten Kaltstart verschwinden.
-///  (c) Die aeltesten Ops einer vollen Queue scheitern am laengsten, sind also
-///      die wahrscheinlichsten Gift-Kandidaten.
-///  (d) In der ANLEGE-Richtung ueberlebt die Korrektheit pro Entitaet einen
-///      Kopf-Trim: jeder Write ist ein VOLLER Zeilen-Upsert auf eine
-///      Client-UUID (keine Deltas), verloren geht einzig der Stats-/Streak-
-///      Seiteneffekt eines mealInsert — ein Zaehler, kein Nutzer-Inhalt. Seit
-///      Fix 3 gilt dasselbe woertlich fuer einen gekappten
-///      [SyncOpKind.statsIncrement]-Eintrag: er IST der Zaehler. Fuer
-///      Deletes gilt das ausdruecklich NICHT: „idempotent" heisst nur, dass
-///      ein Retry schadlos ist, nicht dass ein Verwurf folgenlos waere. Beim
-///      Delete ueberlebt die Serverzeile, der lokale Zustand nicht — der
-///      naechste Boot liest vom Server, und die geloeschte 1800-kcal-Mahlzeit
-///      ist wieder da und zaehlt erneut. Deletes kosten ausserdem fast nichts
-///      (leere Payload, ~120 Byte JSON). Sie fallen deshalb ZULETZT — aber sie
-///      fallen: eine Queue, die nur noch aus ihnen besteht, waechst sonst
-///      unbegrenzt weiter, und ein ANR beim Cache-Write kostet mehr als die
-///      aelteste von 500 haengenden Loeschungen.
+/// Dropped are the oldest ops (head of the queue), WRITE ops first;
+/// [SyncOp.isDelete] only once no write op is left, so the cap stays hard
+/// even for an all-delete queue. Tolerable only because the store restores a
+/// dropped delete locally and reports it (`_restoreDroppedDeletes`,
+/// `outboxDeleteLossHint`). Why this order:
+///  (a) Drop-newest would turn a full queue into a permanent write outage —
+///      a full queue is by definition not draining.
+///  (b) The newest op is what the user is looking at; local state is mutated
+///      before the write, so drop-newest loses the just-entered meal.
+///  (c) The oldest ops of a full queue have failed longest, so they are the
+///      likeliest poison ops.
+///  (d) Writes survive a head trim per entity: each is a FULL row upsert on a
+///      client UUID (no deltas); only the stats/streak side effect is lost —
+///      a counter, not user content (same for a capped statsIncrement entry,
+///      which IS the counter). Not so for deletes: "idempotent" only means a
+///      retry is harmless, not that a drop is. They also cost almost nothing
+///      (~120 bytes), so they fall LAST — but they do fall, or an all-delete
+///      queue grows without bound.
 ({List<SyncOp> queue, List<SyncOp> dropped}) capOutbox(
   List<SyncOp> queue, {
   int maxOps = kOutboxMaxOps,
@@ -571,7 +483,7 @@ List<SyncOp> enqueueCoalesced(
   var overflow = queue.length - maxOps;
   var kept = <SyncOp>[];
   final dropped = <SyncOp>[];
-  // 1. Durchgang: Schreib-Ops, aelteste zuerst.
+  // Pass 1: write ops, oldest first.
   for (final op in queue) {
     if (overflow > 0 && !op.isDelete) {
       dropped.add(op);
@@ -580,8 +492,8 @@ List<SyncOp> enqueueCoalesced(
       kept.add(op);
     }
   }
-  // 2. Durchgang: die Queue besteht jetzt nur noch aus Deletes und liegt
-  // immer noch ueber dem Cap. Auch hier aelteste zuerst.
+  // Pass 2: only deletes are left and the queue is still over the cap;
+  // oldest first again.
   if (overflow > 0) {
     final survivors = <SyncOp>[];
     for (final op in kept) {
@@ -597,11 +509,10 @@ List<SyncOp> enqueueCoalesced(
   return (queue: kept, dropped: dropped);
 }
 
-// ---- (De)Serialisierung LoggedMeal / FavoriteMeal ---------------------------
-// Bewusst hier statt auf den Modellen (gleiches Muster wie mealResultTo/From-
-// Json in meals_sync.dart): die Domain-Modelle bleiben persistence-frei, die
-// Outbox besitzt ihr eigenes, versioniertes Wire-Format. Wird auch vom
-// LocalCache fuer die Tagebuch-/Favoriten-Snapshots mitbenutzt.
+// ---- (De)serialization LoggedMeal / FavoriteMeal ----------------------------
+// Here rather than on the models (same pattern as mealResultTo/FromJson): the
+// domain models stay persistence-free, the outbox owns its versioned wire
+// format. Also used by LocalCache for the diary/favorites snapshots.
 
 Map<String, dynamic> loggedMealToJson(LoggedMeal m) => <String, dynamic>{
       'id': m.id,
@@ -645,14 +556,11 @@ MealSlot? _parseSlot(String? raw) {
   return null;
 }
 
-// ---- (De)Serialisierung UserProfile -----------------------------------------
-// Wohnt hier und nicht mehr im LocalCache, weil das Profil seit Luecke D ZWEI
-// Persistenzwege hat: den Cache-Slot und die Outbox-Op. Zwei Kopien desselben
-// Mappings waeren genau die Falle, gegen die local_cache_test's
-// „Wire-Format deckt JEDES UserProfile-Feld ab" geschrieben ist — ein neues
-// Feld waere in der einen Kopie gelandet und in der anderen nicht. Die
-// Schluesselnamen sind unveraendert (sie stehen auf dem Geraet jeder
-// bestehenden Installation) und folgen den Spalten von public.profiles.
+// ---- (De)serialization UserProfile ------------------------------------------
+// Lives here, not in LocalCache, because the profile has TWO persistence
+// paths since gap D (cache slot and outbox op); two copies of the mapping
+// would let a new field land in only one. Key names are unchanged (they sit
+// on every existing install) and follow the public.profiles columns.
 
 Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
       'weight_kg': p.weightKg,
@@ -669,27 +577,22 @@ Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
       'carbs_goal_g': p.carbsGoalG,
       'fat_goal_g': p.fatGoalG,
       'weight_goal': p.weightGoal.name,
-      // A7: MUSS mitgeschrieben werden. Der Cache ist die ERSTE
-      // Hydrationsquelle und setzt dabei die Clobber-Sperre
-      // (_hydratedFromRealSource). Fehlte der Schluessel, fiel `diet` beim
-      // Kaltstart still auf den Ctor-Default none zurueck — und der naechste
-      // profile.save() schrieb dieses none dauerhaft auf den Server, ohne dass
-      // der User es ueber die UI je wieder haette reparieren koennen.
-      // Schluesselname wie serverseitig: profiles.diet_preference.
+      // A7: MUST be written. The cache is the first hydration source and sets
+      // the clobber lock (_hydratedFromRealSource); without this key `diet`
+      // silently fell back to none on cold start and the next profile.save()
+      // wrote that none to the server for good. Key name mirrors the column
+      // profiles.diet_preference.
       'diet_preference': p.diet.name,
       'onboarding_completed': p.onboardingCompleted,
     };
 
-/// Sentinel-Fund 3 (Nachverifikation 2026-08-08): fehlende/unlesbare
-/// Zahlenfelder wurden hier mit erfundenen Werten aufgefuellt (78 kg, 178 cm,
-/// 2200 kcal, ...) — und die Cache-Hydration setzte damit die Clobber-Sperre
-/// (_hydratedFromRealSource), der naechste profile.save() schrieb die Fantasie
-/// dauerhaft auf den Server. Ein Blob, dem Zahlen fehlen (Alt-Build vor einer
-/// Felderweiterung, korrupte Zeile), ist deshalb ALS GANZES keine
-/// Hydrationsquelle: null. Fuer den Cache liefert der Server-Load direkt
-/// danach die Wahrheit, fuer eine Outbox-Op ist es der Verwurfs-Pfad (A8).
-/// Die Enum-Felder bleiben bewusst nachsichtig (A7: kuenftige Enum-Werte
-/// fallen lesbar zurueck — sie erfinden Einordnungen, keine Messwerte).
+/// Sentinel finding 3 (2026-08-08): missing numeric fields used to be filled
+/// with invented values, which set the clobber lock and let the next
+/// profile.save() write that fiction to the server. A blob missing numbers
+/// (old build, corrupt row) is therefore no hydration source AT ALL: null.
+/// The cache gets truth from the server load right after; an outbox op takes
+/// the drop path (A8). Enum fields stay lenient (A7) — they fall back to a
+/// classification, not to a measurement.
 UserProfile? userProfileFromJson(Map<String, dynamic> j) {
   final weightKg = _profileInt(j['weight_kg']);
   final heightCm = _profileInt(j['height_cm']);
@@ -732,8 +635,8 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
     fatGoalG: fatGoalG,
     weightGoal:
         _profileEnum(WeightGoal.values, j['weight_goal'], WeightGoal.maintain),
-    // Gegenstueck zu 'diet_preference' oben. Unbekannte/fehlende Werte
-    // (Alt-Eintrag vor A7, kuenftige Enum-Werte) fallen auf none.
+    // Counterpart to 'diet_preference' above; unknown or missing values
+    // fall back to none.
     diet: _profileEnum(
         DietPreference.values, j['diet_preference'], DietPreference.none),
     onboardingCompleted: j['onboarding_completed'] == true,

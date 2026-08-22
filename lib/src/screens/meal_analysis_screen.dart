@@ -29,20 +29,13 @@ import '../widgets/kcal/meal_analysis_sheet.dart';
 import 'barcode_scanner_sheet.dart';
 import 'trends_screen.dart';
 
-/// Der Tab „Food": Kopfzeile · Datums-Streifen · Such-Launcher mit
-/// Barcode/KI-Scan · „Verlauf" mit den vier Slot-Karten.
+/// The Food tab: header, date strip, search launcher with barcode/AI scan and
+/// the diary with its four slot cards.
 ///
-/// **Ohne Kalorien-Karte.** Bis zum 2026-08-10 stand zwischen Scan-Chips und
-/// Verlauf noch die `DailySummaryCard` (Rest-kcal, ZIEL/GEGESSEN/VERBRANNT,
-/// drei Makro-Balken). Sie wiederholte, was der Tab „Heute" einen Tipp
-/// entfernt bereits vollstaendig zeigt, und schob den Verlauf — die eigentliche
-/// Aufgabe DIESES Tabs — auf einem 852-px-Schirm unter die Falz. Der Tab
-/// beantwortet jetzt genau eine Frage: „was habe ich gegessen und was trage
-/// ich nach?". Die Tagesbilanz beantwortet „Heute".
-///
-/// Die gegessenen kcal des angezeigten Tages bleiben trotzdem sichtbar — als
-/// kleine Forest-Kachel im Kopf ([_KcalTile]), damit man beim Nachtragen nicht
-/// blind ist.
+/// No calorie card: the `DailySummaryCard` repeated what the Heute tab already
+/// shows and pushed the diary — this tab's actual job — below the fold on an
+/// 852 px screen. The consumed kcal of the shown day stay visible as a small
+/// forest tile in the header ([_KcalTile]).
 class MealAnalysisScreen extends StatelessWidget {
   MealAnalysisScreen({
     super.key,
@@ -56,10 +49,8 @@ class MealAnalysisScreen extends StatelessWidget {
     this.loggedMeals = const <LoggedMeal>[],
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
-    // 30 Tage manuell erreichbar (scrollbare Chip-Leiste, Heute zuerst);
-    // alles davor laeuft ueber den Kalender. Bleibt unter dem
-    // 35-Tage-Boot-Fenster von MealsSync — Chips treffen also immer
-    // bereits geladene Tage.
+    // 30 days reachable via chips, older ones via the calendar. Stays under
+    // MealsSync's 35-day boot window, so chips always hit loaded days.
     this.visiblePastDays = 30,
     this.dayLoading = false,
     String Function(MealAnalysisResult, MealSlot)? onAddMeal,
@@ -84,23 +75,21 @@ class MealAnalysisScreen extends StatelessWidget {
        onRemoveFavorite = onRemoveFavorite ?? _noopString,
        onRemoveMeal = onRemoveMeal ?? _noopString;
 
-  // Eigener Suchindex (Meilisearch auf dem vServer) mit Live-OFF als
-  // Fallback fuer neue Produkte, Barcode-Lookups und Mirror-Ausfaelle.
+  // Own search index (Meilisearch) with live OFF as fallback for new products,
+  // barcode lookups and mirror outages.
   //
-  // Laeuft bei JEDEM Rebuild (der Screen haengt in einem ListenableBuilder am
-  // HomeStore), deshalb strikt synchron und allokationsfrei: kein `await`,
-  // kein SharedPreferences-Zugriff, kein `Supabase.instance`. Ob der Mirror
-  // ueberhaupt Credentials hat, entscheidet erst der Such-Request selbst
-  // (SearchCredentialsStore) — hier steht nur der HARTE, lokale Kill-Switch
-  // `--dart-define=OFF_MIRROR_URL=` (leer), den kein Server ueberstimmen darf.
+  // Runs on EVERY rebuild, so it stays strictly synchronous and
+  // allocation-free: no `await`, no SharedPreferences, no `Supabase.instance`.
+  // Credentials are decided by the search request itself; only the hard local
+  // kill switch `--dart-define=OFF_MIRROR_URL=` lives here.
   static ProductLookupService _defaultProductService() {
     const off = OpenFoodFactsProductService();
     if (SearchConfig.mirrorHardDisabled) return off;
     return const FallbackProductService(MeilisearchProductService(), off);
   }
 
-  // Default-onAddMeal liefert eine leere id zurueck (Preview/Test ohne echte
-  // Persistenz). Eine spaetere Um-Portionierung trifft dann den No-op-Update.
+  // Default onAddMeal returns an empty id (preview/test without persistence);
+  // a later re-portioning then hits the no-op update.
   static String _noopAdd(MealAnalysisResult _, MealSlot __) => '';
   static void _noopDate(DateTime _) {}
   static void _noopUpdate(String _, MealAnalysisResult __) {}
@@ -116,48 +105,41 @@ class MealAnalysisScreen extends StatelessWidget {
   final List<LoggedMeal> loggedMeals;
 
 
-  /// Anfrage von aussen, das Hinzufuegen-Fenster fuer einen bestimmten Slot
-  /// zu oeffnen — gesetzt vom Heute-Tab, wenn dort eine Mahlzeiten-Zeile
-  /// getippt wird.
+  /// External request to open the add sheet for a slot, set by the Heute tab.
   ///
-  /// Bewusst ein [ValueNotifier] und kein einfacher Parameter: die Schale
-  /// cached die Tab-Widgets nach Identitaet (`_tabViews`), ein geaenderter
-  /// Parameter erreichte den gebauten Tab also gar nicht. Die Identitaet des
-  /// Notifiers bleibt stabil, sein Wert wandert.
-  ///
-  /// Der Empfaenger setzt den Wert beim Verarbeiten auf null zurueck — sonst
-  /// oeffnete der naechste Besuch des Tabs ein Geister-Fenster.
+  /// A [ValueNotifier], not a plain parameter: the shell caches tab widgets by
+  /// identity (`_tabViews`), so a changed parameter would never reach the built
+  /// tab. The receiver resets the value to null after handling it, otherwise
+  /// the next visit would open a ghost sheet.
   final ValueNotifier<MealSlot?>? addSlotRequest;
 
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateSelected;
   final int visiblePastDays;
 
-  /// True, waehrend ein per Kalender gewaehlter Alt-Tag (ausserhalb des
-  /// 35-Tage-Fensters) nachgeladen wird — der Verlauf zeigt dann einen
-  /// Spinner statt eines faelschlich leeren Tages.
+  /// True while a calendar-picked day outside the 35-day window loads; the
+  /// diary then shows a spinner instead of a falsely empty day.
   final bool dayLoading;
   final String Function(MealAnalysisResult, MealSlot) onAddMeal;
   final void Function(String id, MealAnalysisResult scaled) onUpdateMeal;
 
-  /// Ist die Mahlzeit als Favorit angeheftet? Null -> kein Herz.
+  /// Is the meal pinned as a favorite? Null -> no heart.
   final bool Function(MealAnalysisResult)? isFavorite;
 
-  /// Favoriten-Toggle. Null -> kein Herz.
+  /// Favorite toggle. Null -> no heart.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final ValueChanged<String> onRemoveFavorite;
   final ValueChanged<String> onRemoveMeal;
 
-  /// Einstieg zu Settings-Sheet + Profil-Screen. Lebte frueher in der TopBar
-  /// der entfernten Heute-/Training-/Trends-Tabs; seit deren Entfernen ist der
-  /// Food-Header der einzige Zugang. Null (Preview/Test) -> Icons verborgen.
+  /// Entry to settings sheet and profile screen; the Food header is the only
+  /// way in. Null (preview/test) hides the icons.
   final VoidCallback? onSettingsPressed;
   final VoidCallback? onProfilePressed;
   final String? profileInitial;
 
-  /// Daten-Lader fuer die Trend-Ansicht (Test-Injektion). Null -> beim
-  /// Oeffnen wird lazily ein TrendService auf Supabase.instance gebaut;
-  /// der Konstruktor selbst fasst Supabase nie an (Preview/Tests sicher).
+  /// Data loader for the trends view (test injection). Null builds a
+  /// TrendService on Supabase.instance lazily when opened; the constructor
+  /// never touches Supabase.
   final TrendTotalsLoader? trendTotalsLoader;
 
   void _openAddSheet(
@@ -165,12 +147,10 @@ class MealAnalysisScreen extends StatelessWidget {
     MealSlot slot, {
     bool searchMode = false,
   }) {
-    // Alle Eintraege des angezeigten Tages - das Sheet filtert die Anzeige
-    // selbst nach dem im Selector gewaehlten Slot (bleibt so synchron, wenn
-    // der User den Slot im Sheet wechselt). `slot` ist nur der Default-Slot.
-    //
-    // DATA-6: ueber `mealsForFoodDate` gebucketet, nicht ueber
-    // `isSameDay(loggedAt)` — siehe [_entriesBySlot].
+    // All entries of the shown day; the sheet filters by the selected slot
+    // itself, so it stays in sync when the user switches slots. `slot` is only
+    // the default. DATA-6: bucketed via `mealsForFoodDate`, not
+    // `isSameDay(loggedAt)` — see [_entriesBySlot].
     final existingForDay = mealsForFoodDate(loggedMeals, selectedDate);
     showAddMealSheet(
       context,
@@ -190,8 +170,8 @@ class MealAnalysisScreen extends StatelessWidget {
     );
   }
 
-  // Slot-Heuristik fuer die Sheet-Oeffner (Suche + Action-Buttons). Deckt sich
-  // mit LoggedMeal.slot, damit ein neuer Eintrag im richtigen Slot landet.
+  // Slot heuristic for the sheet openers; matches LoggedMeal.slot so a new
+  // entry lands in the right slot.
   MealSlot _heuristicSlot() {
     final h = DateTime.now().hour;
     if (h < 11) return MealSlot.breakfast;
@@ -200,8 +180,8 @@ class MealAnalysisScreen extends StatelessWidget {
     return MealSlot.snack;
   }
 
-  // KI-Scan: In-App-Kamera mit Slot-Auswahl -> Foto -> KI-Analyse -> das
-  // Ergebnis-Sheet im gewaehlten Slot. Kein generisches Add-Sheet mehr.
+  // AI scan: in-app camera with slot picker -> photo -> analysis -> result
+  // sheet in the chosen slot.
   Future<void> _scanWithCamera(BuildContext context) async {
     final capture = await cameraLauncher.launch(
       context,
@@ -223,12 +203,11 @@ class MealAnalysisScreen extends StatelessWidget {
     );
   }
 
-  // Barcode: In-App-Scanner als Bottom-Panel (wie der KI-Scan) -> OFF-Lookup
-  // -> Ergebnis-Sheet. Direkt, nicht mehr ueber das generische Add-Sheet.
+  // Barcode: in-app scanner as a bottom panel -> OFF lookup -> result sheet.
   Future<void> _scanBarcode(BuildContext context) async {
-    // Der Uhrzeit-Slot belegt nur die Chips im Scanner vor — die Wahl dort
-    // entscheidet, wohin das Produkt wandert (Befund 2026-08-22: von diesem
-    // Knopf aus war der Slot vorher gar nicht waehlbar).
+    // The clock slot only preselects the scanner's chips; the choice there
+    // decides where the product goes (finding 2026-08-22: the slot was not
+    // selectable from this button before).
     final scan = await showBarcodeScannerSheet(
       context,
       initialSlot: _heuristicSlot(),
@@ -247,10 +226,9 @@ class MealAnalysisScreen extends StatelessWidget {
     );
   }
 
-  // Trend-Ansicht als volle Seite. Das Kalorienziel wird aus dem bereits
-  // durchgereichten Profil weitergegeben (KEIN Store-Zugriff); der Daten-
-  // Lader kommt injiziert oder lazily aus Supabase.instance — erst beim
-  // Oeffnen, damit Konstruktion/Preview ohne initialisiertes Supabase laeuft.
+  // Trends as a full page. The kcal goal comes from the already passed profile
+  // (no store access); the loader is injected or built lazily on open, so
+  // construction and preview work without an initialized Supabase.
   void _openTrends(BuildContext context) {
     final loader = trendTotalsLoader ?? _supabaseTrendLoader;
     Navigator.of(context).push(
@@ -262,8 +240,8 @@ class MealAnalysisScreen extends StatelessWidget {
   }
 
   static Future<List<TrendDayTotals>> _supabaseTrendLoader() {
-    // Wirft bei fehlender Initialisierung/Session synchron — TrendsScreen
-    // faengt das in seinen Fehler-/Retry-Zustand, kein Crash.
+    // Throws synchronously without init/session; TrendsScreen turns that into
+    // its error/retry state rather than a crash.
     final client = Supabase.instance.client;
     final userId = client.auth.currentUser?.id;
     if (userId == null) {
@@ -272,19 +250,16 @@ class MealAnalysisScreen extends StatelessWidget {
     return TrendService(client, userId).loadDailyTotals();
   }
 
-  /// Die Eintraege des angezeigten Tages, absteigend nach Zeitpunkt und mit
-  /// ihrem Index in genau DIESER Liste.
+  /// Entries of the shown day, newest first, each with its index in THIS list.
   ///
-  /// Die Indizes entstehen bewusst einmal fuer den ganzen Tag und nicht pro
-  /// Slot-Karte: `food-history-entry-0` bleibt so der neueste Eintrag des
-  /// Tages, worauf mehrere Flows bauen.
+  /// Indices are assigned once per day, not per slot card, so
+  /// `food-history-entry-0` stays the day's newest entry, which several flows
+  /// rely on.
   ///
-  /// Der Tages-Filter laeuft ueber `mealsForFoodDate` — denselben kanonischen
-  /// DATA-6-Schluessel, aus dem auch [dailyConsumedKcal] entsteht. Ein eigenes `isSameDay(loggedAt, selectedDate)` waere genau
-  /// die Logik, die DATA-6 abgeloest hat: eine Mahlzeit mit persistiertem
-  /// `local_day` (23:45-Eintrag, spaeter unter anderem Zonen-/DST-Offset
-  /// betrachtet) zaehlt dann in der Kopfzahl mit, faellt aber aus dem
-  /// Tagebuch — der Tag zeigte kcal und darunter „Noch nichts geloggt".
+  /// Filtering uses `mealsForFoodDate`, the canonical DATA-6 key that also
+  /// feeds [dailyConsumedKcal]. A local `isSameDay(loggedAt, selectedDate)`
+  /// would let a meal with a persisted `local_day` count in the header but
+  /// drop out of the diary.
   Map<MealSlot, List<DiaryEntry>> _entriesBySlot() {
     final sorted = mealsForFoodDate(loggedMeals, selectedDate).toList()
       ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
@@ -322,34 +297,30 @@ class MealAnalysisScreen extends StatelessWidget {
             onSelected: onDateSelected,
           ),
           const SizedBox(height: 12),
-          // Such-Launcher + Schnell-Chips. Keine Entrance-Animation, damit sie
-          // in Widget-Tests stabil hit-testbar bleiben.
+          // Search launcher + quick chips. No entrance animation, so they stay
+          // reliably hit-testable in widget tests.
           _FoodAddBlock(
             onSearch: () =>
                 _openAddSheet(context, _heuristicSlot(), searchMode: true),
             onBarcode: () => _scanBarcode(context),
             onAiScan: () => _scanWithCamera(context),
           ),
-          // Hier stand bis 2026-08-10 die DailySummaryCard. Zwischen
-          // Scan-Chips und Verlauf liegt jetzt nur noch der Abstand — die
-          // Tagesbilanz traegt der Tab „Heute" (s. Klassenkommentar).
+          // The DailySummaryCard used to sit here; the day balance now lives
+          // in the Heute tab (see class comment).
           const SizedBox(height: 14),
           if (dayLoading)
             const _DayLoadingCard()
           else
-            // EAGER gebaut (Column, kein ListView): Finder laufen ueber den
-            // Element-Baum — in einer lazy Liste existierten die unteren
-            // Slot-Karten und ihre Eintraege schlicht nicht.
+            // Built eagerly (Column, not ListView): finders walk the element
+            // tree, and in a lazy list the lower slot cards would not exist.
             SlidableAutoCloseBehavior(
               child: Column(
                 key: const ValueKey('kcal-meals-today-card'),
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  // „Verlauf" benennt den Block weiterhin — der Vertrag haelt
-                  // das Wort fest (DESIGN_REFACTOR §6), und die Vorlage setzt
-                  // ueber ihre Mahlzeiten-Liste genau so eine Abschnittszeile
-                  // („Today's meals", nutrition_app(1).dart:935).
+                  // The section keeps its name: DESIGN_REFACTOR §6 pins the
+                  // wording, a redesign is not a rename.
                   SectionHeading(title: l10n.foodSectionHistoryTitle),
                   const SizedBox(height: 12),
                   Column(
@@ -389,9 +360,8 @@ class MealAnalysisScreen extends StatelessWidget {
         return SizedBox(
           key: const ValueKey('kcal-page-fill'),
           height: boundedHeight ? constraints.maxHeight : null,
-          // Ohne obere Schranke (Vorschau, Golden-Hosts) wuerde ein
-          // Scrollview ins Unendliche wachsen — dann steht dieselbe Column
-          // schlicht ungescrollt da.
+          // Without a bounded height a scroll view would grow forever; the
+          // same Column then renders unscrolled.
           child: _SlotRequestListener(
             request: addSlotRequest,
             onSlot: (listenerContext, slot) =>
@@ -409,12 +379,11 @@ class MealAnalysisScreen extends StatelessWidget {
   }
 }
 
-/// Oeffnet das Hinzufuegen-Fenster, sobald von aussen ein Slot angefragt wird.
+/// Opens the add sheet when a slot is requested from outside.
 ///
-/// Sitzt IM Baum des Food-Tabs, weil das Sheet einen Context unterhalb des
-/// Navigators braucht. Beide Ausloeser sind noetig: Der Tab wird lazy gebaut —
-/// liegt die Anfrage beim Mounten schon vor (der Normalfall: erst Slot tippen,
-/// dann Tab-Wechsel), kaeme ein reiner Listener zu spaet.
+/// Lives inside the Food tab's tree because the sheet needs a context below
+/// the navigator. Both triggers are required: the tab is built lazily, so a
+/// request that already exists at mount time would miss a plain listener.
 class _SlotRequestListener extends StatefulWidget {
   const _SlotRequestListener({
     required this.request,
@@ -457,8 +426,8 @@ class _SlotRequestListenerState extends State<_SlotRequestListener> {
     final anfrage = widget.request;
     final slot = anfrage?.value;
     if (slot == null || !mounted) return;
-    // ERST zuruecksetzen, dann oeffnen: das Sheet laeuft asynchron, und ein
-    // zweiter Notify waehrenddessen oeffnete es sonst doppelt.
+    // Reset first, then open: the sheet is async, and a second notify in
+    // between would otherwise open it twice.
     anfrage!.value = null;
     widget.onSlot(context, slot);
   }
@@ -467,8 +436,7 @@ class _SlotRequestListenerState extends State<_SlotRequestListener> {
   Widget build(BuildContext context) => widget.child;
 }
 
-/// Wegweiser fuer einen Tag ohne einen einzigen Eintrag — einmal unter den
-/// vier Slot-Karten, nicht in jeder von ihnen.
+/// Hint for a day without any entry, shown once below the four slot cards.
 class _DiaryDayHint extends StatelessWidget {
   const _DiaryDayHint();
 
@@ -484,9 +452,8 @@ class _DiaryDayHint extends StatelessWidget {
   }
 }
 
-/// Add-Block: readonly Such-Launcher + 2 Schnell-Chips. Suche/Barcode oeffnen
-/// ihre Flows (Sheet bzw. In-App-Scanner), KI-Scan die In-App-Kamera.
-/// Keine Entrance-Opacity/Transform -> hit-testbar.
+/// Add block: read-only search launcher plus two quick chips. No entrance
+/// opacity/transform, so it stays hit-testable.
 class _FoodAddBlock extends StatelessWidget {
   const _FoodAddBlock({
     required this.onSearch,
@@ -535,11 +502,9 @@ class _FoodAddBlock extends StatelessWidget {
   }
 }
 
-/// Readonly Such-Launcher (KEIN echtes TextField) -> oeffnet das Add-Sheet.
-///
-/// Die Optik stammt aus dem `SearchBarField` des Entwurfs, das Verhalten
-/// bewusst nicht: ein echtes Feld hier oeffnete die Tastatur statt des
-/// Sheets. Der echte Sucheingang bleibt `kcal-product-search-input`.
+/// Read-only search launcher (NOT a real TextField) that opens the add sheet.
+/// A real field here would open the keyboard instead; the actual input stays
+/// `kcal-product-search-input`.
 class _FoodSearchBar extends StatelessWidget {
   const _FoodSearchBar({required this.onTap});
 
@@ -548,9 +513,8 @@ class _FoodSearchBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // A11y: der Launcher sieht aus wie ein Textfeld, ist aber ein Knopf —
-    // fuer Screenreader explizit als solcher markiert (das sichtbare
-    // Platzhalter-Label uebernimmt die Beschriftung).
+    // A11y: it looks like a text field but is a button, so mark it as one;
+    // the visible placeholder provides the label.
     return Semantics(
       button: true,
       child: Material(
@@ -573,9 +537,8 @@ class _FoodSearchBar extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    // Wortgleich wie vor dem Refactor: die Suche findet
-                    // Produkte UND eigene Mahlzeiten, und der Vertrag laesst
-                    // ein Redesign kein Umbenennen sein (§6).
+                    // Wording unchanged: search finds products AND own meals,
+                    // and a redesign is not a rename (§6).
                     context.l10n.foodSearchPlaceholder,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -591,12 +554,11 @@ class _FoodSearchBar extends StatelessWidget {
   }
 }
 
-/// Schnell-Chip fuer Barcode und KI-Scan.
+/// Quick chip for barcode and AI scan.
 ///
-/// Bewusst NICHT [FilterChipPill]: der gemeinsame Chip setzt kein `maxLines`,
-/// und `food_tab_layout_test` liest genau EINEN Text-Nachfahren mit
-/// `maxLines == 1`. Ein Format-Parameter am gemeinsamen Baustein steht als
-/// Aenderungswunsch im Bericht.
+/// Deliberately not [FilterChipPill]: the shared chip sets no `maxLines`, and
+/// `food_tab_layout_test` expects exactly one text descendant with
+/// `maxLines == 1`.
 class _FoodQuickChip extends StatelessWidget {
   const _FoodQuickChip({
     super.key,
@@ -658,12 +620,9 @@ class _FoodQuickChip extends StatelessWidget {
   }
 }
 
-/// Einmalige Initialisierung der `intl`-Datumssymbole — derselbe Bool-Wächter
-/// wie in `today_texts.dart` (dort nicht wiederverwendbar: die Variable ist
-/// datei-privat). Der Screen haengt in einem `ListenableBuilder` am
-/// `HomeStore` und baut bei JEDEM HomeStore-Wechsel neu — ohne den Wächter
-/// wuerde `initializeDateFormatting()` seine (recht grosse) CLDR-Tabelle bei
-/// jedem Rebuild neu aufbauen.
+/// One-time init of the `intl` date symbols. The screen rebuilds on every
+/// HomeStore change, so without this guard `initializeDateFormatting()` would
+/// rebuild its large CLDR table each time.
 bool _dateSymbolsReady = false;
 void _ensureDateSymbols() {
   if (_dateSymbolsReady) return;
@@ -671,18 +630,10 @@ void _ensureDateSymbols() {
   _dateSymbolsReady = true;
 }
 
-/// Ausgeschriebenes Datum als Untertitel des Seitentitels: „Montag, 10.
-/// August" (`de`) / „Monday, August 10" (`en`).
+/// Spelled-out date as the page subtitle, via `intl`'s `MMMMEEEEd` skeleton.
 ///
-/// Bewusst NICHT „Heute"/„Gestern"/„Vor N Tagen": diese relative Bezeichnung
-/// traegt bereits `food-date-selected-label`, und Tests zaehlen sie einmal.
-///
-/// Seit der i18n-Migration (Paket 2, 2026-08-10) ueber `intl`s Skeleton
-/// `MMMMEEEEd` statt lokaler Namenslisten — dieselbe Technik wie
-/// `today_texts.dart:todayEyebrow`, nur ohne das `.toUpperCase()` dort. Die
-/// CLDR-Daten liefern unter `de` byte-identisch zum alten Listen-Join
-/// „Montag, 10. August" (verifiziert fuer einstellige Tage: `d` im Skeleton
-/// polstert nicht auf „05").
+/// Deliberately not the relative label: `food-date-selected-label` already
+/// carries that, and tests count it exactly once.
 @visibleForTesting
 String foodHeaderDateLabel(DateTime date, AppLocalizations l10n) {
   _ensureDateSymbols();
@@ -702,8 +653,8 @@ class _KcalHeader extends StatelessWidget {
   final DateTime selectedDate;
   final int consumedKcal;
 
-  /// Einstieg in die Trend-Ansicht (Kalorien-/Makro-Verlauf). Immer sichtbar:
-  /// die Trend-Seite haengt nicht am Store, sondern laedt selbst.
+  /// Entry to the trends view. Always visible: that page does not depend on
+  /// the store, it loads on its own.
   final VoidCallback onTrendsPressed;
   final VoidCallback? onSettingsPressed;
   final VoidCallback? onProfilePressed;
@@ -729,9 +680,8 @@ class _KcalHeader extends StatelessWidget {
               const SizedBox(width: 8),
               SquareIconButton(
                 key: const ValueKey('topbar-settings'),
-                // Zahnrad, nicht Schieberegler: seit der Aufteilung fuehrt
-                // dieser Knopf in die EINSTELLUNGEN (Konto, Anzeige, Daten)
-                // und nicht mehr in die Ziel-Eingabe.
+                // Gear, not slider: this button leads to settings (account,
+                // display, data), not to the goal input.
                 icon: Icons.settings_outlined,
                 onTap: onSettingsPressed,
                 semanticLabel: l10n.foodSemanticsSettings,
@@ -757,11 +707,9 @@ class _KcalHeader extends StatelessWidget {
   }
 }
 
-/// Die Forest-Kachel rechts im Kopf.
-///
-/// Zahl und Beschriftung sind zwei getrennte Texte — mit einem einzigen
-/// „N kcal" traeger die Baum den Text ein zweites Mal, und
-/// `flows/food_scan_flow_test` zaehlt ihn genau einmal.
+/// The forest tile on the right of the header. Number and label are two
+/// separate texts, because `flows/food_scan_flow_test` counts a combined
+/// "N kcal" exactly once.
 class _KcalTile extends StatelessWidget {
   const _KcalTile({required this.kcal, required this.isToday});
 
@@ -793,8 +741,8 @@ class _KcalTile extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           Text(
-            // Der Tab zeigt jeden der letzten 30 Tage — „HEUTE" waere an
-            // einem Archivtag schlicht falsch.
+            // The tab shows any of the last 30 days, so a "today" label would
+            // be wrong on an archived day.
             isToday ? l10n.foodKcalTodayLabel : l10n.foodKcalOnDayLabel,
             style: AppType.ui(
               9.5,
@@ -809,7 +757,7 @@ class _KcalTile extends StatelessWidget {
   }
 }
 
-/// Kompakter Profil-Einstieg: weiche Marken-Kapsel mit Initial.
+/// Compact profile entry: soft brand capsule with an initial.
 class _ProfileBadge extends StatelessWidget {
   const _ProfileBadge({required this.onTap, this.initial});
 
@@ -820,13 +768,11 @@ class _ProfileBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final showInitial = initial != null && initial!.isNotEmpty;
-    // A11y: die Kapsel zeigt nur ein Initial/Icon — ohne Label wuesste ein
-    // Screenreader-Nutzer nicht, dass hier das Profil haengt.
+    // A11y: the capsule shows only an initial/icon, so it needs a label.
     return Semantics(
       button: true,
-      // Wortgleich zu `todaySemanticsOpenProfile` (today_screen.dart) — beide
-      // Tabs oeffnen dasselbe Profil, ein eigener Key waere dieselbe Aussage
-      // zweimal in der ARB.
+      // Shares `todaySemanticsOpenProfile`: both tabs open the same profile,
+      // an own key would duplicate the string in the ARB.
       label: context.l10n.todaySemanticsOpenProfile,
       child: Material(
         key: const ValueKey('topbar-profile'),
@@ -857,27 +803,18 @@ class _ProfileBadge extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// B5: Kalenderarithmetik der Datumsleiste
+// B5: calendar arithmetic of the date strip
 // ---------------------------------------------------------------------------
 //
-// `Duration` ist Absolutzeit, kein Kalender. Am Montag 30.03.2026 in
-// Europe/Berlin (Fruehjahrsumstellung am Sonntag 29.03., ein 23-Stunden-Tag)
-// lieferte `today.subtract(Duration(days: 1))` den `2026-03-28 23:00`. Die
-// Leiste rendete dann
+// `Duration` is absolute time, not a calendar. Across a DST change
+// `today.subtract(Duration(days: 1))` skipped a day, so the "yesterday" chip
+// carried the wrong date and meals logged from it got the wrong `local_day`;
+// `.difference(...).inDays` was off by the same 23-hour day.
 //
-//   Mi 25.3. | Do 26.3. | Fr 27.3. | Gestern 28.3. | Heute 30.3.
-//
-// Sonntag der 29.3. war nicht erreichbar, und der Chip „Gestern" trug den
-// 28.3.: ein Tap darauf waehlte den falschen Tag, und jede von dort geloggte
-// Mahlzeit bekam `local_day = 2026-03-28`. Spiegelbildlich verrechnete sich
-// `.difference(...).inDays` auf zwei lokalen Mitternachten (23 h -> 0 Tage).
-//
-// Beides rechnet jetzt `day_math.dart`. Als freie Funktionen herausgezogen,
-// weil sie sonst nur ueber `DateTime.now()` erreichbar waeren — an einem
-// beliebigen Anker (etwa dem 30.03.2026) liessen sie sich dann gar nicht
-// pruefen.
+// Both now go through `day_math.dart`, as free functions so they can be tested
+// against an arbitrary anchor instead of only `DateTime.now()`.
 
-/// Die Tage der Leiste: [pastDays] zurueckliegende plus [today], aufsteigend.
+/// The strip's days: [pastDays] past days plus [today], ascending.
 @visibleForTesting
 List<DateTime> foodDateStripDays({
   required DateTime today,
@@ -886,14 +823,9 @@ List<DateTime> foodDateStripDays({
   return dayStrip(today: today, pastDays: pastDays);
 }
 
-/// Kopfzeile eines Chips. Fuer aeltere Tage der Wochentag statt nochmal des
-/// Datums — darunter steht bereits „23.7.", zweimal dasselbe sah nach Fehler
-/// aus.
-///
-/// Seit der i18n-Migration (Paket 2, 2026-08-10) ueber `intl`s Skeleton `EE`
-/// statt einer lokalen Zwei-Buchstaben-Liste. Die deutschen CLDR-Kuerzel
-/// tragen einen Punkt („Mo.", „Di."), den die alte Liste nicht hatte —
-/// abgeschnitten, damit `de` byte-identisch bleibt.
+/// A chip's headline: for older days the weekday, since the date already
+/// stands below it. Uses `intl`'s `EE` skeleton; the trailing dot of the
+/// German CLDR abbreviations is stripped so `de` stays byte-identical.
 @visibleForTesting
 String foodDateChipLabel(DateTime today, DateTime date, AppLocalizations l10n) {
   final offset = daysBetween(today, date);
@@ -903,12 +835,8 @@ String foodDateChipLabel(DateTime today, DateTime date, AppLocalizations l10n) {
   return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
 }
 
-/// Die Zeile ueber den Chips, die den gewaehlten Tag benennt.
-///
-/// Zeichengleich zu `today_texts.dart:todayDateLabel` — beide lesen jetzt
-/// dieselben ARB-Keys (`todayDateToday`/`todayDateYesterday`/
-/// `todayDateDaysAgo`), damit die beiden Kopien nicht mehr auseinanderlaufen
-/// koennen (Paket-1-Bericht, Drift-Risiko).
+/// The line above the chips naming the selected day. Reads the same ARB keys
+/// as `today_texts.dart:todayDateLabel` so the two copies cannot drift.
 @visibleForTesting
 String foodDateSelectedLabel(
   DateTime today,
@@ -945,7 +873,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
   @override
   void initState() {
     super.initState();
-    // Auswahl beim Aufbau sichtbar machen (z. B. Restore auf einem Alt-Tag).
+    // Make the selection visible on build (e.g. restore on an older day).
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
   }
 
@@ -953,9 +881,8 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
   void didUpdateWidget(covariant _FoodDateStrip oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!DateUtils.isSameDay(oldWidget.selectedDate, widget.selectedDate)) {
-      // Der gewaehlte Tag (auch aus dem Kalender) scrollt sich selbst ins
-      // Bild — vorher sprang der Fokus nur zurueck auf den Kalender-Knopf
-      // und die Auswahl blieb unsichtbar.
+      // The selected day scrolls itself into view; otherwise focus jumped
+      // back to the calendar button and the selection stayed invisible.
       _scrollToSelected();
     }
   }
@@ -971,15 +898,14 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
     final today = DateUtils.dateOnly(DateTime.now());
     final selected = DateUtils.dateOnly(widget.selectedDate);
     final index = daysBetween(today, selected);
-    // Jenseits der Chips sitzt der Archiv-Chip am Listenanfang.
+    // Beyond the chips the archive chip sits at the start of the list.
     final ziel = (index < 0 || index > widget.pastDays)
         ? 0.0
         : (index * (_chipWidth + _chipGap) - 2 * _chipWidth)
             .clamp(0.0, _scroll.position.maxScrollExtent);
     final dauer = motionDuration(context, const Duration(milliseconds: 260));
-    // Kein `animateTo(..., Duration.zero)`: DrivenScrollActivity haelt darauf
-    // ein `assert(duration > Duration.zero)` und wuerde im Debug-Build werfen.
-    // Unter reduzierter Bewegung springt die Leiste stattdessen.
+    // No `animateTo(..., Duration.zero)`: DrivenScrollActivity asserts on it
+    // in debug builds. With reduced motion the strip jumps instead.
     if (dauer == Duration.zero) {
       _scroll.jumpTo(ziel);
       return;
@@ -992,18 +918,16 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
     final l10n = context.l10n;
     final today = DateUtils.dateOnly(DateTime.now());
     final selected = DateUtils.dateOnly(widget.selectedDate);
-    // Absteigend (Heute zuerst, wie der Tages-Picker im Edit-Sheet): bei 31
-    // scrollbaren Chips muss der relevante Rand — heute — vorn stehen.
-    // Chip-Index == Tages-Offset (chip-0 = Heute, chip-1 = Gestern, ...).
+    // Descending (today first): with 31 scrollable chips the relevant edge
+    // must lead. Chip index == day offset (chip-0 = today).
     final days = foodDateStripDays(today: today, pastDays: widget.pastDays)
         .reversed
         .toList(growable: false);
     final imStreifen = days.any((d) => DateUtils.isSameDay(d, selected));
 
-    // Keine umschliessende Karte: die Chips tragen ihre Form selbst. Die
-    // Kopfzeile benennt den gewaehlten Tag, der Kalender-Knopf rechts bleibt
-    // fix stehen und wird bei einer Auswahl jenseits der Chips zur
-    // Datums-Pill — die Auswahl ist damit IMMER sichtbar.
+    // No enclosing card: the chips carry their own shape. The headline names
+    // the selected day and the calendar button stays fixed, so the selection
+    // is always visible.
     return Column(
       key: const ValueKey('food-date-strip'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1036,9 +960,8 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
           ),
         ),
         SizedBox(
-          // Mit der System-Schriftgroesse wachsen (A11y bis 200 %): die
-          // fruehere IntrinsicHeight-Row skalierte automatisch, eine fixe
-          // ListView-Hoehe wuerde bei textScale 2.0 ueberlaufen.
+          // Grow with the system font size (a11y up to 200 %): a fixed
+          // ListView height would overflow at textScale 2.0.
           height: 52 *
               (MediaQuery.textScalerOf(context).scale(12) / 12)
                   .clamp(1.0, 2.0),
@@ -1049,9 +972,9 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
                 child: ListView.separated(
                   controller: _scroll,
                   scrollDirection: Axis.horizontal,
-                  // Auswahl jenseits der 30 Tage: als VOLLWERTIGER Chip in
-                  // Normalbreite am Listenanfang — nicht als breite Pill am
-                  // Kalender-Knopf, die den uebrigen Chips den Platz nahm.
+                  // A selection beyond the 30 days appears as a full-width
+                  // chip at the start, not as a wide pill next to the
+                  // calendar button that stole space from the other chips.
                   itemCount: days.length + (imStreifen ? 0 : 1),
                   separatorBuilder: (_, __) => const SizedBox(width: _chipGap),
                   itemBuilder: (context, index) {
@@ -1061,8 +984,8 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
                         child: _FoodDateChip(
                           key: const ValueKey('food-date-chip-archive'),
                           date: selected,
-                          // Kopfzeile: Jahreszahl, wenn nicht aktuelles Jahr
-                          // — sonst der Wochentag wie bei jedem Chip.
+                          // Headline: the year if it is not the current one,
+                          // otherwise the weekday like any chip.
                           label: selected.year == today.year
                               ? foodDateChipLabel(today, selected, l10n)
                               : '${selected.year}',
@@ -1099,12 +1022,9 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
     );
   }
 
-  /// Kalender-Zugriff auf aeltere Tage (jenseits der Chips). Der Dialog
-  /// rendert in der aktiven App-Sprache — `eatova_app.dart` reicht
-  /// `Localizations.override`/`supportedLocales` bis hierher durch (seit dem
-  /// i18n-Grundgerüst; vorher fest auf `de`).
-  /// Die Auswahl laeuft ueber denselben [onSelected]-Pfad wie die Chips
-  /// (setFoodDate-Kette, inkl. On-Demand-Nachladen im Store).
+  /// Calendar access to days beyond the chips. The dialog renders in the
+  /// active app language, and the selection runs through the same [onSelected]
+  /// path as the chips, including on-demand loading in the store.
   Future<void> _pickFromCalendar(BuildContext context) async {
     final today = DateUtils.dateOnly(DateTime.now());
     final firstDate = DateTime(today.year - 2, today.month, today.day);
@@ -1137,8 +1057,7 @@ class _FoodDateChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // A11y-Muster wie der Zeitraum-Umschalter der Trend-Ansicht: Chip als
-    // Button mit Auswahl-Zustand ansagen.
+    // A11y: announce the chip as a button carrying a selection state.
     return Semantics(
       button: true,
       selected: selected,
@@ -1148,9 +1067,8 @@ class _FoodDateChip extends StatelessWidget {
         child: AnimatedContainer(
           duration: motionDuration(context, const Duration(milliseconds: 160)),
           curve: Curves.easeOut,
-          // Vertikal knapper als frueher (9): der 1-px-Rand der neuen Sprache
-          // nimmt 2 px, und die Leiste ist auf 52 px festgenagelt (die Chip-
-          // Geometrie 66/6 haengt an _scrollToSelected).
+          // Tight vertical padding: the 1 px border costs 2 px and the strip
+          // is pinned to 52 px (chip geometry 66/6 feeds _scrollToSelected).
           padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
           decoration: BoxDecoration(
             color: selected ? t.forest : t.surf,
@@ -1161,8 +1079,8 @@ class _FoodDateChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Wochentag tritt zurueck, das Datum traegt die Zeile — beim
-              // gewaehlten Chip kehrt sich das um, weil dort der Kontext zaehlt.
+              // The weekday recedes and the date leads; on the selected chip
+              // it is the other way round, because context matters there.
               Text(
                 label,
                 maxLines: 1,
@@ -1193,11 +1111,9 @@ class _FoodDateChip extends StatelessWidget {
   }
 }
 
-/// Quadratischer Kalender-Knopf am Ende der Datums-Chips: oeffnet den
-/// (deutschen) showDatePicker fuer Tage jenseits der Chip-Leiste. Gleiche
-/// Formensprache wie die Chips — weiche Flaeche, kein Hairline-Rahmen;
-/// [selected] (Auswahl liegt ausserhalb der Chips) fuellt ihn wie einen
-/// aktiven Chip.
+/// Square calendar button at the end of the date chips: opens showDatePicker
+/// for days beyond the strip. Same shape language as the chips; [selected]
+/// fills it like an active chip.
 class _CalendarDayButton extends StatelessWidget {
   const _CalendarDayButton({
     super.key,
@@ -1205,9 +1121,8 @@ class _CalendarDayButton extends StatelessWidget {
     required this.onTap,
   });
 
-  /// True, wenn die Auswahl jenseits der Chips liegt — der Knopf faerbt sich
-  /// dann wie ein aktiver Chip; das Datum selbst zeigt der Archiv-Chip am
-  /// Listenanfang (fixe Breite, nimmt den anderen Chips keinen Platz).
+  /// True when the selection lies beyond the chips; the button then colors
+  /// like an active chip while the archive chip shows the date itself.
   final bool selected;
 
   final VoidCallback onTap;
@@ -1215,7 +1130,7 @@ class _CalendarDayButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // A11y: reiner Icon-Knopf — ohne Label bliebe er fuer Screenreader stumm.
+    // A11y: icon-only button, silent for screen readers without a label.
     return Semantics(
       button: true,
       selected: selected,
@@ -1244,9 +1159,8 @@ class _CalendarDayButton extends StatelessWidget {
   }
 }
 
-/// Lade-Zustand des Tagebuchs, waehrend ein Alt-Tag on-demand nachgeladen
-/// wird — GENAU EIN Spinner statt eines faelschlich leeren Tages. Er ersetzt
-/// den kompletten Tagebuch-Block, nicht einzelne Karten.
+/// Loading state of the diary while an older day loads on demand: exactly one
+/// spinner replacing the whole diary block, not individual cards.
 class _DayLoadingCard extends StatelessWidget {
   const _DayLoadingCard();
 
@@ -1271,8 +1185,7 @@ class _DayLoadingCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            // Wortgleich zu `todayDayLoading` — beide Tabs zeigen denselben
-            // Zwischenzustand.
+            // Shares `todayDayLoading`: both tabs show the same interim state.
             context.l10n.todayDayLoading,
             style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
           ),

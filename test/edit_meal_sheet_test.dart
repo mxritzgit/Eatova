@@ -12,14 +12,12 @@ import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 
-// Bearbeiten-Sheet (2026-08-06): Tap auf eine geloggte Mahlzeit (Verlauf +
-// „Schon hinzugefuegt"-Tagesliste) oeffnet ein Sheet, das Portion/Bestandteile
-// (bestehender Editor), Slot und Tag aendert und ueber den outbox-sicheren
-// Store-Pfad speichert. Standalone-Tests treiben das Sheet direkt; die
-// Integrationstests laufen durch die echte App-Schale (EatovaApp) und damit
-// durch den MealEditScope + HomeStore.
+// Edit sheet: tapping a logged meal opens a sheet that changes portion/items,
+// slot and day and saves through the outbox-safe store path. Standalone tests
+// drive the sheet directly; the integration tests run through the real app
+// shell (EatovaApp) and thus MealEditScope + HomeStore.
 
-// Viewport-Pinning + Overflow-Toleranz wie in widget_test.dart.
+// Viewport pinning + overflow tolerance, as in widget_test.dart.
 void testWidgetsRobust(
   String description,
   WidgetTesterCallback callback,
@@ -58,8 +56,8 @@ LoggedMeal _loggedMeal() => LoggedMeal(
       id: 'meal-1',
       result: _result(),
       loggedAt: DateTime.now(),
-      // Fester Slot statt Uhrzeit-Heuristik — deterministisch zu jeder
-      // Test-Laufzeit.
+      // Fixed slot instead of the time-of-day heuristic: deterministic at any
+      // test run time.
       forcedSlot: MealSlot.breakfast,
     );
 
@@ -98,7 +96,7 @@ Future<void> _openSheet(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // EditMealSheet liest seit der i18n-Migration context.l10n.
+      // EditMealSheet reads context.l10n.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -140,7 +138,7 @@ void main() {
     expect(find.text('Test-Bowl'), findsOneWidget);
     expect(find.text('350 kcal · 350 g'), findsOneWidget);
 
-    // Ohne Aenderung ist Speichern gesperrt.
+    // Without a change, save is disabled.
     final saveButton = find.byKey(const ValueKey('edit-meal-save-button'));
     expect(tester.widget<FilledButton>(saveButton).onPressed, isNull);
 
@@ -148,7 +146,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<FilledButton>(saveButton).onPressed, isNotNull);
 
-    // Tag: Chip-Index 1 = Gestern.
+    // Day: chip index 1 = yesterday.
     await tester.tap(find.byKey(const ValueKey('edit-day-chip-1')));
     await tester.pumpAndSettle();
 
@@ -159,8 +157,8 @@ void main() {
     expect(capture.id, 'meal-1');
     expect(capture.slot, MealSlot.lunch);
     expect(capture.result, isNull, reason: 'Portion wurde nicht angefasst');
-    // B5: Kalender-, keine Duration-Arithmetik — sonst ist der Test selbst
-    // an der Fruehjahrsumstellung falsch.
+    // B5: calendar arithmetic, not Duration — otherwise the test itself is
+    // wrong across the spring DST switch.
     final yesterday = addDays(startOfDay(DateTime.now()), -1);
     expect(DateUtils.isSameDay(capture.day!, yesterday), isTrue);
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
@@ -175,7 +173,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('edit-meal-adjust-button')));
     await tester.pumpAndSettle();
 
-    // Der BESTEHENDE Editor aus meal_widgets_adjust.dart oeffnet sich.
+    // The existing editor from meal_widgets_adjust.dart opens.
     expect(find.text('Bestandteile anpassen'), findsOneWidget);
     await tester.enterText(
       find.byKey(const ValueKey('analyse-item-weight-input-0')),
@@ -185,7 +183,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('analyse-save-weight-button')));
     await tester.pumpAndSettle();
 
-    // Zurueck im Bearbeiten-Sheet: Zusammenfassung zeigt den neuen Stand.
+    // Back in the edit sheet: the summary shows the new values.
     expect(find.text('200 kcal · 200 g'), findsOneWidget);
     expect(find.text('Angepasst'), findsOneWidget);
 
@@ -206,7 +204,7 @@ void main() {
     final capture = _EditCapture();
     await _openSheet(tester, capture);
 
-    // Kalender-Eintrag ans Ende des horizontalen Chip-Pickers scrollen.
+    // Scroll to the calendar entry at the end of the horizontal chip picker.
     await tester.drag(
       find.byKey(const ValueKey('edit-meal-day-picker')),
       const Offset(-3000, 0),
@@ -217,8 +215,8 @@ void main() {
     expect(find.byType(DatePickerDialog), findsOneWidget);
     expect(find.text('Tag wählen'), findsOneWidget);
 
-    // Deterministisch in den VORMONAT blaettern und den 15. waehlen: den 15.
-    // gibt es in jedem Monat und er liegt immer in der Vergangenheit.
+    // Page to the previous month and pick the 15th: it exists in every month
+    // and always lies in the past.
     await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
     await tester.tap(find.descendant(
@@ -240,15 +238,15 @@ void main() {
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
   });
 
-  // ─── D5: ausgefuelltes Formular wird nicht mehr kommentarlos verworfen ───
+  // ─── D5: a filled-in form is no longer discarded silently ───────────────
   //
-  // Beide Dismiss-Wege eines modalen Bottom-Sheets werden geprueft, weil sie
-  // im Framework VERSCHIEDEN laufen:
-  //   * Barriere-Tap  -> ModalBarrier.handleDismiss -> Navigator.maybePop
-  //     (fragt PopScope) — modal_barrier.dart:225-230
-  //   * Nach-unten-Ziehen -> BottomSheet._handleDragEnd -> onClosing ->
-  //     Navigator.pop (fragt PopScope NICHT!) — bottom_sheet.dart:769-771
-  // Ein reines PopScope deckt also nur die Haelfte ab.
+  // Both dismiss paths of a modal bottom sheet are checked because the
+  // framework runs them differently:
+  //   * barrier tap -> ModalBarrier.handleDismiss -> Navigator.maybePop
+  //     (consults PopScope)
+  //   * drag down -> BottomSheet._handleDragEnd -> onClosing -> Navigator.pop
+  //     (does NOT consult PopScope)
+  // A plain PopScope therefore covers only half.
 
   testWidgetsRobust(
       'D5: Barriere-Tap bei ungespeicherter Aenderung fragt nach, statt zu '
@@ -259,7 +257,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
     await tester.pumpAndSettle();
 
-    // Oben links liegt die Barriere, nicht das Sheet.
+    // Top left is the barrier, not the sheet.
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
 
@@ -277,8 +275,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
     await tester.pumpAndSettle();
 
-    // Auf dem Kopfbereich ziehen (oberhalb der Scroll-Flaeche, dort greift
-    // der Drag-to-dismiss des BottomSheet).
+    // Drag on the header, above the scroll area, where the BottomSheet's
+    // drag-to-dismiss applies.
     await tester.drag(find.text('Mahlzeit bearbeiten'), const Offset(0, 600));
     await tester.pumpAndSettle();
 
@@ -303,7 +301,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
-    // Die Aenderung ist noch da: Speichern bleibt aktiv.
+    // The change is still there: save stays enabled.
     expect(
       tester
           .widget<FilledButton>(
@@ -335,8 +333,8 @@ void main() {
   testWidgetsRobust(
       'D5: ein Tap neben den Dialog ist „Abbrechen" — der Dialog wird nicht '
       'vom Sheet-Dismiss verschluckt', (WidgetTester tester) async {
-    // Der Dialog liegt auf dem Root-Navigator und damit ueber der
-    // Sheet-Route; sein eigener Barrier faengt den Tap ab.
+    // The dialog sits on the root navigator above the sheet route, so its own
+    // barrier catches the tap.
     final capture = _EditCapture();
     await _openSheet(tester, capture);
 
@@ -356,15 +354,14 @@ void main() {
   testWidgetsRobust(
       'D5: der Drag-Guard blockiert weder Taps noch die Auswahl im Sheet',
       (WidgetTester tester) async {
-    // Der Guard registriert nur einen Vertikal-Drag-Erkenner; Taps und die
-    // horizontalen Listen (Slot-Auswahl, Tag-Chips) muessen weiter durchgehen,
-    // auch waehrend das Sheet „dirty" ist.
+    // The guard registers only a vertical drag recognizer; taps and the
+    // horizontal lists must keep working while the sheet is dirty.
     final capture = _EditCapture();
     await _openSheet(tester, capture);
 
     await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
     await tester.pumpAndSettle();
-    // Ab hier ist der Guard aktiv.
+    // From here on the guard is active.
     await tester.tap(find.byKey(const ValueKey('edit-slot-select-dinner')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('edit-day-chip-2')));
@@ -479,15 +476,14 @@ void main() {
     expect(find.byKey(const ValueKey('edit-meal-delete-button')), findsNothing);
   });
 
-  // ─── Integration durch die echte App-Schale ─────────────────────────────
+  // ─── Integration through the real app shell ─────────────────────────────
 
   testWidgetsRobust(
       'Verlauf: Tap auf Eintrag oeffnet Bearbeiten-Sheet, Slot-Wechsel wird '
       'gespeichert und im Verlauf sichtbar', (WidgetTester tester) async {
-    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
-    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
-    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
-    // pruefen wortgleiche deutsche ARB-Texte.
+    // Pin the device language: without an override EatovaApp resolves via
+    // resolveEatovaLocale, and the assertions below check verbatim German ARB
+    // texts.
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
@@ -509,17 +505,16 @@ void main() {
 
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
     expect(find.text('Mahlzeit aktualisiert.'), findsOneWidget);
-    // Verlaufszeile traegt jetzt den neuen Slot.
+    // The history row now carries the new slot.
     expect(find.textContaining('Snacks ·'), findsOneWidget);
   });
 
   testWidgetsRobust(
       'Tagesliste im Add-Sheet: Verschieben auf gestern raeumt heute und '
       'fuellt gestern', (WidgetTester tester) async {
-    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
-    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
-    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
-    // pruefen wortgleiche deutsche ARB-Texte.
+    // Pin the device language: without an override EatovaApp resolves via
+    // resolveEatovaLocale, and the assertions below check verbatim German ARB
+    // texts.
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
@@ -529,8 +524,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
 
-    // Sheet neu oeffnen (die Tagesliste wird beim Oeffnen befuellt) und den
-    // Slot der Mahlzeit waehlen.
+    // Reopen the sheet (the day list is filled on open) and pick the meal slot.
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('slot-select-breakfast')));
@@ -538,7 +532,7 @@ void main() {
     expect(
         find.byKey(const ValueKey('analyse-existing-meals')), findsOneWidget);
 
-    // Zeile antippen -> Bearbeiten-Sheet -> Tag auf Gestern -> Speichern.
+    // Tap the row -> edit sheet -> day to yesterday -> save.
     final editRow = find.byWidgetPredicate((w) =>
         w is InkWell &&
         (w.key?.toString().contains('analyse-existing-edit-') ?? false));
@@ -552,13 +546,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
     await tester.pumpAndSettle();
 
-    // Zurueck im Add-Sheet: die heutige Tagesliste ist leer -> Block weg.
+    // Back in the add sheet: today's day list is empty -> block gone.
     expect(find.byKey(const ValueKey('analyse-existing-meals')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
 
-    // Heute: kein Verlaufseintrag mehr. Gestern (chip-1 — die Leiste laeuft
-    // seit dem 30-Tage-Umbau absteigend, Index = Tages-Offset): Eintrag da.
+    // Today: no history entry left. Yesterday (chip-1; the strip runs
+    // descending, index = day offset): entry present.
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('food-date-chip-1')));
     await tester.pumpAndSettle();
@@ -566,8 +560,8 @@ void main() {
   });
 }
 
-/// Fuegt ueber den Such-Flow die Fake-Salami-Pizza in den Slot [slotKey] ein
-/// und laesst das Add-Sheet offen.
+/// Adds the fake salami pizza to slot [slotKey] via the search flow and leaves
+/// the add sheet open.
 Future<void> _addSalamiViaSearch(
   WidgetTester tester, {
   required String slotKey,

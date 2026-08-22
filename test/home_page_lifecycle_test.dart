@@ -1,26 +1,18 @@
-// Resume-Hook der Schale (`didChangeAppLifecycleState`) — W3-01.
+// Resume hook of the shell (`didChangeAppLifecycleState`) — W3-01. Four store
+// capabilities are inert without this one caller:
 //
-// Vier Uebergaben aus Welle 2 haengen alle an dieser einen Stelle. Der Store
-// bringt die Faehigkeiten mit, aber ohne Aufrufer sind sie inert:
+//  * B4  — `maybeRollOverToToday()`: a suspended app gets no midnight tick.
+//  * B3  — the resume refresh was gated on `granted`, so `unverified` could
+//          never heal after the user allowed access in the iOS settings.
+//  * D11 — `refreshNotificationPermission()` gets the user out of
+//          `ReminderState.blocked`; nobody called it.
+//  * B3b — across midnight with the app open, the rollover keeps YESTERDAY's
+//          step count (deliberately, see home_store.dart) while it still feeds
+//          burnedKcal/adjustedGoal, so the shell pulls one health refresh per
+//          calendar day.
 //
-//  * B4  — `maybeRollOverToToday()`: eine suspendierte App bekommt keinen
-//          Mitternachts-Timer-Tick, der Tageswechsel faellt ohne den Resume
-//          komplett aus.
-//  * B3  — der Resume-Refresh war auf `HealthAuthState.granted` gegatet. Der
-//          seit Welle 2 existierende Zustand `unverified` konnte damit nie
-//          heilen: Nutzer gibt in den iOS-Einstellungen frei, kommt zurueck,
-//          und niemand prueft nach.
-//  * D11 — `refreshNotificationPermission()` holt den Nutzer aus
-//          `ReminderState.blocked` zurueck. Es rief niemand auf.
-//  * B3b — liegt die App ueber Mitternacht offen, laesst der Rollover den
-//          Schrittstand von GESTERN stehen (bewusst, s. home_store.dart) — er
-//          speist aber weiter burnedKcal/adjustedGoal. Die Schale zieht
-//          deshalb pro Kalendertag genau einen Health-Refresh nach.
-//
-// Der Lifecycle-Callback wird direkt auf dem State aufgerufen: genau das macht
-// die WidgetsBinding auch, nur ohne die Zustandsautomat-Vorgeschichte
-// (resumed -> inactive -> hidden -> paused -> ... -> resumed) nachstellen zu
-// muessen.
+// The lifecycle callback is invoked directly on the state — what
+// WidgetsBinding does, without replaying the state-machine prelude.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -35,10 +27,9 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Health-Double mit zaehlbarem Lesepfad. [authState] wandert genau wie beim
-/// echten AppleHealthService bei JEDEM `readSnapshot()` mit (dort ueber den
-/// HealthAuthVerifier, apple_health_service.dart:319-334) — deshalb kann ein
-/// Refresh aus `unverified`/`denied` heraus ueberhaupt heilen.
+/// Health double with a countable read path. [authState] moves on EVERY
+/// `readSnapshot()`, exactly as in the real AppleHealthService — that is what
+/// lets a refresh heal out of `unverified`/`denied`.
 class _FakeHealth implements HealthService {
   _FakeHealth({
     this.initial = HealthAuthState.unverified,
@@ -48,7 +39,7 @@ class _FakeHealth implements HealthService {
 
   final HealthAuthState initial;
 
-  /// Zustand, den ein `readSnapshot()` hinterlaesst (null = [initial] bleibt).
+  /// State a `readSnapshot()` leaves behind (null keeps [initial]).
   final HealthAuthState? afterRefresh;
   final int steps;
 
@@ -93,8 +84,9 @@ class _FakeHealth implements HealthService {
   Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
-/// Notification-Double mit umlegbarer OS-Ebene (D11). Implementiert die
-/// [NotificationPermissionProbe], sonst gilt der Dienst als „darf immer".
+/// Notification double with a switchable OS layer (D11). Implements
+/// [NotificationPermissionProbe]; otherwise the service counts as always
+/// allowed.
 class _FakeNotifications
     implements NotificationService, NotificationPermissionProbe {
   _FakeNotifications({this.osAllows = false});
@@ -137,12 +129,11 @@ Future<void> _pumpHome(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      // Design-Refactor 2026-08: die Schale liest Farben ueber `context.t`
-      // (AppTokens als ThemeExtension). `AppTokens.of` wirft absichtlich, wenn
-      // die Extension fehlt — ohne `theme:` scheitert schon der erste Build.
+      // The shell reads colors via `context.t` (AppTokens as ThemeExtension),
+      // and `AppTokens.of` throws on purpose when the extension is missing.
       theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
-      // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+      // _navItems() reads context.l10n, so without localizations
+      // AppLocalizations.of() throws while building the bottom nav.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -187,8 +178,8 @@ void main() {
     });
 
     testWidgets('der Rollover laeuft VOR dem Flush', (tester) async {
-      // Reihenfolge: erst den Tag vorruecken, dann flushen — ein durch den
-      // Flush ausgeloester Refresh traegt sonst noch den alten Tag.
+      // Order: advance the day first, then flush — a refresh triggered by the
+      // flush would otherwise still carry the old day.
       late HomeStore store;
       final reihenfolge = <String>[];
       await withClock(Clock.fixed(_montagAbend), () async {
@@ -211,7 +202,7 @@ void main() {
 
   group('B3 — Health-Resume-Gate', () {
     testWidgets('unverified heilt beim Resume', (tester) async {
-      // Nutzer hat in den iOS-Einstellungen freigeschaltet und kommt zurueck.
+      // The user allowed access in the iOS settings and comes back.
       final health = _FakeHealth(
         initial: HealthAuthState.unverified,
         afterRefresh: HealthAuthState.granted,
@@ -219,7 +210,7 @@ void main() {
       await _pumpHome(tester, health: health);
       await tester.pump();
 
-      // connectHealth() im initState refresht nur bei `granted` — hier nicht.
+      // connectHealth() in initState only refreshes on `granted`.
       expect(health.snapshotCalls, 0);
       expect(_storeOf(tester).healthAuthState, HealthAuthState.unverified);
 
@@ -233,8 +224,7 @@ void main() {
     });
 
     testWidgets('denied heilt beim Resume ebenfalls', (tester) async {
-      // readSnapshot() zeigt keinen Dialog (es liest nur Signale gegen), der
-      // Weg zurueck aus `denied` ist also gefahrlos.
+      // readSnapshot() shows no dialog, so healing out of `denied` is safe.
       final health = _FakeHealth(
         initial: HealthAuthState.denied,
         afterRefresh: HealthAuthState.granted,
@@ -295,13 +285,13 @@ void main() {
       await _pumpHome(tester, notifications: notifications, cache: cache);
       final store = _storeOf(tester);
 
-      // Kaltstart-Pfad: Opt-in im Cache, OS verweigert -> blocked.
+      // Cold-start path: opt-in in cache, OS refuses -> blocked.
       await store.initNotificationsFromCache();
       await tester.pump();
       expect(store.reminderState, ReminderState.blocked);
       expect(notifications.scheduleAllCalls, 0);
 
-      // Nutzer war in den Systemeinstellungen und kommt zurueck.
+      // The user was in the system settings and comes back.
       notifications.osAllows = true;
       _resume(tester);
       await tester.pump();
@@ -314,8 +304,8 @@ void main() {
     });
 
     testWidgets('ausgeschaltet bleibt ausgeschaltet', (tester) async {
-      // Wer keine Erinnerungen will, bekommt durch eine Systemeinstellung
-      // keine — refreshNotificationPermission() haelt bei `off` an.
+      // A system setting must not turn reminders on for someone who opted
+      // out: refreshNotificationPermission() stops at `off`.
       final notifications = _FakeNotifications(osAllows: true);
       final cache = LocalCache(InMemoryKeyValueStore(), 'u-d11-off');
 
@@ -347,9 +337,8 @@ void main() {
       expect(health.snapshotCalls, 1, reason: 'Kaltstart');
       expect(store.dailySteps, 9000);
 
-      // Mitternachts-Timer des Stores feuert, die App liegt offen. Der
-      // Rollover laesst dailySteps bewusst stehen (Health-Zustaendigkeit) —
-      // die Schale muss den Nachzug ausloesen.
+      // The store's midnight timer fires with the app open. The rollover
+      // deliberately keeps dailySteps, so the shell must pull the refresh.
       withClock(Clock.fixed(_dienstagFrueh), () {
         expect(store.maybeRollOverToToday(), isTrue);
       });

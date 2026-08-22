@@ -14,26 +14,21 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 
 // ---------------------------------------------------------------------------
-// Makros pro Slot und pro Mahlzeit in der Slot-Karte des Food-Tabs.
+// Macros per slot and per meal in the food tab's slot card.
 //
-// Der Slot-Kopf traegt unter „N kcal · N Eintraege" eine zweite Zeile mit den
-// Slot-Summen (P/K/F), jede Verlaufszeile unter „Slot · Menge" ihre eigenen
-// Makros. Beide kommen aus `MacroProgress` — derselben Zahlenbasis wie die
-// Tagesbilanz — und aus dem ARB-Schluessel `foodMacroSummary`.
+// Slot header and each history row carry their own P/C/F line, both from
+// `MacroProgress` and the ARB key `foodMacroSummary`.
 //
-// Die Breitenmessungen (390 pt, Textskalierung 1.0 und 1.3) laufen mit den
-// ECHTEN App-Schriften: die Test-Schrift des Headless-Renderers ist rund
-// doppelt so breit wie Archivo/Bricolage und wuerde jede Aussage ueber „passt
-// auf ein iPhone 12/13/14" verfaelschen (s. a11y_controls_test.dart).
+// The width measurements run with the REAL app fonts: the headless renderer's
+// test font is about twice as wide and would falsify any "fits an iPhone"
+// claim (see a11y_controls_test.dart).
 // ---------------------------------------------------------------------------
 
-/// Logische Breite eines iPhone 12/13/14 — die schmalste Breite, fuer die
-/// die Karte ohne Abschneiden ausgelegt ist.
+/// Logical width of an iPhone 12/13/14: the narrowest the card must fit.
 const double _breite = 390;
 
-/// `^P … g · K … g · F … g$` (de) bzw. mit `C` (en) — genau die Form von
-/// `foodMacroSummary`, damit der Finder weder die kcal-Zeile noch die
-/// Slot-Zeile mitnimmt.
+/// Exactly the shape of `foodMacroSummary`, so the finder picks up neither
+/// the kcal line nor the slot line.
 final RegExp _makroZeile = RegExp(r'^P \d+ g · [KC] \d+ g · F \d+ g$');
 
 Future<void> _pump(
@@ -66,7 +61,7 @@ Future<void> _pump(
           ),
           child: Scaffold(
             body: SafeArea(
-              // Dasselbe 20/12-Padding wie der Food-Tab in EatovaHomePage.
+              // Same 20/12 padding as the food tab in EatovaHomePage.
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
                 child: child,
@@ -99,10 +94,8 @@ MealAnalysisResult _ergebnis({
   portionNotes: '',
 );
 
-/// Zwei Eintraege mit bekannten Makros. Der zweite traegt Dezimalwerte mit
-/// Komma UND Punkt — `MacroProgress` liest beide; die Zeile rundet pro
-/// Mahlzeit (30,4 → 30; 10.6 → 11), der Kopf rundet die SUMME
-/// (42,4 → 42; 58,6 → 59; 26).
+/// Two entries with known macros; the second mixes comma and dot decimals,
+/// which `MacroProgress` both read. Rows round per meal, the header the SUM.
 final MealAnalysisResult _haferbrei = _ergebnis(
   name: 'Haferbrei',
   kcal: 320,
@@ -129,8 +122,7 @@ LoggedMeal _mahlzeit(String id, MealAnalysisResult result, MealSlot slot) =>
       forcedSlot: slot,
     );
 
-/// Zwei Eintraege im Mittagessen — der laengste deutsche Slot-Name, damit die
-/// Breitenmessung den engsten Fall sieht.
+/// Two lunch entries: the longest German slot name, the tightest width case.
 DiaryMealCard _karteMitZweiEintraegen({ValueChanged<MealSlot>? onAddToSlot}) =>
     DiaryMealCard(
       slot: MealSlot.lunch,
@@ -142,8 +134,7 @@ DiaryMealCard _karteMitZweiEintraegen({ValueChanged<MealSlot>? onAddToSlot}) =>
       onRemoveMeal: (_) {},
     );
 
-/// Alle Makro-Zeilen der Karte in Baumreihenfolge (Kopf zuerst, dann die
-/// Zeilen von oben nach unten).
+/// All macro lines of the card in tree order, header first.
 List<String> _makroZeilen(WidgetTester tester) => tester
     .widgetList<Text>(find.textContaining(_makroZeile))
     .map((t) => t.data!)
@@ -179,17 +170,17 @@ void main() {
         'Zeile zeigt ihre eigenen Makros', (tester) async {
       await _pump(tester, _karteMitZweiEintraegen());
 
-      // Die bestehende Summenzeile bleibt unveraendert (Tests lesen sie).
+      // The existing totals line is unchanged (other tests read it).
       expect(find.text('530 kcal · 2 Einträge'), findsOneWidget);
 
       expect(_makroZeilen(tester), <String>[
-        'P 42 g · K 59 g · F 26 g', // Slot-Kopf: Summe 42,4 / 58,6 / 26
+        'P 42 g · K 59 g · F 26 g', // slot header: sum 42.4 / 58.6 / 26
         'P 12 g · K 48 g · F 6 g', // Haferbrei
-        'P 30 g · K 11 g · F 20 g', // Quark: 30,4 / 10.6 / 20
+        'P 30 g · K 11 g · F 20 g', // Quark: 30.4 / 10.6 / 20
       ]);
 
-      // Die Slot-Zeile „Slot · Menge" bleibt ein eigenes Text-Widget mit
-      // unveraendertem Format — edit_meal_sheet_test liest genau das.
+      // The "slot · amount" line stays its own Text widget with an unchanged
+      // format; edit_meal_sheet_test reads exactly that.
       expect(find.text('Mittagessen · ~250 g'), findsOneWidget);
       expect(find.text('Mittagessen · ~1200 g'), findsOneWidget);
     });
@@ -252,9 +243,8 @@ void main() {
         ),
       );
 
-      // Nur die Slot-Summe im Kopf (wie die Tagesringe: 0 ist 0). Die
-      // Verlaufszeile verschweigt unbekannte Makros — dieselbe Regel wie
-      // ExistingMealsList, damit „P 0 g" nie wie eine Messung aussieht.
+      // Only the header sum (0 is 0, like the day rings); a row hides unknown
+      // macros so a zero never looks like a measurement.
       expect(_makroZeilen(tester), <String>['P 0 g · K 0 g · F 0 g']);
     });
 
@@ -265,8 +255,7 @@ void main() {
         (tester) async {
           await _pump(tester, _karteMitZweiEintraegen(), textScale: scale);
 
-          // Kein RenderFlex-Overflow (waere ueber FlutterError.onError schon
-          // ein Testfehler — hier explizit, damit die Aussage lesbar bleibt).
+          // No RenderFlex overflow; explicit so the assertion reads.
           expect(tester.takeException(), isNull);
 
           final zeilen = find.textContaining(_makroZeile);
@@ -281,8 +270,7 @@ void main() {
                   '$scale abgeschnitten (Breite ${paragraph.size.width})',
             );
           }
-          // Auch die Slot-Zeile darf durch die neue Nachbarschaft nicht
-          // abgeschnitten werden.
+          // The slot line must not be clipped by its new neighbour either.
           final slotZeile = tester.renderObject<RenderParagraph>(
             find.text('Mittagessen · ~1200 g'),
           );

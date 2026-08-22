@@ -1,45 +1,40 @@
 part of 'home_store.dart';
 
-/// Tracking-Part von [HomeStore]: Gewichts-Logging (manuell + Apple-Health-
-/// Import), der Health-Snapshot (Schritte) und der serverseitige Streak-Tag
-/// (record_tracking_day). Reine Datei-Aufteilung — Verhalten und Member sind
-/// 1:1 aus home_store.dart uebernommen.
+/// Tracking part of [HomeStore]: weight logging (manual + Apple Health
+/// import), the health snapshot (steps) and the server-side streak day
+/// (record_tracking_day). File split only, no behaviour change.
 mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
-  // healthAuthState liegt in _HomeStoreBase neben dailySteps: der Logout-Pfad
-  // in _HomeStoreSyncPart muss es beim Nutzerwechsel zuruecksetzen (B3), und
-  // dieser Mixin haengt VON Sync ab, nicht umgekehrt — Sync saehe ein Feld
-  // hier also nie.
+  // healthAuthState lives in _HomeStoreBase next to dailySteps: the logout
+  // path in _HomeStoreSyncPart must reset it on user switch (B3), and sync
+  // does not depend on this mixin, so it could never see a field declared
+  // here.
   DateTime? healthLastFetch;
   bool healthSyncing = false;
 
-  /// Tages-Aktivitaet: Schritte + daraus geschaetzte "Verbrannt"-kcal pro
-  /// lokalem Kalendertag (Key: [localDayKey]).
+  /// Daily activity: steps plus estimated burned kcal per local calendar day
+  /// (key: [localDayKey]).
   ///
-  /// Der HEUTIGE Eintrag wird bei jedem verifizierten Health-Refresh
-  /// upsertet — der letzte Refresh eines Tages IST damit sein Endwert, und
-  /// die VERBRANNT-Kachel eines Archivtags zeigt ihn statt einer erfundenen
-  /// 0 ([burnedKcalForFoodDate]). Vergangene Tage ohne (oder mit womoeglich
-  /// unvollstaendigem) Eintrag holt [_maybeBackfillDailyActivity] einmal pro
-  /// Sitzung aus dem Health-Store nach — der kennt die volle Historie.
+  /// Today's entry is upserted on every verified health refresh, so the last
+  /// refresh of a day is its final value; past days are topped up once per
+  /// session by [_maybeBackfillDailyActivity].
   ///
-  /// Bei Mutation wird die Map ERSETZT statt veraendert: die Slice-Selectors
-  /// der Schale vergleichen per Identitaet (G11-Muster, s. eatova_home_page).
+  /// Mutation REPLACES the map: the shell's slice selectors compare by
+  /// identity (G11 pattern, see eatova_home_page).
   Map<String, ({int steps, int kcal})> dailyActivity =
       <String, ({int steps, int kcal})>{};
 
-  /// Tage, fuer die diese Sitzung schon einen Backfill versucht hat — ein
-  /// Archivtag soll nicht bei jedem Antippen eine neue Health-Query kosten.
+  /// Days this session already attempted a backfill for, so revisiting an
+  /// archive day does not cost a health query on every tap.
   final Set<String> _dailyActivityBackfillAttempted = <String>{};
 
-  /// Aeltere Eintraege fallen beim Upsert aus der Map — laenger als ein Jahr
-  /// zurueckblaettern ist den dauerhaft wachsenden Blob nicht wert.
+  /// Older entries drop out of the map on upsert; a forever-growing blob is
+  /// not worth more than a year of history.
   static const Duration _dailyActivityRetention = Duration(days: 400);
 
-  /// In-Memory-Dedup fuer das HealthKit-Gewichts-Angebot: refreshHealthSteps()
-  /// laeuft bei Kaltstart UND jedem App-Resume — ohne Dedup wuerde der
-  /// „uebernehmen?"-Snack bei jedem Resume erneut aufpoppen. Merkt sich den
-  /// zuletzt ANGEBOTENEN Wert; bewusst nicht persistiert (nach App-Neustart
-  /// darf einmal erneut angeboten werden).
+  /// In-memory dedup for the HealthKit weight offer: refreshHealthSteps()
+  /// runs on cold start AND every resume, so without this the offer snack
+  /// would reappear each time. Deliberately not persisted — one fresh offer
+  /// per app start is fine.
   double? _lastOfferedHealthWeightKg;
 
   // --- Health ---------------------------------------------------------------
@@ -64,39 +59,32 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (_disposed) return;
     _mutate(() {
       healthSyncing = false;
-      // B3 (Uebergabe W2-04): der Service verifiziert die Berechtigung bei
-      // JEDEM Refresh neu und kann von granted auf unverified/denied
-      // zurueckfallen. Den Zustand deshalb in BEIDEN Zweigen adoptieren statt
-      // ihn nur bei Erfolg auf `granted` hochzustufen — sonst behauptet die
-      // Profilkarte weiter „Synchronisiert", waehrend readSnapshot() dauerhaft
-      // null liefert und der Ring mit 0 verbrannten kcal rechnet.
+      // B3: the service re-verifies the permission on every refresh and can
+      // fall back from granted to unverified/denied, so adopt its state in
+      // BOTH branches instead of only upgrading on success.
       healthAuthState = health.authState;
       if (snapshot != null) {
         dailySteps = snapshot.stepsToday;
         healthLastFetch = snapshot.fetchedAt;
-        // Tageswert festschreiben — der Tag des SNAPSHOTS, nicht "heute":
-        // laeuft der Refresh in der Mitternachts-Sekunde, gehoeren die
-        // Schritte noch zum Abfrage-Zeitpunkt.
+        // Pin to the SNAPSHOT's day, not "today": a refresh at the midnight
+        // second still belongs to the query time.
         _recordDailyActivity(snapshot.fetchedAt, snapshot.stepsToday);
       }
-      // Kein `else { dailySteps = 0; }`: ein nicht-verifizierter Zustand
-      // liefert seit B3 null statt „0 Schritte" — der zuletzt gemessene Wert
-      // ist dann die bessere Auskunft als eine erfundene Null.
+      // No `else { dailySteps = 0; }`: an unverified state yields null, and
+      // the last measured value beats an invented zero.
     });
-    // Gewichts-Import-Pfad: das Snapshot-Gewicht nicht laenger wegwerfen,
-    // sondern (dedupliziert) zum Uebernehmen anbieten.
+    // Offer the snapshot weight for import (deduped) instead of discarding it.
     if (snapshot != null) {
       _maybeOfferHealthWeight(snapshot.latestWeightKg);
     }
   }
 
-  /// "Verbrannt"-kcal fuer [date]: heute live aus [dailySteps] (wie bisher),
-  /// fuer vergangene Tage der festgeschriebene Tageswert aus [dailyActivity].
-  /// 0 heisst "kein Eintrag" — die Kachel zeigt dann „—" statt einer Zahl.
+  /// Burned kcal for [date]: live from [dailySteps] today, the pinned value
+  /// from [dailyActivity] for past days. 0 means "no entry".
   ///
-  /// Jeder Schritt zaehlt (Kalorien-Review 2026-08-21): das Tagesziel rechnet
-  /// mit einer PAL-Leiter OHNE Gehen (`ActivityLevel.palFactor`), deshalb ist
-  /// die volle Schrittsumme hier keine Doppelzaehlung.
+  /// Every step counts (kcal review 2026-08-21): the daily goal uses a PAL
+  /// ladder WITHOUT walking (`ActivityLevel.palFactor`), so the full step sum
+  /// is not double counting.
   int burnedKcalForFoodDate(DateTime date) {
     if (_isSameFoodDate(date, clock.now())) {
       return estimateKcalBurnedFromSteps(
@@ -109,15 +97,11 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return dailyActivity[localDayKey(date)]?.kcal ?? 0;
   }
 
-  /// Schrittstand fuer [date] — heute live aus [dailySteps], fuer vergangene
-  /// Tage der festgeschriebene Tageswert aus [dailyActivity]. `null` heisst
-  /// „keine Schrittquelle": die Schritte-Karte im Heute-Tab entfaellt dann
-  /// ganz, statt dauerhaft „0 / 8.000" zu behaupten (Android ohne Health-
-  /// Anbindung, iOS vor der Freigabe, Archivtag ohne Eintrag).
+  /// Step count for [date] — live today, pinned for past days. `null` means
+  /// "no step source", which hides the steps card instead of claiming 0.
   ///
-  /// Heute gilt die Quelle als vorhanden, sobald die Berechtigung verifiziert
-  /// ist ODER schon einmal ein Schrittstand ankam — ein frueher Morgen mit
-  /// 0 Schritten ist dann eine echte 0, kein fehlender Wert.
+  /// Today the source counts as present once the permission is verified OR a
+  /// step count already arrived, so an early morning 0 is a real 0.
   int? stepsForFoodDate(DateTime date) {
     if (_isSameFoodDate(date, clock.now())) {
       if (healthAuthState == HealthAuthState.granted || dailySteps > 0) {
@@ -128,11 +112,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return dailyActivity[localDayKey(date)]?.steps;
   }
 
-  /// Upsert des Kalendertags von [day] mit [steps]; die kcal werden mit dem
-  /// AKTUELLEN Profil eingefroren (das damalige Gewicht laege hoechstens
-  /// wenige kg daneben — die Schaetzung selbst ist groeber). Muss innerhalb
-  /// eines _mutate-Blocks laufen (kein eigener Notify); der Cache-Write ist
-  /// fire-and-forget wie bei allen Spiegel-Slots.
+  /// Upserts the calendar day of [day] with [steps]; kcal are frozen using
+  /// the CURRENT profile (the estimate is coarser than the weight drift).
+  /// Must run inside a _mutate block; the cache write is fire-and-forget.
   void _recordDailyActivity(DateTime day, int steps) {
     if (steps <= 0) return;
     final key = localDayKey(day);
@@ -142,14 +124,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       heightCm: profile.heightCm,
       sex: profile.sex,
     );
-    // Unveraendert -> raus, OHNE die Map zu ersetzen: die Slice-Selectors
-    // vergleichen per Identitaet, und ein Resume ohne neue Schritte darf
-    // weder einen Heute-Tab-Rebuild noch einen AES-GCM-Cache-Write kosten
-    // (Perf-Guard: home_page_rebuild_test "ein Health-Refresh baut den
-    // Heute-Tab nicht mehr neu").
+    // Unchanged -> bail WITHOUT replacing the map: slice selectors compare by
+    // identity, so a resume without new steps must cost neither a rebuild nor
+    // an AES-GCM cache write (guarded by home_page_rebuild_test).
     if (dailyActivity[key] == (steps: steps, kcal: kcal)) return;
-    // YYYY-MM-DD vergleicht lexikografisch chronologisch — der Cutoff ist
-    // ein String-Vergleich, kein Datums-Parsing.
+    // YYYY-MM-DD sorts lexicographically = chronologically, so the cutoff is
+    // a string compare, not date parsing.
     final cutoff = localDayKey(clock.now().subtract(_dailyActivityRetention));
     dailyActivity = <String, ({int steps, int kcal})>{
       for (final e in dailyActivity.entries)
@@ -159,13 +139,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     unawaited(_cache?.writeDailyActivity(dailyActivity) ?? Future<void>.value());
   }
 
-  /// Holt fuer einen VERGANGENEN Tag die volle Tagessumme aus dem Health-
-  /// Store nach — einmal pro Tag und Sitzung, angestossen von
-  /// [HomeStore.setFoodDate]. Auch ein VORHANDENER Eintrag wird einmal
-  /// aufgefrischt: er kann vom letzten Refresh VOR Tagesende stammen, die
-  /// Health-Historie kennt dagegen die volle Summe. Liefert der Service
-  /// nichts (Android/Noop, keine Berechtigung, echter Ruhetag), bleibt der
-  /// gespeicherte Stand unangetastet.
+  /// Backfills the full day total for a PAST day from the health store, once
+  /// per day and session. An EXISTING entry is refreshed too: it may stem
+  /// from a refresh before day end, while the history knows the full sum. If
+  /// the service returns nothing, the stored value stays untouched.
   Future<void> _maybeBackfillDailyActivity(DateTime day) async {
     if (_disposed || _isSameFoodDate(day, clock.now())) return;
     final key = localDayKey(day);
@@ -175,33 +152,25 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     _mutate(() => _recordDailyActivity(day, steps));
   }
 
-  /// Bietet ein aus Apple Health gelesenes Gewicht per Snack zum Uebernehmen
-  /// an. Angeboten wird nur, wenn
-  ///  * ueberhaupt ein Wert im Snapshot steckt,
-  ///  * er sinnvoll vom letzten geloggten Gewicht abweicht (>= 0.1 kg) ODER
-  ///    noch nie gewogen wurde,
-  ///  * derselbe Wert nicht schon einmal angeboten wurde (In-Memory-Dedup,
-  ///    siehe [_lastOfferedHealthWeightKg]).
-  /// Nach einem Import greift die 0.1-kg-Schwelle von selbst, weil
-  /// weightLog.latest dann == kg ist — kein erneutes Angebot.
+  /// Offers an Apple Health weight for import via snack. Requires a value in
+  /// the snapshot, a >= 0.1 kg deviation from the last logged weight (or no
+  /// weight at all), and that the same value was not offered before
+  /// ([_lastOfferedHealthWeightKg]). After an import the 0.1 kg threshold
+  /// suppresses the next offer on its own.
   void _maybeOfferHealthWeight(double? kg) {
     if (_disposed || kg == null || kg <= 0) return;
     final lastLogged = weightLog.latest?.weightKg;
     if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
     if (_lastOfferedHealthWeightKg == kg) return;
     _lastOfferedHealthWeightKg = kg;
-    // Locale-bewusst ueber NumberFormat (Paket 7/Nachzuegler-Muster, s.
-    // target_bmi_hint.dart): unter `de` byte-gleich zum vorherigen
-    // `toStringAsFixed(1).replaceAll('.', ',')` (CLDR liefert fuer `de`
-    // ebenfalls das Komma), unter `en` jetzt der Punkt.
+    // Locale-aware via NumberFormat: comma under `de`, dot under `en`.
     final label = NumberFormat('0.0', _l10n.localeName).format(kg);
     _emitSnack(
       _l10n.commonHealthWeightOfferMessage(label),
       icon: Icons.monitor_weight_outlined,
       tone: SnackTone.positive,
-      // Unaufgefordertes Angebot beim Resume/Kaltstart: etwas laenger sichtbar
-      // als Standard-Action-Snacks (kSnackAction), damit der Tap realistisch
-      // treffbar ist, bevor der Toast von selbst verschwindet.
+      // Unsolicited offer on resume/cold start: longer than kSnackAction so
+      // the tap is realistically reachable.
       duration: const Duration(milliseconds: 3500),
       action: SnackBarAction(
         label: _l10n.commonHealthWeightOfferAction,
@@ -210,21 +179,18 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     );
   }
 
-  // --- Koerperdaten (Profil) ------------------------------------------------
+  // --- Body data (profile) --------------------------------------------------
 
-  /// Manuelles Wiegen (User tippt den Wert ein): loggt lokal + synct + spiegelt
-  /// den Wert per Write-Back nach HealthKit.
+  /// Manual weigh-in: logs locally, syncs, and writes back to HealthKit.
   void logWeight(double kg) => _logWeightInternal(kg, writeToHealth: true);
 
-  /// Import AUS Apple Health (Tap auf die „Übernehmen"-Snack-Aktion): identisch
-  /// zu [logWeight], aber OHNE `health.writeWeight` — der Wert stammt ja aus
-  /// HealthKit, ein Write-Back wuerde dort ein Echo-Duplikat anlegen.
+  /// Import FROM Apple Health: like [logWeight] but WITHOUT
+  /// `health.writeWeight` — writing back would create an echo duplicate.
   void importHealthWeight(double kg) =>
       _logWeightInternal(kg, writeToHealth: false);
 
-  /// Gemeinsamer Kern von [logWeight] und [importHealthWeight]. Die leichte
-  /// Haptik laeuft bewusst in BEIDEN Pfaden: auch der Import wird durch einen
-  /// User-Tap (Snack-Aktion) ausgeloest, die Bestaetigung ist also konsistent.
+  /// Shared core of [logWeight] and [importHealthWeight]. The haptic fires in
+  /// BOTH paths: the import is user-triggered too (snack action).
   void _logWeightInternal(double kg, {required bool writeToHealth}) {
     HapticFeedback.lightImpact();
     final ts = clock.now();
@@ -237,42 +203,33 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       unawaited(health.writeWeight(kg, ts));
     }
     if (sync == null) return;
-    // Client-UUID fuer die Server-Zeile: Live-Write und ein spaeterer
-    // Outbox-Retry teilen dieselbe id -> Upsert statt Insert, ein Retry nach
-    // unklarem Timeout erzeugt kein Duplikat (DATA-7-Idempotenz).
+    // Client UUID for the server row: live write and a later outbox retry
+    // share the id -> upsert, so a retry after an unclear timeout creates no
+    // duplicate (DATA-7 idempotency).
     final rowId = uuidV4();
-    // Kein Rollback: das Gewicht bleibt geloggt (damit bleibt auch der
-    // Health-Import-Dedup-Marker korrekt gesetzt) und wird per Outbox
-    // nachgeholt. Luecke B: die Op liegt dafuer schon VOR dem Write in der
-    // Queue — ein haengender Request erzeugte sonst nie eine.
+    // No rollback: the weight stays logged and is caught up via the outbox.
+    // Gap B: the op is queued BEFORE the write, otherwise a hanging request
+    // would never produce one.
     _syncOrQueue(
       'Gewicht',
       () => sync!.tracking.insertWeight(kg, ts, id: rowId),
       () => SyncOp.weightInsert(id: rowId, weightKg: kg, recordedAt: ts),
-      // Wie beim Mahlzeiten-Insert: das Lifetime-Delta bucht sonst _performOp
-      // beim Nachspielen.
+      // As with the meal insert: otherwise _performOp books the lifetime
+      // delta on replay.
       onDelivered: () => _queueStatsDelta(weightLogs: 1),
     );
   }
 
   // --- Streak ---------------------------------------------------------------
 
-  /// Schreibt einen Logging-Tag serverseitig in die Streak
-  /// (record_tracking_day, idempotent pro Tag) und adoptiert die frische
-  /// Server-Zeile. Default ist "heute"; ein Outbox-Replay uebergibt den Tag
-  /// der nachgeholten Mahlzeit.
+  /// Records a logging day server-side (record_tracking_day, idempotent per
+  /// day) and adopts the fresh server row. Defaults to today; an outbox
+  /// replay passes the day of the caught-up meal.
   ///
-  /// **Zweitpruefung 2026-08-10:** Fehler blieben hier bis eben still — und
-  /// das war die letzte Nutzer-Groesse mit NULL Sicherungsnetzen. Der
-  /// Kommentar behauptete, der optimistische lokale Stand gelte „bis zum
-  /// naechsten Load/Log weiter"; tatsaechlich hielt er keine Sekunde: der auf
-  /// 600 ms entprellte [_flushStatsDelta] adoptierte gleich danach die frische
-  /// Serverzeile, die den Tag naturgemaess nicht kennt, und
-  /// [_cacheLifetimeStats] schrieb den Verlust in den Cache. Der Nutzer hatte
-  /// geloggt, die Mahlzeit war angekommen — und seine Streak war trotzdem
-  /// gerissen, ohne Hinweis und ohne jede Stelle, die es je repariert haette.
-  /// Jetzt landet der Tag in derselben persistierten Outbox wie jeder andere
-  /// Write ([_queueTrackingDay]).
+  /// A failure must not stay silent: the debounced [_flushStatsDelta] would
+  /// adopt a server row that never saw the day and [_cacheLifetimeStats]
+  /// would persist the broken streak. On error the day goes into the same
+  /// persisted outbox as any other write ([_queueTrackingDay]).
   @override
   void _recordTrackingDay({DateTime? day}) {
     final s = sync;
@@ -280,12 +237,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     final tag = day ?? clock.now();
     s.lifetimeStats.recordTrackingDay(tag).then((fresh) {
       if (_disposed) return;
-      // Eine aeltere, gescheiterte Op fuer denselben Tag ist damit erledigt.
+      // An older failed op for the same day is now settled.
       _clearQueuedTrackingDay(localDayKey(tag));
       _mutate(() {
         lifetimeStats = fresh;
-        // Andere, noch nicht zugestellte Tage bleiben sichtbar — die gerade
-        // gelesene Serverzeile kennt sie nicht.
+        // Other undelivered days stay visible — the server row we just read
+        // does not know them.
         _overlayPendingTrackingDays();
       });
       _cacheLifetimeStats();

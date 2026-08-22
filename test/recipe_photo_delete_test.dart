@@ -1,17 +1,14 @@
-// Audit 2026-08-14: Das Rezeptfoto fiel SOFORT, bevor feststand, ob die
-// Loeschung ueberhaupt zugestellt wird.
+// Audit 2026-08-14: the recipe photo was deleted immediately, before it was
+// known whether the deletion would ever be delivered.
 //
-// Der teure Fall ist der verworfene Delete: die Op landet in der Outbox,
-// scheitert dort tage- und dutzendfach und wird endgueltig verworfen — dann
-// blendet `_restoreDroppedDeletes` das Rezept BEWUSST wieder ein, damit der
-// Verlust sichtbar und reparierbar ist. Zurueck kam es bis zu diesem Fix mit
-// einer `local:`-Referenz ins Leere: die Bytes lagen ausschliesslich auf
-// diesem Geraet und waren endgueltig weg.
+// The expensive case is a dropped delete: `_restoreDroppedDeletes` brings the
+// recipe back so the loss stays visible and repairable — but it came back with
+// a dangling `local:` reference, and the bytes existed only on this device.
 //
-// Diese Suite misst beide Richtungen:
-//   (a) Loeschung NICHT zugestellt + Rezept wieder eingeblendet -> die Datei
-//       liegt noch da UND die Kachel zeigt sie wieder.
-//   (b) Loeschung zugestellt -> die Datei ist weg (PII bleibt nicht liegen).
+// Both directions are pinned here:
+//   (a) delete NOT delivered + recipe restored -> the file still exists AND
+//       the tile shows it again;
+//   (b) delete delivered -> the file is gone (no PII left behind).
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -31,18 +28,16 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-/// Ein winziges, gueltiges JPEG — echte Bytes, damit `Image.file` sie wirklich
-/// dekodieren koennte.
+/// A tiny valid JPEG — real bytes, so `Image.file` could actually decode it.
 Uint8List _jpeg() {
   final image = img.Image(width: 64, height: 48);
   img.fill(image, color: img.ColorRgb8(200, 80, 40));
   return Uint8List.fromList(img.encodeJpg(image, quality: 80));
 }
 
-/// Ablage-Double wie in recipe_create_photo_test.dart: `testWidgets` laeuft
-/// unter FakeAsync, echte Datei-Operationen wuerden dort nie fertig. Das
-/// Double macht dieselbe Arbeit SYNCHRON auf einem echten Temp-Ordner — die
-/// Dateien und `resolveSync` sind real, nur ohne Event-Loop-Runde.
+/// Store double as in recipe_create_photo_test.dart: `testWidgets` runs under
+/// FakeAsync, where real file operations never finish. This does the same work
+/// synchronously on a real temp directory.
 class _TestImageStore extends RecipeImageStore {
   _TestImageStore(this.ordner) : super(baseDirectory: () async => ordner);
 
@@ -79,8 +74,8 @@ class _TestImageStore extends RecipeImageStore {
   }
 }
 
-/// Legt eine Datei an, als waere sie in einer frueheren Sitzung gespeichert
-/// worden — synchron, damit der Widget-Test nicht auf echtes IO wartet.
+/// Writes a file as if saved in an earlier session, synchronously so the
+/// widget test never waits on real IO.
 String _legeAb(_TestImageStore store, String name, Uint8List bytes) {
   final reference = '${RecipeImageStore.referencePrefix}$name.jpg';
   if (!store.ordner.existsSync()) store.ordner.createSync(recursive: true);
@@ -107,14 +102,10 @@ FitnessRecipe _eigenes({required String slug, required String imageAsset}) =>
       userCreated: true,
     );
 
-/// Harness fuer den Store-Teil, den der Screen sieht.
-///
-/// Bildet die zwei Bewegungen nach, auf die es hier ankommt, ohne Sync-Schale:
-///   * `onDeleteRecipe` meldet den Ausgang, den [ausgang] vorgibt, und nimmt
-///     das Rezept aus der Liste (wie `HomeStore.deleteUserRecipe`).
-///   * Der Restore-Knopf reicht eine NEUE Liste mit dem Rezept nach — genau
-///     das tut `_restoreDroppedDeletes` nach einem endgueltig verworfenen
-///     Delete (`_mutate` -> neue `userRecipes`-Identitaet -> `didUpdateWidget`).
+/// Harness for the store slice the screen sees, without the sync shell:
+///   * `onDeleteRecipe` reports [ausgang] and removes the recipe from the list;
+///   * the restore button hands in a NEW list containing the recipe, exactly as
+///     `_restoreDroppedDeletes` does after a finally dropped delete.
 class _StoreHarness extends StatefulWidget {
   const _StoreHarness({required this.rezept, required this.ausgang});
 
@@ -190,8 +181,8 @@ ScrollPosition _listPosition(WidgetTester tester) {
   return tester.state<ScrollableState>(scrollable.first).position;
 }
 
-/// Erst an den Anfang, dann nach unten suchen: `dragUntilVisible` zieht nur in
-/// EINE Richtung und faende eine Kachel oberhalb der aktuellen Position nie.
+/// Jump to the top first: `dragUntilVisible` drags in one direction only and
+/// would never find a tile above the current position.
 Future<Finder> _holeKachelInsBild(WidgetTester tester, String slug) async {
   _listPosition(tester).jumpTo(0);
   await tester.pumpAndSettle();
@@ -205,8 +196,7 @@ Future<Finder> _holeKachelInsBild(WidgetTester tester, String slug) async {
   return kachel;
 }
 
-/// Loescht das Rezept ueber die Detail-Ansicht — der einzige Einstieg, den es
-/// dafuer gibt.
+/// Deletes the recipe through the detail view, the only entry point for it.
 Future<void> _loescheUeberDetail(WidgetTester tester, String slug) async {
   await tester.tap(await _holeKachelInsBild(tester, slug));
   await tester.pumpAndSettle();
@@ -214,8 +204,8 @@ Future<void> _loescheUeberDetail(WidgetTester tester, String slug) async {
 
   await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
   await tester.pumpAndSettle();
-  // Den Ausgangs-Toast ablaufen lassen: er liegt sonst ueber der
-  // Harness-Schaltflaeche und faengt deren Tap ab.
+  // Let the outcome toast expire, or it covers the harness button and
+  // swallows its tap.
   await tester.pump(const Duration(seconds: 4));
   await tester.pumpAndSettle();
 }
@@ -240,9 +230,8 @@ void main() {
 
     _pinViewport(tester);
     await tester.pumpWidget(
-      // queuedOffline heisst: die Op liegt in der Outbox. Ob sie je zugestellt
-      // wird, ist genau JETZT offen — und der Weg, auf dem sie verworfen wird,
-      // endet in der Wiedereinblendung unten.
+      // queuedOffline: the op sits in the outbox and delivery is still open;
+      // the drop path ends in the restore below.
       _StoreHarness(rezept: rezept, ausgang: SyncDelivery.queuedOffline),
     );
     await tester.pumpAndSettle();

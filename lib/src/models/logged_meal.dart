@@ -6,18 +6,11 @@ import 'meal_analysis_result.dart';
 enum MealSlot { breakfast, lunch, dinner, snack }
 
 extension MealSlotLabel on MealSlot {
-  /// Deutscher Klartext-Name, UNABHAENGIG von der App-Sprache.
+  /// German plain-text name, INDEPENDENT of the app language.
   ///
-  /// Seit der i18n-Migration (Paket 2, 2026-08-10) NUR fuer nicht-UI-Text
-  /// gedacht, der an das KI-Modell geht (`HomeStore._todaysFoodSummary` im
-  /// `coachContext`) — die Sprache des Coach-Kontexts ist ein eigenes, noch
-  /// offenes Spec-Thema (i18n-design.md §5/§8, „Scan/Coach-PR"). Fuer
-  /// NUTZERSICHTBAREN Text IMMER `MealSlotStyle.label(l10n)`
-  /// (theme/meal_slot_style.dart) verwenden — das liest aus der ARB und
-  /// spricht die aktive Sprache. [germanLabel] war bis zur Migration die
-  /// einzige Quelle (`label`, ohne Sprachparameter); der alte Name ist
-  /// bewusst frei geworden, damit ein neuer UI-Aufruf nicht versehentlich
-  /// wieder hier landet.
+  /// Only for non-UI text sent to the AI model (coach context). For
+  /// user-visible text always use `MealSlotStyle.label(l10n)`
+  /// (theme/meal_slot_style.dart), which reads the ARB.
   String get germanLabel => switch (this) {
         MealSlot.breakfast => 'Frühstück',
         MealSlot.lunch => 'Mittagessen',
@@ -26,9 +19,9 @@ extension MealSlotLabel on MealSlot {
       };
 }
 
-/// Reine Uhrzeit-Heuristik: ordnet eine Stunde (0–23) einem [MealSlot] zu.
-/// Top-level + rein, damit die Grenzen (11/15/21 Uhr) ohne LoggedMeal-Instanz
-/// und ohne Wanduhr testbar sind.
+/// Pure time-of-day heuristic: maps an hour (0-23) to a [MealSlot].
+/// Top-level and pure so the 11/15/21 boundaries are testable without a
+/// LoggedMeal instance or a wall clock.
 MealSlot mealSlotForHour(int hour) {
   if (hour < 11) return MealSlot.breakfast;
   if (hour < 15) return MealSlot.lunch;
@@ -36,10 +29,8 @@ MealSlot mealSlotForHour(int hour) {
   return MealSlot.snack;
 }
 
-/// Slot fuer „jetzt" anhand der aktuellen Zonen-Uhr. Liest [clock.now()]
-/// (Default: DateTime.now()), damit Tests die Zeit per withClock ueber
-/// Mitternacht/DST-Grenzen festnageln koennen — das Laufzeit-Verhalten
-/// bleibt identisch zu DateTime.now().
+/// Slot for "now" from the local zone clock. Reads [clock.now()] so tests can
+/// pin midnight/DST boundaries via withClock; runtime behaviour is unchanged.
 MealSlot currentMealSlot() => mealSlotForHour(clock.now().hour);
 
 class LoggedMeal {
@@ -56,17 +47,13 @@ class LoggedMeal {
   final DateTime loggedAt;
   final MealSlot? forcedSlot;
 
-  /// DATA-6: kanonischer lokaler Tages-Schluessel (`YYYY-MM-DD`) dieser
-  /// Mahlzeit, wie er serverseitig in `logged_meals.local_day` steht.
-  /// Optional/additiv: aeltere Zeilen (und die bestehende home_page-
-  /// Konstruktion ueber `LoggedMeal(...)` ohne dieses Feld) lassen es null —
-  /// dann faellt das Bucketing auf die alte `isSameDay(.toLocal())`-Logik
-  /// zurueck. Frisch geloggte/geladene Mahlzeiten tragen den Schluessel.
+  /// DATA-6: canonical local day key (`YYYY-MM-DD`), mirroring
+  /// `logged_meals.local_day`. Optional: older rows leave it null and bucketing
+  /// falls back to `isSameDay(.toLocal())`.
   final String? localDay;
 
-  /// Der lokale Tages-Schluessel dieser Mahlzeit — bevorzugt der persistierte
-  /// [localDay], sonst aus der lokalen Wanduhr von [loggedAt] berechnet.
-  /// Immer non-null, damit das Bucketing einen stabilen Schluessel hat.
+  /// Local day key: the persisted [localDay] if present, else derived from
+  /// [loggedAt]. Always non-null so bucketing has a stable key.
   String get effectiveLocalDay => localDay ?? localDayKey(loggedAt.toLocal());
 
   MealSlot get slot {

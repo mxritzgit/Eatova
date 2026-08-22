@@ -1,17 +1,12 @@
-// Der Server-Kill-Switch der Produktsuche (Audit 2026-08-14).
+// Server kill switch of the product search (audit 2026-08-14).
 //
-// Steht `EATOVA_MIRROR_SEARCH_KEY` auf 'disabled', antwortet die Edge
-// Function mit HTTP 200 und BEIDEN Feldern leer. Genau diese Antwort blieb im
-// Client wirkungslos: die leere URL scheiterte am https-Zwang,
-// `EdgeFunctionSearchKeyFetcher._fetch()` gab `null` zurueck — und `null`
-// heisst per Vertrag „behalte, was du hast". Der (moeglicherweise
-// abgeflossene) Key blieb in SharedPreferences liegen, jedes installierte
-// Geraet suchte weiter, waehrend das Function-Log „disabled" meldete.
+// With `EATOVA_MIRROR_SEARCH_KEY` set to 'disabled' the edge function answers
+// HTTP 200 with BOTH fields empty. That answer used to be inert: the empty URL
+// failed the https requirement, the fetcher returned `null`, and `null` means
+// "keep what you have" — so a possibly leaked key stayed on every device.
 //
-// Deshalb laeuft hier der ECHTE HTTP-Pfad ueber einen Loopback-Server, nicht
-// ein eingesteckter Fake-Fetcher: der Fehler sass im Fetcher, ein Fake haette
-// ihn uebersprungen (test/services/search_credentials_test.dart deckt die
-// Store-Seite mit einem Fake ab).
+// Hence the REAL HTTP path over a loopback server, not a fake fetcher: the bug
+// sat in the fetcher (search_credentials_test.dart covers the store side).
 
 import 'dart:convert';
 import 'dart:io';
@@ -21,8 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/search_credentials.dart';
 
-/// Der Key, der laut Annahme abgeflossen ist — er darf den Kill-Switch
-/// nirgends ueberleben.
+/// The assumed-leaked key — it must not survive the kill switch anywhere.
 const String _abgeflossenerKey = 'abgeflossener-key';
 const String _alteBasisUrl = 'https://alt.example/meili';
 
@@ -31,9 +25,9 @@ class _KeyServer {
 
   final HttpServer _server;
 
-  /// Einmal beim Binden festgehalten, NICHT als Getter ueber `_server.port`:
-  /// die Tests brauchen die (dann tote) Adresse gerade NACH [close], und
-  /// `port` wirft auf einem geschlossenen Server.
+  /// Captured once at bind time, NOT as a getter over `_server.port`: the
+  /// tests need the (then dead) address after [close], and `port` throws on a
+  /// closed server.
   final String baseUrl;
 
   bool _closed = false;
@@ -59,8 +53,8 @@ class _KeyServer {
   }
 }
 
-/// Antwort der Function im Kill-Switch-Fall — Feldnamen und `ttlSeconds`
-/// genau wie in supabase/functions/search-key/index.ts.
+/// Function response shape — field names and `ttlSeconds` exactly as in
+/// supabase/functions/search-key/index.ts.
 Map<String, dynamic> _antwort({
   required String mirrorBaseUrl,
   required String searchKey,
@@ -86,8 +80,8 @@ void main() {
   setUp(() async {
     server = await _KeyServer.start();
     jetzt = DateTime.utc(2026, 8, 14, 12);
-    // Abgelaufen, damit `warmUp` ueberhaupt ans Netz geht — der Eintrag
-    // bleibt bis dahin trotzdem in Benutzung.
+    // Expired so that `warmUp` hits the network at all; the entry stays in use
+    // until then.
     disk = InMemoryKeyValueStore(<String, String>{
       SearchCredentialsStore.cacheKey:
           _cacheEintrag(jetzt.subtract(const Duration(days: 8))),
@@ -125,11 +119,10 @@ void main() {
           'wertlos: der naechste Start sucht wieder mit ihm.',
     );
 
-    // Kaltstart auf derselben Platte, ohne erreichbares Netz. `isUsable`
-    // statt nur „nicht mehr der alte Key": der abgeschaltete Zustand muss den
-    // Neustart selbst UEBERLEBEN. Faellt der Leer/Leer-Eintrag beim Parsen
-    // durch, greift naemlich der Compile-Time-Default — und der traegt einen
-    // einkompilierten Meilisearch-Key, womoeglich genau den abgeflossenen.
+    // Cold start on the same disk, no reachable network. `isUsable`, not just
+    // "no longer the old key": the disabled state must SURVIVE the restart. If
+    // the empty/empty entry failed to parse, the compile-time default would
+    // kick in — carrying a baked-in key, possibly the leaked one.
     await server.close();
     final nachNeustart = storeGegen(server.baseUrl);
     await nachNeustart.warmUp();

@@ -7,14 +7,12 @@ import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// 8-stelliger Code-Flow (OTP statt Mail-Link, 2026-08-09):
+// 8-digit code flow (OTP instead of a mail link):
 //
-//  * „Passwort vergessen?" fuehrt auf eine EIGENE Seite: E-Mail -> Code
-//    anfordern (neutral bestaetigt — keine Konto-Enumeration) -> Code
-//    pruefen (verifyOTP recovery stellt die Session her) -> neues Passwort.
-//  * Die Registrierung bestaetigt die E-Mail ebenfalls per Code
-//    (AuthCodeFlow.signup) statt per Link.
-//  * Falsche/abgelaufene Codes zeigen einen Hinweis samt Neuanfordern-Weg.
+//  * Forgot password opens its own page: email -> request code (neutrally
+//    confirmed, no account enumeration) -> verify -> new password.
+//  * Signup confirms the email by code too (AuthCodeFlow.signup).
+//  * Wrong or expired codes show a hint plus a resend path.
 
 Future<void> _pumpAuth(WidgetTester tester, InMemoryAuthRepository repo) async {
   await tester.pumpWidget(MaterialApp(
@@ -100,12 +98,9 @@ void main() {
   testWidgets('falscher Code: Hinweis + Neuanfordern statt Weiterkommen',
       (tester) async {
     final repo = InMemoryAuthRepository();
-    // Seit dem Versand-Riegel (Audit 2026-08-14, s.
-    // auth_code_cooldown_test.dart) geht nach einem erfolgreichen Code 60 s
-    // lang kein zweiter raus — ein SOFORTIGES Neuanfordern loest deshalb
-    // bewusst keine zweite Mail mehr aus. Die Aussage des Tests bleibt aber
-    // dieselbe („Neuanfordern stoesst den Reset erneut an"), nur mit der Uhr
-    // unter Kontrolle des Tests: der Screen liest sie ueber `clock.now()`.
+    // The send latch blocks a second mail for 60 s after a successful code,
+    // so an immediate resend sends nothing. The test therefore controls the
+    // clock, which the screen reads via `clock.now()`.
     var jetzt = DateTime(2026, 8, 14, 9, 30);
     await withClock(Clock(() => jetzt), () async {
       await _pumpCode(tester, repo, flow: AuthCodeFlow.recovery);
@@ -134,8 +129,8 @@ void main() {
       expect(repo.passwordResets, hasLength(2),
           reason: 'nach dem Cooldown stoesst Neuanfordern den Reset erneut an');
 
-      // Der Countdown haengt an einem `Timer.periodic`; ohne Abbau meldet
-      // flutter_test am Testende einen offenen Timer.
+      // The countdown runs on a `Timer.periodic`; without tearing the widget
+      // down flutter_test reports a pending timer.
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     });

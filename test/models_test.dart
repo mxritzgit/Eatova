@@ -8,13 +8,10 @@ import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
-// Reine Logik-Unit-Tests für bislang ungetestete, korrektheitskritische Pfade:
-// die Foto-/Barcode-Parser (fromEdgeFunction/fromOpenFoodFacts), die Portions-
-// Mathematik (adjustedToGrams/adjustedToItems), Makro-Komponenten, die Rezept-
-// Match-Heuristik, Gewichts-Log-Ringpuffer und den Produkt-Such-Mapper.
-// Deterministisch, netz-/UI-frei. Ergänzt logic_test.dart (das Slot-Heuristik,
-// Streak, Makro-Aggregation, JSON-Roundtrip + Auto-Split bereits abdeckt —
-// hier NICHT dupliziert).
+// Pure unit tests for correctness-critical paths: the photo/barcode parsers,
+// portion maths, macro components, the recipe match heuristic, the weight-log
+// ring buffer and the product search mapper. Deterministic, no network or UI.
+// Complements logic_test.dart, which is not duplicated here.
 
 FitnessRecipe _recipe({
   int caloriesKcal = 500,
@@ -130,7 +127,7 @@ void main() {
       final r = base.adjustedToItems(const []);
       expect(r.caloriesKcal, 0);
       expect(r.estimatedGrams, 0);
-      expect(r.kcalPer100G, 50); // Fallback auf bisheriges per100
+      expect(r.kcalPer100G, 50); // falls back to the previous per100
     });
   });
 
@@ -147,15 +144,13 @@ void main() {
       expect(r.caloriesKcal, 200);
       expect(r.estimatedGrams, 50);
       expect(r.kcalPer100G, closeTo(400, 0.001)); // 200 * 100 / 50
-      // Review-Fixwelle (2026-08-11): confidence traegt jetzt den
-      // Modell-Rohcode statt der sofortigen deutschen Uebersetzung.
+      // confidence carries the raw model code, not a German translation.
       expect(r.confidence, 'high');
       expect(r.resolvedConfidence(deL10n), 'Hoch');
       expect(r.resolvedConfidence(enL10n), 'High');
       expect(r.protein, '8 g');
-      // Scan/Coach-PR (2026-08-11): fromEdgeFunction schreibt jetzt den
-      // sprachneutralen Code statt des deutschen Anzeigetexts — s.
-      // MealResultSource-Doku in meal_analysis_result.dart.
+      // fromEdgeFunction writes the language-neutral code, not the German
+      // display text (see MealResultSource in meal_analysis_result.dart).
       expect(r.sourceLabel, 'photoAi');
       expect(r.resolvedSourceLabel(deL10n), 'Foto-KI');
       expect(r.resolvedSourceLabel(enL10n), 'Photo AI');
@@ -167,7 +162,7 @@ void main() {
         'kcal': 95,
       });
       expect(r.kcalPer100G, 52); // _knownKcalPer100G('apfel')
-      expect(r.estimatedGrams, 150); // Default ohne Grammangabe
+      expect(r.estimatedGrams, 150); // default without a gram figure
     });
 
     test('fehlende Makros werden zu "-"', () {
@@ -178,9 +173,8 @@ void main() {
       expect(r.protein, '-');
       expect(r.carbs, '-');
       expect(r.fat, '-');
-      // Sentinel-Rest C: fehlende confidence ist keine Aussage des Modells —
-      // frueher wurde hier 'Mittel' erfunden. Review-Fixwelle (2026-08-11):
-      // der Rohwert ist jetzt der neutrale Code, nicht mehr 'Unbekannt'.
+      // Sentinel C: a missing confidence is no statement by the model, so
+      // nothing is invented; the raw value is the neutral code.
       expect(r.confidence, 'unknown');
       expect(r.resolvedConfidence(deL10n), 'Unbekannt');
       expect(r.resolvedConfidence(enL10n), 'Unknown');
@@ -214,8 +208,8 @@ void main() {
       expect(r.estimatedGrams, 250);
       expect(r.caloriesKcal, 168); // (67 * 250 / 100).round() = 167.5 -> 168
       expect(r.protein, '30 g'); // 12/100g * 250g
-      expect(r.fat, '0,5 g'); // 0.2/100g * 250g -> 0,5 (Komma)
-      // Review-Fixwelle (2026-08-11): neutraler Code statt 'Datenbank'.
+      expect(r.fat, '0,5 g'); // 0.2/100g * 250g -> 0,5 (decimal comma)
+      // Neutral code instead of a German display string.
       expect(r.confidence, 'database');
       expect(r.resolvedConfidence(deL10n), 'Datenbank');
       expect(r.resolvedConfidence(enL10n), 'Database');
@@ -226,7 +220,7 @@ void main() {
       final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
         'product_name': 'Wasser',
       }, 'x');
-      expect(r.mealName, 'Wasser'); // ohne Marke kein " · "
+      expect(r.mealName, 'Wasser'); // no brand, so no " · "
       expect(r.caloriesKcal, 0);
       expect(r.estimatedGrams, 100);
       expect(r.protein, '-');
@@ -335,7 +329,7 @@ void main() {
         log = log.add(i.toDouble());
       }
       expect(log.entries.length, 30);
-      expect(log.entries.first.weightKg, 2); // 1.0 verdrängt
+      expect(log.entries.first.weightKg, 2); // 1.0 evicted
       expect(log.latest!.weightKg, 31);
     });
   });

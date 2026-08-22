@@ -5,18 +5,13 @@ import 'package:eatova/src/widgets/design/sheets.dart';
 
 import 'design_harness.dart';
 
-// Nutzer-Befund 2026-08-21 (iPhone): Tipp auf einen Slot im Food-Tab, das
-// Add-Meal-Sheet oeffnet — und sein Kopf (Kamera/Galerie/Barcode) liegt unter
-// der Dynamic Island. Ursache war der feste Deckel `size.height * 0.92` ueber
-// einem `Padding(bottom: viewInsets.bottom)`: mit offener Tastatur stieg die
-// Summe ueber die Bildschirmhoehe, die Route klemmte das Sheet bis an den
-// oberen Rand.
+// Finding 2026-08-21: a sheet's header ended up under the Dynamic Island,
+// because `size.height * 0.92` over a `Padding(bottom: viewInsets.bottom)`
+// exceeded the screen height with the keyboard open.
 //
-// Diese Datei nagelt die Rechenregel [sheetMaxHeight] fest — und prueft am
-// echten `showEatovaSheet`, dass sie AUCH im Builder einer Modal-Route
-// greift, wo `MediaQuery.removePadding(removeTop: true)` das `viewPadding.top`
-// bereits auf 0 gezogen hat (s. [sheetMaxHeightOf]). Die Geraete-Insets
-// setzt [pinIphone14Pro] aus dem Harness.
+// Pins [sheetMaxHeight] and checks against the real `showEatovaSheet` that it
+// also holds inside a modal route's builder, where `removePadding(removeTop:
+// true)` already zeroed `viewPadding.top` (see [sheetMaxHeightOf]).
 
 const double _hoehe = 844;
 const double _safeAreaOben = 59;
@@ -50,7 +45,7 @@ void main() {
     });
 
     test('faellt nie unter kSheetMinHeight', () {
-      // iPhone SE (1. Gen.) mit Tastatur: 568 - 20 - 260 - 12 = 276 < 320.
+      // iPhone SE (1st gen) with keyboard: 568 - 20 - 260 - 12 = 276 < 320.
       const se = MediaQueryData(
         size: Size(320, 568),
         viewPadding: EdgeInsets.only(top: 20),
@@ -58,7 +53,7 @@ void main() {
       );
       expect(sheetMaxHeight(se), kSheetMinHeight);
 
-      // Absurd klein — auch dann kein negativer oder kollabierter Deckel.
+      // Absurdly small: still no negative or collapsed cap.
       const winzig = MediaQueryData(
         size: Size(100, 100),
         viewInsets: EdgeInsets.only(bottom: 400),
@@ -75,9 +70,8 @@ void main() {
   group('showEatovaSheet deckelt nach sheetMaxHeight', () {
     const inhalt = ValueKey('sheet-max-height-inhalt');
 
-    /// Oeffnet ein Sheet, dessen Inhalt JEDEN Deckel reisst (3000 px). Der
-    /// Key sitzt am Scroller (dem Viewport) — sein Kind misst in einem
-    /// Scroller immer seine vollen 3000 px, egal wie hoch das Sheet ist.
+    /// Opens a sheet whose content breaks ANY cap (3000 px). The key sits on
+    /// the scroller: inside one, the child always measures its full 3000 px.
     Future<void> oeffne(WidgetTester tester) async {
       await tester.pumpWidget(
         designHarness(
@@ -106,10 +100,10 @@ void main() {
       await oeffne(tester);
 
       final sheet = tester.getRect(find.byType(BottomSheet));
-      // Das Sheet beginnt fruehestens 12 pt unter der Safe-Area …
+      // The sheet starts at the earliest 12 pt below the safe area …
       expect(sheet.top, greaterThanOrEqualTo(_safeAreaOben + kSheetTopGap));
-      // … und der Builder-Inhalt (unter dem 48 pt hohen Griff-Polster) ist
-      // auf den Deckel minus Griff gestutzt statt auf 3000 px.
+      // … and the builder content is trimmed to the cap minus the handle
+      // padding instead of 3000 px.
       const deckel = _hoehe - _safeAreaOben - _tastatur - kSheetTopGap;
       final inhaltRect = tester.getRect(find.byKey(inhalt));
       expect(
@@ -122,7 +116,7 @@ void main() {
           _safeAreaOben + kSheetTopGap + kMinInteractiveDimension,
         ),
       );
-      // Es sitzt weiterhin ueber der Tastatur, nicht dahinter.
+      // It still sits above the keyboard, not behind it.
       expect(inhaltRect.bottom, lessThanOrEqualTo(_hoehe - _tastatur));
     });
 
@@ -162,7 +156,7 @@ void main() {
       await tester.tap(find.text('oeffnen'));
       await tester.pumpAndSettle();
 
-      // maxHeight ist ein Deckel, keine Vorgabe: 120 px bleiben 120 px.
+      // maxHeight is a cap, not a target: 120 px stay 120 px.
       expect(tester.getSize(find.byKey(inhalt)).height, 120);
     });
   });
@@ -173,9 +167,8 @@ void main() {
       pinIphone14Pro(tester, keyboard: true);
       double? ausDerModalRoute;
       MediaQueryData? mediaQueryImBuilder;
-      // Bewusst NICHT am Knopf-Kontext gemessen: der haengt im Harness unter
-      // Scaffold-Body (nimmt die Tastatur-Insets weg) und SafeArea (nimmt
-      // das Padding weg) — dort ist 773 der richtige Wert, nicht 437.
+      // Deliberately not measured at the button context: it hangs below the
+      // scaffold body and a SafeArea, which strip the insets and padding.
       await tester.pumpWidget(
         designHarness(
           Builder(
@@ -198,11 +191,11 @@ void main() {
       await tester.tap(find.text('oeffnen'));
       await tester.pumpAndSettle();
 
-      // Genau hier lag die Falle: im Builder der Route meldet die MediaQuery
-      // `viewPadding.top == 0` (removePadding), die Tastatur aber sehr wohl.
+      // The trap: inside the route builder the MediaQuery reports
+      // `viewPadding.top == 0` (removePadding) but the keyboard just fine.
       expect(mediaQueryImBuilder!.viewPadding.top, 0);
       expect(mediaQueryImBuilder!.viewInsets.bottom, _tastatur);
-      // Der Deckel muss die Safe-Area trotzdem kennen.
+      // The cap must know the safe area anyway.
       expect(
         ausDerModalRoute,
         _hoehe - _safeAreaOben - _tastatur - kSheetTopGap,

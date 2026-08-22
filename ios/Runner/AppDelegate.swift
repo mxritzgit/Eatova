@@ -11,22 +11,17 @@ import os.log
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // PROD-1 (flutter_local_notifications, on-device): Das Plugin braucht den
-    // UNUserNotificationCenter-Delegate auf dem AppDelegate, damit lokale
-    // Nudges auch im Vordergrund angezeigt werden und Tap-Callbacks ankommen.
-    // FlutterAppDelegate implementiert UNUserNotificationCenterDelegate bereits;
-    // wir setzen hier nur die Zuweisung. Rein lokal, KEIN APNs/Remote-Push.
+    // PROD-1: flutter_local_notifications needs this delegate so local nudges
+    // show in the foreground and tap callbacks arrive. Local only, no APNs.
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  // Bei Scene-Lifecycle (UIScene) existiert window?.rootViewController in
-  // didFinishLaunchingWithOptions noch nicht. Stattdessen wird die implizite
-  // FlutterEngine ueber diesen Callback hochgezogen und liefert uns einen
-  // Plugin-Registry-Zugang, mit dem wir den Speech-MethodChannel zuverlaessig
-  // einhaengen koennen.
+  // Under the UIScene lifecycle window?.rootViewController does not exist yet
+  // in didFinishLaunchingWithOptions; this callback is the reliable place to
+  // reach the plugin registry.
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "EatovaSpeechPlugin") {
@@ -39,15 +34,12 @@ import os.log
 }
 
 // ---------------------------------------------------------------------------
-// EatovaSecureScreenPlugin: iOS-Gegenstueck zu Androids FLAG_SECURE
-// (Sicherheits-Audit 2026-08-09).
+// EatovaSecureScreenPlugin: iOS counterpart to Android's FLAG_SECURE
+// (security audit 2026-08-09).
 //
-// iOS kennt kein FLAG_SECURE. Der Angriff, den es hier zu schliessen gilt,
-// ist das App-Switcher-Vorschaubild: iOS macht beim Wechsel in den
-// Hintergrund einen Snapshot des Screens. Solange ein sensibler Screen
-// (Auth-Code, Passwort, Gesundheitsdaten) aktiv ist, legen wir beim
-// Deaktivieren eine blickdichte Abdeckung ueber das Fenster und entfernen
-// sie beim Reaktivieren — der Snapshot zeigt dann nur die Abdeckung.
+// iOS has no FLAG_SECURE. The target is the app-switcher preview snapshot:
+// while a sensitive screen is active, an opaque cover goes over the window on
+// resign-active and is removed on become-active, so the snapshot shows only it.
 // ---------------------------------------------------------------------------
 public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
   private var secure = false
@@ -91,7 +83,7 @@ public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
   @objc private func willResignActive() {
     guard secure, let window = activeWindow() else { return }
     let cover = UIView(frame: window.bounds)
-    // Eatova-Grundton #0B0D11, damit die Abdeckung nicht als Fehler wirkt.
+    // Eatova base tone #0B0D11 so the cover does not read as an error.
     cover.backgroundColor = UIColor(red: 0.043, green: 0.051, blue: 0.067, alpha: 1)
     cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     let blur = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
@@ -125,11 +117,10 @@ public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
 }
 
 // ---------------------------------------------------------------------------
-// EatovaSpeechPlugin: nativer Sprach-Eingabe-Bruecke fuer den Coach-Chat.
+// EatovaSpeechPlugin: native voice-input bridge for the coach chat.
 //
-// Holt sich Mikrofon- + Speech-Recognition-Berechtigung (loest die iOS-
-// Permission-Popups aus), startet AVAudioEngine + SFSpeechRecognizer und
-// liefert das erkannte Transkript an Flutter zurueck.
+// Requests mic + speech permission, runs AVAudioEngine + SFSpeechRecognizer
+// and returns the transcript to Flutter.
 // ---------------------------------------------------------------------------
 public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private let audioEngine = AVAudioEngine()
@@ -140,8 +131,8 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private var isFinishing = false
   private var tapInstalled = false
 
-  /// Diagnose-Log fuer den Erkennungs-Modus. Bewusst nur ein Bool + Locale-ID
-  /// (%{public}@) - kein Audio, kein Transkript, keine PII.
+  /// Diagnostic log for the recognition mode: only a bool + locale id,
+  /// never audio, transcript or PII.
   private static let speechLog = OSLog(subsystem: "com.eatova.app", category: "speech")
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -163,8 +154,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       stop()
       result(nil)
     case "available":
-      // Gleiche Locale-Logik wie bei "listen": der Aufrufer darf die Sprache
-      // mitgeben, ohne Argument bleibt es beim bisherigen Default de_DE.
+      // Same locale logic as "listen": caller may pass a language, default de_DE.
       let args = call.arguments as? [String: Any]
       let localeId = args?["localeId"] as? String ?? "de_DE"
       let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeId))
@@ -240,14 +230,10 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
 
       let request = SFSpeechAudioBufferRecognitionRequest()
       request.shouldReportPartialResults = true
-      // Datenschutz: Wenn Apple fuer GENAU DIESE Locale ein On-Device-Modell
-      // bereithaelt, bleibt das Audio komplett auf dem Geraet: keine
-      // Drittlandsuebermittlung an Apple-Server. Ist das Modell nicht da
-      // (Locale ohne On-Device-Support, Asset noch nicht geladen, Simulator,
-      // aeltere Hardware), bleibt der Default `false` und die Erkennung laeuft
-      // wie bisher server-seitig. NIE hart failen: Fallback ist der Alt-Zustand.
-      // `supportsOnDeviceRecognition` ist eine INSTANZ-Property und wird
-      // bewusst erst hier gelesen, also nach dem isAvailable-Guard oben.
+      // Privacy: with an on-device model for this exact locale the audio never
+      // leaves the device; without one the default `false` keeps the previous
+      // server-side path. Never fail hard here. `supportsOnDeviceRecognition`
+      // is an INSTANCE property, read only after the isAvailable guard above.
       let usesOnDevice = recognizer.supportsOnDeviceRecognition
       request.requiresOnDeviceRecognition = usesOnDevice
       os_log(
@@ -265,26 +251,17 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
         tapInstalled = false
       }
       let format = inputNode.outputFormat(forBus: 0)
-      // F3: `installTap` prueft das Format mit einer C++-Assertion und wirft bei
-      // 0 Hz / 0 Kanaelen eine ObjC-NSException ("required condition is false:
-      // IsFormatSampleRateAndChannelCountValid(format)"). Das ist ein SIGABRT —
-      // das `do/catch` drumherum faengt NUR Swift-Errors und sieht davon nichts,
-      // die App stirbt also mitten im Coach-Chat.
+      // F3: `installTap` asserts on 0 Hz / 0 channels and raises an ObjC
+      // NSException, i.e. SIGABRT — the surrounding `do/catch` only sees Swift
+      // errors, so the app would die mid-chat. An empty format is the normal
+      // state without a usable input route (mic held by another app, call,
+      // Bluetooth/CarPlay switch, simulator); the session is already active, so
+      // 0 Hz means "no route", not "not ready yet".
       //
-      // Ein leeres Format ist kein Sonderfall, sondern der Normalzustand ohne
-      // nutzbare Eingaberoute: Mikro von einer anderen App belegt, laufender
-      // Anruf, Bluetooth-/CarPlay-Routenwechsel, Simulator. Die Session ist zu
-      // diesem Zeitpunkt bereits aktiv (setActive oben), 0 Hz heisst hier also
-      // wirklich "keine Route", nicht "noch nicht bereit".
-      //
-      // `unavailable` ist bewusst gewaehlt: coach_speech.dart:20 matcht genau
-      // diesen Code und zeigt "Spracherkennung ist auf diesem Gerät gerade
-      // nicht verfügbar." — `recognition_failed` fiele dort in den generischen
-      // Zweig (Zeile 25) und wuerde eine technische Meldung durchreichen.
-      //
-      // Aufraeumen uebernimmt finish -> cleanupAudio: der Tap ist hier noch
-      // nicht installiert (tapInstalled == false), die Session wird aber wieder
-      // deaktiviert, damit der naechste Versuch eine frische Route bekommt.
+      // `unavailable` is deliberate: coach_speech.dart:20 matches that code and
+      // shows a friendly message, while `recognition_failed` would fall into
+      // the generic branch and leak a technical one. Cleanup runs via
+      // finish -> cleanupAudio, which deactivates the session for a fresh route.
       guard format.sampleRate > 0, format.channelCount > 0 else {
         finish(
           errorCode: "unavailable",

@@ -17,51 +17,39 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Wettlauf im Outbox-Replay (Audit 2026-08-14, Befund A).
+// Race in the outbox replay (audit 2026-08-14, finding A).
 //
-// Der Replay-Loop laeuft ueber INDIZES, und zwischen dem Lesen des Index und
-// dem Entfernen der Op liegt ein `await`. Genau in diesem Fenster kuerzen zwei
-// Pfade die Queue, ohne den Loop zu fragen:
-//   * `_clearQueuedTrackingDay` — `_performOp` feuert fuer jede nachgeholte
-//     Mahlzeit selbst und UNGEAWAITET einen record_tracking_day; kommt der
-//     durch, faellt die gleichnamige Streak-Op aus der Queue. Die kann weiter
-//     VORNE liegen als der Laufindex (der Replay hat sie in diesem Lauf schon
-//     als „blockiert" uebersprungen), also verschieben sich alle Positionen
-//     dahinter.
-//   * `_dequeueDeliveredOp` eines parallel zugestellten Live-Writes.
+// The replay loop runs over INDICES with an `await` between reading the index
+// and removing the op. Two paths shorten the queue inside that window without
+// telling the loop: `_clearQueuedTrackingDay` (fired unawaited by `_performOp`
+// for every replayed meal) and `_dequeueDeliveredOp` of a parallel live write.
 //
-// Der Erfolgszweig entfernte danach `removeAt(i)` — also eine FREMDE Op. Der
-// Preis war doppelt: die uebersprungene Op ist endgueltig weg (kein Snack, kein
-// Crash-Report, sie galt ja als zugestellt), und die tatsaechlich zugestellte
-// bleibt liegen und zaehlt beim naechsten Replay ein zweites Mal. Trifft der
-// Index daneben statt ins Leere, ist es ein RangeError — und der liegt
-// ausserhalb des inneren try, reisst also `signOutCleanup` VOR `_clearCache`
-// ab.
+// `removeAt(i)` then dropped a FOREIGN op: the skipped op was gone silently
+// while the delivered one stayed and counted twice on the next replay — or the
+// index missed entirely and the RangeError tore down `signOutCleanup` before
+// `_clearCache`.
 //
-// Die bestehende Outbox-Suite ist streng sequenziell und kann den Fall nicht
-// erzeugen: dort antwortet der Fake-Server sofort, und waehrend eines `await`
-// passiert nie etwas anderes. Dieser Test verschraenkt die Antworten deshalb
-// bewusst — die Antwort auf den Streak-RPC der einen Mahlzeit wird erst
-// freigegeben, waehrend der Insert der NAECHSTEN Mahlzeit noch laeuft.
+// The existing outbox suite is strictly sequential and cannot produce this, so
+// this test interleaves the responses deliberately: the streak RPC of one meal
+// is only released while the insert of the NEXT meal is still running.
 
-/// Der Tag, an dem Streak-Op und Mahlzeiten haengen — er ist zugleich die
-/// `entityId` der trackingDay-Op.
+/// The day the streak op and the meals hang on; also the trackingDay op's
+/// `entityId`.
 const String _tag = '2026-08-14';
 
-/// Fake-PostgREST, der genau die Verschraenkung herstellt, um die es geht.
+/// Fake PostgREST producing exactly the interleaving under test.
 class _RennenServer {
-  /// Wie oft record_tracking_day gerufen wurde. Der ERSTE Aufruf (der Replay
-  /// der liegengebliebenen Streak-Op) scheitert — nur dann bleibt sie als
-  /// blockierte Op VOR dem Laufindex liegen. Der zweite kommt aus dem
-  /// mealInsert-Replay und stellt den Tag doch noch zu.
+  /// How often record_tracking_day was called. The FIRST call fails so the
+  /// streak op stays blocked BEFORE the loop index; the second comes from the
+  /// mealInsert replay and delivers the day after all.
   int trackingCalls = 0;
 
-  /// Haelt die Antwort auf den zweiten record_tracking_day zurueck, bis der
-  /// Replay bei der naechsten Op steht.
+  /// Holds back the second record_tracking_day response until the replay has
+  /// moved on to the next op.
   final Completer<void> tagAntwortFrei = Completer<void>();
 
-  /// Waehrend des logged_meals-Writes dieser Mahlzeit laeuft [beimGateWrite] —
-  /// das ist das Fenster, in dem die Queue unter dem Laufindex kuerzer wird.
+  /// [beimGateWrite] runs during this meal's logged_meals write — the window
+  /// in which the queue shrinks underneath the loop index.
   String? gateMealId;
   Future<void> Function()? beimGateWrite;
 
@@ -82,9 +70,8 @@ class _RennenServer {
     if (path.contains('/rpc/record_tracking_day')) {
       trackingCalls++;
       if (trackingCalls == 1) return fail();
-      // Die Zusage kommt erst, wenn der Replay eine Op weiter ist. Der Timeout
-      // ist reine Notbremse: bleibt die Freigabe aus, soll der Test an seinen
-      // Erwartungen scheitern statt zu haengen.
+      // Released only once the replay is one op further. The timeout is an
+      // emergency brake so the test fails on its expectations, not by hanging.
       await tagAntwortFrei.future
           .timeout(const Duration(seconds: 5), onTimeout: () {});
       return ok(_statsRow());
@@ -113,8 +100,8 @@ class _RennenServer {
       }
       return ok(const <dynamic>[]);
     }
-    // Uebrige Reads (profiles, lifetime_stats, favorite_meals, weight_log,
-    // user_recipes) leer — der Boot bleibt gruen; uebrige Writes quittiert.
+    // Remaining reads answer empty so the boot stays green; remaining writes
+    // are acknowledged.
     if (req.method == 'GET') return ok(const <dynamic>[]);
     return http.Response('', 201, request: req);
   }
@@ -171,12 +158,10 @@ MealAnalysisResult _result(String name) => MealAnalysisResult(
       sourceLabel: 'Foto-KI',
     );
 
-/// Die Ids sind bewusst KEINE UUIDs: dieser Test misst die Positionslogik des
-/// Replay-Loops, nicht die Zaehler. Aus einer nicht-UUID-Id laesst sich keine
-/// Stats-Request-Id ableiten (Fix 3, `_statsFollowUpFor`), es entsteht also
-/// kein Folgeeintrag, der die Queue waehrend des Laufs zusaetzlich veraendern
-/// wuerde. Wer sie auf UUID-Form hebt, prueft hier zusaetzlich die
-/// Eintrags-Erzeugung — dann aber auch die Queue-Erwartungen mitziehen.
+/// The ids are deliberately NOT UUIDs: this test measures the replay loop's
+/// position logic, not the counters. A non-UUID id yields no stats request id
+/// (`_statsFollowUpFor`), so no follow-up entry changes the queue mid-run.
+/// Switching to UUIDs means updating the queue expectations too.
 LoggedMeal _meal(String id) => LoggedMeal(
       id: id,
       result: _result(id),
@@ -198,15 +183,12 @@ void main() {
       'Replay-Wettlauf: wird die Queue waehrend eines await gekuerzt, faellt '
       'die ZUGESTELLTE Op heraus — nicht die dahinterliegende', () async {
     final kv = InMemoryKeyValueStore();
-    // Reihenfolge ist der ganze Punkt:
-    //   0 trackingDay — scheitert im ersten Anlauf und bleibt liegen, wird also
-    //     im selben Lauf nicht mehr angefasst (blockierte Entitaet).
-    //   1 mealInsert m-a — traegt track_day, stoesst also den zweiten
-    //     record_tracking_day an, dessen Antwort spaeter genau diese Op 0
-    //     entfernt.
-    //   2 mealInsert m-b — waehrend SEINES Writes faellt Op 0 weg.
-    //   3 mealDelete m-opfer — steht danach an der Stelle, auf die der
-    //     veraltete Laufindex zeigt. Sie ist das Opfer.
+    // The order is the whole point:
+    //   0 trackingDay — fails first and stays as a blocked entity.
+    //   1 mealInsert m-a — carries track_day, triggering the second
+    //     record_tracking_day whose response later removes op 0.
+    //   2 mealInsert m-b — op 0 disappears during ITS write.
+    //   3 mealDelete m-opfer — then sits where the stale index points.
     await _seedRawOutbox(kv, <Map<String, dynamic>>[
       SyncOp.trackingDay(_tag).toJson(),
       SyncOp.mealInsert(_meal('m-a'), trackDay: true).toJson(),
@@ -232,18 +214,16 @@ void main() {
     );
     addTearDown(store.dispose);
 
-    // Beleg, dass die Verschraenkung wirklich stattgefunden hat — ohne ihn
-    // koennte der Test vakuum-gruen werden, sobald sich die Reihenfolge im
-    // Store einmal verschiebt.
+    // Proof that the interleaving really happened; without it the test could
+    // go vacuously green if the store order ever shifts.
     var queueWurdeGekuerzt = false;
     server.gateMealId = 'm-b';
     server.beimGateWrite = () async {
-      // Der Hook kann ein zweites Mal laufen (ohne den Fix bleibt die Op
-      // liegen und wird nachgespielt) — die Freigabe gibt es aber nur einmal.
+      // The hook can run twice (without the fix the op stays and is
+      // replayed), but the release happens only once.
       if (!server.tagAntwortFrei.isCompleted) server.tagAntwortFrei.complete();
-      // Warten, bis der Streak-Tag WIRKLICH aus der Queue gefallen ist: erst
-      // dann sind die Positionen verschoben, und erst dann ist der Laufindex
-      // des Replays veraltet.
+      // Wait until the streak day has really left the queue: only then are
+      // the positions shifted and the replay's index stale.
       for (var i = 0; i < 400; i++) {
         if (!store.pendingOutbox.any((o) => o.kind == SyncOpKind.trackingDay)) {
           queueWurdeGekuerzt = true;
@@ -261,20 +241,17 @@ void main() {
         reason: 'Vorbedingung: die Queue muss WAEHREND des Replays kuerzer '
             'geworden sein, sonst prueft der Test nichts');
 
-    // Beide Mahlzeiten sind angekommen — der Replay als solcher lief.
+    // Both meals arrived, so the replay itself ran.
     expect(server.insertedMealIds, containsAll(<String>['m-a', 'm-b']));
 
-    // Der Kern: die Loeschung stand hinter der gerade zugestellten Op. Frueher
-    // entfernte `removeAt(i)` genau sie — sie galt damit als zugestellt, ohne
-    // je gesendet worden zu sein, und die Mahlzeit kam beim naechsten Kaltstart
-    // vom Server zurueck.
+    // The core: the deletion sat behind the just-delivered op, and
+    // `removeAt(i)` used to drop it as if delivered.
     expect(server.deletedMealIds, contains('m-opfer'),
         reason: 'die fremde Op darf nicht still als "zugestellt" aus der '
             'Queue fallen');
 
-    // Und die Gegenrichtung: die tatsaechlich zugestellte Op bleibt nicht
-    // liegen (sie wuerde beim naechsten Replay ein zweites Mal +1 Mahlzeit
-    // buchen).
+    // The other direction: the actually delivered op must not stay, or the
+    // next replay would book +1 meal a second time.
     expect(
       store.pendingOutbox
           .where((o) => o.kind == SyncOpKind.mealInsert && o.entityId == 'm-b'),

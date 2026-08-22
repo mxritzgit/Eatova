@@ -2,18 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_app.dart';
 
-// Sentinel-Rest A2 (Sweep 2026-08-08): `_syncFor` fing JEDEN Fehler und gab
-// `null` zurueck — den Zustand, der sonst „Test/Preview, absichtlich ohne
-// Backend" bedeutet. Fuer einen EINGELOGGTEN Nutzer laeuft die App damit
-// still im Datenlos-Modus: kein LocalCache, kein Server-Load, keine Outbox;
-// jeder Log-Pfad endet in `if (s == null) return;`. Mahlzeiten und Gewichte
-// leben nur im RAM und sind beim Neustart weg — ohne jede Meldung.
+// Sentinel A2: `_syncFor` caught EVERY error and returned `null`, the state
+// that otherwise means "test/preview, deliberately without backend". For a
+// logged-in user the app then ran silently data-less — every log path ends in
+// `if (s == null) return;`, so meals and weights lived only in RAM.
 //
-// Neuer Vertrag (Muster von buildDefaultAuthRepository): der null-Komfort
-// bleibt auf Debug/Test beschraenkt. Im Release-Pfad fliegt der Fehler —
-// sichtbar via globale Handler + Sentry — statt still Daten zu verlieren.
+// New contract (like buildDefaultAuthRepository): the null convenience stays
+// limited to debug/test. On the release path the error is thrown — visible via
+// the global handlers and Sentry — instead of losing data silently.
 //
-// WICHTIG: dieses File ruft bewusst NIE Supabase.initialize().
+// IMPORTANT: this file deliberately never calls Supabase.initialize().
 
 void main() {
   test('Release-Pfad: ohne Supabase fliegt der Fehler statt sync == null',

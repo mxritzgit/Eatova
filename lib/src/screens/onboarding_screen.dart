@@ -9,38 +9,23 @@ import '../widgets/common/motion.dart';
 import '../widgets/design/design.dart';
 import '../widgets/shared/target_bmi_hint.dart';
 
-/// Verpflichtendes Onboarding: erhebt Körperdaten, Aktivität und Ziel und
-/// berechnet daraus ein genaues Tagesziel (Mifflin-St Jeor BMR × Aktivitäts-PAL
-/// ± Ziel-Delta). Läuft genau einmal pro User — danach setzt
-/// [UserProfile.onboardingCompleted] das Gate auf erledigt.
+/// Mandatory onboarding: collects body data, activity and goal and computes
+/// the daily target (Mifflin-St Jeor BMR x activity PAL +- goal delta). Runs
+/// once per user; [UserProfile.onboardingCompleted] then closes the gate.
 ///
-/// Bewusst ohne Texteingaben: Slider + Stepper sind auf dem Phone schneller,
-/// vermeiden Tastatur-Sprünge und liefern immer Werte innerhalb der
-/// DB-Constraints.
+/// No text inputs on purpose: sliders and steppers are faster on a phone and
+/// always yield values inside the DB constraints.
 ///
-/// ## Wertebereiche kommen aus [ProfileLimits], nicht aus Literalen
+/// ## Ranges come from [ProfileLimits], never from literals
 ///
-/// Bis Welle 6 standen hier `16..99` Jahre, `40..200` kg und `120..220` cm als
-/// Zahlen im Code, während `public.profiles` `16..100` / `30..300` /
-/// `100..250` erlaubt — und `model_limits.dart` war gar nicht importiert. Zwei
-/// getrennte Probleme:
+/// Mirrored numeric ranges were both a legal and a functional problem: the
+/// minimum age of 16 is GDPR Art. 8 consent capacity (already moved once by
+/// migration `20260807090000`), and the narrower copies silently clamped real
+/// users (210 kg, 115 cm) to values they never entered.
 ///
-/// * **Rechtlich.** Das Mindestalter 16 ist keine UI-Vorliebe, sondern die
-///   Einwilligungsfähigkeit nach Art. 8 DSGVO bei Gesundheitsdaten (Art. 9).
-///   Es steht mit eigenem Kommentar in [ProfileLimits.ageYearsMin] und wurde
-///   mit Migration `20260807090000` bereits einmal verschoben (13 → 16). Eine
-///   gespiegelte Kopie, die beim nächsten Mal nicht mitwandert, ist ein
-///   Rechtsverstoß mit Ansage.
-/// * **Fachlich.** Die engeren Kopien waren keine bewusste Plausibilitäts-
-///   grenze, sondern eine stille Klemme in `initState`: wer 210 kg wog oder
-///   115 cm groß ist, konnte sein Onboarding gar nicht wahrheitsgemäß
-///   ausfüllen — sein Wert wurde beim Start auf 200 bzw. 120 gezogen, obwohl
-///   die Datenbank ihn akzeptiert hätte.
-///
-/// Es bleibt deshalb **keine** numerische Verengung übrig. Enger als die DB
-/// wird nur noch das Wunschgewicht, und zwar dynamisch: [_targetMin] /
-/// [_targetMax] halten es auf der Seite der gewählten Richtung. Das ist eine
-/// Konsistenz-, keine Wertebereichsgrenze und kann nicht driften.
+/// The only remaining narrowing is the target weight, dynamically via
+/// [_targetMin] / [_targetMax] — a consistency bound, not a range, so it
+/// cannot drift.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -52,8 +37,8 @@ class OnboardingScreen extends StatefulWidget {
   final String firstName;
   final UserProfile initialProfile;
 
-  /// Bekommt das fertige Profil inkl. berechnetem Tagesziel und
-  /// onboardingCompleted = true. Der Aufrufer persistiert + verlässt das Gate.
+  /// Receives the finished profile with computed daily target and
+  /// onboardingCompleted = true. The caller persists it and leaves the gate.
   final ValueChanged<UserProfile> onComplete;
 
   @override
@@ -73,7 +58,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late _GoalDirection _direction;
   late int _target;
   late DietPreference _diet;
-  // Getrennte Tempo-Auswahl je Richtung, damit Hin-/Herwechseln nichts verliert.
+  // Separate pace per direction, so switching back and forth loses nothing.
   WeightGoal _losePace = WeightGoal.lose05kg;
   WeightGoal _gainPace = WeightGoal.gain025kg;
   int _index = 0;
@@ -83,9 +68,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.initState();
     final p = widget.initialProfile;
     _sex = p.sex;
-    // Geklemmt wird nur noch auf die DB-Grenze selbst: alles andere hätte dem
-    // Nutzer beim Start still einen Wert untergeschoben, den er nie angegeben
-    // hat (siehe Klassendoku).
+    // Clamp to the DB bound only; anything narrower would silently substitute
+    // a value the user never entered (see class docs).
     _age = p.ageYears
         .clamp(ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax)
         .toInt();
@@ -114,7 +98,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _diet = p.diet;
   }
 
-  /// Sichtbare Schritte — Zielgewicht und Tempo entfallen bei „halten".
+  /// Visible steps — target weight and pace are skipped for "maintain".
   List<_Step> get _steps => [
         _Step.intro,
         _Step.sex,
@@ -137,12 +121,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _GoalDirection.gain => _gainPace,
       };
 
-  /// Wunschgewicht passend zur Richtung begrenzen, damit es nie der aktuellen
-  /// Richtung widerspricht (Abnehmen → unter, Zunehmen → über).
-  ///
-  /// Das ist die einzige verbliebene Verengung gegenüber der DB — und die
-  /// einzige, die sich nicht spiegeln lässt, weil sie am aktuellen Gewicht
-  /// hängt statt an einer Konstanten.
+  /// Bounds the target weight to the chosen direction (lose -> below, gain ->
+  /// above). The only remaining narrowing against the DB, and the only one
+  /// that cannot be mirrored because it depends on the current weight.
   int get _targetMin => _direction == _GoalDirection.gain
       ? _weight + 1
       : ProfileLimits.targetWeightKgMin;
@@ -150,7 +131,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ? _weight - 1
       : ProfileLimits.targetWeightKgMax;
 
-  /// clamp ohne Assert-Crash bei invertierten Grenzen (Gewicht am Extrem).
+  /// clamp without an assert crash on inverted bounds (weight at an extreme).
   static int _safeClamp(int v, int lo, int hi) =>
       hi < lo ? lo : v.clamp(lo, hi).toInt();
 
@@ -172,27 +153,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   KcalTargets get _targets => const KcalCalculator().calculate(_draftProfile());
 
-  /// Was [option] mit den bereits erhobenen Körperdaten wirklich ergibt —
-  /// Untertitel jeder Zeile im Tempo-Schritt.
+  /// What [option] actually yields with the body data collected so far —
+  /// subtitle of every row in the pace step (B2).
   ///
-  /// **B2.** Der Tempo-Schritt ist Nummer 9 von 11 ([_Step]: intro, sex, age,
-  /// height, weight, activity, goal, target, **pace**, diet, summary). Gewicht,
-  /// Größe, Alter, Geschlecht und Aktivität stehen hier alle schon fest —
-  /// `calculate` braucht nichts weiter, das Ergebnis ist also ohne jeden
-  /// Vorbehalt berechenbar. Vorher stand hier `goal.deltaLabel`, also
-  /// „−1100 kcal / Tag": für das damalige Standardprofil (78 kg / 178 cm /
-  /// 30 J. / neutral / sitzend, Erhaltung 1997 bei PAL 1,2) hob die
-  /// Sicherheitsklemme das Ziel aber auf 1200 kcal an — real waren es
-  /// −797 kcal ≙ −0,72 kg/Woche, und „Zügig" und „Ambitioniert" landeten
-  /// **beide** dort. Der Picker versprach damit zwei verschiedene Tempi für
-  /// denselben Plan, und erst der nächste Schritt korrigierte. Seit dem
-  /// Kalorien-Review 2026-08-21 (PAL ohne Gehen 1,3, 1-%-Deckel) ergibt
-  /// dasselbe Profil 1350 kcal ≙ −0,75 kg/Woche — die Regel bleibt dieselbe.
+  /// The pace step is 9 of 11, so weight, height, age, sex and activity are
+  /// all fixed and `calculate` is unconditional here. Showing the requested
+  /// delta instead would lie whenever the safety floor or the 1 % cap changes
+  /// it — two pace options could then promise different rates for the same
+  /// plan.
   ///
-  /// Der Titel behält bewusst das gewählte Tempo: er ist der *Name* der Option
-  /// („Ambitioniert · −1 kg/Woche"), und zwei Zeilen mit derselben effektiven
-  /// Rate wären nicht mehr auseinanderzuhalten. Die Folge gehört in den
-  /// Untertitel — Auswahl oben, Konsequenz darunter.
+  /// The title keeps the chosen pace: it is the option's *name*, and two rows
+  /// with the same effective rate would be indistinguishable. The consequence
+  /// belongs in the subtitle.
   String _tempoFolge(WeightGoal option) {
     final l10n = context.l10n;
     final t = const KcalCalculator()
@@ -213,22 +185,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _index--);
   }
 
-  /// Android-Systemzurueck (Button oder Randgeste) — muss dasselbe tun wie der
-  /// Header-Pfeil (D4).
+  /// Android system back (button or edge gesture) — must do what the header
+  /// arrow does (D4).
   ///
-  /// [OnboardingScreen] ist der Inhalt der **Root-Route** (EatovaHomePage im
-  /// AuthGate), kein gepushter Screen. Ohne diesen Handler scheitert
-  /// `Navigator.maybePop` mangels zweiter Route, die Engine faellt auf
-  /// `SystemNavigator.pop()` zurueck und beendet die Activity — mitten im Flow
-  /// waren damit alle bereits gegebenen Antworten weg, weil erst `_finish()`
-  /// etwas persistiert.
+  /// [OnboardingScreen] is the root route, so without this handler the engine
+  /// falls back to `SystemNavigator.pop()` and kills the activity, losing
+  /// every answer given so far (only `_finish()` persists anything).
   ///
-  /// Ab Schritt 1 wird der Pop deshalb abgefangen und in einen Schritt zurueck
-  /// uebersetzt. Auf Schritt 0 (Intro) bleibt `canPop` bewusst `true`: dort hat
-  /// der Nutzer nichts investiert, und die Alternative — zurueck zum
-  /// Auth-Screen — hiesse abmelden. Eine Randgeste darf keine Session beenden;
-  /// „Zurueck auf dem ersten Screen schliesst die App" ist die erwartete
-  /// Android-Konvention.
+  /// From step 1 the pop is intercepted and turned into a step back. On step 0
+  /// `canPop` stays `true`: nothing is invested there, and the alternative —
+  /// back to the auth screen — would mean signing out.
   void _onPopInvoked(bool didPop, Object? result) {
     if (didPop) return;
     _back();
@@ -237,7 +203,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _onDirectionChosen(_GoalDirection dir) {
     setState(() {
       _direction = dir;
-      // Sinnvolles Default-Wunschgewicht je Richtung setzen.
+      // Pick a sensible default target weight for the direction.
       if (dir == _GoalDirection.lose) {
         _target = _safeClamp(
           _weight - 5,
@@ -277,7 +243,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final isSummary = step == _Step.summary;
 
     return PopScope<Object?>(
-      // Nur der Intro-Schritt gibt den Pop frei — siehe [_onPopInvoked].
+      // Only the intro step releases the pop — see [_onPopInvoked].
       canPop: _index == 0,
       onPopInvokedWithResult: _onPopInvoked,
       child: Scaffold(
@@ -320,11 +286,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
                 const SizedBox(height: 16),
                 Semantics(
-                  // Vorher ein FilledButton, jetzt ein blankes InkWell: die
-                  // Bibliothek gibt [PrimaryActionButton] kein `isButton` mit,
-                  // und ohne dieses Flag kuendigt ein Screenreader den
-                  // Weiter-Knopf nur noch als Text an. Gehoert in die
-                  // Bibliothek (siehe Bericht) — bis dahin hier.
+                  // [PrimaryActionButton] is a bare InkWell without `isButton`,
+                  // so a screen reader would announce the CTA as plain text.
+                  // Belongs in the library; here until then.
                   button: true,
                   child: PrimaryActionButton(
                     key: ValueKey(
@@ -430,8 +394,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     : l10n.onboardingTargetFootnoteGain(
                         (_weight - _target).abs()),
               ),
-              // Sanfter, nicht blockierender BMI-Hinweis — gleiche Grenze wie
-              // im Settings-Sheet (unter 18,5 / über 35).
+              // Soft, non-blocking BMI hint — same thresholds as the settings
+              // sheet (below 18.5 / above 35).
               TargetBmiHint(
                 margin: const EdgeInsets.only(top: 16),
                 heightCm: _height,
@@ -498,16 +462,16 @@ class _Header extends StatelessWidget {
     return Row(
       children: [
         SizedBox(
-          // Genau die Kantenlaenge von SquareIconButton — der Balken darf
-          // beim Wechsel Intro ↔ Schritt 1 nicht springen.
+          // Exactly the edge length of SquareIconButton, so the bar does not
+          // jump between intro and step 1.
           width: 34,
           child: showBack
               ? SquareIconButton(
                   key: const ValueKey('onboarding-back'),
                   icon: Icons.chevron_left_rounded,
                   onTap: onBack,
-                  // Umlaut, kein „ue": ein Semantics-Label ist GESPROCHENER
-                  // Text (vgl. PageHeader in widgets/design/rows.dart).
+                  // Real umlaut, not "ue": a Semantics label is SPOKEN text
+                  // (cf. PageHeader in widgets/design/rows.dart).
                   semanticLabel: context.l10n.onboardingBackSemanticLabel,
                 )
               : const SizedBox.shrink(),
@@ -694,9 +658,8 @@ class _SexPicker extends StatelessWidget {
                     color: value == sex ? t.lime : t.ink2,
                   ),
                   const SizedBox(height: 10),
-                  // Die Kachel ist ein Drittel breit, die Beschriftung waechst
-                  // mit der Systemschrift — ohne Schrumpfen liefe „Männlich"
-                  // bei 2.0 heraus.
+                  // The tile is a third of the row and the label grows with the
+                  // system font, so it must be allowed to shrink.
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
@@ -756,10 +719,9 @@ class _GoalPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    // Die Direction-Labels ('Abnehmen'/'Gewicht halten'/'Zunehmen') sind
-    // BYTE-IDENTISCH zu [WeightGoalInfo.label] fuer die jeweils passende
-    // [WeightGoal]-Auspraegung — dieselben ARB-Keys werden hier bewusst
-    // wiederverwendet statt eigene, doppelte Onboarding-Keys anzulegen.
+    // The direction labels are byte-identical to [WeightGoalInfo.label] for
+    // the matching [WeightGoal], so the same ARB keys are reused instead of
+    // duplicate onboarding keys.
     final items = {
       _GoalDirection.lose: (
         l10n.commonWeightGoalLabelLose,
@@ -839,8 +801,8 @@ class _PacePicker extends StatelessWidget {
   final List<WeightGoal> options;
   final WeightGoal value;
 
-  /// Untertitel einer Option: der Plan, den sie mit den bisherigen Antworten
-  /// ergibt. Siehe `_OnboardingScreenState._tempoFolge`.
+  /// Subtitle of an option: the plan it yields with the answers so far. See
+  /// `_OnboardingScreenState._tempoFolge`.
   final String Function(WeightGoal) outcomeFor;
 
   final ValueChanged<WeightGoal> onChanged;
@@ -902,8 +864,8 @@ class _NumberPicker extends StatelessWidget {
   final ValueChanged<int> onChanged;
   final String? footnote;
 
-  // Defensiv gegen invertierte Fenster (z.B. „abnehmen" am Gewichts-Minimum):
-  // clamp und Slider assertieren lower <= upper.
+  // Defensive against inverted windows (e.g. "lose" at the weight minimum):
+  // clamp and Slider assert lower <= upper.
   int get _hi => max < min ? min : max;
 
   void _set(int v) => onChanged(v.clamp(min, _hi).toInt());
@@ -923,9 +885,8 @@ class _NumberPicker extends StatelessWidget {
               onTap: () => _set(safeValue - 1),
             ),
             const SizedBox(width: 20),
-            // Abweichung von vorher (SizedBox(width: 150)): bei textScaler 2.0
-            // ist die 52er-Ziffernfolge breiter als 150 px. Die Spalte waechst
-            // jetzt mit dem verbleibenden Platz, die Zahl schrumpft notfalls.
+            // Not a fixed width: at textScaler 2.0 the 52 pt digits exceed
+            // 150 px. The column takes the remaining space, the number shrinks.
             Flexible(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1067,9 +1028,8 @@ class _TileCard extends StatelessWidget {
         duration: motionDuration(context, const Duration(milliseconds: 160)),
         padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
         decoration: BoxDecoration(
-          // Ausgewaehlt heisst jetzt: volle Markenflaeche statt getoenter
-          // Rand. Das traegt die Auswahl auch dann, wenn der Nutzer den
-          // Farbunterschied nicht sieht (Kontrast statt Farbton).
+          // Selected means a full brand surface, not a tinted border, so the
+          // selection reads through contrast rather than hue.
           color: selected ? t.forest : t.surf,
           borderRadius: BorderRadius.circular(rCard),
           border: Border.all(
@@ -1194,22 +1154,20 @@ class _SummaryStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    // [targets] ist aus genau diesem Profil berechnet — durchreichen statt
-    // `calculate` ein zweites Mal laufen zu lassen.
+    // [targets] was computed from exactly this profile — pass it through
+    // instead of running `calculate` a second time.
     final weeks =
         const KcalCalculator().weeksToGoalRange(profile, targets: targets);
     final goal = profile.weightGoal;
 
-    // `weeks == null` heisst: es gibt keine ehrliche Prognose (Wunschgewicht
-    // erreicht, Rate im Rundungsrauschen, oder die Klemme dreht die
-    // Richtung um — dann isst der Nutzer trotz „abnehmen" im Ueberschuss).
-    // Dann lieber gar keine Zahl als eine erfundene; das Warum steht direkt
-    // darueber in [KcalTargets.paceWarning].
+    // `weeks == null` means there is no honest forecast (target reached, rate
+    // in the rounding noise, or the floor flips the direction). Better no
+    // number than an invented one; the why sits in [KcalTargets.paceWarning].
     //
-    // Seit dem Kalorien-Review 2026-08-21 eine SPANNE: linear (optimistisch)
-    // bis dynamisch (Bedarf sinkt mit jedem Kilo, Hall-Faustregel). Fehlt
-    // die dynamische Obergrenze, reicht das Defizit bei festem Tagesziel
-    // nicht bis zum Ziel — dann steht hier „fruehestens".
+    // Since the 2026-08-21 calorie review this is a RANGE: linear
+    // (optimistic) to dynamic (requirement drops with every kilo). Without a
+    // dynamic upper bound the deficit never reaches the target, and the text
+    // says "at the earliest".
     final timeline = switch (goal) {
       WeightGoal.maintain =>
         l10n.onboardingTimelineMaintain(profile.weightKg),
@@ -1222,9 +1180,8 @@ class _SummaryStep extends StatelessWidget {
     };
 
     final t = context.t;
-    // Einmal berechnet und weitergereicht: effectivePaceLabel/paceWarning
-    // muessen im Text UND im Sichtbarkeits-Check dieselbe Zeichenkette
-    // liefern (B2).
+    // Computed once: effectivePaceLabel/paceWarning must yield the same string
+    // in the text AND in the visibility check (B2).
     final paceWarning = targets.paceWarning(l10n);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1308,8 +1265,8 @@ class _SummaryStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        // Macros — auf dem Seitengrund statt auf der Forest-Flaeche: dort
-        // haette t.protein im Hellmodus kein lesbares Kontrastverhaeltnis.
+        // Macros on the page background, not on forest: t.protein would have
+        // no readable contrast there in light mode.
         Row(
           children: [
             _MacroChip(
@@ -1351,12 +1308,10 @@ class _SummaryStep extends StatelessWidget {
                 valueKey: const ValueKey('onboarding-summary-maintenance'),
               ),
               const _BreakdownDivider(),
-              // B2: hier steht der **Plan**, nicht der Wunsch. `goal.paceLabel`
-              // / `goal.deltaLabel` versprechen −1 kg/Woche und −1100 kcal,
-              // auch wenn Sicherheitsklemme oder 1-%-Deckel daraus z. B.
-              // −0,75 kg/Woche und −814 kcal gemacht haben. Mit der effektiven
-              // Rate geht die Karte auch arithmetisch auf: Erhaltung −
-              // Tagesziel = Delta.
+              // B2: this shows the PLAN, not the wish. `goal.paceLabel` /
+              // `goal.deltaLabel` keep promising the requested rate even after
+              // the safety floor or the 1 % cap changed it. With the effective
+              // rate the card also adds up: maintenance - target = delta.
               _BreakdownRow(
                 key: const ValueKey('onboarding-summary-goal-row'),
                 label: l10n.onboardingSummaryGoalLabel(
@@ -1368,8 +1323,8 @@ class _SummaryStep extends StatelessWidget {
             ],
           ),
         ),
-        // Sichtbarer Hinweis, wenn Tagesziel und gewaehltes Tempo auseinander
-        // liegen — sonst bliebe der Widerspruch unerklaert.
+        // Visible notice when daily target and chosen pace diverge, otherwise
+        // the contradiction stays unexplained.
         if (paceWarning != null) ...[
           const SizedBox(height: 12),
           Container(
@@ -1462,8 +1417,8 @@ class _MacroChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
         child: Column(
           children: [
-            // Die Kachel ist ein Drittel der Zeile breit — bei textScaler 2.0
-            // braucht der Inhalt die Notbremse.
+            // The tile is a third of the row, so at textScaler 2.0 the content
+            // needs the shrink fallback.
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
@@ -1490,24 +1445,21 @@ class _MacroChip extends StatelessWidget {
   }
 }
 
-/// Vorzeichenbehaftetes kcal-Label für eine **berechnete** Differenz, z.B.
-/// "−797 kcal" / "+88 kcal" / "±0".
+/// Signed kcal label for a COMPUTED difference, e.g. "−797 kcal" / "±0".
 ///
-/// Gegenstück zu [WeightGoalInfo.deltaLabel], nur eben für
-/// [KcalTargets.effectiveKcalDelta] statt für das gewählte Ziel — gleiche
-/// Schreibweise inkl. echtem Minuszeichen (U+2212), damit auf der Karte kein
-/// Zeichenmix entsteht.
+/// Counterpart to [WeightGoalInfo.deltaLabel] but for
+/// [KcalTargets.effectiveKcalDelta]; same notation including the real minus
+/// sign (U+2212), so the card mixes no glyphs.
 String _signedKcalLabel(int kcal) {
   if (kcal == 0) return '±0';
   final sign = kcal > 0 ? '+' : '−';
   return '$sign${kcal.abs()} kcal';
 }
 
-/// Eine Zeile der Aufschluesselung.
+/// One row of the breakdown.
 ///
-/// **Genau zwei [Text]-Kinder** — der Test `onboarding_screen_test` liest alle
-/// Texte der Ziel-Zeile als Liste und vergleicht sie mit
-/// `['Ziel · −0,75 kg/Woche', '−814 kcal']`.
+/// EXACTLY two [Text] children — `onboarding_screen_test` reads the goal row's
+/// texts as a list and compares them literally.
 class _BreakdownRow extends StatelessWidget {
   const _BreakdownRow({
     super.key,
@@ -1521,10 +1473,8 @@ class _BreakdownRow extends StatelessWidget {
   final String value;
   final Key? valueKey;
 
-  /// Hebt die Zahl in den Marken-Akzent. Frueher unterschied die Farbe
-  /// zusaetzlich Defizit (lime) von Ueberschuss (orange) — in der neuen
-  /// Sprache traegt der Ton keine Daten mehr, und die Richtung steht ohnehin
-  /// als Vorzeichen im Text.
+  /// Lifts the number into the brand accent. Colour no longer encodes
+  /// deficit vs. surplus — the sign in the text carries the direction.
   final bool highlight;
 
   @override
@@ -1538,9 +1488,8 @@ class _BreakdownRow extends StatelessWidget {
             style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
           ),
         ),
-        // Kein Expanded/Flexible: die Zeile hat nur zwei Kinder, und der Wert
-        // ist immer kurz („1997 kcal"). Der Text darf umbrechen, die Spalte
-        // links gibt dafuer nach.
+        // Flexible, not Expanded: the value is always short, so it takes only
+        // what it needs and the label column keeps the rest.
         Flexible(
           child: Padding(
             padding: const EdgeInsets.only(left: 10),

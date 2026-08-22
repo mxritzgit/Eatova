@@ -1,8 +1,8 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Animierter Coach-Orb (rotierender Sweep + atmender Kern). Unter "Bewegung
-// reduzieren" statisch (kein Spin/Breathe), der Look bleibt erhalten.
+// Animated coach orb (rotating sweep + breathing core). Static under "reduce
+// motion", but the look is unchanged.
 // ---------------------------------------------------------------------------
 class CoachOrb extends StatefulWidget {
   const CoachOrb({super.key, this.size = 92});
@@ -42,9 +42,7 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final t = context.t;
     final s = widget.size;
-    // Der helle Pol des Orbs. Frueher ein warmes Zweitgelb neben dem Indigo;
-    // jetzt der Marken-Akzent selbst — Forest traegt die Flaeche, Lime das
-    // Licht darauf.
+    // Bright pole of the orb: forest carries the surface, lime the light.
     final kern = Color.lerp(t.forest, t.lime, 0.55)!;
     return SizedBox(
       width: s,
@@ -71,7 +69,7 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
               ),
             ),
           ),
-          // Rotierender Ring
+          // Rotating ring
           RepaintBoundary(
             child: AnimatedBuilder(
               animation: _spin,
@@ -90,7 +88,7 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
               ),
             ),
           ),
-          // Atmender Kern
+          // Breathing core
           Positioned.fill(
             left: 6,
             top: 6,

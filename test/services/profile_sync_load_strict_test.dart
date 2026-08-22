@@ -8,24 +8,18 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/profile_sync.dart';
 
-// Sentinel-Fund 3 (Nachverifikation 2026-08-08), Server-Gate: ProfileSync.load
-// fuellte unlesbare Zahlenfelder mit erfundenen Werten auf (78 kg, 178 cm,
-// 2200 kcal, ...) und lieferte das Ergebnis als vollwertiges Profil zurueck.
-// Der Boot markierte es damit als echte Hydrationsquelle
-// (_hydratedFromRealSource = true), und der naechste profile.save() schrieb
-// die Fantasie dauerhaft auf den Server — der A7-Mechanismus, nur fuer die
-// Zahlenfelder.
+// Sentinel finding 3: ProfileSync.load used to fill unreadable numeric fields
+// with invented defaults and return them as a full profile. Boot then marked it
+// as a real hydration source and the next save wrote the fiction to the server.
 //
-// Neuer Vertrag: eine Zeile, deren Zahlenfelder nicht lesbar sind, ist ALS
-// GANZES keine Hydrationsquelle — load() wirft (FormatException), _safeLoad
-// im Boot faengt das, es gibt KEINE Hydration und der Clobber-Schutz bleibt
-// geschlossen. Die DB garantiert die Spalten ohnehin als NOT NULL; dieser
-// Pfad feuert nur bei Parse-Muell/Schema-Drift — und dann ist Lautstaerke
-// richtig, nicht Erfinden.
+// Contract: a row whose numeric fields are unreadable is NOT a hydration source
+// at all — load() throws (FormatException), boot catches it, nothing hydrates
+// and the clobber guard stays closed. The DB has these columns NOT NULL, so
+// this path only fires on parse garbage or schema drift, where being loud beats
+// inventing.
 //
-// Die Enum-Felder (sex, activity_level, weight_goal, diet_preference) bleiben
-// bewusst nachsichtig (A7-Entscheidung, parseProfile*-Tests): sie erfinden
-// Einordnungen mit dokumentiertem Fallback, keine Messwerte.
+// Enum fields stay lenient on purpose (A7): they fall back to a documented
+// value, not to an invented measurement.
 
 SupabaseClient _clientMitZeile(Map<String, dynamic> zeile) => SupabaseClient(
       'https://example.supabase.co',
@@ -36,8 +30,8 @@ SupabaseClient _clientMitZeile(Map<String, dynamic> zeile) => SupabaseClient(
             headers: const {'Content-Type': 'application/json'},
             request: req,
           )),
-      // Kein Auto-Refresh-Ticker: der Test braucht keinen Auth-Refresh und
-      // soll keinen pendenden Timer hinterlassen.
+      // No auto-refresh ticker: the test needs none and must leave no pending
+      // timer.
       authOptions: const AuthClientOptions(autoRefreshToken: false),
     );
 

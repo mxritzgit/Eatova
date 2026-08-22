@@ -3,21 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
-// Regressionstests zum Komplettreview 2026-08-19, Paket
-// `lib/src/models/meal_analysis_result.dart` (Funde 1-4).
-//
-// Jeder Test hier war vor dem Fix rot:
-//   Fund 1  — die Teilstring-Referenztabelle machte aus 'Erdbeerkuchen' eine
-//             Erdbeere, und aus Referenzdichte x Default-Portion entstand eine
-//             loggbare Gesamtkalorienzahl.
-//   Fund 2  — `items[]` und `caloriesKcal` waren unabgeglichen; blosses
-//             Bestaetigen der Bestandteile verschob die Mahlzeit.
-//   Fund 3  — die erste Grammzahl aus `explanation` galt als Gesamtgewicht und
-//             schlug sogar die Postensumme.
-//   Fund 4  — `fromOpenFoodFacts` persistierte einen fertigen deutschen Absatz.
+// Regression tests for review 2026-08-19, findings 1-4 in
+// `lib/src/models/meal_analysis_result.dart`:
+//   1 — the substring reference table turned 'Erdbeerkuchen' into a strawberry,
+//       and reference density x default portion became loggable calories.
+//   2 — `items[]` and `caloriesKcal` were unreconciled, so merely confirming
+//       the components moved the meal.
+//   3 — the first gram figure in `explanation` counted as total weight and even
+//       beat the item sum.
+//   4 — `fromOpenFoodFacts` persisted a ready-made German paragraph.
 
-/// Der deutsche Bestandsabsatz, wie ihn `fromOpenFoodFacts` VOR dem Review in
-/// `portionNotes` schrieb — die Alt-Zeile, die weiter lesbar bleiben muss.
+/// The legacy German paragraph `fromOpenFoodFacts` used to write into
+/// `portionNotes`; it must stay readable.
 const String _altzeileDe =
     'OpenFoodFacts Barcode 4001724012345. Marke: Dr. Oetker. Packung: 390 g. '
     'Portion laut Datenbank: 100 g. Nährwerte kommen aus der Produktdatenbank, '
@@ -45,9 +42,8 @@ MealAnalysisResult _mitNotiz(String portionNotes) => MealAnalysisResult(
 void main() {
   group('Fund 1 · Referenzdichte erfindet keine Kalorien mehr', () {
     test('Teilstring-Treffer ist weg: Erdbeerkuchen ist keine Erdbeere', () {
-      // Vorher: 'erdbeerkuchen'.contains('erdbeer') -> 32 kcal/100 g, mal der
-      // Default-Portion von 150 g -> 48 loggbare kcal aus einer Antwort ohne
-      // eine einzige Zahl.
+      // Before: 'erdbeerkuchen'.contains('erdbeer') -> 32 kcal/100 g times the
+      // 150 g default portion -> 48 loggable kcal from a numberless answer.
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Erdbeerkuchen',
         'caloriesKcal': null,
@@ -72,8 +68,8 @@ void main() {
     });
 
     test('Referenzdichte allein macht keine Gesamtkalorien', () {
-      // Der Name trifft die Tabelle, aber das Modell lieferte weder Kalorien
-      // noch Gramm: 52 kcal/100 g x 150 g Default waren 78 erfundene kcal.
+      // The name hits the table but the model gave neither kcal nor grams:
+      // 52 kcal/100 g x the 150 g default were 78 invented kcal.
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Apfel',
         'caloriesKcal': null,

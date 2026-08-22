@@ -1,16 +1,9 @@
--- FitPilot — user_recipes (selbst angelegte Rezepte)
---
--- Rein additiv. Speichert vom User selbst erstellte Rezepte (Name, Portion,
--- Makros, Zutaten) pro user_id. RLS strikt user_id = auth.uid(), GRANTs fuer
--- die authenticated-Rolle EXPLIZIT (Raw-SQL via Management-API/psql setzt sie
--- NICHT automatisch — siehe 20260516180000_grants.sql).
---
--- Hinweis: rein additive Migration. Das zugehoerige Dart-Client-Wiring
--- (user_recipes_sync + FitPilotSync-Registrierung) ist bewusst noch nicht
--- vorhanden — das Feature ist daher in der App aktuell noch nicht aktiv.
+-- FitPilot — user_recipes (user-created recipes), purely additive.
+-- RLS is strictly user_id = auth.uid(); GRANTs are EXPLICIT because raw SQL
+-- does not issue them. No Dart client wiring yet.
 
 -- ---------------------------------------------------------------------------
--- 1) Tabelle
+-- 1) Table
 -- ---------------------------------------------------------------------------
 create table if not exists public.user_recipes (
   id             uuid primary key default gen_random_uuid(),
@@ -36,14 +29,14 @@ create table if not exists public.user_recipes (
 create index if not exists user_recipes_user_created_at_idx
   on public.user_recipes (user_id, created_at desc);
 
--- updated_at-Trigger (Funktion existiert seit 20260516150000_create_profiles.sql)
+-- updated_at trigger (function from 20260516150000_create_profiles.sql)
 drop trigger if exists user_recipes_set_updated_at on public.user_recipes;
 create trigger user_recipes_set_updated_at
   before update on public.user_recipes
   for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- 2) Row Level Security — user sieht/aendert nur eigene Zeilen
+-- 2) Row Level Security — a user only sees/changes their own rows
 -- ---------------------------------------------------------------------------
 alter table public.user_recipes enable row level security;
 
@@ -66,8 +59,7 @@ create policy "user_recipes_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 3) GRANTs — explizit, da raw SQL sie nicht automatisch vergibt.
---    service_role bekommt vollen Zugriff (Server/Backfill).
+-- 3) GRANTs — explicit; service_role gets full access.
 -- ---------------------------------------------------------------------------
 grant select, insert, update, delete on public.user_recipes to authenticated;
 grant all on public.user_recipes to service_role;

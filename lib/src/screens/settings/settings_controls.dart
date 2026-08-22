@@ -8,44 +8,19 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/motion.dart';
 
 // ---------------------------------------------------------------------------
-// Bedienelemente der Einstellungs-Seite.
-//
-// Alles hier ist paket-lokal, weil die gemeinsame Bibliothek
-// (lib/src/widgets/design/**) genau diese vier Faelle heute nicht abdeckt:
-//
-//   * SheetField legt seinen Key auf den Wrapper — `settings_discard_test`
-//     liest aber `widget<TextField>(byKey(...))`. Deshalb [SettingsNumberRow]
-//     mit eigenem [SettingsNumberRow.fieldKey] am inneren Feld.
-//   * SegmentedPill vergibt keine Keys an die einzelnen Optionen — deshalb
-//     [SettingsThemeModePill].
-//   * PrimaryActionButton kennt keinen Sekundaer-/Umriss-Stil — deshalb
-//     [SettingsSecondaryButton].
-//   * Fuer die erklaerenden Zeilen unter einer Gruppe gibt es kein Pendant —
-//     deshalb [SettingsNote] (Nachfolger von `_InfoNote`).
-//
-// Sobald die Bibliothek nachzieht, koennen die Klone ersatzlos weg.
+// Controls of the settings page. Package-local clones because the shared
+// library covers none of these four cases: a key on the inner field, keys per
+// pill option, an outline button style, and explanatory rows. Once the library
+// catches up, they can go.
 // ---------------------------------------------------------------------------
 
-/// Eine Zeile mit rechtsbuendigem Zahlenfeld: „Gewicht ⟶ 78 kg".
+/// A row with a right-aligned number field: label, value, unit.
 ///
-/// Der [fieldKey] liegt bewusst auf dem inneren [TextField] und nicht auf
-/// dieser Zeile: Tests tippen ueber `enterText` hinein **und** lesen
-/// `widget<TextField>(...).controller`. Ein Key auf dem Wrapper wuerde nur
-/// Ersteres ueberleben.
-///
-/// Der Fehlertext steht als eigenes [Text] UNTER der Zeile statt in
-/// `InputDecoration.errorText` — sonst stuende der Bereichstext zweimal im
-/// Baum (einmal als Feldfehler, einmal in der Sammelmeldung am Seitenfuss)
-/// und `findsOneWidget` braeche.
-///
-/// **A11y:** Das alte `_SettingsField` gab dem Feld ueber
-/// `InputDecoration.labelText` einen echten Semantik-Namen; hier stehen
-/// Beschriftung, Feld und Einheit als drei Geschwister nebeneinander, und der
-/// Knoten des Feldes traegt sonst nur seinen Wert („78") — wer mit
-/// Screenreader direkt ins Feld springt, wuesste nicht, welches es ist.
-/// [MergeSemantics] fasst Beschriftung, Wert, Einheit und Fehlertext deshalb
-/// zu einem Knoten zusammen („Gewicht, kg, 30–300 kg (ganze Zahl)" mit dem
-/// Wert 78).
+/// [fieldKey] sits on the inner [TextField] because tests read
+/// `widget<TextField>(...).controller`. The error text is a separate [Text]
+/// below the row, or the range message would appear twice and break
+/// `findsOneWidget`. **A11y:** [MergeSemantics] folds the three siblings into
+/// one node.
 class SettingsNumberRow extends StatelessWidget {
   const SettingsNumberRow({
     super.key,
@@ -59,15 +34,14 @@ class SettingsNumberRow extends StatelessWidget {
 
   final String label;
 
-  /// Einheit rechts vom Feld („kg", „cm", „kcal", „/Tag").
+  /// Unit shown right of the field.
   final String suffix;
 
   final TextEditingController controller;
   final Key fieldKey;
 
-  /// C1: der erlaubte Bereich, sobald der getippte Wert ihn verlaesst. Der
-  /// `digitsOnly`-Formatter filtert nur Zeichen — den Wertebereich prueft der
-  /// Aufrufer.
+  /// C1: the allowed range, shown once the typed value leaves it. The
+  /// `digitsOnly` formatter filters characters only; the caller checks range.
   final String? errorText;
 
   final ValueChanged<String>? onChanged;
@@ -76,9 +50,8 @@ class SettingsNumberRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final hatFehler = errorText != null;
-    // Die Feldbreite waechst mit der Systemschrift (Vorbild MacroBar), bleibt
-    // aber gedeckelt — sonst draengt sie bei textScaler 2.0 die Beschriftung
-    // aus der Zeile.
+    // Field width follows the system font but stays capped; at textScaler 2.0
+    // it would otherwise push the label out of the row.
     final feldBreite =
         MediaQuery.textScalerOf(context).scale(72).clamp(72.0, 140.0);
 
@@ -102,8 +75,8 @@ class SettingsNumberRow extends StatelessWidget {
                   child: TextField(
                     key: fieldKey,
                     controller: controller,
-                    // Ohne das laeuft der Cursor-Fade als Dauer-Animation und
-                    // `pumpAndSettle` kaeme nie zur Ruhe.
+                    // Without this the cursor fade never settles and
+                    // `pumpAndSettle` hangs.
                     cursorOpacityAnimates: false,
                     cursorColor: t.accent,
                     textAlign: TextAlign.right,
@@ -117,9 +90,8 @@ class SettingsNumberRow extends StatelessWidget {
                       weight: FontWeight.w700,
                       color: hatFehler ? t.danger : t.ink,
                     ),
-                    // Alle fuenf Rahmen-Slots aus, `filled: false`, kein
-                    // Innenabstand: sonst malt das inputDecorationTheme der App
-                    // eine gefuellte Kapsel IN die Zeile.
+                    // All border slots off and unfilled, or the app's
+                    // inputDecorationTheme paints a capsule inside the row.
                     decoration: const InputDecoration(
                       filled: false,
                       isDense: true,
@@ -155,11 +127,8 @@ class SettingsNumberRow extends StatelessWidget {
   }
 }
 
-/// Erklaerende Zeile mit Icon — Nachfolger des `_InfoNote` aus dem Sheet.
-///
-/// Ohne [boxed] ist sie ein normales Kind einer [SettingsGroup] (die Karte
-/// zeichnet den Rahmen); mit [boxed] traegt sie eine eigene, im Ton getoente
-/// Flaeche und steht damit frei auf der Seite.
+/// Explanatory row with an icon. Without [boxed] a plain child of a settings
+/// group; with [boxed] it carries its own tinted surface.
 class SettingsNote extends StatelessWidget {
   const SettingsNote(
     this.text, {
@@ -171,9 +140,8 @@ class SettingsNote extends StatelessWidget {
 
   final String text;
 
-  /// Farbe von Icon und Text; Standard ist der ruhige [AppTokens.ink2].
-  /// [AppTokens.warning] und [AppTokens.danger] heben Hinweise heraus, die
-  /// eine Handlung nach sich ziehen.
+  /// Icon and text color; defaults to the quiet [AppTokens.ink2].
+  /// [AppTokens.warning] and [AppTokens.danger] mark notes that need action.
   final Color? tone;
 
   final IconData icon;
@@ -218,18 +186,9 @@ class SettingsNote extends StatelessWidget {
   }
 }
 
-/// Gemeinsamer Rendering-Unterbau der Einstellungs-Pillen.
-///
-/// Geometrisch identisch zu [SegmentedPill] aus der Bibliothek, nur mit
-/// Testschluesseln an den einzelnen Optionen. Die Breite ist zusaetzlich
-/// gedeckelt, damit die Segmente bei textScaler 2.0 in eine zweite Zeile
-/// umbrechen statt die Einstellungszeile zu sprengen.
-///
-/// [SettingsThemeModePill] und [SettingsLanguagePill] sehen identisch aus und
-/// unterscheiden sich nur im Wert-Typ ([ThemeMode] vs. `Locale?`) — beide
-/// bauen ihre Beschriftungen seit der i18n-Migration (Paket 6) aus
-/// `context.l10n` im `build()`. Der Baukoerper steht deshalb genau EINMAL
-/// hier, nicht zweimal geklont.
+/// Shared rendering base of the settings pills: geometry of [SegmentedPill],
+/// plus test keys per option and a width cap so segments wrap at textScaler
+/// 2.0 instead of blowing up the row.
 class _SettingsChoicePill<T> extends StatelessWidget {
   const _SettingsChoicePill({
     required this.value,
@@ -261,8 +220,7 @@ class _SettingsChoicePill<T> extends StatelessWidget {
                 key: ValueKey<String>(schluessel),
                 onTap: () => onChanged(wert),
                 child: AnimatedContainer(
-                  // DESIGN_REFACTOR §5: respektiert „Bewegung reduzieren"
-                  // (Klon von SegmentedPill, dort ebenso).
+                  // DESIGN_REFACTOR §5: respects "reduce motion".
                   duration:
                       motionDuration(context, const Duration(milliseconds: 160)),
                   padding:
@@ -292,7 +250,7 @@ class _SettingsChoicePill<T> extends StatelessWidget {
   }
 }
 
-/// Die Drei-Segment-Pille fuer den Anzeige-Modus.
+/// Three-segment pill for the display mode.
 class SettingsThemeModePill extends StatelessWidget {
   const SettingsThemeModePill({
     super.key,
@@ -319,13 +277,9 @@ class SettingsThemeModePill extends StatelessWidget {
   }
 }
 
-/// Die Drei-Segment-Pille fuer die Anzeigesprache (System/Deutsch/English).
-///
-/// Spiegel von [SettingsThemeModePill] — derselbe Rendering-Unterbau
-/// ([_SettingsChoicePill]), nur mit `Locale?` als Wert (`null` = System) und
-/// Optionen, die im `build()` aus `context.l10n` gebaut werden: die
-/// Beschriftungen sind Uebersetzungen, keine festen Strings, koennen also
-/// nicht wie beim Anzeige-Modus als `static const` stehen.
+/// Three-segment pill for the display language: mirror of
+/// [SettingsThemeModePill] with `Locale?` as value. Labels are translations
+/// built in `build()`, so they cannot be `static const`.
 class SettingsLanguagePill extends StatelessWidget {
   const SettingsLanguagePill({
     super.key,
@@ -333,7 +287,7 @@ class SettingsLanguagePill extends StatelessWidget {
     required this.onChanged,
   });
 
-  /// null = System (Geraetesprache).
+  /// null = system (device language).
   final Locale? value;
   final ValueChanged<Locale?> onChanged;
 
@@ -353,19 +307,10 @@ class SettingsLanguagePill extends StatelessWidget {
   }
 }
 
-/// Umriss-Knopf fuer eine zweite, nachgeordnete Aktion („Systemeinstellungen
-/// oeffnen"). Bis 2026-08-10 trug er auch „Tagesdaten zuruecksetzen" — die
-/// Aktion ist auf Nutzer-Entscheid ersatzlos entfallen.
-///
-/// `onTap == null` heisst gesperrt: gedaempft und taub, nicht unsichtbar —
-/// dieselbe Loesung, die [SheetScaffold.actionEnabled] fuer die Hauptaktion
-/// waehlt.
-///
-/// **A11y:** Der Vorgaenger war ein `OutlinedButton.icon` und trug damit
-/// `isButton` und den Enabled-Zustand im Semantik-Baum; ein blosses [InkWell]
-/// traegt beides nicht. Ohne das eigene [Semantics] klaenge ein gesperrter
-/// Knopf fuer einen Screenreader wie ein normaler, nur eben ohne Wirkung —
-/// genau die Sorte stille Luege, gegen die D11 geschrieben wurde.
+/// Outline button for a secondary action. `onTap == null` means disabled:
+/// dimmed and inert, not hidden. **A11y:** a bare [InkWell] carries neither
+/// `isButton` nor the enabled state, so the explicit [Semantics] is what keeps
+/// a disabled button from sounding enabled to a screen reader (D11).
 class SettingsSecondaryButton extends StatelessWidget {
   const SettingsSecondaryButton({
     super.key,
@@ -379,8 +324,7 @@ class SettingsSecondaryButton extends StatelessWidget {
   final IconData? icon;
   final VoidCallback? onTap;
 
-  /// Faerbt Rand, Icon und Schrift (z.B. [AppTokens.warning] fuer den Weg in
-  /// die Systemeinstellungen). Standard ist die ruhige Kartenlinie.
+  /// Colors border, icon and text; defaults to the quiet card line.
   final Color? tone;
 
   @override
@@ -436,10 +380,8 @@ class SettingsSecondaryButton extends StatelessWidget {
   }
 }
 
-/// Datenschutz · AGB · Impressum am Seitenfuss.
-///
-/// DSGVO Art. 13 / § 5 DDG / App-Store: die Rechtsseiten muessen auch NACH
-/// dem Login erreichbar sein, nicht nur auf dem Auth-Screen.
+/// Legal links in the page footer. GDPR Art. 13 / § 5 DDG / app stores: they
+/// must stay reachable after login, not only on the auth screen.
 class SettingsLegalLinks extends StatelessWidget {
   const SettingsLegalLinks({super.key});
 

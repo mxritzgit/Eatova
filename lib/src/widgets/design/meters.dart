@@ -5,16 +5,14 @@ import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 
 // ---------------------------------------------------------------------------
-// MESSGERAETE — Tick-Anzeige, Makro-Balken, Mahlzeiten-Avatar, Sparkline,
-// Punktraster.
+// METERS — tick gauge, macro bar, meal avatar, sparkline, dot grid.
 //
-// Alle vier rechnen mit Werten aus dem Netz oder aus Nutzereingaben. Sie
-// muessen deshalb auch mit 0, negativ, groesser als das Ziel, NaN und leeren
-// Reihen umgehen, ohne zu werfen — das ist hier kein Komfort, sondern die
-// eigentliche Aufgabe.
+// All of them take values from the network or from user input, so handling 0,
+// negatives, over-target, NaN and empty series without throwing is the job,
+// not a convenience.
 // ---------------------------------------------------------------------------
 
-/// Die Kalorien-Anzeige: eine Reihe Striche, die sich mit Lime fuellt.
+/// The calorie gauge: a row of ticks filling with lime.
 class TickGauge extends StatelessWidget {
   const TickGauge({
     super.key,
@@ -24,13 +22,13 @@ class TickGauge extends StatelessWidget {
     this.trackColor,
   });
 
-  /// 0..1; alles darueber, darunter oder Nicht-Zahlen werden eingefangen.
+  /// 0..1; out-of-range values and non-numbers are clamped.
   final double progress;
 
   final double height;
 
-  /// Standard: [AppTokens.lime] auf einer abgedunkelten [AppTokens.onForest]-
-  /// Spur — die Anzeige sitzt in der Vorlage auf der Forest-Hero-Karte.
+  /// Defaults to [AppTokens.lime] on a dimmed [AppTokens.onForest] track — the
+  /// gauge sits on the forest hero card.
   final Color? fillColor;
   final Color? trackColor;
 
@@ -40,9 +38,8 @@ class TickGauge extends StatelessWidget {
     final safe = progress.isFinite ? progress.clamp(0.0, 1.0) : 0.0;
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: safe),
-      // DESIGN_REFACTOR §5: „Bewegung reduzieren" laesst den Balken sofort
-      // auf seinem Wert stehen, statt ihn ueber eine halbe Sekunde
-      // hochlaufen zu lassen.
+      // DESIGN_REFACTOR §5: reduced motion snaps the bar to its value instead
+      // of ramping it up over half a second.
       duration: motionDuration(context, const Duration(milliseconds: 550)),
       curve: Curves.easeOutCubic,
       builder: (context, value, _) => SizedBox(
@@ -99,7 +96,7 @@ class _TickGaugePainter extends CustomPainter {
       old.trackColor != trackColor;
 }
 
-/// Eine Makro-Zeile: Name, Balken, „Wert / Ziel Einheit".
+/// One macro row: name, bar, "value / goal unit".
 class MacroBar extends StatelessWidget {
   const MacroBar({
     super.key,
@@ -120,19 +117,10 @@ class MacroBar extends StatelessWidget {
     final t = context.t;
     final pct = goal <= 0 ? 0.0 : (value / goal).clamp(0.0, 1.0);
 
-    // Abweichung von der Vorlage: dort stehen hier feste 52 px bzw. 68 px.
-    // Bei textScaler 2.0 blieben davon zwei Zeichen pro Zeile uebrig, deshalb
-    // wachsen die beiden Spalten mit der Systemschrift — gedeckelt, damit der
-    // Balken dazwischen nicht verschwindet.
-    //
-    // Die 52 der Vorlage sind fuer „Carbs" gerechnet. Auf Deutsch heisst das
-    // Makro „Kohlenhydrate" und braucht bei AppType.ui(12) rund 80 px — es
-    // brach deshalb SCHON BEI SYSTEMSCHRIFT 1.0 zweizeilig um, waehrend
-    // „Protein" und „Fett" einzeilig blieben; die drei Balken standen dadurch
-    // sichtbar versetzt. Grundbreite deshalb 84 (nachgemessen: der laengste
-    // deutsche Makroname passt, mit etwas Luft fuer breitere Schriftschnitte).
-    // Der Deckel steigt mit: bei 2.0 bleiben 124/120 fuer die Spalten und
-    // rund 49 px Balken auf einem 393er Telefon.
+    // Both side columns grow with the system font, capped so the bar between
+    // them does not vanish. Base 84 because the longest German macro name
+    // needs ~80 px at AppType.ui(12) and wrapped to two lines even at scale
+    // 1.0, leaving the three bars visibly misaligned.
     final scaler = MediaQuery.textScalerOf(context);
     final labelWidth = scaler.scale(84).clamp(84.0, 124.0);
     final valueWidth = scaler.scale(68).clamp(68.0, 120.0);
@@ -192,7 +180,7 @@ class MacroBar extends StatelessWidget {
   }
 }
 
-/// Der Buchstaben-Avatar vor einer Mahlzeit.
+/// The letter avatar in front of a meal.
 class MealAvatar extends StatelessWidget {
   const MealAvatar({
     super.key,
@@ -216,9 +204,8 @@ class MealAvatar extends StatelessWidget {
         borderRadius: BorderRadius.circular(size * 0.33),
       ),
       alignment: Alignment.center,
-      // Abweichung von der Vorlage: FittedBox. Die Kachel hat eine feste
-      // Kantenlaenge, der Buchstabe waechst aber mit der Systemschrift — ohne
-      // Schrumpfen liefe er bei 2.0 aus der Kachel heraus.
+      // FittedBox: the tile has a fixed edge length but the letter grows with
+      // the system font and would escape the tile at 2.0.
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Text(
@@ -226,8 +213,8 @@ class MealAvatar extends StatelessWidget {
           style: AppType.display(
             size * 0.38,
             weight: FontWeight.w700,
-            // Nicht die volle Slot-Farbe: die traegt auf ihrer eigenen
-            // 16-%-Tint im Hell-Modus nur 2.15:1 (Kohlenhydrat-Amber).
+            // Not the full slot color: on its own 16 % tint it only reaches
+            // 2.15:1 in light mode (carb amber).
             color: t.readableOnTint(color),
           ),
         ),
@@ -236,7 +223,7 @@ class MealAvatar extends StatelessWidget {
   }
 }
 
-/// Linienzug ohne Achsen fuer Verlaeufe (Gewicht, Kalorien je Woche).
+/// Axis-free polyline for trends (weight, kcal per week).
 class Sparkline extends StatelessWidget {
   const Sparkline({
     super.key,
@@ -246,8 +233,8 @@ class Sparkline extends StatelessWidget {
     this.height = 74,
   });
 
-  /// Weniger als zwei Punkte ergeben keine Linie — die Flaeche bleibt dann
-  /// leer, statt zu werfen.
+  /// Fewer than two points make no line — the area stays empty instead of
+  /// throwing.
   final List<double> values;
 
   final Color? stroke;
@@ -326,9 +313,8 @@ class _SparklinePainter extends CustomPainter {
     );
   }
 
-  // Die Reihe kommt als frisch gebaute Liste aus dem Store; ein
-  // Identitaetsvergleich wuerde bei jedem Rebuild neu zeichnen lassen,
-  // obwohl sich kein Wert geaendert hat — deshalb Elementvergleich.
+  // The store hands over a freshly built list, so an identity check would
+  // repaint on every rebuild; compare elements instead.
   @override
   bool shouldRepaint(_SparklinePainter old) =>
       old.stroke != stroke ||
@@ -336,8 +322,8 @@ class _SparklinePainter extends CustomPainter {
       !listEquals(old.values, values);
 }
 
-/// Das Punktraster hinter den Marken-Flaechen (Hero-Karten, Banner).
-/// Fuer `Positioned.fill` gebaut: es nimmt sich immer die volle Flaeche.
+/// The dot grid behind branded surfaces (hero cards, banners). Built for
+/// `Positioned.fill`: it always takes the full area.
 class DotGridBackground extends StatelessWidget {
   const DotGridBackground({super.key, required this.color});
 

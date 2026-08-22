@@ -1,19 +1,9 @@
 part of 'meal_widgets.dart';
 
-/// Oeffnet das Bestandteil-Anpassen-Sheet.
+/// Opens the component adjustment sheet.
 ///
-/// **D5, bewusst OHNE `showDragHandle`.** Frueher stand hier
-/// `showDragHandle: true` — das einzige Sheet der App, das den Griff der
-/// *Route* zeichnen liess (`app_theme.dart:95` setzt global `false`). Dieser
-/// Griff liegt als Stack-Geschwister NEBEN dem `builder`-Kind
-/// (`bottom_sheet.dart:397-410`) und damit ausserhalb von allem, was das Sheet
-/// selbst an Schutz aufbaut: ein Zug genau am Griff und der
-/// Semantics-Dismiss darauf (`bottom_sheet.dart:368`,
-/// `onSemanticsTap: widget.onClosing` → `Navigator.pop`) liefen an der
-/// Rueckfrage vorbei. Den Griff zeichnet deshalb [_SheetGrabber] innerhalb des
-/// Guards — inklusive eigener Dismiss-Semantik ueber `maybePop`, damit
-/// TalkBack/VoiceOver den Weg aus dem Sheet behaelt (einen Schliessen-Knopf
-/// gibt es hier nicht).
+/// **D5, no `showDragHandle`:** the route's handle sits outside every guard, so
+/// dragging it bypassed the confirmation. [_SheetGrabber] draws it inside.
 Future<Object?> showWeightAdjustmentSheet(
   BuildContext context,
   MealAnalysisResult result,
@@ -27,28 +17,12 @@ Future<Object?> showWeightAdjustmentSheet(
 }
 
 // ---------------------------------------------------------------------------
-// D5: Verwerf-Rueckfrage, Drag-Guard und der eigene Griff
+// D5: discard confirmation, drag guard and the sheet's own grabber
 // ---------------------------------------------------------------------------
 
-/// „Aenderungen verwerfen?" — die gemeinsame Bestaetigung fuer JEDEN Weg, ein
-/// ausgefuelltes Formular zu schliessen. [text] benennt, was genau auf dem
-/// Spiel steht; das Sheet und der Hinzufuegen-Dialog teilen sich den Dialog.
-///
-/// `barrierDismissible` bleibt auf dem Default `true`: ein Tap neben den
-/// Dialog ist „Abbrechen", also die harmlose Antwort. Der Dialog liegt auf dem
-/// Root-Navigator und damit UEBER der Route, die er schuetzt — sein eigener
-/// Barrier schluckt den Tap, die Ebene darunter bekommt ihn nie zu sehen. Der
-/// Dialog kann sich also nicht selbst mitsamt seinem Schuetzling wegklicken.
-///
-/// Vierte Kopie desselben Musters (Zwillinge in
-/// `lib/src/widgets/kcal/edit_meal_sheet.dart`,
-/// `lib/src/widgets/shared/settings_sheet.dart` und
-/// `lib/src/screens/recipes/recipe_create_sheet.dart`). Die Dopplung ist der
-/// Preis dafuer, dass diese Datei ein `part` ohne eigene Imports ist; alle vier
-/// gehoeren nach `lib/src/widgets/common/`, sobald jemand den Import in
-/// `meal_widgets.dart` setzen darf.
-///
-/// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
+/// "Discard changes?" — shared confirmation for EVERY way of closing a filled
+/// form; `true` = discard. `barrierDismissible` stays `true`: the dialog's own
+/// barrier swallows the tap, so a cancel cannot dismiss the route it protects.
 Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
   final t = context.t;
   final l10n = context.l10n;
@@ -83,22 +57,9 @@ Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
   return verwerfen ?? false;
 }
 
-/// Der Griff des Sheets — bewusst hier statt an der Route gezeichnet (siehe
-/// [showWeightAdjustmentSheet]).
-///
-/// Zwei Dinge muss er koennen, die der Route-Griff mitbrachte:
-///
-///  * **Ziehen.** Er liegt im Kind und damit INNERHALB von
-///    [_DiscardDragGuard]; ist der Guard inaktiv, greift wie bisher der
-///    Drag-Detector der Route und das Sheet laesst sich normal wegziehen.
-///  * **Dismiss fuer Screenreader.** Der Route-Griff bot TalkBack/VoiceOver
-///    eine Tap-Aktion an, die geradewegs `Navigator.pop` rief. Hier ruft
-///    dieselbe Aktion [onDismiss] und damit `maybePop` — derselbe Weg wie der
-///    Barriere-Tap, also mit Rueckfrage. Ohne diese Aktion kaeme ein
-///    Screenreader-Nutzer aus dem Sheet gar nicht mehr heraus: einen
-///    Schliessen-Knopf hat es nicht, und die Barriere selbst bietet auf
-///    Android keine Dismiss-Semantik an (`modal_barrier.dart`,
-///    `platformSupportsDismissingBarrier`).
+/// The sheet's grab handle, drawn inside [_DiscardDragGuard] rather than on the
+/// route (see [showWeightAdjustmentSheet]). Its tap calls [onDismiss] →
+/// `maybePop` — without it a screen-reader user could not leave the sheet.
 class _SheetGrabber extends StatelessWidget {
   const _SheetGrabber({required this.onDismiss});
 
@@ -130,31 +91,10 @@ class _SheetGrabber extends StatelessWidget {
   }
 }
 
-/// D5: faengt das Nach-unten-Ziehen eines modalen Bottom-Sheets ab.
-///
-/// **Warum das noetig ist:** ein `PopScope` deckt nur die halbe Miete ab. Die
-/// Dismiss-Wege laufen im Framework verschieden:
-///
-///  * Barriere-Tap → `ModalBarrier.handleDismiss` → `Navigator.maybePop`
-///    (`modal_barrier.dart:225-230`) — fragt die Pop-Disposition, also
-///    `PopScope`.
-///  * Ziehen → `BottomSheet._handleDragEnd` → `onClosing` → **`Navigator.pop`**
-///    (`bottom_sheet.dart:769-771`) — fragt sie **nicht**. Ein `PopScope` sieht
-///    diesen Weg nie.
-///
-/// Von innerhalb des Sheets gibt es dafuer genau einen Hebel: die
-/// Gesten-Arena. Der `_BottomSheetGestureDetector` sitzt ueber dem
-/// `builder`-Kind; ein eigener Vertikal-Drag-Erkenner IM Kind liegt tiefer und
-/// gewinnt die Arena — dasselbe Prinzip, aus dem eine ScrollView im Sheet das
-/// Ziehen schluckt. Scrollbare Bereiche liegen wiederum tiefer als dieser
-/// Guard und bleiben unberuehrt.
-///
-/// Ist [active] false (nichts geaendert), wird gar kein Erkenner registriert —
-/// das Sheet laesst sich dann wie gewohnt wegziehen. Ein Sheet, das man ohne
-/// Dialog nicht mehr zubekommt, waere schlimmer als der Bug.
-///
-/// Zwilling von `_DiscardDragGuard` in
-/// `lib/src/widgets/kcal/edit_meal_sheet.dart`.
+/// D5: intercepts the drag-down dismiss of a modal bottom sheet. A `PopScope`
+/// only sees the barrier tap; a drag goes `onClosing` → **`Navigator.pop`** and
+/// never asks. The lever is the gesture arena — a drag recogniser in the child
+/// beats `_BottomSheetGestureDetector`. [active] false keeps it closable.
 class _DiscardDragGuard extends StatefulWidget {
   const _DiscardDragGuard({
     required this.active,
@@ -171,12 +111,11 @@ class _DiscardDragGuard extends StatefulWidget {
 }
 
 class _DiscardDragGuardState extends State<_DiscardDragGuard> {
-  /// Mindeststrecke nach unten, ab der ein Zug als „zumachen" gilt. Bewusst
-  /// klein: der Guard schluckt die Geste ohnehin, die Frage ist nur, ob der
-  /// Nutzer dazu eine Antwort bekommt.
+  /// Minimum downward distance counted as "close". Small: the guard swallows
+  /// the gesture regardless.
   static const double _closeIntentPx = 32;
 
-  /// Flick-Schwelle, gespiegelt an `_kMinFlingVelocity` aus bottom_sheet.dart.
+  /// Fling threshold, mirroring `_kMinFlingVelocity` in bottom_sheet.dart.
   static const double _flingVelocity = 700;
 
   double _dy = 0;
@@ -196,7 +135,7 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
   Widget build(BuildContext context) {
     if (!widget.active) return widget.child;
     return GestureDetector(
-      // Ohne translucent bleiben Luecken zwischen den Kindern unbedeckt.
+      // Without translucent, gaps between the children stay uncovered.
       behavior: HitTestBehavior.translucent,
       onVerticalDragStart: _onStart,
       onVerticalDragUpdate: _onUpdate,
@@ -207,14 +146,11 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
 }
 
 // ---------------------------------------------------------------------------
-// Das Sheet
+// The sheet
 // ---------------------------------------------------------------------------
 
-/// Ein Bestandteil im Sheet: das Modell, sein Eingabefeld, sein Ausgangs- und
-/// sein aktuelles Gewicht.
-///
-/// Das Buendel entsteht ausschliesslich in
-/// [_MealItemAdjustmentSheetState._neuerPosten] — siehe die Begruendung dort.
+/// One component in the sheet: model, input field, start weight and current
+/// weight. Only created in [_MealItemAdjustmentSheetState._neuerPosten].
 class _Posten {
   _Posten({required this.item, required this.controller})
     : startGramm = item.grams,
@@ -223,29 +159,17 @@ class _Posten {
   final MealComponent item;
   final TextEditingController controller;
 
-  /// Das Gewicht beim Oeffnen — Bezugspunkt fuer
-  /// [_MealItemAdjustmentSheetState._dirty], nicht „wurde mal getippt".
+  /// Weight at open time — the [_dirty] reference, not "was ever typed".
   final int startGramm;
 
-  /// Das gerade eingetippte Gewicht (0 = ungueltiger Zwischenstand).
+  /// The currently typed weight (0 = invalid intermediate state).
   int gramm;
 
   bool get gewichtVeraendert => gramm != startGramm;
 
-  /// Dieser Posten, umgerechnet auf das aktuell eingetippte Gewicht.
-  ///
-  /// **Eine** Rechnung fuer Vorschau, Gesamtzeile und Speicherpfad. Genau die
-  /// Doppelung war B1: `_itemKcalFor` bevorzugte `kcalPer100G`, waehrend
-  /// [MealComponent.adjustedToGrams] seit Welle 2 `caloriesKcal` als
-  /// autoritativ behandelt und die Dichte nur als Rueckfallebene nimmt. Bei
-  /// einem Posten, dessen Dichte nicht zu Gramm und Kalorien passt
-  /// ({100 g, 521 kcal, 2180 kcal/100 g}), zeigte die Zeile auf 30 g deshalb
-  /// 654 kcal, gespeichert wurden 156.
-  ///
-  /// Delegieren statt die Formel abzuschreiben: eine Kopie kann wieder
-  /// auseinanderlaufen, und `adjustedToGrams` bringt zusaetzlich die Clamps
-  /// (1..10000 g, 0..10000 kcal) mit — ohne sie zeigte die Zeile bei einer
-  /// abwegigen Eingabe erneut etwas anderes als die Summe darunter.
+  /// This component recalculated to the currently typed weight — **one**
+  /// calculation for preview, total row and save path (B1: preferring
+  /// `kcalPer100G` over `caloriesKcal` showed 654 kcal but saved 156).
   MealComponent get angepasst => item.adjustedToGrams(gramm);
 }
 
@@ -259,14 +183,11 @@ class _MealItemAdjustmentSheet extends StatefulWidget {
 }
 
 class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
-  /// Registry ALLER Posten — die einzige Liste, die es hier gibt.
+  /// Registry of ALL components — the only list here.
   final List<_Posten> _posten = <_Posten>[];
 
-  /// Wie viele Posten beim Oeffnen dastanden. Bezugspunkt fuer [_dirty] und
-  /// fuer die Zaehlung in [_statusLine] — frueher stand dort
-  /// `_items.length - widget.result.items.length`, was bei einem Ergebnis ohne
-  /// Bestandteil-Aufschluesselung (Barcode-Treffer) den synthetisierten
-  /// Ersatzposten mitzaehlte und sofort „1 manuell ergänzt" behauptete.
+  /// Component count at open time. Reference for [_dirty] and [_statusLine];
+  /// a length delta would count a barcode hit's synthesized fallback.
   late final int _startAnzahl;
 
   Set<int> _removed = const <int>{};
@@ -274,10 +195,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
   @override
   void initState() {
     super.initState();
-    // Fall back to a single synthesized item when the AI didn't return any
-    // itemized breakdown (or for OpenFoodFacts barcode lookups). The user can
-    // then still edit the weight, remove it, or split it into multiple items
-    // via "Bestandteil hinzufügen".
+    // Fall back to one synthesized item when there is no itemized breakdown.
     final quelle = widget.result.items.isNotEmpty
         ? widget.result.items
         : <MealComponent>[
@@ -294,28 +212,15 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     _startAnzahl = _posten.length;
   }
 
-  /// Die EINZIGE Stelle, an der ein Posten entsteht.
-  ///
-  /// D5 verlangt ein `_dirty`, das keinen Zustand vergisst. Anders als im
-  /// Rezept-Sheet ist die Zahl der Felder hier variabel, deshalb gibt es keine
-  /// Handliste von Controllern, sondern diese Fabrik. Wer sie benutzt, bekommt
-  /// automatisch alle drei Dinge, die man sonst einzeln vergisst —
-  ///
-  ///   1. den Ausgangswert fuer den [_dirty]-Vergleich ([_Posten.startGramm]),
-  ///   2. den Listener, der das getippte Gewicht UND `PopScope.canPop`
-  ///      nachfuehrt (frueher haing das an `TextField.onChanged`, das bei
-  ///      programmatisch gesetztem Text gar nicht feuert),
-  ///   3. das `dispose()` ueber [_posten].
-  ///
-  /// Ein direkt gebauter `TextEditingController` haette keins davon und faellt
-  /// sofort auf.
+  /// The ONLY place a component is created: a factory, because the field count
+  /// is variable. Hands out the [_dirty] start value, the listener tracking
+  /// weight AND `PopScope.canPop`, and the `dispose()` via [_posten].
   void _neuerPosten(MealComponent item) {
     final controller = TextEditingController(text: item.grams.toString());
     final posten = _Posten(item: item, controller: controller);
     controller.addListener(() {
       final getippt = int.tryParse(controller.text.trim()) ?? 0;
-      // Der Listener feuert auch bei reiner Cursorbewegung — dann ist nichts
-      // zu tun.
+      // The listener also fires on pure cursor movement — nothing to do then.
       if (getippt == posten.gramm) return;
       posten.gramm = getippt;
       if (mounted) setState(() {});
@@ -326,7 +231,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
   @override
   void dispose() {
     for (final posten in _posten) {
-      // Der Listener haengt an genau diesem Controller und stirbt mit ihm.
+      // The listener hangs on this very controller and dies with it.
       posten.controller.dispose();
     }
     super.dispose();
@@ -344,50 +249,30 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     setState(() => _neuerPosten(item));
   }
 
-  /// Die Posten, die uebrig bleiben — in ihrer urspruenglichen Reihenfolge.
+  /// The remaining components, in their original order.
   List<int> get _uebrigeIndizes => [
     for (var index = 0; index < _posten.length; index++)
       if (!_removed.contains(index)) index,
   ];
 
-  /// D5: weicht das, was „Übernehmen" JETZT liefern wuerde, vom Stand beim
-  /// Oeffnen ab?
-  ///
-  /// Bei fester Feldzahl reicht ein Feld-fuer-Feld-Vergleich (so macht es das
-  /// Rezept-Sheet). Hier ist die Zahl der Eingabefelder variabel, und es gibt
-  /// zwei weitere Zustandsarten: das [_removed]-Set und die manuell ergaenzten
-  /// Posten. Deshalb vergleicht `_dirty` nicht Felder, sondern das ERGEBNIS —
-  /// die Folge der uebrig bleibenden Posten samt ihrer Gewichte gegen genau
-  /// diese Folge beim Oeffnen.
-  ///
-  /// Das ist zugleich die Antwort auf „was heisst geaendert?": nicht „wurde
-  /// angefasst", sondern „kommt etwas anderes heraus". Wer einen Posten
-  /// hinzufuegt und wieder entfernt, wer ein Gewicht zurueckttippt oder ein
-  /// Entfernen widerruft, steht damit wieder auf unveraendert — und eine
-  /// spaeter ergaenzte Zustandsart faellt automatisch unter den Vergleich,
-  /// sobald sie das Ergebnis beeinflusst.
+  /// D5: does what "apply" would deliver NOW differ from the state at open?
+  /// Compares the RESULT — remaining components and weights — not the fields,
+  /// since [_removed] and manual additions are state too.
   bool get _dirty {
     final uebrig = _uebrigeIndizes;
     if (uebrig.length != _startAnzahl) return true;
     for (var n = 0; n < uebrig.length; n++) {
-      // Stelle n traegt nicht mehr den urspruenglichen Posten n — also wurde
-      // einer entfernt und ein manuell ergaenzter rueckte nach.
+      // Position n no longer holds original component n — one was removed and
+      // a manually added one moved up.
       if (uebrig[n] != n) return true;
       if (_posten[n].gewichtVeraendert) return true;
     }
     return false;
   }
 
-  /// Tragen ALLE Posten, die uebrig bleiben, vollstaendige Makros?
-  ///
-  /// Genau diese Bedingung entscheidet in
-  /// [MealAnalysisResult.adjustedToItems], ob die Makros der Mahlzeit exakt
-  /// aufsummiert werden oder als "unbekannt" gelten. Der Dialog braucht sie,
-  /// um dem Nutzer die Folge seiner Eingabe **vorher** sagen zu koennen.
-  /// Leere Auswahl ergibt bewusst `true` — genau wie `every` auf einer leeren
-  /// Liste. Wer alle Posten entfernt und einen neuen mit Makros anlegt, hat
-  /// danach eine Mahlzeit, deren einziger Posten Makros traegt; die Summe
-  /// greift dann sehr wohl.
+  /// Do ALL remaining components carry complete macros?
+  /// [MealAnalysisResult.adjustedToItems] decides on exactly this whether the
+  /// meal's macros are summed or unknown. Empty is `true`, like `every`.
   bool get _restTraegtMakros {
     for (final index in _uebrigeIndizes) {
       if (!_posten[index].item.hasMacros) return false;
@@ -407,9 +292,8 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
   }
 
   int _itemKcalFor(int index) {
-    // 0 g ist ein ungueltiger Zwischenstand (das Uebernehmen ist dann
-    // gesperrt). `adjustedToGrams` wuerde auf die Mindestportion 1 g klemmen
-    // und damit neben der getippten 0 eine Kalorienzahl zeigen.
+    // 0 g is an invalid intermediate state; `adjustedToGrams` would clamp to
+    // 1 g and show calories next to the typed 0.
     if (_posten[index].gramm <= 0) return 0;
     return _posten[index].angepasst.caloriesKcal;
   }
@@ -426,10 +310,8 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     return parts.join(' · ');
   }
 
-  /// D5: laeuft fuer jeden abgefangenen Dismiss-Versuch — Barriere-Tap,
-  /// System-Zurueck und der Semantics-Dismiss am Griff kommen ueber
-  /// [PopScope], das Ziehen ueber [_DiscardDragGuard]. Mehrfach-Versuche
-  /// stapeln keine Dialoge.
+  /// D5: runs for every intercepted dismiss attempt (barrier tap, system back,
+  /// grabber semantics, drag). Repeated attempts do not stack dialogs.
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
@@ -441,12 +323,8 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
-    // Der Dialog ist hier bereits gepoppt — oberste Route ist wieder das
-    // Sheet. Bewusst OHNE Ergebnis: verworfen liefert `null`, also exakt das,
-    // was auch ein Abbruch liefert. Die aufrufenden Sheets
-    // (edit_meal_sheet.dart:257, meal_analysis_sheet.dart:212) behandeln
-    // `null` als „nichts uebernehmen" — beides bleibt ununterscheidbar und
-    // damit gleich behandelt.
+    // Dialog already popped. Deliberately WITHOUT a result: discarding yields
+    // `null` like a cancel, which callers treat as "apply nothing".
     Navigator.of(context).pop();
   }
 
@@ -474,9 +352,8 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     final addedCount = _posten.length - _startAnzahl;
 
     return PopScope<Object?>(
-      // Nur solange wirklich etwas offen ist. Ohne Aenderung schliesst das
-      // Sheet wie bisher sofort. `Navigator.pop` — also „Übernehmen" — laeuft
-      // an `canPop` vorbei und bleibt davon unberuehrt.
+      // Only while something is at stake. `Navigator.pop` — apply — bypasses
+      // `canPop`.
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
@@ -492,8 +369,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Bewusst AUSSERHALB der Scroll-Flaeche: ein Zug auf einer
-              // scrollbaren Flaeche gehoert dem Scrollable, nicht dem Guard.
+              // OUTSIDE the scroll area: a drag on a scrollable belongs to it.
               _SheetGrabber(
                 onDismiss: () => Navigator.of(context).maybePop(),
               ),
@@ -651,9 +527,8 @@ class _ItemEditCard extends StatelessWidget {
   final int liveGrams;
   final VoidCallback onRemove;
 
-  /// Stepper-Aenderung laeuft ueber DENSELBEN Kanal wie Tippen: der
-  /// Controller-Setter benachrichtigt den `_neuerPosten`-Listener — eine
-  /// Quelle, kein zweiter Zustand.
+  /// Stepper changes use the SAME channel as typing, via the controller
+  /// listener — one source, no second state.
   void _bump(int delta) {
     final aktuell = int.tryParse(controller.text) ?? item.grams;
     final neu = (aktuell + delta).clamp(1, 10000);
@@ -664,10 +539,7 @@ class _ItemEditCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // Soft-Kapsel statt Hairline-Rahmen + Formular-Label (Design-Vorgabe):
-    // die Gramm-Zeile bekommt dieselbe Bedienflaeche wie die
-    // Vorschlagskarten im Food-Tab — runde -/+ Kapseln um eine rahmenlose
-    // Wert-Kapsel, die Zahl als Held.
+    // Soft capsule instead of hairline border + form label (design rule).
     return AppCard(
       key: ValueKey('analyse-item-card-$index'),
       radius: rCard,
@@ -720,11 +592,8 @@ class _ItemEditCard extends StatelessWidget {
                       children: [
                         SizedBox(
                           width: 64,
-                          // Kein `onChanged`: das getippte Gewicht liest der
-                          // Listener aus `_neuerPosten` vom Controller. Eine
-                          // zweite Quelle koennte auseinanderlaufen — und
-                          // `onChanged` feuert bei programmatisch gesetztem
-                          // Text gar nicht.
+                          // No `onChanged`: the `_neuerPosten` listener reads
+                          // the controller and sees programmatic text too.
                           child: TextField(
                             key: ValueKey('analyse-item-weight-input-$index'),
                             cursorOpacityAnimates: false,
@@ -819,9 +688,7 @@ class _ItemEditCard extends StatelessWidget {
   }
 }
 
-/// Runde -/+ Soft-Kapsel der Posten-Zeile (Muster der Vorschlagskarten im
-/// Food-Tab; der Akzent kommt jetzt aus [AppTokens.accent] statt aus einer
-/// Makro-Farbe).
+/// Round -/+ soft capsule of the component row, tinted [AppTokens.accent].
 class _ItemStepperButton extends StatelessWidget {
   const _ItemStepperButton({
     required this.icon,
@@ -906,18 +773,12 @@ class _RemovedItemCard extends StatelessWidget {
   }
 }
 
-/// Obergrenze fuer ein Makro eines einzelnen Postens, in Gramm.
-///
-/// Spiegelt `LoggedMealLimits.macroGMax` aus `models/model_limits.dart`.
-/// Bewusst als lokale Konstante: diese Datei ist ein `part of
-/// 'meal_widgets.dart'` und kann selbst nichts importieren, und die
-/// Bibliotheks-Datei mit den Importen gehoert einem anderen Arbeitsstrang.
-/// Getippte Werte werden hier **abgelehnt statt geklemmt** — so will es die
-/// Doku in `model_limits.dart` fuer alles, was der Nutzer selbst eingibt.
+/// Upper bound for one component's macro, in grams; mirrors
+/// `LoggedMealLimits.macroGMax`. Typed values are **rejected, not clamped**.
 const double _makroMaxG = 1000;
 
-/// Ein Makro-Eingabefeld: optional, Gramm, Dezimaltrennung per Komma ODER
-/// Punkt. Bewusst nicht `digitsOnly` — 0,5 g Fett muss eingebbar sein.
+/// One macro input: optional, grams, comma OR dot as decimal separator.
+/// Deliberately not `digitsOnly` — 0.5 g of fat must be typeable.
 class _MacroField extends StatelessWidget {
   const _MacroField({
     required this.fieldKey,
@@ -931,8 +792,8 @@ class _MacroField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Kein `onChanged`: die Freigabe des Knopfes und `PopScope.canPop` haengen
-    // am Listener aus `_AddItemDialogState._feld`.
+    // No `onChanged`: button enablement and `PopScope.canPop` hang on the
+    // `_AddItemDialogState._feld` listener.
     return TextField(
       key: fieldKey,
       cursorOpacityAnimates: false,
@@ -949,9 +810,8 @@ class _MacroField extends StatelessWidget {
 class _AddItemDialog extends StatefulWidget {
   const _AddItemDialog({required this.restTraegtMakros});
 
-  /// Tragen die uebrigen Posten der Mahlzeit bereits vollstaendige Makros?
-  /// Nur dann kann die Mahlzeit ihre Makros ueberhaupt behalten, wenn dieser
-  /// Posten welche mitbringt — sonst waere jedes Versprechen hier gelogen.
+  /// Do the remaining components carry complete macros? Only then can the meal
+  /// keep its own.
   final bool restTraegtMakros;
 
   @override
@@ -959,12 +819,8 @@ class _AddItemDialog extends StatefulWidget {
 }
 
 class _AddItemDialogState extends State<_AddItemDialog> {
-  /// Registry ALLER Eingabefelder — die einzige Liste, die es hier gibt.
-  ///
-  /// [_feld] ist die einzige Quelle eines Controllers; wer sie benutzt,
-  /// bekommt den Listener (Freigabe von „Hinzufügen" UND `PopScope.canPop`)
-  /// und das `dispose()` automatisch. Ein siebtes Feld kann damit weder das
-  /// eine noch das andere vergessen.
+  /// Registry of ALL input fields. [_feld] is the only source of a controller
+  /// and hands out the listener plus the `dispose()`, so none can be missed.
   final List<TextEditingController> _felder = <TextEditingController>[];
 
   late final TextEditingController _name;
@@ -974,8 +830,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   late final TextEditingController _carbs;
   late final TextEditingController _fat;
 
-  /// Die Makro-Felder sind eingeklappt. Der haeufige Fall ("ich hab noch Brot
-  /// dazu") bleibt damit drei Felder lang; wer genauer sein will, klappt auf.
+  /// Macro fields start collapsed, so the common case stays three fields long.
   bool _makrosOffen = false;
 
   @override
@@ -1010,24 +865,19 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     super.dispose();
   }
 
-  /// D5: irgendein Feld traegt Text. Alle sechs starten leer, „nicht leer" ist
-  /// hier also gleichbedeutend mit „vom Ausgangszustand abgewichen". Das reine
-  /// Aufklappen der Makro-Sektion zaehlt bewusst nicht — dabei geht nichts
-  /// verloren.
+  /// D5: any field carries text. All six start empty, so "not empty" equals
+  /// "changed". Merely expanding the macro section deliberately does not count.
   bool get _dirty => _felder.any((controller) => controller.text.isNotEmpty);
 
-  /// Liest ein Makro-Feld: leer -> `null` ("unbekannt"), sonst die Zahl.
-  ///
-  /// `null` und `0` sind ausdruecklich **nicht** dasselbe. Wer das Feld leer
-  /// laesst, sagt "weiss ich nicht"; wer 0 eintippt, sagt "davon ist nichts
-  /// drin". [MealComponent.hasMacros] unterscheidet genau daran.
+  /// Reads a macro field: empty -> `null` ("unknown"), else the number. `null`
+  /// and `0` differ — "don't know" vs "none" ([MealComponent.hasMacros]).
   static double? _makro(TextEditingController controller) {
     final text = controller.text.trim();
     if (text.isEmpty) return null;
     return double.tryParse(text.replaceAll(',', '.'));
   }
 
-  /// `true`, wenn das Feld leer ist ODER eine Zahl im erlaubten Bereich traegt.
+  /// `true` if the field is empty OR carries a number within range.
   static bool _makroFeldOk(TextEditingController controller) {
     if (controller.text.trim().isEmpty) return true;
     final wert = _makro(controller);
@@ -1042,9 +892,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   bool get _makrosGueltig =>
       _makroFeldOk(_protein) && _makroFeldOk(_carbs) && _makroFeldOk(_fat);
 
-  /// Was die Eingabe fuer die Makros der GANZEN Mahlzeit bedeutet — sichtbar,
-  /// bevor der Nutzer auf "Hinzufügen" tippt (B8). Der Wortlaut deckt sich mit
-  /// dem, was danach in `portionNotes` steht.
+  /// What the input means for the WHOLE meal's macros, shown up front (B8).
   String get _makroHinweis {
     final l10n = context.l10n;
     if (!_alleMakrosGesetzt) {
@@ -1083,10 +931,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     );
   }
 
-  /// D5: laeuft fuer jeden abgefangenen Dismiss-Versuch dieses Dialogs —
-  /// Tap neben den Dialog, System-Zurueck und „Abbrechen" kommen ueber
-  /// [PopScope]. Ein Drag-Guard braucht es hier nicht: ein Dialog laesst sich
-  /// nicht wegziehen.
+  /// D5: runs for every intercepted dismiss attempt of this dialog. No drag
+  /// guard needed: a dialog cannot be dragged away.
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
@@ -1098,9 +944,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
-    // Genau EINE Ebene geht zu: dieser Dialog. Das Sheet darunter behaelt
-    // seine Gewichte, und `_addItemDialog` sieht `null` — es wird also auch
-    // kein halbfertiger Posten angehaengt.
+    // Exactly ONE level closes: this dialog; the sheet keeps its weights.
     Navigator.of(context).pop();
   }
 
@@ -1109,8 +953,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     final t = context.t;
     final l10n = context.l10n;
     return PopScope<MealComponent?>(
-      // Nur solange wirklich etwas drinsteht. Ein leerer Dialog schliesst wie
-      // bisher sofort.
+      // Only while something is filled in; an empty dialog closes immediately.
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
@@ -1187,8 +1030,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 ],
               ),
               const SizedBox(height: 4),
-              // Aufklappbar statt drei weiterer Pflichtfelder: der schnelle Pfad
-              // bleibt Name + Gramm + Kalorien.
+              // Expandable instead of three more required fields.
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -1273,9 +1115,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
         ),
         actions: [
           TextButton(
-            // maybePop statt pop: auch der ausdrueckliche Abbruch laeuft ueber
-            // die Rueckfrage, sobald etwas drinsteht — genau wie das
-            // Schliessen-Kreuz im Bearbeiten-Sheet (edit_meal_sheet.dart:367).
+            // maybePop, not pop: an explicit cancel also asks first.
             onPressed: () => Navigator.of(context).maybePop(),
             style: TextButton.styleFrom(foregroundColor: t.ink2),
             child: Text(l10n.commonCancel),

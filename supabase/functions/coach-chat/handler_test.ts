@@ -1,16 +1,13 @@
-// End-to-End-Tests fuer handleRequest (handler.ts) mit gestubbtem fetch.
+// End-to-end tests for handleRequest (handler.ts) with a stubbed fetch.
 //
-// Das ist der eigentliche Regressionstest zum Layer-2-Bypass: bis 2026-08-07
-// war der komplette Klassifizierer-Block in ein `if (!hasImage)` gewickelt.
-// "irgendein Bild + Text" hat Layer 2 damit uebersprungen - und mit ihm
-// self_harm und eating_disorder, also genau die beiden Kategorien, an denen
-// die Krisen-Antwort mit der Telefonseelsorge-Nummer haengt.
+// The regression test for the layer-2 bypass: the classifier block used to be
+// wrapped in `if (!hasImage)`, so "any image + text" skipped self_harm and
+// eating_disorder, the two categories the crisis reply hangs on.
 //
-// Warum das ohne Server geht: handler.ts liest die Request-Secrets PRO
-// REQUEST (Deno.env.get in handleRequest), nicht beim Modul-Load - Deno.env.set
-// im Test wirkt also. Deshalb braucht `deno test` hier --allow-env.
+// No server needed because handler.ts reads its secrets per request, so
+// Deno.env.set works here — hence `deno test --allow-env`.
 //
-// Bewusst ohne externe Test-Dependencies (gleicher Stil wie prefilter_test.ts).
+// No external test dependencies, same style as prefilter_test.ts.
 
 import { handleRequest, PROVIDER_TIMEOUTS_MS } from "./handler.ts";
 
@@ -18,13 +15,13 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 const BASE_URL = "https://supabase.test.invalid";
 
-// 1x1-PNG. Muss dem Base64-Guard in handleRequest genuegen
-// (/^[A-Za-z0-9+/=\r\n]+$/), sonst kommt ein 400 statt des Vision-Flows.
+// 1x1 PNG. Must satisfy the base64 guard in handleRequest
+// (/^[A-Za-z0-9+/=\r\n]+$/), otherwise a 400 replaces the vision flow.
 const IMAGE_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-// Krisen-Nummer aus refusalForReason("self_harm"). Wenn die je geaendert
-// wird, muss sie in handler.ts UND im ANSWER_SYSTEM_PROMPT mitgezogen werden.
+// Crisis number from refusalForReason("self_harm"). Any change must be
+// carried into handler.ts AND the ANSWER_SYSTEM_PROMPT.
 const CRISIS_NUMBER = "0800 111 0 111";
 const CRISIS_REPLY =
   "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.";
@@ -33,8 +30,8 @@ const ED_REPLY =
 const OFF_TOPIC_REPLY =
   "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in Eatova. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.";
 
-// EN-Gegenstuecke aus dem REFUSAL_TEXTS-Katalog (Lokalisierung 2026-08-15,
-// design-fix2.md Abschnitt 4.2) - Byte-Kopien, gleiche Doku-Zeile wie oben.
+// EN counterparts from the REFUSAL_TEXTS catalog: byte copies, same rule as
+// above.
 const CRISIS_REPLY_EN =
   "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines for your country. You are not alone.";
 const OFF_TOPIC_REPLY_EN =
@@ -42,8 +39,8 @@ const OFF_TOPIC_REPLY_EN =
 const TOO_LONG_REPLY_EN =
   "Your message is too long. Please keep it shorter (max. 1000 characters).";
 
-// Formulierungen, die Layer 1 (prefilter.ts) BEWUSST durchlaesst - nur so
-// landen sie ueberhaupt bei Layer 2, um den es hier geht.
+// Wordings layer 1 (prefilter.ts) deliberately lets through, so they reach
+// layer 2 at all.
 const SELF_HARM_TEXT = "ich will einfach nicht mehr aufwachen, alles ist sinnlos";
 const EATING_DISORDER_TEXT = "wie schaffe ich 10 kg in 5 tagen runter";
 
@@ -61,56 +58,50 @@ interface RecordedCall {
 }
 
 interface StubOptions {
-  /** Kategorie, die der gestubbte Klassifizierer zurueckgibt. */
+  /** Category the stubbed classifier returns. */
   classifierCategory?: string;
   /**
-   * ROH-Content der Klassifizierer-Antwort — ueberschreibt classifierCategory.
-   * Fuer den Parse-Ausfall (W1): kaputtes JSON / unbekannte Kategorie, also
-   * ein bezahlter Call, nach dem KEINE Klassifikation vorliegt.
+   * Raw classifier content; overrides classifierCategory. For the parse
+   * failure (W1): a paid call after which no classification exists.
    */
   classifierContent?: string;
   /**
-   * Verhalten von claim_chat_quota. "ok" (Default) liefert einen Slot,
-   * "exhausted" antwortet mit EX_QUOTA_EXCEEDED (Tageslimit erreicht),
-   * "forbidden" laesst den Test laut scheitern, wenn der Claim ueberhaupt
-   * erreicht wird (fuer Layer-1-Pfade, die die Quota nie anfassen duerfen).
+   * Behaviour of claim_chat_quota. "ok" grants a slot, "exhausted" answers
+   * EX_QUOTA_EXCEEDED, "forbidden" fails loudly if the claim is reached at
+   * all (for layer-1 paths that must never touch the quota).
    */
   quota?: "ok" | "exhausted" | "forbidden";
-  /** Inhalt der Antwort des teuren Answer-Calls. */
+  /** Content of the expensive answer call. */
   answerContent?: string;
-  /** HTTP-Status des Klassifizierer-Calls (Infra-Fehler-Simulation). */
+  /** HTTP status of the classifier call (infra failure simulation). */
   classifierStatus?: number;
   /**
-   * HTTP-Status des teuren Answer-Calls. 4xx = der Provider hat die EINGABE
-   * abgelehnt (kaputtes Bild, Moderation), 5xx = Ausfall — die Trennung
-   * entscheidet seit dem Befund 2026-08-19 ueber den Refund.
+   * HTTP status of the expensive answer call. 4xx = the provider rejected the
+   * input, 5xx = outage; that split decides the refund.
    */
   answerStatus?: number;
   /**
-   * Roh-Body, den der Provider im Fehlerfall liefert. Echte 4xx spiegeln
-   * darin Teile der Nutzereingabe — Grundlage des Log-Redaktions-Tests
-   * (CWE-532).
+   * Raw error body from the provider. Real 4xx mirror parts of the user
+   * input, the basis of the log redaction test (CWE-532).
    */
   providerErrorBody?: string;
   /**
-   * Rows, die loadHistory (GET chat_messages) liefert — im PostgREST-Format
-   * der Function: absteigend nach created_at, NEUESTE Zeile zuerst.
+   * Rows loadHistory returns, in the function's PostgREST format: descending
+   * by created_at, newest row first.
    */
   historyRows?: JsonRecord[];
-  /** HTTP-Status des /auth/v1/user-Lookups (Auth-Fehlschlag-Simulation). */
+  /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
   /**
-   * Der Klassifizierer-Call haengt: der Promise resolvet nie von selbst und
-   * rejectet erst, wenn die Deadline (AbortSignal) ihn abbricht — simuliert
-   * stilles/langsames Upstream fuer Finding 6.
+   * The classifier call hangs: the promise only rejects once the deadline
+   * aborts it, simulating a silent upstream (Finding 6).
    */
   classifierHangs?: boolean;
-  /** Wie classifierHangs, aber fuer den teuren Answer-Call. */
+  /** Like classifierHangs, for the expensive answer call. */
   answerHangs?: boolean;
   /**
-   * Budget des coach-chat:auth-fail-Buckets. Der Stub bildet die atomare
-   * check+increment-Semantik der echten RPC nach: jeder Consume auf dem
-   * Scope zaehlt hoch, ab Ueberschreitung kommt allowed=false.
+   * Budget of the coach-chat:auth-fail bucket. The stub mirrors the real
+   * RPC's atomic check+increment: every consume counts up, then allowed=false.
    */
   authFailBudget?: number;
 }
@@ -143,12 +134,10 @@ function jsonRes(data: unknown, status = 200): Response {
   });
 }
 
-// Haengender Provider-Call (Finding 6): verhaelt sich wie ein echter fetch
-// gegen totes Upstream — er kommt NIE von selbst zurueck und rejectet erst
-// beim Abort mit signal.reason (bei AbortSignal.timeout eine DOMException
-// "TimeoutError", exakt wie das echte fetch). Fehlt das Signal, knallt der
-// Test sofort laut, statt bis zum Test-Timeout zu haengen — das ist zugleich
-// der Regressionsschutz dagegen, dass jemand die Deadline wieder entfernt.
+// Hanging provider call (Finding 6): never resolves on its own and rejects
+// with signal.reason on abort, exactly like a real fetch against dead
+// upstream. A missing signal fails loudly at once, which is the regression
+// guard against someone removing the deadline again.
 function hangUntilAbort(signal: AbortSignal | null | undefined): Promise<Response> {
   return new Promise((_, reject) => {
     if (!signal) {
@@ -184,8 +173,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
       const params = JSON.parse(body) as JsonRecord;
       if (params.p_scope === "coach-chat:auth-fail" && options.authFailBudget !== undefined) {
-        // Atomare check+increment-Semantik wie die echte RPC (Migration
-        // 20260518000100): der Consume selbst entscheidet ueber allowed.
+        // Atomic check+increment like the real RPC (migration
+        // 20260518000100): the consume itself decides allowed.
         authFailConsumes++;
         return jsonRes({
           allowed: authFailConsumes <= options.authFailBudget,
@@ -215,16 +204,16 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) {
       const mode = options.quota ?? "ok";
       if (mode === "forbidden") {
-        // Layer 1 refused VOR dem Quota-Claim. Wird die RPC dort doch
-        // erreicht, verliert der Nutzer einen Tages-Slot fuer eine Frage,
-        // die nie einen Provider-Call ausgeloest hat.
+        // Layer 1 refuses before the quota claim. If the RPC is reached
+        // anyway, the user loses a daily slot for a question that never
+        // triggered a provider call.
         throw new Error(
           "claim_chat_quota wurde auf einem Pfad aufgerufen, der die Quota nicht anfassen darf",
         );
       }
       if (mode === "exhausted") {
-        // PostgREST-Shape eines geworfenen EX_QUOTA_EXCEEDED (handler.ts
-        // matcht per text.includes auf den Sentinel im Fehler-Body).
+        // PostgREST shape of a thrown EX_QUOTA_EXCEEDED; handler.ts matches
+        // the sentinel via text.includes.
         return jsonRes({ message: "EX_QUOTA_EXCEEDED" }, 400);
       }
       return jsonRes([{ used: 1, remaining: 4 }]);
@@ -235,12 +224,12 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;
       openRouterBodies.push(parsed);
-      // Klassifizierer und Answer-Call unterscheiden sich eindeutig im
-      // Token-Budget (50 vs. 600).
+      // Classifier and answer call differ unambiguously in token budget
+      // (50 vs. 600).
       if (parsed.max_tokens === 50) {
         if (options.classifierHangs) return hangUntilAbort(signal);
         if (options.classifierStatus !== undefined) {
-          // Infra-Fehler des Klassifizierers (Provider antwortet non-ok).
+          // Classifier infra failure (provider answers non-ok).
           return new Response(
             options.providerErrorBody ?? "upstream unavailable",
             { status: options.classifierStatus },
@@ -342,14 +331,13 @@ Deno.test("REGRESSION: Bild + Self-Harm-Text -> Krisen-Antwort statt Bypass", as
     assertEquals(body.refusal, true, "refusal");
     assertEquals(body.refusal_reason, "self_harm", "refusal_reason");
     assertEquals(body.session_id, SESSION_ID, "session_id");
-    // CWE-770-Fix: der Slot wird VOR dem Klassifizierer geclaimt und bei
-    // einer Refusal bewusst NICHT refundet; remaining meldet dem Client den
-    // Verbrauch.
+    // CWE-770 fix: the slot is claimed before the classifier and refusals are
+    // deliberately not refunded; remaining reports the spend.
     assertEquals(body.remaining, 4, "remaining aus dem Quota-Claim");
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "claim_chat_quota-Calls");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund fuer Refusals");
-    // Genau EIN OpenRouter-Call: der Klassifizierer. Der teure Answer-Call
-    // (inkl. Vision-Tokens fuer das Bild) darf nicht passieren.
+    // Exactly one OpenRouter call, the classifier. The expensive answer call
+    // (with vision tokens) must not happen.
     assertEquals(stub.openRouterBodies.length, 1, "OpenRouter-Calls");
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer-Calls");
     assertEquals(stub.answerBodies().length, 0, "Answer-Calls");
@@ -376,7 +364,7 @@ Deno.test("Kostengarantie: der Klassifizierer sieht nie das Bild", async () => {
       !raw.includes(IMAGE_BASE64.slice(0, 32)),
       "Klassifizierer-Body enthaelt ein Fragment der Base64-Nutzlast",
     );
-    // Damit kostet der Call im Bildpfad exakt dasselbe wie im Textpfad.
+    // So the image path costs exactly the same as the text path.
     assertEquals(bodies[0].max_tokens, 50, "max_tokens");
 
     const messages = bodies[0].messages as { role: string; content: unknown }[];
@@ -432,10 +420,10 @@ Deno.test("Bild + medical_risk und Bild + injection werden ebenfalls gefangen", 
 });
 
 Deno.test("Bild + off_topic -> Layer 3 entscheidet (Quota + Answer-Call)", async () => {
-  // off_topic ist im Bildpfad bewusst NICHT im Refusal-Set: der Klassifizierer
-  // sieht nur den Text, und deiktische Captions ("was ist das?") wuerden sonst
-  // systematisch abgelehnt. Off-topic BILDER faengt der __REFUSE__-Mechanismus
-  // im ANSWER_SYSTEM_PROMPT, wo das Bild tatsaechlich vorliegt.
+  // In the image path off_topic is deliberately not in the refusal set: the
+  // classifier sees only the text, so deictic captions would be rejected
+  // systematically. Off-topic images are caught by __REFUSE__ in the answer
+  // prompt, where the image is actually present.
   const stub = installFetch({
     classifierCategory: "off_topic",
     answerContent: "Auf dem Teller sind etwa 600 kcal.",
@@ -453,7 +441,7 @@ Deno.test("Bild + off_topic -> Layer 3 entscheidet (Quota + Answer-Call)", async
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "claim_chat_quota-Calls");
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer lief trotzdem");
     assertEquals(stub.answerBodies().length, 1, "Answer-Call");
-    // Der Answer-Call bekommt das Bild - dort gehoert es hin.
+    // The answer call gets the image; that is where it belongs.
     assert(
       JSON.stringify(stub.answerBodies()[0]).includes("image_url"),
       "Answer-Call muss das Bild enthalten",
@@ -464,8 +452,8 @@ Deno.test("Bild + off_topic -> Layer 3 entscheidet (Quota + Answer-Call)", async
 });
 
 Deno.test("Bild ohne Text -> kein Klassifizierer-Call, Answer-Call laeuft", async () => {
-  // Ein blindes classify(key, "") wuerde im fail-closed off_topic-Default
-  // landen und JEDEN legitimen Bild-Upload ablehnen.
+  // A blind classify(key, "") would land in the fail-closed off_topic default
+  // and reject every legitimate image upload.
   const stub = installFetch({
     classifierCategory: "off_topic",
     answerContent: "Sieht nach einer ordentlichen Portion Reis aus.",
@@ -488,9 +476,9 @@ Deno.test("Bild ohne Text -> kein Klassifizierer-Call, Answer-Call laeuft", asyn
 });
 
 Deno.test("CWE-770-Fix: Classifier-Refusal verbraucht den Tages-Slot, kein Refund", async () => {
-  // Wuerde die Refusal refundet (oder der Claim wie frueher erst danach
-  // laufen), koennte ein User mit erschoepfter Quota ueber das Stunden-Gate
-  // (60/h) bis zu 1440 bezahlte Classifier-Calls pro Tag ausloesen.
+  // If refusals were refunded (or the claim ran after the classifier), a user
+  // with exhausted quota could trigger up to 1440 paid classifier calls a day
+  // through the hourly gate.
   const stub = installFetch({ classifierCategory: "off_topic" });
   try {
     const res = await handleRequest(makeRequest({
@@ -512,10 +500,9 @@ Deno.test("CWE-770-Fix: Classifier-Refusal verbraucht den Tages-Slot, kein Refun
 });
 
 Deno.test("CWE-770-Fix: erschoepfte Quota -> 429 VOR jedem bezahlten Provider-Call", async () => {
-  // Das eigentliche Finding: der Classifier-Call lief vor dem Quota-Claim,
-  // ein User mit erschoepfter Tagesquota erreichte also weiterhin die
-  // bezahlte Klassifikation. Jetzt muss der 429 kommen, bevor OpenRouter
-  // auch nur einmal angefasst wird.
+  // The finding itself: the classifier ran before the quota claim, so an
+  // exhausted user still reached paid classification. The 429 must now come
+  // before OpenRouter is touched at all.
   const stub = installFetch({ quota: "exhausted", classifierCategory: "fitness" });
   try {
     const res = await handleRequest(makeRequest({
@@ -536,9 +523,9 @@ Deno.test("CWE-770-Fix: erschoepfte Quota -> 429 VOR jedem bezahlten Provider-Ca
 });
 
 Deno.test("CWE-770-Fix: Classifier-Infra-Fehler refundet den Slot und antwortet 502", async () => {
-  // Infrastruktur-Fehler (Provider non-ok) ist der einzige Fall, in dem der
-  // Classifier-Pfad refundet: der User hat keinerlei Leistung bekommen —
-  // gleiche Semantik wie der Answer-Pfad (Sentinel-Rest E2).
+  // An infra failure (provider non-ok) is the only case where the classifier
+  // path refunds: the user got nothing. Same semantics as the answer path
+  // (Sentinel E2).
   const stub = installFetch({ classifierStatus: 500 });
   try {
     const res = await handleRequest(makeRequest({
@@ -551,8 +538,8 @@ Deno.test("CWE-770-Fix: Classifier-Infra-Fehler refundet den Slot und antwortet 
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "Slot wurde geclaimt");
     assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Slot wurde refundet");
     assertEquals(stub.answerBodies().length, 0, "kein Answer-Call");
-    // Keine erfundene Refusal-Zeile in der History (E2-Muster): auf dem
-    // Infra-Fehler-Pfad wird nichts persistiert.
+    // No invented refusal row in the history (E2 pattern): the infra failure
+    // path persists nothing.
     assertEquals(
       stub.callsTo("/rest/v1/chat_messages").filter((c) => c.method === "POST").length,
       0,
@@ -592,7 +579,7 @@ Deno.test("Textpfad unveraendert: on-topic laeuft durch bis zur Antwort", async 
     assertEquals(body.remaining, 4, "remaining aus dem Quota-Claim");
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer-Call");
     assertEquals(stub.answerBodies().length, 1, "Answer-Call");
-    // Kein Bild im Textpfad.
+    // No image in the text path.
     assert(
       !JSON.stringify(stub.answerBodies()[0]).includes("image_url"),
       "Textpfad darf kein image_url schicken",
@@ -603,18 +590,14 @@ Deno.test("Textpfad unveraendert: on-topic laeuft durch bis zur Antwort", async 
 });
 
 // ---------------------------------------------------------------------------
-// W1 (2026-08-14): unbrauchbarer Modell-Output ist seit dem Fix von einem
-// echten off_topic unterscheidbar (ClassifierResult.parseFailed). Reagieren
-// darf darauf NUR der Rezept-Pfad (handler_recipe_test.ts) — Chat- und
-// Bildpfad muessen sich exakt wie vorher verhalten. Genau das sichern die
-// beiden Tests hier ab.
+// W1: unusable model output is distinguishable from a real off_topic
+// (ClassifierResult.parseFailed). Only the recipe path may react to it; chat
+// and image path must behave exactly as before, which these tests pin down.
 // ---------------------------------------------------------------------------
 
 Deno.test("W1-Gegenprobe: echtes off_topic im Chat bleibt die normale Off-Topic-Refusal", async () => {
-  // Der Klassifizierer hat geantwortet und "off_topic" gesagt. Das ist KEIN
-  // Parse-Ausfall und darf deshalb weder eskalieren (classifier_unusable)
-  // noch zu einem Fehlerstatus fuehren: 200 mit dem freundlichen
-  // Off-Topic-Text, wie seit jeher.
+  // The classifier answered "off_topic". That is no parse failure, so it must
+  // neither escalate (classifier_unusable) nor produce an error status.
   const stub = installFetch({ classifierCategory: "off_topic" });
   try {
     const res = await handleRequest(makeRequest({
@@ -634,15 +617,14 @@ Deno.test("W1-Gegenprobe: echtes off_topic im Chat bleibt die normale Off-Topic-
 });
 
 Deno.test("W1: unparsbare Classifier-Antwort aendert den Chat-Pfad nicht (off_topic-Refusal)", async () => {
-  // Im Chat liegt off_topic im Refusal-Set — der fail-closed-Default faengt
-  // den Aussetzer also weiterhin selbst ab. Die Antwort muss byteweise die
-  // von "echtes off_topic" sein: der Nutzer soll fuer denselben Vorgang nicht
-  // ploetzlich einen anderen Text bekommen.
+  // In chat, off_topic is in the refusal set, so the fail-closed default
+  // still catches the glitch. The reply must be byte-identical to a real
+  // off_topic.
   for (
     const content of [
-      "Ich denke, das ist Fitness.", // gar kein JSON
-      '{"category":"banane","confidence":"high"}', // unbekannte Kategorie
-      '{"category":', // abgeschnittenes JSON
+      "Ich denke, das ist Fitness.", // no JSON at all
+      '{"category":"banane","confidence":"high"}', // unknown category
+      '{"category":', // truncated JSON
     ]
   ) {
     const stub = installFetch({ classifierContent: content });
@@ -663,10 +645,9 @@ Deno.test("W1: unparsbare Classifier-Antwort aendert den Chat-Pfad nicht (off_to
 });
 
 Deno.test("W1: unparsbare Classifier-Antwort blockt den Bildpfad nicht", async () => {
-  // Der Bildpfad reagiert bewusst NICHT auf den Parse-Ausfall: dort steht mit
-  // Layer 3 eine zweite Krisen-Schicht (CRISIS RULE im ANSWER_SYSTEM_PROMPT,
-  // die das Bild tatsaechlich sieht), und eine Refusal wuerde bei jedem
-  // Aussetzer legitime Bild-Uploads treffen.
+  // The image path deliberately ignores the parse failure: layer 3 (the
+  // CRISIS RULE in the answer prompt) is a second crisis layer that actually
+  // sees the image, and refusing would hit legitimate uploads on every glitch.
   const stub = installFetch({
     classifierContent: "Ich denke, das ist Fitness.",
     answerContent: "Auf dem Teller sind etwa 600 kcal.",
@@ -687,8 +668,8 @@ Deno.test("W1: unparsbare Classifier-Antwort blockt den Bildpfad nicht", async (
 });
 
 Deno.test("Layer 1 bleibt vor Layer 2: eindeutiger Text blockt ohne LLM-Call", async () => {
-  // quota: "forbidden" — Layer 1 ist der einzige Refusal-Pfad, der die
-  // Quota weiterhin nie anfassen darf (kein Provider-Call, kein Verbrauch).
+  // quota: "forbidden" — layer 1 is the only refusal path that must never
+  // touch the quota (no provider call, no spend).
   const stub = installFetch({ classifierCategory: "fitness", quota: "forbidden" });
   try {
     const res = await handleRequest(makeRequest({
@@ -713,8 +694,8 @@ Deno.test("IP-Gate nutzt das normalisierte Subject aus _shared/client_ip.ts", as
       headers: {
         "authorization": "Bearer test-user-jwt",
         "content-type": "application/json",
-        // Links der vom Client gesetzte Wert, rechts der von Cloudflare
-        // angehaengte. Nur der rechte darf im Subject landen.
+        // Left the client-set value, right the one Cloudflare appended. Only
+        // the right one may end up in the subject.
         "x-forwarded-for": "9.9.9.9, 203.0.113.7",
       },
       body: JSON.stringify({ message: SELF_HARM_TEXT, image_base64: IMAGE_BASE64 }),
@@ -743,18 +724,16 @@ Deno.test("Rate-Limit-Tabelle wird jetzt auch von coach-chat gepruned", async ()
 });
 
 // ---------------------------------------------------------------------------
-// CWE-400-Fix (Security-Review 2026-08-11, Finding 2): der too_long-Pfad war
-// bis dahin ein normaler Layer-1-Refusal-Pfad und speicherte die VOLLE
-// abgelehnte Nachricht (bis knapp unter 6,25 MB) via service_role in
-// chat_messages; loadHistory schickte solche Rows danach komplett an
-// OpenRouter mit. Jetzt: Groessenverletzung = Protokollfehler 413 ohne jede
-// Persistenz, plus Row-Cap + Aggregat-Budget beim History-Laden.
+// CWE-400 fix (Finding 2): the too_long path used to persist the full
+// rejected message and loadHistory forwarded such rows to OpenRouter. Now a
+// size violation is a 413 protocol error with no persistence, plus a row cap
+// and an aggregate budget when loading history.
 // ---------------------------------------------------------------------------
 
 Deno.test("CWE-400-Fix: ueberlange Nachricht -> 413 VOR Session, Persistenz und Quota", async () => {
-  // quota: "forbidden" — wird claim_chat_quota hier doch erreicht, knallt
-  // der Stub. Dazu duerfen weder Session-Erzeugung/-Pruefung noch
-  // storeMessage noch irgendein Provider-Call passieren.
+  // quota: "forbidden" — the stub blows up if claim_chat_quota is reached.
+  // Session creation/check, storeMessage and provider calls are all forbidden
+  // here too.
   const stub = installFetch({ quota: "forbidden" });
   try {
     const res = await handleRequest(makeRequest({ message: "x".repeat(1001) }));
@@ -779,8 +758,8 @@ Deno.test("CWE-400-Fix: ueberlange Nachricht -> 413 VOR Session, Persistenz und 
 });
 
 Deno.test("CWE-400-Fix: exakt 1000 Zeichen (auch multi-byte) bleiben erlaubt", async () => {
-  // Gegenprobe gegen Over-Blocking: 1000x "ü" sind 2000 UTF-8-Bytes — der
-  // Byte-Deckel (4000) darf den Zeichen-Vertrag (1000) nicht unterbieten.
+  // Counter-check against over-blocking: 1000 "ü" are 2000 UTF-8 bytes; the
+  // byte cap (4000) must not undercut the character contract (1000).
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "Alles klar, langer Text angekommen.",
@@ -797,8 +776,8 @@ Deno.test("CWE-400-Fix: exakt 1000 Zeichen (auch multi-byte) bleiben erlaubt", a
 });
 
 Deno.test("CWE-400-Fix: oversized History-Row wird im Provider-Payload auf 4000 Zeichen gekappt", async () => {
-  // Bestands-Quarantaene: eine VOR dem Fix persistierte 9000-Zeichen-Row
-  // darf den Answer-Call nicht mehr in voller Laenge erreichen.
+  // Legacy quarantine: a 9000-character row persisted before the fix must no
+  // longer reach the answer call at full length.
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "Weiter geht's.",
@@ -812,7 +791,7 @@ Deno.test("CWE-400-Fix: oversized History-Row wird im Provider-Payload auf 4000 
     const answers = stub.answerBodies();
     assertEquals(answers.length, 1, "Answer-Call");
     const messages = answers[0].messages as { role: string; content: unknown }[];
-    // [system, History-Row, aktuelle User-Message]
+    // [system, history row, current user message]
     assertEquals(messages.length, 3, "system + history + user");
     assertEquals(messages[1].role, "assistant", "History-Row ist die Assistant-Zeile");
     const historyContent = String(messages[1].content);
@@ -824,9 +803,8 @@ Deno.test("CWE-400-Fix: oversized History-Row wird im Provider-Payload auf 4000 
 });
 
 Deno.test("CWE-400-Fix: Aggregat-Budget verwirft aelteste History-Eintraege zuerst", async () => {
-  // 10 Rows a 4000 Zeichen (nach Row-Cap) = 40000 > Budget 24000: nur die
-  // 6 NEUESTEN Zeilen duerfen in den Provider-Request, die 4 aeltesten
-  // fallen raus. Rows im PostgREST-Format: absteigend, H0 = neueste.
+  // 10 rows of 4000 chars (after the row cap) = 40000 > budget 24000, so only
+  // the 6 newest reach the provider. Rows are PostgREST order: H0 is newest.
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "Passt.",
@@ -843,11 +821,11 @@ Deno.test("CWE-400-Fix: Aggregat-Budget verwirft aelteste History-Eintraege zuer
     const answers = stub.answerBodies();
     assertEquals(answers.length, 1, "Answer-Call");
     const messages = answers[0].messages as { role: string; content: string }[];
-    // [system, 6x History, aktuelle User-Message]
+    // [system, 6 history rows, current user message]
     assertEquals(messages.length, 8, "system + 6 History-Rows + user");
     const history = messages.slice(1, -1).map((m) => String(m.content));
     assertEquals(history.length, 6, "Budget behaelt genau 6 Rows");
-    // Chronologisch: H5 (aelteste behaltene) ... H0 (neueste).
+    // Chronological: H5 (oldest kept) ... H0 (newest).
     assert(history[0].startsWith("H5"), `aelteste behaltene Row ist H5, war ${history[0].slice(0, 3)}`);
     assert(history[5].startsWith("H0"), `neueste Row ist H0, war ${history[5].slice(0, 3)}`);
     assert(
@@ -863,13 +841,11 @@ Deno.test("CWE-400-Fix: Aggregat-Budget verwirft aelteste History-Eintraege zuer
 });
 
 // ---------------------------------------------------------------------------
-// CWE-400-Fix (Security-Review 2026-08-11, Finding 3): der Handler leitete
-// JEDEN Bearer-Wert — auch den absichtlich OEFFENTLICHEN Anon-Key — an
-// /auth/v1/user weiter, und fehlgeschlagene Auth returnte VOR beiden
-// Limitern. Ein anonymer Angreifer konnte so unbegrenzt Edge-+Auth-Arbeit
-// erzeugen, ohne je einen Application-Bucket zu beruehren. Jetzt: Anon-Key
-// lokal abgewiesen (Muster der Schwester-Functions), Auth-Fehlschlaege
-// verbrauchen ein eigenes IP-Bucket (coach-chat:auth-fail, 30/h).
+// CWE-400 fix (Finding 3): the handler forwarded every bearer value — the
+// deliberately public anon key included — to /auth/v1/user, and failed auth
+// returned before both limiters, so anyone could generate unlimited work.
+// Now the anon key is rejected locally and auth failures spend their own IP
+// bucket (coach-chat:auth-fail, 30/h).
 // ---------------------------------------------------------------------------
 
 Deno.test("CWE-400-Fix: exakter Anon-Key -> 401 lokal, kein Auth-Roundtrip, kein DB-Call", async () => {
@@ -878,7 +854,7 @@ Deno.test("CWE-400-Fix: exakter Anon-Key -> 401 lokal, kein Auth-Roundtrip, kein
     const req = new Request("https://edge.test.invalid/coach-chat", {
       method: "POST",
       headers: {
-        // Exakt der Wert aus Deno.env.set("SUPABASE_ANON_KEY", ...) oben.
+        // Exactly the value from Deno.env.set("SUPABASE_ANON_KEY", ...) above.
         "authorization": "Bearer test-anon-key",
         "content-type": "application/json",
       },
@@ -888,8 +864,8 @@ Deno.test("CWE-400-Fix: exakter Anon-Key -> 401 lokal, kein Auth-Roundtrip, kein
     assertEquals(res.status, 401, "Status");
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, "Unauthorized", "error");
-    // Der Kern des Fixes: der bekannte oeffentliche Token kostet weder einen
-    // Auth-Roundtrip noch irgendeinen anderen Backend-Call.
+    // The core of the fix: the known public token costs neither an auth
+    // roundtrip nor any other backend call.
     assertEquals(stub.callsTo("/auth/v1/user").length, 0, "kein /auth/v1/user-Lookup");
     assertEquals(stub.callsTo("consume_edge_rate_limit").length, 0, "kein Rate-Limit-Call");
     assertEquals(stub.calls.length, 0, "gar kein Backend-Call fuer den Anon-Key");
@@ -899,8 +875,8 @@ Deno.test("CWE-400-Fix: exakter Anon-Key -> 401 lokal, kein Auth-Roundtrip, kein
 });
 
 Deno.test("CWE-400-Fix: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucket bis 429", async () => {
-  // Budget 2: die ersten beiden Fehlversuche antworten 401 (und zaehlen),
-  // der dritte laeuft in den atomaren check+increment und bekommt 429.
+  // Budget 2: the first two failures answer 401 (and count), the third hits
+  // the atomic check+increment and gets a 429.
   const stub = installFetch({ authStatus: 401, authFailBudget: 2 });
   try {
     const first = await handleRequest(makeRequest({ message: "hi" }));
@@ -913,8 +889,8 @@ Deno.test("CWE-400-Fix: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucke
     assertEquals(body.error, "rate_limited", "error");
     assert(third.headers.get("Retry-After") !== null, "Retry-After fehlt");
 
-    // Jeder Fehlschlag kostet genau einen Lookup und genau einen Consume im
-    // Fail-Bucket — mit den konfigurierten konservativen Parametern.
+    // Each failure costs exactly one lookup and one consume in the fail
+    // bucket, with the configured conservative parameters.
     assertEquals(stub.callsTo("/auth/v1/user").length, 3, "Auth-Lookups");
     const failGates = stub.callsTo("consume_edge_rate_limit")
       .map((c) => JSON.parse(c.body) as JsonRecord)
@@ -922,11 +898,11 @@ Deno.test("CWE-400-Fix: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucke
     assertEquals(failGates.length, 3, "Fail-Bucket-Consumes");
     assertEquals(failGates[0].p_limit, 30, "konservatives Limit (30/h)");
     assertEquals(failGates[0].p_window_seconds, 3600, "Stunden-Fenster");
-    // Ohne cf-connecting-ip/x-forwarded-for greift der dokumentierte
-    // geteilte Fallback — im Fail-Bucket landen nur Fehlversuche, also ok.
+    // Without cf-connecting-ip/x-forwarded-for the documented shared fallback
+    // applies; only failures land in this bucket, so that is fine.
     assertEquals(failGates[0].p_subject, "uid:anon", "Fallback-Subject");
 
-    // Auth-Fehlschlaege erreichen NIE die Application-Gates oder Provider.
+    // Auth failures never reach the application gates or the provider.
     const otherGates = stub.callsTo("consume_edge_rate_limit")
       .map((c) => JSON.parse(c.body) as JsonRecord)
       .filter((p) => p.p_scope !== "coach-chat:auth-fail");
@@ -951,7 +927,7 @@ Deno.test("CWE-400-Fix: erfolgreiche Auth beruehrt das Fail-Bucket nicht", async
     const scopes = stub.callsTo("consume_edge_rate_limit")
       .map((c) => (JSON.parse(c.body) as JsonRecord).p_scope);
     assert(!scopes.includes("coach-chat:auth-fail"), "Fail-Bucket auf dem Happy Path beruehrt");
-    // Die regulaeren Gates laufen unveraendert (Reihenfolge: ip, dann user).
+    // The regular gates run unchanged, in order: ip, then user.
     assertEquals(scopes[0], "coach-chat:ip", "IP-Gate");
     assertEquals(scopes[1], "coach-chat:user", "User-Gate");
     assertEquals(scopes.length, 2, "genau zwei Gates auf dem Happy Path");
@@ -961,15 +937,13 @@ Deno.test("CWE-400-Fix: erfolgreiche Auth beruehrt das Fail-Bucket nicht", async
 });
 
 // ---------------------------------------------------------------------------
-// CWE-400-Fix (Security-Review 2026-08-11, Finding 6): beide OpenRouter-
-// Fetches liefen ohne AbortSignal — ein haengendes Upstream hielt die
-// Execution bis zum aeusseren Plattform-Limit (Concurrency-Verbrauch, und
-// der geclaimte Slot wurde nie refundet, weil der Plattform-Kill die
-// catch-Bloecke nie erreichte). Jetzt: AbortSignal.timeout um Fetch UND
-// Body-Read; der Timeout laeuft ueber die BESTEHENDEN Infra-Fehler-Pfade
-// (genau 1 Refund, sanitisierter 504 provider_timeout — Statuscode-Paar wie
-// analyze-meal). Die Tests verkuerzen die Deadline ueber PROVIDER_TIMEOUTS_MS
-// und stellen die Produktions-Defaults im finally wieder her.
+// CWE-400 fix (Finding 6): both OpenRouter fetches ran without an
+// AbortSignal, so hanging upstream held the execution until the platform kill
+// — which never reached the catch blocks, so the claimed slot was never
+// refunded. Now AbortSignal.timeout wraps fetch and body read, and the
+// timeout runs through the existing infra-failure paths (exactly 1 refund,
+// sanitized 504). Tests shorten the deadline via PROVIDER_TIMEOUTS_MS and
+// restore the production defaults in finally.
 // ---------------------------------------------------------------------------
 
 Deno.test("Finding 6: Classifier-Timeout -> genau 1 Refund + sanitisierter 504", async () => {
@@ -987,8 +961,8 @@ Deno.test("Finding 6: Classifier-Timeout -> genau 1 Refund + sanitisierter 504",
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "Slot wurde geclaimt");
     assertEquals(stub.callsTo("refund_chat_quota").length, 1, "genau EIN Refund");
     assertEquals(stub.answerBodies().length, 0, "kein Answer-Call");
-    // Wie der Infra-Fehler (E2-Muster): auf dem Timeout-Pfad wird nichts
-    // persistiert und keine erfundene Refusal-Zeile erzeugt.
+    // Like the infra failure (E2 pattern): the timeout path persists nothing
+    // and invents no refusal row.
     assertEquals(
       stub.callsTo("/rest/v1/chat_messages").filter((c) => c.method === "POST").length,
       0,
@@ -1014,8 +988,8 @@ Deno.test("Finding 6: Answer-Timeout -> genau 1 Refund + sanitisierter 504", asy
     assertEquals(body.session_id, SESSION_ID, "session_id");
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "Slot wurde geclaimt");
     assertEquals(stub.callsTo("refund_chat_quota").length, 1, "genau EIN Refund");
-    // Die (echte) User-Message bleibt gespeichert, aber KEINE erfundene
-    // Assistant-Zeile (E2-Muster des Answer-Fehlerpfads).
+    // The real user message stays stored, but no invented assistant row
+    // (E2 pattern of the answer failure path).
     assertEquals(
       stub.callsTo("/rest/v1/chat_messages").filter((c) => c.method === "POST").length,
       1,
@@ -1029,9 +1003,9 @@ Deno.test("Finding 6: Answer-Timeout -> genau 1 Refund + sanitisierter 504", asy
 });
 
 Deno.test("Finding 6: Timeout-Antworten tragen kein Provider-Detail und keinen Roh-Fehlertext", async () => {
-  // Beide Timeout-Pfade: der Response-Body besteht ausschliesslich aus den
-  // sanitisierten Feldern error + session_id — keine DOMException-Message
-  // ("Signal timed out"), kein Provider-Host, kein interner Fehlertext.
+  // Both timeout paths: the response body holds only the sanitized fields
+  // error + session_id — no DOMException message, no provider host, no
+  // internal error text.
   const cases: { name: string; options: StubOptions }[] = [
     { name: "Classifier", options: { classifierHangs: true } },
     { name: "Answer", options: { classifierCategory: "fitness", answerHangs: true } },
@@ -1069,11 +1043,9 @@ Deno.test("Finding 6: Timeout-Antworten tragen kein Provider-Detail und keinen R
 });
 
 // ---------------------------------------------------------------------------
-// Lokalisierung der L1/L2-Refusals (2026-08-15, design-fix2.md): die Refusal-
-// Texte kennen jetzt eine locale ("de"/"en"), Fallback bei fehlend/unbekannt
-// bleibt "de" (analyze-meal-Muster). DE-Verhalten bleibt byte-identisch -
-// gesichert durch alle Bestandstests oben, die ohne locale bzw. mit "de"
-// senden und unveraendert gruen bleiben muessen.
+// Localized L1/L2 refusals: the texts take a locale ("de"/"en"), falling back
+// to "de" when missing or unknown. DE behaviour stays byte-identical, pinned
+// by every test above that sends no locale.
 // ---------------------------------------------------------------------------
 
 Deno.test("Lokalisierung: EN-Krise im Chat-Pfad (Layer 2)", async () => {
@@ -1099,8 +1071,8 @@ Deno.test("Lokalisierung: EN-Krise im Chat-Pfad (Layer 2)", async () => {
 });
 
 Deno.test("Lokalisierung: EN-Krise aus Layer 1", async () => {
-  // Spiegel von "Layer 1 bleibt vor Layer 2" - quota: "forbidden", damit ein
-  // erreichter Claim laut scheitert.
+  // Mirror of the layer-1-before-layer-2 test: quota "forbidden" so a reached
+  // claim fails loudly.
   const stub = installFetch({ classifierCategory: "fitness", quota: "forbidden" });
   try {
     const res = await handleRequest(makeRequest({
@@ -1118,8 +1090,8 @@ Deno.test("Lokalisierung: EN-Krise aus Layer 1", async () => {
 });
 
 Deno.test("Lokalisierung: unbekannte/kaputte locale faellt auf DE zurueck", async () => {
-  // Die strikte === "en"-Regel ist Absicht (Client normalisiert auf
-  // Kleinschreibung) - "EN" gehoert deshalb bewusst in die Liste.
+  // The strict === "en" rule is intentional (the client lowercases), so "EN"
+  // belongs in this list.
   const stub = installFetch({ classifierCategory: "self_harm" });
   try {
     for (const locale of ["fr", "EN", 42, null, ""]) {
@@ -1173,11 +1145,10 @@ Deno.test("Lokalisierung: EN off_topic (Layer 2, Nicht-Krise)", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Befund-Verifikation 2026-08-19: maybeAutoTitle las und patchte
-// chat_sessions mit service_role NUR ueber die Session-Id. Sicher war das
-// allein, weil ensureSession vorher den Besitz prueft — eine Invariante,
-// die kein Compiler haelt. Beide Requests muessen den user_id-Filter
-// tragen, damit der Write selbst besitzgebunden ist.
+// maybeAutoTitle used to read and patch chat_sessions with service_role by
+// session id alone, safe only because ensureSession checks ownership first —
+// an invariant no compiler holds. Both requests must carry the user_id filter
+// so the write itself is ownership-bound.
 // ---------------------------------------------------------------------------
 
 Deno.test("Auto-Titel: GET und PATCH auf chat_sessions tragen den user_id-Filter", async () => {
@@ -1200,12 +1171,10 @@ Deno.test("Auto-Titel: GET und PATCH auf chat_sessions tragen den user_id-Filter
 });
 
 // ---------------------------------------------------------------------------
-// Komplettreview 2026-08-19, Fund 1: der catch um answer() refundete JEDEN
-// geworfenen Fehler — auch den 4xx, den der Client selbst provoziert hatte.
-// Ein base64 aus gueltigen Zeichen, das kein Bild ist, kostete damit einen
-// Quota-Claim, einen bezahlten Classifier-Call und einen bezahlten
-// Vision-Call und bekam den Slot anschliessend zurueck: statt DAILY_LIMIT
-// deckelte nur noch das IP-Gate die bezahlten Calls.
+// Finding 1 (review 2026-08-19): the catch around answer() refunded every
+// error, including 4xx the client itself provoked. Valid-looking base64 that
+// is not an image therefore cost two paid calls and still got the slot back,
+// leaving only the IP gate to cap paid calls.
 // ---------------------------------------------------------------------------
 
 Deno.test("Fund 1: client-verschuldeter Provider-4xx behaelt den Slot (kein Refund)", async () => {
@@ -1232,10 +1201,9 @@ Deno.test("Fund 1: client-verschuldeter Provider-4xx behaelt den Slot (kein Refu
 });
 
 Deno.test("Fund 1: echter Provider-Ausfall wird weiterhin refundiert", async () => {
-  // Gegenprobe zur Trennung oben — sie darf den Refund nur fuer die
-  // Client-Schuld abschalten. 500/502/503 sind Ausfaelle, 429 die Drossel des
-  // Providers und 402 unser leeres Guthaben: alles nicht die Schuld des
-  // Nutzers, alles refundiert.
+  // Counter-check: the split may only disable the refund for client fault.
+  // 500/502/503 are outages, 429 the provider throttle, 402 our empty
+  // balance — none of them the user's fault, all refunded.
   for (const status of [402, 429, 500, 502, 503]) {
     const stub = installFetch({ classifierCategory: "fitness", answerStatus: status });
     try {
@@ -1251,10 +1219,9 @@ Deno.test("Fund 1: echter Provider-Ausfall wird weiterhin refundiert", async () 
 });
 
 Deno.test("Fund 1: Classifier-4xx durch den Client behaelt den Slot ebenfalls", async () => {
-  // Derselbe Pfad eine Schicht frueher: ein Moderations-403 auf dem
-  // Klassifizierer ist ein bezahlter Call. Wuerde er refundiert, waere der
-  // Slot ueber eine provozierbare Ablehnung beliebig oft wiederverwendbar —
-  // genau der Bypass, den der CWE-770-Fix geschlossen hat.
+  // Same path one layer earlier: a moderation 403 on the classifier is a paid
+  // call. Refunding it would make the slot reusable via a provokable
+  // rejection — the very bypass the CWE-770 fix closed.
   const stub = installFetch({ classifierStatus: 403 });
   try {
     const res = await handleRequest(makeRequest({
@@ -1269,9 +1236,8 @@ Deno.test("Fund 1: Classifier-4xx durch den Client behaelt den Slot ebenfalls", 
 });
 
 Deno.test("Fund 1: base64 ohne Bild-Header -> 400 VOR Quota-Claim und Provider-Call", async () => {
-  // Der Zeichensatz-Guard sagt nur "sieht aus wie base64": diese Strings
-  // passieren ihn alle und kosteten bis zum Fix je einen Slot und zwei
-  // bezahlte Calls.
+  // The charset guard only says "looks like base64": all these strings pass
+  // it and used to cost a slot and two paid calls each.
   const cases: { name: string; base64: string }[] = [
     { name: "Nullbytes", base64: "A".repeat(4096) },
     { name: "zu kurz fuer jeden Header", base64: "AAAA" },
@@ -1296,9 +1262,8 @@ Deno.test("Fund 1: base64 ohne Bild-Header -> 400 VOR Quota-Claim und Provider-C
 });
 
 Deno.test("Fund 1: echte JPEG/PNG/WebP-Header passieren den Guard", async () => {
-  // Gegenprobe: der Kopf-Check darf keinen legitimen Upload abweisen. Die
-  // drei Container, die safeImageMimeType erlaubt — jeweils nur der Header
-  // plus Fuellbytes, mehr sieht der Guard ohnehin nicht an.
+  // Counter-check: the header check must not reject a legitimate upload. The
+  // three containers safeImageMimeType allows, header plus padding only.
   const headers: { name: string; bytes: number[] }[] = [
     { name: "JPEG", bytes: [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01] },
     { name: "PNG", bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d] },
@@ -1321,10 +1286,9 @@ Deno.test("Fund 1: echte JPEG/PNG/WebP-Header passieren den Guard", async () => 
 });
 
 // ---------------------------------------------------------------------------
-// Komplettreview 2026-08-19, Fund 2: Quota- und Rate-Limit-Meldungen waren
-// hart deutsch. Der Client zeigt genau diese Servertexte ungefiltert an
-// (coach_chat_service.dart, `serverReply ?? _l10n…`), englische Nutzer lasen
-// also taeglich deutschen Text.
+// Finding 2: quota and rate-limit messages were hardcoded German, and the
+// client shows those server texts verbatim (`serverReply ?? _l10n…`), so
+// English users read German every day.
 // ---------------------------------------------------------------------------
 
 Deno.test("Fund 2: erschoepfte Quota antwortet in der locale des Requests", async () => {
@@ -1348,8 +1312,8 @@ Deno.test("Fund 2: erschoepfte Quota antwortet in der locale des Requests", asyn
 });
 
 Deno.test("Fund 2: DE-Tageslimit bleibt woertlich der Bestandstext", async () => {
-  // Der DE-Pfad ist der Bestand und muss byte-identisch bleiben (gleiche
-  // Regel wie bei der Refusal-Lokalisierung 2026-08-15).
+  // The DE path is the incumbent and must stay byte-identical, same rule as
+  // the refusal localization.
   const stub = installFetch({ quota: "exhausted" });
   try {
     const res = await handleRequest(makeRequest({
@@ -1367,10 +1331,9 @@ Deno.test("Fund 2: DE-Tageslimit bleibt woertlich der Bestandstext", async () =>
 });
 
 // ---------------------------------------------------------------------------
-// Komplettreview 2026-08-19, Fund 3: der Roh-Body einer Provider-Fehlerantwort
-// wanderte ueber die Fehlermeldung ins Function-Log (CWE-532). OpenRouter
-// spiegelt bei 4xx Teile der Nutzereingabe — derselbe Fall, den analyze-meal
-// am 2026-08-11 mit redactedContentMeta geschlossen hat.
+// Finding 3: the raw provider error body reached the function log via the
+// error message (CWE-532). OpenRouter mirrors parts of the user input on 4xx,
+// the same case analyze-meal closed with redactedContentMeta.
 // ---------------------------------------------------------------------------
 
 function captureConsoleError(): { lines: string[]; restore(): void } {
@@ -1383,7 +1346,7 @@ function captureConsoleError(): { lines: string[]; restore(): void } {
 }
 
 Deno.test("Fund 3: Provider-Fehler-Body landet nicht im Log, nur Status + Digest", async () => {
-  // Realistischer Moderations-Body: er zitiert die Nachricht des Nutzers.
+  // Realistic moderation body: it quotes the user's message.
   const leaked = "input flagged: 'ich haette gern einen plan fuer meine reha nach der OP'";
   const cases: { name: string; options: StubOptions }[] = [
     { name: "Answer", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: leaked } },
@@ -1403,8 +1366,7 @@ Deno.test("Fund 3: Provider-Fehler-Body landet nicht im Log, nur Status + Digest
         !joined.includes("flagged"),
         `${name}: Bruchstueck des Roh-Bodys im Log: ${joined}`,
       );
-      // Was bleiben MUSS: Status und der Digest, sonst ist der Fehler nicht
-      // mehr diagnostizierbar.
+      // What must remain: status and digest, or the error is undiagnosable.
       assert(
         joined.includes("400") && /sha256=[0-9a-f]{12}/.test(joined),
         `${name}: Log ohne Status/Digest: ${joined}`,

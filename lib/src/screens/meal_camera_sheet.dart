@@ -15,13 +15,8 @@ import '../services/meal_photo_temp_file.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/kcal/scan_slot_chips.dart';
 
-/// In-App-Kamera als animiertes Bottom-Panel (~60% Hoehe) statt Vollbild-
-/// Wechsel: Live-Vorschau (verzerrungsfrei cover-gecroppt), Slot-Chips oben,
-/// Ausloeser + Galerie unten. Gibt beim Pop ein [MealCameraCapture]
-/// (Bild + gewaehlter Slot) zurueck, oder null bei Abbruch.
-///
-/// Nutzt das `camera`-Package. Ueber [MealCameraLauncher] fuer Widget-Tests
-/// austauschbar — die echte Kamera laeuft nur auf dem Geraet.
+/// In-app camera as an animated bottom panel. Pops a [MealCameraCapture], or
+/// null on cancel. Swappable via [MealCameraLauncher] for widget tests.
 class MealCameraSheet extends StatefulWidget {
   const MealCameraSheet({super.key, required this.initialSlot});
 
@@ -38,18 +33,14 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   bool _busy = false;
   bool _cameraFailed = false;
 
-  /// Serialisiert Auf- und Abbau der Kamera. Lifecycle-Events feuern schneller
-  /// als `initialize()` laeuft (Galerie-Picker auf/zu, iOS-Benachrichtigungs-
-  /// banner): ohne diese Kette entstuenden zwei Controller nebeneinander, oder
-  /// ein Pause-Event wuerde von einer noch laufenden Initialisierung ueberholt
-  /// und liesse die Kamera im Hintergrund offen.
+  /// Serialises camera setup/teardown: lifecycle events outrun `initialize()`,
+  /// so two controllers could coexist or a pause be lost.
   Future<void> _cameraQueue = Future<void>.value();
 
   void _enqueueCameraOp(Future<void> Function() op) {
     _cameraQueue = _cameraQueue
         .then((_) => op())
-        // Ein gescheiterter Auf-/Abbau darf die Kette nicht abreissen lassen,
-        // sonst kaeme die Kamera nach dem naechsten Resume nie wieder.
+        // A failed setup/teardown must not break the chain for the next resume.
         .catchError((Object _) {});
   }
 
@@ -65,8 +56,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     final controller = _controller;
-    // Erst abhaengen, dann freigeben: eine noch laufende Queue-Operation soll
-    // den entsorgten Controller nicht mehr finden.
+    // Detach before releasing so a pending queue op cannot find it.
     _controller = null;
     controller?.dispose();
     super.dispose();
@@ -74,10 +64,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Bewusst OHNE den frueheren `_controller == null`-Guard (Review D3): der
-    // Pause-Zweig nullte genau das Feld, auf das der Guard prueft — damit war
-    // der resumed-Zweig ab der ersten Unterbrechung unerreichbar und die
-    // Vorschau blieb bis zum Neu-Oeffnen des Sheets ein Dauer-Spinner.
+    // No `_controller == null` guard (Review D3): the pause branch nulls that
+    // very field, making the resumed branch unreachable.
     switch (state) {
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
@@ -89,10 +77,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     }
   }
 
-  /// Gibt die Kamera frei. Das Feld wird VOR dem `dispose()` und innerhalb von
-  /// `setState` genullt: sonst rendert `build` weiter die Texture eines
-  /// entsorgten Controllers, der Ausloeser sieht aktiv aus, und ein Tap darauf
-  /// laeuft still in den Null-Check von [_capture].
+  /// Releases the camera. The field is nulled in `setState` BEFORE `dispose()`,
+  /// or `build` keeps rendering a dead controller's texture.
   Future<void> _teardownCamera() async {
     final controller = _controller;
     if (controller == null) return;
@@ -104,14 +90,13 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     try {
       await controller.dispose();
     } catch (_) {
-      // Ein bereits gestorbener Controller ist kein Fehlerfall fuer die UI.
+      // An already dead controller is not a UI error.
     }
   }
 
   Future<void> _initCamera() async {
     if (!mounted) return;
-    // Es laeuft bereits eine Kamera: ein zweites `initialize()` erzeugte einen
-    // zweiten Controller und liesse den ersten unentsorgt liegen.
+    // A second `initialize()` would leak the already running controller.
     if (_controller != null) return;
 
     CameraController? controller;
@@ -126,8 +111,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
-      // veryHigh (1080p): scharfes Analyse-Foto, aber klein genug fuer das
-      // 5-MB-Bildlimit der Edge Function. high (720p) wirkte unscharf.
+      // veryHigh (1080p): sharp enough to analyse, under the 5 MB limit.
       controller = CameraController(
         back,
         ResolutionPreset.veryHigh,
@@ -135,26 +119,17 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
-      // Sheet zwischenzeitlich geschlossen: der frisch gebaute Controller darf
-      // nicht als Leiche zurueckbleiben.
+      // Sheet closed meanwhile: don't leave the fresh controller behind.
       if (!mounted) {
         await controller.dispose();
         return;
       }
-      // iOS rotiert sonst Vorschau- und Foto-Buffer bei jeder physischen
-      // Drehung mit: camera_avfoundation hoert auf UIDevice-Orientation-
-      // Notifications, die trotz Portrait-Lock der UI feuern, und setzt
-      // connection.videoOrientation um — das Bild dreht sich dann sichtbar
-      // im starren Portrait-Layout. Der Lock pinnt beide Outputs auf
-      // portraitUp; die Vorschau verhaelt sich damit wie der Barcode-Scanner
-      // (Fenster-Verhalten) und das Foto ist deckungsgleich mit der Vorschau.
-      // Android feuert unter dem Portrait-Lock keine Orientation-Events —
-      // dort aendert der Lock nichts.
+      // iOS otherwise rotates preview and photo buffers on physical turns,
+      // despite the portrait lock. No-op on Android.
       try {
         await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
       } on CameraException {
-        // Ohne Lock laeuft die Kamera weiter — schlimmstenfalls mit dem
-        // alten Dreh-Verhalten. Kein Grund, sie als ausgefallen zu melden.
+        // Without the lock the camera still runs; not a failure.
       }
       if (!mounted) {
         await controller.dispose();
@@ -165,27 +140,22 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         _cameraFailed = false;
       });
     } catch (_) {
-      // Berechtigung waehrenddessen entzogen, keine Kamera, Plugin-Fehler:
-      // sauber in der Fehlerflaeche landen statt im Dauer-Spinner haengen.
+      // Permission revoked, no camera, plugin error: show the error layer.
       final partial = controller;
       if (partial != null && !identical(_controller, partial)) {
         try {
           await partial.dispose();
         } catch (_) {
-          // Ein nie fertig aufgebauter Controller hat nichts freizugeben.
+          // A controller that never finished setup has nothing to release.
         }
       }
       if (mounted) setState(() => _cameraFailed = true);
     }
   }
 
-  /// Einziger Ausgang fuer Bild-Bytes aus diesem Sheet: Kamera **und** Galerie
-  /// laufen hier durch. [compressMealPhoto] verkleinert (Base64 macht +33%,
-  /// der Server kappt bei 5 MB) und leert den EXIF-Container (Review C4).
-  ///
-  /// `compute()`: Dekodieren + Re-Encoden blockiert sonst den UI-Isolate.
-  /// Scheitert der Isolate-Start, wird im UI-Isolate komprimiert — lieber ein
-  /// kurzer Ruckler als ein Upload mit Koordinaten.
+  /// Only exit for image bytes from this sheet — camera **and** gallery.
+  /// [compressMealPhoto] shrinks (base64 adds 33 %, server caps at 5 MB) and
+  /// wipes EXIF (Review C4).
   Future<Uint8List> _compress(Uint8List raw) async {
     Uint8List bytes;
     try {
@@ -210,16 +180,13 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     final controller = _controller;
     if (_busy || controller == null || !controller.value.isInitialized) return;
     setState(() => _busy = true);
-    // Steht ausserhalb des try, weil das Aufraeumen ins finally gehoert: die
-    // Aufnahme darf auch dann nicht im Cache liegen bleiben, wenn das Lesen
-    // oder der Scrub scheitert oder das Sheet zwischenzeitlich zu ist.
+    // Outside the try so the finally always clears the cached shot.
     XFile? shot;
     try {
       HapticFeedback.mediumImpact();
       shot = await controller.takePicture();
       final raw = await shot.readAsBytes();
-      // Rohes Kamera-JPEG vor dem Versand auf Galerie-Niveau bringen
-      // (laengste Kante 1600 px, q85) und die Metadaten strippen.
+      // Shrink the raw camera JPEG (1600 px long edge, q85), strip metadata.
       final bytes = await _compress(raw);
       if (!mounted) return;
       _returnCapture(path: shot.path, bytes: bytes);
@@ -228,10 +195,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       setState(() => _busy = false);
       _showError(context.l10n.foodPhotoCaptureFailedMessage);
     } finally {
-      // Ab hier liegen die Bytes im Speicher (oder sind verloren) — das
-      // Kamera-JPEG im Cache wird von niemandem mehr gelesen. Siehe
-      // [deleteMealPhotoTempFile]: Essensfotos ueberdauerten hier sonst auch
-      // die Kontoloeschung.
+      // Without [deleteMealPhotoTempFile] meal photos outlive account deletion.
       final temp = shot;
       if (temp != null) await deleteMealPhotoTempFile(temp.path);
     }
@@ -240,7 +204,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   Future<void> _pickFromGallery() async {
     if (_busy) return;
     setState(() => _busy = true);
-    // Wie in [_capture]: der Pfad der Picker-Kopie muss das finally erreichen.
+    // As in [_capture]: the picker copy's path must reach the finally block.
     XFile? picked;
     try {
       final image = await ImagePicker().pickImage(
@@ -254,11 +218,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       }
       picked = image;
       final raw = await image.readAsBytes();
-      // Review C4: `image_picker` skaliert zwar, kopiert danach aber ueber
-      // ImageResizer.copyExif() die Metadaten inklusive GPS-Sub-IFD zurueck.
-      // Ein aus der Galerie gewaehltes Systemkamera-Foto traegt damit die
-      // Koordinaten des Restaurants. compressMealPhoto leert den Container —
-      // derselbe Weg wie beim Kamera-Pfad, deshalb hier ebenfalls zwingend.
+      // Review C4: `image_picker` copies EXIF back via copyExif(), GPS
+      // included — so the scrub is mandatory here too.
       final bytes = await _compress(raw);
       if (!mounted) return;
       _returnCapture(path: image.path, bytes: bytes);
@@ -271,17 +232,14 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       setState(() => _busy = false);
       _showError(context.l10n.foodImageLoadFailedMessage);
     } finally {
-      // Geloescht wird nur die Kopie, die `image_picker` wegen
-      // `imageQuality`/`maxWidth` im App-Cache anlegt — das Original in der
-      // Galerie bleibt unangetastet (s. [deleteMealPhotoTempFile]).
+      // Only image_picker's cache copy is deleted; the original stays.
       final temp = picked;
       if (temp != null) await deleteMealPhotoTempFile(temp.path);
     }
   }
 
-  /// `imageId` ist ein reines Etikett fuer die Analyse-Anfrage: den Pfad liest
-  /// nach dem Pop niemand mehr (der Upload haengt an [bytes]), die Datei
-  /// dahinter ist zu diesem Zeitpunkt bereits geloescht bzw. wird es gleich.
+  /// `imageId` is a mere label: the upload rides on [bytes], and the file
+  /// behind the path is already gone.
   void _returnCapture({required String path, required Uint8List bytes}) {
     if (!mounted) return;
     Navigator.of(context).pop(
@@ -302,8 +260,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    // ~60% der Bildschirmhoehe — genug fuer eine grosse Vorschau, aber klar ein
-    // Panel „in der App", kein Vollbild-Wechsel.
+    // ~60% of screen height: a large preview that still reads as a panel.
     final panelHeight = mediaQuery.size.height * 0.6;
     final controller = _controller;
     final ready = controller != null && controller.value.isInitialized;
@@ -339,7 +296,6 @@ class _MealCameraSheetState extends State<MealCameraSheet>
                         else
                           const _CameraLoadingLayer(),
                         const _EdgeScrim(),
-                        // Slot-Chips oben auf der Vorschau.
                         Positioned(
                           top: 10,
                           left: 10,
@@ -350,7 +306,6 @@ class _MealCameraSheetState extends State<MealCameraSheet>
                             keyPrefix: 'meal-camera-slot',
                           ),
                         ),
-                        // Ausloeser + Galerie unten auf der Vorschau.
                         Positioned(
                           bottom: 14,
                           left: 20,
@@ -376,10 +331,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   }
 }
 
-/// Verzerrungsfreie Cover-Darstellung der Kamera-Vorschau in einer beliebigen
-/// Box: [CameraPreview] traegt seine Aspect-Ratio selbst — deshalb bekommt es
-/// hier eine [SizedBox] mit exakt dieser Ratio, die so gross skaliert wird,
-/// dass sie die Box fuellt (Ueberstand wird vom ClipRRect gecroppt).
+/// Cover fit without distortion: [CameraPreview] carries its own aspect ratio,
+/// so it gets a [SizedBox] with that ratio, scaled to fill.
 class _CoveredCameraPreview extends StatelessWidget {
   const _CoveredCameraPreview({required this.controller});
 
@@ -390,13 +343,12 @@ class _CoveredCameraPreview extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final boxAspect = constraints.maxWidth / constraints.maxHeight;
-        // Portrait-Seitenverhaeltnis (Breite/Hoehe) der Vorschau. aspectRatio
-        // ist im Querformat definiert -> fuer Hochkant invertieren.
+        // `aspectRatio` is landscape-defined -> invert for portrait.
         final previewAspect = 1 / controller.value.aspectRatio;
         double w;
         double h;
         if (previewAspect < boxAspect) {
-          // Vorschau schmaler als die Box -> Breite anlegen, Hoehe ueberstehen.
+          // Preview narrower than the box -> match width, overflow height.
           w = constraints.maxWidth;
           h = w / previewAspect;
         } else {
@@ -424,8 +376,7 @@ class _CameraLoadingLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // GENAU EIN CircularProgressIndicator: die Zaehlung pro Zustand ist in
-    // meal_camera_sheet_test festgenagelt.
+    // EXACTLY ONE spinner: meal_camera_sheet_test pins the count per state.
     return ColoredBox(
       color: t.bg,
       child: Center(
@@ -445,8 +396,7 @@ class _CameraFailedLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // KEIN Spinner in dieser Schicht — der Fehlerzustand zeigt eine Erklaerung,
-    // kein Warten (meal_camera_sheet_test zaehlt beides).
+    // NO spinner here: the error state explains, it does not wait.
     return ColoredBox(
       color: t.bg,
       child: Center(
@@ -475,15 +425,9 @@ class _CameraFailedLayer extends StatelessWidget {
   }
 }
 
-/// Sanfte dunkle Verlaeufe oben/unten, damit Chips + Bedienleiste auf hellen
-/// Kamerabildern lesbar bleiben.
-///
-/// Die harten `Colors.black`/`Colors.white` dieser und der folgenden
-/// Overlay-Klassen bleiben bewusst stehen und sind KEIN vergessener Token: sie
-/// liegen auf einem LIVE-Kamerabild, nicht auf einer Theme-Flaeche. Ein
-/// token-gefaerbter Scrim wuerde im Hell-Modus zu einem hellen Schleier auf
-/// einem beliebig hellen Bild — genau die Lesbarkeit, die er herstellen soll,
-/// waere dahin.
+/// Soft dark gradients so chips and controls stay readable on bright camera
+/// images. The hard `Colors.black`/`Colors.white` here and below are
+/// intentional: on a live image a token scrim would haze out in light mode.
 class _EdgeScrim extends StatelessWidget {
   const _EdgeScrim();
 
@@ -559,8 +503,7 @@ class _HeaderRow extends StatelessWidget {
   }
 }
 
-/// Untere Bedienleiste: Galerie (links), grosser Ausloeser (Mitte),
-/// symmetrischer Platzhalter (rechts).
+/// Bottom bar: gallery, shutter, symmetric spacer.
 class _CaptureBar extends StatelessWidget {
   const _CaptureBar({
     required this.canCapture,

@@ -4,20 +4,15 @@ import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import 'local_day.dart';
 
-/// Reine Aggregations-Helfer für die Tages-Ernährungswerte. Aus dem Home-State
-/// (`_EatovaHomePageState`) extrahiert, damit die kcal-/Makro-Mathematik ohne
-/// UI deterministisch unit-testbar ist und nicht im God-Object versteckt liegt.
+/// Pure aggregation helpers for the daily nutrition values, extracted from the
+/// home state so the kcal/macro math is unit-testable without UI.
 
-/// Alle für [date] geloggten Mahlzeiten — tag-genau, die Uhrzeit wird ignoriert.
+/// All meals logged for [date] — day-accurate, the time is ignored.
 ///
-/// DATA-6: Mahlzeiten mit persistiertem [LoggedMeal.localDay] werden ueber
-/// diesen kanonischen lokalen Tages-Schluessel gebucketet — denselben, den
-/// Koffein (`caffeine_entries.local_day`) verwendet. Dadurch landet ein
-/// 23:45-Ortszeit-Eintrag fuer BEIDE Tracks im selben Tag, auch wenn die
-/// Ansicht spaeter unter einer anderen Zonen-/DST-Offset laeuft. Zeilen ohne
-/// localDay (Altbestand bzw. home_page-Konstruktion ohne das Feld) fallen auf
-/// die alte `isSameDay(.toLocal())`-Logik zurueck — verhaltensidentisch zu
-/// vorher, daher kein Bruch bestehender Pins.
+/// DATA-6: meals with a persisted [LoggedMeal.localDay] are bucketed by that
+/// canonical local day key, so a 23:45 entry stays on the same day even if the
+/// view later runs under a different zone/DST offset. Rows without localDay
+/// fall back to the old `isSameDay(.toLocal())` logic.
 List<LoggedMeal> mealsForFoodDate(List<LoggedMeal> meals, DateTime date) {
   final dayKey = localDayKey(date.toLocal());
   final day = DateUtils.dateOnly(date);
@@ -30,14 +25,13 @@ List<LoggedMeal> mealsForFoodDate(List<LoggedMeal> meals, DateTime date) {
   }).toList(growable: false);
 }
 
-/// Summe der gegessenen Kalorien an [date].
+/// Total calories eaten on [date].
 int consumedKcalForFoodDate(List<LoggedMeal> meals, DateTime date) {
   return mealsForFoodDate(meals, date)
       .fold<int>(0, (sum, meal) => sum + meal.result.caloriesKcal);
 }
 
-/// Makro-Fortschritt (Protein/KH/Fett/kcal) an [date], summiert aus den
-/// Einzel-Mahlzeiten.
+/// Macro progress (protein/carbs/fat/kcal) on [date], summed over the meals.
 MacroProgress macroProgressForFoodDate(List<LoggedMeal> meals, DateTime date) {
   return mealsForFoodDate(meals, date).fold<MacroProgress>(
     MacroProgress.empty,
@@ -45,25 +39,19 @@ MacroProgress macroProgressForFoodDate(List<LoggedMeal> meals, DateTime date) {
   );
 }
 
-/// Tages-Summe EINES Mahlzeiten-Slots: die aufsummierten Makros/kcal plus die
-/// Anzahl der Einträge, die hineingeflossen sind. [MacroProgress] selbst
-/// kennt keine Stückzahl, der Coach-Kontext nennt sie aber mit („5 Einträge"),
-/// damit das Modell „nur durchs Abendessen" von „ein großes Abendessen"
-/// unterscheiden kann.
+/// Daily total of ONE meal slot: summed macros/kcal plus the number of
+/// entries. [MacroProgress] has no count, but the coach context needs it to
+/// tell "one large dinner" from "many entries".
 typedef SlotTotals = ({MacroProgress macros, int entries});
 
-/// Makro-Fortschritt je [MealSlot] an [date] — die Slot-Aufschlüsselung von
-/// [macroProgressForFoodDate] für den Coach-Kontext (Frage „wie viel Protein
-/// habe ich nur durchs Abendessen gegessen?").
+/// Macro progress per [MealSlot] on [date] — the slot breakdown of
+/// [macroProgressForFoodDate] for the coach context.
 ///
-/// Enthält NUR Slots, in denen an [date] mindestens eine Mahlzeit liegt, in
-/// [MealSlot.values]-Reihenfolge (Frühstück → Mittagessen → Abendessen →
-/// Snacks) unabhängig von der Log-Reihenfolge. Slots ohne Eintrag fehlen
-/// komplett, statt mit [MacroProgress.empty] aufzutauchen — der Aufrufer muss
-/// nichts herausfiltern, und „leer" ist von „0 kcal geloggt" unterscheidbar.
-/// Der Slot kommt aus [LoggedMeal.slot] (forcedSlot vor Uhrzeit-Heuristik);
-/// der Tagesfilter ist derselbe wie bei allen Helfern hier
-/// ([mealsForFoodDate], DATA-6-Bucketing).
+/// Contains ONLY slots with at least one meal on [date], in
+/// [MealSlot.values] order regardless of log order. Empty slots are absent
+/// rather than [MacroProgress.empty], so callers filter nothing and "empty"
+/// stays distinguishable from "0 kcal logged". The slot comes from
+/// [LoggedMeal.slot]; the day filter is [mealsForFoodDate].
 Map<MealSlot, SlotTotals> slotTotalsForFoodDate(
   List<LoggedMeal> meals,
   DateTime date,
@@ -77,9 +65,8 @@ Map<MealSlot, SlotTotals> slotTotalsForFoodDate(
       entries: previous.entries + 1,
     );
   }
-  // Kanonische Slot-Reihenfolge statt Einfüge-Reihenfolge: die Map wird im
-  // Kontext linear ausgegeben, und „Frühstück; Mittagessen; Abendessen" liest
-  // sich für Modell wie Mensch als Tagesablauf.
+  // Canonical slot order instead of insertion order: the map is rendered
+  // linearly into the context and should read as the course of a day.
   return {
     for (final slot in MealSlot.values)
       if (bySlot.containsKey(slot)) slot: bySlot[slot]!,

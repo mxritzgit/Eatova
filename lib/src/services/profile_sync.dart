@@ -4,9 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
 
-/// Mappt einen Roh-String aus public.profiles.sex auf [BiologicalSex].
-/// Null/Unbekanntes faellt auf [BiologicalSex.neutral] zurueck.
-/// Top-level + rein, damit das Mapping ohne Supabase-Client testbar ist.
+/// Maps a raw public.profiles.sex string to [BiologicalSex]; null/unknown
+/// falls back to [BiologicalSex.neutral]. Pure, so it needs no client.
 BiologicalSex parseProfileSex(String? raw) {
   if (raw == null) return BiologicalSex.neutral;
   return BiologicalSex.values.firstWhere(
@@ -15,8 +14,8 @@ BiologicalSex parseProfileSex(String? raw) {
   );
 }
 
-/// Mappt einen Roh-String aus public.profiles.activity_level auf
-/// [ActivityLevel]. Null/Unbekanntes faellt auf [ActivityLevel.sedentary].
+/// Maps a raw public.profiles.activity_level string to [ActivityLevel];
+/// null/unknown falls back to [ActivityLevel.sedentary].
 ActivityLevel parseProfileActivity(String? raw) {
   if (raw == null) return ActivityLevel.sedentary;
   return ActivityLevel.values.firstWhere(
@@ -25,11 +24,9 @@ ActivityLevel parseProfileActivity(String? raw) {
   );
 }
 
-/// Mappt einen Roh-String aus public.profiles.weight_goal auf [WeightGoal].
-/// Bestands-Werte aus dem alten Tempo-Schema werden auf die kg/Woche-Raten
-/// gemappt, damit bereits onboardete User ihr Ziel nicht verlieren — falsche
-/// Branches hier sind stille ±550/±1100 kcal/Tag-Zielbugs. Null/Unbekanntes
-/// faellt auf [WeightGoal.maintain] zurueck.
+/// Maps a raw public.profiles.weight_goal string to [WeightGoal]; null/unknown
+/// falls back to [WeightGoal.maintain]. Legacy pace values map onto the
+/// kg/week rates — a wrong branch here is a silent ±550/±1100 kcal/day bug.
 WeightGoal parseProfileGoal(String? raw) {
   if (raw == null) return WeightGoal.maintain;
   switch (raw) {
@@ -48,10 +45,9 @@ WeightGoal parseProfileGoal(String? raw) {
   );
 }
 
-/// Mappt einen Roh-String aus public.profiles.diet_preference auf
-/// [DietPreference]. Null/Unbekanntes faellt auf [DietPreference.none] zurueck,
-/// damit ein leeres/kaputtes Feld den User nicht ungewollt einschraenkt
-/// (none empfiehlt alles). Top-level + rein, ohne Supabase-Client testbar.
+/// Maps a raw public.profiles.diet_preference string to [DietPreference];
+/// null/unknown falls back to [DietPreference.none] so a broken field does not
+/// silently restrict recommendations.
 DietPreference parseDietPreference(String? raw) {
   if (raw == null) return DietPreference.none;
   return DietPreference.values.firstWhere(
@@ -60,10 +56,9 @@ DietPreference parseDietPreference(String? raw) {
   );
 }
 
-/// Liest und schreibt UserProfile gegen public.profiles auf Supabase.
-/// Save nutzt UPSERT(.select().single()), damit der Aufrufer bei
-/// Schema/Auth/RLS-Fehlern eine PostgrestException kriegt statt einer
-/// stillen No-Op. Eine Instanz gehoert genau einem auth.users.id.
+/// Reads and writes UserProfile against public.profiles on Supabase.
+/// Save uses UPSERT(.select().single()) so schema/auth/RLS errors surface as a
+/// PostgrestException instead of a silent no-op. One instance per auth user id.
 class ProfileSync {
   ProfileSync(this._client, this._userId);
 
@@ -91,16 +86,11 @@ class ProfileSync {
             name: 'profile_sync');
         return null;
       }
-      // Sentinel-Fund 3 (Nachverifikation 2026-08-08): unlesbare Zahlenfelder
-      // wurden hier mit erfundenen Werten aufgefuellt (78 kg, 178 cm, 2200
-      // kcal, ...) und das Ergebnis galt dem Boot als echte Hydrationsquelle
-      // (_hydratedFromRealSource) — der naechste save() schrieb die Fantasie
-      // dauerhaft auf den Server. Die Spalten sind serverseitig NOT NULL;
-      // unlesbar heisst Parse-Muell oder Schema-Drift, und dann ist Werfen
-      // richtig: _safeLoad im Boot faengt es, es gibt keine Hydration, der
-      // Clobber-Schutz bleibt geschlossen. Die Enum-Felder bleiben bewusst
-      // nachsichtig (A7: Vorwaertskompatibilitaet mit kuenftigen Enum-Werten
-      // — sie erfinden Einordnungen, keine Messwerte).
+      // Sentinel finding 3: unreadable numeric fields used to get invented
+      // defaults that boot treated as real hydration, so the next save() wrote
+      // the fiction to the server. The columns are NOT NULL, so throwing is
+      // right — no hydration, clobber protection stays closed. Enum fields
+      // stay lenient (A7): they invent a category, not a measurement.
       int leseZahl(String spalte) {
         final wert = _toInt(row[spalte]);
         if (wert == null) {
@@ -155,11 +145,8 @@ class ProfileSync {
       'onboarding_completed': profile.onboardingCompleted,
     };
     try {
-      // UPSERT statt UPDATE - faengt den Fall ab dass die Profile-Row
-      // noch nicht existiert (z.B. bei Test-Accounts oder wenn der
-      // Bootstrap-Trigger aus irgendeinem Grund nicht gegriffen hat).
-      // .select().single() erzwingt eine Antwort - bei RLS-Block oder
-      // 0-rows kommt eine PostgrestException statt stiller No-Op.
+      // UPSERT, not UPDATE: the profile row may not exist yet.
+      // .select().single() forces a response, so an RLS block or 0 rows throws.
       await _client.from('profiles').upsert(payload).select().single();
     } catch (e, stack) {
       dev.log('ProfileSync.save failed', error: e, stackTrace: stack, name: 'profile_sync');
@@ -167,8 +154,7 @@ class ProfileSync {
     }
   }
 
-  // Delegieren an die reinen Top-level-Parser (oben), damit das Verhalten
-  // identisch bleibt und 1:1 ohne Supabase-Client getestet werden kann.
+  // Delegate to the pure top-level parsers above.
   static BiologicalSex _parseSex(String? raw) => parseProfileSex(raw);
 
   static ActivityLevel _parseActivity(String? raw) => parseProfileActivity(raw);

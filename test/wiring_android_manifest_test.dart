@@ -1,41 +1,21 @@
-// VERDRAHTUNGS-WAECHTER D1/E1/E4 — das Android-Manifest.
+// WIRING GUARD D1/E1/E4 — the Android manifest.
 //
-// Ausgangslage (Verifizierer V2/V3): ueber alle 107 Testdateien null Treffer
-// fuer `manifest`, `gradle`, `signing`, `proguard`; `ScheduledNotificationReceiver`
-// kommt in `test/`, `tool/` und den CI-Workflows NULL Mal vor. D1 war ein
-// 🔴-CRITICAL — „auf jedem Android-Geraet, an jedem Tag feuert keine geplante
-// Benachrichtigung" — und sein Fix ist eine einzelne XML-Zeile, die jeder
-// loeschen kann, ohne dass ein Test es merkt. Dasselbe gilt fuer die
-// `tools:node="remove"`-Zeilen aus E1 (RECORD_AUDIO, READ/WRITE_EXTERNAL_STORAGE)
-// und E4 (HealthDataSdkService).
+// D1 (no scheduled notification ever fires on Android) is fixed by a single
+// XML line that anyone could delete without a test noticing; the same holds
+// for the `tools:node="remove"` lines from E1 (RECORD_AUDIO,
+// READ/WRITE_EXTERNAL_STORAGE) and E4 (HealthDataSdkService).
 //
-// WAS DIESE DATEI IST UND WAS NICHT
+// The guard reads the file that goes into the build and checks it
+// STRUCTURALLY: XML comments stripped, elements and attributes parsed, so
+// attribute order, line breaks and comment text are irrelevant. It cannot
+// prove that Android delivers the broadcast — that needs a device test.
 //
-// Sie liest die Datei, die in den Build geht, und prueft sie STRUKTURELL:
-// XML-Kommentare werden entfernt, Elemente und Attribute werden geparst.
-// Attribut-Reihenfolge, Zeilenumbrueche, Einrueckung und Kommentartext sind
-// dem Waechter deshalb egal — nur das tatsaechlich deklarierte Manifest zaehlt.
-// Was er NICHT kann: beweisen, dass Android den Broadcast zustellt. Dafuer
-// braeuchte es einen instrumentierten Geraetetest.
-//
-// EINSTUFUNG: mittel. Kein Quelltext-`contains` ueber eine Zeile (er ueberlebt
-// jede Umformatierung), aber auch keine Wirkungspruefung — er prueft ein
-// Build-Artefakt, nicht Laufzeitverhalten.
-//
-// DER TEIL, DER MEHR IST ALS EINE ZEILENPRUEFUNG
-//
-// Vier Behauptungen sind ABHAENGIGKEITEN ZWISCHEN DART UND MANIFEST. Sie
-// werden rot, wenn jemand NUR die Dart-Seite aendert — genau das Versagen,
-// das D1 war:
+// The core of the file are the DART-TO-MANIFEST dependencies, which turn red
+// when only the Dart side changes — exactly how D1 happened:
 //
 //   * `NotificationDetails.actions` / `dismissIsolate`  ->  ActionBroadcastReceiver
 //   * `startForegroundService`                          ->  ForegroundService
 //   * `AndroidScheduleMode.exact*` / `.alarmClock`      ->  SCHEDULE_EXACT_ALARM
-//
-// Welle 4 hat die ersten beiden Komponenten als „nach aktuellem Dart-Code
-// unerreichbar" eingestuft und deshalb weggelassen. Diese Einstufung ist eine
-// Aussage ueber den Dart-Code — also gehoert sie hier gegen den Dart-Code
-// geprueft, nicht als Kommentar ins Manifest.
 
 import 'dart:io';
 
@@ -43,10 +23,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 const String _manifestPfad = 'android/app/src/main/AndroidManifest.xml';
 
-/// Jede Dart-Datei, die das Notification-Plugin ueberhaupt ansteuern kann.
-/// Bewusst dynamisch ermittelt statt fest verdrahtet: ein NEUER Aufrufer
-/// (z. B. ein zweiter Service mit Notification-Actions) faellt damit
-/// automatisch unter die Abhaengigkeitspruefung unten.
+/// Every Dart file that can drive the notification plugin. Determined
+/// dynamically rather than hardcoded, so a NEW caller automatically falls
+/// under the dependency checks below.
 const String _libWurzel = 'lib';
 const String _pluginImport = 'flutter_local_notifications';
 
@@ -62,16 +41,15 @@ const String _serviceHealthSdk =
     'androidx.health.platform.client.impl.sdkservice.HealthDataSdkService';
 
 // ---------------------------------------------------------------------------
-// Minimal-Parser
+// Minimal parser
 //
-// Bewusst ohne `package:xml`: das Paket ist nur transitiv aufgeloest, eine
-// direkte Nutzung braeuchte einen Eintrag in pubspec.yaml — und diese Runde
-// darf keine Produktionsdatei anfassen. Der Manifest-Ausschnitt, um den es
-// geht, ist flach genug fuer die 40 Zeilen hier.
+// Deliberately without `package:xml`: it is only a transitive dependency and
+// direct use would need a pubspec entry. The manifest section in question is
+// flat enough for the 40 lines below.
 // ---------------------------------------------------------------------------
 
-/// Ein geparstes XML-Element: Attribute und (bei Container-Elementen) der
-/// unveraenderte innere XML-Text.
+/// A parsed XML element: attributes and, for containers, the unchanged inner
+/// XML text.
 class _Element {
   const _Element(this.attribute, this.inhalt);
 
@@ -80,22 +58,20 @@ class _Element {
 
   String? operator [](String name) => attribute[name];
 
-  /// `android:name` — bei praktisch jedem Manifest-Element die Identitaet.
+  /// `android:name` — the identity of practically every manifest element.
   String get name => attribute['android:name'] ?? '';
 }
 
-/// Entfernt XML-Kommentare. Ohne diesen Schritt wuerde der Test die
-/// ausfuehrlichen Begruendungs-Kommentare im Manifest fuer Deklarationen
-/// halten — und genau die Zeilen, die er absichern soll, aus dem Kommentar
-/// darueber „lesen".
+/// Strips XML comments; otherwise the test would mistake the manifest's
+/// explanatory comments for declarations.
 String _ohneKommentare(String xml) =>
     xml.replaceAll(RegExp(r'<!--.*?-->', dotAll: true), '');
 
 final RegExp _attributRegex =
     RegExp(r'([A-Za-z_][\w.:-]*)\s*=\s*"([^"]*)"');
 
-/// Sammelt alle Elemente mit dem Tag [tag] aus [xml] (nicht rekursiv in
-/// gleichnamige Kinder hinein — im Manifest gibt es die nicht).
+/// Collects all elements with tag [tag] from [xml] (not recursing into
+/// same-named children — the manifest has none).
 List<_Element> _elemente(String xml, String tag) {
   final treffer = <_Element>[];
   final start = RegExp('<$tag(?=[\\s/>])');
@@ -105,7 +81,7 @@ List<_Element> _elemente(String xml, String tag) {
     if (m == null) break;
     final tagStart = pos + m.start;
 
-    // Ende des Start-Tags suchen, `>` innerhalb von Attributwerten ignorieren.
+    // Find the end of the start tag, ignoring `>` inside attribute values.
     var i = tagStart + tag.length + 1;
     var inString = false;
     while (i < xml.length) {
@@ -156,8 +132,8 @@ String _lies(String pfad) {
   return datei.readAsStringSync();
 }
 
-/// Dart-Quelltext ohne Kommentare — sonst wuerde ein erklaerender Kommentar
-/// („actions: setzen wir bewusst nicht") die Abhaengigkeitspruefung ausloesen.
+/// Dart source without comments — an explanatory comment mentioning a symbol
+/// would otherwise trigger the dependency check.
 String _dartOhneKommentare(String quelle) => quelle
     .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
     .split('\n')
@@ -167,7 +143,7 @@ String _dartOhneKommentare(String quelle) => quelle
     })
     .join('\n');
 
-/// Alle Dart-Dateien unter `lib/`, die das Notification-Plugin importieren.
+/// All Dart files under `lib/` that import the notification plugin.
 List<String> _notificationQuellen() {
   final wurzel = Directory(_libWurzel);
   if (!wurzel.existsSync()) {
@@ -262,8 +238,8 @@ void main() {
   });
 
   group('D1 · Abhaengigkeit zwischen Dart-Code und Manifest', () {
-    // Diese drei Tests sind der eigentliche Zweck der Datei: sie werden rot,
-    // wenn jemand NUR die Dart-Seite aendert. Genau so ist D1 entstanden.
+    // These three tests are the purpose of the file: they turn red when only
+    // the Dart side changes, which is exactly how D1 happened.
 
     test(
         'wer Notification-Actions oder dismissIsolate nachruestet, MUSS '
@@ -317,8 +293,8 @@ void main() {
               'und die Play-Policy-Sonderpruefung fuer exakte Alarme kommt '
               'ohnehin dazu.');
 
-      // Gegenrichtung: solange inexakt geplant wird, hat die Sonder-
-      // Berechtigung nichts im Manifest verloren (Play-Policy-Pruefung).
+      // Other direction: while scheduling stays inexact, the special
+      // permission has no business in the manifest (Play policy review).
       if (!nutztExakt) {
         expect(deklariert, isFalse,
             reason: 'inexakte Planung braucht keine Exact-Alarm-Berechtigung; '

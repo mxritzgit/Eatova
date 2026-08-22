@@ -1,8 +1,5 @@
-// Manueller Eintrag (Spec 2026-08-13), Einstieg 1: die beschriftete
-// "Manuell eintragen"-Zeile unter der Slot-Wahl oeffnet das Formular
-// (Nutzer-Feedback 2026-08-13: vorher ein viertes Header-Icon — quetschte
-// den Slot-Titel zweizeilig und war als nackter Stift kaum auffindbar);
-// das Ergebnis loggt ueber denselben Pfad wie eine Such-/Favoriten-Zeile.
+// Manual entry (spec 2026-08-13), entry point 1: the labelled row below the
+// slot choice opens the form and logs via the search/favourite path.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,16 +19,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    // Slot-Tap oeffnet das Add-Sheet im normalen Modus.
-    // ensureVisible: der Snack-Slot ist der vierte und liegt unter dem Falz
-    // (Muster food_diary_screen_test.dart „Der Plus-Knopf...").
+    // ensureVisible: the snack slot sits below the fold.
     final addSnack = find.byKey(const ValueKey('food-slot-add-snack'));
     await tester.ensureVisible(addSnack);
     await tester.tap(addSnack);
     await tester.pumpAndSettle();
 
-    // Der Header traegt nur noch Kamera/Galerie/Barcode + X — der manuelle
-    // Eintrag ist die beschriftete Zeile im Inhalt.
     final manualRow = find.byKey(const ValueKey('manual-entry-button'));
     await tester.ensureVisible(manualRow);
     await tester.tap(manualRow);
@@ -56,7 +49,7 @@ void main() {
     await tester.tap(save);
     await tester.pumpAndSettle();
 
-    // Erfolgs-Snack aus _handleAdd (265 × 1,25 = 331 kcal).
+    // 265 × 1.25 = 331 kcal.
     expect(find.textContaining('331'), findsWidgets);
 
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
@@ -76,16 +69,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
 
-    // Auch im Such-Modus steht die Zeile bereit, solange nicht gesucht wird —
-    // sie liegt im Inhalt, nicht im (dort schlanken) Kopf.
+    // The row stays available in search mode until a query runs.
     expect(find.byKey(const ValueKey('manual-entry-button')), findsOneWidget);
 
-    // Invariante: der Leerzustand sitzt horizontal MITTIG (Referenz ist die
-    // volle Breite der Suchleiste, keine Fixzahl). Auf dem Geraet hing der
-    // Block ohne eigene Breite an der linken Kante, seit die Manuell-Zeile
-    // die Inhalts-Spalte auf volle Breite zieht (Nutzer-Befund 2026-08-14);
-    // die Test-Umgebung reproduziert DIESEN Constraint-Fall nicht 1:1 —
-    // die Assertion sichert die Invariante, nicht den Repro.
+    // The empty state sits CENTRED against the search bar's full width. The
+    // test environment cannot reproduce the device constraint case, so this
+    // pins the invariant, not the repro.
     final leerTitel = find.text('Search above or scan a barcode');
     expect(leerTitel, findsOneWidget);
     final suchleiste = find.byKey(const ValueKey('kcal-product-search-card'));
@@ -95,8 +84,8 @@ void main() {
       reason: 'Leerzustand muss horizontal mittig sitzen',
     );
 
-    // Ab aktiver Suche uebernimmt der Ergebnisbereich (inkl. Leersuche-CTA);
-    // die stehende Zeile verschwindet, damit nicht zwei Eingaenge konkurrieren.
+    // Once a search runs the results area takes over, so the two entry
+    // points cannot compete.
     await tester.enterText(
       find.byKey(const ValueKey('kcal-product-search-input')),
       'Dr Oetker',
@@ -122,7 +111,7 @@ void main() {
         find.byKey(const ValueKey('kcal-product-search-input')),
         'Bauernmozzarella',
       );
-      // Debounce (1000 ms) + 2 Leer-Retries (je 600 ms) abwarten.
+      // Debounce (1000 ms) + 2 empty retries (600 ms each).
       await tester.pump(const Duration(milliseconds: 1100));
       await tester.pump(const Duration(milliseconds: 1300));
       await tester.pumpAndSettle();
@@ -167,7 +156,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1300));
     await tester.pumpAndSettle();
 
-    // Fehler heisst „Suche kaputt", nicht „gibt es nicht" — kein CTA.
+    // An error means "search is broken", not "does not exist" — no CTA.
     expect(find.byKey(const ValueKey('manual-entry-cta')), findsNothing);
   });
 }

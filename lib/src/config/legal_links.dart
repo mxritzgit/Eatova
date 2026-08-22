@@ -1,19 +1,13 @@
-/// Zentrale, app-weite Rechts-Links (DSGVO Art. 13 / § 5 DDG / App-Store-Pflicht).
-///
-/// Single source of truth fuer alle Rechtsseiten, damit Auth-Screen, Profil
-/// und Settings exakt dieselben URLs verlinken. Aenderungen passieren nur
-/// hier — kein hartkodierter Uri mehr verstreut im Code.
-///
-/// Die Seiten liegen seit 2026-08 auf der eigenen Domain (deutsch, gepflegt
-/// in FitPilotTestSite bzw. /var/www/eatova.de); eatova.de/privacy leitet
-/// fuer die Store-Formulare per 301 auf /datenschutz um.
+/// App-wide legal links (GDPR Art. 13 / § 5 DDG / app store requirement), so
+/// auth, profile and settings link the same URLs. /privacy 301-redirects to
+/// /datenschutz for the store forms.
 library;
 
-/// Datenschutzerklaerung (deutsch, deckt Website + App ab).
+/// Privacy policy (German, covers website and app).
 const String kPrivacyUrl = 'https://eatova.de/datenschutz';
 
-/// Allgemeine Geschaeftsbedingungen / Nutzungsbedingungen.
+/// Terms and conditions.
 const String kTermsUrl = 'https://eatova.de/agb';
 
-/// Impressum (Anbieterkennzeichnung nach § 5 DDG).
+/// Imprint (provider identification per § 5 DDG).
 const String kImprintUrl = 'https://eatova.de/impressum';

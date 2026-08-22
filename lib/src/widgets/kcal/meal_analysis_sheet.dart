@@ -14,21 +14,15 @@ import '../common/app_snack.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
 
-/// Mappt einen Analyse-/Lookup-Fehler auf die Snack-Meldung fuer den Nutzer.
+/// Maps an analysis/lookup error to the snack message shown to the user.
 ///
-/// Zwei Faelle sind praeziser als die generische [fallback]-Meldung des
-/// jeweiligen Flows:
+/// Two cases are more precise than the flow's generic [fallback]:
 ///
-///  * [TimeoutException] — Analyzer und Produkt-Lookups werfen den, seit alle
-///    HTTP-Phasen explizite `.timeout(...)` tragen. "Prüfe Internet, Supabase
-///    und OpenRouter" waere hier irrefuehrend: die Verbindung stand, nur die
-///    Antwort blieb aus.
-///  * [ProductWithoutNutritionException] — der Service hat das Produkt
-///    gefunden, es traegt nur keine loggbare Energieangabe. Die
-///    Barcode-Fallback-Meldung ("nicht gefunden oder OpenFoodFacts nicht
-///    erreichbar") waere schlicht falsch: der Nutzer haelt das Produkt in der
-///    Hand. Der Fehler bringt seine Meldung inklusive Produktname und
-///    gemessenem Wert bereits mit.
+///  * [TimeoutException] — the connection was up, only the answer never came,
+///    so a "check your connection" message would mislead.
+///  * [ProductWithoutNutritionException] — the product was found but carries
+///    no loggable energy value, so the "not found" message would be wrong.
+///    The error already brings its own message.
 String mealAnalysisErrorMessage(
   Object error,
   String fallback,
@@ -43,10 +37,9 @@ String mealAnalysisErrorMessage(
   return fallback;
 }
 
-/// Sub-Sheet fuer die Foto-/Barcode-Analyse. Wird vom AddMealSheet
-/// gestartet sobald ein Bild aufgenommen oder ein Barcode gescannt wurde.
-/// Zeigt das Loading-Card, danach die `MealResultCard` mit Anpassen +
-/// Hinzufuegen — der Bestaetigen-Schritt entfaellt.
+/// Sub-sheet for photo/barcode analysis, started by AddMealSheet once an
+/// image or barcode is captured. Shows the loading card, then the
+/// `MealResultCard` with adjust + add; there is no confirm step.
 Future<void> showMealAnalysisSheet(
   BuildContext context, {
   required MealSlot slot,
@@ -62,8 +55,8 @@ Future<void> showMealAnalysisSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
-    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
+    // No token on purpose: the scrim behind a sheet darkens in both modes —
+    // a light scrim would dim nothing.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (sheetContext) {
       return MealAnalysisSheet(
@@ -97,22 +90,20 @@ class MealAnalysisSheet extends StatefulWidget {
   final Future<MealAnalysisResult> resultFuture;
   final Uint8List? previewImage;
 
-  /// Loggt das Ergebnis in die Tagesbilanz und liefert die Client-UUID der
-  /// neu geloggten Zeile zurueck. Das Sheet merkt sich diese id, um eine
-  /// spaetere Um-Portionierung GEZIELT auf genau diese Zeile anzuwenden.
+  /// Logs the result into the daily total and returns the client UUID of the
+  /// new row. The sheet keeps that id so a later re-portion hits exactly it.
   final String Function(MealAnalysisResult, MealSlot) onAdd;
 
-  /// Ersetzt das Ergebnis der bereits geloggten Zeile [id] durch das neu
-  /// skalierte [scaled] (korrekte kcal UND Makros). Loest den frueheren
-  /// Bug, bei dem nur ein kcal-Delta floss (Makros eingefroren) und zudem
-  /// die falsche Mahlzeit getroffen wurde.
+  /// Replaces the already logged row [id] with the rescaled [scaled] (kcal
+  /// AND macros). Fixes the earlier bug where only a kcal delta flowed and
+  /// the wrong meal was hit.
   final void Function(String id, MealAnalysisResult scaled) onUpdateMeal;
   final String failureMessage;
 
-  /// Ob die aktuelle Mahlzeit als Favorit angeheftet ist (Herz gefuellt).
+  /// Whether the current meal is pinned as a favorite (filled heart).
   final bool Function(MealAnalysisResult)? isFavorite;
 
-  /// Favoriten-Toggle. Null -> kein Herz-Button.
+  /// Favorite toggle. Null -> no heart button.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
 
   @override
@@ -123,12 +114,10 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   MealAnalysisResult? _result;
   bool _isLoading = true;
   bool _addedToDailyTotal = false;
-  // Client-UUID der geloggten Zeile (gesetzt beim Hinzufuegen). Eine spaetere
-  // Um-Portionierung wird genau auf diese id angewandt.
+  // Client UUID of the logged row; a later re-portion applies to this id.
   String? _addedMealId;
-  // Lokaler optimistischer Favoriten-Zustand: das Sheet liegt in einer eigenen
-  // modalen Route, ein setState der HomePage rebuildet es NICHT. Der Toggle
-  // spiegelt sich daher hier lokal, damit das Herz sofort umschaltet.
+  // Optimistic local favorite state: the sheet lives on its own modal route,
+  // so a HomePage setState does not rebuild it and the heart would lag.
   bool? _favoriteOverride;
 
   @override
@@ -175,20 +164,17 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     final result = _result;
     if (result == null || _addedToDailyTotal) return;
 
-    // Letzte Bremse vor dem Tagebuch (B7). Suche und Barcode liefern seit
-    // Welle 2 nichts Unloggbares mehr — dort wirft
-    // [ProductWithoutNutritionException] schon im Service. Der Foto-KI-Pfad
-    // laeuft an diesem Filter vorbei, und ein 0-kcal-Eintrag ist im Tagebuch
-    // nicht als "unbekannt" erkennbar: er sieht aus wie eine Mahlzeit ohne
-    // Kalorien und verfaelscht die Tagesbilanz still.
+    // Last guard before the diary (B7). Search and barcode already throw
+    // [ProductWithoutNutritionException] in the service, but the photo AI path
+    // bypasses that filter, and a 0 kcal entry is indistinguishable from a
+    // real meal without calories — it skews the daily total silently.
     //
-    // Bewusst KEIN stiller Abbruch und kein deaktivierter Knopf: der Nutzer
-    // erfaehrt den Grund und den Weg heraus ("Anpassen" -> Bestandteile
-    // eintragen), und der Knopf wirkt danach ganz normal.
+    // Deliberately no silent abort and no disabled button: the user learns
+    // the reason and the way out ("adjust" -> enter components).
     //
-    // explicitZeroKcal: eine GEMESSENE 0 (Wasser, Zero) traegt ihren Marker
-    // aus der Produktdatenbank und darf ins Tagebuch — die Bremse gilt dem
-    // Sentinel „0 = unbekannt", nicht dem Produkt.
+    // explicitZeroKcal: a MEASURED 0 (water, zero drinks) carries its marker
+    // from the product database and may be logged — the guard targets the
+    // sentinel "0 = unknown", not the product.
     if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
       showAppSnack(
         context,
@@ -236,9 +222,8 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       _result = updated;
     });
 
-    // War die Mahlzeit bereits geloggt: das KOMPLETTE skalierte Ergebnis
-    // (kcal UND Makros) auf genau diese Zeile uebergeben. Frueher floss nur
-    // ein kcal-Delta -> Makros eingefroren + falsche Mahlzeit getroffen.
+    // If already logged, hand the COMPLETE scaled result (kcal AND macros) to
+    // exactly that row; a kcal-only delta froze macros and hit the wrong meal.
     if (wasAdded && loggedId != null) {
       widget.onUpdateMeal(loggedId, updated);
     }
@@ -262,15 +247,15 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   Widget build(BuildContext context) {
     final t = context.t;
     final mediaQuery = MediaQuery.of(context);
-    // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
-    // derselbe Deckel wie im Add-Meal-Sheet, damit der fixe Kopf nie unter
-    // Statusleiste/Dynamic Island geraet.
+    // Safe-area and keyboard aware instead of a fixed 92 % (sheetMaxHeight):
+    // same cap as the add-meal sheet, so the fixed header never slides under
+    // the status bar or Dynamic Island.
     final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
 
-    // Bewusst kein SheetScaffold: das braucht einen fixen Titel plus genau
-    // eine Fussaktion. Hier sitzt ueber einem gedeckelten Scrollbereich ein
-    // fixer Kopf, und die Aktionen liegen auf der Ergebniskarte.
+    // No SheetScaffold: that assumes a fixed title plus exactly one footer
+    // action. Here a fixed header sits above a capped scroll area and the
+    // actions live on the result card.
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(

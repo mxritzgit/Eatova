@@ -1,23 +1,14 @@
--- Sentinel-Rest, Migrations-Runde (2026-08-08). Zwei Punkte, die in PR #18
--- bewusst zurueckgestellt wurden, weil sie die Live-DB brauchen:
+-- Chat quota honesty. Two changes:
 --
--- 1) get_chat_quota_today: der uid-null-Zweig antwortete mit VOLLEM
---    Kontingent ("kein Nutzerkontext" -> "used 0, remaining p_daily_limit").
---    Das ist exakt der Sentinel, den die Dart-Seite (W6-07,
---    ChatQuotaSnapshot.unknown) entfernt hat — er lebte im RPC weiter, und
---    der Client uebernimmt eine gelieferte Zeile ungeprueft als
---    Serveraussage. Kein Kontext ist keine Zahl: Exception. Praktisch
---    erreichbar war der Zweig nur fuer service_role-Aufrufe ohne User-JWT
---    (anon-EXECUTE ist seit 20260609120000 revoked); der normale Client
---    ruft mit User-JWT auf und ist unbetroffen.
+-- 1) get_chat_quota_today: the uid-null branch used to answer with the FULL
+--    quota — a sentinel the client would take as a server statement. No
+--    context is not a number, so it raises. Only reachable for service_role
+--    calls without a user JWT.
 --
--- 2) refund_chat_quota: claim_chat_quota reserviert den Tages-Slot VOR dem
---    teuren Antwort-Call. Scheitert die Edge Function danach
---    (Provider-Fehler, gescheiterter Message-Store), war der Slot bisher
---    ehrlich gemeldet, aber verloren — ein Abend mit Provider-Ausfall
---    konnte alle 5 Slots verbrennen, ohne eine einzige Antwort. Der Refund
---    gibt genau einen Slot zurueck und klemmt bei 0 (ein Refund ohne
---    vorherigen Claim darf keinen Gratis-Slot erzeugen).
+-- 2) refund_chat_quota: claim_chat_quota reserves the daily slot BEFORE the
+--    expensive answer call, so a later edge-function failure burned the slot.
+--    The refund returns exactly one slot and clamps at 0, so a refund without
+--    a prior claim cannot create a free slot.
 
 create or replace function public.get_chat_quota_today(
   p_daily_limit integer default 5
@@ -47,8 +38,8 @@ begin
 end;
 $$;
 
--- create or replace erhaelt die bestehenden Grants (authenticated +
--- service_role; anon seit 20260609120000 revoked) — hier nichts nachziehen.
+-- create or replace keeps the existing grants (authenticated + service_role;
+-- anon revoked since 20260609120000) — nothing to re-grant here.
 
 create or replace function public.refund_chat_quota(
   p_user_id uuid
@@ -71,8 +62,8 @@ begin
 end;
 $$;
 
--- Wie claim_chat_quota: nur die Edge Function (service_role) darf refunden —
--- ein Client, der seine eigene Quota zuruecksetzen kann, haette kein Limit.
+-- Like claim_chat_quota: only the edge function (service_role) may refund — a
+-- client able to reset its own quota would have no limit.
 revoke all on function public.refund_chat_quota(uuid) from public;
 revoke all on function public.refund_chat_quota(uuid) from authenticated;
 revoke all on function public.refund_chat_quota(uuid) from anon;

@@ -2,18 +2,13 @@ import 'package:flutter/material.dart';
 
 import 'app_tokens.dart';
 
-/// Das Eatova-Theme — Material 3 als Fundament, [AppTokens] als sichtbare
-/// Schicht.
+/// The Eatova theme — Material 3 as the base, [AppTokens] as the visible layer.
 ///
-/// Die Arbeitsteilung (Design-Refactor 2026-08-09): Material traegt Verhalten,
-/// Semantik und Plattform-Korrektheit (Ripple, Fokus, Screenreader, Scroll-
-/// Physik, Dialoge); die Pixel kommen aus den Tokens. Deshalb setzt diese
-/// Datei ein echtes [ColorScheme] — SDK-Widgets, die wir nicht selbst
-/// zeichnen (DatePicker, Snackbar, Cursor), sollen ohne lokale Sonderfaelle
-/// richtig aussehen.
-///
-/// Zwei Schriften statt einer: Bricolage Grotesque fuer Zahlen/Ueberschriften,
-/// Archivo fuer alles Uebrige — beide gebuendelt unter assets/fonts.
+/// Material owns behaviour, semantics and platform correctness (ripple, focus,
+/// screen reader, scroll physics, dialogs); the pixels come from the tokens.
+/// Hence a real [ColorScheme]: SDK widgets we do not draw ourselves
+/// (DatePicker, Snackbar, cursor) must look right without local special cases.
+/// Two fonts: Bricolage Grotesque for numbers/headings, Archivo for the rest.
 ThemeData buildEatovaTheme(Brightness brightness) {
   final t = brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
 
@@ -122,11 +117,9 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(rChip),
       ),
     ),
-    // Eingabefelder: weiche Kapsel, KEIN Fokusring (Nutzer-Feedback) — der
-    // Fokus zeigt sich ueber die aufgehellte Flaeche, nicht ueber eine
-    // leuchtende Kontur. Der 1-px-Rand ist derselbe [AppTokens.line], der
-    // auch jede Karte umschliesst; er rahmt nicht das Feld ein, er setzt es
-    // wie jede andere Flaeche vom Grund ab.
+    // Input fields: soft capsule, NO focus ring (user feedback) — focus shows
+    // as a lightened surface. The 1 px edge is the same [AppTokens.line] every
+    // card uses; it separates the surface, it does not frame the field.
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: t.surf,
@@ -159,9 +152,8 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       selectionColor: t.lime.withValues(alpha: 0.35),
       selectionHandleColor: t.accent,
     ),
-    // Kalender-Dialog (Datumsauswahl im Food-Tab/Edit-Sheet) im App-Stil:
-    // ruhige Flaeche, kein Header-Block, Akzent nur fuer Heute/Auswahl.
-    // Bewusst die Standard-Widgets (DatePickerDialog) — nur Toene.
+    // Calendar dialog in app style: quiet surface, no header block, accent only
+    // for today/selection. Stock DatePickerDialog widgets, only recoloured.
     datePickerTheme: DatePickerThemeData(
       backgroundColor: t.surf,
       surfaceTintColor: Colors.transparent,
@@ -182,9 +174,9 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         letterSpacing: 0.4,
       ),
       dayStyle: AppType.ui(13, weight: FontWeight.w600),
-      // Tages-Zellen: Auswahl als satte Akzent-Flaeche, Heute nur als Ring,
-      // Disabled deutlich zurueckgenommen, Press/Hover als weiche
-      // Flaechen-Aufhellung statt Material-Splash-Grau.
+      // Day cells: selection as a solid accent surface, today only a ring,
+      // disabled dimmed, press/hover as a soft lightening instead of grey
+      // Material splash.
       dayForegroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) return t.onForest;
         if (states.contains(WidgetState.disabled)) {
@@ -206,7 +198,7 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         return Colors.transparent;
       }),
       todayBorder: BorderSide(color: t.accent, width: 1.2),
-      // Jahres-Raster im selben Ton wie die Tage.
+      // Year grid in the same tones as the days.
       yearStyle: AppType.ui(13, weight: FontWeight.w600),
       yearForegroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) return t.onForest;
@@ -217,7 +209,7 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         return Colors.transparent;
       }),
       yearOverlayColor: WidgetStateProperty.all(t.ink.withValues(alpha: 0.06)),
-      // Fusszeile: Abbrechen zurueckhaltend, OK traegt den Akzent.
+      // Footer: cancel is muted, confirm carries the accent.
       cancelButtonStyle: TextButton.styleFrom(
         foregroundColor: t.ink2,
         textStyle: AppType.ui(13, weight: FontWeight.w600),

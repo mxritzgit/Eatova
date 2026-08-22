@@ -1,69 +1,36 @@
--- Eatova — Groessen- und Wertegrenzen fuer public.user_recipes und
--- public.chat_sessions.title (Komplettreview 2026-08-19, Fund "niedrig").
+-- Size and value limits for public.user_recipes and public.chat_sessions.title
+-- (Komplettreview 2026-08-19, low finding).
 --
--- BEFUND / WARUM DIESE TABELLE DIE LINIE VERPASST HAT
+-- 20260517220000_security_hardening.sql gave every then-existing
+-- client-writable table a `<table>_safe_ranges_check`. `user_recipes` was
+-- created later and never joined that block: it carries only five `>= 0`
+-- column checks and no length or upper bound at all. `chat_sessions.title` was
+-- missed in the same window.
 --
--- 20260517220000_security_hardening.sql hat jede damals existierende
--- client-beschreibbare Tabelle mit einem `<tabelle>_safe_ranges_check`
--- versehen (profiles, daily_logs, logged_meals, favorite_meals, weight_log,
--- caffeine_entries, lifetime_stats). `user_recipes` entstand 13 Tage SPAETER
--- (20260530091000_user_recipes.sql) und ist deshalb nie in diesen Block
--- gewandert: sie traegt bis heute nur die fuenf Spalten-Checks `>= 0` und
--- KEINE einzige Laengen- oder Obergrenze. Faktische Grenze sind der
--- `integer`-Typ (2 147 483 647) und bei den sechs `text`-Spalten gar nichts.
--- `chat_sessions.title` (20260517170000, drei Tage NACH der Haertung
--- geschrieben, aber im selben Fenster uebersehen) ist der zweite Fall.
+-- No data leak — RLS holds. It is a cost and availability lever: a tampered
+-- client can write arbitrarily large texts and absurd nutrition values, and
+-- `UserRecipesSync.load` reads them all back at startup.
 --
--- Auswirkung: kein Datenleck — RLS haelt, ein Nutzer erreicht nur eigene
--- Zeilen. Es ist ein Kosten- und Verfuegbarkeitshebel: ein manipulierter
--- Client (die App selbst tut das nie, s.u.) kann pro Zeile beliebig grosse
--- Texte und absurde Naehrwerte schreiben, und `UserRecipesSync.load` liest
--- sie beim Start wieder komplett zurueck.
+-- Limits are deliberately GENEROUS — a limit that rejects legitimate user data
+-- would be worse than none. Every number sits far above what the two write
+-- paths can produce (e.g. title 160 real vs 300 here, description 600 vs 4000,
+-- ingredients/preparation 2000 vs 20000, chat title ~40 vs 500).
 --
--- GRENZENWAHL — bewusst GROSSZUEGIG
+-- Numeric ranges match `logged_meals_safe_ranges_check`, since recipes are
+-- converted to meals via `FitnessRecipe.toMealResult` anyway. Text limits are
+-- wider than logged_meals: ingredients/preparation are multiline free text,
+-- not labels.
 --
--- Eine Grenze, die legitime Nutzerdaten abweist, waere schlimmer als keine.
--- Deshalb liegt jede Zahl hier weit ueber dem, was die beiden Schreibpfade
--- real erzeugen koennen:
---
---   Spalte         | real geschrieben                        | Grenze hier
---   ---------------+-----------------------------------------+------------
---   slug           | 'user_<13 Ziffern>' / 'user_coach_<id>' |   200
---   title          | 160 (maxLength im Sheet, titleMaxChars) |   300
---   description    | 600 (RECIPE_LIMITS.descriptionMaxChars) |  4 000
---   portion        | 200 (portionMaxChars); Sheet-Feld frei   |  1 000
---   ingredients    | 2 000 (longTextMaxChars); Feld frei      | 20 000
---   preparation    | 2 000 (longTextMaxChars); Sheet: ''      | 20 000
---   image_asset    | 'local:img_<hex>.jpg' (~40)             |  2 048
---   calories_kcal  | 1..10 000 (Sheet lehnt ab, Coach klemmt) | 10 000
---   protein/carbs/ | 0..1 000                                 |  1 000
---   fat_g          |                                          |
---   estimated_g    | 0..10 000                                | 10 000
---   categories     | genau ['Eigene']                         | 32 Eintraege
---
--- Die Zahlenbereiche sind identisch zu `logged_meals_safe_ranges_check` —
--- Rezepte werden ohnehin ueber `FitnessRecipe.toMealResult` in eine Mahlzeit
--- konvertiert und muessen dort durch dieselben Grenzen. Die Textgrenzen sind
--- gegenueber logged_meals absichtlich weiter: `ingredients`/`preparation`
--- sind mehrzeilige Freitextfelder, keine Etiketten.
---
--- `chat_sessions.title`: der Auto-Titel der Edge Function kappt bei 40
--- Zeichen + Ellipse (handler.ts), der Client legt Sessions immer mit dem
--- ARB-Default an, und ein Umbenennen-UI gibt es nicht. 500 ist damit rund das
--- Zwoelffache des laengsten legitimen Titels.
---
--- WARUM `not valid`
---
--- ADD CONSTRAINT validiert sonst den kompletten Bestand und schlaegt fehl,
--- sobald EINE Altzeile die Grenze reisst — auf der Produktivdatenbank waere
--- die Migration damit nicht wiederholbar deploybar. `not valid` prueft nur
--- kuenftige INSERTs und UPDATEs; genau das ist der Schutz, um den es geht.
--- Wer den Bestand nachziehen will, macht das getrennt und beobachtet:
+-- `not valid`: ADD CONSTRAINT would otherwise validate the whole existing set
+-- and fail if ONE legacy row breaks a limit, making the migration
+-- non-redeployable in production. `not valid` guards future INSERT/UPDATE only,
+-- which is the protection wanted here. To bring existing rows in line, run
+-- separately and watch:
 --   alter table public.user_recipes  validate constraint user_recipes_safe_ranges_check;
 --   alter table public.chat_sessions validate constraint chat_sessions_safe_ranges_check;
 --
--- Idempotent ueber die `pg_constraint`-Probe wie im Vorbild
--- (20260517220000_security_hardening.sql, Abschnitt 3).
+-- Idempotent via the `pg_constraint` probe, as in
+-- 20260517220000_security_hardening.sql section 3.
 
 do $$
 begin
@@ -82,9 +49,8 @@ begin
         carbs_g between 0 and 1000 and
         fat_g between 0 and 1000 and
         estimated_g between 0 and 10000 and
-        -- cardinality allein liesse die EINZELNE Kategorie unbegrenzt (ein
-        -- Eintrag mit 100 MB waere weiter erlaubt); die zweite Zeile deckelt
-        -- deshalb die Gesamtlaenge des Arrays.
+        -- cardinality alone would leave a SINGLE category unbounded, so the
+        -- second line caps the total array length.
         cardinality(categories) <= 32 and
         char_length(array_to_string(categories, ',')) <= 2000
       ) not valid;

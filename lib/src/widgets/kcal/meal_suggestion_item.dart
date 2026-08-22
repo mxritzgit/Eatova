@@ -7,13 +7,12 @@ import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 
-/// Gemeinsames Item-Widget fuer Suchtreffer, Favoriten und letzte
-/// Mahlzeiten im AddMealSheet.
+/// Shared item widget for search hits, favorites and recent meals in the
+/// AddMealSheet.
 ///
-/// Collapsed = schlanke Zeile (Avatar + Titel + Subtitle + Chevron).
-/// Tap → expandiert in einen Stepper-Body mit Gramm-Anpassung und einem
-/// einzigen "Hinzufuegen"-Button. Nach dem Hinzufuegen collapsed das Item
-/// und zeigt einen gruenen Check als Trailing.
+/// Collapsed is a slim row; a tap expands into a stepper body with gram
+/// adjustment and a single add button. After adding, the item collapses and
+/// shows a green check as trailing.
 class MealSuggestionItem extends StatefulWidget {
   const MealSuggestionItem({
     super.key,
@@ -39,19 +38,18 @@ class MealSuggestionItem extends StatefulWidget {
   final String? imageUrl;
   final IconData fallbackIcon;
 
-  /// Akzent des Kaertchens. Null -> [AppTokens.accent]; eine Konstante als
-  /// Default ginge nicht mehr, seit die Farbe vom Anzeige-Modus abhaengt.
+  /// Card accent. Null uses [AppTokens.accent]; a const default is impossible
+  /// because the color depends on the display mode.
   final Color? accent;
 
   final bool justAdded;
   final VoidCallback? onRemove;
   final Key? addButtonKey;
 
-  /// Ob dieses Item aktuell favorisiert ist (Herz gefüllt, lime).
+  /// Whether this item is currently favorited (filled heart).
   final bool isFavorite;
 
-  /// Optionaler Favoriten-Toggle im Header. Null → kein Herz-Button
-  /// (bestehende Aufrufer bleiben unverändert).
+  /// Optional favorite toggle in the header; null means no heart button.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final Key? favoriteButtonKey;
 
@@ -62,24 +60,21 @@ class MealSuggestionItem extends StatefulWidget {
 class _MealSuggestionItemState extends State<MealSuggestionItem> {
   static const int _step = 10;
 
-  /// Obergrenze des **Reglers** — eine reine Anzeigegrenze, kein Wertelimit.
+  /// Upper end of the **slider** — a display bound, not a value limit.
   ///
-  /// Ein Slider muss Enden haben; 1..10000 g darauf abzubilden macht ihn
-  /// unbedienbar (ein Pixel waere ~30 g). Die Zahl begrenzt deshalb nur, wie
-  /// weit der Daumen kommt. Groessere Portionen bleiben ueber Tippfeld und
-  /// Stepper erreichbar, und sobald der Wert darueber liegt, waechst das
-  /// Fenster mit (siehe [_sliderMaxGrams]) — der Regler zeigt dann eine
-  /// gueltige Position statt still zurueckzuklemmen.
+  /// Mapping 1..10000 g onto a slider makes it unusable (one pixel is ~30 g),
+  /// so this only limits how far the thumb reaches. Larger portions stay
+  /// reachable via field and stepper, and the window grows with the value
+  /// (see [_sliderMaxGrams]) instead of silently clamping back.
   static const int _sliderWindowGrams = 1000;
 
-  /// Der zuletzt **gueltige** Wert. Eine unplausible Tippeingabe aendert ihn
-  /// nicht (siehe [_onGramsTextChanged]).
+  /// The last **valid** value. An implausible typed input leaves it alone
+  /// (see [_onGramsTextChanged]).
   late int _grams;
   late TextEditingController _gramsController;
 
-  /// Im Feld steht etwas, das keine plausible Portion ist. Dann ist
-  /// "Hinzufuegen" gesperrt und ein Hinweis sichtbar — abgelehnt, nicht
-  /// stillschweigend verbogen.
+  /// The field holds something that is not a plausible portion: add is locked
+  /// and a hint is visible — rejected, not silently bent.
   bool _gramsInvalid = false;
 
   @override
@@ -105,14 +100,13 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     super.dispose();
   }
 
-  /// Die Startportion kommt aus Modellantwort, OFF oder Favoriten-Cache —
-  /// eine Fremdquelle, die niemand nachfragen kann. Dafuer ist Klemmen
-  /// richtig (`model_limits.dart`, Abschnitt "Clamp oder Ablehnung?"), und
-  /// zwar mit **derselben** Funktion, die auch `adjustedToGrams` benutzt.
+  /// The start portion comes from a foreign source (model answer, OFF,
+  /// favorites cache) that cannot be asked back, so clamping is right here
+  /// (`model_limits.dart`), with the same function `adjustedToGrams` uses.
   static int _fromForeignSource(int grams) => clampPortionGrams(grams);
 
-  /// Rechtes Ende des Reglers. Waechst mit, wenn die aktuelle Portion ueber
-  /// dem Anzeigefenster liegt — sonst zeigte der Daumen bei 1200 g auf 1000.
+  /// Right end of the slider; grows when the portion exceeds the display
+  /// window, otherwise the thumb would show 1000 for 1200 g.
   int get _sliderMaxGrams =>
       _grams > _sliderWindowGrams ? _grams : _sliderWindowGrams;
 
@@ -126,9 +120,8 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     }
   }
 
-  /// Stepper und Regler sind Flaechen mit Enden: wer dagegen zieht, hat keine
-  /// Zahl behauptet, sondern an die Kante gefasst. Klemmen ist hier also
-  /// keine stille Verfaelschung — im Gegensatz zur Tippeingabe.
+  /// Stepper and slider have ends: dragging against them asserts no number,
+  /// so clamping is not a silent falsification here — unlike typed input.
   void _setGrams(int value) {
     final geklemmt = clampPortionGrams(value);
     if (geklemmt == _grams && !_gramsInvalid) return;
@@ -141,13 +134,11 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
 
   void _bumpGrams(int delta) => _setGrams(_grams + delta);
 
-  /// Getippte Portionen werden **abgelehnt statt geklemmt**.
+  /// Typed portions are **rejected, not clamped**.
   ///
-  /// `FilteringTextInputFormatter.digitsOnly` ist ein Typ-, kein
-  /// Wertebereichs-Guard. Wer 12000 tippt, bekam bisher lautlos 1000 geloggt
-  /// — genau die stille Verfaelschung, vor der der Kopf von
-  /// `model_limits.dart` warnt. Der zuletzt gueltige Wert bleibt stehen, der
-  /// Knopf wird gesperrt, und der Nutzer sieht warum.
+  /// `FilteringTextInputFormatter.digitsOnly` guards the type, not the range,
+  /// so typing 12000 would silently log 1000. The last valid value stays, the
+  /// button locks, and the user sees why.
   void _onGramsTextChanged(String value) {
     final parsed = int.tryParse(value.trim());
     final gueltig = parsed != null && isPlausiblePortionGrams(parsed);
@@ -157,42 +148,31 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     });
   }
 
-  /// Die Mahlzeit auf der aktuell eingestellten Portion — **eine** Instanz
-  /// fuer Vorschau und Speicherpfad.
+  /// The meal at the currently set portion — **one** instance for preview and
+  /// save path.
   ///
-  /// Genau hier sass B1: die Vorschau rechnete dichte-zuerst
-  /// (`kcalPer100G * g / 100`), waehrend [MealAnalysisResult.adjustedToGrams]
-  /// seit Welle 2 `caloriesKcal` als autoritativ behandelt. Bei einem
-  /// Apfelkuchen mit {420 kcal, 150 g, 52 kcal/100 g} zeigte die Zeile ueber
-  /// dem Knopf 78 kcal, geloggt wurden 420 — Faktor 5,4 zwischen Anzeige und
-  /// Tagebuch.
+  /// Delegates to [MealAnalysisResult.adjustedToGrams] instead of copying the
+  /// formula (B1: a density-first preview showed 78 kcal while 420 was
+  /// logged); it also brings the clamps and macro scaling along.
   ///
-  /// Delegieren statt die Formel abzuschreiben (wie in
-  /// `meal_widgets_adjust.dart`): eine Kopie kann wieder auseinanderlaufen,
-  /// und `adjustedToGrams` bringt die Clamps (1..10000 g, 0..10000 kcal) und
-  /// die Makro-Skalierung gleich mit.
-  ///
-  /// Bei unveraenderter Portion bleibt das Original stehen — dank der
-  /// Invariante `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal`
-  /// ist das derselbe Zahlenwert, nur ohne `isAdjusted` und ohne
-  /// umgeschriebene `portionNotes`.
+  /// An unchanged portion keeps the original: the invariant
+  /// `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal` makes that
+  /// the same number, without `isAdjusted` or rewritten `portionNotes`.
   MealAnalysisResult get _adjusted => _grams == widget.result.estimatedGrams
       ? widget.result
       : widget.result.adjustedToGrams(_grams);
 
   @override
   Widget build(BuildContext context) {
-    // EINE Instanz pro Build: die Vorschau zeigt sie an, der Knopf reicht
-    // genau dieses Objekt weiter. Nicht zwei Aufrufe desselben Getters —
-    // dann waere "dieselbe Zahl" wieder nur eine Zusicherung statt einer
-    // Tatsache. Jede Portionsaenderung laeuft ueber setState, der Knopf
-    // haelt also nie ein veraltetes Ergebnis.
+    // ONE instance per build: the preview shows it and the button passes on
+    // exactly this object. Two getter calls would make "same number" a
+    // promise instead of a fact; every portion change runs through setState.
     final angepasst = _adjusted;
     final t = context.t;
     final accent = widget.accent ?? t.accent;
 
-    // Ruhige Karte der neuen Sprache: 1-px-Rand statt Schatten. Aufgeklappt
-    // hebt sie sich ueber die hellere Flaeche ab, nicht ueber eine Erhebung.
+    // Quiet card: 1 px border instead of a shadow. Expanded, it stands out
+    // via the lighter surface, not via elevation.
     return AnimatedContainer(
       duration: motionDuration(context, const Duration(milliseconds: 180)),
       curve: Curves.easeOutCubic,
@@ -276,13 +256,10 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Der Untertitel muss dieselbe Autoritaet nennen wie die Vorschau im
-    // aufgeklappten Koerper, sonst widerspricht sich EINE Karte: beim
-    // Apfelkuchen {420 kcal, 150 g, 52 kcal/100 g} stand hier "52 kcal /
-    // 100 g", waehrend die Karte darunter 420 kcal auf 150 g auswies.
-    // `adjustedToGrams(100).caloriesKcal` ist genau die Dichte, die aus
-    // caloriesKcal und estimatedGrams folgt — dieselbe Rechnung, die auch
-    // geloggt wird, statt des rohen Nebenfelds `kcalPer100G`.
+    // The subtitle must cite the same authority as the expanded preview, or
+    // one card contradicts itself. `adjustedToGrams(100).caloriesKcal` is the
+    // density that follows from caloriesKcal and estimatedGrams — the same
+    // maths that gets logged, not the raw `kcalPer100G` side field.
     final t = context.t;
     final per100 = result.adjustedToGrams(100).caloriesKcal;
     final subtitle = per100 > 0
@@ -344,8 +321,8 @@ class _Header extends StatelessWidget {
                   isFavorite
                       ? Icons.favorite_rounded
                       : Icons.favorite_outline_rounded,
-                  // Der Marken-Akzent ist die reservierte Aktionsfarbe —
-                  // bewusst NICHT der (kategorische) Item-Akzent.
+                  // The brand accent is the reserved action color —
+                  // deliberately NOT the categorical item accent.
                   color: isFavorite ? t.accent : t.ink2,
                   size: 18,
                 ),
@@ -376,8 +353,8 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 42px-Avatar: Remote-Produktbilder kommen voll aufgelöst von OpenFoodFacts
-    // — Decode auf die Avatar-Größe begrenzen (spart Speicher pro Suchtreffer).
+    // OpenFoodFacts sends full-resolution product images; cap the decode at
+    // the 42 px avatar size to save memory per search hit.
     final cachePx = (42 * MediaQuery.devicePixelRatioOf(context)).round();
     return Container(
       width: 42,
@@ -472,8 +449,8 @@ class _ExpandedBody extends StatelessWidget {
   final int grams;
   final TextEditingController gramsController;
 
-  /// Genau die Instanz, die [onAdd] weiterreicht. Kalorien und Makros der
-  /// Vorschau kommen daraus — nicht aus einer zweiten Rechnung.
+  /// Exactly the instance [onAdd] passes on; the preview's kcal and macros
+  /// come from it, not from a second calculation.
   final MealAnalysisResult preview;
 
   final bool gramsInvalid;
@@ -485,7 +462,7 @@ class _ExpandedBody extends StatelessWidget {
   final ValueChanged<String> onTextChanged;
   final ValueChanged<double> onSliderChanged;
 
-  /// `null` sperrt den Knopf — die getippte Portion ist unplausibel.
+  /// `null` locks the button — the typed portion is implausible.
   final VoidCallback? onAdd;
 
   @override
@@ -591,8 +568,8 @@ class _ExpandedBody extends StatelessWidget {
   }
 }
 
-/// Runde Soft-Kapsel statt Hairline-Quadrat: die Flaeche traegt den Knopf,
-/// das Icon traegt den Akzent. Kein Rahmen (Design-Vorgabe).
+/// Round soft capsule instead of a hairline square: the surface carries the
+/// button, the icon carries the accent. No border (design rule).
 class _StepperButton extends StatelessWidget {
   const _StepperButton({
     required this.icon,
@@ -604,7 +581,7 @@ class _StepperButton extends StatelessWidget {
 
   final IconData icon;
 
-  /// A11y: das +/-Icon allein sagt einem Screenreader nichts.
+  /// A11y: the +/- icon alone tells a screen reader nothing.
   final String semanticLabel;
 
   final Color accent;
@@ -633,9 +610,8 @@ class _StepperButton extends StatelessWidget {
   }
 }
 
-/// Rahmenlose Gramm-Kapsel nach dem Coach-Composer-Muster: kein Hairline,
-/// kein Fokusring — Fokus ist eine Flaechen-Aufhellung, die Zahl ist der
-/// Held (18 pt, tabular).
+/// Borderless gram capsule following the coach composer pattern: no hairline,
+/// no focus ring — focus is a surface lightening, the number is the hero.
 class _GramsField extends StatefulWidget {
   const _GramsField({required this.controller, required this.onChanged});
 
@@ -674,8 +650,8 @@ class _GramsFieldState extends State<_GramsField> {
       curve: Curves.easeOutCubic,
       height: 48,
       decoration: BoxDecoration(
-        // Fokus = Flaechen-Aufhellung, kein Ring: `surf` liegt in beiden Modi
-        // eine Stufe ueber `tile` und uebernimmt genau diese Rolle.
+        // Focus = surface lightening, no ring: `surf` sits one step above
+        // `tile` in both modes and takes exactly this role.
         color: _focused ? t.surf : t.tile,
         borderRadius: BorderRadius.circular(rPill),
       ),
@@ -695,18 +671,16 @@ class _GramsFieldState extends State<_GramsField> {
               ),
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
-                // Fuenf Stellen, weil die Obergrenze
-                // (PlausibilityLimits.portionGramsMax = 10000 g) fuenf hat.
-                // Mit vier war der obere Teil des gueltigen Bereichs
-                // ueberhaupt nicht eingebbar — eine unsichtbare zweite
-                // Grenze neben der eigentlichen.
+                // Five digits because the upper bound
+                // (PlausibilityLimits.portionGramsMax = 10000 g) has five;
+                // four made the top of the valid range unenterable.
                 LengthLimitingTextInputFormatter(5),
               ],
               textAlign: TextAlign.center,
               style: AppType.display(18, color: t.ink),
               decoration: const InputDecoration(
-                // Theme-Borders explizit ausnullen: das globale
-                // inputDecorationTheme traegt Hairline + Lime-Fokusring.
+                // Null out the theme borders explicitly: the global
+                // inputDecorationTheme carries a hairline and focus ring.
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,

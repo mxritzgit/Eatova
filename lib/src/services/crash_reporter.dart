@@ -9,90 +9,60 @@ import 'sync_error_messages.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'
     show AuthException, FunctionException, PostgrestException, StorageException;
 
-/// Schlanke, statische Facade fuer Crash-Reporting.
+/// Thin static facade for crash reporting.
 ///
-/// Der Rest der App haengt NUR an dieser Klasse, nie direkt an Sentry:
-/// Fehlerpfade rufen [capture], Kontextspuren [breadcrumb]. Ob dahinter
-/// wirklich Sentry sitzt, entscheidet allein das Build-Flag `SENTRY_DSN`
-/// (via `--dart-define` bzw. `--dart-define-from-file=dart_defines.json`).
+/// The app depends only on this class, never on Sentry directly. Whether
+/// Sentry is behind it is decided solely by the `SENTRY_DSN` build flag;
+/// without a DSN (dev, CI, tests) the facade is a no-op with
+/// `dart:developer` logging — no network, no init, no throw.
 ///
-/// Ohne DSN — also in Dev-Builds, CI und Tests — ist die Facade ein
-/// sauberer No-Op mit `dart:developer`-Logging: kein Netzwerk, kein Init,
-/// kein Throw. `SentryFlutter.init` wird ausschliesslich in `main.dart`
-/// aufgerufen (und auch dort nur bei nicht-leerem DSN).
+/// Privacy: the app processes health data, so only technical fields
+/// (operation, error type, stack) may reach [capture]/[breadcrumb].
 ///
-/// Privacy: Die App verarbeitet Gesundheitsdaten. In [capture]/[breadcrumb]
-/// gehoeren deshalb nur technische Angaben (Operation, Fehlertyp, Stack) —
-/// niemals Nutzerdaten wie Gewicht, Mahlzeiten oder Health-Werte.
+/// That promise rests on three filters, because the facade is not the only
+/// route to Sentry (C1):
 ///
-/// Diese Zusage ist seit REVIEW-2026-08-08 (C1) kein Kommentar mehr, sondern
-/// steht auf DREI Beinen — die Facade ist naemlich laengst nicht der einzige
-/// Weg nach Sentry:
+/// 1. [sanitizeForReport] — everything passing through [capture].
+/// 2. [sanitizeSentryEvent] as `beforeSend` — unhandled errors grabbed by
+///    the Flutter/onError/runZonedGuarded integrations.
+/// 3. [sanitizeSentryBreadcrumb] as `beforeBreadcrumb` — breadcrumbs are
+///    mirrored into the native scope, and a native crash report leaves
+///    without any Dart hook.
 ///
-/// 1. [sanitizeForReport] — alles, was durch [capture] laeuft.
-///    (`test/services/crash_reporter_sanitize_test.dart`)
-/// 2. [sanitizeSentryEvent] als `beforeSend` — unbehandelte Fehler, die
-///    `FlutterErrorIntegration`, `OnErrorIntegration` und
-///    `RunZonedGuardedIntegration` an der Facade vorbei abgreifen.
-///    (`test/services/crash_reporter_before_send_test.dart`,
-///    `test/services/crash_reporter_mechanism_test.dart`)
-/// 3. [sanitizeSentryBreadcrumb] als `beforeBreadcrumb` — der
-///    Breadcrumb-Strom, den `beforeSend` NICHT abdeckt: Breadcrumbs werden
-///    in den nativen Scope gespiegelt, und ein nativer Crash-Report geht
-///    ohne jeden Dart-Hook hinaus.
-///    (`test/services/crash_reporter_breadcrumb_test.dart`)
-///
-/// Verdrahtet werden 2 und 3 von [configureSentry]; dass `main.dart` das auch
-/// wirklich aufruft, sichert
-/// `test/services/crash_reporter_wiring_test.dart`.
+/// [configureSentry] wires 2 and 3.
 class CrashReporter {
   const CrashReporter._();
 
-  /// Sentry-DSN aus `--dart-define=SENTRY_DSN=...`. Default leer:
-  /// Crash-Reporting bleibt komplett aus.
+  /// Sentry DSN from `--dart-define=SENTRY_DSN=...`. Empty by default, which
+  /// turns crash reporting off entirely.
   static const String dsn = String.fromEnvironment('SENTRY_DSN');
 
-  /// True, wenn ein DSN gesetzt ist UND `SentryFlutter.init` (main.dart)
-  /// erfolgreich durchgelaufen ist. In Tests immer false — dort ist der
-  /// DSN leer und es existiert nur der No-Op-Hub.
+  /// True when a DSN is set AND `SentryFlutter.init` ran. Always false in
+  /// tests (empty DSN, no-op hub).
   static bool get isActive => dsn.isNotEmpty && Sentry.isEnabled;
 
-  /// Testnaht. Ist sie gesetzt, geht das Objekt, das SONST an
-  /// `Sentry.captureException` ginge, stattdessen hierher — mit exakt
-  /// demselben Inhalt und an exakt derselben Stelle im Ablauf.
-  ///
-  /// Produktiv ist sie IMMER `null` (der Pfad existiert dann nicht). Sie ist
-  /// die einzige Moeglichkeit, ohne DSN, ohne Netz und ohne Sentry-Hub zu
-  /// belegen, WAS Sentry bekommen wuerde — und damit die einzige Moeglichkeit,
-  /// die Datenschutz-Zusage im Klassen-Header zu TESTEN statt sie nur zu
-  /// behaupten. Sie sitzt bewusst VOR der [isActive]-Schranke: mit leerem DSN
-  /// waere hinter der Schranke nie etwas zu beobachten.
+  /// Test seam: when set, the object that would go to
+  /// `Sentry.captureException` goes here instead, unchanged and at the same
+  /// point in the flow. Always `null` in production. Sits BEFORE the
+  /// [isActive] gate — with an empty DSN nothing would be observable behind
+  /// it, and this is the only way to test the privacy promise above.
   @visibleForTesting
   static void Function(Object error, StackTrace stack, String? context)?
       debugSentrySink;
 
-  /// Testnaht fuer [breadcrumb], analog zu [debugSentrySink].
+  /// Test seam for [breadcrumb], like [debugSentrySink].
   @visibleForTesting
   static void Function(String message)? debugBreadcrumbSink;
 
-  /// Meldet einen fehlgeschlagenen Sync-Write — aber NUR, wenn er etwas
-  /// bedeutet.
+  /// Reports a failed sync write, but only when it means something.
   ///
-  /// Ein reiner Netzausfall auf diesem Pfad ist kein Vorfall, sondern der
-  /// vorgesehene Ablauf: die Op liegt in der persistierten Warteschlange, der
-  /// Nutzer hat den Hinweis gesehen, der Replay holt es nach. Bis 2026-08-10
-  /// ging trotzdem jeder dieser Faelle als Fehler mit Prioritaet „hoch" an
-  /// Sentry — der Feed zeigte drei Issues aus einer halben Stunde
-  /// Flugmodus-Test, alle aus demselben Pfad.
+  /// A plain outage on this path is the designed flow: the op sits in the
+  /// persisted queue and replay catches it up. Reporting those would drown
+  /// real errors and burn the quota.
   ///
-  /// Das ist nicht nur Laerm. Wer in der U-Bahn eine Mahlzeit eintraegt,
-  /// erzeugte einen Crash-Report; bei genug Nutzern verschwinden echte Fehler
-  /// zwischen erwarteten Netzausfaellen, und das Kontingent ist verbraucht,
-  /// bevor der erste echte Absturz ankommt.
-  ///
-  /// Die Klassifizierung ist BEWUSST dieselbe wie die fuer die Nutzer-Meldung
-  /// ([isNetworkSyncError]) — ein zweiter Schwellenwert waere ein zweiter Ort,
-  /// an dem beides auseinanderlaeuft.
+  /// Uses the same classification as the user-facing message
+  /// ([isNetworkSyncError]); a second threshold would be a second place for
+  /// the two to drift apart.
   static Future<void> captureSyncFailure(
     Object error,
     StackTrace stack, {
@@ -109,24 +79,21 @@ class CrashReporter {
     await capture(error, stack, context: context);
   }
 
-  /// Meldet einen behandelten Fehler. Loggt immer via `dart:developer`;
-  /// an Sentry geht — sanitisiert — nur, wenn [isActive]. Wirft nie selbst:
-  /// die aufrufenden Fehlerpfade duerfen durch Reporting nicht kaputtgehen.
+  /// Reports a handled error. Always logs via `dart:developer`; only reaches
+  /// Sentry (sanitized) when [isActive]. Never throws — reporting must not
+  /// break the error paths that call it.
   ///
-  /// Was Sentry bekommt, entscheidet [sanitizeForReport], nicht der Aufrufer.
-  /// Damit ist es egal, ob ein Aufrufer weiss, dass sein `error` gerade eine
-  /// halbe `profiles`-Zeile mitschleppt.
+  /// [sanitizeForReport] decides what Sentry sees, not the caller, so it does
+  /// not matter whether a caller knows its `error` carries user data.
   static Future<void> capture(
     Object error,
     StackTrace stack, {
     String? context,
   }) async {
     try {
-      // Bewusst das ROHE Objekt: dart:developer schreibt ausschliesslich in
-      // die lokale Geraete-/IDE-Konsole und verlaesst das Geraet nie. Sentry
-      // liest dart:developer nicht (die Integrationen haengen an `print`,
-      // `FlutterError.onError` und `PlatformDispatcher.onError`). Beim
-      // Entwickeln bleibt so die volle Fehlermeldung sichtbar.
+      // The RAW object on purpose: dart:developer only writes to the local
+      // device/IDE console and Sentry does not read it, so the full message
+      // stays visible while developing.
       dev.log(
         context == null ? 'capture' : 'capture ($context)',
         name: 'crash_reporter',
@@ -135,10 +102,9 @@ class CrashReporter {
         level: 1000, // SEVERE
       );
       final sink = debugSentrySink;
-      // Ohne Senke und ohne aktives Sentry hat niemand einen Abnehmer — dann
-      // gar nicht erst sanitisieren. Das ist der Normalfall in Dev, CI und
-      // Tests, und `capture` sitzt in Fehlerpfaden, die in Schleifen laufen
-      // koennen (Outbox-Replay).
+      // No sink and no active Sentry means no consumer, so skip sanitizing.
+      // That is the normal case in dev/CI/tests, and `capture` sits in error
+      // paths that can loop (outbox replay).
       if (sink == null && !isActive) return;
 
       final SanitizedError sanitized = sanitizeForReport(error);
@@ -147,48 +113,39 @@ class CrashReporter {
         return;
       }
       await Sentry.captureException(
-        // Nie `error` — siehe sanitizeForReport.
+        // Never `error` — see sanitizeForReport.
         sanitized,
-        // Der Stacktrace bleibt ROH und vollstaendig. Ein Dart-Stacktrace
-        // besteht aus Bibliotheks-URIs, Klassen-/Methodennamen und
-        // Zeilennummern — alles zur Uebersetzungszeit festgelegt. Laufzeit-
-        // WERTE (Argumente, Feldinhalte, Empfaenger) stehen nirgends darin,
-        // also auch keine Gewichte, Mahlzeiten oder E-Mail-Adressen. Ohne
-        // ihn waere ein sanitisierter Report nicht mehr zuzuordnen — der
-        // Stack ist nach dem Zumachen die eigentliche Diagnose.
+        // The stack stays RAW: a Dart stack trace holds only library URIs,
+        // class/method names and line numbers — all compile-time fixed, never
+        // runtime values. It is the actual diagnosis once everything else is
+        // stripped.
         stackTrace: stack,
         withScope: (scope) {
           if (context != null) scope.setTag('context', context);
-          // Sentry setzt den Event-`type` aus `runtimeType`, das waere jetzt
-          // fuer JEDEN Report `SanitizedError`. Der echte Typ steht im
-          // `value` (siehe SanitizedError.toString) und zusaetzlich hier als
-          // Tag, damit man in Sentry danach filtern und gruppieren kann.
+          // Sentry derives the event `type` from `runtimeType`, which is now
+          // `SanitizedError` for every report. The real type goes into this
+          // tag so Sentry can still filter and group by it.
           scope.setTag('error_type', sanitized.type);
         },
       );
     } catch (e, s) {
-      // Reporting-Fehler nie propagieren — bestenfalls lokal sichtbar machen.
-      // Der innere try faengt auch pathologische Fehlerobjekte ab (z.B.
-      // toString(), das selbst wirft).
+      // Never propagate a reporting error; the inner try also covers
+      // pathological error objects (e.g. a throwing toString()).
       try {
         dev.log('CrashReporter.capture failed',
             name: 'crash_reporter', error: e, stackTrace: s);
       } catch (_) {
-        // Bewusst schlucken: capture darf unter keinen Umstaenden werfen.
+        // Swallowed on purpose: capture must never throw.
       }
     }
   }
 
-  /// Haengt eine Kontextspur an den naechsten Report (z.B. "outbox replay
-  /// started"). Ohne aktives Sentry nur ein `dart:developer`-Log.
-  /// Wirft nie.
+  /// Attaches a context trail to the next report. Without active Sentry just
+  /// a `dart:developer` log. Never throws.
   ///
-  /// [message] ist bewusst NICHT sanitisierbar — ein Freitext laesst sich
-  /// nicht automatisch von Nutzerdaten trennen. Die Verantwortung liegt beim
-  /// Aufrufer: hier gehoeren nur Konstanten und Zaehler hinein, nie Werte aus
-  /// Profil, Mahlzeiten oder Gewichtsreihe. Die beiden realen Aufrufer
-  /// (`home_store.dart:306`, `home_store_sync.dart:194`) interpolieren
-  /// ausschliesslich `capped.dropped.length`.
+  /// [message] cannot be sanitized — free text is not separable from user
+  /// data automatically. Callers must pass constants and counters only, never
+  /// values from profile, meals or the weight series.
   static void breadcrumb(String message) {
     try {
       dev.log(message, name: 'crash_reporter');
@@ -204,85 +161,63 @@ class CrashReporter {
         dev.log('CrashReporter.breadcrumb failed',
             name: 'crash_reporter', error: e);
       } catch (_) {
-        // Bewusst schlucken: breadcrumb darf unter keinen Umstaenden werfen.
+        // Swallowed on purpose: breadcrumb must never throw.
       }
     }
   }
 
-  /// Kategorie aller Breadcrumbs, die aus dieser Facade stammen.
-  ///
-  /// Ohne sie waeren die eigenen Kontextspuren nicht von fremden zu
-  /// unterscheiden und wuerden vom eigenen Filter
-  /// ([sanitizeSentryBreadcrumb]) mit verworfen — der laesst per Allowlist nur
-  /// Kategorien durch, deren Inhalt bekannt ist.
+  /// Category of every breadcrumb from this facade. Without it our own trails
+  /// would be indistinguishable from foreign ones and dropped by our own
+  /// allowlist filter ([sanitizeSentryBreadcrumb]).
   static const String breadcrumbCategory = 'eatova';
 
-  /// Baut den Breadcrumb, den [breadcrumb] an Sentry gibt.
-  ///
-  /// Eigene Methode, damit der Test belegen kann, dass die eigenen
-  /// Breadcrumbs den eigenen Filter ueberleben — sonst haette der Filter die
-  /// einzige bewusst gepflegte Kontextspur der App stillschweigend
-  /// abgeschaltet.
+  /// Builds the breadcrumb [breadcrumb] hands to Sentry. Separate method so a
+  /// test can prove our own breadcrumbs survive our own filter.
   @visibleForTesting
   static Breadcrumb buildBreadcrumb(String message) =>
       Breadcrumb(message: message, category: breadcrumbCategory);
 }
 
-/// Die vollstaendige Sentry-Konfiguration der App — die Naht, an der sich die
-/// Verdrahtung testen laesst.
+/// The app's complete Sentry configuration — the seam that makes the wiring
+/// testable.
 ///
-/// `main.dart` uebergibt ausschliesslich diese Funktion an
-/// `SentryFlutter.init` und fasst `options` selbst nicht mehr an. Grund:
-/// Verifizierer V3 hat in Welle 5 die Zeile `options.beforeSend =
-/// sanitizeSentryEvent;` aus der Inline-Closure in `main.dart` geloescht — 84
-/// Tests blieben gruen und `flutter analyze` sauber. Eine Closure in `main()`
-/// ist nicht aufrufbar und damit auch nicht pruefbar; eine benannte Funktion
-/// mit `SentryFlutterOptions`-Parameter ist es
-/// (`test/services/crash_reporter_wiring_test.dart`).
+/// `main.dart` passes only this function to `SentryFlutter.init` and never
+/// touches `options` itself: a closure inside `main()` cannot be called and
+/// therefore cannot be tested, so a deleted `beforeSend` line went unnoticed
+/// once. A named function taking `SentryFlutterOptions` can be tested.
 void configureSentry(SentryFlutterOptions options) {
   options.dsn = CrashReporter.dsn;
 
-  // Konservative Konfiguration — die App verarbeitet Gesundheitsdaten, es
-  // darf nichts Sensibles automatisch mitgehen.
+  // Conservative configuration — health data must never travel automatically.
   options.sendDefaultPii = false;
   options.attachScreenshot = false;
-  // Bewusst explizit, obwohl der Default `false` ist: das hier ist die Liste
-  // der Schalter, die niemals umkippen duerfen. `experimental_member_use` ist
-  // in Kauf genommen — ein Default-Flip in einer kuenftigen sentry_flutter-
-  // Version waere deutlich teurer als diese Warnung.
+  // Explicit although the default is `false`: this is the list of switches
+  // that must never flip. The experimental-member warning is accepted; a
+  // default flip in a future sentry_flutter would cost far more.
   // ignore: experimental_member_use
   options.attachViewHierarchy = false;
 
-  // C1, Leck 1 — Prevention an der Quelle. `DebugPrintIntegration` ersetzt
-  // `debugPrint` durch einen Breadcrumb-Sammler und installiert sich
-  // AUSGERECHNET nur im Release-Build (debug_print_integration.dart:21-27:
-  // `if (isDebug || !enablePrintBreadcrumbs) return;`). Der Default ist
-  // `true` (sentry_options.dart:331). In Release schreibt Flutters eigenes
-  // `presentError` -> `dumpErrorToConsole` den ROHEN `toString()` jedes
-  // unbehandelten Framework-Fehlers via `debugPrintStack` — also genau die
-  // `ArgumentError.invalidValue`-, `FormatException.source`- und
-  // `FlutterError`-Texte, die [sanitizeForReport] auf der Exception-Seite
-  // zurueckhaelt.
+  // C1, leak 1 — prevention at the source. `DebugPrintIntegration` turns
+  // `debugPrint` into a breadcrumb collector and installs itself only in
+  // release builds, where Flutter's `dumpErrorToConsole` writes the RAW
+  // `toString()` of every unhandled framework error — exactly the texts
+  // [sanitizeForReport] holds back on the exception side.
   options.enablePrintBreadcrumbs = false;
 
-  // C1, Leck 1 — Backstop. `enablePrintBreadcrumbs` allein reicht nicht:
-  // Breadcrumbs erreichen den Hub auch aus dem nativen Scope
-  // (load_contexts_integration.dart:254) und werden umgekehrt via
-  // `NativeScopeObserver` IN den nativen Scope gespiegelt — ein nativer
-  // Crash-Report geht dann komplett ohne Dart-`beforeSend` hinaus.
-  // `Scope._addBreadCrumbSync` (scope.dart:215) ruft `beforeBreadcrumb` VOR
-  // den Scope-Observern; nur dort sind beide Richtungen zu erwischen.
+  // C1, leak 1 — backstop. Breadcrumbs also reach the hub from the native
+  // scope and are mirrored back into it, and a native crash report leaves
+  // without any Dart `beforeSend`. `beforeBreadcrumb` runs before the scope
+  // observers, so only there are both directions caught.
   options.beforeBreadcrumb = sanitizeSentryBreadcrumb;
 
-  // C1, Leck 2/3: CrashReporter.capture sanitisiert nur, was durch die
-  // Facade laeuft. FlutterErrorIntegration, OnErrorIntegration und
-  // RunZonedGuardedIntegration greifen unbehandelte Fehler DIREKT ab.
+  // C1, leak 2/3: CrashReporter.capture only sanitizes what goes through the
+  // facade; the Flutter/onError/runZonedGuarded integrations grab unhandled
+  // errors DIRECTLY.
   options.beforeSend = sanitizeSentryEvent;
 
-  // Bewusst NICHT gesetzt und deshalb im Wiring-Test festgenagelt:
-  // `tracesSampleRate` (Spans tragen Transaktionsnamen, also Routen) und
-  // `replay.*` (Session-Replay filmt den Bildschirm). Beide Defaults sind
-  // aus; hier stuende sonst der teuerste Datenschutz-Unfall der App.
+  // Deliberately NOT set (and pinned by the wiring test): `tracesSampleRate`
+  // (spans carry transaction names, i.e. routes) and `replay.*` (session
+  // replay films the screen). Both default to off.
   options.environment = kReleaseMode
       ? 'production'
       : kProfileMode
@@ -290,32 +225,17 @@ void configureSentry(SentryFlutterOptions options) {
           : 'development';
 }
 
-/// Breadcrumb-Kategorien, deren Inhalt bekannt und frei von Nutzerdaten ist.
+/// Breadcrumb categories whose content is known and free of user data.
 ///
-/// Allowlist, nicht Blocklist — dieselbe Linie wie bei [sanitizeForReport].
-/// Eine neue Sentry-Version oder ein neues Plugin, das eine bisher unbekannte
-/// Kategorie erzeugt, faellt damit in den zumachenden Default-Zweig.
+/// Allowlist, not blocklist: an unknown category from a new Sentry version or
+/// plugin falls into the closing default branch.
 ///
-/// | Kategorie | Erzeuger | Inhalt | Entscheidung |
-/// |---|---|---|---|
-/// | `eatova` | [CrashReporter.breadcrumb] | Konstanten + Zaehler | durch |
-/// | `app.lifecycle` | `widgets_binding_observer.dart:82` | `resumed`/`paused` | durch |
-/// | `ui.lifecycle` | Android-Activity-Lifecycle | auf Flutter immer `MainActivity` | durch |
-/// | `device.screen` | `widgets_binding_observer.dart:130` | Groesse, DPR | durch |
-/// | `device.event` | `widgets_binding_observer.dart:153` | Helligkeit, textScaleFactor, Locale | durch |
-/// | `device.orientation` | nativ | portrait/landscape | durch |
-/// | `device.connectivity` | `connectivity_integration.dart:29` | wifi/cellular/none | durch |
-/// | `console` | `debug_print_integration.dart:59` | **beliebiger Freitext** | VERWORFEN |
-/// | `navigation` | `SentryNavigatorObserver` | Routennamen — `/meal/<uuid>` waere eine Nutzerkennung | VERWORFEN |
-/// | `ui.click` | `sentry_user_interaction_widget.dart:375` | Widget-Label = angezeigter Nutzertext | VERWORFEN |
-/// | `http` | native Netzwerk-Instrumentierung | URL mit User-UUID im Filter | GEKUERZT |
-/// | (alles andere, inkl. `category == null`) | | unbekannt | VERWORFEN |
-///
-/// `navigation` und `ui.click` entstehen heute nicht — die App registriert
-/// weder `SentryNavigatorObserver` noch `SentryUserInteractionWidget`. Sie
-/// hier trotzdem zuzumachen kostet nichts und schliesst genau den Fall, in
-/// dem jemand spaeter eine Route `/meal/<id>` oder einen Mahlzeiten-Button
-/// hinzufuegt und der Breadcrumb-Strom lautlos Inhalte mitnimmt.
+/// Kept out on purpose: `console` (arbitrary free text), `navigation` (route
+/// names like `/meal/<uuid>`), `ui.click` (widget labels are displayed user
+/// text). `http` is truncated rather than dropped
+/// ([_kuerzeHttpBreadcrumb]). The app registers neither the navigator
+/// observer nor the interaction widget today, but closing them now covers a
+/// later addition.
 const Set<String> _erlaubteBreadcrumbKategorien = <String>{
   CrashReporter.breadcrumbCategory,
   'app.lifecycle',
@@ -328,11 +248,11 @@ const Set<String> _erlaubteBreadcrumbKategorien = <String>{
   'sentry.transaction',
 };
 
-/// Felder aus `Breadcrumb.http`, die keine Laufzeitwerte tragen.
+/// `Breadcrumb.http` fields that carry no runtime values.
 ///
-/// Nicht dabei: `reason` (die rohe Server-Begruendung), `http.query` und
-/// `http.fragment` (die PostgREST-Query traegt die User-UUID im Filter) sowie
-/// `url`, das gesondert auf `scheme://host` gekuerzt wird.
+/// Excluded: `reason` (raw server text), `http.query`/`http.fragment` (the
+/// PostgREST query carries the user UUID in its filter) and `url`, which is
+/// truncated to `scheme://host` separately.
 const Set<String> _erlaubteHttpDatenfelder = <String>{
   'method',
   'status_code',
@@ -343,41 +263,38 @@ const Set<String> _erlaubteHttpDatenfelder = <String>{
   'end_timestamp',
 };
 
-/// `beforeBreadcrumb`-Hook fuer [configureSentry] — C1, Leck 1.
+/// `beforeBreadcrumb` hook for [configureSentry] — C1, leak 1.
 ///
-/// Laeuft in `Scope._addBreadCrumbSync` (scope.dart:215) und damit VOR den
-/// Scope-Observern, die den Breadcrumb in den nativen Scope spiegeln. Nur an
-/// dieser Stelle erwischt man auch die Breadcrumbs, die spaeter in einem
-/// NATIVEN Crash-Report landen — der geht komplett ohne Dart-`beforeSend`
-/// hinaus.
+/// Runs before the scope observers that mirror the breadcrumb into the native
+/// scope; only here are the breadcrumbs caught that later end up in a NATIVE
+/// crash report, which leaves without any Dart `beforeSend`.
 ///
-/// Wirft nie: `Scope` faengt einen Throw zwar ab (scope.dart:228-238), laesst
-/// den Breadcrumb dann aber DURCH. Zumachen muss also hier passieren.
+/// Never throws: `Scope` catches a throw but then lets the breadcrumb
+/// THROUGH, so the closing has to happen here.
 Breadcrumb? sanitizeSentryBreadcrumb(Breadcrumb? breadcrumb, Hint hint) {
   try {
     if (breadcrumb == null) return null;
     final String? kategorie = breadcrumb.category;
-    // Ohne Kategorie ist die Herkunft unbekannt — das trifft u.a. den
-    // `print()`-Breadcrumb-Pfad und jedes handgebaute `Breadcrumb(message:)`
-    // aus einer Fremdbibliothek.
+    // No category means unknown origin — covers the `print()` breadcrumb path
+    // and any hand-built `Breadcrumb(message:)` from a third-party library.
     if (kategorie == null) return null;
     if (kategorie == 'http') return _kuerzeHttpBreadcrumb(breadcrumb);
     if (!_erlaubteBreadcrumbKategorien.contains(kategorie)) return null;
     return breadcrumb;
   } catch (_) {
-    // Im Zweifel verwerfen: ein fehlender Breadcrumb kostet Diagnose, ein
-    // durchgelassener kostet Gesundheitsdaten.
+    // When in doubt drop: a missing breadcrumb costs diagnosis, a leaked one
+    // costs health data.
     return null;
   }
 }
 
-/// `http`-Breadcrumbs werden gekuerzt statt verworfen: Methode, Status und
-/// Dauer sind die eigentliche Diagnose eines Sync-Fehlers, und die stecken
-/// nicht in der URL. Weg muessen Pfad und Query — `?user_id=eq.<uuid>` bei
-/// PostgREST, `meal-images/<uuid>/...` bei Storage.
+/// `http` breadcrumbs are truncated rather than dropped: method, status and
+/// duration are the actual diagnosis of a sync failure and do not live in the
+/// URL. Path and query must go — `?user_id=eq.<uuid>` on PostgREST,
+/// `meal-images/<uuid>/...` on storage.
 Breadcrumb _kuerzeHttpBreadcrumb(Breadcrumb breadcrumb) {
-  // Der Freitext eines http-Breadcrumbs ist bei nativer Instrumentierung die
-  // ganze Request-Zeile.
+  // Under native instrumentation the free-text message is the whole request
+  // line.
   breadcrumb.message = null;
   final Map<String, dynamic>? daten = breadcrumb.data;
   if (daten == null) return breadcrumb;
@@ -392,9 +309,9 @@ Breadcrumb _kuerzeHttpBreadcrumb(Breadcrumb breadcrumb) {
   return breadcrumb;
 }
 
-/// Reduziert eine URL auf `scheme://host`. Alles, was sich nicht sicher als
-/// http(s)-URL mit Host lesen laesst, faellt auf den Platzhalter — nie auf
-/// den Rohwert.
+/// Reduces a URL to `scheme://host`. Anything not safely readable as an
+/// http(s) URL with a host falls back to the placeholder, never the raw
+/// value.
 String _nurHerkunft(Object? url) {
   const String entfernt = '<URL entfernt>';
   if (url is! String) return entfernt;
@@ -404,22 +321,14 @@ String _nurHerkunft(Object? url) {
   return '${uri.scheme}://${uri.host}';
 }
 
-/// Kontext-Schluessel, die Sentry serialisieren darf.
+/// Context keys Sentry may serialize.
 ///
-/// `Contexts.toJson` (contexts.dart:315-318) schiebt jeden UNBEKANNTEN
-/// Schluessel im `default:`-Zweig unveraendert hinaus — genau darueber geht
-/// `flutter_error_details` (flutter_error_integration.dart:72) samt dem
-/// gerenderten `informationCollector`-Text raus.
-///
-/// Durchgelassen bleibt die echte Diagnostik: Geraet, OS, Runtime, App,
-/// Browser, GPU, Kultur und der Trace-Kontext. Verworfen werden
-/// * `flutter_error_details` und jeder andere unbekannte Schluessel;
-/// * `feedback` — `SentryFeedback` haelt woertlichen Nutzertext plus
-///   Kontakt-E-Mail und Namen; die App hat gar keinen Feedback-Flow, ein
-///   gefuelltes Feld waere also immer ein Unfall;
-/// * `response` — HTTP-Antwort-Metadaten inkl. Header, wird nur ueber
-///   `Hint.response` gefuellt und von der App nie;
-/// * `flags` — Feature-Flag-Auswertungen sind Nutzersegmentierung.
+/// `Contexts.toJson` passes every UNKNOWN key through unchanged — that is how
+/// `flutter_error_details` escapes with its rendered `informationCollector`
+/// text. Kept: device, OS, runtime, app, browser, GPU, culture, trace.
+/// Dropped: `flutter_error_details` and any other unknown key, `feedback`
+/// (verbatim user text plus contact data), `response` (HTTP metadata incl.
+/// headers) and `flags` (feature-flag evaluations are user segmentation).
 const Set<String> _erlaubteContextSchluessel = <String>{
   'app',
   'device',
@@ -432,88 +341,56 @@ const Set<String> _erlaubteContextSchluessel = <String>{
   'trace',
 };
 
-/// Das EINZIGE Fehlerobjekt, das diese Facade an Sentry weitergibt.
+/// The ONLY error object this facade hands to Sentry.
 ///
-/// Sentry baut sein Event aus genau zwei Strings des Throwables
-/// (`sentry_exception_factory.dart:60/64`): `value = throwable.toString()`
-/// und `type = throwable.runtimeType.toString()`. Beides ist hier
-/// konstruktionsbedingt frei von Nutzerdaten, weil die Klasse nur zwei
-/// bereits gefilterte Strings haelt.
+/// Sentry builds its event from two strings of the throwable
+/// (`toString()` and `runtimeType`), and both are free of user data here by
+/// construction: the class holds only pre-filtered strings.
 class SanitizedError implements Exception {
   const SanitizedError(this.type, [this.detail]);
 
-  /// Der Laufzeittyp des urspruenglichen Fehlers, z.B. `PostgrestException`.
+  /// Runtime type of the original error, e.g. `PostgrestException`.
   final String type;
 
-  /// Die durchgelassenen technischen Felder, z.B. `code=23514`. Null, wenn
-  /// der Typ nicht auf der Allowlist steht.
+  /// The technical fields that passed, e.g. `code=23514`. Null when the type
+  /// is not on the allowlist.
   final String? detail;
 
   @override
   String toString() => detail == null ? type : '$type $detail';
 }
 
-/// Typnamen app-EIGENER Fehlerobjekte, die per Konstruktion schon sanitisiert
-/// sind und deren `toString()` deshalb komplett durchgelassen wird.
+/// Type names of app-owned errors that are sanitized by construction, so
+/// their full `toString()` passes.
 ///
-/// Aktuell nur `UndecryptableCacheSlot` (`secure_cache_store.dart`): dessen
-/// Felder sind ein Fehlertypname und ein bereits per `redactUserSegment`
-/// um die User-UUID gekuerzter Slot-Key. Wuerde er in den Default-Zweig
-/// fallen, ginge genau die Information verloren, fuer die er gebaut wurde —
-/// WELCHER Slot sich nicht entschluesseln liess.
+/// Only `UndecryptableCacheSlot`: its fields are an error type name and a
+/// slot key already stripped of the user UUID. The default branch would drop
+/// exactly the information it exists for — WHICH slot failed to decrypt.
 ///
-/// Bewusst ueber den Namen und nicht ueber `is UndecryptableCacheSlot`:
-/// `secure_cache_store.dart` importiert bereits `crash_reporter.dart`, der
-/// typisierte Weg waere ein Importzyklus zwischen einer Facade und einem
-/// Service, der auf ihr aufsetzt. Der Namensvergleich schlaegt unter
-/// `--obfuscate` fehl — und faellt dann in den zumachenden Default-Zweig,
-/// also in die sichere Richtung.
+/// Matched by name, not `is`: the typed route would create an import cycle.
+/// Under `--obfuscate` the name comparison fails and falls into the closing
+/// default branch, i.e. the safe direction.
 const Set<String> _sanitisiertPerKonstruktion = <String>{
   'UndecryptableCacheSlot',
 };
 
-/// `beforeSend`-Hook fuer [configureSentry] — die zweite Haelfte von C1.
+/// `beforeSend` hook for [configureSentry] — the second half of C1.
 ///
-/// [CrashReporter.capture] ist NICHT der einzige Weg nach Sentry:
-/// `SentryFlutter.init` installiert `FlutterErrorIntegration`,
-/// `OnErrorIntegration` und `RunZonedGuardedIntegration`, die unbehandelte
-/// Fehler direkt abgreifen und an dieser Facade vorbeilaufen. Eine
-/// `PostgrestException` aus einem nicht gefangenen Future ginge sonst roh
-/// hinaus, samt `Failing row contains (<uuid>, <email>, ..., 25, 178, 34)`.
+/// [CrashReporter.capture] is not the only route to Sentry: the Flutter,
+/// onError and runZonedGuarded integrations grab unhandled errors directly,
+/// so a `PostgrestException` from an uncaught future would otherwise leave
+/// raw, `Failing row contains (…)` included.
 ///
-/// Sentry baut `SentryException.value` aus `throwable.toString()`
-/// (`sentry_exception_factory.dart:60`) — genau dieser Wert wird hier durch
-/// die sanitisierte Fassung ersetzt. `type` bleibt stehen, damit die
-/// Gruppierung in Sentry weiter funktioniert.
+/// The pass covers the whole event, not just `exceptions[].value`: events
+/// from `FlutterErrorIntegration` often have no `exceptions` at all and carry
+/// their payload in `contexts['flutter_error_details']`. Sanitized or
+/// dropped: exception values, `mechanism.data`/`.meta` (see
+/// [_redigiereMechanismus]), `contexts`, `message`, `breadcrumbs`, `extra`,
+/// `request`, `user`. Types, stacks, tags and the compile-time-fixed fields
+/// pass so grouping keeps working.
 ///
-/// Absichtlich eine benannte Top-Level-Funktion statt einer Closure in
-/// `main.dart`: nur so ist der Hook testbar.
-///
-/// Bis Welle 5 fasste diese Funktion AUSSCHLIESSLICH `exceptions[].value` an.
-/// Das ist zu wenig — die Events, die C1 aufreisst, haben oft gar keine
-/// `exceptions`: `FlutterErrorIntegration` baut sein Event aus `throwable`
-/// plus `contexts['flutter_error_details']`
-/// (flutter_error_integration.dart:66-76). Deshalb jetzt ein Durchgang ueber
-/// das ganze Event:
-///
-/// | Feld | Entscheidung | Grund |
-/// |---|---|---|
-/// | `exceptions[].value` | sanitisiert | siehe [sanitizeForReport] |
-/// | `exceptions[].type`/`stackTrace` | durch | Typnamen und Zeilennummern, keine Werte |
-/// | `exceptions[].mechanism.data`/`.meta` | auf dieselbe Allowlist reduziert | `PlatformExceptionEventProcessor` legt dort `message` der `PlatformException` ab — siehe [_redigiereMechanismus] |
-/// | `exceptions[].mechanism` (Rest) | ohne `description`/`helpLink` durch | Freitext bzw. interpolierbare URL; `handled`, `source` und die Gruppen-IDs sind Konstanten und Indizes |
-/// | `contexts` | Allowlist | `flutter_error_details` traegt den Diagnostics-Baum |
-/// | `message` | auf `template` reduziert | `formatted`/`params` SIND die Laufzeitwerte |
-/// | `breadcrumbs` | gefiltert | zweite Reihe hinter [sanitizeSentryBreadcrumb] |
-/// | `extra` | verworfen | beliebige Schluessel ohne Schema, von der App nie benutzt |
-/// | `request` | verworfen | URL, Query, Cookies und Header in einem Feld |
-/// | `user` | verworfen | die App identifiziert bewusst niemanden |
-/// | `tags` | durch | nur `context` und `error_type` aus [CrashReporter.capture] |
-/// | `transaction`/`culprit`/`fingerprint`/`modules`/`sdk`/`debugMeta` | durch | uebersetzungszeit-fest |
-///
-/// Wirft nie: `sentry_client.dart:571` loggt einen Throw aus `beforeSend` nur
-/// und verwirft anschliessend das GANZE Event (`:580`). Ein kaputter Filter
-/// waere also ein stiller Totalausfall des Crash-Reportings.
+/// Never throws: a throw from `beforeSend` drops the WHOLE event, so a broken
+/// filter would silently disable crash reporting.
 SentryEvent? sanitizeSentryEvent(SentryEvent event, Hint hint) {
   try {
     _sanitisiereExceptions(event);
@@ -525,10 +402,9 @@ SentryEvent? sanitizeSentryEvent(SentryEvent event, Hint hint) {
     event.request = null;
     event.user = null;
   } catch (_) {
-    // Anders als beim Breadcrumb ist Verwerfen hier die schlechtere Option:
-    // ohne Event gibt es keine Diagnose mehr. Also wenigstens die Felder
-    // leeren, die ueberhaupt Freitext tragen koennen, und das Geruest
-    // (Typ, Stack, Tags) stehen lassen.
+    // Unlike breadcrumbs, dropping is the worse option here: without an event
+    // there is no diagnosis left. So clear every field that can carry free
+    // text and keep the skeleton (type, stack, tags).
     try {
       event.message = null;
       event.breadcrumbs = null;
@@ -539,14 +415,14 @@ SentryEvent? sanitizeSentryEvent(SentryEvent event, Hint hint) {
       for (final SentryException e in event.exceptions ?? const []) {
         e.value = e.type ?? 'Exception';
         final Mechanism? mechanismus = e.mechanism;
-        // Leerer Bezugswert = nichts ueberlebt: sonst haenge hier noch das
-        // rohe `data['message']` des PlatformExceptionEventProcessor dran.
+        // Empty reference value = nothing survives; otherwise the raw
+        // `data['message']` of PlatformExceptionEventProcessor stays attached.
         if (mechanismus != null) {
           e.mechanism = _redigiereMechanismus(mechanismus, '');
         }
       }
     } catch (_) {
-      // Bewusst schlucken: beforeSend darf unter keinen Umstaenden werfen.
+      // Swallowed on purpose: beforeSend must never throw.
     }
   }
   return event;
@@ -556,21 +432,17 @@ void _sanitisiereExceptions(SentryEvent event) {
   final List<SentryException>? exceptions = event.exceptions;
   if (exceptions == null || exceptions.isEmpty) return;
   for (final SentryException e in exceptions) {
-    // Direkte Zuweisung statt copyWith: `copyWith` ist in sentry 9.26
-    // deprecated ("Assign values directly to the instance"), und `value` ist
-    // ein mutables Feld (`sentry_exception.dart:12`). Das Event geht direkt
-    // im Anschluss raus, ein geteiltes Objekt ist hier also unkritisch.
+    // Direct assignment instead of copyWith: `copyWith` is deprecated in
+    // sentry 9.26 and `value` is a mutable field. The event goes out right
+    // after, so a shared object is fine.
     //
-    // `throwable` bleibt stehen: es wird nicht serialisiert (`toJson` kennt
-    // nur type/value/module/stacktrace/mechanism/thread_id), verlaesst das
-    // Geraet also nie, und Sentrys Gruppierung liest es noch.
+    // `throwable` stays: it is not serialized, so it never leaves the device,
+    // and Sentry's grouping still reads it.
     //
-    // Ohne `throwable` (Events aus dem nativen Layer) darf `e.type` NICHT
-    // durch sanitizeForReport laufen: das ist ein String und liefe in den
-    // Default-Zweig, der `String` zurueckgaebe statt `PostgrestException`.
-    // `type` ist per Konstruktion ein Typname
-    // (`sentry_exception_factory.dart:64`), also selbst schon sauber — die
-    // Nutzerdaten stecken ausschliesslich in `value`.
+    // Without `throwable` (native-layer events) `e.type` must NOT go through
+    // sanitizeForReport: it is a String and would hit the default branch,
+    // yielding `String` instead of the real type name. `type` is a type name
+    // by construction anyway — the user data sits only in `value`.
     final String wert = e.throwable == null
         ? SanitizedError(e.type ?? 'Exception').toString()
         : sanitizeForReport(e.throwable as Object).toString();
@@ -583,38 +455,29 @@ void _sanitisiereExceptions(SentryEvent event) {
   }
 }
 
-/// C1, Leck 4 (Audit 2026-08-14): `mechanism` traegt Freitext, den ein
-/// Event-Prozessor VOR `beforeSend` anlegt.
+/// C1, leak 4: `mechanism` carries free text that an event processor writes
+/// BEFORE `beforeSend`.
 ///
-/// `PlatformExceptionEventProcessor` schreibt `code` UND `message` der
-/// `PlatformException` nach `mechanism.data`
-/// (`platform_exception_event_processor.dart:27-38`), und
-/// `sentry_client.dart:160-177` laesst alle Event-Prozessoren vor
-/// `beforeSend` laufen. Genau die `message`, die [sanitizeForReport] auf der
-/// `value`-Seite zurueckhaelt, ging damit ueber `mechanism.data` doch hinaus —
-/// bei Google Sign-In ist das die Server-Begruendung samt Konto.
+/// `PlatformExceptionEventProcessor` puts `code` AND `message` of the
+/// `PlatformException` into `mechanism.data`, so exactly the `message`
+/// [sanitizeForReport] holds back on the `value` side escaped through it.
 ///
-/// Bewusst KEIN zweiter, eigener Filter: ein Feld ueberlebt nur, wenn es als
-/// `schluessel=wert` woertlich schon im sanitisierten [wert] steht. Damit kann
-/// `mechanism` per Konstruktion keinen String tragen, den die Allowlist in
-/// [sanitizeForReport] nicht ohnehin durchgelassen hat — auch dann nicht, wenn
-/// eine kuenftige sentry_flutter-Version ein weiteres Feld dazulegt.
+/// No second filter on purpose: a field survives only if it already appears
+/// verbatim as `key=value` in the sanitized [wert]. By construction
+/// `mechanism` can then carry nothing the allowlist did not already pass,
+/// even if a future sentry_flutter adds another field.
 ///
-/// Neues Objekt statt Zuweisung am Bestand: `Mechanism.meta` hat nur einen
-/// Getter auf eine `Map.unmodifiable` (`mechanism.dart:36`), der Konstruktor
-/// ist der einzige Weg, `meta` zu leeren. `copyWith` scheidet aus — es ist in
-/// sentry 9.26 deprecated und wuerde `data`/`meta` per `??` gerade wieder
-/// einsetzen.
+/// A new object rather than mutation: `Mechanism.meta` only has a getter onto
+/// an unmodifiable map, and `copyWith` is deprecated and would re-insert
+/// `data`/`meta` via `??`.
 Mechanism _redigiereMechanismus(Mechanism mechanism, String wert) => Mechanism(
       type: mechanism.type,
-      // `description` ist Freitext (bei `SentryHttpClient` die rohe
-      // Fehlerbegruendung), `helpLink` laut Protokoll eine "possibly
-      // interpolated with error parameters"-URL — beides bleibt draussen.
+      // `description` is free text and `helpLink` a URL that may be
+      // interpolated with error parameters — both stay out.
       handled: mechanism.handled,
       synthetic: mechanism.synthetic,
-      // Diese vier halten die Exception-Gruppe zusammen, die
-      // `ExceptionGroupEventProcessor` noch vor `beforeSend` aufbaut. Es sind
-      // Indizes und Feldnamen aus dem Quelltext, keine Laufzeitwerte.
+      // These four hold together the exception group built before
+      // `beforeSend`; they are indices and field names, not runtime values.
       isExceptionGroup: mechanism.isExceptionGroup,
       source: mechanism.source,
       exceptionId: mechanism.exceptionId,
@@ -623,13 +486,9 @@ Mechanism _redigiereMechanismus(Mechanism mechanism, String wert) => Mechanism(
       meta: _nurSchonDurchgelassene(mechanism.meta, wert),
     );
 
-/// Behaelt nur die Felder, die als `schluessel=wert` bereits im sanitisierten
-/// Exception-Wert stehen.
-///
-/// Steht das Paar dort, ist auch der Wert selbst schon Teil dessen, was
-/// ohnehin hinausgeht — es kann also nichts Neues entkommen. Alles andere
-/// faellt weg, auch verschachtelte Eintraege wie `meta['errno']`, deren
-/// `toString()` nie zur `name=wert`-Form von [_feld] passt.
+/// Keeps only the fields that already appear as `key=value` in the sanitized
+/// exception value, so nothing new can escape. Everything else drops,
+/// including nested entries whose `toString()` never matches [_feld]'s form.
 Map<String, dynamic>? _nurSchonDurchgelassene(
   Map<String, dynamic> felder,
   String wert,
@@ -643,8 +502,8 @@ Map<String, dynamic>? _nurSchonDurchgelassene(
   return gefiltert.isEmpty ? null : gefiltert;
 }
 
-/// C1, Leck 2. `Contexts` ist eine `MapView`; die Schluessel werden vorher
-/// kopiert, sonst gaebe es eine ConcurrentModificationError beim Entfernen.
+/// C1, leak 2. `Contexts` is a `MapView`; the keys are copied first,
+/// otherwise removing would raise a ConcurrentModificationError.
 void _sanitisiereContexts(SentryEvent event) {
   final Contexts contexts = event.contexts;
   for (final String schluessel in contexts.keys.toList(growable: false)) {
@@ -654,10 +513,9 @@ void _sanitisiereContexts(SentryEvent event) {
   }
 }
 
-/// `SentryMessage.formatted` traegt die eingesetzten Laufzeitwerte,
-/// `template` ist ein Literal aus dem Quelltext — und reicht Sentry zum
-/// Gruppieren. Das Event ganz ohne Message zu lassen waere schlechter: dann
-/// gruppiert Sentry alles zusammen.
+/// `SentryMessage.formatted` carries the interpolated runtime values, while
+/// `template` is a source literal and still lets Sentry group. Leaving the
+/// event without a message would be worse: Sentry would group everything.
 void _sanitisiereMessage(SentryEvent event) {
   final SentryMessage? message = event.message;
   if (message == null) return;
@@ -665,9 +523,9 @@ void _sanitisiereMessage(SentryEvent event) {
   message.params = null;
 }
 
-/// Zweite Reihe hinter [sanitizeSentryBreadcrumb]: `load_contexts_integration
-/// .dart:263` schreibt native Breadcrumbs direkt nach `event.breadcrumbs`,
-/// und ein Event kann auch von Hand mit Breadcrumbs gebaut werden.
+/// Second line behind [sanitizeSentryBreadcrumb]: the native contexts
+/// integration writes breadcrumbs straight into `event.breadcrumbs`, and an
+/// event can also be hand-built with breadcrumbs.
 void _sanitisiereBreadcrumbs(SentryEvent event, Hint hint) {
   final List<Breadcrumb>? breadcrumbs = event.breadcrumbs;
   if (breadcrumbs == null) return;
@@ -677,56 +535,32 @@ void _sanitisiereBreadcrumbs(SentryEvent event, Hint hint) {
       .toList();
 }
 
-/// Reduziert ein beliebiges Fehlerobjekt auf das, was Sentry sehen darf.
+/// Reduces an arbitrary error object to what Sentry may see.
 ///
-/// **Allowlist, nicht Blocklist.** Ein unbekannter Typ liefert ausschliesslich
-/// seinen Typnamen; nichts vom Inhalt. Eine neue Abhaengigkeit mit einem
-/// geschwaetzigen `toString()` (der Regelfall, siehe unten) kann damit nichts
-/// aufreissen, ohne dass jemand hier bewusst einen Zweig ergaenzt.
+/// **Allowlist, not blocklist.** An unknown type yields only its type name.
+/// A new dependency with a chatty `toString()` therefore cannot leak anything
+/// unless someone adds a branch here on purpose.
 ///
-/// Warum das noetig ist — die `toString()`s, die real bei [CrashReporter
-/// .capture] ankommen, tragen fast alle Fremddaten:
+/// Nearly every real `toString()` carries foreign data. Passed through: the
+/// `code`/`statusCode`/`status`/`duration` fields of the Supabase, platform
+/// and timeout exceptions. Held back: every `message` (Supabase generates
+/// them server-side, often with the email address), every `uri` (the
+/// PostgREST query carries the user UUID), `FormatException.source`,
+/// `ArgumentError.invalidValue`/`RangeError` (the typed weight or height),
+/// `NoSuchMethodError` (receiver and arguments) and `AssertionError`/
+/// `FlutterError` (they render a diagnostics tree with displayed text).
 ///
-/// | Typ | `toString()` enthaelt | durchgelassen |
-/// |---|---|---|
-/// | `PostgrestException` | message, code, **details**, hint | `code` |
-/// | `AuthException` (+ alle Subklassen) | **message**, statusCode, code, originalError, reasons | `statusCode`, `code` |
-/// | `StorageException` | **message**, statusCode, error | `statusCode` |
-/// | `FunctionException` (+ Subklassen) | status, **details**, reasonPhrase | `status` |
-/// | `PlatformException` | code, **message**, **details** | `code` |
-/// | `TimeoutException` | **message**, duration | `duration` |
-/// | `TypeError` | nur Typnamen | alles |
-/// | alles andere | unbekannt | nur `runtimeType` |
+/// The worst field is `PostgrestException.details`: on a CHECK violation it
+/// is `Failing row contains (<uuid>, <email>, …)` — identity plus Art. 9
+/// health values in one string.
 ///
-/// Das gefaehrlichste Feld ist `PostgrestException.details`: PostgREST fuellt
-/// es aus PostgreSQLs `DETAIL`, und bei einer CHECK-Verletzung (23514) ist
-/// das `Failing row contains (<uuid>, <email>, <name>, …, 25, 178, 34)` —
-/// Identitaet plus Art.-9-Gesundheitswerte in einem String.
+/// [TypeError] is the only type passed in full: the runtime builds its text
+/// from type names only, and it is the most valuable diagnosis there is.
 ///
-/// Was NICHT durchgelassen wird und warum:
-/// * jede `message` — bei Supabase serverseitig erzeugt und regelmaessig mit
-///   der E-Mail-Adresse darin ("A user with this email address … has already
-///   been registered");
-/// * jede `uri` — die PostgREST-Query traegt die User-UUID im Filter;
-/// * `FormatException.source` und `JsonUnsupportedObjectError` — das ist der
-///   rohe Response-Body bzw. das nicht kodierbare Objekt selbst;
-/// * `ArgumentError.invalidValue` / `RangeError` — genau der getippte
-///   Gewichts- oder Groessenwert, der den Fehler ausgeloest hat;
-/// * `NoSuchMethodError` — enthaelt Empfaenger UND Argumente;
-/// * `AssertionError`/`FlutterError` — rendern ihren Diagnostics-Baum inkl.
-///   Widget-Beschreibungen und damit potenziell angezeigten Nutzertext.
-///
-/// [TypeError] ist die einzige Ausnahme mit vollem `toString()`: den Text
-/// erzeugt die Dart-Laufzeit aus Typnamen ("type 'Null' is not a subtype of
-/// type 'String'"). Er kann keine Werte enthalten und ist zugleich die
-/// wertvollste Diagnose ueberhaupt.
-///
-/// Nicht `@visibleForTesting`: [sanitizeSentryEvent] braucht die Funktion
-/// produktiv, und `secure_cache_store` filtert bereits selbst vor.
+/// Not `@visibleForTesting`: [sanitizeSentryEvent] needs it in production.
 SanitizedError sanitizeForReport(Object error) {
   try {
-    // Idempotent: doppelt sanitisieren aendert nichts. Wichtig, weil Aufrufer
-    // (z.B. secure_cache_store) schon selbst vorfiltern duerfen.
+    // Idempotent, because callers (e.g. secure_cache_store) may pre-filter.
     if (error is SanitizedError) return error;
 
     final String typ = error.runtimeType.toString();
@@ -736,17 +570,14 @@ SanitizedError sanitizeForReport(Object error) {
     }
 
     if (error is PostgrestException) {
-      // Der SQLSTATE ist die Diagnose: 23514 = CHECK-Verletzung,
-      // 23505 = Unique, 42501 = RLS. Kein Nutzerinhalt.
+      // The SQLSTATE is the diagnosis: 23514 = CHECK, 23505 = unique,
+      // 42501 = RLS. No user content.
       return SanitizedError(typ, _feld('code', error.code));
     }
     if (error is AuthException) {
-      // Deckt AuthApiException, AuthSessionMissingException,
-      // AuthRetryableFetchException, AuthWeakPasswordException,
-      // AuthInvalidJwtException, AuthPKCEGrantCodeExchangeError und
-      // AuthUnknownException mit ab — `typ` haelt die konkrete Subklasse
-      // fest. `originalError` (eine rohe http.Response samt Body) und
-      // `reasons` bleiben bewusst aussen vor.
+      // Covers all AuthException subclasses; `typ` records the concrete one.
+      // `originalError` (a raw http.Response with body) and `reasons` stay
+      // out.
       return SanitizedError(
         typ,
         _felder(<String, Object?>{
@@ -756,18 +587,17 @@ SanitizedError sanitizeForReport(Object error) {
       );
     }
     if (error is StorageException) {
-      // `error` (der Server-Slug) bleibt draussen: er kommt roh aus der
-      // Antwort und ist damit nicht kontrollierbar.
+      // `error` (the server slug) stays out: it comes raw from the response.
       return SanitizedError(typ, _feld('statusCode', error.statusCode));
     }
     if (error is FunctionException) {
-      // `details` ist der rohe Function-Response-Body. Bei analyze-meal ist
-      // das die erkannte Mahlzeit des Nutzers.
+      // `details` is the raw function response body — for analyze-meal that
+      // is the user's recognised meal.
       return SanitizedError(typ, _feld('status', error.status));
     }
     if (error is PlatformException) {
-      // `code` ist ein vom Plugin vergebener Konstant-String
-      // ("sign_in_failed", "camera_access_denied"). `details` ist beliebig.
+      // `code` is a plugin-assigned constant ("sign_in_failed"); `details` is
+      // arbitrary.
       return SanitizedError(typ, _feld('code', error.code));
     }
     if (error is TimeoutException) {
@@ -777,12 +607,11 @@ SanitizedError sanitizeForReport(Object error) {
       return SanitizedError(typ, error.toString());
     }
 
-    // Default: zu. Nur der Typname.
+    // Default: closed. Type name only.
     return SanitizedError(typ);
   } catch (_) {
-    // Selbst `runtimeType.toString()` darf hier nichts umbringen. Ein
-    // nutzloser Report ist besser als ein verlorener — und besser als ein
-    // Throw aus einem Fehlerpfad heraus.
+    // Even `runtimeType.toString()` must not kill this. A useless report
+    // beats a lost one, and beats a throw out of an error path.
     return const SanitizedError('<Fehlertyp nicht ermittelbar>');
   }
 }

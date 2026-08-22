@@ -1,34 +1,25 @@
-// Wire-Test fuer den OpenFoodFacts-Service (docs/REVIEW-2026-08-08.md, G2).
+// Wire test for the OpenFoodFacts service (docs/REVIEW-2026-08-08.md, G2).
 //
-// WARUM DIESE DATEI ANDERS IST ALS DIE ANDEREN SERVICE-TESTS
+// Why this file differs from the other service tests: a one-token change in
+// `open_food_facts_product_service.dart` (`result['id'] != 'product_found'`)
+// disabled barcode scanning app-wide without turning a single test red — the
+// HTTP/JSON boundary was replaced by fakes built from the same mental model as
+// the code.
 //
-// Der Review zeigt, dass eine Ein-Token-Aenderung an
-// `open_food_facts_product_service.dart` (`result['id'] != 'product_found'`
-// statt `==`) den Barcode-Scan app-weit abschaltet, ohne dass eine der 442
-// Tests rot wird: die HTTP-/JSON-Grenze war durch Fakes ersetzt, die aus
-// demselben Denkmodell wie der Code stammen. Niemand hat je die
-// tatsaechlichen Bytes gegen den Parser gehalten.
+// So here:
+//   * responses live as FILES next to this test and are served BYTE-WISE over a
+//     real loopback HttpServer — no Dart map literal, no shortcut past
+//     jsonDecode.
+//   * the test drives the real chain: HttpClient -> utf8 -> jsonDecode ->
+//     `result.id` -> _normalizeProduct -> MealAnalysisResult.fromOpenFoodFacts
+//     -> plausibility filter.
+//   * the outgoing REQUEST is checked too (fields=...), since a missing field
+//     is exactly the B7 gap.
 //
-// Deshalb hier:
-//   * Die Antworten liegen als **Datei** neben diesem Test
-//     (open_food_facts_v3_*.json, open_food_facts_search_pl.json) und werden
-//     BYTEWEISE ueber einen echten Loopback-HttpServer ausgeliefert. Kein
-//     Dart-Map-Literal, keine Abkuerzung am jsonDecode vorbei.
-//   * Der Test faehrt die echte Kette: dart:io-HttpClient -> utf8-Decoder ->
-//     jsonDecode -> `result.id`-Auswertung -> _normalizeProduct ->
-//     MealAnalysisResult.fromOpenFoodFacts -> Plausibilitaetsfilter.
-//   * Zusaetzlich wird die abgeschickte **Anfrage** geprueft (fields=...),
-//     denn ein fehlendes Feld ist genau die Luecke aus B7.
-//
-// HERKUNFT DER FIXTURES: aus der OpenFoodFacts-API-Dokumentation
-// (openfoodfacts.github.io/openfoodfacts-server/api/, Kapitel "Read a
-// product / v3") nachgebaut — Umschlag (`code`/`errors`/`product`/`result`/
-// `status`/`warnings`), die `result.id`-Werte `product_found` und
-// `product_not_found`, die 404-mit-JSON-Semantik von v3 und das
-// `nutriments`-Namensschema (`energy-kcal_100g`, `energy_100g`,
-// `energy-kj_100g`, `energy-kcal_value`, `nutrition_data_per`). Die
-// Nutzlasten sind reale Produkte in genau diesem Format. Es gab hier kein
-// Netz; abgeschrieben wurde die Doku, nicht der Code.
+// FIXTURE ORIGIN: rebuilt from the OpenFoodFacts API docs (envelope, the
+// `result.id` values, v3's 404-with-JSON semantics and the `nutriments` naming
+// scheme). Payloads are real products in that format; the docs were copied, not
+// the code.
 
 import 'dart:convert';
 import 'dart:io';
@@ -38,16 +29,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
-/// Antwortet auf die beiden OFF-Endpunkte mit den Bytes der Fixture-Dateien
-/// und protokolliert dabei jede eingegangene [Uri].
+/// Answers both OFF endpoints with the fixture files' bytes and records every
+/// incoming [Uri].
 class _OffFixtureServer {
   _OffFixtureServer._(this._server);
 
   final HttpServer _server;
   final List<Uri> requests = <Uri>[];
 
-  /// Barcode -> Fixture-Datei. Was hier nicht drinsteht, beantwortet der
-  /// Server wie OFF: HTTP 404 MIT JSON-Body.
+  /// Barcode -> fixture file. Anything not listed is answered the way OFF does:
+  /// HTTP 404 WITH a JSON body.
   static const Map<String, String> _barcodeFixtures = <String, String>{
     '3017624010701': 'open_food_facts_v3_found.json',
     '4008400290117': 'open_food_facts_v3_kj_only.json',
@@ -87,7 +78,7 @@ class _OffFixtureServer {
       final barcode = pfad.split('/').last.replaceAll('.json', '');
       final fixture = _barcodeFixtures[barcode];
       if (fixture == null) {
-        // v3-Semantik: nicht gefunden ist 404 MIT gueltigem JSON-Body.
+        // v3 semantics: not found is 404 WITH a valid JSON body.
         await _sende(request, 404, 'open_food_facts_v3_not_found.json');
       } else {
         await _sende(request, 200, fixture);
@@ -109,8 +100,8 @@ class _OffFixtureServer {
   }
 }
 
-/// Rohe Bytes der Fixture-Datei — bewusst nicht dekodiert und nicht neu
-/// serialisiert. Was ueber die Leitung geht, ist exakt der Dateiinhalt.
+/// Raw bytes of the fixture file — deliberately not decoded and not
+/// re-serialised: what goes over the wire is exactly the file content.
 List<int> fixtureBytes(String name) {
   final datei = File('test/services/$name');
   if (!datei.existsSync()) {
@@ -137,8 +128,8 @@ void main() {
   tearDown(() => server.close());
 
   group('Barcode-Pfad gegen echte v3-Bytes', () {
-    // DAS ist die Wache gegen G2. Wird `result['id'] == 'product_found'` zu
-    // `!=` gedreht, faellt `found` auf false und dieser Test wird rot.
+    // THIS is the guard against G2: flipping `result['id'] == 'product_found'`
+    // to `!=` drops `found` to false and turns this test red.
     test('gefundenes Produkt wird vollstaendig geparst', () async {
       final ergebnis = await service.lookupBarcode('3017624010701');
 
@@ -220,8 +211,8 @@ void main() {
     test(
       'Barcode mit kJ-Zahl im kcal-Feld wird als unplausibel abgelehnt',
       () async {
-        // energy-kcal_100g: 2180 ist die kJ-Zahl fuer 521 kcal. Ungebremst
-        // wuerden bei serving_quantity 30 "654 statt 156 kcal" geloggt.
+        // energy-kcal_100g: 2180 is the kJ figure for 521 kcal. Unchecked,
+        // serving_quantity 30 would log 654 instead of 156 kcal.
         await expectLater(
           service.lookupBarcode('7622210449283'),
           throwsA(
@@ -234,12 +225,11 @@ void main() {
     );
 
     test('Barcode ohne kcal-Feld liefert nie ein 0-kcal-Ergebnis', () async {
-      // Der Riegel traegt nur energy_100g: 1611 (kJ). Zwei Ausgaenge sind
-      // richtig, je nachdem ob W2-02s kJ-Fallback im Modell schon steht:
-      //   * ohne kJ-Fallback -> ProductWithoutNutritionException
-      //   * mit  kJ-Fallback -> 1611 / 4,184 = 385 kcal, ein normales Ergebnis
-      // Falsch ist nur, was heute passiert: ein Ergebnis mit 0 kcal, das
-      // MealAnalysisSheet._addToDaily ungebremst ins Tagebuch schreibt.
+      // The bar carries only energy_100g: 1611 (kJ). Two outcomes are correct,
+      // depending on whether the model's kJ fallback is in place:
+      //   * without it -> ProductWithoutNutritionException
+      //   * with it    -> 1611 / 4.184 = 385 kcal, a normal result
+      // Only a 0-kcal result would be wrong: it lands straight in the diary.
       final ausgang = await _ausgangVon(
         () => service.lookupBarcode('4008400290117'),
       );
@@ -258,14 +248,13 @@ void main() {
       );
     });
 
-    // Abstimmung mit W2-02 am Gate: das Modell VERWIRFT einen unplausiblen
-    // kcal-Wert und holt sich ueber energy-kj_100g einen gueltigen. Mein
-    // Filter darf so einen Treffer nicht faelschlich aussortieren — sonst
-    // ergaenzt er die Modellseite nicht, sondern hebt sie auf.
+    // The model DISCARDS an implausible kcal value and derives a valid one from
+    // energy-kj_100g. The filter must not drop such a hit, or it would cancel
+    // the model side instead of complementing it.
     test('verworfener kcal-Wert + gueltiger kJ-Wert bleibt erhalten',
         () async {
-      // energy-kcal_100g: 2180 (Datenmuell) UND energy-kj_100g: 2180
-      // (gueltig) -> 2180 / 4,184 = 521 kcal/100 g.
+      // energy-kcal_100g: 2180 (garbage) AND energy-kj_100g: 2180 (valid)
+      // -> 2180 / 4.184 = 521 kcal/100 g.
       final ergebnis = await service.lookupBarcode('4104420030008');
 
       expect(ergebnis.kcalPer100G, closeTo(521, 1));
@@ -286,10 +275,9 @@ void main() {
       );
     });
 
-    // Die beiden folgenden Tests belegen, dass das neu angefragte
-    // nutrition_data_per am Ende der Kette tatsaechlich wirkt: dasselbe Feld
-    // energy-kcal_value wird einmal akzeptiert und einmal abgelehnt, und der
-    // einzige Unterschied ist die Bezugsgroesse.
+    // The next two tests show nutrition_data_per actually takes effect: the same
+    // energy-kcal_value field is accepted once and rejected once, and the only
+    // difference is the reference size.
     test('nutrition_data_per "100g" macht energy-kcal_value benutzbar',
         () async {
       final ergebnis = await service.lookupBarcode('4260049370019');
@@ -301,9 +289,9 @@ void main() {
 
     test('nutrition_data_per "serving" verhindert die 3150-kcal-Pizza',
         () async {
-      // Genau das Szenario aus B7: pro Portion erfasst, serving_size
-      // "1 Pizza" ohne Gramm, energy-kcal_value: 900. Frueher las die App
-      // daraus "900 kcal / 100 g" und machte bei 350 g 3150 kcal daraus.
+      // The B7 scenario: per-serving data, serving_size "1 Pizza" without
+      // grams, energy-kcal_value: 900. The app used to read that as 900 kcal
+      // per 100 g and turn 350 g into 3150 kcal.
       await expectLater(
         service.lookupBarcode('4009233003204'),
         throwsA(
@@ -321,10 +309,9 @@ void main() {
     test('Suche filtert unloggbare Treffer aus der echten Antwort', () async {
       final treffer = await service.searchProducts('salami');
 
-      // Die Fixture enthaelt vier Produkte: eine brauchbare Pizza, einen
-      // Riegel nur mit kJ, einen Keks mit 2180 im kcal-Feld und einen
-      // Datensatz ohne Namen. Verglichen wird ueber den Code, weil der Titel
-      // die Marke anhaengt ("… · Dr. Oetker").
+      // The fixture holds four products: a usable pizza, a bar with kJ only, a
+      // biscuit with 2180 in the kcal field and a record without a name.
+      // Compared by code, because the title appends the brand.
       final codes = treffer.map((t) => t.code).toList();
       expect(codes, contains('4001724819608'), reason: 'die brauchbare Pizza');
       expect(
@@ -348,9 +335,8 @@ void main() {
   });
 
   group('Fixtures sind gueltige OFF-Antworten', () {
-    // Haelt die Fixtures ehrlich: waeren sie kein gueltiges JSON oder haetten
-    // sie den Umschlag nicht, wuerde der Rest dieser Datei etwas anderes
-    // testen als "echte OFF-Antwort".
+    // Keeps the fixtures honest: without valid JSON and the envelope, the rest
+    // of this file would test something other than a real OFF response.
     test('v3-Umschlag traegt code, result.id, status', () {
       for (final name in const <String>[
         'open_food_facts_v3_found.json',
@@ -378,8 +364,8 @@ void main() {
   });
 }
 
-/// Fuehrt [aktion] aus und liefert entweder das Ergebnis ODER den Fehler als
-/// Wert zurueck — damit beide Ausgaenge mit `anyOf` beschreibbar sind.
+/// Runs [aktion] and returns either the result OR the error as a value, so both
+/// outcomes can be described with `anyOf`.
 Future<Object> _ausgangVon(Future<Object> Function() aktion) async {
   try {
     return await aktion();

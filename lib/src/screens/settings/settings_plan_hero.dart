@@ -8,24 +8,21 @@ import '../../widgets/design/design.dart';
 import 'settings_controls.dart';
 
 // ---------------------------------------------------------------------------
-// Die Plan-Karte der Einstellungen: was aus Koerper, Aktivitaet und Ziel
-// gerade herauskommt.
+// The settings plan card: what body, activity and goal currently produce.
 //
-// Aufteilung nach dem Kontrast, nicht nach Geschmack: der Hero traegt
-// Erhaltung, Tempo und die grosse kcal-Zahl auf [AppTokens.forest]; die drei
-// Makro-Kacheln stehen DARUNTER auf dem Seitengrund. Auf Forest haette
-// [AppTokens.protein] im Hellmodus (#3C5CCC auf #123322) ein Kontrast-
-// verhaeltnis unter 2:1 — die Naehrwert-Kodierung waere unlesbar.
+// Split by contrast, not taste: the hero carries maintenance, pace and the big
+// kcal number on [AppTokens.forest]; the three macro tiles sit BELOW on the
+// page ground, because [AppTokens.protein] on forest drops under 2:1 in light
+// mode and the nutrient coding would be unreadable.
 // ---------------------------------------------------------------------------
 
-/// Wochenrate in kg, die ein konkretes [tagesziel] gegenueber der [erhaltung]
-/// hergibt — negativ heisst abnehmen.
+/// Weekly rate in kg that a given [tagesziel] yields against [erhaltung];
+/// negative means losing.
 ///
-/// **Die einzige Stelle, an der aus kcal ein Tempo wird.** Plan-Karte und
-/// Gewichtsziel-Zeile muessen zwingend dieselbe Zahl zeigen, sonst hat B2 nur
-/// den Ort gewechselt. Fuer das gerechnete Ziel ist das Ergebnis identisch mit
-/// [KcalTargets.effectiveWeeklyRateKg]; im Manuell-Modus zaehlt die Zahl, die
-/// der Nutzer selbst gesetzt hat.
+/// **The only place where kcal becomes a pace.** Plan card and weight-goal row
+/// must show the same number (B2). For the calculated target this equals
+/// [KcalTargets.effectiveWeeklyRateKg]; in manual mode the user's own number
+/// counts.
 double wochenrateKg({required int tagesziel, required int erhaltung}) =>
     (tagesziel - erhaltung) * 7 / kcalPerKgBodyMass;
 
@@ -47,26 +44,20 @@ class SettingsPlanHero extends StatelessWidget {
   final KcalTargets targets;
   final bool manual;
 
-  /// Ob die Karte das gerechnete Ziel zeigt. Sobald der Nutzer eine eigene
-  /// Zahl setzt, beschreibt [targets] nicht mehr das, was gross auf der Karte
-  /// steht — Tempo und Hinweis muessen dann von der gezeigten Zahl kommen,
-  /// sonst entsteht derselbe Widerspruch nur andersherum.
+  /// Whether the card shows the calculated target. Once the user sets their
+  /// own number, [targets] no longer describes what is on the card, so pace
+  /// and note must come from the displayed number.
   bool get _zeigtRechnung => kcal == targets.kcal;
 
-  /// Tempo aus der Zahl, die tatsaechlich auf der Karte steht.
-  ///
-  /// B2: Hier stand frueher `goal.paceLabel` — das *gewaehlte* Tempo. Fuer das
-  /// damalige Standardprofil (PAL 1,2) ergab das „Erhaltung 1997 ·
-  /// −1 kg/Woche" direkt ueber „1200"; 1997 − 1200 = 797 kcal, also
-  /// −0,72 kg/Woche. Seit dem Kalorien-Review 2026-08-21 (PAL ohne Gehen):
-  /// „Erhaltung 2164 · −0,75 kg/Woche" ueber „1350" (1-%-Deckel statt Klemme).
+  /// Pace derived from the number actually shown on the card — not the
+  /// *chosen* pace (B2), which contradicted the displayed kcal.
   String _paceLabel(AppLocalizations l10n) => paceLabelForWeeklyRateKg(
         wochenrateKg(tagesziel: kcal, erhaltung: targets.maintenanceKcal),
         l10n,
       );
 
-  /// Der fertige Erklaersatz der Sicherheitsklemme — nur wenn die Karte auch
-  /// das gerechnete Ziel zeigt.
+  /// The safety-clamp explanation, only when the card shows the calculated
+  /// target.
   String? _paceWarning(AppLocalizations l10n) =>
       _zeigtRechnung ? targets.paceWarning(l10n) : null;
 
@@ -232,8 +223,8 @@ class _MacroTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
         child: Column(
           children: <Widget>[
-            // Die Kachel ist ein Drittel der Zeile breit, die Zahl waechst mit
-            // der Systemschrift — ohne Schrumpfen liefe sie bei 2.0 heraus.
+            // The tile is a third of the row wide and the number grows with
+            // the system font — without shrinking it overflows at 2.0.
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(

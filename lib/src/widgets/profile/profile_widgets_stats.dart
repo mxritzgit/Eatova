@@ -1,10 +1,9 @@
 part of 'profile_widgets.dart';
 
-/// Eine Kennzahl-Kachel: Versalien-Label, grosse Zahl, Einheit.
+/// One metric tile: uppercase label, large number, unit.
 ///
-/// Heisst bewusst nicht einfach `StatTile`: die Bibliothek importiert die
-/// gesamte Design-Barrel, und ein so generischer Name waere ein Kandidat fuer
-/// eine spaetere Namenskollision mit einem gemeinsamen Baustein.
+/// Not named `StatTile`: this library imports the whole design barrel, and
+/// that generic a name would eventually collide.
 class ProfileStatTile extends StatelessWidget {
   const ProfileStatTile({
     super.key,
@@ -29,9 +28,8 @@ class ProfileStatTile extends StatelessWidget {
         children: <Widget>[
           Text(label, style: AppType.eyebrow(t.ink2, size: 9.5)),
           const SizedBox(height: 6),
-          // Zahl und Einheit stehen in einer halben Kartenbreite. Ohne
-          // Flexible + FittedBox platzt die Zwei-Spalten-Reihe bei
-          // textScaler 2.0 — genau die Bruchstelle aus §5 des Vertrags.
+          // Number and unit share half a card width; without Flexible +
+          // FittedBox the two-column row overflows at textScaler 2.0 (§5).
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
@@ -65,10 +63,10 @@ class ProfileStatTile extends StatelessWidget {
   }
 }
 
-/// Zwei Kacheln nebeneinander, gleich hoch.
+/// Two tiles side by side, equal height.
 ///
-/// `IntrinsicHeight` statt einer festen Hoehe: die Kacheln duerfen mit der
-/// Systemschrift wachsen, sollen dabei aber nicht unterschiedlich hoch werden.
+/// `IntrinsicHeight` instead of a fixed height: the tiles may grow with the
+/// system font but must not end up different heights.
 class ProfileStatRow extends StatelessWidget {
   const ProfileStatRow({super.key, required this.left, required this.right});
 

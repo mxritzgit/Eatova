@@ -13,26 +13,23 @@ import '../common/motion.dart';
 import '../design/design.dart';
 import 'edit_meal_sheet.dart';
 
-/// Ein Eintrag des Tagebuchs samt seinem Index in der TAGESLISTE.
+/// One diary entry with its index in the DAY list.
 ///
-/// Der Index kommt bewusst nicht pro Karte, sondern aus einer einzigen,
-/// absteigend nach `loggedAt` sortierten Liste des ganzen Tages — nur so
-/// bleibt `food-history-entry-0` der neueste Eintrag des Tages, worauf
-/// `flows/food_log_flow_test`, `edit_meal_sheet_test` und `flows/recipes_flow`
-/// bauen.
+/// The index comes from a single day-wide list sorted by `loggedAt`
+/// descending, not per card — only that keeps `food-history-entry-0` the
+/// newest entry of the day, which several flow tests rely on.
 @immutable
 class DiaryEntry {
   const DiaryEntry(this.meal, this.index);
 
   final LoggedMeal meal;
 
-  /// Position in der Tagesliste (0 = neueste Mahlzeit des Tages).
+  /// Position in the day list (0 = newest meal of the day).
   final int index;
 }
 
-/// Eine Slot-Karte des Tagebuchs: Avatar, Slot-Name, „N kcal · N Einträge",
-/// ein Plus-Knopf, der GENAU DIESEN Slot im Add-Sheet oeffnet, und darunter
-/// die Eintraege als wischbare Zeilen.
+/// A diary slot card: avatar, slot name, summary line, a plus button opening
+/// the add sheet for THIS slot, and the entries as swipeable rows below.
 class DiaryMealCard extends StatelessWidget {
   const DiaryMealCard({
     super.key,
@@ -45,14 +42,14 @@ class DiaryMealCard extends StatelessWidget {
 
   final MealSlot slot;
 
-  /// Die Eintraege dieses Slots mit ihrem Tages-Index.
+  /// The entries of this slot with their day index.
   final List<DiaryEntry> entries;
 
-  /// Plus-Knopf und leerer Add-Slot: oeffnet das Add-Sheet in [slot].
+  /// Plus button and empty add slot: opens the add sheet in [slot].
   final ValueChanged<MealSlot>? onAddToSlot;
 
-  /// Rueckfall fuer den Tap auf eine Zeile, wenn kein [MealEditScope] ueber
-  /// der Karte liegt (Preview/Standalone).
+  /// Fallback for a row tap when no [MealEditScope] sits above the card
+  /// (preview/standalone).
   final ValueChanged<MealSlot>? onMealTap;
 
   final ValueChanged<String>? onRemoveMeal;
@@ -62,9 +59,8 @@ class DiaryMealCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final color = slot.accentIn(context);
-    // kcal UND Makros des Slots aus einer Summe — dieselbe Zahlenbasis wie
-    // die Tagesbilanz (MacroProgress), statt die Gramm-Strings hier noch
-    // einmal zu parsen.
+    // Slot kcal AND macros from one sum — the same number base as the daily
+    // balance (MacroProgress), instead of re-parsing gram strings here.
     final total = entries.fold<MacroProgress>(
       MacroProgress.empty,
       (sum, e) => sum.add(e.meal.result),
@@ -108,9 +104,9 @@ class DiaryMealCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: AppType.display(11.5, color: t.ink2),
                       ),
-                      // Slot-Makros als eigene Zeile unter der Summe — die
-                      // Summenzeile selbst bleibt unveraendert (Tests lesen
-                      // sie als Ganzes).
+                      // Slot macros as their own line below the summary; the
+                      // summary line itself stays unchanged (tests read it as
+                      // a whole).
                       if (entries.isNotEmpty) ...<Widget>[
                         const SizedBox(height: 1),
                         Text(
@@ -155,14 +151,12 @@ class DiaryMealCard extends StatelessWidget {
   }
 }
 
-/// „P 12 g · K 48 g · F 6 g" (en: „P 12 g · C 48 g · F 6 g") — gerundete
-/// Gramm aus einer [MacroProgress]-Summe. Fuer den Slot-Kopf (alle Eintraege)
-/// und jede Verlaufszeile (ein Eintrag) dieselbe Funktion, damit Zeilen und
-/// Kopf nie auseinanderlaufen.
+/// Rounded grams from a [MacroProgress] sum. Used for both the slot header
+/// (all entries) and each history row (one entry) so they never drift apart.
 String _macroLine(AppLocalizations l10n, MacroProgress m) =>
     l10n.foodMacroSummary(m.proteinG.round(), m.carbsG.round(), m.fatG.round());
 
-/// Der Forest-Plus-Knopf der Slot-Karte.
+/// The forest-coloured plus button of the slot card.
 class _SlotAddButton extends StatelessWidget {
   const _SlotAddButton({required this.slot, required this.onTap});
 
@@ -194,9 +188,9 @@ class _SlotAddButton extends StatelessWidget {
   }
 }
 
-/// Anteil der Zeilenbreite, den die aufgezogene Lösch-Aktion einnimmt.
-/// Auch das Fenster der Reveal-Animation: der SlidableController laeuft beim
-/// Aufziehen von 0 bis genau zu diesem Wert (und beim Dismiss weiter bis 1).
+/// Share of the row width taken by the revealed delete action, and the window
+/// of the reveal animation: the controller runs from 0 to exactly this value
+/// while opening (and on to 1 on dismiss).
 const double _deleteExtent = 0.26;
 
 class _SlidableEntry extends StatelessWidget {
@@ -215,10 +209,9 @@ class _SlidableEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meal = entry.meal;
-    // Bearbeiten-Sheet, wenn die Home-Schale den MealEditScope bereitstellt:
-    // Tap auf den Eintrag editiert GENAU DIESE Mahlzeit (Portion/Slot/Tag).
-    // Ohne Scope (Preview/Standalone) bleibt das alte Verhalten: Tap oeffnet
-    // das Add-Sheet des Slots.
+    // Edit sheet when the home shell provides a MealEditScope: a tap edits
+    // THIS meal. Without a scope (preview/standalone) a tap opens the slot's
+    // add sheet.
     final editScope = MealEditScope.maybeOf(context);
     final VoidCallback? tap;
     if (editScope != null) {
@@ -242,12 +235,11 @@ class _SlidableEntry extends StatelessWidget {
       onTap: tap,
     );
 
-    // Ohne Lösch-Callback: schlichte Zeile (kein Swipe).
+    // Without a delete callback: a plain row, no swipe.
     if (onRemoveMeal == null) return row;
 
-    // Links-Swipe: Zeile + Lösch-Button laufen gemeinsam (ScrollMotion). Ganz
-    // durchwischen loescht direkt (DismissiblePane); Tap auf den Button
-    // animiert die Zeile erst raus und entfernt sie dann aus dem Store.
+    // Swipe left: row and delete button move together (ScrollMotion). A full
+    // swipe deletes directly; a tap on the button animates the row out first.
     return ClipRect(
       key: ValueKey('food-history-clip-${meal.id}'),
       child: Slidable(
@@ -292,8 +284,8 @@ class _DeleteMealAction extends StatelessWidget {
             ),
           );
     return CustomSlidableAction(
-      // Kein autoClose: das wuerde direkt nach dem Tap ein close() feuern und
-      // die dismiss()-Animation abwuergen -> onDelete liefe nie.
+      // No autoClose: it would fire close() right after the tap and kill the
+      // dismiss() animation, so onDelete would never run.
       autoClose: false,
       onPressed: (actionContext) {
         HapticFeedback.mediumImpact();
@@ -302,15 +294,13 @@ class _DeleteMealAction extends StatelessWidget {
           onDelete();
           return;
         }
-        // Erst die Zeile rausschieben + Luecke zusammenziehen, dann loeschen —
-        // sonst springt die Liste hart, sobald der Store neu baut.
+        // Slide the row out and collapse the gap before deleting, otherwise
+        // the list jumps when the store rebuilds.
         //
-        // BEWUSST OHNE `motionDuration`: flutter_slidable startet die
-        // Resize-Animation mit `forward(from: 0)` und setzt im selben Zug
-        // `resized = true`. Bei `Duration.zero` steht der Controller schon im
-        // Build danach auf `completed` und der Debug-Assert der Bibliothek
-        // („A dismissed Slidable widget is still part of the tree") wirft,
-        // bevor `onDelete` die Zeile aus dem Baum genommen hat.
+        // Deliberately NOT via `motionDuration`: with `Duration.zero`
+        // flutter_slidable's resize controller is already `completed` in the
+        // next build and its debug assert about a dismissed Slidable fires
+        // before `onDelete` removed the row from the tree.
         slidable.dismiss(
           ResizeRequest(const Duration(milliseconds: 220), onDelete),
         );
@@ -376,9 +366,8 @@ class _HistoryEntryState extends State<_HistoryEntry>
   );
   bool _gestartet = false;
 
-  // Der Auftritt haengt an MediaQuery („Bewegung reduzieren") und startet
-  // deshalb hier statt in initState: dort darf noch kein InheritedWidget
-  // abgefragt werden.
+  // The entrance depends on MediaQuery (reduce motion) and therefore starts
+  // here, not in initState, where no InheritedWidget may be read yet.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -387,17 +376,15 @@ class _HistoryEntryState extends State<_HistoryEntry>
 
     _controller.duration =
         motionDuration(context, const Duration(milliseconds: 280));
-    // Sanfter Stagger beim Listenaufbau; einzelne neue Eintraege sliden ohne
-    // spuerbare Wartezeit rein. Ueber die id-Keys der Slidable-Wrapper bleibt
-    // der State pro Mahlzeit erhalten -> kein Re-Play beim Loeschen anderer.
-    // pumpAndSettle wartet den Stagger ab, Taps bleiben also stabil.
+    // Gentle stagger while the list builds. The id keys of the Slidable
+    // wrappers keep per-meal state, so deleting one does not replay others.
     final delay = motionDelay(
       context,
       Duration(milliseconds: 40 * math.min(widget.index, 5)),
     );
     if (delay == Duration.zero) {
-      // Kein Timer-Umweg: unter reduzierter Bewegung steht die Zeile im
-      // ersten Frame, ohne dass ein Test darauf pumpen muesste.
+      // No timer detour: under reduced motion the row is there in the first
+      // frame, so tests need not pump for it.
       _controller.forward();
       return;
     }
@@ -420,10 +407,9 @@ class _HistoryEntryState extends State<_HistoryEntry>
     final meal = widget.meal;
     final grams = meal.result.estimatedGrams;
     final amount = grams > 0 ? '~$grams g' : l10n.foodPortionFallback;
-    // Sind alle drei Makros unbekannt (Altbestand ohne Naehrwerte), gibt es
-    // keine Makro-Zeile: „P 0 g · K 0 g · F 0 g" saehe nach einer Messung
-    // aus. Gleiche Regel wie in ExistingMealsList; die Slot-Summe im Kopf
-    // zeigt 0 dagegen immer (wie die Tagesringe).
+    // No macro line when all three are unknown (legacy rows without
+    // nutrition): all-zero grams would look like a measurement. Same rule as
+    // ExistingMealsList; the slot header always shows its sum.
     final rowMacros = MacroProgress.empty.add(meal.result);
     final hasMacros =
         rowMacros.proteinG > 0 || rowMacros.carbsG > 0 || rowMacros.fatG > 0;
@@ -435,8 +421,8 @@ class _HistoryEntryState extends State<_HistoryEntry>
           begin: const Offset(0, 0.20),
           end: Offset.zero,
         ).animate(_in),
-        // A11y: die Verlaufszeile oeffnet das Bearbeiten-Sheet — als Button
-        // mit Hint ansagen (nur wenn ueberhaupt ein Tap verdrahtet ist).
+        // A11y: the row opens the edit sheet, so announce it as a button with
+        // a hint (only when a tap is wired up at all).
         child: Semantics(
           button: widget.onTap != null,
           hint: widget.onTap == null ? null : l10n.foodEditMealTitle,
@@ -479,23 +465,18 @@ class _HistoryEntryState extends State<_HistoryEntry>
                             ),
                           ),
                           const SizedBox(height: 1),
-                          // Der Slot steht hier ein zweites Mal (die Karte
-                          // nennt ihn schon): die Zeile bleibt so auch
-                          // ausserhalb ihrer Karte selbsterklaerend — und
-                          // edit_meal_sheet_test liest genau dieses Format
-                          // als EIN Text-Widget.
+                          // The slot is repeated here so the row stays
+                          // self-explanatory outside its card; a test reads
+                          // exactly this format as ONE Text widget.
                           Text(
                             '${meal.slot.label(l10n)} · $amount',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppType.ui(11, color: t.ink2),
                           ),
-                          // Makros der Mahlzeit als DRITTE Zeile, nicht neben
-                          // „Slot · Menge": neben der kcal-Spalte bleiben bei
-                          // 390 pt und Textskalierung 1.3 nur ~110 pt fuer
-                          // „P 12 g · K 48 g · F 6 g" — die Zeile wuerde
-                          // abgeschnitten (diary_meal_card_macros_test misst
-                          // das mit den echten Schriften).
+                          // Macros as a THIRD line, not beside slot/amount:
+                          // at 390 pt and text scale 1.3 only ~110 pt remain
+                          // next to the kcal column and the line would clip.
                           if (hasMacros) ...<Widget>[
                             const SizedBox(height: 2),
                             Text(
@@ -539,7 +520,7 @@ class _HistoryEntryState extends State<_HistoryEntry>
   }
 }
 
-/// Lokale Wanduhr-Zeit `HH:mm` einer Mahlzeit fuer die Verlaufszeile.
+/// Local wall-clock time `HH:mm` of a meal for the history row.
 String formatMealTime(DateTime dt) {
   final local = dt.toLocal();
   final h = local.hour.toString().padLeft(2, '0');

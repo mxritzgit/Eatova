@@ -1,27 +1,22 @@
-// W6-06 / D5: das Bestandteil-Anpassen-Sheet verwarf ausgefuellte Formulare
-// kommentarlos.
+// W6-06 / D5: the component adjust sheet discarded filled-in forms silently.
 //
-// Es ist das vierte Sheet mit dem Fund und zugleich das, das die drei bereits
-// geschuetzten Sheets fuer ihren datenintensivsten Schritt aufrufen
-// (edit_meal_sheet.dart:257, meal_analysis_sheet.dart:212). Gefaehrdeter
-// Zustand: ein Gewichtsfeld pro Bestandteil, das Entfernt-Set, die manuell
-// ergaenzten Posten — plus die sechs Felder des Hinzufuegen-Dialogs.
+// It is the sheet the three already guarded sheets call for their most
+// data-heavy step. State at risk: a weight field per component, the removed
+// set, manually added items, plus the six fields of the add dialog.
 //
-// Die Schliesswege laufen im Framework VERSCHIEDEN, deshalb wird jeder
-// einzeln geprueft (je dirty und nicht-dirty):
+// The framework routes the close paths differently, so each is tested (dirty
+// and non-dirty):
 //
-//   Barriere-Tap → ModalBarrier.handleDismiss → Navigator.maybePop
-//                  (modal_barrier.dart:225-230)  → fragt PopScope
-//   Ziehen       → BottomSheet._handleDragEnd → onClosing → Navigator.pop
-//                  (bottom_sheet.dart:769-771)   → fragt PopScope NICHT
-//   Griff        → _DragHandle(onSemanticsTap: widget.onClosing)
-//                  (bottom_sheet.dart:368)       → derselbe Navigator.pop
+//   barrier tap → ModalBarrier.handleDismiss → Navigator.maybePop, which
+//                 asks PopScope
+//   drag        → BottomSheet._handleDragEnd → onClosing → Navigator.pop,
+//                 which does NOT ask PopScope
+//   handle      → _DragHandle(onSemanticsTap: widget.onClosing), same pop
 //
-// Der Griff ist hier der Sonderfall: `showDragHandle: true` liess die Route
-// den Griff als Stack-Geschwister NEBEN dem builder-Kind zeichnen
-// (bottom_sheet.dart:397-410) — also ausserhalb jedes Guards im Sheet. Ein
-// Zug genau am Griff und der TalkBack-Dismiss darauf liefen an der
-// Rueckfrage vorbei.
+// The handle is the special case: `showDragHandle: true` made the route draw
+// it as a stack sibling NEXT TO the builder child, outside any guard in the
+// sheet, so a drag on the handle and the TalkBack dismiss bypassed the
+// confirmation.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -34,7 +29,7 @@ import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
-/// Viewport-Pinning + Overflow-Toleranz wie in den uebrigen Widget-Suiten.
+/// Viewport pinning + overflow tolerance, as in the other widget suites.
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   testWidgets(description, (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -80,10 +75,9 @@ MealAnalysisResult _ergebnis({int postenAnzahl = 2}) => MealAnalysisResult(
   ],
 );
 
-/// Faengt ab, was `showWeightAdjustmentSheet` zurueckgibt — genau der Wert,
-/// den die aufrufenden Sheets an `adjustedToItems` weiterreichen. `null` heisst
-/// dort "nichts uebernehmen"; abgebrochen und verworfen muessen deshalb
-/// beide `null` liefern.
+/// Captures what `showWeightAdjustmentSheet` returns — the value the calling
+/// sheets pass to `adjustedToItems`. `null` means "apply nothing", so cancel
+/// and discard must both yield `null`.
 class _Fang {
   Object? wert;
   int aufrufe = 0;
@@ -97,11 +91,10 @@ Future<void> _oeffne(
   final result = _ergebnis(postenAnzahl: postenAnzahl);
   await tester.pumpWidget(
     MaterialApp(
-      // Seit dem Design-Refactor lesen die Anpassen-Flaechen ihre Farben aus
-      // der AppTokens-ThemeExtension; ein blankes MaterialApp-Theme traegt sie
-      // nicht und AppTokens.of wirft dann bewusst.
+      // The adjust surfaces read their colours from the AppTokens theme
+      // extension; a bare MaterialApp theme lacks it and AppTokens.of throws.
       theme: buildEatovaTheme(Brightness.dark),
-      // showWeightAdjustmentSheet liest seit der i18n-Migration context.l10n.
+      // showWeightAdjustmentSheet reads context.l10n.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -142,12 +135,11 @@ Offset _sheetOben(WidgetTester tester) => tester.getTopLeft(
       .first,
 );
 
-/// Weg 1: Tap knapp UEBER das Sheet — genau die Geste, mit der man die
-/// Tastatur schliessen will.
+/// Path 1: tap just ABOVE the sheet — the gesture used to dismiss the
+/// keyboard.
 ///
-/// Der Streifen ueber dem Sheet ist je nach Postenzahl nur ein paar Pixel
-/// hoch; `dy - 40` laege dann ausserhalb des Fensters und der Tap traefe gar
-/// nichts (still gruen fuer die falschen Faelle).
+/// Depending on the item count that strip is only a few pixels tall, so a flat
+/// `dy - 40` would land outside the window and hit nothing.
 Future<void> _tippeAufBarriere(WidgetTester tester) async {
   final oben = _sheetOben(tester).dy;
   expect(oben, greaterThan(4), reason: 'ohne Barriere gaebe es nichts zu tippen');
@@ -155,7 +147,7 @@ Future<void> _tippeAufBarriere(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Weg 2: das Sheet an seinem Inhalt nach unten ziehen.
+/// Path 2: drag the sheet down by its content.
 Future<void> _ziehAmInhalt(WidgetTester tester) async {
   await tester.fling(
     find.text('Bestandteile anpassen'),
@@ -165,7 +157,7 @@ Future<void> _ziehAmInhalt(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Weg 3a: ziehen genau am Griff (oberste 24 px des Sheets).
+/// Path 3a: drag exactly on the handle (top 24 px of the sheet).
 Future<void> _ziehAmGriff(WidgetTester tester) async {
   await tester.flingFrom(
     Offset(196, _sheetOben(tester).dy + 12),
@@ -175,24 +167,21 @@ Future<void> _ziehAmGriff(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Weg 3b: der Dismiss-Knoten, den TalkBack/VoiceOver am Sheet anbietet.
+/// Path 3b: the dismiss node TalkBack/VoiceOver offers on the sheet.
 ///
-/// Vor dem Fix ist das der Route-Griff (`_DragHandle`), dessen
-/// `onSemanticsTap` direkt `Navigator.pop` ruft; danach der eigene Griff im
-/// Sheet, der ueber `maybePop` und damit ueber die Rueckfrage laeuft. Beide
-/// tragen `MaterialLocalizations.modalBarrierDismissLabel` — seit der
-/// i18n-Migration (Paket 2) laeuft dieses MaterialApp explizit unter `de`
-/// (andere Tests in dieser Datei pruefen ARB-Text wie „Bestandteile
-/// anpassen"), darum „Schließen" statt des englischen SDK-Defaults
-/// „Dismiss" (material_de.arb: modalBarrierDismissLabel).
+/// Before the fix that is the route handle (`_DragHandle`), whose
+/// `onSemanticsTap` calls `Navigator.pop` directly; afterwards it is the
+/// sheet's own handle, which goes through `maybePop` and the confirmation.
+/// Both carry `MaterialLocalizations.modalBarrierDismissLabel`, and this
+/// MaterialApp runs under `de`, hence the German label.
 ///
-/// Die Barriere selbst taucht hier NICHT auf: `ModalBarrier` setzt Label und
-/// Dismiss-Aktion nur, wenn `platformSupportsDismissingBarrier` gilt, und das
-/// ist auf Android (Default-Plattform im Test) false.
+/// The barrier itself does NOT appear here: `ModalBarrier` only sets label and
+/// dismiss action when `platformSupportsDismissingBarrier` holds, which is
+/// false on Android (the default test platform).
 final _griffKnoten = find.semantics.byLabel('Schließen');
 
 void main() {
-  // ── Weg 1: Barriere-Tap ─────────────────────────────────────────────────
+  // ── Path 1: barrier tap ────────────────────────────────────────────────
 
   group('D5 Weg 1 — Barriere-Tap', () {
     testWidgetsRobust('fragt nach, wenn ein Gewicht geaendert wurde', (
@@ -214,7 +203,7 @@ void main() {
       expect(find.text('Änderungen verwerfen?'), findsOneWidget);
       expect(fang.aufrufe, 0);
 
-      // „Weiter bearbeiten" laesst die Eingabe stehen.
+      // "Keep editing" leaves the input in place.
       await tester.tap(find.byKey(const ValueKey('discard-changes-cancel')));
       await tester.pumpAndSettle();
       expect(_sheetOffen(tester), isTrue);
@@ -228,7 +217,7 @@ void main() {
         '250',
       );
 
-      // Und „Verwerfen" schliesst wirklich — ohne Ergebnis.
+      // And "discard" really closes, without a result.
       await _tippeAufBarriere(tester);
       await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
       await tester.pumpAndSettle();
@@ -251,7 +240,7 @@ void main() {
     });
   });
 
-  // ── Weg 2: Ziehen ───────────────────────────────────────────────────────
+  // ── Path 2: drag ────────────────────────────────────────────────────────
 
   group('D5 Weg 2 — Ziehen', () {
     testWidgetsRobust('fragt nach, wenn ein Gewicht geaendert wurde', (
@@ -285,8 +274,8 @@ void main() {
     testWidgetsRobust('laesst ein unveraendertes Sheet weiterhin wegziehen', (
       tester,
     ) async {
-      // Zugleich der Beleg, dass dieser Weg ueberhaupt schliesst — sonst saehe
-      // man am dirty-Fall darueber gar keinen Unterschied.
+      // Also proves this path closes at all, otherwise the dirty case above
+      // would show no difference.
       final fang = _Fang();
       await _oeffne(tester, fang);
 
@@ -298,7 +287,7 @@ void main() {
     });
   });
 
-  // ── Weg 3: Griff (Ziehen + Semantics-Dismiss) ───────────────────────────
+  // ── Path 3: handle (drag + semantics dismiss) ───────────────────────────
 
   group('D5 Weg 3 — Griff', () {
     testWidgetsRobust('Ziehen am Griff fragt nach', (tester) async {
@@ -340,8 +329,8 @@ void main() {
     testWidgetsRobust('der Semantics-Dismiss (TalkBack) fragt nach', (
       tester,
     ) async {
-      // Bewusst ohne addTearDown: die Handle-Pruefung des Frameworks laeuft
-      // VOR den Teardowns.
+      // No addTearDown on purpose: the framework's handle check runs BEFORE
+      // the teardowns.
       final semantik = tester.ensureSemantics();
       final fang = _Fang();
       await _oeffne(tester, fang);
@@ -389,7 +378,7 @@ void main() {
     );
   });
 
-  // ── Was „geaendert" bei variabler Postenzahl heisst ─────────────────────
+  // ── What "changed" means at a variable item count ───────────────────
 
   group('D5 — _dirty bei variabler Postenzahl', () {
     testWidgetsRobust('ein entfernter Bestandteil zaehlt als Aenderung', (
@@ -454,8 +443,8 @@ void main() {
     testWidgetsRobust(
       'hinzugefuegt und wieder entfernt ist keine Aenderung',
       (tester) async {
-        // Nur ein Startposten: mit dem manuell ergaenzten dazu bleibt oben
-        // noch ein Barrierestreifen uebrig, auf den sich tippen laesst.
+        // One starting item, so with the manually added one there is still a
+        // barrier strip left to tap.
         final fang = _Fang();
         await _oeffne(tester, fang, postenAnzahl: 1);
 
@@ -477,7 +466,7 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('analyse-add-item-save')));
         await tester.pumpAndSettle();
 
-        // Der neue Posten haengt hinten dran — und fliegt gleich wieder raus.
+        // The new item is appended, then removed again.
         await tester.tap(find.byKey(const ValueKey('analyse-item-remove-1')));
         await tester.pumpAndSettle();
 
@@ -495,8 +484,8 @@ void main() {
     testWidgetsRobust('ein hinzugefuegter Bestandteil zaehlt als Aenderung', (
       tester,
     ) async {
-      // Nur ein Startposten — sonst fuellt das Sheet mit dem ergaenzten
-      // Bestandteil den Bildschirm und es bleibt keine Barriere zum Tippen.
+      // One starting item, or the sheet fills the screen and leaves no
+      // barrier to tap.
       final fang = _Fang();
       await _oeffne(tester, fang, postenAnzahl: 1);
 
@@ -525,7 +514,7 @@ void main() {
     });
   });
 
-  // ── Drei Ebenen: Verwerfen-Dialog ueber Dialog ueber Sheet ──────────────
+  // ── Three layers: discard dialog over dialog over sheet ──────────────
 
   group('D5 — Hinzufuegen-Dialog ueber dem Sheet', () {
     Future<void> oeffneDialogMitEingabe(WidgetTester tester) async {
@@ -603,7 +592,7 @@ void main() {
       expect(find.byKey(const ValueKey('analyse-add-item-name')), findsNothing);
       expect(_sheetOffen(tester), isTrue);
       expect(fang.aufrufe, 0, reason: 'das Sheet lebt weiter');
-      // Kein Posten dazugekommen.
+      // No item was added.
       expect(find.byKey(const ValueKey('analyse-item-card-2')), findsNothing);
     });
 
@@ -624,7 +613,7 @@ void main() {
     });
   });
 
-  // ── Der Rueckgabewert darf sich nicht verschieben ───────────────────────
+  // ── The return value must not shift ───────────────────────────────
 
   group('D5 — Rueckgabewert bleibt, wie die Aufrufer ihn erwarten', () {
     testWidgetsRobust('„Übernehmen" liefert weiterhin die Postenliste', (
@@ -667,7 +656,7 @@ void main() {
     );
   });
 
-  // ── Der Guard darf sonst nichts blockieren ─────────────────────────────
+  // ── The guard must not block anything else ─────────────────────────────
 
   group('D5 — der Guard stoert die Bedienung nicht', () {
     testWidgetsRobust('Tippen und Entfernen gehen bei aktivem Guard weiter', (
@@ -676,7 +665,7 @@ void main() {
       final fang = _Fang();
       await _oeffne(tester, fang);
 
-      // Ab hier ist der Guard aktiv.
+      // The guard is active from here on.
       await tester.enterText(
         find.byKey(const ValueKey('analyse-item-weight-input-0')),
         '250',

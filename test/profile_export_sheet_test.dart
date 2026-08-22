@@ -1,36 +1,21 @@
-// C7 (docs/REVIEW-2026-08-08.md): der In-App-Export war ein In-Memory-
-// Teil-Snapshot. Das Export-Sheet zeigt jetzt die VOLLSTAENDIGE
-// Server-Auskunft (DataExportService) und faellt bei einem Fehler ehrlich
-// zurueck, statt Vollstaendigkeit zu behaupten.
+// C7 (docs/REVIEW-2026-08-08.md): the export sheet shows the COMPLETE server
+// export (DataExportService) and falls back honestly on error instead of
+// claiming completeness. The entry point is `settings-export`; the file name
+// keeps the old profile wording for history.
 //
-// **Umgezogen am 2026-08-10.** Der Einstieg lag bis dahin im Profil
-// (`profile-action-export`, Block „Daten & Konto"). Der Block ist auf
-// Nutzer-Entscheid entfallen, weil er die Einstellungen doppelte — der
-// Einstieg heisst jetzt `settings-export`. Die Aussagen dieser Datei sind
-// deshalb NICHT gestrichen, sondern auf den verbliebenen Einstieg umgehaengt;
-// der Dateiname bleibt, damit die Historie lesbar bleibt.
+// Without `onExportData` the settings hide the row entirely rather than
+// offering a partial result, so `DataExportSheet(vollstaendig: false)` and
+// `fallbackSnapshot` have no caller left in the app.
 //
-// Eine der drei Aussagen hat sich dabei geaendert und das ist ein Befund:
-// den Fall „ohne Sync bleibt der Session-Snapshot" gibt es nicht mehr. Die
-// Einstellungen blenden die Zeile ohne `onExportData` ganz aus, statt ein
-// Teil-Ergebnis anzubieten. `DataExportSheet(vollstaendig: false)` und
-// `fallbackSnapshot` haben damit in der App keinen Aufrufer mehr (s. Bericht).
+// The service tests below run a STRICT MockClient: it answers only tables that
+// really exist per supabase/migrations/ and returns 404 for anything else —
+// the service used to query five dropped tables, so every export carried an
+// `unvollstaendig` even when it was complete.
 //
-// **Audit 2026-08-14.** Das Sheet zeigte weiter, was der DataExportService
-// lieferte — und der fragte fuenf Tabellen ab, die
-// 20260803120000_drop_removed_feature_tables.sql geloescht hat. PostgREST
-// antwortet darauf 404, also stand in JEDER Auskunft ein `unvollstaendig`,
-// obwohl sie vollstaendig war. Die Service-Tests unten fahren deshalb einen
-// STRIKTEN MockClient: er beantwortet nur Tabellen, die es laut
-// supabase/migrations/ wirklich gibt, und gibt auf alles andere 404.
-//
-// Entscheidend ist, WOHER der Mock diese Wahrheit nimmt: aus dem Literal
-// [_tabellenLautMigrationen], NICHT aus `DataExportService`. Der erste Anlauf
-// dieses Tests leitete die Allowlist aus `alleExportTabellen` ab und war
-// damit tautologisch — jede Tabelle, die der Service abfragt, ist per
-// Konstruktion in seiner eigenen Liste, bekaeme also immer 200. Ein Mock,
-// dessen Wahrheit aus dem Pruefling stammt, kann Tabellen-Drift zwischen Code
-// und Datenbank genauso wenig sehen wie der alte permissive Mock.
+// Where the mock takes that truth from matters: the literal
+// [_tabellenLautMigrationen], NOT `DataExportService`. Deriving the allowlist
+// from `alleExportTabellen` would be tautological and blind to table drift
+// between code and database.
 
 import 'dart:convert';
 import 'dart:io';
@@ -48,11 +33,10 @@ import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/services/data_export.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Die Tabellen, die es laut supabase/migrations/ heute wirklich gibt und die
-/// Nutzerdaten unter einer `*_select_own`-Policy fuehren — Stand 2026-08-14,
-/// bewusst als Literal statt aus [DataExportService] abgeleitet (siehe
-/// Dateikopf). Der Drift-Waechter unten liest die Migrationen und faellt rot,
-/// sobald dieses Literal nicht mehr zu ihnen passt.
+/// Tables that really exist per supabase/migrations/ and hold user data under a
+/// `*_select_own` policy. A literal on purpose, not derived from
+/// [DataExportService] (see file header). The drift guard below reads the
+/// migrations and fails once this literal no longer matches them.
 const Set<String> _tabellenLautMigrationen = <String>{
   'profiles',
   'logged_meals',
@@ -65,38 +49,35 @@ const Set<String> _tabellenLautMigrationen = <String>{
   'chat_quota_usage',
 };
 
-/// Existiert, gehoert aber in keine Auskunft: `edge_rate_limits` kennt keine
-/// `user_id`, sondern nur einen SHA-256-Hash des Subjekts, und
-/// `lifetime_stats_requests` ist ein Idempotenz-Journal verbrauchter
-/// Request-IDs. Beiden ist `authenticated` komplett entzogen — der Client
-/// kaeme gar nicht heran, ein Export-Versuch waere ein Dauer-`unvollstaendig`.
+/// Exists but belongs in no export: `edge_rate_limits` has no `user_id`, only a
+/// SHA-256 hash of the subject, and `lifetime_stats_requests` is an idempotency
+/// journal. Both revoke `authenticated` entirely, so exporting them would be a
+/// permanent `unvollstaendig`.
 const Set<String> _nichtExportierbar = <String>{
   'edge_rate_limits',
   'lifetime_stats_requests',
 };
 
-/// PostgREST-Attrappe, die sich wie der ECHTE Server verhaelt: eine Tabelle,
-/// die es laut [_tabellenLautMigrationen] nicht (mehr) gibt, beantwortet die
-/// Abfrage mit 404 (42P01) statt mit einem leeren Ergebnis.
+/// PostgREST fake that behaves like the REAL server: a table that no longer
+/// exists per [_tabellenLautMigrationen] answers 404 (42P01), not an empty
+/// result.
 class _StrengerPostgrest {
   _StrengerPostgrest({this.zeilen = const <String, int>{}});
 
-  /// Tabelle -> Zeilen, die auf dem Server liegen. Nicht genannte Tabellen
-  /// sind leer. `logged_meals` bleibt in dieser Datei bewusst leer: die
-  /// Offset-Pagination des Tagebuchs haengt an einem Handler, der `offset`
-  /// auswertet — sie hat ihren eigenen Test in
+  /// Table -> rows on the server; tables not listed are empty. `logged_meals`
+  /// stays empty here — its offset pagination has its own test in
   /// test/services/data_export_service_test.dart.
   final Map<String, int> zeilen;
 
-  /// Angefragte Tabellen, die es nicht (mehr) gibt.
+  /// Requested tables that do not (any longer) exist.
   final List<String> unbekannteTabellen = <String>[];
 
   http.Client client() => MockClient(_handle);
 
   Future<http.Response> _handle(http.Request req) async {
     final tabelle = req.url.path.split('/').last;
-    // Nur PostgREST-Pfade sind Tabellen-Abfragen — ein Auth-Aufruf soll die
-    // Zusicherung unten nicht als „unbekannte Tabelle" verunreinigen.
+    // Only PostgREST paths are table queries; an auth call must not pollute the
+    // assertion below as an "unknown table".
     final istTabellenAbfrage = req.url.path.contains('/rest/v1/');
 
     if (!istTabellenAbfrage || !_tabellenLautMigrationen.contains(tabelle)) {
@@ -135,17 +116,15 @@ void main() {
     WidgetTester tester, {
     required Future<String> Function()? onExportData,
   }) async {
-    // Volle Geraetehoehe: die Einstellungen sind eine ListView, und die
-    // Export-Zeile liegt unterhalb von KONTO und PRÄFERENZEN.
+    // Full device height: the settings are a ListView and the export row sits
+    // below the account and preferences groups.
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    // `theme: buildEatovaTheme(...)` ist Pflicht, seit die Karten ihre Farben
-    // ueber `AppTokens.of` lesen: das nackte MaterialApp haengt die
-    // ThemeExtension nicht ans Theme, und AppTokens.of wirft dann absichtlich
-    // (Verdrahtungs-Detektor).
+    // `theme: buildEatovaTheme(...)` is required: the cards read their colors
+    // via `AppTokens.of`, which deliberately throws without the ThemeExtension.
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.dark),
@@ -182,9 +161,8 @@ void main() {
     );
 
     expect(find.text('Datenauskunft'), findsOneWidget);
-    // Bewusst der LANGE Ausschnitt: „Vollständige Kopie" allein steht auch im
-    // Untertitel der Zeile `settings-export` darunter — die kurze Fassung
-    // faende zwei Widgets und pruefte nicht mehr das Sheet.
+    // The LONG excerpt on purpose: the short one also appears in the subtitle
+    // of the `settings-export` row, so it would match two widgets.
     expect(
       find.textContaining('Vollständige Kopie deiner gespeicherten Daten'),
       findsOneWidget,
@@ -196,10 +174,8 @@ void main() {
   testWidgets(
       'ohne Sync gibt es die Zeile gar nicht — statt eines halben Exports',
       (tester) async {
-    // Frueher zeigte das Profil hier den Session-Snapshot und benannte ihn
-    // als solchen. Die Einstellungen gehen einen Schritt weiter: ohne Server
-    // gibt es keine Auskunft, die Art. 15 DSGVO genuegt — also auch keinen
-    // Eintrag, der eine verspricht.
+    // Without a server there is no export that satisfies GDPR art. 15, so
+    // there is no row promising one either.
     await oeffneExport(tester, onExportData: null);
 
     expect(find.byKey(const ValueKey('settings-export')), findsNothing);
@@ -237,10 +213,9 @@ void main() {
     });
 
     test('das Literal oben deckt sich mit supabase/migrations/', () {
-      // Ein Literal, das niemand nachzieht, waere nur eine zweite Kopie
-      // derselben Annahme. Deshalb hier die dritte Quelle: die Migrationen
-      // selbst, in Dateinamen-Reihenfolge abgespielt (create legt an, drop
-      // nimmt weg — 20260803120000 loescht fuenf Tabellen wieder).
+      // A literal nobody maintains is just a second copy of the same
+      // assumption, so this reads a third source: the migrations themselves,
+      // replayed in file-name order (create adds, drop removes).
       final anweisung = RegExp(
         r'(create|drop)\s+table\s+(?:if\s+(?:not\s+)?exists\s+)?public\.'
         r'([a-z_]+)',
@@ -261,9 +236,8 @@ void main() {
 
       final lebend = <String>{};
       for (final datei in dateien) {
-        // `--`-Zeilenkommentare raus: die Migrationen erklaeren ihre
-        // Sicherheitsentscheidungen ausfuehrlich und nennen dabei auch
-        // Anweisungen, die nie laufen.
+        // Strip `--` line comments: the migrations discuss statements that
+        // never run.
         final sql = datei
             .readAsStringSync()
             .split('\n')

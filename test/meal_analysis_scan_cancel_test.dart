@@ -1,17 +1,9 @@
-// W3-07 / G2: der fuenfte Ein-Token-Schalter.
-//
-// `meal_analysis_screen.dart:172`
-//
-//   if (capture == null || !context.mounted) return;
-//
-// Diese eine Zeile zu loeschen gibt JEDEM, der die Scan-Kamera oeffnet und
-// zurueck tippt, einen Null-Check-Crash auf `capture.slot` — und bis zu diesem
-// Test wurde davon kein einziger Test rot. Abbrechen ist kein Randfall: es ist
-// der zweithaeufigste Ausgang eines Kamera-Aufrufs.
-//
-// Der zweite Teil derselben Zeile (`!context.mounted`) haelt den Fall ab, dass
-// der Screen waehrend des Kamera-Sheets verschwindet; er wird hier mit
-// abgedeckt, weil der Test das Sheet ueber den echten Screen-Baum fuehrt.
+// W3-07 / G2: pins `if (capture == null || !context.mounted) return;` in
+// meal_analysis_screen.dart. Without it, cancelling the scan camera crashes on
+// `capture.slot`, and no other test caught that — cancelling is the second
+// most common outcome of a camera call. The `!context.mounted` half (screen
+// gone while the sheet was open) is covered too, because the test drives the
+// sheet through the real screen tree.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -44,8 +36,8 @@ void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   });
 }
 
-/// Die In-App-Kamera, aus der der Nutzer ohne Foto zurueckgeht: genau das
-/// liefert `showModalBottomSheet` beim Swipe-/Back-Abbruch — `null`.
+/// In-app camera the user leaves without a photo: `showModalBottomSheet`
+/// returns `null` on swipe/back dismiss.
 class _AbbrechendeKamera implements MealCameraLauncher {
   int aufrufe = 0;
 
@@ -59,9 +51,8 @@ class _AbbrechendeKamera implements MealCameraLauncher {
   }
 }
 
-/// Ein Analyzer, der niemals laufen darf: ohne Foto gibt es nichts zu
-/// analysieren. Wuerde er doch gerufen, waere das ein Request auf ein Bild,
-/// das der Nutzer bewusst verworfen hat.
+/// An analyzer that must never run: calling it would mean a request for an
+/// image the user deliberately discarded.
 class _NieAufgerufenerAnalyzer implements MealAnalyzer {
   int aufrufe = 0;
 
@@ -93,7 +84,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(Brightness.dark),
-          // MealAnalysisScreen liest seit der i18n-Migration context.l10n.
+          // MealAnalysisScreen reads context.l10n.
           locale: const Locale('de'),
           supportedLocales: const [Locale('de'), Locale('en')],
           localizationsDelegates: const [
@@ -121,24 +112,23 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('food-action-ai')));
       await tester.pumpAndSettle();
 
-      // Die Kamera lief wirklich — der Test prueft nicht versehentlich einen
-      // Pfad, der gar nicht betreten wurde.
+      // The camera really ran — the test is not checking an unentered path.
       expect(kamera.aufrufe, 1);
 
-      // Ohne den Guard wirft `capture.slot` hier auf null.
+      // Without the guard `capture.slot` throws on null here.
       expect(
         tester.takeException(),
         isNull,
         reason: 'Abbrechen darf keinen Null-Check-Crash ausloesen',
       );
 
-      // Kein Analyse-Request auf ein verworfenes Foto …
+      // No analysis request for a discarded photo …
       expect(analyzer.aufrufe, 0);
-      // … und kein Ergebnis-Sheet.
+      // … and no result sheet.
       expect(find.byKey(const ValueKey('analyse-result-card')), findsNothing);
       expect(find.text('Analyse prüfen'), findsNothing);
 
-      // Der Screen ist weiter bedienbar: ein zweiter Versuch geht.
+      // The screen stays usable: a second attempt works.
       expect(find.byKey(const ValueKey('food-action-ai')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('food-action-ai')));
       await tester.pumpAndSettle();

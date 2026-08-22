@@ -8,19 +8,15 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// DESIGN_REFACTOR §7.2 / §5: beide Konto-Aenderungs-Flows rendern in BEIDEN
-// Helligkeiten und bei Systemschrift 200 % ohne RenderFlex-Overflow.
-//
-// Die Bruchstellen sind hier andere als auf der Seite selbst: zwei bzw. drei
-// Eingabefelder plus Erklaertext plus Fehlerkasten in einem Bottom-Sheet, das
-// nur die Bildschirmhoehe hat. Overflows werden deshalb NICHT geschluckt —
-// sie sind der Pruefgegenstand.
+// DESIGN_REFACTOR §7.2 / §5: both account-change flows render in both
+// brightnesses and at 200 % text scale without RenderFlex overflow.
+// Overflows are deliberately NOT swallowed — they are what is under test.
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  /// Faengt Overflow-Meldungen ein, statt sie den Test hart abbrechen zu
-  /// lassen — so steht am Ende die vollstaendige Liste im Fehlerbericht.
+  /// Collects overflow errors instead of failing fast, so the report lists
+  /// all of them.
   Future<void> ohneOverflow(
     WidgetTester tester,
     String fall,
@@ -85,8 +81,8 @@ void main() {
     return repo;
   }
 
-  /// Scrollt die Zeile in den Blick und tippt sie. Bei doppelter Schrift liegt
-  /// sie sonst unterhalb des Viewports — und die Seite ist eine lazy ListView.
+  /// Scrolls the row into view and taps it; at double text scale it sits
+  /// below the viewport of the lazy ListView.
   Future<void> oeffne(WidgetTester tester, String schluessel) async {
     final ziel = find.byKey(ValueKey<String>(schluessel));
     await tester.scrollUntilVisible(
@@ -111,9 +107,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Tippt eine Aktion IM Sheet. Bei doppelter Schrift liegt der Knopf unter
-  /// dem sichtbaren Rand — [SheetScaffold] scrollt dafuer, aber der Test muss
-  /// den Knopf erst in den Blick holen, sonst geht der Tap ins Leere.
+  /// Taps an action inside the sheet. At double text scale the button sits
+  /// below the fold, so the test must scroll it into view first.
   Future<void> tippeAktion(WidgetTester tester, String beschriftung) async {
     final ziel = find.text(beschriftung);
     await tester.ensureVisible(ziel);
@@ -138,7 +133,7 @@ void main() {
 
           await tippeAktion(tester, 'Code anfordern');
 
-          // Der dichteste Zustand: drei Felder mit Feldfehlern.
+          // The densest state: three fields, each with a field error.
           await schreibe(tester, 'password-change-code', '12345');
           await schreibe(tester, 'password-change-new', 'kurz');
           await schreibe(tester, 'password-change-repeat', 'anders');
@@ -168,8 +163,8 @@ void main() {
           );
           await tippeAktion(tester, 'Codes anfordern');
 
-          // Zwei Code-Felder mit je einer langen Adresse darueber, dazu der
-          // Doppel-Code-Hinweis und ein abgelehnter Code.
+          // Two code fields with a long address each, plus the hint and a
+          // rejected code.
           await schreibe(tester, 'email-change-code-old', '11111111');
           await schreibe(tester, 'email-change-code-new', '22222222');
           repo.verifyFails = true;

@@ -14,23 +14,20 @@ import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// DATA-3 Clobber-Guard: ein Offline-Kaltstart (ProfileSync.load() wirft) darf
-// die echte Server-Profilzeile NIEMALS mit den nackten Ctor-Defaults
-// (78 kg / 178 cm) ueberschreiben.
+// DATA-3 clobber guard: an offline cold start (ProfileSync.load() throws)
+// must never overwrite the real server profile row with the bare ctor
+// defaults (78 kg / 178 cm).
 //
-// Diese Tests treiben die ECHTE EatovaHomePage mit einem echten EatovaSync
-// ueber einen aufzeichnenden MockClient:
-//   * Jedes GET auf /profiles antwortet 500 -> ProfileSync.load() wirft ->
-//     KEINE Server-Hydration.
-//   * Alle uebrigen Reads liefern leere Listen/Objekte (Boot bleibt gruen, da
-//     _safeLoad sie schluckt).
-//   * Jeder Schreib-Request (POST/PATCH/PUT) wird aufgezeichnet.
+// These tests drive the real EatovaHomePage with a real EatovaSync over a
+// recording MockClient:
+//   * every GET on /profiles answers 500 -> load() throws -> no hydration
+//   * all other reads return empty lists (_safeLoad swallows them)
+//   * every write request (POST/PATCH/PUT) is recorded
 //
-// Der LocalCache wird ueber den Test-Seam `debugCache` injiziert (kein
-// SharedPreferences-Channel / keine Supabase-Session noetig).
+// The LocalCache is injected via the `debugCache` seam (no plugin channel,
+// no Supabase session).
 //
-// Invariante: waehrend des gesamten Boots geht KEIN profiles-Write mit
-// weight_kg == 78 raus.
+// Invariant: no profiles write with weight_kg == 78 during the whole boot.
 
 class _Recorder {
   final List<http.Request> requests = <http.Request>[];
@@ -43,7 +40,7 @@ class _Recorder {
           req.method == 'PATCH' ||
           req.method == 'PUT';
 
-      // profiles-GET (load) faellt hart aus -> load() wirft, keine Hydration.
+      // profiles GET fails hard -> load() throws, no hydration.
       if (path.contains('/profiles') && req.method == 'GET') {
         return http.Response(
           jsonEncode({'message': 'offline'}),
@@ -53,8 +50,8 @@ class _Recorder {
         );
       }
 
-      // Schreib-Requests: 200 mit echo-aehnlichem Body (PostgREST .select()
-      // erwartet eine Zeile zurueck). Wir geben den Default-Body zurueck.
+      // Writes: 200 with an echo-like body (PostgREST .select() expects a
+      // row back).
       if (isWrite) {
         return http.Response(
           jsonEncode([<String, dynamic>{}]),
@@ -64,7 +61,7 @@ class _Recorder {
         );
       }
 
-      // Alle uebrigen Reads: leere Liste (loadLoggedMeals, loadRange, ...)
+      // All other reads: empty list (loadLoggedMeals, loadRange, ...)
       return http.Response(
         jsonEncode(const <dynamic>[]),
         200,
@@ -91,7 +88,7 @@ class _Recorder {
         return ((body.first as Map)['weight_kg'] as num).toInt();
       }
     } catch (_) {
-      // ignore: nicht-JSON oder unerwartete Form -> kein Gewicht.
+      // ignore: non-JSON or unexpected shape -> no weight.
     }
     return null;
   }
@@ -108,19 +105,15 @@ EatovaSync _sync(WidgetTester tester, http.Client client) {
     'https://example.supabase.co',
     'test-anon-key',
     httpClient: client,
-    // testWidgets laeuft im FakeAsync-Clock: GoTrueClients periodischer
-    // Auto-Refresh-Ticker (Timer.periodic, 10s) wuerde sonst als pending Timer
-    // nach dem Dispose des Widget-Trees haengen bleiben. Der Clobber-Test testet
-    // keinen Auth-Refresh — also schalten wir den Ticker hier komplett ab.
+    // testWidgets runs on the FakeAsync clock: GoTrue's periodic auto-refresh
+    // ticker would linger as a pending timer after the tree is disposed. This
+    // test does not exercise auth refresh, so the ticker is off.
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
-  // KEIN supa.dispose()-Teardown: dispose() macht ECHTES async (Realtime-/Auth-
-  // Close), das in der FakeAsync-Zone von testWidgets NIE durchlaeuft (auch nicht
-  // in runAsync, da der Close auf eine nie geoeffnete Verbindung wartet) -> der
-  // Teardown wuerde bis zum Test-Timeout haengen. Da der GoTrue-Auto-Refresh-
-  // Ticker via autoRefreshToken:false aus ist, bleibt KEIN pendender Timer
-  // zurueck; der Client wird einfach GC'd. (Verifiziert: ohne dispose-Teardown
-  // laufen beide Tests sauber durch, kein "Timer still pending".)
+  // No supa.dispose() teardown: dispose() does real async (realtime/auth
+  // close) that never completes in the FakeAsync zone, so the teardown would
+  // hang until the test timeout. With autoRefreshToken:false no timer is left
+  // pending and the client is simply GC'd.
   return EatovaSync.forUser(supa, 'user-clobber');
 }
 
@@ -134,18 +127,11 @@ Future<void> _pumpHome(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  // Reduzierte Bewegung erzwingen (System-A11y-Toggle "Bewegung reduzieren").
-  // Die WelcomeScreen-Boot-Phase faedelt ihren Exit ueber eine Animation auf
-  // dem _profileReadyCompleter ein. Dessen Future wird im echten Boot (unten
-  // via runAsync) aufgeloest — die Exit-AnimationController-Sequenz darf dann
-  // aber NICHT auf einen Frame-Tick warten, sonst haengt die Welcome-Phase
-  // (mit ihrem indeterminaten CircularProgressIndicator) und ein anschliessendes
-  // pumpAndSettle laeuft in den 10-min-Runner-Timeout. motionDuration kollabiert
-  // unter disableAnimations alle Welcome-Dauern auf Duration.zero, sodass
-  // _exitController.forward() sofort (ohne Tick) abschliesst und der Screen
-  // deterministisch ins Onboarding/Home wechselt. Das ist genau der A11y-Pfad,
-  // fuer den die WelcomeScreen gebaut ist — kein Verhalten des Clobber-Guards
-  // wird dadurch veraendert.
+  // Force reduced motion. Under disableAnimations motionDuration collapses
+  // every welcome duration to zero, so _exitController.forward() finishes
+  // without a tick and the screen moves to onboarding/home deterministically.
+  // Otherwise the indeterminate spinner never settles and pumpAndSettle runs
+  // into the runner timeout. The clobber guard's behaviour is unaffected.
   tester.platformDispatcher.accessibilityFeaturesTestValue =
       const FakeAccessibilityFeatures(disableAnimations: true);
   addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
@@ -158,13 +144,12 @@ Future<void> _pumpHome(
   addTearDown(() => FlutterError.onError = prior);
 
   await tester.pumpWidget(MaterialApp(
-    // Design-Refactor 2026-08: Schale, Onboarding und Food-Tab lesen Farben
-    // ueber `context.t` (AppTokens als ThemeExtension). `AppTokens.of` wirft
-    // absichtlich, wenn die Extension fehlt — ohne `theme:` stirbt schon der
-    // erste Build und der Clobber-Guard kaeme gar nicht zum Zug.
+    // Shell, onboarding and Food tab read colors via `context.t`; `AppTokens.of`
+    // throws by design when the extension is missing, so without `theme:` the
+    // first build dies before the guard runs.
     theme: buildEatovaTheme(Brightness.dark),
-    // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
-    // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+    // _navItems() reads context.l10n; without these delegates
+    // AppLocalizations.of() throws while building the bottom nav.
     locale: const Locale('de'),
     supportedLocales: const [Locale('de'), Locale('en')],
     localizationsDelegates: const [
@@ -180,28 +165,21 @@ Future<void> _pumpHome(
     ),
   ));
 
-  // Boot mischt ECHTES async (Supabase-HTTP via MockClient + LocalCache-Reads,
-  // die am Ende _profileReadyCompleter.complete() ausloesen) mit Fake-async-
-  // Animation (WelcomeScreen-Exit). pumpAndSettle ist hier toedlich: solange der
-  // WelcomeScreen-Spinner (INDETERMINAT) im Baum haengt, settlet es NIE und
-  // laeuft in den Runner-Timeout. Stattdessen alternieren wir GEDECKELT echtes
-  // async (runAsync -> HTTP + profileReady laufen auf der echten Event-Loop)
-  // mit pump(16ms) (treibt den unter disableAnimations zero-dauer Welcome-Exit-
-  // Controller + Fake-Animationen), bis der WelcomeScreen aus dem Baum ist.
-  // Bounded -> nie ein 10-min-Hang, auch wenn der Boot mal klemmt.
+  // Boot mixes real async (Supabase HTTP, cache reads) with fake-async
+  // animation. pumpAndSettle would never settle while the indeterminate
+  // welcome spinner is in the tree, so pump in a bounded loop instead — never
+  // a 10-minute hang even if the boot jams.
   final welcome = find.byKey(const ValueKey('screen-welcome'));
   for (var i = 0; i < 80 && welcome.evaluate().isNotEmpty; i++) {
     await _drain(tester, rounds: 1);
   }
-  // Welcome ist raus -> noch etwas nachdrainen, damit der (determinate)
-  // Onboarding-/Home-Baum vollstaendig gezeichnet ist.
+  // Welcome is gone -> drain a bit more so the onboarding/home tree is fully
+  // painted.
   await _drain(tester, rounds: 6);
 }
 
-/// Bounded "settle": gibt der ECHTEN Event-Loop Zeit (runAsync, fuer Supabase-
-/// HTTP via MockClient) UND pumpt Frames mit Fake-Zeit (fuer Animationen),
-/// wartet aber NIE auf vollstaendiges Settle — haengt also nie an einem
-/// Dauer-Spinner (WelcomeScreen) oder periodischen Timer.
+/// Bounded "settle": pumps frames on fake time but never waits for a full
+/// settle, so it cannot hang on a permanent spinner or a periodic timer.
 Future<void> _drain(WidgetTester tester, {int rounds = 20}) async {
   for (var i = 0; i < rounds; i++) {
     await tester.pump(const Duration(milliseconds: 16));
@@ -215,19 +193,17 @@ void main() {
     final recorder = _Recorder();
     final sync = _sync(tester, recorder.client());
 
-    // Leerer Cache -> keine Hydration -> profile bleibt auf Ctor-Defaults ->
-    // _hydratedFromRealSource bleibt false.
+    // Empty cache -> no hydration -> profile stays on ctor defaults and
+    // _hydratedFromRealSource stays false.
     final cache = LocalCache(InMemoryKeyValueStore(), 'user-clobber');
 
     await _pumpHome(tester, sync: sync, debugCache: cache);
 
-    // Ohne echte Profil-Quelle (Server-Load wirft, Cache leer,
-    // onboarding_completed=false) zeigt die App das verpflichtende Onboarding —
-    // der User kommt gar nicht erst an die Settings, um Defaults zu speichern.
+    // Without a real profile source the app shows mandatory onboarding, so
+    // the user never reaches the settings to save defaults.
     expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
 
-    // Und der Boot selbst hat KEINEN profiles-Write mit den 78kg-Defaults
-    // abgesetzt (Clobber-Schutz haelt).
+    // And the boot itself sent no profiles write with the 78 kg defaults.
     expect(recorder.clobberedWithDefaults, isFalse);
   }, timeout: const Timeout(Duration(seconds: 45)));
 
@@ -237,9 +213,9 @@ void main() {
     final recorder = _Recorder();
     final sync = _sync(tester, recorder.client());
 
-    // Cache mit einem ECHTEN, abgeschlossenen Profil vorbefuellen (80 kg /
-    // 180 cm, onboarding done). Hydration uebernimmt das VOR dem (werfenden)
-    // Server-Load -> Home erscheint, _hydratedFromRealSource = true.
+    // Preload the cache with a real, completed profile. Hydration adopts it
+    // before the throwing server load -> home appears,
+    // _hydratedFromRealSource = true.
     final store = InMemoryKeyValueStore();
     final cache = LocalCache(store, 'user-clobber');
     await cache.writeProfile(const UserProfile(
@@ -250,30 +226,24 @@ void main() {
 
     await _pumpHome(tester, sync: sync, debugCache: cache);
 
-    // Das Onboarding-Gate ist dank gecachtem onboarding_completed=true weg —
-    // der User landet direkt im Home (kein Onboarding-Screen).
+    // The cached onboarding_completed=true removes the onboarding gate.
     expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
-    // Design-Refactor 2026-08: der Landepunkt ist der neue Tab „Heute"
-    // (Index 0), nicht mehr der Food-Tab. Die Aussage bleibt dieselbe — die
-    // App zeigt statt des Onboarding-Gates die echte Oberflaeche.
+    // Landing point is the Today tab (index 0), not the Food tab.
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
 
-    // Das Zahnrad haengt in der Kopfzeile des Food-Tabs
-    // (meal_analysis_screen.dart:642); der lazy IndexedStack baut den Tab erst
-    // beim ersten Besuch, deshalb zuerst hinueberwechseln.
+    // The gear lives in the Food tab's header, and the lazy IndexedStack only
+    // builds that tab on first visit — so switch there first.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await _drain(tester);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
-    // Settings oeffnen, Gewicht auf 81 setzen, speichern. Da _hydratedFromReal
-    // Source dank Cache-Hydration true ist, DARF (und soll) der Save laufen —
-    // aber mit dem echten/editierten Wert, nicht mit 78.
+    // Open settings, set weight to 81, save. With _hydratedFromRealSource
+    // true the save may run — but with the edited value, not 78.
     await tester.tap(find.byKey(const ValueKey('topbar-settings')));
     await _drain(tester);
 
-    // Seit der Trennung 2026-08-10 stehen Koerperdaten und „Speichern" nicht
-    // mehr in den Einstellungen selbst, sondern auf „Profil & Ziele" — eine
-    // Ebene tiefer. Der geprueffte Schreibpfad ist unveraendert derselbe.
+    // Body data and "save" live one level deeper, on the profile & goals
+    // page; the write path under test is unchanged.
     final zuDenZielen = find.byKey(const ValueKey('settings-open-goals'));
     await tester.ensureVisible(zuDenZielen);
     await _drain(tester);
@@ -291,7 +261,7 @@ void main() {
     await tester.tap(saveBtn);
     await _drain(tester);
 
-    // Es ging genau ein echter Profil-Save raus — und der trug 81, NICHT 78.
+    // Exactly one real profile save went out, carrying 81 and not 78.
     expect(recorder.profileWrites, isNotEmpty,
         reason: 'mit echter (gecachter) Basis MUSS der Save laufen');
     expect(recorder.clobberedWithDefaults, isFalse,

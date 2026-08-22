@@ -5,10 +5,8 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/shared/eatova_wordmark.dart';
 
-// `theme:` ist seit dem Design-Refactor 2026-08-09 Pflicht: die Wortmarke
-// liest ihre Farben ueber `context.t`, und AppTokens.of wirft bewusst, wenn
-// die ThemeExtension fehlt. Die geprueften Aussagen sind unveraendert; dazu
-// kommt die Zusicherung, dass die Marke in BEIDEN Modi hell bleibt.
+// `theme:` is mandatory here: the wordmark reads its colors via `context.t`,
+// and AppTokens.of throws on purpose when the ThemeExtension is missing.
 void main() {
   Future<void> pumpMarke(WidgetTester tester, Brightness brightness) {
     return tester.pumpWidget(
@@ -38,13 +36,12 @@ void main() {
   });
 
   testWidgets('die Marke bleibt in beiden Modi hell', (tester) async {
-    // Ihr einziger Standort ist der Auth-Screen, und der ist in beiden Modi
-    // dunkel (unmigriertes `app_colors.bg`). Mit `ink`/`accent` als Standard
-    // waere die Marke im Hellmodus schwarz auf schwarz.
+    // Its only site is the auth screen, which is dark in both modes. With
+    // `ink`/`accent` as default the mark would be black on black in light mode.
     for (final brightness in Brightness.values) {
       await pumpMarke(tester, brightness);
-      // MaterialApp blendet einen Theme-Wechsel ueber ein AnimatedTheme —
-      // ohne Settle laege beim zweiten Durchlauf noch der alte Ton an.
+      // MaterialApp cross-fades theme changes via AnimatedTheme; without a
+      // settle the second pass would still carry the old tone.
       await tester.pumpAndSettle();
       final tokens =
           brightness == Brightness.light ? AppTokens.light : AppTokens.dark;

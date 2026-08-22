@@ -4,36 +4,26 @@ import 'package:health/health.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/health_service.dart';
 
-// Komplettreview 2026-08-19, zwei Funde am Health-Pfad:
+// Full review 2026-08-19, two findings on the health path:
 //
-// FUND 1 (Release-Blocker) — der SLEEP-Scope wurde angefragt und gelesen, aber
-// von keinem Feature genutzt: `HealthSnapshot.lastSleepMinutes` kam in ganz
-// lib/ nur in den beiden Health-Dateien vor, `refreshHealthSteps` liest aus
-// dem Snapshot ausschliesslich `stepsToday` und `latestWeightKg`. Der
-// Zwecktext in Info.plist versprach trotzdem einen Nutzen. Apple lehnt
-// HealthKit-Scopes ohne beobachtbares Feature im Review ab (Guideline 5.1.1).
-//
-// FUND 2 — eine reine SCHREIB-Freigabe galt als Lese-Beweis. Das HealthKit-
-// Sheet fuehrt „Schreiben erlauben" und „Lesen erlauben" als zwei unabhaengige
-// Abschnitte: wer nur den Gewichts-Schreibschalter umlegte, war laut Verifier
-// `granted` und bekam dauerhaft 0 Schritte unter einem gruenen
-// „Synchronisiert".
+// 1 (release blocker) — the SLEEP scope was requested but used by no feature;
+//   Apple rejects scopes without an observable feature (guideline 5.1.1).
+// 2 — a write-only grant counted as read evidence, so it read as `granted` and
+//   gave a permanent 0 steps under a green "synced".
 
-/// Zeichnet auf, welche Scopes angefragt und welche Typen tatsaechlich
-/// abgefragt werden. Alles Uebrige wirft via noSuchMethod — die Evidenz-Leser
-/// im Service stehen je in einem eigenen try/catch (Muster aus
-/// apple_health_request_auth_test).
+/// Records which scopes are requested and which types are actually queried;
+/// everything else throws via noSuchMethod.
 class _RecordingHealth implements Health {
   _RecordingHealth({this.steps, this.writeGrant});
 
   final int? steps;
   final bool? writeGrant;
 
-  /// Ein Eintrag je `requestAuthorization`-Aufruf, jeweils die volle Liste.
+  /// One entry per `requestAuthorization` call, each the full list.
   final List<List<HealthDataType>> requestedTypes = [];
   final List<List<HealthDataAccess>?> requestedPermissions = [];
 
-  /// Jeder Typ, fuer den wirklich Daten gelesen wurden.
+  /// Every type data was actually read for.
   final List<HealthDataType> queriedTypes = [];
 
   @override
@@ -74,7 +64,7 @@ class _RecordingHealth implements Health {
       throw UnimplementedError('nicht Teil des geprueften Pfads');
 }
 
-/// Kurzschreibweise fuer die Rohsignale eines Zugriffs.
+/// Shorthand for the raw signals of one access.
 HealthAuthEvidence _ev({
   bool? writeGrant,
   int? steps,
@@ -172,9 +162,7 @@ void main() {
         now: DateTime(2026, 8, 19, 21),
       );
 
-      // Sonst rechnet der Food-Tab dauerhaft burnedKcal = 0 und
-      // adjustedGoal = goal + 0, waehrend die Profilkarte „Synchronisiert"
-      // zeigt.
+      // Otherwise the food tab burns 0 while the card claims it is synced.
       expect(snap, isNull);
     });
 
@@ -206,9 +194,7 @@ void main() {
       final v = HealthAuthVerifier(evidenceTtl: const Duration(days: 3));
       v.resolve(_ev(writeGrant: true, steps: 7400), now: DateTime(2026, 8, 1));
 
-      // Nutzer nimmt in den iOS-Einstellungen NUR den Lesezugriff weg und
-      // laesst den Gewichts-Schreibschalter an: der Share-Status bleibt true,
-      // es kommen aber nie wieder Daten an.
+      // Only read access revoked: share status stays true, data never comes.
       final state = v.resolve(
         _ev(writeGrant: true, steps: 0),
         now: DateTime(2026, 8, 6),
@@ -231,9 +217,8 @@ void main() {
 
     test('Ende zu Ende: Connect mit reiner Schreib-Freigabe ist nicht granted',
         () async {
-      // hasPermissions meldet den wahrheitsgemaessen Share-Status true,
-      // Schritte kommen als 0 zurueck (nicht null!), Gewichtsabfrage leer —
-      // exakt der Nutzer, der im Sheet nur „Gewicht schreiben" umgelegt hat.
+      // Share status true, steps 0 (not null), weight empty — exactly the
+      // user who only enabled weight writing.
       final fake = _RecordingHealth(steps: 0, writeGrant: true);
       final service = AppleHealthService(health: fake, debugIsIOS: true);
 

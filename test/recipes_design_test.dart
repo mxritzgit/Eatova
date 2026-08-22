@@ -1,23 +1,17 @@
-// Design-Refactor 2026-08-09 — Rezepte-Paket.
+// Design refactor — recipes package.
 //
-// Diese Suite prueft NICHT das Verhalten (dafuer gibt es
-// recipes_state_retention_test, diet_preference_test, recipe_create_sheet_test
-// und flows/recipes_flow_test), sondern die drei Zusicherungen, die der
-// Refactor selbst mitbringt:
+// This suite checks not behaviour (other suites do that) but the three
+// guarantees of the refactor itself:
 //
-//   1. Der Tab, die Detail-Ansicht und beide Sheets rendern in BEIDEN
-//      Anzeige-Modi exceptionfrei — `AppTokens.of` wirft bewusst, wenn eine
-//      Flaeche ohne Theme gebaut wird, und eine hart geschriebene Dunkel-Farbe
-//      faellt im Hellmodus nur hier auf.
-//   2. Nichts overflowt bei textScaler 2.0. Die alte Optik trug drei feste
-//      Hoehen (Karussell 256, Chip-Leiste 38, Suchfeld 48); die uebrigen
-//      Rezepte-Suiten schlucken Overflows bewusst (testWidgetsRobust), diese
-//      hier sammelt sie ein.
-//   3. Das Key-Inventar des Tabs ist vollstaendig — ein verlorener Key faellt
-//      in EINEM Test auf statt verstreut ueber vier Suiten.
+//   1. Tab, detail view and both sheets render exception-free in BOTH display
+//      modes — `AppTokens.of` throws without a theme, and a hardcoded dark
+//      colour only shows up here in light mode.
+//   2. Nothing overflows at textScaler 2.0. The other recipe suites swallow
+//      overflows (testWidgetsRobust); this one collects them.
+//   3. The tab's key inventory is complete, so a lost key fails ONE test
+//      instead of scattering across four suites.
 //
-// Bewusst ohne test/widgets/design/design_harness.dart: das Paket soll nicht
-// an einer fremden Helferdatei haengen.
+// Deliberately without design_harness.dart: no dependency on a foreign helper.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -41,8 +35,8 @@ const _remaining = MacroProgress(
   kcal: 1600,
 );
 
-/// Ein Eigen-Rezept ohne Bild-Asset — der einzige Fall, in dem der
-/// [ImagePlaceholder] auftauchen darf.
+/// A user recipe without an image asset — the only case where the
+/// [ImagePlaceholder] may appear.
 final _eigenes = FitnessRecipe(
   slug: FitnessRecipe.userRecipeSlug(),
   title: 'Mein Testteller',
@@ -61,9 +55,9 @@ final _eigenes = FitnessRecipe(
   userCreated: true,
 );
 
-/// Der Tab in seiner echten Umgebung: die Home-Schale polstert jeden Tab mit
-/// `EdgeInsets.fromLTRB(20, 12, 20, 12)` (eatova_home_page.dart). Ohne diese
-/// Polsterung misst der Test eine Breite, die es in der App nicht gibt.
+/// The tab in its real environment: the home shell pads every tab with
+/// `EdgeInsets.fromLTRB(20, 12, 20, 12)`. Without that padding the test would
+/// measure a width that does not exist in the app.
 Widget _app(
   Brightness brightness, {
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
@@ -71,8 +65,8 @@ Widget _app(
 }) {
   return MaterialApp(
     theme: buildEatovaTheme(brightness),
-    // RecipesScreen ruft seit der i18n-Migration (Paket 2) slot.label(l10n)
-    // fuer den Slot-Picker (recipe_slot_picker.dart) — context.l10n.
+    // RecipesScreen calls slot.label(l10n) for the slot picker, so it needs
+    // context.l10n.
     locale: locale,
     supportedLocales: const [Locale('de'), Locale('en')],
     localizationsDelegates: const [
@@ -106,11 +100,11 @@ void _pinViewport(WidgetTester tester, {double textScale = 1.0}) {
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
-/// Sammelt Overflow-Fehler waehrend [body] und meldet sie gebuendelt.
+/// Collects overflow errors during [body] and reports them together.
 ///
-/// `FlutterError.onError` wird VOR dem `expect` zurueckgesetzt — das Binding
-/// asserted sonst beim ersten TestFailure, solange der Handler noch haengt.
-/// Muster aus test/text_scale_stress_test.dart.
+/// `FlutterError.onError` is restored BEFORE the `expect`: otherwise the
+/// binding asserts on the first TestFailure while the handler is still in
+/// place.
 Future<void> _expectNoOverflow(
   String was,
   Future<void> Function() body,
@@ -138,7 +132,7 @@ Future<void> _expectNoOverflow(
   );
 }
 
-/// Scrollt die Hauptliste, bis [finder] sichtbar ist.
+/// Scrolls the main list until [finder] is visible.
 Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
   await tester.dragUntilVisible(
     finder,
@@ -152,12 +146,11 @@ Finder _scrollableIn(Key key) => find
     .descendant(of: find.byKey(key), matching: find.byType(Scrollable))
     .first;
 
-/// Faehrt einen Scroller einmal von oben nach unten ab.
+/// Runs a scroller once from top to bottom.
 ///
-/// Bewusst ueber die [ScrollPosition] statt per `dragUntilVisible`: bei
-/// doppelter Schrift ist der Inhalt mehrere Bildschirmhoehen lang und laeuft
-/// gegen dessen 50-Iterationen-Grenze. So wird ausserdem wirklich JEDE Karte
-/// einmal gebaut — genau das soll der Overflow-Sammler sehen.
+/// Via [ScrollPosition] rather than `dragUntilVisible`: at 2x font the content
+/// is several screens tall and would hit its 50-iteration limit. It also builds
+/// EVERY card once, which is what the overflow collector needs to see.
 Future<void> _scrollThrough(WidgetTester tester, Key key) async {
   var position = tester.state<ScrollableState>(_scrollableIn(key)).position;
   while (position.pixels < position.maxScrollExtent) {
@@ -165,17 +158,17 @@ Future<void> _scrollThrough(WidgetTester tester, Key key) async {
       (position.pixels + 700).clamp(0.0, position.maxScrollExtent),
     );
     await tester.pumpAndSettle();
-    // Die lazy Liste waechst beim Scrollen — Position neu einlesen.
+    // The lazy list grows while scrolling — re-read the position.
     position = tester.state<ScrollableState>(_scrollableIn(key)).position;
   }
 }
 
-/// Oeffnet den Slot-Picker aus der Detail-Ansicht heraus.
+/// Opens the slot picker from the detail view.
 ///
-/// `ensureVisible` ist hier keine Kosmetik: bei textScaler 2.0 steht der
-/// „Hinzufügen"-Knopf rund 1760 px tief, also weit unterhalb des 852 px hohen
-/// Viewports. Ein blosses `tap()` traf ihn dort NICHT (nur eine Warnung, kein
-/// Fehler) — der Overflow-Fall lief danach gegen ein Sheet, das nie aufging.
+/// `ensureVisible` is not cosmetic: at textScaler 2.0 the add button sits about
+/// 1760 px deep, far below the 852 px viewport, and a plain `tap()` missed it
+/// with only a warning, leaving the overflow case waiting on a sheet that never
+/// opened.
 Future<void> _openSlotPicker(WidgetTester tester) async {
   final addButton = find.byKey(const ValueKey('recipe-add-button'));
   await tester.ensureVisible(addButton);
@@ -189,7 +182,7 @@ Future<void> _openSlotPicker(WidgetTester tester) async {
   );
 }
 
-/// Oeffnet die Detail-Ansicht des Haehnchen-Rezepts.
+/// Opens the detail view of the chicken recipe.
 Future<void> _openDetail(WidgetTester tester) async {
   final tile = find.byKey(
     const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli'),
@@ -255,10 +248,10 @@ void main() {
         expect(find.text('Wann eintragen?'), findsOneWidget);
       });
 
-      // Der einzige Ort im Paket, an dem Text NICHT auf einer Token-Flaeche
-      // liegt: die Bildkachel des Karussells. Ihr Scrim ist in beiden Modi
-      // dunkel (das Foto ist dasselbe) — `t.ink` waere dort im Hellmodus
-      // schwarz auf schwarz. Ein „no exception"-Test sieht das nicht.
+      // The only place in this package where text does NOT sit on a token
+      // surface: the carousel image tile. Its scrim is dark in both modes, so
+      // `t.ink` would be black on black in light mode — an exception-free test
+      // would not catch that.
       testWidgets('Text auf dem Foto bleibt im $modus-Modus hell',
           (tester) async {
         _pinViewport(tester);
@@ -277,8 +270,8 @@ void main() {
             )
             .toList();
 
-        // Der Titel traegt die Display-Familie, die Kennzahlen-Zeile 11 pt —
-        // das Badge (dunkel auf Lime, korrekt so) faellt durch beide Raster.
+        // The title uses the display family, the metrics row 11 pt; the badge
+        // (dark on lime, correctly so) falls through both filters.
         final aufDemFoto = texte.where(
           (w) =>
               w.style?.fontFamily == AppType.displayFamily ||
@@ -323,7 +316,7 @@ void main() {
       await _expectNoOverflow('Der Rezepte-Tab', () async {
         await tester.pumpWidget(_app(Brightness.dark));
         await tester.pumpAndSettle();
-        // Bis ans Listenende — die Ziel-Sektion liegt hinter der Hauptliste.
+        // To the end of the list: the goal section sits behind the main list.
         await _scrollThrough(tester, const ValueKey('screen-recipes'));
         expect(
           find.byKey(const ValueKey('recipe-goal-matches')),
@@ -339,9 +332,8 @@ void main() {
         await tester.pumpWidget(_app(Brightness.light));
         await tester.pumpAndSettle();
         await _openDetail(tester);
-        // Einmal bis ans Ende: die vier Info-Sektionen (Portion, Zutaten,
-        // Zubereitung, Profi-Hinweis) liegen bei doppelter Schrift mehrere
-        // Bildschirmhoehen tief. Ein einzelner -600er Zug erreichte sie nicht.
+        // All the way down: at 2x font the four info sections sit several
+        // screens deep; a single -600 drag did not reach them.
         await _scrollThrough(tester, const ValueKey('recipe-detail-scroll'));
         expect(
           find.text('Profi-Hinweis'),
@@ -381,8 +373,8 @@ void main() {
     expect(find.byKey(const ValueKey('recipes-search-input')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipe-create-button')), findsOneWidget);
 
-    // Das Suchfeld traegt den Key DIREKT auf dem TextField — fremde Suiten
-    // casten darauf (test/home_page_tabs_test.dart).
+    // The search field carries the key DIRECTLY on the TextField; other suites
+    // cast on it.
     expect(
       tester
           .widget<TextField>(find.byKey(const ValueKey('recipes-search-input')))
@@ -390,7 +382,7 @@ void main() {
       isNotNull,
     );
 
-    // Das Loesch-X erscheint nur bei gefuelltem Feld.
+    // The clear X only appears when the field is non-empty.
     expect(find.byKey(const ValueKey('recipes-search-clear')), findsNothing);
     await tester.enterText(
       find.byKey(const ValueKey('recipes-search-input')),
@@ -401,8 +393,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipes-search-clear')));
     await tester.pumpAndSettle();
 
-    // Die Chip-Leiste ist lazy: hintere Chips existieren erst, wenn sie in den
-    // Cache-Bereich gescrollt sind. Deshalb einmal durchfahren und einsammeln.
+    // The chip strip is lazy: later chips only exist once scrolled into the
+    // cache area, so run through it once and collect.
     final strip = find
         .ancestor(
           of: find.byKey(const ValueKey('recipe-filter-Alle')),
@@ -427,12 +419,9 @@ void main() {
     expect(find.byKey(const ValueKey('recipe-goal-matches')), findsOneWidget);
   });
 
-  // Diese drei Meldungen liefen frueher ueber `showAppSnack(accent: …)` und
-  // erreichten `context.t` nie (der Ausdruck ist kurzschliessend). Seit der
-  // Migration auf `tone:` ist der Token-Zugriff scharf — ein Toast ohne Theme
-  // wuerde jetzt werfen. test/flows/recipes_flow_test.dart pinnt den ersten
-  // Satz ebenfalls, laeuft aber ueber `EatovaApp`; hier haengt er an nichts
-  // Fremdem.
+  // These three messages used to run through `showAppSnack(accent: …)` and
+  // never reached `context.t` (short-circuiting expression). With `tone:` the
+  // token access is live, so a toast without a theme would throw.
   group('Toasts', () {
     testWidgets('Eintragen meldet „590 kcal zu Mittagessen hinzugefügt."',
         (tester) async {
@@ -494,11 +483,9 @@ void main() {
     });
   });
 
-  // Die Feldbeschriftung wanderte beim Umbau von `InputDecoration.labelText`
-  // auf eine Versalien-Zeile UEBER dem Feld. Optisch ist das die neue Sprache
-  // — fuer den Screenreader war das Feld danach unbeschriftet („Textfeld,
-  // leer"), gemessen mit getSemantics().label == ''. Dieser Test haelt den
-  // wiederhergestellten Bezug fest.
+  // The field label moved from `InputDecoration.labelText` to an uppercase line
+  // ABOVE the field, which left the field unlabelled for screen readers
+  // (getSemantics().label == ''). This test pins the restored association.
   testWidgets('Jedes Feld des Anlege-Sheets sagt sich mit Namen an',
       (tester) async {
     final semantics = tester.ensureSemantics();
@@ -530,10 +517,9 @@ void main() {
     semantics.dispose();
   });
 
-  // Vor dem Feinschliff zeigte die Kennzahlen-Zeile nur `kcal`, Protein und das
-  // Portionsgewicht — KH und Fett standen bis dahin auf JEDER Karte (frueher
-  // `_MacroRow`) und waren nach dem Umbau nur noch im Detail zu finden. Dieser
-  // Test haelt das komplette Makro-Trio auf der Listenkachel fest.
+  // The metrics row briefly showed only kcal, protein and portion weight; carbs
+  // and fat had been on every card before. This test pins the full macro trio
+  // on the list tile.
   testWidgets('Die Listenkachel zeigt kcal und alle drei Makros',
       (tester) async {
     _pinViewport(tester);
@@ -580,11 +566,9 @@ void main() {
   });
 
   group('EN-Render-Smoke (i18n-Paket 3, Spec §6)', () {
-    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
-    // mindestens eine echte englische Uebersetzung steht im Baum. Englische
-    // Texte sind teils laenger als die deutschen — das faengt Overflows, die
-    // ein reiner `de`-Lauf nie zeigen wuerde. Muster:
-    // test/food_diary_screen_test.dart (Paket 2).
+    // Renders under locale `en` in both brightnesses: no crash, and at least
+    // one real English translation is in the tree. English strings are
+    // sometimes longer than German, catching overflows a pure `de` run misses.
     for (final helligkeit in Brightness.values) {
       testWidgets('Rezepte-Tab rendert unter en in $helligkeit ohne Ausnahme',
           (tester) async {
@@ -594,14 +578,12 @@ void main() {
 
         expect(tester.takeException(), isNull,
             reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
-        // „Rezepte" -> „Recipes", „Empfehlungen" -> „Recommendations".
+        // Screen chrome in English.
         expect(find.text('Recipes'), findsOneWidget);
         expect(find.text('Recommendations'), findsOneWidget);
-        // Inhalte-PR (2026-08-11): der Bestandskatalog selbst ist zweisprachig
-        // — unter en steht die echte englische Uebersetzung im Baum, nicht
-        // nur die Screen-Chrome. Erstes Rezept des Katalogs
-        // (hahnchen_mit_reis_and_brokkoli), erscheint garantiert ohne Scrollen
-        // im Empfehlungs-Karussell.
+        // The catalog itself is bilingual, so under en the real translation is
+        // in the tree, not just the screen chrome. The first catalog recipe
+        // always shows in the carousel without scrolling.
         expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
       });
     }

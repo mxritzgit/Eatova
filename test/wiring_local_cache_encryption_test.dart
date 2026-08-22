@@ -5,24 +5,18 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Verdrahtungs-Wächter für `local_cache.dart:104`
-/// (`EncryptedKeyValueStore.create(base)`) — gefunden von Agent W6-02.
+/// Wiring guard for `EncryptedKeyValueStore.create(base)` in
+/// `local_cache.dart`.
 ///
-/// Es ist dieselbe Klasse wie C5 und D1: Die **Logik** ist gründlich getestet
-/// (`secure_cache_store_test.dart` treibt `EncryptedKeyValueStore` direkt),
-/// aber die eine Zeile, die sie an den Produktionspfad hängt, war es nicht.
+/// The logic is well covered (`secure_cache_store_test.dart` drives
+/// `EncryptedKeyValueStore` directly), but the one line attaching it to the
+/// production path was not: no other test calls `LocalCache.create`, and every
+/// cache test injects a plaintext `InMemoryKeyValueStore`. Dropping the
+/// encryption there would store the diary, weight series and body metrics in
+/// the clear with a green suite.
 ///
-/// Warum die Bestandstests das nicht fangen: `LocalCache.create` wird in
-/// keinem von ihnen aufgerufen. Der öffentliche Konstruktor nimmt bewusst
-/// einen nackten `KeyValueStore`, und alle Cache-Tests injizieren
-/// `InMemoryKeyValueStore` mit Klartext. Wer Zeile 104 durch `final store =
-/// base;` ersetzt, legt 35 Tage Tagebuch, die Gewichtsreihe und die
-/// Körpermaße wieder unverschlüsselt ab — bei grüner Suite.
-///
-/// Genau der Fund, den `7f895f9` mit der Cache-Verschlüsselung geschlossen hat.
-///
-/// Geprüft wird deshalb **das Ergebnis auf der Platte**, nicht der Quelltext:
-/// `EATOVA1:` ist das Magic des Envelope-Formats.
+/// Therefore this asserts **the result on disk**, not the source:
+/// `EATOVA1:` is the envelope format's magic.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -80,7 +74,7 @@ void main() {
     final cache = (await LocalCache.create(userId))!;
     await cache.writeLoggedMeals(<LoggedMeal>[mahlzeit()]);
 
-    // Zweite Instanz auf demselben Speicher: so sieht ein Kaltstart aus.
+    // Second instance on the same storage: this is what a cold start looks like.
     final zweite = (await LocalCache.create(userId))!;
     final gelesen = await zweite.readLoggedMeals();
 
@@ -100,7 +94,7 @@ void main() {
         prefs.getKeys().firstWhere((k) => k.contains('logged_meals'));
     final blob = prefs.getString(fremderSlot)!;
 
-    // Denselben Ciphertext in den Slot eines anderen Users schieben.
+    // Move the same ciphertext into another user's slot.
     await prefs.setString(
         fremderSlot.replaceAll('user-a', 'user-b'), blob);
 

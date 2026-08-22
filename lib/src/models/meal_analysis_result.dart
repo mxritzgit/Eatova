@@ -5,17 +5,15 @@ import '../services/food_kcal_db.dart';
 import 'meal_component.dart';
 import 'model_limits.dart';
 
-/// Textmarke fuer "Makro unbekannt". Bewusst derselbe String, den die Parser
-/// fuer fehlende Makros liefern — `MacroProgress._parseMacroG` liest daraus 0
-/// und traegt damit nichts Erfundenes in die Tagesringe ein.
+/// Text marker for "macro unknown". Same string the parsers emit for missing
+/// macros; `MacroProgress._parseMacroG` reads 0 from it, so nothing invented
+/// reaches the daily rings.
 const String _makroUnbekannt = '-';
 
-/// Die [MealResultSource.code]-Werte als eigene `static const`-Konstanten:
-/// ein Instanzfeld-Zugriff wie `MealResultSource.aiEstimate.code` ist KEIN
-/// gueltiger konstanter Ausdruck (Dart lehnt das beim Default-Parameter von
-/// `MealAnalysisResult.sourceLabel` ab), deshalb die Codes hier separat.
-/// [MealResultSource.code] liest aus derselben Quelle — ein Wert existiert
-/// nur einmal.
+/// The [MealResultSource.code] values as separate `static const`s, because an
+/// instance-field access is not a valid constant expression and cannot be a
+/// default parameter. [MealResultSource.code] reads from here — one value,
+/// defined once.
 abstract final class _MealResultSourceCodes {
   static const String aiEstimate = 'aiEstimate';
   static const String photoAi = 'photoAi';
@@ -24,13 +22,10 @@ abstract final class _MealResultSourceCodes {
   static const String manual = 'manual';
 }
 
-/// Dieselbe Konstanten-Ausweichlösung wie [_MealResultSourceCodes], fuer
-/// [MealResultConfidence]. `high`/`medium`/`low` sind KEINE Uebersetzung —
-/// es sind die Roh-Codes, die das Modell selbst schon liefert
-/// (`analyze-meal`s Prompt-Schema: `"confidence": "high"|"medium"|"low"`);
-/// die bisherige `_formatConfidence` uebersetzte sie SOFORT beim Parsen nach
-/// Deutsch. Ab diesem PR bleibt der Modell-Wert unveraendert der
-/// Persistenz-Code, die Uebersetzung passiert nur noch bei der Anzeige.
+/// Same constant workaround as [_MealResultSourceCodes], for
+/// [MealResultConfidence]. `high`/`medium`/`low` are the raw codes the model
+/// itself returns, not a translation; the model value is the persisted code
+/// and translation happens only at display time.
 abstract final class _MealResultConfidenceCodes {
   static const String high = 'high';
   static const String medium = 'medium';
@@ -41,64 +36,53 @@ abstract final class _MealResultConfidenceCodes {
   static const String manual = 'manual';
 }
 
-/// Sprachneutrale Herkunfts-Klassifizierung eines Scan-Ergebnisses
-/// (Scan/Coach-PR, 2026-08-11).
+/// Language-neutral origin classification of a scan result.
 ///
-/// [MealAnalysisResult.sourceLabel] bleibt bewusst ein roher `String` —
-/// Rueckwaertskompatibilitaet: Persistenz (meals_sync.dart) UND ~25
-/// Bestandstests konstruieren `MealAnalysisResult` direkt mit einem
-/// String-Literal (`sourceLabel: 'Foto-KI'` etc.), das aendert dieser PR
-/// nicht. NEU ist die AUFLOESUNG dieses Rohwerts fuer die ANZEIGE: [resolve]
-/// ordnet ihn einem der vier bekannten Ursprnge zu — dem ab jetzt
-/// geschriebenen neutralen [code], dem deutschen Bestandswert ([legacyDe],
-/// vor diesem PR schrieb jeder Client woertlich diesen String) oder —
-/// Verteidigungslinie, analog `FitnessRecipe._resolvePlaceholder` — dem
-/// englischen Anzeigetext, falls ihn je ein Client persistiert haette. Kein
-/// Treffer -> `null`, der Aufrufer zeigt den Rohwert dann UNVERAENDERT
-/// (Pass-through fuer unbekannte Werte, i18n-design.md §5).
+/// [MealAnalysisResult.sourceLabel] stays a raw `String` for backwards
+/// compatibility (persistence and existing tests use string literals).
+/// [resolve] maps that raw value to a known origin: the neutral [code], the
+/// legacy German value ([legacyDe]), or — as a defensive line — the English
+/// display text. No match -> `null`, and the caller shows the raw value
+/// unchanged (pass-through, i18n-design.md §5).
 enum MealResultSource {
   aiEstimate(_MealResultSourceCodes.aiEstimate, legacyDe: 'KI-Schätzung'),
   photoAi(_MealResultSourceCodes.photoAi, legacyDe: 'Foto-KI'),
-  // Markenname — bereits sprachneutral, code == legacyDe absichtlich gleich.
+  // Brand name — already neutral, code == legacyDe on purpose.
   openFoodFacts(
     _MealResultSourceCodes.openFoodFacts,
     legacyDe: 'OpenFoodFacts',
   ),
   recipe(_MealResultSourceCodes.recipe, legacyDe: 'Eatova Rezept'),
-  // Manueller Eintrag (Spec 2026-08-13). legacyDe ist hier nur ein
-  // Resolve-Alias — Alt-Zeilen mit diesem Wert gibt es nicht.
+  // Manual entry. legacyDe is only a resolve alias — no legacy rows carry it.
   manual(_MealResultSourceCodes.manual, legacyDe: 'Manuell');
 
   const MealResultSource(this.code, {required this.legacyDe});
 
-  /// Der ab diesem PR geschriebene, sprachneutrale Persistenz-Wert (neue
-  /// Zeilen UND `MealAnalysisResult`-Default). Kurz genug fuer
-  /// `LoggedMealLimits.sourceLabelMaxChars`/`FavoriteMealLimits.sourceLabelMaxChars`
-  /// (80 Zeichen) — keine DB-Migration noetig.
+  /// The language-neutral persisted value (new rows and the
+  /// `MealAnalysisResult` default). Fits the 80-char `sourceLabelMaxChars`
+  /// limits, so no DB migration is needed.
   final String code;
 
-  /// Der deutsche Bestandswert, den JEDER Client vor diesem PR geschrieben
-  /// hat (Alt-Zeilen in `logged_meals`/`favorite_meals`).
+  /// The legacy German value in older `logged_meals`/`favorite_meals` rows.
   final String legacyDe;
 
-  /// Anzeigetext in der Sprache von [l10n].
+  /// Display text in the language of [l10n].
   String label(AppLocalizations l10n) => switch (this) {
     MealResultSource.aiEstimate => l10n.foodSourceAiEstimate,
     MealResultSource.photoAi => l10n.foodSourcePhotoAi,
-    // Markenname, keine Uebersetzung noetig/erwuenscht.
+    // Brand name, deliberately untranslated.
     MealResultSource.openFoodFacts => 'OpenFoodFacts',
     MealResultSource.recipe => l10n.foodSourceRecipe,
     MealResultSource.manual => l10n.foodSourceManual,
   };
 
-  /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.sourceLabel`)
-  /// einem bekannten Ursprung zu, oder liefert `null` fuer alles Unbekannte
-  /// (Pass-through-Fall, s. Klassendoku).
+  /// Maps a raw persisted `sourceLabel` to a known origin, or `null` for
+  /// anything unknown (pass-through case, see class doc).
   static MealResultSource? resolve(String raw) {
     for (final value in values) {
       if (value.code == raw || value.legacyDe == raw) return value;
     }
-    // Verteidigungslinie: ein englisches Anzeige-Label, falls je persistiert.
+    // Defensive: an English display label, in case one was ever persisted.
     for (final value in values) {
       if (value.label(enL10n) == raw) return value;
     }
@@ -106,17 +90,13 @@ enum MealResultSource {
   }
 }
 
-/// Sprachneutrale Sicherheits-Klassifizierung eines Scan-Ergebnisses
-/// (Review-Fixwelle Scan/Coach-PR, 2026-08-11) — dasselbe Muster wie
-/// [MealResultSource], hier fuer [MealAnalysisResult.confidence].
+/// Language-neutral confidence classification of a scan result — same pattern
+/// as [MealResultSource], here for [MealAnalysisResult.confidence].
 ///
-/// [MealAnalysisResult.confidence] bleibt aus demselben Grund wie
-/// `sourceLabel` ein roher `String` (Bestandstests konstruieren Fixtures mit
-/// String-Literalen wie `confidence: 'Hoch'`). [resolve] ordnet den Rohwert
-/// zu: dem seit diesem PR geschriebenen [code] (fuer `high`/`medium`/`low`
-/// identisch mit dem, was das Modell selbst schon liefert — keine weitere
-/// Übersetzungsebene noetig), dem deutschen Bestandswert ([legacyDe]) oder —
-/// Verteidigungslinie — dem englischen Anzeigetext.
+/// The field stays a raw `String` for the same compatibility reason as
+/// `sourceLabel`. [resolve] maps it to the [code] (identical to what the model
+/// already returns for `high`/`medium`/`low`), the legacy German value, or the
+/// English display text.
 enum MealResultConfidence {
   high(_MealResultConfidenceCodes.high, legacyDe: 'Hoch'),
   medium(_MealResultConfidenceCodes.medium, legacyDe: 'Mittel'),
@@ -128,14 +108,13 @@ enum MealResultConfidence {
 
   const MealResultConfidence(this.code, {required this.legacyDe});
 
-  /// Der ab diesem PR geschriebene, sprachneutrale Persistenz-Wert.
+  /// The language-neutral persisted value.
   final String code;
 
-  /// Der deutsche Bestandswert, den JEDER Client vor diesem PR geschrieben
-  /// hat.
+  /// The legacy German value in older rows.
   final String legacyDe;
 
-  /// Anzeigetext in der Sprache von [l10n].
+  /// Display text in the language of [l10n].
   String label(AppLocalizations l10n) => switch (this) {
     MealResultConfidence.high => l10n.foodConfidenceHigh,
     MealResultConfidence.medium => l10n.foodConfidenceMedium,
@@ -146,10 +125,9 @@ enum MealResultConfidence {
     MealResultConfidence.manual => l10n.foodConfidenceManual,
   };
 
-  /// Ordnet einen ROHEN, persistierten Wert (`MealAnalysisResult.confidence`)
-  /// einer bekannten Stufe zu, oder liefert `null` fuer alles Unbekannte
-  /// (Pass-through-Fall — z. B. eine Modell-Antwort ausserhalb des
-  /// vereinbarten `high`/`medium`/`low`-Schemas).
+  /// Maps a raw persisted `confidence` to a known level, or `null` for
+  /// anything unknown (e.g. a model answer outside the agreed
+  /// `high`/`medium`/`low` schema).
   static MealResultConfidence? resolve(String raw) {
     for (final value in values) {
       if (value.code == raw || value.legacyDe == raw) return value;
@@ -161,24 +139,16 @@ enum MealResultConfidence {
   }
 }
 
-/// Sprachneutrale Marker fuer die drei hartkodierten Fallback-Texte, die
-/// [MealAnalysisResult.fromEdgeFunction] in `portionNotes` schreibt, wenn das
-/// Modell kein eigenes `explanation` liefert (Review-Fixwelle Scan/Coach-PR,
-/// 2026-08-11), sowie den vierten Marker [manual] fuer
-/// [MealAnalysisResult.manualEntry] (Spec 2026-08-13) — derselbe Fall wie ein
-/// fehlendes `explanation`, nur ohne Modellantwort ueberhaupt.
+/// Language-neutral markers for the four hardcoded fallback texts written to
+/// `portionNotes` — three from [MealAnalysisResult.fromEdgeFunction] when the
+/// model returns no `explanation`, plus [manual] for
+/// [MealAnalysisResult.manualEntry].
 ///
-/// **Bewusst NUR diese vier Formulierungen**, nicht `portionNotes` generell:
-/// das Feld traegt sonst entweder echten KI-Freitext (`json['explanation']`)
-/// oder von `adjustedToGrams`/`adjustedToItems` rechnerisch gebaute
-/// Anpassungs-Saetze (`'Manuell angepasst: …'` etc.) — beides bleibt bewusst
-/// hartkodiertes Deutsch (s. `MealAnalysisResult`-Klassendoku): KI-Freitext
-/// ist quasi Nutzerdaten (wie ein geloggter Mahlzeitname), keine
-/// UI-Vokabel, und die Anpassungs-Saetze sind eine dokumentierte, separate
-/// Restlücke (s. Waechter-Kommentar in `hartkodierung_waechter_test.dart`).
-/// Muster: `FitnessRecipe._resolvePlaceholder` (Inhalte-PR) — ein bekannter
-/// Alt-Text (deutsch) ODER der neue neutrale [code] wird durch die AKTIVE
-/// Locale ersetzt, alles andere bleibt unangetastet.
+/// Only these four, not `portionNotes` in general: the field otherwise carries
+/// real model free text or the adjustment sentences built by
+/// `adjustedToGrams`/`adjustedToItems`, both of which stay hardcoded German
+/// (free text is effectively user data; the adjustment sentences are a
+/// documented remaining gap, see `hartkodierung_waechter_test.dart`).
 enum MealResultPortionNote {
   autoSplit(
     'aiScanAutoSplitNote',
@@ -205,14 +175,13 @@ enum MealResultPortionNote {
 
   const MealResultPortionNote(this.code, {required this.legacyDe});
 
-  /// Der ab diesem PR geschriebene, sprachneutrale Persistenz-Wert.
+  /// The language-neutral persisted value.
   final String code;
 
-  /// Der deutsche Bestandswert, den JEDER Client vor diesem PR geschrieben
-  /// hat.
+  /// The legacy German value in older rows.
   final String legacyDe;
 
-  /// Anzeigetext in der Sprache von [l10n].
+  /// Display text in the language of [l10n].
   String text(AppLocalizations l10n) => switch (this) {
     MealResultPortionNote.autoSplit => l10n.foodScanNoteAutoSplit,
     MealResultPortionNote.itemized => l10n.foodScanNoteItemized,
@@ -220,10 +189,8 @@ enum MealResultPortionNote {
     MealResultPortionNote.manual => l10n.foodManualEntryNote,
   };
 
-  /// Ordnet einen ROHEN, persistierten Wert
-  /// (`MealAnalysisResult.portionNotes`) einem der drei bekannten Fallback-
-  /// Texte zu, oder liefert `null` fuer alles Unbekannte (KI-Freitext,
-  /// Anpassungs-Saetze, Nutzerdaten — Pass-through-Fall).
+  /// Maps a raw persisted `portionNotes` to a known fallback text, or `null`
+  /// for anything unknown (model free text, adjustment sentences, user data).
   static MealResultPortionNote? resolve(String raw) {
     for (final value in values) {
       if (value.code == raw || value.legacyDe == raw) return value;
@@ -235,30 +202,18 @@ enum MealResultPortionNote {
   }
 }
 
-/// Sprachneutrale Kodierung des Produkt-Hinweises, den
-/// [MealAnalysisResult.fromOpenFoodFacts] in `portionNotes` schreibt
-/// (Komplettreview 2026-08-19, Fund 4).
+/// Language-neutral encoding of the product note that
+/// [MealAnalysisResult.fromOpenFoodFacts] writes into `portionNotes`
+/// (Komplettreview 2026-08-19, finding 4).
 ///
-/// Bis dahin baute die Fabrik dort einen fertigen DEUTSCHEN Absatz
-/// (`'OpenFoodFacts Barcode 4001724012345. Marke: … Du kannst das gegessene
-/// Gewicht weiter anpassen.'`) und persistierte ihn. Ein englischer Nutzer las
-/// diesen Text unter korrekt uebersetzten Labels auf Deutsch, und kein
-/// Sprachwechsel wurde ihn je wieder los — das Feld liegt im Payload.
+/// A fixed marker is not enough here: the note carries variables (barcode,
+/// brand, package size, database serving). Persisted is [_prefix] plus those
+/// four values as JSON; it is resolved only at display time ([text]). Under
+/// [deL10n] the result is word-for-word the previous German paragraph.
 ///
-/// Anders als bei [MealResultPortionNote] reicht ein fester Marker hier
-/// nicht: der Absatz traegt VARIABLEN (Barcode, Marke, Packungsgroesse,
-/// Portionsangabe der Datenbank). Persistiert wird deshalb ein Marker MIT
-/// Nutzlast — [_prefix] plus die vier Werte als JSON —, aufgeloest wird er
-/// erst zur Anzeigezeit ([text]). Unter [deL10n] ist das Ergebnis wortgleich
-/// mit dem bisherigen Absatz (i18n-Regel 1: de bleibt byte-identisch).
-///
-/// **Alt-Zeilen bleiben lesbar UND werden uebersetzt.** [resolve] erkennt
-/// neben der neuen Kodierung auch den deutschen Bestandsabsatz und liest
-/// dessen vier Werte ueber [_legacyDe] zurueck — dieselbe Idee wie
-/// [MealResultSource.legacyDe], nur dass ein Absatz mit Variablen ein Muster
-/// statt eines Literals braucht. Passt das Muster nicht (von Hand veraenderter
-/// oder noch aelterer Text), bleibt der Rohtext unveraendert stehen
-/// (Pass-through, i18n-design.md §5) — lesbar ist er in jedem Fall.
+/// [resolve] also recognises that legacy German paragraph and reads its four
+/// values back via [_legacyDe]. No match leaves the raw text untouched
+/// (pass-through, i18n-design.md §5).
 class MealResultOffNote {
   const MealResultOffNote({
     required this.barcode,
@@ -267,20 +222,20 @@ class MealResultOffNote {
     this.serving,
   });
 
-  /// Praefix des persistierten Werts. Kurz und sprachneutral, damit er in
-  /// derselben Spalte lebt wie die Marker aus [MealResultPortionNote].
+  /// Prefix of the persisted value — short and neutral so it lives in the same
+  /// column as the [MealResultPortionNote] markers.
   static const String _prefix = 'offProductNote:';
 
   final String barcode;
   final String? brand;
 
-  /// Packungsgroesse laut OFF (`quantity`), z. B. `'390 g'`.
+  /// Package size per OFF (`quantity`), e.g. `'390 g'`.
   final String? package;
 
-  /// Portionsangabe laut OFF (`serving_size`), z. B. `'100 g'`.
+  /// Serving size per OFF (`serving_size`), e.g. `'100 g'`.
   final String? serving;
 
-  /// Der sprachneutrale Wert fuer `portionNotes`.
+  /// The language-neutral value for `portionNotes`.
   String encode() {
     final werte = <String, String>{
       'barcode': barcode,
@@ -291,7 +246,7 @@ class MealResultOffNote {
     return '$_prefix${jsonEncode(werte)}';
   }
 
-  /// Anzeigetext in der Sprache von [l10n].
+  /// Display text in the language of [l10n].
   String text(AppLocalizations l10n) => <String>[
     l10n.mealNotesOffSource(barcode),
     if (brand != null) l10n.mealNotesOffBrand(brand!),
@@ -301,14 +256,14 @@ class MealResultOffNote {
     l10n.mealNotesAdjustWeight,
   ].join(' ');
 
-  /// Ordnet einen ROHEN, persistierten Wert zu: neue Kodierung oder deutscher
-  /// Bestandsabsatz. Alles andere -> `null` (Pass-through-Fall).
+  /// Maps a raw persisted value: new encoding or legacy German paragraph.
+  /// Anything else -> `null` (pass-through).
   static MealResultOffNote? resolve(String raw) => raw.startsWith(_prefix)
       ? _fromJson(raw.substring(_prefix.length))
       : _fromLegacyDe(raw);
 
-  /// Ein beschaedigter Marker ist kein Grund, die Zeile zu verlieren: der
-  /// Aufrufer zeigt dann den Rohwert, wie bei jedem unbekannten Text.
+  /// A corrupted marker must not lose the row: the caller then shows the raw
+  /// value, as with any unknown text.
   static Object? _jsonOderNull(String rohesJson) {
     try {
       return jsonDecode(rohesJson);
@@ -321,10 +276,8 @@ class MealResultOffNote {
     final gelesen = _jsonOderNull(rohesJson);
     if (gelesen is! Map) return null;
     final barcode = gelesen['barcode'];
-    // Der fehlende Schluessel disqualifiziert den Marker; ein LEERER Barcode
-    // nicht — die Produktsuche liefert Treffer ohne `code` (s.
-    // `ProductSearchResult.fromOpenFoodFacts`), und der Bestandsabsatz schrieb
-    // dafuer schon immer 'OpenFoodFacts Barcode .'.
+    // A missing key disqualifies the marker; an EMPTY barcode does not — the
+    // product search returns hits without `code`.
     if (barcode == null) return null;
     return MealResultOffNote(
       barcode: barcode.toString().trim(),
@@ -334,12 +287,10 @@ class MealResultOffNote {
     );
   }
 
-  /// Muster des deutschen Bestandsabsatzes. Bewusst Kompatibilitaets-DATEN,
-  /// kein UI-Text (dieselbe Rolle wie [MealResultSource.legacyDe]): die
-  /// Wortlaute sind die Fassung VOR dem Komplettreview 2026-08-19 und duerfen
-  /// sich nie wieder aendern — sonst verlieren Alt-Zeilen ihre Uebersetzung.
-  /// Die drei mittleren Gruppen sind optional, weil `fromOpenFoodFacts` sie
-  /// schon damals nur bei vorhandenem Feld schrieb.
+  /// Pattern of the legacy German paragraph. Compatibility DATA, not UI text:
+  /// the wording must never change again, or legacy rows lose their
+  /// translation. The three middle groups are optional because
+  /// `fromOpenFoodFacts` only ever wrote them when the field was present.
   static final RegExp _legacyDe = RegExp(
     r'^OpenFoodFacts Barcode (.+?)\.'
     r'(?: Marke: (.+?)\.)?'
@@ -395,77 +346,56 @@ class MealAnalysisResult {
   final String carbs;
   final String fat;
 
-  /// ROHER Sicherheits-Wert, wie er persistiert wird — s.
-  /// [MealResultConfidence] fuer die Kompatibilitaets- und Anzeigelogik.
-  /// Fuer die Anzeige immer [resolvedConfidence] verwenden.
+  /// RAW confidence value as persisted — see [MealResultConfidence]. Always
+  /// render via [resolvedConfidence].
   final String confidence;
 
-  /// ROHER Notiz-Text, wie er persistiert wird. Traegt entweder einen der
-  /// drei bekannten Fallback-Marker aus `fromEdgeFunction`
-  /// (s. [MealResultPortionNote], ueber [resolvedPortionNotes] aufloesbar),
-  /// den kodierten OFF-Produkthinweis aus `fromOpenFoodFacts`
-  /// (s. [MealResultOffNote], ebenfalls aufloesbar), echten KI-Freitext
-  /// (`explanation`) oder von `adjustedToGrams`/`adjustedToItems` gebaute
-  /// Anpassungs-Saetze — beide Letzteren bleiben bewusst hartkodiertes Deutsch
-  /// (quasi Nutzerdaten bzw. dokumentierte Restlücke, s.
-  /// [MealResultPortionNote]-Klassendoku).
+  /// RAW note text as persisted: a fallback marker from `fromEdgeFunction`
+  /// ([MealResultPortionNote]), the encoded OFF product note
+  /// ([MealResultOffNote]), real model free text (`explanation`), or an
+  /// adjustment sentence from `adjustedToGrams`/`adjustedToItems`. The last
+  /// two stay hardcoded German by design. Render via [resolvedPortionNotes].
   final String portionNotes;
   final List<MealComponent> items;
   final bool isAdjusted;
 
-  /// ROHER Herkunfts-Wert, wie er persistiert wird — s. [MealResultSource]
-  /// fuer die Kompatibilitaets- und Anzeigelogik. Ab diesem PR ein neutraler
-  /// [MealResultSource.code] (z. B. `'photoAi'`); Alt-Zeilen tragen den
-  /// deutschen Bestandswert (z. B. `'Foto-KI'`); beides — und jeder sonstige
-  /// String — bleibt hier unveraendert stehen. Fuer die Anzeige immer
-  /// [resolvedSourceLabel] verwenden, NIE dieses Feld direkt rendern.
+  /// RAW origin value as persisted — a neutral [MealResultSource.code] for new
+  /// rows, the legacy German value for old ones, and any other string stays
+  /// untouched. Always render via [resolvedSourceLabel], never this field.
   final String sourceLabel;
   final String? barcode;
   final String? brand;
 
-  /// `true`, wenn die 0 in [caloriesKcal]/[kcalPer100G] eine MESSUNG ist
-  /// (Wasser, Zero-Getraenk — die Datenquelle sagt ausdruecklich 0 kcal,
-  /// siehe [offMeldetExplizitNullKcal]) und nicht der Sentinel fuer
-  /// „unbekannt". Nur mit diesem Marker duerfen die Letzt-Bremsen im UI
-  /// (add_meal_sheet, meal_analysis_sheet) eine 0 durchlassen. Er wird im
-  /// Payload persistiert (mealResultToJson), damit auch der Auto-Recent-
-  /// Favorit eines Wassers loggbar bleibt — Alt-Zeilen ohne den Schluessel
-  /// lesen `false` und bleiben blockiert wie bisher.
+  /// `true` when the 0 in [caloriesKcal]/[kcalPer100G] is a MEASUREMENT (water,
+  /// zero drink — see [offMeldetExplizitNullKcal]) and not the "unknown"
+  /// sentinel. Only with this marker do the UI log guards let a 0 through.
+  /// Persisted in the payload; legacy rows read `false` and stay blocked.
   final bool explicitZeroKcal;
 
-  /// Anzeige des Herkunfts-Werts in der Sprache von [l10n]. Loest bekannte
-  /// Rohwerte (neutraler Code seit diesem PR ODER deutscher Bestandswert
-  /// davor) ueber [MealResultSource] auf; ein unbekannter Rohwert wird
-  /// UNVERAENDERT angezeigt (Pass-through, s. [MealResultSource]-Klassendoku).
+  /// Origin value in the language of [l10n]. Known raw values resolve via
+  /// [MealResultSource]; unknown ones are shown unchanged (pass-through).
   String resolvedSourceLabel(AppLocalizations l10n) {
     final source = MealResultSource.resolve(sourceLabel);
     return source == null ? sourceLabel : source.label(l10n);
   }
 
-  /// Ersetzt den bis Scan/Coach-PR hartkodiert deutschen `portionLabel`-Getter
-  /// (`'$estimatedGrams g geschätzt'`). Anders als [sourceLabel] wird dieser
-  /// Text NIE persistiert (nur [estimatedGrams], eine reine Zahl, ist Teil des
-  /// Payloads) — es gibt hier also keine Altzeilen-Kompatibilitaetsfrage, nur
-  /// eine fehlende Anzeige-Sprache, die dieser Aufruf ergaenzt.
+  /// Portion label in the language of [l10n]. Unlike [sourceLabel] this text is
+  /// never persisted (only [estimatedGrams] is), so there is no legacy-row
+  /// compatibility question.
   String resolvedPortionLabel(AppLocalizations l10n) =>
       l10n.foodPortionEstimated(estimatedGrams);
 
-  /// Anzeige der Sicherheits-Stufe in der Sprache von [l10n]. Loest bekannte
-  /// Rohwerte (neutraler Code seit diesem PR ODER deutscher Bestandswert
-  /// davor) ueber [MealResultConfidence] auf; ein unbekannter Rohwert wird
-  /// UNVERAENDERT angezeigt (Pass-through).
+  /// Confidence level in the language of [l10n]. Known raw values resolve via
+  /// [MealResultConfidence]; unknown ones are shown unchanged.
   String resolvedConfidence(AppLocalizations l10n) {
     final level = MealResultConfidence.resolve(confidence);
     return level == null ? confidence : level.label(l10n);
   }
 
-  /// Anzeige der Anpassungs-/Scan-Notiz in der Sprache von [l10n]. Loest die
-  /// bekannten Fallback-Marker aus `fromEdgeFunction` (s.
-  /// [MealResultPortionNote]) und den OFF-Produkthinweis aus
-  /// `fromOpenFoodFacts` (s. [MealResultOffNote], inklusive der deutschen
-  /// Alt-Zeilen) auf; echter KI-Freitext und die rechnerischen Anpassungs-Texte
-  /// aus `adjustedToGrams`/`adjustedToItems` sind kein UI-Vokabular und bleiben
-  /// unveraendert (Pass-through) — dieselbe Klammer wie [resolvedSourceLabel].
+  /// Scan/adjustment note in the language of [l10n]. Resolves the fallback
+  /// markers ([MealResultPortionNote]) and the OFF product note
+  /// ([MealResultOffNote], legacy German rows included); model free text and
+  /// the computed adjustment sentences stay unchanged (pass-through).
   String resolvedPortionNotes(AppLocalizations l10n) {
     final note = MealResultPortionNote.resolve(portionNotes);
     if (note != null) return note.text(l10n);
@@ -473,21 +403,19 @@ class MealAnalysisResult {
     return offNote == null ? portionNotes : offNote.text(l10n);
   }
 
-  /// Bewusst **nicht** ueber [effectiveKcalPer100G]: `0 kcal / 100 g` ist bei
-  /// Open Food Facts eine gueltige Angabe (Wasser, Tee), waehrend dieselbe 0
-  /// aus der Scan-Function "unbekannt" hiess. Beides ist im nicht-nullbaren
-  /// `kcalPer100G` nicht unterscheidbar. Das Label bleibt deshalb rein
-  /// formatierend; die Unterscheidung braucht ein nullbares Feld quer durch
-  /// Sync, Favoriten und Widgets (Welle 3).
+  /// Deliberately **not** via [effectiveKcalPer100G]: `0 kcal / 100 g` is valid
+  /// in Open Food Facts (water, tea) but means "unknown" from the scan
+  /// function, and the non-nullable `kcalPer100G` cannot tell them apart. This
+  /// label stays purely formatting.
   String get kcalPer100Label => '${kcalPer100G.round()} kcal / 100 g';
 
   bool get hasItemizedBreakdown => items.isNotEmpty;
 
-  /// kcal/100 g, sofern der Wert brauchbar ist — sonst `null`.
+  /// kcal/100 g if the value is usable, else `null`.
   ///
-  /// Siehe [MealComponent.effectiveKcalPer100G]: `0` ist der Sentinel, den der
-  /// Server fuer nicht parsebare (und fuer negative) Modellwerte lieferte,
-  /// Werte ueber 900 sind physikalisch unmoeglich. Beides heisst "fehlt".
+  /// See [MealComponent.effectiveKcalPer100G]: `0` is the server's sentinel for
+  /// unparseable or negative model values, and anything above 900 is physically
+  /// impossible. Both mean "missing".
   double? get effectiveKcalPer100G {
     if (!kcalPer100G.isFinite || kcalPer100G <= 0) {
       return null;
@@ -495,9 +423,8 @@ class MealAnalysisResult {
     return isPlausibleKcalPer100G(kcalPer100G) ? kcalPer100G : null;
   }
 
-  /// Die Mahlzeit als genau ein Bestandteil — dieselbe Synthese, die das
-  /// Bestandteil-Sheet vornimmt, wenn das Modell keine Einzelposten lieferte.
-  /// Sie ist die Vergleichsbasis fuer [adjustedToItems].
+  /// The meal as a single component — the same synthesis the components sheet
+  /// does when the model returned no items. Baseline for [adjustedToItems].
   MealComponent get asSingleComponent => MealComponent(
     name: mealName,
     grams: estimatedGrams,
@@ -505,18 +432,15 @@ class MealAnalysisResult {
     kcalPer100G: kcalPer100G,
   );
 
-  /// Rechnet die Mahlzeit auf [grams] um.
+  /// Rescales the meal to [grams].
   ///
-  /// **`caloriesKcal` ist autoritativ, nicht `kcalPer100G`.** Begruendung:
-  /// die Kalorienzahl ist das Feld, das gross auf der Karte steht und das der
-  /// Nutzer beim Tippen auf "Anpassen" bestaetigt; die Dichte ist ein
-  /// Nebenfeld, das der Server unabhaengig klemmt und nie mit den anderen
-  /// beiden abgleicht. Daraus folgt die Invariante
-  /// `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal` —
-  /// blosses Bestaetigen darf die Zahl nicht veraendern.
+  /// **`caloriesKcal` is authoritative, not `kcalPer100G`** — the calorie count
+  /// is what the user sees and confirms; the density is a side field the server
+  /// clamps independently. Invariant:
+  /// `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal`.
   ///
-  /// Die Dichte wird nur dann zur Bezugsgroesse, wenn sich aus Kalorien und
-  /// Gramm nichts herleiten laesst (Ursprungsportion 0 g oder 0 kcal).
+  /// The density becomes the reference only when calories and grams yield
+  /// nothing (source portion 0 g or 0 kcal).
   MealAnalysisResult adjustedToGrams(int grams) {
     final zielGramm = clampPortionGrams(grams);
     final dichte = effectiveKcalPer100G;
@@ -563,21 +487,17 @@ class MealAnalysisResult {
     );
   }
 
-  /// Uebernimmt die vom Nutzer bestaetigten Bestandteile.
+  /// Takes over the components the user confirmed.
   ///
-  /// Kalorien und Gramm kommen aus der Summe der Posten. Die **Makros** aber
-  /// duerfen nicht laenger per Massenverhaeltnis mitskaliert werden
-  /// (docs/REVIEW-2026-08-08.md, B8): wer 20 g Olivenoel ergaenzt, aendert die
-  /// Masse um 5 %, das Fett aber um 160 %. Drei Faelle, in dieser Reihenfolge:
+  /// Calories and grams come from the item sum. Macros must NOT be scaled by
+  /// mass ratio (docs/REVIEW-2026-08-08.md, B8): adding 20 g of olive oil moves
+  /// mass by 5 % but fat by 160 %. Three cases, in order:
   ///
-  /// 1. **Alle Posten tragen eigene Makros** — dann wird exakt aufsummiert.
-  /// 2. **Die Zusammensetzung hat sich nur einheitlich umskaliert** (dieselben
-  ///    Posten in derselben Reihenfolge, alle mit demselben Gramm-Faktor;
-  ///    Faktor 1,0 = unveraendert bestaetigt). Das ist eine reine
-  ///    Portionsaenderung, hier ist Massenskalierung korrekt.
-  /// 3. **Sonst** (Posten ergaenzt, entfernt oder ungleichmaessig geaendert)
-  ///    sind die Makros **unbekannt**. Eine falsche Zahl, die praezise
-  ///    aussieht, ist schaedlicher als eine fehlende.
+  /// 1. **All items carry macros** — sum exactly.
+  /// 2. **Uniform rescale only** (same items, same order, same gram factor;
+  ///    factor 1.0 = confirmed unchanged) — mass scaling is correct here.
+  /// 3. **Otherwise** the macros are **unknown**. A wrong number that looks
+  ///    precise is worse than a missing one.
   MealAnalysisResult adjustedToItems(List<MealComponent> adjustedItems) {
     final totalGrams = clampMealEstimatedG(
       adjustedItems.fold<int>(0, (sum, item) => sum + item.grams),
@@ -627,14 +547,12 @@ class MealAnalysisResult {
     );
   }
 
-  /// Parst die Antwort der `analyze-meal`-Function.
+  /// Parses the `analyze-meal` function response.
   ///
-  /// Die Function liefert jeden Schluessel **immer**, den Wert aber wahlweise
-  /// als Zahl, als `0` (der alte Clamp-Sentinel fuer nicht parsebare Werte,
-  /// und weiterhin das Ergebnis fuer negative Eingaben) oder als `null` (die
-  /// Form nach dem Server-Fix). Alle drei Formen muessen hier zum selben
-  /// Ergebnis fuehren, deshalb gilt ueberall `<= 0` als "fehlt", nicht nur
-  /// `== null`.
+  /// The function always returns every key, but the value may be a number, `0`
+  /// (the clamp sentinel for unparseable and negative inputs) or `null`. All
+  /// three must lead to the same result, so `<= 0` means "missing" everywhere,
+  /// not just `== null`.
   factory MealAnalysisResult.fromEdgeFunction(Map<String, dynamic> json) {
     final mealName = clampMealName(
       json['mealName']?.toString() ?? 'Unbekannte Mahlzeit',
@@ -655,17 +573,14 @@ class MealAnalysisResult {
         _positive(_extractFirstInt(json['caloriesKcal']?.toString())) ??
         _positive(_extractFirstInt(json['calories']?.toString())) ??
         (itemCalories > 0 ? itemCalories : 0);
-    // Nur eine echte Modellangabe zaehlt als bekannte Portion. Die 150 g
-    // weiter unten sind ein Default und duerfen nicht als Bezugsgroesse fuer
-    // eine hergeleitete Dichte durchgehen.
+    // Only a real model value counts as a known portion; the 150 g below is a
+    // default and must never serve as the reference for a derived density.
     //
-    // Reihenfolge seit dem Komplettreview 2026-08-19 (Fund 3): explizite
-    // Modellangabe, dann die POSTENSUMME (strukturierte Zahlen), erst zuletzt
-    // der Erklaertext — und der nur noch, wenn er GENAU EINE Grammangabe
-    // traegt. Der Prompt verlangt in `explanation` ausdruecklich eine
-    // Groessen-Begruendung, die typischerweise mehrere Grammzahlen nennt
-    // ('120 g Nudeln mit 80 g Sauce'); die erste davon ist dann eben NICHT
-    // das Gesamtgewicht, und sie schlug bisher trotzdem die Postensumme.
+    // Order: explicit model value, then the ITEM SUM (structured numbers),
+    // and only last the explanation text — and that only when it carries
+    // EXACTLY ONE gram figure. The prompt asks for a size rationale that
+    // typically names several ('120 g pasta with 80 g sauce'), where the first
+    // one is not the total weight.
     final gemesseneGramm =
         _readPositiveInt(json, const [
           'estimatedGrams',
@@ -677,13 +592,12 @@ class MealAnalysisResult {
         (itemGrams > 0 ? itemGrams : null) ??
         _positive(_unambiguousGramsFromText(json['explanation']?.toString()));
     final estimatedGrams = gemesseneGramm ?? 150;
-    // Reihenfolge der Fallback-Kette, bewusst so:
-    //   1. die explizite, plausible Modelldichte
-    //   2. die Herleitung aus den beiden autoritativen Zahlen DIESES Fotos
-    //   3. erst dann die namensbasierte Referenztabelle — sie kennt nur eine
-    //      Handvoll unverarbeiteter Lebensmittel, weiss nichts von der
-    //      Zubereitung und ist damit die schwaechste Quelle
-    //   4. zuletzt die Herleitung mit der Default-Portion
+    // Fallback chain, in this order on purpose:
+    //   1. the explicit, plausible model density
+    //   2. derivation from the two authoritative numbers of THIS photo
+    //   3. the name-based reference table — knows only a handful of raw foods
+    //      and nothing about preparation, so it is the weakest source
+    //   4. derivation using the default portion
     final kcalPer100G =
         _readPlausibleDouble(json, const [
           'kcalPer100G',
@@ -698,25 +612,19 @@ class MealAnalysisResult {
         ((estimatedGrams > 0 && calories > 0)
             ? calories * 100 / estimatedGrams
             : 0.0);
-    // Sentinel-Rest C (Nachverifikation 2026-08-08): am Ende der Kette stand
-    // `: 52.0` — eine gewuerfelte Dichte, die aus einem komplett zahlenlosen
-    // Modell-Ergebnis eine loggbare 78-kcal-Mahlzeit machte. 0 ist die
-    // etablierte Unbekannt-Form dieses Modells (ohne explicitZeroKcal), die
-    // Log-Guards blockieren sie mit Hinweis statt Fantasie zu speichern.
+    // The chain ends in 0, not an invented density: 0 without explicitZeroKcal
+    // is this model's "unknown" form, and the log guards block it with a hint
+    // instead of storing a made-up number.
     final protein = json['proteinG'];
     final carbs = json['carbsG'];
     final fat = json['fatG'];
-    // Fehlende/leere confidence ist keine "mittlere" — sie ist keine Aussage.
+    // Missing/empty confidence is not "medium" — it is no statement at all.
     final confidence = json['confidence']?.toString();
     final dichte = clampKcalPer100G(kcalPer100G);
-    // Fund 1b (Komplettreview 2026-08-19): die Gesamtkalorien duerfen nur aus
-    // einer WIRKLICH GEMESSENEN Portion hergeleitet werden. Zuvor stand hier
-    // `estimatedGrams`, also notfalls die Default-Portion von 150 g — zusammen
-    // mit einer namensbasierten Referenzdichte entstand daraus aus einer
-    // zahlenlosen Modellantwort eine loggbare Kalorienzahl ('Apfel' -> 78
-    // kcal), die auf der Karte aussieht wie eine Messung. Ohne belastbare
-    // Zahlen bleibt es bei der etablierten Unbekannt-Form 0 (ohne
-    // explicitZeroKcal): die Log-Guards blockieren sie mit Hinweis.
+    // Total calories may only be derived from a REALLY MEASURED portion, never
+    // from the 150 g default: combined with a name-based reference density that
+    // turned a number-free model answer into a loggable figure that looks like
+    // a measurement. Without solid numbers it stays 0 (unknown form).
     final resolvedCalories = clampMealCaloriesKcal(
       calories > 0
           ? calories
@@ -746,10 +654,9 @@ class MealAnalysisResult {
         autoSplit = true;
       }
     }
-    // Fund 2 (Komplettreview 2026-08-19): `items[]` und `caloriesKcal` kamen
-    // bisher unabgeglichen aus derselben Antwort. Wer im Bestandteil-Sheet nur
-    // BESTAETIGTE, bekam ueber `adjustedToItems` die Postensumme als neue
-    // Gesamtzahl — also eine andere Mahlzeit, als auf der Karte stand.
+    // `items[]` and `caloriesKcal` arrive unreconciled in the same answer.
+    // Without this, merely confirming in the components sheet would replace the
+    // total with the item sum — a different meal than the card showed.
     normalizedItems = _itemsMitGesamtKcal(normalizedItems, resolvedCalories);
 
     return MealAnalysisResult(
@@ -794,10 +701,9 @@ class MealAnalysisResult {
     final fat100 = _readDouble(nutriments, const ['fat_100g']);
     final quantity = _firstNonEmptyString(product, const ['quantity']);
     final servingSize = _firstNonEmptyString(product, const ['serving_size']);
-    // Sprachneutral persistiert, erst zur Anzeigezeit aufgeloest (Fund 4,
-    // Komplettreview 2026-08-19): der fertige deutsche Absatz, der hier
-    // frueher gebaut wurde, ueberlebte im Payload jeden Sprachwechsel. Unter
-    // deL10n liefert `MealResultOffNote.text()` denselben Wortlaut wie bisher.
+    // Persisted language-neutral, resolved only at display time: a finished
+    // German paragraph in the payload survived every language switch. Under
+    // deL10n `MealResultOffNote.text()` yields the same wording as before.
     final hinweis = MealResultOffNote(
       barcode: barcode,
       brand: brand,
@@ -820,18 +726,16 @@ class MealAnalysisResult {
       sourceLabel: MealResultSource.openFoodFacts.code,
       barcode: barcode,
       brand: brand,
-      // Die 0 traegt ihre Herkunft: nur eine AUSDRUECKLICH gemeldete 0
-      // (Wasser, Zero) ist eine Messung — der Parser-Fallback `?? 0` oben
-      // erfuellt die Bedingung nie, weil der Detektor die Rohfelder liest.
+      // Only an EXPLICITLY reported 0 (water, zero drink) is a measurement; the
+      // `?? 0` parser fallback above never satisfies this, because the detector
+      // reads the raw fields.
       explicitZeroKcal: kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
     );
   }
 
-  /// Baut das Ergebnis eines MANUELL eingetragenen Lebensmittels
-  /// (manual_meal_sheet, Spec 2026-08-13): Etikett-Werte pro 100 g plus die
-  /// gegessene Portion. Anders als bei den Parser-Fabriken oben sind die
-  /// Eingaben formularvalidiert — die Klemmen sind reine Defensiv-Schicht,
-  /// keine Reparatur.
+  /// Builds the result of a MANUALLY entered food (manual_meal_sheet): label
+  /// values per 100 g plus the eaten portion. Inputs are form-validated, so the
+  /// clamps here are defensive only, not repair.
   factory MealAnalysisResult.manualEntry({
     required String name,
     required int kcalPer100G,
@@ -854,8 +758,8 @@ class MealAnalysisResult {
       confidence: _MealResultConfidenceCodes.manual,
       portionNotes: MealResultPortionNote.manual.code,
       sourceLabel: _MealResultSourceCodes.manual,
-      // Eine AUSDRÜCKLICH eingetragene 0 (Wasser, Zero) ist eine Messung,
-      // kein Unbekannt-Sentinel — nur sie darf die Log-Bremse passieren.
+      // An EXPLICITLY entered 0 (water, zero drink) is a measurement, not the
+      // unknown sentinel — only it may pass the log guard.
       explicitZeroKcal: kcalPer100G == 0,
     );
   }
@@ -882,33 +786,25 @@ class MealAnalysisResult {
   }
 
   // -------------------------------------------------------------------------
-  // Open Food Facts: Bezugsgroesse, kJ-Umrechnung, Plausibilitaet (B7)
+  // Open Food Facts: reference base, kJ conversion, plausibility (B7)
   // -------------------------------------------------------------------------
 
-  /// Liest kcal **pro 100 g** aus den OFF-Naehrwerten, oder `null`.
+  /// Reads kcal **per 100 g** from the OFF nutriments, or `null`.
   ///
-  /// Reihenfolge und Begruendung:
+  /// Order and reasoning:
   ///
-  /// 1. `energy-kcal_100g` / `energy_kcal_100g` — ausdruecklich auf 100 g
-  ///    bezogen, also direkt verwendbar.
-  /// 2. `energy-kcal_value` **nur** bei `nutrition_data_per == '100g'`. Das
-  ///    Feld ist in OFF basisabhaengig: bei portionsweise erfassten Produkten
-  ///    steht dort der Portionswert. Ohne die Basis ist es unbrauchbar: lieber
-  ///    keine Zahl als eine mit unbekannter Bezugsgroesse (die Tiefkuehlpizza
-  ///    mit 900 "kcal/100 g" wurde bei 350 g zu 3150 statt 900 kcal).
-  ///    `nutrition_data_per` wird seit Welle 2 in `_fields` angefragt
-  ///    (`open_food_facts_product_service.dart`) und kommt auf beiden Pfaden
-  ///    an — Barcode v3 und `cgi/search.pl`. Fehlt es trotzdem, faellt der
-  ///    Kandidat durch, was die sichere Richtung ist.
-  /// 3. kJ. `energy-kj_100g` ist eindeutig; `energy_100g` kommt ohne Einheit
-  ///    und ist per OFF-Konvention kJ — es sei denn, `energy_unit` sagt
-  ///    ausdruecklich `kcal`.
+  /// 1. `energy-kcal_100g` / `energy_kcal_100g` — explicitly per 100 g.
+  /// 2. `energy-kcal_value` **only** when `nutrition_data_per == '100g'`: the
+  ///    field is base-dependent in OFF and holds the serving value for
+  ///    per-serving products. Without the base it is unusable — better no
+  ///    number than one with an unknown reference.
+  /// 3. kJ. `energy-kj_100g` is unambiguous; `energy_100g` has no unit and is
+  ///    kJ by OFF convention unless `energy_unit` says `kcal`.
   ///
-  /// Jeder Kandidat muss [isPlausibleKcalPer100G] bestehen. Ein unplausibler
-  /// Wert wird **verworfen, nicht umgerechnet**: dass 2180 die kJ-Zahl fuer
-  /// 521 kcal ist, ist eine Vermutung; es koennte genauso ein Komma- oder ein
-  /// Packungswert sein. Eine falsche, aber plausibel aussehende Zahl landet
-  /// unbemerkt im Tagebuch — eine fehlende faellt auf.
+  /// Every candidate must pass [isPlausibleKcalPer100G]. An implausible value
+  /// is **dropped, not converted**: assuming 2180 is the kJ figure for 521 kcal
+  /// is a guess, and a wrong-but-plausible number goes unnoticed in the diary
+  /// while a missing one does not.
   static double? _offKcalPer100G(
     Map<String, dynamic> product,
     Map<String, dynamic> nutriments,
@@ -952,20 +848,14 @@ class MealAnalysisResult {
     return null;
   }
 
-  /// Ob die OFF-Naehrwerte die Energie EXPLIZIT mit 0 angeben (Wasser, Tee,
-  /// Zero-Getraenke). Nur dann ist eine geparste 0 eine Messung und keine
-  /// fehlende Angabe — der Energie-Filter darf sie loggen lassen, statt
-  /// faelschlich „ohne Naehrwerte" zu behaupten (Nachverifikation 2026-08-08
-  /// zu B7).
+  /// Whether the OFF nutriments state energy EXPLICITLY as 0 (water, tea, zero
+  /// drinks). Only then is a parsed 0 a measurement, and the energy filter may
+  /// let it be logged instead of claiming "no nutrition data".
   ///
-  /// Kandidaten und Vorrang entsprechen [_offKcalPer100G]: steht im
-  /// bevorzugten Feld ein Wert, entscheidet DER (eine 0 in einem
-  /// nachrangigen Feld neben einem befuellten kcal-Feld ist keine
-  /// 0-kcal-Angabe); `energy-kcal_value` zaehlt nur bei 100-g-Basis; die
-  /// kJ-Felder brauchen keine Umrechnung, 0 kJ sind 0 kcal. Ein nullbares
-  /// kcal-Feld quer durch Sync/Favoriten/Widgets braucht diese
-  /// Unterscheidung nicht: sie faellt am Gate, bevor die 0 ihre Herkunft
-  /// verliert.
+  /// Candidates and precedence mirror [_offKcalPer100G]: the preferred field
+  /// decides if present (a 0 in a lower-ranked field next to a filled kcal
+  /// field is not a 0-kcal statement); `energy-kcal_value` counts only on a
+  /// 100 g base; kJ needs no conversion, 0 kJ is 0 kcal.
   static bool offMeldetExplizitNullKcal(Map<String, dynamic> product) {
     final nutriments = product['nutriments'] is Map<String, dynamic>
         ? product['nutriments'] as Map<String, dynamic>
@@ -995,13 +885,11 @@ class MealAnalysisResult {
     return basis == '100g';
   }
 
-  /// Portionsgroesse aus OFF, immer 1..10000 g.
+  /// Serving size from OFF, always 1..10000 g.
   ///
-  /// Ein `serving_quantity` ausserhalb dieses Bereichs (0, oder 250000 fuer
-  /// einen Mehlsack) ist keine Portion, sondern eine falsch befuellte Spalte.
-  /// Statt sie auf 10000 g zu klemmen — und damit einen 10-kg-Teller zu
-  /// erfinden — faellt die Funktion auf den 100-g-Bezug zurueck, auf den die
-  /// Naehrwerte ohnehin normiert sind.
+  /// A `serving_quantity` outside that range is a mis-filled column, not a
+  /// portion. Rather than clamping it to 10000 g (inventing a 10 kg plate),
+  /// fall back to the 100 g base the nutriments are normalised to anyway.
   static int _offServingGrams(Map<String, dynamic> product) {
     final menge = _readDouble(product, const ['serving_quantity']);
     if (menge != null && isPlausiblePortionGrams(menge)) {
@@ -1015,12 +903,11 @@ class MealAnalysisResult {
   }
 
   // -------------------------------------------------------------------------
-  // Makros pro Bestandteil (B8)
+  // Macros per component (B8)
   // -------------------------------------------------------------------------
 
-  /// Summiert die Makros aller Posten — aber nur, wenn **jeder** Posten
-  /// welche traegt. Eine Teilsumme waere systematisch zu niedrig und damit
-  /// wieder eine erfundene Zahl.
+  /// Sums the macros of all items — only if **every** item carries them. A
+  /// partial sum would be systematically too low, i.e. another invented number.
   static _MacroTriple? _macrosFromItems(List<MealComponent> posten) {
     if (posten.isEmpty || !posten.every((item) => item.hasMacros)) {
       return null;
@@ -1036,13 +923,11 @@ class MealAnalysisResult {
     return _MacroTriple(protein, carbs, fat);
   }
 
-  /// Gemeinsamer Gramm-Faktor, wenn [neu] dieselben Posten in derselben
-  /// Reihenfolge wie [alt] enthaelt und alle um denselben Faktor umskaliert
-  /// wurden — sonst `null`.
+  /// Shared gram factor when [neu] holds the same items in the same order as
+  /// [alt], all rescaled by that factor — otherwise `null`.
   ///
-  /// Faktor 1,0 ist der haeufigste Fall: der Nutzer oeffnet die Bestandteile
-  /// und bestaetigt, ohne etwas zu aendern. Dann duerfen die Makros
-  /// selbstverstaendlich unveraendert bleiben.
+  /// Factor 1.0 is the common case: the user opens the components and confirms
+  /// without changing anything, so the macros stay as they were.
   static double? _uniformFactor(
     List<MealComponent> neu,
     List<MealComponent> alt,
@@ -1058,8 +943,8 @@ class MealAnalysisResult {
       final altG = alt[i].grams;
       final neuG = neu[i].grams;
       if (altG <= 0) {
-        // Ohne Bezugsgroesse laesst sich kein Faktor bilden. Solange sich
-        // auch nichts geaendert hat, ist der Posten fuer die Frage neutral.
+        // No reference, no factor. As long as nothing changed either, the item
+        // is neutral for this question.
         if (neuG != altG) {
           return null;
         }
@@ -1076,18 +961,18 @@ class MealAnalysisResult {
   }
 
   // -------------------------------------------------------------------------
-  // Lesen mit "<= 0 heisst fehlt"-Semantik
+  // Reading with "<= 0 means missing" semantics
   // -------------------------------------------------------------------------
 
   static int? _positive(int? value) =>
       value == null || value <= 0 ? null : value;
 
-  /// Wie [_readInt], aber `0` und negative Werte gelten als "fehlt".
+  /// Like [_readInt], but `0` and negative values count as "missing".
   static int? _readPositiveInt(Map<String, dynamic> json, List<String> keys) =>
       _positive(_readInt(json, keys));
 
-  /// Wie [_readDouble], aber `<= 0`, nicht-endliche und physikalisch
-  /// unmoegliche Dichten (> 900 kcal/100 g) gelten als "fehlt".
+  /// Like [_readDouble], but `<= 0`, non-finite and physically impossible
+  /// densities (> 900 kcal/100 g) count as "missing".
   static double? _readPlausibleDouble(
     Map<String, dynamic> json,
     List<String> keys,
@@ -1148,10 +1033,8 @@ class MealAnalysisResult {
     return null;
   }
 
-  /// Skaliert einen 100-g-Makrowert auf [grams] und formatiert ihn. Oeffentlich
-  /// (statt `_macroForGrams`), weil sowohl [fromOpenFoodFacts] als auch die
-  /// manuelle Factory [manualEntry] denselben Formatierer brauchen — beide
-  /// starten von Etikett-Werten pro 100 g.
+  /// Scales a per-100 g macro value to [grams] and formats it. Public because
+  /// both [fromOpenFoodFacts] and [manualEntry] need the same formatter.
   static String macroForGrams(double? per100G, int grams) {
     if (per100G == null || !per100G.isFinite) {
       return _makroUnbekannt;
@@ -1159,9 +1042,8 @@ class MealAnalysisResult {
     return _formatMacroG(per100G * grams / 100);
   }
 
-  /// Formatiert einen Makro-Wert in Gramm, geklemmt auf die DB-Grenze
-  /// (0..1000 g). Ganzzahlige Werte ohne Nachkommastelle, sonst eine Stelle
-  /// mit deutschem Dezimalkomma.
+  /// Formats a macro value in grams, clamped to the DB limit (0..1000 g).
+  /// Whole values without a decimal, otherwise one digit with a German comma.
   static String _formatMacroG(double wert) {
     if (!wert.isFinite) {
       return _makroUnbekannt;
@@ -1173,11 +1055,10 @@ class MealAnalysisResult {
     return '${geklemmt.toStringAsFixed(1).replaceAll('.', ',')} g';
   }
 
-  /// Uebersetzt einen rohen Makro-Wert aus der Function-Antwort in Text.
+  /// Turns a raw macro value from the function response into text.
   ///
-  /// `null` (der Schluessel ist immer da, der Wert kann `null` sein) und alles
-  /// Unparsebare — etwa `"viel"` — werden zu "unbekannt". Frueher wurde
-  /// daraus `"viel g"` bzw. serverseitig `0`; beides erfand eine Zahl.
+  /// `null` (the key is always present, the value may be null) and anything
+  /// unparseable becomes "unknown" rather than an invented number.
   static String _macroTextFromRaw(Object? raw) {
     if (raw == null) {
       return _makroUnbekannt;
@@ -1204,10 +1085,9 @@ class MealAnalysisResult {
     return match == null ? null : int.tryParse(match.group(0)!);
   }
 
-  /// Erste Grammangabe eines Textes. Nur noch fuer OFFs `serving_size`
-  /// gedacht — ein Feld, das genau EINE Portionsangabe traegt ('100 g',
-  /// '1 Riegel (30 g)'). Fuer den KI-Erklaertext ist die Frage eine andere,
-  /// s. [_unambiguousGramsFromText].
+  /// First gram figure in a text. Only for OFF's `serving_size`, a field that
+  /// carries exactly ONE serving. For model explanation text see
+  /// [_unambiguousGramsFromText].
   static int? _estimateGramsFromText(String? value) {
     if (value == null) {
       return null;
@@ -1216,15 +1096,12 @@ class MealAnalysisResult {
     return match == null ? null : int.tryParse(match.group(1)!);
   }
 
-  /// Gramm aus einem KI-Erklaertext — aber nur, wenn der Text GENAU EINE
-  /// Grammangabe traegt (Fund 3, Komplettreview 2026-08-19).
+  /// Grams from model explanation text, but only when it carries EXACTLY ONE
+  /// gram figure (Komplettreview 2026-08-19, finding 3).
   ///
-  /// `explanation` ist laut Prompt eine Groessen-BEGRUENDUNG und nennt
-  /// deshalb typischerweise mehrere Gewichte ('etwa 120 g Nudeln mit 80 g
-  /// Sauce'). Die erste Zahl daraus als GESAMTgewicht zu lesen, ist geraten;
-  /// bei genau einer Angabe ist die Lesart dagegen eindeutig. Das
-  /// Wortende (`\b`, optional 'gramm'/'grams') haelt ausserdem Treffer wie
-  /// '120 gebraten' draussen, die das alte Muster mitnahm.
+  /// `explanation` is a size rationale and typically names several weights
+  /// ('about 120 g pasta with 80 g sauce'); reading the first as the TOTAL is
+  /// guessing. The word boundary also keeps '120 gebraten' out.
   static int? _unambiguousGramsFromText(String? value) {
     if (value == null) {
       return null;
@@ -1238,10 +1115,9 @@ class MealAnalysisResult {
     return int.tryParse(treffer.single.group(1)!);
   }
 
-  /// Referenzdichten fuer eine Handvoll unverarbeiteter Lebensmittel, die das
-  /// Modell haeufig ohne Zahlen zurueckgibt. Schwaechste Quelle der
-  /// Dichte-Kette in [fromEdgeFunction] und bewusst kurz gehalten — fuer
-  /// zusammengesetzte Gerichte gibt es `autoSplitItems`/`food_kcal_db.dart`.
+  /// Reference densities for a handful of raw foods the model often returns
+  /// without numbers. Weakest source of the density chain in
+  /// [fromEdgeFunction]; composite dishes go through `autoSplitItems`.
   static const Map<String, double> _referenzKcalPer100G = <String, double>{
     'apfel': 52,
     'äpfel': 52,
@@ -1260,39 +1136,27 @@ class MealAnalysisResult {
     'strawberries': 32,
   };
 
-  /// Referenzdichte zum Mahlzeitnamen — nur bei EXAKTEM Treffer auf dem
-  /// normalisierten Namen (Fund 1a, Komplettreview 2026-08-19).
-  ///
-  /// Vorher war das eine Teilstring-Suche: 'Erdbeerkuchen' enthaelt 'erdbeer'
-  /// und bekam damit 32 kcal/100 g, 'Apfelstrudel' die 52 eines rohen Apfels.
-  /// Die Tabelle kennt nur ganze, unverarbeitete Lebensmittel — sobald der
-  /// Name mehr sagt als sie weiss, ist Schweigen die richtige Antwort.
+  /// Reference density for a meal name — only on an EXACT match of the
+  /// normalised name. A substring search gave 'Erdbeerkuchen' the 32 kcal/100 g
+  /// of a strawberry. The table knows only whole, raw foods; anything more
+  /// specific gets no answer.
   static double? _knownKcalPer100G(String mealName) {
     final name = mealName.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
     return _referenzKcalPer100G[name];
   }
 
-  /// Nordet die Kalorien der Posten proportional und summengenau auf
-  /// [gesamtKcal] ein (Fund 2, Komplettreview 2026-08-19).
+  /// Rescales item calories proportionally and sum-exactly onto [gesamtKcal].
   ///
-  /// **Der Modell-Gesamtwert gewinnt gegen die Postensumme** — aus demselben
-  /// Grund, aus dem er in [adjustedToGrams] gegen die Dichte gewinnt: er ist
-  /// die Zahl, die gross auf der Karte steht und die der Nutzer bestaetigt;
-  /// die Posten sind seine Aufschluesselung. Damit gilt auch hier
-  /// `adjustedToItems(items).caloriesKcal == caloriesKcal`, blosses
-  /// Bestaetigen verschiebt die Mahlzeit also nicht mehr.
+  /// **The model total wins over the item sum**, for the same reason it wins
+  /// over the density in [adjustedToGrams]: it is the number the user sees and
+  /// confirms, the items are its breakdown. Hence
+  /// `adjustedToItems(items).caloriesKcal == caloriesKcal`.
   ///
-  /// Die Posten behalten ihre Verhaeltnisse zueinander und ihre Gramm (die
-  /// Dichte wird mitgefuehrt); die Makros bleiben unangetastet — sie sind eine
-  /// eigene Modellaussage, keine Ableitung aus den Kalorien. Ohne
-  /// Bezugsgroesse wird nichts gerechnet: eine Postenliste ganz ohne
-  /// Kalorienzahl (der Server liefert dort `null`) bleibt unveraendert, statt
-  /// eine Verteilung zu erfinden.
-  ///
-  /// Die GRAMMsumme bleibt bewusst unangetastet: sie proportional zu
-  /// verschieben hiesse, jeden Posten neu zu gewichten und die Makros mit ihm
-  /// (s. `MealComponent.adjustedToGrams`) — das ist eine eigene Entscheidung
-  /// und nicht die, um die es hier geht.
+  /// Items keep their ratios and grams (density follows); macros stay
+  /// untouched, being a separate model statement. Without a reference nothing
+  /// is computed — an item list with no calories at all stays unchanged rather
+  /// than getting an invented distribution. The GRAM sum is left alone on
+  /// purpose: shifting it would reweight every item and its macros.
   static List<MealComponent> _itemsMitGesamtKcal(
     List<MealComponent> posten,
     int gesamtKcal,
@@ -1313,9 +1177,8 @@ class MealAnalysisResult {
           ),
         )
         .toList();
-    // Rundungsrest (hoechstens ein halbes kcal je Posten) auf den groessten
-    // Posten — sonst verfehlt die Summe ihr Ziel um ein paar kcal und die
-    // Invariante oben gaelte nur ungefaehr.
+    // Rounding remainder onto the largest item, or the sum misses its target
+    // and the invariant above would only hold approximately.
     final rest =
         gesamtKcal - neu.fold<int>(0, (sum, item) => sum + item.caloriesKcal);
     if (rest != 0) {
@@ -1333,10 +1196,8 @@ class MealAnalysisResult {
     return List<MealComponent>.of(neu, growable: false);
   }
 
-  /// [MealComponent] hat kein `copyWith` — der Posten wird deshalb neu
-  /// gebaut. Die Dichte folgt der neuen Kalorienzahl (sonst widerspraeche sie
-  /// dem eigenen Posten), Gramm und Makros bleiben, wie das Modell sie
-  /// gemeldet hat.
+  /// [MealComponent] has no `copyWith`, so the item is rebuilt. Density follows
+  /// the new calorie count; grams and macros stay as the model reported them.
   static MealComponent _mitKcal(MealComponent item, int kcal) => MealComponent(
     name: item.name,
     grams: item.grams,
@@ -1349,11 +1210,11 @@ class MealAnalysisResult {
     fatG: item.fatG,
   );
 
-  /// Skaliert die Zahl in einem Makro-Text mit [factor].
+  /// Scales the number inside a macro text by [factor].
   ///
-  /// Nur fuer **einheitliche** Portionsaenderungen zulaessig: dieselbe Speise,
-  /// mehr oder weniger davon. Sobald sich die Zusammensetzung aendert, ist das
-  /// Massenverhaeltnis die falsche Groesse — siehe [adjustedToItems].
+  /// Only valid for **uniform** portion changes: same dish, more or less of it.
+  /// Once the composition changes, the mass ratio is the wrong measure — see
+  /// [adjustedToItems].
   static String _scaleMacroText(String value, double factor) {
     final match = RegExp(r'(\d+(?:[,.]\d+)?)').firstMatch(value);
     if (match == null) {
@@ -1370,11 +1231,9 @@ class MealAnalysisResult {
     return value.replaceFirst(match.group(1)!, formatted.replaceAll('.', ','));
   }
 
-  /// Normalisiert eine rohe Modell-Angabe (`'high'`/`'HIGH'`/`'High'` etc.,
-  /// das Modell ist hier nicht strikt) auf den neutralen Persistenz-Code —
-  /// ersetzt das fruehere `_formatConfidence`, das SOFORT nach Deutsch
-  /// uebersetzte. Ein unbekannter Wert bleibt unveraendert (Pass-through,
-  /// identisch zum bisherigen `default: return value`-Zweig).
+  /// Normalises a raw model value (`'high'`/`'HIGH'`/`'High'` — the model is
+  /// not strict here) to the neutral persistence code. Unknown values pass
+  /// through unchanged.
   static String _confidenceCodeFromModel(String value) {
     switch (value.toLowerCase()) {
       case 'high':
@@ -1389,8 +1248,8 @@ class MealAnalysisResult {
   }
 }
 
-/// Makro-Summe in Gramm. Rein intern; existiert nur, damit
-/// [MealAnalysisResult.adjustedToItems] drei Werte zurueckgeben kann.
+/// Macro sum in grams. Internal only; exists so
+/// [MealAnalysisResult.adjustedToItems] can return three values.
 class _MacroTriple {
   const _MacroTriple(this.protein, this.carbs, this.fat);
 

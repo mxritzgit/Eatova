@@ -1,7 +1,7 @@
 import 'dart:math';
 
-/// Erzeugt eine UUID v4 ohne externe Dependency. Reicht voellig fuer
-/// Client-seitige IDs die als Primary Key in Supabase wandern.
+/// Generates a UUID v4 without an external dependency. Enough for client-side
+/// IDs that end up as Supabase primary keys.
 String uuidV4() {
   final rand = Random.secure();
   final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
@@ -17,26 +17,21 @@ String uuidV4() {
       '${h.sublist(10, 16).join()}';
 }
 
-/// XOR-Maske der Stats-Request-Id-Ableitung: ASCII von 'eatova-stats-rid'
-/// (exakt 16 Byte). WIRE-FORMAT — NIEMALS aendern: dieselbe Quell-UUID muss
-/// ueber Builds und Replays hinweg dieselbe Id ergeben, sonst faellt der
-/// Server-Dedup aus und die Doppelzaehlung ist zurueck. Eine KUENFTIGE andere
-/// Ableitung (anderer Zweck) bekommt ihre eigene Maske — das ist der
-/// Namensraum.
+/// XOR mask of the stats request-id derivation: ASCII of 'eatova-stats-rid'
+/// (exactly 16 bytes). WIRE FORMAT — never change: the same source UUID must
+/// yield the same id across builds and replays, or server dedup breaks and
+/// double counting returns. Any future derivation gets its own mask.
 const List<int> _statsRequestIdMask = <int>[
   0x65, 0x61, 0x74, 0x6f, 0x76, 0x61, 0x2d, 0x73, // 'eatova-s'
   0x74, 0x61, 0x74, 0x73, 0x2d, 0x72, 0x69, 0x64, // 'tats-rid'
 ];
 
-/// Leitet aus einer Client-UUID deterministisch die Request-Id des
-/// zugehoerigen Lifetime-Stats-Increments ab (Fix 3, Replay-Doppelzaehlung).
+/// Derives the request id of a client UUID's lifetime-stats increment
+/// (Fix 3, replay double counting).
 ///
-/// Bijektiv auf dem 128-Bit-Raum: verschiedene Quellen ergeben verschiedene
-/// Ids, dieselbe Quelle immer dieselbe. Das Ergebnis ist ein gueltiges
-/// Postgres-uuid-Literal (der uuid-Typ prueft keine Versions-Bits).
-/// `null`, wenn [sourceUuid] keine UUID-Form hat — unsere Factories erzeugen
-/// ausschliesslich [uuidV4], der Fall ist also nur ueber einen manipulierten/
-/// korrupten Blob erreichbar (Behandlung: home_store_sync, kein Follow-up).
+/// Bijective on the 128-bit space, and the result is a valid Postgres uuid
+/// literal (the uuid type ignores version bits). `null` if [sourceUuid] is not
+/// UUID-shaped — only reachable via a tampered/corrupt blob.
 String? deriveStatsRequestId(String sourceUuid) {
   final hex = sourceUuid.replaceAll('-', '').toLowerCase();
   if (!_istHex32(hex)) return null;
@@ -51,16 +46,15 @@ String? deriveStatsRequestId(String sourceUuid) {
       '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
 }
 
-/// Hat [s] UUID-Form (8-4-4-4-12 Hex)? Bewusst OHNE Versions-Pruefung —
-/// Postgres akzeptiert jede Hex-UUID, und genau die Form muss stimmen.
+/// Whether [s] is UUID-shaped (8-4-4-4-12 hex). No version check on purpose:
+/// Postgres accepts any hex UUID, only the shape has to match.
 bool isUuidShape(String s) => _uuidShape.hasMatch(s);
 
 final RegExp _uuidShape = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-'
     r'[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
 
-/// Die 32 Hexzeichen einer UUID ohne Bindestriche, klein geschrieben.
-/// Bewusst als Konstante statt als RegExp-Literal in der Funktion: die
-/// Ableitung laeuft im Replay pro zaehlender Op.
+/// The 32 lowercase hex chars of a UUID without dashes. Hoisted to a constant
+/// because the derivation runs per counting op during replay.
 final RegExp _hex32 = RegExp(r'^[0-9a-f]{32}$');
 
 bool _istHex32(String s) => s.length == 32 && _hex32.hasMatch(s);

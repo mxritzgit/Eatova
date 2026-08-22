@@ -1,22 +1,16 @@
-// Tests fuer die opportunistische Tabellen-Hygiene (rate_limit_prune.ts).
+// Tests for the opportunistic table hygiene (rate_limit_prune.ts).
 //
-// Der eigentliche Regressionstest steht unter "REGRESSION: ein rejectender
-// fetch schlaegt nicht nach aussen durch": analyze-meal:162 und
-// search-key:106 riefen `void pruneRateLimits()` gegen eine Fassung OHNE
-// try/catch auf. Ein rejectender fetch (DNS, TCP, Abort) wurde damit zur
-// unhandled rejection und beendete den Isolate — bei analyze-meal mitten im
-// bereits bezahlten Modellaufruf.
+// The regression: `void pruneRateLimits()` against a version WITHOUT try/catch
+// turned a rejecting fetch into an unhandled rejection that killed the isolate,
+// in analyze-meal mid paid model call.
 //
-// Gemessen wird beides:
-//  1. das Promise der gehaerteten Fassung resolved, waehrend das Promise der
-//     ALTEN Fassung (naiverPrune, wortgleiche Nachbildung) rejected. Ein
-//     rejectendes Promise, das niemand haelt — und `void ...` haelt es nicht —
-//     IST die unhandled rejection.
-//  2. der fire-and-forget-Aufruf loest tatsaechlich kein
-//     "unhandledrejection"-Event aus.
+// Two things are measured:
+//  1. the hardened version's promise resolves while the OLD one (naiverPrune,
+//     a faithful replica) rejects — an unheld rejecting promise IS the
+//     unhandled rejection.
+//  2. the fire-and-forget call really raises no "unhandledrejection" event.
 //
-// Bewusst ohne externe Test-Dependencies (gleicher Stil wie client_ip_test.ts).
-// Kein Netz: globalThis.fetch wird ersetzt, die CI faehrt `deno test --allow-env`.
+// No external test dependencies and no network: globalThis.fetch is replaced.
 
 import { pruneRateLimits } from "./rate_limit_prune.ts";
 
@@ -37,7 +31,7 @@ function assertEquals(actual: unknown, expected: unknown, message: string): void
 
 type FetchAufruf = { url: string; init?: RequestInit };
 
-/** Ersetzt globalThis.fetch durch `antwort` und protokolliert die Aufrufe. */
+/** Replaces globalThis.fetch with `antwort` and records the calls. */
 function installFetch(antwort: () => Promise<Response>): {
   aufrufe: FetchAufruf[];
   restore: () => void;
@@ -57,8 +51,8 @@ function installFetch(antwort: () => Promise<Response>): {
   };
 }
 
-/** Faengt console.error ab — die Diagnosezeile ist Teil des Vertrags und soll
- *  die Testausgabe nicht zumuellen. */
+/** Captures console.error: the diagnostic line is part of the contract but
+ *  should not clutter the test output. */
 function installErrorLog(): { zeilen: string[]; restore: () => void } {
   const original = console.error;
   const zeilen: string[] = [];
@@ -73,10 +67,8 @@ function installErrorLog(): { zeilen: string[]; restore: () => void } {
   };
 }
 
-/** Wortgleiche Nachbildung der Fassung, die bis zu diesem Fix in
- *  analyze-meal:347 und search-key:247 stand. Nur als Kontrollprobe: sie zeigt,
- *  dass der Fehlerfall unten wirklich einen rejectenden fetch erzeugt und der
- *  Test damit die alte Fassung auch faengt. */
+/** Faithful replica of the pre-fix version. Control sample only: it proves the
+ *  failure case below really produces a rejecting fetch. */
 async function naiverPrune(): Promise<void> {
   await fetch(RPC_URL, {
     method: "POST",
@@ -89,7 +81,7 @@ async function naiverPrune(): Promise<void> {
   });
 }
 
-/** "resolved" / "rejected" — ohne die Rejection je unbehandelt zu lassen. */
+/** "resolved" / "rejected", without ever leaving the rejection unhandled. */
 async function ausgang(promise: Promise<unknown>): Promise<string> {
   return await promise.then(() => "resolved", () => "rejected");
 }
@@ -107,8 +99,8 @@ Deno.test("REGRESSION: ein rejectender fetch schlaegt nicht nach aussen durch", 
         "`void pruneRateLimits(...)` haelt das Promise nicht, die Rejection " +
         "beendet den Isolate mitten im laufenden Request",
     );
-    // Kontrollprobe: derselbe Stub gegen die alte Fassung. Rejected sie hier
-    // nicht, misst der Test oben nichts.
+    // Control sample: same stub against the old version. If it does not reject
+    // here, the assertion above measures nothing.
     assertEquals(
       await ausgang(naiverPrune()),
       "rejected",
@@ -130,19 +122,18 @@ Deno.test("REGRESSION: der fire-and-forget-Aufruf erzeugt keine unhandled reject
   const log = installErrorLog();
   const gesammelt: string[] = [];
   const listener = (event: Event) => {
-    // Ohne preventDefault() waere hier der Testlauf zu Ende — in Produktion
-    // ist es der Isolate.
+    // Without preventDefault() the test run would end here; in production it
+    // is the isolate.
     event.preventDefault();
     const grund = (event as Event & { reason?: unknown }).reason;
     gesammelt.push(grund instanceof Error ? grund.message : String(grund));
   };
   globalThis.addEventListener("unhandledrejection", listener);
   try {
-    // Exakt der Aufruf aus analyze-meal/search-key.
+    // Exactly the call from analyze-meal/search-key.
     void pruneRateLimits(OPTIONS);
-    // Eine unbehandelte Rejection meldet die Runtime erst nach dem
-    // Microtask-Checkpoint des Ticks, in dem sie entstand — zwei Makrotasks
-    // abwarten.
+    // The runtime reports an unhandled rejection only after the microtask
+    // checkpoint of its tick — wait two macrotasks.
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
     assertEquals(
@@ -158,8 +149,8 @@ Deno.test("REGRESSION: der fire-and-forget-Aufruf erzeugt keine unhandled reject
 });
 
 Deno.test("ein HTTP-Fehlerstatus wird geschluckt, aber mit Status geloggt", async () => {
-  // fetch wirft bei 5xx nicht — ohne eigene Pruefung waere eine dauerhaft
-  // kaputte RPC voellig unsichtbar.
+  // fetch does not throw on 5xx — without an explicit check a permanently
+  // broken RPC would be invisible.
   const fetchStub = installFetch(() => Promise.resolve(new Response("boom", { status: 500 })));
   const log = installErrorLog();
   try {
@@ -208,8 +199,8 @@ Deno.test("Erfolgsfall: POST auf die RPC, Service-Key in beiden Headern, leerer 
     assertEquals(aufruf.init?.method, "POST", "Methode");
     assertEquals(aufruf.init?.body, "{}", "Body");
     const headers = new Headers(aufruf.init?.headers);
-    // Die RPC ist nur fuer service_role freigegeben (Migration
-    // 20260517220000_security_hardening.sql) — PostgREST braucht apikey UND
+    // The RPC is granted to service_role only (migration
+    // 20260517220000_security_hardening.sql); PostgREST needs apikey AND
     // Authorization.
     assertEquals(headers.get("apikey"), SERVICE_KEY, "apikey-Header");
     assertEquals(headers.get("authorization"), `Bearer ${SERVICE_KEY}`, "authorization-Header");

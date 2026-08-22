@@ -1,9 +1,7 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Detail-Ansicht eines Rezepts (eigener Route-Push): Bild, Nährwert-Grid,
-// „Zum Tracker hinzufügen"-Karte und die Info-Sektionen (Portion, Zutaten,
-// Zubereitung, Profi-Hinweis). [RecipeDetailScreen] ist bewusst öffentlich.
+// Recipe detail view (own route push). [RecipeDetailScreen] is public.
 // ---------------------------------------------------------------------------
 class RecipeDetailScreen extends StatelessWidget {
   const RecipeDetailScreen({
@@ -16,8 +14,7 @@ class RecipeDetailScreen extends StatelessWidget {
   final FitnessRecipe recipe;
   final void Function(MealAnalysisResult result, MealSlot slot) onAddMeal;
 
-  /// Optionaler Loeschen-Hook (nur fuer Eigen-Rezepte gesetzt). Schliesst den
-  /// Detail-Screen und meldet die Loeschung an den Aufrufer.
+  /// Optional delete hook, set only for own recipes.
   final VoidCallback? onDelete;
 
   Future<void> _showMealPicker(BuildContext context) async {
@@ -59,16 +56,14 @@ class RecipeDetailScreen extends StatelessWidget {
                 backKey: const ValueKey('recipe-detail-back'),
                 onBack: () => Navigator.of(context).pop(),
                 trailing: onDelete == null
-                    // Gegengewicht zum Zurueck-Knopf: ohne es waere der mittige
-                    // Titel bei Bestandsrezepten aus der Mitte verschoben.
+                    // Counterweight to the back button, so the title centres.
                     ? const SizedBox(width: 34)
                     : SquareIconButton(
                         key: const ValueKey('recipe-detail-delete'),
                         icon: Icons.delete_outline_rounded,
                         semanticLabel: l10n.recipesDeleteSemantics,
                         onTap: () {
-                          // Erst zurueck, dann melden: der Toast soll auf der
-                          // Rezeptliste landen, nicht auf dem sterbenden Detail.
+                          // Pop first: the toast belongs on the recipe list.
                           Navigator.of(context).pop();
                           onDelete!();
                         },
@@ -218,9 +213,7 @@ class _NutritionGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // Korrektur gegenueber dem Altstand: dort trug „Protein" `orange` und
-    // „Fett" `macroFat` — derselbe Farbwert (app_colors.dart:50/62), beide
-    // Kacheln waren also farbgleich. Jetzt je ein eigener Makro-Token.
+    // One distinct macro token per tile: `orange` and `macroFat` are equal.
     return Row(
       children: [
         Expanded(
@@ -307,7 +300,7 @@ class _RecipeInfoSection extends StatelessWidget {
   final String title;
   final String body;
 
-  /// Hebt den Punkt vor der Überschrift in den Akzent (Profi-Hinweis).
+  /// Tints the dot before the heading with the accent colour.
   final bool highlight;
 
   @override

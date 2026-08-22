@@ -1,21 +1,18 @@
-// D8: Eine gepushte Route ueberlebt den Auth-Wechsel.
+// D8: a pushed route must not survive an auth change.
 //
-// AuthGate ist das Widget von MaterialApp.home, also der Inhalt der
-// Root-Route. Tauscht _onAuthEvent diesen Inhalt gegen den AuthScreen, bleibt
-// alles was der Nutzer darueber gepusht hat (Profil, Trends, ein Dialog, ein
-// Bottom Sheet) sichtbar und bedienbar — mit Daten einer Session, die es nicht
-// mehr gibt. Der Gate raeumt deshalb bei JEDEM Identitaetswechsel ab — auch
-// bei der gewollten Abmeldung, deren Knopf seit 2026-08-10 in den
-// Einstellungen sitzt und damit selbst auf einer gepushten Route. Ob dabei
-// „Deine Sitzung ist abgelaufen" faellt, entscheidet seit dem Review
-// 2026-08-19 [IntentionalSignOut] und nicht mehr die Frage, ob Routen wegfielen.
+// AuthGate is MaterialApp.home, so swapping its content for the AuthScreen
+// leaves anything pushed above it (profile, dialog, sheet) visible and usable
+// with data from a session that no longer exists. The gate therefore clears on
+// EVERY identity change, including a deliberate sign-out (whose button lives
+// in settings, i.e. on a pushed route). Whether the "session expired" notice
+// appears is decided by [IntentionalSignOut], not by whether routes were
+// dropped.
 //
-// Die Tests hier pinnen drei Aussagen fest:
-//   1. Session-Verlust raeumt den Navigator-Stack bis zur Root-Route ab.
-//   2. Ein offener Dialog verschwindet dabei mit und sein Future schliesst
-//      sauber (null) — kein halber Zustand.
-//   3. Ein Token-Refresh (derselbe Nutzer erneut) raeumt NICHTS ab.
-//   4. Der Nutzer erfaehrt, warum er ploetzlich auf dem Login steht.
+// Pinned here:
+//   1. session loss clears the navigator stack down to the root route;
+//   2. an open dialog goes with it and its future completes with null;
+//   3. a token refresh (same user again) clears NOTHING;
+//   4. the user learns why they suddenly face the login.
 
 import 'dart:async';
 
@@ -27,9 +24,9 @@ import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Auth-Repository, dessen Ereignisse der Test direkt steuert — so laesst sich
-/// ein serverseitiger Widerruf (null) von einem Token-Refresh (derselbe
-/// Nutzer erneut) und einem Kontowechsel (andere id) unterscheiden.
+/// Auth repository whose events the test drives directly, so a server-side
+/// revocation (null), a token refresh (same user) and an account switch
+/// (different id) can be told apart.
 class _ScriptedAuthRepository implements AuthRepository {
   _ScriptedAuthRepository(this._user);
 
@@ -114,13 +111,12 @@ const _andererUser = EatovaUser(
   displayName: 'Zweitkonto',
 );
 
-/// Foto-Store-Double, das nur die Identitaets-Bindungen protokolliert.
+/// Photo store double that only records the identity bindings.
 ///
-/// Bewusst OHNE echtes IO: `testWidgets` laeuft unter FakeAsync, eine echte
-/// Datei-Operation wuerde dort nie fertig. Was der Purge beim Wechsel tut,
-/// prueft test/services/recipe_image_store_test.dart — hier steht nur die
-/// Zusicherung, dass der Gate JEDEN Uebergang an den Store MELDET (Finding 5,
-/// Security-Review 2026-08-11).
+/// No real IO: `testWidgets` runs under FakeAsync, where a file operation
+/// would never finish. What the purge does is covered by
+/// test/services/recipe_image_store_test.dart; here only that the gate
+/// REPORTS every transition to the store (Finding 5, 2026-08-11).
 class _BindungsRekorder extends RecipeImageStore {
   final List<String?> bindungen = <String?>[];
 
@@ -131,9 +127,8 @@ class _BindungsRekorder extends RecipeImageStore {
   }
 }
 
-/// Baut dieselbe Huelle wie EatovaApp: AuthGate als MaterialApp.home. Der
-/// Builder liefert einen Platzhalter-Home mit einem Knopf, der eine Route
-/// pusht (steht fuer „Profil oeffnen").
+/// Builds the same shell as EatovaApp: AuthGate as MaterialApp.home, with a
+/// placeholder home whose button pushes a route.
 Future<void> _pumpGate(
   WidgetTester tester,
   _ScriptedAuthRepository repository,
@@ -181,12 +176,12 @@ void main() {
 
     expect(find.byKey(const ValueKey('screen-fake-home')), findsOneWidget);
 
-    // Nutzer oeffnet sein Profil.
+    // The user opens their profile.
     await tester.tap(find.byKey(const ValueKey('push-profile')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-fake-profile')), findsOneWidget);
 
-    // Waehrenddessen wird der Refresh-Token serverseitig ungueltig.
+    // Meanwhile the refresh token is invalidated server-side.
     repository.emit(null);
     await tester.pumpAndSettle();
 
@@ -205,7 +200,7 @@ void main() {
     addTearDown(repository.dispose);
     await _pumpGate(tester, repository);
 
-    // Route pushen und darueber noch einen Dialog oeffnen.
+    // Push a route and open a dialog above it.
     await tester.tap(find.byKey(const ValueKey('push-profile')));
     await tester.pumpAndSettle();
 
@@ -252,8 +247,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-fake-profile')), findsOneWidget);
 
-    // tokenRefreshed liefert denselben Nutzer erneut — ein Auth-Event, aber
-    // kein Session-Verlust. Die offene Route muss stehen bleiben.
+    // tokenRefreshed delivers the same user again: an auth event, but no
+    // session loss, so the open route must stay.
     repository.emit(_user);
     await tester.pumpAndSettle();
 
@@ -272,24 +267,24 @@ void main() {
     await tester.pumpAndSettle();
 
     repository.emit(null);
-    // Erst settlen: waehrend der Pop-Transition sind kurzzeitig zwei Scaffolds
-    // beim ScaffoldMessenger registriert und beide rendern dieselbe Snackbar.
+    // Settle first: during the pop transition two scaffolds are briefly
+    // registered with the ScaffoldMessenger and both render the snackbar.
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Sitzung ist abgelaufen'), findsOneWidget,
         reason: 'Wortlos auf den Login geworfen zu werden ist verwirrend');
     expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
 
-    // Die Snackbar darf keinen haengenden Timer hinterlassen.
+    // The snackbar must not leave a pending timer.
     await tester.pumpAndSettle(const Duration(seconds: 6));
   });
 
   testWidgets(
       'Die gewollte In-App-Abmeldung bleibt still (kein „abgelaufen"-Hinweis)',
       (tester) async {
-    // Produktionsnahe Reihenfolge aus profile_screen.dart:137 — erst poppen,
-    // dann signOut. Bewusst mit InMemoryAuthRepository, weil dessen async*-
-    // Stream dieselbe Zustellungs-Asynchronie hat wie der Supabase-Stream.
+    // Production order: pop first, then signOut. InMemoryAuthRepository is
+    // used because its async* stream has the same delivery asynchrony as the
+    // Supabase stream.
     final repository = InMemoryAuthRepository(initialUser: _user);
     addTearDown(repository.dispose);
 
@@ -311,12 +306,10 @@ void main() {
                         child: TextButton(
                           key: const ValueKey('sign-out'),
                           onPressed: () async {
-                            // Review 2026-08-19: die Abgrenzung zur
-                            // abgelaufenen Sitzung ist seither dieser Merker
-                            // und nicht mehr „es lag nichts ueber der
-                            // Root-Route" — der Ausloggen-Knopf sitzt in den
-                            // Einstellungen, also selbst auf einer gepushten
-                            // Route. Produktiv setzt ihn
+                            // This marker, not "nothing was above the root
+                            // route", separates a deliberate sign-out from an
+                            // expired session — the button itself sits on a
+                            // pushed route. Production sets it in
                             // `_EatovaHomePageState._signOut`.
                             IntentionalSignOut.mark();
                             Navigator.maybePop(routeContext);
@@ -350,10 +343,10 @@ void main() {
 
   group('Finding 5 — der Gate bindet den Rezept-Foto-Store an die Identitaet',
       () {
-    // Der Store purgt beim Identitaetswechsel selbst (setActiveUser, eigene
-    // Unit-Tests); der Gate ist die EINE Stelle, durch die JEDER Uebergang
-    // laeuft — auch die, die kein signOutCleanup sehen: unfreiwilliger
-    // Session-Verlust und der direkte Wechsel A -> B.
+    // The store purges on identity change itself (setActiveUser, own unit
+    // tests); the gate is the ONE place every transition passes through,
+    // including those signOutCleanup never sees: involuntary session loss and
+    // a direct A -> B switch.
 
     testWidgets('Kaltstart bindet den restaurierten Nutzer', (tester) async {
       final rekorder = _BindungsRekorder();

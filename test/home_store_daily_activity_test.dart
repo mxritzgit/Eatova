@@ -16,37 +16,22 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Burned-kcal pro Tag (2026-08-12): "Verbrannt" war eine reine Live-Ableitung
-// aus den HEUTIGEN Schritten (ein Skalar, nie persistiert) — jeder Archivtag
-// zeigte deshalb dauerhaft "—". Jetzt schreibt jeder verifizierte Health-
-// Refresh den Tageswert in [HomeStore.dailyActivity] plus LocalCache-Slot
-// fest (der letzte Refresh eines Tages IST sein Endwert), und fuer Archivtage
-// holt setFoodDate die volle Tagessumme einmalig pro Sitzung aus der
-// Health-Historie nach (HealthService.readStepsOnDay). Getestet wird:
-//   1. Refresh schreibt den heutigen Tageswert fest (Map + Cache-Blob).
-//   2. burnedKcalForFoodDate: heute live aus dailySteps, Archivtag aus dem
-//      Speicher, ohne Eintrag 0 (Kachel zeigt dann "—").
-//   3. Hydration: der Slot uebersteht den Kaltstart (zweiter Store, gleiche
-//      Platte).
-//   4. Backfill: Archivtag-Auswahl fragt die Health-Historie genau EINMAL
-//      pro Sitzung; ein null-Ergebnis (kein Zugriff/Ruhetag/Android)
-//      schreibt nichts fest.
-//   5. clear() raeumt den Slot (M-1: Schritte/kcal sind Gesundheitsdaten).
+// Burned kcal per day: it used to be derived live from TODAY's steps only, so
+// every archive day showed "—". Now each verified health refresh pins the day
+// value into [HomeStore.dailyActivity] and the cache slot, and setFoodDate
+// backfills an archive day once per session.
 //
-// Kalorien-Review 2026-08-21: "Verbrannt" zaehlt JEDEN Schritt (ACSM-Netto,
-// 0,5 kcal/kg/km) — das Tagesziel rechnet dafuer mit einer PAL-Leiter OHNE
-// Gehen, eine Schritt-Basis gibt es nicht. Auch ein kleiner Tag (4000
-// Schritte) liefert deshalb einen Wert, nicht 0.
+// "Burned" counts EVERY step (ACSM net, 0.5 kcal/kg/km) with no baseline, so
+// even a 4000-step day yields a value, not 0.
 
-/// Health-Double: kontrollierbare heutige Schritte + Historie pro Tag.
+/// Health double: controllable steps for today plus a per-day history.
 class _FakeHealth implements HealthService {
   int stepsToday = 12000;
 
-  /// Antworten fuer readStepsOnDay, gekeyt per localDayKey. Fehlender
-  /// Eintrag == null (kein Zugriff / keine Daten).
+  /// Answers for readStepsOnDay by localDayKey; missing means null.
   final Map<String, int?> stepsByDay = <String, int?>{};
 
-  /// Alle readStepsOnDay-Aufrufe (fuer die Einmal-pro-Sitzung-Zusicherung).
+  /// Every readStepsOnDay call, for the once-per-session assertion.
   final List<DateTime> dayReads = <DateTime>[];
 
   @override
@@ -91,8 +76,7 @@ void _ignoreSnack(
   SnackBarAction? action,
 }) {}
 
-/// Leerer Fake-PostgREST: alle Reads leer, alle Writes Erfolg — der Boot
-/// laeuft durch, ohne dass Serverdaten die Aktivitaets-Tests beruehren.
+/// Empty fake PostgREST, so the boot completes without server data.
 http.Client _emptyServer() => MockClient((req) async {
       if (req.method == 'GET') {
         return http.Response(jsonEncode(const <dynamic>[]), 200,
@@ -101,8 +85,7 @@ http.Client _emptyServer() => MockClient((req) async {
       return http.Response('', 201, request: req);
     });
 
-/// Store MIT Sync + Cache (debugCache): der Boot setzt _cache, damit
-/// Festschreiben/Hydration gegen die (In-Memory-)Platte laufen.
+/// Store WITH sync and cache, so pinning and hydration are exercised.
 ({HomeStore store, _FakeHealth health, LocalCache cache}) _setupSynced(
     InMemoryKeyValueStore kv) {
   final client = SupabaseClient(
@@ -126,8 +109,7 @@ http.Client _emptyServer() => MockClient((req) async {
   return (store: store, health: health, cache: cache);
 }
 
-/// Leichter Store OHNE Sync (kein Boot, kein Cache) fuer die reinen
-/// In-Memory-Pfade (Anzeige + Backfill).
+/// Light store WITHOUT sync for the pure in-memory paths (display, backfill).
 ({HomeStore store, _FakeHealth health}) _setupLight() {
   final health = _FakeHealth();
   final store = HomeStore(
@@ -141,8 +123,7 @@ http.Client _emptyServer() => MockClient((req) async {
   return (store: store, health: health);
 }
 
-/// Dieselbe Rechnung wie HomeStore (home_store_tracking.dart): jeder Schritt
-/// zaehlt, keine Basis.
+/// Same maths as HomeStore: every step counts, no baseline.
 int _erwarteteKcal(HomeStore store, int steps) => estimateKcalBurnedFromSteps(
       steps: steps,
       weightKg: store.profile.weightKg,
@@ -166,8 +147,8 @@ void main() {
 
     final key = localDayKey(clock.now());
     final kcal = _erwarteteKcal(s.store, 12000);
-    // Standardprofil 78 kg / 178 cm / neutral:
-    // 12 000 Schritte × 0,73692 m = 8,843 km × 78 kg × 0,5 = 344,9 kcal.
+    // Default profile 78 kg / 178 cm / neutral:
+    // 12 000 steps × 0.73692 m = 8.843 km × 78 kg × 0.5 = 344.9 kcal.
     expect(kcal, 345);
     expect(s.store.dailyActivity[key], (steps: 12000, kcal: kcal));
     expect(await s.cache.readDailyActivity(),
@@ -179,14 +160,13 @@ void main() {
     final s = _setupLight();
     await s.store.refreshHealthSteps();
 
-    // Heute: Live-Ableitung aus dailySteps (unveraendertes Verhalten).
+    // Today: live derivation from dailySteps.
     expect(s.store.burnedKcalForFoodDate(clock.now()),
         _erwarteteKcal(s.store, 12000));
-    // Archivtag ohne Eintrag: 0 -> Kachel zeigt "—", keine Scheinangabe.
+    // Archive day without an entry: 0, so the tile shows "—".
     expect(s.store.burnedKcalForFoodDate(tageZurueck(1)), 0);
 
-    // Archivtag MIT Eintrag (per Backfill geholt): der gespeicherte Wert
-    // (9000 Schritte × 0,73692 m = 6,632 km × 39 = 258,7 → 259 kcal).
+    // Backfilled: 9000 × 0.73692 m = 6.632 km × 39 = 258.7 → 259 kcal.
     final gestern = tageZurueck(1);
     s.health.stepsByDay[localDayKey(gestern)] = 9000;
     s.store.setFoodDate(gestern);
@@ -194,13 +174,11 @@ void main() {
     final gesternKcal = _erwarteteKcal(s.store, 9000);
     expect(gesternKcal, 259);
     expect(s.store.burnedKcalForFoodDate(gestern), gesternKcal);
-    // Heute bleibt live — auch wenn fuer heute ein (aelterer) Eintrag steht.
+    // Today stays live even if an older entry exists for today.
     expect(s.store.burnedKcalForFoodDate(clock.now()),
         _erwarteteKcal(s.store, 12000));
 
-    // Kleiner Archivtag (4000 Schritte): auch der zaehlt voll — keine
-    // Schritt-Basis, keine Schwelle (4000 × 0,73692 m = 2,948 km × 39 =
-    // 114,96 → 115 kcal).
+    // A small day counts fully: no baseline (4000 × 0.73692 × 39 → 115).
     final vorgestern = tageZurueck(2);
     s.health.stepsByDay[localDayKey(vorgestern)] = 4000;
     s.store.setFoodDate(vorgestern);
@@ -214,20 +192,18 @@ void main() {
       'gespeichert', () async {
     final s = _setupLight();
 
-    // Vor dem ersten Refresh ist die Berechtigung unverifiziert und kein
-    // Schrittstand da: keine Quelle -> null, die Heute-Karte entfaellt.
+    // No verified permission and no step count yet: no source -> null.
     expect(s.store.stepsForFoodDate(clock.now()), isNull);
 
     await s.store.refreshHealthSteps();
     expect(s.store.stepsForFoodDate(clock.now()), 12000);
 
-    // Granted + 0 Schritte ist eine echte 0 (frueher Morgen), kein null.
+    // Granted plus 0 steps is a real 0 (early morning), not null.
     s.health.stepsToday = 0;
     await s.store.refreshHealthSteps();
     expect(s.store.stepsForFoodDate(clock.now()), 0);
 
-    // Archivtag ohne Eintrag: null; nach dem Backfill der gespeicherte Wert
-    // — derselbe, aus dem burnedKcalForFoodDate rechnet.
+    // Null without an entry; after the backfill the stored value.
     final gestern = tageZurueck(1);
     expect(s.store.stepsForFoodDate(gestern), isNull);
     s.health.stepsByDay[localDayKey(gestern)] = 9000;
@@ -249,7 +225,7 @@ void main() {
     s.store.setFoodDate(gestern);
     await Future<void>.delayed(Duration.zero);
 
-    // Heute loest nie eine Historien-Query aus, gestern genau eine.
+    // Today never triggers a history query, yesterday exactly one.
     expect(s.health.dayReads, hasLength(1));
   });
 
@@ -274,7 +250,7 @@ void main() {
     final erwartet = erste.store.dailyActivity[key];
     expect(erwartet, isNotNull);
 
-    // "Naechste Sitzung": frischer Store auf derselben Platte, KEIN Refresh.
+    // "Next session": fresh store on the same storage, NO refresh.
     final zweite = _setupSynced(kv);
     zweite.store.start();
     await zweite.store.profileReady;

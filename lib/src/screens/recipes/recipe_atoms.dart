@@ -1,31 +1,20 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Geteilte Kleinst-Widgets, die Karten, Detail-Ansicht und Slot-Picker
-// gemeinsam nutzen: Badge, Kategorie-Pille, Rezept-Bild und Kennzahlen-Zeile.
+// Shared atoms used by cards, detail view and slot picker: badge, category
+// pill, recipe image and metrics row.
 // ---------------------------------------------------------------------------
 
-/// Übersetzt einen neutralen Kategorie-/Filter-Wert (ein [recipeFilters]-
-/// Eintrag oder die `Eigene`-Markierung von Eigen-Rezepten) in seine
-/// Anzeige-Form der aktiven Sprache (Inhalte-PR, 2026-08-11).
+/// Renders a neutral category/filter value in the active language.
 ///
-/// Der Wert selbst bleibt die Logik-Identität — Filter-Vergleich
-/// (`_RecipesScreenState.filteredRecipes`), Diät-Matching
-/// (`FitnessRecipe.matchesDiet`), `ValueKey`s (`recipe-filter-$filter`) — und
-/// ist unter `de` byte-gleich zum Vor-Migrations-Stand: [recipeFilters]
-/// selbst wird NICHT angefasst. Getrennt nach dem `MealSlot`-Muster
-/// (`theme/meal_slot_style.dart`): dort trägt das Enum die neutrale
-/// Identität, eine separate `label(l10n)`-Funktion die Anzeige.
+/// The value itself stays the logic identity (filter comparison, diet
+/// matching, `ValueKey`s), so [recipeFilters] is never touched — same split as
+/// `MealSlot`, where the enum carries identity and `label(l10n)` the display.
+/// An unknown value passes through unchanged instead of crashing.
 ///
-/// Ein unbekannter Wert (sollte nicht vorkommen, s. Wächter-Test) wird
-/// unverändert durchgereicht statt zu crashen — dieselbe fail-soft-Regel wie
-/// bei anderen Anzeige-Mappings in diesem Paket.
-///
-/// Die Vergleichs-Literale sind bewusst DOPPELT gequotet (Muster
-/// [recipeFilters]/`categories` in den Katalogdateien): sie sind Content-
-/// Identität, keine übersetzte UI-Zeichenkette, und fallen damit wie das
-/// Original schon durch den Hartkodierungs-Wächter (der nur einfach
-/// gequotete `'...'` prüft, s. dessen Heuristik-Kommentar).
+/// The comparison literals are double-quoted on purpose: they are content
+/// identity, not translatable UI text, so the hardcoded-string guard (which
+/// only checks `'...'`) skips them.
 String recipeCategoryLabel(String category, AppLocalizations l10n) {
   return switch (category) {
     "Alle" => l10n.recipesFilterAll,
@@ -41,11 +30,8 @@ String recipeCategoryLabel(String category, AppLocalizations l10n) {
   };
 }
 
-/// Kleines Etikett — gefuellt als Markierung auf einem Foto („EMPFOHLEN",
-/// „Match"), ungefuellt als ruhiger Hinweis auf einer Karte.
-///
-/// Zusammenzug der frueheren `_GlassBadge` + `_MatchBadge`: beide zeichneten
-/// dieselbe Kapsel, nur mit anderer Fuellung.
+/// Small label: filled as a marker on a photo, unfilled as a quiet hint on a
+/// card.
 class _RecipeBadge extends StatelessWidget {
   const _RecipeBadge({required this.text, this.icon, this.filled = false});
 
@@ -86,12 +72,8 @@ class _RecipeBadge extends StatelessWidget {
   }
 }
 
-/// Kompakte Kategorie-Pille der Detail-Ansicht.
-///
-/// Faerbt einheitlich in [AppTokens.accent]: die Vorlage nimmt hier
-/// Makro-Toene, unsere Pillen tragen aber Rezept-KATEGORIEN („Fisch",
-/// „Low Carb") — und Makro-Farben kodieren laut Token-Vertrag ausschliesslich
-/// Naehrwerte.
+/// Compact category pill of the detail view. Always [AppTokens.accent]:
+/// macro colors are reserved for nutrient values by the token contract.
 class _CategoryPill extends StatelessWidget {
   const _CategoryPill({required this.label});
 
@@ -114,22 +96,19 @@ class _CategoryPill extends StatelessWidget {
   }
 }
 
-/// Bild einer Rezept-Karte. Drei Faelle, in dieser Reihenfolge:
-///
-///  1. `local:<slug>.jpg` — ein selbst aufgenommenes Foto aus dem
-///     [RecipeImageStore]. Liegt die Datei auf DIESEM Geraet, wird sie
-///     gezeigt; fehlt sie (zweites Geraet, geraeumter Cache), faellt die
-///     Kachel auf den Platzhalter zurueck. Nie ein graues Kaputt-Icon.
-///  2. Die 30 Bestandsrezepte zeigen ihr Bundle-Asset.
-///  3. Alles Uebrige (Eigen-Rezept ohne Bild) bekommt den gestreiften
-///     [ImagePlaceholder] der Design-Bibliothek.
+/// Image of a recipe card. Three cases, in this order:
+///  1. `local:<slug>.jpg` from [RecipeImageStore]; a missing file (other
+///     device, cleared cache) falls back to the placeholder, never a broken
+///     icon.
+///  2. Catalog recipes show their bundle asset.
+///  3. Everything else gets the striped [ImagePlaceholder].
 class _RecipeImage extends StatelessWidget {
   const _RecipeImage({required this.recipe, this.placeholderRadius = 0});
 
   final FitnessRecipe recipe;
 
-  /// Der Platzhalter zeichnet seine eigene Ecke; die echten Assets schneidet
-  /// die aufrufende Karte per ClipRRect zu.
+  /// The placeholder draws its own corner; real assets are clipped by the
+  /// calling card.
   final double placeholderRadius;
 
   @override
@@ -146,9 +125,8 @@ class _RecipeImage extends StatelessWidget {
         label: context.l10n.recipesImagePlaceholderLabel,
       );
     }
-    // Decode-Auflösung an die tatsächliche Slot-Breite koppeln: die Rezept-PNGs
-    // sind ~1800px/2.4MB groß und würden sonst voll dekodiert (Hero, Liste,
-    // Picker, Detail teilen sich dieses Widget bei sehr unterschiedlicher Größe).
+    // Tie decode resolution to the actual slot width: the recipe PNGs are
+    // ~1800px/2.4MB and would otherwise decode in full for every size.
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.devicePixelRatioOf(context);
@@ -164,14 +142,11 @@ class _RecipeImage extends StatelessWidget {
   }
 }
 
-/// Ein selbst aufgenommenes Rezept-Foto aus dem App-Dokumentenverzeichnis.
+/// A user-taken recipe photo from the app documents directory.
 ///
-/// Warum ein StatefulWidget statt eines [FutureBuilder]: der Ablageort steht
-/// nach dem ersten Aufloesen fest, [RecipeImageStore.resolveSync] beantwortet
-/// die Frage danach OHNE Frame-Verzoegerung. Ein FutureBuilder haette beim
-/// Scrollen durch die Liste jedes Mal einen Platzhalter-Frame aufblitzen
-/// lassen, obwohl die Datei laengst bekannt ist. Nur der allererste Zugriff
-/// einer Sitzung laeuft asynchron.
+/// Stateful rather than a [FutureBuilder]: once the base is resolved,
+/// [RecipeImageStore.resolveSync] answers without a frame delay, so scrolling
+/// never flashes a placeholder. Only the first access per session is async.
 class _LocalRecipeImage extends StatefulWidget {
   const _LocalRecipeImage({
     required this.reference,
@@ -211,7 +186,7 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
     }
     final gesucht = widget.reference;
     store.resolve(gesucht).then((datei) {
-      // Zwischenzeitlich abgeraeumt oder auf ein anderes Rezept umgehaengt.
+      // Disposed meanwhile, or switched to another recipe.
       if (!mounted || gesucht != widget.reference) return;
       setState(() => _file = datei);
     });
@@ -235,8 +210,7 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
           datei,
           fit: BoxFit.cover,
           cacheWidth: (logicalWidth * dpr).round().clamp(1, 1600),
-          // Die Datei kann zwischen Existenz-Pruefung und Dekodieren
-          // verschwinden (Loeschen, Aufraeumen). Auch dann: Platzhalter.
+          // The file can vanish between the existence check and decoding.
           errorBuilder: (context, error, stack) => ImagePlaceholder(
             radius: widget.placeholderRadius,
             label: context.l10n.recipesImagePlaceholderLabel,
@@ -247,32 +221,20 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
   }
 }
 
-/// Die Kennzahlen-Zeile unter einem Rezept-Titel.
+/// Metrics row under a recipe title: calories (emphasized) plus the full
+/// macro trio. [FitnessRecipe] knows neither prep time nor servings, so
+/// nothing is invented.
 ///
-/// Die Vorlage zeigt hier „480 kcal · 25 min · Serves 2". [FitnessRecipe] kennt
-/// weder Zubereitungszeit noch Portionsanzahl — statt Daten zu erfinden stehen
-/// hier die vier Werte, die eine Fitness-Rezeptliste ueberhaupt scanbar machen:
-/// Kalorien (betont) und das komplette Makro-Trio.
-///
-/// Die Beschriftungen sind buchstabengleich der frueheren `_MacroRow`
-/// (`24g P` · `30g KH` · `12g F`) — der Umbau hatte KH und Fett von den Karten
-/// genommen, sie standen danach nur noch in der Detail-Ansicht.
-///
-/// Bewusst NICHT [FitnessRecipe.portion]: das Feld ist Fliesstext, kein Mass
-/// („1 großer Fitness-Teller / 1 Hauptmahlzeit"). In der Kennzahlen-Zeile lief
-/// es ueber vier Zeilen und sprengte die Bildkachel; als Beschreibung steht es
-/// weiterhin in der Detail-Ansicht unter „Portion".
-///
-/// `Wrap` statt der `Row` der Vorlage: bei doppelter Schrift bricht die Zeile
-/// um, statt ueberzulaufen. Bei normaler Schrift passen alle vier Werte auf
-/// eine Zeile — auch in der 280 px breiten Bildkachel.
+/// [FitnessRecipe.portion] is deliberately left out: it is prose, not a
+/// measure, and ran over four lines here. `Wrap`, not `Row`, so doubled font
+/// sizes break instead of overflowing.
 class _RecipeMetrics extends StatelessWidget {
   const _RecipeMetrics({required this.recipe, this.onImage = false});
 
   final FitnessRecipe recipe;
 
-  /// Auf dem Foto braucht auch der gedaempfte Wert einen hellen Ton — `ink2`
-  /// waere dort in beiden Modi zu dunkel.
+  /// On a photo even the muted value needs a light tone; `ink2` would be too
+  /// dark in both modes.
   final bool onImage;
 
   @override
@@ -281,9 +243,8 @@ class _RecipeMetrics extends StatelessWidget {
     final l10n = context.l10n;
     final stark = onImage ? t.onForest : t.ink;
     final leise = onImage ? t.onForest.withValues(alpha: 0.78) : t.ink2;
-    // Makro-Toene kodieren laut Token-Vertrag Naehrwerte — hier steht der Wert
-    // aber schon im Text („30g KH"), und drei Farben auf einer Kachel neben
-    // dem Foto waeren Laerm. Die Kodierung traegt das Naehrwert-Grid im Detail.
+    // No macro tones here: the value is already in the text and three colors
+    // next to the photo would be noise. The detail grid carries the coding.
     TextStyle stil(Color color) =>
         AppType.ui(11, weight: FontWeight.w600, color: color);
     return Wrap(

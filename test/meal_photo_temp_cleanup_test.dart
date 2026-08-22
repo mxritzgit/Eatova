@@ -1,21 +1,16 @@
-// TEMP-FOTO-AUFRAEUMEN — Komplettreview 2026-08-19.
+// TEMP PHOTO CLEANUP (review 2026-08-19).
 //
-// Kamera und Galerie liefern ihr Bild als DATEI: `takePicture()` schreibt ein
-// JPEG in ein Temp-Verzeichnis, `ImagePicker.pickImage` legt wegen der
-// gesetzten `imageQuality`/`maxWidth` eine skalierte Kopie im App-Cache ab.
-// Die App braucht davon nur die Bytes — geloescht hat die Dateien bisher
-// niemand. Sie ueberdauerten den Scan, die Abmeldung und auch die
-// Kontoloeschung; das Betriebssystem raeumt den Cache erst unter
-// Speicherdruck. Es geht nicht um Speicherplatz, sondern um Essensfotos.
+// Camera and gallery hand over their image as a FILE (a temp JPEG, or the
+// picker's scaled cache copy). The app only needs the bytes, but nobody deleted
+// the files: they outlived the scan, sign-out and even account deletion, since
+// the OS clears the cache only under memory pressure. This is about food
+// photos, not disk space.
 //
-// Geprueft wird deshalb das DATEISYSTEM, nicht ein Aufruf: nach jedem der drei
-// Wege (Kamera-Sheet, Galerie im Sheet, `DeviceMealPhotoInput`) darf die
-// Quelldatei nicht mehr existieren — und zwar erst NACHDEM ihre Bytes gelesen
-// sind. Jeder Test sichert beides zugleich ab: waere zu frueh geloescht
-// worden, kaeme kein (bzw. kein gescrubbtes) Bild mehr heraus.
-//
-// Die Fehler- und Abbruchpfade haben eigene Faelle: dort ist das Aufraeumen am
-// leichtesten zu vergessen und die Datei bliebe dauerhaft liegen.
+// So the FILESYSTEM is checked, not a call: after each of the three paths the
+// source file must be gone, but only AFTER its bytes were read. Every test
+// asserts both at once — deleting too early would yield no image.
+// The error and cancel paths have their own cases; that is where cleanup is
+// easiest to forget.
 
 import 'dart:async';
 import 'dart:io';
@@ -44,8 +39,8 @@ const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
   GlobalCupertinoLocalizations.delegate,
 ];
 
-/// Ein JPEG mit GPS-Sub-IFD — so schreibt es die Systemkamera. Der Scrub muss
-/// es dekodieren koennen, sonst prueft der Erfolgspfad nichts.
+/// A JPEG with a GPS sub-IFD, as the system camera writes it. The scrub must be
+/// able to decode it, otherwise the success path checks nothing.
 Uint8List _jpegMitGps({int width = 480, int height = 360}) {
   final image = img.Image(width: width, height: height);
   img.fill(image, color: img.ColorRgb8(180, 120, 60));
@@ -56,9 +51,9 @@ Uint8List _jpegMitGps({int width = 480, int height = 360}) {
   return Uint8List.fromList(img.encodeJpg(image, quality: 90));
 }
 
-/// Ersetzt die Geraete-Kamera und verhaelt sich wie das echte Plugin: die
-/// Aufnahme wird als DATEI abgelegt, zurueck kommt nur ihr Pfad. Genau darum
-/// geht es hier — ein `XFile.fromData` haette nie eine Datei zu loeschen.
+/// Replaces the device camera and behaves like the real plugin: the shot is
+/// written as a FILE and only its path comes back. That is the point here — an
+/// `XFile.fromData` would never have a file to delete.
 class _FakeCameraPlatform extends CameraPlatform
     with MockPlatformInterfaceMixin {
   _FakeCameraPlatform({required this.aufnahmePfad, required this.inhalt});
@@ -136,8 +131,8 @@ class _FakeCameraPlatform extends CameraPlatform
   Future<void> dispose(int cameraId) async {}
 }
 
-/// Liefert dem Galerie-Knopf eine echte Datei im Cache-Verzeichnis — so wie
-/// `image_picker` seine skalierte Kopie zurueckgibt.
+/// Gives the gallery button a real file in the cache directory, the way
+/// `image_picker` returns its scaled copy.
 class _FakePickerPlatform extends ImagePickerPlatform
     with MockPlatformInterfaceMixin {
   _FakePickerPlatform(this.result);
@@ -155,10 +150,10 @@ class _FakePickerPlatform extends ImagePickerPlatform
   }
 }
 
-/// Laesst echte Datei-IO und den `compute()`-Isolate laufen: beides braucht die
-/// reale Event-Loop ([WidgetTester.runAsync]), die Fortsetzungen laufen erst im
-/// darauffolgenden `pump()`. Bricht ab, sobald [fertig] zutrifft — ohne den Fix
-/// laeuft die Schleife durch und die Zusicherung darunter faellt.
+/// Lets real file IO and the `compute()` isolate run: both need the real event
+/// loop ([WidgetTester.runAsync]), and continuations only run in the following
+/// `pump()`. Stops once [fertig] holds; without the fix the loop runs out and
+/// the assertion below fails.
 Future<void> _durchlaufen(
   WidgetTester tester, {
   required bool Function() fertig,
@@ -175,8 +170,8 @@ Future<void> _durchlaufen(
 
 Widget _sheetApp(void Function(MealCameraCapture?) merken) {
   return MaterialApp(
-    // MealCameraSheet liest Farben ueber `context.t` und Texte ueber
-    // `context.l10n` — ohne beides wird der Ausloeser gar nicht gebaut.
+    // MealCameraSheet reads colours via `context.t` and texts via
+    // `context.l10n`; without both the shutter is never built.
     theme: buildEatovaTheme(Brightness.dark),
     locale: const Locale('de'),
     supportedLocales: const [Locale('de'), Locale('en')],
@@ -207,8 +202,7 @@ void main() {
   late Directory cache;
 
   setUp(() {
-    // Steht stellvertretend fuer das Cache-/Temp-Verzeichnis der App, in das
-    // Kamera und Picker ihre Dateien schreiben.
+    // Stands in for the app cache/temp directory camera and picker write to.
     cache = Directory.systemTemp.createTempSync('eatova_fotocache');
   });
 
@@ -228,8 +222,8 @@ void main() {
     });
 
     test('eine fehlende Datei ist kein Fehlerfall', () async {
-      // Zweiter Aufruf auf demselben Pfad, abgebrochene Aufnahme, fremder
-      // Aufraeumer: der Aufrufer darf davon nichts merken.
+      // Second call on the same path, aborted capture, foreign cleaner: the
+      // caller must not notice.
       await expectLater(
         deleteMealPhotoTempFile('${cache.path}${Platform.pathSeparator}weg.jpg'),
         completes,
@@ -237,7 +231,7 @@ void main() {
     });
 
     test('leerer Pfad (In-Memory-XFile) wirft nicht', () async {
-      // `XFile.fromData` ohne Pfad liefert '' — daran haengt keine Datei.
+      // `XFile.fromData` without a path yields '' — no file behind it.
       await expectLater(deleteMealPhotoTempFile(''), completes);
     });
   });
@@ -252,8 +246,8 @@ void main() {
 
       final auswahl = await DeviceMealPhotoInput().pick(ImageSource.gallery);
 
-      // Reihenfolge-Wache: waere die Datei vor dem Lesen geloescht worden,
-      // stuende hier null und der Scan haette gar kein Bild.
+      // Ordering guard: deleting before reading would leave null here and the
+      // scan would have no image at all.
       expect(auswahl?.previewBytes, isNotNull,
           reason: 'geloescht werden darf erst nach dem Lesen und Scrubben');
       expect(kopie.existsSync(), isFalse,
@@ -262,8 +256,8 @@ void main() {
     });
 
     test('auch wenn der Scrub scheitert, bleibt keine Datei liegen', () async {
-      // Nicht dekodierbar: `compressMealPhoto` wirft (fail-closed), die
-      // Auswahl kommt ohne Bytes zurueck — die Datei muss trotzdem weg.
+      // Undecodable: `compressMealPhoto` throws (fail-closed) and the pick
+      // returns without bytes — the file must still be gone.
       final kopie = File('${cache.path}${Platform.pathSeparator}kaputt.jpg')
         ..writeAsBytesSync(Uint8List.fromList(<int>[1, 2, 3, 4, 5]));
       ImagePickerPlatform.instance = _FakePickerPlatform(XFile(kopie.path));
@@ -345,8 +339,8 @@ void main() {
           aufnahmePfad: '${cache.path}${Platform.pathSeparator}unused.jpg',
           inhalt: _jpegMitGps(),
         );
-        // Nicht dekodierbar -> das Sheet bleibt offen und meldet den Fehler.
-        // Genau dieser Pfad vergisst das Aufraeumen am leichtesten.
+        // Undecodable -> the sheet stays open and reports the error. This is
+        // the path that most easily forgets to clean up.
         final kopie = File('${cache.path}${Platform.pathSeparator}kaputt.jpg')
           ..writeAsBytesSync(Uint8List.fromList(<int>[9, 9, 9, 9]));
         ImagePickerPlatform.instance = _FakePickerPlatform(XFile(kopie.path));
@@ -366,8 +360,8 @@ void main() {
         );
         expect(kopie.existsSync(), isFalse);
 
-        // Der Fehler-Snack haelt einen Auto-Dismiss-Timer: ohne Abraeumen
-        // meldet die Test-Binding am Testende eine offene Uhr.
+        // The error snack holds an auto-dismiss timer; without draining it the
+        // test binding reports a pending timer at the end.
         await tester.pump(const Duration(seconds: 6));
         await tester.pumpAndSettle();
       },

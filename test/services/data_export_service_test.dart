@@ -1,12 +1,10 @@
-// C7 (docs/REVIEW-2026-08-08.md): der In-App-Export war ein In-Memory-
-// Teil-Snapshot der aktuellen Session — kein Tagebuch, keine Favoriten,
-// keine Rezepte, kein Coach-Verlauf, keine Profil-Stammdaten. Der
-// DataExportService baut die Auskunft stattdessen direkt aus den
-// Server-Tabellen (RLS select_own), also aus der autoritativen Kopie.
+// C7 (docs/REVIEW-2026-08-08.md): the in-app export used to be a partial
+// in-memory snapshot of the session. DataExportService builds it from the
+// server tables (RLS select_own) instead, the authoritative copy.
 //
-// Der Test faehrt den echten SupabaseClient gegen einen MockClient, der
-// PostgREST-Pagination (offset/limit bzw. Range-Header) anwendet — sonst
-// wuerde eine kaputte Pagination hier nie auffallen.
+// The test drives the real SupabaseClient against a MockClient that applies
+// PostgREST pagination (offset/limit or Range header) — otherwise broken
+// pagination would never show up here.
 
 import 'dart:convert';
 
@@ -17,7 +15,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/data_export.dart';
 
-/// 5 Tagebuch-Zeilen, absteigend nach logged_at.
+/// 5 diary rows, descending by logged_at.
 final List<Map<String, dynamic>> _mealRows = List.generate(5, (i) {
   return <String, dynamic>{
     'id': 'meal-$i',
@@ -54,8 +52,8 @@ class _FakePostgrest {
       ]);
     }
     if (path.contains('/logged_meals')) {
-      // PostgREST-Pagination anwenden: postgrest-dart schickt offset/limit
-      // als Query-Parameter (Fallback: Range-Header "items=from-to").
+      // Apply PostgREST pagination: postgrest-dart sends offset/limit as query
+      // parameters, falling back to a Range header "items=from-to".
       var from = 0;
       var to = _mealRows.length - 1;
       final offset = int.tryParse(req.url.queryParameters['offset'] ?? '');
@@ -99,7 +97,7 @@ class _FakePostgrest {
         }
       ]);
     }
-    // Uebrige Tabellen: leer, aber erfolgreich.
+    // Remaining tables: empty, but successful.
     return ok(const <dynamic>[]);
   }
 }
@@ -152,7 +150,7 @@ void main() {
         .toList();
     expect(ids.toSet(), _mealRows.map((r) => r['id']).toSet());
     expect(ids.length, ids.toSet().length, reason: 'keine Duplikate');
-    // Beleg, dass wirklich paginiert wurde (5 Zeilen / Seitengroesse 2).
+    // Proof that pagination really happened (5 rows / page size 2).
     expect(
         server.requests
             .where((r) => r.url.path.contains('/logged_meals'))

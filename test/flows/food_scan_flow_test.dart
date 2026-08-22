@@ -1,6 +1,5 @@
-// KI-Scan-Flows (aus test/widget_test.dart aufgeteilt): Foto-Analyse mit
-// Einzelposten, Re-Portionierung inkl. Makro-Skalierung und das
-// Favoriten-Herz auf der Ergebniskarte.
+// AI scan flows: itemized photo analysis, re-portioning including macro
+// scaling, and the favorite heart on the result card.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,10 +12,7 @@ void main() {
   testWidgetsRobust('Food tab supports deterministic itemized photo results and daily kcal adding', (
     WidgetTester tester,
   ) async {
-    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
-    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
-    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
-    // pruefen wortgleiche deutsche ARB-Texte.
+    // Pin the device language — the assertions below check German ARB strings.
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
@@ -26,15 +22,14 @@ void main() {
       ),
     );
 
-    // Ausgangslage: heute ist leer. Das Tagestotal steht seit dem 2026-08-10
-    // im Heute-Tab (die Kalorien-Karte des Food-Tabs ist entfallen).
+    // Starting point: today is empty. The daily total lives in the today tab.
     await expectTagestotalAufHeute(tester, '0');
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    // KI-Scan öffnet die (gefakte) In-App-Kamera -> liefert das Foto -> das
-    // Analyse-Sheet öffnet direkt (kein generisches Add-Sheet mehr).
+    // The AI scan opens the (faked) in-app camera and the analysis sheet opens
+    // directly — no generic add sheet in between.
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('analyse-result-card')), findsOneWidget);
@@ -48,9 +43,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.pumpAndSettle();
     expect(find.text('Zu heute hinzugefügt'), findsOneWidget);
-    // Hinter dem offenen Sheet traegt die Kopf-Kachel des Food-Tabs den neuen
-    // Tageswert. Sie setzt NUR die Zahl (die Einheit steht als eigenes Label
-    // darunter) — deshalb „855", nicht „855 kcal".
+    // Behind the open sheet the food tab's header tile carries the new daily
+    // value. It renders the number only, with the unit as a separate label.
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('screen-kcal-tracker')),
@@ -78,11 +72,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('analyse-save-weight-button')));
     await tester.pumpAndSettle();
     expect(find.text('815 kcal'), findsWidgets);
-    // Exakter Match auf das persistente "angepasst"-Label der Ergebniskarte
-    // (meal_widgets), bewusst NICHT textContaining: die Bestätigungs-Snackbar
-    // ("… angepasst. Tageswert aktualisiert.") enthält denselben Teilstring und
-    // rendert mit dem neuen no-stacking-Toast sofort -> textContaining wäre
-    // mehrdeutig. Das exakte Label ist timing-unabhängig.
+    // Exact match, NOT textContaining: the confirmation snackbar carries the
+    // same substring and renders immediately.
     expect(find.text('550 g über Einzelposten angepasst'), findsOneWidget);
     expect(find.text('Zu heute hinzugefügt'), findsOneWidget);
     expect(
@@ -93,30 +84,18 @@ void main() {
       findsOneWidget,
     );
 
-    // Und dort, wo das Tagestotal seit dem 2026-08-10 zuhause ist.
     await tester.tap(find.byKey(const ValueKey('analyse-sheet-close')));
     await tester.pumpAndSettle();
     await expectTagestotalAufHeute(tester, '815');
   });
 
-  // PROD-3: Re-Portionierung einer bereits geloggten Mahlzeit skaliert kcal UND
-  // Makros (frueher froren Protein/KH/Fett ein und der kcal-Delta traf zudem die
-  // FALSCHE — erste — Mahlzeit des Tages). 300 g / 30 g Protein -> 400 g muss
-  // Protein auf ~40 g hochskalieren.
-  //
-  // Der Makro-Balken, an dem das haengt, ist umgezogen: er sass im kompakten
-  // Format `0/130g` in der Kalorien-Karte des Food-Tabs, die am 2026-08-10
-  // entfallen ist. Die Makros stehen jetzt im Heute-Tab (`today-macros-card`)
-  // und benutzen den gemeinsamen [MacroBar] der Design-Bibliothek — der setzt
-  // `0 / 130g` mit Leerzeichen um den Schraegstrich. Die AUSSAGE des Tests ist
-  // unveraendert: eine skalierte Portion veraendert die angezeigten Makros.
+  // PROD-3: re-portioning scales kcal AND macros (macros used to freeze and
+  // the kcal delta hit the WRONG meal). 300 g / 30 g protein -> 400 g must
+  // scale protein to ~40 g.
   testWidgetsRobust('Re-portioning a logged meal scales macros, not just kcal', (
     WidgetTester tester,
   ) async {
-    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
-    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
-    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
-    // pruefen wortgleiche deutsche ARB-Texte.
+    // Pin the device language — the assertions below check German ARB strings.
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
@@ -126,7 +105,7 @@ void main() {
       ),
     );
 
-    // Vor dem Loggen: Protein 0 / 130g (der Kaltstart landet auf „Heute").
+    // Before logging: protein 0 / 130g (cold start lands on the today tab).
     expect(find.text('0 / 130g'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
@@ -136,14 +115,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('analyse-result-card')), findsOneWidget);
 
-    // Hinzufuegen -> 30 g Protein im Tageswert.
     await tester.ensureVisible(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.tap(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.pumpAndSettle();
     expect(find.text('Zu heute hinzugefügt'), findsOneWidget);
 
-    // Re-Portionierung: 300 g -> 400 g (Einzelposten-Sheet, ein synthetischer
-    // Posten fuer die nicht-itemisierte Mahlzeit).
+    // Re-portioning via the item sheet: one synthetic item for this meal.
     await tester.ensureVisible(find.byKey(const ValueKey('analyse-adjust-button')));
     await tester.tap(find.byKey(const ValueKey('analyse-adjust-button')));
     await tester.pumpAndSettle();
@@ -158,10 +135,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('analyse-save-weight-button')));
     await tester.pumpAndSettle();
 
-    // Sheets schliessen und im Heute-Tab nachsehen, wo die Makro-Balken seit
-    // dem 2026-08-10 stehen. Protein skaliert von 30 auf ~40 g
-    // (400/300 * 30 = 40). Vorher fror der Bug das Protein bei 30 ein, waehrend
-    // nur die kcal stiegen — UND traf zudem die falsche Mahlzeit.
+    // Close the sheets and check the today tab: protein scales from 30 to
+    // ~40 g (400/300 * 30). The bug froze it at 30 while only kcal rose.
     await tester.tap(find.byKey(const ValueKey('analyse-sheet-close')));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 5));
@@ -173,15 +148,12 @@ void main() {
     expect(find.text('30 / 130g'), findsNothing);
   });
 
-  // PROD-4: Das Favoriten-Herz rendert im Analyse-Ergebnis und das Antippen
-  // heftet die Mahlzeit an (eigene „Favoriten"-Sektion im Add-Sheet).
+  // PROD-4: the favorite heart renders on the analysis result and tapping it
+  // pins the meal into its own favorites section in the add sheet.
   testWidgetsRobust('Meal result shows a favorite heart that pins the meal', (
     WidgetTester tester,
   ) async {
-    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
-    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
-    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
-    // pruefen wortgleiche deutsche ARB-Texte.
+    // Pin the device language — the assertions below check German ARB strings.
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(
@@ -196,23 +168,20 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
     await tester.pumpAndSettle();
 
-    // Das Herz rendert (onToggleFavorite ist verdrahtet).
+    // The heart renders (onToggleFavorite is wired).
     expect(find.byKey(const ValueKey('analyse-favorite-button')), findsOneWidget);
     expect(find.byIcon(Icons.favorite_outline_rounded), findsOneWidget);
 
-    // Anheften -> Herz wird gefuellt.
     await tester.tap(find.byKey(const ValueKey('analyse-favorite-button')));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.favorite_rounded), findsWidgets);
 
-    // Loggen, dann beide Sheets schliessen und erneut oeffnen: der angeheftete
-    // Favorit steht in der eigenen „Favoriten"-Sektion (nicht „Letzte
-    // Mahlzeiten").
+    // Log, then reopen: the pinned favorite sits in the favorites section, not
+    // in recent meals.
     await tester.ensureVisible(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.tap(find.byKey(const ValueKey('analyse-add-daily-button')));
     await tester.pumpAndSettle();
-    // Nur das Analyse-Sheet ist offen (KI-Scan öffnet kein Add-Sheet mehr),
-    // danach über die Suche das Add-Sheet zum Prüfen der Favoriten öffnen.
+    // The add sheet is reached via search to check the favorites.
     await tester.tap(find.byKey(const ValueKey('analyse-sheet-close')));
     await tester.pumpAndSettle();
 

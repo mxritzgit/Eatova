@@ -3,22 +3,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
 
-// Sentinel-Fund 1 (Nachverifikation 2026-08-08): `defaultAuthRepository()`
-// fiel bei JEDEM Fehler auf PreviewAuthRepository zurueck — deren currentUser
-// ist nie null (feste Identitaet 'preview-user') und deren signIn/signOut
-// sind No-Ops. Aufgerufen wird die Funktion in eatova_app.dart in build():
-// ein Fehler an dieser Stelle renderte also die EINGELOGGTE Ansicht ohne
-// Anmeldung. Der Boot-Guard in main.dart deckt nur den Init-Pfad ab, nicht
-// dieses spaetere Fenster.
+// Sentinel finding 1 (2026-08-08): `defaultAuthRepository()` fell back to
+// PreviewAuthRepository on ANY error, whose currentUser is never null — so a
+// failure inside build() rendered the logged-in view without a login.
 //
-// Neuer Vertrag: der Preview-Komfort bleibt auf Debug/Test beschraenkt
-// (allowPreview, Default kDebugMode — daran haengen die Flow-Tests, die
-// `EatovaApp()` ohne Repository pumpen). Im Release-Pfad gibt es bei einem
-// Fehler KEINEN erfundenen Nutzer: AuthGate zeigt den Login, und ein
-// Anmeldeversuch scheitert laut mit einer ehrlichen Meldung.
+// Contract: preview stays on debug/test (allowPreview, default kDebugMode —
+// flow tests pump `EatovaApp()` without a repository). On the release path an
+// error yields no invented user; sign-in fails loudly.
 //
-// WICHTIG: dieses File ruft bewusst NIE Supabase.initialize() — genau der
-// Zustand, in dem Supabase.instance wirft und der Fallback greift.
+// This file never calls Supabase.initialize() on purpose: that is exactly the
+// state where Supabase.instance throws and the fallback kicks in.
 
 void main() {
   group('buildDefaultAuthRepository ohne Supabase', () {
@@ -51,8 +45,8 @@ void main() {
     });
 
     test('Release-Pfad: signOut bleibt gefahrlos', () async {
-      // Der Profil-Screen ruft signOut auch in Fehlerpfaden — das darf im
-      // degradierten Zustand nie ZUSAETZLICH werfen.
+      // The profile screen calls signOut on error paths too; it must not
+      // throw on top of a degraded state.
       await expectLater(
           buildDefaultAuthRepository(allowPreview: false).signOut(),
           completes);
@@ -61,9 +55,8 @@ void main() {
     test('Debug/Test-Pfad: Preview bleibt fuer Widget-Tests erhalten', () {
       expect(buildDefaultAuthRepository(allowPreview: true),
           isA<PreviewAuthRepository>());
-      // Der Default (kDebugMode, in Tests immer true) ist derselbe Pfad —
-      // darauf stuetzen sich die Flow-Tests, die EatovaApp() ohne Repository
-      // pumpen (navigation_flow, recipes_flow, localization_de, ...).
+      // The default (kDebugMode, always true in tests) is the same path; flow
+      // tests pumping EatovaApp() without a repository rely on it.
       expect(defaultAuthRepository(), isA<PreviewAuthRepository>());
     });
   });

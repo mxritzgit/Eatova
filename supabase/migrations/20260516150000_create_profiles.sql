@@ -1,5 +1,4 @@
--- FitPilot auth profile bootstrap.
--- Supabase Auth owns credentials in auth.users; this public table stores
+-- Auth profile bootstrap: auth.users owns credentials, this table stores the
 -- app-facing profile fields each user may read/update for themselves.
 
 create table if not exists public.profiles (

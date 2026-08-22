@@ -10,38 +10,26 @@ import '../services/local_cache.dart';
 import '../services/recipe_image_store.dart';
 import '../widgets/common/app_snack.dart';
 
-/// Merker fuer die GEWOLLTE Abmeldung.
+/// Marker for a DELIBERATE sign-out.
 ///
-/// Warum ueberhaupt: [_AuthGateState._onAuthEvent] sieht nur, DASS die
-/// Identitaet gewechselt hat, nie WARUM. Bis zum Review 2026-08-19 zog der Gate
-/// die Grenze an „lag noch etwas ueber der Root-Route" — das stimmte genau so
-/// lange, wie der Ausloggen-Knopf selbst poppte, BEVOR er `signOut` rief. Seit
-/// er in den Einstellungen sitzt (2026-08-10), also auf einer gepushten Route,
-/// raeumt der Gate beim gewollten Logout sehr wohl Routen ab und behauptete
-/// anschliessend „Deine Sitzung ist abgelaufen" — ausgerechnet dem Nutzer
-/// gegenueber, der sich gerade selbst abgemeldet hat.
-///
-/// Die Absicht verfaellt nach [gueltigkeit]: bleibt der Abmelde-Versuch
-/// stecken (Netzfehler, gar kein Auth-Ereignis), darf er nicht Stunden spaeter
-/// einen ECHTEN Sitzungsverlust stumm schalten.
+/// [_AuthGateState._onAuthEvent] sees THAT the identity changed, never why,
+/// and route state cannot tell the two apart. Expires after [gueltigkeit] so a
+/// stuck attempt cannot silence a REAL session loss.
 abstract final class IntentionalSignOut {
-  /// So lange gilt eine Absichtserklaerung. Grosszuegig genug fuer
-  /// Cache-Raeumung + Server-Roundtrip von `signOut`, kurz genug, dass ein
-  /// steckengebliebener Versuch nicht die naechste Sitzung stumm schaltet.
+  /// Lifetime of a declared intent: enough for the cache purge plus the
+  /// `signOut` roundtrip, short enough not to silence the next session.
   static const Duration gueltigkeit = Duration(seconds: 30);
 
   static DateTime? _markiertAm;
 
-  /// Der Logout-Pfad meldet seine Absicht an, BEVOR er `signOut` ruft — das
-  /// Auth-Ereignis kann dem Aufruf dicht auf den Fersen sein.
+  /// The logout path declares its intent BEFORE calling `signOut` — the auth
+  /// event can follow immediately.
   static void mark() => _markiertAm = clock.now();
 
-  /// Nimmt die Absicht zurueck: die Abmeldung ist gar nicht erst zustande
-  /// gekommen, es gibt also nichts mehr zu erklaeren.
+  /// Withdraws the intent: the sign-out never happened.
   static void clear() => _markiertAm = null;
 
-  /// Liest die Absicht und VERBRAUCHT sie — jede gilt fuer genau einen
-  /// Auth-Uebergang.
+  /// Reads and CONSUMES the intent — each covers exactly one transition.
   static bool consume() {
     final markiert = _markiertAm;
     _markiertAm = null;
@@ -50,38 +38,25 @@ abstract final class IntentionalSignOut {
   }
 }
 
-/// Raeumt den personenbezogenen Cache-Namensraum eines abgeloesten Nutzers.
+/// Purges the personal cache namespace of a replaced user.
 ///
-/// Warum hier und nicht (nur) in `HomeStore.signOutCleanup`: die dortige
-/// Raeumung haengt am Ausloggen-Knopf in den Einstellungen. Ein
-/// UNFREIWILLIGES Sitzungsende (Passwortwechsel auf einem anderen Geraet,
-/// serverseitiger Widerruf, abgelaufener Refresh-Token) und der direkte
-/// Wechsel A -> B kommen dort nie an — Profil, Lebenszeit-Zaehler, Tagebuch,
-/// Favoriten, Gewichtsreihe und das Erinnerungs-Flag von A blieben auf dem
-/// Geraet liegen (Audit M-1 gilt fuer sie unveraendert).
-///
-/// [LocalCache.clear] laeuft mit `preserveOutbox: true`: Outbox und pendende
-/// Stats-Deltas sind KEIN Anzeige-Cache, sondern nicht zugestellte
-/// Schreibvorgaenge. Sie zu vernichten hiesse, dem Nutzer die im Flugzeug
-/// geloggten Mahlzeiten zu nehmen (A2). Beide Slots sind verschluesselt und
-/// nach User-ID getrennt (`eatova.v1.outbox.<uid>`, s. local_cache.dart) und
-/// spielen beim naechsten Login DESSELBEN Kontos nach.
+/// `HomeStore.signOutCleanup` hangs off the sign-out button, which an
+/// involuntary session end and a direct A -> B switch never reach (audit M-1).
+/// The outbox is kept: pending writes replay on the next login (A2).
 Future<void> purgePersonalCacheFor(String userId) async {
   if (userId.isEmpty) return;
   try {
     final cache = await LocalCache.create(userId);
     if (cache != null) await purgePersonalCache(cache);
   } catch (e, st) {
-    // Best effort: ein nicht raeumbarer Cache darf den Auth-Uebergang nicht
-    // aufhalten. Gemeldet wird er trotzdem — er ist der Grund, warum
-    // Gesundheitsdaten liegen bleiben.
+    // Best effort: an unpurgeable cache must not block the auth transition,
+    // but it is why health data stays behind, so report it.
     unawaited(CrashReporter.capture(e, st, context: 'auth-gate-cache-purge'));
   }
 }
 
-/// Die Raeumung selbst — getrennt vom Bauen des Caches, damit sie ohne
-/// SharedPreferences-Kanal und OS-Keystore pruefbar bleibt (`LocalCache.create`
-/// liefert im Test null, der Purge waere sonst nicht beobachtbar).
+/// Split from building the cache so it stays testable without
+/// SharedPreferences and the OS keystore.
 @visibleForTesting
 Future<void> purgePersonalCache(LocalCache cache) =>
     cache.clear(preserveOutbox: true);
@@ -96,17 +71,13 @@ class AuthGate extends StatefulWidget {
 
   final AuthRepository authRepository;
 
-  /// Test-Seam fuer [purgePersonalCacheFor]: der echte Weg braucht den
-  /// SharedPreferences-Kanal und den OS-Keystore, die es im Widget-Test nicht
-  /// gibt (`LocalCache.create` liefert dort null und der Purge waere nicht
-  /// beobachtbar). In Production immer null.
+  /// Test seam for [purgePersonalCacheFor] — `LocalCache.create` returns null
+  /// in widget tests. Always null in production.
   @visibleForTesting
   final Future<void> Function(String userId)? debugPurgeCache;
 
-  /// Builder bekommt den User UND ein Flag ob das eine frische
-  /// Anmeldung in dieser App-Session war. Damit kann die HomePage
-  /// die Welcome-Animation NUR bei tatsaechlichem Login/Register zeigen,
-  /// nicht bei jedem Kaltstart mit gueltiger Session.
+  /// Receives the user plus whether this was a fresh login, so the welcome
+  /// animation skips cold starts with a valid session.
   final Widget Function(
     BuildContext context,
     EatovaUser user,
@@ -127,100 +98,56 @@ class _AuthGateState extends State<AuthGate> {
     super.initState();
     final initial = widget.authRepository.currentUser;
     _user = initial;
-    // Session-Restore bei App-Start zaehlt nicht als fresh login.
+    // Session restore on app start does not count as a fresh login.
     _freshLogin = false;
-    // Finding 5 (Security-Review 2026-08-11): der Rezept-Foto-Store ist an
-    // die aktive User-ID gebunden. Der Kaltstart bindet den restaurierten
-    // Nutzer (null -> uid purgt nichts, s. setActiveUser) — alle SPAETEREN
-    // Uebergaenge laufen durch _onAuthEvent.
+    // Finding 5: the recipe photo store is bound to the active user id. Cold
+    // start binds the restored user; later transitions go via _onAuthEvent.
     unawaited(RecipeImageStore.instance.setActiveUser(initial?.id));
     _subscription = widget.authRepository.authStateChanges
         .listen(_onAuthEvent, onError: _onAuthStreamError);
   }
 
-  /// Der Auth-Strom fuehrt FEHLER, nicht nur Werte.
+  /// The auth stream carries ERRORS, not just values.
   ///
-  /// gotrue speist sie aktiv ein (`notifyException` bei
-  /// `AuthRetryableFetchException`, `addError` auf dem eigenen Controller).
-  /// Ohne `onError` landete so ein Fehler als unbehandelter Zonen-Fehler — von
-  /// aussen ausloesbar (der BROWSABLE-Deeplink-Intent fuehrt in
-  /// `getSessionFromUrl`) und dank Sentry auch noch als gemeldeter Absturz.
-  ///
-  /// Behandelt heisst hier: melden und weiterleben. Der Gate hat nichts zu
-  /// tun — ein wirklich verlorener Token kommt als regulaeres `null`-Ereignis
-  /// nach, ein voruebergehender Netzfehler geht von selbst vorbei. Der Nutzer
-  /// bekommt bewusst KEINE Meldung: er hat nichts angestossen, und ein Toast
-  /// waere von aussen ausloesbar.
-  ///
-  /// `captureSyncFailure` statt `capture`: ein Netzausfall auf dem
-  /// Token-Refresh ist der vorgesehene Ablauf, kein Vorfall — dieselbe
-  /// Abwaegung wie im Sync-Pfad (s. crash_reporter.dart). Was ueberhaupt
-  /// hinausgeht, entscheidet dort `sanitizeForReport`, nicht diese Stelle.
+  /// Without `onError` a gotrue error became an unhandled zone error,
+  /// triggerable from outside via the BROWSABLE deeplink intent. Report and
+  /// carry on — a lost token arrives as a regular `null` event, and a toast
+  /// would be externally triggerable. `captureSyncFailure`, not `capture`: a
+  /// refresh outage is expected, not an incident.
   void _onAuthStreamError(Object error, StackTrace stack) {
     unawaited(CrashReporter.captureSyncFailure(error, stack,
         context: 'auth-state-stream'));
   }
 
   void _onAuthEvent(EatovaUser? user) {
-    // Finding 5: der Gate ist die EINE Stelle, durch die jeder Auth-Uebergang
-    // laeuft — auch unfreiwilliger Session-Verlust und der direkte Wechsel
-    // A -> B, die kein signOutCleanup sehen. Deshalb haengt die Bindung des
-    // Foto-Stores hier, VOR dem mounted-Check (auch ein Event waehrend des
-    // Abbaus muss den Wechsel purgen) und vor dem setState (kein Frame des
-    // neuen Kontos sieht den alten Namensraum; der Namensraum wechselt in
-    // setActiveUser synchron, nur das Purgen des Vorgaengers laeuft nach —
-    // erreichbar ist der ab dem Wechsel ohnehin nicht mehr). Ein
-    // Token-Refresh (dieselbe id) ist dort ein No-Op.
+    // Finding 5: the gate is the ONE place every auth transition passes.
+    // Bound before the mounted check (a teardown event must still purge) and
+    // before setState (no frame of the new account sees the old namespace).
     unawaited(RecipeImageStore.instance.setActiveUser(user?.id));
     final previous = _user;
-    // NUR beim echten Identitaetswechsel: ein Token-Refresh liefert denselben
-    // Nutzer erneut.
+    // Only on a real identity change: a token refresh delivers the same user.
     final identityChanged =
         previous != null && (user == null || user.id != previous.id);
     if (identityChanged) {
-      // Review 2026-08-19: derselbe Grund, aus dem der Foto-Store hier haengt,
-      // gilt fuer den durablen Cache. `HomeStore.signOutCleanup` raeumt Profil,
-      // Lebenszeit-Zaehler, Tagebuch, Favoriten, Gewicht und das
-      // Erinnerungs-Flag — erreichbar ist es aber nur ueber den
-      // Ausloggen-Knopf. Beim externen Session-Verlust und beim direkten
-      // Wechsel A -> B blieben die Slots von A auf dem Geraet liegen.
-      // Ungeawaitet und wie die Foto-Bindung VOR dem mounted-Check: auch ein
-      // Ereignis waehrend des Abbaus muss den Bestand des Vorgaengers raeumen.
+      // Same reason as the photo store, for the durable cache: unawaited and
+      // before the mounted check, so a teardown event still purges.
       unawaited((widget.debugPurgeCache ?? purgePersonalCacheFor)(previous.id));
     }
     if (!mounted) return;
     final wasLoggedOut = previous == null;
     final isLoggedIn = user != null;
 
-    // D8: AuthGate ist der Inhalt von MaterialApp.home, also der Root-Route.
-    // Ein Auth-Wechsel tauschte bisher NUR diesen Inhalt â€” alles was der
-    // Nutzer darueber gepusht hat (Profil, Trends, ein Dialog, ein Bottom
-    // Sheet) blieb sichtbar und voll bedienbar und zeigte Daten einer Session,
-    // die es nicht mehr gibt. Beim externen Session-Verlust (Passwortaenderung
-    // auf einem anderen Geraet, serverseitiger Widerruf) also den
-    // Navigator-Stack mit abraeumen. Wieder nur beim echten
-    // Identitaetswechsel: ein Token-Refresh darf die offene Ansicht nicht
-    // wegraeumen.
+    // D8: AuthGate is MaterialApp.home, so an auth change swapped only that
+    // content and anything pushed on top stayed usable, showing data of a dead
+    // session. Real identity changes only — a refresh must keep the open view.
     if (identityChanged) {
-      // Verbraucht wird die Absicht IMMER, nicht nur im Melde-Zweig: sie gilt
-      // fuer genau einen Uebergang und darf keinen spaeteren erklaeren.
+      // ALWAYS consumed, not only in the notify branch: one intent covers
+      // exactly one transition.
       final gewollt = IntentionalSignOut.consume();
       _popToRootRoute();
-      // Wortlos auf dem Login zu landen, waehrend man gerade sein Profil
-      // ansah, ist verwirrend â€” der Grund gehoert dazu. Der Hinweis haengt
-      // hier und nicht im AuthScreen, weil nur der Gate den Unterschied
-      // zwischen â€žabgemeldet" und â€žSitzung verloren" kennt; die Snackbar
-      // laeuft ueber den ScaffoldMessenger der MaterialApp und wird vom
-      // Scaffold des AuthScreens gezeigt, sobald der gebaut ist.
-      //
-      // Die Abgrenzung zur gewollten Abmeldung ist [IntentionalSignOut] und
-      // NICHT mehr „es lag etwas ueber der Root-Route": diese Begruendung
-      // zielte auf einen Ausloggen-Knopf, der selbst poppte, bevor er signOut
-      // rief. Seit er in den Einstellungen sitzt, raeumt auch der gewollte
-      // Logout Routen ab — die alte Bedingung zeigte ihm also ausgerechnet
-      // dann die Abgelaufen-Meldung. Umgekehrt erklaert sich der Verlust
-      // jetzt auch dann, wenn der Nutzer direkt auf dem Home stand: er wird
-      // ohne sein Zutun ausgeloggt, und das ist der ganze Punkt der Meldung.
+      // Only the gate knows "signed out" from "session lost", and
+      // [IntentionalSignOut] draws that line. The snack runs through the
+      // MaterialApp's ScaffoldMessenger and appears once AuthScreen is built.
       if (!isLoggedIn && !gewollt) {
         showAppSnack(
           context,
@@ -241,18 +168,9 @@ class _AuthGateState extends State<AuthGate> {
     });
   }
 
-  /// Raeumt alles ab, was ueber der Root-Route liegt.
-  ///
-  /// `Navigator.maybeOf(context)` trifft hier den RICHTIGEN Navigator: die
-  /// MaterialApp baut `home` in die Default-Route ihres eigenen Navigators,
-  /// dieser State liegt also IM Navigator-Subtree und nicht darueber. Ein
-  /// `GlobalKey<NavigatorState>` an der MaterialApp waere unnoetig (und
-  /// eatova_app.dart muesste dafuer angefasst werden).
-  ///
-  /// `route.isFirst` statt `ModalRoute.withName('/')`: greift auch bei
-  /// namenlosen Routen. Dialoge und Bottom Sheets sind selbst Routen und
-  /// werden hier regulaer gepoppt â€” ihre Futures schliessen mit `null` ab, es
-  /// bleibt kein halber Zustand stehen.
+  /// Pops everything above the root route. `maybeOf` hits the right navigator
+  /// because MaterialApp builds `home` into its own navigator's default route;
+  /// `isFirst` also covers unnamed routes, and dialogs pop with `null`.
   void _popToRootRoute() {
     Navigator.maybeOf(context)?.popUntil((route) => route.isFirst);
   }
@@ -263,7 +181,7 @@ class _AuthGateState extends State<AuthGate> {
     if (oldWidget.authRepository == widget.authRepository) return;
     _subscription?.cancel();
     _user = widget.authRepository.currentUser;
-    // Auch ein Repository-Tausch ist ein potenzieller Identitaetswechsel.
+    // A repository swap is a potential identity change too.
     unawaited(RecipeImageStore.instance.setActiveUser(_user?.id));
     _freshLogin = false;
     _subscription = widget.authRepository.authStateChanges

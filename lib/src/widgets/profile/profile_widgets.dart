@@ -1,12 +1,8 @@
-/// Profil-Widgets — als Bibliothek aus mehreren `part`-Dateien zusammengesetzt.
+/// Profile widgets — one library assembled from several `part` files.
 ///
-/// Rein mechanischer Split: die kohaerenten Widget-Gruppen liegen in den unten
-/// referenzierten `part of`-Dateien. Importe + Sichtbarkeit (library-private
-/// `_`-Klassen) bleiben unveraendert, kein Import-Site aendert sich.
-///
-/// Design-Refactor 2026-08-09: die Bibliothek liest Farbe ausschliesslich ueber
-/// `context.t` ([AppTokens]) und Schrift ueber [AppType]; `app_colors.dart`
-/// ist hier vollstaendig abgeloest.
+/// Purely mechanical split; imports and library-private `_` visibility are
+/// unchanged. Colour comes from `context.t` ([AppTokens]) and type from
+/// [AppType]; `app_colors.dart` is fully retired here.
 library;
 
 import 'package:flutter/material.dart';

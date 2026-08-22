@@ -1,15 +1,13 @@
 import '../models/meal_component.dart';
 
-/// Per-item entry in the local kcal database: typical caloric density and
-/// a sensible default portion size for that food.
+/// Local kcal database entry: caloric density and default portion size.
 typedef FoodEntry = ({double kcalPer100G, int defaultGrams});
 
-/// Local kcal lookup for the most common German-language foods. Used to
-/// auto-split a combined meal name ("Steak mit Ofenkartoffeln und Tomate")
-/// into individual items when the upstream vision model returns the meal as
-/// a single entry. Numbers are rounded "everyday" values, not lab-grade.
+/// Local kcal lookup for common German-language foods, used to auto-split a
+/// combined meal name the vision model returned as one entry. Numbers are
+/// rounded everyday values, not lab-grade.
 const Map<String, FoodEntry> _foodDb = {
-  // Fleisch
+  // Meat
   'steak': (kcalPer100G: 220.0, defaultGrams: 200),
   'rindersteak': (kcalPer100G: 220.0, defaultGrams: 200),
   'rumpsteak': (kcalPer100G: 215.0, defaultGrams: 200),
@@ -37,7 +35,7 @@ const Map<String, FoodEntry> _foodDb = {
   'speck': (kcalPer100G: 540.0, defaultGrams: 30),
   'bacon': (kcalPer100G: 540.0, defaultGrams: 30),
 
-  // Fisch
+  // Fish
   'lachs': (kcalPer100G: 200.0, defaultGrams: 150),
   'thunfisch': (kcalPer100G: 145.0, defaultGrams: 150),
   'forelle': (kcalPer100G: 120.0, defaultGrams: 150),
@@ -47,7 +45,7 @@ const Map<String, FoodEntry> _foodDb = {
   'shrimps': (kcalPer100G: 105.0, defaultGrams: 100),
   'sushi': (kcalPer100G: 150.0, defaultGrams: 200),
 
-  // Kohlenhydrate — Kartoffeln
+  // Carbs - potatoes
   'ofenkartoffel': (kcalPer100G: 95.0, defaultGrams: 200),
   'ofenkartoffeln': (kcalPer100G: 95.0, defaultGrams: 220),
   'kartoffel': (kcalPer100G: 87.0, defaultGrams: 200),
@@ -62,7 +60,7 @@ const Map<String, FoodEntry> _foodDb = {
   'süßkartoffel': (kcalPer100G: 86.0, defaultGrams: 200),
   'süßkartoffeln': (kcalPer100G: 86.0, defaultGrams: 200),
 
-  // Kohlenhydrate — andere
+  // Carbs - other
   'reis': (kcalPer100G: 130.0, defaultGrams: 180),
   'wildreis': (kcalPer100G: 115.0, defaultGrams: 180),
   'basmatireis': (kcalPer100G: 145.0, defaultGrams: 180),
@@ -80,7 +78,7 @@ const Map<String, FoodEntry> _foodDb = {
   'kichererbsen': (kcalPer100G: 165.0, defaultGrams: 150),
   'gnocchi': (kcalPer100G: 155.0, defaultGrams: 200),
 
-  // Brot
+  // Bread
   'brot': (kcalPer100G: 250.0, defaultGrams: 60),
   'brötchen': (kcalPer100G: 270.0, defaultGrams: 60),
   'baguette': (kcalPer100G: 260.0, defaultGrams: 80),
@@ -89,7 +87,7 @@ const Map<String, FoodEntry> _foodDb = {
   'wrap': (kcalPer100G: 275.0, defaultGrams: 80),
   'fladenbrot': (kcalPer100G: 290.0, defaultGrams: 100),
 
-  // Gemüse
+  // Vegetables
   'tomate': (kcalPer100G: 18.0, defaultGrams: 80),
   'tomaten': (kcalPer100G: 18.0, defaultGrams: 80),
   'kirschtomaten': (kcalPer100G: 18.0, defaultGrams: 60),
@@ -122,7 +120,7 @@ const Map<String, FoodEntry> _foodDb = {
   'avocado': (kcalPer100G: 160.0, defaultGrams: 100),
   'oliven': (kcalPer100G: 115.0, defaultGrams: 30),
 
-  // Obst
+  // Fruit
   'apfel': (kcalPer100G: 52.0, defaultGrams: 180),
   'banane': (kcalPer100G: 89.0, defaultGrams: 120),
   'orange': (kcalPer100G: 47.0, defaultGrams: 180),
@@ -138,7 +136,7 @@ const Map<String, FoodEntry> _foodDb = {
   'melone': (kcalPer100G: 34.0, defaultGrams: 200),
   'ananas': (kcalPer100G: 50.0, defaultGrams: 150),
 
-  // Milchprodukte & Eier
+  // Dairy and eggs
   'ei': (kcalPer100G: 155.0, defaultGrams: 55),
   'eier': (kcalPer100G: 155.0, defaultGrams: 110),
   'rührei': (kcalPer100G: 170.0, defaultGrams: 100),
@@ -154,7 +152,7 @@ const Map<String, FoodEntry> _foodDb = {
   'butter': (kcalPer100G: 720.0, defaultGrams: 10),
   'frischkäse': (kcalPer100G: 230.0, defaultGrams: 30),
 
-  // Saucen & Öle (kleine Portionen)
+  // Sauces and oils (small portions)
   'olivenöl': (kcalPer100G: 880.0, defaultGrams: 10),
   'mayo': (kcalPer100G: 700.0, defaultGrams: 20),
   'mayonnaise': (kcalPer100G: 700.0, defaultGrams: 20),
@@ -166,7 +164,7 @@ const Map<String, FoodEntry> _foodDb = {
   'hummus': (kcalPer100G: 170.0, defaultGrams: 40),
   'guacamole': (kcalPer100G: 160.0, defaultGrams: 50),
 
-  // Fastfood / Gerichte
+  // Fast food / dishes
   'burger': (kcalPer100G: 270.0, defaultGrams: 220),
   'hamburger': (kcalPer100G: 270.0, defaultGrams: 220),
   'cheeseburger': (kcalPer100G: 290.0, defaultGrams: 240),
@@ -175,7 +173,7 @@ const Map<String, FoodEntry> _foodDb = {
   'döner': (kcalPer100G: 220.0, defaultGrams: 350),
   'falafel': (kcalPer100G: 330.0, defaultGrams: 100),
 
-  // Nüsse
+  // Nuts
   'mandeln': (kcalPer100G: 580.0, defaultGrams: 30),
   'walnüsse': (kcalPer100G: 650.0, defaultGrams: 30),
   'erdnüsse': (kcalPer100G: 570.0, defaultGrams: 30),
@@ -257,16 +255,11 @@ String _capitalize(String s) {
   return s[0].toUpperCase() + s.substring(1);
 }
 
-/// Tries to expand a single combined meal into per-ingredient MealComponents.
+/// Expands a combined meal into per-ingredient MealComponents, or an empty
+/// list when the name has < 2 parts or a total is missing (<= 0).
 ///
-/// Returns an empty list when the meal name can't be split into ≥ 2 parts, or
-/// when [totalKcal] / [totalGrams] are missing (≤ 0) — the caller should keep
-/// the original (single) item in those cases.
-///
-/// With both totals present the math preserves them: gram counts scale so they
-/// sum to [totalGrams], and per-item kcal scale so they sum to [totalKcal].
-/// The local table only contributes the *ratios* between the items, never an
-/// absolute number of its own.
+/// The maths preserves both totals: the local table only contributes the
+/// *ratios* between items, never an absolute number of its own.
 List<MealComponent> autoSplitItems({
   required String mealName,
   required int totalGrams,
@@ -275,14 +268,9 @@ List<MealComponent> autoSplitItems({
   final names = splitMealName(mealName);
   if (names.length < 2) return const <MealComponent>[];
 
-  // Sentinel-Regel: 0 ist im Analyse-Modell die dokumentierte Unbekannt-Form,
-  // kein Messwert (s. MealAnalysisResult.fromJson, "Sentinel-Rest C"). Ohne
-  // Gesamt-kcal bzw. -Gramm gibt es hier nichts zu verteilen — die Posten
-  // bekaemen die ungeskalierten Referenzwerte der lokalen Tabelle auf Basis nie
-  // gemessener Default-Portionen. Diese Fantasiezahlen stehen im
-  // "Anpassen"-Sheet vorbelegt und landen mit einem Tap im Tagebuch, als waeren
-  // sie gemessen. Eine fehlende Zahl ist harmloser als eine falsche, die
-  // praezise aussieht.
+  // Sentinel rule: 0 means "unknown", not a measurement. Without totals the
+  // items would carry the table's unscaled reference values, which look
+  // measured once they land in the edit sheet.
   if (totalKcal <= 0 || totalGrams <= 0) return const <MealComponent>[];
 
   final lookups = names.map(_lookup).toList();
@@ -305,8 +293,8 @@ List<MealComponent> autoSplitItems({
     (i) => lookups[i].kcalPer100G * scaledGrams[i] / 100.0,
   );
   final naiveKcalSum = naiveKcal.fold<double>(0, (s, v) => s + v);
-  // Ohne positive Basis liesse sich der KI-Gesamtwert nicht verteilen; ein
-  // Faktor 1.0 wuerde ihn stillschweigend auf 0 verschlucken.
+  // Without a positive base the AI total cannot be distributed; a factor of
+  // 1.0 would silently swallow it to 0.
   if (naiveKcalSum <= 0) return const <MealComponent>[];
   final kcalFactor = totalKcal / naiveKcalSum;
 

@@ -1,26 +1,21 @@
 import 'package:flutter/widgets.dart';
 
-/// Baut [builder] und rebuildet ihn NUR dann erneut, wenn sich der von
-/// [selector] zurueckgegebene Wert (per `==`) gegenueber dem letzten Build
-/// aendert — selbst wenn [store] oefter `notifyListeners()` feuert.
+/// Builds [builder] and rebuilds it ONLY when the value returned by [selector]
+/// changes by `==`, no matter how often [store] notifies.
 ///
-/// Damit lassen sich einzelne Karten-Subtrees an genau ihre Slice eines
-/// [ChangeNotifier]-Stores haengen (PERF-2): ein Wasser-Quick-Log, der den Store
-/// notifyt, rebuildet nur die Selektoren, deren Slice sich wirklich aenderte —
-/// nicht den ganzen Today-Baum.
+/// Lets a card subtree subscribe to exactly its slice of a [ChangeNotifier]
+/// store (PERF-2).
 ///
-/// Tipp: einen **Record** als Slice zurueckgeben (`() => (store.a, store.b)`)
-/// nutzt dessen strukturelle Gleichheit; Objekt-Slices ohne `==` vergleichen per
-/// Identitaet, was korrekt ist, solange der Store sie bei Aenderung neu zuweist.
+/// Return a **record** as the slice (`() => (store.a, store.b)`) to get
+/// structural equality; object slices without `==` compare by identity, which
+/// is correct as long as the store reassigns them on change.
 ///
-/// **Regel (aus G11):** in den Selektor gehoeren die EINGANGSgroessen, nicht die
-/// abgeleiteten Werte. Ein Getter wie `mealsForFoodDate(date)` filtert bei jedem
-/// Aufruf in eine NEUE Liste — als Slice waere er per Identitaet immer
-/// „geaendert" (der Selektor liefe also leer) und allokierte obendrein bei jedem
-/// Notify. Die Store-Liste selbst (`loggedMeals`) wird dagegen bei jeder
-/// Mutation neu zugewiesen: ihre Identitaet ist ein exakter, O(1)-billiger
-/// Fingerabdruck derselben Information. Faustregel: der Selektor darf nichts
-/// allokieren ausser dem Record.
+/// **Rule (G11):** put INPUTS in the selector, not derived values. A getter
+/// like `mealsForFoodDate(date)` filters into a NEW list on every call, so as a
+/// slice it would always look "changed" and allocate on every notify. The store
+/// list itself (`loggedMeals`) is reassigned on every mutation, making its
+/// identity an exact O(1) fingerprint. The selector must allocate nothing but
+/// the record.
 class StoreSelector extends StatefulWidget {
   const StoreSelector({
     super.key,
@@ -29,15 +24,15 @@ class StoreSelector extends StatefulWidget {
     required this.builder,
   });
 
-  /// Der zu beobachtende [Listenable] (i.d.R. ein `ChangeNotifier`-Store).
+  /// The observed [Listenable], usually a `ChangeNotifier` store.
   final Listenable store;
 
-  /// Berechnet die fuer diesen Subtree relevante Slice. Wird bei jedem
-  /// Store-Notify ausgewertet; nur eine `!=`-Aenderung loest einen Rebuild aus.
+  /// Computes the slice relevant to this subtree. Evaluated on every store
+  /// notify; only a `!=` change triggers a rebuild.
   final Object? Function() selector;
 
-  /// Baut den Subtree. Liest den aktuellen Store-Stand direkt (der Selektor-Wert
-  /// dient nur der Aenderungserkennung).
+  /// Builds the subtree, reading the store directly — the selector value only
+  /// drives change detection.
   final WidgetBuilder builder;
 
   @override
@@ -61,8 +56,8 @@ class _StoreSelectorState extends State<StoreSelector> {
       oldWidget.store.removeListener(_onStoreChanged);
       widget.store.addListener(_onStoreChanged);
     }
-    // Selektor-Wert nach einem Parent-Rebuild neu festhalten, damit die
-    // Aenderungserkennung gegen den frisch gebauten Stand laeuft.
+    // Re-capture the selector value after a parent rebuild, so change detection
+    // runs against the freshly built state.
     _value = widget.selector();
   }
 

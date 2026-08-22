@@ -1,7 +1,7 @@
 part of 'profile_widgets.dart';
 
-/// Die Tagesziele als Einstellungs-Karte: zwei Zustandszeilen, der
-/// Makro-Split als Balken mit Legende und der Weg zum Bearbeiten.
+/// Daily goals as a settings card: two status rows, the macro split as a bar
+/// with legend, and the edit entry point.
 class GoalsCard extends StatelessWidget {
   const GoalsCard({
     super.key,
@@ -32,10 +32,9 @@ class GoalsCard extends StatelessWidget {
           SettingsRow(
             leading: const IconTile(icon: Icons.local_fire_department_outlined),
             title: l10n.profileGoalsCalories,
-            // GENAU dieses Format ('<ist>/<soll>', ohne Leerzeichen) traegt den
-            // Live-Refresh-Beweis in profile_route_refresh_test. MacroBar aus
-            // der Design-Bibliothek rendert '1000 / 8000' und ist hier deshalb
-            // nicht verwendbar.
+            // Exactly this format ('<actual>/<goal>', no spaces) is what
+            // profile_route_refresh_test asserts. MacroBar renders
+            // '1000 / 8000' and is therefore unusable here.
             value: '$dailyKcal/${profile.dailyKcalGoal}',
             chevron: false,
           ),
@@ -65,8 +64,8 @@ class GoalsCard extends StatelessWidget {
   }
 }
 
-/// Makro-Verteilung als ein Balken statt dreier Ringe: die Anteile stehen so
-/// im direkten Groessenvergleich, und die Legende nennt die absoluten Gramm.
+/// Macro split as one bar instead of three rings: the shares compare directly
+/// and the legend names the absolute grams.
 class _MacroSplitBlock extends StatelessWidget {
   const _MacroSplitBlock({
     required this.protein,
@@ -76,9 +75,8 @@ class _MacroSplitBlock extends StatelessWidget {
 
   final int protein, carbs, fat;
 
-  /// `Expanded` mit flex 0 laesst sein Kind unbeschraenkt breit werden und
-  /// wirft in einer Row — ein Makroziel von 0 g ist im Einstellungs-Sheet
-  /// erlaubt, also darf der Balken das aushalten.
+  /// `Expanded` with flex 0 makes its child unbounded and throws in a Row; a
+  /// macro goal of 0 g is allowed, so the bar must survive it.
   static int _flex(int value) => value < 1 ? 1 : value;
 
   @override
@@ -133,8 +131,8 @@ class _MacroSplitBlock extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 9),
-          // Wrap statt Row: drei Legenden-Eintraege passen bei textScaler 2.0
-          // nicht mehr nebeneinander.
+          // Wrap instead of Row: three legend entries no longer fit side by
+          // side at textScaler 2.0.
           Wrap(
             spacing: 14,
             runSpacing: 6,
@@ -183,9 +181,8 @@ class _LegendDot extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 5),
-        // Flexible + Ellipsis: der Wrap regelt nur den Umbruch ZWISCHEN den
-        // Legenden-Eintraegen, nicht die Breite eines einzelnen. „240 g
-        // Kohlenhydrate" sprengt bei doppelter Systemschrift sonst die Zeile.
+        // Flexible + ellipsis: the Wrap only breaks BETWEEN legend entries,
+        // not within one, which would overflow at 2x system font.
         Flexible(
           child: Text(
             label,

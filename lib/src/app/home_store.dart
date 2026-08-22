@@ -40,11 +40,10 @@ part 'home_store_profile.dart';
 part 'home_store_sync.dart';
 part 'home_store_tracking.dart';
 
-/// Vom [HomeStore] ausgesendete, context-FREIE Snackbar-Anforderung. Der Store
-/// haelt bewusst nie einen BuildContext (ARCH-4 Store-Seam) — er signalisiert
-/// nur „zeige diese Meldung", die `_EatovaHomePageState` uebersetzt das in ein
-/// echtes [showAppSnack]. So bleibt die gesamte Sync-/Outbox-Logik testbar und
-/// vom Widget-Baum entkoppelt.
+/// Context-free snackbar request emitted by [HomeStore].
+///
+/// The store never holds a BuildContext (ARCH-4 store seam); it only signals
+/// the message and `_EatovaHomePageState` turns it into a [showAppSnack].
 typedef SnackEmitter = void Function(
   String message, {
   IconData icon,
@@ -53,65 +52,40 @@ typedef SnackEmitter = void Function(
   SnackBarAction? action,
 });
 
-/// Hartes Boot-Budget: so lange darf der NETZ-Teil des Starts das
-/// Willkommens-Gate ([HomeStore.profileReady]) hoechstens halten.
+/// Hard boot budget: how long the network part of the start may hold the
+/// welcome gate ([HomeStore.profileReady]).
 ///
-/// Review 2026-08-19: der Completer wurde ausschliesslich am Ende von
-/// `_bootFromSupabase` erfuellt, und auf diesem Weg traegt kein einziger
-/// Schritt ein Timeout — weder der Outbox-Replay noch die sechs Server-Loads
-/// (Supabase-/PostgREST-Aufrufe haben keins, s. [kSyncDeliveryWindow]). In
-/// einem WLAN mit Captive Portal antwortet der Socket nie: kein `then`, kein
-/// `catchError`, und die App stand dauerhaft im WelcomeScreen — obwohl
-/// `_hydrateFromCache` den anzeigefaehigen Zustand laengst geladen hatte.
-///
-/// Das Budget ist die untere Auffanglinie fuer den Fall OHNE brauchbaren
-/// Cache (Erstinstallation, geleerter Speicher): mit Cache-Profil faellt das
-/// Gate schon vorher (s. [HomeStore._hydrateThenBoot]). Bewusst 8 s — laenger
-/// als ein gesunder Mobilfunk-Boot der sechs Loads braucht, kurz genug, dass
-/// ein stummer Socket nicht mehr wie ein Absturz aussieht. Der Boot laeuft
-/// danach im Hintergrund weiter; er verliert nur sein Vorrecht auf den
-/// Bildschirm.
+/// No boot step carries a timeout of its own, so a silent socket (captive
+/// portal) would pin the app on the WelcomeScreen forever. This is the safety
+/// net for the no-usable-cache case; with a cached profile the gate opens
+/// earlier (see [HomeStore._hydrateThenBoot]). 8 s: longer than a healthy
+/// mobile boot, short enough not to look like a crash. Boot continues in the
+/// background afterwards.
 const Duration kBootNetworkBudget = Duration(seconds: 8);
 
-/// Absolutzeit-Abstand von [now] bis zum Beginn des naechsten Kalendertages in
-/// der lokalen Zone — die Wartezeit fuer den Mitternachts-Timer (B4).
+/// Wall-clock distance from [now] to the next local midnight — the wait for
+/// the midnight timer (B4).
 ///
-/// Die naechste Mitternacht liegt NICHT immer 24 Stunden entfernt, deshalb
-/// laeuft die Zielbestimmung ueber [addDays] (Kalenderarithmetik) und nicht
-/// ueber `Duration(days: 1)`. Nachgerechnet in Europe/Berlin:
-///
-/// ```text
-/// DateTime(2026, 3, 29).add(Duration(days: 1)) -> 2026-03-30 01:00  // 1 h zu spaet
-/// DateTime(2026,10, 25).add(Duration(days: 1)) -> 2026-10-25 23:00  // in der Vergangenheit
-/// ```
-///
-/// Der zweite Fall waere fatal: ab 23:00 des 25.10. haette der sich selbst neu
-/// setzende Timer eine nicht-positive Restdauer bekommen und in einer
-/// Endlosschleife gefeuert. Die Dauer BIS zum berechneten Kalender-Ziel ist
-/// dagegen bewusst wieder Absolutzeit — genau die will ein Timer.
+/// Midnight is not always 24 h away, so the target comes from [addDays]
+/// (calendar arithmetic); `Duration(days: 1)` lands 1 h late on a DST spring
+/// forward and in the PAST on a fall back, which would spin the
+/// self-rescheduling timer in a hot loop.
 Duration durationUntilNextLocalMidnight(DateTime now) {
   final delta = addDays(startOfDay(now), 1).difference(now);
-  // Defensiv fuer Zonen, die um Mitternacht umstellen (dort normalisiert
-  // startOfDay auf den ersten existierenden Moment des Tages): nie <= 0
-  // liefern, sonst laeuft der Timer trotzdem heiss.
+  // Zones that shift at midnight: never return <= 0, or the timer runs hot.
   return delta > Duration.zero ? delta : const Duration(minutes: 1);
 }
 
-/// Spiegel von `MAX_USER_CONTEXT_CHARS` in coach-chat/guardrails.ts — die
-/// Edge Function schneidet `user_context` hart dort ab (Ende weg). Hier nur
-/// als dokumentierte Obergrenze für die Längen-Tests des
-/// [_HomeStoreBase.coachContext]; der Store kappt selbst nicht, der Server
-/// bleibt die Autorität. Ein Test gleicht den Wert gegen guardrails.ts ab,
-/// damit der Spiegel nicht wieder veraltet (bis 2026-08-21 stand in den
-/// Kommentaren noch der alte Wert 600).
+/// Mirror of `MAX_USER_CONTEXT_CHARS` in coach-chat/guardrails.ts, where the
+/// Edge Function truncates `user_context` (tail dropped). Documented bound for
+/// the [_HomeStoreBase.coachContext] length tests only — the store never caps,
+/// the server stays authoritative. A test keeps the mirror in sync.
 const int kCoachContextCapChars = 1200;
 
-/// Gemeinsamer Kern der [HomeStore]-Parts: Konstruktor-Dependencies, der von
-/// mehreren Parts geteilte State sowie die kleinen puren Helfer/Sichten
-/// darauf. Die Part-Mixins haengen per `on`-Klausel hieran (bzw. aneinander),
-/// dadurch bleiben alle privaten Member library-privat — nichts musste fuer
-/// die Aufteilung public werden. Part-EIGENER State (Outbox, Health-Snapshot,
-/// Notification-/Onboarding-Flags, Archive-Day-Sets) lebt im jeweiligen Part.
+/// Shared core of the [HomeStore] parts: constructor dependencies, state used
+/// by several parts, and the pure helpers/views on it. Part mixins attach via
+/// `on`, so every private member stays library-private. Part-owned state
+/// (outbox, health snapshot, flags, archive day sets) lives in its own part.
 abstract class _HomeStoreBase extends ChangeNotifier {
   _HomeStoreBase({
     required this.sync,
@@ -129,30 +103,26 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   final LocalCache? debugCache;
   final SnackEmitter _emitSnack;
 
-  /// Sprachpaket fuer die wenigen Snack-Texte, die der Store selbst noch baut
-  /// (`sync_error_messages.dart`). Der Store haelt bewusst NIE einen
-  /// BuildContext (ARCH-4 Store-Seam, s. [SnackEmitter]) — [setLocalizations]
-  /// reicht ihm deshalb nur das bereits aufgeloeste [AppLocalizations]
-  /// hinein, gerufen aus `_EatovaHomePageState.didChangeDependencies` (dort
-  /// ist `context.l10n` sicher verfuegbar, in `initState` waere es das nicht).
-  /// Default Deutsch ([deL10n]): reproduziert exakt den vorherigen
-  /// hartkodierten Text, solange niemand den Setter ruft — deshalb bleiben
-  /// alle Store-Tests, die ihn nie aufrufen, unveraendert gruen.
+  /// Strings for the few snack texts the store still builds itself.
+  ///
+  /// The store holds no BuildContext (see [SnackEmitter]), so
+  /// [setLocalizations] injects the resolved [AppLocalizations] from
+  /// `didChangeDependencies`. German default keeps store tests that never call
+  /// the setter on the previously hardcoded text.
   AppLocalizations _l10n = deL10n;
 
   void setLocalizations(AppLocalizations l10n) => _l10n = l10n;
 
   bool _disposed = false;
 
-  // --- State (vormals Felder von _EatovaHomePageState) --------------------
-  // Tab-Indizes nach dem Entfernen von Heute/Training/Trends:
-  // 0 = Food, 1 = Rezepte, 2 = Coach.
+  // --- State --------------------------------------------------------------
+  // Tab indices: 0 = Food, 1 = Rezepte, 2 = Coach.
   int selectedTab = 0;
   int dailyConsumedKcal = 0;
   int dailySteps = 0;
-  // Gehoert hierher und nicht in _HomeStoreTrackingPart: der Logout-Pfad in
-  // _HomeStoreSyncPart setzt es beim Nutzerwechsel zurueck (B3), und Tracking
-  // haengt von Sync ab, nicht umgekehrt.
+  // Lives here, not in _HomeStoreTrackingPart: the logout path in
+  // _HomeStoreSyncPart resets it on user change (B3), and tracking depends on
+  // sync, not the other way round.
   HealthAuthState healthAuthState = HealthAuthState.unknown;
   DateTime selectedFoodDate = DateUtils.dateOnly(clock.now());
   UserProfile profile = const UserProfile();
@@ -167,19 +137,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   LocalCache? _cache;
   bool _hydratedFromRealSource = false;
 
-  /// B4: der Kalendertag, den der Store zuletzt als „heute" gesehen hat.
+  /// B4: the calendar day the store last saw as "today".
   ///
-  /// Referenzpunkt fuer [HomeStore.maybeRollOverToToday]: nur wenn
-  /// [selectedFoodDate] auf GENAU diesem Tag steht, war die Auswahl der bis
-  /// eben aktuelle Tag und darf mitwandern. Ein bewusst aufgeschlagener
-  /// Archivtag steht nie darauf und bleibt deshalb stehen.
-  ///
-  /// Bewusst ein Datum statt eines „folgt heute"-Flags: ein Flag muessten alle
-  /// Schreiber von [selectedFoodDate] mitpflegen — auch `_clearTodayState` im
-  /// Profil-Part. Der Datumsvergleich kommt ohne diese Kooperation aus.
+  /// Reference for [HomeStore.maybeRollOverToToday]: only a
+  /// [selectedFoodDate] equal to this day was the current day and may roll
+  /// over. A date rather than a "follows today" flag, because a flag would
+  /// have to be maintained by every writer of [selectedFoodDate].
   DateTime _lastKnownToday = DateUtils.dateOnly(clock.now());
 
-  // --- Read-only Sichten fuer die UI-Schale --------------------------------
+  // --- Read-only views for the UI shell ------------------------------------
   List<FitnessRecipe> get userRecipes => _userRecipes;
 
   String get profileInitial {
@@ -188,25 +154,14 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     return parts.first.substring(0, 1).toUpperCase();
   }
 
-  /// Kompakter Tages-/Profil-Snapshot für den AI-Coach, damit er konkret statt
-  /// generisch beraten kann (z.B. „dir fehlen heute 38 g Protein").
+  /// Compact day/profile snapshot for the AI coach, so it can advise on
+  /// concrete numbers.
   ///
-  /// Aufbau in FESTER Reihenfolge, weil die Edge Function `user_context` hart
-  /// bei [kCoachContextCapChars] Zeichen kappt (coach-chat/guardrails.ts,
-  /// `MAX_USER_CONTEXT_CHARS`) und dabei schlicht das Ende abschneidet:
-  ///  1. Sprach-Hinweis (englisch, fürs Modell),
-  ///  2. Körpergewicht, Tagesbilanz, offene Makros (Kernwerte),
-  ///  3. Makros PRO MAHLZEIT-SLOT ([_todaysSlotSummary], seit 2026-08-21),
-  ///  4. die Lebensmittelliste ([_todaysFoodSummary]) — einzige Zeile, die
-  ///     die Kappung treffen darf.
-  ///
-  /// Zeile 3 existiert, weil der Coach bis dahin nur Tagessummen und eine
-  /// Namensliste mit kcal pro Eintrag kannte: auf „wie viel Protein habe ich
-  /// nur durchs Abendessen gegessen?" konnte er nichts Belastbares sagen —
-  /// die Makros pro Eintrag stehen bewusst nicht in der Liste (Platz). Die
-  /// Slot-Summen sind kurz (max. vier Slots, ~250 Zeichen) und stehen VOR der
-  /// Liste, damit sie die Kappung garantiert überleben; die Liste kürzt sich
-  /// stattdessen über `maxFoods`/40-Zeichen-Namen.
+  /// Order is FIXED because the Edge Function truncates the TAIL of
+  /// `user_context` at [kCoachContextCapChars]: language hint, core values
+  /// (weight, balance, open macros), per-slot macros ([_todaysSlotSummary]),
+  /// then the food list ([_todaysFoodSummary]) — the only line the cap may
+  /// hit.
   String get coachContext {
     final p = profile;
     final remKcal = p.dailyKcalGoal - dailyConsumedKcal;
@@ -214,14 +169,10 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     final remCarbs = (p.carbsGoalG - macroProgress.carbsG).round();
     final remFat = (p.fatGoalG - macroProgress.fatG).round();
     final lines = [
-      // Scan/Coach-PR (2026-08-11): die einzige nicht-deutsche Zeile hier —
-      // ein stabiler, IMMER englischer Hinweis fuers Modell (kein UI-Text,
-      // deshalb keine ARB-Anbindung), analog einem Protokoll-Feld. Bewusst
-      // ZUERST, nicht ans Ende (wie _todaysFoodSummary) angehaengt: die
-      // Zeichen-Kappung der Edge Function darf nur die Essensliste
-      // treffen, nie diese Zeile. Die Daten selbst bleiben deutsch — das
-      // LLM versteht sie unabhaengig von der App-Sprache, die Language Rule
-      // im System-Prompt steuert nur die ANTWORTsprache.
+      // Always-English protocol field for the model, not UI text (no ARB).
+      // First, never last, so the Edge Function's cap can never hit it. The
+      // data stays German; the system prompt's language rule governs the
+      // REPLY language only.
       'App language of the user: ${_l10n.localeName}.',
       'Körpergewicht: ${p.weightKg} kg (Ziel ${p.targetWeightKg} kg).',
       'Heute gegessen: $dailyConsumedKcal von ${p.dailyKcalGoal} kcal '
@@ -229,30 +180,23 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
           'Fett $remFat g.',
     ];
-    // Slot-Summen VOR der Essensliste (s. Getter-Doku): kurz, begrenzt auf
-    // vier Slots, und die einzige Quelle fuer Makros je Mahlzeit.
+    // Slot totals BEFORE the food list: short, capped at four slots, and the
+    // only source for per-meal macros.
     final perSlot = _todaysSlotSummary();
     if (perSlot != null) lines.add(perSlot);
-    // Konkrete Lebensmittel-Namen zuletzt anhängen, damit der Coach auf „was
-    // habe ich heute gegessen?" antworten kann. Bewusst als LETZTE Zeile: der
-    // Zeichen-Cap der Edge Function kappt so nur die Essensliste, nie die
-    // kcal-/Makro-Kernwerte und Slot-Summen davor.
+    // Food names last, so the Edge Function's char cap only ever truncates
+    // this line and not the core values before it.
     final foods = _todaysFoodSummary();
     if (foods != null) lines.add(foods);
     return lines.join(' ');
   }
 
-  /// Makros und kcal PRO MAHLZEIT-SLOT für heute, z. B.
-  /// „Pro Mahlzeit heute: Frühstück 420 kcal (P 25 g, K 50 g, F 12 g,
-  /// 2 Einträge); Abendessen 980 kcal (P 62 g, K 90 g, F 35 g, 5 Einträge)."
-  /// — oder null, wenn heute nichts geloggt ist (dann fehlt die Zeile im
-  /// Kontext komplett statt als leerer Satz).
+  /// Today's kcal and macros per meal slot, or null if nothing is logged
+  /// (then the line is absent from the context instead of empty).
   ///
-  /// Nur Slots mit Einträgen, in [MealSlot]-Reihenfolge; die Aggregation
-  /// selbst ist die reine, unit-getestete [totals.slotTotalsForFoodDate].
-  /// Slot-Name über [MealSlotLabel.germanLabel] wie in [_todaysFoodSummary]:
-  /// der Kontext ist bewusst deutsch, das Modell antwortet in der App-Sprache.
-  /// Gramm gerundet — Nachkommastellen aus dem Parser wären hier nur Rauschen.
+  /// Only slots with entries, in [MealSlot] order; aggregation is the pure,
+  /// unit-tested [totals.slotTotalsForFoodDate]. German labels like
+  /// [_todaysFoodSummary]; grams rounded.
   String? _todaysSlotSummary() {
     final bySlot = totals.slotTotalsForFoodDate(loggedMeals, clock.now());
     if (bySlot.isEmpty) return null;
@@ -267,11 +211,10 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     return 'Pro Mahlzeit heute: $parts.';
   }
 
-  /// Kompakte Auflistung der heute geloggten Mahlzeiten (Slot: Name (kcal)),
-  /// oder null wenn nichts geloggt ist. Gekappt auf [maxFoods] Einträge und
-  /// die Namen auf 40 Zeichen, damit der Kontext den Zeichen-Rahmen der Edge
-  /// Function ([kCoachContextCapChars]) nicht sprengt; bei mehr Einträgen
-  /// signalisiert „…" die gekürzte Liste.
+  /// Today's logged meals as `slot: name (kcal)`, or null if none.
+  ///
+  /// Capped at `maxFoods` entries and 40-char names to stay inside
+  /// [kCoachContextCapChars]; a trailing "…" marks a shortened list.
   String? _todaysFoodSummary() {
     const maxFoods = 10;
     final meals = mealsForFoodDate(clock.now());
@@ -290,8 +233,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   bool get selectedFoodDateIsToday =>
       _isSameFoodDate(selectedFoodDate, clock.now());
 
-  // Reine Aggregation lebt in services/meal_totals.dart (unit-getestet) — hier
-  // nur dünne Wrapper, die den aktuellen loggedMeals-Stand binden.
+  // Pure aggregation lives in services/meal_totals.dart; these are thin
+  // wrappers binding the current loggedMeals.
   List<LoggedMeal> mealsForFoodDate(DateTime date) =>
       totals.mealsForFoodDate(loggedMeals, date);
 
@@ -301,9 +244,9 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   MacroProgress macroProgressForFoodDate(DateTime date) =>
       totals.macroProgressForFoodDate(loggedMeals, date);
 
-  // --- interne Helfer -------------------------------------------------------
-  /// Fuehrt [fn] aus und benachrichtigt danach die Listener (ersetzt das alte
-  /// `setState`). Nach dispose ein No-Op auf der Notify-Seite.
+  // --- internal helpers -----------------------------------------------------
+  /// Runs [fn], then notifies listeners. No-op on the notify side after
+  /// dispose.
   void _mutate(VoidCallback fn) {
     fn();
     if (!_disposed) notifyListeners();
@@ -318,29 +261,24 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   }
 }
 
-/// ARCH-4: Single source of truth fuer den Home-State. Frueher lebten diese ~40
-/// Felder + ~50 Mutationen als God-Object direkt im `_EatovaHomePageState`, wo
-/// jede Mutation ueber `setState` den GANZEN Home-Baum neu baute (Wurzel der
-/// PERF-2-Rebuild-Schulden). Jetzt ist der State ein [ChangeNotifier]: die UI
-/// haengt sich per `ListenableBuilder`/Slice-Selector dran und rebuildet gezielt.
+/// ARCH-4: single source of truth for the home state, as a [ChangeNotifier] —
+/// the UI attaches via `ListenableBuilder`/slice selectors and rebuilds
+/// selectively.
 ///
-/// Der Store kennt KEINEN BuildContext. Navigation + modale Sheets bleiben in der
-/// State-Schale; nutzerseitige Meldungen laufen ueber den injizierten
-/// [SnackEmitter]. Verhalten ist 1:1 zum vorherigen God-Object — die 283 Tests
-/// gelten als Charakterisierung.
+/// The store knows NO BuildContext: navigation and modal sheets stay in the
+/// state shell, user-facing messages go through the injected [SnackEmitter].
 ///
-/// Der Store ist bewusst EINE Klasse (dutzende Tests + Widgets haengen an der
-/// API), die Datei war aber auf ~1600 Zeilen angewachsen. Deshalb ist die
-/// Klasse rein mechanisch in `part`-Dateien/Mixins aufgeteilt — gleiche
-/// Library, identisches Verhalten, private Member bleiben privat:
-///  * `home_store.dart`          — Klassenkern: Konstruktor, Boot/Hydration,
-///    gemeinsamer State + Sichten ([_HomeStoreBase]), Tab/Datum, dispose
-///  * `home_store_sync.dart`     — Outbox (DATA-7) mit Replay/Backoff,
-///    Stats-Deltas, Cache-Write-Through, Fehler-/Snack-Pfade, Konto-Cleanup
-///  * `home_store_meals.dart`    — Mahlzeiten loggen/editieren/loeschen,
-///    Favoriten/Recents, Eigen-Rezepte, Archive-Day-Loading
-///  * `home_store_profile.dart`  — Profil/Settings, Onboarding, Erinnerungen
-///  * `home_store_tracking.dart` — Gewicht, Health-Import, Streak
+/// Deliberately ONE class (dozens of tests and widgets depend on the API),
+/// split mechanically into `part` files/mixins — same library, private members
+/// stay private:
+///  * `home_store.dart`          — core: ctor, boot/hydration, shared state
+///    and views ([_HomeStoreBase]), tab/date, dispose
+///  * `home_store_sync.dart`     — outbox (DATA-7) with replay/backoff, stats
+///    deltas, cache write-through, error/snack paths, account cleanup
+///  * `home_store_meals.dart`    — meal log/edit/delete, favorites/recents,
+///    own recipes, archive day loading
+///  * `home_store_profile.dart`  — profile/settings, onboarding, reminders
+///  * `home_store_tracking.dart` — weight, health import, streak
 class HomeStore extends _HomeStoreBase
     with
         _HomeStoreSyncPart,
@@ -360,18 +298,17 @@ class HomeStore extends _HomeStoreBase
 
   final Completer<void> _profileReadyCompleter = Completer<void>();
 
-  /// Waechter ueber [kBootNetworkBudget] — armiert in [start], abgeraeumt von
-  /// [_completeProfileReady]. Er ist der einzige Weg aus einem Boot-Schritt,
-  /// der nie antwortet (statt nie zu scheitern), und deckt bewusst die GANZE
-  /// Kette ab: auch ein haengender Cache-/Keystore-Zugriff vor dem ersten
-  /// Netz-Aufruf laeuft in ihn hinein.
+  /// Guard over [kBootNetworkBudget] — armed in [start], cleared by
+  /// [_completeProfileReady]. The only way out of a boot step that never
+  /// answers; covers the whole chain, including a hanging cache/keystore
+  /// access before the first network call.
   Timer? _bootBudgetTimer;
 
   Future<void> get profileReady => _profileReadyCompleter.future;
 
-  /// Oeffnet das Willkommens-Gate genau einmal und raeumt den Budget-Waechter
-  /// ab. Jeder Weg, der [profileReady] erfuellt, laeuft hier durch — sonst
-  /// bliebe der Timer nach einem schnellen Boot noch minutenlang armiert.
+  /// Opens the welcome gate exactly once and clears the budget guard. Every
+  /// path that completes [profileReady] goes through here, or the timer would
+  /// stay armed for minutes after a fast boot.
   void _completeProfileReady() {
     _bootBudgetTimer?.cancel();
     _bootBudgetTimer = null;
@@ -380,28 +317,25 @@ class HomeStore extends _HomeStoreBase
 
   // --- Boot / Hydration -----------------------------------------------------
 
-  /// Startet den Boot. Ohne Sync (Test/Preview) ist sofort „ready"; mit Sync
-  /// zuerst aus dem durablen Cache hydratisieren, dann der Netz-Boot.
+  /// Starts the boot. Without sync (test/preview) it is ready immediately;
+  /// with sync it hydrates from the durable cache first, then boots over the
+  /// network.
   void start() {
     if (sync == null) {
       _completeProfileReady();
       return;
     }
-    // Such-Credentials im Hintergrund warmlaufen lassen: Platte lesen, bei
-    // Bedarf frisch holen. Wirft nie und blockiert den Boot nicht. Bewusst
-    // NACH dem sync-Guard, damit Test/Preview weder SharedPreferences noch
-    // Supabase anfassen.
+    // Warm up search credentials in the background; never throws, never
+    // blocks the boot. After the sync guard so test/preview touch neither
+    // SharedPreferences nor Supabase.
     unawaited(SearchCredentialsStore.instance.warmUp());
-    // B4: Mitternachts-Timer fuer die geoeffnete App. Ebenfalls bewusst NACH
-    // dem sync-Guard — dieselbe Grenze, die Boot/Hydration ziehen: eine
-    // Preview-/Test-Instanz ohne Sync soll keine langlaufenden Timer hinter
-    // sich herziehen. Der Resume-Pfad ([maybeRollOverToToday]) greift dort
-    // trotzdem, er haengt an keinem Timer.
+    // B4: midnight timer while the app is open. Also after the sync guard, so
+    // a preview/test instance drags no long-running timers along; the resume
+    // path ([maybeRollOverToToday]) still works there, it needs no timer.
     _scheduleMidnightRollover();
-    // VOR dem Boot armieren, nicht darin: der erste Schritt von
-    // [_hydrateThenBoot] ist `LocalCache.create` (OS-Keystore) — auch der kann
-    // haengen, und ein Waechter, der erst danach entsteht, deckt genau den
-    // Fall nicht ab, gegen den er gedacht ist.
+    // Arm BEFORE the boot, not inside it: the first step of
+    // [_hydrateThenBoot] is `LocalCache.create` (OS keystore), which can hang
+    // too — a guard created afterwards would miss exactly that case.
     _bootBudgetTimer = Timer(kBootNetworkBudget, () {
       _bootBudgetTimer = null;
       if (_disposed) return;
@@ -428,34 +362,24 @@ class HomeStore extends _HomeStoreBase
     if (_cache != null) {
       await _hydrateFromCache();
     } else {
-      // Ohne Cache existiert kein persistierter Sync-Zustand, den ein frueher
-      // Logout erhalten muesste — das A2-Fenster ist hier keins.
+      // Without a cache there is no persisted sync state an early logout
+      // would have to preserve — the A2 window does not exist here.
       _syncStateHydrated = true;
     }
-    // Review 2026-08-19: hat der Cache ein ECHTES Profil geliefert, ist der
-    // Zustand anzeigefaehig — Tagebuch, Favoriten und Ziele stehen, und
-    // `needsOnboarding` ist beantwortet. Ab hier ist der Server-Load eine
-    // Korrektur, kein Startschritt: er darf im Hintergrund weiterlaufen, statt
-    // den WelcomeScreen zu halten, bis ein Socket antwortet (der in einem WLAN
-    // mit Captive Portal nie antwortet).
+    // A real cached profile makes the state displayable, so the server load
+    // becomes a correction rather than a start step and may finish in the
+    // background instead of holding the WelcomeScreen on a silent socket.
     //
-    // BEWUSST an [_hydratedFromRealSource] geknuepft und nicht unbedingt: ohne
-    // Cache-Profil steht `profile` auf den Ctor-Defaults, `needsOnboarding`
-    // waere also `true` — der Nutzer landete fuer die Dauer des Loads im
-    // Onboarding und saehe es wieder verschwinden, sobald das Serverprofil da
-    // ist. Fuer diesen Fall traegt das Boot-Budget ([kBootNetworkBudget]).
+    // Tied to [_hydratedFromRealSource] on purpose: without a cached profile
+    // `needsOnboarding` would be true and the user would flash through
+    // onboarding. That case is covered by [kBootNetworkBudget].
     if (_hydratedFromRealSource) _completeProfileReady();
-    // A1/Welle 6: hat der DEK-Wiederanlauf den unlesbaren Cache verworfen,
-    // liegt ein persistierter Merker vor. Ein stiller Neuanfang liesse den
-    // Nutzer glauben, sein Offline-Tagebuch sei noch da — es ist aber weg
-    // (der Ciphertext war ohne Schluessel nicht mehr zu retten).
+    // A1: if the DEK restart discarded an unreadable cache, a persisted flag
+    // says so — a silent fresh start would let the user believe the offline
+    // diary is still there.
     //
-    // BEWUSST nicht awaited: der Hinweis ist Information, kein Boot-Schritt.
-    // Ein haengender Prefs-Zugriff (Widget-Test ohne gemockte Plattform, oder
-    // ein blockierter Plattform-Kanal auf dem Geraet) wuerde den Start sonst
-    // vor dem ersten Frame anhalten — genau das ist beim Einbau passiert.
-    // Der Merker ist persistiert, er geht also nicht verloren, wenn der Snack
-    // eine Sekunde spaeter kommt oder erst beim naechsten Start.
+    // Not awaited: a hanging prefs access would otherwise stall the start
+    // before the first frame. The flag is persisted, so a late snack is fine.
     unawaited(CacheKeyProvider.consumeCacheResetNotice().then((liegtAn) {
       if (!liegtAn || _disposed) return;
       _emitSnack(
@@ -466,42 +390,32 @@ class HomeStore extends _HomeStoreBase
         duration: const Duration(seconds: 6),
       );
     }));
-    // Outbox VOR dem Server-Load nachspielen (best effort): so enthaelt der
-    // folgende Refresh die nachgeholten Writes bereits. Offline scheitert der
-    // Replay einfach — die Ops bleiben liegen und werden beim Boot-Merge
-    // (_applyPendingOpsToState) ueber die Server-Daten gelegt.
+    // Replay the outbox BEFORE the server load (best effort), so the refresh
+    // already contains the caught-up writes. Offline the replay just fails;
+    // the ops stay queued and _applyPendingOpsToState layers them on top.
     await _replayOutbox();
     await _bootFromSupabase();
-    // Beim letzten Lauf haengengebliebene (persistierte) Stats-Deltas jetzt
-    // nachreichen — der Boot-Load hat lifetimeStats gerade frisch gesetzt,
-    // increment_lifetime_stats addiert serverseitig-atomar obendrauf.
+    // Flush stats deltas persisted from the last run: the boot load just reset
+    // lifetimeStats, and increment_lifetime_stats adds atomically on top.
     if (_pendingMealsDelta != 0 || _pendingWeightLogsDelta != 0) {
       unawaited(_flushStatsDelta());
     }
     await _initNotificationsFromCache();
   }
 
-  /// Liest EINEN Cache-Slot ausfallsicher.
+  /// Reads ONE cache slot fault-tolerantly (gap F).
   ///
-  /// Luecke F: vorher lagen alle sieben Reads in EINEM `try`, und `readOutbox`
-  /// war der sechste. Wirft einer der fuenf davor, uebersprang der Sprung in
-  /// den `catch` jeden weiteren Read — `_outbox` blieb leer, und das naechste
-  /// Einreihen schrieb eine frische Ein-Element-Queue ueber den persistierten
-  /// Blob. Bis zu [kOutboxMaxOps] nicht zugestellte Writes waren damit
-  /// endgueltig weg, ausgeloest von einem unlesbaren PROFIL.
+  /// One `try` per slot, so a broken slot costs only its own content: `null`
+  /// means "nothing usable", and the server load or next write repairs it.
+  /// Previously a single shared `try` let an unreadable PROFILE skip the
+  /// outbox read, silently discarding up to [kOutboxMaxOps] undelivered
+  /// writes.
   ///
-  /// Ein kaputter Slot kostet jetzt genau seinen eigenen Inhalt: `null` heisst
-  /// hier wie ueberall „nichts Brauchbares da", der Server-Load bzw. der
-  /// naechste Write repariert ihn. [onFehler] laeuft nur beim WURF (nicht bei
-  /// einem leeren Slot) — der Unterschied traegt fuer die Outbox: „konnte
-  /// nicht gelesen werden" ist etwas anderes als „ist leer".
-  ///
-  /// Damit der Unterschied hier ueberhaupt ankommt, MUESSEN die beiden
-  /// Sync-Zustands-Slots ueber die werfenden Lesevarianten kommen
-  /// ([LocalCache.readOutboxOrThrow] /
-  /// [LocalCache.readPendingStatsDeltasOrThrow]): jeder andere LocalCache-Leser
-  /// faengt seinen Fehler selbst ab und liefert `null`, kann [onFehler] also
-  /// nie ausloesen.
+  /// [onFehler] fires only on a THROW, not on an empty slot — for the outbox
+  /// "unreadable" differs from "empty". That distinction requires the throwing
+  /// read variants ([LocalCache.readOutboxOrThrow] /
+  /// [LocalCache.readPendingStatsDeltasOrThrow]); every other reader swallows
+  /// its error and returns `null`.
   Future<T?> _leseSlot<T>(
     String slot,
     Future<T?> Function() read, {
@@ -539,27 +453,23 @@ class HomeStore extends _HomeStoreBase
     final cachedActivity =
         await _leseSlot('daily_activity', cache.readDailyActivity);
     if (_disposed) return;
-    // Der persistierte Blob bleibt unangetastet, solange wir ihn nicht lesen
-    // konnten — sonst schriebe der naechste Write ihn nieder (s. dort).
+    // Leave the persisted blob untouched while it could not be read, or the
+    // next write would overwrite it.
     _outboxHydrationFailed = outboxLesefehler;
-    // Dieselbe Bremse fuer die zweite Haelfte des Sync-Zustands (W7b): ohne
-    // sie schriebe der naechste Flush den Deltas-Slot bei 0 beginnend nieder,
-    // und die nie verbuchten Mahlzeiten der Vorsession fehlten dauerhaft in
-    // den Lebenszeit-Zaehlern.
+    // Same brake for the second half of the sync state (W7b): otherwise the
+    // next flush restarts the deltas slot at 0 and the previous session's
+    // meals are missing from the lifetime counters for good.
     _statsHydrationFailed = deltaLesefehler;
-    // Ab hier spiegelt der In-Memory-Zustand den Blob (die Uebernahme unten
-    // ist synchron) — signOutCleanup darf `_outbox.length` wieder glauben.
-    // Bewusst NUR am Sync-Zustand (Outbox + Deltas) festgemacht: ein
-    // unlesbares Profil sagt nichts darueber aus, ob es liegengebliebene
-    // Writes gibt, und wuerde den Logout-Cleanup sonst grundlos ausbremsen.
+    // From here the in-memory state mirrors the blob (the take-over below is
+    // synchronous), so signOutCleanup may trust `_outbox.length` again. Tied
+    // to the sync state only: an unreadable profile says nothing about pending
+    // writes and must not stall the logout cleanup.
     if (!outboxLesefehler && !deltaLesefehler) _syncStateHydrated = true;
-    // Outbox + Stats-Deltas IMMER uebernehmen — das ist der kill-sichere Teil
-    // des Sync-Zustands, unabhaengig davon, ob sonst etwas gecacht war.
+    // Always adopt outbox + stats deltas — the kill-safe part of the sync
+    // state, regardless of what else was cached.
     if (cachedOutbox != null) {
-      // Zweiter, am Einreihen vorbeifuehrender Eingang: eine Queue, die ein
-      // aelterer (ungedeckelter) Build hat wachsen lassen, kommt hier
-      // ungeprueft zurueck. Der Cap MUSS deshalb auch hier laufen — sonst
-      // bliebe der Blob fuer immer ueber der Grenze.
+      // Second entry point that bypasses enqueueing: a queue grown by an older
+      // uncapped build arrives unchecked, so the cap must run here too.
       final capped = capOutbox(cachedOutbox);
       _outbox = capped.queue;
       if (capped.dropped.isNotEmpty) {
@@ -570,24 +480,20 @@ class HomeStore extends _HomeStoreBase
         CrashReporter.breadcrumb(
             'outbox-hydrate-cap: ${capped.dropped.length} ops dropped');
         _persistOutbox();
-        // Seit Welle 6 kann der Cap auch Delete-Ops treffen (er trimmt
-        // Schreib-Ops zuerst, aber eine Queue aus lauter Loeschungen faellt
-        // zuletzt eben doch). Beide Verlust-Arten getrennt melden — im
-        // Misch-Fall sind ALLE Writes gefallen, und genau deren Meldung ging
-        // frueher unter. Kein _restoreDroppedDeletes hier: direkt nach der
-        // Hydration laeuft _bootFromSupabase, dessen Fenster-Load die nie
-        // geloeschten Zeilen ohnehin frisch vom Server zurueckbringt.
+        // The cap can hit delete ops too (writes are trimmed first, but a
+        // queue of pure deletions falls eventually). Report both loss kinds
+        // separately. No _restoreDroppedDeletes here: _bootFromSupabase runs
+        // right after hydration and its window load re-fetches those rows.
         _notifyDroppedOps(capped.dropped);
       }
     }
     if (cachedDeltas != null) {
       _pendingMealsDelta += cachedDeltas.meals;
       _pendingWeightLogsDelta += cachedDeltas.weightLogs;
-      // Die Anfrage-Id des Buendels MUSS den Kaltstart mitmachen: der Flush
-      // gleich nach dem Boot ist ein Retry, und ein Retry wirkt nur mit
-      // DERSELBEN Id (Befund B). `??=`, weil ein hier schon laufendes Buendel
-      // Vorrang hat; ein Slot aus einem aelteren Build traegt gar keine — die
-      // vergibt `_flushStatsDelta` dann nach.
+      // The bundle's request id must survive the cold start: the flush right
+      // after boot is a retry, and a retry only works with the SAME id
+      // (finding B). `??=` because a bundle already running here wins; a slot
+      // from an older build carries none and `_flushStatsDelta` assigns one.
       _pendingStatsRequestId ??= cachedDeltas.requestId;
     }
     if (cachedProfile == null &&
@@ -611,13 +517,12 @@ class HomeStore extends _HomeStoreBase
       if (cachedMeals != null) loggedMeals = cachedMeals;
       if (cachedFavorites != null) favorites = cachedFavorites;
       if (cachedWeightLog != null) weightLog = cachedWeightLog;
-      // Luecke A: ohne diese Zeile startete die App im Flugmodus IMMER mit
-      // einer leeren Eigen-Rezept-Liste — auch fuer laengst synchronisierte
-      // Rezepte, weil nur der (fehlschlagende) Server-Load sie kannte.
+      // Gap A: without this, airplane mode always started with an empty own
+      // recipe list, because only the failing server load knew them.
       if (cachedRecipes != null) _userRecipes = cachedRecipes;
-      // Merge statt Zuweisung: ein frueher Health-Refresh kann HEUTE schon
-      // festgeschrieben haben, bevor die Hydration durch ist — der juengere
-      // In-Memory-Stand gewinnt fuer gemeinsame Tage.
+      // Merge, not assign: an early health refresh may already have written
+      // today before hydration finished — the newer in-memory value wins for
+      // shared days.
       if (cachedActivity != null) {
         dailyActivity = <String, ({int steps, int kcal})>{
           ...cachedActivity,
@@ -630,30 +535,23 @@ class HomeStore extends _HomeStoreBase
     });
   }
 
-  /// Zieht die beiden Tageswerte nach, wenn die Nachhydration der Outbox Ops
-  /// zurueckgeholt hat.
+  /// Recomputes the two day values when re-hydration recovered outbox ops.
   ///
-  /// `_repairOutboxHydration` ist der einzige Aufrufer von
-  /// `_applyPendingOpsToState`, der sie nicht selbst neu rechnet:
-  /// [_hydrateFromCache] und [_bootFromSupabase] tun es an Ort und Stelle,
-  /// `_mergeArchiveMeals` braucht es nicht (nachgeladene Alt-Tage liegen nie
-  /// auf heute). Eine ueber den Reparaturpfad zurueckgeholte HEUTIGE Mahlzeit
-  /// stuende sonst im Tagebuch, fehlte aber in Tagesbilanz und Makro-Ringen,
-  /// bis irgendein anderer Anlass neu rechnet. Solange der Lesefehler nie
-  /// ankam, war der Pfad unerreichbar und der Fehler latent — seit den
-  /// werfenden Lesevarianten hat er einen realen Ausloeser.
+  /// `_repairOutboxHydration` is the only caller of
+  /// `_applyPendingOpsToState` that does not recompute itself
+  /// ([_hydrateFromCache] and [_bootFromSupabase] do; `_mergeArchiveMeals`
+  /// never touches today). A meal recovered for TODAY would otherwise show in
+  /// the diary but be missing from the day balance and macro rings.
   ///
-  /// Ein Override statt der Zeile direkt am Reparaturpfad, weil der im
-  /// Sync-Part liegt und dieser Schnitt ihn nicht anfassen durfte (Audit
-  /// 2026-08-14). Wandert die Nachrechnung dort hinein, faellt der Override
-  /// ersatzlos weg — doppelt gerechnet waere sie nur redundant, nie falsch.
+  /// An override rather than a line in the repair path, because that lives in
+  /// the sync part (audit 2026-08-14). If the recompute moves there, this
+  /// override can go — doing it twice would only be redundant.
   @override
   Future<void> _repairOutboxHydration() async {
     final mealsVorher = loggedMeals;
     await super._repairOutboxHydration();
-    // Nur wenn wirklich etwas zurueckkam: der Normalfall (nichts nachzuholen,
-    // oder nur Ops ohne Mahlzeit) darf weder rechnen noch ein zweites Mal
-    // benachrichtigen.
+    // Only when something actually came back; the normal case must neither
+    // recompute nor notify a second time.
     if (_disposed || identical(loggedMeals, mealsVorher)) return;
     final today = clock.now();
     _mutate(() {
@@ -684,24 +582,19 @@ class HomeStore extends _HomeStoreBase
       final loadedMeals = results[1] as List<LoggedMeal>?;
       if (loadedMeals != null) {
         loggedMeals = loadedMeals;
-        // Der frische Fenster-Load ERSETZT die Liste komplett — zuvor
-        // nachgeladene Alt-Tage sind damit wieder draussen und muessen bei
-        // erneuter Auswahl neu geladen werden. Ohne dieses Reset wuerde der
-        // Session-Cache den Tag als „geladen" fuehren und einen leeren Tag
-        // anzeigen; Geister-Duplikate entstehen umgekehrt nie, weil die
-        // Merge-Quelle immer der Server-Stand des Tages ist (Dedup per id).
+        // The fresh window load REPLACES the list, so previously fetched
+        // archive days are gone and must be reloaded on re-selection. Without
+        // this reset the session cache would call the day "loaded" and show it
+        // empty. Ghost duplicates cannot happen (merge dedups by id).
         _loadedArchiveDays.clear();
       }
 
       final loadedFavorites = results[2] as List<FavoriteMeal>?;
-      // Review 2026-08-19: der Deckel auf die automatischen Recents
-      // ([_cappedFavorites], [_maxAutoRecents]) ist eine rein LOKALE Regel —
-      // favorite_meals kennt sie nicht und wuchs bis dahin mit jeder
-      // distinkten Mahlzeit weiter. Ohne das Kappen hier zeigte das Add-Sheet
-      // nach jedem Kaltstart die komplette Historie, obwohl dieselbe Sitzung
-      // sie eine Minute vorher noch auf fuenf begrenzt hatte.
-      // `loadFavorites` liefert added_at DESC — genau die Reihenfolge, auf die
-      // sich der Deckel stuetzt (angeheftete Favoriten bleiben unangetastet).
+      // The cap on automatic recents ([_cappedFavorites], [_maxAutoRecents])
+      // is a purely LOCAL rule; favorite_meals does not know it, so without
+      // capping here the add sheet would show the full history after every
+      // cold start. `loadFavorites` returns added_at DESC, the order the cap
+      // relies on (pinned favorites stay untouched).
       if (loadedFavorites != null) {
         favorites = _cappedFavorites(loadedFavorites);
       }
@@ -719,18 +612,16 @@ class HomeStore extends _HomeStoreBase
         _userRecipes = _mergeUserRecipes(loadedRecipes);
       }
 
-      // Cache-then-network-Merge: Server-Daten gewinnen fuer synchronisierte
-      // Eintraege, aber noch nicht synchronisierte Outbox-Writes bleiben
-      // sichtbar (sonst wuerde der frische Server-Load z.B. eine offline
-      // geloggte Mahlzeit wieder aus dem Tagebuch werfen).
+      // Cache-then-network merge: server data wins for synced entries, but
+      // undelivered outbox writes stay visible (otherwise the fresh load would
+      // throw an offline-logged meal back out of the diary).
       _applyPendingOpsToState();
 
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
-    // Haengt die Auswahl gerade auf einem Alt-Tag (Boot lief waehrend eines
-    // Kalender-Besuchs), den Tag direkt wieder nachladen statt ihn nach dem
-    // Fenster-Replace leer anzuzeigen.
+    // Selection sits on an archive day (boot ran during a calendar visit):
+    // reload it instead of showing it empty after the window replace.
     if (_isOutsideBootWindow(selectedFoodDate)) {
       unawaited(_ensureArchiveDayLoaded(selectedFoodDate));
     }
@@ -738,42 +629,31 @@ class HomeStore extends _HomeStoreBase
     _completeProfileReady();
   }
 
-  /// Luecke C: legt die frisch geladene Serverliste UEBER den lokalen Stand,
-  /// statt ihn zu ersetzen.
+  /// Gap C: layers the freshly loaded server list OVER the local one instead
+  /// of replacing it.
   ///
-  /// Vorher setzte der Boot `_userRecipes = loadedRecipes`. Einzige Gegenkraft
-  /// war [_HomeStoreSyncPart._applyPendingOpsToState] — und die greift nur,
-  /// solange die Op noch in der Queue liegt. Ist sie nie entstanden (der
-  /// Live-Write haengt, s. Luecke B) oder am Queue-Cap gefallen, war der
-  /// Cache-Slot aus Luecke A wertlos: der erste Start MIT Netz warf das eigene
-  /// Rezept weg, und `_writeCacheSnapshot` schrieb den Verlust anschliessend
-  /// fest. Genau das Fehlerbild „Flugmodus -> Rezept -> App zu -> online ->
-  /// weg".
+  /// Plain assignment lost an own recipe whenever its outbox op never existed
+  /// or had fallen at the queue cap — and `_writeCacheSnapshot` then made the
+  /// loss permanent ("airplane mode -> recipe -> restart online -> gone").
   ///
-  /// Gleiches Muster wie der Alt-Tag-Merge fuer Mahlzeiten
-  /// ([_HomeStoreMealsPart._mergeArchiveMeals]): nur FEHLENDE Slugs kommen
-  /// dazu, fuer gemeinsame gewinnt die Serverzeile (sie ist die autoritative
-  /// Fassung). Ein noch nicht zugestellter lokaler Stand ist damit nicht
-  /// verloren — `_applyPendingOpsToState` legt ihn direkt danach wieder
-  /// obenauf.
+  /// Same pattern as [_HomeStoreMealsPart._mergeArchiveMeals]: only MISSING
+  /// slugs are added, the server row wins for shared ones;
+  /// `_applyPendingOpsToState` puts undelivered local state back on top.
   ///
-  /// Quelle ist bewusst der LEBENDE `_userRecipes` und nicht der rohe
-  /// Cache-Blob: die Hydration hat pendende Ops darauf schon angewandt, eine
-  /// lokale Loeschung ist hier also bereits vollzogen. Ein Merge aus dem Blob
-  /// wuerde ein geloeschtes Rezept wieder einblenden, sobald die Loeschung
-  /// noch im 400-ms-Entprellfenster lag, als die App starb.
+  /// Source is the LIVE `_userRecipes`, not the raw cache blob: hydration has
+  /// already applied pending ops, so a local deletion is done. Merging from
+  /// the blob would resurrect a recipe deleted inside the 400 ms debounce
+  /// window.
   ///
-  /// Bewusst in Kauf genommen: hat ein ANDERES Geraet ein Rezept geloescht,
-  /// kennt dieses Geraet die Loeschung nicht — sein lokaler Eintrag ueberlebt
-  /// den Merge und bleibt hier sichtbar, bis der Nutzer ihn auch hier loescht.
-  /// Der umgekehrte Fehler (eigenes Rezept still weg) ist der teurere.
+  /// Accepted: a recipe deleted on ANOTHER device survives here until deleted
+  /// locally too — the opposite error (own recipe silently gone) is worse.
   List<FitnessRecipe> _mergeUserRecipes(List<FitnessRecipe> fromServer) {
     final serverSlugs = fromServer.map((r) => r.slug).toSet();
     final nurLokal =
         _userRecipes.where((r) => !serverSlugs.contains(r.slug)).toList();
     if (nurLokal.isEmpty) return fromServer;
-    // Lokale zuerst: die Rezepte-Liste zeigt Eigen-Rezepte oben, und das
-    // gerade angelegte ist das, worauf der Nutzer schaut.
+    // Local first: the list shows own recipes on top, and the one just
+    // created is what the user is looking at.
     return <FitnessRecipe>[...nurLokal, ...fromServer];
   }
 
@@ -789,68 +669,54 @@ class HomeStore extends _HomeStoreBase
     }
   }
 
-  // --- Tab / Datum ----------------------------------------------------------
+  // --- Tab / date -----------------------------------------------------------
 
   void setTab(int index) => _mutate(() => selectedTab = index);
 
   void setFoodDate(DateTime date) {
     final day = DateUtils.dateOnly(date);
     _mutate(() => selectedFoodDate = day);
-    // Kalender-Auswahl ausserhalb des Boot-Fensters: den Tag on-demand
-    // nachladen statt einen faelschlich leeren Tag zu zeigen.
+    // Calendar pick outside the boot window: load the day on demand instead
+    // of showing it wrongly empty.
     if (_isOutsideBootWindow(day)) {
       unawaited(_ensureArchiveDayLoaded(day));
     }
-    // Archivtag: den "Verbrannt"-Tageswert aus der Health-Historie
-    // nachziehen, falls diese Sitzung ihn noch nicht geholt hat.
+    // Archive day: pull the burned-kcal value from the health history if this
+    // session has not fetched it yet.
     unawaited(_maybeBackfillDailyActivity(day));
   }
 
-  // --- Tageswechsel (B4) ----------------------------------------------------
+  // --- Day rollover (B4) ----------------------------------------------------
 
-  /// Sicherheitsaufschlag auf die Timer-Wartezeit: der Callback soll sicher
-  /// NACH Mitternacht laufen und nicht in der letzten Millisekunde davor
-  /// (Timer-Drift/Rundung wuerden sonst zu einem No-op fuehren, der sich
-  /// sofort erneut auf dieselbe Sekunde setzt).
+  /// Safety margin on the timer wait so the callback runs AFTER midnight, not
+  /// in the last millisecond before it (drift/rounding would make it a no-op
+  /// that immediately rearms on the same second).
   static const Duration _midnightSafetyMargin = Duration(seconds: 2);
 
-  /// Einmaliger Timer auf die naechste lokale Mitternacht — kein
-  /// `Timer.periodic` (repo-weit gibt es keinen einzigen, und ein 24-h-Raster
-  /// liefe ueber jede Sommerzeit-Umstellung aus dem Tritt). Der Callback setzt
-  /// den Timer selbst neu.
+  /// One-shot timer to the next local midnight — not `Timer.periodic`, whose
+  /// 24 h grid drifts across every DST switch. The callback rearms it.
   Timer? _midnightTimer;
 
-  /// Laeuft der Mitternachts-Timer gerade? Nur fuer Tests — die Produktion
-  /// interessiert sich nicht dafuer.
+  /// Whether the midnight timer is armed. Tests only.
   @visibleForTesting
   bool get debugMidnightTimerIsActive => _midnightTimer?.isActive ?? false;
 
-  /// B4: rueckt den Store auf den heutigen Kalendertag vor, wenn seit dem
-  /// letzten Blick auf die Uhr Mitternacht vergangen ist. Liefert `true`, wenn
-  /// ein Tageswechsel verarbeitet wurde (sonst `false`, ohne jede Mutation).
+  /// B4: advances the store to today when midnight has passed since the last
+  /// look at the clock. Returns `true` if a rollover was processed.
   ///
-  /// Zwei Aufrufer, weil einer nicht reicht:
-  ///  * der Mitternachts-Timer, solange die App offen liegt,
-  ///  * `didChangeAppLifecycleState(resumed)` in `eatova_home_page.dart` — eine
-  ///    im Hintergrund suspendierte App bekommt keinen Timer-Tick, der Wechsel
-  ///    faellt dort sonst komplett aus.
+  /// Two callers: the midnight timer while the app is open, and
+  /// `didChangeAppLifecycleState(resumed)` — a suspended app gets no tick.
   ///
-  /// [selectedFoodDate] wandert NUR mit, wenn sie exakt auf dem bis eben
-  /// aktuellen Tag stand ([_lastKnownToday]). Ein bewusst aufgeschlagener
-  /// Archivtag bleibt stehen — sonst spraenge dem Nutzer die Ansicht unter den
-  /// Fingern weg.
+  /// [selectedFoodDate] only follows if it sat exactly on [_lastKnownToday];
+  /// a deliberately opened archive day stays put.
   ///
-  /// [dailyConsumedKcal] und [macroProgress] werden dagegen IMMER neu
-  /// gerechnet, auch auf einem Archivtag: sie beschreiben stets HEUTE, nicht
-  /// [selectedFoodDate]. Genau daran haengen die Profil-Kacheln und
-  /// [coachContext] — ohne den Neuaufbau behauptete der Coach nach dem
-  /// Tageswechsel „Heute gegessen: 2100 kcal" zu einer leeren Essensliste.
+  /// [dailyConsumedKcal] and [macroProgress] are ALWAYS recomputed, even on an
+  /// archive day: they always describe today, and the profile tiles and
+  /// [coachContext] hang off them.
   ///
-  /// [dailySteps] bleibt bewusst unberuehrt: der Schrittstand gehoert dem
-  /// Health-Pfad, und `readSnapshot()` liefert im nicht-verifizierten Zustand
-  /// seit B3 `null` statt „0 Schritte" — eine hier zementierte Null waere die
-  /// schlechtere Auskunft als der letzte gemessene Wert. Der Resume ruft
-  /// ohnehin `refreshHealthSteps()`.
+  /// [dailySteps] stays untouched: it belongs to the health path, whose
+  /// snapshot returns `null` (not 0) while unverified, and the resume calls
+  /// `refreshHealthSteps()` anyway.
   bool maybeRollOverToToday() {
     if (_disposed) return false;
     final today = DateUtils.dateOnly(clock.now());
@@ -864,10 +730,9 @@ class HomeStore extends _HomeStoreBase
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
-    // Ein Suspend haelt Timer an; nach einem verarbeiteten Wechsel steht der
-    // Timer also womoeglich auf einer laengst vergangenen Mitternacht. Neu
-    // setzen — aber nur, wenn er ueberhaupt armiert ist, damit ein Resume in
-    // einer Instanz ohne Sync keinen Timer aus dem Nichts erzeugt.
+    // A suspend halts timers, so after a rollover the timer may point at a
+    // long-past midnight. Rearm — but only if it was armed, so a resume in a
+    // sync-less instance creates no timer out of nowhere.
     if (_midnightTimer != null) _scheduleMidnightRollover();
     return true;
   }
@@ -879,10 +744,9 @@ class HomeStore extends _HomeStoreBase
     _midnightTimer = Timer(
       durationUntilNextLocalMidnight(clock.now()) + _midnightSafetyMargin,
       () {
-        // Vor dem Rollover leeren: [maybeRollOverToToday] setzt den Timer nur
-        // neu, wenn er noch armiert ist — hier zieht ihn stattdessen die
-        // Zeile darunter nach, unabhaengig davon, ob es einen Wechsel gab
-        // (z.B. wenn der Timer eine Sekunde zu frueh gefeuert hat).
+        // Clear before the rollover: [maybeRollOverToToday] only rearms an
+        // armed timer, and the line below rearms unconditionally — also when
+        // the timer fired a second early and there was no rollover.
         _midnightTimer = null;
         if (_disposed) return;
         maybeRollOverToToday();

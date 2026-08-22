@@ -9,22 +9,11 @@ import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-// Die einzige wirklich NEUE Einstellung des Design-Refactors 2026-08-09:
-// „Erscheinungsbild" als Drei-Segment-Pille (System / Hell / Dunkel).
+// The appearance setting as a three-segment pill (system / light / dark).
 //
-// Sie ist eine GERAETE-Einstellung, keine Profil-Eigenschaft: sie wird sofort
-// ueber den [ThemeModeController] persistiert und ist deshalb nichts, das man
-// speichern oder verwerfen koennte.
-//
-// ## Warum diese Datei umgeschrieben wurde (2026-08-10)
-//
-// Die Pille stand zuerst auf „Profil & Ziele" — dem einzigen Screen, den es
-// damals gab. Mit der Trennung (Nutzer-Entscheid) hat der Anzeige-Modus seinen
-// richtigen Platz gefunden: in den EINSTELLUNGEN, neben Konto und Daten,
-// waehrend „Profil & Ziele" nur noch Koerperdaten und Ziele traegt. Die
-// Zusicherungen sind dieselben geblieben, nur der Screen darunter ist ein
-// anderer; die Gruppe heisst dort „PRÄFERENZEN" statt „ANZEIGE", weil sie
-// nicht mehr allein steht.
+// It is a DEVICE setting, not a profile property: [ThemeModeController]
+// persists it immediately, so there is nothing to save or discard. It lives in
+// the settings screen, in the "PRÄFERENZEN" group.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -134,8 +123,8 @@ void main() {
 
   testWidgets('ohne ThemeModeScope fehlt die Erscheinungsbild-Zeile ersatzlos',
       (tester) async {
-    // Previews und alle Alt-Tests pumpen die Seite ohne Scope. Ein Schalter
-    // ohne Controller waere ein toter Schalter — also gar keiner.
+    // Previews and older tests pump the page without a scope. A switch
+    // without a controller would be a dead switch, so there is none.
     await pumpSettings(tester);
 
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
@@ -151,9 +140,8 @@ void main() {
     await pumpSettings(tester, controller: controller);
     await tippeOption(tester, 'settings-theme-mode-dark');
 
-    // Zurueck: es gibt nichts zu verwerfen — der Modus ist bereits
-    // persistiert, und ein Verwerfen-Dialog koennte ihn gar nicht
-    // zuruecknehmen.
+    // Back: nothing to discard — the mode is already persisted and a discard
+    // dialog could not take it back.
     await tester.ensureVisible(find.byKey(const ValueKey('settings-back')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-back')));

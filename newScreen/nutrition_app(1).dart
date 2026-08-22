@@ -2,16 +2,9 @@
 //
 // Single-file Flutter implementation of the redesigned nutrition app.
 //
-// Architecture (as requested):
-//   Layer 1 — Material 3 as the invisible foundation:
-//             ThemeData(useMaterial3: true), a real ColorScheme, TextTheme,
-//             Scaffold / Material / InkWell / PopupMenuButton for behaviour,
-//             ripples, elevation, a11y semantics and platform correctness.
-//   Layer 2 — custom widgets as the visible design layer:
-//             every surface the user sees (cards, gauge, macro bars, meal rows,
-//             bottom nav) is hand-built and reads its colours from a
-//             ThemeExtension (AppTokens) instead of hard-coded values.
-//   The line is drawn at: behaviour + semantics = Material, pixels = ours.
+// Two layers: Material 3 supplies behaviour, semantics and platform
+// correctness; every visible surface is hand-built and reads its colours from
+// the AppTokens ThemeExtension. Behaviour = Material, pixels = ours.
 //
 // pubspec.yaml:
 //   dependencies:

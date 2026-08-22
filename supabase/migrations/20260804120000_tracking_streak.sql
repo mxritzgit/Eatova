@@ -1,36 +1,23 @@
--- FitPilot — Logging-Streak (2026-08-04).
+-- Logging streak: a streak is now consecutive calendar days with at least one
+-- logged meal (logged_meals.local_day). record_workout_day lost its caller
+-- when the training tab went away, so the streak was stuck at 0. The columns
+-- keep their historical names; last_workout_date now means "last tracked day".
 --
--- KONTEXT/BUG: Seit dem Training-Tab-Aus (Commit a267e15, 2026-08-03) hatte
--- record_workout_day keinen Aufrufer mehr — die Streak blieb fuer immer auf
--- "0 Tage", egal wie fleissig geloggt wurde. Die Streak bedeutet ab jetzt:
--- aufeinanderfolgende Kalendertage mit >= 1 geloggter Mahlzeit
--- (logged_meals.local_day). Die Spalten behalten ihre historischen Namen
--- (current_streak / longest_streak / last_workout_date) — last_workout_date
--- ist jetzt "letzter getrackter Tag".
---
--- Inhalt:
---   1) record_tracking_day(p_day) — Nachfolger von record_workout_day:
---      OHNE workouts_completed-Increment, und Tage <= last_workout_date sind
---      ein No-op (der Food-Kalender erlaubt Nachtraege fuer vergangene Tage;
---      die duerfen die laufende Streak weder resetten noch fortschreiben).
---   2) Backfill: Streak-Felder aus den vorhandenen logged_meals.local_day-
---      Tagen rekonstruieren (gaps-and-islands), damit bestehende Nutzer ihre
---      echte Streak sofort sehen statt wieder bei 1 zu starten.
---   3) drop record_workout_day — seit a267e15 ohne Aufrufer.
---
--- Grant-/search_path-Stil gespiegelt von 20260604120000_lifetime_increment_rpcs.sql.
--- Client-Wiring: lib/src/services/lifetime_stats_sync.dart (recordTrackingDay)
--- + home_store.addResultToDailyTotal (nur bei targetIsToday).
+-- Contents:
+--   1) record_tracking_day(p_day), successor of record_workout_day: no
+--      workouts_completed increment, and days <= last_workout_date are a
+--      no-op (backdated entries must not reset or advance the streak).
+--   2) Backfill the streak fields from existing local_day values
+--      (gaps-and-islands) so users keep their real streak.
+--   3) Drop record_workout_day.
 
 -- ---------------------------------------------------------------------------
--- 1) record_tracking_day — persistente Logging-Streak-Fortschreibung.
---      * p_day <= last_workout_date       -> No-op (idempotent / Nachtrag);
---        Reparatur: war der Tag gezaehlt aber current_streak 0 (Alt-Daten),
---        wird auf 1 angehoben.
+-- 1) record_tracking_day — advances the persistent logging streak.
+--      * p_day <= last_workout_date       -> no-op (idempotent/backdated),
+--        except repairing legacy rows stuck at current_streak 0.
 --      * p_day == last_workout_date + 1   -> current_streak + 1
---      * sonst (Luecke / NULL / Zukunft)  -> current_streak = 1
---    longest_streak = greatest(longest_streak, current_streak danach),
---    last_workout_date = p_day. workouts_completed bleibt UNBERUEHRT.
+--      * otherwise (gap / NULL / future)  -> current_streak = 1
+--    workouts_completed stays untouched.
 -- ---------------------------------------------------------------------------
 create or replace function public.record_tracking_day(p_day date)
 returns public.lifetime_stats
@@ -50,7 +37,7 @@ begin
     raise exception 'EX_DAY_REQUIRED' using errcode = '22023';
   end if;
 
-  -- Zeile sicherstellen, falls der User noch keine lifetime_stats hat.
+  -- Ensure a row exists for users without lifetime_stats yet.
   insert into public.lifetime_stats (user_id)
   values (v_uid)
   on conflict (user_id) do nothing;
@@ -60,8 +47,8 @@ begin
   where user_id = v_uid
   for update;
 
-  -- Selber Tag (idempotent) oder Rueckdatierung (Nachtrag) -> Streak
-  -- unangetastet; nur den inkonsistenten 0-Zustand reparieren.
+  -- Same day (idempotent) or backdated -> streak untouched; only repair the
+  -- inconsistent 0 state.
   if v_last is not null and p_day <= v_last then
     update public.lifetime_stats set
       current_streak = 1,
@@ -97,10 +84,9 @@ revoke execute on function public.record_tracking_day(date) from public, anon;
 grant execute on function public.record_tracking_day(date) to authenticated;
 
 -- ---------------------------------------------------------------------------
--- 2) Backfill aus logged_meals.local_day (gaps-and-islands): pro User die
---    Kette aufeinanderfolgender Log-Tage bis zum letzten Log als
---    current_streak, die laengste Kette als longest_streak (nie absteigend),
---    letzter Log-Tag als last_workout_date.
+-- 2) Backfill from logged_meals.local_day (gaps-and-islands): per user, the
+--    run of consecutive days ending at the last log becomes current_streak,
+--    the longest run becomes longest_streak (never decreasing).
 -- ---------------------------------------------------------------------------
 insert into public.lifetime_stats (user_id)
 select distinct user_id from public.logged_meals
@@ -112,7 +98,7 @@ with days as (
   where local_day is not null
 ),
 grouped as (
-  -- Aufeinanderfolgende Tage teilen denselben Anker (local_day - Rangfolge).
+  -- Consecutive days share the same anchor (local_day minus its rank).
   select
     user_id,
     local_day,
@@ -144,7 +130,6 @@ from cur c
 where ls.user_id = c.user_id;
 
 -- ---------------------------------------------------------------------------
--- 3) record_workout_day entsorgen — seit a267e15 (Training-Tab-Aus) ohne
---    Aufrufer; record_tracking_day ist der Nachfolger.
+-- 3) Drop record_workout_day: no callers left, record_tracking_day succeeds it.
 -- ---------------------------------------------------------------------------
 drop function if exists public.record_workout_day(date);

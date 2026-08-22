@@ -17,21 +17,15 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// C4 (Coach-Haelfte, Nachtrag von W3-03) — das Coach-Foto verliess das Geraet
-// ungescrubbt.
+// C4 (coach half) — the coach photo left the device unscrubbed:
+// `image_picker` scales but copies the metadata back, GPS sub-IFD included,
+// and the coach path did not run compressMealPhoto.
 //
-// coach_chat_screen.dart:320-333 waehlt das Bild, :267 base64-kodiert es fuer
-// die Edge Function, die es an OpenRouter (USA) weiterreicht. `image_picker`
-// skaliert zwar, kopiert danach aber ueber ImageResizer.copyExif() die
-// Metadaten inklusive GPS-Sub-IFD zurueck — Breitengrad, Laengengrad, Hoehe,
-// Aufnahmezeit, Geraetemodell und Seriennummer gingen also mit. Der Meal-Scan
-// leitet seine Bytes laengst durch compressMealPhoto; der Coach-Pfad nicht.
-//
-// Geprueft wird auf der einzigen belastbaren Ebene: den Bytes, die tatsaechlich
-// in `imageBase64` landen. Ein Test, der nur den Aufruf abfragt, wuerde einen
-// falsch sortierten oder wirkungslosen Fix nicht bemerken.
+// Asserted on the only reliable level: the bytes that actually land in
+// `imageBase64`. A test that only checks the call would miss a wrongly
+// ordered or ineffective fix.
 
-/// GPS-Tag-IDs im `gps`-Sub-IFD (EXIF-Spezifikation).
+/// GPS tag ids in the `gps` sub-IFD (EXIF spec).
 const int _tagGpsLatitude = 0x0002;
 const int _tagGpsLongitude = 0x0004;
 const int _tagGpsAltitude = 0x0006;
@@ -44,8 +38,8 @@ img.IfdValueRational _rationals(List<List<int>> parts) {
   return value;
 }
 
-/// Handy-JPEG mit genau dem Container, den eine OEM-Kamera mit aktiviertem
-/// Standort-Tagging schreibt (Berlin, Brandenburger Tor).
+/// Phone JPEG with exactly the container an OEM camera writes with location
+/// tagging on (Berlin, Brandenburger Tor).
 Uint8List _geotaggedJpeg({int width = 320, int height = 240}) {
   final image = img.Image(width: width, height: height);
   img.fillRect(image,
@@ -85,8 +79,8 @@ Uint8List _geotaggedJpeg({int width = 320, int height = 240}) {
   return Uint8List.fromList(img.encodeJpg(image, quality: 92));
 }
 
-/// Sucht die APP1-Exif-Signatur ("Exif\x00\x00") im rohen Byte-Strom — das ist
-/// die Ebene, die das Geraet verlaesst.
+/// Finds the APP1 Exif signature in the raw byte stream — the level that
+/// actually leaves the device.
 bool _hasExifSegment(Uint8List bytes) {
   const signature = <int>[0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
   for (var i = 0; i + signature.length <= bytes.length; i++) {
@@ -102,10 +96,9 @@ bool _hasExifSegment(Uint8List bytes) {
   return false;
 }
 
-/// Fake-Picker, der ein Bild aus dem Speicher liefert und mitschreibt, mit
-/// welchen Optionen er gerufen wurde. `imageQuality`/`maxWidth` sind nicht
-/// kosmetisch: ohne sie reicht iOS die HEIC-Originaldatei durch, die
-/// package:image nicht dekodieren kann — der Scrubber liefe dann ins Leere.
+/// Fake picker serving an in-memory image and recording the options it was
+/// called with. `imageQuality`/`maxWidth` are not cosmetic: without them iOS
+/// passes through HEIC, which package:image cannot decode.
 class _RecordingPicker extends ImagePicker {
   _RecordingPicker(this.bytes);
 
@@ -135,9 +128,9 @@ class _RecordingPicker extends ImagePicker {
   }
 }
 
-/// CoachChatService ohne Netz: alle Methoden ueberschrieben, der Client wird
-/// nie benutzt. `stopAutoRefresh()` ist Pflicht — GoTrue startet im
-/// Konstruktor einen periodischen Timer, an dem jeder Widget-Test scheitert.
+/// CoachChatService without network: every method overridden, the client is
+/// never used. `stopAutoRefresh()` is mandatory — GoTrue starts a periodic
+/// timer in its constructor that fails every widget test.
 class _CapturingService extends CoachChatService {
   _CapturingService(super.client, super.userId);
 
@@ -202,8 +195,8 @@ Future<void> _pumpCoach(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach calls context.l10n, so without localizations
+      // AppLocalizations.of() throws on the first build.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -227,9 +220,9 @@ Future<void> _pumpCoach(
   await tester.pumpAndSettle();
 }
 
-/// Loest den Galerie-Pfad aus und wartet ECHTE Zeit ab: die Kompression laeuft
-/// ueber `compute()` in einem echten Isolate, das die Fake-Async-Uhr des
-/// Widget-Tests nie erreichen wuerde.
+/// Triggers the gallery path and waits REAL time: compression runs via
+/// `compute()` in a real isolate, which the widget test's fake clock never
+/// reaches.
 Future<void> _sendFromGallery(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('coach-attach')));
   await tester.pumpAndSettle();
@@ -263,16 +256,16 @@ void main() {
     expect(service.sentImageBase64, isNotNull);
     final sent = Uint8List.fromList(base64Decode(service.sentImageBase64!));
 
-    // Die Byte-Ebene: kein APP1-Exif-Container mehr.
+    // Byte level: no APP1 Exif container left.
     expect(_hasExifSegment(sent), isFalse);
 
-    // Und dekodiert: kein einziger GPS-Tag, keine Geraete-Identitaet.
+    // Decoded: not a single GPS tag, no device identity.
     final decoded = img.decodeImage(sent);
     expect(decoded, isNotNull);
     expect(decoded!.exif.gpsIfd.keys, isEmpty);
     expect(decoded.exif.isEmpty, isTrue);
 
-    // Das Motiv ist noch da (der Scrub darf das Bild nicht zerstoeren).
+    // The subject survives — the scrub must not destroy the image.
     expect(decoded.width, 320);
     expect(decoded.height, 240);
   });

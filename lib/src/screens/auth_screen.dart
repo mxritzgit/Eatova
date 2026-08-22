@@ -12,14 +12,11 @@ import 'auth_code_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/shared/eatova_wordmark.dart';
 
-/// Eatova Auth - ruhiger, immersiver Dark-Screen.
+/// Eatova auth: a calm, immersive dark single screen.
 ///
-/// Bewusst minimal: tiefes Schwarz mit einer einzigen weichen Lime-Aurora,
-/// kompakter Brand-Mark, große Headline und Google-OAuth als prominente
-/// Primär-Aktion. Darunter cleane E-Mail-Felder und ein Lime-CTA; der
-/// Login/Registrieren-Wechsel sitzt als dezenter Text-Toggle ganz unten.
-/// Single-Screen; die Auth-Logik (Validierung, OAuth, Fehler-Mapping)
-/// ist unverändert.
+/// Deep black with one soft lime aurora, compact brand mark, large headline,
+/// Google OAuth as the primary action, email fields and a lime CTA below, and
+/// the login/register switch as a quiet text toggle at the bottom.
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key, required this.authRepository});
 
@@ -30,7 +27,7 @@ class AuthScreen extends StatefulWidget {
 }
 
 const _dim = Color(0xFF5A5B63);
-const _ink = bg; // Text/Glyph auf Lime
+const _ink = bg; // text/glyph on lime
 
 class _AuthScreenState extends State<AuthScreen> {
   final _nameController = TextEditingController();
@@ -54,9 +51,8 @@ class _AuthScreenState extends State<AuthScreen> {
   bool get _busy => _loading || _oauthLoading != null;
 
   Future<void> _startOAuth(EatovaOAuthProvider provider) async {
-    // Der Doppel-Tap-Riegel liegt hier UND an der Knopf-Sperre (`enabled`):
-    // die Sperre am Knopf greift erst mit dem naechsten Frame
-    // (Konvention aus account_change_sheets.dart:122-124).
+    // Double-tap latch here AND on the button (`enabled`): the button lock
+    // only takes effect with the next frame.
     if (_busy) return;
     setState(() {
       _error = null;
@@ -74,8 +70,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _submit() async {
-    // Riegel wie in [_startOAuth] — `_busy` schaltet sofort, der CTA erst
-    // mit dem naechsten Frame.
+    // Latch as in [_startOAuth]: `_busy` flips now, the CTA only next frame.
     if (_busy) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
@@ -116,8 +111,8 @@ class _AuthScreenState extends State<AuthScreen> {
           () => _message =
               'Bestätigungs-Code unterwegs an $email (10 Minuten gültig).',
         );
-        // Direkt zur Code-Eingabe: die Bestaetigung laeuft ueber den
-        // 8-stelligen Code aus der Mail, nicht mehr ueber einen Link.
+        // Straight to code entry: confirmation runs through the 8-digit code
+        // from the mail, no longer a link.
         await Navigator.of(context).push(MaterialPageRoute<void>(
           builder: (_) => AuthCodeScreen(
             authRepository: widget.authRepository,
@@ -140,18 +135,12 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  /// Antwort auf „zu dieser Adresse gibt es schon ein Konto" — in BEIDEN
-  /// Spielarten, in denen GoTrue den Fall meldet:
-  ///
-  ///  * still, als [SignUpOutcome.emailAlreadyRegistered] (Mail-Bestaetigung
-  ///    an): die Antwort sieht aus wie eine frische Registrierung, nur das
-  ///    `identities`-Array ist leer und es geht keine Mail raus;
-  ///  * laut, als `AuthException` (Mail-Bestaetigung aus) — [_isExistingAccount].
-  ///
-  /// Beide Wege enden hier, weil die Code-Seite ohne Mail eine Sackgasse ist.
-  /// Die Anzeige bleibt NEUTRAL: sie sagt nicht, OB das Konto existiert
-  /// (Hauslinie gegen Konto-Enumeration, auth_repository.dart:48-51) — sie
-  /// bietet nur den Ausweg an, den es in beiden Faellen gibt.
+  /// Answer to "this address already has an account", in both shapes GoTrue
+  /// reports it: silently as [SignUpOutcome.emailAlreadyRegistered] (empty
+  /// `identities`, no mail sent) and loudly as an `AuthException`
+  /// ([_isExistingAccount]). Both end here because the code page is a dead end
+  /// without a mail. The wording stays NEUTRAL — it never confirms whether the
+  /// account exists (house rule against account enumeration).
   void _zeigeNeutralenLoginHinweis() {
     setState(() {
       _isRegister = false;
@@ -164,8 +153,8 @@ class _AuthScreenState extends State<AuthScreen> {
     return raw.contains('already registered') || raw.contains('already exists');
   }
 
-  /// Eigene Seite fuer den Code-Flow (8-stelliger OTP statt Mail-Link):
-  /// E-Mail wird vorbefuellt, eingeben/aendern passiert dort.
+  /// Opens the code flow page (8-digit OTP instead of a mail link) with the
+  /// email prefilled; entering/changing it happens there.
   void _forgotPassword() {
     setState(() {
       _error = null;
@@ -185,10 +174,9 @@ class _AuthScreenState extends State<AuthScreen> {
     if (raw.contains('invalid login') || raw.contains('invalid credentials')) {
       return 'E-Mail oder Passwort stimmt nicht.';
     }
-    // Kein eigener Zweig fuer 'already registered': dieser Fall gehoert in
-    // [_isExistingAccount] und wird dort neutral beantwortet. Eine Meldung
-    // wie „Diese E-Mail ist schon registriert" bestaetigt einem Fremden die
-    // Kontoexistenz — genau das, was auth_repository.dart:48-51 ausschliesst.
+    // No branch for 'already registered': that case belongs to
+    // [_isExistingAccount] and is answered neutrally there — naming it would
+    // confirm account existence to a stranger.
     if (raw.contains('email not confirmed')) {
       return 'Bitte bestätige zuerst deine E-Mail.';
     }
@@ -198,9 +186,8 @@ class _AuthScreenState extends State<AuthScreen> {
     if (raw.contains('redirect') || raw.contains('callback')) {
       return 'OAuth Redirect ist noch nicht korrekt eingetragen.';
     }
-    // 'cancel' faengt englische SDK-Fehler, 'abgebrochen' unsere eigenen
-    // deutschen AuthExceptions (z. B. Google-Abbruch im nativen Flow) -
-    // sonst landet ein simpler User-Abbruch in der Generik-Meldung.
+    // 'cancel' catches English SDK errors, 'abgebrochen' our own German
+    // AuthExceptions; otherwise a plain user cancel hits the generic message.
     if (raw.contains('cancel') || raw.contains('abgebrochen')) {
       return 'Login wurde abgebrochen.';
     }
@@ -234,9 +221,9 @@ class _AuthScreenState extends State<AuthScreen> {
                 tween: Tween(begin: 0, end: 1),
                 duration: const Duration(milliseconds: 420),
                 curve: Curves.easeOutCubic,
-                // Statischer Auftritt: die frühere Opacity/Transform-Animation
-                // ließ den unteren Bildschirmteil im ersten Frame ungemalt
-                // (NEEDS-PAINT) → der Mode-Toggle war im Test nicht hit-testbar.
+                // Static entrance: the former opacity/transform animation left
+                // the lower screen unpainted in the first frame (NEEDS-PAINT),
+                // so the mode toggle was not hit-testable in tests.
                 builder: (context, t, child) => child!,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -289,7 +276,7 @@ class _AuthScreenState extends State<AuthScreen> {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Aurora-Hintergrund - eine weiche Lime-Lichtquelle oben, sonst ruhig.
+// Aurora backdrop - one soft lime light source at the top.
 // ═════════════════════════════════════════════════════════════════════
 
 class _AuroraBackdrop extends StatelessWidget {
@@ -313,7 +300,7 @@ class _AuroraBackdrop extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Brand-Mark - Eatova-Wortmarke mit Fokusring-o (Logo 2026-08).
+// Brand mark - Eatova wordmark with the focus-ring o.
 // ═════════════════════════════════════════════════════════════════════
 
 class _BrandMark extends StatelessWidget {
@@ -329,7 +316,7 @@ class _BrandMark extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Hero - Eyebrow + große Headline + ruhige Subline.
+// Hero - eyebrow, large headline, quiet subline.
 // ═════════════════════════════════════════════════════════════════════
 
 class _Hero extends StatelessWidget {
@@ -381,7 +368,7 @@ class _Hero extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Google-Button - weiße, prominente Primär-Aktion (OAuth).
+// Google button - white, prominent primary action (OAuth).
 // ═════════════════════════════════════════════════════════════════════
 
 class _GoogleButton extends StatelessWidget {
@@ -432,8 +419,8 @@ class _GoogleButton extends StatelessWidget {
                     : const CustomPaint(painter: _GoogleGPainter()),
               ),
               const SizedBox(width: 12),
-              // Flexible + ellipsis: bei 200%-Systemschrift (textScale-Cap
-              // 2.0) sprengt das Label sonst die Button-Breite.
+              // Flexible + ellipsis: at 200% system font the label would
+              // otherwise burst the button width.
               const Flexible(
                 child: Text(
                   'Mit Google anmelden',
@@ -493,7 +480,7 @@ class _GoogleGPainter extends CustomPainter {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// ODER-Divider
+// OR divider
 // ═════════════════════════════════════════════════════════════════════
 
 class _OrDivider extends StatelessWidget {
@@ -505,8 +492,8 @@ class _OrDivider extends StatelessWidget {
       children: [
         const Expanded(child: Divider(color: hairline, height: 1)),
         const SizedBox(width: 12),
-        // Flexible + ellipsis: bei grosser Systemschrift darf der Text die
-        // Divider-Zeile nicht sprengen.
+        // Flexible + ellipsis: large system fonts must not burst the
+        // divider row.
         Flexible(
           child: Text(
             'oder mit E-Mail',
@@ -528,7 +515,7 @@ class _OrDivider extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// E-Mail-Form
+// Email form
 // ═════════════════════════════════════════════════════════════════════
 
 class _EmailForm extends StatelessWidget {
@@ -674,7 +661,7 @@ class _EmailForm extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Auth-Field - Label oben, gefülltes Feld mit Leading-Icon, Lime-Fokus.
+// Auth field - label on top, filled field with leading icon, lime focus.
 // ═════════════════════════════════════════════════════════════════════
 
 class _AuthField extends StatefulWidget {
@@ -801,7 +788,7 @@ class _AuthFieldState extends State<_AuthField> {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Primär-CTA - Lime-Pill (E-Mail-Login/Registrieren).
+// Primary CTA - lime pill (email login/register).
 // ═════════════════════════════════════════════════════════════════════
 
 class _PrimaryCta extends StatelessWidget {
@@ -853,8 +840,8 @@ class _PrimaryCta extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2.2, color: _ink),
               )
             else ...[
-              // Flexible + ellipsis: bei 200%-Systemschrift bleibt der
-              // Pfeil sichtbar statt die Zeile zu sprengen.
+              // Flexible + ellipsis: keeps the arrow visible at 200% system
+              // font instead of bursting the row.
               Flexible(
                 child: Text(
                   label,
@@ -883,7 +870,7 @@ class _PrimaryCta extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Mode-Toggle - dezenter Text-Wechsel Login/Registrieren.
+// Mode toggle - quiet text switch between login and register.
 // ═════════════════════════════════════════════════════════════════════
 
 class _ModeToggle extends StatelessWidget {
@@ -900,9 +887,8 @@ class _ModeToggle extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        // Wrap statt Row: bei 200%-Systemschrift brechen die beiden Texte
-        // untereinander um, statt rechts aus dem Screen zu laufen — beide
-        // bleiben vollstaendig lesbar (WCAG 1.4.4).
+        // Wrap, not Row: at 200% system font the two texts stack instead of
+        // running off screen (WCAG 1.4.4).
         child: Wrap(
           alignment: WrapAlignment.center,
           crossAxisAlignment: WrapCrossAlignment.center,
@@ -932,7 +918,7 @@ class _ModeToggle extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Inline-Note - Fehler (danger) / Bestätigung (lime).
+// Inline note - error (danger) / confirmation (lime).
 // ═════════════════════════════════════════════════════════════════════
 
 class _InlineNote extends StatelessWidget {
@@ -980,8 +966,8 @@ class _InlineNote extends StatelessWidget {
   }
 }
 
-/// Rechts-Hinweis + tappbare Links auf AGB und Datenschutzerklärung
-/// (DSGVO Art. 13 / App-Store); beide liegen auf eatova.de.
+/// Legal notice with tappable links to the terms and the privacy policy
+/// (GDPR Art. 13 / app store); both live on eatova.de.
 class _ConsentNotice extends StatelessWidget {
   const _ConsentNotice();
 

@@ -10,33 +10,24 @@ import 'account_change_messages.dart';
 import 'settings_controls.dart';
 
 // ---------------------------------------------------------------------------
-// Die zwei Konto-Aenderungen der Einstellungen (2026-08-10).
+// The two account changes in the settings.
 //
-// WARUM SHEETS UND KEINE ROUTEN
-// Der Einstellungs-Screen kennt beide Formen und trennt sie nach Zweck:
-// „Profil & Ziele" ist eine eigene SEITE (ein Formular, das man bearbeitet und
-// speichert), die Kontoloeschung ist ein SHEET (eine abgeschlossene, kurze
-// Bestaetigung ueber der Seite, die man wieder wegwischt). Passwort- und
-// Adresswechsel gehoeren zur zweiten Sorte: zwei Felder, ein Code, fertig —
-// und danach steht man wieder genau dort, wo man war. Ein Routen-Wechsel
-// samt Kopfzeile und Zurueck-Pfeil wuerde eine Tiefe vortaeuschen, die diese
-// Vorgaenge nicht haben, und der Weg zurueck waere laenger als der Vorgang.
-// Sie benutzen deshalb exakt die Bausteine der Loesch-Bestaetigung
-// (`showEatovaSheet` + [SheetScaffold] + [SheetField]).
+// SHEETS, NOT ROUTES: both flows are short and self-contained (two fields, one
+// code) and leave the user exactly where they were, so they use the same
+// building blocks as the delete confirmation (`showEatovaSheet` +
+// [SheetScaffold] + [SheetField]). A route with header and back arrow would
+// fake a depth these flows do not have.
 //
-// Beide Sheets haben ZWEI Schritte im selben Sheet statt zwei Sheets
-// hintereinander: der zweite Schritt braucht den ersten (ohne angeforderten
-// Code gibt es nichts einzutippen), und ein Sheet, das sich schliesst und
-// sofort wieder oeffnet, sieht aus wie ein Fehler.
+// Both sheets carry TWO steps in ONE sheet: step two needs step one, and a
+// sheet that closes and immediately reopens looks like an error.
 //
-// [SecureScreenGuard] liegt um beide: Codes und Mailadressen gehoeren nicht
-// ins Vorschaubild des App-Umschalters. Der Guard ist ref-gezaehlt, die
-// Verschachtelung unter dem Guard des Einstellungs-Screens ist also gratis —
-// und sie macht die Sheets unabhaengig davon, wer sie oeffnet.
+// [SecureScreenGuard] wraps both — codes and mail addresses do not belong in
+// the app-switcher thumbnail. The guard is ref-counted, so nesting it under
+// the settings screen guard is free.
 // ---------------------------------------------------------------------------
 
-/// Oeffnet den Passwort-Wechsel. Liefert `true`, wenn das Passwort wirklich
-/// gesetzt wurde — nur dann zeigt der Aufrufer seine Bestaetigung.
+/// Opens the password change. Returns `true` only when the password was
+/// actually set; only then does the caller show its confirmation.
 Future<bool> showPasswordChangeSheet(
   BuildContext context, {
   required AuthRepository authRepository,
@@ -55,9 +46,8 @@ Future<bool> showPasswordChangeSheet(
   return erfolg ?? false;
 }
 
-/// Oeffnet den Adresswechsel. [currentEmail] ist Pflicht: der erste der beiden
-/// Codes wird gegen die BISHERIGE Adresse verifiziert — ohne sie liesse sich
-/// der Vorgang nicht abschliessen.
+/// Opens the email change. [currentEmail] is required: the first of the two
+/// codes is verified against the PREVIOUS address.
 Future<bool> showEmailChangeSheet(
   BuildContext context, {
   required AuthRepository authRepository,
@@ -77,7 +67,7 @@ Future<bool> showEmailChangeSheet(
 }
 
 // ---------------------------------------------------------------------------
-// Flow 1 — Passwort aendern
+// Flow 1 — change password
 // ---------------------------------------------------------------------------
 
 enum _PasswortSchritt { codeAnfordern, codeUndPasswort }
@@ -91,8 +81,7 @@ class _PasswordChangeSheet extends StatefulWidget {
 
   final AuthRepository authRepository;
 
-  /// Nur zur Anzeige („Code an …") — GoTrue schickt den Code von sich aus an
-  /// die hinterlegte Adresse, die App nennt sie nicht.
+  /// Display only: GoTrue sends the code to the stored address by itself.
   final String? email;
 
   @override
@@ -120,8 +109,8 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
   }
 
   Future<void> _codeAnfordern() async {
-    // Der Doppel-Tap-Riegel liegt hier UND an `actionEnabled`: die Sperre am
-    // Knopf greift erst mit dem naechsten Frame.
+    // Double-tap latch here AND on `actionEnabled`: the button lock only
+    // takes effect with the next frame.
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -151,9 +140,8 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
     final neu = _neu.text;
     final wiederholung = _wiederholung.text;
 
-    // Alles, was die App selbst wissen kann, wird hier abgefangen. Ein
-    // Absende-Knopf, der absehbar in einen Serverfehler laeuft, verbrennt
-    // ausserdem den Code — GoTrue akzeptiert eine Nonce nur einmal.
+    // Catch everything the app can know itself: a submit that predictably
+    // fails server-side also burns the code (GoTrue accepts a nonce once).
     final codeFehler = isAccountCode(code) ? null : kAccountCodeInvalid(l10n);
     final neuFehler = neu.length < kAccountMinPasswordLength
         ? kAccountPasswordTooShort(l10n)
@@ -184,8 +172,8 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
           .confirmPasswordChange(code: code, newPassword: neu);
     } catch (error) {
       if (!mounted) return;
-      // Kein Zuruecksetzen der Felder: wer einen Code vertippt, hat das
-      // Passwort trotzdem richtig eingegeben.
+      // Do not clear the fields: a mistyped code does not invalidate the
+      // password the user typed correctly.
       setState(() {
         _busy = false;
         _fehler = accountChangeErrorMessage(error, context.l10n);
@@ -256,9 +244,9 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
           ? l10n.settingsPasswordChangeRequestingCta
           : l10n.settingsPasswordChangeSavingCta;
     }
-    // Bewusst NICHT „Passwort ändern": so heisst schon die Zeile, aus der
-    // dieses Sheet kommt, und der Sheet-Titel. Drei gleiche Beschriftungen im
-    // selben Baum sind fuer Screenreader und Tests gleichermassen mehrdeutig.
+    // Deliberately not the same label as the row that opened this sheet and
+    // the sheet title: three identical labels in one tree are ambiguous for
+    // screen readers and tests alike.
     return ersterSchritt
         ? l10n.settingsPasswordChangeRequestCta
         : l10n.settingsPasswordChangeSubmitCta;
@@ -266,7 +254,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
 }
 
 // ---------------------------------------------------------------------------
-// Flow 2 — E-Mail-Adresse aendern
+// Flow 2 — change email address
 // ---------------------------------------------------------------------------
 
 enum _MailSchritt { adresse, codes }
@@ -294,10 +282,9 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
   String _zieladresse = '';
   bool _busy = false;
 
-  /// Welcher der beiden Codes bereits durchging. GoTrue verbrennt einen
-  /// bestaetigten Code — waere das nicht gemerkt, machte ein Tippfehler im
-  /// ZWEITEN Code den ganzen Vorgang unrettbar, weil der erste beim naechsten
-  /// Anlauf abgelehnt wuerde.
+  /// Which of the two codes already passed. GoTrue burns a confirmed code, so
+  /// without remembering this a typo in the SECOND code would make the whole
+  /// flow unrecoverable.
   bool _altBestaetigt = false;
   bool _neuBestaetigt = false;
 
@@ -354,8 +341,8 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
     final codeAlt = _codeAlt.text.trim();
     final codeNeu = _codeNeu.text.trim();
 
-    // Ein einzelner Code aendert nichts — er wuerde nur verbraucht. Deshalb
-    // geht ohne BEIDE gar kein Aufruf raus.
+    // A single code changes nothing and would only be consumed, so no call
+    // goes out without BOTH.
     final fehlerAlt = _altBestaetigt || isAccountCode(codeAlt)
         ? null
         : kAccountCodeInvalid(l10n);
@@ -446,8 +433,8 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
             label: l10n.settingsEmailChangeOldCodeLabel,
             adresse: widget.currentEmail,
             controller: _codeAlt,
-            // Ein bereits bestaetigter Code ist verbraucht — das Feld bleibt
-            // sichtbar (der Vorgang soll nachvollziehbar bleiben), aber taub.
+            // A confirmed code is spent: the field stays visible for
+            // traceability but inert.
             enabled: !_busy && !_altBestaetigt,
             errorText: _fehlerAlt,
             erledigt: _altBestaetigt,
@@ -484,18 +471,15 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
 }
 
 // ---------------------------------------------------------------------------
-// Bausteine dieses Pakets
+// Building blocks of this package
 // ---------------------------------------------------------------------------
 
-/// Ein 6-Ziffern-Feld mit der zugehoerigen Adresse im KLARTEXT darueber.
+/// A [kAccountCodeLength]-digit field with its address in PLAIN case above.
 ///
-/// Paket-lokal statt [SheetField], weil dessen Beschriftung durch
-/// `toUpperCase()` laeuft: „CODE AN ALT@EATOVA.DE" ist zwar lesbar, aber eine
-/// Mailadresse in Versalien sieht aus wie ein anderer String — und im
-/// Doppel-Code-Schritt haengt alles daran, dass man die beiden Adressen sicher
-/// auseinanderhaelt. Der [fieldKey] sitzt bewusst am inneren [TextField]:
-/// Tests lesen `widget<TextField>(...).controller`, um zu belegen, dass ein
-/// abgelehnter Code die Eingabe stehen laesst.
+/// Package-local instead of [SheetField], whose label runs through
+/// `toUpperCase()`: an upper-cased mail address looks like a different string,
+/// and the two-code step depends on telling the addresses apart. [fieldKey]
+/// sits on the inner [TextField] so tests can read its controller.
 class _CodeFeld extends StatelessWidget {
   const _CodeFeld({
     required this.fieldKey,
@@ -511,13 +495,13 @@ class _CodeFeld extends StatelessWidget {
   final String label;
   final TextEditingController controller;
 
-  /// Die Adresse, an die GENAU dieser Code ging.
+  /// The address this particular code went to.
   final String? adresse;
 
   final bool enabled;
   final String? errorText;
 
-  /// Dieser Code ist bereits bestaetigt — Haken statt Hinweis.
+  /// This code is already confirmed - check mark instead of a hint.
   final bool erledigt;
 
   @override
@@ -567,8 +551,8 @@ class _CodeFeld extends StatelessWidget {
                       key: fieldKey,
                       controller: controller,
                       enabled: enabled,
-                      // Ohne das laeuft der Cursor-Fade als Dauer-Animation
-                      // und `pumpAndSettle` kaeme nie zur Ruhe.
+                      // Otherwise the cursor fade animates forever and
+                      // `pumpAndSettle` never settles.
                       cursorOpacityAnimates: false,
                       cursorColor: t.accent,
                       keyboardType: TextInputType.number,
@@ -614,8 +598,8 @@ class _CodeFeld extends StatelessWidget {
   }
 }
 
-/// Die Sammelmeldung am Fuss eines Sheets — dieselbe Optik wie [SettingsNote],
-/// nur immer im Danger-Ton und mit dem passenden Glyph.
+/// The collected message at the foot of a sheet: like [SettingsNote], always
+/// in the danger tone with the matching glyph.
 class _FehlerNotiz extends StatelessWidget {
   const _FehlerNotiz({required this.noteKey, required this.text});
 

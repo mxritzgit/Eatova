@@ -1,12 +1,7 @@
-// Lücke 2 aus B1 (docs/REVIEW-2026-08-08.md): die Letzt-Bremse fehlt im
-// AddMealSheet.
-//
-// Bestands-Zeilen in `favorite_meals` mit `calories_kcal = 0` — die
-// Constraint erlaubt `>= 0`, der Vor-Fix-Code hat sie erzeugt — liessen sich
-// weiterhin ins Tagebuch legen, samt Bestätigung „0 kcal … hinzugefügt.".
-// Neu entstehen können solche Favoriten nicht mehr
-// (ProductWithoutNutritionException in Suche und Barcode), Bestandsdaten
-// aber schon.
+// Gap 2 from B1 (docs/REVIEW-2026-08-08.md): the last-resort guard in
+// AddMealSheet. Legacy `favorite_meals` rows with `calories_kcal = 0` (the
+// constraint allows `>= 0`) could still be logged. New ones can no longer be
+// created, but existing data remains.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -47,8 +42,8 @@ class _StummeFotoquelle implements MealPhotoInput {
   Future<MealPhotoSelection?> pick(ImageSource source) async => null;
 }
 
-/// Eine Bestandszeile, wie der Vor-Fix-Code sie geschrieben hat: Name da,
-/// Portion da, Kalorien 0.
+/// A legacy row as the pre-fix code wrote it: name and portion present,
+/// calories 0.
 final FavoriteMeal altlast = FavoriteMeal(
   id: 'name:proteinriegel',
   addedAt: DateTime(2026, 8, 1),
@@ -78,7 +73,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.dark),
-        // AddMealSheet liest seit der i18n-Migration context.l10n.
+        // AddMealSheet reads context.l10n.
         locale: const Locale('de'),
         supportedLocales: const [Locale('de'), Locale('en')],
         localizationsDelegates: const [
@@ -119,10 +114,8 @@ void main() {
     expect(find.textContaining('Kalorienangabe'), findsOneWidget);
   });
 
-  // B7-Nachtrag: die Bremse gilt dem Sentinel „0 = unbekannt", nicht dem
-  // Produkt. Eine GEMESSENE 0 (Wasser — OFF sagt ausdruecklich 0 kcal, der
-  // Marker kommt aus den Rohfeldern) muss durch, sonst ist Wasser am Barcode
-  // fuer immer unloggbar.
+  // B7: the guard targets the "0 = unknown" sentinel, not the product. A
+  // MEASURED 0 must pass, or water would be unloggable by barcode forever.
   testWidgets('Wasser-Favorit (gemessene 0 kcal) lässt sich ins Tagebuch legen',
       (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -151,7 +144,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.dark),
-        // AddMealSheet liest seit der i18n-Migration context.l10n.
+        // AddMealSheet reads context.l10n.
         locale: const Locale('de'),
         supportedLocales: const [Locale('de'), Locale('en')],
         localizationsDelegates: const [
@@ -208,7 +201,7 @@ void main() {
 
     final wieder = mealResultFromJson(mealResultToJson(wasser));
     expect(wieder.explicitZeroKcal, isTrue);
-    // Alt-Zeilen ohne den Schluessel lesen false — der Sentinel bleibt Sentinel.
+    // Legacy rows without the key read false — the sentinel stays a sentinel.
     final altlastJson = mealResultToJson(wasser)..remove('explicitZeroKcal');
     expect(mealResultFromJson(altlastJson).explicitZeroKcal, isFalse);
   });

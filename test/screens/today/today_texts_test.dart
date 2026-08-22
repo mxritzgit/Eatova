@@ -1,16 +1,13 @@
-// Die Text- und Formathelfer des Tabs „Heute".
+// Text and format helpers of the "Heute" tab.
 //
-// Drei der hier gepruefen Funktionen sind bewusste KOPIEN von Code, der
-// anderswo privat oder `@visibleForTesting` ist (Begruessung aus
-// coach_hero.dart, Tausenderpunkt aus calories_overview_card.dart, Tageslabel
-// aus meal_analysis_screen.dart). Diese Tests sind der Drift-Melder: weicht
-// eine Kopie vom Original ab, faellt es hier auf und nicht erst im UI.
+// Three of the functions here are deliberate COPIES of code that is private or
+// `@visibleForTesting` elsewhere (greeting, thousands separator, day label).
+// These tests are the drift detector: a copy diverging from its original shows
+// up here, not in the UI.
 //
-// Seit der i18n-Migration (Paket 1, 2026-08-10) brauchen die textgebenden
-// Helfer ein [AppLocalizations] — hier fest `de` (die Erwartungswerte bleiben
-// wortgleich zum Bestand, Regel 1 aus docs/I18N_PAKETE.md). `todayEyebrow`
-// initialisiert die `intl`-Datumssymbole selbst (einmalig, s.
-// today_texts.dart) — kein Extra-Setup hier noetig.
+// The text helpers take an [AppLocalizations]; fixed to `de` so the
+// expectations stay word-identical. `todayEyebrow` initialises the `intl` date
+// symbols itself, so no extra setup is needed.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -43,7 +40,7 @@ LoggedMeal _meal(String name, {int kcal = 400, MealSlot? slot}) => LoggedMeal(
 void main() {
   group('greetingForHour — dieselben Schwellen wie der Coach-Hero', () {
     test('die vier Faecher an ihren Kanten', () {
-      // coach_hero.dart:13-19: <5 / <11 / <17 / sonst.
+      // coach_hero.dart:13-19: <5 / <11 / <17 / else.
       expect(greetingForHour(0, _de), 'Gute Nacht');
       expect(greetingForHour(4, _de), 'Gute Nacht');
       expect(greetingForHour(5, _de), 'Guten Morgen');
@@ -107,9 +104,9 @@ void main() {
   });
 
   group('todayDateLabel — zeichengleich zu foodDateSelectedLabel', () {
-    // Anker wie in meal_analysis_date_strip_test.dart: der Montag NACH der
-    // Fruehjahrsumstellung. Mit Duration-Arithmetik lieferte der 25.03. hier
-    // „Vor 4 Tagen" (119 Stunden), richtig sind fuenf Kalendertage.
+    // Anchor: the Monday AFTER the spring DST switch. With duration
+    // arithmetic 25.03. came out as 4 days (119 hours); five calendar days is
+    // correct.
     final montagNachUmstellung = DateTime(2026, 3, 30);
 
     test('Heute / Gestern / Vor N Tagen', () {
@@ -183,11 +180,9 @@ void main() {
     });
 
     test('ein Archivtag bekommt eine tagesneutrale Zeile', () {
-      // Beide Tagesaussagen waeren auf einem abgelaufenen Tag falsch: „logge
-      // deine erste Mahlzeit — ich baue deinen Tag darum herum" fordert zum
-      // Nachtragen in die Vergangenheit auf, und ein Abendessen-Vorschlag
-      // gegen offenes Protein kommt fuer vorgestern zu spaet. Der Coach
-      // rechnet ohnehin mit HEUTE (HomeStore.coachContext).
+      // Both day-specific lines would be wrong on a past day: one invites
+      // back-filling, the other suggests dinner for two days ago. The coach
+      // reasons about TODAY anyway (HomeStore.coachContext).
       const neutral = 'Frag den Coach nach Ideen für deine Ziele.';
       expect(
         coachTeaser(

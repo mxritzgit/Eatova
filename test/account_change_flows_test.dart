@@ -14,28 +14,16 @@ import 'package:eatova/src/services/secure_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Die zwei Konto-Aenderungs-Flows der Einstellungen (2026-08-10).
+// The two account-change flows in settings.
 //
-// Prueft die OBERFLAECHE gegen den bereits getesteten Auth-Vertrag
-// (`test/auth_account_change_test.dart`); das [InMemoryAuthRepository] ist die
-// Gegenstelle und protokolliert `reauthRequests`, `usedNonces`,
-// `emailChangeRequests` und `verifiedCodes`.
-//
-// Drei Zusicherungen tragen die Datei:
-//
-//   1. Kein Server-Aufruf, den die App vorher als aussichtslos erkennen kann
-//      (Wiederholung stimmt nicht, Code hat keine 8 Ziffern, Adresse ist
-//      keine).
-//   2. Beide E-Mail-Codes gehen an die RICHTIGE Adresse — ein einzelner Code
-//      schliesst den Vorgang nicht ab. Das ist der ganze Sinn der „sicheren
-//      E-Mail-Aenderung".
-//   3. Ein abgelehnter Code wirft die Eingabe nicht weg und zeigt eine
-//      deutsche Meldung ohne Roh-Details.
+// Checks the UI against the already tested auth contract
+// (`test/auth_account_change_test.dart`), with [InMemoryAuthRepository] as the
+// recording counterpart. Three guarantees: no server call the app can rule out
+// beforehand; both email codes go to the RIGHT address and one alone does not
+// finish the change; a rejected code keeps the input and hides raw details.
 
-/// Gegenstelle, die genau den ZWEITEN `confirmEmailChange`-Aufruf ablehnt.
-///
-/// `InMemoryAuthRepository.verifyFails` kann das nicht: es trifft immer den
-/// naechsten Aufruf, und der ist im Doppel-Code-Schritt der erste.
+/// Counterpart that rejects exactly the SECOND `confirmEmailChange` call —
+/// `InMemoryAuthRepository.verifyFails` always hits the next one, the first.
 class _ZweiterCodeScheitert extends InMemoryAuthRepository {
   _ZweiterCodeScheitert({super.initialUser});
 
@@ -54,8 +42,8 @@ class _ZweiterCodeScheitert extends InMemoryAuthRepository {
   }
 }
 
-/// Gegenstelle, deren erster Aufruf haengen bleibt, bis der Test ihn freigibt
-/// — so laesst sich der Ladezustand ueberhaupt beobachten.
+/// Counterpart whose first call hangs until released, making the loading
+/// state observable.
 class _LangsamerStart extends InMemoryAuthRepository {
   _LangsamerStart({super.initialUser});
 
@@ -95,8 +83,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(brightness),
-        // settings_screen.dart und die Konto-Sheets rufen jetzt durchgehend
-        // context.l10n (Paket 6) — ohne Delegates wirft AppLocalizations.of().
+        // context.l10n throughout; without delegates it throws.
         locale: const Locale('de'),
         supportedLocales: const [Locale('de'), Locale('en')],
         localizationsDelegates: const [
@@ -127,14 +114,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Laesst einen stehenden Toast ablaufen — sonst meldet die Testuhr am Ende
-  /// einen offenen Timer (Muster aus `app_snack_test.dart`).
+  /// Lets a standing toast expire, else the test clock reports a live timer.
   Future<void> raeumeToastAb(WidgetTester tester) async {
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
   }
 
-  /// Bis zum Code-Schritt der Passwort-Aenderung.
+  /// Up to the code step of the password change.
   Future<void> oeffnePasswortSchritt2(
     WidgetTester tester,
     InMemoryAuthRepository repo,
@@ -144,7 +130,7 @@ void main() {
     await tippe(tester, find.text('Code anfordern'));
   }
 
-  /// Bis zum Doppel-Code-Schritt der Adress-Aenderung.
+  /// Up to the double-code step of the email change.
   Future<void> oeffneMailSchritt2(
     WidgetTester tester,
     InMemoryAuthRepository repo, {
@@ -156,7 +142,7 @@ void main() {
     await tippe(tester, find.text('Codes anfordern'));
   }
 
-  // --- Die beiden Zeilen ----------------------------------------------------
+  // --- The two rows ---------------------------------------------------------
 
   group('Die Zeilen in der Gruppe KONTO', () {
     testWidgets('stehen da, sobald ein AuthRepository durchgereicht ist',
@@ -176,9 +162,7 @@ void main() {
     });
 
     testWidgets('fehlen ersatzlos ohne AuthRepository', (tester) async {
-      // Kein grauer Eintrag: eine deaktivierte Zeile behauptet, es gaebe den
-      // Weg und die App koenne ihn gerade nur nicht. Ohne Auth-Schicht gibt es
-      // ihn schlicht nicht (dieselbe Regel wie fuer Export und Ausloggen).
+      // No greyed-out row: a disabled row would claim the path exists.
       await pump(tester);
 
       expect(
@@ -188,14 +172,11 @@ void main() {
       expect(find.byKey(const ValueKey('settings-change-email')), findsNothing);
       expect(find.text('Passwort ändern'), findsNothing);
       expect(find.text('E-Mail-Adresse ändern'), findsNothing);
-      // Die Mailadresse selbst steht weiterhin da.
       expect(find.byKey(const ValueKey('settings-email')), findsOneWidget);
     });
 
-    // Codes und Mailadressen gehoeren nicht ins Vorschaubild des
-    // App-Umschalters. Der Guard ist ref-gezaehlt, die Verschachtelung unter
-    // dem der Seite also gratis — und sie macht die Sheets unabhaengig davon,
-    // wer sie oeffnet.
+    // Codes and addresses must not reach the app-switcher preview; the guard
+    // is ref-counted, so nesting is free.
     for (final schluessel in const <String>[
       'settings-change-password',
       'settings-change-email',
@@ -212,7 +193,7 @@ void main() {
     }
   });
 
-  // --- Flow 1: Passwort -----------------------------------------------------
+  // --- Flow 1: password -----------------------------------------------------
 
   group('Passwort ändern', () {
     testWidgets('„Code anfordern" ruft startPasswordChange', (tester) async {
@@ -220,8 +201,7 @@ void main() {
       await oeffnePasswortSchritt2(tester, repo);
 
       expect(repo.reauthRequests, <String>['alt@eatova.de']);
-      // Erst danach gibt es ueberhaupt Felder — ein Code-Feld ohne Code waere
-      // eine Sackgasse.
+      // Fields appear only afterwards: an empty code field is a dead end.
       expect(
         find.byKey(const ValueKey('password-change-code')),
         findsOneWidget,
@@ -240,7 +220,6 @@ void main() {
 
       expect(repo.usedNonces, <String>['12345678']);
       expect(repo.passwordUpdates, <String>['geheim99']);
-      // Zurueck in den Einstellungen, mit Bestaetigung.
       expect(
         find.byKey(const ValueKey('password-change-sheet')),
         findsNothing,
@@ -269,7 +248,7 @@ void main() {
     });
 
     testWidgets('ein zu kurzes Passwort blockt VOR dem Aufruf', (tester) async {
-      // Zeichengleich mit auth_screen.dart / auth_code_screen.dart: 8 Zeichen.
+      // Same minimum as auth_screen.dart / auth_code_screen.dart: 8 chars.
       final repo = baueRepo();
       await oeffnePasswortSchritt2(tester, repo);
 
@@ -312,8 +291,8 @@ void main() {
         find.byKey(const ValueKey('settings-change-password')),
       );
 
-      // Zwei Taps OHNE Frame dazwischen: der Baum traegt den Knopf noch als
-      // scharf, allein der Riegel im Handler verhindert den zweiten Aufruf.
+      // Two taps with NO frame between: only the latch in the handler blocks
+      // the second call.
       await tester.tap(find.text('Code anfordern'));
       await tester.tap(find.text('Code anfordern'));
       await tester.pump();
@@ -348,11 +327,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.text(kAccountCodeRejected()), findsOneWidget);
-      // Kein Roh-Detail auf dem Screen.
+      // No raw detail on screen.
       expect(find.textContaining('AuthException'), findsNothing);
       expect(find.textContaining('Token has expired'), findsNothing);
-      // Und die Eingabe steht noch — niemand tippt ein Passwort zweimal, nur
-      // weil ein Code danebenlag.
+      // And the input survives: nobody retypes a password over a wrong code.
       expect(
         tester
             .widget<TextField>(find.byKey(const ValueKey('password-change-code')))
@@ -367,7 +345,7 @@ void main() {
     });
   });
 
-  // --- Flow 2: E-Mail -------------------------------------------------------
+  // --- Flow 2: email --------------------------------------------------------
 
   group('E-Mail-Adresse ändern', () {
     testWidgets('reicht die getrimmte Adresse an startEmailChange',
@@ -391,7 +369,7 @@ void main() {
       final repo = baueRepo();
       await oeffneMailSchritt2(tester, repo);
 
-      // Wer welchen Code wohin tippt, darf nicht Ratearbeit sein.
+      // Which code goes where must not be guesswork.
       expect(find.text('alt@eatova.de'), findsWidgets);
       expect(find.text('neu@eatova.de'), findsWidgets);
       expect(
@@ -426,8 +404,7 @@ void main() {
       await schreibe(tester, 'email-change-code-old', '11111111');
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
-      // Nicht einmal der eine Code geht raus: ein halb bestaetigter Wechsel
-      // verbrennt den Code, ohne dass sich etwas aendert.
+      // Not even the one code is sent: it would burn for nothing.
       expect(repo.verifiedCodes, isEmpty);
       expect(repo.currentUser?.email, 'alt@eatova.de');
       expect(find.byKey(const ValueKey('email-change-sheet')), findsOneWidget);
@@ -488,9 +465,7 @@ void main() {
 
     testWidgets('ein zweiter Anlauf wiederholt den bereits geglueckten Code '
         'nicht', (tester) async {
-      // GoTrue verbrennt einen bestaetigten Code. Wer beim ZWEITEN Code
-      // danebentippt, darf beim naechsten Versuch nicht am ersten scheitern —
-      // sonst waere der Vorgang nach einem Tippfehler unrettbar.
+      // GoTrue burns a confirmed code, so a retry must not resubmit the first.
       final repo = _ZweiterCodeScheitert(
         initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
       );
@@ -505,11 +480,9 @@ void main() {
       await schreibe(tester, 'email-change-code-new', '99999999');
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
-      // Erster Code durch, zweiter abgelehnt.
       expect(repo.verifiedCodes, <String>['alt@eatova.de:11111111']);
       expect(repo.currentUser?.email, 'alt@eatova.de');
 
-      // Zweiter Anlauf, diesmal mit dem richtigen zweiten Code.
       await schreibe(tester, 'email-change-code-new', '22222222');
       await tippe(tester, find.text('Adresse jetzt ändern'));
 
@@ -531,13 +504,12 @@ void main() {
       await tippe(tester, find.text('Adresse jetzt ändern'));
       await raeumeToastAb(tester);
 
-      // Der `authStateChanges`-Strom meldet den Wechsel; die Seite haengt
-      // daran, statt auf einen Neuaufbau der Route zu hoffen.
+      // The page listens to `authStateChanges`, not a route rebuild.
       expect(find.text('neu@eatova.de'), findsOneWidget);
     });
   });
 
-  // --- Der Fehler-Uebersetzer (rein, ohne Widget) ---------------------------
+  // --- The error translator (pure, no widget) -------------------------------
 
   group('accountChangeErrorMessage', () {
     test('uebersetzt den abgelaufenen/falschen Code', () {
@@ -584,8 +556,7 @@ void main() {
     });
 
     test('gibt NIE den Roh-Text weiter', () {
-      // Ein AuthException-Text kann interne Details tragen (Projekt-URL,
-      // Constraint-Namen). Der Unbekannt-Fall ist deshalb generisch.
+      // An AuthException text can carry internals, so unknown stays generic.
       const roh = 'unexpected_failure at https://xyz.supabase.co/auth/v1/user';
       final meldung = accountChangeErrorMessage(const AuthException(roh));
 

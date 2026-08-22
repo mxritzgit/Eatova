@@ -18,31 +18,14 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// B4 (2026-08-08): Der Store kannte keinen Tageswechsel. `selectedFoodDate`
-// wurde nur bei der Feld-Initialisierung, bei einem expliziten Nutzer-Tap
-// (setFoodDate) und in _clearTodayState gesetzt — kein Mitternachts-Timer,
-// kein Reset beim Resume. `didChangeAppLifecycleState(resumed)` rief nur
-// flushPendingWrites(), das bei leerer Outbox nicht einmal notifyListeners()
-// ausloest.
+// B4 (2026-08-08): the store had no day rollover, so a meal logged after an
+// overnight background stint landed on yesterday, skipped the streak and left
+// dailyConsumedKcal on the old day — the very field ProfileScreen and the
+// coach read.
 //
-// Szenario aus dem Review: Montag 21:00 Abendessen geloggt (2100 kcal), App in
-// den Hintergrund. Dienstag 08:00 zurueckgeholt, Fruehstueck geloggt:
-//   * die Mahlzeit bekommt local_day = Montag (Dienstags Fruehstueck auf
-//     Montag),
-//   * recordTrackedDay wird uebersprungen -> die Streak zaehlt Dienstag nicht
-//     und bricht, obwohl geloggt wurde,
-//   * dailyConsumedKcal haelt Montags 2100 — genau das Feld, das
-//     ProfileScreen rendert und der KI-Coach bekommt, waehrend seine eigene,
-//     korrekt aus der Uhr gebaute Essensliste leer ist.
-//
-// Der Fix ist [HomeStore.maybeRollOverToToday]: aufgerufen per Timer auf die
-// naechste lokale Mitternacht (App offen) UND beim Resume (App war
-// suspendiert und hat keinen Timer-Tick bekommen).
-//
-// Determinismus: der Store liest die Uhr seit dieser Aenderung ueber
-// `clock.now()` (Projekt-Pattern, siehe currentMealSlot()). Die Tests hier
-// nageln den Tag per withClock fest und lassen die Uhr dazwischen weiterlaufen
-// — der Tageswechsel ist damit echt nachgestellt und nicht simuliert.
+// The fix is [HomeStore.maybeRollOverToToday], armed by a timer on the next
+// local midnight AND on resume. The store reads `clock.now()`, so these tests
+// pin the day with withClock and let the clock run on.
 
 void _noopSnack(
   String message, {
@@ -52,8 +35,8 @@ void _noopSnack(
   SnackBarAction? action,
 }) {}
 
-/// [autoDispose] false, wenn der Test selbst `dispose()` aufruft — ein
-/// zweiter Aufruf aus dem Teardown wuerde sonst am ChangeNotifier scheitern.
+/// [autoDispose] false when the test disposes itself; a second teardown call
+/// would fail on the ChangeNotifier.
 HomeStore _store({bool autoDispose = true}) {
   final store = HomeStore(
     sync: null,
@@ -66,8 +49,7 @@ HomeStore _store({bool autoDispose = true}) {
   return store;
 }
 
-/// Store MIT Sync (leerer Fake-Server) — nur der Sync-Pfad armiert den
-/// Mitternachts-Timer, genau wie Boot/Hydration.
+/// Store WITH sync: only that path arms the midnight timer.
 HomeStore _syncedStore({bool autoDispose = true}) {
   final client = SupabaseClient(
     'https://example.supabase.co',
@@ -107,8 +89,8 @@ MealAnalysisResult _meal(String name, {int kcal = 300}) => MealAnalysisResult(
       sourceLabel: 'Foto-KI',
     );
 
-/// Montag 21:00 und Dienstag 08:00 — bewusst mitten in einem normalen
-/// Kalendermonat, damit die DST-Faelle separat (siehe unten) stehen.
+/// Monday 21:00 and Tuesday 08:00, inside a plain month; DST has its own
+/// cases below.
 final _montagAbend = DateTime(2026, 6, 1, 21, 0);
 final _dienstagFrueh = DateTime(2026, 6, 2, 8, 0);
 final _montag = DateTime(2026, 6, 1);
@@ -140,10 +122,8 @@ void main() {
     });
 
     test('ist nie <= 0 (sonst laeuft der Timer heiss)', () {
-      // Gemessener Altfall: `DateTime(2026,10,25).add(Duration(days:1))` ist in
-      // Europe/Berlin der 25.10. um 23:00 — ab 23:00 waere die Restdauer
-      // negativ und der sich selbst neu setzende Timer wuerde in einer
-      // Endlosschleife feuern.
+      // Old bug: adding a Duration across the autumn DST switch lands at 23:00
+      // the same day, so the self-rearming timer spun in a loop.
       var cursor = DateTime.utc(2025, 1, 1);
       final ende = DateTime.utc(2030, 12, 31);
       while (!cursor.isAfter(ende)) {
@@ -168,14 +148,14 @@ void main() {
       withClock(Clock.fixed(_montagAbend), () {
         store = _store();
         store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
-        // Montag-Abend-Stand, wie ihn das Backgrounding einfriert.
+        // Monday evening state, as backgrounding freezes it.
         expect(store.selectedFoodDate, _montag);
         expect(store.dailyConsumedKcal, 2100);
         expect(store.lifetimeStats.currentStreak, 1);
       });
 
       withClock(Clock.fixed(_dienstagFrueh), () {
-        // Ohne den Rollover haelt der Store hier noch komplett den Montag.
+        // Without the rollover the store would still hold Monday.
         final gewechselt = store.maybeRollOverToToday();
 
         expect(gewechselt, isTrue);
@@ -193,8 +173,7 @@ void main() {
         expect(store.lifetimeStats.currentStreak, 2,
             reason: 'Montag + Dienstag geloggt -> Streak 2, nicht gerissen');
         expect(store.lifetimeStats.lastTrackedDate, _dienstag);
-        // Der Coach-Kontext und seine eigene Essensliste widersprechen sich
-        // nicht mehr.
+        // Coach context and its own food list no longer contradict.
         expect(store.coachContext, contains('Heute gegessen: 400'));
         expect(store.coachContext, contains('Fruehstueck'));
       });
@@ -206,7 +185,7 @@ void main() {
       withClock(Clock.fixed(_montagAbend), () {
         store = _store();
         store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
-        store.setFoodDate(archiv); // Nutzer blaettert ins Archiv
+        store.setFoodDate(archiv); // user browses the archive
         expect(store.selectedFoodDate, archiv);
       });
 
@@ -216,8 +195,7 @@ void main() {
         expect(gewechselt, isTrue, reason: 'der Kalendertag hat gewechselt');
         expect(store.selectedFoodDate, archiv,
             reason: 'die bewusste Auswahl bleibt stehen');
-        // Die Tageswerte beschreiben trotzdem IMMER heute (ProfileScreen +
-        // coachContext haengen daran, nicht an selectedFoodDate).
+        // The day values always describe today, not selectedFoodDate.
         expect(store.dailyConsumedKcal, 0);
         expect(store.macroProgress, MacroProgress.empty);
       });
@@ -228,7 +206,7 @@ void main() {
       withClock(Clock.fixed(_montagAbend), () {
         store = _store();
         store.setFoodDate(DateTime(2026, 5, 12)); // Archiv
-        store.setFoodDate(_montagAbend); // zurueck auf „Heute"
+        store.setFoodDate(_montagAbend); // back to "today"
       });
 
       withClock(Clock.fixed(_dienstagFrueh), () {
@@ -273,15 +251,15 @@ void main() {
         expect(store.maybeRollOverToToday(), isTrue);
         expect(notifies, 1);
 
-        // Idempotent: ein zweiter Resume am selben Tag aendert nichts.
+        // Idempotent: a second resume on the same day changes nothing.
         expect(store.maybeRollOverToToday(), isFalse);
         expect(notifies, 1);
       });
     });
 
     test('dailySteps bleibt unangetastet (Health-Zustaendigkeit, B3)', () {
-      // readSnapshot() liefert im nicht-verifizierten Zustand seit B3 null
-      // statt „0 Schritte" — der Rollover darf hier keine Null zementieren.
+      // Unverified readSnapshot() returns null, not 0 steps; the rollover must
+      // not cement a zero.
       late HomeStore store;
       withClock(Clock.fixed(_montagAbend), () {
         store = _store();
@@ -327,8 +305,8 @@ void main() {
       await store.profileReady;
       expect(store.debugMidnightTimerIsActive, isTrue);
 
-      // Resume am Folgetag: der Timer hat im Suspend nicht gefeuert, muss
-      // danach aber wieder auf die kommende Mitternacht stehen.
+      // Resume the next day: the timer did not fire while suspended and must
+      // rearm for the coming midnight.
       withClock(Clock.fixed(addDays(clock.now(), 1)), () {
         expect(store.maybeRollOverToToday(), isTrue);
       });
@@ -366,8 +344,7 @@ void main() {
         expect(store.dailyConsumedKcal, 0);
 
         store.addResultToDailyTotal(_meal('Fruehstueck', kcal: 400));
-        // Altcode (`.difference().inDays` == 0) haette den 30.03. fuer
-        // „schon gezaehlt" gehalten: Streak bleibt 1 statt 2.
+        // The old absolute-time check counted this day as already tracked.
         expect(store.lifetimeStats.currentStreak, 2);
         expect(store.lifetimeStats.lastTrackedDate, DateTime(2026, 3, 30));
       });

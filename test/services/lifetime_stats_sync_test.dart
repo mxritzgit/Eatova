@@ -7,17 +7,10 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/lifetime_stats_sync.dart';
 
-// INT-1 / DATA-1: LifetimeStatsSync schreibt seit dem Audit 2026-06-04 NICHT
-// mehr absolut (read-modify-write upsert), sondern ueber zwei atomare RPCs:
-//   * increment_lifetime_stats(p_water,p_steps,p_meals,p_weight_logs,p_workouts)
-//   * record_tracking_day(p_day) — Logging-Streak (seit 2026-08-04; ersetzt
-//     record_workout_day nach dem Training-Tab-Aus)
-// Beide geben die frische public.lifetime_stats-Zeile zurueck. Diese Tests
-// treiben den echten SupabaseClient mit einem MockClient (package:http/testing)
-// und verifizieren das beobachtbare Verhalten ueber die PUBLIC API:
-//   1. increment schickt die DELTAS als RPC-Params (nicht absolute Summen).
-//   2. increment parst die zurueckgegebene Zeile in LifetimeStats.
-//   3. recordTrackingDay schickt p_day als yyyy-MM-dd und parst die Zeile.
+// INT-1 / DATA-1: LifetimeStatsSync writes through the atomic RPCs
+// increment_lifetime_stats and record_tracking_day, not a read-modify-write
+// upsert. Against a MockClient these verify that increment sends DELTAS and
+// parses the row, and that recordTrackingDay sends p_day as yyyy-MM-dd.
 
 LifetimeStatsSync _sync(
   Future<http.Response> Function(http.Request request) handler,
@@ -39,10 +32,9 @@ http.Response _row(Map<String, dynamic> row, {http.Request? request}) =>
       request: request,
     );
 
-/// Die Antwort einer Datenbank OHNE die Migration 20260814120000: PostgREST
-/// findet keine Ueberladung mit `p_request_id` und meldet PGRST202 (HTTP 404).
-/// Der Code steht im BODY — genau deshalb ist `PostgrestException.code`
-/// hinterher `'PGRST202'` und nicht `'404'`.
+/// A database WITHOUT migration 20260814120000: no `p_request_id` overload,
+/// so PostgREST reports PGRST202 in the BODY, making
+/// `PostgrestException.code` `'PGRST202'` rather than `'404'`.
 http.Response _keineUeberladung(http.Request request) => http.Response(
       jsonEncode({
         'code': 'PGRST202',
@@ -97,15 +89,15 @@ void main() {
       final result = await sync.increment(water: 250, steps: 2000, meals: 1);
 
       expect(sentPath, contains('rpc/increment_lifetime_stats'));
-      // DELTAS, nicht absolute Summen.
+      // DELTAS, not absolute sums.
       expect(sentBody, containsPair('p_water', 250));
       expect(sentBody, containsPair('p_steps', 2000));
       expect(sentBody, containsPair('p_meals', 1));
       expect(sentBody, containsPair('p_weight_logs', 0));
-      // workouts laeuft NICHT ueber increment.
+      // workouts does NOT go through increment.
       expect(sentBody!.containsKey('p_workouts'), isFalse);
 
-      // Zurueckgegebene Server-Zeile wird adoptiert.
+      // The returned server row is adopted.
       expect(result.waterTotalMl, 1500);
       expect(result.stepsRecorded, 8000);
       expect(result.mealsLogged, 3);
@@ -136,15 +128,11 @@ void main() {
     });
   });
 
-  // --- Audit 2026-08-14, B1: Rollout-Entkopplung ----------------------------
+  // --- Audit 2026-08-14, B1: rollout decoupling -----------------------------
   //
-  // Die Migration 20260814120000_audit_rls_guard.sql ist abwaerts-, aber NICHT
-  // vorwaertskompatibel: laeuft ein Build MIT `p_request_id` gegen eine
-  // Datenbank OHNE die Migration, findet PostgREST keine passende Ueberladung
-  // und antwortet PGRST202/404. Der Aufrufer (`_flushStatsDelta`) legt jeden
-  // Fehler nur zurueck in die Queue — Lebenszeit-Statistik und Streak
-  // froeren dauerhaft ein, ohne dass irgendetwas rot wird. Deshalb genau EIN
-  // Wiederholungsversuch ohne den Schluessel.
+  // A build WITH `p_request_id` against a database lacking the migration gets
+  // PGRST202/404, and `_flushStatsDelta` only re-queues errors, so stats and
+  // streak would freeze silently. Hence exactly ONE retry without the key.
   group('LifetimeStatsSync.increment — fehlende p_request_id-Ueberladung', () {
     test(
         'PGRST202 loest GENAU EINEN Wiederholungsversuch ohne p_request_id '
@@ -165,8 +153,7 @@ void main() {
       expect(bodies.last.containsKey('p_request_id'), isFalse,
           reason: 'nur ohne den Schluessel trifft der Aufruf die alte, rein '
               'additive Signatur');
-      // Der Wiederholungsversuch ist DERSELBE Aufruf — die Deltas duerfen
-      // dabei nicht unter den Tisch fallen.
+      // The retry is the SAME call, so the deltas must survive it.
       expect(bodies.last, containsPair('p_meals', 2));
       expect(bodies.last, containsPair('p_weight_logs', 1));
       expect(result.mealsLogged, 7);
@@ -247,7 +234,7 @@ void main() {
       final result = await sync.recordTrackingDay(DateTime(2026, 6, 4, 18, 30));
 
       expect(sentPath, contains('rpc/record_tracking_day'));
-      // Uhrzeit wird gestrippt → reines Datum.
+      // The time is stripped, leaving a plain date.
       expect(sentBody, containsPair('p_day', '2026-06-04'));
 
       expect(result.workoutsCompleted, 12);

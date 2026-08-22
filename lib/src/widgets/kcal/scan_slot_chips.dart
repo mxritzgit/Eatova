@@ -6,15 +6,11 @@ import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/motion.dart';
 
-/// Slot-Auswahl als Chip-Reihe AUF einem Live-Kamerabild — gemeinsam fuer den
-/// KI-Scan (`MealCameraSheet`) und den Barcode-Scanner (`BarcodeScannerSheet`).
-/// Der aktive Chip traegt die Slot-Akzentfarbe; die Wahl bestimmt, in welchen
-/// Slot die erkannte Mahlzeit wandert.
-///
-/// Bis 2026-08-22 lebte die Reihe privat in meal_camera_sheet.dart, und nur
-/// die Kamera hatte sie: der Barcode-Knopf im Food-Tab landete stumm im
-/// Uhrzeit-Slot, ohne dass man Mittag oder Abend waehlen konnte. Eine Quelle
-/// fuer beide Scan-Wege, damit sie als dasselbe Muster gelesen werden.
+/// Slot picker as a chip row over a live camera image, shared by the AI scan
+/// (`MealCameraSheet`) and the barcode scanner (`BarcodeScannerSheet`). The
+/// active chip carries the slot accent color; the choice decides which slot
+/// the detected meal lands in. One source for both scan paths, so they read
+/// as the same pattern.
 class ScanSlotChips extends StatelessWidget {
   const ScanSlotChips({
     super.key,
@@ -26,8 +22,8 @@ class ScanSlotChips extends StatelessWidget {
   final MealSlot selected;
   final ValueChanged<MealSlot> onSelected;
 
-  /// Praefix der Chip-Keys (`<keyPrefix>-<slot.name>`), damit Tests den
-  /// Kamera- und den Barcode-Chip auseinanderhalten koennen.
+  /// Prefix of the chip keys (`<keyPrefix>-<slot.name>`), so tests can tell
+  /// the camera and barcode chips apart.
   final String keyPrefix;
 
   static const List<MealSlot> _slots = <MealSlot>[
@@ -73,14 +69,10 @@ class _SlotChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Der Chip liegt AUF dem Live-Kamerabild, zusammen mit den harten
-    // schwarz/weissen Scrims und Beschriftungen der Scan-Sheets — deshalb die
-    // DUNKEL-Palette in beiden Anzeige-Modi, nicht `accentIn(context)`.
-    // Dasselbe Argument wie beim Scanrahmen und beim Ausloeser: die hellen
-    // Slot-Toene tragen auf einem beliebig hellen Bild, die dunklen des
-    // Hell-Modus (Mittag = tiefes Blau) haetten das schwarze Chip-Label auf
-    // 3,6:1 gedrueckt. Kein Brightness-Abzweig, sondern eine feste Palette
-    // fuer eine Flaeche, die immer dunkel ist.
+    // The chip sits on the live camera image, so it uses the DARK palette in
+    // both themes rather than `accentIn(context)`: the light-mode slot tones
+    // (lunch = deep blue) would push the black label to 3.6:1. A fixed palette
+    // for a surface that is always dark, not a brightness branch.
     final accent = slot.accentOn(AppTokens.dark);
     return InkWell(
       key: ValueKey('$keyPrefix-${slot.name}'),

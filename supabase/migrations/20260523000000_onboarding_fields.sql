@@ -1,13 +1,13 @@
--- Onboarding-Felder: Aktivitätslevel (PAL) + Wunschgewicht.
--- onboarding_completed existiert bereits aus 20260516150000_create_profiles.sql
--- und gated jetzt das verpflichtende Onboarding in der App.
+-- Onboarding fields: activity level (PAL) + target weight.
+-- onboarding_completed already exists from 20260516150000_create_profiles.sql
+-- and now gates the mandatory onboarding in the app.
 
 alter table public.profiles
   add column if not exists activity_level   text    not null default 'sedentary',
   add column if not exists target_weight_kg integer not null default 78;
 
--- Bestandszeilen: Wunschgewicht auf das aktuelle Gewicht setzen (neutral),
--- bis der User das Onboarding durchläuft und es bewusst wählt.
+-- Existing rows: set target weight to the current weight (neutral) until the
+-- user goes through onboarding and picks one deliberately.
 update public.profiles
   set target_weight_kg = weight_kg
   where target_weight_kg = 78 and weight_kg <> 78;

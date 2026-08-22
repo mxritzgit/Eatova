@@ -24,21 +24,17 @@ const Color lime = Color(0xFFB6F36A);
 const Color limeBright = Color(0xFFD8FF9E);
 
 // --- STITCH "FORGE" FOOD-TAB PALETTE (food-tab-scoped) -----------------------
-// Helleres Lime aus dem Stitch-"FORGE"-Ernährungs-Entwurf. Bricht BEWUSST den
-// app-weiten Lime-Lock NUR im Food-Tab (User-freigegeben). Falls es gut wirkt,
-// kann es später app-weit nachgezogen werden.
-const Color forgeLime = Color(0xFFC3F400);      // primärer Food-Tab-Akzent
-const Color forgeLimeDim = Color(0xFFABD600);   // gedämpfte Variante
-// Translucent-Panel-Fill der Glass-Kalorienkarte (~rgba(42,42,42,0.6)).
+// Brighter lime that deliberately breaks the app-wide lime lock, food tab only.
+const Color forgeLime = Color(0xFFC3F400);      // primary food-tab accent
+const Color forgeLimeDim = Color(0xFFABD600);   // dimmed variant
+// Translucent panel fill of the glass calorie card (~rgba(42,42,42,0.6)).
 const Color forgeGlassFill = Color(0x992A2A2A);
-// Hairline-Rand der Glass-Karte (~rgba(255,255,255,0.05)).
+// Hairline border of the glass card (~rgba(255,255,255,0.05)).
 const Color forgeGlassBorder = Color(0x0DFFFFFF);
 
 // --- COACH-TAB ACCENT (coach-tab-scoped) -------------------------------------
-// Indigo aus dem "AI Coach v2"-Entwurf (2026-08-03). Bricht BEWUSST den
-// app-weiten Lime-Lock NUR im Coach-Tab (User-freigegeben, gleiches Muster
-// wie forgeLime im Food-Tab). Der warme Zweitton existiert nur fuer den
-// Sweep-Verlauf des Coach-Orbs.
+// Indigo that breaks the lime lock, coach tab only (same pattern as forgeLime).
+// The warm second tone exists only for the coach orb's sweep gradient.
 const Color coachAccent = Color(0xFF4A63C9);
 const Color coachAccentWarm = Color(0xFFF4D8A8);
 
@@ -55,20 +51,18 @@ const Color warning = Color(0xFFFCA56B);
 const Color danger = Color(0xFFF4736B);
 
 // --- Back-compat aliases ----------------------------------------------------
-// Wide-usage legacy names, kept so untouched screens still build while the
-// rainbow palette is migrated to the semantic names wave by wave.
+// Legacy names kept so untouched screens still build during the migration.
 // cyan -> carbs, orange -> fat.
 const Color cyan = macroCarbs;
 const Color orange = macroFat;
 
 // --- Meal-slot encoding (categorical) ---------------------------------------
 // breakfast = macroFat (amber), lunch = lime, snack = macroCarbs (cyan).
-// Dinner gets its own refined tone (replaces the old candy-pink).
+// Dinner gets its own tone.
 const Color slotDinner = Color(0xFFE07A9B); // dusk rose
 
 // --- Wellness / recovery accent ---------------------------------------------
-// One calm tone for sleep, caffeine, recovery and secondary categorical tiles.
-// Replaces the scattered decorative candy-pink.
+// One calm tone for sleep, caffeine, recovery and secondary tiles.
 const Color wellnessTone = Color(0xFF6E93C9); // steel blue
 
 // --- Text + lines -----------------------------------------------------------
@@ -77,13 +71,11 @@ const Color textMuted = Color(0xFF8A8F99);
 const Color hairline = Color(0x1AFFFFFF);
 
 // --- DEPTH ------------------------------------------------------------------
-// Premium dark relies on tinted depth, never pure black. The shadow carries
-// the background hue so elevation reads as soft, not as a black halo.
+// Tinted depth, never pure black: the shadow carries the background hue.
 const Color shadowTint = Color(0x59060810);
 // A 1px inner top-edge highlight that gives surfaces a physical lit edge.
 const Color cardHighlight = Color(0x12FFFFFF);
-// Top-of-card sheen tone (sits between surface and surfaceSoft) for a faint
-// lit gradient from the top edge down into the card body.
+// Top-of-card sheen (between surface and surfaceSoft) for a lit gradient.
 const Color cardSheenTop = Color(0xFF181C24);
 
 /// Reusable soft elevation for raised surfaces (cards, sheets, pills).

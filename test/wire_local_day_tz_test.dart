@@ -1,31 +1,16 @@
-// Treiber fuer Schalter 4 aus docs/REVIEW-2026-08-08.md (G2):
-// `.toLocal()` an drei Stellen loeschen (logged_meal.dart:58,
-// meal_totals.dart:23, trend_service.dart:123).
+// Mutation driver for G2 (docs/REVIEW-2026-08-08.md): deleting `.toLocal()`
+// in logged_meal.dart:58, meal_totals.dart:23, trend_service.dart:123.
 //
-// WARUM `local_day_bucketing_test.dart` DIESEN SCHALTER NICHT FAENGT
+// `local_day_bucketing_test.dart` misses it: its meals are already local
+// (`isUtc == false`), and `.toLocal()` on a local DateTime is the identity.
+// In production `logged_at` arrives as UTC (`timestamptz`), which is where
+// those three calls matter.
 //
-// Der bestehende Test baut seine Mahlzeiten mit `DateTime(2026, 6, 4, 23, 45)`
-// — einem Wert, der bereits LOKAL ist (`isUtc == false`). `.toLocal()` auf
-// einem lokalen DateTime ist per Definition die Identitaet. Der Test kann die
-// Loeschung deshalb in KEINER Zeitzone sehen: er hat nie einen UTC-Wert in der
-// Hand. Produktiv kommt `loggedAt`/`logged_at` aber genau als UTC-Instanz vom
-// Server (`timestamptz` -> `2026-06-04T21:45:00Z`) — die drei `.toLocal()`
-// sind die Stelle, an der daraus wieder Ortszeit wird.
-//
-// WARUM DIESER TEST EINEN KINDPROZESS BRAUCHT
-//
-// Auf einer UTC-Maschine ist `.toLocal()` auch fuer UTC-Werte die Identitaet:
-// gleicher Instant, gleiche Wanduhr, gleicher Kalendertag. Es gibt dort
-// nachweislich KEINEN Eingabewert, der die drei Stellen mit und ohne
-// `.toLocal()` unterscheidet — alle drei muenden in `localDayKey`, das nur
-// Jahr/Monat/Tag liest. Die CI laeuft in UTC. Ein in-process-Test waere dort
-// also garantiert gruen, egal was in der Produktion steht.
-//
-// Der einzige portable Ausweg ist, die Zone des PROZESSES zu setzen. Deshalb
-// startet dieser Test `flutter test test/wire_local_day_probe.dart` mit
-// gesetztem `TZ` neu. Die Sonde weigert sich zu laufen, wenn der Offset dort
-// 0 ist — eine stillschweigend wirkungslose Zonen-Setzung kann also nicht als
-// gruen durchgehen.
+// A child process is needed because on a UTC machine `.toLocal()` is the
+// identity for UTC values too, so no in-process input distinguishes the
+// variants — and CI runs in UTC. Only the process's zone can be changed, so
+// this test re-runs the probe with `TZ` set. The probe refuses to run at
+// offset 0, so a silently ineffective zone cannot pass as green.
 
 import 'dart:io';
 
@@ -35,15 +20,13 @@ import 'wire_local_day_probe.dart' show zonenMarker;
 
 const String _sondenPfad = 'test/wire_local_day_probe.dart';
 
-/// POSIX-`TZ`-Kandidaten mit Offset != 0, in der Reihenfolge der Robustheit.
-/// `EST5EDT` liegt sowohl als tzdata-Datei auf Linux/macOS als auch als
-/// POSIX-Regel im Windows-CRT vor (verifiziert: Offset -4 h im Juni). Die
-/// weiteren sind reine POSIX-Regeln ohne Sommerzeit als Rueckfallebene.
+/// POSIX `TZ` candidates with offset != 0, most robust first. `EST5EDT`
+/// exists both as tzdata on Linux/macOS and as a POSIX rule in the Windows
+/// CRT; the rest are plain POSIX rules without DST as fallbacks.
 const List<String> _zonenKandidaten = <String>['EST5EDT', 'EST5', 'XXX-05'];
 
-/// Pfad zur `flutter`-Startdatei. Bevorzugt `FLUTTER_ROOT` (setzt das
-/// flutter-Tool fuer seine Kindprozesse), sonst aus dem laufenden
-/// Test-Executable hochgelaufen (`.../flutter/bin/cache/...`).
+/// Path to the `flutter` launcher: `FLUTTER_ROOT` first, else walked up from
+/// the running test executable.
 String? _flutterBinary() {
   final name = Platform.isWindows ? 'flutter.bat' : 'flutter';
 
@@ -64,7 +47,7 @@ String? _flutterBinary() {
     verzeichnis = eltern;
   }
 
-  // Letzte Rueckfallebene: der blanke Name, aufgeloest ueber PATH.
+  // Last resort: the bare name, resolved via PATH.
   return name;
 }
 
@@ -95,8 +78,8 @@ void main() {
           <String>['test', '--reporter=expanded', _sondenPfad],
           environment: <String, String>{
             'TZ': zone,
-            // Verhindert, dass der Kindprozess auf das Startup-Lock des
-            // laufenden `flutter test` wartet (das Lock haelt der Elternteil).
+            // Keeps the child from waiting on the startup lock held by the
+            // parent `flutter test`.
             'FLUTTER_ALREADY_LOCKED': 'true',
           },
           runInShell: Platform.isWindows,
@@ -106,9 +89,8 @@ void main() {
           ..writeln('--- TZ=$zone (exit ${ergebnis.exitCode}) ---')
           ..writeln(ausgabe);
 
-        // Die Zone hat nicht gegriffen -> naechster Kandidat. Ein FACHLICHER
-        // Fehlschlag traegt den Marker und faellt deshalb NICHT in diesen
-        // Zweig; er wird unten hart gemeldet.
+        // Zone did not take effect -> next candidate. A real failure carries
+        // the marker and is reported below instead.
         if (!ausgabe.contains(zonenMarker)) continue;
 
         expect(

@@ -1,19 +1,12 @@
-// End-to-End-Tests fuer handleRequest (handler.ts) mit gestubbtem fetch.
+// End-to-end tests for handleRequest (handler.ts) with a stubbed fetch,
+// covering the expensive paths: auth (401), both rate-limit gates (429 / 500
+// on limiter failure) and the image size/type checks (413 / 415).
 //
-// Bis zum Testbarkeits-Umbau (Komplettreview 2026-08-19) stand `Deno.serve`
-// zusammen mit der ganzen Logik in index.ts auf Modulebene: die Datei liess
-// sich nicht importieren, ohne einen Server zu starten. Fuer die teuersten
-// Pfade dieser Function gab es deshalb keinen einzigen Test — Auth (401), die
-// beiden Rate-Limit-Gates (429 / 500 bei Limiter-Ausfall) und die Groessen-
-// bzw. Typpruefung des Bildes (413 / 415). Genau die deckt diese Datei ab.
+// This works without a server because handler.ts reads its secrets PER
+// REQUEST, not at module load, so Deno.env.set in the test takes effect —
+// hence `deno test --allow-env` (already in the workflow).
 //
-// Warum das ohne Server geht: handler.ts liest die vier Request-Secrets PRO
-// REQUEST (readSecrets() in handleRequest), nicht mehr beim Modul-Load —
-// Deno.env.set im Test wirkt also. Deshalb braucht `deno test` hier
-// --allow-env (steht bereits im Workflow).
-//
-// Bewusst ohne externe Test-Dependencies (gleicher Stil wie
-// ../coach-chat/handler_test.ts).
+// No external test dependencies, same style as ../coach-chat/handler_test.ts.
 
 import { handleRequest } from './handler.ts';
 
@@ -22,25 +15,22 @@ const BASE_URL = 'https://supabase.test.invalid';
 const ANON_KEY = 'test-anon-key';
 const USER_JWT = 'test-user-jwt';
 
-// Bild-Nutzlast der Tests. Die Function DECODIERT das Base64 nie — sie reicht
-// es als data:-URL an den Provider weiter und prueft nur Zeichensatz
-// (/^[A-Za-z0-9+/]+=*$/) und geschaetzte Groesse. Deshalb genuegt ein
-// PNG-Praefix plus Fuellsequenz; sie muss nur ueber MIN_IMAGE_BYTES liegen
-// (128 Byte, also >= 171 Base64-Zeichen), sonst kommt image_too_small statt
-// des zu testenden Pfads.
+// Image payload of the tests. The function never DECODES the base64 — it
+// forwards it as a data: URL and only checks the character set and estimated
+// size. A PNG prefix plus padding suffices, but it must exceed
+// MIN_IMAGE_BYTES (128 bytes = 171 base64 chars) or image_too_small fires
+// instead of the path under test.
 const IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' + 'A'.repeat(200);
 
-// Ueber MAX_IMAGE_BYTES (5 MB): estimatedBytes = floor(len * 0.75), also
-// braucht es mehr als 6.666.666 Zeichen. Der JSON-Body bleibt damit noch
-// unter MAX_CONTENT_LENGTH (7 MB) — sonst schluege der Body-Cap zu und der
-// Bild-Cap bliebe ungetestet.
+// Over MAX_IMAGE_BYTES (5 MB): estimatedBytes = floor(len * 0.75), so more
+// than 6,666,666 chars are needed while the JSON body stays under
+// MAX_CONTENT_LENGTH (7 MB) — otherwise the body cap would fire first.
 const OVERSIZED_IMAGE_BASE64 = 'A'.repeat(6_700_000);
-// Ueber MAX_CONTENT_LENGTH (7 MB) inklusive JSON-Rahmen.
+// Over MAX_CONTENT_LENGTH (7 MB) including the JSON frame.
 const OVERSIZED_BODY_IMAGE_BASE64 = 'A'.repeat(7_200_000);
 
-// Antwort des Modells im Erfolgsfall. Die drei Zahlen sind bewusst
-// widerspruchsfrei (780 * 100 / 300 = 260), damit der Mismatch-Warner aus
-// normalize.ts hier nicht anspringt und das Log sauber bleibt.
+// The model's response on success. The numbers are consistent
+// (780 * 100 / 300 = 260) so the mismatch warner in normalize.ts stays quiet.
 const MODEL_RESULT = {
   mealName: 'Steak mit Kartoffeln',
   caloriesKcal: 780,
@@ -71,20 +61,20 @@ interface RecordedCall {
 }
 
 interface StubOptions {
-  /** HTTP-Status des /auth/v1/user-Lookups (Auth-Fehlschlag-Simulation). */
+  /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
   /**
-   * Body des /auth/v1/user-Lookups. Fuer den 200-mit-unbrauchbarer-Id-Fall:
-   * ein Auth-Server, der antwortet, aber keine verwertbare Identitaet liefert.
+   * Body of the /auth/v1/user lookup — for the 200-with-unusable-id case: an
+   * auth server that answers but yields no usable identity.
    */
   authBody?: JsonRecord;
-  /** Antwort des IP-Gates (Default: erlaubt). */
+  /** Answer of the IP gate (default: allowed). */
   ipAllowed?: boolean;
-  /** Antwort des User-Gates (Default: erlaubt). */
+  /** Answer of the user gate (default: allowed). */
   userAllowed?: boolean;
   /**
-   * consume_edge_rate_limit antwortet mit 200, aber ohne lesbares `allowed`
-   * (Sentinel-Rest E6): ein Limiter-Ausfall, kein gemessenes Limit.
+   * consume_edge_rate_limit answers 200 but without a readable `allowed`
+   * (E6): a limiter outage, not a measured limit.
    */
   rateLimitBroken?: boolean;
 }
@@ -93,7 +83,7 @@ interface FetchStub {
   calls: RecordedCall[];
   openRouterBodies: JsonRecord[];
   callsTo(fragment: string): RecordedCall[];
-  /** Scopes der consume_edge_rate_limit-Aufrufe, in Aufrufreihenfolge. */
+  /** Scopes of the consume_edge_rate_limit calls, in call order. */
   rateLimitScopes(): string[];
   restore(): void;
 }
@@ -137,9 +127,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
         : options.userAllowed ?? true;
       const limit = Number(params.p_limit);
       const windowSeconds = Number(params.p_window_seconds);
-      // Limit/Window aus dem Request spiegeln, statt die Defaults zu
-      // verdrahten: die kommen aus positiveIntFromEnv beim Modul-Load und
-      // liessen sich vom Test gar nicht mehr setzen.
+      // Mirror limit/window from the request instead of hardcoding the
+      // defaults: those come from positiveIntFromEnv at module load and the
+      // test could no longer set them.
       return jsonRes({
         allowed,
         limit,
@@ -191,7 +181,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
 
 interface RequestOptions {
   method?: string;
-  /** null = Header weglassen (fehlender Bearer-Token). */
+  /** null = omit the header (missing bearer token). */
   authorization?: string | null;
   contentType?: string | null;
 }
@@ -248,8 +238,8 @@ Deno.test('fehlender Authorization-Header -> 401 ohne Auth-Roundtrip', async () 
     assertEquals(res.status, 401, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'missing_bearer_token', 'Fehlercode');
-    // Ein Request ohne Bearer-Header ist lokal entscheidbar: er darf keinen
-    // Auth-Lookup kosten.
+    // A request without a bearer header is decidable locally and must not
+    // cost an auth lookup.
     assertEquals(stub.callsTo('/auth/v1/user').length, 0, 'Auth-Lookups');
   } finally {
     stub.restore();
@@ -265,10 +255,9 @@ Deno.test('Anon-Key als Token -> 401 user_token_required, ohne Auth-Roundtrip', 
     assertEquals(res.status, 401, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'user_token_required', 'Fehlercode');
-    // Der oeffentliche Anon-Key steckt in jeder App-Kopie. Er ist lokal
-    // bekannt und darf deshalb keinen Auth-Roundtrip ausloesen — sonst waere
-    // die Function mit einem oeffentlich bekannten Wert beliebig oft
-    // anonym belastbar.
+    // The public anon key ships in every app copy: it is known locally and
+    // must not trigger an auth roundtrip, otherwise the function could be
+    // loaded anonymously with a publicly known value.
     assertEquals(stub.callsTo('/auth/v1/user').length, 0, 'Auth-Lookups');
   } finally {
     stub.restore();
@@ -290,9 +279,9 @@ Deno.test('abgelehnter Token -> 401 invalid_user_token', async () => {
 });
 
 Deno.test('Auth-200 ohne brauchbare User-Id -> 401 invalid_user_token', async () => {
-  // Ein Auth-Server, der 200 antwortet, aber keine verwertbare Identitaet
-  // liefert, darf nicht als "eingeloggt" durchgehen: die Id landet sonst als
-  // Rate-Limit-Subjekt in der DB.
+  // An auth server that answers 200 without a usable identity must not count
+  // as logged in — the id would otherwise land in the DB as rate-limit
+  // subject.
   const stub = installFetch({ authBody: { id: 'kurz' } });
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
@@ -321,8 +310,8 @@ Deno.test('IP-Limit erschoepft -> 429 mit retry-after, ohne bezahlten Provider-C
     );
 
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
-    // Nach einem abgelehnten IP-Gate darf das User-Gate gar nicht mehr
-    // konsumieren — sonst verbraucht eine geblockte IP fremde User-Budgets.
+    // After a rejected IP gate the user gate must not consume anything, or a
+    // blocked IP would burn other users' budgets.
     assertEquals(stub.rateLimitScopes().join(','), 'analyze-meal:ip', 'Gate-Reihenfolge');
   } finally {
     stub.restore();
@@ -348,8 +337,8 @@ Deno.test('User-Limit erschoepft -> 429 nach beiden Gates', async () => {
 });
 
 Deno.test('Limiter antwortet 200 ohne allowed -> 500 rate_limit_unavailable', async () => {
-  // Sentinel-Rest E6: ein kaputter Antwort-Shape ist ein AUSFALL des
-  // Limiters, kein gemessenes Limit — der Request darf nicht durchrutschen.
+  // E6: a broken response shape is a limiter OUTAGE, not a measured limit —
+  // the request must not slip through.
   const stub = installFetch({ rateLimitBroken: true });
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
@@ -376,10 +365,9 @@ Deno.test('zu grosses Bild -> 413 image_too_large, ohne bezahlten Provider-Call'
 });
 
 Deno.test('Body ueber dem Cap -> 413 payload_too_large', async () => {
-  // Bewusst ohne Aussage darueber, WELCHER der beiden Caps greift: ob die
-  // Runtime dem Request ein content-length mitgibt (Fast-Path
-  // enforceContentLength) oder nicht (harter Cap in readBodyLimited), ist
-  // Plattformsache — die Antwort ist in beiden Faellen dieselbe.
+  // Deliberately silent about WHICH cap fires: whether the runtime supplies a
+  // content-length (fast path) or not (hard cap in readBodyLimited) is
+  // platform-dependent, and the answer is the same either way.
   const stub = installFetch();
   try {
     const res = await handleRequest(makeRequest({ imageBase64: OVERSIZED_BODY_IMAGE_BASE64 }));
@@ -408,8 +396,8 @@ Deno.test('falscher content-type -> 415 unsupported_content_type', async () => {
 });
 
 Deno.test('fehlendes Provider-Secret -> 500 provider_not_configured, ohne Roundtrip', async () => {
-  // Zugleich der Nachweis, dass die Secrets PRO REQUEST gelesen werden: beim
-  // Modul-Load waere der Wert laengst eingefroren und dieses delete folgenlos.
+  // Also proves the secrets are read PER REQUEST: at module load the value
+  // would be frozen and this delete would have no effect.
   const stub = installFetch();
   const previous = Deno.env.get('OPENROUTER_API_KEY') ?? '';
   Deno.env.delete('OPENROUTER_API_KEY');
@@ -455,11 +443,10 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
       'analyze-meal:ip,analyze-meal:user',
       'Gate-Reihenfolge',
     );
-    // Die Tabellen-Hygiene laeuft fire-and-forget mit (und darf den Request
-    // nicht abreissen, s. ../_shared/rate_limit_prune.ts).
+    // Table hygiene runs fire-and-forget and must not tear down the request.
     assertEquals(stub.callsTo('prune_edge_rate_limits').length, 1, 'Prune-Calls');
 
-    // Shape des Provider-Requests: hier haengt das Geld dran.
+    // Shape of the provider request: this is what costs money.
     assertEquals(stub.openRouterBodies.length, 1, 'Provider-Calls');
     const providerBody = stub.openRouterBodies[0];
     assertEquals(providerBody.max_tokens, 4096, 'max_tokens');

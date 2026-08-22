@@ -19,10 +19,9 @@ class HealthConnectionCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final isGranted = state == HealthAuthState.granted;
-    // Review B3: „verbunden, aber es kommen keine Daten". Apple meldet das
-    // Berechtigungs-Sheet als Erfolg, sobald es angezeigt wurde — auch wenn der
-    // Nutzer keinen Schalter umgelegt hat. Dieser Zustand darf deshalb NICHT
-    // wie „granted" aussehen, sondern muss zur richtigen Handlung führen.
+    // Review B3: "connected but no data arrives". Apple reports the permission
+    // sheet as success once shown, even if no toggle was flipped, so this state
+    // must not look like "granted".
     final isUnverified = state == HealthAuthState.unverified;
     final isDenied = state == HealthAuthState.denied;
     final isUnsupported = state == HealthAuthState.unsupported;
@@ -43,9 +42,8 @@ class HealthConnectionCard extends StatelessWidget {
                 : isUnsupported
                     ? l10n.profileHealthUnsupportedHint
                     : l10n.profileHealthSetupHint;
-    // „Prüfen" statt „Verbinden", sobald wir schon einmal gefragt haben: iOS
-    // zeigt das Sheet kein zweites Mal, der Tap re-verifiziert stattdessen die
-    // Signale — genau das, was nach einem Besuch in den Einstellungen zählt.
+    // "Check" instead of "Connect" once asked: iOS never shows the sheet twice,
+    // so the tap re-verifies the signals after a trip to Settings.
     final actionLabel = needsAttention
         ? l10n.profileHealthActionCheck
         : l10n.profileHealthActionConnect;
@@ -71,8 +69,8 @@ class HealthConnectionCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  // 3 Zeilen, weil der Einstellungs-Pfad im unverifizierten /
-                  // entzogenen Fall vollständig lesbar bleiben muss.
+                  // 3 lines so the Settings path stays fully readable in the
+                  // unverified/denied case.
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: AppType.ui(
@@ -117,12 +115,11 @@ class HealthConnectionCard extends StatelessWidget {
   }
 }
 
-/// Kleiner, gefuellter Knopf fuer eine Aktion IN einer Karte.
+/// Small filled button for an action inside a card.
 ///
-/// Bewusst nicht [PrimaryActionButton]: der ist die Hauptaktion einer Seite
-/// (54 px hoch, volle Breite) und wuerde eine Karten-Zeile erschlagen. Der Key
-/// wandert als [buttonKey] auf das aeusserste Material, damit ein Tap in der
-/// Mitte den InkWell trifft.
+/// Not [PrimaryActionButton]: that one is a page's main action (54 px, full
+/// width) and would swamp a card row. [buttonKey] sits on the outermost
+/// Material so a tap in the middle hits the InkWell.
 class _CompactButton extends StatelessWidget {
   const _CompactButton({
     required this.buttonKey,
@@ -157,23 +154,11 @@ class _CompactButton extends StatelessWidget {
   }
 }
 
-// Hier stand bis 2026-08-10 `ProfileActionsCard` — die Gruppe „Daten & Konto"
-// mit sechs Zeilen (`profile-action-edit/-reset/-export/-about/-logout/
-// -delete`). Sie ist auf Nutzer-Entscheid entfallen, weil sie die Einstellungen
-// doppelte:
-//
-//   * „Profil & Ziele"     -> `settings-open-goals`
-//   * „Daten exportieren"  -> `settings-export`
-//   * „Ausloggen"          -> `settings-sign-out`
-//   * „Konto löschen"      -> `settings-delete-account`
-//   * „Über Eatova"        -> `settings-about` (samt Sheet UMGEZOGEN, nicht
-//                             geloescht: es traegt die ODbL-Quellennennung
-//                             und die Datenschutz-Zeile nach DSGVO Art. 13)
-//   * „Tagesdaten zurücksetzen" -> ersatzlos entfallen, mitsamt
-//                             `HomeStore.resetTodayData` und
-//                             `settings-reset-day`.
-//
-// Die Wege in die Einstellungen fuehren jetzt ueber das Zahnrad im Profil-Kopf
-// (`profile-open-settings`) und den Food-Kopf (`topbar-settings`); die Wege zu
-// den Zielen ueber `profile-goalplan-edit` und `profile-edit-goals`. Beides
-// haelt `test/settings_erreichbarkeit_test.dart` fest.
+// `ProfileActionsCard` (the "data & account" group) is gone; it duplicated the
+// settings page. Its rows now live as `settings-open-goals`, `settings-export`,
+// `settings-sign-out`, `settings-delete-account` and `settings-about` (the
+// about sheet moved, not deleted — it carries the ODbL attribution and the
+// GDPR Art. 13 privacy line); reset-day dropped entirely.
+// Settings are reached via `profile-open-settings` and `topbar-settings`, goals
+// via `profile-goalplan-edit` / `profile-edit-goals`; pinned by
+// `test/settings_erreichbarkeit_test.dart`.

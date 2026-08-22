@@ -3,16 +3,13 @@ import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// B8, Sync-Haelfte: `MealComponent` traegt seit Welle 2 optionale Makros
-/// (`proteinG`/`carbsG`/`fatG`). Nur wenn **alle** Posten sie tragen, darf
-/// `adjustedToItems` die Makros der Mahlzeit aus den Posten aufsummieren —
-/// sonst gilt „unbekannt" und es wird nichts erfunden.
+/// B8, sync half: `MealComponent` carries optional macros
+/// (`proteinG`/`carbsG`/`fatG`); `adjustedToItems` may sum them only when
+/// **all** items have them, otherwise the meal stays "unknown".
 ///
-/// `meals_sync` hat eine EIGENE Serialisierung, getrennt von
-/// `MealComponent.toJson`. Fielen die Makros dort durch, waere der Effekt
-/// still und asymmetrisch: direkt nach dem Bearbeiten stimmen die Makros,
-/// nach dem naechsten Kaltstart (Server-Load) stehen sie auf `-`. Der Nutzer
-/// saehe seine gerade korrigierten Werte verschwinden, ohne Fehlermeldung.
+/// `meals_sync` serializes separately from `MealComponent.toJson`, so losing
+/// macros there would fail silently: correct right after editing, `-` after
+/// the next cold start.
 void main() {
   const salatMitOel = MealAnalysisResult(
     mealName: 'Salat mit Hähnchen',
@@ -67,8 +64,8 @@ void main() {
     final zurueck = mealResultFromJson(mealResultToJson(salatMitOel));
 
     expect(zurueck.items.every((c) => c.hasMacros), isTrue);
-    // Das Szenario aus B8: 20 g Olivenoel bedeuten ~32 g Fett insgesamt.
-    // Massenskalierung (factor 1,05) haette 12,6 g ergeben.
+    // B8 scenario: 20 g of oil mean ~32 g fat overall; mass scaling
+    // (factor 1.05) would have produced 12.6 g.
     expect(zurueck.adjustedToItems(zurueck.items).fat, '32 g');
   });
 
@@ -99,7 +96,7 @@ void main() {
   });
 
   test('B8: Alt-Zeilen ohne Makro-Schluessel laden weiterhin sauber', () {
-    // Zeilen, die vor Welle 2 geschrieben wurden.
+    // Rows written before wave 2.
     final alt = <String, dynamic>{
       'mealName': 'Alte Zeile',
       'caloriesKcal': 500,

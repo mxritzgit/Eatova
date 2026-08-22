@@ -5,16 +5,15 @@ import '../../theme/app_tokens.dart';
 import 'controls.dart';
 
 // ---------------------------------------------------------------------------
-// ZEILEN — Seitenkopf, Einstellungsgruppe, Einstellungszeile.
+// ROWS — page header, settings group, settings row.
 //
-// Geometrie 1:1 aus der Design-Vorlage; Farben aus [AppTokens].
+// Geometry 1:1 from the design template; colors from [AppTokens].
 // ---------------------------------------------------------------------------
 
-/// Der Kopf einer Unterseite: Zurueck-Knopf plus Titel.
+/// Header of a subpage: back button plus title.
 ///
-/// [title] setzt einen kleinen, mittigen Titel (Profil), [large] einen grossen
-/// linksbuendigen (Einstellungen). Beides zugleich zu setzen ist sinnlos —
-/// [large] gewinnt.
+/// [title] sets a small centered title, [large] a big left-aligned one. Setting
+/// both is pointless — [large] wins.
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
@@ -29,11 +28,11 @@ class PageHeader extends StatelessWidget {
   final String? large;
   final Widget? trailing;
 
-  /// Standard ist [NavigatorState.maybePop]; Screens mit ungespeicherten
-  /// Aenderungen haengen hier ihre Rueckfrage ein.
+  /// Defaults to [NavigatorState.maybePop]; screens with unsaved changes hook
+  /// their discard prompt in here.
   final VoidCallback? onBack;
 
-  /// Wandert an den Zurueck-Knopf (Tests tippen z.B. `profile-close`).
+  /// Goes on the back button (tests tap e.g. `profile-close`).
   final Key? backKey;
 
   @override
@@ -45,14 +44,10 @@ class PageHeader extends StatelessWidget {
           key: backKey,
           icon: Icons.chevron_left_rounded,
           onTap: onBack ?? () => Navigator.of(context).maybePop(),
-          // Umlaut, kein „ue": ein Semantics-Label ist GESPROCHENER Text —
-          // TalkBack liest „Zurueck" als „zurookk" vor. Gleiche Korrektur wie
-          // in today_day_strip.dart („Tag zurück") und today_screen.dart
-          // („Profil öffnen"). Konsolidiert mit onboarding_screen.dart: der
-          // Onboarding-Zurueck-Knopf traegt denselben deutschen Text —
-          // [onboardingBackSemanticLabel] wiederverwendet statt einen
-          // gleichbedeutenden zweiten Key (z.B. commonBackSemantics)
-          // anzulegen.
+          // Reuses [onboardingBackSemanticLabel] instead of adding a second key
+          // with the same meaning; the onboarding back button carries identical
+          // text. A semantics label is SPOKEN text, so it must use real
+          // umlauts — TalkBack reads "Zurueck" as "zurookk".
           semanticLabel: context.l10n.onboardingBackSemanticLabel,
         ),
         if (large != null) ...<Widget>[
@@ -76,16 +71,15 @@ class PageHeader extends StatelessWidget {
         if (trailing != null)
           trailing!
         else if (large == null)
-          // Gegengewicht zum Zurueck-Knopf, damit der mittige Titel wirklich
-          // mittig steht.
+          // Counterweight to the back button so the centered title really is
+          // centered.
           const SizedBox(width: 34),
       ],
     );
   }
 }
 
-/// Karte mit Versalien-Beschriftung darueber; Kinder werden durch 1-px-Linien
-/// getrennt.
+/// Card with an all-caps label above it; children separated by 1 px lines.
 class SettingsGroup extends StatelessWidget {
   const SettingsGroup({
     super.key,
@@ -132,7 +126,7 @@ class SettingsGroup extends StatelessWidget {
   }
 }
 
-/// Eine Zeile in einer [SettingsGroup].
+/// A row inside a [SettingsGroup].
 class SettingsRow extends StatelessWidget {
   const SettingsRow({
     super.key,
@@ -149,7 +143,7 @@ class SettingsRow extends StatelessWidget {
   final String title;
   final String? subtitle;
 
-  /// Rechtsbuendiger Zustandstext („Metrisch", „An").
+  /// Right-aligned state text ("Metric", "On").
   final String? value;
 
   final Widget? leading;
@@ -157,8 +151,8 @@ class SettingsRow extends StatelessWidget {
   final bool chevron;
   final VoidCallback? onTap;
 
-  /// Faerbt den Titel um (z.B. [AppTokens.danger] fuer zerstoerende Zeilen)
-  /// und zieht ihn dabei eine Gewichtsstufe hoeher.
+  /// Recolors the title (e.g. [AppTokens.danger] for destructive rows) and
+  /// bumps it one weight step.
   final Color? titleColor;
 
   @override
@@ -191,9 +185,8 @@ class SettingsRow extends StatelessWidget {
                 ],
               ),
             ),
-            // Abweichung von der Vorlage: dort steht der Wert starr in der
-            // Zeile. Bei textScaler 2.0 braucht er Nachgiebigkeit, sonst
-            // sprengt eine lange E-Mail-Adresse die Zeile.
+            // Deviates from the template, where the value is rigid: at
+            // textScaler 2.0 a long e-mail address would overflow the row.
             if (value != null)
               Flexible(
                 child: Padding(

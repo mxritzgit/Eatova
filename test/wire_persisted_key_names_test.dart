@@ -10,26 +10,17 @@ import 'package:eatova/src/services/secure_cache_store.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// G2, sechster Schalter — von Agent W5-02 gefunden.
+/// Persisted key names are a WIRE FORMAT: they exist on every installed
+/// device, and renaming one loses the old data for good.
 ///
-/// Persistierte Schluesselnamen sind ein **Wire-Format**: sie stehen auf dem
-/// Geraet jeder bestehenden Installation. Wer einen umbenennt, findet die
-/// alten Daten nie wieder.
+/// A one-token rename of `CacheKeyProvider.dekStorageKey` once left 74 tests
+/// green, because every test compared the constant against itself. The result
+/// of such a silent rename: `keyStore.read` finds nothing while the sentinel
+/// still says "provisioned", so the app runs permanently without a cache — no
+/// data loss, but every existing install is degraded unnoticed.
 ///
-/// `CacheKeyProvider.dekStorageKey` war der Beleg dafuer, dass genau diese
-/// Klasse ungeprueft war: eine Ein-Token-Umbenennung liess **74 Tests gruen**,
-/// weil jeder Test die Konstante gegen sich selbst prueft. Der Schwester-
-/// Schluessel `dekProvisionedKey` war zufaellig als Literal gepinnt, dieser
-/// nicht.
-///
-/// Folge einer stillen Umbenennung des DEK-Schluessels: `keyStore.read` findet
-/// nichts, das Sentinel sagt aber weiter „provisioned" — der A1-Abbruchzweig
-/// greift korrekt und die App laeuft **dauerhaft ohne Cache**. Kein
-/// Datenverlust (der Ciphertext bleibt liegen), aber jede bestehende
-/// Installation waere permanent verschlechtert, ohne dass ein Test es meldet.
-///
-/// Deshalb steht hier jedes Literal ausgeschrieben. Ein Test, der
-/// `expect(X.key, X.key)` prueft, ist wertlos — die Zeichenkette ist der Punkt.
+/// Hence every literal is spelled out here. `expect(X.key, X.key)` is
+/// worthless; the string itself is the point.
 void main() {
   group('persistierte Schluesselnamen sind festgenagelt', () {
     test('Secure Storage: DEK und Sentinel', () {
@@ -58,9 +49,9 @@ void main() {
     });
 
     group('Cache-Slots pro Nutzer', () {
-      // Die Slot-Getter sind privat; geprueft wird deshalb, was tatsaechlich
-      // im Speicher landet. Das ist ohnehin die belastbarere Ebene — sie
-      // faengt auch eine geaenderte Zusammensetzung aus Praefix und User-ID.
+      // The slot getters are private, so the assertions look at what actually
+      // lands in storage — the stronger level anyway, since it also catches a
+      // changed composition of prefix and user id.
       late InMemoryKeyValueStore store;
       late LocalCache cache;
 
@@ -69,14 +60,8 @@ void main() {
         cache = LocalCache(store, 'user-42');
       });
 
-      /// Schreibt in JEDEN Slot, den `LocalCache` kennt.
-      ///
-      /// Die erste Fassung dieses Tests hiess „jeder geschriebene Slot traegt
-      /// seinen erwarteten Namen" und schrieb genau EINEN — der Doc-Kommentar
-      /// oben geisselt Tests, die eine Konstante gegen sich selbst pruefen,
-      /// und der Test machte dann die abgeschwaechte Variante desselben
-      /// Fehlers (Verifizierer V4). Wer hier einen Slot ergaenzt, muss ihn
-      /// unten mitnehmen — sonst faellt der Vollstaendigkeits-Test.
+      /// Writes to EVERY slot `LocalCache` knows. Adding a slot here means
+      /// adding it to the expected list below, or the completeness test fails.
       Future<void> alleSlotsFuellen(LocalCache c) async {
         await c.writeNotificationsEnabled(true);
         await c.writeProfile(const UserProfile());
@@ -92,8 +77,8 @@ void main() {
       test('jeder Slot traegt exakt seinen erwarteten Namen', () async {
         await alleSlotsFuellen(cache);
 
-        // Ausgeschrieben, nicht aus den Gettern abgeleitet — die Zeichenkette
-        // IST der Vertrag mit jeder bestehenden Installation.
+        // Spelled out, not derived from the getters: the string IS the
+        // contract with every existing install.
         const erwartet = <String>{
           'eatova.v1.notifications_enabled.user-42',
           'eatova.v1.profile.user-42',
@@ -103,12 +88,10 @@ void main() {
           'eatova.v1.weight_log.user-42',
           'eatova.v1.outbox.user-42',
           'eatova.v1.pending_stats.user-42',
-          // Luecke A, neu: bis hierher hielt diese Liste die Luecke als SOLL
-          // fest — acht Slots, und `user_recipes` war keiner davon. Eigen-
-          // Rezepte hingen deshalb allein an der Outbox und waren weg, sobald
-          // die ihre Schuldigkeit getan hatte. Der Name ist ab jetzt Wire-
-          // Format: wer ihn umbenennt, laesst die Rezepte jeder bestehenden
-          // Installation beim naechsten Start ohne Netz verschwinden.
+          // This list once pinned a gap as the target: user recipes had no
+          // slot and hung on the outbox alone, vanishing once it drained.
+          // Renaming this key makes every install's recipes disappear on the
+          // next offline start.
           'eatova.v1.user_recipes.user-42',
         };
 

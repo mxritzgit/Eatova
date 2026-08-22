@@ -16,32 +16,24 @@ class MealComponent {
   final int caloriesKcal;
   final double? kcalPer100G;
 
-  /// Makros dieses Bestandteils in Gramm — optional, weil weder das
-  /// Scan-Modell noch der Bestandteil-Dialog sie heute liefern.
-  /// `null` heisst ausdruecklich "unbekannt", nicht "0 g".
+  /// Macros of this component in grams; optional because neither the scan
+  /// model nor the component dialog supply them. `null` means unknown, not 0 g.
   final double? proteinG;
   final double? carbsG;
   final double? fatG;
 
-  /// `true`, wenn dieser Posten eine vollstaendige Makro-Angabe traegt.
-  /// Nur dann darf `MealAnalysisResult.adjustedToItems` die Makros der
-  /// Mahlzeit aus den Posten aufsummieren.
+  /// `true` if this item carries complete macros — the precondition for
+  /// `MealAnalysisResult.adjustedToItems` summing macros from the items.
   bool get hasMacros => proteinG != null && carbsG != null && fatG != null;
 
   String get gramsLabel => '$grams g';
   String get caloriesLabel => '$caloriesKcal kcal';
 
-  /// kcal/100 g, sofern der Wert ueberhaupt brauchbar ist — sonst `null`.
+  /// kcal/100 g if usable, else `null` (docs/REVIEW-2026-08-08.md, B1).
   ///
-  /// Drei Faelle gelten alle als "fehlt" (docs/REVIEW-2026-08-08.md, B1):
-  ///
-  /// * `null` — der Schluessel fehlt oder ist explizit `null`.
-  /// * `<= 0` — der Server klemmte nicht parsebare Modellwerte auf die
-  ///   Untergrenze `0`, und `-1` klemmt er weiterhin auf `0`. Ein `??` haette
-  ///   hier nie gefeuert, weil `0.0` nicht `null` ist. Genau daran hingen die
-  ///   0-kcal-Eintraege.
-  /// * `> 900` — physikalisch unmoeglich (reines Fett), praktisch immer die
-  ///   kJ-Zahl im kcal-Feld.
+  /// Three cases count as missing: `null`; `<= 0`, because the server clamps
+  /// unparsable values to `0` and `??` never fires on `0.0` (the source of the
+  /// 0-kcal entries); and `> 900`, in practice a kJ figure in a kcal field.
   double? get effectiveKcalPer100G {
     final wert = kcalPer100G;
     if (wert == null || !wert.isFinite || wert <= 0) {
@@ -50,14 +42,11 @@ class MealComponent {
     return isPlausibleKcalPer100G(wert) ? wert : null;
   }
 
-  /// Rechnet diesen Posten auf [adjustedGrams] um.
+  /// Rescales this item to [adjustedGrams].
   ///
-  /// `caloriesKcal` ist autoritativ: es ist die Zahl, die der Nutzer auf der
-  /// Karte gesehen und mit "Anpassen" bestaetigt hat. Die Dichte ist im
-  /// Modellergebnis ein unabhaengig geklemmtes Nebenfeld und wird nur dann
-  /// zur Bezugsgroesse, wenn sich aus Kalorien und Gramm nichts herleiten
-  /// laesst. Dadurch gilt die Invariante: `adjustedToGrams(grams)` aendert
-  /// die Kalorien nicht.
+  /// `caloriesKcal` is authoritative — the number the user saw and confirmed.
+  /// Density is only used when calories and grams yield nothing, which keeps
+  /// the invariant that `adjustedToGrams(grams)` does not change the calories.
   MealComponent adjustedToGrams(int adjustedGrams) {
     final zielGramm = clampPortionGrams(adjustedGrams);
     final dichte = effectiveKcalPer100G;
@@ -97,8 +86,8 @@ class MealComponent {
         ]) ??
         _extractFirstInt(json['grams']?.toString()) ??
         0;
-    // Die Dichte wird geklemmt gelesen: 0 und die kJ-Zahl im kcal-Feld sind
-    // beides "unbekannt", nicht "0 kcal/100 g".
+    // Density is read clamped: 0 and a kJ figure in the kcal field both mean
+    // unknown, not 0 kcal/100 g.
     final rohDichte = _readDouble(json, const [
       'kcalPer100G',
       'caloriesPer100G',

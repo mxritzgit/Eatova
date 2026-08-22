@@ -1,25 +1,21 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// Ruft die native Fenster-Absicherung auf: `true` = sicher (Android
-/// FLAG_SECURE / iOS Snapshot-Cover), `false` = wieder frei.
+/// Calls the native window safeguard: `true` = secure (Android FLAG_SECURE /
+/// iOS snapshot cover), `false` = released.
 typedef SecureScreenInvoker = Future<void> Function(bool secure);
 
-/// Schutz gegen Screenshots und das Vorschaubild im App-Umschalter für
-/// sensible Screens (Sicherheits-Audit 2026-08-09): der 8-stellige Code,
-/// das Passwort-Feld und die Gesundheitsdaten sollen nicht im
-/// Android-Recents-Thumbnail bzw. iOS-App-Switcher-Snapshot auftauchen.
+/// Blocks screenshots and the app-switcher preview on sensitive screens
+/// (security audit 2026-08-09): OTP code, password field and health data.
 ///
-/// **Ref-gezählt**: nur der Übergang 0↔1 löst den nativen Aufruf aus. So
-/// löscht das Verlassen eines verschachtelten Guards (z. B. AuthCodeScreen
-/// über AuthScreen) das Flag nicht, solange der äußere Screen noch sichtbar
-/// ist. Der native Kanal ist auf Desktop/Web/Test nicht registriert — dort
-/// ist alles ein gefahrloses No-Op.
+/// Ref-counted — only the 0↔1 transition calls native, so leaving a nested
+/// guard does not clear the flag while the outer screen is still visible. The
+/// native channel is unregistered on desktop/web/test, where this is a no-op.
 class SecureScreen {
   SecureScreen({SecureScreenInvoker? invoker})
       : _invoke = invoker ?? _platformInvoke;
 
-  /// Prozessweiter Zähler — alle Guards teilen sich diese Instanz.
+  /// Process-wide counter — all guards share this instance.
   static final SecureScreen instance = SecureScreen();
 
   static const MethodChannel _channel = MethodChannel('eatova/secure_screen');
@@ -34,9 +30,9 @@ class SecureScreen {
     try {
       await _channel.invokeMethod<void>(secure ? 'enable' : 'disable');
     } on MissingPluginException {
-      // Desktop/Web/Test: kein natives Gegenstück → No-Op.
+      // Desktop/web/test: no native counterpart, so no-op.
     } on PlatformException {
-      // Ein Fenster-Flag darf den UI-Fluss nie zum Absturz bringen.
+      // A window flag must never crash the UI flow.
     }
   }
 
@@ -52,15 +48,14 @@ class SecureScreen {
   }
 }
 
-/// Umschließt einen sensiblen Screen: hält das native Sicher-Flag, solange
-/// der Screen im Baum ist. Beim Unmount (Zurück-Navigation, Logout) gibt er
-/// es wieder frei.
+/// Wraps a sensitive screen: holds the native secure flag while the screen is
+/// in the tree and releases it on unmount.
 class SecureScreenGuard extends StatefulWidget {
   const SecureScreenGuard({super.key, required this.child, this.secureScreen});
 
   final Widget child;
 
-  /// Test-Naht; Produktion nutzt [SecureScreen.instance].
+  /// Test seam; production uses [SecureScreen.instance].
   final SecureScreen? secureScreen;
 
   @override

@@ -1,49 +1,23 @@
-// AUDIT 2026-08-14 — fernausloesbare Fehlerberichte ueber die Deeplink-ROUTE.
+// Audit 2026-08-14 — remotely triggerable error reports via the deeplink
+// ROUTE. The BROWSABLE intent filter lets any app or web page send
+// `eatova://…`.
 //
-// Zweiter, unabhaengiger Ausgang derselben Angriffsflaeche wie
-// `test/auth_deeplink_predicate_test.dart`: der Intent-Filter in
-// `android/app/src/main/AndroidManifest.xml` ist BROWSABLE, jede fremde App
-// und jede Webseite darf `eatova://…` schicken.
+// Android hands such a URI not only to `app_links` (where the session
+// predicate already applies) but ALSO as a route over
+// `SystemChannels.navigation`. With no `routes:`, `onGenerateRoute` or
+// `onUnknownRoute`, `didPushRouteInformation` -> `pushNamed` threw "Could not
+// find a generator for route", which reaches Sentry via the global handlers.
+// No data loss, but an attacker could flood the error budget remotely.
 //
-// Am 2026-08-14 auf dem Emulator reproduziert:
+// Checked on three levels:
 //
-//   adb shell am start -a android.intent.action.VIEW \
-//     -d "eatova://login-callback/#access_token=FAKE&refresh_token=FAKE&token_type=bearer"
-//
-// Android reicht so eine URI beim `onNewIntent` NICHT nur an `app_links`
-// weiter (dort greift laengst das Session-Praedikat aus
-// `EatovaSupabaseConfig.isOAuthCallbackDeeplink`), sondern ZUSAETZLICH als
-// Route ueber `SystemChannels.navigation`. Aus dem Fragment wird der
-// Routenname `/#access_token=FAKE&refresh_token=FAKE&token_type=bearer`, und
-// weil die App weder `routes:` noch `onGenerateRoute` noch `onUnknownRoute`
-// kennt, warf `_WidgetsAppState.didPushRouteInformation` -> `pushNamed`:
-//
-//   EXCEPTION CAUGHT BY WIDGETS LIBRARY
-//   … while dispatching notifications for
-//   WidgetsBindingObserver.didPushRouteInformation:
-//   Could not find a generator for route RouteSettings("/#access_token=…")
-//   in the _WidgetsAppState. … Unfortunately, onUnknownRoute was not set.
-//
-// Das laeuft ueber `FlutterError.reportError` in die globalen Handler aus
-// `main.dart:131-142` und damit in Sentry. Kein Datenverlust — aber ein
-// Angreifer kann aus der Ferne beliebig viele Fehlerberichte erzeugen und die
-// echten Meldungen im Fehlerbudget zudecken.
-//
-// Geprueft wird auf drei Ebenen:
-//
-//   1. GEGENPROBE: dass dieselbe Route auf einer nackten `MaterialApp` mit
-//      `home:` immer noch wirft. Ohne diesen Fall koennte der Test gruen
-//      bleiben, weil die Route gar nicht mehr zugestellt wird (falscher
-//      Kanal, falsches Nachrichtenformat) — und wir haetten einen Waechter,
-//      der nichts bewacht.
-//   2. Dass `EatovaApp` sie STILL schluckt: keine Exception, kein neuer
-//      Eintrag im Navigationsstapel, keine leere Seite, kein Verlust des
-//      sichtbaren Zustands.
-//   3. Dass der ECHTE OAuth-Rueckweg davon unberuehrt bleibt. Er laeuft ueber
-//      den `app_links`-EventChannel und `detectSessionInUriPredicate`
-//      (`lib/src/config/supabase_config.dart`) — ein anderer Kanal als
-//      `SystemChannels.navigation`; hier faellt nur der sinnlose
-//      Routen-Nachhall desselben Intents weg.
+//   1. Counter-check: the same route still throws on a bare `MaterialApp`.
+//      Otherwise the test could stay green because the route is no longer
+//      delivered at all, guarding nothing.
+//   2. `EatovaApp` swallows it silently: no exception, no navigator entry,
+//      no lost visible state.
+//   3. The real OAuth return path is untouched — it runs over the
+//      `app_links` channel; only the pointless route echo disappears.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -53,23 +27,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/app/eatova_home_page.dart';
 
-/// Der Routenname, den Android aus dem Angriffs-Deeplink baut: `onNewIntent`
-/// gibt Pfad + Query + Fragment der Intent-Daten an den Navigations-Kanal.
+/// The route name Android builds from the attack deeplink: `onNewIntent`
+/// passes path + query + fragment to the navigation channel.
 const String _angriffsRoute =
     '/#access_token=FAKE&refresh_token=FAKE&token_type=bearer';
 
-/// Derselbe Nachhall beim LEGITIMEN Rueckweg: auch `?code=…` kommt zusaetzlich
-/// als Route an und warf vorher exakt dieselbe Exception.
+/// The same echo on the legitimate return path: `?code=…` also arrives as a
+/// route and used to throw the same exception.
 const String _echterRueckwegRoute = '/?code=abc';
 
-/// Spielt die Plattform: exakt der Weg, den die Engine nimmt
-/// (`flutter/navigation`, Methode `pushRouteInformation`), damit hier nicht
-/// eine Test-Abkuerzung geprueft wird, die es auf dem Geraet nicht gibt.
+/// Plays the platform on exactly the engine's path (`flutter/navigation`,
+/// `pushRouteInformation`), so no test-only shortcut is under test.
 ///
-/// Rueckgabe ist die Antwort des Frameworks: `true` = ein Beobachter hat die
-/// Route uebernommen, `false` = niemand fuehlte sich zustaendig (so endet es
-/// auch, wenn der Navigator dabei geworfen hat — `handlePushRouteInformation`
-/// faengt den Fehler, meldet ihn und macht weiter).
+/// Returns the framework's answer: `true` = an observer took the route,
+/// `false` = nobody did (also the outcome when the navigator threw).
 Future<bool?> _plattformSchicktRoute(
   WidgetTester tester,
   String location,
@@ -90,7 +61,7 @@ Future<bool?> _plattformSchicktRoute(
   return SystemChannels.navigation.codec.decodeEnvelope(antwort) as bool?;
 }
 
-/// Der Root-Navigator der laufenden App.
+/// The running app's root navigator.
 NavigatorState _rootNavigator(WidgetTester tester) => Navigator.of(
       tester.element(find.byType(EatovaHomePage)),
       rootNavigator: true,
@@ -102,10 +73,8 @@ Future<void> _pumpEatovaApp(WidgetTester tester) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  // Headless-Schriftmetriken erzeugen Overflows, die auf dem Geraet nicht
-  // auftreten (gleiche Begruendung wie in test/flows/flow_test_helpers.dart).
-  // Alles andere wird durchgereicht — `tester.takeException()` sieht es also
-  // weiterhin.
+  // Headless font metrics cause overflows that never happen on a device.
+  // Everything else passes through, so `tester.takeException()` still sees it.
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
     if (details.exception.toString().contains('overflowed')) return;
@@ -113,8 +82,8 @@ Future<void> _pumpEatovaApp(WidgetTester tester) async {
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  // Ohne Repository greift der Preview-Pfad (kDebugMode) — eingeloggter
-  // Preview-Nutzer, echte Schale, kein Supabase.
+  // Without a repository the preview path applies (kDebugMode): signed-in
+  // preview user, real shell, no Supabase.
   await tester.pumpWidget(const EatovaApp());
   await tester.pumpAndSettle();
 }
@@ -205,11 +174,9 @@ void main() {
   testWidgets(
     'der Routen-Nachhall des ECHTEN OAuth-Rueckwegs stoert ebenfalls nicht',
     (tester) async {
-      // `eatova://login-callback/?code=…` kommt doppelt an: einmal ueber
-      // app_links (dort passiert der PKCE-Austausch, s.
-      // test/auth_deeplink_predicate_test.dart) und einmal als Route. Nur der
-      // zweite Weg gehoert hierher — und der ist ebenso wertlos wie der
-      // Angriffs-Nachhall, weil die App keine benannten Routen hat.
+      // `eatova://login-callback/?code=…` arrives twice: via app_links (PKCE
+      // exchange) and as a route. Only the route belongs here, and it is as
+      // worthless as the attack echo since the app has no named routes.
       await _pumpEatovaApp(tester);
 
       final uebernommen =

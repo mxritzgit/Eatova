@@ -1,6 +1,5 @@
-// Rezept-Flows (aus test/widget_test.dart aufgeteilt): Rezept-Detail traegt
-// die Mahlzeit in den kcal-/Makro-Tracker ein — und zwar auf den im Food-Tab
-// gewaehlten Tag, nicht stumpf auf heute.
+// Recipe flows: the recipe detail adds the meal to the kcal/macro tracker, on
+// the day selected in the food tab, not blindly on today.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,11 +12,9 @@ void main() {
   testWidgetsRobust('Recipe detail can add a meal into kcal and macro tracker', (
     WidgetTester tester,
   ) async {
-    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
-    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
-    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
-    // pruefen wortgleiche deutsche ARB-Texte (u. a. slot.label ueber
-    // recipe_detail.dart).
+    // Pin the device language: without an override EatovaApp resolves via
+    // resolveEatovaLocale, and the assertions below check verbatim German ARB
+    // texts (including slot.label).
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(const EatovaApp());
@@ -51,11 +48,11 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();
 
-    // Das Tagestotal steht seit dem 2026-08-10 im Heute-Tab, nicht mehr in
-    // einer Karte des Food-Tabs (s. expectTagestotalAufHeute).
+    // The daily total lives in the today tab, no longer on a food-tab card
+    // (see expectTagestotalAufHeute).
     await expectTagestotalAufHeute(tester, '590');
 
-    // Und im Food-Tab steht der Eintrag selbst — mit Name und kcal.
+    // And the food tab holds the entry itself, with name and kcal.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
@@ -64,31 +61,28 @@ void main() {
     expect(find.textContaining('590'), findsWidgets);
   });
 
-  // Bugfix 2026-08-06: RecipesScreen bekam ein hartes foodDate:
-  // DateTime.now() — „Zum Tracker hinzufügen" landete IMMER auf heute, auch
-  // wenn im Food-Tab ein anderer Tag gewaehlt war. Jetzt faellt der Pfad auf
-  // das im Store gewaehlte selectedFoodDate zurueck.
+  // Bugfix: RecipesScreen got a hardcoded `foodDate: DateTime.now()`, so adding
+  // to the tracker always landed on today. The path now falls back to the
+  // store's selectedFoodDate.
   testWidgetsRobust('Recipe lands on the day selected in the food tab', (
     WidgetTester tester,
   ) async {
-    // Geraetesprache festnageln: seit dem i18n-Grundgeruest loest EatovaApp
-    // ohne Override ueber resolveEatovaLocale auf, statt fest auf de zu
-    // pinnen (Muster test/localization_de_test.dart). Die Assertions unten
-    // pruefen wortgleiche deutsche ARB-Texte (u. a. slot.label ueber
-    // recipe_detail.dart).
+    // Pin the device language: without an override EatovaApp resolves via
+    // resolveEatovaLocale, and the assertions below check verbatim German ARB
+    // texts (including slot.label).
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
     await tester.pumpWidget(const EatovaApp());
 
-    // Food-Tab: einen Archivtag waehlen. Der Chip-Index IST der Tages-Offset
-    // (chip-0 = Heute), chip-3 ist also „Vor 3 Tagen".
+    // Food tab: pick an archive day. The chip index IS the day offset
+    // (chip-0 = today), so chip-3 is three days ago.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-date-chip-3')));
     await tester.pumpAndSettle();
     expect(find.text('Vor 3 Tagen'), findsOneWidget);
 
-    // Rezept ueber den Detail-Screen zum Tracker hinzufuegen.
+    // Add the recipe to the tracker via the detail screen.
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
     await tester.pumpAndSettle();
     final recipeTile = find.byKey(
@@ -104,17 +98,17 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();
 
-    // Zurueck im Food-Tab: die Auswahl steht noch auf dem Archivtag und traegt
-    // den Verlaufseintrag …
+    // Back in the food tab: the selection is still on the archive day and
+    // carries the history entry …
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     expect(find.text('Vor 3 Tagen'), findsOneWidget);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
-    // … und die 590 kcal im Tagestotal (das der Heute-Tab fuer denselben
-    // gewaehlten Tag zeigt, seit die Kalorien-Karte fort ist).
+    // … and the 590 kcal in the daily total, which the today tab shows for the
+    // same selected day.
     await expectTagestotalAufHeute(tester, '590');
 
-    // Ein anderer Tag bleibt leer — genau das war der Bug.
+    // Another day stays empty — exactly what the bug broke.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-date-chip-4')));

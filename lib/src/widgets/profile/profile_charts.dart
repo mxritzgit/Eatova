@@ -5,13 +5,11 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 
-/// Halbkreis-Skala mit Zeiger fuer den BMI.
+/// Half-circle BMI gauge with a pointer.
 ///
-/// Die Farben kommen als Felder herein statt aus einer Konstanten-Datei: der
-/// Painter muss in beiden Anzeige-Modi zeichnen. [shouldRepaint] vergleicht sie
-/// deshalb ALLE — beim Wechsel Hell/Dunkel aendert sich nur die Farbe, nicht
-/// der Wert, und ein Painter, der nur den Wert vergleicht, laesst die alte
-/// Zeichnung stehen.
+/// Colors arrive as fields because the painter draws in both display modes;
+/// [shouldRepaint] must compare all of them, since a light/dark switch changes
+/// only the colors, not the value.
 class BMIGaugePainter extends CustomPainter {
   BMIGaugePainter({
     required this.bmi,
@@ -25,14 +23,9 @@ class BMIGaugePainter extends CustomPainter {
     required this.labelColor,
   });
 
-  /// Der uebliche Weg von den Tokens zum Painter. Hier — und nur hier — liegt
-  /// die Zuordnung BMI-Zone → Zustandsfarbe.
-  ///
-  /// [valueLabel] ist der bereits fertig formatierte BMI-Wert (`formatBmiDe`
-  /// aus `profile_format.dart`) — der Painter formatiert seit Paket 7
-  /// (2026-08-11) nicht mehr selbst (vorher hartkodiertes Komma,
-  /// `bmi.toStringAsFixed(1).replaceAll('.', ',')`): als [CustomPainter] hat
-  /// er im Zeichenschritt keinen Zugriff auf die aktive Sprache.
+  /// The usual path from tokens to painter; the only place mapping BMI zone
+  /// to state color. [valueLabel] arrives pre-formatted because a
+  /// [CustomPainter] has no access to the active language while painting.
   factory BMIGaugePainter.fromTokens(
     AppTokens t,
     double bmi,
@@ -41,20 +34,16 @@ class BMIGaugePainter extends CustomPainter {
       BMIGaugePainter(
         bmi: bmi,
         valueLabel: valueLabel,
-        // Unter- UND Uebergewicht tragen denselben Warnton: der Token-Vertrag
-        // kennt als Zustandsfarben nur `warning` und `danger`, die drei
-        // Makro-Toene sind fuer Naehrwerte gesperrt. Die Position auf dem
-        // Halbkreis (links bzw. rechts der Normalzone) unterscheidet beide
-        // eindeutig. Ein eigener, nicht alarmierender „info"-Ton waere hier
-        // besser — der gehoert als Token nach AppTokens, nicht hierher.
+        // Under- and overweight share `warning`: the token contract offers
+        // only `warning` and `danger` as state colors, and position on the
+        // arc already tells them apart. A calmer "info" token would be better.
         underColor: t.warning,
         normalColor: t.accent,
         overColor: t.warning,
         obeseColor: t.danger,
         trackColor: t.tile,
-        // Der Zeiger sitzt auf einer Karte, nicht auf dem Seitengrund: sein
-        // Kern muss die KARTEN-Flaeche aufnehmen, sonst steht im Hell-Modus
-        // ein dunkler Punkt mitten auf der hellen Karte.
+        // The pointer sits on a card, not the page background, so its core
+        // must pick up the card surface.
         pointerCoreColor: t.surf,
         labelColor: t.ink2,
       );
@@ -64,7 +53,7 @@ class BMIGaugePainter extends CustomPainter {
   final Color underColor, normalColor, overColor, obeseColor;
   final Color trackColor, pointerCoreColor, labelColor;
 
-  /// Untere/obere Kante der gezeichneten Skala (der Halbkreis bildet 15–40 ab).
+  /// Lower/upper edge of the drawn scale; the arc maps 15–40.
   static const double _lo = 15.0;
   static const double _hi = 40.0;
 
@@ -108,8 +97,7 @@ class BMIGaugePainter extends CustomPainter {
       cursor = zone.upper;
     }
 
-    // Ein nicht-endlicher BMI (Groesse 0) darf keinen NaN-Winkel erzeugen —
-    // sonst zeichnet der Zeiger ins Nichts.
+    // A non-finite BMI (height 0) must not produce a NaN angle.
     final safeBmi = bmi.isFinite ? bmi : _lo;
     final clamped = safeBmi.clamp(_lo, _hi).toDouble();
     final position = (clamped - _lo) / totalSpan;
@@ -167,8 +155,8 @@ class BMIGaugePainter extends CustomPainter {
     return obeseColor;
   }
 
-  /// Die Zonenfarbe fuer einen Chip neben der Skala — dieselbe Zuordnung wie
-  /// im Painter, ohne dass der Aufrufer einen bauen muss.
+  /// Zone color for a chip beside the gauge; same mapping as the painter,
+  /// without having to construct one.
   static Color colorFor(AppTokens t, double v) {
     if (!v.isFinite) return t.ink2;
     if (v < 18.5) return t.warning;

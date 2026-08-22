@@ -8,22 +8,16 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 
-// Komplettreview 2026-08-19, Fund 4: `coach_chat_service.dart` importierte
-// `crash_reporter.dart` gar nicht. Saemtliche Fehlerpfade — loadSessions,
-// ensureDefaultSession, createSession, renameSession, deleteSession,
-// loadHistory, loadQuotaToday und die vier catch-Arme von send/requestRecipe —
-// endeten in `dev.log`, und das schreibt ausschliesslich in die lokale
-// Geraete-/IDE-Konsole. Ein Totalausfall der Edge Function war in der
-// Produktion unsichtbar; der Coach war der einzige Bereich der App ohne einen
-// einzigen Crash-Reporter-Ausloeser.
+// Finding 4 (review 2026-08-19): `coach_chat_service.dart` did not import
+// `crash_reporter.dart` at all, so every error path ended in `dev.log` — a
+// total edge-function outage was invisible in production.
 //
-// Die Gegenprobe gehoert zwingend dazu: der Filter muss die ERWARTBAREN Faelle
-// draussen halten (offline, Tageslimit, abgelaufene Sitzung), sonst tauscht
-// man Blindheit gegen Rauschen — und Rauschen ist hier nutzerproportional.
+// The counter-check is part of the deal: EXPECTED cases (offline, daily limit,
+// expired session) must stay out, or blindness is traded for noise that scales
+// with the user count.
 //
-// Und: es darf NIE Nutzerinhalt hinausgehen. Die App verarbeitet
-// Gesundheitsdaten; die Coach-Nachricht selbst ist der sensibelste Text, den
-// sie kennt.
+// And no user content may ever leave: the coach message is the most sensitive
+// text this app handles.
 
 CoachChatService _service(
   Future<http.Response> Function(http.Request request) handler,
@@ -58,7 +52,7 @@ void main() {
 
   tearDown(() => CrashReporter.debugSentrySink = null);
 
-  // capture() laeuft unawaited los; ein Mikrotask-Durchlauf reicht.
+  // capture() runs unawaited; one microtask pass is enough.
   Future<void> pumpe() => Future<void>.delayed(Duration.zero);
 
   group('gemeldet wird, was niemand sonst sieht', () {
@@ -121,8 +115,8 @@ void main() {
 
     test('loadSessions: eine Antwort in unerwarteter Form ist kein Netzfehler',
         () async {
-      // Der RPC sagt eine Tabelle zu; kommt ein Objekt zurueck, hat sich
-      // serverseitig etwas geaendert — typischerweise nach einer Migration.
+      // The RPC promises a table; an object means the server changed,
+      // typically after a migration.
       final svc = _service((req) async => _json({'a': 1}, 200));
 
       await expectLater(
@@ -131,11 +125,10 @@ void main() {
       );
       await pumpe();
 
-      // Nur das Operations-Tag ist zugesichert, nicht der Zweig: eine
-      // vertragswidrige Antwort laesst schon den PostgREST-Client werfen, der
-      // Report kommt also aus dem catch (`coach.loadSessions`) statt aus der
-      // eigenen Formpruefung (`…​.form`). Die bleibt als zweite Linie stehen —
-      // sie greift fuer Antworten, die der Client noch durchreicht.
+      // Only the operation tag is guaranteed, not the branch: an off-contract
+      // response already makes the PostgREST client throw, so the report comes
+      // from the catch rather than the shape check, which stays as a second
+      // line for responses the client still passes through.
       expect(kontexte, hasLength(1));
       expect(kontexte.single, startsWith('coach.loadSessions'));
     });
@@ -150,7 +143,7 @@ void main() {
       );
       await pumpe();
 
-      // Wie oben: das Operations-Tag ist die Zusicherung, der Zweig nicht.
+      // As above: the operation tag is the guarantee, the branch is not.
       expect(kontexte, hasLength(1));
       expect(kontexte.single, startsWith('coach.loadQuotaToday'));
     });
@@ -232,9 +225,8 @@ void main() {
     });
 
     test('auch die Sitzungsliste meldet einen Netzabbruch nicht', () async {
-      // Bewusst ein RPC-Pfad (POST): postgrest wiederholt nur GET/HEAD, ein
-      // Netzfehler auf `select()` liefe hier sonst durch drei echte
-      // Backoff-Pausen.
+      // Deliberately an RPC path (POST): postgrest only retries GET/HEAD, so a
+      // network error on `select()` would burn three real backoff pauses.
       final svc = _service((req) async {
         throw http.ClientException('connection reset');
       });

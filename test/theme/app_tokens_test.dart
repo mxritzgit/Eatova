@@ -6,17 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
-// Design-Refactor 2026-08-09: Die Farbwelt liegt nicht mehr als Top-Level-
-// `const` in app_colors.dart, sondern als ThemeExtension am Theme. Nur so
-// kann eine Flaeche hell UND dunkel sein, ohne dass jedes Widget zwei Pfade
-// baut. Diese Tests nageln den Vertrag fest, gegen den alle Screens
-// programmieren:
-//   1. Beide Paletten existieren und sind wirklich verschieden.
-//   2. `context.t` loest im gebauten Theme auf (sonst knallt jeder Screen).
-//   3. Text bleibt in BEIDEN Modi lesbar (WCAG-Kontrast).
-//   4. lerp mischt, statt zu springen — sonst flackert der Moduswechsel.
+// The palette lives as a ThemeExtension, not as top-level `const`s, so a
+// surface can be light AND dark without every widget building two paths.
+// Pinned here: both palettes exist and differ, `context.t` resolves, text
+// stays readable in both modes (WCAG), and lerp blends instead of jumping.
 
-/// WCAG-2.1-Kontrastverhaeltnis zweier deckender Farben (1.0 … 21.0).
+/// WCAG 2.1 contrast ratio of two opaque colours (1.0 … 21.0).
 double _contrast(Color a, Color b) {
   final la = a.computeLuminance();
   final lb = b.computeLuminance();
@@ -56,12 +51,9 @@ void main() {
       }
     });
 
-    // Der A11y-Querschnitt am 2026-08-09 hat die alte 3:1-Schwelle als zu
-    // lasch entlarvt: `ink2` traegt in dieser App fast durchgehend KLEINE
-    // Schrift (9,5–12,5 px Beschriftungen, Eyebrows, Kennzahlen-Einheiten) —
-    // also normalen Fliesstext im Sinne der WCAG, nicht „large text". Damit
-    // gelten 4.5:1, und zwar gegen ALLE drei Flaechen, auf denen der Ton
-    // wirklich vorkommt (Grund, Karte, abgesetzte Karte).
+    // 4.5:1, not 3:1: `ink2` almost always carries small type (9.5–12.5 px),
+    // which is normal body text under WCAG, not "large text". Checked against
+    // all three surfaces the tone appears on.
     test('Sekundaertext erreicht AA (4.5:1) auf allen drei Flaechen', () {
       for (final entry in <String, AppTokens>{
         'hell': AppTokens.light,
@@ -77,11 +69,9 @@ void main() {
       }
     });
 
-    // MealAvatar und der Slot-Wähler setzen einen Buchstaben/ein Icon in der
-    // Slot-Farbe auf dieselbe Farbe mit 16 % Deckung. Voll auf schwach ist in
-    // der hellen Palette nicht lesbar (Kohlenhydrat-Amber kam auf 2.15:1);
-    // [AppTokens.readableOnTint] mischt den Ton deshalb Richtung [ink] —
-    // in der hellen Palette dunkelt das ab, in der dunklen hellt es auf.
+    // MealAvatar and the slot picker put a glyph in the slot colour onto the
+    // same colour at 16 % opacity, unreadable in the light palette (amber hit
+    // 2.15:1), so [AppTokens.readableOnTint] mixes the tone towards [ink].
     test('readableOnTint macht Slot-Glyphen auf ihrer eigenen Tint lesbar', () {
       for (final entry in <String, AppTokens>{
         'hell': AppTokens.light,
@@ -182,8 +172,8 @@ void main() {
       final theme = buildEatovaTheme(Brightness.light);
       expect(theme.textTheme.bodyMedium?.fontFamily, AppType.uiFamily,
           reason: 'Archivo traegt die UI-Schrift');
-      // Kein google_fonts: die Familien muessen aus dem Bundle kommen,
-      // sonst laedt die App zur Laufzeit von Google (Datenschutz + offline).
+      // No google_fonts: families must come from the bundle, otherwise the
+      // app fetches from Google at runtime (privacy + offline).
       expect(AppType.uiFamily, 'Archivo');
       expect(AppType.displayFamily, 'BricolageGrotesque');
     });

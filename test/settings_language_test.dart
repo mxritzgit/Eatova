@@ -9,19 +9,16 @@ import 'package:eatova/src/screens/settings/settings_controls.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Sprachwahl in den Einstellungen (System / Deutsch / English) — Spiegel von
-// `settings_theme_mode_test.dart`, nur mit [LocaleScope] statt
+// Language selection in settings (system / German / English) — mirror of
+// `settings_theme_mode_test.dart`, with [LocaleScope] instead of
 // [ThemeModeScope].
 //
-// Eine ROHE `MaterialApp` wie im Vorbild reicht hier NICHT: die Pille zieht
-// ihre Beschriftungen aus `context.l10n`, und `AppLocalizations.of(context)`
-// wirft ohne registrierten Delegate. Der Pump-Unterbau hier traegt deshalb
-// zusaetzlich `locale` + `localizationsDelegates` (Vorbild:
-// `test/widgets/design/design_harness.dart#designHarness`).
+// A BARE `MaterialApp` is not enough: the pill reads its labels from
+// `context.l10n`, and `AppLocalizations.of(context)` throws without a
+// registered delegate. Hence `locale` + `localizationsDelegates` here.
 //
-// Sie ist eine GERAETE-Einstellung, keine Profil-Eigenschaft: sie wird sofort
-// ueber den [LocaleController] persistiert und ist deshalb nichts, das man
-// speichern oder verwerfen koennte (Spiegel des Anzeige-Modus).
+// Language is a DEVICE setting, not a profile property: persisted immediately
+// via [LocaleController], so there is nothing to save or discard.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -134,8 +131,8 @@ void main() {
 
   testWidgets('ohne LocaleScope faellt die Zeile ersatzlos weg',
       (tester) async {
-    // Previews und alle Alt-Tests pumpen die Seite ohne Scope. Ein Schalter
-    // ohne Controller waere ein toter Schalter — also gar keiner.
+    // Previews and all legacy tests pump the page without a scope. A control
+    // without a controller would be a dead control — so there is none.
     await pumpSettings(tester);
 
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
@@ -143,12 +140,9 @@ void main() {
     expect(find.byKey(const ValueKey('settings-language')), findsNothing);
   });
 
-  // Zwei getrennte Faelle statt eines doppelten Pumps in einem Test: ein
-  // zweiter `pumpWidget`-Aufruf in DERSELBEN `testWidgets`-Funktion behaelt
-  // den Navigator-Zustand (inkl. bereits gepushter Route) des ersten Pumps
-  // bei — der „open-settings"-Knopf des zweiten Aufbaus war dadurch nicht
-  // mehr auffindbar. Getrennte Tests sind ohnehin das Muster in
-  // `settings_screen_render_test.dart` fuer Hell/Dunkel.
+  // Two separate cases instead of a double pump in one test: a second
+  // `pumpWidget` in the SAME `testWidgets` keeps the navigator state (including
+  // the pushed route), which hides the second build's open button.
   testWidgets('Settings-Screen rendert englisch (hell)', (tester) async {
     final controller = LocaleController(initial: const Locale('en'));
     addTearDown(controller.dispose);

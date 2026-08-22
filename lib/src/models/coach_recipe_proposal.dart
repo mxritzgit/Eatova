@@ -2,15 +2,13 @@ import 'dart:typed_data';
 
 import 'fitness_recipe.dart';
 
-/// Rezept-Vorschlag aus dem Coach (`mode: "recipe"` der coach-chat Function,
-/// Spec 2026-08-12). Client-Sicht auf das Server-Wire-Format (snake_case);
-/// lebt NUR in der laufenden Chat-Session — persistiert wird erst das
-/// [FitnessRecipe], nachdem der Nutzer im Sheet bestaetigt hat.
+/// Recipe proposal from the coach (`mode: "recipe"` of the coach-chat
+/// function). Client view of the snake_case wire format; lives only in the
+/// running chat session — only the [FitnessRecipe] is persisted.
 ///
-/// Der Server klemmt alle Werte bereits (recipe.ts, RECIPE_LIMITS); hier
-/// gibt es nur die billige Defensiv-Klemme gegen aeltere/kaputte
-/// Function-Antworten — insbesondere `estimated_g >= 1`, weil
-/// [FitnessRecipe.kcalPer100G] sonst durch 0 teilt.
+/// The server already clamps everything (recipe.ts, RECIPE_LIMITS); the
+/// clamps here only guard against older/broken responses, notably
+/// `estimated_g >= 1` because [FitnessRecipe.kcalPer100G] divides by it.
 class CoachRecipeProposal {
   const CoachRecipeProposal({
     required this.title,
@@ -30,11 +28,10 @@ class CoachRecipeProposal {
   final String description;
   final String portion;
 
-  /// "\n- "-Zeilenliste — dasselbe Freitext-Format wie im manuellen
-  /// Rezept-Formular (fitness_recipe.dart).
+  /// "\n- " line list — same free-text format as the manual recipe form.
   final String ingredients;
 
-  /// "\n1. "-nummerierte Schritte.
+  /// "\n1. " numbered steps.
   final String preparation;
 
   final int caloriesKcal;
@@ -43,13 +40,12 @@ class CoachRecipeProposal {
   final int fatG;
   final int estimatedGrams;
 
-  /// Das generierte Foto (JPEG). Nur im Speicher — in den Chat-Verlauf
-  /// werden nie Bild-Bytes persistiert (Regel wie bei User-Fotos,
-  /// chat_message.dart).
+  /// Generated photo (JPEG). In memory only — image bytes are never
+  /// persisted into the chat history (same rule as user photos).
   final Uint8List? imageBytes;
 
-  /// null = unbrauchbarer Vorschlag (kein Titel oder keine kcal) — der
-  /// Aufrufer behandelt das wie eine leere Antwort.
+  /// null = unusable proposal (no title or no kcal); callers treat it like
+  /// an empty response.
   static CoachRecipeProposal? fromJson(
     Map<dynamic, dynamic> json, {
     Uint8List? imageBytes,
@@ -72,11 +68,10 @@ class CoachRecipeProposal {
     );
   }
 
-  /// Baut das Eigen-Rezept nach denselben Regeln wie das manuelle Formular
-  /// (recipe_create_sheet.dart:_save) — nur der Slug kommt vom AUFRUFER:
-  /// für Karten-Vorschläge ist er deterministisch aus der Message-Id
-  /// (FitnessRecipe.coachProposalSlug), NICHT gewürfelt — sonst wäre
-  /// „Hinzugefügt" nach dem Neustart nicht mehr herleitbar (Spec 2026-08-13).
+  /// Builds the user recipe by the same rules as the manual form; only the
+  /// slug comes from the CALLER. For card proposals it is derived
+  /// deterministically from the message id (FitnessRecipe.coachProposalSlug),
+  /// never random — otherwise the "added" state is lost after a restart.
   FitnessRecipe toFitnessRecipe({
     required String imageAsset,
     required String slug,
@@ -100,9 +95,9 @@ class CoachRecipeProposal {
     );
   }
 
-  /// Dasselbe Proposal mit (nachtraeglich von der Platte geladenen)
-  /// Bild-Bytes — fuer die Reload-Karte: das JSON kommt aus dem Verlauf
-  /// (chat_messages.recipe), die Bytes aus dem RecipeImageStore.
+  /// Same proposal with image bytes loaded from disk — for the reload card:
+  /// JSON from the history (chat_messages.recipe), bytes from
+  /// RecipeImageStore.
   CoachRecipeProposal withImageBytes(Uint8List bytes) {
     return CoachRecipeProposal(
       title: title,

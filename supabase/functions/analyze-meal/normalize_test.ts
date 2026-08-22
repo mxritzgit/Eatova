@@ -1,18 +1,9 @@
-// Tests fuer normalizeMealResult (normalize.ts).
+// Tests for normalizeMealResult (normalize.ts).
 //
-// Der eigentliche Regressionstest steht unter "REGRESSION: unparsebare
-// Zahlen werden null, nicht 0" (Review 2026-08-08, B1):
-//
-//   clampNumber/clampInt gaben bei einem nicht-parsebaren Wert `min` = 0
-//   zurueck. Liefert das Modell "186 kcal/100g" als STRING statt als Zahl,
-//   stand im Wire-Vertrag `kcalPer100G: 0` — die Karte zeigte 780 kcal, das
-//   Tagebuch bekam nach "Portion anpassen" (kcalPer100G * g / 100) aber 0.
-//   Still falsche Gesundheitszahlen, ohne Fehler, ohne Hinweis.
-//
-// Die Gegenprobe steht unter "gueltige Werte werden weiterhin geklemmt":
-// das Klemmen auf max ist gewollt und darf beim Fix nicht mitsterben.
-//
-// Bewusst ohne externe Test-Dependencies (gleicher Stil wie prefilter_test.ts).
+// Core regression (B1): clampNumber/clampInt returned `min` = 0 for an
+// unparseable value, so a model answering "186 kcal/100g" as a STRING produced
+// `kcalPer100G: 0` and silently wrong health numbers. The counter-check is
+// that clamping to max must survive that fix.
 
 import {
   kcalPer100GMismatch,
@@ -35,12 +26,7 @@ function assertEquals(actual: unknown, expected: unknown, message: string): void
   }
 }
 
-/**
- * "Fehlt" = null ODER Schluessel gar nicht gesetzt. Beide Formen sind fuer die
- * Dart-Seite identisch (_readInt/_readDouble pruefen `value is int/double/String`
- * — ein JSON-null faellt genauso durch wie ein fehlender Schluessel), deshalb
- * pruefen die Tests bewusst nicht auf die exakte Form.
- */
+/** "Missing" = null OR key absent; identical to Dart, so neither is pinned. */
 function assertMissing(result: object, key: string, message: string): void {
   const value = (result as Record<string, unknown>)[key];
   if (value === null || value === undefined) return;
@@ -49,9 +35,8 @@ function assertMissing(result: object, key: string, message: string): void {
   );
 }
 
-// Werte, die ein Modell real liefert und die NIEMALS als Zahl durchgehen
-// duerfen. Number() macht aus den meisten davon still eine 0 —
-// Number("") === 0, Number(null) === 0, Number([]) === 0, Number(false) === 0.
+// Values a model returns that must never pass as a number; Number() turns
+// most of them silently into 0.
 const UNPARSEABLE: Array<[string, unknown]> = [
   ["Zahl im Fliesstext", "186 kcal/100g"],
   ["reiner Text", "unbekannt"],
@@ -71,9 +56,7 @@ const UNPARSEABLE: Array<[string, unknown]> = [
 ];
 
 Deno.test("REGRESSION B1: unparsebares kcalPer100G wird null, nicht 0", () => {
-  // Das Szenario aus dem Review: 780-kcal-Teller, das Modell schreibt die
-  // Bezugsgroesse als Text. Vorher: kcalPer100G === 0 -> "Anpassen" ohne
-  // Aenderung loggte 0 kcal.
+  // Model writes the reference size as text; that used to log 0 kcal.
   const result = normalizeMealResult({
     mealName: "Pasta mit Hackfleischsauce",
     caloriesKcal: 780,
@@ -86,7 +69,7 @@ Deno.test("REGRESSION B1: unparsebares kcalPer100G wird null, nicht 0", () => {
     result.kcalPer100G !== 0,
     "kcalPer100G === 0 ist genau der B1-Bug: (0 * g / 100) = 0 kcal im Tagebuch",
   );
-  // Die authoritativen Felder bleiben unangetastet.
+  // The authoritative fields stay untouched.
   assertEquals(result.caloriesKcal, 780, "caloriesKcal bleibt erhalten");
   assertEquals(result.estimatedGrams, 420, "estimatedGrams bleibt erhalten");
 });
@@ -123,21 +106,16 @@ Deno.test("alle unparsebaren Formen ergeben null, nicht min", () => {
 });
 
 Deno.test("fehlende Schluessel erfinden keine Nullwerte", () => {
-  // Vorher lieferte {} ein vollstaendiges Ergebnis mit lauter Nullen —
-  // die Dart-Fallback-Kette (_extractFirstInt/_estimateGramsFromText/
-  // _knownKcalPer100G) war dadurch in Produktion unerreichbar.
+  // {} used to yield a full result of zeros, making the Dart fallback chain
+  // unreachable in production.
   const result = normalizeMealResult({});
   assertMissing(result, "caloriesKcal", "leeres Objekt");
   assertMissing(result, "estimatedGrams", "leeres Objekt");
   assertMissing(result, "kcalPer100G", "leeres Objekt");
-  // Labels haben weiterhin ihren Fallback — ein fehlender Name erzeugt keine
-  // falsche ZAHL, nur einen generischen Text.
+  // Labels keep their fallback: generic text, never a wrong NUMBER.
   assertEquals(result.mealName, "Mahlzeit", "mealName behaelt seinen Fallback");
-  // Sentinel-Rest E7: confidence ist KEIN Label, sondern die Aussage des
-  // Modells ueber die eigene Sicherheit — der Nutzer bemisst daran, wie sehr
-  // er der kcal-Zahl traut. Die erste Fassung dieses Tests pinnte "medium"
-  // als Fallback und verstiess damit gegen den Leitsatz dieser Datei
-  // (Zeile 8-18: Wert des Modells oder "fehlt").
+  // E7: confidence is the model's own certainty, not a label, so it must
+  // stay missing rather than default to "medium".
   assertEquals(result.confidence, null, "fehlende confidence bleibt fehlend");
 });
 
@@ -216,15 +194,15 @@ Deno.test("optionalInt/optionalNumber: Einzelverhalten", () => {
 });
 
 Deno.test("kcalPer100GMismatch meldet nur echte Widersprueche", () => {
-  // Review-Beispiel: 260 * 300 / 100 = 780, das Modell behauptet 850.
+  // 260 * 300 / 100 = 780, but the model claims 850.
   const mismatch = kcalPer100GMismatch(850, 300, 260);
   assert(mismatch !== null, "260 vs. implizite 283.3 ist ein Widerspruch");
   assertEquals(Math.round(mismatch!.implied), 283, "impliziter Wert wird berechnet");
 
-  // Rundung auf ganze kcal/Gramm darf nicht als Widerspruch gelten.
+  // Rounding to whole kcal/grams must not count as a contradiction.
   assertEquals(kcalPer100GMismatch(781, 300, 260.3), null, "Rundungsrauschen");
   assertEquals(kcalPer100GMismatch(780, 300, 260), null, "exakt konsistent");
-  // Ohne vollstaendige Angaben gibt es nichts zu vergleichen.
+  // Nothing to compare without complete values.
   assertEquals(kcalPer100GMismatch(null, 300, 260), null, "unvollstaendig");
   assertEquals(kcalPer100GMismatch(850, null, 260), null, "unvollstaendig");
   assertEquals(kcalPer100GMismatch(850, 300, null), null, "unvollstaendig");
@@ -232,11 +210,8 @@ Deno.test("kcalPer100GMismatch meldet nur echte Widersprueche", () => {
 });
 
 Deno.test("der Widerspruch aus B1 wird NICHT serverseitig ueberschrieben", () => {
-  // Bewusste Entscheidung: die Function meldet den Widerspruch (Logging in
-  // index.ts), korrigiert ihn aber nicht. Wer von den dreien falsch liegt,
-  // ist serverseitig nicht entscheidbar; ein Weglassen von kcalPer100G wuerde
-  // die Dart-Seite zuerst in _knownKcalPer100G(mealName) schicken — eine
-  // namensbasierte DB-Schaetzung, die zu caloriesKcal genauso wenig passt.
+  // index.ts logs the contradiction but cannot decide which of the three is
+  // wrong, and dropping kcalPer100G only buys a name-based estimate.
   const result = normalizeMealResult({
     caloriesKcal: 850,
     estimatedGrams: 300,
@@ -247,17 +222,14 @@ Deno.test("der Widerspruch aus B1 wird NICHT serverseitig ueberschrieben", () =>
   assertEquals(result.kcalPer100G, 260, "Modellwert bleibt unangetastet");
 });
 
-// --- Log-Redaktion (Security-Review 2026-08-11, Finding 4, CWE-532) --------
+// --- Log redaction (security review 2026-08-11, finding 4, CWE-532) --------
 //
-// REGRESSION: bis 2026-08-11 loggte index.ts bei unparsebarem Modell-Output
-// `raw: rawContent.slice(0, 500)` — der Output ist aus Essensfoto + Nutzer-
-// Hint abgeleitet, private Infos wanderten also in operative Logs. index.ts
-// baut die Log-Metadaten seither ausschliesslich aus redactedContentMeta +
-// unparseableShape; diese Tests sichern ab, dass darin kein Inhalt steckt.
+// index.ts used to log `raw: rawContent.slice(0, 500)`, leaking photo- and
+// hint-derived content. Log metadata now comes only from redactedContentMeta
+// and unparseableShape, which these tests prove carry no content.
 
 Deno.test("CWE-532: redactedContentMeta traegt keinen Inhalt, nur Laenge + Digest", async () => {
-  // Realistischer Worst Case: das Modell zitiert den Freitext-Hint des
-  // Nutzers und liefert dabei kaputtes JSON.
+  // Worst case: the model quotes the user's free-text hint in broken JSON.
   const secret = 'Ich esse low-carb wegen Diabetes Typ 2 {"mealName": "Sala';
   const meta = await redactedContentMeta(secret);
 
@@ -271,9 +243,8 @@ Deno.test("CWE-532: redactedContentMeta traegt keinen Inhalt, nur Laenge + Diges
 });
 
 Deno.test("CWE-532: Digest ist deterministisch und inhaltsabhaengig (Dedupe)", async () => {
-  // Bekannter SHA-256-Vektor: sha256("") beginnt mit e3b0c44298fc — pinnt
-  // den Algorithmus, damit ein spaeterer Umbau Log-Korrelationen nicht
-  // still entwertet.
+  // Known vector, pinning the algorithm so a later rewrite cannot silently
+  // invalidate log correlation.
   assertEquals((await redactedContentMeta("")).sha256, "e3b0c44298fc", "SHA-256-Leerstring-Vektor");
 
   const a1 = await redactedContentMeta("kein json A");
@@ -284,12 +255,12 @@ Deno.test("CWE-532: Digest ist deterministisch und inhaltsabhaengig (Dedupe)", a
 });
 
 Deno.test("CWE-532: unparseableShape kategorisiert ohne Inhalt", () => {
-  // 'empty': extractJson kann z. B. aus "```json\n```" einen leeren String
-  // machen, obwohl rawContent selbst nicht leer war.
+  // 'empty': extractJson can turn "```json\n```" into an empty string even
+  // though rawContent was not empty.
   assertEquals(unparseableShape("", new SyntaxError("x")), "empty", "leer nach extractJson");
   assertEquals(unparseableShape("   ", new SyntaxError("x")), "empty", "nur Whitespace");
-  // JSON.parse wirft SyntaxError -> not_json (abgeschnittenes/kein JSON).
+  // JSON.parse throws SyntaxError -> not_json (truncated or no JSON).
   assertEquals(unparseableShape('{"a": 1', new SyntaxError("x")), "not_json", "abgeschnittenes JSON");
-  // Der isRecord-Guard in index.ts wirft einen gewoehnlichen Error -> not_object.
+  // The isRecord guard in index.ts throws a plain Error -> not_object.
   assertEquals(unparseableShape("[1, 2]", new Error("not an object")), "not_object", "Array statt Objekt");
 });

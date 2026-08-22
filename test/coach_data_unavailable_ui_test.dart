@@ -12,15 +12,11 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Sentinel-Rest, Screen-Seite: „nicht ladbar/loeschbar" darf nie wie
-// „leer/geloescht" aussehen.
-//
-//  * Verlauf: loadHistory wirft seit dem Service-Fix CoachDataUnavailable —
-//    der Screen muss daraus einen Fehlerzustand machen, nicht den
-//    Hero-Leerzustand (der behauptet „noch keine Unterhaltung").
-//  * Loeschen: deleteSession wirft — die Session bleibt in der Liste stehen
-//    und der Nutzer bekommt einen Hinweis, statt dass der Screen mit
-//    „ist geloescht" weiterfaehrt.
+// Screen side: "not loadable/deletable" must never look like
+// "empty/deleted".
+//  * loadHistory throws CoachDataUnavailable -> error state, not the hero
+//    empty state (which claims there is no conversation yet).
+//  * deleteSession throws -> session stays in the list plus a hint.
 
 class _Svc extends CoachChatService {
   _Svc(super.client, super.userId);
@@ -85,9 +81,8 @@ class _Svc extends CoachChatService {
   }
 }
 
-/// Gedeckeltes Settle statt pumpAndSettle: der Coach-Screen traegt
-/// Dauer-Animationen (Hero/Motion), an denen pumpAndSettle nie ankommt —
-/// dasselbe Muster wie in clobber_guard_test.dart.
+/// Capped settle instead of pumpAndSettle: the coach screen runs endless
+/// animations that pumpAndSettle never reaches.
 Future<void> _settle(WidgetTester tester) async {
   for (var i = 0; i < 20; i++) {
     await tester.pump(const Duration(milliseconds: 50));
@@ -97,8 +92,8 @@ Future<void> _settle(WidgetTester tester) async {
 Future<void> _pump(WidgetTester tester, _Svc svc) async {
   await tester.pumpWidget(MaterialApp(
     theme: buildEatovaTheme(Brightness.dark),
-    // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-    // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+    // The coach uses context.l10n; without localization
+    // AppLocalizations.of() throws on the first build.
     locale: const Locale('de'),
     supportedLocales: const [Locale('de'), Locale('en')],
     localizationsDelegates: const [
@@ -136,7 +131,7 @@ void main() {
     await _settle(tester);
     await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
     await _settle(tester);
-    // Bestaetigungs-Dialog.
+    // Confirmation dialog.
     await tester.tap(find.widgetWithText(TextButton, 'Löschen'));
     await _settle(tester);
 

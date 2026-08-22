@@ -2,21 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/model_limits.dart';
 
-// W1-06: Grenzwerte der DB-Check-Constraints als Client-Konstanten.
+// W1-06: DB check-constraint bounds as client constants.
 //
-// Hintergrund (docs/REVIEW-2026-08-08.md, Kapitel I): Fuer jede vom Nutzer
-// beeinflussbare Spalte mit Check-Constraint validiert der Client bisher
-// nichts. `digitsOnly` ist ein TYP-Guard, kein WERTEBEREICHS-Guard. "75,5"
-// im Gewichtsfeld wird zu 755 kg -> PostgreSQL 23514 -> Outbox-Verwurf.
+// `digitsOnly` is a TYPE guard, not a RANGE guard: "75,5" in the weight field
+// becomes 755 kg -> PostgreSQL 23514 -> outbox drop.
 //
-// Diese Suite prueft drei Dinge:
-//   1) Jede Grenze an beiden Raendern und knapp ausserhalb (min-1/min/max/max+1).
-//   2) Der Text-Kuerzer zerlegt keine UTF-16-Surrogatpaare (Emoji an der Grenze).
-//   3) Die Konstanten stimmen mit dem Endzustand der SQL-Migrationen ueberein
-//      (Sollwerte hart hinterlegt, Migrationsdatei im Kommentar) — damit eine
-//      Migrationsaenderung wenigstens hier auffaellt.
+// This suite checks three things:
+//   1) Every bound at min-1/min/max/max+1.
+//   2) The truncator never splits a UTF-16 surrogate pair.
+//   3) The constants match the final state of the SQL migrations, so a
+//      migration change at least shows up here.
 
-/// Prueft eine ganzzahlige Grenze an allen vier Raendern.
+/// Checks an integer bound at all four edges.
 void _pruefeIntGrenze(
   String feld, {
   required int min,
@@ -45,7 +42,7 @@ void _pruefeIntGrenze(
   });
 }
 
-/// Prueft eine Gleitkomma-Grenze an allen vier Raendern.
+/// Checks a floating-point bound at all four edges.
 void _pruefeDoubleGrenze(
   String feld, {
   required double min,
@@ -66,19 +63,19 @@ void _pruefeDoubleGrenze(
   });
 }
 
-/// Findet unpaarige Surrogate — der Beweis, dass ein Kuerzen kein Emoji
-/// zerlegt hat. `substring` auf einem Nicht-BMP-Zeichen erzeugt genau das.
+/// Finds unpaired surrogates — the proof that truncation did not split an
+/// emoji. `substring` on a non-BMP character produces exactly that.
 bool _hatKaputteSurrogate(String text) {
   for (var i = 0; i < text.length; i++) {
     final unit = text.codeUnitAt(i);
     if (unit >= 0xD800 && unit <= 0xDBFF) {
-      // High Surrogate: braucht direkt danach ein Low Surrogate.
+      // High surrogate: needs a low surrogate right after it.
       if (i + 1 >= text.length) return true;
       final naechste = text.codeUnitAt(i + 1);
       if (naechste < 0xDC00 || naechste > 0xDFFF) return true;
       i++;
     } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
-      // Low Surrogate ohne vorangehendes High Surrogate.
+      // Low surrogate without a preceding high surrogate.
       return true;
     }
   }
@@ -203,8 +200,8 @@ void main() {
     );
 
     test('numeric(5,2): auf zwei Nachkommastellen gerundet', () {
-      // Die Spalte ist numeric(5,2) — der Server rundet ohnehin. Wir runden
-      // mit, damit lokaler Cache und Serverzeile identisch bleiben.
+      // The column is numeric(5,2) and the server rounds anyway; rounding here
+      // too keeps the local cache and the server row identical.
       expect(clampWeightLogKg(70.125), 70.13);
       expect(clampWeightLogKg(75.5), 75.5);
       expect(clampWeightLogKg(80.001), 80.0);
@@ -213,7 +210,7 @@ void main() {
 
   group('Plausibilitaet (keine DB-Entsprechung)', () {
     test('kcal/100 g ueber 900 ist physikalisch unmoeglich (reines Fett)', () {
-      // Review B7: OFF liefert teils kJ-Zahlen im kcal-Feld (2180 statt 521).
+      // OFF sometimes puts kJ numbers in the kcal field (2180 instead of 521).
       expect(isPlausibleKcalPer100G(900), isTrue);
       expect(isPlausibleKcalPer100G(901), isFalse);
       expect(isPlausibleKcalPer100G(2180), isFalse);
@@ -223,8 +220,8 @@ void main() {
     });
 
     test('Portion: DB erlaubt 0 g, plausibel ist erst ab 1 g', () {
-      // Die DB-Grenze (estimated_g >= 0) und die Plausibilitaetsgrenze
-      // (>= 1 g) fallen bewusst auseinander.
+      // The DB bound (estimated_g >= 0) and the plausibility bound (>= 1 g)
+      // deliberately differ.
       expect(LoggedMealLimits.estimatedGMin, 0);
       expect(PlausibilityLimits.portionGramsMin, 1);
       expect(isPlausiblePortionGrams(0), isFalse);
@@ -241,11 +238,11 @@ void main() {
       expect(isValidProfileWeightKg(double.nan), isFalse);
       expect(isValidWeightLogKg(double.nan), isFalse);
       expect(isValidMealCaloriesKcal(double.nan), isFalse);
-      // Ohne Fallback: Untergrenze (dokumentiert, siehe Datei-Kommentar).
+      // Without a fallback: the lower bound.
       expect(clampProfileWeightKg(double.nan), ProfileLimits.weightKgMin);
-      // Mit Fallback: der Aufrufer bestimmt den Ersatzwert.
+      // With a fallback: the caller picks the substitute.
       expect(clampProfileWeightKg(double.nan, fallback: 78), 78);
-      // Ein Fallback ausserhalb des Bereichs wird selbst geklemmt.
+      // An out-of-range fallback is itself clamped.
       expect(clampProfileWeightKg(double.nan, fallback: 900), ProfileLimits.weightKgMax);
     });
 
@@ -265,10 +262,10 @@ void main() {
 
   group('Das Komma-Szenario aus dem Review', () {
     test('"75,5" -> digitsOnly -> 755 kg wird abgelehnt, nicht geklemmt', () {
-      // Der Kern von Kapitel I: 755 auf 300 zu klemmen waere eine stille
-      // Verfaelschung — der Nutzer wollte 75,5 kg. Die UI muss ablehnen.
+      // Clamping 755 to 300 would silently falsify the input — the user meant
+      // 75.5 kg, so the UI must reject it.
       expect(isValidProfileWeightKg(755), isFalse);
-      // Der Clamp existiert trotzdem, aber nur als letzte Bremse vor der DB.
+      // The clamp still exists, but only as the last brake before the DB.
       expect(clampProfileWeightKg(755), ProfileLimits.weightKgMax);
     });
 
@@ -291,7 +288,7 @@ void main() {
     });
 
     test('Emoji exakt an der Grenze bleibt vollstaendig erhalten', () {
-      // 159 ASCII + 1 Emoji = genau 160 Code Points = die Grenze.
+      // 159 ASCII + 1 emoji = exactly 160 code points = the bound.
       final name = '${'a' * 159}🥗';
       expect(charLength(name), LoggedMealLimits.mealNameMaxChars);
       final gekuerzt = truncateToChars(name, LoggedMealLimits.mealNameMaxChars);
@@ -300,7 +297,7 @@ void main() {
     });
 
     test('Emoji ueber der Grenze wird ganz entfernt, nie halbiert', () {
-      // 160 ASCII + Emoji = 161 Code Points -> das Emoji faellt komplett weg.
+      // 160 ASCII + emoji = 161 code points, so the emoji drops entirely.
       final name = '${'a' * 160}🥗';
       final gekuerzt = truncateToChars(name, LoggedMealLimits.mealNameMaxChars);
       expect(gekuerzt, 'a' * 160);
@@ -308,8 +305,8 @@ void main() {
     });
 
     test('Schnitt mitten im Surrogatpaar: substring waere kaputt, wir nicht', () {
-      // 159 ASCII + Emoji + Rest. Ein naives substring(0, 160) schneidet
-      // GENAU zwischen High- und Low-Surrogate des Emojis.
+      // 159 ASCII + emoji + rest: a naive substring(0, 160) cuts exactly
+      // between the emoji's high and low surrogate.
       final name = '${'a' * 159}🥗${'b' * 10}';
       final naiv = name.substring(0, LoggedMealLimits.mealNameMaxChars);
       expect(
@@ -333,8 +330,8 @@ void main() {
 
   group('Text-Clamps an den Modellgrenzen', () {
     test('meal_name: leer verletzt char_length >= 1 -> Fallback', () {
-      // char_length(meal_name) between 1 and 160: der leere String ist eine
-      // 23514-Verletzung, kein harmloser Default.
+      // char_length(meal_name) between 1 and 160: the empty string is a 23514
+      // violation, not a harmless default.
       expect(clampMealName(''), isNotEmpty);
       expect(clampMealName('   '), isNotEmpty);
       expect(clampMealName('', fallback: 'Snack'), 'Snack');
@@ -348,7 +345,7 @@ void main() {
       expect(isValidMealName('a'), isTrue);
       expect(isValidMealName('a' * 160), isTrue);
       expect(isValidMealName('a' * 161), isFalse);
-      // 160 Emoji sind 320 UTF-16-Einheiten, aber nur 160 Code Points.
+      // 160 emoji are 320 UTF-16 units but only 160 code points.
       expect(isValidMealName('🥗' * 160), isTrue);
       expect(isValidMealName('🥗' * 161), isFalse);
     });
@@ -419,16 +416,16 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Drift-Waechter: SQL zu parsen waere unverhaeltnismaessig, also stehen die
-  // Sollwerte hier hart drin — mit der Migrationsdatei im Kommentar. Wer eine
-  // Migration aendert und diesen Test rot macht, weiss danach, wo der Client
-  // nachzuziehen ist.
+  // Drift guard: parsing SQL would be disproportionate, so the expected values
+  // are hardcoded with the migration file named in the comment. Changing a
+  // migration turns this red and points at what the client must follow.
   // -------------------------------------------------------------------------
   group('Drift-Waechter: Konstanten == Endzustand der SQL-Migrationen', () {
     test('profiles_biometrics_range_check — 20260807090000_profiles_age_minimum_16.sql', () {
       // check (weight_kg between 30 and 300 and height_cm between 100 and 250
       //        and age_years between 16 and 100)
-      // ACHTUNG: ersetzt die 13er-Untergrenze aus 20260517220000_security_hardening.sql.
+      // NOTE: replaces the 13 lower bound from
+      // 20260517220000_security_hardening.sql.
       expect(ProfileLimits.weightKgMin, 30);
       expect(ProfileLimits.weightKgMax, 300);
       expect(ProfileLimits.heightCmMin, 100);
@@ -515,9 +512,9 @@ void main() {
     });
 
     test('favorite_meals hat KEINE Makro-Spalten — Grenzen kommen aus logged_meals', () {
-      // favorite_meals_safe_ranges_check nennt weder protein_g noch carbs_g
-      // noch fat_g; die Tabelle hat diese Spalten schlicht nicht
-      // (20260516160000_app_data_schema.sql, Abschnitt 4).
+      // favorite_meals_safe_ranges_check names none of protein_g/carbs_g/
+      // fat_g; the table simply has no such columns
+      // (20260516160000_app_data_schema.sql, section 4).
       expect(FavoriteMealLimits.hasMacroColumns, isFalse);
     });
   });

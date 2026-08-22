@@ -8,31 +8,15 @@ import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
-// D5 — „Profil & Ziele" verwarf ausgefuellte Formulare kommentarlos: zehn
-// numerische Controller plus Makro-Umschalter, und eine unbedachte
-// Schliess-Geste war alles weg.
+// D5 — the goals form used to discard filled-in data silently: ten numeric
+// controllers plus the macro toggle, gone on one careless close gesture.
 //
-// ## Warum diese Datei neu gefasst wurde (Design-Refactor 2026-08-09)
-//
-// Als modales BottomSheet gab es DREI Schliesswege, und sie liefen im
-// Framework verschieden:
-//
-//   Barriere-Tap → ModalBarrier.handleDismiss → Navigator.maybePop → PopScope
-//   Ziehen       → BottomSheet._handleDragEnd → Navigator.pop  → KEIN PopScope
-//   Systemzurueck→ Navigator.maybePop                          → PopScope
-//
-// Genau deshalb brauchte das Sheet zusaetzlich zum PopScope einen
-// `_DiscardDragGuard` in der Gesten-Arena. Als ROUTE existieren die ersten
-// beiden Wege nicht mehr: eine Route hat keine Barriere und laesst sich nicht
-// wegziehen. Uebrig bleiben der Zurueck-Knopf im Seitenkopf
-// (`settings-close`, laeuft ueber `Navigator.maybePop`) und der
-// System-Zurueck — und beide laufen jetzt durch DASSELBE PopScope. Das ist die
-// eigentliche Vereinfachung des Umbaus.
-//
-// Die beiden gestrichenen Faelle sind ersatzlos entfallen, nicht ungeprueft
-// geblieben: es gibt nichts mehr, das sie ausloesen koennte. Alle Erwartungen
-// an den Dialog selbst (Keys, Titel, „Weiter bearbeiten" haelt die Eingaben,
-// Tap neben den Dialog = Abbrechen) sind woertlich uebernommen.
+// As a modal BottomSheet there were THREE close paths, and dragging bypassed
+// PopScope entirely, which is why the sheet needed a `_DiscardDragGuard` in
+// the gesture arena. As a ROUTE only two remain — the header back button
+// (`settings-close`) and the system back — and both run through the SAME
+// PopScope. The two dropped cases are gone, not untested: nothing can trigger
+// them any more.
 void main() {
   Future<Future<SettingsResult?>> openSettings(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -84,24 +68,23 @@ void main() {
     return result;
   }
 
-  /// Sichtbarkeits-Sonde. Frueher stand hier `find.text('Profil & Ziele')` —
-  /// als Seite unbrauchbar: der Titel scrollt weg, und der Verwerfen-Dialog
-  /// traegt den Namen selbst in einem laengeren Satz.
+  /// Visibility probe. A title text match is useless on a page: the title
+  /// scrolls away, and the discard dialog carries the name itself.
   bool seiteOffen(WidgetTester tester) =>
       find.byKey(const ValueKey('screen-goals')).evaluate().isNotEmpty;
 
   String feldText(WidgetTester tester, String key) =>
       tester.widget<TextField>(find.byKey(ValueKey(key))).controller!.text;
 
-  /// Der Zurueck-Knopf im Seitenkopf. Er nutzt den Standard von [PageHeader],
-  /// also `Navigator.maybePop` — damit laeuft er durch dasselbe [PopScope] wie
-  /// der System-Zurueck.
+  /// The header back button. It uses the [PageHeader] default
+  /// (`Navigator.maybePop`), so it runs through the same [PopScope] as the
+  /// system back.
   Future<void> tippeZurueck(WidgetTester tester) async {
     await tester.tap(find.byKey(const ValueKey('settings-close')));
     await tester.pumpAndSettle();
   }
 
-  // --- Weg 1: Zurueck-Knopf -------------------------------------------------
+  // --- Path 1: back button --------------------------------------------------
 
   testWidgets('der Zurueck-Knopf fragt nach, wenn etwas eingetippt wurde',
       (tester) async {
@@ -115,13 +98,13 @@ void main() {
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
     expect(find.text('Änderungen verwerfen?'), findsOneWidget);
 
-    // „Weiter bearbeiten" laesst alles stehen.
+    // Keep editing leaves everything in place.
     await tester.tap(find.byKey(const ValueKey('discard-changes-cancel')));
     await tester.pumpAndSettle();
     expect(seiteOffen(tester), isTrue);
     expect(feldText(tester, 'settings-weight'), '80');
 
-    // Und „Verwerfen" schliesst wirklich.
+    // Discard really closes.
     await tippeZurueck(tester);
     await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
     await tester.pumpAndSettle();
@@ -140,14 +123,14 @@ void main() {
     expect(await resultFuture, isNull);
   });
 
-  // --- Weg 2: System-Zurueck ------------------------------------------------
+  // --- Path 2: system back --------------------------------------------------
 
   testWidgets('der System-Zurueck-Button fragt genauso nach', (tester) async {
     await openSettings(tester);
     await tester.enterText(find.byKey(const ValueKey('settings-water')), '3000');
     await tester.pump();
 
-    // Was Android beim Zurueck-Wisch schickt.
+    // What Android sends on the back swipe.
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
@@ -157,8 +140,8 @@ void main() {
 
   testWidgets('unveraenderte Seite laesst der System-Zurueck sofort gehen',
       (tester) async {
-    // Zugleich der Beleg, dass dieser Weg wirklich schliesst: waere er es
-    // nicht, saehe man am dirty-Fall oben gar keinen Unterschied.
+    // Also proves this path really closes; otherwise the dirty case above
+    // would show no difference.
     final resultFuture = await openSettings(tester);
 
     await tester.binding.handlePopRoute();
@@ -169,7 +152,7 @@ void main() {
     expect(await resultFuture, isNull);
   });
 
-  // --- Verhalten des Dialogs ------------------------------------------------
+  // --- Dialog behaviour -----------------------------------------------------
 
   testWidgets('auch der Makro-Umschalter zaehlt als Aenderung', (tester) async {
     await openSettings(tester);
@@ -195,8 +178,8 @@ void main() {
     await tippeZurueck(tester);
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
 
-    // Der Dialog liegt ueber der Seite und sein Barrier schluckt den Tap — es
-    // geht nur der Dialog zu, die Seite bleibt mit ihren Eingaben.
+    // The dialog sits over the page and its barrier swallows the tap: only
+    // the dialog closes, the page keeps its input.
     await tester.tapAt(const Offset(196, 20));
     await tester.pumpAndSettle();
 
@@ -208,18 +191,18 @@ void main() {
   testWidgets('der Verwerfen-Schutz blockiert weder Tippen noch Auswahl',
       (tester) async {
     await openSettings(tester);
-    // Ab hier ist die Seite „dirty".
+    // From here the page is dirty.
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
     await tester.pump();
 
-    // Weitertippen in anderen Feldern geht.
+    // Typing in other fields still works.
     await tester.enterText(find.byKey(const ValueKey('settings-height')), '182');
     await tester.enterText(find.byKey(const ValueKey('settings-water')), '3000');
     await tester.pump();
     expect(feldText(tester, 'settings-height'), '182');
     expect(feldText(tester, 'settings-water'), '3000');
 
-    // Und der Makro-Umschalter reagiert weiterhin auf Taps.
+    // The macro toggle still reacts to taps.
     await tester
         .ensureVisible(find.byKey(const ValueKey('settings-manual-energy')));
     await tester.pumpAndSettle();
@@ -236,8 +219,8 @@ void main() {
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
     await tester.pump();
 
-    // Gemessen wird die ScrollPosition, nicht die Lage der Kopfzeile: der Kopf
-    // scrollt auf einer Seite mit heraus und taugt nicht mehr als Referenz.
+    // Measure the ScrollPosition, not the header: on a page the header
+    // scrolls away and is no longer a reference.
     final position = tester
         .state<ScrollableState>(
           find

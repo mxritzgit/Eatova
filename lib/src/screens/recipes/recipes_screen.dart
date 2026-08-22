@@ -1,10 +1,8 @@
-/// Rezepte-Tab — als Bibliothek aus mehreren `part`-Dateien zusammengesetzt.
+/// Recipes tab — a library assembled from the `part` files below.
 ///
-/// Rein mechanischer Split der frueheren ~1700-Zeilen-Datei: die kohaerenten
-/// Widget-Gruppen liegen in den unten referenzierten `part of`-Dateien.
-/// Importe + Sichtbarkeit (library-private `_`-Klassen) bleiben unveraendert,
-/// kein Import-Site aendert sich (Einstieg bleibt [RecipesScreen]; der
-/// oeffentliche [RecipeDetailScreen] lebt in recipe_detail.dart).
+/// Mechanical split only; library-private `_` classes keep their visibility.
+/// Entry point is [RecipesScreen]; the public [RecipeDetailScreen] lives in
+/// recipe_detail.dart.
 library;
 
 import 'dart:io';
@@ -48,39 +46,32 @@ class RecipesScreen extends StatefulWidget {
 
   final void Function(MealAnalysisResult result, MealSlot slot) onAddMeal;
 
-  /// Noch offene Tagesmakros (Ziel minus verbraucht). Wenn gesetzt, blendet
-  /// der Screen eine „Passt zu deinem Ziel"-Sektion ein, die die Rezepte nach
-  /// Makro-Match rankt. Null → Sektion ausgeblendet (Tests ohne den Param
-  /// bleiben grün).
+  /// Remaining daily macros (target minus consumed). When set, the screen
+  /// shows a goal-match section ranking recipes by macro fit; null hides it.
   final MacroProgress? remainingMacros;
 
-  /// Ernährungspräferenz des Users (PROD-6). Filtert die aktiv beworbenen
-  /// Listen — Empfehlungs-Carousel + „Passt zu deinem Ziel" — VOR dem
-  /// Makro-Ranking, damit kein diät-/präferenz-verletzendes Rezept empfohlen
-  /// wird. Die Hauptliste + Kategorie-Filter bleiben unangetastet: der User
-  /// kann jedes Rezept weiterhin manuell durchsuchen. Default
-  /// [DietPreference.none] (empfiehlt alles → Bestands-Tests bleiben grün).
+  /// Diet preference (PROD-6). Filters the actively promoted lists — the
+  /// recommendation carousel and the goal matches — BEFORE the macro ranking,
+  /// so no diet-violating recipe is recommended. Main list and category
+  /// filters stay untouched. Default [DietPreference.none] recommends
+  /// everything.
   final DietPreference diet;
 
-  /// Optionaler Hook, mit dem ein selbst angelegtes Rezept an den
-  /// Aufrufer gemeldet wird (persistiert via user_recipes). Null → das
-  /// Rezept lebt nur lokal in dieser Session.
-  ///
-  /// Meldet zurueck, was mit dem Rezept WIRKLICH passiert ist (Luecke E) —
-  /// daran haengt der Text der Erfolgsmeldung.
+  /// Optional hook reporting a self-created recipe to the caller (persisted
+  /// via user_recipes); null keeps the recipe local to this session. Returns
+  /// what actually happened (Gap E), which drives the success text.
   final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
 
-  /// Optionaler Hook zum Loeschen eines Eigen-Rezepts (per slug). Wird vom
-  /// Aufrufer an user_recipes.delete weitergereicht. Null → keine Persistenz.
+  /// Optional hook for deleting a user recipe by slug, forwarded to
+  /// user_recipes.delete. Null means no persistence.
   final Future<SyncDelivery> Function(String slug)? onDeleteRecipe;
 
-  /// Beim Boot aus Supabase geladene Eigen-Rezepte. Werden als Anfangsstand
-  /// uebernommen, damit selbst angelegte Rezepte einen Neustart ueberleben.
+  /// User recipes loaded from Supabase at boot; taken as the initial state so
+  /// self-created recipes survive a restart.
   final List<FitnessRecipe> initialUserRecipes;
 
-  /// Quelle fuer das Rezept-Foto (Kamera/Galerie). Null → das echte
-  /// [DeviceMealPhotoInput], das die Bytes bereits EXIF-frei zurueckgibt.
-  /// Der Parameter existiert allein als Test-Naht — genau wie beim Food-Tab.
+  /// Source for the recipe photo. Null uses the real [DeviceMealPhotoInput],
+  /// which already returns EXIF-free bytes. Exists purely as a test seam.
   final MealPhotoInput? photoInput;
 
   @override
@@ -90,25 +81,18 @@ class RecipesScreen extends StatefulWidget {
 class _RecipesScreenState extends State<RecipesScreen> {
   String selectedFilter = 'Alle';
 
-  /// Suchtext. Haengt bewusst an einem eigenen Controller statt am internen
-  /// State des [TextField]s (D6, Review 2026-08-08): der Screen ist eine lazy
-  /// [ListView], das Suchfeld liegt darin ganz oben. Scrollt der User weit
-  /// genug nach unten und ist das Feld nicht mehr fokussiert (die Liste nimmt
-  /// den Fokus beim Ziehen selbst weg, `keyboardDismissBehavior`), raeumt die
-  /// Liste das Element ab — mit ihm den `EditableText`-State und damit den
-  /// getippten Text. Der Filter lief danach weiter, das Feld war aber leer.
-  /// Mit eigenem Controller ueberlebt der Text das Recycling; zusammen mit
-  /// einem am Leben gehaltenen Teilbaum (IndexedStack der Home-Schale) auch
-  /// den Tab-Wechsel.
+  /// Search text, deliberately on its own controller rather than the
+  /// [TextField]'s internal state (D6, Review 2026-08-08): the screen is a
+  /// lazy [ListView], so scrolling far enough recycles the unfocused field and
+  /// would drop the typed text while the filter kept running.
   final TextEditingController _searchController = TextEditingController();
 
-  /// Spiegel von [_searchController].text, damit [filteredRecipes] den Wert
-  /// synchron lesen kann.
+  /// Mirror of [_searchController].text so [filteredRecipes] can read it
+  /// synchronously.
   String query = '';
 
-  /// Eigen-Rezepte: beim Boot aus user_recipes geladen + in dieser Session
-  /// angelegte. Werden vorn an die Liste gestellt, damit der User sie sofort
-  /// findet.
+  /// User recipes: loaded from user_recipes at boot plus those created in this
+  /// session. Placed at the front of the list.
   late List<FitnessRecipe> _userRecipes;
 
   @override
@@ -124,8 +108,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
     super.dispose();
   }
 
-  /// Der Controller meldet auch reine Cursor-/Auswahl-Aenderungen — nur echte
-  /// Textaenderungen sollen die Liste neu filtern.
+  /// The controller also reports cursor/selection changes — only real text
+  /// changes should re-filter the list.
   void _onSearchChanged() {
     if (_searchController.text == query) return;
     setState(() => query = _searchController.text);
@@ -134,36 +118,20 @@ class _RecipesScreenState extends State<RecipesScreen> {
   @override
   void didUpdateWidget(covariant RecipesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Jeder neue Stand des Aufrufers wird uebernommen. Der Store weist seine
-    // Rezeptliste bei jeder Mutation NEU zu, die Identitaetspruefung ist damit
-    // ein exakter Fingerabdruck „hat sich etwas geaendert".
+    // Every new caller state is adopted. The store reassigns its recipe list
+    // on each mutation, so identity is an exact "something changed" check.
     //
-    // Hier stand bis Luecke E ein `_locallyMutated`-Riegel: hatte der Nutzer in
-    // dieser Sitzung EINMAL etwas angelegt oder geloescht, wurde nie wieder ein
-    // Stand von aussen uebernommen. Der Riegel war noetig, solange
-    // `_bootFromSupabase` `_userRecipes = loadedRecipes` setzte — ein spaet
-    // eintreffender (oder offline leerer) Boot-Stand haette das frisch
-    // angelegte Rezept sonst weggeworfen.
-    //
-    // Seit Luecke C MERGT der Boot, statt zu ersetzen: der nachgereichte Stand
-    // enthaelt das eigene Rezept selbst, der Riegel schuetzt also nichts mehr
-    // — er richtet Schaden an. Der teuerste Fall ist die Wiedereinblendung
-    // nach einer endgueltig gescheiterten Loesch-Op
-    // (`_restoreDroppedDeletes`): der Store holt den Eintrag zurueck und
-    // meldet „der Eintrag ist wieder da", waehrend genau diese Loeschung den
-    // Riegel gesetzt hatte — der Screen zeigte das Rezept nie wieder. Ebenso
-    // blieben Rezepte eines ZWEITEN Geraets unsichtbar, sobald man hier einmal
-    // etwas angelegt hatte.
+    // No local-mutation latch here: the boot now MERGES instead of replacing
+    // (Gap C), so a latch would only hide recipes restored by
+    // `_restoreDroppedDeletes` or created on a second device.
     if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
     }
   }
 
-  /// Bestandskatalog der AKTIVEN App-Sprache (Inhalte-PR, 2026-08-11) —
-  /// vorher fest `fitnessRecipes` (immer deutsch). `context.l10n.localeName`
-  /// ist bereits auf `de`/`en` aufgeloest (System-Wahl inklusive, s.
-  /// `resolveEatovaLocale`); ein Sprachwechsel waehrend der Screen offen ist
-  /// rebuildet automatisch (`Localizations` ist ein InheritedWidget).
+  /// Built-in catalog for the ACTIVE app language. `context.l10n.localeName`
+  /// is already resolved to `de`/`en`, and a language switch rebuilds
+  /// automatically (`Localizations` is an InheritedWidget).
   List<FitnessRecipe> get _catalog =>
       recipeCatalogForLocale(context.l10n.localeName);
 
@@ -185,16 +153,15 @@ class _RecipesScreenState extends State<RecipesScreen> {
     }).toList(growable: false);
   }
 
-  /// Aktiv beworbene Rezepte = die volle Liste, vorab nach der
-  /// Ernährungspräferenz gefiltert (PROD-6). Speist Empfehlungs-Carousel +
-  /// Ziel-Matches; die Hauptliste + Kategorie-Filter bleiben ungefiltert.
+  /// Actively promoted recipes: the full list pre-filtered by diet preference
+  /// (PROD-6). Feeds carousel and goal matches; the main list stays
+  /// unfiltered.
   List<FitnessRecipe> get _dietRecipes => _allRecipes
       .where((r) => r.matchesDiet(widget.diet))
       .toList(growable: false);
 
-  /// Bis zu drei Rezepte mit dem höchsten Makro-Match zu den Restmakros.
-  /// Nur sinnvolle Treffer (>0) werden aufgenommen. Diät-Vorfilter läuft VOR
-  /// dem Makro-Ranking, damit nie ein präferenz-verletzendes Rezept rankt.
+  /// Up to three recipes with the highest macro match; only scores above 0
+  /// count. The diet pre-filter runs before the ranking.
   List<FitnessRecipe> _goalMatches(MacroProgress remaining) {
     final scored = _dietRecipes
         .map((r) => (r, r.matchScore(remaining)))
@@ -210,15 +177,15 @@ class _RecipesScreenState extends State<RecipesScreen> {
         builder: (_) => RecipeDetailScreen(
           recipe: recipe,
           onAddMeal: widget.onAddMeal,
-          // Loeschen nur fuer selbst angelegte Rezepte anbieten.
+          // Offer delete only for self-created recipes.
           onDelete: recipe.userCreated ? () => _deleteUserRecipe(recipe) : null,
         ),
       ),
     );
   }
 
-  /// Loescht ein Eigen-Rezept lokal + (falls verdrahtet) persistent via
-  /// onDeleteRecipe(slug). Wird aus dem Detail-Screen heraus aufgerufen.
+  /// Deletes a user recipe locally and, if wired, persistently via
+  /// onDeleteRecipe(slug). Called from the detail screen.
   Future<void> _deleteUserRecipe(FitnessRecipe recipe) async {
     setState(() {
       _userRecipes = _userRecipes
@@ -226,26 +193,14 @@ class _RecipesScreenState extends State<RecipesScreen> {
           .toList(growable: true);
     });
     final ausgang = await _melde(widget.onDeleteRecipe?.call(recipe.slug));
-    // Das eigene Foto geht mit — aber ERST, wenn die Loeschung wirklich
-    // zugestellt ist. Es ist PII (ein Kuechenfoto zeigt die Wohnung) und
-    // haette sonst kein Ende: der Slug ist weg, niemand wuerde die Datei je
-    // wieder anfassen. No-Op fuer Bestandsrezepte (Bundle-Asset) und fuer
-    // Eigen-Rezepte ohne Bild.
+    // The photo goes too, but only once the delete is actually delivered: a
+    // dropped delete makes `_restoreDroppedDeletes` bring the recipe back, and
+    // the device-only bytes would already be gone. No-op for catalog recipes
+    // and user recipes without an image.
     //
-    // Bis zum Audit 2026-08-14 fiel die Datei SOFORT, noch vor jeder Antwort.
-    // Landet die Op stattdessen in der Outbox und wird dort endgueltig
-    // verworfen, blendet `_restoreDroppedDeletes` das Rezept bewusst wieder
-    // ein — mit einer `local:`-Referenz, deren Bytes es dann nicht mehr gab.
-    // Das Foto lag ausschliesslich auf diesem Geraet: der Verlust war
-    // endgueltig, waehrend das Rezept selbst zurueckkam. Deshalb haengt der
-    // Datei-Loesch an derselben Quelle, aus der auch die Erfolgsmeldung ihre
-    // Deckung zieht.
-    //
-    // Der Preis ist die Gegenrichtung: eine eingereihte Loeschung, die die
-    // Outbox SPAETER zustellt, laesst die Datei liegen — weder Store noch
-    // Screen erfahren von dieser Zustellung. Ein liegengebliebenes Foto ist
-    // der leichtere Fehler als ein zerstoertes Rezept, und es faellt
-    // spaetestens mit `RecipeImageStore.clear()` beim Abmelden.
+    // The price is the other direction: a delete the outbox delivers LATER
+    // leaves the file behind, since neither store nor screen hears about it.
+    // `RecipeImageStore.clear()` on logout cleans that up.
     if (ausgang == SyncDelivery.delivered) {
       await RecipeImageStore.instance.deleteFor(recipe.imageAsset);
     }
@@ -262,16 +217,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
     );
   }
 
-  /// Wartet auf den Ausgang eines Persistenz-Hooks. Ohne Hook (Vorschau/Test)
-  /// gibt es nichts zu synchronisieren — dann gilt die Aktion als erledigt.
+  /// Awaits a persistence hook's outcome. Without a hook (preview/test) there
+  /// is nothing to sync, so the action counts as done.
   Future<SyncDelivery> _melde(Future<SyncDelivery>? hook) async =>
       await hook ?? SyncDelivery.delivered;
 
   Future<void> _openCreateSheet() async {
-    // Bewusst NICHT `showEatovaSheet`: das erzwingt `showDragHandle: true`, und
-    // ein Zug AM GRIFF laeuft ueber `BottomSheet._handleDragEnd → Navigator.pop`
-    // — also weder durch das `PopScope` noch durch den `_DiscardDragGuard` im
-    // builder-Kind. Der D5-Verwerfen-Schutz haette damit ein stilles Loch.
+    // Deliberately not `showEatovaSheet`: it forces `showDragHandle: true`,
+    // and a drag on the handle goes through `BottomSheet._handleDragEnd →
+    // Navigator.pop`, bypassing both `PopScope` and `_DiscardDragGuard` — a
+    // silent hole in the D5 discard guard.
     final recipe = await showModalBottomSheet<FitnessRecipe>(
       context: context,
       isScrollControlled: true,
@@ -282,9 +237,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
     );
     if (recipe == null || !mounted) return;
     setState(() => _userRecipes.insert(0, recipe));
-    // Luecke E: die Meldung wartet auf den Ausgang, statt ihn zu behaupten.
-    // Sie kommt spaetestens nach [kSyncDeliveryWindow] — der Store deckelt die
-    // Wartezeit, weil ein Supabase-Write kein Timeout traegt.
+    // Gap E: the message waits for the outcome instead of asserting it. It
+    // arrives after [kSyncDeliveryWindow] at the latest — the store caps the
+    // wait because a Supabase write carries no timeout.
     final ausgang = await _melde(widget.onCreateRecipe?.call(recipe));
     if (!mounted) return;
     showAppSnack(
@@ -302,9 +257,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final visibleRecipes = filteredRecipes;
-    // Empfehlungs-Carousel: diät-vorgefiltert (PROD-6). Fallback auf die volle
-    // Liste, falls die Präferenz keinerlei Kuratier-Rezepte übrig lässt, damit
-    // die Sektion nie leer wirkt.
+    // Recommendation carousel: diet pre-filtered (PROD-6), falling back to the
+    // full list so the section never looks empty.
     final recommendedPool =
         _dietRecipes.isEmpty ? _allRecipes : _dietRecipes;
     final recommended = recommendedPool.take(4).toList(growable: false);
@@ -313,18 +267,15 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ? const <FitnessRecipe>[]
         : _goalMatches(remaining);
 
-    // Feste Karussell-Hoehe plus wachsende Schrift ist bei textScaler 2.0 ein
-    // garantierter Overflow — dieselbe Technik nutzt `MacroBar` in der
-    // Design-Bibliothek.
+    // A fixed carousel height plus growing text overflows at textScaler 2.0;
+    // same technique as `MacroBar` in the design library.
     final carouselHeight =
         MediaQuery.textScalerOf(context).scale(236).clamp(236.0, 430.0);
 
-    // D6: Der PageStorageKey gibt der Liste eine stabile Identitaet im
-    // PageStorage der Route. Die Scrollposition wird damit beim Verlassen des
-    // Tabs gesichert und beim Zurueckkehren wiederhergestellt — auch dann,
-    // wenn die Home-Schale den Teilbaum komplett neu aufbaut. Er sitzt auf
-    // einem KeyedSubtree statt auf der ListView selbst, weil deren
-    // ValueKey('screen-recipes') Testeinstieg mehrerer Suiten ist.
+    // D6: the PageStorageKey gives the list a stable identity in the route's
+    // PageStorage, so the scroll position survives a tab switch. It sits on a
+    // KeyedSubtree rather than the ListView because the latter's
+    // ValueKey('screen-recipes') is the entry point of several test suites.
     return KeyedSubtree(
       key: const PageStorageKey<String>('recipes-list'),
       child: ListView(
@@ -367,12 +318,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
           ),
           const SizedBox(height: 22),
           SectionHeading(
-            // Inhalte-PR: `selectedFilter` bleibt die neutrale Logik-
-            // Identitaet (Filtervergleich oben, ValueKeys der Chips) — die
-            // Ueberschrift zeigt ihre ARB-Anzeigeform, wie schon der Chip
-            // selbst (recipeCategoryLabel, recipes_header.dart). Der
-            // "Alle"-Sonderfall bekommt weiterhin den laengeren, eigenen
-            // Titel ("Alle Rezepte" statt nur "Alle").
+            // `selectedFilter` stays the neutral logic identity (filter
+            // comparison, chip ValueKeys); the heading shows its ARB display
+            // form, like the chip itself. The "Alle" case keeps its own,
+            // longer title.
             title: selectedFilter == 'Alle'
                 ? l10n.recipesAllTitle
                 : recipeCategoryLabel(selectedFilter, l10n),
@@ -388,8 +337,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
             if (i != visibleRecipes.length - 1) const SizedBox(height: 12),
           ],
           if (visibleRecipes.isEmpty) const _RecipeEmptyState(),
-          // Steht bewusst NACH der Hauptliste: so bleibt die erste Rezept-Kachel
-          // im initialen Viewport (Test nutzt ensureVisible ohne vorheriges Scrollen).
+          // Deliberately after the main list, so the first recipe tile stays
+          // in the initial viewport.
           if (goalMatches.isNotEmpty) ...[
             const SizedBox(height: 22),
             SectionHeading(

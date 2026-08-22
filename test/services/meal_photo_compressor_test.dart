@@ -5,8 +5,8 @@ import 'package:image/image.dart' as img;
 
 import 'package:eatova/src/services/meal_photo_compressor.dart';
 
-/// Baut ein JPEG-Fixture: [width]x[height], linke Haelfte rot, rechte blau.
-/// Optional mit gesetzter EXIF-Orientierung (wie es Kamera-JPEGs tragen).
+/// Builds a JPEG fixture: [width]x[height], left half red, right half blue.
+/// Optionally with an EXIF orientation, as camera JPEGs carry.
 Uint8List _jpegFixture(int width, int height, {int? exifOrientation}) {
   final image = img.Image(width: width, height: height);
   img.fillRect(image,
@@ -53,30 +53,28 @@ void main() {
   });
 
   test('EXIF-Orientierung wird eingebacken statt verworfen (Fix 7e39cff)', () {
-    // Orientation 6 = 90 Grad im Uhrzeigersinn drehen: ein 2000x1000-Buffer,
-    // der als Hochkant-Foto (1000x2000) angezeigt werden soll — genau das
-    // liefert eine Smartphone-Kamera im Portrait-Modus. (Der JPEG-Decoder von
-    // package:image backt den Tag beim Dekodieren selbst ein; entscheidend
-    // ist hier das ENDE-zu-ENDE-Verhalten von compressMealPhoto: Ausgabe-
-    // Pixel physisch richtig gedreht, kein Orientation-Tag mehr im Ergebnis.)
+    // Orientation 6 = rotate 90 degrees clockwise: a 2000x1000 buffer meant to
+    // display as portrait, what a phone camera produces. What matters is the
+    // end-to-end behaviour of compressMealPhoto: output pixels physically
+    // rotated, no orientation tag left.
     final original = _jpegFixture(2000, 1000, exifOrientation: 6);
 
     final compressed = compressMealPhoto(original);
     final decoded = img.decodeImage(compressed)!;
 
-    // Pixel physisch gedreht: aus 2000x1000 (liegend) wird Hochkant und
-    // danach auf 1600 px laengste Kante verkleinert.
+    // Pixels physically rotated: 2000x1000 landscape becomes portrait, then is
+    // scaled to a 1600 px longest edge.
     expect(decoded.width, 800);
     expect(decoded.height, 1600);
-    // Bei 90-Grad-CW-Drehung wandert die linke (rote) Haelfte nach oben.
+    // A 90-degree CW rotation moves the left (red) half to the top.
     final top = decoded.getPixel(decoded.width ~/ 2, 10);
     final bottom = decoded.getPixel(decoded.width ~/ 2, decoded.height - 10);
     expect(top.r, greaterThan(180));
     expect(top.b, lessThan(80));
     expect(bottom.b, greaterThan(180));
     expect(bottom.r, lessThan(80));
-    // Keine EXIF-Orientierung mehr im Ergebnis: sonst wuerden EXIF-treue
-    // Viewer das bereits gedrehte Bild ein zweites Mal drehen.
+    // No EXIF orientation left, or EXIF-aware viewers would rotate the already
+    // rotated image a second time.
     final orientation = decoded.exif.imageIfd.orientation;
     expect(orientation == null || orientation == 1, isTrue,
         reason: 'Orientierung muss nach dem Einbacken neutral sein, '
@@ -86,14 +84,10 @@ void main() {
   test(
       'Sentinel-Rest S2: nicht dekodierbare Bytes WERFEN — ungescrubbt '
       'verlaesst nichts das Geraet', () {
-    // Die erste Fassung dieses Tests pinnte das Gegenteil (`same(garbage)`):
-    // was der Decoder nicht lesen konnte, ging mit GPS, Geraete-Kennung und
-    // Aufnahmezeit unveraendert an die Edge Function und den US-Anbieter —
-    // waehrend PRIVACY.md und eatova.de/datenschutz das Scrubbing als
-    // Eigenschaft JEDES Uploads zusichern. Fail-closed: werfen. Die
-    // Aufrufer sind wurf-sicher (Kamera-/Galerie-Sheet zeigen eine
-    // Fehlermeldung, der Coach haengt kein Bild an, der Analyzer wirft bei
-    // fehlenden Bytes ohnehin).
+    // Fail-closed: undecodable bytes must throw. Passing them through would
+    // ship GPS, device id and capture time to the edge function, while
+    // PRIVACY.md promises scrubbing on EVERY upload. All callers are
+    // throw-safe.
     final garbage = Uint8List.fromList(List<int>.generate(64, (i) => i));
 
     expect(() => compressMealPhoto(garbage), throwsFormatException);
@@ -101,8 +95,8 @@ void main() {
 
   test('bereits kleine, stark komprimierte Bilder werden nicht aufgeblaeht',
       () {
-    // q60-Fixture unter 1600 px: eine q85-Re-Kompression wuerde die Datei
-    // vergroessern — dann soll das Original unveraendert zurueckkommen.
+    // q60 fixture below 1600 px: a q85 recompression would grow the file, so
+    // the original must come back unchanged.
     final image = img.Image(width: 640, height: 480);
     img.fill(image, color: img.ColorRgb8(120, 180, 90));
     final original = Uint8List.fromList(img.encodeJpg(image, quality: 60));

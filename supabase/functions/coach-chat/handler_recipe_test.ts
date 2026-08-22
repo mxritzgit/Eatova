@@ -1,21 +1,17 @@
-// End-to-End-Tests fuer den Recipe-Mode (mode: "recipe") von handleRequest —
-// fetch gestubbt, gleicher Stil wie handler_test.ts (bewusst ohne externe
-// Test-Dependencies). Deckt die Spec-Zusicherungen ab:
-//   * 1 Quota-Slot pro Rezept, Refund NUR bei Infra-Fehlern
-//   * Bild-Fehler != Rezept-Fehler (200 ohne image_base64)
-//   * JSON-Refusal kostet den Slot (wie Layer-2-Refusals im Chat)
-//   * keine History-Query im Recipe-Mode
-//   * Prefilter (Layer 1) laeuft weiterhin VOR der Quota
-//   * Layer 2 laeuft AUCH im Rezept-Modus (Security-Fix 2026-08-14): eine
-//     Krisen-Formulierung liefert die Krisen-Antwort und setzt keinen
-//     Draft-Call ab — alle vier Sicherheits-Kategorien fahren dafuer durch
-//     den Handler, nicht nur durch die Mengen-Mitgliedschaft
-//   * W1 (2026-08-14): auch ein UNBRAUCHBARER Classifier-Output lehnt hier ab
-//     (Refusal statt Draft-Call) — im Rezept-Pfad ist Layer 2 die einzige
-//     Krisen-Schicht
+// End-to-end tests for handleRequest's recipe mode, fetch stubbed, same style
+// as handler_test.ts (no external test dependencies). Covers the spec:
+//   * 1 quota slot per recipe, refund ONLY on infra errors
+//   * image error != recipe error (200 without image_base64)
+//   * a JSON refusal costs the slot, like layer-2 refusals in chat
+//   * no history query in recipe mode
+//   * the prefilter (layer 1) still runs BEFORE the quota
+//   * layer 2 runs in recipe mode too (security fix 2026-08-14): all four
+//     safety categories go through the handler, not just set membership
+//   * W1: an UNUSABLE classifier output also refuses here — in the recipe
+//     path layer 2 is the only crisis layer
 //
-// Der letzte Test prueft den Chat-Pfad: der vergiftete user_context (Befund B
-// derselben Runde) ist dieselbe Aenderung und teilt sich den fetch-Stub.
+// The last test covers the chat path: the poisoned user_context is the same
+// change and shares the fetch stub.
 
 import { handleRequest } from "./handler.ts";
 
@@ -52,39 +48,36 @@ interface RecordedCall {
 }
 
 interface StubOptions {
-  /** "ok" (Default), "exhausted" oder "forbidden" (Claim darf nie passieren). */
+  /** "ok" (default), "exhausted" or "forbidden" (claim must never happen). */
   quota?: "ok" | "exhausted" | "forbidden";
-  /** Kategorie, die der Classifier-Call (max_tokens 50) zurueckgibt. */
+  /** Category returned by the classifier call (max_tokens 50). */
   classifierCategory?: string;
   /**
-   * ROH-Content der Classifier-Antwort — ueberschreibt classifierCategory.
-   * Fuer den Parse-Ausfall (W1): ein bezahlter, abgeschlossener Call, nach
-   * dem trotzdem KEINE Klassifikation vorliegt.
+   * RAW content of the classifier reply, overriding classifierCategory. For
+   * the parse failure (W1): a paid, completed call with no classification.
    */
   classifierContent?: string;
-  /** Antwort-Content des Draft-Calls (max_tokens 900). */
+  /** Reply content of the draft call (max_tokens 900). */
   draftContent?: string;
-  /** HTTP-Status des Draft-Calls (Infra-Fehler-Simulation). */
+  /** HTTP status of the draft call (infra error simulation). */
   draftStatus?: number;
-  /** HTTP-Status des Bild-Calls (/api/v1/images). */
+  /** HTTP status of the image call (/api/v1/images). */
   imageStatus?: number;
 }
 
-/** Antwort-Text des Chat-Answer-Calls (max_tokens 600). */
+/** Reply text of the chat answer call (max_tokens 600). */
 const ANSWER_TEXT = "Peil heute noch 30 g Protein an, dann passt die Bilanz.";
 
-// EN-Gegenstuecke aus dem REFUSAL_TEXTS-Katalog (Lokalisierung 2026-08-15,
-// design-fix2.md Abschnitt 4.2) - Byte-Kopien, gleicher Refusal-Block wie im
-// Chat-Pfad (handler.ts, gemeinsamer Layer-2-Block).
+// EN counterparts from the REFUSAL_TEXTS catalogue - byte copies, same
+// refusal block as the chat path (handler.ts, shared layer-2 block).
 const CRISIS_REPLY_EN =
   "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines for your country. You are not alone.";
 const CLASSIFIER_UNUSABLE_REPLY_EN =
   "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.";
 
 /**
- * Die drei OpenRouter-Chat-Calls unterscheiden sich eindeutig ueber ihr
- * Token-Budget (Classifier 50, Answer 600, Draft 900) — dieselbe Konvention
- * wie in handler_test.ts.
+ * The three OpenRouter chat calls are told apart by their token budget
+ * (classifier 50, answer 600, draft 900), as in handler_test.ts.
  */
 function maxTokensOf(body: string): number {
   return Number((JSON.parse(body) as JsonRecord).max_tokens);
@@ -164,8 +157,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("openrouter.ai/api/v1/chat/completions")) {
       const budget = maxTokensOf(_body);
-      // Classifier VOR der draftStatus-Weiche: ein simulierter Draft-Ausfall
-      // soll den Layer-2-Call nicht mit umwerfen.
+      // Classifier BEFORE the draftStatus branch: a simulated draft failure
+      // must not take the layer-2 call down with it.
       if (budget === 50) {
         return jsonRes({
           choices: [{
@@ -190,16 +183,16 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("/rest/v1/chat_messages")) {
       if (method === "POST") {
-        // Die Rezept-Assistant-Zeile (traegt das recipe-JSON) wird mit
-        // return=representation eingefuegt — der Handler braucht ihre id
-        // fuer assistant_message_id (Reload-Karte, Nachtrag 2026-08-13).
+        // The recipe assistant row (carrying the recipe JSON) is inserted
+        // with return=representation; the handler needs its id for
+        // assistant_message_id.
         if (_body.includes('"recipe"')) {
           return jsonRes([{ id: ASSISTANT_MSG_ID }], 201);
         }
         return new Response(null, { status: 201 });
       }
-      // GET = loadHistory — darf im Recipe-Mode nie passieren; die Tests
-      // pruefen das ueber callsTo, deshalb hier kein Wurf.
+      // GET = loadHistory, which must never happen in recipe mode; the tests
+      // assert that via callsTo, so no throw here.
       return jsonRes([]);
     }
     if (url.includes("/rest/v1/chat_sessions")) {
@@ -264,7 +257,7 @@ function makeChatRequest(payload: JsonRecord = {}): Request {
   });
 }
 
-/** Die OpenRouter-Chat-Calls eines Stubs, nach Token-Budget gefiltert. */
+/** A stub's OpenRouter chat calls, filtered by token budget. */
 function completionsWithBudget(stub: FetchStub, budget: number): RecordedCall[] {
   return stub.callsTo("chat/completions").filter((call) =>
     maxTokensOf(call.body) === budget
@@ -295,8 +288,8 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
 
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "genau ein Claim");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
-    // Genau ZWEI Chat-Calls: Classifier (Layer 2, seit 2026-08-14 auch hier)
-    // + Draft. Dazu der Bild-Call.
+    // Exactly TWO chat calls: classifier (layer 2) + draft, plus the image
+    // call.
     assertEquals(stub.callsTo("chat/completions").length, 2, "Classifier + Draft");
     assertEquals(
       completionsWithBudget(stub, 50).length,
@@ -312,12 +305,12 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
       "response_format erzwingt JSON",
     );
     assertEquals(stub.callsTo("api/v1/images").length, 1, "genau ein Bild-Call");
-    // Keine History-Query im Recipe-Mode.
+    // No history query in recipe mode.
     const historyReads = stub.calls.filter((c) =>
       c.url.includes("/rest/v1/chat_messages") && c.method === "GET"
     );
     assertEquals(historyReads.length, 0, "keine History-Query");
-    // Verlauf: User-Wunsch + Assistant-Summary MIT Rezept-JSON (Reload-Karte).
+    // History: user request + assistant summary WITH recipe JSON.
     const stores = stub.calls.filter((c) =>
       c.url.includes("/rest/v1/chat_messages") && c.method === "POST"
     );
@@ -425,12 +418,11 @@ Deno.test("Prefilter (Layer 1) greift auch im Recipe-Mode — ohne Quota-Claim",
   }
 });
 
-// --------------------------------------------------------- Layer 2 im Rezept
-// Regression zum Security-Fix 2026-08-14: der Recipe-Zweig lag VOR dem
-// Classifier-Block, Layer 2 lief im Rezept-Modus also nie. Layer 1 ist
-// bewusst lasch ("ich will nicht mehr leben" steht in keinem Pattern), der
-// Wunsch ging damit ungeprueft in den Draft-Call — die Krisen-Antwort mit der
-// Telefonseelsorge-Nummer konnte hier gar nicht entstehen.
+// -------------------------------------------------------- Layer 2 in recipe
+// Regression for the 2026-08-14 security fix: the recipe branch sat BEFORE
+// the classifier block, so layer 2 never ran in recipe mode. Layer 1 is
+// deliberately lax, so a crisis request reached the draft call unchecked and
+// the crisis reply could not be produced here at all.
 
 Deno.test("Krise im Rezept-Modus: Krisen-Antwort, KEIN Draft-Call", async () => {
   const stub = installFetch({ classifierCategory: "self_harm" });
@@ -448,7 +440,7 @@ Deno.test("Krise im Rezept-Modus: Krisen-Antwort, KEIN Draft-Call", async () => 
     );
     assert(!("recipe" in body), "kein Rezept");
     assert(!("image_base64" in body), "kein Bild");
-    // Der Beweis, dass nichts generiert wurde: nur der Classifier-Call.
+    // Proof that nothing was generated: only the classifier call.
     assertEquals(
       stub.callsTo("chat/completions").length,
       1,
@@ -456,7 +448,7 @@ Deno.test("Krise im Rezept-Modus: Krisen-Antwort, KEIN Draft-Call", async () => 
     );
     assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
     assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
-    // Quota-Linie unveraendert: eine Refusal kostet den Slot.
+    // Quota rule unchanged: a refusal costs the slot.
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
     assertEquals(body.remaining, 4, "remaining aus dem Claim");
   } finally {
@@ -465,8 +457,8 @@ Deno.test("Krise im Rezept-Modus: Krisen-Antwort, KEIN Draft-Call", async () => 
 });
 
 Deno.test("Lokalisierung: EN-Krise im Rezept-Pfad", async () => {
-  // Spiegel des Tests oben, nur mit locale: "en" - Katalog-Text statt
-  // Ad-hoc-Assertion auf die Nummer.
+  // Mirror of the test above with locale "en": catalogue text instead of an
+  // ad-hoc assertion on the number.
   const stub = installFetch({ classifierCategory: "self_harm" });
   try {
     const res = await handleRequest(makeRecipeRequest({
@@ -514,10 +506,9 @@ Deno.test("Essstoerung im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () =>
 });
 
 Deno.test("Doping-Wunsch im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () => {
-  // medical_risk lief bis 2026-08-14 nur als Mengen-Mitgliedschaft durch die
-  // Tests — hier faehrt die Kategorie einmal komplett durch den Handler.
-  // Die Formulierung passiert Layer 1 bewusst (kein Doping-Stem im Text):
-  // nur so landet sie ueberhaupt bei Layer 2.
+  // Drives medical_risk fully through the handler, not just set membership.
+  // The wording passes layer 1 on purpose (no doping stem), or it would never
+  // reach layer 2.
   const stub = installFetch({ classifierCategory: "medical_risk" });
   try {
     const res = await handleRequest(makeRecipeRequest({
@@ -537,10 +528,9 @@ Deno.test("Doping-Wunsch im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () 
 });
 
 Deno.test("Injection im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () => {
-  // Dito injection: der Rezept-Prompt selbst kennt nur "kein Essensrezept",
-  // ein Jailbreak-Versuch muss an Layer 2 haengenbleiben. Formulierung
-  // wieder bewusst an Layer 1 vorbei (kein "ignoriere alle Anweisungen",
-  // kein "du bist jetzt") — sonst testet der Fall nur den Prefilter.
+  // Same for injection: the recipe prompt itself only knows "no food
+  // recipe", so a jailbreak must be caught by layer 2. Wording again routed
+  // past layer 1, or the case would only test the prefilter.
   const stub = installFetch({ classifierCategory: "injection" });
   try {
     const res = await handleRequest(makeRecipeRequest({
@@ -559,20 +549,18 @@ Deno.test("Injection im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () => {
   }
 });
 
-// ------------------------------------------------------- W1 (Parse-Ausfall)
-// Die letzte Fail-open-Stelle der Krisen-Guardrail: unbrauchbarer
-// Modell-Output fiel auf `off_topic` zurueck, und `off_topic` steht bewusst
-// nicht im Rezept-Set. Ein kaputtes JSON schaltete die Krisenpruefung fuer
-// genau diese Anfrage also ab — "ich will nicht mehr leben, mach mir noch ein
-// letztes Rezept" ging danach in den Draft-Call. Seit dem Fix trennt
-// ClassifierResult.parseFailed die beiden Faelle.
+// ------------------------------------------------------ W1 (parse failure)
+// The last fail-open spot of the crisis guardrail: unusable model output fell
+// back to `off_topic`, which is deliberately not in the recipe set, so broken
+// JSON disabled the crisis check for that request.
+// ClassifierResult.parseFailed now separates the two cases.
 
 Deno.test("W1: unparsbare Classifier-Antwort im Rezept-Modus -> Refusal, KEIN Draft-Call", async () => {
   for (
     const content of [
-      "Ich denke, das ist Fitness.", // gar kein JSON
-      '{"category":"banane","confidence":"high"}', // unbekannte Kategorie
-      '{"category":', // abgeschnittenes JSON
+      "Ich denke, das ist Fitness.", // no JSON at all
+      '{"category":"banane","confidence":"high"}', // unknown category
+      '{"category":', // truncated JSON
     ]
   ) {
     const stub = installFetch({ classifierContent: content });
@@ -590,7 +578,7 @@ Deno.test("W1: unparsbare Classifier-Antwort im Rezept-Modus -> Refusal, KEIN Dr
       );
       assert(!("recipe" in body), `${content}: kein Rezept`);
       assert(!("image_base64" in body), `${content}: kein Bild`);
-      // Der eigentliche Beweis: nach dem Classifier passiert nichts mehr.
+      // The real proof: nothing happens after the classifier.
       assertEquals(
         stub.callsTo("chat/completions").length,
         1,
@@ -602,8 +590,8 @@ Deno.test("W1: unparsbare Classifier-Antwort im Rezept-Modus -> Refusal, KEIN Dr
         `${content}: kein Draft-Call`,
       );
       assertEquals(stub.callsTo("api/v1/images").length, 0, `${content}: kein Bild-Call`);
-      // Quota-Linie wie bei jeder Layer-2-Refusal: der Call war bezahlt und
-      // abgeschlossen, ein Refund waere wieder der CWE-770-Gratis-Loop.
+      // Quota rule as for any layer-2 refusal: the call was paid and
+      // completed, and a refund would reopen the CWE-770 free loop.
       assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${content}: kein Refund`);
       assertEquals(body.remaining, 4, `${content}: remaining aus dem Claim`);
     } finally {
@@ -631,10 +619,9 @@ Deno.test("Lokalisierung: classifier_unusable EN im Rezept-Pfad", async () => {
 });
 
 Deno.test("off_topic blockiert kein Rezept (der Rezept-Prompt entscheidet)", async () => {
-  // Gegenprobe zum Set: blosse Gerichtnamen landen beim Klassifizierer
-  // haeufig als off_topic. Waere off_topic im Rezept-Set, waere der ganze
-  // Rezept-Flow kaputt. Seit W1 haengt daran NICHT mehr der Parse-Ausfall:
-  // der ist ein eigener Fall (Test darueber) und lehnt ab.
+  // Counter-check on the set: bare dish names often classify as off_topic, so
+  // putting off_topic in the recipe set would break the whole flow. Since W1
+  // the parse failure is a separate case (test above) and does refuse.
   const stub = installFetch({ classifierCategory: "off_topic" });
   try {
     const res = await handleRequest(makeRecipeRequest());
@@ -648,10 +635,10 @@ Deno.test("off_topic blockiert kein Rezept (der Rezept-Prompt entscheidet)", asy
 });
 
 // ------------------------------------------------------------- user_context
-// Befund B derselben Runde: user_context kam aus dem Request-Body und ging als
-// System-Message ans Modell, ohne dass Layer 1 oder Layer 2 ihn je gesehen
-// haben — erreichbar ohne manipulierten Client, weil _todaysFoodSummary()
-// selbst vergebene Mahlzeiten-Namen einspeist.
+// Finding B: user_context came from the request body and went to the model as
+// a system message without layer 1 or layer 2 ever seeing it — reachable
+// without a tampered client, since _todaysFoodSummary() feeds in user-chosen
+// meal names.
 
 Deno.test("Vergifteter user_context wird verworfen — Antwort kommt trotzdem", async () => {
   const stub = installFetch();

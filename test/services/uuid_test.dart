@@ -2,26 +2,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/uuid.dart';
 
-// Fix 3 (Replay-Doppelzaehlung der Lifetime-Stats): der Zaehler einer
-// nachgeholten Op laeuft als eigener Outbox-Eintrag, dessen Request-Id
-// DETERMINISTISCH aus der Quell-UUID abgeleitet wird. Genau diese Ableitung
-// traegt die ganze Idempotenz-Garantie:
-//   * stabil  — jede Wiederholung (erneuter Replay, erneute Erzeugung nach
-//     einem App-Kill) sendet dieselbe Id, der Server erkennt EINEN Vorgang;
-//   * bijektiv — verschiedene Quellen koennen sich nicht gegenseitig
-//     wegdedupen;
-//   * formaterhaltend — der RPC-Parameter ist `uuid`, alles andere ist ein
-//     Server-Fehler statt einer Zaehlung.
+// Fix 3: the counter of a replayed op is its own outbox entry whose request id
+// is derived DETERMINISTICALLY from the source UUID. That derivation carries
+// the whole idempotency guarantee: stable (every repeat sends the same id),
+// injective (different sources cannot dedupe each other away) and
+// format-preserving (the RPC parameter is `uuid`).
 
 void main() {
   group('deriveStatsRequestId', () {
     test(
         'Golden-Vektor: friert das Wire-Format ein (schlaegt dieser Test fehl, '
         'ist der Server-Dedup fuer alle Bestands-Eintraege gebrochen)', () {
-      // Die Maske ist das ASCII von 'eatova-stats-rid'; eine Null-UUID mit
-      // gesetzten Versions-/Variant-Bits (0x40 an Byte 6, 0x80 an Byte 8) zeigt
-      // die Maske deshalb fast unveraendert — genau daran ist ein versehentlich
-      // geaenderter Namensraum sofort zu sehen.
+      // The mask is the ASCII of the namespace, so a zero UUID shows it almost
+      // unchanged — an accidental namespace change is visible at once.
       expect(
         deriveStatsRequestId('00000000-0000-4000-8000-000000000000'),
         '6561746f-7661-6d73-f461-74732d726964',
@@ -66,13 +59,13 @@ void main() {
     });
 
     test('Nicht-UUID-Eingaben liefern null statt einer Fantasie-Id', () {
-      // 'm-a' ist die Form, die aeltere Tests/fremde Blobs tragen koennen.
+      // 'm-a' is the shape older tests and foreign blobs can carry.
       expect(deriveStatsRequestId('m-a'), isNull);
       expect(deriveStatsRequestId(''), isNull);
-      // 31 bzw. 33 Hexzeichen — knapp daneben ist auch daneben.
+      // 31 or 33 hex chars: near enough is still wrong.
       expect(deriveStatsRequestId('a' * 31), isNull);
       expect(deriveStatsRequestId('a' * 33), isNull);
-      // Hex-Laenge stimmt, aber ein Zeichen ist keins.
+      // Right length, but one character is not hex.
       expect(deriveStatsRequestId('${'a' * 31}z'), isNull);
     });
 
@@ -91,9 +84,8 @@ void main() {
       expect(isUuidShape('AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA'), isTrue,
           reason: 'bewusst OHNE Versions-Pruefung: Postgres akzeptiert jede '
               'Hex-UUID, und genau die Form muss stimmen');
-      // Die abgeleitete Id traegt keine gueltigen Versions-Bits mehr — sie
-      // MUSS trotzdem durchgehen, sonst verwirft der Replay seinen eigenen
-      // Eintrag als korrupt.
+      // The derived id carries no valid version bits and MUST still pass, or
+      // the replay discards its own entry as corrupt.
       expect(
           isUuidShape(
               deriveStatsRequestId('00000000-0000-4000-8000-000000000000')!),

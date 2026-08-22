@@ -1,11 +1,6 @@
-// Tests fuer die Ermittlung des Rate-Limit-Subjects (client_ip.ts).
-//
-// Der eigentliche Regressionstest steht unter "x-forwarded-for wird von
-// RECHTS gelesen": die alte Implementierung nahm `.split(",")[0]` und griff
-// damit hinter Cloudflare exakt den vom Client selbst gesetzten Eintrag ab -
-// das IP-Limit war frei umgehbar.
-//
-// Bewusst ohne externe Test-Dependencies (gleicher Stil wie prefilter_test.ts).
+// Tests for the rate-limit subject derivation (client_ip.ts), free of external
+// test dependencies. The core regression: reading x-forwarded-for from the
+// right, since the old `.split(",")[0]` took the client-set entry.
 
 import { clientIpSubject, normalizeIp } from "./client_ip.ts";
 
@@ -42,9 +37,8 @@ Deno.test("cf-connecting-ip gewinnt gegen ein widersprechendes x-forwarded-for",
 });
 
 Deno.test("REGRESSION: x-forwarded-for wird von RECHTS gelesen", () => {
-  // Cloudflare HAENGT an -> der vom Client gesetzte Wert steht links, die
-  // real beobachtete Adresse rechts. Die alte Implementierung (.split(",")[0])
-  // haette hier "ip:9.9.9.9" geliefert, also den Angreifer-Wert.
+  // Cloudflare appends, so the client-set value is left and the observed
+  // address right; the old .split(",")[0] returned the attacker's value.
   const result = subject({ "x-forwarded-for": "9.9.9.9, 203.0.113.7" });
   assertEquals(result, "ip:203.0.113.7", "rechtester Eintrag muss gewinnen");
   assert(
@@ -87,13 +81,13 @@ Deno.test("nicht-IP-Werte und Ueberlaenge werden abgelehnt", () => {
   assertEquals(normalizeIp(null), null, "null");
   assertEquals(normalizeIp(undefined), null, "undefined");
   assertEquals(normalizeIp(12345), null, "Nicht-String");
-  // 600 Zeichen: wuerde ohne Guard den 512-Zeichen-Subject-Check der RPC
-  // sprengen (aus einem 429 wuerde ein 500) und die Tabelle aufblaehen.
+  // Without the cap these would blow the RPC's 512-char subject check (429
+  // becomes 500) and inflate the table.
   assertEquals(normalizeIp("a".repeat(600)), null, "600 Zeichen Muell");
   assertEquals(normalizeIp("1.2.3.4" + "0".repeat(600)), null, "600 Zeichen Ziffern-Anhang");
   assertEquals(normalizeIp("2001:db8::" + "1".repeat(600)), null, "600 Zeichen Pseudo-IPv6");
-  // Die Laengenpruefung greift NACH dem Trim - Whitespace-Padding ist in einer
-  // x-forwarded-for-Kette normal ("a, b") und darf kein eigenes Bucket bilden.
+  // The length check runs AFTER the trim: padding is normal in an
+  // x-forwarded-for chain and must not form its own bucket.
   assertEquals(
     normalizeIp(" ".repeat(600) + "1.2.3.4" + " ".repeat(600)),
     "1.2.3.4",
@@ -104,8 +98,7 @@ Deno.test("nicht-IP-Werte und Ueberlaenge werden abgelehnt", () => {
 Deno.test("ungueltige IPv4-Formen werden abgelehnt", () => {
   assertEquals(normalizeIp("999.1.1.1"), null, "Oktett > 255");
   assertEquals(normalizeIp("1.2.3.256"), null, "Oktett > 255");
-  // Fuehrende Nullen: sonst waeren "01.2.3.4" und "1.2.3.4" zwei Buckets
-  // fuer denselben Absender.
+  // Leading zeros would give one sender two buckets.
   assertEquals(normalizeIp("01.2.3.4"), null, "fuehrende Null");
   assertEquals(normalizeIp("1.02.3.4"), null, "fuehrende Null im 2. Oktett");
   assertEquals(normalizeIp("1.2.3"), null, "zu wenige Oktette");
@@ -121,7 +114,6 @@ Deno.test("Port- und Whitespace-Formen normalisieren auf dieselbe IP", () => {
   assertEquals(normalizeIp("\t203.0.113.7:443\n"), "203.0.113.7", "Whitespace + Port");
   assertEquals(normalizeIp("203.0.113.7:"), null, "leerer Port");
   assertEquals(normalizeIp("203.0.113.7:abc"), null, "nicht-numerischer Port");
-  // Alle Schreibweisen muessen dasselbe Bucket treffen.
   assertEquals(
     subject({ "cf-connecting-ip": "203.0.113.7:51234" }),
     subject({ "cf-connecting-ip": " 203.0.113.7 " }),
@@ -157,8 +149,8 @@ Deno.test("IPv6 wird auf das /64-Praefix gekuerzt", () => {
 });
 
 Deno.test("zwei Adressen im selben /64 fallen in dasselbe Bucket", () => {
-  // Provider geben Endkunden regulaer ein ganzes /64; ein /128-Bucket waere
-  // durch Rotation der unteren 64 Bit trivial zu umgehen.
+  // Providers hand out a whole /64 per customer, so a /128 bucket is trivially
+  // bypassed by rotating the lower 64 bits.
   const a = subject({ "cf-connecting-ip": "2001:db8:85a3:1::1" });
   const b = subject({ "cf-connecting-ip": "2001:db8:85a3:1:ffff:ffff:ffff:ffff" });
   assertEquals(a, b, "gleiches /64 muss dasselbe Subject ergeben");
@@ -166,11 +158,8 @@ Deno.test("zwei Adressen im selben /64 fallen in dasselbe Bucket", () => {
 });
 
 Deno.test("REGRESSION: IPv4-in-IPv6 bekommt ein Bucket PRO Adresse", () => {
-  // Die alte Fassung rechnete die eingebettete IPv4 in die letzten beiden
-  // Hex-Gruppen um - genau die, die die /64-Kuerzung abschneidet. Jede
-  // "::ffff:..."-Adresse landete damit in "ip:0:0:0:0::/64", also alle
-  // Dual-Stack-Clients in EINEM Bucket: ein einzelner Absender konnte alle
-  // anderen aussperren.
+  // The old version put the embedded IPv4 into the groups the /64 truncation
+  // cuts off, collapsing every dual-stack client into one bucket.
   assertEquals(normalizeIp("::ffff:203.0.113.7"), "203.0.113.7", "gemappte IPv4");
   assertEquals(normalizeIp("::ffff:198.51.100.42"), "198.51.100.42", "andere gemappte IPv4");
 
@@ -182,8 +171,8 @@ Deno.test("REGRESSION: IPv4-in-IPv6 bekommt ein Bucket PRO Adresse", () => {
     "das gemeinsame Sammel-Bucket der alten Fassung darf nicht mehr entstehen",
   );
 
-  // Dieselbe Adresse ueber einen reinen IPv4-Header muss dasselbe Subject
-  // ergeben - sonst haette ein Client zwei Buckets.
+  // The same address via a plain IPv4 header must give the same subject, or a
+  // client would own two buckets.
   assertEquals(
     a,
     subject({ "cf-connecting-ip": "203.0.113.7" }),
@@ -192,7 +181,7 @@ Deno.test("REGRESSION: IPv4-in-IPv6 bekommt ein Bucket PRO Adresse", () => {
 });
 
 Deno.test("IPv4-in-IPv6: alle Schreibweisen treffen dasselbe Bucket", () => {
-  // Hex-Schreibweise derselben Adresse (203.0.113.7 = cb00:7107).
+  // Hex spelling of the same address (203.0.113.7 = cb00:7107).
   assertEquals(normalizeIp("::ffff:cb00:7107"), "203.0.113.7", "gemappt in Hex-Notation");
   assertEquals(
     normalizeIp("0:0:0:0:0:ffff:203.0.113.7"),
@@ -201,17 +190,15 @@ Deno.test("IPv4-in-IPv6: alle Schreibweisen treffen dasselbe Bucket", () => {
   );
   assertEquals(normalizeIp("::FFFF:203.0.113.7"), "203.0.113.7", "Grossschreibung");
   assertEquals(normalizeIp("[::ffff:203.0.113.7]:443"), "203.0.113.7", "Klammer-Form mit Port");
-  // Ungueltige eingebettete IPv4 bleibt ungueltig - kein Schlupfloch fuer
-  // Fantasiewerte, die die Tabelle aufblaehen.
+  // An invalid embedded IPv4 stays invalid — no loophole for junk values.
   assertEquals(normalizeIp("::ffff:999.1.1.1"), null, "Oktett > 255");
   assertEquals(normalizeIp("::ffff:01.2.3.4"), null, "fuehrende Null");
   assertEquals(normalizeIp("::ffff:1.2.3"), null, "zu wenige Oktette");
 });
 
 Deno.test("echte IPv6 bleibt bei der /64-Kuerzung", () => {
-  // Die Sonderbehandlung greift NUR fuer das gemappte Praefix
-  // 0:0:0:0:0:ffff. Alles andere - insbesondere ff-Gruppen an anderer Stelle
-  // und die Kurzformen "::"/"::1" - laeuft weiter ueber den IPv6-Pfad.
+  // The special case applies ONLY to the mapped prefix 0:0:0:0:0:ffff;
+  // everything else stays on the IPv6 path.
   assertEquals(normalizeIp("2001:db8:85a3:1::ffff:cb00:7107"), "2001:db8:85a3:1::/64", "echte IPv6");
   assertEquals(normalizeIp("::ffff:0:203.0.113.7"), "0:0:0:0::/64", "IPv4-translated bleibt IPv6");
   assertEquals(normalizeIp("::1"), "0:0:0:0::/64", "Loopback wird nicht zu 0.0.0.1");
@@ -233,9 +220,8 @@ Deno.test("ohne verwertbare Header: Fallback auf die verifizierte User-Id", () =
 });
 
 Deno.test("Anti-Lockout: zwei User ohne Header bekommen VERSCHIEDENE Buckets", () => {
-  // Genau deswegen ist der Fallback die User-Id und kein geteiltes Literal
-  // wie "unknown": ein einzelner Missbraucher koennte ein geteiltes Bucket
-  // leerlaufen lassen und damit global jeden legitimen Nutzer aussperren.
+  // Why the fallback is the user id and not a shared literal like "unknown":
+  // one abuser could drain a shared bucket and lock out everyone.
   const a = subject({}, USER_A);
   const b = subject({}, USER_B);
   assert(a !== b, "beide User landen im selben Bucket - globaler Lockout moeglich");
@@ -245,8 +231,8 @@ Deno.test("Anti-Lockout: zwei User ohne Header bekommen VERSCHIEDENE Buckets", (
 
 Deno.test("praeparierte uid:-Header koennen kein fremdes Bucket treffen", () => {
   const victim = USER_B;
-  // Der Namensraum-Praefix ist der Schutz: ein "uid:..."-Header ist keine IP,
-  // wird abgelehnt und kann daher nie im Bucket des Opfers landen.
+  // The namespace prefix is the protection: a "uid:..." header is not an IP,
+  // gets rejected and can never reach the victim's bucket.
   assertEquals(normalizeIp(`uid:${victim}`), null, "uid:<uuid> ist keine IP");
   const crafted: Record<string, string>[] = [
     { "cf-connecting-ip": `uid:${victim}` },

@@ -12,21 +12,14 @@ import '../widgets/common/lively.dart';
 import '../widgets/design/design.dart';
 import '../widgets/profile/profile_widgets.dart';
 
-/// „Mein Profil" — Identitaet, Kennzahlen, Plan, Koerper, Tagesziele,
-/// Verbindungen.
+/// Profile screen: identity, key figures, plan, body, daily goals,
+/// connections.
 ///
-/// **Was hier bewusst NICHT mehr steht** (Nutzer-Entscheid 2026-08-10): der
-/// Block „Daten & Konto". Seine sechs Zeilen doppelten die Einstellungen —
-/// „Profil & Ziele", „Daten exportieren", „Ausloggen" und „Konto löschen"
-/// stehen dort unveraendert (`settings-open-goals`, `settings-export`,
-/// `settings-sign-out`, `settings-delete-account`), „Über Eatova" ist mit
-/// seinem Sheet dorthin UMGEZOGEN (`settings-about`, samt der ODbL-Quellen-
-/// nennung und der Datenschutz-Zeile nach DSGVO Art. 13), und „Tagesdaten
-/// zurücksetzen" ist ersatzlos entfallen.
-///
-/// Der Weg in die Einstellungen ist das Zahnrad im Kopf; der Weg zu den Zielen
-/// sind die Bearbeiten-Knoepfe an Plan- und Zielkarte. Beide Wege sind in
-/// `test/settings_erreichbarkeit_test.dart` festgenagelt.
+/// The former "Daten & Konto" block is gone (user decision 2026-08-10): it
+/// duplicated the settings, and "Über Eatova" moved there with its sheet
+/// (`settings-about`). Settings are reached via the gear in the header, goals
+/// via the edit buttons on the plan and goal cards; both paths are pinned by
+/// `test/settings_erreichbarkeit_test.dart`.
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
     super.key,
@@ -55,19 +48,15 @@ class ProfileScreen extends StatelessWidget {
   final DateTime? healthLastFetch;
   final ValueChanged<double> onLogWeight;
 
-  /// Fuehrt auf „Profil & Ziele" — Koerperdaten, Aktivitaet, Kalorien.
-  /// Haengt an den Bearbeiten-Knoepfen der Plan- und der Zielkarte
-  /// (`profile-goalplan-edit`, `profile-edit-goals`).
+  /// Opens profile and goals (body data, activity, calories). Wired to the
+  /// edit buttons of the plan and goal cards (`profile-goalplan-edit`,
+  /// `profile-edit-goals`).
   final VoidCallback onEditProfile;
 
-  /// Fuehrt auf die Einstellungen (Konto, Anzeige, Daten).
+  /// Opens the settings (account, display, data).
   ///
-  /// Bewusst getrennt von [onEditProfile]: Bis 2026-08-10 lagen beide
-  /// auf demselben Callback. Das Zahnrad hier trug die Beschriftung
-  /// „Einstellungen", oeffnete aber die Ziele — und die Einstellungen
-  /// waren nur ueber ein Schieberegler-Symbol im Food-Kopf erreichbar.
-  /// Ein Zahnrad, das nicht in die Einstellungen fuehrt, ist ein Fehler,
-  /// kein Geschmack.
+  /// Deliberately separate from [onEditProfile]: both used to share one
+  /// callback, so the gear opened the goals instead of the settings.
   final VoidCallback onOpenSettings;
   final VoidCallback onConnectHealth;
   final VoidCallback onRefreshHealth;
@@ -77,16 +66,15 @@ class ProfileScreen extends StatelessWidget {
     final l10n = context.l10n;
     final streak = stats.effectiveStreakOn(DateTime.now());
 
-    // Gesundheitsdaten (Gewicht, BMI, Verlauf) nicht ins App-Switcher-
-    // Vorschaubild / Recents-Thumbnail leaken (Sicherheits-Audit 2026-08-09).
+    // Keep health data (weight, BMI, history) out of the app-switcher
+    // thumbnail (security audit 2026-08-09).
     return SecureScreenGuard(
       child: Scaffold(
         body: SafeArea(
           child: LivelyEntrance(
-            // Bewusst SingleChildScrollView + Column statt des ListView aus der
-            // Design-Vorlage: ein ListView mountet nur die sichtbaren Kinder,
-            // und mehrere Tests greifen ohne vorheriges Scrollen auf weit unten
-            // liegende Karten zu (Schritte-Wert, Health-Refresh).
+            // SingleChildScrollView + Column, not a ListView: a ListView only
+            // mounts visible children, and several tests reach far-down cards
+            // without scrolling first.
             child: SingleChildScrollView(
               key: const ValueKey('screen-profile'),
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
@@ -183,10 +171,9 @@ class _FooterCredit extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Die Versionsnummer kann nie von der pubspec abweichen — und seit dem
-    // Umzug von „Über Eatova" in die Einstellungen ist das die einzige Stelle,
-    // an der sie OHNE Tipp ablesbar ist. Ohne Daten (laufende Future/Test) nur
-    // die Wortmarke.
+    // The version comes from the pubspec and this is the only place it can be
+    // read without a tap. Without data (pending future/test) show only the
+    // wordmark.
     return Center(
       child: FutureBuilder<PackageInfo>(
         future: _packageInfo,
@@ -197,10 +184,8 @@ class _FooterCredit extends StatelessWidget {
             style: AppType.ui(
               11,
               weight: FontWeight.w500,
-              // Ohne Zusatz-Transparenz: `ink2` ist bereits der gedaempfte
-              // Ton und exakt auf 4.5:1 ausgelegt. Ein weiteres 0.7 druecken
-              // die Versionszeile im Hell-Modus auf 2.55:1 — das ist normaler
-              // Text, kein deaktiviertes Bedienelement, also ohne Ausnahme.
+              // No extra opacity: `ink2` is already the muted tone at exactly
+              // 4.5:1; another 0.7 would push this to 2.55:1 in light mode.
               color: t.ink2,
               letterSpacing: 0.4,
             ),

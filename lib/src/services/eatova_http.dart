@@ -3,23 +3,14 @@ import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
 
-/// Gemeinsame dart:io-HTTP-Schicht fuer alle Services mit rohem [HttpClient]
-/// (Meilisearch-Mirror, OpenFoodFacts, analyze-meal Edge Function).
+/// Shared dart:io HTTP layer for all services on a raw [HttpClient]
+/// (Meilisearch mirror, OpenFoodFacts, analyze-meal Edge Function).
 ///
-/// Bewusst KEIN package:http — die Services nutzen dart:io direkt, und das
-/// bleibt so. Diese Datei zentralisiert nur die drei Dinge, die vorher an
-/// vier Stellen unterschiedlich (oder gar nicht) geloest waren:
-///
-///  1. **Timeout auf JEDER Phase**: `connectionTimeout` deckt nur den
-///     TCP-Aufbau. Haengt der Server nach dem Verbindungsaufbau (z.B. ein
-///     LLM-Provider hinter der Edge Function), wuerde `close()` sonst endlos
-///     warten und der Spinner drehte fuer immer. Deshalb tragen Request-
-///     Erzeugung, `close()` und Body-Lesen jeweils ein eigenes Timeout.
-///  2. **Benannte Timeout-Policies** ([HttpTimeoutPolicy]) statt magischer
-///     Sekundenwerte in jedem Service.
-///  3. **Einheitliches dev.log bei Transportfehlern** (Timeout, Socket, TLS)
-///     unter dem Log-Namen `eatova_http` — der Fehler wird unveraendert
-///     rethrown, die Fehler-Semantik der Aufrufer bleibt identisch.
+/// Deliberately no package:http. It centralizes three things: a timeout on
+/// every phase (`connectionTimeout` only covers the TCP handshake, so a server
+/// hanging afterwards would make `close()` wait forever), named timeout
+/// policies instead of magic second values, and one `dev.log` for transport
+/// errors under the name `eatova_http` — errors are rethrown unchanged.
 class HttpTimeoutPolicy {
   const HttpTimeoutPolicy({
     required this.connect,
@@ -27,37 +18,34 @@ class HttpTimeoutPolicy {
     required this.body,
   });
 
-  /// TCP-Aufbau + Erzeugen des Request-Objekts (`connectionTimeout` und
-  /// Timeout auf `openUrl`).
+  /// TCP handshake plus creating the request object (`connectionTimeout` and
+  /// the timeout on `openUrl`).
   final Duration connect;
 
-  /// `close()` (Upload + Warten auf die Response-Header).
+  /// `close()` (upload plus waiting for the response headers).
   final Duration response;
 
-  /// Komplettes Einlesen des Response-Bodys.
+  /// Reading the full response body.
   final Duration body;
 
-  /// Meilisearch-Mirror: aggressiv-knapp. Der Mirror ist entweder schnell
-  /// oder der FallbackProductService soll zuegig zu OpenFoodFacts
-  /// weiterziehen — die Suche haengt sonst hinter einem lahmen vServer fest.
+  /// Meilisearch mirror: deliberately tight. Either the mirror is fast or
+  /// FallbackProductService should move on to OpenFoodFacts quickly.
   static const HttpTimeoutPolicy mirror = HttpTimeoutPolicy(
     connect: Duration(seconds: 4),
     response: Duration(seconds: 6),
     body: Duration(seconds: 6),
   );
 
-  /// OpenFoodFacts (Barcode-Lookup v3 + cgi/search.pl): oeffentliche API mit
-  /// schwankender Last, daher grosszuegiger als der eigene Mirror — aber
-  /// endlich MIT Timeout auch auf dem Barcode-Pfad (der hatte vorher keins).
+  /// OpenFoodFacts (barcode lookup v3 + cgi/search.pl): public API with
+  /// variable load, so more generous than the own mirror.
   static const HttpTimeoutPolicy openFoodFacts = HttpTimeoutPolicy(
     connect: Duration(seconds: 8),
     response: Duration(seconds: 12),
     body: Duration(seconds: 12),
   );
 
-  /// analyze-meal Edge Function: im `close()` steckt der komplette
-  /// Bild-Upload + die LLM-Antwortzeit. Die Edge Function bricht ihrerseits
-  /// nach 45 s ab — der Client haelt bewusst laenger durch als der Server.
+  /// analyze-meal Edge Function: `close()` covers the image upload plus LLM
+  /// latency. The function aborts after 45 s, so the client outlasts it.
   static const HttpTimeoutPolicy mealAnalysis = HttpTimeoutPolicy(
     connect: Duration(seconds: 15),
     response: Duration(seconds: 60),
@@ -65,13 +53,13 @@ class HttpTimeoutPolicy {
   );
 }
 
-/// Roh-[HttpClient] mit dem `connectionTimeout` der [policy]. Der Aufrufer
-/// bleibt fuer `close(force: true)` im `finally` verantwortlich (das erlaubt
-/// Wiederverwendung ueber mehrere Requests, z.B. de->world-Fallback bei OFF).
+/// Raw [HttpClient] with the [policy]'s `connectionTimeout`. The caller owns
+/// `close(force: true)` in a `finally`, which allows reuse across requests
+/// (e.g. the de->world fallback in OFF).
 HttpClient createHttpClient(HttpTimeoutPolicy policy) =>
     HttpClient()..connectionTimeout = policy.connect;
 
-/// Fertig gelesene Text-Antwort: Statuscode + UTF-8-dekodierter Body.
+/// Fully read text response: status code plus UTF-8 decoded body.
 class HttpTextResponse {
   const HttpTextResponse({required this.statusCode, required this.body});
 
@@ -79,13 +67,12 @@ class HttpTextResponse {
   final String body;
 }
 
-/// Fuehrt einen Request mit Timeout auf jeder Phase aus und liest den Body
-/// als UTF-8-Text. [configure] setzt Header (laeuft vor dem Body-Write),
-/// [body] wird — falls gesetzt — vor `close()` geschrieben.
+/// Runs a request with a timeout on every phase and reads the body as UTF-8.
+/// [configure] sets headers before the body write; [body] is written before
+/// `close()`.
 ///
-/// Transportfehler (TimeoutException, SocketException, TLS, …) werden einmal
-/// zentral geloggt und unveraendert rethrown; Status-Code-Auswertung bleibt
-/// Sache des Aufrufers (OFF antwortet z.B. bewusst 404 MIT JSON-Body).
+/// Transport errors are logged once and rethrown unchanged; status-code
+/// handling stays with the caller (OFF answers 404 with a JSON body).
 Future<HttpTextResponse> sendTextRequest(
   HttpClient client, {
   required String method,
@@ -97,12 +84,10 @@ Future<HttpTextResponse> sendTextRequest(
 }) async {
   try {
     final request = await client.openUrl(method, uri).timeout(policy.connect);
-    // Redirects NICHT folgen (Sicherheits-Audit 2026-08-09): dart:io kopiert
-    // die Request-Header — inkl. `Authorization` mit User-JWT (search-key,
-    // analyze-meal) — beim Redirect aufs Ziel. Ein von Supabase ausgeliefertes
-    // Cross-Origin-3xx wuerde den Token so an einen fremden Host tragen. Kein
-    // Aufrufer braucht Redirects (alle Endpunkte antworten direkt); ein 3xx
-    // wird damit zum Statuscode, den der Aufrufer als Fehler behandelt.
+    // Do not follow redirects (security audit 2026-08-09): dart:io copies the
+    // request headers — including `Authorization` with the user JWT — onto the
+    // redirect target, so a cross-origin 3xx would leak the token. No caller
+    // needs redirects; a 3xx becomes a status code the caller treats as error.
     request.followRedirects = false;
     configure?.call(request);
     if (body != null) request.write(body);

@@ -1,11 +1,7 @@
--- DSGVO Art. 17 (Recht auf Löschung) / Apple 5.1.1(v): der User muss sein
--- Konto + alle Daten selbst löschen können. delete_account() löscht die
--- auth.users-Zeile des aufrufenden Users; alle App-Tabellen hängen per
--- `on delete cascade` an auth.users(id) und werden dadurch mitgelöscht.
---
--- security definer, damit der (nur tabellen-berechtigte) authenticated-Rolle
--- die auth.users-Zeile löschen darf. search_path gepinnt; auth.users explizit
--- schema-qualifiziert. Nur der eigene Account (auth.uid()) ist löschbar.
+-- GDPR Art. 17 / Apple 5.1.1(v): self-service account deletion.
+-- delete_account() removes the caller's auth.users row; app tables cascade
+-- from auth.users(id). security definer so `authenticated` (table grants only)
+-- may delete it; search_path pinned. Only auth.uid()'s own account.
 
 create or replace function public.delete_account()
 returns void

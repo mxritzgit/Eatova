@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/widgets/common/store_selector.dart';
 
-/// Minimaler Store mit zwei unabhaengigen Slices.
+/// Minimal store with two independent slices.
 class _TwoSliceStore extends ChangeNotifier {
   int a = 0;
   int b = 0;
@@ -28,7 +28,7 @@ void main() {
       MaterialApp(
         home: StoreSelector(
           store: store,
-          // Selektiert NUR a — Aenderungen an b duerfen keinen Rebuild ausloesen.
+          // Selects ONLY a — changes to b must not trigger a rebuild.
           selector: () => store.a,
           builder: (context) {
             builds++;
@@ -41,17 +41,17 @@ void main() {
 
     expect(builds, 1, reason: 'erster Build');
 
-    // Unabhaengige Slice b aendern -> KEIN Rebuild (Kern der PERF-2-Scoping-Idee).
+    // Change the independent slice b -> NO rebuild (the point of PERF-2).
     store.bumpB();
     await tester.pump();
     expect(builds, 1, reason: 'b-Aenderung darf den a-Selektor nicht rebuilden');
 
-    // Selektierte Slice a aendern -> genau EIN Rebuild.
+    // Change the selected slice a -> exactly ONE rebuild.
     store.bumpA();
     await tester.pump();
     expect(builds, 2, reason: 'a-Aenderung rebuildet den Selektor');
 
-    // Erneute b-Aenderung -> weiterhin kein zusaetzlicher Rebuild.
+    // Another b change -> still no extra rebuild.
     store.bumpB();
     await tester.pump();
     expect(builds, 2, reason: 'b bleibt irrelevant fuer den a-Selektor');
@@ -66,7 +66,7 @@ void main() {
       MaterialApp(
         home: StoreSelector(
           store: store,
-          // Record-Slice: strukturelle Gleichheit -> identische Werte = kein Rebuild.
+          // Record slice: structural equality, so equal values = no rebuild.
           selector: () => (store.a, store.b),
           builder: (context) {
             builds++;
@@ -77,7 +77,7 @@ void main() {
     );
     expect(builds, 1);
 
-    // notifyListeners ohne Wertaenderung -> kein Rebuild.
+    // notifyListeners without a value change -> no rebuild.
     store.notifyListeners();
     await tester.pump();
     expect(builds, 1, reason: 'gleiche (a,b) -> Record gleich -> kein Rebuild');

@@ -1,17 +1,17 @@
-# R8/ProGuard-Regeln fuer den Release-Build (isMinifyEnabled = true).
-# Die Flutter-Engine-Basisregeln liefert das Flutter-Gradle-Plugin selbst;
-# hier stehen nur Ergaenzungen fuer unsere Plugins. Im Zweifel konservativ.
+# R8/ProGuard rules for the release build (isMinifyEnabled = true).
+# The Flutter Gradle plugin ships the engine base rules; only plugin
+# additions belong here. When in doubt, stay conservative.
 
-# --- Flutter-Basics -----------------------------------------------------------
+# --- Flutter basics -----------------------------------------------------------
 -keep class io.flutter.plugin.editing.** { *; }
-# Flutter referenziert Play-Core-Klassen fuer Deferred Components, die wir
-# nicht einbinden - Warnungen dazu sind harmlos.
+# Flutter references Play Core classes for deferred components we do not
+# bundle; those warnings are harmless.
 -dontwarn com.google.android.play.core.**
 -dontwarn io.flutter.embedding.engine.deferredcomponents.**
 
-# --- flutter_local_notifications (GSON-Serialisierung) ------------------------
-# GSON braucht generische Signaturen + die ScheduledNotification-Modelle,
-# sonst schlagen geplante Notifications nach R8 fehl.
+# --- flutter_local_notifications (GSON serialization) -------------------------
+# GSON needs generic signatures plus the ScheduledNotification models,
+# otherwise scheduled notifications break after R8.
 -keepattributes Signature
 -keepattributes *Annotation*
 -keepattributes EnclosingMethod,InnerClasses
@@ -21,16 +21,14 @@
 -keep public class * implements java.lang.reflect.Type
 -dontwarn com.google.gson.**
 
-# --- mobile_scanner (ML Kit Barcode) ------------------------------------------
+# --- mobile_scanner (ML Kit barcode) ------------------------------------------
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.vision.** { *; }
 -dontwarn com.google.mlkit.**
-# Korrektur (E2): mobile_scanner nutzt hier das GEBUENDELTE ML-Kit-Modell.
-# Ohne dev.steenbakker.mobile_scanner.useUnbundled=true zieht
-# mobile_scanner-7.4.0/android/build.gradle:63-69 com.google.mlkit:barcode-
-# scanning:17.3.0 samt libbarhopper_v3.so und den .tflite-Assets ins Artefakt.
-# Der frueher hier stehende Satz ("nutzt das unbundled Modell") war falsch.
-# Begruendung und Umschaltbedingung stehen in android/gradle.properties.
+# (E2) mobile_scanner uses the BUNDLED ML Kit model here: without
+# dev.steenbakker.mobile_scanner.useUnbundled=true it pulls
+# com.google.mlkit:barcode-scanning:17.3.0 into the artifact.
+# See android/gradle.properties for the switch condition.
 -dontwarn com.google.mlkit.vision.barcode.bundled.**
 
 # --- google_sign_in (Credential Manager / Google Identity) --------------------
@@ -45,11 +43,11 @@
 -dontwarn androidx.health.**
 
 # --- sentry_flutter -----------------------------------------------------------
-# Sentry liefert eigene Consumer-Rules mit; dontwarn deckt optionale
-# Integrationen (z. B. OkHttp/Timber) ab, die wir nicht einbinden.
+# Sentry ships its own consumer rules; dontwarn covers optional
+# integrations (OkHttp/Timber) we do not bundle.
 -dontwarn io.sentry.**
 
-# --- Allgemeine Annotation-Warnungen (Tink/Guava-Transitivabhaengigkeiten) ----
+# --- General annotation warnings (Tink/Guava transitive deps) -----------------
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
 -dontwarn org.checkerframework.**

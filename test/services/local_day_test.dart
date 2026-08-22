@@ -2,11 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/local_day.dart';
 
-// DATA-6: Kanonischer lokaler Tages-Schluessel.
-//
-// localDayKey ist eine reine, stabile YYYY-MM-DD-Funktion, auf der das
-// Meals-Bucketing (logged_meals.local_day) aufsetzt. Die frueheren
-// Caffeine-Sync-Tests sind mit dem Heute-Tab entfernt worden.
+// DATA-6: canonical local day key. localDayKey is a pure, stable YYYY-MM-DD
+// function that meal bucketing (logged_meals.local_day) builds on.
 
 void main() {
   group('localDayKey (rein + stabil)', () {

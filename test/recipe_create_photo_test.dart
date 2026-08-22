@@ -19,32 +19,29 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-// „Mache, dass man ein Bild einfügen kann als Rezept."
+// Photos on user recipes: in-app pick (camera/gallery) through the EXISTING
+// `MealPhotoInput` pipeline (which scrubs EXIF), stored locally via
+// [RecipeImageStore], referenced as `local:<name>.jpg` in the existing
+// `imageAsset` field (the name comes randomly from the store, not the slug).
+// No Supabase bucket, no second pipeline.
 //
-// Der Weg: In-App-Auswahl (Kamera/Galerie) ueber die BESTEHENDE
-// `MealPhotoInput`-Pipeline (die scrubt EXIF), Ablage lokal ueber
-// [RecipeImageStore], Referenz `local:<name>.jpg` im vorhandenen Feld
-// `imageAsset` (der Name kommt seit Finding 5 zufaellig aus dem Store, nicht
-// mehr aus dem Slug). Kein Supabase-Bucket, keine zweite Pipeline.
-//
-// Diese Suite deckt die vier Punkte ab, an denen so etwas schiefgeht:
-//   * Das Bild landet ueberhaupt am Rezept und ueberlebt den Neustart.
-//   * Die Anzeige nimmt es in Karussell, Liste und Detail — und faellt bei
-//     fehlender Datei auf den Platzhalter zurueck (zweites Geraet).
-//   * Loeschen nimmt die Bytes mit.
-//   * Das Sheet bleibt in beiden Modi und bei doppelter Schrift heil und hat
-//     weiterhin GENAU acht Textfelder (der D5-Verwerfen-Schutz zaehlt sie).
+// This suite covers the four ways it goes wrong:
+//   * The image reaches the recipe and survives a restart.
+//   * Carousel, list and detail show it, falling back to the placeholder when
+//     the file is missing (second device).
+//   * Deleting takes the bytes with it.
+//   * The sheet stays intact in both modes and at double text scale, and still
+//     has EXACTLY eight text fields (the D5 discard guard counts them).
 
-/// Ein winziges, gueltiges JPEG — echte Bytes, damit `Image.memory`/
-/// `Image.file` sie wirklich dekodieren koennen.
+/// A tiny, valid JPEG — real bytes, so `Image.memory`/`Image.file` can decode.
 Uint8List _jpeg({int r = 200, int g = 80, int b = 40}) {
   final image = img.Image(width: 64, height: 48);
   img.fill(image, color: img.ColorRgb8(r, g, b));
   return Uint8List.fromList(img.encodeJpg(image, quality: 80));
 }
 
-/// Fotoquelle im Test: liefert immer dieselben Bytes und merkt sich, aus
-/// welcher Quelle gefragt wurde.
+/// Test photo source: always returns the same bytes and records which source
+/// was asked for.
 class _FakeFotoquelle implements MealPhotoInput {
   _FakeFotoquelle({this.bytes});
 
@@ -71,26 +68,24 @@ class _CreateCapture {
   }
 }
 
-/// Ablage-Double fuer den Widget-Test.
+/// Store double for the widget test.
 ///
-/// `testWidgets` laeuft unter FakeAsync: eine echte Datei-Operation (und erst
-/// recht der `compute()`-Isolate im Scrubber) wuerde dort NIE fertig — der
-/// erste Anlauf dieser Suite lief in den 10-Minuten-Timeout. Das Double macht
-/// dieselbe Arbeit SYNCHRON auf einem echten Temp-Ordner: die Referenzen, die
-/// Dateien und `resolveSync` sind real, nur ohne Isolate und ohne
-/// Event-Loop-Runde. Die echte Ablage inklusive EXIF-Scrub prueft
+/// `testWidgets` runs under FakeAsync, where real file IO — let alone the
+/// scrubber's `compute()` isolate — would never finish. This double does the
+/// same work SYNCHRONOUSLY on a real temp directory: references, files and
+/// `resolveSync` are real, just without an isolate or an event-loop turn. The
+/// real store including the EXIF scrub is covered by
 /// test/services/recipe_image_store_test.dart.
 class _TestImageStore extends RecipeImageStore {
   _TestImageStore(this.ordner) : super(baseDirectory: () async => ordner);
 
   final Directory ordner;
 
-  /// Was das Sheet abgelegt hat — Referenz und Bytes.
+  /// What the sheet stored — reference and bytes.
   final Map<String, Uint8List> abgelegt = <String, Uint8List>{};
 
-  /// Laufende Nummer statt Random.secure: der Widget-Test braucht nur
-  /// Eindeutigkeit, die echte Zufaelligkeit prueft
-  /// test/services/recipe_image_store_test.dart.
+  /// A counter instead of Random.secure: this test only needs uniqueness; real
+  /// randomness is covered by test/services/recipe_image_store_test.dart.
   int _laufnummer = 0;
 
   @override
@@ -134,9 +129,9 @@ class _TestImageStore extends RecipeImageStore {
   }
 }
 
-/// Legt eine Datei an, als waere sie in einer frueheren Sitzung gespeichert
-/// worden — synchron, damit der Widget-Test nicht auf echtes IO wartet.
-/// Der Name ist hier frei waehlbar; die Anzeige haengt nur an der Referenz.
+/// Writes a file as if stored in an earlier session — synchronous, so the
+/// widget test never waits on real IO. The name is free here; display depends
+/// only on the reference.
 String _legeAb(_TestImageStore store, String slug, Uint8List bytes) {
   final reference = '${RecipeImageStore.referencePrefix}$slug.jpg';
   if (!store.ordner.existsSync()) store.ordner.createSync(recursive: true);
@@ -218,7 +213,7 @@ Future<void> _tippe(WidgetTester tester, String key, String text) async {
   await tester.pumpAndSettle();
 }
 
-/// Sammelt Overflow-Fehler waehrend [body] (Muster aus recipes_design_test).
+/// Collects overflow errors during [body] (pattern from recipes_design_test).
 Future<void> _expectNoOverflow(String was, Future<void> Function() body) async {
   final overflows = <String>[];
   final prior = FlutterError.onError;
@@ -322,7 +317,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
           findsNothing);
-      // Unberuehrt: das Sheet laesst sich weiterhin ohne Dialog schliessen.
+      // Untouched: the sheet still closes without a dialog.
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('recipe-create-sheet')), findsNothing);
@@ -373,8 +368,8 @@ void main() {
 
       expect(capture.created, hasLength(1));
       final rezept = capture.created.single;
-      // Seit Finding 5 vergibt der Store den Namen (zufaellig) — das Rezept
-      // traegt exakt die Referenz, die save() zurueckgab, nichts Abgeleitetes.
+      // The store assigns the (random) name, so the recipe carries exactly the
+      // reference save() returned, nothing derived.
       expect(RecipeImageStore.isLocalReference(rezept.imageAsset), isTrue);
       expect(_store.abgelegt.keys, <String>[rezept.imageAsset]);
       expect(_store.resolveSync(rezept.imageAsset), isNotNull);
@@ -396,8 +391,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(capture.created.single.imageAsset, '');
-      // Und die Zeile bleibt wire-kompatibel: ein Rezept ohne Bild schreibt
-      // weiterhin '' in image_asset und liest sich unveraendert zurueck.
+      // The row stays wire-compatible: a recipe without an image still writes
+      // '' to image_asset and reads back unchanged.
       final zeile = capture.created.single.toRow();
       expect(zeile['image_asset'], '');
       expect(FitnessRecipe.fromRow(zeile).imageAsset, '');
@@ -405,9 +400,8 @@ void main() {
 
     testWidgets('eine alte Zeile ganz OHNE image_asset liest sich weiterhin',
         (tester) async {
-      // Kein Widget noetig — steht hier, weil es dieselbe Zusicherung ist wie
-      // oben: das Wire-Format bekommt KEIN neues Feld, der Marker lebt im
-      // vorhandenen `image_asset`.
+      // No widget needed — same assurance as above: the wire format gets NO new
+      // field, the marker lives in the existing `image_asset`.
       final alt = FitnessRecipe.fromRow(<String, dynamic>{
         'slug': 'user_alt',
         'title': 'Alt',
@@ -450,7 +444,7 @@ void main() {
 
     testWidgets('ein zweites Geraet ohne die Bytes bekommt den Platzhalter',
         (tester) async {
-      // Referenz vorhanden (kommt ueber die Serverzeile), Datei nicht.
+      // Reference present (comes from the server row), file not.
       final rezept = _eigenes(
         slug: 'user_fremd',
         imageAsset: '${RecipeImageStore.referencePrefix}user_fremd.jpg',
@@ -584,15 +578,11 @@ void main() {
 
     testWidgets('bei normaler Schrift kommt es ohne Scrollen aus',
         (tester) async {
-      // Das ist keine Kosmetik-Pruefung, sondern eine Funktionspruefung.
-      // Sobald der Inhalt den Deckel reisst (seit 2026-08-21 `sheetMaxHeight`:
-      // Bildschirm minus Safe-Area minus Tastatur minus 12 px — im
-      // Test-Viewport ohne beides also 840 px), wird das Sheet scrollbar —
-      // und dann passieren ZWEI Dinge: der Speichern-Knopf rutscht unter den
-      // Bildschirmrand (Taps gehen ins Leere), und der Verwerfen-Schutz
-      // verliert seinen Zug-Weg, weil ein Scroller die Gestenarena gegen den
-      // `_DiscardDragGuard` gewinnt. Beides ist beim Umbau EINMAL passiert
-      // (gemessene 889 px Inhalt); dieser Test ist die Bremse dagegen.
+      // Not cosmetics but function: once the content exceeds `sheetMaxHeight`
+      // (screen minus safe area minus keyboard minus 12 px; 840 px in this
+      // viewport) the sheet becomes scrollable, and then the save button slides
+      // off screen and the discard guard loses its drag, because a scroller
+      // wins the gesture arena against `_DiscardDragGuard`.
       _pinViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
@@ -617,32 +607,26 @@ void main() {
       expect(rest, 0.0,
           reason: 'Das Sheet scrollt — gemessener Inhalt: ${hoehe + rest} px '
               'auf 852 px Bildschirm (Deckel sheetMaxHeight = 840 px).');
-      // 1179/3 x 2556/3 = 393 x 852 logische Pixel. Der Test-Font ist der
-      // schlimmste Fall (jede Glyphe ein volles Geviert) — auf dem Geraet
-      // faellt das Sheet mit Archivo deutlich kuerzer aus.
+      // 1179/3 x 2556/3 = 393 x 852 logical pixels. The test font is the worst
+      // case (every glyph a full em); on device with Archivo the sheet is
+      // shorter.
       //
-      // Die 92 % sind seit dem Safe-Area-Deckel kein Produktwert mehr, die
-      // Schranke bleibt aber BEWUSST bei 783,84 px: auf einem iPhone 14 Pro
-      // (844 px, 59 pt Dynamic Island) sind nur 773 px frei — ein Inhalt, der
-      // hier 784 px braucht, wuerde dort bereits scrollen. Die engere Grenze
-      // ist also die ehrlichere.
+      // The 92 % bound (783.84 px) is deliberately tighter than the safe-area
+      // cap: an iPhone 14 Pro leaves only 773 px free, so content needing
+      // 784 px here would already scroll there.
       expect(hoehe, lessThan(852 * 0.92));
-      // Untergrenze als Plausibilitaets-Anker: waere hier ploetzlich ein
-      // Bruchteil, haette das Sheet seinen Inhalt verloren.
+      // Lower bound as a sanity anchor: a fraction here would mean the sheet
+      // lost its content.
       expect(hoehe, greaterThan(300));
     });
   });
   group('Die vier Naehrwert-Felder stehen auf einer Linie', () {
-    // Nutzer-Befund 2026-08-10: „bei Rezepte Hinzufuegen ist KH und Fett
-    // weiter oben als die anderen 2 kleinen Boxen Kcal und Protein."
+    // The all-caps headers used to wrap freely: in an ~81 px column a two-word
+    // label needs two lines and a short one needs one, so the input fields
+    // below started at different heights.
     //
-    // Ursache: Die Versalien-Kopfzeile war ein frei umbrechender Text. In
-    // einer ~81-px-Spalte braucht „KALORIEN · KCAL" zwei Zeilen, „KH · G"
-    // eine — und weil die Spalten oben buendig stehen, begannen die
-    // Eingabefelder auf verschiedenen Hoehen.
-    //
-    // Der Test misst die FELDER, nicht die Kopfzeilen: die Kopfzeile darf
-    // ruhig unterschiedlich breit sein, die Boxen darunter nicht springen.
+    // This measures the FIELDS, not the headers: headers may differ in height,
+    // the boxes below must not jump.
     for (final skalierung in <double>[1.0, 1.3, 2.0]) {
       testWidgets('bei Systemschrift ${skalierung}x', (tester) async {
         _pinViewport(tester, textScale: skalierung);
@@ -668,10 +652,9 @@ void main() {
             k: obenVon(k),
         };
 
-        // Das Raster bricht ab 1,25-facher Schrift von vier auf zwei
-        // Spalten um (_FieldGrid). Welche Felder eine Zeile bilden, haengt
-        // also von der Schriftgroesse ab — der Test rechnet das nach, statt
-        // eine Anordnung zu raten.
+        // The grid drops from four to two columns above 1.25x text scale
+        // (_FieldGrid), so which fields share a row depends on the scale —
+        // computed here rather than guessed.
         final paare = skalierung <= 1.25
             ? <List<String>>[
                 <String>[

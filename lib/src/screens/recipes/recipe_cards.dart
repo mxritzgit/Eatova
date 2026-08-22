@@ -1,13 +1,10 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Rezept-Karten der Übersicht: die grosse Bildkachel der Karussells
-// (Empfehlungen + „Passt zu deinem Ziel"), die Listenzeile der Hauptliste und
-// der Empty State.
+// Recipe cards: carousel image tile, main-list row, empty state.
 // ---------------------------------------------------------------------------
 
-/// Die `FeaturedRecipeCard`-Sprache des Entwurfs: Foto als Grund, Verlauf nach
-/// unten, darauf Badge, Titel und Kennzahlen.
+/// Photo background with a bottom gradient carrying badge, title and metrics.
 class _RecipeHeroCard extends StatelessWidget {
   const _RecipeHeroCard({
     required this.recipe,
@@ -18,7 +15,7 @@ class _RecipeHeroCard extends StatelessWidget {
   final FitnessRecipe recipe;
   final VoidCallback onTap;
 
-  /// Ersetzt das „EMPFOHLEN"-Etikett (z.B. durch „Match" in der Ziel-Sektion).
+  /// Replaces the default recommended badge label.
   final String? badgeText;
 
   @override
@@ -28,11 +25,8 @@ class _RecipeHeroCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(26),
       child: SizedBox(
-        // Breiter als die frueheren 200 px: der Titel steht jetzt in
-        // Display-Groesse auf voller Kartenbreite und wuerde bei 200 px in
-        // Silben zerfallen. 280 laesst auf einem 393er Viewport die naechste
-        // Karte weiterhin anschneiden — das Karussell bleibt als solches
-        // erkennbar.
+        // 280 keeps the display-size title from breaking into syllables and
+        // still clips the next card on a 393 px viewport.
         width: 280,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(26),
@@ -44,10 +38,8 @@ class _RecipeHeroCard extends StatelessWidget {
                 alignment: Alignment.bottomCenter,
                 child: Container(
                   decoration: BoxDecoration(
-                    // Ein Foto-Scrim MUSS in beiden Anzeige-Modi dunkel sein
-                    // (das Foto ist in beiden dasselbe), taugt also fuer keinen
-                    // Tinten-Token. `Colors.black` ist kein Color(0x…)-Literal
-                    // und entspricht dem bisherigen Verlauf.
+                    // A photo scrim must stay dark in both display modes, so
+                    // no ink token applies here.
                     gradient: LinearGradient(
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
@@ -94,8 +86,7 @@ class _RecipeHeroCard extends StatelessWidget {
   }
 }
 
-/// Die `RecipeCard`-Sprache des Entwurfs: 96×96-Bild links, Kategorie als
-/// farbige Versalien-Zeile, Titel, zweizeilige Beschreibung, Kennzahlen.
+/// List row: 96×96 image, category eyebrow, title, description, metrics.
 class _RecipeListTile extends StatelessWidget {
   const _RecipeListTile({
     super.key,
@@ -140,10 +131,8 @@ class _RecipeListTile extends StatelessWidget {
                     Text(
                       recipeCategoryLabel(recipe.categories.first, l10n)
                           .toUpperCase(),
-                      // Einheitlich `accent`: die Vorlage faerbt diese Zeile
-                      // nach MealSlot in Makro-Toenen — unsere Karten tragen
-                      // aber Rezept-KATEGORIEN, und Makro-Farben kodieren laut
-                      // Token-Vertrag ausschliesslich Naehrwerte.
+                      // Always `accent`: this row shows recipe categories, and
+                      // macro colors are reserved for nutrients by contract.
                       style: AppType.eyebrow(t.accent, size: 9.5),
                     ),
                     const SizedBox(height: 4),

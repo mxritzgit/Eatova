@@ -9,18 +9,15 @@ import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-// DESIGN_REFACTOR §7.2 / §5: jeder Screen rendert in BEIDEN Helligkeiten und
-// bei Systemschrift 200 % ohne RenderFlex-Overflow.
+// DESIGN_REFACTOR §7.2 / §5: every screen renders in both brightnesses and at
+// 200 % system font without RenderFlex overflow.
 //
-// Diese Datei trug bis 2026-08-10 die Render-Faelle von „Profil & Ziele"; die
-// sind mit dem Screen nach `goals_screen_render_test.dart` umgezogen. Hier
-// steht jetzt der neue Einstellungs-Screen. Seine Bruchstellen sind andere:
-// die Drei-Segment-Pille neben der Erscheinungsbild-Zeile, die
-// Icon-Kachel-Zeile mit langer Mailadresse und der Loesch-Block mit seinem
-// Erklaerkasten.
+// This file covers the settings screen. Its weak spots: the three-segment
+// pill next to the appearance row, the icon tile row with a long mail
+// address, and the delete block with its explainer box.
 //
-// Anders als in den Verhaltens-Tests werden Overflows hier NICHT geschluckt —
-// sie sind der Pruefgegenstand.
+// Unlike the behaviour tests, overflows are NOT swallowed here — they are the
+// thing under test.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -53,10 +50,8 @@ void main() {
     final controller = ThemeModeController();
     addTearDown(controller.dispose);
 
-    // Seit dem Sicherheits-Audit 2026-08-14 haengen an der Auth-Schicht drei
-    // Zeilen (Passwort, Adresse, Loeschen) — ohne sie ist das hier nicht mehr
-    // der dichteste Fall, sondern eine halbe Seite. Die Gegenstelle ist
-    // dieselbe wie in den Verhaltens-Tests.
+    // Three rows hang off the auth layer (password, address, delete); without
+    // them this is half a page instead of the densest case.
     final repo = mitAuth
         ? InMemoryAuthRepository(
             initialUser: EatovaUser(id: 'u1', email: email),
@@ -64,9 +59,8 @@ void main() {
         : null;
     if (repo != null) addTearDown(repo.dispose);
 
-    // Alle Callbacks gesetzt: das ist der VOLLE Screen, also der dichteste
-    // Fall. Die ausgeduennten Varianten koennen konstruktiv nicht mehr
-    // ueberlaufen als dieser.
+    // All callbacks set: the full screen and thus the densest case; the
+    // thinned variants cannot overflow more than this one.
     final app = MaterialApp(
       theme: buildEatovaTheme(brightness),
       locale: const Locale('de'),
@@ -133,11 +127,8 @@ void main() {
 
   testWidgets('die Erscheinungsbild-Zeile traegt die Pille auch bei 2.0',
       (tester) async {
-    // Die dichteste Zeile der Seite: Titel und Untertitel links,
-    // Drei-Segment-Pille rechts. Bei 2.0 muss die Pille in eine zweite Zeile
-    // umbrechen statt die Zeile zu sprengen. (Zusicherung uebernommen aus dem
-    // frueheren `settings_screen_render_test`, als die Pille noch auf „Profil
-    // & Ziele" stand.)
+    // The page's densest row: title and subtitle left, three-segment pill
+    // right. At 2.0 the pill must wrap to a second line, not burst the row.
     await pumpOhneOverflow(
       tester,
       'Erscheinungsbild @2.0',
@@ -145,11 +136,10 @@ void main() {
       textScale: 2.0,
     );
 
-    // Die Zeile liegt seit dem Audit 2026-08-14 unterhalb des Viewports: die
-    // KONTO-Gruppe traegt jetzt drei statt einer Zeile (Adresse, Passwort,
-    // Adresswechsel). Die Seite ist eine lazy ListView — ohne Scrollen
-    // existiert die Pille gar nicht erst im Baum. Der Overflow-Waechter laeuft
-    // dabei mit, denn genau beim Bau der Zeile faellt er an.
+    // The row sits below the viewport (the account group now has three rows),
+    // and the page is a lazy ListView, so without scrolling the pill is not
+    // in the tree at all. The overflow guard runs along, since that is
+    // exactly when building the row would trip it.
     final overflows = <String>[];
     final prior = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -184,8 +174,8 @@ void main() {
 
   testWidgets('die ausgeduennte Seite rendert ebenfalls sauber',
       (tester) async {
-    // Ohne Mailadresse, ohne Auth-Schicht und ohne ThemeModeScope faellt die
-    // halbe Seite weg — eine leere [SettingsGroup] waere hier die Bruchstelle.
+    // Without mail address, auth layer and ThemeModeScope half the page is
+    // gone; an empty [SettingsGroup] would be the weak spot here.
     await pumpOhneOverflow(
       tester,
       'ohne Konto @2.0',
@@ -201,16 +191,14 @@ void main() {
   });
 
   testWidgets('das Loesch-Sheet rendert bei 2.0 ohne Overflow', (tester) async {
-    // Eigene Route ueber der Seite — die Faelle oben erreichen sie nicht. Der
-    // Titel, drei Zeilen Erklaertext, ein Eingabefeld und ein 52-px-Knopf sind
-    // bei doppelter Schrift der engste Platz der App.
+    // Its own route above the page, unreachable by the cases above. Title,
+    // three lines of explainer, a field and a 52-px button are the app's
+    // tightest spot at double font size.
     //
-    // Seit dem Audit 2026-08-14 hat das Sheet ZWEI Schritte, und der zweite
-    // ist der engere: sein Untertitel traegt die volle Mailadresse (hier
-    // absichtlich lang), darunter ein beschriftetes Ziffernfeld und der Knopf.
-    // Geprueft wird deshalb nicht nur Schritt 1, sondern der ganze Weg — und
-    // am Ende, dass der Loesch-Knopf erreichbar bleibt statt unten
-    // abgeschnitten zu werden.
+    // The sheet has TWO steps and the second is tighter: its subtitle carries
+    // the full mail address, then a labelled digit field and the button. The
+    // whole path is checked, ending with the delete button still reachable
+    // rather than clipped off the bottom.
     await pumpOhneOverflow(
       tester,
       'Loesch-Sheet Grundzustand',
@@ -229,9 +217,8 @@ void main() {
     };
 
     try {
-      // Bei doppelter Schrift liegt der Loesch-Block weit unterhalb des
-      // Viewports, und die Seite ist eine (lazy) ListView — ohne Scrollen
-      // existiert er gar nicht erst im Baum.
+      // At double font size the delete block sits far below the viewport of
+      // a lazy ListView, so without scrolling it is not in the tree.
       final oeffner = find.byKey(const ValueKey('settings-delete-account'));
       await tester.scrollUntilVisible(
         oeffner,
@@ -245,8 +232,7 @@ void main() {
       await tester.tap(oeffner);
       await tester.pumpAndSettle();
 
-      // Schritt 1: das getippte Wort. Der Loesch-Knopf traegt hier noch nicht
-      // seine Beschriftung — er fordert erst den Code an.
+      // Step 1: the typed word. The button still only requests the code.
       expect(find.text('Code anfordern'), findsOneWidget);
 
       await tester.enterText(
@@ -255,8 +241,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Schritt 2: der Code. Untertitel mit voller Mailadresse, beschriftetes
-      // Ziffernfeld, 52-px-Knopf.
+      // Step 2: the code. Subtitle with full mail address, labelled digit
+      // field, 52-px button.
       await tester.tap(find.text('Code anfordern'));
       await tester.pumpAndSettle();
 
@@ -272,10 +258,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Der Kern der Zusage: der Knopf, der die Loeschung ausloest, ist bei
-      // doppelter Schrift noch zu erreichen und liegt vollstaendig im Bild.
-      // Ein Overflow-Zaehler allein wuerde das nicht bemerken — ein Sheet, aus
-      // dem der Knopf unten herausragt, meldet keinen RenderFlex-Fehler.
+      // The core promise: the delete button stays reachable and fully on
+      // screen at double font size. An overflow counter alone would miss
+      // this — a button hanging out the bottom raises no RenderFlex error.
       final knopf = find.text('Konto endgültig löschen');
       await tester.ensureVisible(knopf);
       await tester.pumpAndSettle();
@@ -296,11 +281,9 @@ void main() {
 
   testWidgets('das „Über Eatova"-Sheet rendert bei 2.0 ohne Overflow',
       (tester) async {
-    // Umgezogen am 2026-08-10 aus `test/widgets/profile_screen_design_test`,
-    // zusammen mit dem Sheet selbst. Der Fall ist nicht kosmetisch: der Block
-    // aus Beschreibung, Version, Build, Quellen und Datenschutz-Zeile war bei
-    // doppelter Systemschrift schon einmal 251 px zu hoch — und ganz unten
-    // steht die Zeile, die nie abgeschnitten werden darf.
+    // Not cosmetic: the block of description, version, build, sources and
+    // privacy row was once 251 px too tall at double font size — and the
+    // bottom row is the one that must never be clipped.
     await pumpOhneOverflow(
       tester,
       'Über-Sheet Grundzustand',
@@ -332,8 +315,8 @@ void main() {
       await tester.tap(oeffner);
       await tester.pumpAndSettle();
 
-      // Die beiden Pflichtzeilen des Sheets: die ODbL-Namensnennung fuer die
-      // OpenFoodFacts-Daten und der Datenschutz-Link nach DSGVO Art. 13.
+      // The sheet's two mandatory rows: the ODbL attribution for the
+      // OpenFoodFacts data and the GDPR Art. 13 privacy link.
       expect(find.text('Quellen'), findsOneWidget);
       expect(
         find.textContaining('OpenFoodFacts'),
@@ -354,10 +337,9 @@ void main() {
 
   testWidgets('der Seitenfuss steht ohne vorheriges Scrollen im Baum',
       (tester) async {
-    // Die Seite ist eine ListView (Lazy). Diese Zusicherung haelt fest, dass
-    // die Rechtsseiten und die Gefahrenzone trotzdem gefunden werden, solange
-    // der Viewport sie traegt — sonst laufen die Verhaltens-Tests ins Leere,
-    // bevor irgendwer scrollt.
+    // The page is a lazy ListView; this pins that the legal links are still
+    // found while the viewport carries them, or the behaviour tests would
+    // miss before anyone scrolls.
     await pumpOhneOverflow(tester, 'Fuss', brightness: Brightness.light);
 
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
@@ -365,11 +347,8 @@ void main() {
     expect(find.byKey(const ValueKey('settings-imprint-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-about')), findsOneWidget);
 
-    // `settings-sign-out` stand hier bis 2026-08-10 mit in der Liste. Mit der
-    // zugewanderten Zeile „Über Eatova" ist die GEFAHRENZONE eine Zeile
-    // tiefer gerutscht und liegt bei voller Verdrahtung knapp unter dem Rand —
-    // die Zusicherung wird deshalb zur Erreichbarkeit statt zur Sichtbarkeit.
-    // (Die Verhaltens-Tests scrollen ohnehin per `ensureVisible` dorthin.)
+    // The danger zone slipped one row down and sits just below the edge when
+    // fully wired, so this asserts reachability rather than visibility.
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('settings-sign-out')),
       300,

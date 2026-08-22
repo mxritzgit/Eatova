@@ -16,9 +16,8 @@ import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 
-/// MealCameraSheet liest seit der i18n-Migration `context.l10n` — dasselbe
-/// Delegates-Buendel wie test/home_page_tabs_test.dart, hier als Konstante,
-/// weil mehrere `MaterialApp`-Aufbauten in dieser Datei es brauchen.
+/// MealCameraSheet reads `context.l10n`; a constant because several
+/// `MaterialApp` setups in this file need the same delegates.
 const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
   AppLocalizations.delegate,
   GlobalMaterialLocalizations.delegate,
@@ -26,24 +25,22 @@ const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
   GlobalCupertinoLocalizations.delegate,
 ];
 
-/// Ersetzt die echte Geraete-Kamera: liefert eine Back-Kamera, laesst die
-/// Initialisierung sofort gelingen und protokolliert lockCaptureOrientation-
-/// Aufrufe. Streams bleiben offen (kein .first-Fehler auf leeren Streams).
+/// Replaces the real device camera: one back camera, immediate init success,
+/// logged lockCaptureOrientation calls. Streams stay open.
 ///
-/// Zaehlt zusaetzlich Auf- und Abbauten ([createCalls]/[disposeCalls]) und
-/// kann die Initialisierung ueber [initGate] anhalten — damit sind die
-/// Lifecycle-Rennen aus D3 (Pause waehrend laufender Initialisierung)
-/// deterministisch nachstellbar.
+/// Also counts setup/teardown ([createCalls]/[disposeCalls]) and can stall init
+/// via [initGate], making the D3 lifecycle races (pause during a running init)
+/// deterministic.
 class _FakeCameraPlatform extends CameraPlatform
     with MockPlatformInterfaceMixin {
   final List<DeviceOrientation> lockCalls = <DeviceOrientation>[];
   int createCalls = 0;
   int disposeCalls = 0;
 
-  /// Solange gesetzt, blockiert `initializeCamera` bis der Completer laeuft.
+  /// While set, `initializeCamera` blocks until the completer completes.
   Completer<void>? initGate;
 
-  /// Simuliert eine waehrenddessen entzogene Kamera-Berechtigung.
+  /// Simulates a camera permission revoked mid-flight.
   bool denyCamera = false;
 
   final StreamController<DeviceOrientationChangedEvent> _orientationEvents =
@@ -51,8 +48,8 @@ class _FakeCameraPlatform extends CameraPlatform
   final StreamController<CameraErrorEvent> _errorEvents =
       StreamController<CameraErrorEvent>.broadcast();
 
-  /// Wie viele Kameras aktuell offen sind — nach jedem Test muss das 0 oder 1
-  /// sein, nie 2 (zwei parallele Controller = D3-Regression).
+  /// How many cameras are currently open — after each test 0 or 1, never 2
+  /// (two parallel controllers = D3 regression).
   int get openCameras => createCalls - disposeCalls;
 
   @override
@@ -120,13 +117,13 @@ class _FakeCameraPlatform extends CameraPlatform
 
   @override
   Future<void> dispose(int cameraId) async {
-    // Ein nie erzeugter Controller (kUninitializedCameraId = -1) hat auf der
-    // Plattform nichts freizugeben — so verhaelt sich auch die echte.
+    // A controller that was never created (kUninitializedCameraId = -1) has
+    // nothing to release, same as the real platform.
     if (cameraId > 0) disposeCalls += 1;
   }
 }
 
-/// Liefert dem Galerie-Knopf ein festes Bild, ohne Plattform-Kanal.
+/// Gives the gallery button a fixed image, without a platform channel.
 class _FakeImagePickerPlatform extends ImagePickerPlatform
     with MockPlatformInterfaceMixin {
   _FakeImagePickerPlatform(this.result);
@@ -144,8 +141,8 @@ class _FakeImagePickerPlatform extends ImagePickerPlatform
   }
 }
 
-/// Ein JPEG mit GPS-Sub-IFD — wie es die Systemkamera mit Standort-Tagging in
-/// die Galerie schreibt.
+/// A JPEG with a GPS sub-IFD, as the system camera writes with location
+/// tagging enabled.
 Uint8List _geotaggedJpeg({int width = 480, int height = 360}) {
   final image = img.Image(width: width, height: height);
   img.fill(image, color: img.ColorRgb8(180, 120, 60));
@@ -159,7 +156,7 @@ Uint8List _geotaggedJpeg({int width = 480, int height = 360}) {
   return Uint8List.fromList(img.encodeJpg(image, quality: 92));
 }
 
-/// Sucht die APP1-Exif-Signatur ("Exif\x00\x00") im rohen Byte-Strom.
+/// Searches the raw byte stream for the APP1 Exif signature ("Exif\x00\x00").
 bool _hasExifSegment(Uint8List bytes) {
   const signature = <int>[0x45, 0x78, 0x69, 0x66, 0x00, 0x00];
   for (var i = 0; i + signature.length <= bytes.length; i++) {
@@ -190,17 +187,17 @@ Future<void> _pumpSheet(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Laesst Frames UND anhaengige Futures durchlaufen, ohne auf Ruhe zu warten.
-/// `pumpAndSettle` ist hier nicht benutzbar, sobald der Ladezustand sichtbar
-/// ist: dessen [CircularProgressIndicator] animiert endlos.
+/// Runs frames AND pending futures without waiting for quiescence.
+/// `pumpAndSettle` is unusable once the loading state shows: its
+/// [CircularProgressIndicator] animates forever.
 Future<void> _flush(WidgetTester tester, [int frames = 8]) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 16));
   }
 }
 
-/// Die Sequenz, die Android/iOS beim Oeffnen eines Pickers bzw. beim
-/// Einblenden eines Benachrichtigungsbanners feuern.
+/// The sequence Android/iOS fire when a picker opens or a notification banner
+/// appears.
 void _sendToBackground(WidgetTester tester) {
   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
   tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
@@ -236,12 +233,12 @@ void main() {
         await _pumpSheet(tester);
         expect(find.byType(CameraPreview), findsOneWidget);
 
-        // Nutzer tippt das Galerie-Icon: der Picker pausiert die Activity.
+        // User taps the gallery icon: the picker pauses the activity.
         _sendToBackground(tester);
         await _flush(tester);
         expect(fake.disposeCalls, 1);
 
-        // Nutzer bricht den Picker ab und ist wieder im Sheet.
+        // User cancels the picker and is back in the sheet.
         _bringToForeground(tester);
         await tester.pumpAndSettle();
 
@@ -260,17 +257,16 @@ void main() {
         CameraPlatform.instance = fake;
 
         await _pumpSheet(tester);
-        // Nur `inactive`: die Engine produziert weiter Frames, der Rebuild ist
-        // also beobachtbar. Genau hier zeigte die alte Fassung noch die
-        // Texture des bereits entsorgten Controllers, weil `_controller = null`
-        // ohne setState lief.
+        // `inactive` only: the engine keeps producing frames, so the rebuild is
+        // observable. Setting `_controller = null` without setState used to
+        // leave the disposed controller's texture on screen here.
         tester.binding
             .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
         await _flush(tester);
 
         expect(fake.disposeCalls, 1);
         expect(find.byType(CameraPreview), findsNothing);
-        // Kein lebender Controller -> Ladezustand, nicht die alte Vorschau.
+        // No live controller -> loading state, not the stale preview.
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
       },
     );
@@ -296,7 +292,7 @@ void main() {
         );
         await tester.pump();
 
-        // Der Picker geht auf, bevor initialize() zurueck ist.
+        // The picker opens before initialize() returns.
         _sendToBackground(tester);
         await tester.pump();
 
@@ -417,9 +413,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('meal-camera-gallery')));
-      // Die Re-Kompression laeuft ueber compute() in einem echten Isolate —
-      // der braucht die reale Event-Loop, die Fake-Zeit von pump() reicht
-      // nicht.
+      // Recompression runs through compute() in a real isolate, which needs the
+      // real event loop — pump()'s fake time is not enough.
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 400)),
       );
@@ -442,11 +437,11 @@ void main() {
 
       await _pumpSheet(tester);
 
-      // Picker auf ...
+      // Picker opens ...
       await tester.tap(find.byKey(const ValueKey('meal-camera-gallery')));
       _sendToBackground(tester);
       await _flush(tester);
-      // ... und wieder zu, ohne Auswahl.
+      // ... and closes again, without a selection.
       _bringToForeground(tester);
       await tester.pumpAndSettle();
 

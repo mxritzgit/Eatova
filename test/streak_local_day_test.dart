@@ -16,36 +16,30 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// REGRESSION: der Streak-Tag des LIVE-Log-Pfads kam aus der Zustelluhr, nicht
-// aus der Mahlzeit. `addResultToDailyTotal` rief `_recordTrackingDay()` ohne
-// Tag aus dem onDelivered-Callback — und der laeuft erst NACH dem
-// Netz-Roundtrip. Ein Log um 23:59:58 mit drei Sekunden Laufzeit buchte
-// dadurch p_day = D+1. Fuer diesen Tag gibt es keine Zeile in logged_meals,
-// also wies der gehaertete RPC ihn mit EX_DAY_NOT_LOGGED ab
-// (20260811120000_lifetime_stats_integrity.sql, Guard b). Weil dieser Fehler
-// bewusst OHNE errcode geworfen wird (P0001 = retrybar), landete eine
-// unerfuellbare Op in der Outbox, retryte 24 Stunden lang bis zur
-// Verwurfs-Frist und endete im roten Verlust-Hinweis — waehrend Tag D nie
-// verbucht wurde und die Streak beim naechsten Log auf 1 zurueckfiel.
+// REGRESSION: the live log path took the streak day from the delivery clock,
+// not from the meal. `addResultToDailyTotal` called `_recordTrackingDay()`
+// without a day from the onDelivered callback, which runs AFTER the network
+// roundtrip — a log at 23:59:58 booked p_day = D+1. There is no logged_meals
+// row for that day, so the hardened RPC rejected it with EX_DAY_NOT_LOGGED.
+// Since that error is thrown without an errcode (P0001 = retryable), an
+// unfulfillable op sat in the outbox retrying for 24 h until the drop
+// deadline, while day D was never recorded and the streak fell back to 1.
 //
-// Der Outbox-Replay (`_performOp`) machte es von Anfang an richtig und
-// uebergab `DateTime.parse(meal.effectiveLocalDay)`. Diese Tests nageln fest,
-// dass der Live-Pfad denselben Tag schickt.
+// The outbox replay always passed `DateTime.parse(meal.effectiveLocalDay)`;
+// these tests pin that the live path sends the same day.
 
-/// Kleiner zustandsbehafteter Fake-PostgREST, der GENAU den Quell-Beweis des
-/// echten `record_tracking_day` nachbildet: ein Tag zaehlt nur, wenn fuer ihn
-/// eine Zeile in logged_meals liegt. Ohne diesen Guard koennte der Test gar
-/// nicht zeigen, was ein falscher Tag anrichtet — der Fake wuerde jedes Datum
-/// quittieren.
+/// Small stateful fake PostgREST reproducing the real `record_tracking_day`
+/// source check: a day only counts if a logged_meals row exists for it.
+/// Without that guard the fake would acknowledge any date and the test could
+/// not show what a wrong day does.
 class _FakeServer {
-  /// Alle je an `record_tracking_day` uebergebenen `p_day`-Werte, in
-  /// Aufrufreihenfolge.
+  /// Every `p_day` ever passed to `record_tracking_day`, in call order.
   final List<String?> angefragteTage = <String?>[];
 
-  /// `lifetime_stats.last_workout_date` — nur erfolgreiche Aufrufe setzen ihn.
+  /// `lifetime_stats.last_workout_date` — only successful calls set it.
   String? trackedDay;
 
-  /// id -> Zeile aus public.logged_meals (nur die Spalten, die hier zaehlen).
+  /// id -> row from public.logged_meals (only the columns that matter here).
   final Map<String, Map<String, dynamic>> mealRows =
       <String, Map<String, dynamic>>{};
 
@@ -64,10 +58,9 @@ class _FakeServer {
       angefragteTage.add(day);
       final hatQuelle = mealRows.values.any((r) => r['local_day'] == day);
       if (!hatQuelle) {
-        // Wire-Form des Server-Fehlers: HTTP 400, im Body der SQLSTATE —
-        // genau der landet in PostgrestException.code. P0001 (kein
-        // errcode in der Migration) heisst fuer die Client-Outbox
-        // „retrybar mit Budget".
+        // Wire form of the server error: HTTP 400 with the SQLSTATE in the
+        // body, which becomes PostgrestException.code. P0001 means
+        // "retryable with budget" to the client outbox.
         return http.Response(
             jsonEncode({
               'code': 'P0001',
@@ -114,8 +107,8 @@ class _FakeServer {
       }
       return ok(const <dynamic>[]);
     }
-    // Uebrige Reads (profiles, lifetime_stats, favorite_meals, …): leer —
-    // maybeSingle/_safeLoad lesen das als „nichts da", der Boot bleibt gruen.
+    // Remaining reads (profiles, lifetime_stats, favorite_meals, …) return
+    // empty; maybeSingle/_safeLoad read that as "nothing there".
     if (req.method == 'GET') return ok(const <dynamic>[]);
     return http.Response('', 201, request: req);
   }
@@ -147,7 +140,7 @@ void _noopSnack(
     'https://example.supabase.co',
     'test-anon-key',
     httpClient: server.client(),
-    // Kein GoTrue-Auto-Refresh-Ticker im Test (siehe clobber_guard_test).
+    // No GoTrue auto-refresh ticker in tests (see clobber_guard_test).
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
   addTearDown(client.dispose);
@@ -178,18 +171,16 @@ MealAnalysisResult _result(String name) => MealAnalysisResult(
 
 Future<void> _settle() => pumpEventQueue(times: 60);
 
-/// Der Log kurz vor Mitternacht …
+/// The log just before midnight …
 final DateTime _kurzVorMitternacht = DateTime(2026, 8, 14, 23, 59, 58);
 
-/// … und die Zustellung der Antwort drei Sekunden spaeter, lokal also am
-/// Folgetag. Genau dieses Fenster trennt den Tag der Mahlzeit vom Tag der
-/// Zustelluhr.
+/// … and the response three seconds later, on the next local day. That window
+/// separates the meal's day from the delivery clock's day.
 final DateTime _kurzNachMitternacht = DateTime(2026, 8, 15, 0, 0, 3);
 
-/// Loggt eine Mahlzeit fuer den 14.08. und laesst die Wanduhr WAEHREND des
-/// Netz-Roundtrips ueber Mitternacht laufen. [HomeStore] liest die Zeit
-/// ausschliesslich ueber `clock.now()`, deshalb traegt die injizierte Uhr auch
-/// durch die asynchronen Fortsetzungen.
+/// Logs a meal for the 14th and lets the wall clock cross midnight DURING the
+/// network roundtrip. [HomeStore] reads time only via `clock.now()`, so the
+/// injected clock carries through the async continuations.
 Future<({HomeStore store, _FakeServer server})> _logUeberMitternacht() {
   var jetzt = _kurzVorMitternacht;
   return withClock(Clock(() => jetzt), () async {
