@@ -1,13 +1,9 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Kopfzeile nach der Design-Vorlage: quadratische Forest-Kachel mit
-// Funkel-Icon, „KI-Coach" als Display-Titel, darunter ein Lime-Punkt mit der
-// Zustandszeile. Rechts die drei Bedienelemente, die es schon gab: Streak,
-// (i) und Unterhaltungen.
-//
-// Die Wortmarke „Eatova" aus der alten Leiste entfaellt — der Kopf traegt
-// jetzt selbst die Marke, und die Schale zeigt sie ohnehin auf jedem Tab.
+// Header: square forest tile with sparkle icon, display title, lime dot plus
+// status line below, and the three controls on the right (streak, (i),
+// sessions). No wordmark here — the app shell shows it on every tab.
 // ---------------------------------------------------------------------------
 class _CoachTopBar extends StatelessWidget {
   const _CoachTopBar({
@@ -28,14 +24,11 @@ class _CoachTopBar extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: t.line)),
       ),
-      // Horizontal 0: eatova_home_page.dart legt bereits 20 px um jeden Tab.
-      // Die Trennlinie endet deshalb an diesem Seitenrand statt randlos zu
-      // laufen — bewusst in Kauf genommen, siehe Bericht.
+      // Horizontal 0: eatova_home_page.dart already adds 20 px per tab, so the
+      // divider ends at that inset instead of running edge to edge (accepted).
       padding: const EdgeInsets.fromLTRB(0, 2, 0, 14),
-      // Abweichung von der Vorlage (dort eine Row): bei textScaler 2.0 passen
-      // Marke, Streak-Pille und zwei Knoepfe nicht mehr nebeneinander. Der
-      // Wrap setzt die Bediengruppe dann in eine zweite Zeile, statt die
-      // Zeile zu sprengen.
+      // Wrap instead of Row: at textScaler 2.0 title, streak pill and two
+      // buttons no longer fit on one line; the control group moves down.
       child: Wrap(
         spacing: 8,
         runSpacing: 12,
@@ -121,7 +114,7 @@ class _CoachTopBar extends StatelessWidget {
   }
 }
 
-/// Streak-Pille im Kopf: Lime-Punkt + Tages-Zahl.
+/// Streak pill in the header: lime dot plus day count.
 class _StreakPill extends StatelessWidget {
   const _StreakPill({required this.streak});
 
@@ -147,8 +140,7 @@ class _StreakPill extends StatelessWidget {
             decoration: BoxDecoration(color: t.lime, shape: BoxShape.circle),
           ),
           const SizedBox(width: 6),
-          // display bringt tabellarische Ziffern mit — die Zahl springt beim
-          // Zaehlen nicht.
+          // display has tabular figures, so the number does not jitter.
           Text(
             '$streak',
             style: AppType.display(12.5, weight: FontWeight.w700, color: t.ink),

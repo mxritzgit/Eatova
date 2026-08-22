@@ -5,30 +5,19 @@ import 'package:flutter/material.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 
-/// Boot-/Welcome-Gate der App: „Fokus finden".
+/// Boot/welcome gate: "finding focus".
 ///
-/// Waehrend ProfileSync.load() laeuft, sucht der Kamera-Fokusring der Marke
-/// (das ◎ aus „eat◎va", s. eatova_wordmark.dart) sichtbar den Fokus: die
-/// Ringspur steht gedimmt, ein Lime-Komet laeuft die Runde, der
-/// Mittelpunkt-Dot atmet — der Ring IST der Ladeindikator, kein separater
-/// Spinner. Sobald die Daten da sind, rastet der Fokus ein: die Spur wird
-/// voll, die Ticks schnappen auf, der Ring schrumpft an seinen Platz im
-/// Schriftzug, waehrend „eat" und „va" seitlich heraustreten — der Lader
-/// wird buchstaeblich zum Logo. Bei frischem Login folgt „Willkommen, X",
-/// bei Session-Restore direkt der Fade-out in die HomePage.
+/// While ProfileSync.load() runs, the brand's focus ring *is* the loading
+/// indicator — dimmed track, a lime comet orbiting, a breathing centre dot.
+/// Once data arrives the focus locks in: full track, ticks snap on, the ring
+/// shrinks into its place in the wordmark while "eat" and "va" slide out. A
+/// fresh login then shows the greeting; a session restore fades straight out.
 ///
-/// ABSICHT — dieser Screen folgt dem Anzeige-Modus NICHT:
-/// Er ist der erste Eindruck der Marke, nicht eine Seite des Alltags. Deshalb
-/// steht er in BEIDEN Modi auf derselben Flaeche: [AppTokens.forest] als Grund,
-/// [AppTokens.lime] fuer Ring und Komet, [AppTokens.onForest] fuer die
-/// Schrift. Das ist erlaubt, weil genau dieses Trio in beiden Paletten
-/// kontrast-gesichert ist (`test/theme/app_tokens_test.dart` prueft
-/// onForest/forest auf WCAG AA) — es braucht also keinen Helligkeits-Abzweig,
-/// nur einen konstanten Marken-Auftritt.
-///
-/// Bitte NICHT auf `t.bg`/`t.ink` "korrigieren". Im Hellmodus wuerde daraus ein
-/// beiger Screen mit fast unsichtbarem Lime-Ring; der Marken-Moment waere
-/// weg. `test/widgets/welcome_screen_test.dart` haelt das fest.
+/// Intentional: this screen does NOT follow the display mode. It uses
+/// [AppTokens.forest], [AppTokens.lime] and [AppTokens.onForest] in both
+/// themes, which is safe because that trio is contrast-checked in both
+/// palettes. Do not "fix" it to `t.bg`/`t.ink` — in light mode that gives a
+/// beige screen with a near-invisible ring.
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
     super.key,
@@ -38,20 +27,19 @@ class WelcomeScreen extends StatefulWidget {
     this.celebrateLogin = false,
   });
 
-  /// Vorname fuer die Begruessung. Faellt auf "Pilot" zurueck.
+  /// First name for the greeting; falls back to "Pilot".
   final String firstName;
 
-  /// Future das resolved sobald der Profil-Load durch ist.
+  /// Resolves once the profile load is done.
   final Future<void> profileReady;
 
-  /// Wird gerufen wenn die Welcome-Animation komplett durchgelaufen ist
-  /// und die Page sich zur HomePage weiterklicken soll.
+  /// Called when the welcome animation has finished and the page should move
+  /// on to the HomePage.
   final VoidCallback onComplete;
 
-  /// True nur bei frischem Login/Register: dann spielt nach dem Einrasten
-  /// noch die "Willkommen, $firstName"-Sequenz mit Halte-Pause. Bei
-  /// Session-Restore false -> die Marke rastet schnell ein und der Screen
-  /// blendet direkt aus (Splash dient nur dazu Default-Flashes zu vermeiden).
+  /// True only on a fresh login/register: plays the greeting with a hold after
+  /// the lock-in. False on session restore, where the mark locks in quickly and
+  /// the screen fades straight out.
   final bool celebrateLogin;
 
   @override
@@ -95,9 +83,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     super.didChangeDependencies();
     if (_bootStarted) return;
     _bootStarted = true;
-    // A11y: unter reduzierter Bewegung kein Intro und KEIN Dauer-Loop —
-    // die Marke steht sofort fertig zusammengesetzt da und der Screen ist
-    // im Endzustand (Tests verlassen sich darauf, dass hier nichts tickt).
+    // A11y: with reduced motion, no intro and no endless loop — the mark is
+    // assembled immediately. Tests rely on nothing ticking here.
     _reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     if (_reduceMotion) {
       _introController.value = 1;
@@ -110,8 +97,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
   Future<void> _onProfileReady(void _) async {
     if (!mounted) return;
-    // A11y: bei reduzierter Bewegung Einrasten + Halte-Pause auf ~instant
-    // kollabieren — der User soll nicht aufs Intro-Gate warten.
+    // A11y: reduced motion collapses lock-in and hold to near-instant.
     _assembleController.duration = motionDuration(
       context,
       Duration(milliseconds: widget.celebrateLogin ? 460 : 380),
@@ -122,8 +108,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       context,
       Duration(milliseconds: widget.celebrateLogin ? 900 : 0),
     );
-    // Einrasten: der Ring wird zur Wortmarke (Session-Restore etwas
-    // schneller — der Moment soll sitzen, nicht aufhalten).
+    // Lock in: the ring becomes the wordmark (faster on session restore).
     await _assembleController.forward();
     if (!mounted) return;
     _loopController.stop();
@@ -149,7 +134,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Marken-Flaeche statt Modus-Flaeche — Begruendung am Klassenkopf.
+    // Brand surface, not the mode surface — see the class doc.
     return Scaffold(
       key: const ValueKey('screen-welcome'),
       backgroundColor: t.forest,
@@ -181,25 +166,24 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     final iv = _introController.value;
                     double seg(double a, double b, Curve curve) =>
                         curve.transform(((iv - a) / (b - a)).clamp(0.0, 1.0));
-                    // Orchestrierter Einstieg: Marke faedt ein, der Ring
-                    // zeichnet sich, Ticks und Dot folgen, dann uebernimmt
-                    // der Suchlauf (Komet + Dot-Atmung).
+                    // Staged intro: the mark fades in, the ring draws itself,
+                    // ticks and dot follow, then the hunt takes over.
                     final appear = seg(0.0, 0.35, Curves.easeOutCubic);
                     final draw = seg(0.08, 0.60, Curves.easeInOutCubic);
                     final ticksIn = seg(0.52, 0.86, Curves.easeOutCubic);
                     final dotPop = seg(0.62, 0.95, Curves.easeOutBack);
                     final cometIn = seg(0.60, 0.80, Curves.easeOutCubic);
-                    // Einrasten: Position/Groesse laufen ueber die geeaste
-                    // Kurve, der Komet verabschiedet sich im ersten Drittel.
+                    // Lock-in: position/size follow the eased curve, the comet
+                    // leaves within the first third.
                     final av =
                         _reduceMotion ? 1.0 : _assembleController.value;
                     final assemble = Curves.easeInOutCubic.transform(av);
                     final hunt =
                         _reduceMotion ? 0.0 : 1 - (av / 0.35).clamp(0.0, 1.0);
-                    // Atem-Phase des Dots: eine volle Welle pro Runde.
+                    // Dot breathing: one full wave per orbit.
                     final breath = 0.5 -
                         0.5 * math.cos(2 * math.pi * _loopController.value);
-                    // Gemalter Schriftzug -> fuer Screenreader ein Label.
+                    // Painted lettering, so screen readers need a label.
                     return Semantics(
                       label: 'Eatova',
                       child: SizedBox(
@@ -226,12 +210,10 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   },
                 ),
                 const SizedBox(height: 26),
-                // Reservierte Hoehe, damit die Marke beim Einblenden des
-                // Willkommens-Texts nicht springt. Bewusst eine MINDEST-Hoehe
-                // und mit der Systemschrift skaliert: bei textScaler 2.0
-                // braucht der zweizeilige Willkommens-Text mehr als 68 px,
-                // und eine feste Hoehe waere dort ein RenderFlex-Ueberlauf
-                // statt einer ruhigen Kante.
+                // Reserved height so the mark does not jump when the greeting
+                // appears. A MINIMUM, scaled with the system text size: at
+                // textScaler 2.0 the two-line greeting needs more than 68 px,
+                // and a fixed height would overflow there.
                 ConstrainedBox(
                   constraints: BoxConstraints(
                     minHeight: MediaQuery.textScalerOf(context).scale(68),
@@ -262,15 +244,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   }
 }
 
-/// Zeichnet die komplette Boot-Marke in einem Painter: Fokusring (Kreis,
-/// vier Ticks, Mittelpunkt-Dot — Geometrie identisch zu
-/// eatova_wordmark.dart) plus die Schriftzuege „eat" und „va".
+/// Paints the whole boot mark: focus ring (circle, four ticks, centre dot —
+/// geometry identical to eatova_wordmark.dart) plus the "eat" and "va"
+/// lettering.
 ///
-/// Der Ring lebt in ZWEI Zustaenden, die [assemble] ueberblendet:
-///  * 0 — Suchlauf: gross und allein in der Mitte, Spur gedimmt, ein
-///    Lime-Komet laeuft die Runde, der Dot atmet ([hunt] = 1).
-///  * 1 — eingerastet: volle Spur, Ticks auf voller Deckkraft, geschrumpft
-///    auf Wortmarken-Groesse an seinem Platz zwischen „eat" und „va".
+/// [assemble] cross-fades the ring's two states: 0 = hunting (large, centred,
+/// dimmed track, orbiting comet, breathing dot), 1 = locked in (full track,
+/// opaque ticks, shrunk to wordmark size between the letters).
 class _BootMarkPainter extends CustomPainter {
   const _BootMarkPainter({
     required this.ring,
@@ -286,42 +266,42 @@ class _BootMarkPainter extends CustomPainter {
     required this.assemble,
   });
 
-  /// Schriftgroesse der fertigen Wortmarke — bewusst groesser als die 26 des
-  /// Auth-Screens: hier ist die Marke der ganze Auftritt.
+  /// Font size of the assembled wordmark; larger than the auth screen's 26
+  /// because here the mark is the whole stage.
   static const double _fontSize = 30;
 
-  /// Kantenlaenge der Fokusring-Box im Suchlauf (vor dem Einrasten).
+  /// Edge length of the focus-ring box while hunting (before lock-in).
   static const double _loaderBox = 76;
 
   final Color ring;
   final Color text;
 
-  /// 0..1 Einblendung der ganzen Marke beim Intro.
+  /// 0..1 fade-in of the whole mark during the intro.
   final double appear;
 
-  /// 0..1 Kreis-Einzeichnung (Bogen ab 12 Uhr).
+  /// 0..1 circle drawing (arc from 12 o'clock).
   final double draw;
 
-  /// 0..1 gestaffeltes Erscheinen der vier Ticks.
+  /// 0..1 staggered appearance of the four ticks.
   final double ticksIn;
 
-  /// 0..1 Dot-Pop (easeOutBack, darf leicht ueberschiessen).
+  /// 0..1 dot pop (easeOutBack, may overshoot slightly).
   final double dotPop;
 
-  /// 0..1 Einblendung des Kometen nach fertig gezeichnetem Kreis.
+  /// 0..1 comet fade-in once the circle is drawn.
   final double cometIn;
 
-  /// Position des Kometen-Kopfs, 0..1 = eine volle Runde.
+  /// Comet head position; 0..1 is one full orbit.
   final double orbit;
 
-  /// 0..1 Atem-Phase des Dots (nur im Suchlauf sichtbar).
+  /// 0..1 dot breathing phase (visible only while hunting).
   final double breath;
 
-  /// 1 = Suchlauf (gedimmte Spur, Komet, Atmung), 0 = eingerastet.
+  /// 1 = hunting (dimmed track, comet, breathing), 0 = locked in.
   final double hunt;
 
-  /// 0..1 Einrasten: Ring schrumpft/gleitet an seinen Wortmarken-Platz,
-  /// die Buchstaben treten seitlich heraus. Kommt bereits geeast herein.
+  /// 0..1 lock-in: the ring shrinks into its wordmark slot and the letters
+  /// slide out. Arrives already eased.
   final double assemble;
 
   @override
@@ -329,7 +309,7 @@ class _BootMarkPainter extends CustomPainter {
     if (appear <= 0.001) return;
     final center = size.center(Offset.zero);
 
-    // Intro: die ganze Marke skaliert dezent ein.
+    // Intro: the whole mark scales in slightly.
     canvas.save();
     final introScale = 0.92 + 0.08 * appear;
     canvas.translate(center.dx, center.dy);
@@ -340,7 +320,7 @@ class _BootMarkPainter extends CustomPainter {
     final w = _loaderBox + (inlineBox - _loaderBox) * assemble;
     const pad = _fontSize * 0.05;
 
-    // Buchstaben nur vermessen, sobald sie sichtbar werden.
+    // Only lay out the letters once they become visible.
     final letterAlpha = (appear * assemble).clamp(0.0, 1.0);
     TextPainter? eat;
     TextPainter? va;
@@ -364,17 +344,15 @@ class _BootMarkPainter extends CustomPainter {
       totalW = eat.width + pad * 2 + w + va.width;
     }
 
-    // Ring-Platz in der fertigen Wortmarke; waehrend des Suchlaufs steht er
-    // in der Mitte. Der vertikale Versatz (fontSize * 0.09) setzt ihn wie in
-    // eatova_wordmark.dart optisch auf die Mittellinie der Kleinbuchstaben.
+    // The ring's slot in the finished wordmark; centred while hunting. The
+    // vertical offset puts it on the lowercase midline, as in the wordmark.
     final ringCenterFinal = Offset(
       center.dx - totalW / 2 + (eat?.width ?? 0) + pad + w / 2,
       center.dy + _fontSize * 0.09,
     );
     final ringCenter = Offset.lerp(center, ringCenterFinal, assemble)!;
 
-    // Geometrie wie _FocusRingPainter (eatova_wordmark.dart), nur auf die
-    // animierte Boxgroesse w bezogen.
+    // Same geometry as _FocusRingPainter, relative to the animated box w.
     final stroke = w * 0.105;
     final tick = w * 0.115;
     final gap = w * 0.075;
@@ -382,7 +360,7 @@ class _BootMarkPainter extends CustomPainter {
     final dotR = w * 0.10;
     final rect = Rect.fromCircle(center: ringCenter, radius: ringRadius);
 
-    // Kreis: waehrend des Suchlaufs gedimmte Spur, beim Einrasten voll.
+    // Circle: dimmed track while hunting, full once locked in.
     final trackAlpha = (0.30 + 0.70 * (1 - hunt)) * appear;
     canvas.drawArc(
       rect,
@@ -396,8 +374,8 @@ class _BootMarkPainter extends CustomPainter {
         ..color = ring.withValues(alpha: trackAlpha),
     );
 
-    // Komet: der Fokus "sucht" — gedimmter Schweif, heller Kopf mit weichem
-    // Glow. Laeuft nur im Suchlauf und erst, wenn der Kreis fertig ist.
+    // Comet: dimmed tail, bright head with a soft glow. Runs only while
+    // hunting and only once the circle is complete.
     final cometAlpha = hunt * cometIn * appear;
     if (cometAlpha > 0.001) {
       final head = -math.pi / 2 + 2 * math.pi * orbit;
@@ -439,9 +417,8 @@ class _BootMarkPainter extends CustomPainter {
       );
     }
 
-    // Vier Ticks auf 12/3/6/9 Uhr, gestaffelt eingeblendet. Im Suchlauf
-    // halb gedimmt, beim Einrasten schnappen sie auf volle Deckkraft —
-    // das "Fokus sitzt"-Signal.
+    // Four ticks at 12/3/6/9, staggered in. Half dimmed while hunting, they
+    // snap to full opacity on lock-in — the "focus found" signal.
     final tickPaint = Paint()
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.butt
@@ -459,7 +436,7 @@ class _BootMarkPainter extends CustomPainter {
       );
     }
 
-    // Mittelpunkt-Dot: poppt beim Intro, atmet im Suchlauf.
+    // Centre dot: pops during the intro, breathes while hunting.
     if (dotPop > 0) {
       final r = dotR * dotPop * (1 + 0.10 * breath * hunt);
       canvas.drawCircle(
@@ -469,7 +446,7 @@ class _BootMarkPainter extends CustomPainter {
       );
     }
 
-    // Buchstaben: treten beim Einrasten seitlich aus dem Ring heraus.
+    // Letters slide out sideways from the ring during lock-in.
     if (eat != null && va != null) {
       final slide = 10 * (1 - assemble);
       final eatX = ringCenter.dx - w / 2 - pad - eat.width + slide;
@@ -525,8 +502,8 @@ class _WelcomeText extends StatelessWidget {
           style: AppType.ui(
             14,
             weight: FontWeight.w500,
-            // Gedaempft, aber auf der Marken-Flaeche — nicht t.ink2, das ist
-            // fuer den Modus-Grund gestimmt und liefe hier gegen forest.
+            // Muted, but on the brand surface — not t.ink2, which is tuned
+            // for the mode background and would clash with forest.
             color: t.onForest.withValues(alpha: 0.62),
           ),
         ),

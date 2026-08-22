@@ -5,16 +5,12 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-// FlutterFragmentActivity (statt FlutterActivity), weil das health-Plugin
-// eine ComponentActivity braucht - mit FlutterActivity schlug seine
-// Registrierung mit ClassCastException fehl (Health-Sync auf Android tot).
+// FlutterFragmentActivity, not FlutterActivity: the health plugin needs a
+// ComponentActivity, otherwise its registration throws ClassCastException.
 class MainActivity : FlutterFragmentActivity() {
 
-    // Screenshot-/Recents-Schutz (Sicherheits-Audit 2026-08-09): der
-    // Dart-Guard [SecureScreenGuard] schaltet FLAG_SECURE, solange ein
-    // sensibler Screen (Auth-Code, Passwort, Gesundheitsdaten) sichtbar ist.
-    // FLAG_SECURE haelt den Fensterinhalt aus dem Recents-Thumbnail und
-    // blockiert Screenshots/Screen-Recording auf Systemebene.
+    // Screenshot/recents protection: the Dart-side SecureScreenGuard toggles
+    // FLAG_SECURE while a sensitive screen is visible.
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(

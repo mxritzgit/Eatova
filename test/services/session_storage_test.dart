@@ -5,21 +5,17 @@ import 'package:eatova/src/config/supabase_config.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
-// C5: Access- UND Refresh-Token landen ohne `authOptions` als Klartext-JSON in
-// derselben `FlutterSharedPreferences.xml`, deren Health-Blobs seit 7f895f9
-// AES-256-GCM-verschluesselt sind. Das erklaerte Bedrohungsmodell ist
-// Extraktion vom RUHENDEN Geraet — genau dort nimmt der Angreifer einfach den
-// Refresh-Token und zieht sich Mahlzeiten, Gewicht, Schlaf und Chat ueber das
-// Netz. Die Cache-Verschluesselung kauft gegen ihn dann nichts.
+// C5: without `authOptions`, access AND refresh tokens land as plaintext JSON
+// in the same `FlutterSharedPreferences.xml` whose health blobs are AES-256-GCM
+// encrypted. The threat model is extraction from a device at rest, where an
+// attacker simply takes the refresh token and pulls meals, weight, sleep and
+// chat over the network — cache encryption buys nothing against that.
 //
-// Gesichert wird:
-//   1. Persistieren geht in den Keystore, nicht in SharedPreferences.
-//   2. EINMAL-MIGRATION: Bestandsnutzer bleiben eingeloggt, ihr Klartext-Slot
-//      wird geraeumt (ohne diesen Pfad waeren beim Update ALLE ausgeloggt).
-//   3. Der Storage-Key ist byte-gleich mit dem Supabase-Default — sonst
-//      findet die Migration nichts.
-//   4. Ein defekter Keystore fuehrt zu "ausgeloggt", NIE zu einem Boot-Fehler
-//      und nie zu einem stillen Klartext-Fallback.
+// Pinned: persisting goes to the keystore, the one-time migration keeps
+// existing users logged in and wipes their plaintext slot, the storage key is
+// byte-identical to the Supabase default (or the migration finds nothing), and
+// a broken keystore means "logged out", never a boot error or a silent
+// plaintext fallback.
 
 const String _refreshToken = 'refresh-o5Xq7c9aTtZZ-nicht-im-klartext';
 const String _accessToken = 'eyJhbGciOiJIUzI1NiJ9.header-payload.sig';
@@ -32,7 +28,7 @@ const String _sessionJson = '{"access_token":"$_accessToken",'
 
 const String _neueSession = '{"access_token":"neu","refresh_token":"neu-r"}';
 
-/// In-Memory-Keystore. `throws` schaltet auf "OS-Keystore kaputt".
+/// In-memory keystore. `throws` switches to "OS keystore broken".
 class _FakeSecureKeyStore implements SecureKeyStore {
   final Map<String, String> data = {};
   bool throws = false;
@@ -126,7 +122,7 @@ void main() {
       expect(prefs.snapshot.containsKey(key), isFalse,
           reason: 'Der veraltete Klartext-Rest muss trotzdem weg.');
 
-      // Zweiter Start: der Klartext-Slot ist weg, nichts aendert sich mehr.
+      // Second start: the plaintext slot is gone, nothing changes.
       await storage.initialize();
       expect(secure.data[key], _neueSession);
     });
@@ -155,7 +151,7 @@ void main() {
         legacyStore: prefs,
       );
 
-      // recoverSession() ruft hasAccessToken() ohne vorheriges initialize().
+      // recoverSession() calls hasAccessToken() without a prior initialize().
       expect(await storage.hasAccessToken(), isTrue);
       expect(prefs.snapshot.containsKey(key), isFalse);
     });
@@ -186,7 +182,7 @@ void main() {
         legacyStore: prefs,
       );
 
-      // SupabaseAuth.initialize ruft diese drei ohne try/catch.
+      // SupabaseAuth.initialize calls these three without try/catch.
       await storage.initialize();
       expect(await storage.hasAccessToken(), isFalse);
       expect(await storage.accessToken(), isNull);
@@ -202,22 +198,16 @@ void main() {
   test(
       'C5: der Storage-Key ist byte-gleich mit dem Supabase-Default '
       '(sonst findet die Migration nichts)', () {
-    // supabase_flutter-2.17.1/lib/src/supabase.dart:132-133 — die Formel ist
-    // hier unabhaengig aus der Paketquelle nachgebaut, nicht aus unserem Code
-    // abgeschrieben. Aendert jemand `sessionPersistKey` (etwa auf den vollen
-    // Host), faellt diese Zusicherung.
+    // The formula is rebuilt independently from the supabase_flutter source,
+    // not copied from our code, so changing `sessionPersistKey` fails here.
     final erwartet =
         'sb-${Uri.parse(EatovaSupabaseConfig.url).host.split('.').first}'
         '-auth-token';
     expect(EatovaSupabaseConfig.sessionPersistKey, erwartet);
 
-    // Bewusst KEIN Literal mit der Projekt-Kennung mehr. Hier stand
-    // 'sb-ftoozzvmduptrvrrrshb-auth-token' — das ist lokal richtig (dort
-    // greift der Default aus supabase_config.dart:23) und in der CI falsch,
-    // weil dort `--dart-define=SUPABASE_URL=https://ci.invalid` gesetzt wird.
-    // Der Test war damit umgebungsabhaengig und ist genau daran zuerst in der
-    // CI gescheitert. Rahmen und Endung sind dagegen unabhaengig von der URL
-    // und fangen eine Praefix-/Suffix-Aenderung trotzdem.
+    // Deliberately no literal with the project id: that is right locally and
+    // wrong in CI (`--dart-define=SUPABASE_URL=https://ci.invalid`). Prefix
+    // and suffix are URL-independent and still catch a format change.
     expect(EatovaSupabaseConfig.sessionPersistKey, startsWith('sb-'));
     expect(EatovaSupabaseConfig.sessionPersistKey, endsWith('-auth-token'));
   });

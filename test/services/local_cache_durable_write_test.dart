@@ -6,24 +6,22 @@ import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
-// Review 2026-08-19, Fund 1: der Outbox-Write lief ueber denselben
-// still-verschluckenden Pfad wie der Beschleunigungs-Cache.
+// Review 2026-08-19, finding 1: the outbox write went through the same
+// silently-swallowing path as the speed cache.
 //
-// Der Unterschied ist nicht akademisch: Tagebuch, Favoriten & Co. stehen auch
-// auf dem Server, ein verlorener Cache-Write kostet dort einen Netz-Load. Die
-// Outbox und die pendenden Stats-Deltas kennt NIEMAND sonst — geht der Write
-// verloren (AES-Key nach Backup-Restore/Keystore-Reset unlesbar,
-// Plugin-Kanal-Fehler, jsonEncode-Fehler), ist die offline eingetragene
-// Mahlzeit weg, waehrend die Oberflaeche „wird synchronisiert" zeigt.
+// The difference matters: the diary and favorites also live on the server, so
+// a lost cache write costs one network load. The outbox and pending stats
+// deltas exist nowhere else — if that write is lost (unreadable AES key,
+// plugin channel error, encode error), the offline meal is gone while the UI
+// says it is syncing.
 //
-// Diese Datei sichert die Trennung:
-//   1. Sync-Zustands-Slots melden Misserfolg zurueck UND an den CrashReporter.
-//   2. Die Spiegel-Slots bleiben bewusst still (kein Report, kein Wurf).
-//   3. Der Report traegt Slot-Kurznamen und Fehlertyp — nie Key oder Wert.
+// This file pins the split: sync-state slots report failure to the caller AND
+// to the CrashReporter, mirror slots stay deliberately silent, and the report
+// carries only a slot short name and error type — never key or value.
 
-/// Store, dessen `setString` fuer ausgewaehlte Slots wirft. Modelliert den
-/// Fehlschlag UNTER dem Cache (Krypto-Dekorator bzw. Plugin-Kanal), nicht im
-/// Cache selbst — von dort kommt der Wurf im Ernstfall.
+/// Store whose `setString` throws for selected slots. Models the failure BELOW
+/// the cache (crypto decorator or plugin channel), which is where a real throw
+/// originates.
 class _SchreibfehlerStore implements KeyValueStore {
   _SchreibfehlerStore(this.faelltAus);
 
@@ -80,7 +78,7 @@ void main() {
   });
   tearDown(() => CrashReporter.debugSentrySink = null);
 
-  // `capture` laeuft `unawaited` — eine Microtask abwarten.
+  // `capture` runs unawaited — wait one microtask.
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
   group('Sync-Zustands-Slots melden Misserfolg', () {

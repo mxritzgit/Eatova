@@ -24,16 +24,13 @@ import 'meal_analysis_sheet.dart';
 import 'meal_suggestion_item.dart';
 import 'slot_selector.dart';
 
-/// Meldung, wenn eine Zeile aus Suche, Favoriten oder Recents ohne
-/// Kalorienangabe geloggt werden soll — `l10n.foodSuggestionWithoutCaloriesMessage`.
+/// Message when a search/favorite/recent row without calories is logged —
+/// `l10n.foodSuggestionWithoutCaloriesMessage`.
 ///
-/// Bewusst **nicht** [kMealWithoutCaloriesMessage] (`foodMealWithoutCaloriesMessage`)
-/// aus dem Analyse-Sheet: der dortige Wortlaut verweist auf „Anpassen" →
-/// Bestandteile eintragen, und genau diesen Weg gibt es hier nicht. Das
-/// aufgeklappte Kaertchen hat nur einen Portionsregler, und 0 kcal bleiben bei
-/// jeder Portion 0. Der einzige Ausweg ist, den Bestandseintrag zu ersetzen —
-/// das steht hier deshalb auch so drin. Zwei eigene ARB-Keys mit
-/// verschiedenem Inhalt statt einer gespiegelten Konstante.
+/// Deliberately not [kMealWithoutCaloriesMessage] from the analysis sheet: its
+/// wording points at "adjust" → enter components, a path that does not exist
+/// here (the expanded card only has a portion slider, and 0 kcal stays 0 at
+/// any portion). Two separate ARB keys instead of one mirrored constant.
 
 Future<void> showAddMealSheet(
   BuildContext context, {
@@ -52,18 +49,17 @@ Future<void> showAddMealSheet(
   ValueChanged<String>? onRemoveMeal,
   UpdateMealDetails? onUpdateMealDetails,
 }) {
-  // Bearbeiten-Callback VOR dem Route-Wechsel aus dem Scope aufloesen: der
-  // Builder-Context des Bottom-Sheets haengt am Navigator und sieht den
-  // MealEditScope der Home-Seite nicht mehr. Ohne Scope (Preview/Tests)
-  // bleibt die „Schon hinzugefuegt"-Liste wie bisher ohne Tap-Bearbeitung.
+  // Resolve the edit callback from the scope BEFORE the route change: the
+  // sheet's builder context hangs off the navigator and no longer sees the
+  // home page's MealEditScope. Without a scope the list stays non-editable.
   final resolvedUpdateDetails =
       onUpdateMealDetails ?? MealEditScope.maybeOf(context)?.onUpdateMeal;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
-    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
+    // No token on purpose: the scrim darkens in both display modes, a light
+    // scrim would dim nothing.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (sheetContext) {
       return AddMealSheet(
@@ -112,91 +108,75 @@ class AddMealSheet extends StatefulWidget {
   final MealPhotoInput photoInput;
   final List<FavoriteMeal> favorites;
 
-  /// Loggt das Ergebnis und liefert die Client-UUID zurueck (siehe
-  /// MealAnalysisSheet) — fuer die gezielte spaetere Um-Portionierung.
+  /// Logs the result and returns the client UUID (see MealAnalysisSheet) for
+  /// later re-portioning.
   final String Function(MealAnalysisResult, MealSlot) onAdd;
 
-  /// Ersetzt das Ergebnis einer geloggten Zeile per id (kcal + Makros).
+  /// Replaces a logged row's result by id (kcal + macros).
   final void Function(String id, MealAnalysisResult scaled) onUpdateMeal;
   final ValueChanged<String> onRemoveFavorite;
 
-  /// Ist die Mahlzeit aktuell angeheftet? Null -> kein Herz.
+  /// Is the meal currently pinned? Null -> no heart.
   final bool Function(MealAnalysisResult)? isFavorite;
 
-  /// Favoriten-Toggle (anheften/loesen). Null -> kein Herz.
+  /// Favorite toggle (pin/unpin). Null -> no heart.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final List<LoggedMeal> existingMeals;
   final ValueChanged<String>? onRemoveMeal;
 
-  /// Details-Update fuer das Bearbeiten-Sheet (Portion/Slot/Tag). Null ->
-  /// „Schon hinzugefuegt"-Zeilen sind nicht tippbar (bisheriges Verhalten).
+  /// Details update for the edit sheet (portion/slot/day). Null -> already
+  /// added rows are not tappable.
   final UpdateMealDetails? onUpdateMealDetails;
 
   @override
   State<AddMealSheet> createState() => _AddMealSheetState();
 }
 
-/// **Bewusst OHNE Verwerfen-Schutz (D5).** Das wurde geprueft, nicht vergessen.
+/// Deliberately WITHOUT a discard guard (D5) — checked, not forgotten.
 ///
-/// Drei Sheets haben seit Welle 3 `PopScope` + `_DiscardDragGuard`
-/// (`recipe_create_sheet`, `edit_meal_sheet`, `settings_sheet`), ein viertes
-/// seit Welle 6 (`meal_widgets_adjust`). Das Kriterium dafuer ist **nicht**
-/// „haelt einen TextEditingController", sondern **selbst verfasster Inhalt,
-/// der Muehe gekostet hat**: acht Rezeptfelder, sieben Einstellungsfelder,
-/// Gramm-Korrekturen pro Bestandteil plus Makro-Dialog.
-///
-/// Hier liegen zwei Dinge im State: ein Suchbegriff und die Angabe, welche
-/// Karte aufgeklappt ist (die Portion selbst lebt im `MealSuggestionItem`).
-/// Beides ist eine *Anfrage*, keine Eingabe, und in wenigen Sekunden
-/// wiederhergestellt — waehrend Suchen der Hauptzweck dieses Sheets ist, der
-/// Dialog also bei praktisch jedem Schliessen kaeme.
-///
-/// Das hat einen Preis: ein Dialog, der staendig grundlos erscheint, wird
-/// reflexhaft weggetippt und verliert genau dort an Wirkung, wo er zaehlt.
-/// Aus demselben Grund traegt auch das Gewichts-Sheet
-/// (`profile_widgets_body.dart`) keinen.
+/// The criterion for `PopScope` + `_DiscardDragGuard` is authored content that
+/// cost effort, not "holds a TextEditingController". This sheet holds a search
+/// term and which card is expanded: a query, not input, restored in seconds.
+/// Searching is the sheet's purpose, so the dialog would fire on nearly every
+/// close and be dismissed reflexively — losing its effect where it counts.
 class _AddMealSheetState extends State<AddMealSheet> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _productSearchDebounce;
   int _productSearchRequestId = 0;
   final Map<String, List<ProductSearchResult>> _productSearchCache =
       <String, List<ProductSearchResult>>{};
-  // Sessions-Cache leerer Suchen: ein einmal erfolglos (aber ohne Fehler)
-  // abgefragter Begriff liefert beim erneuten Tippen sofort "nichts gefunden",
-  // ohne die Dienstkette noch einmal anzufassen.
+  // Session cache of empty searches: a term that came back empty (without
+  // error) answers "nothing found" instantly, without hitting the services.
   final Set<String> _emptyQueryCache = <String>{};
   List<ProductSearchResult> _productSuggestions = const <ProductSearchResult>[];
   bool _isSearchingProducts = false;
   String? _productSearchMessage;
 
-  /// True NUR nach einer endgueltig leeren (fehlerfreien) Suche — der einzige
-  /// Zustand, in dem der „Manuell eintragen"-CTA erscheint. Netz-Fehler und
-  /// Min-Zeichen-Hinweis heissen „Suche kaputt/zu kurz", nicht „gibt es
-  /// nicht", und bieten den CTA bewusst nicht an (Spec 2026-08-13).
+  /// True only after a definitively empty (error-free) search — the one state
+  /// that shows the manual-entry CTA. Network errors and the min-chars hint
+  /// mean "search broken/too short", not "does not exist" (spec 2026-08-13).
   bool _searchCameUpEmpty = false;
 
-  /// Hat der Nutzer die Suche SELBST ausgeloest (Lupe/Enter)? Nur dann gilt
-  /// ein Fragment unterhalb von [_autoSearchMinChars] als aktive Suche. Jeder
-  /// weitere Tastendruck nimmt die Freischaltung zurueck — sonst bliebe die
-  /// Trefferzone offen, waehrend der Debounce laengst nichts mehr schickt.
+  /// Did the user trigger the search explicitly (magnifier/enter)? Only then
+  /// does a fragment below [_autoSearchMinChars] count as an active search.
+  /// Any further keystroke revokes it, otherwise the result zone would stay
+  /// open while the debounce no longer sends anything.
   bool _explicitSearchRequested = false;
 
   String? _expandedItemKey;
   final Set<String> _justAddedKeys = <String>{};
   final Map<String, Timer> _justAddedTimers = <String, Timer>{};
 
-  // Der Slot ist Sheet-Zustand, nicht ein fixer Input: Default ist der
-  // übergebene (Uhrzeit-)Vorschlag, der User kann ihn im Selector ändern.
+  // The slot is sheet state, not a fixed input: it defaults to the passed
+  // (time-of-day) suggestion and can be changed in the selector.
   late MealSlot _selectedSlot;
   late List<LoggedMeal> _existing;
   late List<FavoriteMeal> _favorites;
 
-  // Diese drei Dauern laufen BEWUSST NICHT ueber `motionDuration`: sie takten
-  // keine Bewegung, sondern Netz- und Anzeigelogik. Ein Debounce von 0 wuerde
-  // pro Tastendruck eine Suchanfrage feuern, ein Retry-Delay von 0 den
-  // Backoff aushebeln, und der Haken am gerade hinzugefuegten Treffer waere
-  // weg, bevor ihn jemand sieht. „Bewegung reduzieren" darf das Verhalten der
-  // App nicht aendern, nur ihre Animationen.
+  // These durations deliberately bypass `motionDuration`: they time network
+  // and display logic, not motion. At 0 the debounce would fire per keystroke,
+  // the retry delay would defeat the backoff, and the just-added check would
+  // vanish before anyone sees it. "Reduce motion" must not change behavior.
   static const Duration _productSearchDebounceDelay = Duration(
     milliseconds: 1000,
   );
@@ -204,17 +184,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
   static const int _productSearchMaxAttempts = 3;
   static const Duration _justAddedFadeDelay = Duration(seconds: 2);
 
-  /// Kuerzeste Eingabe, die ueberhaupt eine Suche wert ist — das gilt fuer den
-  /// selbst ausgeloesten Weg (Lupe/Enter).
+  /// Shortest input worth a search at all — applies to the explicit path
+  /// (magnifier/enter).
   static const int _searchMinChars = 2;
 
-  /// Ab hier schickt der Debounce von SELBST los, bewusst HOEHER als
-  /// [_searchMinChars]. Der Debounce feuert pro Tipp-Pause, und eine
-  /// erfolglose Suche ist teuer: sie faechert sich ueber Mirror + OFF-de +
-  /// OFF-world auf. Ein Zweibuchstaben-Fragment ist praktisch immer auf dem
-  /// Weg zu einem Wort — es kostet also drei Anfragen fuer ein Ergebnis, das
-  /// der naechste Buchstabe ohnehin ueberholt. Wer wirklich nur „Ei" sucht,
-  /// kommt ueber die Lupe weiterhin dran.
+  /// Threshold for the debounce to fire on its own, deliberately higher than
+  /// [_searchMinChars]: a failed search fans out over mirror + OFF-de +
+  /// OFF-world, and a two-letter fragment is almost always on its way to a
+  /// word. The magnifier still reaches short terms.
   static const int _autoSearchMinChars = 3;
 
   @override
@@ -230,9 +207,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     setState(() => _selectedSlot = slot);
   }
 
-  // Geloggte Einträge des aktuell gewählten Slots (aus der vollen Tagesliste,
-  // die das Sheet als existingMeals erhält) — der Kopfbereich bleibt so immer
-  // zum Selector synchron.
+  // Logged entries of the selected slot, filtered from the full day list, so
+  // the header stays in sync with the selector.
   List<LoggedMeal> get _slotMeals =>
       _existing.where((m) => m.slot == _selectedSlot).toList(growable: false);
 
@@ -247,10 +223,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
     super.dispose();
   }
 
-  /// Trefferzone statt Favoriten. Unterhalb von [_autoSearchMinChars] bleiben
-  /// Favoriten/Recents stehen, solange die Suche nicht selbst ausgeloest wurde
-  /// — sonst stuende dort ein leerer Bereich, weil der Debounce fuer so kurze
-  /// Eingaben absichtlich nichts schickt.
+  /// Results zone instead of favorites. Below [_autoSearchMinChars] favorites
+  /// and recents stay unless the search was triggered explicitly, otherwise
+  /// the area would be empty — the debounce sends nothing for short input.
   bool get _searchActive {
     final length = _searchController.text.trim().length;
     if (length >= _autoSearchMinChars) return true;
@@ -264,10 +239,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
     widget.onRemoveMeal?.call(id);
   }
 
-  /// Tap auf eine „Schon hinzugefuegt"-Zeile: Bearbeiten-Sheet oeffnen und
-  /// danach die LOKALE Tagesliste des Sheets nachziehen (das Sheet haelt eine
-  /// Kopie und rebuildet nicht am Store). Ein Tag-Wechsel entfernt den
-  /// Eintrag aus der Liste — sie zeigt nur den Tag dieses Sheets.
+  /// Tap on an already-added row: open the edit sheet, then bring the sheet's
+  /// LOCAL day list in line (it holds a copy and does not rebuild from the
+  /// store). A day change removes the entry — the list shows one day only.
   Future<void> _editExisting(LoggedMeal meal) async {
     final update = widget.onUpdateMealDetails;
     if (update == null) return;
@@ -279,7 +253,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
     if (!mounted || outcome == null) return;
     if (outcome.deleted) {
-      return; // _removeExisting hat die Liste schon gepflegt.
+      return; // _removeExisting already updated the list.
     }
     final updated = outcome.meal;
     if (updated == null) return;
@@ -300,7 +274,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     widget.onRemoveFavorite(id);
   }
 
-  // ─── Suche ────────────────────────────────────────────────────────────
+  // ─── Search ───────────────────────────────────────────────────────────
 
   void _scheduleProductSearch(String value) {
     final query = value.trim();
@@ -309,8 +283,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (query.length < _autoSearchMinChars) {
       _productSearchRequestId++;
       setState(() {
-        // Eine neue Eingabe hebt die Freischaltung durch Lupe/Enter auf: die
-        // Treffer davor gehoeren zu einem anderen Begriff.
+        // New input revokes the magnifier/enter unlock: the previous hits
+        // belong to a different term.
         _explicitSearchRequested = false;
         _isSearchingProducts = false;
         _productSuggestions = const <ProductSearchResult>[];
@@ -320,7 +294,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       return;
     }
 
-    // rebuild damit _searchActive umschaltet (Favoriten -> Treffer-Slot).
+    // Rebuild so _searchActive flips (favorites -> results zone).
     setState(() {});
     _productSearchDebounce = Timer(
       _productSearchDebounceDelay,
@@ -332,9 +306,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  /// [explicit] trennt Lupe/Enter vom Debounce: nur der selbst ausgeloeste Weg
-  /// schaltet die Trefferzone auch fuer ein Fragment unterhalb von
-  /// [_autoSearchMinChars] frei.
+  /// [explicit] separates magnifier/enter from the debounce: only the explicit
+  /// path unlocks the results zone for a fragment below
+  /// [_autoSearchMinChars].
   Future<void> _searchProducts({
     String? queryOverride,
     bool showTransientError = true,
@@ -369,7 +343,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       });
       return;
     }
-    // Bekannte Leersuche: sofort "nichts gefunden", kein Retry-Zyklus.
+    // Known empty search: answer immediately, no retry cycle.
     if (_emptyQueryCache.contains(cacheKey)) {
       _productSearchRequestId++;
       setState(() {
@@ -411,32 +385,27 @@ class _AddMealSheetState extends State<AddMealSheet> {
       final gedrosselt = _istDrosselung(error);
       setState(() {
         _isSearchingProducts = false;
-        // Eine Drosselung wird IMMER benannt, auch auf dem getippten Weg
-        // (showTransientError == false). Ohne Satz stuende die Trefferzone
-        // stumm da, und der naechste Tastendruck schickte die naechste
-        // Anfrage in dasselbe Limit.
+        // Rate limiting is always named, even on the typed path
+        // (showTransientError == false): otherwise the zone stays silent and
+        // the next keystroke runs into the same limit.
         _productSearchMessage = gedrosselt
             ? context.l10n.searchRateLimited
             : (showTransientError
                   ? context.l10n.foodSearchUnreachableHint
                   : null);
-        // Kein „gibt es nicht": eine Drosselung ist keine Auskunft ueber das
-        // Produkt, also auch kein Weg in den Manuell-CTA.
+        // Not "does not exist": rate limiting says nothing about the product,
+        // so it must not open the manual CTA.
         _searchCameUpEmpty = false;
       });
     }
   }
 
-  /// Grobe Klassifizierung nach dem Muster von `auth_code_screen.dart`: die
-  /// Suchpfade werfen ein nacktes [Exception]/`HttpException` mit dem
-  /// Statuscode im Text (`… search failed: 429`) — einen eigenen Ausnahmetyp
-  /// gibt es in der Dienstschicht nicht.
+  /// Coarse classification like `auth_code_screen.dart`: the search paths
+  /// throw a bare [Exception]/`HttpException` with the status code in the text
+  /// — the service layer has no dedicated exception type.
   ///
-  /// Warum ueberhaupt: ein 429 ist die einzige Antwort, die vom Wiederholen
-  /// SCHLECHTER wird. Ohne diese Weiche lief er in denselben Sammelzweig wie
-  /// ein Netzfehler, wurde auf dem getippten Weg gar nicht angezeigt und sah
-  /// damit aus wie „nichts gefunden" — worauf der naechste Tastendruck
-  /// nachlegte.
+  /// A 429 is the one answer that gets worse from retrying, so it needs its
+  /// own branch instead of looking like "nothing found".
   static bool _istDrosselung(Object error) {
     final raw = error.toString().toLowerCase();
     return raw.contains('429') ||
@@ -454,16 +423,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
     for (var attempt = 0; attempt < _productSearchMaxAttempts; attempt++) {
       try {
         final suggestions = await widget.productService.searchProducts(query);
-        // Eine erfolgreiche Antwort ist autoritativ — auch die leere. Leer
-        // ist eine Auskunft, kein Fehler.
-        //
-        // Frueher lief sie durch dieselbe Retry-Schleife wie ein Netzfehler,
-        // in der Annahme, der Mirror sei nur kalt. Der Preis dafuer traegt
-        // jede erfolglose Suche: ein Versuch faechert sich in der
-        // Dienstschicht ueber Mirror + OFF-de + OFF-world auf, drei Versuche
-        // machen daraus neun Anfragen fuer ein „gibt es nicht" — und ein
-        // gedrosselter Dienst wurde davon nur noch weiter gedrosselt.
-        // Retries bleiben dort, wo sie hingehoeren: bei echten Fehlern.
+        // A successful answer is authoritative, the empty one included: empty
+        // is information, not an error. Retrying it would fan one search out
+        // over mirror + OFF-de + OFF-world three times over. Retries stay
+        // where they belong: real errors.
         if (suggestions.isEmpty) {
           _emptyQueryCache.add(cacheKey);
         } else {
@@ -475,8 +438,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       }
 
       final isLastAttempt = attempt == _productSearchMaxAttempts - 1;
-      // Eine Drosselung wird vom Wiederholen schlimmer statt besser: sofort
-      // raus, der Aufrufer benennt sie dem Nutzer.
+      // Rate limiting gets worse from retrying: bail out, the caller names it.
       if (isLastAttempt ||
           _istDrosselung(lastError) ||
           requestId != _productSearchRequestId) {
@@ -491,7 +453,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   static String _normalizeQuery(String query) =>
       query.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
-  // ─── Foto / Galerie / Barcode ─────────────────────────────────────────
+  // ─── Photo / gallery / barcode ────────────────────────────────────────
 
   Future<void> _pickAndAnalyze(ImageSource source) async {
     MealPhotoSelection? selection;
@@ -529,15 +491,15 @@ class _AddMealSheetState extends State<AddMealSheet> {
   }
 
   Future<void> _scanBarcode() async {
-    // Bottom-Panel (~60% Hoehe) wie beim KI-Scan statt Vollbild-Wechsel.
-    // Die Chips im Scanner starten auf dem hier gewaehlten Slot.
+    // Bottom panel like the AI scan instead of a full-screen switch. The
+    // scanner's chips start on the slot selected here.
     final scan = await showBarcodeScannerSheet(
       context,
       initialSlot: _selectedSlot,
     );
     if (scan == null || !mounted) return;
-    // Eine Umwahl im Scanner gilt auch fuer dieses Sheet — sonst stuende
-    // im Kopf „Abendessen", waehrend der Treffer ins Mittagessen ging.
+    // A slot change in the scanner applies to this sheet too, otherwise the
+    // header would show one slot while the hit went to another.
     _selectSlot(scan.slot);
 
     await showMealAnalysisSheet(
@@ -553,36 +515,31 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  // ─── Manueller Eintrag ────────────────────────────────────────────────
+  // ─── Manual entry ─────────────────────────────────────────────────────
 
-  /// Einstieg fuer eigene Naehrwerte (Spec 2026-08-13). Das Formular baut nur
-  /// das Ergebnis; geloggt wird hier ueber [_handleAdd] — inklusive der
-  /// 0-kcal-Bremse (eine manuelle 0 traegt explicitZeroKcal und passiert sie)
-  /// und des Erfolgs-Snacks. [initialName] kommt vom Such-CTA.
+  /// Entry point for own nutrition values (spec 2026-08-13). The form only
+  /// builds the result; logging happens here via [_handleAdd], including the
+  /// 0-kcal guard (a manual 0 carries explicitZeroKcal and passes it) and the
+  /// success snack. [initialName] comes from the search CTA.
   Future<void> _openManualEntry({String? initialName}) async {
     final result = await showManualMealSheet(context, initialName: initialName);
     if (result == null || !mounted) return;
     _handleAdd('manual:${FavoriteMeal.idFor(result)}', result);
   }
 
-  // ─── Hinzufuegen ──────────────────────────────────────────────────────
+  // ─── Adding ───────────────────────────────────────────────────────────
 
   void _handleAdd(String itemKey, MealAnalysisResult result) {
-    // Letzte Bremse vor dem Tagebuch (B1/B7) — dieselbe Rolle, die
-    // `MealAnalysisSheet._addToDaily` fuer den Foto-Pfad spielt. Ohne sie
-    // liessen sich Bestandszeilen in `favorite_meals` mit
-    // `calories_kcal = 0` (die Constraint erlaubt `>= 0`, der Vor-Fix-Code
-    // hat sie erzeugt) weiterhin loggen — bestaetigt mit einem Snack, der
-    // woertlich „0 kcal … hinzugefügt." sagte.
+    // Last guard before the diary (B1/B7), the role
+    // `MealAnalysisSheet._addToDaily` plays for the photo path: legacy
+    // `favorite_meals` rows with `calories_kcal = 0` must not be loggable.
     //
-    // Die Zeile wird bewusst NICHT aus Favoriten/Recents herausgefiltert:
-    // unsichtbar waere sie auch nicht mehr ueber das X der Zeile loeschbar,
-    // und der Nutzer wuesste nicht, warum sein Favorit verschwunden ist.
-    // Sichtbar, nicht loggbar, mit Begruendung ist die ehrlichere Variante.
+    // Such rows are deliberately NOT filtered out of favorites/recents —
+    // invisible rows could not be deleted via their X either. Visible, not
+    // loggable, with a reason is the honest variant.
     //
-    // explicitZeroKcal: eine GEMESSENE 0 (Wasser, Zero — die Datenquelle
-    // sagt ausdruecklich 0 kcal) ist loggbar; die Bremse gilt dem Sentinel
-    // „0 = unbekannt" der Alt-Zeilen, nicht dem Produkt.
+    // explicitZeroKcal: a MEASURED 0 (water, zero drinks) is loggable; the
+    // guard targets the "0 = unknown" sentinel of old rows, not the product.
     if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
       showAppSnack(
         context,
@@ -630,16 +587,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
   Widget build(BuildContext context) {
     final t = context.t;
     final mediaQuery = MediaQuery.of(context);
-    // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
-    // mit offener Suchfeld-Tastatur schob der feste Anteil das Sheet bis
-    // unter die Dynamic Island — der Kopf mit Kamera/Galerie/Barcode war auf
-    // dem iPhone nicht mehr zu sehen. Jetzt schrumpft der Scrollbereich.
+    // Safe-area and keyboard aware instead of a fixed 92 % (sheetMaxHeight):
+    // with the search keyboard open the fixed share pushed the header under
+    // the Dynamic Island. Now the scroll area shrinks instead.
     final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
 
-    // Kein SheetScaffold: das Sheet traegt drei fixe Zonen (Kopf, Suchleiste,
-    // Slot-Wahl) ueber einem gedeckelten Scrollbereich und hat gar keine
-    // Fussaktion — jede Zeile loggt selbst.
+    // No SheetScaffold: three fixed zones (header, search bar, slot picker)
+    // over a capped scroll area, and no footer action — every row logs itself.
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(
@@ -690,9 +645,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Stehender Eingang zum manuellen Eintrag — solange nicht
-                    // aktiv gesucht wird; ab da uebernimmt der Kontext-CTA
-                    // unter "nichts gefunden" (_buildSearchResults).
+                    // Standing entry point for manual entry while no search is
+                    // active; after that the contextual CTA under "nothing
+                    // found" takes over (_buildSearchResults).
                     if (!_searchActive) ...[
                       _ManualEntryRow(onTap: () => _openManualEntry()),
                       const SizedBox(height: 16),
@@ -713,8 +668,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
                     if (_searchActive)
                       _buildSearchResults()
                     else
-                      // Beim Entfernen eines Favoriten fällt die Liste sanft
-                      // zusammen statt hart zu springen.
+                      // Removing a favorite collapses the list smoothly
+                      // instead of jumping.
                       AnimatedSize(
                         duration: motionDuration(
                           context,
@@ -755,8 +710,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
         children: [
           _HintBlock(text: _productSearchMessage!),
           if (_searchCameUpEmpty)
-            // Der Hofladen-Moment: endgueltig nichts gefunden -> direkt ins
-            // Formular, mit dem Suchbegriff als Namens-Vorbelegung.
+            // Definitively nothing found -> straight into the form, with the
+            // query prefilled as the name.
             TextButton.icon(
               key: const ValueKey('manual-entry-cta'),
               onPressed: () =>
@@ -804,8 +759,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  // Favoriten (angeheftet) zuerst, dann Auto-Recents. Beide kommen aus
-  // derselben Liste, getrennt ueber das pinned-Flag.
+  // Pinned favorites first, then auto recents — one list, split by the
+  // pinned flag.
   List<FavoriteMeal> get _pinned =>
       _favorites.where((f) => f.pinned).toList(growable: false);
   List<FavoriteMeal> get _recents =>
@@ -847,8 +802,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     required bool pinned,
   }) {
     final key = 'favorite:${favorite.id}';
-    // Stabile, sektionsweise Keys: angeheftete -> favorite-pinned-*, Recents
-    // behalten den bestehenden favorite-tile-* Key (Test-Pin) bei.
+    // Stable per-section keys: pinned -> favorite-pinned-*, recents keep the
+    // existing favorite-tile-* key (tests pin it).
     final tileKey = pinned ? 'favorite-pinned-$index' : 'favorite-tile-$index';
     final addKey = pinned
         ? 'favorite-pinned-add-$index'
@@ -873,8 +828,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  // Toggle nach oben melden UND die lokale Sheet-Liste sofort spiegeln, damit
-  // das Herz ohne Sheet-Neuaufbau umschaltet (Favoriten <-> Recents).
+  // Report the toggle upwards AND mirror it in the local list, so the heart
+  // flips without rebuilding the sheet (favorites <-> recents).
   void _handleToggleFavorite(MealAnalysisResult result) {
     widget.onToggleFavorite?.call(result);
     final id = FavoriteMeal.idFor(result);
@@ -957,11 +912,9 @@ class _SheetHeader extends StatelessWidget {
             ),
           const SizedBox(width: 12),
           Expanded(
-            // Einzeilig, immer (Nutzer-Feedback 2026-08-13): ein viertes
-            // Header-Icon hatte "Breakfast" umbrechen lassen. Das Icon ist
-            // raus (der manuelle Eintrag hat jetzt seine beschriftete Zeile
-            // unter der Slot-Wahl), und der Titel bleibt auch bei langen
-            // Slot-Namen/grosser Schrift auf einer Zeile.
+            // Always single line (user feedback 2026-08-13): a fourth header
+            // icon made the slot title wrap. The title now stays on one line
+            // even with long slot names or large text.
             child: Text(
               title,
               maxLines: 1,
@@ -969,13 +922,9 @@ class _SheetHeader extends StatelessWidget {
               style: AppType.display(18, color: t.ink),
             ),
           ),
-          // Foto/Galerie/Barcode nur im normalen Add-Modus. Im Such-Modus
-          // bleibt der Kopf schlank — die Suche hat ihre eigenen Aktions-
-          // Buttons im Food-Tab, hier wird nur gesucht.
-          //
-          // Die drei tragen jetzt denselben gedaempften Ton: sie sind
-          // gleichrangige Eingaenge, und die frueheren drei Farben waren
-          // Makro-/Wellness-Toene aus einer fremden Bedeutungsebene.
+          // Photo/gallery/barcode only in normal add mode; search mode keeps a
+          // slim header. All three share the same muted tone because they are
+          // equal-rank entry points.
           if (!searchMode) ...[
             _HeaderIconButton(
               keyValue: const ValueKey('analyse-camera-button'),
@@ -1074,9 +1023,9 @@ class _SearchBar extends StatelessWidget {
                 key: const ValueKey('kcal-product-search-input'),
                 controller: controller,
                 autofocus: true,
-                // iOS-Default ist ein Dauer-Fade des Cursors -> haelt die App
-                // bei offenem Sheet auf ~60fps Dauer-Rendering. Diskretes
-                // Blinken repaintet nur ~2x/s (gilt app-weit fuer alle Felder).
+                // The iOS default fades the cursor continuously, keeping the
+                // app at ~60fps while the sheet is open. Discrete blinking
+                // repaints ~2x/s (app-wide rule for all fields).
                 cursorOpacityAnimates: false,
                 cursorColor: t.accent,
                 onChanged: onChanged,
@@ -1141,12 +1090,10 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// Stehender Eingang zum manuellen Eintrag (Nutzer-Feedback 2026-08-13):
-/// das vierte Header-Icon quetschte den Slot-Titel zweizeilig und war als
-/// nackter Stift kaum zu entdecken. Jetzt eine BESCHRIFTETE Zeile in voller
-/// Breite direkt unter der Slot-Wahl — Text schlaegt Icon bei der
-/// Auffindbarkeit. Optik der Suchleisten-Kapsel (46 px, surf, line-Rand),
-/// damit die beiden Eingaenge dieselbe Formsprache sprechen.
+/// Standing entry point for manual entry (user feedback 2026-08-13): a bare
+/// pencil icon in the header was hard to find and wrapped the slot title. Now
+/// a labeled full-width row below the slot picker, styled like the search bar
+/// capsule so both entry points share one shape.
 class _ManualEntryRow extends StatelessWidget {
   const _ManualEntryRow({required this.onTap});
 
@@ -1219,10 +1166,9 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Volle Breite erzwingen: die Inhalts-Spalte des Sheets richtet ihre
-    // Kinder links aus und ist seit der Manuell-Zeile (PR #38) immer
-    // viewport-breit — ohne eigene Breite hing dieser Block deshalb an der
-    // linken Kante, statt sich zu zentrieren (Nutzer-Befund 2026-08-14).
+    // Force full width: the sheet's content column aligns children left, so
+    // without an own width this block hugged the left edge instead of
+    // centering (user finding 2026-08-14).
     return SizedBox(
       width: double.infinity,
       child: Padding(

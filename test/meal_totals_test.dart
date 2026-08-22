@@ -4,9 +4,8 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_totals.dart';
 
-// Tests für die aus dem God-Object (_EatovaHomePageState) extrahierte reine
-// Tages-Aggregation. Stellt sicher, dass die kcal-/Makro-Summen tag-genau
-// filtern und das kcal-Override Felder erhält.
+// Tests for the pure per-day aggregation: kcal and macro sums must filter by
+// day, and the kcal override must preserve fields.
 
 MealAnalysisResult _r({
   int kcal = 500,
@@ -79,28 +78,26 @@ void main() {
     });
   });
 
-  // Slot-Aufschlüsselung für den Coach-Kontext (2026-08-21): der Coach soll
-  // „wie viel Protein nur durchs Abendessen?" beantworten können. Die
-  // Aggregation muss tag-genau filtern, je Slot summieren UND zählen, leere
-  // Slots weglassen und die kanonische Slot-Reihenfolge liefern.
+  // Per-slot breakdown for the coach context: filter by day, sum AND count per
+  // slot, omit empty slots and keep the canonical slot order.
   group('slotTotalsForFoodDate', () {
     final day = DateTime(2026, 6, 2);
 
     test('summiert je Slot, leere Slots fehlen, anderer Tag bleibt draußen',
         () {
       final meals = [
-        // Abendessen: einmal per Uhrzeit (20:00), einmal erzwungen.
+        // Dinner: once by time of day (20:00), once forced.
         _slotMeal(todayEvening, kcal: 400, protein: '30 g', fat: '20 g'),
         _slotMeal(today,
             slot: MealSlot.dinner, kcal: 350, protein: '30 g', fat: '20 g'),
-        // Frühstück: ein Eintrag, erzwungen (12:30 wäre sonst Mittagessen).
+        // Breakfast: one forced entry (12:30 would otherwise be lunch).
         _slotMeal(today,
             slot: MealSlot.breakfast,
             kcal: 200,
             protein: '10 g',
             carbs: '25 g',
             fat: '5 g'),
-        // Gestern: darf heute in keinem Slot auftauchen.
+        // Yesterday: must not appear in any of today's slots.
         _slotMeal(yesterday, slot: MealSlot.dinner, kcal: 999),
       ];
 
@@ -136,8 +133,7 @@ void main() {
     });
 
     test('Reihenfolge folgt MealSlot.values, nicht der Log-Reihenfolge', () {
-      // Der Store hält loggedMeals neueste-zuerst — hier bewusst verkehrt
-      // herum eingefügt (Snack, Abendessen, Frühstück).
+      // The store keeps loggedMeals newest-first, so insert them reversed.
       final meals = [
         _slotMeal(today, slot: MealSlot.snack),
         _slotMeal(today, slot: MealSlot.dinner),

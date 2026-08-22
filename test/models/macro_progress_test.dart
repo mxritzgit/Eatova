@@ -4,10 +4,10 @@ import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 
-// TEST-1: MacroProgress.add/subtract — Aggregation der Tages-Makros aus den
-// Makro-Strings der Mahlzeiten. logic_test.dart deckt den Happy Path ab;
-// hier die Parser-Randfaelle ("-", Einheiten, fuehrende Zahl) und die
-// Clamp-/Akkumulations-Invarianten (subtract clampt, kcal bleibt int >= 0).
+// TEST-1: MacroProgress.add/subtract — daily macro aggregation from the meals'
+// macro strings. logic_test.dart covers the happy path; here the parser edge
+// cases and the clamp/accumulation invariants (subtract clamps, kcal stays a
+// non-negative int).
 
 MealAnalysisResult _r({
   int kcal = 0,
@@ -54,7 +54,7 @@ void main() {
       expect(p.proteinG, 0);
       expect(p.carbsG, 0);
       expect(p.fatG, 0);
-      expect(p.kcal, 90); // kcal kommt direkt aus dem int-Feld
+      expect(p.kcal, 90); // kcal comes straight from the int field
     });
 
     test('nimmt die erste Zahl im String (z.B. "32 g Eiweiss")', () {
@@ -112,7 +112,7 @@ void main() {
   });
 
   test('add nutzt das kcal-Feld des Ergebnisses, nicht die Makro-Strings', () {
-    // Auch ohne plausible Makros zaehlt das kcal-Integer.
+    // The kcal integer counts even without plausible macros.
     const withItems = MealAnalysisResult(
       mealName: 'Teller',
       caloriesKcal: 720,

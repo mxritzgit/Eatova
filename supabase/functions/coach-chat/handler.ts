@@ -1,29 +1,15 @@
 // Eatova Coach-Chat - Request-Handler.
 //
-// Liegt bewusst NEBEN index.ts (das nur noch `Deno.serve(handleRequest)`
-// aufruft): so laesst sich der komplette Request-Pfad in handler_test.ts
-// end-to-end testen (fetch gestubbt), ohne einen Server zu starten.
+// Split from index.ts so the whole request path is testable without a server.
 //
-// 3-Schichten-Safety, damit Grok ausschliesslich Fitness/Ernaehrungs-Coach
-// spielt und nicht fuer Hausaufgaben, medizinischen Missbrauch (Steroide
-// etc.) oder Prompt-Injection missbraucht werden kann.
+// 3-layer safety so Grok stays a fitness/nutrition coach:
+//   Layer 1 - deterministic pre-filter (prefilter.ts), deliberately lax; it
+//             only saves cost, Layer 2 is the real protection.
+//   Layer 2 - LLM classifier (small Grok call); categories in guardrails.ts.
+//   Layer 3 - hardened system prompt plus a refusal-pattern output check.
 //
-//   Layer 1 - Deterministischer Pre-Filter (Regex/Keywords, prefilter.ts)
-//             Faengt offensichtliche Missbrauchsversuche ohne LLM-Call ab.
-//             Bewusst lieber zu lasch als zu scharf - er spart nur Kosten,
-//             der eigentliche Schutz ist Layer 2.
-//   Layer 2 - LLM-Klassifizierer (kleiner Grok-Call)
-//             Stuft die Anfrage als fitness | nutrition | smalltalk |
-//             self_harm | eating_disorder | medical_risk | off_topic |
-//             injection ein. Kategorien/Weichen: guardrails.ts.
-//   Layer 3 - Hardened System-Prompt fuer den eigentlichen Antwortcall,
-//             plus Output-Check: faengt Refusal-Patterns ab und ersetzt sie
-//             durch eine saubere deutsche Refusal-Message.
-//
-// Rate-Limit (DAILY_LIMIT Prompts/Tag/User, Default 5) wird ueber die RPC
-// claim_chat_quota atomar in Postgres reserviert - damit kann der Client das
-// Limit nicht umgehen, weil er die Funktion gar nicht aufrufen darf (RPC ist
-// nur service_role-grantet).
+// DAILY_LIMIT/day/user is reserved atomically via claim_chat_quota, granted to
+// service_role only, so the client cannot bypass it.
 
 // deno-lint-ignore-file no-explicit-any
 
@@ -49,14 +35,11 @@ import {
   recipeSystemPrompt,
 } from "./recipe.ts";
 
-// Modelle + Tageslimit sind ueber Function-Secrets uebersteuerbar (gleiches
-// Muster wie OPENROUTER_MODEL in analyze-meal); die Defaults sind die bisher
-// hardcodeten Werte.
+// Models and daily limit are overridable via function secrets.
 const MODEL_ANSWER     = Deno.env.get("COACH_MODEL_ANSWER") ?? "x-ai/grok-4.3";
 const MODEL_CLASSIFIER = Deno.env.get("COACH_MODEL_CLASSIFIER") ?? "x-ai/grok-4.3";
-// Bild-GENERIERUNG (mode: "recipe") laeuft ueber die OpenRouter-Image-API —
-// bewusst ein eigenes Modell: die "-image"-Familie liefert Bilder als Output
-// und taugt NICHT fuer Foto->JSON-Analyse (s. Warnung in analyze-meal).
+// Image GENERATION needs its own model: the "-image" family outputs images and
+// is NOT usable for photo->JSON analysis (see analyze-meal).
 const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
 
 const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
@@ -65,54 +48,33 @@ const MAX_CONTENT_LENGTH     = 6_250_000;
 const HISTORY_LIMIT          = 10;
 const REQUEST_USER_LIMIT     = 60;
 const REQUEST_IP_LIMIT       = 120;
-// Pre-Auth-Fail-Limiter (Security-Fix 2026-08-11, CWE-400): deckelt
-// wiederholte FEHLGESCHLAGENE /auth/v1/user-Lookups pro IP, damit anonym
-// wiederholbare Auth-Arbeit nicht unbegrenzt bleibt (Details am Gate unten).
-// Konservativ gegenueber REQUEST_IP_LIMIT (120/10min fuer authentifizierte
-// Requests): ein legitimer Client landet hier hoechstens mit einem
-// abgelaufenen Token und ist nach dem Refresh wieder raus — 30/h reicht.
+// Caps repeated FAILED /auth/v1/user lookups per IP (CWE-400). A legitimate
+// client only lands here with an expired token, so 30/h is enough.
 const AUTH_FAIL_LIMIT          = 30;
 const AUTH_FAIL_WINDOW_SECONDS = 3600;
 
-// Harte Deadline fuer beide Provider-Roundtrips (Security-Fix 2026-08-11,
-// CWE-400, Finding 6): ohne AbortSignal hing eine Execution bei stillem/
-// langsamem Upstream bis zum aeusseren Plattform-Limit — verbrauchte
-// Concurrency plus ein geclaimter Quota-Slot, der nie sauber refundet
-// wuerde, weil der Plattform-Kill die catch-Bloecke unten gar nicht mehr
-// erreicht. Gleiche Technik wie OPENROUTER_TIMEOUT_MS in analyze-meal:
-// AbortSignal.timeout am fetch deckt den GESAMTEN Roundtrip ab, auch das
-// resp.json()/resp.text() danach — ein Abort bricht den Response-Stream mit.
-// Werte: der Classifier hat max_tokens 50 und antwortet in Sekunden, 15 s
-// sind grosszuegig; der Answer-Call bekommt dieselben 45 s wie analyze-meal.
-// Als mutierbares Objekt exportiert, damit handler_test.ts die Deadlines
-// fuer Haenger-Simulationen verkuerzen kann — die Produktions-Defaults
-// bleiben unveraendert.
+// Hard deadline for both provider roundtrips (CWE-400): without AbortSignal a
+// slow upstream hung until the platform limit, burning a claimed quota slot
+// the platform kill never let the catch blocks refund. Covers the WHOLE
+// roundtrip including resp.json()/text(). Mutable so tests can shorten it.
 export const PROVIDER_TIMEOUTS_MS = {
   classify: 15_000,
   answer: 45_000,
-  // Bild-Generierung: eigenes Budget. Ein Timeout hier ist KEIN
-  // Request-Fehler — das Rezept kommt dann ohne Bild zurueck
-  // (generateRecipeImage ist tolerant, s. dort).
+  // Image generation gets its own budget. A timeout here is NOT a request
+  // error — the recipe comes back without an image (generateRecipeImage).
   image: 30_000,
 };
 
-// Timeout erkennen: AbortSignal.timeout rejectet Fetch UND Body-Read mit
-// einer DOMException "TimeoutError". Behandelt wird er wie jeder andere
-// Provider-Infra-Fehler (Refund + sanitisierte Antwort ohne Interna), nur
-// mit dem ehrlichen Statuscode-Paar aus analyze-meal: 502 provider_error /
-// 504 provider_timeout. Der Flutter-Client mappt beide identisch auf die
-// generische Meldung (_failureForStatus: status >= 500 zeigt nie Body-Text).
+// AbortSignal.timeout rejects fetch AND body read with a "TimeoutError".
+// Handled like any provider infra error, but with the honest status pair
+// 502 provider_error / 504 provider_timeout.
 function isProviderTimeout(e: unknown): boolean {
   return e instanceof DOMException && e.name === "TimeoutError";
 }
 
-// Provider-Fehler MIT HTTP-Status (Befund 2026-08-19). Bis hierher warf jeder
-// Provider-Call ein nacktes Error, und die catch-Bloecke unten refundeten
-// deshalb JEDEN geworfenen Fehler. Ein 4xx, das der Client mit seiner Eingabe
-// ausgeloest hat, ist aber erbrachte und beim Provider ABGERECHNETE Arbeit:
-// wer sie refundiert bekommt, kann den Tages-Slot beliebig oft wiederverwenden
-// — dann deckelt nur noch das IP-Gate (120/10min) die bezahlten Calls statt
-// DAILY_LIMIT. Der Status muss den Fehler also bis in den catch begleiten.
+// Provider error WITH HTTP status: a bare Error made the catch blocks refund
+// everything, including client-caused 4xx the provider already billed, which
+// makes the daily slot reusable at will. The status must reach the catch.
 class ProviderError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -122,61 +84,37 @@ class ProviderError extends Error {
   }
 }
 
-// 4xx, die der CLIENT durch seinen Input verursacht: abgelehntes/kaputtes
-// Bild (400/415/422), beim Provider zu grosses Payload (413), Moderation
-// (403). Bewusst eine Allowlist statt "alles unter 500": 401 (unser Key),
-// 402 (unser Guthaben), 404 (unser Modellname) und 429 (Provider-Drossel)
-// sind UNSERE Ausfaelle und duerfen den Nutzer keinen Slot kosten.
+// 4xx the CLIENT caused with its input. An allowlist, not "anything under
+// 500": 401, 402, 404 and 429 are OUR outages (key, credit, model name,
+// throttle) and must not cost the user a slot.
 const CLIENT_FAULT_STATUSES = new Set([400, 403, 413, 415, 422]);
 
-// true = der Slot bleibt verbraucht, weil die Eingabe den bezahlten Call
-// verbrannt hat. Alles andere (Netzwerkfehler, Timeout, 5xx, Provider-429,
-// unbekannter Fehlertyp) gilt als Ausfall und wird refundiert — im Zweifel
-// zugunsten des Nutzers, denn ein nicht erkannter Fehler ist kein Beleg fuer
-// Client-Schuld.
+// true = the slot stays spent because the input burned the paid call; anything
+// else is an outage and is refunded, since an unknown error proves nothing.
 function isClientFaultFailure(e: unknown): boolean {
   return e instanceof ProviderError && CLIENT_FAULT_STATUSES.has(e.status);
 }
 
-// Redaktion fuer Provider-Fehler-Bodies (CWE-532, Befund 2026-08-19): hier
-// stand `text.slice(0, 200)` und wanderte ueber die Fehlermeldung ins
-// Function-Log. OpenRouter spiegelt bei 4xx — Moderation, abgelehntes Bild,
-// kaputtes Payload — Teile der NUTZEREINGABE zurueck, und die hat in
-// operativen Logs nichts verloren (dieselbe Regel wie crash_reporter.dart,
-// gleicher Fall wie analyze-meal am 2026-08-11). Statt des Roh-Slices nur
-// Allowlist-Metadaten: Laenge + SHA-256-Praefix. Der Digest erlaubt Dedupe
-// ("dieselbe kaputte Antwort wie im Request davor?") und den Abgleich mit
-// einer konkret vorliegenden Antwort, verraet aber nichts ueber den Inhalt.
-// Inhaltsgleich zu redactedContentMeta (analyze-meal/normalize.ts); geteilt
-// werden koennte sie erst ueber ../_shared/.
+// Redaction for provider error bodies (CWE-532): on 4xx OpenRouter mirrors
+// parts of the USER INPUT back, which must not reach operational logs. Length
+// plus SHA-256 prefix is enough for dedupe and reveals nothing.
 async function redactedBodyMeta(body: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
   const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
   return `len=${body.length} sha256=${hex.slice(0, 12)}`;
 }
 
-// Groessen-Vertrag der Nachricht (Security-Fix 2026-08-11, CWE-400).
-// MAX_INPUT_CHARS (1000, prefilter.ts) ist der fachliche Vertrag; der
-// Byte-Deckel ist Guertel + Hosentraeger: 1000 UTF-16-Zeichen sind maximal
-// 3000 UTF-8-Bytes (BMP = 3 Bytes/Zeichen; Astral = 4 Bytes auf 2 Zeichen),
-// 4000 haelt die Invariante "Message passt LOCKER unter den DB-CHECK
-// (16384 Bytes, Migration 20260811130000)" auch dann, wenn sich die
-// Zeichen-Semantik mal aendert.
+// Belt to MAX_INPUT_CHARS (1000, prefilter.ts): 1000 UTF-16 chars are at most
+// 3000 UTF-8 bytes, and 4000 stays well under the DB CHECK of 16384.
 const MAX_INPUT_BYTES        = 4_000;
-// History-Hygiene gegen Alt-Rows, die VOR dem Fix oversized persistiert
-// wurden (der too_long-Refusal-Pfad speicherte die volle Nachricht — bis
-// knapp unter die 6,25-MB-Request-Grenze): pro Row ein Zeichen-Cap, der
-// jede legitime Zeile (User <= 1000 Zeichen, Assistant <= 600 Tokens)
-// unangetastet laesst, plus ein Aggregat-Budget fuer den Provider-Request,
-// das aelteste Eintraege zuerst verwirft. Legitime Konversationen bleiben
-// unter dem Budget (10 Rows im Normalfall weit unter 24000 Zeichen); nur
-// Bestands-Muell wird gekappt.
+// History hygiene against legacy rows persisted oversized: a per-row char cap
+// that leaves every legitimate line untouched, plus an aggregate budget that
+// drops oldest entries first.
 const HISTORY_ROW_MAX_CHARS  = 4_000;
 const HISTORY_BUDGET_CHARS   = 24_000;
 
-// Session-IDs sind serverseitig erzeugte UUIDs. Strikt validieren, bevor der
-// Wert in PostgREST-Query-URLs interpoliert wird — sonst koennte ein Client
-// ueber Sonderzeichen zusaetzliche Filter/Operatoren einschleusen.
+// Session ids are server-generated UUIDs; validate strictly before they are
+// interpolated into PostgREST URLs, or a client could inject extra filters.
 const SESSION_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -206,12 +144,11 @@ function responseHeaders(req?: Request): Headers {
 }
 
 // ---------------------------------------------------------------------------
-// Layer 1 - deterministischer Pre-Filter: lebt in prefilter.ts (getestet in
-// prefilter_test.ts). Design-Notizen zu den Patterns stehen dort.
+// Layer 1 - deterministic pre-filter: lives in prefilter.ts.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Layer 3 - System-Prompt fuer die eigentliche Antwort
+// Layer 3 - system prompt for the actual answer
 // ---------------------------------------------------------------------------
 const ANSWER_SYSTEM_PROMPT = `You are Eatova Coach - a friendly fitness and nutrition coach inside a mobile app. The app's primary user-language is German but you must adapt.
 
@@ -257,7 +194,7 @@ When refusing, your reply must start with \`__REFUSE__ \` (with a trailing space
   __REFUSE__ Это вне моей области - я могу помочь только с тренировками и питанием.`;
 
 // ---------------------------------------------------------------------------
-// Layer 2 - Topic-Klassifizierer
+// Layer 2 - topic classifier
 // ---------------------------------------------------------------------------
 const CLASSIFIER_SYSTEM_PROMPT = `You are a strict JSON classifier for a fitness-coach chatbot. The message can be in any language - classify by intent, not by language.
 
@@ -287,11 +224,9 @@ Important:
 
 Output ONLY the JSON.`;
 
-// Ergebnis eines bezahlten, aber unbrauchbaren Classifier-Calls: kaputtes
-// JSON oder eine unbekannte Kategorie. `category` ist nur der fail-closed-
-// Default; das Flag sagt, dass gar nicht klassifiziert wurde (Details am
-// ClassifierResult in guardrails.ts). Wer im Ernstfall darauf reagieren muss,
-// entscheidet layer2RefusalReason() - NICHT dieser Default.
+// Paid but unusable classifier call. `category` is only the fail-closed
+// default; the flag says nothing was classified, and layer2RefusalReason()
+// decides how to react.
 const UNUSABLE_CLASSIFICATION: ClassifierResult = {
   category: "off_topic",
   confidence: "low",
@@ -310,17 +245,15 @@ async function classify(
       "HTTP-Referer": "https://eatova.app",
       "X-Title": "Eatova Coach",
     },
-    // Deadline fuer Fetch UND das resp.json()/text() unten (Finding 6,
-    // s. PROVIDER_TIMEOUTS_MS): der Timeout wirft hier und laeuft ueber den
-    // bestehenden Infra-Fehler-Pfad im Handler (Refund + 504).
+    // Deadline for fetch AND the resp.json()/text() below (finding 6); the
+    // timeout throws into the existing infra-error path (refund + 504).
     signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.classify),
     body: JSON.stringify({
       model: MODEL_CLASSIFIER,
       messages: [
         { role: "system", content: CLASSIFIER_SYSTEM_PROMPT },
-        // Bewusst NUR Text: das Bild wird nie mitgeschickt. Der Call kostet
-        // damit im Bildpfad exakt dasselbe wie im Textpfad (keine
-        // Vision-Tokens) - siehe guardrails.ts fuer die Konsequenzen.
+        // Text ONLY: the image is never sent, so the image path costs the same
+        // as the text path (no vision tokens). Consequences in guardrails.ts.
         { role: "user", content: message },
       ],
       temperature: 0,
@@ -328,16 +261,10 @@ async function classify(
     }),
   });
   if (!resp.ok) {
-    // Infrastruktur-Fehler -> werfen, gleiches Muster wie answer(). Seit dem
-    // Quota-Fix (2026-08-11, CWE-770) ist der Tages-Slot an dieser Stelle
-    // bereits geclaimt; der Handler refundet ihn im catch und antwortet
-    // ehrlich mit 502, statt hier eine Refusal zu erfinden, die den User
-    // einen Slot kostet, ohne dass je klassifiziert wurde. Unbrauchbarer
-    // Modell-Output (kaputtes JSON, unbekannte Kategorie) bleibt dagegen
-    // fail-closed off_topic - das war ein bezahlter, abgeschlossener Call -,
-    // ist seit W1 aber ueber parseFailed als Nicht-Klassifikation erkennbar.
-    // Status statt Roh-Body: der entscheidet oben ueber den Refund und ist
-    // das Einzige, was gefahrlos ins Log darf (redactedBodyMeta).
+    // Infra error -> throw: the slot is already claimed, so the handler
+    // refunds it and answers 502 instead of inventing a refusal that costs a
+    // slot without any classification. Status, not the raw body: it drives the
+    // refund and is the only log-safe part.
     const text = await resp.text();
     throw new ProviderError(
       resp.status,
@@ -347,7 +274,7 @@ async function classify(
   const data = await resp.json();
   const raw = data?.choices?.[0]?.message?.content ?? "";
   try {
-    // Modelle hauen manchmal trotzdem Markdown drum -> JSON-Block rausziehen.
+    // Models sometimes wrap the JSON in markdown -> extract the JSON block.
     const match = raw.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(match ? match[0] : raw);
     const category = parsed.category as ClassifierResult["category"];
@@ -362,7 +289,7 @@ async function classify(
 }
 
 // ---------------------------------------------------------------------------
-// Layer 3 - eigentliche Antwort
+// Layer 3 - the actual answer
 // ---------------------------------------------------------------------------
 interface HistoryMessage { role: "user" | "assistant"; content: string }
 type UserContentPart =
@@ -380,15 +307,13 @@ function makeImageDataUrl(imageBase64: string, imageMimeType: string): string {
   return `data:${safeImageMimeType(imageMimeType)};base64,${clean}`;
 }
 
-/// Dekodiert NUR den Kopf eines base64-Strings. Bewusst nicht den ganzen
-/// (bis zu 6 MB grossen) String: 12 Bytes zu sehen darf nicht die Arbeit
-/// kosten, die dieser Guard gerade sparen soll.
+/// Decodes ONLY the head of a base64 string — seeing 12 bytes must not cost
+/// the work this guard is meant to save on a 6 MB input.
 function decodeBase64Head(base64: string, bytes: number): Uint8Array | null {
-  // \r\n sind im Zeichensatz-Guard erlaubt (MIME-Zeilenumbrueche), atob
-  // frisst sie aber nicht.
+  // The charset guard allows \r\n (MIME line breaks), but atob does not.
   const clean = base64.replace(/[\r\n]/g, "");
   const chunk = clean.slice(0, Math.ceil(bytes / 3) * 4);
-  // atob braucht volle 4er-Bloecke; ein angeschnittener faellt weg.
+  // atob needs whole 4-char blocks; a partial one is dropped.
   const usable = chunk.slice(0, chunk.length - (chunk.length % 4));
   if (usable.length === 0) return null;
   try {
@@ -401,18 +326,12 @@ function decodeBase64Head(base64: string, bytes: number): Uint8Array | null {
   }
 }
 
-/// Container-Header der drei Formate, die safeImageMimeType erlaubt.
+/// Container magic of the three formats safeImageMimeType allows.
 ///
-/// WARUM (Befund 2026-08-19): der Zeichensatz-Guard im Handler sagt nur "sieht
-/// aus wie base64". Ein 6-MB-"AAAA…" kam damit bis zum Quota-Claim durch,
-/// bezahlte einen Classifier- und einen Vision-Call und endete erst im 4xx des
-/// Providers. Der Kopf-Check kostet nichts und lehnt das VOR dem Claim ab. Er
-/// deckt zugleich die Mindestlaenge ab: unter 16 base64-Zeichen kommen keine
-/// 12 Header-Bytes zusammen.
-///
-/// Bewusst KEINE Vollvalidierung: ein korrekt begonnenes, dahinter aber
-/// verstuemmeltes JPEG faellt weiterhin erst beim Provider auf — dafuer gibt
-/// es die Refund-Trennung (isClientFaultFailure).
+/// The charset guard only says "looks like base64", so a 6 MB "AAAA…" used to
+/// reach the quota claim and pay for two calls before the provider's 4xx. Not
+/// full validation — a truncated JPEG still fails at the provider, which is
+/// what isClientFaultFailure is for.
 function hasSupportedImageMagic(base64: string): boolean {
   const head = decodeBase64Head(base64, 12);
   if (head === null || head.length < 12) return false;
@@ -423,7 +342,7 @@ function hasSupportedImageMagic(base64: string): boolean {
     head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 &&
     head[4] === 0x0d && head[5] === 0x0a && head[6] === 0x1a && head[7] === 0x0a
   ) return true;
-  // WebP: "RIFF" + 4 Byte Laenge + "WEBP"
+  // WebP: "RIFF" + 4-byte length + "WEBP"
   if (
     head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
     head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
@@ -445,12 +364,9 @@ async function answer(
       ]
     : userMessage;
 
-  // Faktischer App-Kontext — bewusst KEINE System-Message mehr
-  // (Security-Fix 2026-08-14): der Inhalt ist nutzerbeeinflussbar (selbst
-  // vergebene Mahlzeiten-Namen aus _todaysFoodSummary) und darf deshalb nicht
-  // auf der Vertrauensstufe des System-Prompts stehen. Er kommt als eigene,
-  // klar als DATEN gerahmte User-Message vor der Historie; Layer 1 hat ihn
-  // vorher gesehen (sanitizeUserContext im Handler).
+  // Deliberately NOT a system message: the content is user-influenced
+  // (self-chosen meal names) and must not sit at the system prompt's trust
+  // level. It goes in as its own user message, framed as DATA.
   const contextMessages: { role: "user"; content: string }[] = [];
   if (userContext && userContext.trim().length > 0) {
     contextMessages.push({
@@ -473,9 +389,8 @@ async function answer(
       "HTTP-Referer": "https://eatova.app",
       "X-Title": "Eatova Coach",
     },
-    // Deadline fuer Fetch UND das resp.json()/text() unten (Finding 6,
-    // s. PROVIDER_TIMEOUTS_MS): der Timeout wirft hier und laeuft ueber die
-    // bestehenden Answer-Refund-Pfade im Handler (Refund + 504).
+    // Deadline for fetch AND the resp.json()/text() below (finding 6); the
+    // timeout throws into the existing answer refund paths (refund + 504).
     signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
     body: JSON.stringify({
       model: MODEL_ANSWER,
@@ -505,7 +420,7 @@ async function answer(
     refusal = true;
     reply = reply.replace(/^__REFUSE__\s*/, "").trim();
   }
-  // Sicherheitsnetz: wenn Grok versucht den Prompt zu leaken, kuerzen.
+  // Safety net: cut the reply if Grok tries to leak the prompt.
   if (/system\s*prompt|deine\s*anweisungen\s*lauten/i.test(reply)) {
     refusal = true;
     reply = "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
@@ -518,17 +433,14 @@ async function answer(
 }
 
 // ---------------------------------------------------------------------------
-// mode: "recipe" — Rezept-Draft + Bild-Generierung (Spec 2026-08-12).
+// mode: "recipe" — recipe draft + image generation (spec 2026-08-12).
 //
-// Sicherheits-Grundsatz: dieser Pfad LIEFERT NUR DATEN. Kein Tool-Calling,
-// kein Schreibzugriff auf Rezepte/Statistiken/Konto — gespeichert wird
-// ausschliesslich clientseitig, nachdem der Nutzer im Sheet bestaetigt hat.
-// Persistiert wird hier nur der Chat-Verlauf (Text), wie im Chat-Pfad.
+// Safety rule: this path RETURNS DATA ONLY. No tool calling, no write access
+// to recipes/stats/account; only the chat transcript is persisted here.
 // ---------------------------------------------------------------------------
 
-/// Draft-Call: grok-4.3 mit erzwungenem JSON-Output. Wirft bei Infra-Fehlern
-/// (gleiches Muster wie answer()); Refusal/unlesbar entscheidet der Aufrufer
-/// ueber parseRecipeRefusal/parseRecipeDraft.
+/// Draft call with forced JSON output. Throws on infra errors like answer();
+/// refusal and unreadable output are the caller's decision.
 async function draftRecipe(
   apiKey: string,
   wish: string,
@@ -551,10 +463,8 @@ async function draftRecipe(
       ],
       response_format: { type: "json_object" },
       temperature: 0.4,
-      // Mehr Budget als der Chat (600): Zutatenliste + 8 Schritte brauchen
-      // Platz; das Token-Budget unterscheidet den Call zugleich eindeutig
-      // vom Classifier (50) und vom Answer-Call (600) — darauf stuetzen
-      // sich die Test-Stubs.
+      // More than the chat's 600: ingredients plus 8 steps need room. The
+      // budget also identifies this call uniquely, which test stubs rely on.
       max_tokens: 900,
     }),
   });
@@ -569,11 +479,9 @@ async function draftRecipe(
   return String(data?.choices?.[0]?.message?.content ?? "").trim();
 }
 
-/// Bild-Generierung ueber die OpenRouter-Image-API. TOLERANT: jeder Fehler
-/// (non-ok, Timeout, kaputtes Shape) liefert null — das Rezept kommt dann
-/// ohne Bild zurueck, die Karte zeigt den Platzhalter. Bewusst KEIN Refund
-/// und kein Request-Abbruch: der Nutzer hat die Hauptleistung (das Rezept)
-/// bekommen.
+/// Image generation via the OpenRouter image API. TOLERANT: any error returns
+/// null and the recipe comes back without an image — no refund, no abort,
+/// because the user got the main deliverable.
 async function generateRecipeImage(
   apiKey: string,
   prompt: string,
@@ -591,8 +499,8 @@ async function generateRecipeImage(
       body: JSON.stringify({
         model: MODEL_IMAGE,
         prompt,
-        // 4:3 passt zu allen drei Rezept-Kacheln (Hero 280x236, Liste 96x96,
-        // Detail 258 hoch); jpeg, weil RecipeImageStore ohnehin jpeg ablegt.
+        // 4:3 fits all three recipe tiles; jpeg because RecipeImageStore
+        // stores jpeg anyway.
         aspect_ratio: "4:3",
         output_format: "jpeg",
         resolution: "1K",
@@ -600,8 +508,8 @@ async function generateRecipeImage(
       }),
     });
     if (!resp.ok) {
-      // Auch hier nur Metadaten: der Bild-Prompt ist aus dem Nutzer-Wunsch
-      // abgeleitet und kann in der Fehlerantwort gespiegelt sein (CWE-532).
+      // Metadata only: the image prompt derives from the user's wish and may
+      // be mirrored in the error response (CWE-532).
       const text = await resp.text();
       console.error(`recipe image failed: ${resp.status} (${await redactedBodyMeta(text)})`);
       return null;
@@ -623,13 +531,9 @@ async function generateRecipeImage(
   }
 }
 
-/// Persistiert die Assistant-Zeile eines Rezept-Vorschlags MIT dem
-/// Rezept-JSON (Spalte chat_messages.recipe, Migration 20260813090000) und
-/// liefert ihre id zurueck — der Client legt das generierte Bild lokal
-/// unter dieser id ab und baut die Karte nach einem Reload aus Verlauf +
-/// Datei wieder auf. null = nicht gespeichert oder id nicht lesbar; die
-/// Response laesst assistant_message_id dann weg (Karte bleibt ephemer,
-/// wie vor dem Nachtrag — kein Fehler).
+/// Persists the assistant row WITH the recipe JSON and returns its id: the
+/// client stores the generated image locally under that id and rebuilds the
+/// card after a reload. null leaves the card ephemeral.
 async function storeRecipeMessage(
   serviceKey: string,
   supabaseUrl: string,
@@ -667,13 +571,9 @@ async function storeRecipeMessage(
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
-/// Der komplette Recipe-Zweig. Laeuft NACH Auth, Rate-Limits, Prefilter,
-/// Session, Quota-Claim (der Slot ist beim Aufruf bereits reserviert) und
-/// seit 2026-08-14 auch nach Layer 2 (Krisen-/Missbrauchs-Kategorien, s.
-/// RECIPE_REFUSAL_CATEGORIES); ob der Wunsch ueberhaupt ein Essensrezept ist,
-/// entscheidet weiterhin der Rezept-Prompt selbst.
-/// Reihenfolge spiegelt den Chat-Pfad: User-Message zuerst persistieren,
-/// dann die bezahlten Calls (E5-Begruendung am Chat-Pfad).
+/// The whole recipe branch. Runs after auth, limits, prefilter, session, quota
+/// claim and Layer 2; whether the wish is a food recipe is decided by the
+/// recipe prompt. Persists the user message before the paid calls (E5).
 async function handleRecipeMode(params: {
   serviceKey: string;
   supabaseUrl: string;
@@ -708,10 +608,8 @@ async function handleRecipeMode(params: {
   try {
     raw = await draftRecipe(openRouterKey, message, locale);
   } catch (e) {
-    // Infra-Fehler: keinerlei Leistung erbracht -> Refund + ehrlicher
-    // Status, identisch zum Answer-Pfad (Sentinel-Rest E2 + Finding 6).
-    // Client-verschuldete 4xx sind KEIN Infra-Fehler und behalten den Slot
-    // (Befund 2026-08-19, Begruendung an isClientFaultFailure).
+    // Infra error: nothing delivered -> refund + honest status, as in the
+    // answer path. Client-caused 4xx keep the slot (isClientFaultFailure).
     console.error(`recipe draft failed: ${e instanceof Error ? e.message : String(e)}`);
     if (!isClientFaultFailure(e)) {
       await rpcRefundQuota(serviceKey, supabaseUrl, userId);
@@ -723,8 +621,8 @@ async function handleRecipeMode(params: {
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
 
-  // Kein Essensrezept: kostet den Slot bewusst (gleiche Begruendung wie die
-  // Layer-2-Refusals — sonst waeren provozierte Refusals Gratis-Calls).
+  // Not a food recipe: costs the slot on purpose, like the Layer 2 refusals,
+  // or provoked refusals would be free calls.
   const refusalText = parseRecipeRefusal(raw);
   if (refusalText !== null) {
     await storeMessage(serviceKey, supabaseUrl, {
@@ -744,10 +642,9 @@ async function handleRecipeMode(params: {
 
   const draft: RecipeDraft | null = parseRecipeDraft(raw);
   if (draft === null) {
-    // Unlesbarer Modell-Output = Provider-Infra-Fehler (analyze-meal-Muster
-    // provider_invalid_json): Refund + 502. Bewusst nur die LAENGE loggen —
-    // raw kann Nutzer-Wunschtext spiegeln (Gesundheitsdaten-Regel,
-    // crash_reporter.dart).
+    // Unreadable model output = provider infra error (analyze-meal's
+    // provider_invalid_json): refund + 502. Log the LENGTH only — raw can
+    // mirror the user's wish text.
     console.error(`recipe draft unlesbar (${raw.length} Zeichen)`);
     await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     await touchSession(serviceKey, supabaseUrl, sessionId);
@@ -756,9 +653,8 @@ async function handleRecipeMode(params: {
 
   const image = await generateRecipeImage(openRouterKey, recipeImagePrompt(draft));
 
-  // Best-effort wie im Chat-Pfad: die Zusammenfassung haelt den Verlauf
-  // koherent; das Rezept-JSON wandert in die Zeile (Reload-Karte), die
-  // Bild-Bytes werden NIE persistiert — Regel wie bei User-Fotos.
+  // Best effort: the summary keeps the transcript coherent and the image bytes
+  // are NEVER persisted, same rule as for user photos.
   const summary = recipeSummary(draft, locale);
   const assistantMessageId = await storeRecipeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, content: summary, recipe: draft,
@@ -771,7 +667,7 @@ async function handleRecipeMode(params: {
     ...(image === null
       ? {}
       : { image_base64: image.base64, image_mime_type: image.mimeType }),
-    // Der Client legt das Bild lokal unter dieser id ab (Reload-Karte).
+    // The client stores the image locally under this id (reload card).
     ...(assistantMessageId === null
       ? {}
       : { assistant_message_id: assistantMessageId }),
@@ -782,18 +678,15 @@ async function handleRecipeMode(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Refusal-Texte fuer L1/L2
+// Refusal texts for L1/L2
 // ---------------------------------------------------------------------------
-// Sprach-Typ des Requests; Parse-/Fallback-Regel siehe handleRequest:
-// alles ausser exakt "en" ist "de" (analyze-meal-Muster normalizeLanguage).
+// Request language; anything but exactly "en" is "de" (see handleRequest,
+// analyze-meal's normalizeLanguage pattern).
 type CoachLocale = "de" | "en";
 
-// DE-Spalte ist WOERTLICH der Vor-Lokalisierungs-Stand (ASCII-Umlaute ue/ae/
-// oe und einfacher Bindestrich - sind Bestand, keine "Korrektur"). EN-Spalte:
-// Lokalisierung 2026-08-15 (design-fix2.md Abschnitt 4.2). self_harm haelt
-// in BEIDEN Sprachen 0800 111 0 111 verbatim (Konsistenz mit Layer 3, CRISIS
-// RULE oben) und ergaenzt fuer EN findahelpline.com als sprachbasierte
-// Zusatzressource (Begruendung: design-fix2.md Abschnitt 3).
+// The de column is VERBATIM the pre-localisation state (ASCII umlauts are
+// inherited, not a mistake). self_harm keeps 0800 111 0 111 verbatim in BOTH
+// languages, consistent with the Layer 3 CRISIS RULE.
 const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
   medical_risk: {
     de: "Zu Steroiden, SARMs oder Performance-Enhancern gebe ich keine Empfehlungen - das ist medizinisches Gelaende und kann gefaehrlich sein. Frag deinen Arzt. Ich helfe dir gern bei natuerlichem Training und Ernaehrung.",
@@ -855,11 +748,9 @@ function refusalForReason(reason: string, locale: CoachLocale): string {
     case "off_topic_homework":
     case "off_topic":
       return REFUSAL_TEXTS.off_topic[locale];
-    // W1 (2026-08-14): Layer 2 hat gar nicht klassifiziert (unbrauchbarer
-    // Modell-Output). Bewusst KEINE Krisen-Antwort — wir wissen ja nichts
-    // ueber die Anfrage, und die Telefonseelsorge-Nummer auf einen
-    // Pasta-Wunsch zu schicken waere sein eigener Schaden. Nur: keine
-    // Generierung ohne gelaufene Pruefung.
+    // W1 (2026-08-14): Layer 2 did not classify at all. Deliberately NOT a
+    // crisis reply — nothing is known about the request, and a helpline number
+    // on a pasta wish does its own damage. Just: no generation without a check.
     case "classifier_unusable":
       return REFUSAL_TEXTS.classifier_unusable[locale];
     case "prompt_injection":
@@ -876,24 +767,20 @@ function refusalForReason(reason: string, locale: CoachLocale): string {
   }
 }
 
-// Limit-Meldungen (Tagesquota + die drei Rate-Limit-Gates). Bewusst NEBEN dem
-// Refusal-Katalog statt darin: das sind keine inhaltlichen Ablehnungen und sie
-// laufen nie durch refusalForReason — zweisprachig aber aus exakt demselben
-// Grund (Befund 2026-08-19). Der Client zeigt `reply` ungefiltert an
-// (coach_chat_service.dart, `serverReply ?? _l10n…`), ein deutscher Text
-// landet also woertlich im englischen UI — beim Tageslimit taeglich, weil es
-// jeden aktiven Nutzer trifft.
+// Limit messages. Kept out of the refusal catalogue (they never run through
+// refusalForReason) but bilingual for the same reason: the client shows
+// `reply` unfiltered, so German text would land in an English UI.
 const LIMIT_TEXTS: Record<string, Record<CoachLocale, string>> = {
   quota_exceeded: {
     de: `Tageslimit erreicht (${DAILY_LIMIT} Coach-Fragen pro Tag). Morgen geht's weiter.`,
     en: `Daily limit reached (${DAILY_LIMIT} coach questions per day). Back tomorrow.`,
   },
-  // 120/10min pro IP — "gleich nochmal" ist hier realistisch.
+  // 120/10min per IP — "try again in a moment" is realistic here.
   rate_limited_short: {
     de: "Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen.",
     en: "Too many coach requests. Please try again in a moment.",
   },
-  // 60/h pro User — dieselbe Meldung, aber ehrlich ohne "gleich".
+  // 60/h per user — same message, honestly without "in a moment".
   rate_limited_long: {
     de: "Zu viele Coach-Anfragen. Bitte später erneut versuchen.",
     en: "Too many coach requests. Please try again later.",
@@ -904,25 +791,18 @@ const LIMIT_TEXTS: Record<string, Record<CoachLocale, string>> = {
   },
 };
 
-// Locale fuer die Meldungen, die VOR dem Body-Read entstehen (die drei
-// Rate-Limit-Gates). Der Request traegt seine locale im JSON-Body — den
-// duerfen wir dort noch nicht lesen, denn genau diese Gates sollen
-// verhindern, dass eine ueberzaehlige Anfrage ueberhaupt bis zu 6,25 MB Body
-// kostet. Bleibt der Accept-Language-Header als einziger frueh verfuegbarer
-// Hinweis; Fallback wie ueberall "de", und wie im Client wird nur die
-// Primaersprache betrachtet (_localeCode, coach_chat_service.dart).
-//
-// GRENZE: der Flutter-Client setzt den Header derzeit nicht — fuer ihn
-// bleiben diese drei Meldungen deutsch. Sie treffen ihn praktisch nie: das
-// Tageslimit (DAILY_LIMIT) greift lange vor 60/h bzw. 120/10min, und genau
-// diese Meldung ist unten aus der Body-locale korrekt lokalisiert.
+// Locale for messages produced BEFORE the body is read: the body locale is
+// off-limits there, because these gates exist to stop a surplus request from
+// costing 6.25 MB of body. Accept-Language is the only early hint.
+// LIMIT: the Flutter client does not set it, so these three stay German for
+// it — but the daily limit fires long before them and is body-localised.
 function localeFromHeaders(req: Request): CoachLocale {
   const header = (req.headers.get("accept-language") ?? "").trim().toLowerCase();
   return header.startsWith("en") ? "en" : "de";
 }
 
 // ---------------------------------------------------------------------------
-// Helpers fuer Supabase-Calls (REST + RPC)
+// Helpers for Supabase calls (REST + RPC)
 // ---------------------------------------------------------------------------
 async function rpcClaimQuota(
   serviceKey: string,
@@ -941,19 +821,17 @@ async function rpcClaimQuota(
   if (!resp.ok) {
     const text = await resp.text();
     if (text.includes("EX_QUOTA_EXCEEDED")) return { error: "quota_exceeded" };
-    // Postgres/PostgREST-Details NUR server-seitig loggen (function_logs);
-    // dem Client nur einen generischen Code geben (kein Info-Leak).
+    // Log Postgres/PostgREST details server-side only; the client gets a
+    // generic code (no info leak).
     console.error(`claim_chat_quota rpc failed: ${resp.status} ${text.slice(0, 200)}`);
     return { error: "rpc_unavailable" };
   }
   const data = await resp.json();
-  // Supabase liefert Tabellen-Returns als Array zurueck.
+  // Supabase returns table returns as an array.
   const row = Array.isArray(data) ? data[0] : data;
-  // Sentinel-Rest E1: hier stand `?? 0` — ein leeres Array / umbenannte
-  // Spalten wurden zu "remaining: 0", und der Client sperrte den Composer
-  // bis Mitternacht, direkt nach einer ERFOLGREICHEN Antwort. Unbekannt
-  // bleibt null; der Response laesst das Feld dann weg (der Client
-  // behandelt fehlendes remaining als "kein Update").
+  // E1: `?? 0` turned an empty array or renamed columns into "remaining: 0",
+  // locking the composer until midnight after a SUCCESSFUL answer. Unknown
+  // stays null and the response omits the field.
   const used = typeof row?.used === "number" ? row.used : null;
   const remaining = typeof row?.remaining === "number" ? row.remaining : null;
   if (remaining === null) {
@@ -964,12 +842,9 @@ async function rpcClaimQuota(
   return { used, remaining };
 }
 
-// Migrations-Runde (2026-08-08): gibt einen geclaimten Tages-Slot zurueck,
-// wenn der Request NACH dem Claim scheitert (Provider-Fehler, gescheiterter
-// User-Message-Store). Best-effort: der Refund darf die Fehlerantwort nie
-// blockieren; scheitert er, steht der Grund in den Function-Logs und der
-// Slot bleibt (wie vor der Migration) verloren. Der RPC klemmt bei 0 —
-// doppelte Refunds erzeugen keine Gratis-Slots.
+// Returns a claimed daily slot when the request fails AFTER the claim. Best
+// effort: the refund must never block the error response. The RPC clamps at 0,
+// so double refunds create no free slots.
 async function rpcRefundQuota(
   serviceKey: string,
   supabaseUrl: string,
@@ -1021,11 +896,9 @@ async function rpcConsumeEdgeRateLimit(
     return { error: "rate_limit_unavailable" };
   }
   const data = await resp.json();
-  // Sentinel-Rest E6: `data?.allowed === true` machte aus einem kaputten
-  // Antwort-Shape (Signaturaenderung des RPC, Proxy-Body) ein `allowed:
-  // false` — der Client bekam einen 429 "Zu viele Anfragen" mit erfundenen
-  // Zahlen, obwohl nie ein Limit gemessen wurde. Ein kaputter Shape ist ein
-  // Ausfall des Limiters, kein Limit.
+  // E6: `data?.allowed === true` turned a broken response shape into
+  // `allowed: false`, so the client got a 429 with invented numbers although
+  // no limit was ever measured. A broken shape is a limiter outage, not a limit.
   if (typeof data?.allowed !== "boolean") {
     console.error(
       `consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`,
@@ -1040,25 +913,18 @@ async function rpcConsumeEdgeRateLimit(
   };
 }
 
-// Opportunistische Tabellen-Hygiene fuer public.edge_rate_limits: liegt seit
-// 2026-08-14 in ../_shared/rate_limit_prune.ts. Hier stand bis dahin eine
-// dritte Kopie — mit vertauschter Parameterreihenfolge (serviceKey,
-// supabaseUrl) gegenueber den anderen beiden. Genau dagegen nimmt die
-// gemeinsame Fassung ein Options-Objekt.
+// Table hygiene for public.edge_rate_limits lives in
+// ../_shared/rate_limit_prune.ts. The copy that used to be here had its
+// parameter order swapped, which is why the shared version takes an object.
 
 function retryAfterSeconds(resetAt: string, fallback: number): number {
   const ms = new Date(resetAt).getTime() - Date.now();
   return Number.isFinite(ms) ? Math.max(1, Math.ceil(ms / 1000)) : fallback;
 }
 
-// Byte-/Zeichen-Budget der History (Security-Fix 2026-08-11, CWE-400):
-// HISTORY_LIMIT begrenzt nur ROWS, nicht Bytes. Rows, die VOR dem
-// 413-Guard oversized in die DB kamen (oder es kuenftig auf anderem Weg
-// schaffen), werden hier entschaerft (Quarantaene light), statt bei jedem
-// Folge-Request erneut Speicher, Traffic und Provider-Kosten zu
-// amplifizieren: erst pro Row auf HISTORY_ROW_MAX_CHARS kappen, dann von
-// der NEUESTEN Zeile rueckwaerts das Aggregat-Budget fuellen — was aelter
-// ist und nicht mehr passt, faellt raus (rows kommt chronologisch an).
+// HISTORY_LIMIT caps ROWS, not bytes, so oversized legacy rows would amplify
+// memory, traffic and provider cost on every follow-up (CWE-400). Fill the
+// budget from the NEWEST row backwards; older rows that no longer fit drop.
 function capHistoryBudget(rows: HistoryMessage[]): HistoryMessage[] {
   const kept: HistoryMessage[] = [];
   let total = 0;
@@ -1071,10 +937,9 @@ function capHistoryBudget(rows: HistoryMessage[]): HistoryMessage[] {
   return kept;
 }
 
-// Sentinel-Rest E3: null heisst "History nicht ladbar" — frueher wurde daraus
-// eine leere Liste, der Coach beantwortete Folgefragen ("und davon 200 g?")
-// kommentarlos ohne Kontext, und der Nutzer hielt den Kontextverlust fuer
-// Modellversagen. Eine ECHTE leere Konversation bleibt [].
+// E3: null means "history not loadable". As an empty list the coach answered
+// follow-ups without context, which looked like model failure. A genuinely
+// empty conversation still returns [].
 async function loadHistory(
   serviceKey: string,
   supabaseUrl: string,
@@ -1133,10 +998,8 @@ async function storeMessage(
       refusal_reason: row.refusal_reason ?? null,
     }),
   });
-  // Sentinel-Rest E5: der Erfolg wird gemeldet statt angenommen. Ein
-  // gescheiterter INSERT (RLS, Constraint, 5xx) hiess frueher trotzdem
-  // HTTP 200 fuer den Client — mit einer Antwort, die nach dem Reload
-  // verschwand und in der History jeder Folgefrage fehlte.
+  // E5: success is reported, not assumed. A failed INSERT still meant HTTP 200
+  // for the client, with a reply that vanished on reload.
   if (!resp.ok) console.error(`storeMessage failed: ${resp.status} (${row.role})`);
   return resp.ok;
 }
@@ -1147,25 +1010,22 @@ async function ensureSession(
   userId: string,
   requestedSessionId: string | null,
 ): Promise<string | null> {
-  // Wenn der Client eine Session geliefert hat, gegenpruefen das sie wirklich
-  // dem User gehoert. Ueber den service_role-Key wuerde sonst jeder beliebige
-  // Session-Owner umgangen werden koennen.
+  // If the client supplied a session, verify it belongs to this user — the
+  // service_role key would otherwise bypass any session ownership.
   if (requestedSessionId) {
     const resp = await fetch(
       `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${requestedSessionId}&user_id=eq.${userId}&select=id`,
       { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
     );
-    // Sentinel-Rest E4: ein TRANSIENTER Fehler der Besitzpruefung ist kein
-    // "Session gehoert dir nicht" — frueher fiel er in denselben Fallthrough
-    // und die Nachricht landete kommentarlos in der Default-Session (einer
-    // ANDEREN Unterhaltung). null => der Handler antwortet session_unavailable.
+    // E4: a TRANSIENT ownership-check failure is not "not your session"; it
+    // used to fall through into the default session. null => 500.
     if (!resp.ok) {
       console.error(`ensureSession ownership check failed: ${resp.status}`);
       return null;
     }
     const data = await resp.json();
     if (Array.isArray(data) && data.length > 0) return requestedSessionId;
-    // Nur der belegte Fremd-/Nicht-Besitz faellt auf die Default-Session.
+    // Only proven non-ownership falls through to the default session.
   }
   const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/ensure_default_chat_session`, {
     method: "POST",
@@ -1206,14 +1066,9 @@ async function maybeAutoTitle(
   sessionId: string,
   firstUserMessage: string,
 ): Promise<void> {
-  // Auto-Titel nur setzen wenn die Session noch den Default-Titel hat.
-  //
-  // user_id=eq. auf BEIDEN Requests (Befund-Verifikation 2026-08-19): die
-  // Calls laufen mit service_role, und sicher war das bisher allein, weil
-  // ensureSession den Besitz vorher geprueft hat — eine Invariante, die kein
-  // Compiler haelt. Mit dem Filter ist der Write selbst besitzgebunden; ein
-  // kuenftiger Aufrufer ohne Besitzpruefung patcht ins Leere statt in eine
-  // fremde Session.
+  // Only while the session still has the default title. user_id=eq. on BOTH
+  // requests: these run as service_role and were safe only because
+  // ensureSession had checked ownership — an invariant no compiler holds.
   const check = await fetch(
     `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}&select=title`,
     { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
@@ -1239,27 +1094,13 @@ async function maybeAutoTitle(
 }
 
 // ---------------------------------------------------------------------------
-// User aus JWT extrahieren
+// Extract the user from the JWT
 // ---------------------------------------------------------------------------
-// Drei Ausgaenge statt string|null (Security-Fix 2026-08-11, CWE-400): der
-// Handler muss unterscheiden, ob eine Ablehnung LOKAL entschieden wurde
-// (gratis, kein Roundtrip) oder einen /auth/v1/user-Lookup GEKOSTET hat —
-// nur letztere werden unten pro IP gedeckelt.
-//
-//  - "no_token":       fehlender/kein Bearer-Header, leerer Token oder der
-//                      exakte SUPABASE_ANON_KEY. Der Anon-Key ist KEIN
-//                      Nutzer-Token — er ist absichtlich oeffentlich und wurde
-//                      bis zu diesem Fix trotzdem bei jedem Request an
-//                      /auth/v1/user weitergereicht: anonym wiederholbare
-//                      Edge-+Auth-Arbeit, die nie in einem Application-Bucket
-//                      landete. Jetzt lokal abgewiesen, gleiches Muster wie
-//                      authenticateUser() in analyze-meal und search-key.
-//  - "lookup_failed":  /auth/v1/user hat non-ok geantwortet (ungueltiger/
-//                      abgelaufener Token) — der Roundtrip ist passiert.
-//  - "invalid_user":   200, aber ohne lesbare Id. Auth-Server-Anomalie, kein
-//                      vom Client beliebig wiederholbarer Angriffspfad —
-//                      401 ohne Fail-Bucket, damit ein kaputter Auth-Server
-//                      nicht ganze IPs in den 429 treibt.
+// Three outcomes instead of string|null (CWE-400): the handler must know
+// whether a rejection was decided LOCALLY (free) or cost an /auth/v1/user
+// lookup — only the latter are capped per IP below. "no_token" covers the
+// public anon key, which is not a user token; "invalid_user" (200 without an
+// id) gets no fail bucket, so a broken auth server cannot 429 whole IPs.
 type AuthOutcome =
   | { ok: true; userId: string }
   | { ok: false; reason: "no_token" | "lookup_failed" | "invalid_user" };
@@ -1285,12 +1126,9 @@ async function userIdFromJwt(
 }
 
 // ---------------------------------------------------------------------------
-// Body-Lesen mit hartem serverseitigem Byte-Limit.
-//
-// Der Content-Length-Header ist Client-kontrolliert (weglassbar/faelschbar)
-// und taugt nur als billiger Fast-Path. Hier wird der Stream selbst gekappt:
-// sobald mehr als maxBytes angekommen sind, brechen wir ab (null = zu gross),
-// bevor ein uebergrosser Body vollstaendig im Speicher landet.
+// Body read with a hard server-side byte limit: Content-Length is
+// client-controlled, so the stream itself is capped and past maxBytes the read
+// aborts (null) before an oversized body is fully in memory.
 // ---------------------------------------------------------------------------
 async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {
   if (!req.body) return "";
@@ -1318,7 +1156,7 @@ async function readBodyLimited(req: Request, maxBytes: number): Promise<string |
 }
 
 // ---------------------------------------------------------------------------
-// HTTP-Handler
+// HTTP handler
 // ---------------------------------------------------------------------------
 function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   const headers = responseHeaders();
@@ -1341,46 +1179,27 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Edge function not configured" }, 500);
   }
 
-  // Sprache fuer alle Meldungen, die VOR dem Body-Read rausgehen (die drei
-  // Rate-Limit-Gates); die Body-locale unten ueberschreibt sie fuer alles
-  // danach. Begruendung + Grenze: localeFromHeaders.
+  // Language for the three rate-limit gates, which fire before the body read;
+  // the body locale below overrides it afterwards.
   const headerLocale = localeFromHeaders(req);
 
-  // Nur Fast-Path fuer ehrliche Clients (413 ohne Body-Read). Der harte,
-  // nicht umgehbare Cap sitzt in readBodyLimited() beim eigentlichen Lesen.
+  // Fast path for honest clients (413 without reading the body). The hard cap
+  // sits in readBodyLimited().
   const contentLength = Number(req.headers.get("content-length") ?? "0");
   if (!Number.isFinite(contentLength) || contentLength < 0 || contentLength > MAX_CONTENT_LENGTH) {
     return json({ error: "payload_too_large" }, 413);
   }
 
-  // 1) User identifizieren. Der exakt bekannte Anon-Key und Nicht-Bearer-
-  // Header sind in userIdFromJwt bereits LOKAL abgewiesen — der oeffentliche
-  // Token kostet keinen Auth-Roundtrip mehr (Security-Fix 2026-08-11,
-  // CWE-400).
+  // 1) Identify the user. The known anon key and non-bearer headers are
+  // rejected LOCALLY in userIdFromJwt, so they cost no auth roundtrip.
   const auth = await userIdFromJwt(req.headers.get("authorization"), supabaseUrl, anonKey);
   if (!auth.ok) {
     if (auth.reason === "lookup_failed") {
-      // Pre-Auth-IP-Limiter fuer Auth-FEHLSCHLAEGE: jeder non-ok Lookup
-      // verbraucht einen Slot im Fail-Bucket der IP; ab Ueberschreitung
-      // antwortet dieselbe Pruefung mit 429 statt 401.
-      //
-      // Zur gewaehlten Semantik: consume_edge_rate_limit ist check+increment
-      // ATOMAR (INSERT ... ON CONFLICT increment, Migration 20260518000100)
-      // — einen reinen "Peek" vor dem Lookup gibt die RPC nicht her, und ein
-      // Consume VOR dem Lookup wuerde jede ERFOLGREICHE Auth mitzaehlen bzw.
-      // den Happy Path um einen DB-Roundtrip verlangsamen. Deshalb: Zaehlung
-      // NUR im Fehlerfall, direkt nach dem fehlgeschlagenen Lookup.
-      // Ueber-Limit-Requests kosten damit weiterhin je einen Auth-Roundtrip,
-      // aber der bekannte oeffentliche Anon-Key ist oben schon gratis
-      // abgewiesen und Fehlversuche pro IP sind sichtbar gedeckelt.
-      //
-      // Subject: dieselbe vertrauenswuerdige IP-Ermittlung wie das IP-Gate
-      // unten (cf-connecting-ip, dann x-forwarded-for von rechts). Eine
-      // verifizierte User-Id gibt es hier nicht — der uid-Fallback ist das
-      // Literal "anon" und damit ein GETEILTES Bucket; akzeptabel, weil darin
-      // ausschliesslich fehlgeschlagene Logins landen (niemand mit gueltigem
-      // Token kann darueber ausgesperrt werden) und der Fallback hinter
-      // Cloudflare ohnehin unerreichbar ist (client_ip.ts).
+      // Pre-auth IP limiter for auth FAILURES. consume_edge_rate_limit is
+      // check+increment ATOMICALLY, so there is no "peek" and consuming before
+      // the lookup would count successful auths — hence: only on failure.
+      // Without a verified user id the fallback subject is "anon", a SHARED
+      // bucket, acceptable because only failed logins land in it.
       const failGate = await rpcConsumeEdgeRateLimit(
         serviceKey,
         supabaseUrl,
@@ -1389,10 +1208,8 @@ export async function handleRequest(req: Request): Promise<Response> {
         AUTH_FAIL_LIMIT,
         AUTH_FAIL_WINDOW_SECONDS,
       );
-      // Ein Limiter-Ausfall blockiert die 401 nicht (Daempfer, keine
-      // Auth-Grenze): die Antwort auf einen fehlgeschlagenen Login bleibt in
-      // jedem Fall eine Ablehnung, ein kaputter Zaehler macht daraus keinen
-      // 500 — anders als bei den Gates unten, die bezahlte Arbeit schuetzen.
+      // A limiter outage does not block the 401: this is a damper, not an auth
+      // boundary — unlike the gates below, which protect paid work.
       if (!("error" in failGate) && !failGate.allowed) {
         return json(
           { error: "rate_limited", reply: LIMIT_TEXTS.auth_rate_limited[headerLocale] },
@@ -1404,19 +1221,16 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Unauthorized" }, 401);
   }
   const userId = auth.userId;
-  // userId stammt aus dem JWT (/auth/v1/user), wird aber unten roh in
-  // PostgREST-Query-URLs interpoliert (loadHistory / ensureSession). Strikt
-  // gegen das UUID-Muster pruefen — gleiche Defense wie bei session_id, bevor
-  // der Wert irgendeine Query erreicht.
+  // userId comes from the JWT but is interpolated raw into PostgREST query
+  // URLs below, so validate it against the UUID pattern like session_id.
   if (!SESSION_ID_RE.test(userId)) return json({ error: "Unauthorized" }, 401);
 
   const ipGate = await rpcConsumeEdgeRateLimit(
     serviceKey,
     supabaseUrl,
     "coach-chat:ip",
-    // Nicht mehr `.split(",")[0]` des x-forwarded-for: Cloudflare HAENGT an,
-    // der linkeste Eintrag ist also der vom Client selbst gesetzte. Details
-    // + Fallback-Begruendung in ../_shared/client_ip.ts.
+    // Not `.split(",")[0]` of x-forwarded-for: Cloudflare APPENDS, so the
+    // leftmost entry is client-set. Details in ../_shared/client_ip.ts.
     clientIpSubject(req, userId),
     REQUEST_IP_LIMIT,
     600,
@@ -1447,12 +1261,11 @@ export async function handleRequest(req: Request): Promise<Response> {
     );
   }
 
-  // Opportunistisches Aufraeumen; Fehler werden geschluckt, damit der
-  // User-Request nie daran haengt (gleiche Stelle wie in analyze-meal).
+  // Opportunistic cleanup; errors are swallowed so the user request never
+  // waits on it.
   void pruneRateLimits({ supabaseUrl, serviceKey });
 
-  // 2) Body lesen — hart serverseitig gekappt statt dem Content-Length-Header
-  // zu vertrauen (der ist Client-kontrolliert; siehe readBodyLimited).
+  // 2) Read the body, hard-capped server-side (see readBodyLimited).
   const rawBody = await readBodyLimited(req, MAX_CONTENT_LENGTH);
   if (rawBody === null) return json({ error: "payload_too_large" }, 413);
   let body: any;
@@ -1464,46 +1277,30 @@ export async function handleRequest(req: Request): Promise<Response> {
     ? safeImageMimeType(body.image_mime_type)
     : "image/jpeg";
   const hasImage = imageBase64.length > 0;
-  // mode: "recipe" (Spec 2026-08-12): Rezept-JSON + Bild statt Chat-Antwort.
-  // Alles davor (Auth, Limits, Groessen, Session, Prefilter, Quota, Layer 2)
-  // gilt unveraendert; die Weiche sitzt hinter dem Classifier-Block.
+  // mode: "recipe": recipe JSON + image instead of a chat reply; the branch
+  // sits after the classifier block.
   const isRecipeMode = body?.mode === "recipe";
   const locale: CoachLocale = body?.locale === "en" ? "en" : "de";
   const requestedSessionId =
     typeof body?.session_id === "string" && SESSION_ID_RE.test(body.session_id)
       ? body.session_id
       : null;
-  // Faktischer App-Kontext (Profil + Tagesbilanz + heute gegessene Lebensmittel)
-  // vom Client. Control-Chars entfernt + gekappt (Cap 1200, war 600: die
-  // Essensliste haengt hinten dran und braucht an vollen Tagen Platz, ohne dass
-  // die kcal-/Makro-Kernwerte davor abgeschnitten werden) — und seit
-  // 2026-08-14 zusaetzlich durch Layer 1, weil der Kontext sonst als einziger
-  // Kanal an beiden Schutzschichten vorbei ins Modell laeuft. Treffer =
-  // Kontext weg, Request laeuft weiter (Begruendung: guardrails.ts).
+  // Factual app context from the client: stripped, capped at 1200 chars and
+  // run through Layer 1 — otherwise it is the one channel into the model that
+  // bypasses both guards. A hit drops the context, the request continues.
   const contextCheck = sanitizeUserContext(
     typeof body?.user_context === "string" ? body.user_context as string : "",
   );
   if (contextCheck.dropped !== null) {
-    // Nur der Grund ins Log, nie der Inhalt: der Kontext traegt
-    // Gesundheitsdaten (gleiche Regel wie crash_reporter.dart).
+    // Reason only, never the content: the context carries health data.
     console.error(`user_context verworfen (${contextCheck.dropped})`);
   }
   const userContext = contextCheck.context;
 
-  // Groessenverletzung ist ein PROTOKOLLFEHLER, keine Konversation
-  // (Security-Fix 2026-08-11, CWE-400): bis zu diesem Fix lief sie als
-  // Layer-1-Refusal ("too_long") durch den Refusal-Pfad unten, der die VOLLE
-  // Nachricht via service_role in chat_messages persistierte — bis knapp
-  // unter die 6,25-MB-Request-Grenze. Spaetere Requests luden bis zu
-  // HISTORY_LIMIT solcher Rows und schickten sie komplett im
-  // OpenRouter-Request mit (Amplifikation von Storage, Memory, Traffic und
-  // Provider-Kosten). Deshalb: VOR Session-Erzeugung und VOR jeder
-  // Persistenz mit 413 ablehnen — kein storeMessage, kein Quota-Claim, kein
-  // LLM-Call. Die uebrigen (inhaltlichen) Prefilter-Gruende behalten unten
-  // ihr Verhalten (Refusal wird gespeichert, 200). Der Client mappt 413 mit
-  // reply-Feld auf genau diesen Text (coach_chat_service.dart,
-  // _failureForStatus -> _serverReply). Byte-Check zusaetzlich zum
-  // Zeichen-Check: Multi-Byte-Zeichen machen 1000 Zeichen >> 1000 Bytes.
+  // A size violation is a PROTOCOL ERROR, not a conversation (CWE-400): as a
+  // Layer 1 "too_long" refusal it persisted the FULL message, which later
+  // requests reloaded and resent. Reject with 413 before any persistence. The
+  // byte check is needed on top of the char check for multi-byte input.
   if (
     message.length > MAX_INPUT_CHARS ||
     new TextEncoder().encode(message).byteLength > MAX_INPUT_BYTES
@@ -1516,8 +1313,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     }, 413);
   }
 
-  // Session sicherstellen (vor Pre-Filter, damit auch Refusals der richtigen
-  // Konversation zugeordnet werden).
+  // Before the prefilter, so refusals land in the right conversation.
   const sessionId = await ensureSession(serviceKey, supabaseUrl, userId, requestedSessionId);
   if (!sessionId) return json({ error: "session_unavailable" }, 500);
 
@@ -1534,22 +1330,17 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "Invalid image_base64" }, 400);
   }
 
-  // Container-Header pruefen, BEVOR ein Tages-Slot geclaimt und der erste
-  // bezahlte Call abgesetzt wird (Befund 2026-08-19): der Zeichensatz-Guard
-  // darueber sagt nur "sieht aus wie base64". Ein base64-foermiger String
-  // ohne Bild darin lief bis hierher komplett durch — Claim, bezahlter
-  // Classifier-Call, Vision-Call — und wurde erst vom Provider mit 4xx
-  // abgewiesen. Gleiche Antwort wie beim Zeichensatz-Verstoss: ein Client,
-  // der das schickt, hat ein Protokollproblem, keine Konversation.
+  // Container magic BEFORE claiming a slot and paying for the first call: the
+  // charset guard above only says "looks like base64". Same answer as a
+  // charset violation — that client has a protocol problem.
   if (hasImage && !hasSupportedImageMagic(imageBase64)) {
     return json({ error: "Invalid image_base64" }, 400);
   }
 
   // ---------------------------------------------------------------- LAYER 1
-  // Pre-Filter -> kein Quota-Verbrauch, kein LLM-Call. Wir loggen den
-  // Versuch in chat_messages aber lassen die Quota komplett unangetastet.
-  // Response laesst `remaining` weg, damit der Client seinen Zaehler nicht
-  // veraendert (Flutter behandelt fehlendes Feld als "kein Update").
+  // Prefilter -> no quota spend, no LLM call. The attempt is logged in
+  // chat_messages, but the quota is untouched, and the response omits
+  // `remaining` so the client leaves its counter alone.
   const pre = preFilter(message, hasImage);
   if (!pre.ok) {
     const reply = refusalForReason(pre.reason, locale);
@@ -1565,13 +1356,9 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ reply, refusal: true, refusal_reason: pre.reason, session_id: sessionId }, 200);
   }
 
-  // History VOR dem Quota-Claim laden (Sentinel-Rest E3): ist sie nicht
-  // ladbar, bricht der Request hier ab, BEVOR ein Tages-Slot verbrannt oder
-  // etwas halb persistiert ist — statt kommentarlos ohne Kontext zu
-  // antworten. Die aktuelle User-Message ist noch nicht gespeichert, kann
-  // hier also auch nicht enthalten sein; der pop unten bleibt als
-  // Defensiv-Netz. Der Recipe-Mode braucht keine History (der Wunsch steht
-  // komplett in der Nachricht) und spart sich den Roundtrip.
+  // Load history BEFORE the quota claim (E3): if it fails the request stops
+  // here, before a slot is burned, instead of silently answering without
+  // context. Recipe mode needs no history and skips the roundtrip.
   let history: HistoryMessage[] = [];
   if (!isRecipeMode) {
     const loaded = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
@@ -1584,14 +1371,9 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
   }
 
-  // Quota-Claim VOR Layer 2 (Security-Fix 2026-08-11, CWE-770): der
-  // Klassifizierer ist ein bezahlter Provider-Call. Bis zum Fix lief er vor
-  // dem Claim, und Refusals returnten ohne Quota-Verbrauch — ein User mit
-  // erschoepfter Tagesquota konnte so ueber das Stunden-Gate
-  // (REQUEST_USER_LIMIT/h) bis zu 1440 bezahlte Classifier-Calls pro Tag
-  // ausloesen statt DAILY_LIMIT Coach-Operationen. Deshalb: erst den Slot
-  // reservieren, dann der erste bezahlte Call. Bei quota_exceeded kommt der
-  // 429, bevor irgendein Provider-Call passiert.
+  // Quota claim BEFORE Layer 2 (CWE-770): the classifier is a paid call, and
+  // claiming after it let an exhausted user trigger up to 1440 paid classifier
+  // calls a day via the hourly gate.
   const claim = await rpcClaimQuota(serviceKey, supabaseUrl, userId);
   if ("error" in claim) {
     if (claim.error === "quota_exceeded") {
@@ -1606,38 +1388,16 @@ export async function handleRequest(req: Request): Promise<Response> {
   }
 
   // ---------------------------------------------------------------- LAYER 2
-  // Refusal-Kategorien kosten den gerade geclaimten Slot BEWUSST: wuerde er
-  // refundet, waere der Quota-Bypass von oben nur verschoben (Refusal
-  // provozieren -> Refund -> naechster Gratis-Classifier-Call, wieder bis zu
-  // 1440/Tag). Refund gibt es nur bei Infrastruktur-Fehlern (catch unten),
-  // bei denen der User keinerlei Leistung bekommen hat — dieselbe Semantik
-  // wie beim Answer-Call. Der Refusal-Response nennt remaining, damit der
-  // Client-Zaehler den Verbrauch mitbekommt. Layer 2 bleibt der eigentliche
-  // Schutz: der bewusst lasche Layer 1 laesst mehrdeutige Formulierungen
-  // ("cutting", "fasten", "ritzen" ohne Selbstbezug) absichtlich bis
-  // hierher durch.
+  // Refusal categories spend the just-claimed slot ON PURPOSE: refunding it
+  // would only move the quota bypass (provoke a refusal -> refund -> next free
+  // classifier call). Refunds happen only on infra errors.
   //
-  // ACHTUNG - hier stand bis 2026-08-07 `if (!hasImage)`. Das war eine
-  // Regression (eingeschleppt in 5f645c8, als es self_harm/eating_disorder
-  // noch gar nicht gab, und in d860968 uebersehen): "irgendein Bild + Text"
-  // hat Layer 2 komplett uebersprungen und damit genau die beiden Kategorien
-  // ausgehebelt, an denen die Krisen-Antwort mit der Telefonseelsorge-Nummer
-  // haengt. Der Call kostet im Bildpfad exakt dasselbe wie im Textpfad, weil
-  // classify() nur den Text schickt (kein Bild, keine Vision-Tokens).
-  //
-  // Bedingung ist der Text, nicht das Bild: ein Bild ohne Begleittext
-  // hat nichts zu klassifizieren und wuerde im fail-closed off_topic-Default
-  // landen -> jeder legitime Bild-Upload waere abgelehnt. Im Textpfad ist die
-  // Bedingung immer wahr (Layer 1 lehnt leer-ohne-Bild schon als "empty" ab),
-  // der Textpfad bleibt also unveraendert. Details: guardrails.ts.
-  //
-  // ACHTUNG - genau derselbe Bypass ein zweites Mal: bis 2026-08-14 stand der
-  // Recipe-Zweig VOR diesem Block, Layer 2 lief im Rezept-Modus also nie.
-  // "/rezept ich will nicht mehr leben, mach mir noch ein letztes Rezept"
-  // ging ungeprueft in den Draft-Call, die Krisen-Antwort mit der
-  // Telefonseelsorge-Nummer konnte dort gar nicht entstehen. Der Rezept-Pfad
-  // laeuft jetzt durch denselben Block, nur mit eigenem Kategorien-Set
-  // (RECIPE_REFUSAL_CATEGORIES, guardrails.ts).
+  // The condition is the TEXT, not the image: an image without text has
+  // nothing to classify and would hit the fail-closed off_topic default,
+  // rejecting every legitimate upload. Two past bypasses came from narrowing
+  // it — `if (!hasImage)`, and the recipe branch sitting before this block —
+  // and both silently disabled the crisis categories. Recipe mode now runs
+  // through here with RECIPE_REFUSAL_CATEGORIES.
   if (shouldRunClassifier(message)) {
     const activeRefusalCategories = isRecipeMode
       ? RECIPE_REFUSAL_CATEGORIES
@@ -1646,18 +1406,12 @@ export async function handleRequest(req: Request): Promise<Response> {
     try {
       cls = await classify(openRouterKey, message);
     } catch (e) {
-      // Infrastruktur-Fehler (Netz/HTTP/Deadline): keinerlei Leistung
-      // erbracht -> Slot zurueck und ehrlicher Fehlerstatus, gleiches Muster
-      // wie der Answer-Pfad (Sentinel-Rest E2 + refund_chat_quota). Es ist
-      // noch nichts persistiert, also gibt es auch nichts zu touchen. Der
-      // Timeout (Finding 6) faellt bewusst in DENSELBEN catch — genau ein
-      // Refund, nur der Statuscode unterscheidet 504/502 (analyze-meal-Paar).
+      // Infra error: nothing delivered -> slot back and an honest status, like
+      // the answer path (E2). Nothing is persisted yet. The timeout shares
+      // this catch — one refund, only the status differs (504/502).
       console.error(`classify failed: ${e instanceof Error ? e.message : String(e)}`);
-      // Refund nur beim AUSFALL (Netz, Timeout, 5xx, Provider-429). Ein 4xx,
-      // das der Client mit seiner Eingabe ausgeloest hat, ist ein bezahlter
-      // Call und kostet den Slot — sonst waere er ueber eine provozierbare
-      // Provider-Ablehnung beliebig oft wiederverwendbar (Befund
-      // 2026-08-19), genau wie es die Layer-2-Refusals oben verhindern.
+      // Refund only on an OUTAGE: a client-caused 4xx is a paid call, and
+      // refunding it would make the slot reusable at will.
       if (!isClientFaultFailure(e)) {
         await rpcRefundQuota(serviceKey, supabaseUrl, userId);
       }
@@ -1666,16 +1420,10 @@ export async function handleRequest(req: Request): Promise<Response> {
       }
       return json({ error: "provider_error", session_id: sessionId }, 502);
     }
-    // Warum die Entscheidung nicht mehr `activeRefusalCategories.has(...)`
-    // ist (W1, 2026-08-14): ein unbrauchbarer Modell-Output kam als
-    // `off_topic` an und war damit von einem echten off_topic nicht zu
-    // unterscheiden. In jedem Set OHNE off_topic (Bild, Rezept) hiess das:
-    // kaputtes JSON -> Krisenpruefung fuer genau diese Anfrage still aus.
-    // `refuseOnUnusableOutput` schaltet das nur dort ein, wo hinter Layer 2
-    // keine zweite Krisen-Schicht steht: im Rezept-Modus (Begruendung am
-    // RECIPE_REFUSAL_CATEGORIES-Set). Chat- und Bildpfad bleiben unveraendert
-    // — im Chat faengt off_topic den Aussetzer weiterhin selbst, im Bildpfad
-    // uebernimmt die CRISIS RULE des ANSWER_SYSTEM_PROMPT.
+    // Not `activeRefusalCategories.has(...)` (W1): unusable model output
+    // arrived as `off_topic`, so in any set WITHOUT off_topic broken JSON
+    // silently disabled the crisis check. `refuseOnUnusableOutput` covers the
+    // one place with no second crisis layer behind Layer 2: recipe mode.
     const refusalReason = layer2RefusalReason({
       result: cls,
       categories: activeRefusalCategories,
@@ -1689,8 +1437,8 @@ export async function handleRequest(req: Request): Promise<Response> {
       });
       await storeMessage(serviceKey, supabaseUrl, {
         user_id: userId, session_id: sessionId, role: "assistant", content: reply,
-        // Kategorien bekommen das classifier_-Praefix wie bisher;
-        // "classifier_unusable" traegt es schon selbst.
+        // Categories keep the classifier_ prefix; "classifier_unusable"
+        // already carries it.
         refusal: true,
         refusal_reason: refusalReason === "classifier_unusable"
           ? refusalReason
@@ -1702,7 +1450,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         refusal: true,
         refusal_reason: refusalReason,
         session_id: sessionId,
-        // E1: unbekanntes remaining wird weggelassen, nie erfunden.
+        // E1: an unknown remaining is omitted, never invented.
         ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
         daily_limit: DAILY_LIMIT,
       }, 200);
@@ -1710,12 +1458,9 @@ export async function handleRequest(req: Request): Promise<Response> {
   }
 
   // ------------------------------------------------------------ RECIPE-MODE
-  // Weiche NACH dem Quota-Claim (1 Slot pro Rezept, Refund-Semantik im Zweig
-  // selbst) und NACH Layer 2 (s. oben): erst wenn der Klassifizierer keine
-  // Krisen-/Missbrauchs-Kategorie sieht UND ueberhaupt klassifiziert hat
-  // (W1: parseFailed lehnt hier ab), wird der Draft-Call abgesetzt.
-  // "Kein Essensrezept" entscheidet weiterhin der Rezept-Prompt selbst
-  // (JSON-Refusal) - dafuer ist off_topic nicht im Rezept-Set.
+  // Branch AFTER the quota claim (1 slot per recipe) and AFTER Layer 2: the
+  // draft call needs a clean classification (W1: parseFailed rejects here).
+  // "Not a food recipe" stays with the recipe prompt, hence no off_topic.
   if (isRecipeMode) {
     return await handleRecipeMode({
       serviceKey,
@@ -1731,12 +1476,8 @@ export async function handleRequest(req: Request): Promise<Response> {
 
   // ---------------------------------------------------------------- LAYER 3
 
-  // User-Message in die Historie schreiben (zaehlt zur Konversation).
-  // Sentinel-Rest E5: der Store wird geprueft — scheitert er, gibt es keinen
-  // teuren Answer-Call auf eine Nachricht, die nirgends existiert. Der
-  // gerade geclaimte Slot ist dann leider weg (ein Refund-RPC existiert
-  // nicht); ein DB-Write, der direkt nach einem erfolgreichen DB-RPC
-  // scheitert, ist selten genug, dass Ehrlichkeit hier vorgeht.
+  // Write the user message to the history. E5: the store is checked, so a
+  // failure means no expensive answer call on a message that exists nowhere.
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
@@ -1744,8 +1485,8 @@ export async function handleRequest(req: Request): Promise<Response> {
     await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     return json({ error: "store_failed" }, 500);
   }
-  // Erste echte User-Message in der Session? Dann automatisch als Titel
-  // uebernehmen, damit die Session-Liste nicht nur "Neue Unterhaltung" zeigt.
+  // First real user message in the session becomes the title, so the session
+  // list is not all default titles.
   await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
 
   let reply: string;
@@ -1761,25 +1502,14 @@ export async function handleRequest(req: Request): Promise<Response> {
     reply = out.reply;
     refusal = out.refusal;
   } catch (e) {
-    // Sentinel-Rest E2: hier wurde frueher eine ERFUNDENE Coach-Antwort
-    // ("Da ging gerade was schief...") als persistierte Assistant-Nachricht
-    // mit refusal_reason "model_refusal" und HTTP 200 zurueckgegeben. Der
-    // Client konnte das nicht von einer echten Refusal unterscheiden, und
-    // die Fake-Zeile vergiftete als History den Kontext aller Folgefragen.
-    // Ehrlich: 5xx, keine erfundene Zeile. Die (echte) User-Message bleibt
-    // gespeichert, und der geclaimte Slot geht zurueck (refund_chat_quota,
-    // Migration 20260808210000) — ein Abend mit Provider-Ausfall darf nicht
-    // alle Tages-Slots verbrennen. Der Timeout (Finding 6) faellt bewusst in
-    // DENSELBEN catch — genau ein Refund, nur der Statuscode unterscheidet
-    // 504/502 (analyze-meal-Paar).
+    // E2: this used to persist an INVENTED coach reply as a "model_refusal"
+    // with HTTP 200, which the client could not tell from a real refusal and
+    // which then poisoned every follow-up's history. Honest instead: 5xx, no
+    // invented row, and the claimed slot goes back so a provider outage cannot
+    // burn every daily slot.
     console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
-    // Der Refund gilt dem AUSFALL, nicht jedem geworfenen Fehler (Befund
-    // 2026-08-19): ein 4xx, das die Eingabe des Clients ausgeloest hat —
-    // ein base64, das den Kopf-Check passiert hat, aber kein dekodierbares
-    // Bild ist; ein Payload, das dem Provider zu gross ist; ein
-    // Moderations-403 — ist bezahlte Arbeit. Wird sie refundiert, deckelt
-    // nicht mehr DAILY_LIMIT die bezahlten Vision-Calls, sondern nur noch
-    // das IP-Gate. Begruendung + Statusliste an isClientFaultFailure.
+    // Only for an OUTAGE: a client-caused 4xx is paid work, and refunding it
+    // would leave only the IP gate capping paid vision calls.
     if (!isClientFaultFailure(e)) {
       await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     }
@@ -1790,10 +1520,8 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
 
-  // Best-effort (bewusst ungeprueft fuer den Response): die Antwort ist
-  // generiert und der Slot verbraucht — sie dem Nutzer wegen eines
-  // Persistenz-Hickups vorzuenthalten waere der groessere Schaden. Der
-  // Fehler steht in den Function-Logs (storeMessage loggt !ok).
+  // Deliberately unchecked: the answer exists and the slot is spent, so
+  // withholding it over a persistence hiccup would be the bigger harm.
   await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "assistant", content: reply,
     refusal, refusal_reason: refusal ? "model_refusal" : null,
@@ -1804,10 +1532,10 @@ export async function handleRequest(req: Request): Promise<Response> {
     reply,
     refusal,
     refusal_reason: refusal ? "model_refusal" : null,
-    // E1: unbekanntes remaining wird weggelassen, nie erfunden.
+    // E1: an unknown remaining is omitted, never invented.
     ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
-    // E10: das Limit gehoert zur Zahl — ohne sie rechnet der Client gegen
-    // sein angenommenes Standard-Limit.
+    // E10: the limit belongs with the number, or the client counts against
+    // its assumed default.
     daily_limit: DAILY_LIMIT,
     session_id: sessionId,
   }, 200);

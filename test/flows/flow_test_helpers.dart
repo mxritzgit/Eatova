@@ -1,7 +1,6 @@
-// Gemeinsame Testinfrastruktur der End-to-End-Flow-Tests in test/flows/
-// (frueher Monolith test/widget_test.dart, 2026-08 thematisch aufgeteilt).
-// Enthaelt den testWidgetsRobust-Wrapper und die Fake-Services, die mehrere
-// Flow-Suiten teilen. Bewusst KEIN `_test`-Suffix: die Datei ist keine Suite.
+// Shared test infrastructure for the end-to-end flow tests in test/flows/:
+// the testWidgetsRobust wrapper and the fake services several suites use.
+// Deliberately no `_test` suffix — this file is not a suite.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,19 +13,15 @@ import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
-// Wrapper um testWidgets fuer das CI-Setup:
+// testWidgets wrapper for the CI setup:
 //
-// 1. Pinnt das Test-Viewport auf iPhone 14 portrait (393x852 logical @
-//    DPR 3). Default ist 800x600, das verschiebt Grid-Reihen und macht
-//    Scroll-Drags non-deterministic (z.B. greift `drag(0, -700)` ein
-//    anderes Item als auf dem Device).
-// 2. Schluckt RenderFlex-Overflow-Exceptions — die kommen vom Render-
-//    Pass im Test-Headless-Renderer, auf dem echten Geraet sitzt die
-//    App in Scroll-Containern und overflowt dort nicht.
+// 1. Pins the viewport to iPhone 14 portrait (393x852 @ DPR 3). The 800x600
+//    default shifts grid rows and makes scroll drags non-deterministic.
+// 2. Swallows RenderFlex overflow exceptions, which come from the headless
+//    render pass; on a real device the app sits in scroll containers.
 //
-// `testWidgets` setzt intern NACH setUp einen eigenen FlutterError.onError
-// und resettet `tester.view` nicht — beides muss daher hier im Test-Body
-// gemacht werden, damit es wirkt.
+// `testWidgets` installs its own FlutterError.onError AFTER setUp and does
+// not reset `tester.view`, so both must happen inside the test body.
 void testWidgetsRobust(
   String description,
   WidgetTesterCallback callback, {
@@ -49,22 +44,17 @@ void testWidgetsRobust(
   });
 }
 
-/// Wechselt auf den Tab „Heute" und prueft dort die GEGESSEN-Kachel des
-/// Kalorien-Heroes.
+/// Switches to the Today tab and checks the eaten tile of the calorie hero.
 ///
-/// WARUM: Bis zum 2026-08-10 lasen die Flows das Tagestotal aus
-/// `analyse-daily-kcal-total` — der Kalorien-Karte im Food-Tab. Die Karte ist
-/// auf Nutzer-Entscheid entfallen („das haben wir ja im Heute-Tab schon"). Die
-/// AUSSAGE der Flows („eine geloggte Mahlzeit kommt im Tagestotal an") ist
-/// damit nicht weg, sondern umgezogen: sie steht in `today-stat-eaten`, und
-/// der Heute-Tab folgt demselben `selectedFoodDate` wie der Food-Tab — auch
-/// auf einem Archivtag.
+/// The flows' claim ("a logged meal reaches the daily total") moved here from
+/// the Food tab's calorie card; the Today tab follows the same
+/// `selectedFoodDate`, archive days included.
 ///
-/// [kcal] ist die reine Zahl mit Tausenderpunkt („252", „1.234"): der Hero
-/// setzt Zahl und Beschriftung als getrennte Texte.
+/// [kcal] is the bare number with thousands separator ("252", "1.234"): the
+/// hero renders number and label as separate texts.
 Future<void> expectTagestotalAufHeute(WidgetTester tester, String kcal) async {
-  // Eine offene Bestaetigungs-Snackbar liegt ueber der Navigationsleiste und
-  // finge sonst den Tap auf `nav-Heute`.
+  // An open confirmation snackbar covers the nav bar and would otherwise
+  // catch the tap on `nav-Heute`.
   await tester.pump(const Duration(seconds: 5));
   await tester.pumpAndSettle();
 
@@ -121,9 +111,8 @@ class FakeMealAnalyzer implements MealAnalyzer {
   }
 }
 
-// 300 g / 30 g Protein, OHNE Einzelposten -> die Re-Portionierung erzeugt im
-// Anpassen-Sheet einen einzelnen synthetischen Posten. 100 kcal/100 g, damit
-// 300 g = 300 kcal und 400 g = 400 kcal sauber aufgehen.
+// 300 g / 30 g protein with no line items, so re-portioning creates a single
+// synthetic item. 100 kcal/100 g keeps 300 g = 300 kcal exact.
 class MacroMealAnalyzer implements MealAnalyzer {
   @override
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {
@@ -143,9 +132,8 @@ class MacroMealAnalyzer implements MealAnalyzer {
   }
 }
 
-// Ersetzt die echte In-App-Kamera (camera-Package, nicht test-bar): liefert
-// sofort ein kanned Foto im uebergebenen Slot zurueck, damit der KI-Scan-Flow
-// (Kamera -> Analyse-Sheet) ohne Hardware getestet werden kann.
+// Replaces the untestable in-app camera: returns a canned photo in the given
+// slot so the AI scan flow runs without hardware.
 class FakeMealCameraLauncher implements MealCameraLauncher {
   @override
   Future<MealCameraCapture?> launch(
@@ -231,8 +219,7 @@ class EmptyThenSuccessProductLookupService implements ProductLookupService {
   }
 }
 
-/// Suche findet NIE etwas — der Weg zum „Manuell eintragen"-CTA
-/// (Spec 2026-08-13).
+/// Search never finds anything — the path to the manual-entry CTA.
 class NeverFindsProductLookupService implements ProductLookupService {
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) async =>
@@ -243,7 +230,7 @@ class NeverFindsProductLookupService implements ProductLookupService {
       const <ProductSearchResult>[];
 }
 
-/// Suche schlaegt IMMER fehl — der Fehler-Hinweis darf den CTA NICHT zeigen.
+/// Search always fails — the error hint must NOT show the CTA.
 class AlwaysFailingProductLookupService implements ProductLookupService {
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) async =>

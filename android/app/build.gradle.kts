@@ -8,12 +8,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Release-Signing: android/key.properties haelt Keystore-Pfad und Passwoerter
-// und ist bewusst NICHT im Repo (siehe android/.gitignore). Fehlt die Datei
-// (z. B. im CI, das nur Debug baut), faellt der Release-Buildtype unten auf
-// Debug-Signing zurueck, damit Debug-Builds weiterlaufen. Ein Release-Artefakt
-// darf daraus aber nicht entstehen - der Task-Graph-Guard am Dateiende (E5)
-// bricht genau diesen Fall ab.
+// Release signing: android/key.properties holds keystore path and passwords and
+// is deliberately not in the repo (see android/.gitignore). If it is missing
+// (e.g. CI, which only builds debug), the release buildType below falls back to
+// debug signing so debug builds keep working; the task-graph guard at the
+// end of this file (E5) aborts any actual release artifact.
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
@@ -27,9 +26,9 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // flutter_local_notifications (PROD-1) nutzt java.time-APIs, die auf
-        // aelteren Android-Versionen erst durch Core-Library-Desugaring
-        // verfuegbar werden. Pflicht laut Plugin-Setup ab v6+.
+        // flutter_local_notifications (PROD-1) needs java.time, which older
+        // Android versions only get via core library desugaring. Required by
+        // the plugin since v6.
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -43,8 +42,8 @@ android {
         applicationId = "com.eatova.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // minSdk 26 (Android 8.0) statt Flutter-Default: package:health verlangt
-        // mindestens 26, sonst bricht der Manifest-Merge ab.
+        // minSdk 26 instead of the Flutter default: package:health requires 26,
+        // otherwise the manifest merge fails.
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -56,7 +55,7 @@ android {
             create("release") {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
-                // Relativer storeFile-Pfad wird gegen android/app/ aufgeloest.
+                // A relative storeFile path resolves against android/app/.
                 storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
                 storePassword = keystoreProperties.getProperty("storePassword")
             }
@@ -75,8 +74,8 @@ android {
                 signingConfigs.getByName("debug")
             }
 
-            // R8: Code-Shrinking/Obfuskation + Ressourcen-Shrinking.
-            // Keep-Rules fuer Plugins liegen in proguard-rules.pro.
+            // R8 code/resource shrinking; plugin keep rules live in
+            // proguard-rules.pro.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -87,34 +86,23 @@ android {
     }
 }
 
-// --- E5: Release-Artefakte nie mit dem Debug-Key signieren -------------------
-// Fehlt key.properties, faellt buildTypes.release oben auf Debug-Signing
-// zurueck. Bisher blieb es bei logger.warn, das der `flutter build`-Wrapper
-// faktisch verschluckt: `flutter build appbundle` lief durch und lieferte ein
-// debug-signiertes Artefakt. Play weist den Upload ab - oder, schlimmer, ein
-// sideloadetes APK traegt den universellen Android-Debug-Key, der
-// Google-Sign-In-SHA-1 passt nicht und der native Login scheitert still.
+// --- E5: never sign release artifacts with the debug key --------------------
+// Without key.properties the release buildType falls back to debug signing, and
+// logger.warn alone is swallowed by the `flutter build` wrapper: the build
+// succeeds and ships a debug-signed artifact whose SHA-1 breaks Google Sign-In.
 //
-// Warum taskGraph.whenReady und nicht afterEvaluate:
-// afterEvaluate feuert am Ende der Projekt-Evaluierung. Dort ist nur bekannt,
-// WELCHE Varianten konfiguriert sind - nicht, welche der Nutzer angefordert
-// hat. Ein Abbruch dort wuerde jeden Debug-Build und jedes `flutter analyze`
-// mitreissen, obwohl beide Release nie anfassen. Erst wenn der Task-Graph
-// steht, ist entscheidbar, ob wirklich ein Release-Assemble ausgefuehrt wird.
-// whenReady laeuft davor und bricht ab, bevor der erste Task startet.
+// whenReady, not afterEvaluate: afterEvaluate only knows which variants are
+// configured, not which the user requested, so aborting there would also kill
+// debug builds and `flutter analyze`. The task graph is the first point where
+// an actual release assemble is decidable, and whenReady runs before task one.
 //
-// Bewusst NICHT betroffen:
-//  - `flutter test` und `flutter analyze` starten gar kein Gradle.
-//  - `flutter build apk --debug` (so baut .github/workflows/security.yml:119
-//    ohne Signing-Secrets) erzeugt keinen Task, der auf ...Release endet.
-//  - assembleReleaseUnitTest / assembleReleaseAndroidTest enden auf ...Test
-//    und werden von der Regex absichtlich nicht erfasst.
-// Der Abgleich laeuft ueber task.path statt task.project, damit zur
-// Ausfuehrungszeit kein Project-Objekt angefasst wird.
-// Der Action-Typ steht explizit da: whenReady ist mit Action UND mit Groovy-
-// Closure ueberladen, und Kotlin waehlt sonst die Closure-Variante, die sich
-// nicht aus einem Lambda bauen laesst. Der Action-Helfer des Kotlin-DSL nimmt
-// ein Receiver-Lambda, `this` ist hier also der TaskExecutionGraph.
+// Deliberately unaffected: `flutter test`/`flutter analyze` (no Gradle at all),
+// `flutter build apk --debug`, and assembleRelease*Test tasks (end in ...Test,
+// not matched by the regex).
+// Matching on task.path avoids touching a Project object at execution time.
+// The Action type is explicit because whenReady is overloaded with a Groovy
+// Closure that cannot be built from a lambda; the Kotlin DSL Action helper
+// takes a receiver lambda, so `this` is the TaskExecutionGraph.
 val releaseAssemblePattern = Regex("^(assemble|bundle|package)[A-Za-z0-9]*Release$")
 gradle.taskGraph.whenReady(Action<org.gradle.api.execution.TaskExecutionGraph> {
     if (!keystorePropertiesFile.exists()) {
@@ -147,7 +135,7 @@ flutter {
 }
 
 dependencies {
-    // Core-Library-Desugaring fuer flutter_local_notifications (java.time auf
-    // aelteren Android-Versionen). Version >= 2.1.4 wird vom Plugin gefordert.
+    // Core library desugaring for flutter_local_notifications (java.time on
+    // older Android). The plugin requires >= 2.1.4.
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

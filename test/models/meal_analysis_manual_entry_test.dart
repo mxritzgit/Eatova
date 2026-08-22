@@ -4,9 +4,8 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
-// Manueller Eintrag (Spec 2026-08-13): Etikett-Werte pro 100 g plus die
-// gegessene Portion — die Factory rechnet die Portionswerte aus und traegt
-// die neuen manual-Herkunfts-Codes.
+// Manual entry: label values per 100 g plus the eaten portion. The factory
+// derives the portion values and carries the manual provenance codes.
 void main() {
   test('manualEntry rechnet die Portion aus den 100-g-Werten', () {
     final r = MealAnalysisResult.manualEntry(
@@ -54,8 +53,8 @@ void main() {
   });
 
   test('Defensiv-Klemmen für Werte außerhalb der Formulargrenzen', () {
-    // Das Formular lehnt solche Eingaben ab; die Factory klemmt trotzdem,
-    // falls je ein anderer Aufrufer entsteht.
+    // The form rejects such input; the factory still clamps in case another
+    // caller appears.
     final r = MealAnalysisResult.manualEntry(
       name: '',
       kcalPer100G: 5000,

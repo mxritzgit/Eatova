@@ -1,81 +1,58 @@
 part of 'home_store.dart';
 
-/// Der Zustand der abendlichen Erinnerungen. **Drei** Zustaende, nicht zwei —
-/// das ist der Kern von D11 (Review 2026-08-08).
-///
-/// Vorher gab es nur ein `bool`, das der Nutzerabsicht folgte und nie mit der
-/// OS-Ebene abgeglichen wurde. Wer im Systemdialog „Nicht zulassen" tippte,
-/// sah den Schalter fuer immer auf AN mit dem Text „Aktiv. Du bekommst gezielte
-/// Nudges zur passenden Zeit." — und bekam nie etwas.
-///
-/// Uebergabe an die Schale (settings_sheet.dart):
-///  * [off] — Schalter AUS. „Aus. Schalter umlegen, um lokale Erinnerungen zu
-///    aktivieren."
-///  * [active] — Schalter AN. „Aktiv. Jeden Abend um 20 Uhr, wenn du noch
-///    nichts geloggt hast."
-///  * [blocked] — Schalter AUS (es wird nachweislich nichts zugestellt), aber
-///    mit eigenem Hinweis UND einer Handlung, die weiterfuehrt: „Vom System
-///    blockiert. Eatova darf keine Mitteilungen senden — erlaube sie in den
-///    Systemeinstellungen." plus Button „Systemeinstellungen oeffnen". Kein
-///    „Fehler", kein erneutes Umlegen des Schalters: auf Android 13+ zeigt das
-///    System nach zwei Ablehnungen gar keinen Dialog mehr, der Schalter kaeme
-///    also sofort wieder zurueck.
-///
-/// Nur [active] heisst, dass wirklich etwas geplant ist.
+/// State of the evening reminders. **Three** states, not two (D11): a plain
+/// `bool` tracked intent only and never checked the OS, so a denied system
+/// dialog left the toggle stuck on "active". Only [active] means something is
+/// actually scheduled; [blocked] shows the toggle off plus a way into the
+/// system settings.
 enum ReminderState {
-  /// Der Nutzer will keine Erinnerungen.
+  /// User wants no reminders.
   off,
 
-  /// Der Nutzer will Erinnerungen UND das OS liefert sie aus.
+  /// User wants reminders and the OS delivers them.
   active,
 
-  /// Der Nutzer will Erinnerungen, das OS verweigert sie.
+  /// User wants reminders, the OS refuses them.
   blocked,
 }
 
-/// Profil-Part von [HomeStore]: Profil/Settings, Onboarding und die
-/// Erinnerungen (PROD-1, abendlicher Streak-Retter). Reine Datei-Aufteilung —
-/// Verhalten und Member sind 1:1 aus home_store.dart uebernommen.
+/// Profile part of [HomeStore]: profile/settings, onboarding and reminders
+/// (PROD-1, evening streak saver). Pure file split, behaviour unchanged.
 mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   ReminderState _reminderState = ReminderState.off;
   bool _onboardingDone = false;
 
-  /// Ob abends wirklich etwas kommt. Bewusst NUR bei [ReminderState.active]
-  /// true — „blockiert" ist kein „an" (D11).
+  /// Whether anything actually fires in the evening. True only for
+  /// [ReminderState.active] — "blocked" is not "on" (D11).
   bool get notificationsEnabled => _reminderState == ReminderState.active;
 
-  /// Der volle Zustand fuer die Schale (Text + Handlung, s. [ReminderState]).
+  /// Full state for the shell (text + action, see [ReminderState]).
   ReminderState get reminderState => _reminderState;
 
-  /// Onboarding ist Pflicht, sobald ein echter Supabase-Sync existiert und das
-  /// Profil noch nicht durchlaufen wurde. Ohne Sync (Test/Preview) nie.
+  /// Onboarding is mandatory once a real Supabase sync exists and the profile
+  /// has not been completed. Never without sync (test/preview).
   bool get needsOnboarding =>
       sync != null && !_onboardingDone && !profile.onboardingCompleted;
 
-  // --- Erinnerungen (PROD-1) ------------------------------------------------
-  // Einziger Inhalt seit dem Heute-Tab-Aus: der abendliche Streak-Retter
-  // (streak_reminder_planner.dart). Der Opt-in-Toggle + die Permission-Strecke
-  // bleiben der Andock-Punkt fuer alles Weitere.
+  // --- Reminders (PROD-1) ---------------------------------------------------
+  // Only content: the evening streak saver (streak_reminder_planner.dart).
+  // The opt-in toggle + permission flow stay the hook for anything further.
 
-  /// Der Cache im Boot-Pfad. `_cache` steht erst nach [_hydrateThenBoot]; im
-  /// Test (und beim frueh angestossenen Boot) faellt es auf den injizierten
-  /// [debugCache] zurueck — dasselbe Muster wie `_clearCache`.
+  /// Cache on the boot path. `_cache` is only set after [_hydrateThenBoot];
+  /// tests fall back to the injected [debugCache], like `_clearCache`.
   LocalCache? get _notificationCache => _cache ?? debugCache;
 
-  /// Kaltstart-Pfad der Erinnerungen.
+  /// Cold-start path for reminders.
   ///
-  /// D11: Der Cache haelt nur, was beim Einschalten galt. Die Berechtigung kann
-  /// seither in den Systemeinstellungen entzogen worden sein, ohne dass die App
-  /// je davon erfahren haette. Also GEGENLESEN — und zwar mit
-  /// [NotificationPermissionProbe.hasPermission] (still), NICHT mit
-  /// `requestPermission()`: ein Systemdialog beim Kaltstart ueberfaellt den
-  /// Nutzer und ist auf Android 13+ nach zwei Ablehnungen ohnehin wirkungslos.
+  /// D11: the cache only holds what was true at opt-in, so re-check the OS
+  /// with [NotificationPermissionProbe.hasPermission] (silent) — never
+  /// `requestPermission()`, which would ambush the user with a dialog.
   Future<void> _initNotificationsFromCache() async {
     final cache = _notificationCache;
     if (cache == null) return;
     final enabled = await cache.readNotificationsEnabled() ?? false;
     if (_disposed) return;
-    // Kein Opt-in -> das OS wird gar nicht erst gefragt.
+    // No opt-in -> the OS is never asked.
     if (!enabled) return;
 
     _syncNotificationLocale();
@@ -83,11 +60,9 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     await _applyOsPermission(cache);
   }
 
-  /// Reicht das aktuelle Sprachpaket an den Notification-Dienst durch, sofern
-  /// er lokalisierbar ist (Muster [_osDeliversNotifications]/`is
-  /// NotificationPermissionProbe`) — s. [NotificationLocalizable]. Vor JEDEM
-  /// `init()`-Aufruf gerufen, damit ein zwischenzeitlicher Sprachwechsel den
-  /// Android-Kanal-Text beim naechsten Anlegen mitnimmt.
+  /// Passes the current locale to the notification service if it is
+  /// localizable (see [NotificationLocalizable]). Called before EVERY `init()`
+  /// so a language switch reaches the Android channel text.
   void _syncNotificationLocale() {
     final Object service = notificationService;
     if (service is NotificationLocalizable) {
@@ -95,19 +70,16 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     }
   }
 
-  /// Liest die OS-Ebene gegen und zieht State + Cache nach. Hier laeuft
-  /// bewusst NIE ein Dialog — der einzige Ort, an dem gefragt werden darf, ist
-  /// die explizite Nutzergeste in [_setNotificationsEnabled].
+  /// Re-reads the OS layer and brings state + cache in line. Never shows a
+  /// dialog — the only place allowed to ask is [_setNotificationsEnabled].
   Future<void> _applyOsPermission(LocalCache cache) async {
     final granted = await _osDeliversNotifications();
     if (_disposed) return;
 
     if (granted == null) {
-      // Unbekannt (Dienst ohne Probe): nichts behaupten und nichts entwerten.
-      // Kein `active` (das waere ein gruener Schalter ohne Beleg — exakt die
-      // D11-Klasse), kein Umschreiben des Opt-ins (der naechste Boot mit
-      // probe-faehigem Dienst stellt den echten Zustand wieder her), kein
-      // cancelAll (Bestehendes nicht aus Unwissen zerstoeren).
+      // Unknown (service without probe): claim nothing, invalidate nothing.
+      // No `active` (green toggle without proof), no rewrite of the opt-in,
+      // no cancelAll.
       return;
     }
 
@@ -118,25 +90,22 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
       return;
     }
 
-    // Dritter Zustand: der Nutzer WILL Erinnerungen, das OS gibt sie nicht.
-    // Das persistierte Flag bedeutet „aktiv" und ist damit nachweislich
-    // falsch — es faellt, sonst plant der naechste Kaltstart wieder ins Leere.
+    // Third state: the user WANTS reminders, the OS refuses. The persisted
+    // flag claims "active" and is provably wrong, so it falls — otherwise the
+    // next cold start plans into the void again.
     _setReminderState(ReminderState.blocked);
     await cache.writeNotificationsEnabled(false);
     await notificationService.cancelAll();
   }
 
-  /// Ob das OS aktuell zustellt — dreiwertig, null heisst „nicht
-  /// feststellbar". Dienste ohne [NotificationPermissionProbe] (fremde/
-  /// aeltere Test-Doubles; beide Produktions-Implementierungen tragen die
-  /// Probe) koennen die Frage nicht beantworten. Frueher galten sie als
-  /// erlaubt — derselbe Sentinel wie D11: aus „ich weiss es nicht" wurde die
-  /// persistierte Behauptung „aktiv". Unbekannt behauptet jetzt nichts mehr,
-  /// die Auswertung steht in [_applyOsPermission].
+  /// Whether the OS currently delivers — three-valued, null means "not
+  /// determinable". Services without [NotificationPermissionProbe] (older
+  /// test doubles; both production implementations carry it) cannot answer.
+  /// Unknown no longer claims anything; [_applyOsPermission] evaluates it.
   Future<bool?> _osDeliversNotifications() async {
-    // Der Cast ist noetig, weil [NotificationPermissionProbe] bewusst KEIN
-    // Subtyp von [NotificationService] ist (sonst braeche jedes bestehende
-    // `implements NotificationService`-Double) — Dart promotet deshalb nicht.
+    // Cast needed because [NotificationPermissionProbe] is deliberately NOT a
+    // subtype of [NotificationService] (that would break every existing
+    // `implements NotificationService` double), so Dart does not promote.
     final Object service = notificationService;
     if (service is! NotificationPermissionProbe) return null;
     return service.hasPermission();
@@ -163,9 +132,8 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
 
     _syncNotificationLocale();
     await notificationService.init();
-    // D11: erst fragen, DANN persistieren. Vorher stand `true` schon im Cache
-    // (und im State), bevor der Systemdialog ueberhaupt beantwortet war — bei
-    // „Nicht zulassen" blieb es dort fuer immer stehen.
+    // D11: ask first, THEN persist. Previously `true` sat in the cache before
+    // the system dialog was even answered, and stayed on "Don't allow".
     final granted = await notificationService.requestPermission();
     if (_disposed) return;
 
@@ -180,11 +148,10 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     await _rescheduleStreakReminder();
   }
 
-  /// Plant die abendlichen Streak-Reminder fuer den vollen Horizont neu
-  /// (4 Wochen, s. streak_reminder_planner.dart).
-  /// scheduleAll arbeitet cancel-first, daher immer die volle Planner-Liste —
-  /// kein Duplikat-Risiko bei wiederholten Aufrufen (Boot, Toggle, jeder Log).
-  /// Guard: ohne erteilte Berechtigung wird nie geplant.
+  /// Replans the evening streak reminders for the full horizon (4 weeks, see
+  /// streak_reminder_planner.dart). scheduleAll is cancel-first, so always
+  /// pass the full planner list — no duplicates on repeated calls. Guard:
+  /// never plans without granted permission.
   Future<void> _rescheduleStreakReminder() async {
     if (_reminderState != ReminderState.active) return;
     await notificationService.scheduleAll(
@@ -192,21 +159,15 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     );
   }
 
-  /// Schaltet Erinnerungen ein/aus (Settings-Toggle). Oeffentliche Fassade fuer
-  /// die Schale.
+  /// Turns reminders on/off (settings toggle). Public facade for the shell.
   Future<void> setNotificationsEnabled(bool enabled) =>
       _setNotificationsEnabled(enabled);
 
-  /// Liest die OS-Berechtigung erneut gegen und korrigiert den Zustand — OHNE
-  /// Dialog.
+  /// Re-reads the OS permission and corrects the state — WITHOUT a dialog.
   ///
-  /// Der Rueckweg aus [ReminderState.blocked]: die Schale ruft das auf, wenn
-  /// die App aus dem Hintergrund zurueckkommt (der Nutzer war gerade in den
-  /// Systemeinstellungen). Ohne diesen Pfad muesste er die App neu starten,
-  /// damit der Schalter wieder die Wahrheit sagt.
-  ///
-  /// Bei [ReminderState.off] passiert nichts — wer keine Erinnerungen will,
-  /// soll durch eine Systemeinstellung nicht welche bekommen.
+  /// The way back out of [ReminderState.blocked]: the shell calls this on
+  /// resume, after the user has been in the system settings. Nothing happens
+  /// for [ReminderState.off].
   Future<void> refreshNotificationPermission() async {
     if (_reminderState == ReminderState.off) return;
     final cache = _notificationCache;
@@ -216,45 +177,28 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     await _applyOsPermission(cache);
   }
 
-  /// Kaltstart-Pfad als oeffentliche Fassade — der Boot ruft ihn aus
-  /// `_hydrateThenBoot`, Tests ohne Supabase-Sync direkt.
+  /// Cold-start path as a public facade — boot calls it from
+  /// `_hydrateThenBoot`, tests without Supabase sync call it directly.
   @visibleForTesting
   Future<void> initNotificationsFromCache() => _initNotificationsFromCache();
 
   // --- Settings / Onboarding ------------------------------------------------
 
-  /// Wendet das in „Profil & Ziele" bearbeitete Profil + Flags an (der Screen
-  /// selbst lebt in der context-tragenden Schale). Spiegelt das frühere
-  /// `_openSettings` ohne den UI-/Navigations-Teil.
+  /// Applies the profile + flags edited in "Profil & Ziele" (the screen itself
+  /// lives in the context-carrying shell).
   ///
-  /// **Entfallen am 2026-08-10:** der Parameter `resetDay` und mit ihm der
-  /// Zweig, der die Tageswerte leerte. „Tagesdaten zurücksetzen" ist auf
-  /// Nutzer-Entscheid ersatzlos gestrichen (Knopf, Profil-Zeile, Store-Methode
-  /// und `SettingsResult.resetDay`).
-  ///
-  /// **Luecke D (2026-08-10):** der Save laeuft ueber [_syncOrQueue] und damit
-  /// ueber die Outbox — vorher schrieb er direkt gegen Supabase, ohne Netz und
-  /// ohne Retry. Offline war die Aenderung danach nur im Cache, und der
-  /// naechste Start MIT Netz ueberschrieb sie mit der alten Serverzeile
-  /// (`_bootFromSupabase`) und schrieb die alte Zeile per
-  /// `_writeCacheSnapshot` auch noch ueber den Cache: Gewicht, kcal-Ziel und
-  /// Diaet waren restlos und ohne Hinweis weg. Jetzt liegt die Aenderung als
-  /// [SyncOpKind.profileUpsert] in der persistierten Queue, der Boot legt sie
-  /// per `_applyPendingOpsToState` wieder ueber die Serverzeile, und weil alle
-  /// Profil-Ops denselben Entitaets-Schluessel tragen, koaleszieren mehrere
-  /// Offline-Aenderungen zu einer — die letzte gewinnt.
-  ///
-  /// Kein `await` mehr auf dem Netz-Write: der Aufrufer (Schale) haengt sonst
-  /// an einem Request, dessen Ergebnis fuer ihn folgenlos ist — die Zustellung
-  /// besorgt die Outbox.
+  /// Gap D: the save goes through [_syncOrQueue] and thus the outbox — a
+  /// direct Supabase write left offline edits in the cache only, and the next
+  /// online boot overwrote them with the old server row. All profile ops share
+  /// an entity key, so offline edits coalesce; last one wins. Not awaited —
+  /// delivery is the outbox's job.
   Future<void> applySettings({
     required UserProfile newProfile,
     required bool notificationsEnabled,
   }) async {
-    // `this.` ist noetig, weil der Parameter den Getter verdeckt. Vergleich
-    // gegen den TATSAECHLICHEN Zustand: in [ReminderState.blocked] ist
-    // `notificationsEnabled` false, ein erneutes Umlegen auf AN laeuft also
-    // wieder durch die Berechtigungsstrecke (statt still nichts zu tun).
+    // `this.` is needed because the parameter shadows the getter. Compared
+    // against the ACTUAL state: in [ReminderState.blocked] the getter is
+    // false, so flipping to ON runs the permission flow again.
     if (notificationsEnabled != this.notificationsEnabled) {
       unawaited(_setNotificationsEnabled(notificationsEnabled));
     }
@@ -262,10 +206,9 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     _mutate(() => profile = newProfile);
     if (sync == null) return;
     if (!canPersistProfile) {
-      // Clobber-Schutz (A1): ohne echte Hydrationsquelle besteht `profile` aus
-      // Ctor-Defaults. Weder Cache noch Outbox duerfen die sehen — eine
-      // eingereihte Default-Op wuerde sie sogar mit Retry auf den Server
-      // schreiben und waere damit schlimmer als der alte Direkt-Save.
+      // Clobber guard (A1): without a real hydration source `profile` is just
+      // ctor defaults. A queued default op would even retry them onto the
+      // server — worse than the old direct save.
       dev.log(
           'ProfileSync.save uebersprungen: profile basiert auf Ctor-Defaults '
           '(kein Server-/Cache-Hydrate) — Clobber-Schutz',
@@ -280,31 +223,23 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     );
   }
 
-  // Hier standen bis 2026-08-10 `resetTodayData()` und `_clearTodayState()`.
-  // Beide sind mit „Tagesdaten zurücksetzen" ersatzlos entfallen
-  // (Nutzer-Entscheid). `_clearTodayState` hatte AUSSER dem Reset keinen
-  // zweiten Aufrufer: der Mitternachts-/Resume-Pfad geht ueber
-  // `maybeRollOverToToday()` (home_store.dart) und schiebt `selectedFoodDate`
-  // nur weiter, statt Tageswerte zu leeren; `completeOnboarding` fasst sie gar
-  // nicht an. Der Hinweis in home_store.dart bei `_lastKnownToday` nennt
-  // `_clearTodayState` noch als Beispiel-Schreiber von `selectedFoodDate` —
-  // das Argument dort (Datumsvergleich statt Flag) traegt ohne ihn genauso.
+  // `resetTodayData()`/`_clearTodayState()` were removed with "reset day
+  // data". The `_lastKnownToday` note in home_store.dart still names
+  // `_clearTodayState`; its argument (date compare, not a flag) holds anyway.
 
-  /// Abschluss des verpflichtenden Onboardings.
+  /// Completes the mandatory onboarding.
   ///
-  /// Luecke D gilt hier genauso — und haerter: die Profilzeile existiert
-  /// serverseitig meist schon (der Signup-Trigger legt sie mit Defaults und
-  /// `onboarding_completed = false` an). Ein offline abgeschlossenes
-  /// Onboarding wurde deshalb beim naechsten Start MIT Netz nicht nur
-  /// vergessen — der Boot las die Bootstrap-Zeile, warf die eingegebenen
-  /// Koerperdaten weg UND schickte den Nutzer erneut durch das Onboarding.
-  /// Auch das laeuft jetzt ueber die Outbox.
+  /// Gap D applies harder here: the server row usually exists already (signup
+  /// trigger, `onboarding_completed = false`), so an offline-completed
+  /// onboarding was not just forgotten — boot read the bootstrap row, dropped
+  /// the entered body data and sent the user through onboarding again. Runs
+  /// through the outbox now.
   Future<void> completeOnboarding(UserProfile finished) async {
     _mutate(() {
       profile = finished;
       _onboardingDone = true;
-      // Die Angaben stammen vom Nutzer, nicht aus den Ctor-Defaults — ab hier
-      // ist der Zustand eine echte Quelle (und die Op unten damit eine).
+      // Data came from the user, not from ctor defaults — the state is a real
+      // source from here on, and so is the op below.
       _hydratedFromRealSource = true;
     });
     if (sync == null) return;

@@ -6,14 +6,11 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
 
 // ---------------------------------------------------------------------------
-// Die drei Auswahl-Sheets der Einstellungen (Geschlecht, Aktivitaetslevel,
-// Gewichtsziel).
+// The three settings picker sheets (sex, activity level, weight goal).
 //
-// Als das Sheet noch ein Sheet war, war das eine zweite modale Ebene ueber
-// einer ersten. Auf der Seite ist es schlicht ein Bottom-Sheet ueber einer
-// Route — dieselbe Konstruktion, die die App ueberall sonst nutzt.
-// Die Options-Schluessel (settings-sex-*, settings-activity-*,
-// settings-weight-goal-*) bleiben unveraendert.
+// Plain bottom sheets over a route, like everywhere else in the app. The option
+// keys (settings-sex-*, settings-activity-*, settings-weight-goal-*) are
+// stable.
 // ---------------------------------------------------------------------------
 
 Future<BiologicalSex?> showSexPicker(
@@ -25,9 +22,8 @@ Future<BiologicalSex?> showSexPicker(
     context,
     _PickerSheet(
       title: l10n.goalsFieldSex,
-      // Nicht noch einmal „GESCHLECHT" unter der Ueberschrift „Geschlecht":
-      // die Versalien-Zeile soll etwas beitragen, das der Titel nicht schon
-      // sagt — hier das Warum (dieselbe Begruendung wie im Onboarding-Schritt).
+      // The all-caps line must add something the title does not already say —
+      // here the why, same wording as the onboarding step.
       groupLabel: l10n.settingsSexPickerGroupLabel,
       children: <Widget>[
         for (final option in BiologicalSex.values)
@@ -66,10 +62,9 @@ Future<ActivityLevel?> showActivityPicker(
   );
 }
 
-/// [outcomeFor] liefert den Untertitel jeder Option: den Plan, den sie mit den
-/// Koerperdaten ergibt, die gerade auf der Seite stehen. Frueher stand hier
-/// `option.deltaLabel` („−1100 kcal") — ein Delta, das Sicherheitsklemme und
-/// 1-%-Deckel fuer die Mehrheit nie erreichen lassen.
+/// [outcomeFor] supplies each option's subtitle: the plan it yields with the
+/// body data currently on the page. A raw `deltaLabel` would show a delta the
+/// safety floor and 1 % cap keep most users from ever reaching.
 Future<WeightGoal?> showWeightGoalPicker(
   BuildContext context, {
   required WeightGoal value,
@@ -85,8 +80,7 @@ Future<WeightGoal?> showWeightGoalPicker(
         for (final option in WeightGoal.values)
           _PickerRow<WeightGoal>(
             key: ValueKey<String>('settings-weight-goal-${option.name}'),
-            // Titel = die Auswahl (das gewaehlte Tempo ist der Name der
-            // Option), Untertitel = ihre Folge.
+            // Title = the choice, subtitle = its consequence.
             title: option.menuLabel(l10n),
             subtitle: outcomeFor(option),
             result: option,
@@ -129,9 +123,8 @@ class _PickerSheet extends StatelessWidget {
   }
 }
 
-/// Eine Option. Sie schliesst das Sheet mit ihrem eigenen [BuildContext] —
-/// mit dem Kontext der aufrufenden Seite wuerde stattdessen die
-/// Einstellungs-Route gepoppt.
+/// One option. Closes the sheet with its own [BuildContext]; the caller's
+/// context would pop the settings route instead.
 class _PickerRow<T> extends StatelessWidget {
   const _PickerRow({
     super.key,

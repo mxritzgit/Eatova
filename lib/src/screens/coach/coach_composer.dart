@@ -1,10 +1,9 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Composer nach der Design-Vorlage: Kapsel auf `surf` mit 1-px-Rand, „+"
-// links, Text, Mic und der Senden-Knopf als Forest-Kachel mit Lime-Pfeil.
-// Fokus hellt die Flaeche auf `surf2` auf, statt einen Ring zu ziehen; bei
-// knapper Quota sitzt ein tappbarer Hinweis darueber.
+// Composer capsule on `surf`: attach, text, mic, send tile. Focus brightens
+// the surface to `surf2` instead of drawing a ring; a tappable hint sits above
+// it when the quota runs low.
 // ---------------------------------------------------------------------------
 class _Composer extends StatefulWidget {
   const _Composer({
@@ -24,10 +23,10 @@ class _Composer extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode focus;
 
-  /// Tippen erlaubt (Session geladen, Quota uebrig).
+  /// Typing allowed (session loaded, quota left).
   final bool enabled;
 
-  /// Aktionen erlaubt (zusaetzlich: gerade kein Send unterwegs).
+  /// Actions allowed (additionally: no send in flight).
   final bool canSend;
   final int remaining;
   final String draft;
@@ -68,9 +67,9 @@ class _ComposerState extends State<_Composer> {
     final l10n = context.l10n;
     final hasText = widget.draft.trim().isNotEmpty;
     final showQuotaHint = widget.remaining > 0 && widget.remaining <= 2;
-    // Kein viewInsets-Zuschlag wie in der Vorlage: der Home-Scaffold hat fuer
-    // den Coach `resizeToAvoidBottomInset: true`, die Tastatur ist also schon
-    // einmal ausgeglichen.
+    // No viewInsets padding: the home scaffold uses
+    // `resizeToAvoidBottomInset: true`, so the keyboard is already accounted
+    // for.
     return SafeArea(
       top: false,
       child: Column(
@@ -81,7 +80,7 @@ class _ComposerState extends State<_Composer> {
           AnimatedContainer(
             duration: motionDuration(context, const Duration(milliseconds: 200)),
             curve: Curves.easeOutCubic,
-            // Horizontal 0: der Seitenrand kommt aus der Schale.
+            // Horizontal 0: the side margin comes from the shell.
             margin: const EdgeInsets.only(bottom: 4),
             constraints: const BoxConstraints(minHeight: 52, maxHeight: 160),
             padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
@@ -89,8 +88,8 @@ class _ComposerState extends State<_Composer> {
               color: _focused ? t.surf2 : t.surf,
               borderRadius: BorderRadius.circular(17),
               border: Border.all(color: t.line),
-              // Die einzige erhabene Flaeche des Screens: der Composer liegt
-              // ueber der scrollenden Liste.
+              // The only raised surface on this screen: the composer sits
+              // above the scrolling list.
               boxShadow: softShadow(t),
             ),
             child: Row(
@@ -118,11 +117,10 @@ class _ComposerState extends State<_Composer> {
                     style: AppType.ui(15.5, color: t.ink, height: 1.3),
                     cursorColor: t.accent,
                     decoration: InputDecoration(
-                      // Alle vier Raender UND `filled` muessen hier stehen:
-                      // der inputDecorationTheme der App fuellt Felder und
-                      // umrandet sie. Nur `border` zu setzen liesse einen
-                      // zweiten gefuellten, gerahmten Kasten in der Kapsel
-                      // stehen (dasselbe Muster wie SheetField).
+                      // All four borders AND `filled` are needed: the app's
+                      // inputDecorationTheme fills and outlines fields, so
+                      // setting only `border` would leave a second boxed
+                      // field inside the capsule (same as SheetField).
                       filled: false,
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -131,9 +129,8 @@ class _ComposerState extends State<_Composer> {
                       isCollapsed: true,
                       contentPadding: const EdgeInsets.symmetric(
                           vertical: 14, horizontal: 6),
-                      // C8: der Platzhalter nennt die KI — im Leerzustand
-                      // steht der Hinweis im Hero, im laufenden Chat ist der
-                      // Composer die einzige Stelle, die immer sichtbar ist.
+                      // C8: the placeholder names the AI — in a running chat
+                      // the composer is the only always-visible spot.
                       hintText: widget.remaining <= 0
                           ? l10n.coachComposerHintLimitReached
                           : widget.listening
@@ -164,8 +161,8 @@ class _ComposerState extends State<_Composer> {
   }
 }
 
-/// Dezenter Status-Hinweis ueber dem Composer, sobald nur noch 1–2
-/// Coach-Fragen uebrig sind. Tap oeffnet das Quota-Sheet.
+/// Subtle status hint above the composer once only 1–2 coach questions are
+/// left. Tapping opens the quota sheet.
 class _QuotaHint extends StatelessWidget {
   const _QuotaHint({required this.remaining, required this.onTap});
 
@@ -232,9 +229,8 @@ class _ComposerIcon extends StatelessWidget {
   final bool enabled;
   final VoidCallback onTap;
 
-  /// Pflicht, nicht optional: der Knopf zeigt AUSSCHLIESSLICH ein Glyph.
-  /// Ohne Namen kuendigt ein Screenreader ihn als „Schaltflaeche" an — der
-  /// Nutzer erfaehrt nie, was sie tut.
+  /// Required, not optional: the button shows only a glyph, so without a name
+  /// a screen reader announces just "button".
   final String semanticLabel;
 
   @override
@@ -256,8 +252,7 @@ class _ComposerIcon extends StatelessWidget {
               width: 38,
               height: 44,
               child: Center(
-                // Schlichtes Glyph ohne Chip — die Kapsel selbst traegt die
-                // Flaeche.
+                // Plain glyph without a chip — the capsule carries the fill.
                 child: Icon(
                   icon,
                   color: enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5),
@@ -272,15 +267,12 @@ class _ComposerIcon extends StatelessWidget {
   }
 }
 
-/// Mic-Button rechts im Composer. Waehrend [listening] pulsiert ein weicher
-/// Akzent-Ring hinter dem Icon (unter „Bewegung reduzieren": statisch getoent).
+/// Mic button in the composer. While [listening] a soft accent ring pulses
+/// behind the icon (static under "reduce motion").
 ///
-/// Der Zuhoer-Zustand faerbt sich in [AppTokens.accent], NICHT in `lime`:
-/// `lime` ist eine Flaechenfarbe und traegt nur mit `onLime` darauf. Als
-/// Strich auf der hellen Composer-Kapsel (`surf` = #FFFDF8) kaeme es im
-/// Hellmodus auf rund 1,2:1 — das Mikro saehe aus, als sei nichts passiert,
-/// obwohl es zuhoert. `accent` ist genau dafuer da (hell: forest, dunkel:
-/// lime) und traegt in beiden Modi.
+/// The listening state uses [AppTokens.accent], NOT `lime`: as a stroke on the
+/// light composer capsule `lime` reaches only ~1.2:1, so the mic would look
+/// idle while recording. `accent` carries in both modes.
 class _MicButton extends StatefulWidget {
   const _MicButton({
     required this.enabled,
@@ -343,16 +335,16 @@ class _MicButtonState extends State<_MicButton>
       key: const ValueKey('coach-mic'),
       button: true,
       enabled: widget.enabled,
-      // Der Knopf ist ein Umschalter: der Zustand gehoert in den Namen, sonst
-      // erfaehrt ein Screenreader-Nutzer nie, dass gerade aufgenommen wird.
+      // The button is a toggle: the state belongs in the name, otherwise a
+      // screen reader user never learns that recording is running.
       label: widget.listening
           ? l10n.coachMicLabelListening
           : l10n.coachMicLabelIdle,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 2),
         child: Material(
-        // Auch die Fuellung ueber `accent`: `forest` bei 18 % liegt im
-        // Dunkelmodus praktisch auf `surf` und war dort unsichtbar.
+        // Fill also via `accent`: `forest` at 18 % sits practically on `surf`
+        // in dark mode and was invisible there.
           color: widget.listening
               ? t.accent.withValues(alpha: 0.16)
               : Colors.transparent,
@@ -397,8 +389,8 @@ class _MicButtonState extends State<_MicButton>
   }
 }
 
-/// Senden-Knopf nach der Vorlage: Forest-Kachel mit Lime-Pfeil, sobald ein
-/// Entwurf im Feld steht; sonst ruhige Kachel.
+/// Send button: forest tile with lime arrow once a draft is in the field,
+/// quiet tile otherwise.
 class _SendButton extends StatelessWidget {
   const _SendButton({
     required this.active,
@@ -414,11 +406,9 @@ class _SendButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final scharf = active && enabled;
-    // Ein blanker GestureDetector traegt gar keine Semantik: der Knopf war
-    // fuer TalkBack/VoiceOver weder benannt NOCH als Schaltflaeche erkennbar —
-    // der Coach liess sich mit Screenreader schlicht nicht abschicken.
-    // `enabled` gehoert dazu, damit der gesperrte Zustand angesagt wird,
-    // statt wie ein wirkungsloser Knopf zu klingen.
+    // A bare GestureDetector carries no semantics at all, so the button was
+    // neither named nor recognisable as a button. `enabled` is part of it so
+    // the locked state is announced instead of sounding like a dead button.
     return Semantics(
       button: true,
       enabled: enabled,
@@ -451,7 +441,7 @@ class _SendButton extends StatelessWidget {
   }
 }
 
-/// Zeile im Attach-Sheet („+"): Icon-Kachel + Label.
+/// Row in the attach sheet: icon tile + label.
 class _AttachTile extends StatelessWidget {
   const _AttachTile({
     super.key,
@@ -495,13 +485,11 @@ class _AttachTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-/// Sheet hinter dem (i) im Kopf und hinter dem Hinweis im Leerzustand.
+/// Sheet behind the (i) in the header and behind the empty-state hint.
 ///
-/// C8: vorher stand hier NUR das Tageskontingent — dass jede Nachricht einen
-/// Tages-Snapshot (Gewicht, Ziel, Kalorien, offene Makros, Namen der heute
-/// geloggten Mahlzeiten) an einen Drittanbieter in den USA mitschickt, war nur
-/// in der Datenschutzerklaerung nachlesbar. Jetzt steht die Offenlegung oben
-/// und das Kontingent darunter.
+/// C8: the disclosure comes first, the daily quota below it — every message
+/// ships a day snapshot (weight, goal, calories, open macros, today's meal
+/// names) to a US third party, which was only stated in the privacy policy.
 class _CoachInfoSheet extends StatelessWidget {
   const _CoachInfoSheet({required this.remaining, required this.dailyLimit});
 
@@ -525,7 +513,7 @@ class _CoachInfoSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              // Kein eigener Ziehgriff: showEatovaSheet setzt showDragHandle.
+              // No own drag handle: showEatovaSheet sets showDragHandle.
               Text(
                 l10n.coachTitle,
                 style:
@@ -566,7 +554,7 @@ class _CoachInfoSheet extends StatelessWidget {
   }
 }
 
-/// Abschnitts-Ueberschrift im Info-Sheet.
+/// Section heading in the info sheet.
 class _InfoLabel extends StatelessWidget {
   const _InfoLabel(this.text);
 
@@ -582,7 +570,7 @@ class _InfoLabel extends StatelessWidget {
   }
 }
 
-/// Aufzaehlungszeile im Info-Sheet (Lime-Punkt + Text).
+/// Bullet row in the info sheet (lime dot + text).
 class _InfoBullet extends StatelessWidget {
   const _InfoBullet(this.text);
 

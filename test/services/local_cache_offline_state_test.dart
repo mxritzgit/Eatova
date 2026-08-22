@@ -10,12 +10,11 @@ import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
-// DATA-7: der LocalCache spiegelt jetzt auch Tagebuch (loggedMeals),
-// Favoriten, Gewichts-Log, die Write-Outbox und die pendenden Lifetime-
-// Stats-Deltas — damit ein Kaltstart ohne Netz nicht mit leerem Tagebuch
-// startet und kein Write einen App-Kill verliert. Diese Tests sichern die
-// Roundtrips, die defensive Korrupt-Behandlung und dass clear() ALLE neuen
-// Slots (PII!) mit raeumt.
+// DATA-7: the LocalCache also mirrors the diary, favorites, weight log, the
+// write outbox and the pending lifetime-stats deltas, so a cold start without
+// network does not show an empty diary and no write is lost to an app kill.
+// These tests pin the roundtrips, the defensive handling of corrupt slots and
+// that clear() wipes ALL new (PII) slots.
 
 MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
     MealAnalysisResult(
@@ -125,9 +124,9 @@ void main() {
       final store = InMemoryKeyValueStore({
         'eatova.v1.logged_meals.user-1': '{ kein json',
         'eatova.v1.weight_log.user-1': '{"items":[{"t":"quatsch"}]}',
-        // Eine Rezept-Zeile OHNE slug: FitnessRecipe.fromRow wirft dafuer
-        // bewusst (der slug ist der Upsert-Konflikt-Schluessel und darf nie
-        // erfunden werden, Sentinel-Rest S4) — der Slot faellt als Ganzes aus.
+        // A recipe row without a slug: FitnessRecipe.fromRow throws on purpose
+        // (the slug is the upsert conflict key and must never be invented),
+        // so the whole slot drops out.
         'eatova.v1.user_recipes.user-1': '{"items":[{"title":"Ohne Slug"}]}',
       });
       final cache = _cache(store);
@@ -137,9 +136,9 @@ void main() {
     });
   });
 
-  // Luecke A: Eigen-Rezepte waren die einzige Nutzer-Sammlung ohne
-  // Cache-Slot — ihr einziges Netz war die Outbox. Ein Kaltstart ohne Netz
-  // zeigte deshalb NIE Eigen-Rezepte, auch laengst synchronisierte nicht.
+  // Gap A: own recipes were the only user collection without a cache slot,
+  // their only safety net was the outbox. A cold start without network
+  // therefore never showed them, not even long-synced ones.
   group('LocalCache Eigen-Rezepte (Luecke A)', () {
     test('roundtrippen verlustfrei inkl. Kategorien und Makros', () async {
       final cache = _cache(InMemoryKeyValueStore());
@@ -165,19 +164,15 @@ void main() {
     test(
         'ein gecachtes Rezept ist von einem geladenen nicht zu unterscheiden '
         '(userCreated + Profi-Hinweis)', () async {
-      // Das Wire-Format ist die Serverzeile (toRow/fromRow) — beide Felder
-      // fuehrt die Tabelle nicht, fromRow setzt sie. Waere hier ein eigenes
-      // Format entstanden, saehe ein Rezept nach dem Offline-Kaltstart anders
-      // aus als nach dem Online-Boot (kein Loeschen-Knopf, weil die UI an
-      // userCreated haengt).
+      // The wire format is the server row (toRow/fromRow); the table carries
+      // neither field, fromRow sets them. A separate format would make a
+      // recipe look different after an offline cold start than after an online
+      // boot (no delete button, because the UI keys off userCreated).
       //
-      // Seit dem Inhalte-PR (2026-08-11, Platzhalter-Fix) setzt `fromRow`
-      // professionalHint NEUTRAL ('') statt fest deutsch — der Roundtrip
-      // ueberschreibt den `_recipe()`-Fixture-Wert also unabhaengig davon,
-      // was reingeschrieben wurde (dieselbe Zusicherung wie vorher: die
-      // Tabelle fuehrt die Spalte nicht, fromRow gewinnt immer). Die Anzeige
-      // loest die leere Zeichenkette erst spaeter ueber
-      // `FitnessRecipe.displayProfessionalHint` in die aktuelle Locale auf.
+      // `fromRow` sets professionalHint neutrally (''), so the roundtrip
+      // overwrites the fixture value regardless of what was written. Display
+      // resolves the empty string into the current locale via
+      // `FitnessRecipe.displayProfessionalHint`.
       final cache = _cache(InMemoryKeyValueStore());
       await cache.writeUserRecipes([_recipe('user_1')]);
 
@@ -187,9 +182,9 @@ void main() {
     });
 
     test('leere Liste ist NICHT dasselbe wie kein Cache', () async {
-      // Wichtig fuer die Boot-Hydration: `[]` heisst „der Nutzer hat keine
-      // Eigen-Rezepte", `null` heisst „nichts gespeichert" — nur Letzteres
-      // darf den Server-Stand unangetastet lassen.
+      // Matters for the boot hydration: `[]` means the user has no own
+      // recipes, `null` means nothing was stored — only the latter may leave
+      // the server state untouched.
       final cache = _cache(InMemoryKeyValueStore());
       await cache.writeUserRecipes(const <FitnessRecipe>[]);
       expect(await cache.readUserRecipes(), isEmpty);
@@ -218,7 +213,7 @@ void main() {
       expect(back[0].meal!.id, 'm-1');
       expect(back[1].kind, SyncOpKind.mealDelete);
 
-      // Ein unbekannter Op-Kind in der Mitte reisst die Queue nicht mit.
+      // An unknown op kind in the middle does not take the queue down.
       final store = InMemoryKeyValueStore({
         'eatova.v1.outbox.user-1':
             '{"items":[{"kind":"zeitmaschine","entity_id":"x"},'
@@ -271,9 +266,9 @@ void main() {
 
     test('clear(preserveOutbox: true) haelt genau Outbox + Stats-Deltas',
         () async {
-      // A2: Ausloggen darf ungesyncte Mahlzeiten nicht vernichten. Die beiden
-      // Sync-Slots ueberleben den Logout und spielen beim naechsten Login
-      // DESSELBEN Users nach; alles andere (PII-Spiegel) muss weg.
+      // A2: logging out must not destroy unsynced meals. The two sync slots
+      // survive logout and replay on the next login of the SAME user;
+      // everything else (PII mirror) must go.
       final store = InMemoryKeyValueStore();
       final cache = _cache(store);
       await cache.writeProfile(const UserProfile(weightKg: 90));
@@ -293,22 +288,22 @@ void main() {
 
       await cache.clear(preserveOutbox: true);
 
-      // Die zwei Sync-Slots stehen noch — inklusive Inhalt.
+      // The two sync slots are still there, content included.
       final outbox = await cache.readOutbox();
       expect(outbox, hasLength(1));
       expect(outbox!.single.entityId, 'm-2');
       expect((await cache.readPendingStatsDeltas())!.meals, 1);
 
-      // Alles andere ist geraeumt.
+      // Everything else is wiped.
       expect(await cache.readProfile(), isNull);
       expect(await cache.readLifetimeStats(), isNull);
       expect(await cache.readNotificationsEnabled(), isNull);
       expect(await cache.readLoggedMeals(), isNull);
       expect(await cache.readFavorites(), isNull);
       expect(await cache.readWeightLog(), isNull);
-      // Eigen-Rezepte sind Nutzerinhalt (Zutaten, Mengen) — sie fallen unter
-      // dieselbe M-1-Begruendung wie das Tagebuch und ueberleben den Logout
-      // NICHT. Ihr noch nicht zugestellter Write liegt in der Outbox.
+      // Own recipes are user content and fall under the same M-1 rule as the
+      // diary: they do NOT survive logout. Their undelivered write sits in the
+      // outbox.
       expect(await cache.readUserRecipes(), isNull);
       expect(
         store.snapshot.keys.toSet(),
@@ -318,8 +313,7 @@ void main() {
     });
 
     test('clear() ohne Argument raeumt weiterhin auch die Outbox', () async {
-      // Der Default darf sich NICHT aendern — bestehende Aufrufer
-      // (Konto-Loeschung) verlassen sich darauf.
+      // The default must not change — account deletion relies on it.
       final store = InMemoryKeyValueStore();
       final cache = _cache(store);
       await cache.writeOutbox([SyncOp.mealDelete('m-2')]);

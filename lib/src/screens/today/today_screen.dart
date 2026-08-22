@@ -14,16 +14,12 @@ import 'today_hero.dart';
 import 'today_sections.dart';
 import 'today_texts.dart';
 
-/// Der Tab „Heute" — das Tagesdashboard (Design-Refactor 2026-08-09).
+/// The day dashboard tab.
 ///
-/// Bewusst ein reines Anzeige-Widget: alle Daten kommen als Parameter, jede
-/// Aktion geht als Callback zurueck an die Schale. Der Screen kennt weder
-/// Store noch Sync — dadurch ist er ohne Backend pumpbar und die Schale
-/// behaelt die Hoheit ueber Tab-Wechsel und Routen.
-///
-/// Abgrenzung zum Food-Tab: „Heute" beantwortet „wie stehe ich gerade da?",
-/// der Food-Tab beantwortet „was habe ich gegessen und was trage ich nach?".
-/// Deshalb liegt hier der Kalorien-Hero und dort die Mahlzeiten-Pflege.
+/// Pure display widget: data in as parameters, actions out as callbacks. It
+/// knows neither store nor sync, so it can be pumped without a backend and
+/// the shell keeps control over tabs and routes. It answers "where do I
+/// stand?"; the food tab owns editing meals.
 class TodayScreen extends StatelessWidget {
   const TodayScreen({
     super.key,
@@ -47,27 +43,26 @@ class TodayScreen extends StatelessWidget {
   final String userName;
   final UserProfile profile;
 
-  /// Gegessene Kalorien des [selectedDate].
+  /// Calories eaten on [selectedDate].
   final int consumedKcal;
 
-  /// Aus Schritten geschaetzt — an einem Nicht-Heute-Tag reicht die Schale
-  /// bewusst 0 durch; die Kachel zeigt dann „—" statt einer Nullaussage.
+  /// Estimated from steps. The shell passes 0 for past days, and the tile
+  /// then shows a dash instead of claiming zero.
   final int burnedKcal;
 
   final MacroProgress macroProgress;
 
-  /// Schrittstand des [selectedDate] — `null` heisst „keine Schrittquelle"
-  /// (HomeStore.stepsForFoodDate), dann entfaellt die Schritte-Karte ganz
-  /// statt „0 / 8.000" zu behaupten. Das Ziel kommt aus dem Profil.
+  /// Step count for [selectedDate]; `null` means no step source, and the
+  /// steps card is dropped rather than claiming zero. Goal comes from profile.
   final int? steps;
 
-  /// Nur die Mahlzeiten des [selectedDate].
+  /// Only the meals of [selectedDate].
   final List<LoggedMeal> meals;
 
   final DateTime selectedDate;
 
-  /// Bereits aufgeloest ueber [LifetimeStats.effectiveStreakOn] — eine
-  /// gerissene Kette ist hier schon 0.
+  /// Already resolved via [LifetimeStats.effectiveStreakOn]: a broken chain
+  /// arrives as 0.
   final int streak;
 
   final String? profileInitial;
@@ -77,9 +72,7 @@ class TodayScreen extends StatelessWidget {
   final VoidCallback? onOpenCoach;
   final VoidCallback? onOpenProfile;
 
-  /// Der einzige Weg zum Loggen: eine Slot-Zeile fuehrt in den Food-Tab.
-  /// Ein schwebender „Essen loggen"-Knopf stand hier bis 2026-08-10 daneben —
-  /// er ist auf Nutzer-Entscheid entfallen (zwei Wege zum selben Ziel).
+  /// The only way to log: a slot row leads into the food tab.
   final ValueChanged<MealSlot>? onOpenMealSlot;
 
   @override
@@ -87,8 +80,8 @@ class TodayScreen extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
 
-    // Genau eine Uhrabfrage pro Aufbau: sonst koennten Begruessung und
-    // Datums-Streifen auf verschiedenen Seiten von Mitternacht landen.
+    // Exactly one clock read per build, or greeting and day strip could land
+    // on opposite sides of midnight.
     final jetzt = clock.now();
     final heute = startOfDay(jetzt);
     final istHeute = daysBetween(heute, selectedDate) == 0;
@@ -97,25 +90,16 @@ class TodayScreen extends StatelessWidget {
         (profile.proteinGoalG - macroProgress.proteinG).round().clamp(0, 99999);
     final schritte = steps;
 
-    // KEIN eigenes SafeArea und KEIN horizontaler Rand: beides liefert die
-    // Schale bereits (eatova_home_page.dart:420-424). Ein zweites Padding
-    // ergaebe 40 px Rand.
-    //
-    // Reine Liste, kein Stack: bis 2026-08-10 schwebte hier ein „Essen
-    // loggen"-Knopf ueber der Liste, weshalb unten seine (mit der
-    // Systemschrift wachsende) Hoehe frei bleiben musste. Der Knopf ist auf
-    // Nutzer-Entscheid entfallen; die 12 sind jetzt nur noch Luft, damit die
-    // letzte Karte nicht an der Navigationsleiste klebt (plus die 12 der
-    // Schale).
+    // No SafeArea and no horizontal padding here: the shell supplies both,
+    // a second padding would double the margin. The bottom 12 only keeps the
+    // last card off the navigation bar.
     return ListView(
       key: const ValueKey('screen-today'),
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
       children: <Widget>[
         _Kopfzeile(
-          // Die Eyebrow folgt dem GEWAEHLTEN Tag — sonst widerspraeche sie
-          // dem Datums-Streifen direkt darunter. Die Begruessung folgt der
-          // Wanduhr: „Guten Morgen" ist eine Aussage ueber jetzt, nicht
-          // ueber den aufgeschlagenen Tag.
+          // Eyebrow follows the selected day (else it contradicts the day
+          // strip below); the greeting follows the wall clock.
           eyebrow: todayEyebrow(selectedDate, l10n),
           greeting: todayGreeting(l10n, jetzt),
           initial: profileInitial ?? todayInitial(userName),
@@ -128,18 +112,10 @@ class TodayScreen extends StatelessWidget {
           onSelected: onDateSelected,
         ),
         const SizedBox(height: 14),
-        // Hero und Makros folgen demselben Lade-Zustand wie die
-        // Mahlzeiten-Karte weiter unten.
-        //
-        // `consumedKcal` und `macroProgress` sind, solange der Archivtag noch
-        // nachlaedt, die Nullwerte des UNGELADENEN Tages. Blieben die beiden
-        // Flaechen stehen, behauptete der Hero fuer die Dauer des Ladens „2.000
-        // kcal uebrig" und jeder Balken 0 g — eine Aussage ueber Daten, die es
-        // noch gar nicht gibt, und eine Sekunde spaeter springt sie um. Den
-        // Zustand traegt dann die eine Ladekarte unter der Ueberschrift, genau
-        // wie im Food-Tab (meal_analysis_screen.dart:332): Kopfzeile und
-        // Datums-Streifen bleiben stehen, der Tagesblock kollabiert auf den
-        // Spinner. Eine zweite Ladekarte hier oben waere derselbe Satz zweimal.
+        // Hero and macros share the loading state of the meals card below:
+        // while an archive day loads, both values are still zero and would
+        // assert numbers that do not exist yet. The single loading card under
+        // the heading carries that state.
         if (!dayLoading) ...<Widget>[
           TodayCalorieHero(
             consumedKcal: consumedKcal,
@@ -147,9 +123,9 @@ class TodayScreen extends StatelessWidget {
             kcalGoal: profile.dailyKcalGoal,
             streak: streak,
           ),
-          // Die Schritte direkt unter dem Hero: sie sind die Rechnung hinter
-          // der VERBRANNT-Kachel (Nutzer-Wunsch 2026-08-22). Ohne
-          // Schrittquelle entfaellt die Karte — s. [steps].
+          // Steps sit right under the hero: they are the math behind the
+          // burned tile. Without a step source the card is dropped, see
+          // [steps].
           if (schritte != null) ...<Widget>[
             const SizedBox(height: 14),
             TodayStepsCard(
@@ -196,12 +172,9 @@ class TodayScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
         ],
-        // Auf einem Archivtag waere „Heutige Mahlzeiten" schlicht falsch.
-        //
-        // Ohne das `trailing: 'Manage'` der Vorlage: [SectionHeading]
-        // zeichnet dort nur gedaempften Text, keinen Knopf. „Verwalten"
-        // saehe aus wie ein Link, waere aber tot — und die Slot-Zeilen
-        // darunter fuehren ohnehin schon in den Food-Tab.
+        // Archive days need a different title. No `trailing`: it would look
+        // like a link but be dead, and the slot rows already lead to the
+        // food tab.
         SectionHeading(
           title: istHeute
               ? l10n.todayMealsTitleToday
@@ -215,9 +188,8 @@ class TodayScreen extends StatelessWidget {
         const SizedBox(height: 14),
         TodayCoachBanner(
           teaser: coachTeaser(
-            // Waehrend der Tag noch laedt, ist `meals` leer, OHNE dass der
-            // Tag leer waere — „logge deine erste Mahlzeit" waere dann
-            // eine Behauptung ueber ungeladene Daten.
+            // While the day loads `meals` is empty without the day being
+            // empty, so the teaser must not claim it is.
             dayIsEmpty: !dayLoading && meals.isEmpty,
             remainingProteinG: restProtein,
             l10n: l10n,
@@ -268,10 +240,9 @@ class _Kopfzeile extends StatelessWidget {
         const SizedBox(width: 12),
         Semantics(
           button: true,
-          // Umlaut, kein „oe": ein Semantics-Label ist gesprochener Text.
           label: context.l10n.todaySemanticsOpenProfile,
-          // 14 statt rControl (15): die Vorlage nennt fuer diese 44er-Kachel
-          // ausdruecklich 14, und laut Vertrag §3 gewinnt dort die Vorlage.
+          // 14 instead of rControl (15): the design spec names 14 for this
+          // 44 px tile, and the spec wins per contract §3.
           child: Material(
             color: t.forest,
             borderRadius: BorderRadius.circular(14),
@@ -283,8 +254,8 @@ class _Kopfzeile extends StatelessWidget {
                 width: 44,
                 height: 44,
                 child: Center(
-                  // FittedBox wie beim MealAvatar: die Kachel hat eine feste
-                  // Kantenlaenge, der Buchstabe waechst mit der Systemschrift.
+                  // FittedBox like MealAvatar: fixed tile, letter grows with
+                  // the system font.
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(

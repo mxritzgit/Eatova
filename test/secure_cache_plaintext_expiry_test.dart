@@ -7,38 +7,31 @@ import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
-// SEC/W7a: der Klartext-Migrationspfad ist befristet — aber erst, wenn nichts
-// mehr zu erben ist.
+// SEC/W7a: the plaintext migration path is time-limited — but only closes once
+// there is nothing left to inherit.
 //
-// `EncryptedKeyValueStore.getString` nimmt einen Slot OHNE EATOVA1-Magic als
-// migrierbaren Legacy-Wert an. Unbefristet bliebe dieser Uebergangszustand fuer
-// immer offen, obwohl es echten Legacy-Klartext nur aus Installationen von VOR
-// der Verschluesselung geben kann. Der Marker
-// (`CacheKeyProvider.plaintextMigrationClosedKey`) beendet ihn.
+// `EncryptedKeyValueStore.getString` accepts a slot WITHOUT the EATOVA1 magic
+// as a migratable legacy value; the marker
+// (`CacheKeyProvider.plaintextMigrationClosedKey`) ends that window.
 //
-// DER FUND, DEN DIESE DATEI ABSICHERT: der Marker ist GLOBAL, die Slots liegen
-// PRO UID. Solange er beim DEK-Sentinel mitgesetzt wurde, schloss der erste
-// Start nach dem Update den Pfad fuer alle uebrigen Konten mit — die nie
-// zugestellten Writes eines zweiten Nutzers fielen beim naechsten Start in
-// `ExpiredPlaintextCacheSlot`, ohne je die Chance auf eine Migration gehabt zu
-// haben. Deshalb migriert der migrierende Start jetzt AKTIV alle geerbten
-// Slots (`EncryptedKeyValueStore.migrateAllLegacySlots`) und setzt den Marker
-// erst danach.
+// The finding this file guards: the marker is GLOBAL, the slots are PER UID.
+// Setting it alongside the DEK sentinel closed the path for every other
+// account, so a second user's undelivered writes hit
+// `ExpiredPlaintextCacheSlot` without ever getting a chance to migrate. The
+// migrating start now actively migrates all inherited slots
+// (`EncryptedKeyValueStore.migrateAllLegacySlots`) and sets the marker after.
 //
-// Diese Datei treibt beide Zustaende durch `EncryptedKeyValueStore.create`,
-// also ueber denselben Weg wie `LocalCache.create` in Production: nur der
-// Keystore ist ein Fake, Marker, Sentinel und (im Sweep-Teil) die Slots selbst
-// liegen im echten SharedPreferences-Mock.
+// Both states run through `EncryptedKeyValueStore.create`, the same path as
+// `LocalCache.create` in production; only the keystore is a fake.
 //
-// GRENZE DER ZUSAGE (und deshalb der letzte Test): der Marker liegt in
-// derselben Prefs-Datei wie die Klartext-Slots. Wer den einen schreiben kann,
-// loescht den anderen — die Befristung haelt keinen Angreifer mit
-// Schreibzugriff auf, sie macht den Vorgang nur sichtbar. Also muss die
-// Sichtbarkeit auch dann halten, wenn im selben Prozess schon ein kaputter
-// Ciphertext gemeldet wurde.
+// Limit of the promise (hence the last test): the marker lives in the same
+// prefs file as the plaintext slots, so anyone who can write one can delete
+// the other. The expiry does not stop an attacker with write access, it makes
+// them visible — and that visibility must hold even after a broken ciphertext
+// was already reported in the same process.
 
-/// Keystore, der den DEK ueber einen simulierten Neustart hinweg behaelt —
-/// der Normalfall auf einem gesunden Geraet.
+/// Keystore that keeps the DEK across a simulated restart — the normal case
+/// on a healthy device.
 class _MemoryKeyStore implements SecureKeyStore {
   final Map<String, String> data = <String, String>{};
   int writes = 0;
@@ -56,7 +49,7 @@ class _MemoryKeyStore implements SecureKeyStore {
   Future<void> delete(String key) async => data.remove(key);
 }
 
-/// Probe, deren Blick auf SharedPreferences scheitert (Plugin-Fehler).
+/// Probe whose look at SharedPreferences fails (plugin error).
 class _FailingLegacyProbe implements LegacyPlaintextProbe {
   @override
   Future<List<String>> plaintextCacheKeys() async =>
@@ -65,30 +58,29 @@ class _FailingLegacyProbe implements LegacyPlaintextProbe {
 
 const String _slot = 'eatova.v1.outbox.user-1';
 
-/// Zwei Konten auf demselben Geraet — der Kern von W7a.
+/// Two accounts on the same device — the core of W7a.
 const String _slotA = 'eatova.v1.outbox.user-a';
 const String _slotB = 'eatova.v1.outbox.user-b';
 
 const String _plaintextA =
     '{"items":[{"op":"add_meal","kcal":410,"note":"Porridge"}]}';
 
-/// Der Payload, um den es geht: eine Outbox mit unquittierten Schreiboperationen
-/// — im Angriffsfall untergeschoben, im Bestandsfall echte Nutzerdaten.
+/// The payload at stake: an outbox of unacknowledged writes — planted in the
+/// attack case, real user data in the legacy case.
 const String _plaintext =
     '{"items":[{"op":"add_meal","kcal":820,"note":"Kebab"}]}';
 
-/// Zwei Slots MIT Magic, deren Tag nicht passt — der Alltagsfall nach einem
-/// Keystore-Reset, bei dem reihum jeder Slot scheitert. Lang genug fuer
-/// nonce+tag, damit die Pruefung an der GCM-Authentifizierung scheitert und
-/// nicht schon am Rahmen.
+/// Slots WITH magic whose tag does not match — the everyday case after a
+/// keystore reset. Long enough for nonce+tag so the check fails at GCM
+/// authentication, not already at the frame.
 final String _toterCiphertext =
     '$cacheCipherMagic${base64.encode(List<int>.filled(48, 7))}';
 
 const String _toterSlot = 'eatova.v1.profile.user-1';
 const String _zweiterToterSlot = 'eatova.v1.weights.user-1';
 
-/// Ein neuer App-Start: die Memoisierung ist weg, SharedPreferences (Sentinel,
-/// Marker) und der OS-Keystore (DEK) ueberleben.
+/// A fresh app start: memoization is gone, SharedPreferences (sentinel,
+/// marker) and the OS keystore (DEK) survive.
 void _restartApp() => CacheKeyProvider.debugReset();
 
 Future<EncryptedKeyValueStore> _boot(
@@ -103,21 +95,21 @@ Future<EncryptedKeyValueStore> _boot(
   return store!;
 }
 
-/// Der Produktions-Store: SharedPreferences. Der Sweep zaehlt dort auf, also
-/// muss der Dekorator im Sweep-Teil auf DEMSELBEN Speicher sitzen — sonst
-/// prueft der Test eine Verdrahtung, die es so nicht gibt.
+/// The production store. The sweep enumerates there, so in the sweep tests the
+/// decorator must sit on the SAME storage, or the test checks wiring that does
+/// not exist.
 Future<KeyValueStore> _prefsStore() async =>
     SharedPreferencesStore(await SharedPreferences.getInstance());
 
 void main() {
-  // Marker und Sentinel liegen in SharedPreferences — Binding und Prefs-Mock
-  // sind deshalb Pflicht.
+  // Marker and sentinel live in SharedPreferences, so binding and prefs mock
+  // are mandatory.
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
     CacheKeyProvider.debugReset();
-    // Die Ein-Schuss-Zaehler der Reports sind pro Prozess gedacht; ein
-    // Testlauf ist viele simulierte Prozesse in einem.
+    // The one-shot report counters are per process; a test run simulates many
+    // processes in one.
     EncryptedKeyValueStore.debugResetReportGuards();
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
@@ -142,7 +134,7 @@ void main() {
     _restartApp();
     final raw = InMemoryKeyValueStore({_slot: _plaintext});
     await (await _boot(raw, keyStore)).getString(_slot);
-    // capture() laeuft unawaited.
+    // capture() runs unawaited.
     await Future<void>.delayed(Duration.zero);
 
     expect(contexts, ['cache_decrypt'],
@@ -187,16 +179,16 @@ void main() {
     test(
         'Nutzer B behaelt seinen Klartext-Slot, obwohl nur Nutzer A den ersten '
         'Start nach dem Update gemacht hat', () async {
-      // Die Platte einer Bestandsinstallation mit zwei Konten: beide tragen
-      // nicht quittierte Writes aus der Zeit vor der Verschluesselung.
+      // Disk of a legacy install with two accounts, both carrying
+      // unacknowledged writes from before encryption.
       SharedPreferences.setMockInitialValues(<String, Object>{
         _slotA: _plaintextA,
         _slotB: _plaintext,
       });
       final keyStore = _MemoryKeyStore();
 
-      // Start 1: angemeldet ist A. Von sich aus liest dieser Start NIE einen
-      // Slot von B — genau daran ist der Marker frueher gescheitert.
+      // Start 1: A is logged in. On its own this start never reads a slot of
+      // B — exactly where the marker used to fail.
       final storeA = await _boot(await _prefsStore(), keyStore);
       expect(await storeA.getString(_slotA), _plaintextA);
 
@@ -209,7 +201,7 @@ void main() {
       expect(prefs.getBool(CacheKeyProvider.plaintextMigrationClosedKey),
           isTrue);
 
-      // Start 2: jetzt meldet sich B an. Der Marker steht laengst.
+      // Start 2: B logs in; the marker was set long ago.
       _restartApp();
       final storeB = await _boot(await _prefsStore(), keyStore);
 
@@ -222,10 +214,10 @@ void main() {
     });
 
     test('fremde eatova.v1.-Keys fasst der Sweep nicht an', () async {
-      // Diese vier liegen im selben Namensraum, werden aber OHNE den Dekorator
-      // gelesen. Ein Sweep ueber den ganzen Praefix wuerde sie verschluesseln
-      // und damit dauerhaft zerstoeren — der teurere Fehler, weil er JEDE
-      // Installation traefe, nicht nur Mehrkonten-Geraete.
+      // These share the namespace but are read WITHOUT the decorator. A sweep
+      // over the whole prefix would encrypt and permanently destroy them — the
+      // costlier bug, because it hits every install, not just multi-account
+      // devices.
       SharedPreferences.setMockInitialValues(<String, Object>{
         'eatova.v1.locale': 'de',
         'eatova.v1.theme_mode': 'dark',
@@ -272,8 +264,8 @@ void main() {
       });
       final keyStore = _MemoryKeyStore();
 
-      // Start 1: die Aufzaehlung wirft. Wer nicht weiss, ob noch etwas zu
-      // erben war, darf den Pfad nicht zumachen.
+      // Start 1: enumeration throws. Not knowing whether anything was left to
+      // inherit, the path must stay open.
       await _boot(await _prefsStore(), keyStore,
           legacyProbe: _FailingLegacyProbe());
 
@@ -284,7 +276,7 @@ void main() {
           reason: 'Der Marker ist einweg — ein Prefs-Aussetzer darf ihn nicht '
               'setzen, sonst kostet ein einzelner Fehlstart die Outbox.');
 
-      // Start 2: mit funktionierender Probe holt der Sweep alles nach.
+      // Start 2: with a working probe the sweep catches up.
       _restartApp();
       await _boot(await _prefsStore(), keyStore);
 
@@ -298,11 +290,10 @@ void main() {
   group('nach gesetztem Marker', () {
     test('wird DERSELBE Klartext-Slot verworfen statt uebernommen', () async {
       final keyStore = _MemoryKeyStore();
-      // Start 1: leerer Cache, der Bootstrap setzt den Marker.
+      // Start 1: empty cache, the bootstrap sets the marker.
       await _boot(InMemoryKeyValueStore(), keyStore);
 
-      // Start 2: derselbe DEK, derselbe Slot, derselbe Klartext — jetzt aber
-      // untergeschoben statt geerbt.
+      // Start 2: same DEK, slot and plaintext, but now planted, not inherited.
       _restartApp();
       final raw = InMemoryKeyValueStore({_slot: _plaintext});
       final store = await _boot(raw, keyStore);
@@ -324,8 +315,8 @@ void main() {
       final raw = InMemoryKeyValueStore({_slot: _plaintext});
       final store = await _boot(raw, keyStore);
       await store.getString(_slot);
-      // Eine Migration liefe ueber die Write-Kette: erst deren Ende abwarten,
-      // sonst behauptet der Snapshot nur, dass sie noch nicht fertig ist.
+      // A migration would run through the write chain, so wait for it or the
+      // snapshot merely proves it has not finished yet.
       await Future<void>.delayed(Duration.zero);
 
       expect(raw.snapshot, isEmpty,
@@ -339,13 +330,13 @@ void main() {
       final keyStore = _MemoryKeyStore();
       final raw = InMemoryKeyValueStore();
 
-      // Start 1 (Marker noch offen): schreiben und lesen.
+      // Start 1 (marker still open): write and read.
       final first = await _boot(raw, keyStore);
       await first.setString(_slot, _plaintext);
       expect(await first.getString(_slot), _plaintext);
       expect(raw.snapshot[_slot], startsWith(cacheCipherMagic));
 
-      // Start 2 (Marker steht): derselbe DEK, derselbe Blob.
+      // Start 2 (marker set): same DEK, same blob.
       _restartApp();
       final second = await _boot(raw, keyStore);
 
@@ -369,8 +360,8 @@ void main() {
       final keyStore = _MemoryKeyStore();
       await _boot(InMemoryKeyValueStore(), keyStore);
 
-      // Start 2: der Marker steht. Im Cache liegen zwei tote Ciphertexte (der
-      // Keystore-Reset-Fall) UND der untergeschobene Klartext.
+      // Start 2: marker set. The cache holds two dead ciphertexts (the
+      // keystore-reset case) AND the planted plaintext.
       _restartApp();
       final raw = InMemoryKeyValueStore({
         _toterSlot: _toterCiphertext,
@@ -382,7 +373,7 @@ void main() {
       expect(await store.getString(_toterSlot), isNull);
       expect(await store.getString(_zweiterToterSlot), isNull);
       expect(await store.getString(_slot), isNull);
-      // capture() laeuft unawaited.
+      // capture() runs unawaited.
       await Future<void>.delayed(Duration.zero);
 
       expect(reported.where((e) => e.contains('ExpiredPlaintextCacheSlot')),

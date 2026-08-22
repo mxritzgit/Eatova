@@ -1,20 +1,14 @@
 import 'fitness_recipe.dart';
 
-/// Der deutsche Bestandskatalog der 30 eingebauten Rezepte.
+/// German catalog of the 30 built-in recipes.
 ///
-/// **Byte-gleich zum Vor-Migrations-Stand** (i18n-Regel 1, Inhalte-PR,
-/// 2026-08-11): dieser Text ist buchstäblich unverändert aus
-/// `fitness_recipe.dart` hierher umgezogen — kein Wort wurde beim Umzug
-/// „verbessert". Das Pendant [recipeCatalogEn] trägt dieselben 30 Slugs in
-/// derselben Reihenfolge mit denselben Zahlen/Kategorien/Bildpfaden, nur die
-/// Textfelder (title/description/portion/ingredients/preparation/
-/// professionalHint) sind übersetzt — s. `test/l10n/recipe_catalog_parity_test.dart`.
+/// Byte-identical to the pre-migration text moved out of
+/// `fitness_recipe.dart`. [recipeCatalogEn] carries the same 30 slugs in the
+/// same order with the same numbers, categories and image paths; only the text
+/// fields differ (see `test/l10n/recipe_catalog_parity_test.dart`).
 ///
-/// Diese Datei ist bewusst NICHT im Hartkodierungs-Wächter
-/// (`test/l10n/hartkodierung_waechter_test.dart`) gelistet — sie TRÄGT
-/// deutschen Content, das ist ihr Zweck. Dieselbe Kategorie Ausnahme wie
-/// `main.dart`s Boot-Fehlerschirm, nur hier: bewusst deutscher INHALT statt
-/// eines strukturell l10n-freien Codepfads.
+/// Deliberately not listed in the hardcoded-string guard: German content is
+/// this file's purpose.
 const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
   FitnessRecipe(
     slug: "hahnchen_mit_reis_and_brokkoli",

@@ -20,8 +20,8 @@ class _FakeService implements ProductLookupService {
   final List<ProductSearchResult> searchResults;
   final bool searchThrows;
 
-  /// Konkreter Fehler statt des generischen `Exception('boom')` — dient den
-  /// Tests, die die Fehler-KLASSIFIZIERUNG pruefen (Transport vs. Parse).
+  /// Concrete error instead of the generic `Exception('boom')`, for the tests
+  /// that check error CLASSIFICATION (transport vs. parse).
   final Object? searchError;
   final MealAnalysisResult? barcodeResult;
   final bool barcodeThrows;
@@ -133,10 +133,8 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // B7 — der Meilisearch-Pfad hatte gar keinen Energie-Filter.
-  // `MeilisearchProductService` filtert seine Hits nur auf einen nicht
-  // leeren Titel; die Gegenpruefung sitzt hier, an der Stelle, an der beide
-  // Quellen zusammenlaufen.
+  // B7 — the Meilisearch path had no energy filter at all; it only checks for
+  // a non-empty title. The counter-check sits here, where both sources meet.
   // ---------------------------------------------------------------------
 
   test('search: Mirror-Treffer ohne Energie werden verworfen, OFF uebernimmt',
@@ -164,8 +162,8 @@ void main() {
 
     final r = await svc.searchProducts('keks');
 
-    // Der brauchbare Treffer bleibt, der unmoegliche faellt raus — und weil
-    // noch etwas uebrig ist, wird OFF gar nicht erst gefragt.
+    // The usable hit stays, the impossible one drops — and since something is
+    // left, OFF is not asked at all.
     expect(r.map((t) => t.title), ['Milch']);
     expect(fallback.searchCalls, 0);
   });
@@ -211,9 +209,9 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // G2 — `catch (_) {}` schluckte JEDE Exception. Ein Netzfehler soll
-  // geschluckt werden; ein Parse-Fehler heisst, dass die App die API nicht
-  // mehr versteht, und muss sichtbar werden.
+  // G2 — `catch (_) {}` swallowed EVERY exception. A network error should be
+  // swallowed; a parse error means the app no longer understands the API and
+  // must become visible.
   // ---------------------------------------------------------------------
 
   group('Fehler-Klassifizierung beim Zurueckfallen', () {
@@ -292,15 +290,15 @@ void main() {
 
       expect(r.single.title, 'OFF');
       expect(gemeldet, hasLength(1));
-      // Was Sentry bekaeme, ist bereits sanitisiert (C1).
+      // What Sentry would get is already sanitised (C1).
       expect(gemeldet.single, isA<SanitizedError>());
       expect('${gemeldet.single}', contains('FormatException'));
     });
 
     test('TypeError wird gemeldet — die API-Form hat sich geaendert',
         () async {
-      // Genau die Form, die entsteht, wenn OFF ein Feld von num auf String
-      // umstellt und ein `as double` im Parser darauf trifft.
+      // Exactly what happens when OFF switches a field from num to String and
+      // an `as double` in the parser hits it.
       final primary = _FakeService(
         barcodeError: TypeError(),
       );

@@ -1,16 +1,9 @@
-// Komplettreview 2026-08-19: bis zu neun Requests pro erfolgloser Suche im
-// AddMealSheet.
-//
-// Der 1000-ms-Debounce feuerte fuer jede Tipp-Pause ab ZWEI Zeichen, und eine
-// leere (aber fehlerfreie) Antwort galt als transient — sie lief also durch
-// dieselbe Retry-Schleife wie ein Netzfehler. Da sich ein Versuch in der
-// Dienstschicht ueber Mirror + OFF-de + OFF-world auffaechert, kostete ein
-// „gibt es nicht" bis zu neun Anfragen. Ein 429 wurde nirgends erkannt und
-// blieb auf dem getippten Weg sogar voellig stumm.
-//
-// Diese Datei nagelt die drei Gegenmassnahmen fest. Sie prueft bewusst die
-// ANZAHL der Dienstaufrufe: die Meldung allein wuerde auch bei drei Versuchen
-// am Ende richtig dastehen.
+// Up to nine requests per fruitless AddMealSheet search (review 2026-08-19):
+// the debounce fired from two characters on, an empty answer counted as
+// transient and got retried, and one attempt fans out over mirror + OFF-de +
+// OFF-world; a 429 was never recognised. These tests pin the three
+// countermeasures via the CALL COUNT, since the message alone would look
+// right either way.
 
 import 'dart:io';
 
@@ -46,8 +39,7 @@ class _StummeFotoquelle implements MealPhotoInput {
   Future<MealPhotoSelection?> pick(ImageSource source) async => null;
 }
 
-/// Zaehlt, wie oft die Dienstkette wirklich angefasst wird — die Kennzahl,
-/// um die es in diesem Befund geht.
+/// Counts how often the service chain is actually hit.
 class _ZaehlenderProduktdienst implements ProductLookupService {
   _ZaehlenderProduktdienst({
     this.treffer = const <ProductSearchResult>[],
@@ -110,7 +102,7 @@ Future<void> _pumpeSheet(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // AddMealSheet liest seit der i18n-Migration context.l10n.
+      // AddMealSheet reads context.l10n, so the delegates are required.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -147,8 +139,8 @@ void main() {
       find.byKey(const ValueKey('kcal-product-search-input')),
       'Bauernmozzarella',
     );
-    // Debounce (1000 ms) + der Raum, den zwei Retries (je 600 ms) brauchen
-    // wuerden — genau der Raum, der jetzt ungenutzt bleiben muss.
+    // Debounce (1000 ms) plus the room two retries would need — room that
+    // must now stay unused.
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump(const Duration(milliseconds: 1300));
     await tester.pumpAndSettle();
@@ -159,7 +151,7 @@ void main() {
       reason: 'jeder weitere Versuch kostet Mirror + OFF-de + OFF-world',
     );
     expect(find.text(_keineTreffer), findsOneWidget);
-    // Endgueltig leer heisst weiterhin: Weg ins manuelle Formular.
+    // Definitively empty still offers the manual form.
     expect(find.byKey(const ValueKey('manual-entry-cta')), findsOneWidget);
   });
 
@@ -244,8 +236,7 @@ void main() {
       reason: 'unterhalb der Auto-Schwelle bleibt der Favoriten-Bereich stehen',
     );
 
-    // Die Lupe schaltet dasselbe Fragment trotzdem frei — wer wirklich nach
-    // „Ei" sucht, kommt dran.
+    // The magnifier still releases the same fragment on demand.
     await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
     await tester.pump();
     await tester.pumpAndSettle();

@@ -3,14 +3,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Wächter der Spec §6: app_en.arb muss exakt die Keys von app_de.arb tragen.
-/// Fehlt ein Key, fiele der Text still auf Deutsch zurück — das soll die CI
-/// brechen, nicht der Nutzer finden.
+/// Guard for spec §6: app_en.arb must carry exactly the keys of app_de.arb.
+/// A missing key would silently fall back to German — CI should catch that,
+/// not the user.
 void main() {
   Set<String> keysOf(String pfad) {
     final json = jsonDecode(File(pfad).readAsStringSync())
         as Map<String, dynamic>;
-    // @-Einträge sind Metadaten (Beschreibungen, Platzhalter), keine Texte.
+    // @ entries are metadata (descriptions, placeholders), not texts.
     return json.keys.where((k) => !k.startsWith('@')).toSet();
   }
 

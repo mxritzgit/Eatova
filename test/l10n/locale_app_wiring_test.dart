@@ -5,11 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:eatova/main.dart';
 import 'package:eatova/src/app/locale_controller.dart';
 
-// VERDRAHTUNG der Anzeigesprache in der ECHTEN App-Schale.
-//
-// Spiegel von test/theme/theme_mode_app_wiring_test.dart: dort steht, warum
-// eine reine Controller-/Widget-Pruefung nicht reicht — die eine Stelle, an
-// der die Kette in der ausgelieferten App haengt, ist `EatovaApp.build`.
+// WIRING of the display language in the REAL app shell. Mirror of
+// test/theme/theme_mode_app_wiring_test.dart: a controller/widget check alone
+// misses `EatovaApp.build`, the one place the chain hangs on in the shipped
+// app.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 

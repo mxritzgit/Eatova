@@ -1,45 +1,35 @@
-// Gemeinsame, defensive Env-Parser fuer alle Edge Functions.
+// Shared defensive env parsers for all edge functions.
 //
-// Warum das ein eigenes Modul ist: ein falsch gesetztes Function-Secret darf
-// nie zu einem Totalausfall fuehren. `Number(Deno.env.get('X') ?? '20')`
-// liefert fuer einen nicht-numerischen Wert NaN; NaN wird von JSON.stringify
-// zu `null` serialisiert, die RPC consume_edge_rate_limit bekommt dann
-// p_limit = null, der SQL-Guard wirft, PostgREST antwortet 500 und JEDER
-// Request der Function scheitert mit `rate_limit_unavailable`. Ein Tippfehler
-// im Secret legt damit die komplette Function lahm.
+// A misconfigured function secret must never cause a total outage.
+// `Number(env ?? '20')` yields NaN for a non-numeric value, JSON.stringify
+// turns NaN into `null`, consume_edge_rate_limit gets p_limit = null, the SQL
+// guard throws and EVERY request fails with `rate_limit_unavailable`. The same
+// guard also has UPPER bounds (p_limit > 10000, p_window_seconds > 86400), so
+// an oversized secret used to cause the identical outage.
 //
-// Derselbe SQL-Guard hat aber auch OBERE Grenzen (p_limit > 10000 bzw.
-// p_window_seconds > 86400 werfen genauso). Ein zu GROSS gesetztes Secret
-// fuehrte deshalb frueher in exakt denselben Totalausfall, den dieses Modul
-// verhindern soll - die Bereichspruefung endete bei "> 0".
+// Therefore: unset / empty / not a plain integer / <= 0 / not a safe integer /
+// above the RPC ceiling -> fall back to the code default.
 //
-// Deshalb: nicht gesetzt / leer / kein reines Integer / <= 0 / kein sicherer
-// Integer / ueber der RPC-Obergrenze -> Fallback auf den Code-Default.
-//
-// Das `_`-Prefix des Verzeichnisses haelt die Supabase-CLI davon ab, _shared
-// als eigene deploybare Function zu behandeln; relative Imports werden beim
-// Deploy mitgebundelt.
+// The `_` directory prefix keeps the Supabase CLI from treating _shared as a
+// deployable function; relative imports are bundled on deploy.
 
-/** Obergrenze fuer p_limit aus dem SQL-Guard von consume_edge_rate_limit
- *  (supabase/migrations/20260518000100_fix_edge_rate_limit_pgcrypto_search_path.sql:33).
- *  Zugleich der Default-Deckel unten: er ist der engere der beiden Guards und
- *  damit fuer jeden Aufrufer sicher. */
+/** Upper bound for p_limit from the consume_edge_rate_limit SQL guard
+ *  (supabase/migrations/20260518000100_fix_edge_rate_limit_pgcrypto_search_path.sql:33),
+ *  also the default cap below because it is the tighter of the two guards. */
 export const EDGE_RATE_LIMIT_MAX_LIMIT = 10000;
 
-/** Obergrenze fuer p_window_seconds aus demselben Guard (Z. 36), 24 h.
- *  Aufrufer, die ein Fenster JENSEITS von EDGE_RATE_LIMIT_MAX_LIMIT Sekunden
- *  (~2,8 h) konfigurierbar halten wollen, muessen diesen Wert explizit als
- *  `max` uebergeben - sonst greift der engere Default und der Wert faellt
- *  still auf den Code-Default zurueck. */
+/** Upper bound for p_window_seconds from the same guard (line 36), 24 h.
+ *  Callers wanting a window beyond EDGE_RATE_LIMIT_MAX_LIMIT seconds (~2.8 h)
+ *  must pass this value as `max` explicitly, or the tighter default applies
+ *  and the value silently falls back to the code default. */
 export const EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS = 86400;
 
 /**
- * Liest `name` aus der Environment und gibt nur eine positive Ganzzahl im
- * erlaubten Bereich zurueck; alles andere -> `fallback`.
+ * Reads `name` from the environment and returns only a positive integer within
+ * the allowed range; anything else -> `fallback`.
  *
- * `max` bewusst per Default auf die engere der beiden RPC-Grenzen: ein
- * ignoriertes Secret ist ein Konfigurationsfehler, ein durchgereichter zu
- * grosser Wert dagegen ein 500 auf JEDEM Request der Function.
+ * `max` defaults to the tighter of the two RPC bounds: an ignored secret is a
+ * config error, an oversized value passed through is a 500 on EVERY request.
  */
 export function positiveIntFromEnv(
   name: string,

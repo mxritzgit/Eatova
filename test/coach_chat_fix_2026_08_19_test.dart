@@ -14,33 +14,21 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Komplettreview 2026-08-19, Coach-Paket — drei Befunde am Screen:
+// Full review 2026-08-19, coach package — three findings:
 //
-//  * Fund 1: Bricht das Netz weg, blieb die Frage eine ganz normale Blase. Der
-//    einzige Weg zurueck war „nochmal tippen" (der Entwurf lag wieder im Feld)
-//    — und der erzeugte eine ZWEITE Blase mit demselben Text. Die Sitzung trug
-//    die Frage danach doppelt, das Modell bekam sie beim naechsten Mal auch
-//    doppelt als Kontext.
-//
-//  * Fund 2: `build()` steckt den Verlauf in einen AnimatedSwitcher (220 ms)
-//    und gibt jeder `_Conversation` denselben ScrollController. Beim
-//    Sitzungswechsel haengen deshalb kurzzeitig ZWEI ListViews daran, und
-//    `_scrollToEnd` griff auf `ScrollController.position` zu — das ist
-//    `_positions.single` und wirft dann. `hasClients` faengt das nicht ab: es
-//    prueft nur, ob ueberhaupt eine Liste angehaengt ist.
-//
-//  * Fund 3: Der Nachziehpfad des Tageszaehlers hing ausschliesslich am
-//    Flankenwechsel des TickerMode, also am TAB-Wechsel. Wer um 23:50 seinen
-//    letzten Slot verbraucht und die App AUF DEM COACH-TAB in den Hintergrund
-//    schickt, kommt auf denselben Tab zurueck — keine Flanke, kein Nachziehen,
-//    und weil bei erschoepftem Kontingent auch keine send()-Antwort mehr
-//    kommt, blieb der Composer bis zum Kaltstart gesperrt.
+//  1. A failed send stayed an ordinary bubble, and retyping produced a SECOND
+//     bubble with the same text.
+//  2. Every `_Conversation` in the 220 ms AnimatedSwitcher shares one
+//     ScrollController, so a session switch attaches two ListViews and
+//     `ScrollController.position` throws; `hasClients` does not catch it.
+//  3. The daily counter only refreshed on a TickerMode edge, so backgrounding
+//     on the coach tab left the composer locked until restart.
 
 class _FixCoach extends CoachChatService {
   _FixCoach(super.client, super.userId);
 
-  /// `stopAutoRefresh()` ist Pflicht: GoTrue startet im Konstruktor einen
-  /// periodischen Timer, an dem jeder Widget-Test scheitert.
+  /// `stopAutoRefresh()` is mandatory: GoTrue's constructor timer trips every
+  /// widget test.
   static _FixCoach create() {
     final client = SupabaseClient(
       'https://example.supabase.co',
@@ -51,21 +39,17 @@ class _FixCoach extends CoachChatService {
     return _FixCoach(client, 'user-123');
   }
 
-  /// Unverwechselbare Nachrichten in beiden Sitzungen — ohne Verlauf stuende
-  /// der Hero mit seinem Dauer-Orb im Bild.
+  /// Distinguishable messages per session; without history the hero shows.
   static const String verlaufA = 'Das ist der Verlauf von Sitzung A.';
   static const String verlaufB = 'Das ist der Verlauf von Sitzung B.';
 
-  /// Texte der `send()`-Aufrufe in Reihenfolge — der Beleg dafuer, dass der
-  /// Wiederholversuch bitgleich dasselbe schickt.
+  /// `send()` texts in order — proof the retry sends the same bits.
   final List<String> gesendeteTexte = <String>[];
 
-  /// Offene Sende-Auftraege; der Test loest sie von Hand auf.
+  /// Pending send jobs; the test resolves them by hand.
   final List<Completer<CoachChatReply>> offen = <Completer<CoachChatReply>>[];
 
-  /// Solange true, haengt jeder `loadHistory`-Aufruf an einem Completer — nur
-  /// so laesst sich der Verlauf MITTEN im AnimatedSwitcher-Uebergang
-  /// einliefern.
+  /// While true `loadHistory` hangs, so history can land mid-transition.
   bool verlaufHaengt = false;
 
   final Map<String, Completer<List<ChatMessage>>> offeneVerlaeufe =
@@ -73,8 +57,7 @@ class _FixCoach extends CoachChatService {
 
   int quotaAufrufe = 0;
 
-  /// Staende, die der Server nacheinander nennt. Der letzte Eintrag gilt fuer
-  /// alle weiteren Abfragen.
+  /// States the server reports in order; the last entry repeats.
   List<ChatQuotaSnapshot> quotaFolge = const <ChatQuotaSnapshot>[
     ChatQuotaSnapshot(used: 0, remaining: 5, dailyLimit: 5),
   ];
@@ -160,8 +143,8 @@ Widget _app(
 }) =>
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // Der Coach ruft seit der i18n-Migration context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach calls context.l10n; without localizations
+      // AppLocalizations.of() throws on the first build.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -181,8 +164,7 @@ Widget _app(
       ),
     );
 
-/// Aufbau mit stillgestellter Bewegung — Denk-Punkte, Orb und Uebergaenge
-/// stehen still, sonst kommt `pumpAndSettle` bei laufendem `_sending` nie an.
+/// Motion disabled, or `pumpAndSettle` never returns while `_sending` runs.
 Future<void> _pumpCoachRuhig(WidgetTester tester, _FixCoach service) async {
   tester.view.devicePixelRatio = 3.0;
   tester.view.physicalSize = _usableSize * 3.0;
@@ -195,9 +177,8 @@ Future<void> _pumpCoachRuhig(WidgetTester tester, _FixCoach service) async {
   await tester.pumpAndSettle();
 }
 
-/// Aufbau MIT Bewegung — nur so entsteht das 220-ms-Fenster des
-/// AnimatedSwitchers, in dem Fund 2 lebt. Deshalb hier ueberall feste Pumps
-/// statt `pumpAndSettle`.
+/// Setup WITH motion, the only way into the 220 ms window of finding 2 —
+/// hence fixed pumps instead of `pumpAndSettle`.
 Future<void> _pumpCoachBewegt(WidgetTester tester, _FixCoach service) async {
   tester.view.devicePixelRatio = 3.0;
   tester.view.physicalSize = _usableSize * 3.0;
@@ -218,9 +199,8 @@ Future<void> _tippenUndSenden(WidgetTester tester, String text) async {
   await tester.pumpAndSettle();
 }
 
-/// Zaehlt AUSSCHLIESSLICH Blasen. `find.text` matcht auch die `EditableText`
-/// des Composers — und nach einem Fehlschlag steht der Entwurf wieder im Feld,
-/// die Frage waere also doppelt gefunden, ohne dass es eine zweite Blase gibt.
+/// Counts bubbles ONLY: `find.text` also matches the composer, which holds
+/// the draft again after a failure.
 int _blasenMit(WidgetTester tester, String text) => tester
     .widgetList<Text>(find.byType(Text))
     .where((w) => w.data == text)
@@ -228,7 +208,7 @@ int _blasenMit(WidgetTester tester, String text) => tester
 
 void main() {
   // ─────────────────────────────────────────────────────────────────────────
-  // Fund 1 — die fehlgeschlagene Nachricht
+  // Finding 1 — the failed message
   // ─────────────────────────────────────────────────────────────────────────
   testWidgets(
     'Fehlschlag: die Frage wird als „nicht gesendet" gekennzeichnet, und der '
@@ -321,7 +301,7 @@ void main() {
   );
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fund 2 — zwei Verlaeufe am selben ScrollController
+  // Finding 2 — two histories on the same ScrollController
   // ─────────────────────────────────────────────────────────────────────────
   testWidgets(
     'Sitzungswechsel MITTEN im 220-ms-Uebergang sprengt _scrollToEnd nicht',
@@ -330,21 +310,18 @@ void main() {
       await _pumpCoachBewegt(tester, svc);
       expect(find.text(_FixCoach.verlaufA), findsOneWidget);
 
-      // Ab hier haengt der Verlauf, damit der Test bestimmt, WANN die zweite
-      // ListView in den Baum kommt.
+      // History hangs so the test decides when the second ListView appears.
       svc.verlaufHaengt = true;
       await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(find.text('Chat B'));
-      // Bewusst OHNE pumpAndSettle: der ausgehende Verlauf von Sitzung A
-      // blendet 220 ms lang weiter mit und haengt so lange am Controller.
+      // No pumpAndSettle: A's outgoing history stays attached for 220 ms.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 40));
 
       svc.offeneVerlaeufe['s2']!.complete(_FixCoach.verlaufVon('s2'));
-      // Dieser Frame baut den Verlauf von B — jetzt sind es zwei Positionen,
-      // und der Post-Frame-Callback ruft _scrollToEnd.
+      // This frame builds B's history: two positions, then _scrollToEnd.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 40));
 
@@ -361,7 +338,7 @@ void main() {
   );
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fund 3 — Mitternachts-Aussperrung
+  // Finding 3 — midnight lockout
   // ─────────────────────────────────────────────────────────────────────────
   testWidgets(
     'Resume zieht den Tageszaehler nach — der Tab-Wechsel allein reicht '

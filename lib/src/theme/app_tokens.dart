@@ -1,21 +1,18 @@
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
-// Eatova Design Tokens  (Design-Refactor 2026-08-09)
+// Eatova design tokens (design refactor 2026-08-09)
 //
-// Vorher lagen alle Farben als Top-Level-`const` in app_colors.dart und wurden
-// direkt importiert. Das schloss einen Hell-Modus konstruktiv aus: eine
-// Konstante kann nicht zwei Werte haben. Die Farbwelt haengt jetzt als
-// ThemeExtension am Theme und wird ueber `context.t` gelesen.
+// Colors live as a ThemeExtension read via `context.t`; top-level `const`
+// colors could not carry a light mode.
 //
-// Drei Schlösser gelten weiter (Anti-Slop-Disziplin aus app_colors.dart):
-//   1. FARBE  – `lime`/`forest` tragen Marke und Interaktion. Makro-Farben
-//               kodieren AUSSCHLIESSLICH Naehrwerte. `danger`/`warning`
-//               signalisieren nur Zustand. Keine Ueberschneidung.
-//   2. FORM   – eine Radius-Skala (rChip / rControl / rCard / rSheet / rHero /
-//               rPill), unten in dieser Datei.
-//   3. SCHICHT– Material 3 traegt Verhalten und Semantik, diese Tokens tragen
-//               die Pixel. Kein Widget schreibt eine Farbe hart hin.
+// Three locks still hold:
+//   1. COLOR – `lime`/`forest` carry brand and interaction, macro colors
+//              encode nutrients ONLY, `danger`/`warning` signal state only.
+//   2. SHAPE – one radius scale (rChip / rControl / rCard / rSheet / rHero /
+//              rPill), at the bottom of this file.
+//   3. LAYER – Material 3 carries behavior, these tokens carry the pixels.
+//              No widget hardcodes a color.
 // ---------------------------------------------------------------------------
 
 @immutable
@@ -42,56 +39,55 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.shadowTint,
   });
 
-  /// Seiten-Grund (Scaffold).
+  /// Page ground (scaffold).
   final Color bg;
 
-  /// Karten-/Panel-Flaeche auf [bg].
+  /// Card/panel surface on [bg].
   final Color surf;
 
-  /// Zweite, leicht abgesetzte Flaeche (Banner, Bild-Platzhalter).
+  /// Second, slightly offset surface (banners, image placeholders).
   final Color surf2;
 
-  /// Sehr schwache Fuellung fuer Icon-Kacheln und Balken-Spuren.
+  /// Very faint fill for icon tiles and bar tracks.
   final Color tile;
 
-  /// Trennlinien und Kartenraender (1 px, bewusst sehr schwach).
+  /// Dividers and card borders (1 px, deliberately faint).
   final Color line;
 
-  /// Haupttext.
+  /// Primary text.
   final Color ink;
 
-  /// Sekundaertext, Icons, Beschriftungen.
+  /// Secondary text, icons, labels.
   final Color ink2;
 
-  /// Die dunkelgruene Marken-Flaeche (Hero-Karten, primaere Buttons).
+  /// The dark-green brand surface (hero cards, primary buttons).
   final Color forest;
 
-  /// Text/Icon auf [forest].
+  /// Text/icon on [forest].
   final Color onForest;
 
-  /// Der Marken-Akzent.
+  /// The brand accent.
   final Color lime;
 
-  /// Text/Icon auf [lime] — immer dunkel, in beiden Modi.
+  /// Text/icon on [lime] — always dark, in both modes.
   final Color onLime;
 
-  /// Strich-/Fuellfarbe fuer Grafiken, die AUF einer hellen Karte sitzen.
-  /// Im Dunkelmodus ist [forest] eine *Flaeche* und taugt dort nicht als
-  /// Tinte — deshalb dieser eigene Token statt einer Fallunterscheidung.
+  /// Stroke/fill for graphics sitting ON a light card. In dark mode [forest]
+  /// is a *surface* and unusable as ink, hence its own token instead of a
+  /// brightness branch.
   final Color accent;
 
-  /// Makro-Kodierung. Nie Interaktionsfarbe, nie Dekoration.
+  /// Macro encoding. Never an interaction color, never decoration.
   final Color protein, carbs, fat;
 
-  /// Vierte kategorische Farbe fuer den Snack-Slot (die drei Makro-Toene
-  /// sind fuer Naehrwerte reserviert, ein grauer Snack laese sich wie
-  /// „deaktiviert").
+  /// Fourth categorical color for the snack slot (the macro tones are reserved
+  /// for nutrients, and a grey snack would read as disabled).
   final Color snack;
 
-  /// Zustands-Signale. Getrennt von Marke und Daten.
+  /// State signals. Separate from brand and data.
   final Color danger, warning;
 
-  /// Getoenter Schatten fuer erhabene Flaechen (nie reines Schwarz).
+  /// Tinted shadow for raised surfaces (never pure black).
   final Color shadowTint;
 
   static const AppTokens light = AppTokens(
@@ -101,11 +97,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     tile: Color(0x0D151E18),
     line: Color(0x1A151E18),
     ink: Color(0xFF151E18),
-    // Dunkler als der Entwurf (#6E7C73): dessen Ton erreichte auf `surf` nur
-    // 4.31:1 und auf `surf2` 3.51:1. `ink2` traegt hier fast durchgehend
-    // KLEINE Schrift (9,5–12,5 px), ist also normaler Fliesstext im Sinne der
-    // WCAG und braucht 4.5:1. Dieser Ton haelt 5.7 / 5.1 / 4.7 auf
-    // surf / bg / surf2.
+    // Darker than the draft (#6E7C73, only 4.31:1 on `surf`): `ink2` carries
+    // small text (9.5–12.5 px), i.e. WCAG body text needing 4.5:1. This tone
+    // holds 5.7 / 5.1 / 4.7 on surf / bg / surf2.
     ink2: Color(0xFF5A6862),
     forest: Color(0xFF123322),
     onForest: Color(0xFFF4F2E6),
@@ -143,20 +137,18 @@ class AppTokens extends ThemeExtension<AppTokens> {
     shadowTint: Color(0x59060810),
   );
 
-  /// Die Tokens des naechstgelegenen Themes. Wirft bewusst, wenn die
-  /// Extension fehlt — ein Screen ohne Tokens ist ein Verdrahtungsfehler,
-  /// kein Anzeigefehler, und soll im Test sofort auffallen.
+  /// Tokens of the nearest theme. Throws deliberately when the extension is
+  /// missing — a screen without tokens is a wiring bug, not a display bug.
   static AppTokens of(BuildContext context) =>
       Theme.of(context).extension<AppTokens>()!;
 
-  /// Ein Ton von [farbe], der auf ihrer eigenen schwachen Tint lesbar ist.
+  /// A tone of [farbe] readable on its own faint tint.
   ///
-  /// Das Muster „Glyph in der vollen Kategoriefarbe auf derselben Farbe mit
-  /// ~16 % Deckung" (MealAvatar, Slot-Waehler) sieht dunkel gut aus und
-  /// scheiterte hell: Kohlenhydrat-Amber kam auf 2.15:1. Die Mischung
-  /// Richtung [ink] loest das ohne Helligkeits-Abzweig im Widget — [ink] ist
-  /// in der hellen Palette dunkel und in der dunklen hell, die Korrektur geht
-  /// also von selbst in die richtige Richtung. Der Farbton bleibt erhalten.
+  /// A glyph in the full category color on ~16 % of the same color works in
+  /// dark mode but failed in light (carb amber at 2.15:1). Blending towards
+  /// [ink] fixes it without a brightness branch: [ink] is dark in the light
+  /// palette and light in the dark one, so the correction self-orients while
+  /// the hue survives.
   Color readableOnTint(Color farbe) =>
       Color.alphaBlend(farbe.withValues(alpha: 0.55), ink);
 
@@ -233,19 +225,19 @@ class AppTokens extends ThemeExtension<AppTokens> {
   }
 }
 
-/// Kurzform fuer den Zugriff im build(): `final t = context.t;`
+/// Shorthand for build(): `final t = context.t;`
 extension TokensX on BuildContext {
   AppTokens get t => AppTokens.of(this);
 }
 
-// --- FORM-SKALA --------------------------------------------------------------
-// Helligkeitsunabhaengig, deshalb weiter als Top-Level-Konstanten.
-//   rChip    Chips, kleine Schalter, Tags
-//   rControl Eingaben, Buttons, Listenzeilen
-//   rCard    Karten, Panels
-//   rSheet   Bottom-Sheets, Dialoge
-//   rHero    grosse Marken-Flaechen (Kalorien-Hero, Identitaets-Karte)
-//   rPill    vollrund (Pillen, FAB, Avatare)
+// --- SHAPE SCALE -------------------------------------------------------------
+// Brightness-independent, so still top-level constants.
+//   rChip    chips, small switches, tags
+//   rControl inputs, buttons, list rows
+//   rCard    cards, panels
+//   rSheet   bottom sheets, dialogs
+//   rHero    large brand surfaces (calorie hero, identity card)
+//   rPill    fully round (pills, FAB, avatars)
 const double rChip = 11;
 const double rControl = 15;
 const double rCard = 22;
@@ -253,9 +245,9 @@ const double rSheet = 28;
 const double rHero = 28;
 const double rPill = 999;
 
-/// Weiche Erhebung fuer schwebende Flaechen (Nav-Leiste, Sheets). Die neue
-/// Sprache traegt Tiefe primaer ueber [AppTokens.line]; Schatten bleiben die
-/// Ausnahme fuer Dinge, die wirklich ueber dem Inhalt liegen.
+/// Soft elevation for floating surfaces (nav bar, sheets). Depth normally
+/// comes from [AppTokens.line]; shadows stay the exception for things that
+/// really sit above the content.
 List<BoxShadow> softShadow(AppTokens t) => <BoxShadow>[
       BoxShadow(
         color: t.shadowTint,
@@ -265,22 +257,20 @@ List<BoxShadow> softShadow(AppTokens t) => <BoxShadow>[
       ),
     ];
 
-// --- SCHRIFT -----------------------------------------------------------------
-// Zwei gebuendelte Familien (assets/fonts, KEIN google_fonts):
-//   * Bricolage Grotesque traegt Zahlen und Ueberschriften — enge Negativ-
-//     Laufweite, tabellarische Ziffern, damit Kalorienwerte beim Zaehlen
-//     nicht springen.
-//   * Archivo traegt alles Uebrige (Fliesstext, Beschriftungen, Buttons).
-// Bewusst gebuendelt statt ueber google_fonts geladen: kein Laufzeit-Request
-// an Google (Datenschutzerklaerung), kein Fallback-Aufblitzen, offline
-// identisch.
+// --- TYPE --------------------------------------------------------------------
+// Two bundled families (assets/fonts, NO google_fonts):
+//   * Bricolage Grotesque for numbers and headings — tight negative tracking,
+//     tabular figures so calorie values do not jump while counting.
+//   * Archivo for everything else (body, labels, buttons).
+// Bundled on purpose: no runtime request to Google (privacy policy), no
+// fallback flash, identical offline.
 class AppType {
   const AppType._();
 
   static const String displayFamily = 'BricolageGrotesque';
   static const String uiFamily = 'Archivo';
 
-  /// Zahlen und Ueberschriften.
+  /// Numbers and headings.
   static TextStyle display(
     double size, {
     FontWeight weight = FontWeight.w800,
@@ -299,7 +289,7 @@ class AppType {
     );
   }
 
-  /// Fliesstext, Beschriftungen, Buttons.
+  /// Body text, labels, buttons.
   static TextStyle ui(
     double size, {
     FontWeight weight = FontWeight.w400,
@@ -317,7 +307,7 @@ class AppType {
     );
   }
 
-  /// Kleine Versalien-Beschriftung ueber Abschnitten.
+  /// Small all-caps caption above sections.
   static TextStyle eyebrow(Color color, {double size = 10}) => TextStyle(
         fontFamily: uiFamily,
         fontSize: size,

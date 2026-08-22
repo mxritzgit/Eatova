@@ -7,22 +7,11 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// D11 (Review 2026-08-08): Der Berechtigungsschalter luegt.
-//
-// Vorher setzte `_setNotificationsEnabled(true)` das Flag in State UND Cache,
-// BEVOR der Systemdialog beantwortet war. Tippte der Nutzer „Nicht zulassen",
-// blieb der Schalter fuer immer auf AN — es kam nur nie etwas. Der Kaltstart
-// las dieses `true` und plante ohne jede Pruefung ins Leere; ein spaeterer
-// Entzug in den Systemeinstellungen wurde nie bemerkt.
-//
-// Es gibt drei Zustaende, nicht zwei:
-//   off     — der Nutzer will keine Erinnerungen
-//   active  — der Nutzer will sie UND das OS liefert sie aus
-//   blocked — der Nutzer will sie, das OS verweigert sie
-//
-// Wichtig ist die Trennung von PRUEFEN und ANFRAGEN: der Kaltstart darf die
-// OS-Ebene nur gegenlesen (`hasPermission`), niemals einen Systemdialog
-// ausloesen (`requestPermission`).
+// D11 (Review 2026-08-08): the permission switch used to lie — the flag was
+// persisted before the system dialog was answered, so a denial left the switch
+// on forever. Hence three states, not two: off, active (the OS delivers) and
+// blocked (the user wants reminders, the OS refuses). Cold start may only
+// CHECK (`hasPermission`), never REQUEST (`requestPermission`).
 
 void _noopSnack(
   String message, {
@@ -32,8 +21,8 @@ void _noopSnack(
   SnackBarAction? action,
 }) {}
 
-/// Test-Double mit getrennten Schaltern fuer „Dialog-Antwort" und
-/// „OS-Wahrheit" — genau die beiden Dinge, die die Produktion verwechselt hat.
+/// Test double with separate switches for "dialog answer" and "OS truth" —
+/// exactly the two things production used to conflate.
 class _FakeNotificationService
     implements NotificationService, NotificationPermissionProbe {
   _FakeNotificationService({bool grantOnRequest = true, bool? osAllows})
@@ -49,8 +38,8 @@ class _FakeNotificationService
   int cancelAllCalls = 0;
   final List<List<NotificationSpec>> scheduled = <List<NotificationSpec>>[];
 
-  /// Simuliert den Nutzer, der die Berechtigung in den Systemeinstellungen
-  /// nachtraeglich erteilt oder entzieht — ohne dass die App laeuft.
+  /// Simulates the user granting or revoking the permission in the system
+  /// settings while the app is not running.
   void setOsPermission(bool allowed) {
     _osAllows = allowed;
     _grantOnRequest = allowed;
@@ -216,7 +205,7 @@ void main() {
       await store.setNotificationsEnabled(true);
       expect(store.reminderState, ReminderState.blocked);
 
-      // Nutzer oeffnet die Systemeinstellungen und erlaubt.
+      // User opens the system settings and allows it.
       svc.setOsPermission(true);
       await store.refreshNotificationPermission();
 
@@ -264,16 +253,10 @@ void main() {
     test(
         'ein Dienst OHNE Probe: Kaltstart laeuft durch, behauptet aber nichts '
         'und entwertet nichts', () async {
-      // Sentinel-Fund 2 (Nachverifikation 2026-08-08): die erste Fassung
-      // dieses Tests schrieb das Raten als Soll fest — „unbekannt" wurde als
-      // ReminderState.active behauptet. Genau die Klasse, die D11 gefixt hat:
-      // gruener Schalter ohne Beleg, dass je etwas zugestellt wird.
-      //
-      // Neuer Vertrag fuer „nicht feststellbar": NICHTS behaupten (kein
-      // active), NICHTS planen (der active-Pfad waere die einzige Quelle)
-      // und NICHTS entwerten — der persistierte Opt-in bleibt stehen, damit
-      // der naechste Boot mit einem probe-faehigen Dienst den echten Zustand
-      // wiederherstellen kann. Kein cancelAll aus Unwissen.
+      // Contract for "cannot be determined": claim NOTHING (no active),
+      // schedule NOTHING, and invalidate NOTHING — the persisted opt-in stays
+      // so the next boot with a probe-capable service can restore the real
+      // state. No cancelAll out of ignorance.
       final cache = newCache();
       await cache.writeNotificationsEnabled(true);
       final svc = _ProbelessNotificationService();
@@ -292,8 +275,8 @@ void main() {
   });
 }
 
-/// Implementiert NUR das Basis-Interface (keine Probe) — so wie es bestehende
-/// Test-Doubles im Projekt tun.
+/// Implements ONLY the base interface (no probe), like the other test doubles
+/// in this project.
 class _ProbelessNotificationService implements NotificationService {
   int cancelAllCalls = 0;
   final List<List<NotificationSpec>> scheduled = <List<NotificationSpec>>[];

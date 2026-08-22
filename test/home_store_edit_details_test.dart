@@ -10,15 +10,12 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Bearbeiten-Sheet (2026-08-06): updateLoggedMealDetails aendert Portion,
-// Slot und/oder Tag einer geloggten Mahlzeit in EINEM Update. Diese Tests
-// sichern die reine Store-Logik (ohne Sync):
-//   * Slot-Wechsel setzt forcedSlot, laesst Zeitpunkt + Tagessumme stehen.
-//   * Tag-Verschiebung erhaelt die lokale Wanduhr-Zeit, setzt localDay und
-//     zieht die Tageszaehler BEIDER Tage konsistent nach.
-//   * Streak-Entscheidung: Verschieben AUF heute trackt heute (idempotent),
-//     Verschieben auf vergangene Tage ist ein Nachtrag (Streak unberuehrt).
-//   * Undo (Snackbar-Aktion) stellt den vorherigen Stand vollstaendig her.
+// Edit sheet (2026-08-06): updateLoggedMealDetails changes portion, slot and/or
+// day of a logged meal in ONE update. These tests cover the pure store logic
+// (no sync): a slot change sets forcedSlot and keeps time and day total; a day
+// move keeps the local wall-clock time and updates BOTH days; moving ONTO today
+// tracks today idempotently while moving into the past leaves the streak alone;
+// undo restores the previous state.
 
 class _SnackCapture {
   final List<String> messages = <String>[];
@@ -99,7 +96,7 @@ void main() {
     expect(updated.loggedAt.hour, before.loggedAt.hour);
     expect(updated.loggedAt.minute, before.loggedAt.minute);
 
-    // Heute ist geraeumt, gestern gefuellt — inkl. der Store-Felder fuer heute.
+    // Today is cleared, yesterday filled, including the store fields for today.
     expect(s.store.consumedKcalForFoodDate(DateTime.now()), 0);
     expect(s.store.consumedKcalForFoodDate(_yesterday), 300);
     expect(s.store.dailyConsumedKcal, 0);
@@ -110,7 +107,7 @@ void main() {
 
   test('Verschieben AUF heute markiert heute als getrackt — idempotent', () {
     final s = _setup();
-    // Nachtrag fuer gestern zaehlt beim Loggen nicht fuer die Streak.
+    // A late entry for yesterday does not count towards the streak.
     final id = s.store.addResultToDailyTotal(_meal('Nachtrag'),
         foodDate: _yesterday);
     expect(s.store.lifetimeStats.currentStreak, 0);
@@ -120,7 +117,7 @@ void main() {
     expect(s.store.lifetimeStats.currentStreak, 1);
     expect(s.store.lifetimeStats.lastTrackedDate, _today);
 
-    // Zweite Verschiebung auf heute zaehlt den Tag nicht doppelt.
+    // A second move onto today does not count the day twice.
     final id2 = s.store.addResultToDailyTotal(_meal('Nachtrag 2'),
         foodDate: _yesterday);
     s.store.updateLoggedMealDetails(id2, day: DateTime.now());
@@ -131,7 +128,7 @@ void main() {
       'Verschieben auf einen VERGANGENEN Tag ist ein Nachtrag — Streak und '
       'lastTrackedDate bleiben stehen', () {
     final s = _setup();
-    final id = s.store.addResultToDailyTotal(_meal('Bowl')); // heute -> 1
+    final id = s.store.addResultToDailyTotal(_meal('Bowl')); // today -> 1
     expect(s.store.lifetimeStats.currentStreak, 1);
 
     s.store.updateLoggedMealDetails(id, day: _yesterday);
@@ -192,16 +189,10 @@ void main() {
     expect(s.store.dailyConsumedKcal, 300);
   });
 
-  // B5: _moveDayLabel rechnete den Abstand zum Zieltag mit
-  // `today.difference(target).inDays` — Absolutzeit. Ueber die
-  // Fruehjahrsumstellung (Europe/Berlin, Sonntag 29.03.2026, 23 Stunden)
-  // misst das 23h und meldet 0 Tage: die Bestaetigung behauptete „auf heute
-  // verschoben", waehrend die Mahlzeit auf gestern liegt.
-  //
-  // Der Test nagelt die Uhr per withClock fest (der Store liest sie ueber
-  // clock.now()). Auf einer UTC-Maschine gibt es den 23-Stunden-Tag nicht, dort
-  // war der Altcode zufaellig richtig — die Assertions sind aber in JEDER Zone
-  // die korrekte Erwartung und halten die Regression fest.
+  // B5: _moveDayLabel measured the distance in absolute time, so across the
+  // spring DST switch a 23-hour day read as 0 days and the confirmation claimed
+  // "moved to today" for a meal on yesterday. The clock is pinned via withClock;
+  // a UTC machine has no 23-hour day, but the assertions hold in every zone.
   group('B5 — Verschiebe-Label ueber die Fruehjahrsumstellung 29.03.2026', () {
     test('vom 30.03. auf den 29.03. meldet „gestern", nicht „heute"', () {
       withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () {

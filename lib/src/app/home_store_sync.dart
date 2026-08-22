@@ -1,76 +1,42 @@
 part of 'home_store.dart';
 
-/// Mindestalter einer Op, bevor ein aufgebrauchtes Versuchs-Budget sie
-/// verwerfen darf (Review 2026-08-08, A4).
+/// Minimum age before an exhausted retry budget may drop an op
+/// (Review 2026-08-08, A4).
 ///
-/// [SyncOp.attempts] zaehlt Durchlaeufe, nicht Zeit — und Durchlaeufe kommen
-/// nicht nur vom Backoff-Timer, sondern auch von Boot, `_onSyncSuccess` und
-/// [flushPendingWrites]. Letzteres feuert bei `paused|hidden|detached` UND bei
-/// `resumed`; Flutter sendet `inactive -> hidden -> paused` beim Wegschalten
-/// und `hidden -> inactive -> resumed` zurueck, ein einziger App-Wechsel sind
-/// also bis zu VIER Durchlaeufe. Drei, vier Wechsel zwischen Eatova und
-/// WhatsApp waehrend eines fuenfminuetigen Server-Ausfalls haben so das ganze
-/// Budget in Sekunden verbrannt und eine gueltige Mahlzeit dauerhaft
-/// verworfen.
-///
-/// Deshalb ist das Budget ab jetzt eine UND-Bedingung: verworfen wird erst,
-/// wenn die Versuche aufgebraucht sind UND die Op seit mindestens 24 h in der
-/// Queue liegt. Lifecycle-Churn kann den Zaehler weiterhin hochtreiben — er
-/// kann damit aber nichts mehr wegwerfen, weil die Wanduhr nicht mitspielt.
-/// Unberuehrt bleibt der SOFORT-Verwurf aus dem Fehler selbst (Gift-Op,
-/// korrupte Payload): der haengt nicht am Budget und braucht kein Alter.
-///
-/// Warum 24 h: das ist laenger als jeder Server-Ausfall, den ein Retry
-/// ueberdauern soll, und kurz genug, dass eine wirklich unschreibbare Op nicht
-/// wochenlang Akku und Traffic frisst.
+/// [SyncOp.attempts] counts passes, not time, and lifecycle churn inflates it,
+/// so a drop requires spent attempts AND age. Poison-op drops bypass this.
+/// 24 h outlasts any outage worth retrying through, without burning battery
+/// for weeks on a truly unwritable op.
 const Duration kOutboxMinAgeBeforeDrop = Duration(hours: 24);
 
-/// Dasselbe fuer LOESCH-Ops ([SyncOp.isDelete]) — nur viel laenger, und ohne
-/// die Ausnahme fuer den Sofort-Verwurf.
+/// Same for DELETE ops ([SyncOp.isDelete]), but far longer and with no
+/// immediate-drop exemption.
 ///
-/// Ein Delete kennt keinen „strukturell unmoeglichen" Fehler: seine Payload ist
-/// LEER, eine Datenverletzung (Klasse 22/23) kann sie gar nicht ausloesen, und
-/// PGRST20x/404 beschreiben einen kalten Schema-Cache bzw. eine Route waehrend
-/// eines Deploys — beides geht vorbei. Deshalb ist fuer Deletes JEDER
-/// Server-Fehler behandelbar wie ein transienter, und begrenzt wird nur ueber
-/// Zeit: verworfen wird erst, wenn [kOutboxDeleteMaxAttempts] aktive
-/// Ablehnungen verbucht sind UND die Op seit mindestens dieser Spanne liegt.
-///
-/// Warum 7 Tage: laenger als jedes Migrations-/Ausfallfenster, das ein Retry
-/// ueberdauern soll, und deutlich laenger als die 24 h der Schreib-Ops — der
-/// Verlust ist hier ja der schwerere. Kuerzer als „unendlich" muss es sein,
-/// siehe [kOutboxDeleteMaxAttempts]. Offline-Zeit kostet dabei nichts: ein
-/// Netzfehler ist retryFree und laeuft nie in diese Pruefung.
+/// A delete has an EMPTY payload, so no error is structurally impossible —
+/// every server error is treated as transient and only time bounds it: drop
+/// needs [kOutboxDeleteMaxAttempts] active rejections AND this age. 7 days
+/// outlasts any migration/outage window; losing a delete is the worse loss.
+/// Offline time is free: network errors are retryFree.
 const Duration kOutboxDeleteMinAge = Duration(days: 7);
 
-/// So lange wartet ein Aufrufer hoechstens auf den Ausgang seines Writes,
-/// bevor „liegt in der Warteschlange" gilt (Luecke E).
+/// How long a caller waits for the outcome of its write before "queued" applies
+/// (gap E).
 ///
-/// Es gibt kein Timeout auf Supabase-/PostgREST-Aufrufen (die Policies in
-/// eatova_http.dart gelten nur fuer Meilisearch/OFF/analyze-meal) — ohne diese
-/// Grenze bliebe die Erfolgsmeldung des Nutzers an einem haengenden Request
-/// haengen und kaeme nie. Die Antwort ist auch nach Ablauf nicht falsch: die
-/// Op liegt seit Luecke B VOR dem Write in der persistierten Queue, „wird noch
-/// synchronisiert" stimmt also selbst dann, wenn der Request danach doch
-/// ankommt (der Replay ist idempotent).
-///
-/// Bewusst 3 s: laenger als jeder gesunde Mobilfunk-Write, kurz genug, dass
-/// eine Bestaetigung nicht als ausgeblieben empfunden wird.
+/// Supabase/PostgREST calls carry no timeout, so without this bound a hanging
+/// request would never yield a confirmation. The answer stays true after the
+/// deadline: the op sits in the persisted queue before the write (gap B) and
+/// replay is idempotent.
 const Duration kSyncDeliveryWindow = Duration(seconds: 3);
 
-/// Die Payload einer Outbox-Op ist nicht lesbar (Review 2026-08-08, A8).
+/// The payload of an outbox op is unreadable (Review 2026-08-08, A8).
 ///
-/// Erreichbar, weil [SyncOp.tryFromJson] eine Op mit nicht-Map-Payload BEHAELT
-/// und `{}` einsetzt — die typisierten Zugriffe (`op.meal` & Co.) liefern dann
-/// null. Frueher kehrte `_performOp` in diesem Fall einfach frueh zurueck, und
-/// der Replay-Loop verbuchte das als Zustellung: `anySuccess = true`, Op
-/// entfernt, Queue persistiert. Der einzige Verlustpfad ohne Snack, ohne
-/// Breadcrumb, ohne Crash-Report. Jetzt ist es ein Wurf, der im selben
-/// Verwurfs-Pfad landet wie eine Gift-Op.
+/// [SyncOp.tryFromJson] keeps an op with a non-Map payload and substitutes
+/// `{}`, so typed accessors return null. Throwing routes it through the same
+/// drop path as a poison op instead of silently counting as delivered.
 ///
-/// [toString] traegt bewusst NUR das Op-Kind — die Payload selbst enthaelt
-/// Mahlzeiten-Namen und Gewichte, also Gesundheitsdaten (Regel dokumentiert in
-/// crash_reporter.dart), und dieses Objekt geht an den CrashReporter.
+/// [toString] carries ONLY the op kind: the payload holds meal names and
+/// weights, i.e. health data (see crash_reporter.dart), and this object goes
+/// to the CrashReporter.
 class _CorruptOpPayload implements Exception {
   const _CorruptOpPayload(this.kind);
 
@@ -80,148 +46,118 @@ class _CorruptOpPayload implements Exception {
   String toString() => 'CorruptOpPayload(${kind.name})';
 }
 
-/// Sync-Part von [HomeStore] (DATA-7): die persistierte Write-Outbox mit
-/// Replay + Backoff, die Lifetime-Stats-Deltas, das Cache-Write-Through in
-/// den [LocalCache] sowie die Fehler-/Snack-Pfade. Dazu der Konto-/Cache-
-/// Cleanup ([deleteAccount], [signOutCleanup]). Reine Datei-Aufteilung —
-/// Verhalten und Member sind 1:1 aus home_store.dart uebernommen.
+/// Sync part of [HomeStore] (DATA-7): the persisted write outbox with replay
+/// and backoff, lifetime-stats deltas, cache write-through and the error/snack
+/// paths, plus account/cache cleanup ([deleteAccount], [signOutCleanup]).
+/// Pure file split — behaviour is unchanged from home_store.dart.
 mixin _HomeStoreSyncPart on _HomeStoreBase {
-  // --- DATA-7 Write-Outbox --------------------------------------------------
-  // Fehlgeschlagene Sync-Writes rollen den lokalen State NICHT mehr zurueck,
-  // sondern landen als persistierte [SyncOp]s hier und werden idempotent
-  // nachgespielt: beim Boot, beim Lifecycle-Flush (flushPendingWrites), nach
-  // der naechsten erfolgreichen Operation und ueber den Backoff-Timer.
+  // --- DATA-7 write outbox --------------------------------------------------
+  // Failed sync writes do NOT roll back local state; they land here as
+  // persisted [SyncOp]s and replay idempotently on boot, lifecycle flush, the
+  // next successful operation and the backoff timer.
   List<SyncOp> _outbox = <SyncOp>[];
   bool _outboxReplayInFlight = false;
   Timer? _outboxRetryTimer;
   int _outboxRetryAttempt = 0;
 
-  /// Ob der persistierte Sync-Zustand (Outbox + Stats-Deltas) bereits in den
-  /// Store uebernommen wurde. Bis dahin ist ein leeres [_outbox] KEINE Aussage
-  /// ueber den Blob der Vorsession — [signOutCleanup] muss ihn dann ungesehen
-  /// erhalten, sonst raeumt ein Logout in den ersten Sekunden nach App-Start
-  /// nicht zugestellte Writes ohne Zustellversuch (A2-Restfenster). Bleibt
-  /// auch nach einem GESCHEITERTEN Hydrationsversuch false: der Blob koennte
-  /// intakt sein, nur lesbar war er gerade nicht.
+  /// Whether the persisted sync state (outbox + stats deltas) has been adopted
+  /// into the store. Until then an empty [_outbox] says nothing about the
+  /// previous session's blob, so [signOutCleanup] must preserve it unseen
+  /// (A2). Stays false after a FAILED hydration attempt too: the blob may be
+  /// intact and merely unreadable right now.
   bool _syncStateHydrated = false;
 
-  /// Luecke F: der Lesevorgang des Outbox-Slots hat GEWORFEN (nicht: der Slot
-  /// war leer). Solange das gilt, ist der In-Memory-Stand keine gueltige
-  /// Fassung des persistierten Blobs und darf ihn nicht ueberschreiben —
-  /// [_persistOutbox] holt die Hydration stattdessen einmal nach.
+  /// Gap F: reading the outbox slot THREW (as opposed to: the slot was empty).
+  /// While this holds, the in-memory state is not a valid version of the
+  /// persisted blob and must not overwrite it — [_persistOutbox] retries
+  /// hydration once instead.
   bool _outboxHydrationFailed = false;
   bool _outboxRepairInFlight = false;
 
-  /// Dasselbe fuer den Deltas-Slot (W7b) — die zweite Haelfte desselben
-  /// kill-sicheren Sync-Zustands, und derselbe Schaden:
-  /// [_persistPendingStatsDeltas] schreibt den Slot IMMER komplett neu, ein
-  /// verschluckter Lesefehler liesse ihn also bei 0 anfangen und die
-  /// Lebenszeit-Zaehler blieben um die liegengebliebenen Mahlzeiten zu
-  /// niedrig — genau der Schaden, den der Docstring von
-  /// [LocalCache.readPendingStatsDeltasOrThrow] benennt. Bewusst dieselbe
-  /// Mechanik wie oben (Merker + einmalige Nachhydration), kein zweiter,
-  /// abweichender Weg.
+  /// Same for the deltas slot (W7b). [_persistPendingStatsDeltas] always
+  /// rewrites the slot wholesale, so a swallowed read error would restart it
+  /// at 0 and leave the lifetime counters too low. Same mechanism as above
+  /// (flag + one-shot re-hydration).
   bool _statsHydrationFailed = false;
   bool _statsRepairInFlight = false;
 
-  /// Der dezente Queue-Hinweis (Offline ODER "wird automatisch erneut
-  /// versucht") wird pro Fehler-Episode nur EINMAL gezeigt (Reset beim
-  /// naechsten Sync-Erfolg) — sonst wuerde jede weitere Aktion erneut toasten.
-  /// Welcher der beiden Texte kommt, entscheidet der ERSTE Fehler der Episode
-  /// (Klassifizierung: [isNetworkSyncError]).
+  /// The subtle queue hint (offline OR "will retry") is shown ONCE per error
+  /// episode, reset on the next sync success. Which of the two texts appears
+  /// is decided by the FIRST error of the episode ([isNetworkSyncError]).
   bool _syncHintShown = false;
 
-  /// Wie [_syncHintShown], aber fuer den SCHWEREN Fall: die Outbox hat Ops
-  /// endgueltig verworfen (Gift-Op, aufgebrauchtes Versuchs-Budget oder
-  /// Queue-Cap). Auch das wird pro Episode nur EINMAL gemeldet und beim
-  /// naechsten Sync-Erfolg zurueckgesetzt.
+  /// Like [_syncHintShown], but for the severe case: the outbox dropped ops for
+  /// good (poison op, exhausted budget or queue cap). Also once per episode.
   bool _outboxLossNotified = false;
 
-  /// Wie [_outboxLossNotified], aber fuer den Verlust einer LOESCHUNG. Bewusst
-  /// ein zweiter Merker: die beiden Meldungen sagen Gegenteiliges („etwas
-  /// fehlt" vs. „etwas ist wieder da") und haben unterschiedliche Folgen fuer
-  /// den Nutzer. Mit nur einem Merker haette die erste die zweite
-  /// verschluckt — und die Mahlzeit waere kommentarlos wieder aufgetaucht.
+  /// Like [_outboxLossNotified], but for the loss of a DELETE. A second flag on
+  /// purpose: the two messages say opposite things ("something is missing" vs
+  /// "something is back"), so one flag would swallow the delete notice.
   bool _outboxDeleteLossNotified = false;
 
-  /// Entitaeten, deren Op endgueltig verworfen wurde (Review 2026-08-08, A6).
+  /// Entities whose op was dropped for good (Review 2026-08-08, A6).
   ///
-  /// Sie sind serverseitig moeglicherweise gar nicht vorhanden, lokal aber
-  /// weiterhin sichtbar. Ein spaeterer Live-Write auf so eine Entitaet waere
-  /// fuer Mahlzeiten ein PATCH — und ein PATCH ohne Treffer ist ein 204, also
-  /// kein Fehler: [_onSyncSuccess] feuerte, der Nutzer sah nichts, und die
-  /// Mahlzeit existierte weiterhin nicht. Deshalb laufen Writes auf diese
-  /// Entitaeten ueber die Outbox, wo jede Op ein voller Upsert auf die
-  /// Client-UUID ist ([_syncOrQueue]) — das REPARIERT die Entitaet, statt sie
-  /// (die Alternative) aus dem lokalen Zustand zu loeschen.
+  /// They may not exist server-side while still visible locally. A later live
+  /// write would be a PATCH, and a PATCH hitting 0 rows returns 204 — success,
+  /// silently wrong. Writes to these entities therefore go through the outbox,
+  /// where every op is a full upsert on the client UUID ([_syncOrQueue]), which
+  /// REPAIRS the entity instead of deleting it locally.
   ///
-  /// Bewusst NICHT persistiert: nach einem Kaltstart ersetzt der Server-Load
-  /// die Mahlzeitenliste ohnehin komplett, die verwaiste Zeile ist dann aus
-  /// dem Zustand verschwunden und es gibt nichts mehr zu reparieren. Der
-  /// Merker gilt genau fuer die Sitzung, in der der Verlust gemeldet wurde.
+  /// Deliberately not persisted: after a cold start the server load replaces
+  /// the meal list anyway, so there is nothing left to repair.
   final Set<String> _orphanedEntities = <String>{};
 
-  /// Entitaeten mit gerade LAUFENDEM Live-Write, samt der Op, die dafuer schon
-  /// in der Queue liegt (Luecke B: Op zuerst, dann zustellen).
+  /// Entities with a live write IN FLIGHT, plus the op already queued for it
+  /// (gap B: queue first, then deliver).
   ///
-  /// Drei Aufgaben:
-  ///  * [_syncOrQueue] unterscheidet damit „belegt, weil etwas gescheitert
-  ///    ist" (Warteschlangen-Hinweis) von „belegt, weil gerade geschrieben
-  ///    wird" (kein Hinweis — es ist nichts schiefgegangen).
-  ///  * [_enqueueOp] haengt eine zaehlende Op nicht weg-koaleszieren zu lassen
-  ///    (s. [_koaleszenzUnsicher]).
-  ///  * [_replayOutbox] ueberspringt sie: sonst schriebe der Replay dieselbe
-  ///    Zeile ein zweites Mal, waehrend der erste Write noch unterwegs ist —
-  ///    und ein mealInsert zaehlte die Mahlzeit doppelt.
+  /// Three jobs:
+  ///  * [_syncOrQueue] tells "busy because something failed" (queue hint) from
+  ///    "busy because a write is running" (no hint).
+  ///  * [_enqueueOp] must not let a counting op be coalesced away
+  ///    (see [_koaleszenzUnsicher]).
+  ///  * [_replayOutbox] skips them, otherwise replay writes the same row twice
+  ///    and a mealInsert counts the meal twice.
   ///
-  /// Bewusst NICHT persistiert: nach einem Kaltstart laeuft kein Write mehr,
-  /// und die Op liegt ohnehin in der persistierten Queue.
+  /// Deliberately not persisted: after a cold start no write is running and the
+  /// op sits in the persisted queue anyway.
   final Map<String, SyncOp> _inFlightOps = <String, SyncOp>{};
 
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
 
-  /// Idempotenz-Schluessel des AKTUELL pendenden Delta-Buendels — dieselbe Id,
-  /// die `increment_lifetime_stats(p_request_id)` serverseitig 30 Tage lang
-  /// festhaelt (Migration 20260814120000_audit_rls_guard.sql).
+  /// Idempotency key of the currently pending delta bundle — the id
+  /// `increment_lifetime_stats(p_request_id)` retains for 30 days
+  /// (migration 20260814120000_audit_rls_guard.sql).
   ///
-  /// Invariante: nicht-`null` genau dann, wenn Deltas pendieren. Er entsteht
-  /// mit dem ersten Delta eines Buendels ([_queueStatsDelta]), wandert mit den
-  /// Zahlen in den Cache-Slot ([_persistPendingStatsDeltas]) und ueberlebt
-  /// damit den Kaltstart. Eine NEUE Id gibt es erst, wenn ein Buendel
-  /// nachweislich verbucht ist und ein frisches beginnt — genau darin liegt der
-  /// Schutz: nur ein Retry mit derselben Id kann serverseitig als Wiederholung
-  /// erkannt werden.
+  /// Invariant: non-`null` exactly while deltas are pending. Created with the
+  /// bundle's first delta, persisted alongside the numbers, so it survives a
+  /// cold start. A NEW id appears only once a bundle is booked and a fresh one
+  /// starts — only a retry with the SAME id is recognised as a repeat.
   ///
-  /// Seit Fix 3 traegt das Buendel ausschliesslich LIVE-Deltas: was der Replay
-  /// nachholt, zaehlt ueber seinen eigenen
-  /// [SyncOpKind.statsIncrement]-Eintrag mit abgeleiteter Id. Ein
-  /// Replay-Rueckstau kann ein in-flight-Buendel damit nicht mehr aufblaehen.
+  /// The bundle carries LIVE deltas only; replay counts through its own
+  /// [SyncOpKind.statsIncrement] entry with a derived id.
   String? _pendingStatsRequestId;
 
   bool _statsFlushInFlight = false;
   Timer? _statsSaveDebounce;
 
-  /// Noch nicht synchronisierte Write-Operationen (Sicht fuer Tests/Debug).
+  /// Not yet synced write operations (view for tests/debug).
   List<SyncOp> get pendingOutbox => List.unmodifiable(_outbox);
 
-  /// Querbezug zum Tracking-Part (Implementierung in [_HomeStoreTrackingPart]):
-  /// der Outbox-Replay verbucht den Streak-Tag einer nachgeholten Mahlzeit
-  /// serverseitig.
+  /// Cross-reference to the tracking part (implemented in
+  /// [_HomeStoreTrackingPart]): outbox replay books the streak day of a
+  /// replayed meal server-side.
   void _recordTrackingDay({DateTime? day});
 
-  // --- Fehler-/Sync-Routing -------------------------------------------------
+  // --- Error/sync routing ---------------------------------------------------
 
-  /// Fehler einer Operation OHNE Outbox-Netz (z.B. Konto-Löschung): roter
-  /// Snack mit freundlicher, klassifizierter Meldung — NIE der rohe
-  /// Exception-Text (Schema-Leakage, unlesbar). Die Roh-Exception geht an
-  /// dev.log + CrashReporter.
+  /// Failure of an operation WITHOUT the outbox net (e.g. account deletion):
+  /// red snack with a classified message, NEVER the raw exception text (schema
+  /// leakage). The raw exception goes to dev.log + CrashReporter.
   ///
-  /// [message] ersetzt NUR den Snack-Text — fuer Aufrufer, die ueber den
-  /// Fehler mehr wissen als die generische Klassifikation (Kontoloeschung:
-  /// [deleteAccountErrorMessage] kennt die serverseitige Reauth-Ablehnung).
-  /// Log und CrashReporter bleiben bewusst unberuehrt: eine Meldung, die der
-  /// Aufrufer praeziser fassen kann, ist deshalb nicht weniger meldenswert.
+  /// [message] replaces only the snack text, for callers that know more than
+  /// the generic classification (e.g. [deleteAccountErrorMessage] knows the
+  /// server-side reauth rejection). Log and CrashReporter stay untouched.
   void _reportSyncError(String operation, Object error, StackTrace stack,
       {String? message}) {
     dev.log('$operation failed', error: error, name: 'eatova_sync');
@@ -235,49 +171,32 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
-  /// Fire-and-forget Sync-Write OHNE Rollback (DATA-7): der optimistische
-  /// lokale State bleibt stehen, und die Operation liegt als persistierter
-  /// Outbox-Eintrag in der Retry-Queue, bis der Server sie quittiert hat.
-  /// Frueher wurde hier zurueckgerollt — der Eintrag des Nutzers war dann bei
-  /// jedem Netz-Schluckauf weg.
+  /// Fire-and-forget sync write WITHOUT rollback (DATA-7): optimistic local
+  /// state stands, and the operation sits as a persisted outbox entry in the
+  /// retry queue until the server acknowledges it.
   ///
-  /// Luecke B — Reihenfolge: die Op wird ZUERST angelegt und persistiert, dann
-  /// zugestellt, und bei Erfolg wieder entfernt. Vorher entstand sie erst im
-  /// `catchError`, und das riss zwei Loecher:
-  ///  * zwischen Tap und Fehler existierte der Eintrag nur im RAM — ein Kill
-  ///    in diesem Fenster kostete ihn ersatzlos;
-  ///  * ein Request, der HAENGT statt zu scheitern, feuert weder `then` noch
-  ///    `catchError`. Supabase-/PostgREST-Aufrufe tragen kein Timeout (die
-  ///    Policies in eatova_http.dart gelten nur fuer Meilisearch/OFF/
-  ///    analyze-meal), also entstand nie eine Op — still, ohne Log.
+  /// Gap B — ordering: the op is created and persisted FIRST, then delivered,
+  /// then removed on success. Creating it in `catchError` lost it to a kill
+  /// before the failure, and a request that HANGS fires neither `then` nor
+  /// `catchError` (Supabase/PostgREST calls carry no timeout).
   ///
-  /// Haengt fuer dieselbe Entitaet bereits eine GESCHEITERTE Op in der Outbox,
-  /// wird die neue Operation direkt dahinter eingereiht statt live zu
-  /// schreiben: ein Live-Write wuerde die pendende Op ueberholen (z.B. ein
-  /// Update, dessen Insert noch aussteht, traefe serverseitig 0 Zeilen und der
-  /// Replay schriebe danach den alten Stand).
+  /// If a FAILED op for the same entity is already queued, the new operation is
+  /// appended instead of written live: a live write would overtake the pending
+  /// op (e.g. an update whose insert is still outstanding hits 0 rows, and
+  /// replay would then write the stale state afterwards).
   ///
-  /// Dasselbe gilt fuer Entitaeten, deren Op einmal VERWORFEN wurde
-  /// ([_orphanedEntities], A6): auch die existieren serverseitig womoeglich
-  /// nicht, und der Live-Pfad (PATCH auf 0 Zeilen = 204 = „Erfolg") wuerde das
-  /// nie bemerken.
+  /// Same for entities whose op was once DROPPED ([_orphanedEntities], A6):
+  /// the live path (PATCH on 0 rows = 204 = "success") would never notice.
   ///
-  /// [onDelivered] laeuft NUR nach einer erfolgreichen LIVE-Zustellung — fuer
-  /// die Zaehler-Seiteneffekte, die der Replay-Pfad selbst erledigt
-  /// (Streak-Tag in [_performOp], Lebenszeit-Zaehler seit Fix 3 ueber den
-  /// [SyncOpKind.statsIncrement]-Folgeeintrag). Wird die Op stattdessen
-  /// eingereiht, bleibt der Callback bewusst aus, sonst zaehlte der Wert
-  /// doppelt.
+  /// [onDelivered] runs ONLY after a successful LIVE delivery, for the counter
+  /// side effects the replay path handles itself. When the op is queued instead
+  /// the callback stays out, otherwise the value counts twice.
   ///
-  /// Der Rueckgabewert sagt, was WIRKLICH passiert ist (Luecke E). Aufrufer,
-  /// die ihn auswerten, setzen [aufruferMeldetAusgang] und uebernehmen damit
-  /// die Meldung an den Nutzer: der generische Warteschlangen-Hinweis bleibt
-  /// dann aus (er wuerde die praezisere Meldung des Aufrufers sofort wieder
-  /// abraeumen, [showAppSnack] laesst nur einen Toast stehen), und die Antwort
-  /// kommt spaetestens nach [kSyncDeliveryWindow] — sonst haengt die
-  /// Erfolgsmeldung des Nutzers an einem Request ohne Timeout (Luecke B).
-  /// Fire-and-forget-Aufrufer ignorieren den Wert einfach; fuer sie bleibt
-  /// alles wie bisher.
+  /// The return value says what REALLY happened (gap E). Callers evaluating it
+  /// set [aufruferMeldetAusgang] and take over notifying the user: the generic
+  /// queue hint stays out (it would immediately clear the caller's more precise
+  /// snack), and the answer arrives after [kSyncDeliveryWindow] at the latest.
+  /// Fire-and-forget callers simply ignore the value.
   Future<SyncDelivery> _syncOrQueue(
     String operation,
     Future<void> Function() action,
@@ -285,18 +204,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     VoidCallback? onDelivered,
     bool aufruferMeldetAusgang = false,
   }) {
-    // Ohne Sync gibt es nichts zuzustellen (Vorschau/Test-Schale) — „wird
-    // synchronisiert" waere hier die Luege.
+    // Without sync there is nothing to deliver (preview/test shell).
     if (sync == null) return Future<SyncDelivery>.value(SyncDelivery.delivered);
     final op = buildOp();
     final entitaetBelegt = _orphanedEntities.contains(op.entityKey) ||
         _outbox.any((o) => o.entityKey == op.entityKey);
-    // Belegt, weil fuer die Entitaet GERADE EIN LIVE-WRITE laeuft, ist etwas
-    // anderes als belegt, weil einer gescheitert ist: gescheitert ist der
-    // Grund fuer den Warteschlangen-Hinweis, laufend ist keiner. Ohne diese
-    // Unterscheidung toastete seit der Umstellung jede zweite Aenderung
-    // derselben Entitaet ein „wird automatisch erneut versucht", obwohl nichts
-    // schiefgegangen war.
+    // Busy because a live write is RUNNING is not busy because one FAILED:
+    // only a failure justifies the queue hint.
     final nurLaufenderWrite = _inFlightOps.containsKey(op.entityKey);
     _enqueueOp(op);
     if (entitaetBelegt) {
@@ -304,8 +218,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         if (!aufruferMeldetAusgang) _notifyQueued(null);
         _scheduleOutboxRetry();
       }
-      // Kein Live-Write: der laufende bzw. der Replay stellt der Reihe nach zu
-      // (FIFO pro Entitaet).
+      // No live write: the running one or the replay delivers in order
+      // (FIFO per entity).
       return Future<SyncDelivery>.value(SyncDelivery.queuedRetry);
     }
     _inFlightOps[op.entityKey] = op;
@@ -322,21 +236,17 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       return queuedDelivery(e);
     });
     if (!aufruferMeldetAusgang) return zustellung;
-    // Nur fuer wartende Aufrufer: der Timer haengt sonst an JEDEM Write, und
-    // die Zusicherung braucht ihn nur, wenn jemand auf die Antwort schaut.
-    // Die Op liegt in dem Moment laengst in der persistierten Queue — „liegt
-    // in der Warteschlange" ist also auch nach einem Timeout die Wahrheit,
-    // selbst wenn der Request danach doch noch durchkommt.
+    // Only for waiting callers, otherwise the timer hangs off EVERY write. The
+    // op is already in the persisted queue, so "queued" stays true after a
+    // timeout even if the request lands later.
     return zustellung.timeout(kSyncDeliveryWindow,
         onTimeout: () => SyncDelivery.queuedRetry);
   }
 
-  /// Sync-Write fehlgeschlagen: dezent hinweisen, Retry planen. KEIN Rollback,
-  /// KEIN roter Fehler-Toast. Die Op liegt seit Luecke B schon vor dem Write in
-  /// der (persistierten) Queue und bleibt dort einfach stehen — hier wird
-  /// bewusst NICHT erneut eingereiht: sie koennte inzwischen legitim
-  /// verschwunden sein (koalesziert, am Cap gefallen, vom Replay zugestellt),
-  /// und ein Wiedereinreihen wuerde genau das rueckgaengig machen.
+  /// Sync write failed: hint subtly, schedule a retry. No rollback, no red
+  /// toast. The op already sits in the persisted queue (gap B) and simply stays
+  /// there; re-queueing is deliberately avoided because it may legitimately be
+  /// gone by now (coalesced, capped, delivered by replay).
   void _handleSyncFailure(
     String operation,
     Object error,
@@ -345,28 +255,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }) {
     dev.log('$operation failed — Op bleibt in der Outbox liegen',
         error: error, name: 'eatova_sync');
-    // `captureSyncFailure` statt `capture`: ein reiner Netzausfall ist hier
-    // der vorgesehene Ablauf, kein Vorfall — die Op liegt in der Queue, der
-    // Nutzer hat den Hinweis. Vorher erzeugte jeder Offline-Write ein
-    // Sentry-Issue mit Prioritaet „hoch" (Feed-Befund 2026-08-10).
+    // `captureSyncFailure` instead of `capture`: a plain network outage is the
+    // intended flow here, not an incident — otherwise every offline write
+    // raised a high-priority Sentry issue.
     unawaited(CrashReporter.captureSyncFailure(error, stack,
         context: operation));
     if (_disposed) return;
-    // Der Aufrufer sagt es praeziser (mit dem Namen des Eintrags) und in EINEM
-    // Toast. [_syncHintShown] bleibt bewusst unberuehrt: eine spaetere,
-    // ANDERE Aktion soll ihren Hinweis weiterhin bekommen.
+    // The caller says it more precisely, in ONE toast. [_syncHintShown] stays
+    // untouched so a later, DIFFERENT action still gets its hint.
     if (!aufruferMeldetAusgang) _notifyQueued(error);
     _scheduleOutboxRetry();
   }
 
-  /// Entfernt die LIVE zugestellte Op wieder aus der Queue — ueber Identitaet,
-  /// nicht ueber den Entitaets-Schluessel.
-  ///
-  /// Der Unterschied traegt: waehrend der Write lief, kann fuer dieselbe
-  /// Entitaet eine juengere Op koalesziert (also an ihre Stelle getreten) sein.
-  /// Die beschreibt einen Stand, den der Server noch NICHT hat — sie muss
-  /// liegen bleiben. Findet sich die eigene Op nicht mehr, ist ohnehin nichts
-  /// zu tun (koalesziert, am Cap gefallen oder vom Replay bereits zugestellt).
+  /// Removes the LIVE-delivered op from the queue — by identity, not by entity
+  /// key: a younger op may have coalesced into its place while the write ran,
+  /// and that one describes state the server does not have yet.
   void _dequeueDeliveredOp(SyncOp op) {
     final at = _outbox.indexWhere((o) => identical(o, op));
     if (at < 0) return;
@@ -374,23 +277,17 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _persistOutbox();
   }
 
-  /// Darf [op] eine bereits eingereihte Op derselben Entitaet ERSETZEN
-  /// (koaleszieren)? Nicht, solange fuer diese Entitaet ein Live-Write laeuft,
-  /// dessen Nachspielen einen ZAEHLER bucht.
+  /// May [op] REPLACE (coalesce) a queued op of the same entity? Not while a
+  /// live write for that entity is running whose replay books a COUNTER.
   ///
-  /// Konkret der mealInsert: sein Replay verbucht +1 Mahlzeit (und ggf. den
-  /// Streak-Tag). Koalesziert ein nachfolgendes Update ihn weg, verschwindet
-  /// die Op, deren Live-Erfolg gleich selbst zaehlt — die zusammengefuehrte Op
-  /// bleibt aber ein mealInsert und zaehlt beim Replay ein zweites Mal. Also
-  /// in diesem Fall anhaengen statt ersetzen; die Reihenfolge pro Entitaet
-  /// bleibt dabei erhalten (FIFO), nur die Queue ist um einen Eintrag laenger.
+  /// A mealInsert's replay books +1 meal. If a later update coalesces it away,
+  /// the op whose live success counts disappears, but the merged op is still a
+  /// mealInsert and counts a second time on replay. So append instead of
+  /// replace; per-entity order (FIFO) is preserved.
   ///
-  /// Die Regel traegt nach Fix 3 unveraendert weiter — und sie ist weiterhin
-  /// load-bearing: die Live-Zaehlung laeuft ueber die Buendel-Id, die
-  /// Replay-Zaehlung ueber die aus der Quell-UUID abgeleitete Id des
-  /// [SyncOpKind.statsIncrement]-Eintrags. Das sind fuer den Server ZWEI
-  /// verschiedene Vorgaenge, sie dedupen sich also nicht gegenseitig; die
-  /// Exklusivitaet der beiden Pfade bleibt die Schutzmauer.
+  /// Load-bearing: live counting uses the bundle id, replay counting the id
+  /// derived from the source UUID — two distinct operations server-side, so
+  /// they do not dedupe each other. The exclusivity of both paths is the guard.
   bool _koaleszenzUnsicher(SyncOp op) {
     final laufend = _inFlightOps[op.entityKey];
     return laufend != null &&
@@ -399,17 +296,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   void _enqueueOp(SyncOp op) {
-    // Waehrend eines laufenden Replays nur anhaengen — der Replay koennte
-    // gerade genau die Op abspielen, deren Payload sonst koalesziert (und beim
-    // Entfernen verworfen) wuerde. Dieselbe Ueberlegung gilt seit Luecke B fuer
-    // eine Op, deren LIVE-Write gerade laeuft (s. _koaleszenzUnsicher).
+    // Append-only during a running replay: it may be playing exactly the op
+    // whose payload would otherwise be coalesced (and dropped on removal).
+    // Same for an op with a live write in flight (see _koaleszenzUnsicher).
     _outbox = enqueueCoalesced(_outbox, op,
         appendOnly: _outboxReplayInFlight || _koaleszenzUnsicher(op));
-    // Cap NUR ausserhalb eines laufenden Replays: der Replay-Loop laeuft ueber
-    // Indizes: ein Kopf-Trim wuerde seinen Cursor unter ihm wegziehen. Die
-    // Queue kann waehrend eines Replays hoechstens um die paar Ops ueber den
-    // Cap wachsen, die der User in dieser Zeit erzeugt — der naechste Enqueue
-    // danach zieht sie wieder gerade.
+    // Cap only outside a running replay: the replay loop walks indices, and a
+    // head trim would pull its cursor out from under it. The next enqueue
+    // afterwards trims the few extra ops again.
     if (!_outboxReplayInFlight) {
       final capped = capOutbox(_outbox);
       if (capped.dropped.isNotEmpty) {
@@ -417,14 +311,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             'Outbox-Cap erreicht: ${capped.dropped.length} aelteste Op(s) '
             'verworfen (Queue > $kOutboxMaxOps)',
             name: 'eatova_sync');
-        // Nur technische Angaben ins Reporting — NIE op.payload (Mahlzeiten,
-        // Gewichte = Gesundheitsdaten, s. crash_reporter.dart).
+        // Technical facts only — NEVER op.payload (meals/weights are health
+        // data, see crash_reporter.dart).
         CrashReporter.breadcrumb(
             'outbox-cap: ${capped.dropped.length} ops dropped');
         _outbox = capped.queue;
-        // Der Cap kappt Deletes zuletzt, aber er kappt sie (harte Obergrenze,
-        // s. capOutbox) — dann gilt derselbe Weg wie im Replay: Eintraege
-        // zurueckholen, beide Verlust-Arten getrennt melden.
+        // The cap trims deletes last, but it does trim them (hard limit, see
+        // capOutbox) — then the replay path applies: restore entries, report
+        // both loss kinds separately.
         final lostDeletes = capped.dropped.where((o) => o.isDelete).toList();
         if (lostDeletes.isNotEmpty) {
           unawaited(_restoreDroppedDeletes(lostDeletes));
@@ -435,12 +329,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _persistOutbox();
   }
 
-  /// Dezenter Hinweis, dass ein Write in der Outbox gelandet ist. Der Text
-  /// kommt aus dem puren Mapping (sync_error_messages.dart): Netzwerkfehler ->
-  /// "Offline …", alles andere -> freundliche Retry-Meldung OHNE
-  /// Exception-Details. [error] ist null, wenn die Op ohne Live-Versuch hinter
-  /// eine bereits pendende Op eingereiht wurde (kein frischer Fehler) — dann
-  /// gilt der neutrale Retry-Text.
+  /// Subtle hint that a write landed in the outbox. Text comes from the pure
+  /// mapping (sync_error_messages.dart), never with exception details. [error]
+  /// is null when the op was queued behind a pending one without a live
+  /// attempt; then the neutral retry text applies.
   void _notifyQueued(Object? error) {
     if (_disposed || _syncHintShown) return;
     _syncHintShown = true;
@@ -452,29 +344,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
-  /// Meldet ENDGUELTIG verworfene Ops — anders als [_notifyQueued] ist das
-  /// echter Datenverlust und keine Warteschleife. Der Text kommt aus dem puren
-  /// Mapping und traegt bewusst KEINE technischen Details (kein SQLSTATE, kein
-  /// Tabellen-/Constraint-Name, kein Exception-Typ); die Roh-Exception geht
-  /// nur an dev.log + CrashReporter. Einmal pro Episode.
-  ///
-  /// [deletesLost] waehlt den Text fuer den umgekehrten Fall: bei einem
-  /// verworfenen Write FEHLT etwas, bei einer verworfenen Loeschung ist etwas
-  /// WIEDER DA. Die beiden Meldungen zaehlen getrennt — steht beides an, sagt
-  /// die Episode beides genau einmal. Ein gemeinsamer Merker haette die
-  /// Loeschung verschluckt, sobald im selben Replay auch ein Write starb, und
-  /// die Mahlzeit waere kommentarlos wieder aufgetaucht.
-  /// Meldet die Verluste EINES Cap-Ereignisses getrennt nach Art — wie es der
-  /// Replay-Verwurf schon immer tat. Ein einzelner
-  /// `_notifyOutboxLoss(deletesLost: dropped.any(isDelete))` verschluckte im
-  /// Misch-Fall den Write-Verlust: fallen Deletes, sind per capOutbox-
-  /// Reihenfolge ALLE Writes schon gefallen, und der Nutzer verlor sie mit
-  /// der falschen Meldung („der Eintrag ist wieder da").
+  /// Reports the losses of ONE cap event, split by kind. A single
+  /// `_notifyOutboxLoss(deletesLost: dropped.any(isDelete))` would swallow the
+  /// write loss in the mixed case: if deletes fall, capOutbox ordering means
+  /// ALL writes fell first, and the user would lose them under the wrong
+  /// message.
   void _notifyDroppedOps(List<SyncOp> dropped) {
     final deletes = dropped.where((o) => o.isDelete).length;
-    // statsIncrement-Eintraege sind Zaehler, kein Nutzer-Inhalt — fuer sie
-    // waere „ein Eintrag fehlt" die falsche Meldung (s. Verwurfs-Zweig des
-    // Replays). Geloggt sind sie ueber den Cap-Breadcrumb so oder so.
+    // statsIncrement entries are counters, not user content — "an entry is
+    // missing" would be the wrong message for them.
     final inhalte = dropped
         .where((o) => !o.isDelete && o.kind != SyncOpKind.statsIncrement)
         .length;
@@ -482,6 +360,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (deletes > 0) _notifyOutboxLoss(deletesLost: true);
   }
 
+  /// Reports ops dropped FOR GOOD — unlike [_notifyQueued] this is real data
+  /// loss. The text carries no technical details; the raw exception goes to
+  /// dev.log + CrashReporter only. Once per episode.
+  ///
+  /// [deletesLost] picks the inverse text: a dropped write means something is
+  /// MISSING, a dropped delete means something is BACK. Both count separately,
+  /// so an episode says each exactly once.
   void _notifyOutboxLoss({bool deletesLost = false}) {
     if (_disposed) return;
     if (deletesLost) {
@@ -499,28 +384,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
-  /// Holt die Eintraege verworfener LOESCH-Ops in den lokalen Zustand zurueck
-  /// (A5, Wiedereinblendung).
+  /// Restores the entries of dropped DELETE ops into local state (A5).
   ///
-  /// Warum ueberhaupt: ein verworfener Delete ist der einzige Verlust, der sich
-  /// von selbst RUECKGAENGIG macht. Lokal ist die Zeile weg, serverseitig
-  /// nicht — und weil danach kein weiterer Write auf diese Entitaet kommt,
-  /// greift auch [_orphanedEntities] nicht. Ohne diesen Schritt merkt der
-  /// Nutzer nichts, bis Tage spaeter ein Kaltstart die geloeschte
-  /// 1800-kcal-Mahlzeit wieder mitzaehlt. GENAU das macht die endliche Frist
-  /// aus [kOutboxDeleteMinAge] ueberhaupt vertretbar: der Verwurf endet
-  /// sichtbar und reparierbar (der Nutzer loescht erneut, mit frischem Budget
-  /// und frischer Frist) statt still.
+  /// A dropped delete is the only loss that UNDOES itself: the row is gone
+  /// locally but not server-side, and no later write touches the entity, so
+  /// [_orphanedEntities] never kicks in. Without this the user notices nothing
+  /// until a cold start counts the deleted meal again. This is what makes the
+  /// finite [kOutboxDeleteMinAge] deadline acceptable: the drop ends visibly
+  /// and repairably instead of silently.
   ///
-  /// Der Inhalt liegt nur noch auf dem Server — eine Delete-Op traegt eine
-  /// leere Payload —, also kostet das einen Read pro betroffener Sammlung.
-  /// Vertretbar: der Pfad feuert erst, wenn eine Loeschung tage- und
-  /// dutzendfach abgelehnt wurde. Findet der Read die Zeile NICHT, war die
-  /// Loeschung serverseitig laengst angekommen und es gibt nichts
-  /// einzublenden — der Read ist damit zugleich die Gegenprobe.
+  /// The content only exists on the server (a delete op has an empty payload),
+  /// so this costs one read per affected collection. If the read does NOT find
+  /// the row, the delete had arrived after all — the read doubles as the check.
   ///
-  /// Jede Sammlung laeuft in ihrem eigenen try: ein fehlgeschlagener Read darf
-  /// die anderen nicht mitreissen.
+  /// Each collection has its own try: one failed read must not take the others
+  /// down.
   Future<void> _restoreDroppedDeletes(List<SyncOp> ops) async {
     final s = sync;
     if (s == null || _disposed) return;
@@ -539,9 +417,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
     if (mealIds.isNotEmpty) {
       try {
-        // Gezielt per Id, NICHT ueber den Fenster-Load: die Zeile kann aelter
-        // als das Boot-Fenster sein (Delete via Archiv-Tag-Picker), und der
-        // „wieder da"-Hinweis muss auch dann stimmen.
+        // By id, NOT via the window load: the row can be older than the boot
+        // window (delete from the archive day picker).
         final rows = await s.meals.loadLoggedMealsByIds(mealIds);
         final back = rows.where((m) => mealIds.contains(m.id)).toList();
         if (back.isNotEmpty && !_disposed) {
@@ -591,9 +468,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
               ...back.where((r) => !known.contains(r.slug)),
             ];
           });
-          // Wie bei Mahlzeiten/Favoriten: die Wiedereinblendung muss auch im
-          // Cache stehen, sonst ist das Rezept beim naechsten Kaltstart ohne
-          // Netz wieder verschwunden (Luecke A).
+          // As for meals/favorites: the restore must reach the cache, else the
+          // recipe is gone again on the next offline cold start (gap A).
           _cacheUserRecipes();
         }
       } catch (e, st) {
@@ -602,18 +478,17 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
-  /// Die Wiedereinblendung ist selbst nur best effort: schlaegt der Read fehl
-  /// (offline im selben Moment), bleibt der Eintrag bis zum naechsten Boot
-  /// unsichtbar — der holt ihn dann ohnehin vom Server. Gemeldet ist der
-  /// Verlust so oder so, der Snack laeuft unabhaengig davon.
+  /// The restore is best effort: if the read fails (offline), the entry stays
+  /// invisible until the next boot, which fetches it from the server anyway.
+  /// The loss snack runs independently.
   void _reportRestoreFailure(String what, Object e, StackTrace st) {
     dev.log('Outbox: Wiedereinblendung nach verworfenem Delete '
         'fehlgeschlagen ($what)', error: e, name: 'eatova_sync');
     unawaited(CrashReporter.capture(e, st, context: 'outbox-restore-$what'));
   }
 
-  /// Nach einem erfolgreichen Sync-Write: Fehler-Episode beenden, Backoff
-  /// zuruecksetzen und liegengebliebene Ops direkt nachspielen.
+  /// After a successful sync write: end the error episode, reset the backoff
+  /// and replay any queued ops right away.
   void _onSyncSuccess() {
     if (_disposed) return;
     _syncHintShown = false;
@@ -625,10 +500,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
-  /// Plant den naechsten Outbox-/Stats-Retry mit exponentiellem Backoff
-  /// (30s -> 1m -> 2m -> 4m Cap; Reset bei Erfolg). Bewusst ohne
-  /// connectivity-Paket: der Timer ist der einzige Waechter, zusaetzlich
-  /// stossen Boot, Lifecycle-Flush und der naechste Erfolg den Replay an.
+  /// Schedules the next outbox/stats retry with exponential backoff
+  /// (30s -> 1m -> 2m -> 4m cap; reset on success). No connectivity package:
+  /// the timer is the only guard, plus boot, lifecycle flush and the next
+  /// success trigger a replay.
   void _scheduleOutboxRetry() {
     if (_disposed || sync == null) return;
     if (_outbox.isEmpty &&
@@ -645,25 +520,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     });
   }
 
-  /// Spielt die persistierte Outbox strikt FIFO gegen Supabase ab. Pro
-  /// Entitaet bleibt die Reihenfolge erhalten (insert vor update vor delete);
-  /// schlaegt eine Op fehl, blockiert sie nur ihre EIGENE Entitaet fuer diesen
-  /// Lauf — Ops anderer Entitaeten laufen weiter. Jede erfolgreiche Op wird
-  /// sofort entfernt und der Rest persistiert (kill-sicher: ein Abbruch
-  /// mittendrin wiederholt hoechstens bereits bestaetigte, idempotente Ops).
+  /// Replays the persisted outbox strictly FIFO against Supabase. Order per
+  /// entity is preserved; a failing op blocks only its OWN entity for this
+  /// pass. Every successful op is removed and the rest persisted immediately
+  /// (kill-safe: an abort mid-run at worst repeats idempotent ops).
   ///
-  /// Fehlschlaege werden ueber [_verdictFor] (= [classifyOutboxFailure] plus
-  /// die beiden zustandsabhaengigen Regeln aus dem Review 2026-08-08)
-  /// einsortiert:
-  ///  * [OutboxVerdict.drop] — die Op wird endgueltig verworfen (sonst wuerde
-  ///    sie ewig retryt und, weil [_syncOrQueue] ihre Entitaet vom Server
-  ///    abschneidet, diese Entitaet dauerhaft blockieren). Ihre Entitaet
-  ///    landet dabei in [_orphanedEntities].
-  ///  * [OutboxVerdict.retryCounted] — bleibt liegen, verbraucht aber einen
-  ///    Zustellversuch.
-  ///  * [OutboxVerdict.retryFree] — bleibt liegen, ohne Budget zu verbrauchen
-  ///    (Netzfehler; offline duerfen Boot + Flush + Timer nicht das Budget
-  ///    leerlaufen lassen).
+  /// Failures are sorted by [_verdictFor] (= [classifyOutboxFailure] plus the
+  /// two state-dependent rules from Review 2026-08-08):
+  ///  * [OutboxVerdict.drop] — dropped for good, otherwise it would retry
+  ///    forever and permanently block its entity ([_syncOrQueue] cuts that
+  ///    entity off from the server). The entity lands in [_orphanedEntities].
+  ///  * [OutboxVerdict.retryCounted] — stays, spends one attempt.
+  ///  * [OutboxVerdict.retryFree] — stays without spending budget (network
+  ///    errors; offline, boot + flush + timer must not drain the budget).
   Future<void> _replayOutbox() async {
     final s = sync;
     if (s == null || _outboxReplayInFlight || _outbox.isEmpty) return;
@@ -676,14 +545,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       var i = 0;
       while (i < _outbox.length) {
         final op = _outbox[i];
-        // Laeuft fuer die Entitaet gerade ein Live-Write, gehoert ihre Op ihm
-        // (Luecke B) — sie jetzt zusaetzlich abzuspielen hiesse: dieselbe Zeile
-        // zweimal schreiben, und ein mealInsert zaehlte die Mahlzeit zweimal.
-        // Sie bleibt liegen; ihr Ausgang stoesst den naechsten Lauf selbst an
-        // (Erfolg -> _onSyncSuccess, Fehler -> _scheduleOutboxRetry). Bleibt
-        // die Antwort ganz aus, wartet sie bis zum naechsten App-Start —
-        // persistiert, also nicht verloren. Kein `blocked`-Eintrag: sonst
-        // haengt an einem stummen Request dauerhaft der Backoff-Timer.
+        // If a live write is running for the entity, the op belongs to it
+        // (gap B) — replaying it too would write the same row twice and a
+        // mealInsert would count the meal twice. Its outcome triggers the next
+        // pass itself; no `blocked` entry, else a silent request would keep the
+        // backoff timer alive forever.
         if (blocked.contains(op.entityKey) ||
             _inFlightOps.containsKey(op.entityKey)) {
           i++;
@@ -692,9 +558,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         try {
           await _performOp(s, op);
         } catch (e, st) {
-          // Die Liste kann sich waehrend des await geaendert haben (ein
-          // appendOnly-Enqueue ersetzt sie) — deshalb die Op ueber Identitaet
-          // wiederfinden statt dem Index zu trauen.
+          // The list may have changed during the await, so find the op by
+          // identity instead of trusting the index.
           final at = _outbox.indexWhere((o) => identical(o, op));
           final verdict = _verdictFor(e, op);
           if (verdict == OutboxVerdict.drop) {
@@ -703,37 +568,29 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
                 '(Versuch ${op.attempts + 1})',
                 error: e,
                 name: 'eatova_sync');
-            // NUR Kind + Roh-Exception ins Reporting — niemals op.payload:
-            // der traegt Mahlzeiten-Namen und Gewichte, also Gesundheitsdaten
-            // (Regel dokumentiert in crash_reporter.dart).
+            // Kind + raw exception only — never op.payload (health data, see
+            // crash_reporter.dart).
             unawaited(CrashReporter.capture(e, st,
                 context: 'outbox-drop-${op.kind.name}'));
-            // A5: ein verworfener Delete darf nicht still bleiben — der
-            // Eintrag existiert serverseitig weiter und wird nach dem Replay
-            // lokal wieder eingeblendet. Getrennt gezaehlt, weil die beiden
-            // Verluste dem Nutzer Gegenteiliges bedeuten.
+            // A5: a dropped delete must not stay silent — the entry still
+            // exists server-side and is restored locally after the replay.
+            // Counted separately: the two losses mean opposite things.
             if (op.isDelete) {
               droppedDeletes.add(op);
             } else if (op.kind != SyncOpKind.statsIncrement) {
               droppedWrites = true;
             }
-            // A6: die Entitaet ist ab jetzt potenziell verwaist (lokal da,
-            // serverseitig nicht). Kuenftige Writes muessen deshalb ueber die
-            // Outbox laufen, wo sie als voller Upsert ankommen.
-            //
-            // Beides gilt NUR fuer Inhalts-Ops: auf 'stats:<uuid>' schreibt nie
-            // wieder jemand, und der Verlust ist ein Zaehler, kein Eintrag —
-            // der „etwas fehlt"-Snack waere hier gelogen (die Mahlzeit ist
-            // laengst zugestellt). dev.log + Crash-Report laufen fuer ihn
-            // weiter ueber den gemeinsamen Pfad oberhalb.
+            // A6: the entity is now potentially orphaned (present locally, not
+            // server-side), so future writes must go through the outbox, where
+            // they arrive as a full upsert. Content ops only: nobody writes to
+            // 'stats:<uuid>' again, and its loss is a counter, not an entry.
             if (op.kind != SyncOpKind.statsIncrement) {
               _orphanedEntities.add(op.entityKey);
             }
             if (at >= 0) {
               _outbox = [..._outbox]..removeAt(at);
               _persistOutbox();
-              // Die nachgerueckte Op steht jetzt an dieser Position und muss
-              // als naechste geprueft werden.
+              // The op that moved up now sits at this position and is next.
               i = at;
             } else {
               i++;
@@ -753,32 +610,20 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           continue;
         }
         anySuccess = true;
-        // Die Entitaet ist wieder serverseitig vorhanden — der Live-Pfad darf
-        // sie wieder anfassen (A6).
+        // The entity exists server-side again — the live path may touch it
+        // (A6).
         _orphanedEntities.remove(op.entityKey);
-        // Wie im Fehlerzweig ueber Identitaet statt ueber den Laufindex: der
-        // konnte waehrend des await veralten, und dann entfernte `removeAt(i)`
-        // eine FREMDE Op. Zwei Pfade kuerzen die Queue genau in diesem
-        // Fenster — _clearQueuedTrackingDay (feuert _performOp fuer jede
-        // nachgeholte Mahlzeit selbst, ungeawaitet) und _dequeueDeliveredOp
-        // eines parallel zugestellten Live-Writes. Der Preis war entweder eine
-        // still verworfene, nie zugestellte Mahlzeit (waehrend die zugestellte
-        // liegenblieb und beim naechsten Replay doppelt zaehlte) oder ein
-        // RangeError, der ausserhalb des inneren try liegt: der riss
-        // signOutCleanup VOR _clearCache ab, der PII-Cache blieb liegen und
-        // der Logout kam nie zustande.
+        // By identity, not by loop index: the index can go stale during the
+        // await (_clearQueuedTrackingDay and _dequeueDeliveredOp both shorten
+        // the queue in that window), and `removeAt(i)` would then drop a
+        // FOREIGN op or throw a RangeError outside the inner try.
         final at = _outbox.indexWhere((o) => identical(o, op));
-        // Fix 3: Entfernung der Op und Erzeugung ihres Zaehler-Folgeeintrags
-        // sind EIN Listenupdate und damit EIN persistierter Blob-Write — ein
-        // Kill trifft entweder den Zustand davor (Op da, kein Eintrag; der
-        // naechste Replay wiederholt idempotent und erzeugt den Eintrag mit
-        // DERSELBEN abgeleiteten Id neu) oder danach (Eintrag da, Op weg).
-        // Das Fenster „Delta persistiert, Op noch da" existiert nicht mehr.
-        // Angehaengt wird ans Ende: der Loop erreicht den Eintrag noch im
-        // selben Lauf (die while-Bedingung liest die Laenge frisch). Der
-        // Duplikat-Check ist Queue-Hygiene, keine Korrektheitsbedingung —
-        // auch ein doppelter Eintrag waere dank identischer Id serverseitig
-        // ein No-op.
+        // Removing the op and creating its counter follow-up are ONE list
+        // update and thus ONE persisted blob write, so a kill hits either the
+        // state before (op present, no entry; the next replay recreates it with
+        // the SAME derived id) or after. Appended at the end: the loop still
+        // reaches it this pass. The duplicate check is queue hygiene only — a
+        // double entry is a server-side no-op thanks to the identical id.
         final followUp = _statsFollowUpFor(op);
         final followUpId = followUp?.entityId;
         bool traegtFollowUp(List<SyncOp> q) =>
@@ -791,13 +636,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           if (followUp != null && !traegtFollowUp(next)) next.add(followUp);
           _outbox = next;
           _persistOutbox();
-          // Die nachgerueckte Op steht jetzt an dieser Position.
+          // The op that moved up now sits at this position.
           i = at;
         } else {
-          // Schon anderswo entfernt — an dieser Position steht eine andere Op.
-          // Der Folgeeintrag entsteht trotzdem: sollte ein koaleszierter
-          // Zwilling (Reparatur-Merge) spaeter erneut spielen, erzeugt er
-          // dieselbe Id — lokal faengt ihn der Check, serverseitig der Dedup.
+          // Already removed elsewhere. The follow-up is still created: a
+          // coalesced twin replaying later produces the same id, caught locally
+          // by the check and server-side by the dedup.
           if (followUp != null && !traegtFollowUp(_outbox)) {
             _outbox = [..._outbox, followUp];
             _persistOutbox();
@@ -809,19 +653,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _outboxReplayInFlight = false;
     }
     if (_disposed) return;
-    // Erst die Eintraege zurueckholen, DANN melden: der Snack behauptet „der
-    // Eintrag ist wieder da", und wenn der Nutzer hinsieht, soll er das auch
-    // sein. Der Server ist der einzige Ort, an dem der Inhalt noch liegt (die
-    // Delete-Op traegt eine leere Payload), also kostet das einen Read.
+    // Restore first, THEN report: the snack claims the entry is back, so it
+    // must be there when the user looks.
     if (droppedDeletes.isNotEmpty) await _restoreDroppedDeletes(droppedDeletes);
     if (_disposed) return;
-    // Beide Meldungen, wenn beides passiert ist — sie widersprechen sich nicht,
-    // sie beschreiben zwei verschiedene Verluste.
+    // Both messages if both happened — they describe two different losses.
     if (droppedWrites) _notifyOutboxLoss();
     if (droppedDeletes.isNotEmpty) _notifyOutboxLoss(deletesLost: true);
-    // Eine leere Queue ist „fertig", auch wenn Ops blockiert WAREN: sie sind
-    // dann alle verworfen worden, und ein Backoff-Timer haette nichts mehr zu
-    // tun.
+    // An empty queue is "done" even if ops WERE blocked: they were all dropped,
+    // so a backoff timer would have nothing left to do.
     if (blocked.isEmpty || _outbox.isEmpty) {
       _outboxRetryAttempt = 0;
       _outboxRetryTimer?.cancel();
@@ -835,27 +675,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
-  /// Entscheidet, was mit einer fehlgeschlagenen Op passiert. Duennes Vorwerk
-  /// um [classifyOutboxFailure] — die reine Klassifizierung bleibt dort, hier
-  /// kommen die zwei Regeln dazu, die den Op-Zustand brauchen:
+  /// Decides what happens to a failed op. Thin wrapper around
+  /// [classifyOutboxFailure]; the two state-dependent rules live here:
   ///
-  ///  * A8 — eine nicht lesbare Payload ist unzustellbar. Sie laeuft ueber den
-  ///    VERWURFS-Pfad (Snack + Crash-Report), nicht mehr ueber den Erfolgspfad.
-  ///  * A4 — ein Verwurf, der nur am aufgebrauchten Versuchs-Budget haengt,
-  ///    braucht zusaetzlich Wanduhrzeit ([kOutboxMinAgeBeforeDrop]). Ob das
-  ///    Budget der Grund war, verraet die Gegenprobe mit `attempts: 0`: sagt
-  ///    die Klassifizierung auch ohne verbrauchtes Budget „drop", kam der
-  ///    Verwurf aus dem Fehler selbst (Gift-Op) und bleibt sofort wirksam.
-  ///  * A5 — fuer [SyncOp.isDelete] gibt es keinen Sofort-Verwurf (die
-  ///    Klassifizierung liefert fuer sie „drop" ausschliesslich am Ende des
-  ///    Delete-Budgets), und die Frist ist die lange [kOutboxDeleteMinAge].
-  ///    Beide Bedingungen muessen erfuellt sein — das Budget allein waere von
-  ///    Lifecycle-Churn in Sekunden verbrannt, die Wanduhr allein wuerde eine
-  ///    lange offline liegende Op an der ersten Server-Ablehnung verwerfen.
+  ///  * A8 — an unreadable payload is undeliverable and takes the DROP path.
+  ///  * A4 — a drop caused only by the exhausted attempt budget also needs wall
+  ///    clock time ([kOutboxMinAgeBeforeDrop]). The counter-check with
+  ///    `attempts: 0` reveals the cause: still "drop" without a spent budget
+  ///    means the error itself (poison op) and takes effect immediately.
+  ///  * A5 — [SyncOp.isDelete] has no immediate drop at all, and its deadline
+  ///    is the long [kOutboxDeleteMinAge]. Both conditions must hold: budget
+  ///    alone burns to lifecycle churn, the clock alone would drop a long
+  ///    offline op at the first server rejection.
   ///
-  /// Die Wanduhr laeuft ueber `clock.now()`: die Frist ist damit mit einer
-  /// injizierten Uhr pruefbar, und ein Rueckwaertssprung der Systemzeit macht
-  /// keine Op mehr unverwerfbar.
+  /// The wall clock runs through `clock.now()`, so the deadline is testable and
+  /// a backwards system-time jump cannot make an op undroppable.
   OutboxVerdict _verdictFor(Object error, SyncOp op) {
     if (error is _CorruptOpPayload) return OutboxVerdict.drop;
     final verdict = classifyOutboxFailure(error, op.attempts, kind: op.kind);
@@ -876,28 +710,24 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   bool _agedOut(SyncOp op, Duration minAge) =>
       clock.now().difference(op.queuedAt) >= minAge;
 
-  /// Fuehrt EINE Outbox-Op gegen den Server aus. Wirft bei Sync-Fehler (der
-  /// Replay-Loop behaelt die Op dann) und bei nicht lesbarer Payload
-  /// ([_CorruptOpPayload] — die Op wird dann verworfen, A8).
+  /// Runs ONE outbox op against the server. Throws on sync error (the replay
+  /// loop then keeps the op) and on an unreadable payload
+  /// ([_CorruptOpPayload] — the op is dropped, A8).
   ///
-  /// Der LEBENSZEIT-Zaehler einer zaehlenden Op wird hier bewusst NICHT mehr
-  /// gebucht (Fix 3): er lief bis dahin ueber [_queueStatsDelta], also ueber
-  /// einen zweiten, SOFORT persistierten Slot — waehrend die Op selbst erst
-  /// einen Blob-Write spaeter aus der Outbox fiel. Ein Kill dazwischen zaehlte
-  /// beim naechsten Boot ein zweites Mal. Stattdessen erzeugt der Replay-Loop
-  /// beim Entfernen der Op ihren [SyncOpKind.statsIncrement]-Folgeeintrag,
-  /// atomar im selben Blob-Write (s. [_statsFollowUpFor], [_replayOutbox]).
-  /// Der Streak-Tag bleibt hier: [_recordTrackingDay] ist serverseitig pro Tag
-  /// idempotent, ihn doppelt zu senden kostet nichts.
+  /// The LIFETIME counter of a counting op is deliberately NOT booked here: the
+  /// replay loop creates its [SyncOpKind.statsIncrement] follow-up atomically
+  /// with the op's removal instead (see [_statsFollowUpFor], [_replayOutbox]),
+  /// so a kill in between cannot count twice. The streak day stays here:
+  /// [_recordTrackingDay] is idempotent per day server-side.
   Future<void> _performOp(EatovaSync s, SyncOp op) async {
     switch (op.kind) {
       case SyncOpKind.mealInsert:
         final meal = op.meal;
         if (meal == null) throw _CorruptOpPayload(op.kind);
         await s.meals.insertLoggedMeal(meal);
-        // Streak-Tag der MAHLZEIT verbuchen, nicht "heute" — der Replay kann
-        // Tage spaeter laufen. record_tracking_day ist idempotent pro Tag und
-        // fuer Tage vor dem letzten gezaehlten Tag ein Server-No-op.
+        // Book the MEAL's streak day, not "today" — replay can run days later.
+        // record_tracking_day is idempotent per day and a server-side no-op for
+        // days before the last counted one.
         if (op.trackDay) {
           _recordTrackingDay(day: DateTime.parse(meal.effectiveLocalDay));
         }
@@ -925,27 +755,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       case SyncOpKind.recipeDelete:
         await s.userRecipes.delete(op.entityId);
       case SyncOpKind.profileUpsert:
-        // Luecke D. Der Save ist ein voller Zeilen-Upsert auf die User-Id, also
-        // idempotent wiederholbar. Eine unlesbare/unvollstaendige Payload geht
-        // NICHT durch (A8-Pfad): sonst schriebe der Replay halb erfundene
-        // Zahlen ueber eine echte Profilzeile — genau der Clobber, gegen den
-        // _hydratedFromRealSource ueberhaupt existiert.
+        // Gap D. The save is a full row upsert on the user id, so idempotent.
+        // An unreadable/incomplete payload does NOT pass (A8 path): replay
+        // would otherwise clobber a real profile row with invented numbers.
         final p = op.profile;
         if (p == null) throw _CorruptOpPayload(op.kind);
         await s.profile.save(p);
       case SyncOpKind.statsIncrement:
         final meals = op.statsMeals;
         final weightLogs = op.statsWeightLogs;
-        // Leeres Increment oder eine entityId ohne UUID-Form koennen nie
-        // sinnvoll zugestellt werden (der RPC-Parameter ist uuid) — A8-Pfad,
-        // wie jede unlesbare Payload.
+        // An empty increment or a non-UUID entityId can never be delivered
+        // (the RPC parameter is uuid) — A8 path, like any unreadable payload.
         if ((meals <= 0 && weightLogs <= 0) || !isUuidShape(op.entityId)) {
           throw _CorruptOpPayload(op.kind);
         }
-        // entityId IST die Request-Id: jede Wiederholung sendet dieselbe,
-        // der Server addiert einen bereits verbuchten Eintrag nicht erneut
-        // und liefert nur die aktuelle Zeile — der Eintrag verlaesst die
-        // Queue dann als normaler Erfolg.
+        // entityId IS the request id: every repeat sends the same one, so an
+        // already booked entry is not added again and leaves the queue as a
+        // normal success.
         final frischeZeile = await s.lifetimeStats.increment(
           meals: meals,
           weightLogs: weightLogs,
@@ -954,14 +780,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         if (_disposed) return;
         _mutate(() {
           lifetimeStats = frischeZeile;
-          // Wie in _flushStatsDelta: die Serverzeile ist fuer die Zaehler
-          // autoritativ, fuer einen noch nicht zugestellten Streak-Tag nicht.
+          // As in _flushStatsDelta: the server row is authoritative for the
+          // counters, not for an undelivered streak day.
           _overlayPendingTrackingDays();
         });
         _cacheLifetimeStats();
       case SyncOpKind.trackingDay:
-        // Der Tag steckt im entityId (YYYY-MM-DD), nicht in der Payload — ein
-        // unlesbarer Wert ist trotzdem der A8-Fall: er wird nie zustellbar.
+        // The day lives in entityId (YYYY-MM-DD), not in the payload; an
+        // unparsable value is still the A8 case — never deliverable.
         final tag = DateTime.tryParse(op.entityId);
         if (tag == null) throw _CorruptOpPayload(op.kind);
         final fresh = await s.lifetimeStats.recordTrackingDay(tag);
@@ -974,28 +800,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
-  /// Der Zaehler-Folgeeintrag einer erfolgreich nachgespielten Op — oder
-  /// null, wenn die Op nicht zaehlt. Ersetzt das fruehere
-  /// `_queueStatsDelta` in [_performOp]: das persistierte sein +1 SOFORT in
-  /// den Deltas-Slot, waehrend die Op erst einen zweiten Write spaeter aus
-  /// der Outbox fiel — ein App-Kill dazwischen liess den naechsten Boot die
-  /// Op erneut spielen und ein zweites +1 buchen, unter frischer Buendel-Id
-  /// und damit am Server-Dedup vorbei. Der Folgeeintrag entsteht stattdessen
-  /// ATOMAR mit der Entfernung (derselbe Blob-Write, s. [_replayOutbox]) und
-  /// traegt eine aus der Quell-UUID ABGELEITETE Request-Id — jede
-  /// Wiederholung ist fuer den Server derselbe Vorgang.
+  /// The counter follow-up of a successfully replayed op, or null if the op
+  /// does not count. Created ATOMICALLY with the op's removal (same blob write,
+  /// see [_replayOutbox]) and carrying a request id DERIVED from the source
+  /// UUID, so every repeat is the same operation to the server.
   SyncOp? _statsFollowUpFor(SyncOp op) {
     final zaehltMeal = op.kind == SyncOpKind.mealInsert;
     final zaehltWeight = op.kind == SyncOpKind.weightInsert;
     if (!zaehltMeal && !zaehltWeight) return null;
     final requestId = deriveStatsRequestId(op.entityId);
     if (requestId == null) {
-      // entityId ist keine UUID — aus unseren Factories unmoeglich
-      // (uuidV4 in home_store_meals / home_store_tracking), also nur ueber
-      // einen manipulierten/fremden Blob erreichbar. Der Zaehler entfaellt
-      // fuer diese eine Op (derselbe bewusste Preis wie beim capOutbox-
-      // Kopf-Trim: ein Zaehler, kein Nutzer-Inhalt). NUR das Op-Kind ins
-      // Reporting, nie die Payload.
+      // entityId is not a UUID — impossible from our factories, so only
+      // reachable via a tampered/foreign blob. The counter is skipped for this
+      // one op. Op kind only in reporting, never the payload.
       dev.log('Outbox: Stats-Request-Id nicht ableitbar (${op.kind.name}) — '
           'Zaehler-Folgeeintrag entfaellt', name: 'eatova_sync');
       CrashReporter.breadcrumb('stats-rid underivable: ${op.kind.name}');
@@ -1008,10 +825,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
-  /// Spiegelt noch nicht synchronisierte Outbox-Ops in den (gecachten oder
-  /// frisch geladenen) State. Idempotent — mehrfaches Anwenden aendert nichts:
-  /// Upserts ersetzen vorhandene Eintraege bzw. fuegen fehlende ein, Deletes
-  /// entfernen. Muss innerhalb eines _mutate-Blocks laufen.
+  /// Mirrors unsynced outbox ops into the (cached or freshly loaded) state.
+  /// Idempotent: upserts replace or insert, deletes remove. Must run inside a
+  /// _mutate block.
   void _applyPendingOpsToState() {
     if (_outbox.isEmpty) return;
     var mealsTouched = false;
@@ -1061,40 +877,31 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           _userRecipes =
               _userRecipes.where((r) => r.slug != op.entityId).toList();
         case SyncOpKind.profileUpsert:
-          // Luecke D, zweite Haelfte: das ist der Schutz des BOOTS. Der
-          // Server-Load setzt `profile` auf die (alte) Serverzeile — hier
-          // kommt die noch nicht zugestellte Aenderung wieder obenauf.
-          // Danach schreibt `_writeCacheSnapshot` genau diesen Stand, der
-          // Cache erbt den Schutz also mit.
+          // Gap D, boot half: the server load sets `profile` to the old server
+          // row, and the undelivered change goes back on top. The following
+          // `_writeCacheSnapshot` persists exactly that state.
           final pendingProfile = op.profile;
           if (pendingProfile == null) break;
           profile = pendingProfile;
-          // Eine Profil-Op entsteht nur aus einem echten, hydrierten Profil
-          // (applySettings gibt sie ohne _hydratedFromRealSource gar nicht
-          // aus, completeOnboarding setzt das Flag selbst). Sie IST damit eine
-          // echte Quelle — ohne diese Zeile bliebe der A1-Guard zu und
-          // `_writeCacheSnapshot` liesse die Aenderung wieder aus dem Cache
-          // fallen, sobald weder Cache-Profil noch Server-Zeile lesbar waren.
+          // A profile op only ever comes from a real, hydrated profile, so it
+          // IS a real source. Without this the A1 guard would stay closed and
+          // `_writeCacheSnapshot` would drop the change again.
           _hydratedFromRealSource = true;
         case SyncOpKind.trackingDay:
-          // Damit ueberlebt auch der optimistische Streak-Stand den Kaltstart:
-          // der Server-Load liefert die Zeile OHNE den Tag (der RPC ist ja nie
-          // durchgekommen), hier kommt er wieder obenauf. recordTrackedDay ist
-          // lokal pro Tag idempotent und fuer Tage VOR dem zuletzt gezaehlten
-          // ein No-op — mehrfaches Anwenden aendert also nichts.
+          // Lets the optimistic streak survive a cold start: the server row
+          // comes WITHOUT the day (the RPC never landed), so it goes back on
+          // top. recordTrackedDay is idempotent per day.
           final tag = DateTime.tryParse(op.entityId);
           if (tag == null) break;
           lifetimeStats = lifetimeStats.recordTrackedDay(tag);
         case SyncOpKind.statsIncrement:
-          // Kein State-Effekt: die Anzeige der Lebenszeit-Zaehler folgt der
-          // Serverzeile — exakt wie bei den pendenden Buendel-Deltas, deren
-          // Anzeige-Grenzfaelle dokumentiert offen sind. Der Eintrag wirkt
-          // ausschliesslich beim Replay.
+          // No state effect: the lifetime counters follow the server row. This
+          // entry only matters during replay.
           break;
       }
     }
     if (mealsTouched) {
-      // Server-Sortierung (logged_at absteigend) nach dem Merge wiederherstellen.
+      // Restore server ordering (logged_at descending) after the merge.
       loggedMeals = [...loggedMeals]
         ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
     }
@@ -1110,136 +917,99 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
-  /// DSGVO Art. 17: löscht Konto + alle Daten serverseitig (RPC). Liefert true,
-  /// wenn die Löschung durchlief (dann darf die Schale ausloggen). Bei Fehler
-  /// false (kein Logout, damit der User es erneut versuchen kann).
+  /// GDPR Art. 17: deletes account and all data server-side (RPC). Returns true
+  /// if the deletion went through (the shell may then sign out), false on error
+  /// so the user can retry.
   Future<bool> deleteAccount() async {
     try {
       await sync?.deleteAccount();
     } catch (e, st) {
-      // Die serverseitige Reauth-Ablehnung (Migration 20260815120000,
-      // EX_REAUTH_REQUIRED) braucht einen eigenen Satz: „bitte spaeter
-      // erneut" waere falsch — spaeter erneut zu tippen hilft nicht, der
-      // Mail-Code muss neu angefordert werden.
+      // The server-side reauth rejection (EX_REAUTH_REQUIRED) needs its own
+      // sentence: retrying later does not help, a new mail code is required.
       _reportSyncError('Konto-Löschung', e, st,
           message: deleteAccountErrorMessage(e, _l10n));
       return false;
     }
-    // D9: geplante Erinnerungen liegen im OS, nicht in unserem Cache — ohne
-    // diesen Aufruf feuern sie nach der Löschung weiter, während der Dialog
-    // „unwiderruflich gelöscht" verspricht.
+    // D9: scheduled reminders live in the OS, not in our cache — without this
+    // they keep firing after the deletion.
     await notificationService.cancelAll();
-    // B3: derselbe Grund — der Health-Zustand lebt im Service-Objekt, nicht im
-    // namensraumgetrennten Cache, und überlebt sonst die Kontolöschung.
+    // B3: same reason — health state lives in the service object, not in the
+    // namespaced cache.
     _resetHealthConnection();
-    // Kein preserveOutbox: das Konto ist weg, es gibt kein Ziel mehr, gegen
-    // das die Ops je zugestellt werden könnten.
+    // No preserveOutbox: the account is gone, so there is no delivery target.
     await _clearCache();
     return true;
   }
 
-  /// Räumt den lokalen PII-Cache (Profil, Lifetime-Stats, Tagebuch,
-  /// Favoriten, Gewicht, Notification-Flag) beim Sign-Out — anders als
-  /// [deleteAccount] OHNE Server-RPC. Ohne diesen Schritt überlebten
-  /// Gesundheits-/Profildaten den Logout in den SharedPreferences (Audit
-  /// 2026-06-09, M-1). Muss VOR dem eigentlichen `signOut()` laufen, solange
-  /// der User noch der aktuelle ist — der defensive Pfad braucht dessen ID.
+  /// Clears the local PII cache (profile, lifetime stats, diary, favorites,
+  /// weight, notification flag) on sign-out — unlike [deleteAccount] WITHOUT a
+  /// server RPC (Audit 2026-06-09, M-1). Must run BEFORE `signOut()` while the
+  /// user is still current: the defensive path needs their id.
   ///
-  /// Ungesyncte Writes werden dabei NICHT mehr mitvernichtet (Review
-  /// 2026-08-08, A2). Vorher hieß Ausloggen: sechs im Flugzeug geloggte
-  /// Mahlzeiten sind weg — nicht eingereiht, nicht wiederherstellbar, nie
-  /// erwähnt. Jetzt läuft zuerst ein Zustellversuch; bleibt danach etwas
-  /// liegen, überleben Outbox UND pendende Stats-Deltas den Logout und spielen
-  /// beim nächsten Login desselben Users nach.
+  /// Unsynced writes are no longer destroyed with it (Review 2026-08-08, A2).
+  /// A delivery attempt runs first; whatever is left over survives the logout
+  /// in the outbox AND the pending stats deltas and replays at the next login
+  /// of the same user.
   ///
-  /// „Etwas" heißt ausdrücklich BEIDE Kanäle. Die Deltas hängen nicht an der
-  /// Outbox: der Mahlzeiten-Write kann gelingen, während
-  /// `increment_lifetime_stats` (eigener RPC, [_flushStatsDelta]) scheitert —
-  /// dann ist die Queue leer und die Zähler stehen trotzdem aus. Hinge
-  /// `preserveOutbox` allein an `_outbox.length`, nähme genau diese
-  /// Kombination dem Nutzer die Lebenszeit-Zähler und damit die
-  /// Streak-Grundlage (kein Mahlzeiteninhalt, aber auch nicht nichts).
+  /// Both channels count: the meal write can succeed while
+  /// `increment_lifetime_stats` (its own RPC) fails, leaving an empty queue and
+  /// outstanding counters. Tying `preserveOutbox` to `_outbox.length` alone
+  /// would drop the lifetime counters and with them the streak basis.
   ///
-  /// Die alte Begründung (PII darf den Logout nicht überleben) trägt für
-  /// diesen einen Slot nicht mehr: der Cache ist seit `7f895f9`
-  /// AES-256-GCM-verschlüsselt, und JEDER Slot-Schlüssel trägt die User-ID
-  /// (`eatova.v1.outbox.<uid>`, siehe local_cache.dart) — ein anderer Nutzer
-  /// auf demselben Gerät liest seinen eigenen, leeren Namensraum, nie diesen.
-  ///
-  /// Seit Luecke D kann in dem erhaltenen Slot auch eine Profil-Op liegen
-  /// (Gewicht, Ziele, Diät). Dieselbe Begründung trägt: verschlüsselt, nach
-  /// User-ID getrennt, und der Preis für den Gegenfall wäre, dem Nutzer seine
-  /// letzte Profiländerung beim Ausloggen wegzunehmen. Der Cache-Slot
-  /// `eatova.v1.profile.<uid>` fällt wie bisher.
+  /// PII surviving the logout is acceptable for this one slot: the cache is
+  /// AES-256-GCM encrypted and EVERY slot key carries the user id
+  /// (`eatova.v1.outbox.<uid>`, see local_cache.dart). Since gap D the slot may
+  /// also hold a profile op; same reasoning. `eatova.v1.profile.<uid>` still
+  /// falls.
   Future<void> signOutCleanup() async {
-    // Zustellversuch VOR dem Verwerfen: online ist die Queue danach leer und
-    // es bleibt beim vollständigen Räumen wie bisher.
+    // Deliver before discarding: online the queue is empty afterwards and the
+    // full clear applies as before.
     await _replayOutbox();
-    // Die pendenden Lifetime-Deltas sind ein EIGENER Zustand, kein Teil der
-    // Outbox: der Mahlzeiten-Write kann gelingen, während
-    // `increment_lifetime_stats` (eigener RPC) scheitert. Dann ist die Queue
-    // leer und die Deltas stehen — also braucht auch dieser Kanal seinen
-    // Zustellversuch, sonst zieht der Logout die Streak-Grundlage weg.
-    // Nach dem Replay: der holt seit Fix 3 zwar keine Buendel-Deltas mehr nach
-    // (er zaehlt ueber eigene statsIncrement-Eintraege, die er im selben Lauf
-    // mit zustellt), aber ein waehrend des Replays fertig werdender Live-Write
-    // kann noch ein Delta buchen — und ein hier bereits pendendes Buendel muss
-    // so oder so vor dem Raeumen seinen Zustellversuch bekommen.
+    // The pending lifetime deltas are their own state, not part of the outbox:
+    // the meal write can succeed while `increment_lifetime_stats` fails. So
+    // this channel needs its own delivery attempt too, otherwise the logout
+    // pulls away the streak basis. A live write finishing during the replay can
+    // still book a delta.
     await _flushStatsDelta();
-    // Nur was die Zustellung nicht losgeworden ist, rechtfertigt einen
-    // überlebenden Slot. Maßgeblich ist der Store-Zustand — er ist der
-    // Spiegel des persistierten Blobs, sobald der Boot gelaufen ist. Beide
-    // Kanäle zählen: `preserveOutbox` hält _outboxKey UND _pendingStatsKey.
+    // Only what delivery could not shift justifies a surviving slot. The store
+    // state is authoritative once boot has run. `preserveOutbox` holds
+    // _outboxKey AND _pendingStatsKey.
     final remaining = _outbox.length +
         _pendingMealsDelta.abs() +
         _pendingWeightLogsDelta.abs();
-    // D9: die geplanten Erinnerungen sind OS-Zustand und kennen keinen User.
-    // Ohne diesen Aufruf zeigt das Familien-Tablet der neu angemeldeten
-    // Person abends die Streak-Erinnerung der vorherigen.
+    // D9: scheduled reminders are OS state and know no user — else the family
+    // tablet shows the previous user's streak reminder.
     await notificationService.cancelAll();
-    // B3: der Health-Zustand ist prozesslokal und kennt keinen User. Ohne
-    // diesen Aufruf zeigt Bs Profilkarte weiter As „Synchronisiert".
+    // B3: health state is process-local and knows no user — else B's profile
+    // card keeps showing A's connection.
     _resetHealthConnection();
-    // Vor Abschluss der Hydration ist `remaining == 0` keine Aussage — der
-    // Blob der Vorsession haengt dann noch unbesehen im Store. Konservativ
-    // erhalten: ein faelschlich behaltener leerer Slot kostet nichts, ein
-    // faelschlich geraeumter kostet bis zu 500 nicht quittierte Writes (A2).
+    // Before hydration completes, `remaining == 0` says nothing. Conservative:
+    // a wrongly kept empty slot costs nothing, a wrongly cleared one costs up
+    // to 500 unacknowledged writes (A2).
     await _clearCache(preserveOutbox: remaining > 0 || !_syncStateHydrated);
   }
 
-  /// Trennt Apple Health beim Nutzerwechsel — Service UND Store-Feld.
-  ///
-  /// Beides ist nötig: `health.reset()` räumt Verifier und gecachtes
-  /// `authState` im Service, `healthAuthState` ist die Kopie, die die
-  /// Profilkarte rendert. Ohne die zweite Zuweisung bliebe die grüne
-  /// „Synchronisiert"-Karte bis zum nächsten `refreshHealthSteps()` stehen.
+  /// Disconnects Apple Health on user change — service AND store field.
+  /// `health.reset()` clears verifier and cached `authState`;
+  /// `healthAuthState` is the copy the profile card renders.
   void _resetHealthConnection() {
     health.reset();
     healthAuthState = health.authState;
   }
 
-  /// Löscht den lokalen Cache. Bevorzugt den bereits gebooteten [_cache], im
-  /// Test den injizierten [debugCache]; kommt der Logout vor dem Boot-Ende
-  /// (noch kein _cache), wird er defensiv aus der aktuellen Session-User-ID
-  /// gebaut, damit auch dann nichts liegen bleibt.
+  /// Clears the local cache. Prefers the booted [_cache], the injected
+  /// [debugCache] in tests; if the logout beats the boot, it is rebuilt
+  /// defensively from the current session user id so nothing is left behind.
   ///
-  /// [preserveOutbox] hält `_outboxKey`/`_pendingStatsKey` zurück (A2) — alles
-  /// andere fällt so oder so.
+  /// [preserveOutbox] holds back `_outboxKey`/`_pendingStatsKey` (A2).
   Future<void> _clearCache({bool preserveOutbox = false}) async {
     final cache = _cache ?? debugCache ?? await _resolveCacheForCurrentUser();
     await cache?.clear(preserveOutbox: preserveOutbox);
-    // Die Fotos eigener Rezepte liegen NICHT im LocalCache, sondern als
-    // Dateien im App-Verzeichnis — ohne diesen Aufruf ueberlebte ein
-    // Kuechenfoto den Logout auf dem Geraet. Es faellt unter dieselbe
-    // M-1-Begruendung wie die Rezeptzeile selbst (Audit 2026-06-09) und
-    // deshalb auch bei `preserveOutbox: true`: die Outbox traegt Zeilen,
-    // keine Bytes.
-    //
-    // Folge, bewusst in Kauf genommen: Spielt nach einem Re-Login ein noch
-    // offener Rezept-Upsert nach, traegt die Zeile weiter ihren
-    // `local:`-Marker ohne Bytes — die Anzeige faellt dann sauber auf den
-    // Platzhalter zurueck. Ein zurueckgelassenes Foto waere der schlechtere
-    // Tausch.
+    // Own-recipe photos are files in the app directory, not in the LocalCache,
+    // so they need their own call — same M-1 reasoning as the recipe row, and
+    // therefore also under `preserveOutbox: true` (the outbox carries rows, not
+    // bytes). Accepted consequence: a replayed recipe upsert keeps its
+    // `local:` marker without bytes and falls back to the placeholder.
     await RecipeImageStore.instance.clear();
   }
 
@@ -1249,36 +1019,31 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     return LocalCache.create(userId);
   }
 
-  // --- Persistenz-Helfer ----------------------------------------------------
+  // --- Persistence helpers --------------------------------------------------
 
   Future<void> _writeCacheSnapshot() async {
     final cache = _cache;
     if (cache == null) return;
-    // Sentinel-Rest A1: ohne echte Hydrationsquelle (Cache unlesbar UND
-    // Server-Boot leer) besteht der Zustand aus reinen Ctor-Defaults. Die zu
-    // schreiben hiesse, den vorhandenen (nur gerade unlesbaren) Bestand mit
-    // Fantasie zu ueberschreiben — und der NAECHSTE Boot laese sie als echte
-    // Quelle, womit die Clobber-Sperre von applySettings aufginge und die
-    // Defaults auf den Server wanderten. Kein Wissen -> kein Snapshot.
+    // A1: without a real hydration source (cache unreadable AND server boot
+    // empty) the state is pure ctor defaults. Writing them would clobber the
+    // existing data, and the NEXT boot would read them as a real source,
+    // opening applySettings' clobber lock. No knowledge -> no snapshot.
     if (!_hydratedFromRealSource) return;
     await cache.writeProfile(profile);
     await cache.writeLifetimeStats(lifetimeStats);
     await cache.writeLoggedMeals(_cacheableLoggedMeals());
     await cache.writeFavorites(favorites);
     await cache.writeWeightLog(weightLog);
-    // Luecke A: ohne diese Zeile lag NUR das gerade angelegte Rezept im Cache
-    // (Write-Through), die vom Server geladenen dagegen nie — ein Kaltstart
-    // ohne Netz zeigte dann eine leere Eigen-Rezept-Liste.
+    // Gap A: without this only the just-created recipe reached the cache
+    // (write-through), never the server-loaded ones — an offline cold start
+    // showed an empty own-recipe list.
     await cache.writeUserRecipes(_userRecipes);
   }
 
-  /// Bewusste Entscheidung: nur Eintraege innerhalb des Boot-Fensters wandern
-  /// in den durablen Cache. On-Demand nachgeladene Alt-Tage bleiben
-  /// In-Memory — sie wuerden den SharedPreferences-Blob unbegrenzt aufblaehen,
-  /// und der naechste Besuch laedt sie ohnehin frisch vom Server. Pendende
-  /// WRITES fuer Alt-Tage sind davon unabhaengig kill-sicher: sie leben in
-  /// der persistierten Outbox und werden beim Boot via
-  /// _applyPendingOpsToState wieder sichtbar.
+  /// Only entries inside the boot window reach the durable cache. On-demand
+  /// loaded older days stay in memory: they would inflate the SharedPreferences
+  /// blob without bound and are reloaded from the server anyway. Pending WRITES
+  /// for older days stay kill-safe in the persisted outbox.
   List<LoggedMeal> _cacheableLoggedMeals() {
     final cutoff = DateTime.now()
         .subtract(const Duration(days: MealsSync.loggedMealsWindowDays));
@@ -1291,16 +1056,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     unawaited(_cache?.writeLifetimeStats(lifetimeStats) ?? Future<void>.value());
   }
 
-  // Write-Through fuer die Offline-Slots (DATA-7): jede lokale Mutation
-  // spiegelt sich sofort in den Cache, damit ein Kaltstart ohne Netz den
-  // letzten Stand zeigt. Fire-and-forget — ein Cache-Write darf nie den
-  // UI-Pfad blockieren. Gefiltert auf das Boot-Fenster (s.
-  // _cacheableLoggedMeals) — Alt-Tage blaehen den Cache nicht auf.
-  // Entprellt (G9b): eine Fuenfer-Serie verschluesselte den ganzen Blob sonst
-  // fuenfmal — bei 210 Mahlzeiten sind das 5x91 ms AES-GCM. Ausstehende Writes
-  // gehen nicht verloren: flushPendingWrites() haengt am Lifecycle und
-  // erzwingt sie, clear() verwirft sie bewusst (sonst schriebe ein laufender
-  // Timer die beim Logout geraeumte PII zurueck).
+  // Write-through for the offline slots (DATA-7): every local mutation hits the
+  // cache immediately so an offline cold start shows the last state.
+  // Fire-and-forget — a cache write must never block the UI path. Filtered to
+  // the boot window (see _cacheableLoggedMeals). Debounced (G9b): a burst of
+  // five would otherwise encrypt the whole blob five times (~91 ms AES-GCM each
+  // at 210 meals). Pending writes are not lost: flushPendingWrites() forces
+  // them on lifecycle, clear() discards them on purpose so a running timer
+  // cannot write cleared PII back.
   void _cacheLoggedMeals() {
     _cache?.writeLoggedMealsDebounced(_cacheableLoggedMeals());
   }
@@ -1318,10 +1081,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   void _persistOutbox() {
-    // Luecke F: der In-Memory-Stand ist NUR dann eine gueltige Fassung des
-    // Blobs, wenn die Hydration ihn lesen konnte. Sonst ist `_outbox` eine
-    // frische Queue aus dieser Sitzung, und sie hier zu schreiben vernichtet
-    // bis zu [kOutboxMaxOps] fremde, nie zugestellte Writes.
+    // Gap F: the in-memory state is a valid version of the blob only if
+    // hydration could read it. Otherwise `_outbox` is a fresh queue from this
+    // session, and writing it destroys up to [kOutboxMaxOps] undelivered
+    // writes.
     if (_outboxHydrationFailed) {
       unawaited(_repairOutboxHydration());
       return;
@@ -1329,31 +1092,25 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     unawaited(_cache?.writeOutbox(_outbox) ?? Future<void>.value());
   }
 
-  /// Holt eine gescheiterte Outbox-Hydration nach, bevor zum ersten Mal
-  /// geschrieben wird.
+  /// Retries a failed outbox hydration before the first write.
   ///
-  /// Warum ein zweiter Versuch statt einer dauerhaften Schreibsperre: eine
-  /// Sperre auf Lebenszeit der Sitzung waere bei einem DAUERHAFT unlesbaren
-  /// Blob der schlimmere Fehler — die Sitzung koennte dann nie mehr etwas
-  /// kill-sicher ablegen, und zwar in jeder folgenden Sitzung wieder. Der
-  /// zweite Lesevorgang trennt genau die beiden Faelle:
+  /// A second read instead of a permanent write lock, because a lock would make
+  /// a permanently unreadable blob poison every future session. The second read
+  /// separates the two cases:
   ///
-  ///  * er GELINGT -> der erste Fehler war voruebergehend. Die gelesenen Ops
-  ///    sind die aelteren und kommen vor die der Sitzung; danach schreibt der
-  ///    normale Pfad die vereinigte Queue.
-  ///  * er scheitert erneut -> der Blob ist mit diesem Code nicht lesbar und
-  ///    damit auch nie zustellbar. Er ist bereits verloren, und ihn stehen zu
-  ///    lassen wuerde nur die Writes DIESER Sitzung mit in den Abgrund ziehen.
-  ///    Ab hier gilt wieder der normale Schreibpfad.
+  ///  * it SUCCEEDS -> the first error was transient. The read ops are the
+  ///    older ones and go before this session's; the normal path then writes
+  ///    the merged queue.
+  ///  * it fails again -> the blob is unreadable and hence undeliverable. It is
+  ///    already lost, and keeping it would drag THIS session's writes down too.
   ///
-  /// Gelesen wird ueber die WERFENDE Variante (W7b): mit dem toleranten
-  /// [LocalCache.readOutbox] liefen die beiden Faelle, die dieser Pfad gerade
-  /// trennen soll, wieder zusammen — ein kaputter Blob kam als `null` an,
-  /// also ununterscheidbar von „Slot leer", und der zweite Fehlschlag lief
-  /// still an Log und Crash-Report vorbei.
+  /// Uses the THROWING read variant (W7b): with the tolerant
+  /// [LocalCache.readOutbox] a broken blob would arrive as `null`,
+  /// indistinguishable from "slot empty", and the second failure would go
+  /// unreported.
   ///
-  /// Laeuft hoechstens einmal gleichzeitig; danach ist [_outboxHydrationFailed]
-  /// in beiden Faellen false, der Pfad also einmalig.
+  /// Runs at most once concurrently; afterwards [_outboxHydrationFailed] is
+  /// false either way.
   Future<void> _repairOutboxHydration() async {
     if (_outboxRepairInFlight) return;
     _outboxRepairInFlight = true;
@@ -1372,9 +1129,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (_disposed) return;
     if (blob != null && blob.isNotEmpty) {
       CrashReporter.breadcrumb('outbox-rehydrate: ${blob.length} ops restored');
-      // Die Ops der Sitzung auf die nachgelesenen legen — dieselbe Mechanik
-      // wie beim regulaeren Einreihen (Koaleszenz pro Entitaet, FIFO), damit
-      // aus dem Zusammenfuehren keine Doppelbuchung entsteht.
+      // Layer this session's ops onto the re-read ones with the regular enqueue
+      // mechanics (per-entity coalescing, FIFO), so the merge cannot
+      // double-book.
       var vereint = blob;
       for (final op in _outbox) {
         vereint = enqueueCoalesced(vereint, op);
@@ -1382,19 +1139,18 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       final capped = capOutbox(vereint);
       _outbox = capped.queue;
       if (capped.dropped.isNotEmpty) {
-        // Wie beim regulaeren Cap in [_enqueueOp] — und anders als beim Cap
-        // waehrend der Hydration: dort raeumt der unmittelbar folgende
-        // Boot-Load die Sache ohnehin auf, hier ist der Boot laengst durch.
+        // As with the regular cap in [_enqueueOp] — unlike the cap during
+        // hydration, where the following boot load cleans up; here boot is long
+        // done.
         final lostDeletes = capped.dropped.where((o) => o.isDelete).toList();
         if (lostDeletes.isNotEmpty) {
           unawaited(_restoreDroppedDeletes(lostDeletes));
         }
         _notifyDroppedOps(capped.dropped);
       }
-      // Die nachgeholten Writes sind dem Zustand bisher unbekannt (die
-      // Hydration hat sie nie gesehen) — ohne diesen Schritt laege z.B. eine
-      // offline geloggte Mahlzeit in der Queue, waere im Tagebuch aber nicht
-      // zu sehen.
+      // The recovered writes are unknown to the state (hydration never saw
+      // them) — without this an offline-logged meal would sit in the queue but
+      // be invisible in the diary.
       _mutate(_applyPendingOpsToState);
       _scheduleOutboxRetry();
     }
@@ -1402,11 +1158,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   void _persistPendingStatsDeltas() {
-    // W7b, exakt die Bremse aus [_persistOutbox]: der In-Memory-Stand ist NUR
-    // dann eine gueltige Fassung des Slots, wenn die Hydration ihn lesen
-    // konnte. Sonst sind `_pendingMealsDelta`/`_pendingWeightLogsDelta` die
-    // Zahlen dieser Sitzung, und sie hier zu schreiben vernichtet die
-    // liegengebliebenen Deltas der Vorsession samt ihrer Anfrage-Id.
+    // W7b, the brake from [_persistOutbox]: the in-memory numbers are a valid
+    // version of the slot only if hydration could read it. Otherwise writing
+    // them destroys the previous session's deltas and their request id.
     if (_statsHydrationFailed) {
       unawaited(_repairStatsHydration());
       return;
@@ -1419,18 +1173,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         Future<void>.value());
   }
 
-  /// Holt eine gescheiterte Deltas-Hydration nach, bevor zum ersten Mal
-  /// geschrieben wird — die Entsprechung zu [_repairOutboxHydration], mit
-  /// derselben Begruendung und demselben Ablauf (zweiter Lesevorgang statt
-  /// dauerhafter Schreibsperre; gelingt er, sind die nachgelesenen Zahlen die
-  /// aelteren und werden addiert; scheitert er erneut, war der Slot ohnehin
-  /// verloren und der normale Schreibpfad uebernimmt wieder).
+  /// Retries a failed deltas hydration before the first write — the counterpart
+  /// to [_repairOutboxHydration], same reasoning and flow: on success the
+  /// re-read numbers are the older ones and get added; on a second failure the
+  /// slot was lost anyway and the normal write path resumes.
   ///
-  /// Ebenfalls ueber die werfende Lesevariante, sonst kaeme ein kaputter Slot
-  /// als „ist halt leer" an und der Fehlschlag bliebe unsichtbar.
+  /// Also via the throwing read variant, else a broken slot would arrive as
+  /// "empty" and the failure would stay invisible.
   ///
-  /// Laeuft hoechstens einmal gleichzeitig; danach ist [_statsHydrationFailed]
-  /// in beiden Faellen false, der Pfad also einmalig.
+  /// Runs at most once concurrently; afterwards [_statsHydrationFailed] is
+  /// false either way.
   Future<void> _repairStatsHydration() async {
     if (_statsRepairInFlight) return;
     _statsRepairInFlight = true;
@@ -1449,19 +1201,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
     if (_disposed) return;
     if (blob != null && (blob.meals != 0 || blob.weightLogs != 0)) {
-      // Nur die Tatsache, keine Zahlen: der Slot fuehrt Mahlzeiten- und
-      // Gewichts-Zaehler, und dieser Text geht ins Reporting.
+      // The fact only, no numbers: the slot holds meal and weight counters and
+      // this text goes into reporting.
       CrashReporter.breadcrumb('pending-stats-rehydrate: deltas restored');
       _pendingMealsDelta += blob.meals;
       _pendingWeightLogsDelta += blob.weightLogs;
-      // Die Id des NACHGELESENEN Buendels gewinnt, nicht die der Sitzung: von
-      // beiden kann nur sie serverseitig schon verbucht sein (sie gehoert zu
-      // einem Flush, der gescheitert sein KANN, nachdem der Server committet
-      // hat). Dieselbe Abwaegung wie in [_flushStatsDelta]: lieber ein
-      // begrenzter Ausfall im Abbruchfenster als eine dauerhafte
-      // Ueberzaehlung, die kein Pfad je wieder korrigiert. Der Boot-Pfad kommt
-      // mit `??=` zum selben Ergebnis — dort ist die Sitzungs-Id noch nie
-      // gesetzt.
+      // The RE-READ bundle's id wins, not the session's: only it can already be
+      // booked server-side. Same trade-off as in [_flushStatsDelta]: a bounded
+      // shortfall in the abort window beats a permanent overcount that no path
+      // ever corrects.
       final wiedergefunden = blob.requestId;
       if (wiedergefunden != null) _pendingStatsRequestId = wiedergefunden;
       _scheduleOutboxRetry();
@@ -1469,55 +1217,37 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _persistPendingStatsDeltas();
   }
 
-  // --- Streak-Tage (Zweitpruefung 2026-08-10) -------------------------------
+  // --- Streak days (second review 2026-08-10) -------------------------------
 
-  /// Reiht einen getrackten Logging-Tag in die Outbox ein, dessen RPC gerade
-  /// gescheitert ist.
+  /// Queues a tracked logging day whose RPC just failed.
   ///
-  /// Warum ueberhaupt: bis hierher war [_recordTrackingDay] ein reines
-  /// fire-and-forget. Sein Fehler ging an dev.log + CrashReporter und war
-  /// damit erledigt — kein Retry, kein Cache-Merker, keine Op. Der
-  /// optimistische lokale Stand hielt nicht einmal eine Sekunde: der auf 600 ms
-  /// entprellte [_flushStatsDelta] adoptierte danach die frische Serverzeile,
-  /// die den Tag naturgemaess nicht kennt, und [_cacheLifetimeStats] schrieb
-  /// den Verlust anschliessend fest. Die Streak war gerissen, obwohl der
-  /// Nutzer geloggt hatte und die Mahlzeit angekommen war.
+  /// Without it the optimistic local state did not survive a second: the
+  /// debounced [_flushStatsDelta] adopted the fresh server row, which does not
+  /// know the day, and [_cacheLifetimeStats] persisted the loss — a broken
+  /// streak although the meal had arrived.
   ///
-  /// Bewusst KEIN zweiter Persistenz-Kanal neben der Outbox: der haette sich
-  /// jede Eigenschaft, die die Outbox schon hat (Kill-Sicherheit, FIFO,
-  /// Koaleszenz, Queue-Cap, Versuchs-Budget, Backoff, Verlust-Meldung,
-  /// Erhalt beim Logout), noch einmal selbst bauen muessen — und genau solche
-  /// halbfertigen Zweitmechaniken sind der Stoff, aus dem der naechste Befund
-  /// gemacht ist. Der Tag ist idempotent nachspielbar, also gehoert er in die
-  /// vorhandene Queue.
+  /// Deliberately NO second persistence channel beside the outbox: it would
+  /// have to rebuild kill safety, FIFO, coalescing, cap, budget, backoff, loss
+  /// reporting and logout survival. The day replays idempotently, so it belongs
+  /// in the existing queue.
   void _queueTrackingDay(DateTime day) {
     if (sync == null || _disposed) return;
     _enqueueOp(SyncOp.trackingDay(localDayKey(day)));
     _scheduleOutboxRetry();
   }
 
-  /// Nimmt einen Tag wieder aus der Queue, dessen RPC LIVE durchgekommen ist.
+  /// Re-applies undelivered streak days on top of a freshly adopted server row.
+  /// Must run inside a `_mutate` block.
   ///
-  /// Ohne diesen Schritt bliebe eine aeltere, gescheiterte Op fuer denselben
-  /// Tag liegen und wuerde spaeter ein zweites Mal abgespielt. Das waere
-  /// schadlos (der RPC ist pro Tag idempotent), aber es ist ein Request, den
-  /// niemand braucht — und eine Op, die die Queue beim Logout festhaelt.
-  /// Legt noch nicht zugestellte Streak-Tage wieder ueber eine frisch
-  /// adoptierte Serverzeile. Muss innerhalb eines `_mutate`-Blocks laufen.
+  /// Without it [_queueTrackingDay] would only go half way: the day sits
+  /// kill-safe in the queue, but the DISPLAY still jumps to "streak broken"
+  /// because [_flushStatsDelta] adopts the fresh server row shortly after. Same
+  /// pattern as [_applyPendingOpsToState] on boot, restricted to this one
+  /// channel: the stats flush runs on EVERY mutation, and the full overlay over
+  /// up to [kOutboxMaxOps] ops does not belong in that hot path.
   ///
-  /// Ohne diesen Schritt haette [_queueTrackingDay] nur den halben Weg
-  /// gemacht: der Tag laege zwar kill-sicher in der Queue, die ANZEIGE spraenge
-  /// aber trotzdem sofort auf „Streak gerissen" — [_flushStatsDelta] adoptiert
-  /// 600 ms nach dem Log die frische Serverzeile, und die kennt den
-  /// gescheiterten Tag naturgemaess nicht. Genau dasselbe Muster wie
-  /// [_applyPendingOpsToState] beim Boot, hier bewusst auf den einen Kanal
-  /// beschraenkt: der Stats-Flush laeuft entprellt bei JEDER Mutation, und die
-  /// volle Ueberlagerung ueber bis zu [kOutboxMaxOps] Ops (inklusive
-  /// Neusortierung des Tagebuchs) gehoert nicht in diesen heissen Pfad.
-  ///
-  /// [LifetimeStats.recordTrackedDay] ist pro Tag idempotent und fuer Tage vor
-  /// dem zuletzt gezaehlten ein No-op — die Reihenfolge in der Queue (FIFO,
-  /// also chronologisch) traegt damit von selbst.
+  /// [LifetimeStats.recordTrackedDay] is idempotent per day and a no-op for
+  /// days before the last counted one, so FIFO order carries itself.
   void _overlayPendingTrackingDays() {
     for (final op in _outbox) {
       if (op.kind != SyncOpKind.trackingDay) continue;
@@ -1526,6 +1256,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
+  /// Removes a day from the queue whose RPC went through LIVE, so an older
+  /// failed op is not replayed later — harmless (the RPC is idempotent per day)
+  /// but a needless request, and an op that pins the queue at logout.
   void _clearQueuedTrackingDay(String localDay) {
     final gefiltert = _outbox
         .where((o) =>
@@ -1536,15 +1269,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _persistOutbox();
   }
 
-  // --- Lifetime-Stats-Deltas ------------------------------------------------
+  // --- Lifetime stats deltas ------------------------------------------------
 
-  /// Bucht ein Lebenszeit-Delta ins pendende Buendel.
+  /// Books a lifetime delta into the pending bundle.
   ///
-  /// Seit Fix 3 ist das exklusiv der LIVE-Pfad (`onDelivered` in
-  /// home_store_meals/home_store_tracking). Der Replay zaehlt ueber seinen
-  /// eigenen [SyncOpKind.statsIncrement]-Eintrag — nicht hierueber: dieser
-  /// Slot committet SOFORT, die Op fiel erst einen Write spaeter aus der
-  /// Outbox, und ein Kill dazwischen zaehlte beim naechsten Boot doppelt.
+  /// Exclusively the LIVE path (`onDelivered` in
+  /// home_store_meals/home_store_tracking). Replay counts through its own
+  /// [SyncOpKind.statsIncrement] entry instead: this slot commits IMMEDIATELY
+  /// while the op leaves the outbox one write later, so a kill in between would
+  /// count twice on the next boot.
   void _queueStatsDelta({
     int meals = 0,
     int weightLogs = 0,
@@ -1552,14 +1285,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (sync == null) return;
     _pendingMealsDelta += meals;
     _pendingWeightLogsDelta += weightLogs;
-    // Ein frisches Buendel bekommt seine Anfrage-Id hier — und NUR hier.
-    // `??=` ist der ganze Punkt: solange das Buendel offen ist (also bis es
-    // verbucht wurde), behaelt es seine Id, egal wie viele Deltas noch
-    // dazukommen und wie oft der Flush scheitert.
+    // A fresh bundle gets its request id here, and ONLY here. `??=` is the
+    // point: while the bundle is open it keeps its id, however many deltas
+    // arrive and however often the flush fails.
     _pendingStatsRequestId ??= uuidV4();
-    // Pendende Deltas kill-sicher machen (DATA-7): ein App-Kill im Debounce-
-    // Fenster oder nach fehlgeschlagenem Flush verliert sie nicht mehr — der
-    // naechste Boot hydriert und flusht sie nach.
+    // Make pending deltas kill-safe (DATA-7): the next boot hydrates and
+    // flushes them.
     _persistPendingStatsDeltas();
     _cacheLifetimeStats();
     _statsSaveDebounce?.cancel();
@@ -1575,23 +1306,18 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     final meals = _pendingMealsDelta;
     final weightLogs = _pendingWeightLogsDelta;
     if (meals == 0 && weightLogs == 0) return;
-    // Bestandsdaten: ein Buendel, das ein aelterer Build persistiert hat (oder
-    // das die Boot-Hydration ohne Id vorgefunden hat), traegt keine — es wird
-    // hier nachtraeglich eine vergeben, statt an `null` zu scheitern oder das
-    // Buendel zu verwerfen. Ab diesem Moment gilt fuer es dieselbe Regel wie
-    // fuer jedes andere: sie bleibt, bis es verbucht ist.
+    // Legacy data: a bundle persisted by an older build carries no id — assign
+    // one here instead of failing on `null` or discarding the bundle.
     final requestId = _pendingStatsRequestId ?? uuidV4();
     _pendingMealsDelta = 0;
     _pendingWeightLogsDelta = 0;
-    // Die Id wird MIT den Zahlen zurueckgesetzt: was waehrend des Fluges neu
-    // eingereiht wird, gehoert zu einem anderen Buendel und bekommt in
-    // [_queueStatsDelta] seine eigene Id. Wuerde es diese hier erben, koennte
-    // der Server es als Wiederholung abtun und es waere still verloren.
+    // The id is reset WITH the numbers: whatever is queued during the flight
+    // belongs to another bundle and gets its own id. Inheriting this one, the
+    // server could dismiss it as a repeat and it would be silently lost.
     _pendingStatsRequestId = null;
-    // In-Flight-Stand sofort persistieren: ein Kill WAEHREND des RPCs zaehlt
-    // die Deltas schlimmstenfalls nicht — besser als ein Doppel-Increment
-    // beim naechsten Boot (der Server ADDIERT, ein Replay eines bereits
-    // verbuchten Deltas wuerde die Lebenszeit-Zaehler permanent verfaelschen).
+    // Persist the in-flight state at once: a kill DURING the RPC at worst fails
+    // to count the deltas, which beats a double increment on the next boot (the
+    // server ADDS, so a replayed booked delta corrupts the counters for good).
     _persistPendingStatsDeltas();
     _statsFlushInFlight = true;
     try {
@@ -1603,36 +1329,24 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       if (!_disposed) {
         _mutate(() {
           lifetimeStats = fresh;
-          // Die Serverzeile ist fuer die ZAEHLER autoritativ, fuer einen noch
-          // nicht zugestellten Streak-Tag nicht — genau hier verschwand er.
+          // The server row is authoritative for the COUNTERS, not for an
+          // undelivered streak day — this is where it used to vanish.
           _overlayPendingTrackingDays();
         });
       }
       _cacheLifetimeStats();
       _onSyncSuccess();
     } catch (e, st) {
-      // DATA-7: kein roter Fehler-Toast, kein Rollback — die Deltas gehen
-      // zurueck in die (persistierte) Queue und laufen ueber die Retry-Pfade.
+      // DATA-7: no red toast, no rollback — the deltas go back into the
+      // persisted queue and run through the retry paths. The id goes back with
+      // them: `p_request_id` makes the retry the SAME operation server-side, so
+      // an already booked bundle is not added twice (a fresh id would make the
+      // protection a facade).
       //
-      // Frueher war genau das der Preis (Audit 2026-08-14, Befund B): der RPC
-      // war rein additiv, ein Abbruch NACH dem Commit liess das Wiedereinreihen
-      // ein zweites Mal zaehlen, und `meals_logged` stand dauerhaft zu hoch —
-      // ohne Neuberechnungspfad. Seit der Server `p_request_id` kennt
-      // (Migration 20260814120000_audit_rls_guard.sql) traegt das Buendel
-      // seinen Idempotenz-Schluessel mit: der Retry sendet DIESELBE Id, eine
-      // bereits verbuchte wird serverseitig erkannt und nicht noch einmal
-      // addiert. Deshalb geht hier auch die Id zurueck in den pendenden Stand —
-      // mit einer frisch erzeugten waere der Retry fuer den Server ein neuer
-      // Vorgang und der Schutz eine Fassade.
-      //
-      // Bleibt ein enger Rest: wurde WAEHREND des Fluges ein neues Buendel
-      // eroeffnet, verschmelzen beide hier zu einem, und dessen Id ist die des
-      // gescheiterten (nur die kann serverseitig schon verbucht sein). Kam der
-      // gescheiterte Aufruf doch durch, zaehlt die Handvoll waehrend des Fluges
-      // geloggter Deltas nicht mit. Das ist ein begrenzter AUSFALL im seltenen
-      // Abbruchfenster statt einer dauerhaften Ueberzaehlung — und der weit
-      // haeufigere Fall (Offline-Flush, der den Server nie erreicht hat) bleibt
-      // vollstaendig korrekt.
+      // Residual risk: a bundle opened DURING the flight merges into this one
+      // and inherits the failed id (only that one can already be booked). If
+      // the failed call did land, those few deltas are not counted — a bounded
+      // shortfall in a rare abort window instead of a permanent overcount.
       dev.log('Statistik-Sync failed — Deltas bleiben gequeued',
           error: e, name: 'eatova_sync');
       unawaited(CrashReporter.capture(e, st, context: 'lifetime-stats-flush'));
@@ -1649,12 +1363,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
-  /// Schreibt ausstehende debounced Writes sofort weg (App-Backgrounding)
-  /// und spielt liegengebliebene Outbox-Ops nach.
+  /// Flushes pending debounced writes immediately (app backgrounding) and
+  /// replays queued outbox ops.
   void flushPendingWrites() {
-    // Vor dem sync-Guard: die entprellten Cache-Writes (G9b) haengen nicht am
-    // Sync-Client. Ohne diese Zeile verliert ein Backgrounding waehrend des
-    // 400-ms-Fensters den letzten Tagebuch-Stand.
+    // Before the sync guard: the debounced cache writes (G9b) do not depend on
+    // the sync client, and backgrounding inside the debounce window would
+    // otherwise lose the last diary state.
     unawaited(_cache?.flush() ?? Future<void>.value());
     final s = sync;
     if (s == null) return;

@@ -1,51 +1,34 @@
 name: eatova
 description: "Eatova: a polished Flutter nutrition tracking app with AI meal scan and coach."
-# The following line prevents the package from being accidentally published to
-# pub.dev using `flutter pub publish`. This is preferred for private packages.
+# Keeps the package from being published to pub.dev by accident.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-# The following defines the version and build number for your application.
-# A version number is three numbers separated by dots, like 1.2.43
-# followed by an optional build number separated by a +.
-# Both the version and the builder number may be overridden in flutter
-# build by specifying --build-name and --build-number, respectively.
-# In Android, build-name is used as versionName while build-number used as versionCode.
-# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
-# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
-# Read more about iOS versioning at
-# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
-# In Windows, build-name is used as the major, minor, and patch parts
-# of the product and file versions while build-number is used as the build suffix.
+# <build-name>+<build-number>; both can be overridden via --build-name /
+# --build-number. Android: versionName/versionCode, iOS:
+# CFBundleShortVersionString/CFBundleVersion.
 version: 1.1.0+2
 
 environment:
   sdk: ^3.11.5
 
-# Dependencies specify other packages that your package needs in order to work.
-# To automatically upgrade your package dependencies to the latest versions
-# consider running `flutter pub upgrade --major-versions`. Alternatively,
-# dependencies can be manually updated by changing the version numbers below to
-# the latest version available on pub.dev. To see which dependencies have newer
-# versions available, run `flutter pub outdated`.
+# Run `flutter pub outdated` to see newer versions,
+# `flutter pub upgrade --major-versions` to take them.
 dependencies:
   flutter:
     sdk: flutter
-  # Deutsche Material-/Widgets-Lokalisierung (GlobalMaterialLocalizations):
-  # die App ist durchgehend deutsch, aber SDK-Dialoge (showTimePicker im
-  # Settings-Sheet, showDatePicker im Food-Tab/Edit-Sheet) fielen ohne die
-  # Delegates auf Englisch + AM/PM zurueck. Verdrahtet in eatova_app.dart
-  # (localizationsDelegates + supportedLocales/locale de).
+  # Material/widget localizations (GlobalMaterialLocalizations): without the
+  # delegates SDK dialogs (showTimePicker, showDatePicker) fall back to English
+  # + AM/PM. Wired up in eatova_app.dart.
   flutter_localizations:
     sdk: flutter
 
-  # Schon transitiv da (flutter_localizations pinnt 0.20.2) — aber der von
-  # gen_l10n generierte Code importiert package:intl direkt. Ohne diese Zeile
-  # bricht der Build, sobald das Paket aus der transitiven Kette fiele.
+  # Already transitive (flutter_localizations pins 0.20.2), but gen_l10n output
+  # imports package:intl directly — without this line the build breaks the
+  # moment it drops out of the transitive chain.
   intl: ^0.20.2
 
-  # clock erlaubt es, die Uhrzeit pro Zone festzunageln (withClock) — fuer
-  # deterministische Tests der zeitbasierten Slot-Heuristik. Default ist
-  # DateTime.now(), das Laufzeit-Verhalten bleibt unveraendert.
+  # clock pins the wall clock per zone (withClock) for deterministic tests of
+  # the time-based slot heuristic. Defaults to DateTime.now().
   clock: ^1.1.1
   image_picker: ^1.2.3
   mobile_scanner: ^7.4.0
@@ -53,96 +36,75 @@ dependencies:
   supabase_flutter: ^2.16.0
   url_launcher: ^6.3.0
   flutter_slidable: ^4.0.3
-  # shared_preferences ist bereits transitiv ueber supabase_flutter (gotrue
-  # nutzt es fuer die Session-Persistenz). Hier als DIREKTE Dependency
-  # deklariert, weil LocalCache (DATA-3) ein durabler Write-Through-Cache fuer
-  # Profil/Tageslog/Lifetime-Stats darauf aufsetzt — ein Kaltstart offline zeigt
-  # damit den letzten bekannten Stand statt der 78kg/178cm-Defaults.
+  # Already transitive via supabase_flutter (gotrue uses it for session
+  # persistence). Direct because LocalCache (DATA-3) builds a durable
+  # write-through cache on it, so an offline cold start shows the last known
+  # state instead of the defaults.
   shared_preferences: ^2.3.0
-  # flutter_local_notifications + timezone tragen die on-device-Retention-
-  # Schicht (PROD-1): zeitgenau geplante, lokale Nudges (Hydration, Koffein-
-  # Stopp, Schlaf-Runway, Streak-at-risk). Bewusst KEINE Push-/APNs-/FCM-
-  # Server-Komponente — alles laeuft via zonedSchedule lokal, das haelt den
-  # Gratis-Apple-Team-Status und die Zero-Cost-Constraint. timezone liefert die
-  # TZDateTime-Basis, auf der flutter_local_notifications zonedSchedule fusst.
+  # On-device retention layer (PROD-1): locally scheduled nudges. Deliberately
+  # no push/APNs/FCM server component — everything runs via zonedSchedule,
+  # which keeps the free Apple team status and the zero-cost constraint.
+  # timezone provides the TZDateTime base zonedSchedule builds on.
   flutter_local_notifications: ^22.2.0
   timezone: ^0.11.1
-  # flutter_timezone liefert den IANA-Namen der Geraete-Zone (z.B.
-  # "Europe/Berlin"). Damit setzt LocalNotificationService.init() die lokale
-  # tz-Location korrekt — sonst faellt zonedSchedule auf UTC zurueck, weil
-  # DateTime.now().timeZoneName oft nur Abkuerzungen (CET/CEST) liefert, die
-  # tz.getLocation nicht aufloesen kann. Der Lookup ist in try/catch gekapselt,
-  # damit Tests / nicht unterstuetzte Plattformen weiter auf UTC zurueckfallen.
+  # Supplies the IANA name of the device zone so LocalNotificationService.init()
+  # sets the tz location correctly; otherwise zonedSchedule falls back to UTC,
+  # because DateTime.now().timeZoneName often yields abbreviations (CET/CEST)
+  # that tz.getLocation cannot resolve. The lookup is wrapped in try/catch so
+  # tests and unsupported platforms still fall back to UTC.
   flutter_timezone: ^5.1.0
   camera: ^0.12.0+2
-  # Re-Kompression der KI-Scan-Fotos aus der In-App-Kamera (camera liefert
-  # roh ~1080p/hohe JPEG-Qualitaet): laengste Kante auf 1600 px, JPEG q85 —
-  # konsistent zum Galerie-Pfad (image_picker imageQuality/maxWidth) und
-  # sicher unter dem 5-MB-Cap der analyze-meal Edge Function. Pure-Dart
-  # (laeuft via compute() in einem Isolate) statt flutter_image_compress:
-  # kein weiteres natives Plugin, deterministisch in VM-Tests testbar, und
-  # bakeOrientation backt die EXIF-Orientierung ein (Rotations-Fix 7e39cff
-  # bleibt intakt).
+  # Recompresses in-app camera photos (raw ~1080p/high JPEG quality) to a
+  # 1600 px longest edge at JPEG q85 — consistent with the gallery path and
+  # safely under the 5 MB cap of the analyze-meal Edge Function. Pure Dart (via
+  # compute() in an isolate) instead of flutter_image_compress: no extra native
+  # plugin, testable in VM tests, and bakeOrientation bakes in EXIF rotation.
   image: ^4.3.0
-  # google_sign_in traegt den NATIVEN Google-Login (Credential-Manager-Sheet
-  # auf Android, Google-SDK-Dialog auf iOS). Das Sheet zeigt den Consent-
-  # Screen-App-Namen "Eatova" statt der Supabase-Domain - der Web-OAuth-Flow
-  # zeigt zwangsweise "to continue to <ref>.supabase.co" (Phishing-Schutz,
-  # nicht abstellbar). Das ID-Token wird per signInWithIdToken eingetauscht.
+  # Native Google login (credential manager sheet on Android, Google SDK dialog
+  # on iOS). The sheet shows the consent-screen app name instead of the Supabase
+  # domain, which the web OAuth flow is forced to show. The ID token is
+  # exchanged via signInWithIdToken.
   google_sign_in: ^7.2.0
-  # Crash-Reporting (nur Crashes, kein Performance-Tracing, kein Replay).
-  # DSN kommt ausschliesslich via --dart-define SENTRY_DSN; ohne DSN wird
-  # Sentry gar nicht initialisiert (Dev/CI unbeeinflusst), die globalen
-  # Error-Handler in main.dart loggen dann nur via dart:developer. Facade
-  # fuer App-Code: lib/src/services/crash_reporter.dart.
+  # Crash reporting only (no performance tracing, no replay). The DSN comes
+  # solely from --dart-define SENTRY_DSN; without it Sentry is never initialized
+  # and main.dart's global error handlers log via dart:developer. Facade:
+  # lib/src/services/crash_reporter.dart.
   sentry_flutter: ^9.26.0
-  # Bereits transitiv ueber sentry_flutter im Lockfile (9.0.1) — hier als
-  # DIREKTE Dependency, weil der Ueber-Dialog im Profil Version + Buildnummer
-  # zur Laufzeit aus PackageInfo liest statt sie hart zu kodieren (die
-  # hartkodierten "1.0.0"/"1" liefen beim Version-Bump sofort auseinander).
+  # Already transitive via sentry_flutter — direct because the about dialog
+  # reads version + build number from PackageInfo at runtime instead of
+  # hardcoding them (hardcoded values drift on every version bump).
   package_info_plus: ^9.0.1
-  # SEC-1 Cache-Verschluesselung (siehe secure_cache_store.dart): haelt NUR den
-  # 32-Byte-DEK im OS-Keystore (Android Keystore / iOS Keychain). Die
-  # eigentlichen JSON-Blobs bleiben in SharedPreferences, AES-256-GCM-
-  # verschluesselt mit diesem DEK — Envelope-Verschluesselung.
-  # Bewusst 10.x und NICHT 11.x: 11.0.0 ist erst wenige Tage alt, die 10er-
-  # Linie ist die abgehangene. 10.x verlangt Android minSdk 23; das Projekt
-  # steht auf 26 (android/app/build.gradle.kts), passt also ohne Anhebung.
+  # SEC-1 cache encryption (see secure_cache_store.dart): keeps ONLY the 32-byte
+  # DEK in the OS keystore; the JSON blobs stay in SharedPreferences,
+  # AES-256-GCM encrypted with that DEK (envelope encryption).
+  # 10.x, not 11.x: the 10 line is the settled one and needs Android minSdk 23,
+  # which the project already exceeds at 26.
   flutter_secure_storage: ^10.3.1
-  # Liegt bereits transitiv im Lockfile (4.0.0, ueber die Supabase-/Sentry-
-  # Kette) — hier wie schon bei package_info_plus als DIREKTE Dependency
-  # deklariert, weil secure_cache_store.dart GCMBlockCipher(AESEngine())
-  # direkt benutzt. Zieht KEIN zusaetzliches Paket nach.
+  # Already transitive via the Supabase/Sentry chain — direct because
+  # secure_cache_store.dart uses GCMBlockCipher(AESEngine()) itself. Pulls in no
+  # extra package.
   pointycastle: ^4.0.0
-  # Ebenfalls schon transitiv da (ueber shared_preferences/sentry) — aber
-  # `recipe_image_store.dart` benutzt es DIREKT fuer das App-Dokumenten-
-  # verzeichnis, in dem die Fotos eigener Rezepte liegen. Ohne diese Zeile
-  # bricht der Build in dem Moment, in dem das Paket aus der transitiven
-  # Kette faellt; `depend_on_referenced_packages: ignore` in den
-  # analysis_options verbirgt das bis dahin.
+  # Also already transitive, but `recipe_image_store.dart` uses it directly for
+  # the app documents directory holding own-recipe photos. Without this line the
+  # build breaks the moment it drops out of the transitive chain;
+  # `depend_on_referenced_packages: ignore` hides that until then.
   path_provider: ^2.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  # Beide nur fuer den MealCameraSheet-Kameratest: ein Fake von CameraPlatform
-  # (camera_platform_interface) ersetzt die echte Geraete-Kamera; der
-  # MockPlatformInterfaceMixin (plugin_platform_interface) erlaubt das
-  # Ueberschreiben von CameraPlatform.instance im Test.
+  # Both only for the MealCameraSheet camera test: a CameraPlatform fake
+  # replaces the real device camera, and MockPlatformInterfaceMixin allows
+  # overriding CameraPlatform.instance in the test.
   camera_platform_interface: ^2.13.1
   plugin_platform_interface: ^2.1.8
 
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
+  # Recommended lint set; activated in `analysis_options.yaml`.
   flutter_lints: ^6.0.0
 
-  # Generiert Launcher-Icons (Android inkl. Adaptive + iOS) aus den
-  # Fokusring-Mastern unter branding/appicon (Logo-Entscheid 2026-08).
-  # Neu erzeugen: dart run flutter_launcher_icons
+  # Generates launcher icons (Android incl. adaptive + iOS) from the masters
+  # under branding/appicon. Regenerate: dart run flutter_launcher_icons
   flutter_launcher_icons: ^0.14.3
 
 flutter_launcher_icons:
@@ -153,33 +115,28 @@ flutter_launcher_icons:
   adaptive_icon_foreground: branding/appicon/icon-foreground.png
   remove_alpha_ios: true
 
-# For information on the generic Dart part of this file, see the
-# following page: https://dart.dev/tools/pub/pubspec
+# Generic Dart part of this file: https://dart.dev/tools/pub/pubspec
 
-# The following section is specific to Flutter packages.
+# Flutter-specific section.
 flutter:
 
   generate: true
 
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
+  # Bundles the Material Icons font with the app.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
+  # Assets bundled with the app.
   assets:
     - assets/recipes/
 
-  # Zwei gebuendelte Familien (Design-Refactor 2026-08-09): Bricolage
-  # Grotesque traegt Zahlen/Ueberschriften, Archivo alles Uebrige.
-  # BEWUSST gebuendelt statt ueber das google_fonts-Paket geladen:
-  #   * kein Laufzeit-Request an fonts.gstatic.com (die Datenschutz-
-  #     erklaerung nennt keinen Google-Font-Abruf, und sie soll stimmen),
-  #   * kein Aufblitzen der Fallback-Schrift beim Kaltstart,
-  #   * offline identisch — die App hat einen Offline-Cache, die Typo
-  #     soll ihn nicht unterlaufen.
-  # Statische Schnitte (keine Variable Fonts), damit fontWeight ohne
-  # fontVariations greift. Quelle: Google Fonts, SIL OFL 1.1.
+  # Two bundled families: Bricolage Grotesque for numbers/headings, Archivo for
+  # everything else. Bundled on purpose instead of via google_fonts:
+  #   * no runtime request to fonts.gstatic.com (the privacy policy names no
+  #     Google font fetch, and it must stay true),
+  #   * no fallback-font flash on cold start,
+  #   * identical offline — the app has an offline cache.
+  # Static cuts (no variable fonts) so fontWeight works without fontVariations.
+  # Source: Google Fonts, SIL OFL 1.1.
   fonts:
     - family: Archivo
       fonts:
@@ -198,17 +155,11 @@ flutter:
         - asset: assets/fonts/BricolageGrotesque-ExtraBold.ttf
           weight: 800
 
-  # An image asset can refer to one or more resolution-specific "variants", see
-  # https://flutter.dev/to/resolution-aware-images
+  # Resolution-specific variants: https://flutter.dev/to/resolution-aware-images
+  # Assets from package dependencies: https://flutter.dev/to/asset-from-package
 
-  # For details regarding adding assets from package dependencies, see
-  # https://flutter.dev/to/asset-from-package
-
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
+  # Custom fonts go in a fonts section here, each entry with a "family" key and
+  # a "fonts" list of assets and descriptors. Example:
   # fonts:
   #   - family: Schyler
   #     fonts:
@@ -221,5 +172,4 @@ flutter:
   #       - asset: fonts/TrajanPro_Bold.ttf
   #         weight: 700
   #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+  # Fonts from package dependencies: https://flutter.dev/to/font-from-package

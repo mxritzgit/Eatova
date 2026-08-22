@@ -3,28 +3,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/services/day_math.dart';
 
-// TEST-7: LifetimeStats.recordTrackedDay — Streak-Uebergaenge.
-// logic_test.dart deckt die Basisfaelle (erster Tag / gestern / idempotent /
-// Luecke) ab; hier die zusaetzlichen Uebergaenge: Mehrtages-Kette,
-// Datums-Normalisierung (Uhrzeit wird gestrippt), longestStreak-Monotonie
-// ueber einen Reset hinweg, Zukunftsdatum als Luecke, Rueckdatierung als
-// No-op (Food-Kalender!), die Reparatur des currentStreak==0-Startzustands
-// und effectiveStreakOn (Anzeige-Streak: gerissene Kette -> 0).
+// TEST-7: LifetimeStats.recordTrackedDay — streak transitions beyond the base
+// cases in logic_test.dart: multi-day chains, date normalization, longestStreak
+// monotonicity across a reset, future dates as gaps, back-dating as a no-op
+// (food calendar), repair of a currentStreak==0 state, and effectiveStreakOn.
 //
-// B5 (2026-08-08): Beide Streak-Rechnungen liefen ueber
-// `today.difference(last).inDays` — Absolutzeit statt Kalenderarithmetik.
-// Ueber die Fruehjahrsumstellung (Europe/Berlin, Sonntag 29.03.2026, ein
-// 23-Stunden-Tag) misst das 23h und meldet 0 Tage. Folge: die Streak steht am
-// 30.03. still, und am 31.03. (47h -> 1) zeigt effectiveStreakOn eine laengst
-// gerissene Kette noch als lebendig an.
+// B5 (2026-08-08): both streak calculations used
+// `today.difference(last).inDays` — absolute time, not calendar arithmetic. On
+// a 23-hour DST day that reports 0, so the streak stalls, and the day after
+// (47h -> 1) effectiveStreakOn still shows a long-broken chain as alive.
 //
-// Zonen-Unabhaengigkeit (Technik aus test/services/day_math_test.dart): die
-// Beleg-Tests unten sind auf einer Maschine MIT Fruehjahrsumstellung am
-// 29.03.2026 rot und auf einer UTC-Maschine (CI) gruen — dort gibt es den
-// 23-Stunden-Tag schlicht nicht. Aussagekraeftig sind sie trotzdem ueberall,
-// weil sie zusaetzlich als Property gegen ein UTC-Orakel laufen: `addDays`
-// aus day_math.dart ist die zonenunabhaengig korrekte Kalenderverschiebung,
-// und der Folgetag MUSS in jeder Zone die Streak fortfuehren.
+// Zone independence: the DST cases below are only red on a machine with that
+// DST switch. They stay meaningful everywhere because they also run as a
+// property against a UTC oracle — `addDays` from day_math.dart is the
+// zone-independent calendar shift, and the next day must continue the streak
+// in every zone.
 
 void main() {
   final mon = DateTime(2026, 6, 1);
@@ -56,8 +49,8 @@ void main() {
     test('heute erneut -> idempotent, Streak haelt (kein Doppel-Zaehlen)', () {
       final s = LifetimeStats()
           .recordTrackedDay(mon)
-          .recordTrackedDay(tue) // Streak 2
-          .recordTrackedDay(tue); // selber Tag nochmal
+          .recordTrackedDay(tue) // streak 2
+          .recordTrackedDay(tue); // same day again
       expect(s.currentStreak, 2);
       expect(s.longestStreak, 2);
     });
@@ -67,10 +60,10 @@ void main() {
       final evening = DateTime(2026, 6, 2, 22, 45);
       final s = LifetimeStats()
           .recordTrackedDay(mon)
-          .recordTrackedDay(morning) // Streak 2
-          .recordTrackedDay(evening); // gleicher Tag -> haelt
+          .recordTrackedDay(morning) // streak 2
+          .recordTrackedDay(evening); // same day -> holds
       expect(s.currentStreak, 2);
-      // lastTrackedDate ist auf date-only normalisiert (Mitternacht).
+      // lastTrackedDate is normalized to date-only (midnight).
       expect(s.lastTrackedDate, DateTime(2026, 6, 2));
     });
 
@@ -83,20 +76,20 @@ void main() {
       final s = LifetimeStats()
           .recordTrackedDay(mon)
           .recordTrackedDay(tue)
-          .recordTrackedDay(wed) // Streak 3
-          .recordTrackedDay(fri); // do fehlt -> Luecke
+          .recordTrackedDay(wed) // streak 3
+          .recordTrackedDay(fri); // thu missing -> gap
       expect(s.currentStreak, 1);
       expect(s.longestStreak, 3);
       expect(s.lastTrackedDate, fri);
     });
 
     test('Rueckdatierung (Tag VOR lastTrackedDate) ist ein No-op', () {
-      // Food-Kalender: Mahlzeit fuer einen vergangenen Tag nachtragen darf
-      // die laufende Streak NICHT anfassen (weder Reset noch Fortschritt).
+      // Food calendar: logging a meal for a past day must not touch the
+      // running streak — neither reset nor advance.
       final s = LifetimeStats()
           .recordTrackedDay(wed)
-          .recordTrackedDay(thu) // Streak 2
-          .recordTrackedDay(mon); // Nachtrag fuer Montag
+          .recordTrackedDay(thu) // streak 2
+          .recordTrackedDay(mon); // back-dated entry
       expect(s.currentStreak, 2);
       expect(s.longestStreak, 2);
       expect(s.lastTrackedDate, thu);
@@ -105,13 +98,13 @@ void main() {
     test('longestStreak ist monoton: neuer Lauf uebertrifft alten Highscore', () {
       final s = LifetimeStats()
           .recordTrackedDay(mon)
-          .recordTrackedDay(tue) // Highscore 2
-          .recordTrackedDay(thu) // Reset auf 1 (Luecke)
-          .recordTrackedDay(fri); // 2 — gleich, longest bleibt 2
+          .recordTrackedDay(tue) // high score 2
+          .recordTrackedDay(thu) // reset to 1 (gap)
+          .recordTrackedDay(fri); // 2 — equal, longest stays 2
       expect(s.currentStreak, 2);
       expect(s.longestStreak, 2);
 
-      // Noch ein Tag dran -> 3 > alter Highscore 2.
+      // One more day -> 3 > the old high score of 2.
       final s2 = s.recordTrackedDay(DateTime(2026, 6, 6));
       expect(s2.currentStreak, 3);
       expect(s2.longestStreak, 3);
@@ -120,21 +113,20 @@ void main() {
     test('Zukunftsdatum (>1 Tag voraus) wird wie eine Luecke behandelt', () {
       final s = LifetimeStats()
           .recordTrackedDay(mon)
-          .recordTrackedDay(fri); // 4 Tage voraus
+          .recordTrackedDay(fri); // 4 days ahead
       expect(s.currentStreak, 1);
       expect(s.lastTrackedDate, fri);
     });
 
     test('aus geladenem Zustand mit currentStreak 0 fortsetzen -> repariert auf >= 1',
         () {
-      // Defensive Branch: wenn ein alter/inkonsistenter Datensatz
-      // lastTrackedDate gesetzt aber currentStreak 0 hat, darf derselbe Tag
-      // nicht 0 lassen.
+      // Defensive branch: an inconsistent record with lastTrackedDate set but
+      // currentStreak 0 must not stay at 0 on the same day.
       final loaded = LifetimeStats(currentStreak: 0, lastTrackedDate: tue);
-      final same = loaded.recordTrackedDay(tue); // gleicher Tag
+      final same = loaded.recordTrackedDay(tue); // same day
       expect(same.currentStreak, 1);
 
-      final next = loaded.recordTrackedDay(wed); // Folgetag
+      final next = loaded.recordTrackedDay(wed); // next day
       expect(next.currentStreak, 1); // 0 + 1
     });
 
@@ -175,8 +167,8 @@ void main() {
   });
 
   group('B5 — Fruehjahrsumstellung 29.03.2026 (23-Stunden-Tag)', () {
-    /// Streak-Stand am Vorabend der Umstellung: 11 Tage in Folge, zuletzt
-    /// getrackt am Sonntag 29.03. (dem Tag mit nur 23 Stunden).
+    /// Streak state on the DST day: 11 days in a row, last tracked on the
+    /// 23-hour day 2026-03-29.
     LifetimeStats amUmstellungstag() => LifetimeStats(
           currentStreak: 11,
           longestStreak: 11,
@@ -184,8 +176,8 @@ void main() {
         );
 
     test('Montag 30.03. ist der Folgetag — die Streak zaehlt auf 12 hoch', () {
-      // Altcode: `.difference(...).inDays` misst 23h -> 0 -> der Tag gilt als
-      // „schon gezaehlt", die Streak steht still auf 11.
+      // Old code: `.difference(...).inDays` reads 23h -> 0, so the day counts
+      // as already recorded and the streak stalls at 11.
       final next = amUmstellungstag().recordTrackedDay(DateTime(2026, 3, 30));
 
       expect(next.currentStreak, 12);
@@ -195,7 +187,7 @@ void main() {
 
     test('Dienstag 31.03. ohne Log am 30.03. reisst die Kette — Reset auf 1',
         () {
-      // Altcode: 47h -> 1 -> „Folgetag" -> 12 statt 1.
+      // Old code: 47h -> 1 -> "next day" -> 12 instead of 1.
       final next = amUmstellungstag().recordTrackedDay(DateTime(2026, 3, 31));
 
       expect(next.currentStreak, 1);
@@ -210,9 +202,8 @@ void main() {
 
       expect(s.effectiveStreakOn(DateTime(2026, 3, 29)), 11);
       expect(s.effectiveStreakOn(DateTime(2026, 3, 30)), 11);
-      // Altcode: 47h -> inDays 1 -> `<= 1` -> zeigt weiter 11 an. Die Kette
-      // ist aber gerissen; der naechste Log laesst sie sichtbar von 11 auf
-      // 12 auf 1 springen.
+      // Old code: 47h -> inDays 1 -> `<= 1` -> still shows 11, although the
+      // chain is broken and the next log jumps 11 -> 12 -> 1.
       expect(s.effectiveStreakOn(DateTime(2026, 3, 31)), 0);
       expect(s.effectiveStreakOn(DateTime(2026, 4, 1)), 0);
     });
@@ -230,18 +221,15 @@ void main() {
     });
   });
 
-  // C7-Nebenbefund (2026-08-08): incrementWorkouts() hatte seit dem
-  // Training-Tab-Aus (a267e15) keinen Aufrufer mehr, addWater()/addSteps()
-  // seit dem Aus der Heute-Tab-Kacheln ebenfalls nicht. Die drei Mutatoren
-  // sind entfernt.
+  // C7 (2026-08-08): incrementWorkouts(), addWater() and addSteps() lost their
+  // callers when the training and today tabs were removed, so the mutators are
+  // gone.
   //
-  // Die FELDER bleiben: workouts_completed / water_total_ml / steps_recorded
-  // sind `not null`-Spalten mit `>= 0`-Check in public.lifetime_stats, stehen
-  // im expliziten select von LifetimeStatsSync.load, in den Parametern der
-  // increment_lifetime_stats-RPC UND im LocalCache-JSON bestehender
-  // Installationen. Sie aus dem Wire-Format zu streichen wuerde gecachte
-  // Eintraege und die Tabelle brechen — sie laufen deshalb als eingefrorener
-  // Durchreicher weiter. Diese Tests halten genau das fest.
+  // The FIELDS stay: workouts_completed / water_total_ml / steps_recorded are
+  // `not null` columns in public.lifetime_stats, appear in the explicit select,
+  // in the increment_lifetime_stats RPC and in existing LocalCache JSON.
+  // Dropping them from the wire format would break cached entries and the
+  // table, so they remain frozen pass-throughs. These tests pin that.
   group('C7 — eingefrorene Legacy-Zaehler bleiben wire-kompatibel', () {
     test('fromRow -> toRow reicht die Legacy-Spalten unveraendert durch', () {
       final row = <String, dynamic>{
@@ -297,10 +285,9 @@ void main() {
   });
 
   group('B5 — Property gegen das UTC-Orakel (zonenunabhaengig)', () {
-    // `addDays` aus day_math.dart ist die zonenunabhaengig korrekte
-    // Kalenderverschiebung (dort selbst gegen ein UTC-Orakel gesichert).
-    // Beide Streak-Rechnungen muessen ihr an JEDEM Tag folgen — auf einer
-    // UTC-Maschine ebenso wie in einer DST-Zone.
+    // `addDays` from day_math.dart is the zone-independent calendar shift
+    // (itself pinned against a UTC oracle). Both streak calculations must
+    // follow it on every day, in UTC and in a DST zone alike.
     final start = DateTime.utc(2024, 1, 1);
     final ende = DateTime.utc(2032, 12, 31);
 

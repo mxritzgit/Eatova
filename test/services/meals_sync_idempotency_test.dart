@@ -9,17 +9,12 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
-// INT-1 / DATA-4: insertLoggedMeal ist ein idempotenter upsert(onConflict:'id').
-// Folge: ein Retry nach unklarem Netzwerk-Timeout ODER ein delete→undo
-// (_restoreLoggedMeal re-insertet dieselbe id) erzeugt KEINEN Duplikat-Fehler
-// mehr, sondern schreibt dieselbe Zeile erneut und kehrt still zurueck.
-//
-// Diese Tests verifizieren ueber die PUBLIC API (echter SupabaseClient + Mock-
-// Client) das beobachtbare Verhalten:
-//   1. Der Write nutzt Upsert-Semantik (Prefer: resolution=merge-duplicates),
-//      nicht ein rohes insert (das bei Konflikt 409 wuerfe).
-//   2. Zweimaliges Inserten derselben id wirft NICHT (idempotent).
-//   3. Der Body traegt die Client-UUID als id (Konflikt-Schluessel).
+// INT-1 / DATA-4: insertLoggedMeal is an idempotent upsert(onConflict:'id'),
+// so a retry after a timeout or a delete->undo rewrites the same row instead
+// of failing on a duplicate. Verified through the public API:
+//   1. upsert semantics (Prefer: resolution=merge-duplicates), not raw insert.
+//   2. inserting the same id twice does not throw.
+//   3. the body carries the client UUID as id (the conflict key).
 
 MealsSync _sync(
   Future<http.Response> Function(http.Request request) handler,
@@ -57,7 +52,7 @@ void main() {
       Map<String, dynamic>? body;
       final sync = _sync((req) async {
         prefer = req.headers['Prefer'];
-        // PostgREST upsert sendet ein Array von Zeilen.
+        // PostgREST upsert sends an array of rows.
         final decoded = jsonDecode(req.body);
         body = (decoded is List ? decoded.first : decoded) as Map<String, dynamic>;
         return http.Response('', 201, request: req);
@@ -75,16 +70,14 @@ void main() {
       var calls = 0;
       final sync = _sync((req) async {
         calls++;
-        // Der Server loest den Konflikt auf und antwortet erfolgreich — KEIN
-        // 409, weil onConflict:'id' + merge-duplicates. (Ein rohes insert wuerde
-        // hier 409 zurueckgeben und insertLoggedMeal wuerde rethrowen.)
+        // The server resolves the conflict and succeeds: no 409, because of
+        // onConflict:'id' + merge-duplicates.
         return http.Response('', 201, request: req);
       });
 
       final meal = _meal('meal-dup');
-      await sync.insertLoggedMeal(meal); // erster Insert
-      // Zweiter Insert derselben id (z.B. delete→undo via _restoreLoggedMeal
-      // oder ein Retry nach Timeout) darf NICHT werfen.
+      await sync.insertLoggedMeal(meal); // first insert
+      // Second insert of the same id (delete->undo or a retry) must not throw.
       await expectLater(sync.insertLoggedMeal(meal), completes);
       expect(calls, 2);
     });

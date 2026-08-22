@@ -6,10 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/search_credentials.dart';
 
-// Laufzeit-Aufloesung der Mirror-Zugangsdaten (Cache -> Fetch ->
-// Compile-Time-Default -> aus). Bewusst plain `test()` mit
-// InMemoryKeyValueStore + Fake-Fetcher + steuerbarer Uhr: kein
-// Plugin-Channel, kein Supabase, keine echten Wartezeiten.
+// Runtime resolution of the mirror credentials (cache -> fetch -> compile-time
+// default -> off). Plain `test()` with an in-memory store, fake fetcher and a
+// steerable clock: no plugin channel, no Supabase, no real waiting.
 
 class _FakeFetcher implements SearchKeyFetcher {
   _FakeFetcher({this.result, this.explodes = false});
@@ -17,8 +16,8 @@ class _FakeFetcher implements SearchKeyFetcher {
   FetchedSearchCredentials? result;
   bool explodes;
 
-  /// Blockiert [fetch], bis der Completer erfuellt ist — so laesst sich
-  /// „waehrend das Netz noch haengt" deterministisch pruefen.
+  /// Blocks [fetch] until the completer resolves, so "while the network is
+  /// still pending" can be checked deterministically.
   Completer<void>? gate;
 
   int calls = 0;
@@ -35,7 +34,7 @@ class _FakeFetcher implements SearchKeyFetcher {
   }
 }
 
-/// Platte, die nie antwortet — fuer den Ablauf der Hydrations-Gnadenfrist.
+/// Disk that never answers — for the hydration grace period expiring.
 class _HangingStore implements KeyValueStore {
   @override
   Future<String?> getString(String key) => Completer<String?>().future;
@@ -77,14 +76,14 @@ Map<String, dynamic> _persisted(InMemoryKeyValueStore disk) =>
     jsonDecode(disk.snapshot[SearchCredentialsStore.cacheKey]!)
         as Map<String, dynamic>;
 
-/// Laesst alle bereits eingeplanten Microtasks durchlaufen, damit
-/// Reihenfolge-Assertions nicht an der Fortsetzungs-Reihenfolge haengen.
+/// Drains all scheduled microtasks so ordering assertions do not depend on
+/// continuation order.
 Future<void> _drain() => Future<void>.delayed(Duration.zero);
 
 void main() {
   test('frischer Install ohne Netz -> Compile-Time-Default, kein Crash', () async {
     final disk = InMemoryKeyValueStore();
-    final fetcher = _FakeFetcher(); // liefert null = "nichts geholt"
+    final fetcher = _FakeFetcher(); // returns null = nothing fetched
     final store = SearchCredentialsStore(
       store: disk,
       fetcher: fetcher,
@@ -95,11 +94,11 @@ void main() {
 
     expect(store.current, SearchCredentials.compileTimeDefault);
     expect(await store.resolveForRequest(), SearchCredentials.compileTimeDefault);
-    // Der einkompilierte Default muss fuer sich allein tragfaehig sein —
-    // sonst waere ein frischer Install ohne Netz ohne Mirror-Suche.
+    // The compiled-in default must stand on its own, or a fresh install
+    // without network has no mirror search at all.
     expect(SearchCredentials.compileTimeDefault.isUsable, isTrue);
     expect(fetcher.calls, 1);
-    // Ein fehlgeschlagener Fetch darf nichts auf die Platte schreiben.
+    // A failed fetch must write nothing to disk.
     expect(disk.snapshot, isEmpty);
   });
 
@@ -141,8 +140,8 @@ void main() {
 
     final warm = store.warmUp();
 
-    // Wer eine Woche offline war, sucht weiter: der abgelaufene Eintrag wird
-    // ausgeliefert, waehrend der Refresh noch am Gate haengt.
+    // A week offline must not block search: the expired entry is served while
+    // the refresh is still at the gate.
     final resolved = await store.resolveForRequest();
     expect(resolved.searchKey, 'cached-key');
     await _drain();
@@ -163,7 +162,7 @@ void main() {
         fetchedAt: clock.value.subtract(const Duration(days: 3)),
       ),
     });
-    // Gate, das NIE erfuellt wird -> der Netz-Pfad bleibt fuer immer offen.
+    // Gate that never completes -> the network path stays open forever.
     final fetcher = _FakeFetcher(result: _fetched('never-arrives'))
       ..gate = Completer<void>();
     final store = SearchCredentialsStore(
@@ -198,7 +197,7 @@ void main() {
   });
 
   test('korrupte Cache-Eintraege gelten als nicht vorhanden', () async {
-    // Kein JSON / kein Objekt / Felder fehlen / falscher Typ / kaputtes Datum.
+    // No JSON / not an object / missing fields / wrong type / broken date.
     const broken = <String>[
       '{nicht wirklich json',
       '["array statt objekt"]',
@@ -289,7 +288,7 @@ void main() {
     expect(replacement.baseUrl, 'https://fresh.example/meili');
     expect(store.current.searchKey, 'rotated-key');
     expect(fetcher.calls, 1);
-    // Der 403-Pfad hat es eilig — knappes Budget statt der vollen Policy.
+    // The 403 path is in a hurry — tight budget instead of the full policy.
     expect(fetcher.budgets.single, const Duration(seconds: 3));
     expect(_persisted(disk)['key'], 'rotated-key');
   });
@@ -337,9 +336,9 @@ void main() {
     expect((await store.invalidate(store.current)).searchKey, 'rotated-key');
     expect(fetcher.calls, 1);
 
-    // Der Mirror lehnt weiter ab (anderer Grund als Rotation): innerhalb der
-    // Minute darf das KEINE weitere Anfrage ausloesen — sonst brennt das
-    // 20/h-Limit bei einer Tastendruck-Salve in Sekunden ab.
+    // The mirror keeps rejecting for a reason other than rotation: within the
+    // minute that must trigger NO further request, or a burst of keystrokes
+    // burns the 20/h limit in seconds.
     clock.advance(const Duration(seconds: 30));
     final blocked = await store.invalidate(store.current);
     expect(fetcher.calls, 1);
@@ -380,7 +379,7 @@ void main() {
       'Fetch scheitert und der abgelehnte Key WAR der Compile-Time-Default '
       '-> unbrauchbar', () async {
     final disk = InMemoryKeyValueStore();
-    final fetcher = _FakeFetcher(); // kein Ersatz erreichbar
+    final fetcher = _FakeFetcher(); // no replacement reachable
     final store = SearchCredentialsStore(
       store: disk,
       fetcher: fetcher,
@@ -389,9 +388,8 @@ void main() {
 
     final result = await store.invalidate(SearchCredentials.compileTimeDefault);
 
-    // Auf den Default zurueckzufallen waere garantiert der naechste 403.
-    // Stattdessen unbrauchbar bleiben -> die naechste Suche ueberspringt den
-    // Mirror ganz ohne Netz-Anfrage.
+    // Falling back to the default would be the next guaranteed 403; staying
+    // unusable makes the next search skip the mirror without any request.
     expect(result.isUsable, isFalse);
     expect(store.current.isUsable, isFalse);
     expect(fetcher.calls, 1);
@@ -410,18 +408,17 @@ void main() {
     );
     await store.warmUp();
 
-    // Wuerde invalidate die Fetcher-Exception durchreichen, schluege bereits
-    // dieses await fehl — genau das ist die Zusicherung.
+    // If invalidate rethrew the fetcher exception, this await would already
+    // fail — that is the assertion.
     final result = await store.invalidate(store.current);
 
-    // Der tote Key ist trotzdem weg (Speicher UND Platte), es gibt nur
-    // keinen Ersatz -> unbrauchbar, naechste Suche geht direkt zu OFF.
+    // The dead key is gone from memory AND disk; there is just no replacement
+    // -> unusable, and the next search goes straight to off.
     expect(result.isUsable, isFalse);
     expect(store.current.isUsable, isFalse);
     expect(disk.snapshot, isEmpty);
 
-    // Und der naechste Versuch laeuft nicht in eine tote Wiederholung:
-    // der Cooldown greift.
+    // And the next attempt does not retry blindly: the cooldown holds.
     expect((await store.invalidate(store.current)).isUsable, isFalse);
   });
 
@@ -442,8 +439,8 @@ void main() {
     await store.warmUp();
 
     expect(store.current.isUsable, isFalse);
-    // Persistiert, damit der naechste Kaltstart nicht erst wieder den
-    // Compile-Time-Default gegen den abgeschalteten Mirror wirft.
+    // Persisted so the next cold start does not throw the compile-time default
+    // at the disabled mirror again.
     expect(_persisted(disk)['key'], '');
     expect(_persisted(disk)['base_url'], '');
   });
@@ -485,7 +482,7 @@ void main() {
       final disk = InMemoryKeyValueStore({
         SearchCredentialsStore.cacheKey: _entry(
           fetchedAt: DateTime.now(),
-          baseUrl: 'http://eatova.de/meili', // manipuliert / Alt-Version
+          baseUrl: 'http://eatova.de/meili', // tampered / old version
         ),
       });
       final store = SearchCredentialsStore(
@@ -496,8 +493,8 @@ void main() {
 
       await store.warmUp();
 
-      // Der http-Eintrag zaehlt nicht als geladen — es bleibt der
-      // Compile-Time-Default, der https ist.
+      // The http entry does not count as loaded — the https compile-time
+      // default stands.
       expect(store.current.baseUrl, startsWith('https://'));
       expect(store.current.source, SearchCredentialsOrigin.compileTime);
     });

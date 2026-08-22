@@ -10,15 +10,12 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
-// D11 — der Berechtigungsschalter kannte nur an/aus und log deshalb: wer im
-// Systemdialog „Nicht zulassen" tippte, sah „Aktiv. Du bekommst gezielte Nudges
-// zur passenden Zeit." und bekam nie etwas. Der Store fuehrt seit Welle 2 drei
-// Zustaende (ReminderState); die Seite muss alle drei zeigen.
+// D11 — the permission switch only knew on/off and therefore lied: denying the
+// system dialog still showed "active" while nothing ever arrived. The store
+// carries three states (ReminderState); the page must show all three.
 //
-// Seit dem Design-Refactor 2026-08-09 ist der Schalter ein [AppToggle] statt
-// eines Material-[Switch]. AppToggle hat ein NICHT-nullable `onChanged` und
-// drueckt die Sperre ueber `enabled` aus — die geprueften Sachverhalte
-// (blockiert heisst aus und nicht erneut umlegbar) sind unveraendert.
+// The switch is an [AppToggle], whose `onChanged` is non-nullable and which
+// expresses the lock via `enabled`; the assertions are unchanged.
 void main() {
   Future<Future<SettingsResult?>> openSettings(
     WidgetTester tester, {
@@ -126,11 +123,11 @@ void main() {
       (tester) async {
     await openSettings(tester, reminderState: ReminderState.blocked);
 
-    // Android 13+ zeigt nach zwei Ablehnungen gar keinen Dialog mehr — der
-    // Schalter spraenge sofort zurueck.
+    // Android 13+ shows no dialog after two denials — the switch would snap
+    // straight back.
     expect(reminderSwitch(tester).enabled, isFalse);
 
-    // Und er reagiert wirklich nicht: ein Tap darf den Zustand nicht drehen.
+    // And it really does not react: a tap must not flip the state.
     await tester
         .ensureVisible(find.byKey(const ValueKey('settings-notifications')));
     await tester.pumpAndSettle();

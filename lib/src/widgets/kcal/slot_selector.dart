@@ -6,13 +6,10 @@ import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 import '../../theme/meal_slot_style.dart';
 
-/// Segmented-Control fuer die Slot-Wahl (Frühstück/Mittag/Abend/Snack).
+/// Segmented control for picking a meal slot.
 ///
-/// Aus dem AddMealSheet extrahiert (dort vorher privat), damit das
-/// Bearbeiten-Sheet exakt dasselbe Muster nutzt statt es zu duplizieren.
-/// [keyPrefix] haelt die Test-Keys pro Einsatzort eindeutig — das Add-Sheet
-/// behaelt seine historischen `slot-select-*`-Keys, das Edit-Sheet nutzt
-/// `edit-slot-select-*` (beide Sheets koennen gleichzeitig offen sein).
+/// [keyPrefix] keeps the test keys unique per call site — add and edit sheet
+/// can be open at the same time.
 class SlotSelector extends StatelessWidget {
   const SlotSelector({
     super.key,
@@ -70,8 +67,8 @@ class _SlotSegment extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final color = slot.accentIn(context);
-    // A11y: Segment als Button mit Auswahl-Zustand und vollem Slot-Namen
-    // (das sichtbare Kurz-Label allein waere z.B. nur "Früh").
+    // A11y: button with selection state and the full slot name; the visible
+    // short label alone would be a truncated word.
     return Semantics(
       button: true,
       selected: selected,
@@ -93,8 +90,8 @@ class _SlotSegment extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Nicht die volle Slot-Farbe auf ihrer eigenen 16-%-Tint:
-              // das traegt im Hell-Modus nur 2.15:1 (Kohlenhydrat-Amber).
+              // Not the full slot color on its own 16 % tint: that is only
+              // 2.15:1 in light mode.
               Icon(
                 slot.icon,
                 size: 18,

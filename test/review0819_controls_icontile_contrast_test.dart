@@ -8,22 +8,18 @@ import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 // ---------------------------------------------------------------------------
-// Komplettreview 2026-08-19, Fund 2 — [IconTile] hatte die Kontrast-Korrektur
-// nicht bekommen.
+// Finding 2 — [IconTile] had not received the contrast correction.
 //
-// Das Muster „Glyph in der voller Kategoriefarbe auf derselben Farbe mit
-// ~15 % Deckung" sieht im Dunkelmodus gut aus und scheitert hell: der
-// Kohlenhydrat-Amber kam auf 2.2:1. app_tokens.dart beschreibt genau das und
-// haelt dafuer [AppTokens.readableOnTint] bereit; MealAvatar und SlotSelector
-// benutzen die Korrektur seit dem Design-Refactor, IconTile nicht.
+// A glyph in the full category color on ~15 % of the same color looks fine in
+// dark mode and fails in light (carb amber at 2.2:1); [AppTokens.readableOnTint]
+// exists for exactly that.
 //
-// Gemessen wird deshalb NICHT „ruft das Widget die Hilfsfunktion auf"
-// (das waere eine Tautologie), sondern das Kontrastverhaeltnis zwischen dem
-// tatsaechlich gezeichneten Glyph und der tatsaechlich gezeichneten Kachel.
-// Schwelle 3:1 — die WCAG-Untergrenze fuer grafische Objekte.
+// Measured is NOT "does the widget call the helper" (a tautology) but the
+// contrast ratio between the drawn glyph and the drawn tile. Threshold 3:1,
+// the WCAG floor for graphical objects.
 // ---------------------------------------------------------------------------
 
-/// Kontrastverhaeltnis nach WCAG 2.1 (1..21).
+/// Contrast ratio per WCAG 2.1 (1..21).
 double _kontrast(Color vordergrund, Color hintergrund) {
   final a = vordergrund.computeLuminance();
   final b = hintergrund.computeLuminance();
@@ -40,8 +36,8 @@ Widget _harness(Widget child, {required Brightness brightness}) {
 }
 
 void main() {
-  // Die Faerbungen, mit denen IconTile im Produktivcode wirklich aufgerufen
-  // wird: die Makro-/Slot-Toene, der Marken-Akzent und das Gefahren-Signal.
+  // The colors IconTile is really called with in production: macro/slot tones,
+  // the brand accent and the danger signal.
   final faelle = <String, Color Function(AppTokens)>{
     'carbs': (t) => t.carbs,
     'protein': (t) => t.protein,
@@ -75,8 +71,7 @@ void main() {
               .first,
         );
         final fuellung = (kachel.decoration! as BoxDecoration).color!;
-        // Die Kachel ist durchscheinend; gezeichnet wird sie auf der
-        // Kartenflaeche, auf der die Zeilen sitzen.
+        // The tile is translucent and is drawn on the card surface.
         final grund = Color.alphaBlend(fuellung, tokens.surf);
 
         final glyph = tester.widget<Icon>(
@@ -97,8 +92,8 @@ void main() {
   }
 
   testWidgets('ohne Farbe bleibt der Glyph die normale Tinte', (tester) async {
-    // Die farblose Kachel liegt auf `tile` (fast farblos) — dort ist `ink`
-    // richtig und readableOnTint waere eine unnoetige Aufhellung.
+    // The colorless tile sits on `tile`, where `ink` is right and
+    // readableOnTint would only lighten needlessly.
     await tester.pumpWidget(
       _harness(
         const IconTile(icon: Icons.bolt_rounded),

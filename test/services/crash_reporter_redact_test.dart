@@ -1,25 +1,20 @@
-// G3 (REVIEW-2026-08-08): `redactUserSegment` kam in 7f895f9 dazu, um
-// User-UUIDs aus Sentry herauszuhalten — und hatte danach null Tests. Ein
-// Rueckbau auf `storageKey: key` haette bei 442 gruenen Tests stabile
-// Nutzerkennungen an Sentry geschickt.
+// G3: `redactUserSegment` keeps user UUIDs out of Sentry and had no tests, so
+// a revert to `storageKey: key` would have shipped stable user ids while every
+// test stayed green. It lives in secure_cache_store.dart, but its only caller
+// is the crash-report path — hence the test file here.
 //
-// Die Funktion lebt in secure_cache_store.dart (Agent W1-01), ihr einziger
-// Aufrufer ist der Crash-Report-Pfad — deshalb steht ihr Test hier bei den
-// crash_reporter-Tests.
-//
-// Vertrag laut Doku der Funktion: der LETZTE Punkt-Abschnitt eines Keys mit
-// MEHR als drei Abschnitten wird durch `<uid>` ersetzt; Keys mit hoechstens
-// drei Abschnitten bleiben unveraendert. Die Entscheidung haengt an der
-// Abschnittszahl, NICHT an der UUID-Form — die Tests pinnen genau das.
+// Contract: the LAST dot segment of a key with MORE than three segments
+// becomes `<uid>`; keys with at most three segments stay unchanged. The
+// decision hangs on the segment count, NOT on the UUID shape.
 
 import 'package:eatova/src/services/secure_cache_store.dart'
     show redactUserSegment;
 import 'package:flutter_test/flutter_test.dart';
 
-/// Eine echte Supabase-User-UUID (Format v4, mit Bindestrichen, ohne Punkte).
+/// A real Supabase user UUID (v4, hyphenated, no dots).
 const String _uuid = '3f2504e0-4f89-11d3-9a0c-0305e82c3301';
 
-/// Die neun Slot-Namen aus local_cache.dart:131-149.
+/// The nine slot names from local_cache.dart:131-149.
 const List<String> _slots = <String>[
   'profile',
   'daily',
@@ -42,8 +37,7 @@ void main() {
     });
 
     test('kein einziger echter Cache-Key traegt danach noch die UUID', () {
-      // Das ist die Zusage, um die es geht: WELCHER Slot kaputt ist, bleibt
-      // sichtbar — WER der Nutzer ist, nicht.
+      // The promise: WHICH slot broke stays visible, WHO the user is does not.
       for (final slot in _slots) {
         final redigiert = redactUserSegment('eatova.v1.$slot.$_uuid');
 
@@ -95,7 +89,7 @@ void main() {
 
   group('redactUserSegment · Rand- und Mehrfachfaelle', () {
     test('bei mehr als vier Abschnitten faellt NUR der letzte weg', () {
-      // Ein kuenftiger Slot-Name mit Punkt darf den Praefix nicht verlieren.
+      // A future slot name containing a dot must not lose its prefix.
       expect(
         redactUserSegment('eatova.v2.sync.logged_meals.$_uuid'),
         'eatova.v2.sync.logged_meals.<uid>',
@@ -112,11 +106,9 @@ void main() {
 
     test('die Redigierung haengt an der Abschnittszahl, nicht an UUID-Form',
         () {
-      // Bewusst festgehalten: die Funktion prueft NICHT, ob das letzte
-      // Segment wie eine UUID aussieht. Vier Abschnitte genuegen. Das ist
-      // die sichere Richtung (lieber zu viel redigieren als zu wenig), aber
-      // es ist eine bewusste Eigenschaft und keine Nebenwirkung — wer sie
-      // aendert, soll hier stolpern.
+      // Pinned deliberately: the function does NOT check whether the last
+      // segment looks like a UUID — four segments suffice. Over-redacting is
+      // the safe direction, but it is a choice, not a side effect.
       expect(redactUserSegment('eatova.v1.profile.v2'),
           'eatova.v1.profile.<uid>');
     });

@@ -1,16 +1,13 @@
--- FitPilot App-Data Schema (Multi-User mit Row Level Security)
+-- App data schema (multi-user with row level security).
 --
--- Aufsetzpunkt: 20260516150000_create_profiles.sql legt bereits
--- public.profiles (id uuid PK = auth.users.id, email, display_name,
--- avatar_url, onboarding_completed) + handle_new_user_profile-Trigger an.
--- Diese Migration erweitert profiles um Biometrie/Tagesziele und legt
--- die App-Daten-Tabellen (logs, meals, weight, sleep, caffeine, stats)
--- an. Jede Tabelle traegt user_id → auth.users(id) + RLS-Policy
--- user_id = auth.uid(), sodass ein User strukturell nur seine eigenen
--- Zeilen sehen oder veraendern kann.
+-- Builds on 20260516150000_create_profiles.sql: extends profiles with
+-- biometrics/daily goals and creates the app data tables (logs, meals, weight,
+-- sleep, caffeine, stats). Every table carries user_id → auth.users(id) and an
+-- RLS policy user_id = auth.uid(), so a user can structurally only see or
+-- change their own rows.
 
 -- ---------------------------------------------------------------------------
--- 1) profiles erweitern um Biometrie + Tagesziele (entspricht UserProfile)
+-- 1) Extend profiles with biometrics + daily goals (matches UserProfile)
 -- ---------------------------------------------------------------------------
 alter table public.profiles
   add column if not exists weight_kg                integer not null default 78,
@@ -36,8 +33,8 @@ begin
   end if;
 end $$;
 
--- profiles-DELETE-Policy fehlte in der vorigen Migration → nachziehen,
--- damit User ihren eigenen Account-Reset durchfuehren koennen.
+-- The profiles DELETE policy was missing in the previous migration; needed so
+-- users can reset their own account.
 drop policy if exists "profiles_delete_own" on public.profiles;
 create policy "profiles_delete_own"
   on public.profiles
@@ -46,8 +43,8 @@ create policy "profiles_delete_own"
   using (auth.uid() = id);
 
 -- ---------------------------------------------------------------------------
--- 2) daily_logs — ein Eintrag pro User pro Tag
---    (Wasser, Schritte, Mood, abgeschlossene Plan-Bloecke, Habits)
+-- 2) daily_logs — one entry per user per day
+--    (water, steps, mood, completed plan blocks, habits)
 -- ---------------------------------------------------------------------------
 create table if not exists public.daily_logs (
   user_id              uuid not null references auth.users(id) on delete cascade,
@@ -89,7 +86,7 @@ create policy "daily_logs_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 3) logged_meals — geloggte Mahlzeiten (Append-Log)
+-- 3) logged_meals — logged meals (append-only log)
 -- ---------------------------------------------------------------------------
 create table if not exists public.logged_meals (
   id            uuid primary key default gen_random_uuid(),
@@ -133,8 +130,8 @@ create policy "logged_meals_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 4) favorite_meals — gespeicherte Lieblings-Mahlzeiten
---    favorite_key entspricht FavoriteMeal.idFor (barcode:… oder name:…)
+-- 4) favorite_meals — saved favorite meals
+--    favorite_key matches FavoriteMeal.idFor (barcode:… or name:…)
 -- ---------------------------------------------------------------------------
 create table if not exists public.favorite_meals (
   user_id        uuid not null references auth.users(id) on delete cascade,
@@ -171,7 +168,7 @@ create policy "favorite_meals_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 5) weight_log — Gewichts-Messpunkte
+-- 5) weight_log — weight measurements
 -- ---------------------------------------------------------------------------
 create table if not exists public.weight_log (
   id           uuid primary key default gen_random_uuid(),
@@ -204,7 +201,7 @@ create policy "weight_log_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 6) sleep_entries — eine Nacht pro Eintrag
+-- 6) sleep_entries — one night per entry
 -- ---------------------------------------------------------------------------
 create table if not exists public.sleep_entries (
   user_id          uuid not null references auth.users(id) on delete cascade,
@@ -237,7 +234,7 @@ create policy "sleep_entries_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 7) caffeine_entries — pro Tasse / Konsum
+-- 7) caffeine_entries — one row per cup / intake
 -- ---------------------------------------------------------------------------
 create table if not exists public.caffeine_entries (
   id           uuid primary key default gen_random_uuid(),
@@ -270,7 +267,7 @@ create policy "caffeine_entries_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 8) lifetime_stats — kumulierte Zaehler pro User (1:1 Dart LifetimeStats)
+-- 8) lifetime_stats — cumulative counters per user (1:1 Dart LifetimeStats)
 -- ---------------------------------------------------------------------------
 create table if not exists public.lifetime_stats (
   user_id              uuid primary key references auth.users(id) on delete cascade,
@@ -309,11 +306,9 @@ create policy "lifetime_stats_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 9) Bootstrap-Trigger fuer lifetime_stats
---    profiles-Bootstrap macht bereits handle_new_user_profile (siehe
---    20260516150000_create_profiles.sql). Wir haengen einen zweiten
---    Trigger an auth.users, damit jeder neue User auch eine
---    lifetime_stats-Zeile bekommt.
+-- 9) Bootstrap trigger for lifetime_stats
+--    handle_new_user_profile already bootstraps profiles; this second
+--    auth.users trigger gives every new user a lifetime_stats row.
 -- ---------------------------------------------------------------------------
 create or replace function public.handle_new_user_stats()
 returns trigger
@@ -335,10 +330,8 @@ create trigger on_auth_user_created_stats
   for each row execute function public.handle_new_user_stats();
 
 -- ---------------------------------------------------------------------------
--- 10) Backfill: bereits existierende auth.users-Eintraege (z.B. Test-
---     Accounts aus dem OAuth-Flow, die VOR der profiles-Migration
---     angelegt wurden) bekommen nachtraeglich ihre profiles- und
---     lifetime_stats-Zeile. Idempotent via where-not-exists.
+-- 10) Backfill: existing auth.users rows created before the profiles migration
+--     get their profiles and lifetime_stats rows. Idempotent.
 -- ---------------------------------------------------------------------------
 insert into public.profiles (id, email, display_name)
 select

@@ -15,9 +15,9 @@ import '../design/design.dart';
 import '../meal/meal_widgets.dart';
 import 'slot_selector.dart';
 
-/// Store-Callback fuer das Bearbeiten-Sheet: aendert Portion/Bestandteile,
-/// Slot und/oder Tag einer geloggten Mahlzeit (null = unveraendert) und
-/// liefert den neuen Stand zurueck (null, wenn die id nicht mehr existiert).
+/// Store callback for the edit sheet: changes portion/components, slot and/or
+/// day of a logged meal (null = unchanged) and returns the new state, or null
+/// if the id no longer exists.
 typedef UpdateMealDetails =
     LoggedMeal? Function(
       String id, {
@@ -26,14 +26,13 @@ typedef UpdateMealDetails =
       DateTime? day,
     });
 
-/// Stellt die Edit-Callbacks des HomeStore unterhalb des Food-Tabs bereit.
+/// Provides the HomeStore edit callbacks below the food tab.
 ///
-/// Hintergrund: die Slot-Karten des Tagebuchs (`DiaryMealCard`) und das
-/// AddMealSheet leben unterhalb von `MealAnalysisScreen`, dessen Signatur
-/// hier bewusst nicht angefasst wird — der Scope reicht die Callbacks an den
-/// Screen VORBEI direkt zu den Widgets, die das Bearbeiten-Sheet oeffnen.
-/// Fehlt der Scope (Preview/Standalone-Tests), fallen die Widgets auf ihr
-/// bisheriges Verhalten zurueck.
+/// The diary slot cards and the AddMealSheet live under
+/// `MealAnalysisScreen`, whose signature stays untouched, so the scope routes
+/// the callbacks past the screen straight to the widgets that open the edit
+/// sheet. Without the scope (previews, standalone tests) those widgets fall
+/// back to their previous behaviour.
 class MealEditScope extends InheritedWidget {
   const MealEditScope({
     super.key,
@@ -45,9 +44,9 @@ class MealEditScope extends InheritedWidget {
   final UpdateMealDetails onUpdateMeal;
   final ValueChanged<String> onRemoveMeal;
 
-  /// Bewusst OHNE Dependency-Registrierung (getInherited…): die Callbacks
-  /// sind stabile Store-Tear-offs, und der Lookup passiert auch ausserhalb
-  /// von build (Sheet-Oeffner).
+  /// Deliberately without dependency registration (getInherited…): the
+  /// callbacks are stable store tear-offs and the lookup also happens outside
+  /// build (sheet openers).
   static MealEditScope? maybeOf(BuildContext context) =>
       context.getInheritedWidgetOfExactType<MealEditScope>();
 
@@ -57,9 +56,9 @@ class MealEditScope extends InheritedWidget {
       onRemoveMeal != oldWidget.onRemoveMeal;
 }
 
-/// Ergebnis des Bearbeiten-Sheets fuer Aufrufer mit lokaler Listen-Kopie
-/// (AddMealSheet): gespeicherter neuer Stand oder Loeschung. null (Future-
-/// Ergebnis) heisst: geschlossen ohne Aenderung.
+/// Edit-sheet result for callers holding a local list copy (AddMealSheet):
+/// the saved new state or a deletion. A null future result means closed
+/// without changes.
 class MealEditOutcome {
   const MealEditOutcome.saved(LoggedMeal this.meal) : deleted = false;
   const MealEditOutcome.deleted() : meal = null, deleted = true;
@@ -68,9 +67,8 @@ class MealEditOutcome {
   final bool deleted;
 }
 
-/// Oeffnet das Bearbeiten-Sheet fuer eine geloggte Mahlzeit. [onRemoveMeal]
-/// null -> kein Loeschen-Button (z.B. wenn der Aufrufer keinen Remove-Pfad
-/// verdrahtet hat).
+/// Opens the edit sheet for a logged meal. A null [onRemoveMeal] means no
+/// delete button, e.g. when the caller has no remove path wired up.
 Future<MealEditOutcome?> showEditMealSheet(
   BuildContext context, {
   required LoggedMeal meal,
@@ -81,8 +79,7 @@ Future<MealEditOutcome?> showEditMealSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
-    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
+    // Deliberately not a token: the scrim must darken in both themes.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (sheetContext) {
       return EditMealSheet(
@@ -94,16 +91,15 @@ Future<MealEditOutcome?> showEditMealSheet(
   );
 }
 
-/// D5: „Aenderungen verwerfen?" — die gemeinsame Bestaetigung fuer JEDEN
-/// Weg, ein ausgefuelltes Sheet zu schliessen.
+/// Shared "discard changes?" confirmation for every way of closing a dirty
+/// sheet.
 ///
-/// `barrierDismissible: true` ist Absicht: ein Tap neben den Dialog ist
-/// „Abbrechen", also die harmlose Antwort. Der Dialog liegt dabei auf dem
-/// Root-Navigator und damit UEBER der Sheet-Route — sein eigener Barrier
-/// schluckt den Tap, das Sheet darunter bekommt ihn nie zu sehen. Der Dialog
-/// kann sich also nicht selbst mitsamt dem Sheet wegklicken.
+/// `barrierDismissible: true` is intentional: a tap beside the dialog means
+/// cancel, the harmless answer. The dialog sits on the root navigator above
+/// the sheet route, so its own barrier swallows that tap and the sheet below
+/// never sees it.
 ///
-/// Rueckgabe: `true` = verwerfen, `false`/abgebrochen = offen lassen.
+/// Returns true to discard, false to keep the sheet open.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
   final t = context.t;
   final l10n = context.l10n;
@@ -141,28 +137,18 @@ Future<bool> _confirmDiscardChanges(BuildContext context) async {
   return verwerfen ?? false;
 }
 
-/// D5: faengt das Nach-unten-Ziehen eines modalen Bottom-Sheets ab.
+/// Intercepts the drag-down dismissal of a modal bottom sheet.
 ///
-/// **Warum das noetig ist:** ein `PopScope` deckt nur die halbe Miete ab. Die
-/// beiden Dismiss-Wege laufen im Framework verschieden:
+/// `PopScope` only covers half of it: a barrier tap goes through
+/// `Navigator.maybePop` and asks the pop disposition, but a drag goes
+/// `BottomSheet._handleDragEnd` -> `onClosing` -> `Navigator.pop` and never
+/// does. The only lever from inside the sheet is the gesture arena: a vertical
+/// drag recognizer in the builder child sits below
+/// `_BottomSheetGestureDetector` and wins, the same way a ScrollView swallows
+/// the drag. Scrollable areas sit deeper still and stay unaffected.
 ///
-///  * Barriere-Tap → `ModalBarrier.handleDismiss` → `Navigator.maybePop`
-///    (`modal_barrier.dart:225-230`) — fragt die Pop-Disposition, also
-///    `PopScope`.
-///  * Ziehen → `BottomSheet._handleDragEnd` → `onClosing` → **`Navigator.pop`**
-///    (`bottom_sheet.dart:769-771`) — fragt sie **nicht**. Ein `PopScope` sieht
-///    diesen Weg nie.
-///
-/// Von innerhalb des Sheets gibt es dafuer genau einen Hebel: die
-/// Gesten-Arena. Der `_BottomSheetGestureDetector` sitzt ueber dem
-/// `builder`-Kind; ein eigener Vertikal-Drag-Erkenner IM Kind liegt tiefer und
-/// gewinnt die Arena — dasselbe Prinzip, aus dem eine ScrollView im Sheet das
-/// Ziehen schluckt. Scrollbare Bereiche liegen wiederum tiefer als dieser
-/// Guard und bleiben unberuehrt.
-///
-/// Ist [active] false (nichts geaendert), wird gar kein Erkenner registriert —
-/// das Sheet laesst sich dann wie gewohnt wegziehen. Ein Sheet, das man ohne
-/// Dialog nicht mehr zubekommt, waere schlimmer als der Bug.
+/// With [active] false no recognizer is registered at all, so a clean sheet
+/// drags away as usual.
 class _DiscardDragGuard extends StatefulWidget {
   const _DiscardDragGuard({
     required this.active,
@@ -179,12 +165,12 @@ class _DiscardDragGuard extends StatefulWidget {
 }
 
 class _DiscardDragGuardState extends State<_DiscardDragGuard> {
-  /// Mindeststrecke nach unten, ab der ein Zug als „zumachen" gilt. Bewusst
-  /// klein: der Guard schluckt die Geste ohnehin, die Frage ist nur, ob der
-  /// Nutzer dazu eine Antwort bekommt.
+  /// Minimum downward distance counted as close intent. Small on purpose: the
+  /// guard swallows the gesture either way, this only decides whether the user
+  /// gets an answer.
   static const double _closeIntentPx = 32;
 
-  /// Flick-Schwelle, gespiegelt an `_kMinFlingVelocity` aus bottom_sheet.dart.
+  /// Fling threshold, mirroring `_kMinFlingVelocity` from bottom_sheet.dart.
   static const double _flingVelocity = 700;
 
   double _dy = 0;
@@ -204,7 +190,7 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
   Widget build(BuildContext context) {
     if (!widget.active) return widget.child;
     return GestureDetector(
-      // Ohne translucent bleiben Luecken zwischen den Kindern unbedeckt.
+      // Without translucent, gaps between children stay uncovered.
       behavior: HitTestBehavior.translucent,
       onVerticalDragStart: _onStart,
       onVerticalDragUpdate: _onUpdate,
@@ -231,13 +217,10 @@ class EditMealSheet extends StatefulWidget {
 }
 
 class _EditMealSheetState extends State<EditMealSheet> {
-  /// Tage rueckwaerts ab heute im Chip-Picker. Deckt sich mit dem
-  /// 35-Tage-Boot-Fenster von MealsSync.loadLoggedMeals. Aeltere Ziele gehen
-  /// seit dem On-Demand-Nachladen (home_store._ensureArchiveDayLoaded) ueber
-  /// den „Anderes Datum…"-Eintrag: die Zeile bleibt serverseitig erhalten und
-  /// der Food-Tab laedt den Zieltag bei Kalender-Auswahl nach — verschobene
-  /// Mahlzeiten verschwinden also nicht mehr, sie liegen nur ausserhalb des
-  /// Boot-Fensters.
+  /// Days back from today in the chip picker; matches the 35-day boot window
+  /// of MealsSync.loadLoggedMeals. Older targets go through the calendar
+  /// entry: the row stays on the server and the food tab loads that day on
+  /// demand, so a moved meal is outside the boot window, not gone.
   static const int _pickerDays = 35;
 
   late MealAnalysisResult _result;
@@ -250,8 +233,8 @@ class _EditMealSheetState extends State<EditMealSheet> {
     super.initState();
     _result = widget.meal.result;
     _slot = widget.meal.slot;
-    // effectiveLocalDay ('YYYY-MM-DD') parst als lokale Mitternacht — genau
-    // der Tages-Anker, den auch das Bucketing nutzt.
+    // effectiveLocalDay ('YYYY-MM-DD') parses as local midnight, the same day
+    // anchor the bucketing uses.
     _day = DateUtils.dateOnly(DateTime.parse(widget.meal.effectiveLocalDay));
   }
 
@@ -261,10 +244,10 @@ class _EditMealSheetState extends State<EditMealSheet> {
 
   bool get _dirty => _resultChanged || _slotChanged || _dayChanged;
 
-  /// Portion/Bestandteile ueber den BESTEHENDEN Editor anpassen
-  /// (showWeightAdjustmentSheet aus meal_widgets_adjust.dart) — identisches
-  /// Muster wie MealAnalysisSheet._adjustPortion, nur ohne Sofort-Save: die
-  /// Aenderung wird erst mit „Speichern" uebernommen.
+  /// Adjusts portion/components through the existing
+  /// showWeightAdjustmentSheet editor. Same pattern as
+  /// MealAnalysisSheet._adjustPortion, but without an immediate save: the
+  /// change only lands on "save".
   Future<void> _adjustPortion() async {
     final adjustment = await showWeightAdjustmentSheet(context, _result);
     if (!mounted || adjustment == null) return;
@@ -282,11 +265,10 @@ class _EditMealSheetState extends State<EditMealSheet> {
     });
   }
 
-  /// „Anderes Datum…": Kalender fuer Ziele jenseits der 35 Chips (der Dialog
-  /// rendert in der aktiven App-Sprache). Grenzen wie der Food-Tab-Kalender:
-  /// 2 Jahre zurueck, nichts in der Zukunft. Die Auswahl laeuft ueber
-  /// denselben _day-State wie die Chips — gespeichert wird weiterhin
-  /// ausschliesslich ueber updateLoggedMealDetails.
+  /// Calendar for targets beyond the chips, rendered in the active app
+  /// language. Same bounds as the food-tab calendar: two years back, nothing
+  /// in the future. Feeds the same _day state as the chips; saving still runs
+  /// only through updateLoggedMealDetails.
   Future<void> _pickOtherDay() async {
     final today = DateUtils.dateOnly(DateTime.now());
     final firstDate = DateTime(today.year - 2, today.month, today.day);
@@ -323,9 +305,9 @@ class _EditMealSheetState extends State<EditMealSheet> {
     Navigator.of(context).pop(const MealEditOutcome.deleted());
   }
 
-  /// D5: laeuft fuer jeden abgefangenen Dismiss-Versuch — Barriere-Tap,
-  /// System-Zurueck und Schliessen-Kreuz kommen ueber [PopScope], das Ziehen
-  /// ueber [_DiscardDragGuard]. Mehrfach-Versuche stapeln keine Dialoge.
+  /// Runs for every intercepted dismiss attempt: barrier tap, system back and
+  /// the close button arrive via [PopScope], dragging via
+  /// [_DiscardDragGuard]. Repeat attempts do not stack dialogs.
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
@@ -334,22 +316,20 @@ class _EditMealSheetState extends State<EditMealSheet> {
     final verwerfen = await _confirmDiscardChanges(context);
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
-    // Der Dialog ist zu diesem Zeitpunkt bereits gepoppt — die oberste Route
-    // ist wieder das Sheet. Bewusst ohne Ergebnis: verworfen ist nicht
-    // gespeichert.
+    // The dialog is already popped, so the sheet is the top route again.
+    // Deliberately without a result: discarded is not saved.
     Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    // Safe-Area-bewusst statt fester 92 % (sheetMaxHeight): das Sheet darf
-    // nie unter Statusleiste/Dynamic Island ragen.
+    // Safe-area aware instead of a fixed 92 %: the sheet must never reach
+    // under the status bar or Dynamic Island.
     final maxHeight = sheetMaxHeightOf(context);
 
     return PopScope<MealEditOutcome?>(
-      // Nur solange wirklich etwas offen ist. Ohne Aenderung schliesst das
-      // Sheet wie bisher sofort.
+      // Only while something is actually unsaved; a clean sheet closes at once.
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
@@ -366,9 +346,9 @@ class _EditMealSheetState extends State<EditMealSheet> {
   Widget _buildSheet(MediaQueryData mediaQuery, double maxHeight) {
     final t = context.t;
     final l10n = context.l10n;
-    // Kein SheetScaffold: fixer Kopf ueber einem gedeckelten Scrollbereich,
-    // zwei Fussaktionen (Speichern + Loeschen) — und `edit-meal-save-button`
-    // muss ein FilledButton bleiben, weil Tests seinen `onPressed` lesen.
+    // No SheetScaffold: fixed header over a capped scroll area with two footer
+    // actions, and `edit-meal-save-button` must stay a FilledButton because
+    // tests read its `onPressed`.
     return Container(
       key: const ValueKey('edit-meal-sheet'),
       constraints: BoxConstraints(maxHeight: maxHeight),
@@ -566,7 +546,7 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// Kompakte Live-Zusammenfassung der (ggf. bereits angepassten) Werte.
+/// Compact live summary of the (possibly already adjusted) values.
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({required this.result, required this.adjusted});
 
@@ -624,9 +604,9 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// Einmalige Initialisierung der `intl`-Datumssymbole — derselbe Bool-Wächter
-/// wie in `meal_analysis_screen.dart`/`today_texts.dart` (dateiprivat, daher
-/// nicht wiederverwendbar).
+/// One-time init of the `intl` date symbols — the same bool guard as in
+/// `meal_analysis_screen.dart`/`today_texts.dart`, which are file-private and
+/// therefore not reusable.
 bool _dateSymbolsReady = false;
 void _ensureDateSymbols() {
   if (_dateSymbolsReady) return;
@@ -634,25 +614,15 @@ void _ensureDateSymbols() {
   _dateSymbolsReady = true;
 }
 
-/// B5: die Tage des Chip-Pickers — [count] Kalendertage abwaerts ab [today]
-/// (heute zuerst), plus [selected], falls dieser Tag ausserhalb des Fensters
-/// liegt (Altbestand am Fensterrand soll sichtbar bleiben).
+/// The chip picker's days: [count] calendar days down from [today] (today
+/// first), plus [selected] if it falls outside that window.
 ///
-/// Frueher stand hier
-/// `[for (var i = 0; i < pastDays; i++) today.subtract(Duration(days: i))]`.
-/// `Duration` ist Absolutzeit: am Montag 30.03.2026 in Europe/Berlin
-/// (Fruehjahrsumstellung am Sonntag 29.03., ein 23-Stunden-Tag) liefert
-/// `subtract(Duration(days: 1))` den `2026-03-28 23:00`. Der Sonntag war aus
-/// dem Picker **nicht erreichbar**, der Chip „Gestern" trug den 28.03., und
-/// eine bewusst auf Sonntag verschobene Mahlzeit landete dauerhaft auf Samstag
-/// — serverseitig, ueber `local_day`. Bei [_EditMealSheetState._pickerDays]
-/// = 35 betraf das ein Fuenf-Wochen-Fenster nach jeder Umstellung.
+/// Calendar arithmetic, not `Duration`: across a DST switch a 23-hour day
+/// makes `subtract(Duration(days: 1))` land on the previous day at 23:00, so
+/// one date became unreachable and a meal moved to it was stored a day early.
 ///
-/// [count] ist die **Anzahl** der Tage, nicht der Offset zum aeltesten. Wer
-/// dafuer `dayStrip` nimmt, muss `pastDays: count - 1` schreiben und
-/// `.reversed` anhaengen — `dayStrip(pastDays: count).reversed` liefert einen
-/// Tag zu viel. [recentDaysDescending] nimmt die Anzahl direkt entgegen und
-/// kann sich deshalb gar nicht verzaehlen.
+/// [count] is the NUMBER of days, not the offset to the oldest;
+/// [recentDaysDescending] takes the count directly and cannot miscount.
 @visibleForTesting
 List<DateTime> editMealPickerDays({
   required DateTime today,
@@ -668,19 +638,15 @@ List<DateTime> editMealPickerDays({
   return days;
 }
 
-/// B5: die Beschriftung eines Tag-Chips.
+/// Label of a day chip.
 ///
-/// Frueher `today.difference(date).inDays`. Auf zwei lokalen Mitternachten
-/// ueber die Fruehjahrsumstellung sind das 23 Stunden → `inDays == 0`, der
-/// Vortag hiess also „Heute". [daysBetween] rechnet ueber `(y, m, d)`-Tripel
-/// in UTC und kennt darum keine Sommerzeit.
+/// [daysBetween] works on `(y, m, d)` triples in UTC, so DST cannot make
+/// yesterday read as "today" (a 23-hour gap gives `inDays == 0`).
 ///
-/// Seit der i18n-Migration (Paket 2, 2026-08-10) ueber `intl`s Skeleton `EE`
-/// statt einer lokalen Zwei-Buchstaben-Liste — dieselbe Technik wie
-/// `meal_analysis_screen.dart:foodDateChipLabel` (dort nicht importierbar:
-/// screens/ importiert widgets/, nicht umgekehrt). Die deutschen CLDR-Kuerzel
-/// tragen einen Punkt („Mo."), den die alte Liste nicht hatte — abgeschnitten,
-/// damit `de` byte-identisch bleibt.
+/// Uses `intl`'s `EE` skeleton, mirroring
+/// `meal_analysis_screen.dart:foodDateChipLabel` (not importable: screens/
+/// imports widgets/, not the other way round). German CLDR abbreviations
+/// carry a trailing period, stripped so `de` stays byte-identical.
 @visibleForTesting
 String editMealDayChipLabel({
   required DateTime today,
@@ -694,10 +660,9 @@ String editMealDayChipLabel({
   return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
 }
 
-/// Horizontaler Chip-Picker ueber die letzten [pastDays] Tage (heute zuerst),
-/// gespiegelt an den Datums-Chips des Food-Tabs. Als letzter Eintrag haengt
-/// „Anderes Datum…" ([onCalendarTap]) — der oeffnet den seit der
-/// de-Lokalisierung deutschen showDatePicker fuer Ziele jenseits der Chips.
+/// Horizontal chip picker over the last [pastDays] days (today first),
+/// mirroring the food tab's date chips. The last entry ([onCalendarTap])
+/// opens showDatePicker for targets beyond the chips.
 class _DayPicker extends StatelessWidget {
   const _DayPicker({
     required this.selected,
@@ -716,21 +681,18 @@ class _DayPicker extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final today = startOfDay(DateTime.now());
-    // B5: Kalender-, keine Absolutzeitarithmetik — siehe [editMealPickerDays].
+    // Calendar arithmetic, not absolute time — see [editMealPickerDays].
     final days = editMealPickerDays(
       today: today,
       count: pastDays,
       selected: selected,
     );
 
-    // Diese Hoehe ist nicht nur die des Streifens: eine waagerechte ListView
-    // gibt ihren Kindern eine STRAFFE Querachse, sie ist damit gleichzeitig
-    // die Hoehe jedes Chips. Fest verdrahtet blieben nach dem 9+9-Polster
-    // 40 px fuer zwei mitskalierende Textzeilen — ab rund 1,4facher
-    // Systemschrift lief der Chip ueber. Gleiche Technik wie [MacroBar]:
-    // mitwachsen lassen, gedeckelt, damit der Streifen bei 2.0 nicht das
-    // halbe Sheet frisst. Bei Normalschrift bleiben es exakt die 58 des
-    // Entwurfs.
+    // A horizontal ListView gives children a tight cross axis, so this is also
+    // each chip's height. Fixed, the padding left 40 px for two scaling text
+    // lines and chips overflowed around 1.4x system text. Same technique as
+    // [MacroBar]: scale along, capped so the strip does not eat half the sheet
+    // at 2.0. At normal text size it stays exactly 58.
     final scaler = MediaQuery.textScalerOf(context);
     final hoehe = scaler.scale(58).clamp(58.0, 100.0);
 
@@ -739,7 +701,7 @@ class _DayPicker extends StatelessWidget {
       height: hoehe,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        // +1: „Anderes Datum…"-Eintrag am Ende (Kalender).
+        // +1 for the calendar entry at the end.
         itemCount: days.length + 1,
         separatorBuilder: (context, _) => const SizedBox(width: 6),
         itemBuilder: (context, index) {
@@ -748,7 +710,7 @@ class _DayPicker extends StatelessWidget {
           }
           final date = days[index];
           final isSelected = DateUtils.isSameDay(date, selected);
-          // A11y-Muster wie die Datums-Chips im Food-Tab: Button + Zustand.
+          // Same a11y pattern as the food-tab date chips: button + state.
           return Semantics(
             button: true,
             selected: isSelected,
@@ -805,8 +767,8 @@ class _DayPicker extends StatelessWidget {
   }
 }
 
-/// „Anderes Datum…"-Eintrag am Ende des Tag-Pickers: gleiche Chip-Form,
-/// oeffnet den Kalender fuer Ziele jenseits der 35 Tage.
+/// Trailing entry of the day picker: same chip shape, opens the calendar for
+/// targets beyond the 35 days.
 class _CalendarChip extends StatelessWidget {
   const _CalendarChip({required this.onTap});
 
@@ -815,8 +777,8 @@ class _CalendarChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // A11y: "Anderes / Datum…" liest sich zerhackt — als ein Button mit
-    // klarer Aktion ansagen.
+    // A11y: the two-line label reads chopped up, so announce one button with
+    // a clear action.
     final l10n = context.l10n;
     return Semantics(
       button: true,

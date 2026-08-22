@@ -17,46 +17,37 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Audit 2026-08-14: `LocalCache.readOutbox` KONNTE gar nicht werfen — `_readJson`
-// faengt jeden Fehler selbst ab und liefert `null`. Damit blieb der Merker
-// `outboxLesefehler` der Boot-Hydration immer false, `_repairOutboxHydration`
-// war toter Code, und ein echter Lesefehler des Slots endete in genau dem
-// Datenverlust, gegen den der Schutz geschrieben wurde: der naechste Enqueue
-// schrieb eine frische Ein-Element-Queue ueber bis zu [kOutboxMaxOps] nie
-// zugestellte Writes. Der Deltas-Slot hatte denselben Mangel — dort haengt der
-// Logout dran (`preserveOutbox`).
+// Audit 2026-08-14: `LocalCache.readOutbox` could not throw — `_readJson`
+// swallowed every error and returned `null`. The boot hydration's read-error
+// flag stayed false, `_repairOutboxHydration` was dead code, and a real read
+// error caused exactly the data loss the guard was written against: the next
+// enqueue overwrote up to [kOutboxMaxOps] undelivered writes with a fresh
+// single-element queue. The deltas slot had the same flaw, and logout hangs
+// off it (`preserveOutbox`).
 //
-// Diese Tests treiben den echten HomeStore gegen einen KeyValueStore, dessen
-// Lesezugriffe gezielt scheitern, und sichern:
-//   1. Ein VORUEBERGEHENDER Lesefehler des Outbox-Slots kostet keine Ops mehr —
-//      der Reparaturpfad holt den Blob nach, statt ihn zu ueberschreiben.
-//   2. Ein strukturell kaputter Slot ist ebenfalls ein Lesefehler und kein
-//      „ist halt leer" — der Reparaturpfad laeuft, danach heilt der Slot.
-//   3. Derselbe Mangel im Deltas-Slot haette den Logout den ungelesenen
-//      Sync-Zustand raeumen lassen.
-//   4. Eine ueber den Reparaturpfad zurueckgeholte HEUTIGE Mahlzeit zaehlt
-//      auch in Tagesbilanz und Makro-Ringen, nicht nur im Tagebuch.
-//   5. Der gesunde Slot verhaelt sich unveraendert und zahlt nichts drauf.
+// These tests drive the real HomeStore against a KeyValueStore whose reads
+// fail on demand: a transient read error costs no ops, a structurally broken
+// slot is a read error rather than "empty", the deltas slot survives logout, a
+// recovered TODAY meal also counts in the day total and macro rings, and the
+// healthy slot pays no extra reads.
 
 const String _uid = 'user-lesefehler';
 const String _outboxSlot = 'eatova.v1.outbox.$_uid';
 const String _deltaSlot = 'eatova.v1.pending_stats.$_uid';
 
-/// [KeyValueStore], dessen Lesezugriffe pro Slot gezielt scheitern — und der
-/// mitzaehlt, wie oft ein Slot gelesen wurde.
+/// [KeyValueStore] whose reads fail per slot on demand, counting reads.
 ///
-/// Modelliert den realen Fall, gegen den der Schutz gebaut ist: ein Plattform-/
-/// Kanal-Fehler trifft EINEN Lesevorgang, der Blob liegt unversehrt da. Die
-/// Schreibpfade bleiben die echten — nur sie koennen den Blob verlieren.
+/// Models the real case: a platform/channel error hits ONE read while the blob
+/// is intact. The write paths stay real — only they can lose the blob.
 class _ProbenStore implements KeyValueStore {
   _ProbenStore([Map<String, String>? initial]) : blobs = {...?initial};
 
   final Map<String, String> blobs;
 
-  /// Slot -> wie viele der NAECHSTEN Lesezugriffe werfen sollen.
+  /// Slot -> how many of the NEXT reads should throw.
   final Map<String, int> fehlschlaege = <String, int>{};
 
-  /// Slot -> Anzahl Lesezugriffe, gescheiterte eingeschlossen.
+  /// Slot -> number of reads, failed ones included.
   final Map<String, int> lesezugriffe = <String, int>{};
 
   @override
@@ -95,8 +86,8 @@ MealAnalysisResult _result(String name, {int kcal = 300}) =>
       sourceLabel: 'Foto-KI',
     );
 
-/// Eine nie zugestellte Mahlzeit der Vorsession, wie sie in der persistierten
-/// Outbox liegt.
+/// An undelivered meal from a previous session, as it sits in the persisted
+/// outbox.
 LoggedMeal _meal(String id) => LoggedMeal(
       id: id,
       result: _result('Alt-Bowl'),
@@ -105,8 +96,8 @@ LoggedMeal _meal(String id) => LoggedMeal(
       localDay: '2026-08-13',
     );
 
-/// Dieselbe nie zugestellte Mahlzeit, aber auf HEUTE datiert — nur dann
-/// beschreibt sie die Tageswerte, die der Reparaturpfad nachziehen muss.
+/// The same undelivered meal dated TODAY — only then does it touch the day
+/// totals the repair path must bring in line.
 LoggedMeal _heutigeMeal(String id) {
   final jetzt = DateTime.now();
   return LoggedMeal(
@@ -126,9 +117,9 @@ void _noopSnack(
   SnackBarAction? action,
 }) {}
 
-/// Voll-offline-Server: jede Anfrage scheitert mit 503. Der Live-Write landet
-/// damit zuverlaessig in der Outbox — genau der Zustand, in dem der Blob etwas
-/// zu verlieren hat.
+/// Fully offline server: every request fails with 503, so the live write
+/// reliably lands in the outbox — the state where the blob has something to
+/// lose.
 http.Client _offlineClient() => MockClient((req) async => http.Response(
       jsonEncode({'message': 'offline'}),
       503,
@@ -141,7 +132,7 @@ HomeStore _store(LocalCache cache) {
     'https://example.supabase.co',
     'test-anon-key',
     httpClient: _offlineClient(),
-    // Kein GoTrue-Auto-Refresh-Ticker im Test (siehe clobber_guard_test).
+    // No GoTrue auto-refresh ticker in tests (see clobber_guard_test).
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
   addTearDown(client.dispose);
@@ -174,8 +165,8 @@ void main() {
     final probe = _ProbenStore();
     await LocalCache(probe, _uid)
         .writeOutbox([SyncOp.mealInsert(_meal('m-alt'), trackDay: false)]);
-    // GENAU der erste Lesezugriff scheitert: der Blob ist unversehrt, nur der
-    // Zugriff der Hydration geht daneben.
+    // Exactly the first read fails: the blob is intact, only the hydration's
+    // access misses it.
     probe.fehlschlaege[_outboxSlot] = 1;
 
     final store = _store(LocalCache(probe, _uid));
@@ -216,9 +207,8 @@ void main() {
             'erkannten Lesefehler schriebe er ungeprueft ueber den Slot, und '
             'genau diese Methode waere toter Code');
 
-    // Danach heilt der Slot: der zweite Leseversuch findet denselben kaputten
-    // Blob vor, er gilt damit als endgueltig unzustellbar, und der normale
-    // Schreibpfad uebernimmt wieder.
+    // Then the slot heals: the second read finds the same broken blob, treats
+    // it as permanently undeliverable, and the normal write path resumes.
     expect((await LocalCache(probe, _uid).readOutbox())!, isNotEmpty,
         reason: 'ein dauerhaft kaputter Slot darf die Sitzung nicht dauerhaft '
             'am Persistieren hindern');
@@ -230,8 +220,8 @@ void main() {
     final probe = _ProbenStore();
     await LocalCache(probe, _uid)
         .writePendingStatsDeltas(meals: 3, weightLogs: 0);
-    // Beide Lesezugriffe scheitern (Hydration + Gegenprobe): der Slot ist
-    // dauerhaft nicht lesbar, sein Inhalt aber unversehrt.
+    // Both reads fail (hydration + counter-check): the slot is permanently
+    // unreadable but its content is intact.
     probe.fehlschlaege[_deltaSlot] = 2;
 
     final store = _store(LocalCache(probe, _uid));

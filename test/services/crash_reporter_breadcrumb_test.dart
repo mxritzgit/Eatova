@@ -1,31 +1,15 @@
-// C1, Leck 1 (REVIEW-2026-08-08, Welle 6): Breadcrumbs.
+// C1, leak 1: breadcrumbs — the second, unfiltered route to Sentry, and its
+// most dangerous producer installs itself in the RELEASE build:
+// `debug_print_integration.dart` routes `debugPrint` into
+// `Breadcrumb.console`, and in release `FlutterError.presentError` calls
+// `debugPrintStack(label: details.exception.toString())`. That turns the RAW
+// `toString()` of every unhandled framework error into a breadcrumb — exactly
+// what `sanitizeForReport` holds back on the exception side.
 //
-// `sanitizeSentryEvent` hat bis Welle 5 ausschliesslich `exceptions[].value`
-// angefasst. Der zweite, voellig ungefilterte Weg nach Sentry sind
-// Breadcrumbs — und der gefaehrlichste Erzeuger installiert sich AUSGERECHNET
-// im Release-Build:
-//
-//   sentry_flutter-9.26.0/lib/src/integrations/debug_print_integration.dart:21
-//     final isDebug = options.runtimeChecker.isDebugMode();
-//     if (isDebug || !enablePrintBreadcrumbs) return;
-//     debugPrint = _debugPrint;   // -> Breadcrumb.console(message: ...)
-//
-// Der Erzeuger ist nicht nur eigener Code: `FlutterError.presentError` ruft in
-// Release `dumpErrorToConsole` (flutter/lib/src/foundation/assertions.dart
-// :1033) und das macht `debugPrintStack(label: details.exception.toString())`.
-// Damit wird der ROHE `toString()` jedes unbehandelten Framework-Fehlers zum
-// Breadcrumb — also genau `ArgumentError.invalidValue` (der getippte
-// Gewichtswert), `FormatException.source` (roher Response-Body) und
-// `FlutterError` (Diagnostics-Baum mit angezeigtem Nutzertext), die
-// `sanitizeForReport` auf der Exception-Seite zurueckhaelt.
-//
-// Warum ein Filter und nicht nur `enablePrintBreadcrumbs = false`: Breadcrumbs
-// erreichen den Hub auch aus dem nativen Scope (load_contexts_integration
-// .dart:254) und werden umgekehrt via `NativeScopeObserver` in den nativen
-// Scope gespiegelt — ein nativer Crash-Report geht dann ohne Dart-`beforeSend`
-// raus. `Scope._addBreadCrumbSync` (sentry-9.26.0/lib/src/scope.dart:215) ruft
-// `beforeBreadcrumb` VOR den Scope-Observern; nur dort erwischt man beide
-// Richtungen.
+// Why a filter and not just `enablePrintBreadcrumbs = false`: breadcrumbs also
+// arrive from the native scope and are mirrored back into it, so a native
+// crash report leaves without Dart's `beforeSend`. `beforeBreadcrumb` runs
+// before the scope observers and is the only place catching both directions.
 
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,8 +20,8 @@ void main() {
     test(
         'ein console-Breadcrumb aus einem unbehandelten ArgumentError traegt '
         'den getippten Gewichtswert und wird deshalb komplett verworfen', () {
-      // Genau die Form, die `debugPrintStack(label: exception.toString())`
-      // erzeugt, wenn der Nutzer 187.4 statt 87.4 kg eintippt.
+      // Exactly what `debugPrintStack(label: exception.toString())` produces
+      // when the user types 187.4 instead of 87.4 kg.
       final crumb = Breadcrumb.console(
         message: 'Invalid argument (weightKg): Must be between 30 and 300: '
             '187.4',
@@ -62,7 +46,7 @@ void main() {
     });
 
     test('ein print()-Breadcrumb ohne Kategorie wird ebenfalls verworfen', () {
-      // Default-Zweig: Herkunft unbekannt -> zu. Allowlist, nicht Blocklist.
+      // Default branch: unknown origin -> dropped. Allowlist, not blocklist.
       final crumb = Breadcrumb(message: 'irgendein print aus einem Plugin');
 
       expect(sanitizeSentryBreadcrumb(crumb, Hint()), isNull);
@@ -116,8 +100,8 @@ void main() {
     });
 
     test('die eigene Kategorie ueberlebt den eigenen Filter', () {
-      // Sonst haette der Filter die einzige bewusst gepflegte Kontextspur der
-      // App (home_store.dart:306, home_store_sync.dart:194) mit erschlagen.
+      // Otherwise the filter would kill the app's only deliberately
+      // maintained context trail.
       final crumb = CrashReporter.buildBreadcrumb('outbox-cap: 3 ops dropped');
 
       expect(crumb.category, CrashReporter.breadcrumbCategory);
@@ -214,9 +198,8 @@ void main() {
 
   group('sanitizeSentryBreadcrumb — Robustheit', () {
     test('der Filter wirft nie, sondern verwirft im Zweifel', () {
-      // beforeBreadcrumb laeuft in `Scope._addBreadCrumbSync`; ein Throw dort
-      // wird zwar gefangen, laesst den Breadcrumb aber DURCH
-      // (scope.dart:228-238 loggt nur). Zumachen muss also hier passieren.
+      // A throw inside beforeBreadcrumb is caught by the scope but lets the
+      // breadcrumb THROUGH, so the closing must happen here.
       final crumb = Breadcrumb(
         category: 'http',
         data: <String, dynamic>{'url': Object()},

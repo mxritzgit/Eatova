@@ -1,56 +1,47 @@
 part of 'home_store.dart';
 
-/// Mahlzeiten-Part von [HomeStore]: Loggen/Editieren/Loeschen inkl. Undo,
-/// Favoriten/Recents, Eigen-Rezepte und das On-Demand-Nachladen alter Tage
-/// ausserhalb des Boot-Fensters. Reine Datei-Aufteilung — Verhalten und
-/// Member sind 1:1 aus home_store.dart uebernommen.
+/// Meals part of [HomeStore]: log/edit/delete with undo, favorites/recents,
+/// own recipes, and on-demand loading of days outside the boot window.
 mixin _HomeStoreMealsPart
     on
         _HomeStoreBase,
         _HomeStoreSyncPart,
         _HomeStoreTrackingPart,
         _HomeStoreProfilePart {
-  // --- On-Demand-Laden alter Tage (ausserhalb des Boot-Fensters) ------------
-  // Der Boot laedt nur das 35-Tage-Fenster (MealsSync.loggedMealsWindowDays).
-  // Waehlt der Nutzer per Kalender einen aelteren Tag, wird GENAU dieser Tag
-  // nachgeladen und in loggedMeals gemerged. Nachgeladene Alt-Tage bleiben
-  // bewusst In-Memory (Session-lokal): sie wandern NICHT in den durablen
-  // LocalCache (siehe _cacheableLoggedMeals) und fliegen beim naechsten
-  // Fenster-Load wieder raus — die Merge-Quelle ist immer der Server-Stand.
-  /// Bereits nachgeladene Alt-Tage (localDayKey) — verhindert wiederholte
-  /// Queries beim Hin- und Herspringen. Wird beim Fenster-Refresh geleert.
+  // --- On-demand loading of days outside the boot window --------------------
+  // Boot loads only the 35-day window (MealsSync.loggedMealsWindowDays);
+  // picking an older day loads exactly that day and merges it into
+  // loggedMeals. Such days stay in memory (session-local), never reach the
+  // durable LocalCache (see _cacheableLoggedMeals), and drop out on the next
+  // window load — the merge source is always the server state.
+  /// Archive days already loaded (localDayKey), to avoid repeat queries.
+  /// Cleared on a window refresh.
   final Set<String> _loadedArchiveDays = <String>{};
 
-  /// Gerade in-flight nachladende Alt-Tage (localDayKey) — treibt den
-  /// Lade-Zustand der UI und dedupliziert parallele Trigger.
+  /// Archive days currently in flight (localDayKey) — drives the UI loading
+  /// state and dedups parallel triggers.
   final Set<String> _loadingArchiveDays = <String>{};
 
-  /// True, waehrend [day] gerade on-demand nachgeladen wird (Alt-Tag
-  /// ausserhalb des Boot-Fensters) — die UI zeigt dann einen Spinner statt
-  /// eines faelschlich leeren Tages.
+  /// True while [day] is being loaded on demand; the UI shows a spinner
+  /// instead of a wrongly empty day.
   bool isLoadingFoodDay(DateTime day) =>
       _loadingArchiveDays.contains(localDayKey(DateUtils.dateOnly(day)));
 
-  /// Liegt [day] ausserhalb des Boot-Fensters von
-  /// [MealsSync.loadLoggedMeals]? Der Fenster-Cutoff ist ein Zeitstempel
-  /// (jetzt − 35 Tage), der Grenztag ist also nur PARTIELL geladen — er
-  /// zaehlt deshalb bewusst als „ausserhalb" und wird on-demand vollstaendig
-  /// nachgeladen (der Merge ist duplikat-sicher per id).
+  /// Is [day] outside the boot window of [MealsSync.loadLoggedMeals]?
   ///
-  /// B5: gerechnet in KALENDERTAGEN ([daysBetween]), nicht ueber
-  /// `.difference().inDays`. Letzteres ist Absolutzeit: in jedem Zeitraum, der
-  /// eine Fruehjahrsumstellung enthaelt, fehlt eine Stunde, der Randtag zaehlte
-  /// dadurch nur als 34 und galt faelschlich als „im Fenster geladen" — er
-  /// wurde nach jeder Umstellung fuer fuenf Wochen nie nachgeladen und blieb
-  /// dauerhaft leer.
+  /// The cutoff is a timestamp (now − 35 days), so the boundary day is only
+  /// PARTIALLY loaded and counts as outside; it is reloaded in full (the merge
+  /// dedups by id).
+  ///
+  /// B5: counted in CALENDAR days ([daysBetween]). `.difference().inDays` is
+  /// wall-clock time and loses an hour across a spring DST switch, making the
+  /// boundary day count as 34 and stay permanently empty.
   bool _isOutsideBootWindow(DateTime day) =>
       daysBetween(clock.now(), day) >= MealsSync.loggedMealsWindowDays;
 
-  /// Laedt einen Alt-Tag (ausserhalb des Boot-Fensters) on-demand nach und
-  /// merged ihn in [loggedMeals]. Pro Session genau einmal pro Tag
-  /// (_loadedArchiveDays); Fehler zeigen die bestehende klassifizierte
-  /// Meldung (sync_error_messages) und lassen den Tag beim naechsten Tap
-  /// erneut versuchen.
+  /// Loads an archive day on demand and merges it into [loggedMeals]. Once per
+  /// day per session (_loadedArchiveDays); errors show the classified message
+  /// and leave the day retryable on the next tap.
   Future<void> _ensureArchiveDayLoaded(DateTime day) async {
     final s = sync;
     if (s == null) return;
@@ -60,45 +51,42 @@ mixin _HomeStoreMealsPart
       return;
     }
     _loadingArchiveDays.add(key);
-    if (!_disposed) notifyListeners(); // Spinner an
+    if (!_disposed) notifyListeners(); // spinner on
     try {
       final rows = await s.meals.loadLoggedMealsForDay(target);
       if (_disposed) return;
       _loadedArchiveDays.add(key);
       _mutate(() => _mergeArchiveMeals(rows));
-      // BEWUSST kein _cacheLoggedMeals(): nachgeladene Alt-Tage bleiben
-      // In-Memory (siehe _cacheableLoggedMeals) — der durable Cache traegt
-      // weiterhin nur das Boot-Fenster.
+      // No _cacheLoggedMeals(): archive days stay in memory (see
+      // _cacheableLoggedMeals), the durable cache holds only the boot window.
     } catch (e, st) {
-      // Read-Fehler ohne Outbox-Netz (nichts nachzuspielen): klassifizierte
-      // Meldung ueber das bestehende Muster, Roh-Fehler an dev.log/Reporter.
+      // Read error with no outbox safety net (nothing to replay): classified
+      // message via the existing pattern, raw error to dev.log/reporter.
       _reportSyncError('Tag-Nachladen', e, st);
     } finally {
       _loadingArchiveDays.remove(key);
-      if (!_disposed) notifyListeners(); // Spinner aus
+      if (!_disposed) notifyListeners(); // spinner off
     }
   }
 
-  /// Merged frisch nachgeladene Server-Zeilen eines Alt-Tags duplikat-sicher
-  /// in [loggedMeals] (Muster analog [_applyPendingOpsToState]): nur FEHLENDE
-  /// ids kommen dazu — eine bereits vorhandene lokale Zeile (z.B. mit noch
-  /// nicht synchronisiertem Edit) gewinnt gegen die aeltere Server-Kopie.
-  /// Danach werden pendende Outbox-Ops erneut ueberlagert, damit ein noch
-  /// nicht replayter Delete keine frisch geladene Zeile wiederbelebt. Muss
-  /// innerhalb eines _mutate-Blocks laufen.
+  /// Merges freshly loaded server rows of an archive day into [loggedMeals]
+  /// without duplicates: only MISSING ids are added, an existing local row
+  /// (e.g. with an unsynced edit) wins. Pending outbox ops are re-applied
+  /// afterwards so an unreplayed delete cannot revive a loaded row. Must run
+  /// inside a _mutate block.
   void _mergeArchiveMeals(List<LoggedMeal> rows) {
     final known = loggedMeals.map((m) => m.id).toSet();
     final missing =
         rows.where((m) => !known.contains(m.id)).toList(growable: false);
     if (missing.isNotEmpty) {
-      // Server-Sortierung (logged_at absteigend) nach dem Merge herstellen.
+      // Restore the server order (logged_at descending) after the merge.
       loggedMeals = [...loggedMeals, ...missing]
         ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
     }
     _applyPendingOpsToState();
   }
 
-  // --- Mahlzeiten -----------------------------------------------------------
+  // --- Meals ----------------------------------------------------------------
 
   String addResultToDailyTotal(
     MealAnalysisResult result, {
@@ -117,8 +105,8 @@ mixin _HomeStoreMealsPart
     _mutate(() {
       lifetimeStats = lifetimeStats.incrementMeals();
       if (targetIsToday) {
-        // Logging-Streak: der heutige Log-Tag zaehlt sofort (optimistisch,
-        // idempotent pro Tag). Nachtraege fuer vergangene Tage zaehlen nicht.
+        // Logging streak: today counts immediately (optimistic, idempotent
+        // per day). Back-fills for past days do not count.
         lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
       }
       _rememberRecent(result);
@@ -129,40 +117,33 @@ mixin _HomeStoreMealsPart
       }
     });
     if (targetIsToday) {
-      // Heute ist jetzt getrackt -> heutigen 20-Uhr-Reminder fallen lassen
-      // und das 7-Tage-Fenster ab morgen neu aufziehen. Der optimistische
-      // recordTrackedDay-Stand oben reicht dem Planner; der spaetere
-      // Server-Refresh via _recordTrackingDay aendert am Plan nichts mehr.
+      // Today is tracked now: drop today's 20:00 reminder and re-open the
+      // 7-day window from tomorrow. The optimistic recordTrackedDay above is
+      // enough for the planner.
       unawaited(_rescheduleStreakReminder());
     }
     _cacheLoggedMeals();
-    _cacheFavorites(); // _rememberRecent hat die Favoriten/Recents mutiert
+    _cacheFavorites(); // _rememberRecent mutated favorites/recents
     if (sync == null) return entry.id;
-    // DATA-7: KEIN Rollback — die Mahlzeit bleibt im Tagebuch stehen und wird
-    // als Outbox-Op nachgeholt (inkl. Stats-/Streak-Zaehlung beim
-    // Replay-Erfolg). Der Streak-Reminder-Plan von oben bleibt damit ebenfalls
-    // korrekt.
+    // DATA-7: NO rollback — the meal stays in the diary and is caught up as an
+    // outbox op (including stats/streak counting on replay success).
     //
-    // Luecke B: laeuft seit der Umstellung ueber denselben op-zuerst-Pfad wie
-    // alle anderen Writes. Vorher hatte GENAU der wertvollste Write (eine
-    // frisch geloggte Mahlzeit) sein eigenes then/catchError — und damit
-    // dieselbe Luecke: haengt der Request, entstand nie eine Op.
+    // Gap B: goes through the same op-first path as every other write; the
+    // former dedicated then/catchError never created an op on a hanging
+    // request.
     _syncOrQueue(
       'Mahlzeit',
       () => sync!.meals.insertLoggedMeal(entry),
       () => SyncOp.mealInsert(entry, trackDay: targetIsToday),
       onDelivered: () {
-        // Genau die Seiteneffekte, die _performOp beim Nachspielen selbst
-        // uebernimmt — deshalb laufen sie nur nach der LIVE-Zustellung.
+        // Exactly the side effects _performOp does itself on replay, so they
+        // run only after LIVE delivery.
         _queueStatsDelta(meals: 1);
-        // Der Tag der MAHLZEIT, nicht der der Zustellung: dieser Callback
-        // laeuft erst nach dem Netz-Roundtrip. Ein Log um 23:59:58 mit drei
-        // Sekunden Laufzeit buchte sonst p_day = D+1 — fuer den gibt es keine
-        // Quellzeile in logged_meals, record_tracking_day wirft
-        // EX_DAY_NOT_LOGGED, Tag D bleibt fuer immer ungezaehlt und die
-        // unerfuellbare Op retryt bis zur Verwurfs-Frist. Der Replay-Pfad
-        // (_performOp) uebergibt aus demselben Grund schon immer den Tag der
-        // Mahlzeit.
+        // The MEAL's day, not the delivery's: this callback runs after the
+        // network round trip. A log at 23:59:58 would otherwise book p_day =
+        // D+1, which has no source row in logged_meals —
+        // record_tracking_day throws EX_DAY_NOT_LOGGED, day D stays uncounted
+        // and the op retries until the drop deadline.
         if (targetIsToday) _recordTrackingDay(day: targetDate);
       },
     );
@@ -184,9 +165,9 @@ mixin _HomeStoreMealsPart
       }
     });
     _cacheLoggedMeals();
-    // Im Outbox-Fall laeuft das Update als voller Upsert derselben Client-UUID
-    // — landet auch dann korrekt, wenn der urspruengliche Insert selbst noch
-    // in der Queue haengt (Koaleszenz bzw. FIFO pro Entitaet).
+    // Queued, the update is a full upsert on the same client UUID, so it lands
+    // correctly even while the original insert is still queued (FIFO per
+    // entity).
     _syncOrQueue(
       'Mahlzeit-Update',
       () => sync!.meals.updateLoggedMeal(updated),
@@ -194,27 +175,20 @@ mixin _HomeStoreMealsPart
     );
   }
 
-  /// Bearbeiten-Sheet: aendert Portion/Bestandteile ([result]), den Slot
-  /// ([slot]) und/oder den Tag ([day]) einer bereits geloggten Mahlzeit in
-  /// EINEM outbox-sicheren Update (Upsert auf die Client-UUID, kein Rollback).
-  /// Nur uebergebene Felder aendern sich; `null` heisst „unveraendert".
+  /// Edit sheet: changes portion ([result]), slot ([slot]) and/or day ([day])
+  /// of a logged meal in ONE outbox-safe update (upsert on the client UUID, no
+  /// rollback). Only passed fields change; `null` means unchanged.
   ///
-  /// Tag-Verschiebung (DATA-6-konsistent): [loggedAt] wandert unter Erhalt der
-  /// lokalen Wanduhr-Zeit auf den Zieltag, [LoggedMeal.localDay] wird auf den
-  /// neuen kanonischen Tages-Schluessel gesetzt — Bucketing, Tageszaehler und
-  /// Server-Zeile (logged_at + local_day) bleiben damit deckungsgleich.
+  /// Day move (DATA-6 consistent): [loggedAt] keeps its local wall-clock time
+  /// on the target day and [LoggedMeal.localDay] gets the new canonical key,
+  /// so bucketing, day counters and the server row stay aligned.
   ///
-  /// Streak-Entscheidung: eine Verschiebung AUF heute verbucht heute als
-  /// getrackten Tag (idempotent pro Tag, wie ein frischer Log — heute hat
-  /// danach ja >= 1 Mahlzeit). Verschiebungen auf vergangene Tage sind
-  /// Nachtraege und lassen die Streak unangetastet (record_tracking_day ist
-  /// fuer p_day <= last_workout_date serverseitig ein No-op). Eine
-  /// Verschiebung WEG von heute kann den Tag nicht „ent-tracken" — es gibt
-  /// serverseitig kein Decrement; bewusst akzeptiert.
+  /// Streak: a move ONTO today records today as tracked (idempotent per day).
+  /// Moves to past days are back-fills and leave the streak alone. A move AWAY
+  /// from today cannot un-track it — there is no server-side decrement;
+  /// accepted.
   ///
-  /// Liefert die aktualisierte Mahlzeit (fuer lokale Sheet-Listen) oder null,
-  /// wenn [id] nicht (mehr) existiert. Nach dem Speichern erscheint ein
-  /// dezenter Hinweis mit „Rückgängig" (analog zum Loesch-Undo).
+  /// Returns the updated meal, or null if [id] no longer exists.
   LoggedMeal? updateLoggedMealDetails(
     String id, {
     MealAnalysisResult? result,
@@ -232,8 +206,8 @@ mixin _HomeStoreMealsPart
       final targetDay = DateUtils.dateOnly(day);
       final targetKey = localDayKey(targetDay);
       if (targetKey != previous.effectiveLocalDay) {
-        // Lokale Wanduhr-Zeit der Mahlzeit beibehalten, nur den Kalendertag
-        // tauschen — so bleibt die Slot-Heuristik (loggedAt.hour) stabil.
+        // Keep the meal's local wall-clock time, swap only the calendar day,
+        // so the slot heuristic (loggedAt.hour) stays stable.
         final local = previous.loggedAt.toLocal();
         updated = updated.copyWith(
           loggedAt: DateTime(targetDay.year, targetDay.month, targetDay.day,
@@ -263,19 +237,17 @@ mixin _HomeStoreMealsPart
     return updated;
   }
 
-  /// Undo des Bearbeiten-Sheets: stellt den vorherigen Stand der Mahlzeit
-  /// wieder her (gleicher outbox-sicherer Upsert-Pfad). Wurde die Mahlzeit
-  /// inzwischen geloescht, passiert nichts. Die Streak wird bewusst NICHT
-  /// zurueckgerollt (kein Server-Decrement, siehe updateLoggedMealDetails).
+  /// Undo of the edit sheet: restores the previous meal state via the same
+  /// outbox-safe upsert. No-op if the meal was deleted meanwhile. The streak
+  /// is NOT rolled back (no server decrement, see updateLoggedMealDetails).
   void _revertLoggedMealUpdate(LoggedMeal previous) {
     _applyLoggedMealDetails(previous);
   }
 
-  /// Gemeinsamer Apply-Kern von Update + Undo: ersetzt die Zeile, stellt die
-  /// Server-Sortierung (logged_at absteigend) wieder her, zieht die
-  /// Tageszaehler/Makros fuer HEUTE nach (eine Verschiebung kann heute auch
-  /// betreffen, wenn gerade ein anderer Tag angezeigt wird), spiegelt in den
-  /// LocalCache und synct outbox-sicher als idempotenten Upsert.
+  /// Shared apply core of update + undo: replaces the row, restores the server
+  /// order, recomputes TODAY's counters/macros (a move can affect today even
+  /// while another day is shown), mirrors into the LocalCache and syncs as an
+  /// idempotent upsert.
   void _applyLoggedMealDetails(LoggedMeal updated, {bool recordToday = false}) {
     final index = loggedMeals.indexWhere((m) => m.id == updated.id);
     if (index == -1) return;
@@ -287,17 +259,17 @@ mixin _HomeStoreMealsPart
       dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
       macroProgress = macroProgressForFoodDate(clock.now());
       if (recordToday) {
-        // Optimistisch wie beim frischen Log; der Server-Refresh via
-        // _recordTrackingDay adoptiert danach die autoritative Zeile.
+        // Optimistic like a fresh log; the server refresh via
+        // _recordTrackingDay then adopts the authoritative row.
         lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
       }
     });
     _cacheLoggedMeals();
     if (recordToday) {
       unawaited(_rescheduleStreakReminder());
-      // Wie im Live-Log und im Replay: der Tag kommt aus derselben Quelle, die
-      // auch in die Server-Zeile geht (logged_meals.local_day =
-      // effectiveLocalDay) — genau die vergleicht der Quell-Beweis des RPCs.
+      // As in the live log and the replay: the day comes from the same source
+      // that goes into the server row (logged_meals.local_day), which is what
+      // the RPC's source proof compares against.
       _recordTrackingDay(day: DateTime.parse(updated.effectiveLocalDay));
     }
     _syncOrQueue(
@@ -307,19 +279,15 @@ mixin _HomeStoreMealsPart
     );
   }
 
-  /// Kurzlabel fuer den Zieltag der Verschiebe-Bestaetigung.
+  /// Short label for the target day of the move confirmation.
   ///
-  /// B5: [daysBetween] statt `.difference().inDays` — ueber die
-  /// Fruehjahrsumstellung (23-Stunden-Tag) meldete die Absolutzeit-Rechnung 0
-  /// Tage fuer den Vortag, die Bestaetigung behauptete also „auf heute
-  /// verschoben", waehrend die Mahlzeit auf gestern lag.
+  /// B5: [daysBetween], not `.difference().inDays` — across a 23-hour spring
+  /// day the wall-clock math reported 0 days for yesterday, so the
+  /// confirmation claimed "moved to today".
   ///
-  /// Review 2026-08-19: die drei Faelle waren hart deutsch geblieben, obwohl
-  /// die Datei als migriert galt. Das Datum kommt jetzt aus `intl` statt aus
-  /// `${target.day}.${target.month}.` — das Skeleton `Md` liefert unter `de`
-  /// zeichengleich „28.3." (CLDR-Muster `d.M.`), unter `en` das dort uebliche
-  /// „3/28"; die Praeposition, die es nur im Deutschen gibt, traegt der
-  /// ARB-Text ([AppLocalizations.dayLabelOnDate] = „den {datum}" / „{datum}").
+  /// The date comes from `intl`: skeleton `Md` yields `28.3.` under `de` and
+  /// `3/28` under `en`; the German-only preposition lives in the ARB text
+  /// ([AppLocalizations.dayLabelOnDate]).
   String _moveDayLabel(DateTime day) {
     final today = DateUtils.dateOnly(clock.now());
     final target = DateUtils.dateOnly(day);
@@ -362,9 +330,9 @@ mixin _HomeStoreMealsPart
       }
     });
     _cacheLoggedMeals();
-    // Restore zaehlt (wie bisher) KEINE Stats erneut -> mealUpsert, nicht
-    // mealInsert. Haengt der Delete noch in der Outbox, sortiert sich der
-    // Upsert per FIFO dahinter ein — Endzustand: Zeile existiert wieder.
+    // Restore counts NO stats again -> mealUpsert, not mealInsert. If the
+    // delete is still queued, FIFO puts the upsert behind it, so the row ends
+    // up existing again.
     _syncOrQueue(
       'Mahlzeit-Restore',
       () => sync!.meals.insertLoggedMeal(meal),
@@ -372,7 +340,7 @@ mixin _HomeStoreMealsPart
     );
   }
 
-  // --- Favoriten / Recents --------------------------------------------------
+  // --- Favorites / recents --------------------------------------------------
 
   static const int _maxAutoRecents = 5;
 
@@ -397,24 +365,18 @@ mixin _HomeStoreMealsPart
     _forgetDroppedRecents(vorDemDeckel, nachDemDeckel);
   }
 
-  /// Reicht den lokalen Recents-Deckel an den Server durch (Review
-  /// 2026-08-19).
+  /// Propagates the local recents cap to the server (review 2026-08-19).
   ///
-  /// [_cappedFavorites] warf den aeltesten Auto-Recent bis dahin nur aus der
-  /// In-Memory-Liste; serverseitig blieb die Zeile stehen, und favorite_meals
-  /// wuchs mit jeder distinkten Mahlzeit weiter. Sichtbar wurde das erst nach
-  /// dem naechsten Kaltstart: der Boot-Load brachte die ganze Historie zurueck
-  /// ins Add-Sheet.
+  /// [_cappedFavorites] only dropped the oldest auto-recent from the in-memory
+  /// list; the server row stayed and favorite_meals grew with every distinct
+  /// meal, so the next cold start brought the whole history back.
   ///
-  /// Angeheftete Favoriten stehen ausserhalb der Recents-Quote, der Deckel kann
-  /// sie also gar nicht treffen — der `pinned`-Filter hier ist trotzdem
-  /// bewusst gesetzt: eine Loeschung, die der Nutzer nie angeordnet hat, ist
-  /// der teurere Fehler, und der Filter ist billiger als das Vertrauen darauf,
-  /// dass [_cappedFavorites] sich nie aendert.
+  /// Pinned favorites are outside the recents quota and cannot be hit by the
+  /// cap; the `pinned` filter is kept anyway — an unrequested deletion is the
+  /// costlier error.
   ///
-  /// Bewusst ohne Undo-Snack: die Recents sind eine automatisch gefuehrte
-  /// Vorschlagsliste, kein Nutzer-Inhalt — ihr Nachrutschen ist der erwartete
-  /// Ablauf, keine Meldung wert.
+  /// No undo snack: recents are an automatic suggestion list, not user
+  /// content, so their turnover is expected.
   void _forgetDroppedRecents(
       List<FavoriteMeal> vorher, List<FavoriteMeal> nachher) {
     if (vorher.length == nachher.length) return;
@@ -520,28 +482,22 @@ mixin _HomeStoreMealsPart
     );
   }
 
-  // --- Eigen-Rezepte --------------------------------------------------------
+  // --- Own recipes ----------------------------------------------------------
 
-  // Luecke A: Eigen-Rezepte waren die einzige Nutzer-Sammlung OHNE lokalen
-  // Write-Through — ihr einziges Netz war die Outbox. Deshalb spiegeln beide
-  // Mutationen VOR dem Netz-Write in den Cache, genau wie
-  // addResultToDailyTotal es fuers Tagebuch vormacht.
+  // Gap A: own recipes were the only user collection WITHOUT a local
+  // write-through; the outbox was their only safety net. Both mutations
+  // therefore mirror into the cache BEFORE the network write.
   //
-  // Seit Luecke B entsteht die Outbox-Op ebenfalls vor dem Write, der Cache ist
-  // also nicht mehr das einzige, was den Tap ueberlebt. Er bleibt trotzdem das
-  // zweite, UNABHAENGIGE Netz: die Outbox kann zugestellt haben, am Cap
-  // gefallen oder beim Lesen ausgefallen sein — der Cache traegt den Bestand
-  // auch dann, und der Boot-Merge (Luecke C) laesst ihn nicht mehr von der
-  // Serverliste ueberschreiben.
+  // The cache stays the second, INDEPENDENT net: an outbox op can be
+  // delivered, dropped at the cap or unreadable, and the boot merge (gap C)
+  // keeps the server list from overwriting the cached state.
 
-  /// Legt ein Eigen-Rezept an und meldet, was mit ihm passiert ist.
+  /// Creates an own recipe and reports what happened to it.
   ///
-  /// Luecke E: der Rezepte-Screen zeigte „„X" gespeichert." synchron und
-  /// unbedingt — und bekam bei einem gescheiterten Write den generischen
-  /// Warteschlangen-Hinweis des Stores hinterhergeschoben, der den ersten
-  /// Toast sofort wieder abraeumte. Jetzt wartet der Screen auf diesen
-  /// Rueckgabewert und sagt beides in EINEM Satz; der Store haelt seinen
-  /// eigenen Hinweis dafuer zurueck ([aufruferMeldetAusgang]).
+  /// Gap E: the recipes screen showed a synchronous "saved" toast and the
+  /// store's generic queue hint then wiped it. The screen now awaits this
+  /// result and says both in ONE sentence, while the store withholds its own
+  /// hint ([aufruferMeldetAusgang]).
   Future<SyncDelivery> createUserRecipe(FitnessRecipe recipe) {
     _mutate(() {
       _userRecipes = [
@@ -558,8 +514,8 @@ mixin _HomeStoreMealsPart
     );
   }
 
-  /// Loescht ein Eigen-Rezept. Meldet den Ausgang wie [createUserRecipe] —
-  /// „gelöscht." ohne Deckung waere derselbe Fehler in der Gegenrichtung.
+  /// Deletes an own recipe. Reports the outcome like [createUserRecipe] — an
+  /// unbacked "deleted" would be the same error in reverse.
   Future<SyncDelivery> deleteUserRecipe(String slug) {
     _mutate(() {
       _userRecipes = _userRecipes.where((r) => r.slug != slug).toList();
@@ -574,12 +530,9 @@ mixin _HomeStoreMealsPart
   }
 }
 
-/// Einmalige Initialisierung der `intl`-Datumssymbole — derselbe Bool-Waechter
-/// wie in `today_texts.dart`/`edit_meal_sheet.dart` (dort jeweils dateiprivat,
-/// daher nicht wiederverwendbar). `initializeDateFormatting()` laedt seine
-/// CLDR-Tabelle **synchron** (kein Netz-/Asset-Zugriff), der Waechter spart nur
-/// den wiederholten Aufbau. Ohne ihn wirft `DateFormat.Md('de')` eine
-/// LocaleDataException — die deutschen Muster sind bis dahin nicht geladen.
+/// One-time init of the `intl` date symbols; without it `DateFormat.Md('de')`
+/// throws a LocaleDataException. `initializeDateFormatting()` loads its CLDR
+/// table synchronously, so the guard only saves repeated setup.
 bool _dateSymbolsReady = false;
 void _ensureDateSymbols() {
   if (_dateSymbolsReady) return;

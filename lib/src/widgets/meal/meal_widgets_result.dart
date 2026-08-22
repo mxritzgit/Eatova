@@ -16,11 +16,10 @@ class MealResultCard extends StatefulWidget {
   final VoidCallback onAdjustRequested;
   final VoidCallback onAddToDailyRequested;
 
-  /// Ob diese Mahlzeit aktuell als Favorit markiert ist (Herz gefüllt).
+  /// Whether this meal is currently marked as a favourite (filled heart).
   final bool isFavorite;
 
-  /// Optionaler Toggle für den Favoriten-Herz-Button. Null → Button wird
-  /// ausgeblendet (bestehende Aufrufer ohne Verdrahtung bleiben unverändert).
+  /// Optional favourite toggle; null hides the heart button.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
 
   @override
@@ -56,9 +55,7 @@ class _MealResultCardState extends State<MealResultCard> {
         children: [
           Row(
             children: [
-              // Die Quelle ist kein Naehrwert und kein Zustand: sie traegt
-              // deshalb den Marken-Akzent bzw. den gedaempften Ton, nicht
-              // eine Makro-Farbe (Farb-Schloss aus dem Token-Vertrag).
+              // Neither nutrient nor state, so never a macro colour.
               StatusPill(
                 label: result.resolvedSourceLabel(l10n),
                 color: isBarcode ? t.ink2 : t.accent,

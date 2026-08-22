@@ -5,22 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:eatova/main.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-// VERDRAHTUNG des Anzeige-Modus in der ECHTEN App-Schale.
+// Wiring of the display mode in the real app shell.
 //
-// Warum diese Datei existiert (Verifikation Design-Refactor 2026-08-09):
-// test/settings_theme_mode_test.dart und test/theme/theme_mode_controller_test
-// pruefen den Schalter und den Controller — aber BEIDE stellen den
-// [ThemeModeScope] selbst. Damit blieb genau die eine Stelle ungeprueft, an
-// der die Kette in der ausgelieferten App haengt: `EatovaApp.build`.
-//
-// Das ist keine theoretische Luecke. `SettingsScreen._praeferenzenGruppe()` liest
-// den Controller mit `ThemeModeScope.maybeOf(context)` und laesst die Gruppe
-// bei `null` die Zeile ERSATZLOS weg (settings_screen.dart) — bewusst, damit
-// Previews keinen toten Schalter zeigen. Faellt der Scope in eatova_app.dart
-// weg oder rutscht er unter den Navigator, verschwindet „Erscheinungsbild"
-// still aus den Einstellungen: kein Absturz, keine Fehlermeldung, und alle
-// zehn bestehenden Theme-Tests bleiben gruen, weil sie den Scope ja selbst
-// mitbringen. Dieser Test ist das fehlende Gegenstueck.
+// The other theme tests provide the [ThemeModeScope] themselves, leaving the
+// one place the chain hangs on in the shipped app untested: `EatovaApp.build`.
+// The settings screen reads the controller with `ThemeModeScope.maybeOf` and
+// drops the appearance row entirely when it is null, so a missing or
+// misplaced scope would silently remove the switch without any test failing.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -41,9 +32,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Ein Context aus dem echten App-Baum, UNTERHALB des Navigators — also
-  /// dieselbe Lage, aus der die gepushte Einstellungs-Route ihren Controller
-  /// sucht.
+  /// A context from the real app tree below the Navigator, the same position
+  /// the pushed settings route looks up its controller from.
   BuildContext appContext(WidgetTester tester) =>
       tester.element(find.byKey(const ValueKey('screen-today')));
 
@@ -54,7 +44,7 @@ void main() {
 
     await pumpApp(tester, controller);
 
-    // Exakt der Aufruf aus SettingsScreen._praeferenzenGruppe().
+    // Exactly the call SettingsScreen makes.
     final gefunden = ThemeModeScope.maybeOf(appContext(tester));
     expect(gefunden, isNotNull,
         reason: 'ohne Scope laesst die Einstellungs-Seite „Erscheinungsbild" '
@@ -76,8 +66,8 @@ void main() {
     expect(app().darkTheme, isNotNull,
         reason: 'ohne darkTheme waere ThemeMode.dark folgenlos');
 
-    // Der Umschalter tut nichts anderes als das hier — und die App muss
-    // daraufhin wirklich die Helligkeit wechseln, nicht nur ein Feld setzen.
+    // The switch does nothing but this, and the app must really change
+    // brightness, not just set a field.
     expect(Theme.of(appContext(tester)).brightness, Brightness.light);
 
     controller.setModeSync(ThemeMode.dark);

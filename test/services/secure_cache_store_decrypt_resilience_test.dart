@@ -8,28 +8,23 @@ import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
-// Review 2026-08-19, Fund 2: `_onUndecryptable` raeumte den Slot bei JEDER
-// Ausnahme aus `decrypt()`.
+// Review 2026-08-19, finding 2: `_onUndecryptable` cleared the slot on EVERY
+// exception from `decrypt()`. But that is `compute(...)`, an isolate spawn per
+// read, and a spawn failure says nothing about the ciphertext — it dropped up
+// to 500 never-delivered outbox writes.
 //
-// `AesGcmCacheCipher.decrypt` ist aber `compute(...)`, also ein Isolate-Spawn
-// pro Read. Scheitert der unter Speicherdruck (IsolateSpawnException,
-// RemoteError, OutOfMemoryError), sagt das ueber den Ciphertext gar nichts —
-// die Daten wurden trotzdem verworfen. Beim Outbox-Slot sind das bis zu 500
-// nie zugestellte Writes, die der Server nicht rekonstruieren kann.
-//
-// Geraeumt werden darf nur bei NACHGEWIESENEM Ciphertext-/Formatproblem:
-// InvalidCipherTextException (GCM-Tag) und FormatException (Magic, base64,
-// Laenge, utf8) — beide entstehen ausschliesslich in `decryptSync`.
+// Clearing is allowed only on a PROVEN ciphertext/format problem:
+// InvalidCipherTextException and FormatException, which arise in
+// `decryptSync` alone.
 
-/// Cipher im echten Wire-Format-Rahmen, deren naechste `decrypt`-Aufrufe sich
-/// scripten lassen. [salt] steht fuer „der DEK".
+/// Cipher in the real wire-format frame with scriptable `decrypt` failures;
+/// [salt] stands for the DEK.
 class _ScriptedCipher implements CacheCipher {
   _ScriptedCipher(this.salt);
 
   final String salt;
 
-  /// Wird von vorne abgearbeitet: jeder Eintrag laesst GENAU einen
-  /// `decrypt`-Aufruf werfen. Leer = normal entschluesseln.
+  /// Each entry makes exactly one `decrypt` call throw; empty = decrypt.
   final List<Object> decryptErrors = <Object>[];
 
   @override
@@ -43,8 +38,7 @@ class _ScriptedCipher implements CacheCipher {
     final parts = jsonDecode(
       utf8.decode(base64.decode(armored.substring(cacheCipherMagic.length))),
     ) as List<dynamic>;
-    // Wie die echte Cipher: falscher Key und falsche AAD scheitern beide an
-    // der Tag-Pruefung.
+    // Like the real cipher: wrong key and wrong AAD both fail the tag check.
     if (parts[0] != salt || parts[1] != key) {
       throw InvalidCipherTextException('mac check in GCM failed');
     }
@@ -55,10 +49,10 @@ class _ScriptedCipher implements CacheCipher {
 const String _key = 'eatova.v1.outbox.user-1';
 const String _blob = '{"items":[{"kind":"mealInsert"}]}';
 
-/// `capture` laeuft `unawaited` — eine Microtask abwarten.
+/// `capture` runs `unawaited`, so wait one microtask.
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
-/// Store mit einem regulaer verschluesselten Slot.
+/// Store with one regularly encrypted slot.
 Future<(InMemoryKeyValueStore, _ScriptedCipher, EncryptedKeyValueStore)>
     _befuellt() async {
   final raw = InMemoryKeyValueStore();

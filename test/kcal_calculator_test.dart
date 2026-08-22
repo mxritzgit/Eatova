@@ -3,11 +3,10 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 
-// Kalorien-Review 2026-08-21 (docs/REVIEW-KCAL-2026-08-21.md): PAL-Leiter
-// 1,4…2,0 statt 1,2…1,9, Schritt-Basis je Stufe, geschlechtsabhaengige
-// Untergrenze, 1-%-Defizitdeckel, Protein nach Referenzgewicht, Prognose als
-// Spanne. Die Zahlen hier sind aus dem Python-Spiegel des Rechners
-// abgeleitet und von Hand gegen calculator.net / NIH BWP geprueft.
+// Kcal review 2026-08-21 (docs/REVIEW-KCAL-2026-08-21.md): PAL ladder 1.3…1.9
+// with walking excluded and no step baseline, sex-dependent floor, 1 % deficit
+// cap, protein on reference weight, forecast as a range. The numbers come from
+// the Python mirror and were checked against calculator.net / NIH BWP.
 
 void main() {
   group('estimateKcalBurnedFromSteps', () {
@@ -31,7 +30,7 @@ void main() {
         sex: BiologicalSex.male,
       );
 
-      // 0,739 m × 10 000 = 7,39 km × 0,5 kcal/kg/km.
+      // 0.739 m × 10 000 = 7.39 km × 0.5 kcal/kg/km.
       expect(averageMale, 288);
       expect(heavierMale, 739);
       expect(lighterMale, 247);
@@ -88,9 +87,8 @@ void main() {
     });
 
     test('jeder Schritt zaehlt — linear, ohne Schwelle', () {
-      // Produktentscheidung (Review 2026-08-21): Die PAL-Leiter klammert das
-      // Gehen aus, deshalb darf hier KEINE Schritt-Basis abgezogen werden —
-      // der erste Schritt ist genauso viel wert wie der zehntausendste.
+      // The PAL ladder excludes walking, so NO step baseline is subtracted:
+      // the first step counts as much as the ten-thousandth.
       final fuenf = estimateKcalBurnedFromSteps(
         steps: 5000,
         weightKg: 78,
@@ -127,9 +125,8 @@ void main() {
     });
 
     test('das Beispiel aus dem Review: 7000 Schritte bei 100 kg / 180 cm', () {
-      // Alte Formel (bis Juni 2026): 7000 × 100 × 0,00057 = 399 kcal — das
-      // war der Omni-BRUTTO-Wert inkl. Ruheumsatz. Netto (ACSM-Horizontal-
-      // komponente) sind es 261 kcal: 0,747 m × 7000 = 5,23 km × 100 kg × 0,5.
+      // Net (ACSM horizontal component), not the old gross value including
+      // BMR: 0.747 m × 7000 = 5.23 km × 100 kg × 0.5 = 261 kcal.
       expect(
         estimateKcalBurnedFromSteps(
           steps: 7000,
@@ -144,12 +141,11 @@ void main() {
 
   group('KcalCalculator.calculate', () {
     const calc = KcalCalculator();
-    const base = UserProfile(); // 78kg, 178cm, 30J, neutral, sitzend
+    const base = UserProfile(); // 78kg, 178cm, 30y, neutral, sedentary
 
     test('maintenance uses the activity level, not the step goal', () {
-      // Der Bug war: Tagesbedarf wurde aus dem Schritt-ZIEL hochgerechnet
-      // und die echten Schritte nochmal addiert. Jetzt darf das Schrittziel
-      // den Bedarf NICHT mehr beeinflussen.
+      // The bug: the requirement was scaled from the step GOAL and the real
+      // steps added on top. The goal must NOT affect the requirement.
       final low = calc.calculate(base.copyWith(dailyStepsGoal: 3000));
       final high = calc.calculate(base.copyWith(dailyStepsGoal: 15000));
       expect(low.kcal, high.kcal);
@@ -159,9 +155,9 @@ void main() {
     test('maintain goal targets the maintenance need (~BMR x 1.3)', () {
       final t = calc.calculate(base); // WeightGoal.maintain
       expect(t.goal, WeightGoal.maintain);
-      expect(t.bmr, 1665); // 1664,5 gerundet
-      expect(t.maintenanceKcal, 2164); // 1664,5 BMR × 1,3 = 2163,85
-      expect(t.kcal, 2150); // auf 50 gerundet
+      expect(t.bmr, 1665); // 1664.5 rounded
+      expect(t.maintenanceKcal, 2164); // 1664.5 BMR × 1.3 = 2163.85
+      expect(t.kcal, 2150); // rounded to 50
       expect(t.floor, KcalCalculator.kcalFloorNeutral);
       expect(t.deficitCapApplied, isFalse);
     });
@@ -171,16 +167,15 @@ void main() {
       final lose = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose05kg));
       final gain = calc.calculate(base.copyWith(weightGoal: WeightGoal.gain05kg));
 
-      expect(lose.kcal, maintain.kcal - 550); // −0,5 kg/Woche → 1600
-      expect(gain.kcal, maintain.kcal + 550); // +0,5 kg/Woche → 2700
-      // Erhaltungsbedarf bleibt unabhängig vom Ziel gleich.
+      expect(lose.kcal, maintain.kcal - 550); // −0.5 kg/week → 1600
+      expect(gain.kcal, maintain.kcal + 550); // +0.5 kg/week → 2700
+      // Maintenance stays the same regardless of the goal.
       expect(lose.maintenanceKcal, maintain.maintenanceKcal);
       expect(gain.maintenanceKcal, maintain.maintenanceKcal);
     });
 
     test('-1 kg/week applies the full 1100 kcal deficit from 100 kg upwards', () {
-      // 1 % Koerpergewicht pro Woche: bei 110 kg sind 1,1 kg erlaubt, der
-      // Deckel (1210 kcal/Tag) greift nicht.
+      // 1 % of body weight per week: at 110 kg the cap does not bite.
       const heavy = UserProfile(
         weightKg: 110,
         heightCm: 185,
@@ -191,7 +186,7 @@ void main() {
       final maintain = calc.calculate(heavy.copyWith(weightGoal: WeightGoal.maintain));
       final lose1kg = calc.calculate(heavy.copyWith(weightGoal: WeightGoal.lose1kg));
       expect(WeightGoal.lose1kg.weeklyRateKg, 1.0);
-      // 110 × 11 = 1210 ≥ 1100: der Deckel greift nicht.
+      // 110 × 11 = 1210 ≥ 1100: the cap does not bite.
       expect(KcalCalculator.maxDeficitKcalPerDay(110), 1210);
       expect(lose1kg.deficitCapApplied, isFalse);
       expect(lose1kg.appliedKcalDelta, -1100);
@@ -199,16 +194,15 @@ void main() {
     });
 
     test('1-%-Deckel: unter 100 kg wird das Defizit begrenzt', () {
-      // 78 kg → 858 kcal/Tag (78 × 11), auf 0,05 kg/Woche abgerundet = 825
-      // (0,75). "−1 kg/Woche" ergibt damit real −0,75 kg/Woche — und der
-      // Hinweis nennt den Deckel mit runden Zahlen.
+      // 78 kg → 858 kcal/day, rounded down to a 0.05 kg/week step = 825, so
+      // "−1 kg/week" really means −0.75 kg/week.
       final t = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose1kg));
       expect(KcalCalculator.maxDeficitKcalPerDay(78), 825);
       expect(t.maxDeficitKcal, 825);
       expect(t.appliedKcalDelta, -825);
       expect(t.deficitCapApplied, isTrue);
-      expect(t.uncappedKcal, 1350); // 2163,85 − 825 = 1339 → 1350
-      expect(t.kcal, 1350); // = Untergrenze „divers", aber nicht geklemmt
+      expect(t.uncappedKcal, 1350); // 2163.85 − 825 = 1339 → 1350
+      expect(t.kcal, 1350); // = the neutral floor, but not clamped
       expect(t.floorApplied, isFalse);
       expect(t.effectiveKcalDelta, -814);
       expect(t.effectiveWeeklyRateKg, closeTo(-0.74, 0.0005));
@@ -217,8 +211,7 @@ void main() {
       expect(t.paceWarning(), contains('1 %'));
       expect(t.paceWarning(), contains('−0,75 kg/Woche statt −1 kg/Woche'));
 
-      // −0,75 kg/Woche (825) trifft den Deckel genau → kein Deckel-Fall,
-      // aber derselbe Plan.
+      // −0.75 kg/week hits the cap exactly: not a capped case, same plan.
       final t075 = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose075kg));
       expect(t075.deficitCapApplied, isFalse);
       expect(t075.kcal, 1350);
@@ -226,12 +219,12 @@ void main() {
     });
 
     test('Deckel rastert auf 0,05 kg/Woche (55-kcal-Schritte)', () {
-      // kg × 11, abgerundet auf 55er-Schritte = (kg ÷ 5) × 55, mindestens 275.
-      expect(KcalCalculator.maxDeficitKcalPerDay(30), 330); // 0,3 kg/Woche
-      expect(KcalCalculator.maxDeficitKcalPerDay(45), 495); // 0,45
-      expect(KcalCalculator.maxDeficitKcalPerDay(55), 605); // 0,55
-      expect(KcalCalculator.maxDeficitKcalPerDay(60), 660); // 0,6
-      expect(KcalCalculator.maxDeficitKcalPerDay(70), 770); // 0,7
+      // kg × 11, rounded down to 55-steps = (kg ÷ 5) × 55, at least 275.
+      expect(KcalCalculator.maxDeficitKcalPerDay(30), 330); // 0.3 kg/week
+      expect(KcalCalculator.maxDeficitKcalPerDay(45), 495); // 0.45
+      expect(KcalCalculator.maxDeficitKcalPerDay(55), 605); // 0.55
+      expect(KcalCalculator.maxDeficitKcalPerDay(60), 660); // 0.6
+      expect(KcalCalculator.maxDeficitKcalPerDay(70), 770); // 0.7
       expect(KcalCalculator.maxDeficitKcalPerDay(74), 770); // 814 → 770
       expect(KcalCalculator.maxDeficitKcalPerDay(78), 825); // 858 → 825
       expect(KcalCalculator.maxDeficitKcalPerDay(99), 1045); // 1089 → 1045
@@ -278,9 +271,8 @@ void main() {
 
     test('100-kg-Mann, sitzend, −1 kg/Woche: 1500 MIT Warnung statt 1200 ohne',
         () {
-      // Vorher: 2316 − 1100 = 1216 → 1200, ohne Warnung. Jetzt: PAL 1,3 →
-      // 2509 − 1100 = 1409 → 1400 → Maenner-Untergrenze 1500, und der
-      // Hinweis sagt es.
+      // PAL 1.3 → 2509 − 1100 = 1409 → 1400, lifted to the male floor 1500,
+      // and the hint says so.
       const mann = UserProfile(
         weightKg: 100,
         heightCm: 180,
@@ -306,7 +298,7 @@ void main() {
       final athlete =
           calc.calculate(base.copyWith(activityLevel: ActivityLevel.athlete));
 
-      // 1664,5 BMR × {1,3, 1,6, 1,9}
+      // 1664.5 BMR × {1.3, 1.6, 1.9}
       expect(sedentary.maintenanceKcal, 2164);
       expect(moderate.maintenanceKcal, 2663);
       expect(athlete.maintenanceKcal, 3163);
@@ -315,8 +307,8 @@ void main() {
     });
 
     test('PAL-Leiter OHNE Gehen: 1,3 … 1,9 (FAO-Sitzbasis + Thermogenese)', () {
-      // Gesamt-inklusive DGE/FAO-Leiter (1,4 … 2,0) minus ~0,1 Gehanteil —
-      // der kommt ueber die Schritte einzeln dazu.
+      // DGE/FAO ladder (1.4 … 2.0) minus the ~0.1 walking share, which the
+      // steps contribute separately.
       expect(ActivityLevel.sedentary.palFactor, 1.3);
       expect(ActivityLevel.light.palFactor, 1.45);
       expect(ActivityLevel.moderate.palFactor, 1.6);
@@ -330,21 +322,17 @@ void main() {
     const base = UserProfile();
 
     test('Prognose folgt der EFFEKTIVEN Rate, nicht dem Wunsch-Delta', () {
-      // B2: Frueher wurde stur `kcalDelta / 7700` gerechnet — also das
-      // Tempo, das der Nutzer gewaehlt hat, nicht das, was sein Tagesziel
-      // hergibt.
-      //
-      // 78 → 68 kg = 10 kg. Erhaltung 2164.
-      //   −0,5 kg/Woche → Ziel 1600 kcal (50er-Rundung) → real 564 kcal/Tag
-      //     ≙ 0,5127 kg/Woche → 10 / 0,5127 = 19,5 → 20 Wochen.
+      // B2: the old `kcalDelta / 7700` used the chosen pace, not the pace the
+      // rounded daily target delivers. 78 → 68 kg at maintenance 2164: target
+      // 1600 → 564 kcal/day ≙ 0.5127 kg/week → 20 weeks.
       final profile = base.copyWith(
         targetWeightKg: 68,
         weightGoal: WeightGoal.lose05kg,
       );
       expect(calc.weeksToGoal(profile), 20);
 
-      // −1 kg/Woche: der 1-%-Deckel laesst 825 kcal zu → Ziel 1350, real
-      // 814 kcal/Tag ≙ 0,74 kg/Woche → 13,5 → 14 Wochen (nicht 10).
+      // −1 kg/week: the 1 % cap allows 825 → target 1350, really 0.74 kg/week
+      // → 14 weeks, not 10.
       expect(
         calc.weeksToGoal(base.copyWith(
           targetWeightKg: 68,
@@ -366,7 +354,7 @@ void main() {
     });
 
     test('is null when target direction contradicts the goal', () {
-      // Ziel über aktuellem Gewicht, aber Abnehm-Ziel gewählt → kein Sinn.
+      // Target above the current weight but a losing goal: nonsense.
       expect(
         calc.weeksToGoal(base.copyWith(
           targetWeightKg: 90,
@@ -382,8 +370,8 @@ void main() {
     const base = UserProfile();
 
     test('linear ist die Untergrenze, dynamisch die Obergrenze', () {
-      // 78 → 68 kg bei −0,5 kg/Woche: linear 20 Wochen; mit sinkendem Bedarf
-      // (22 kcal/Tag pro verlorenem kg, Hall) 25 Wochen.
+      // 78 → 68 kg at −0.5 kg/week: 20 weeks linear, 25 with the falling
+      // requirement (22 kcal/day per lost kg, Hall).
       final profile = base.copyWith(
         targetWeightKg: 68,
         weightGoal: WeightGoal.lose05kg,
@@ -396,9 +384,8 @@ void main() {
     });
 
     test('das Review-Beispiel: 100 → 85 kg, sitzend, −0,5 kg/Woche', () {
-      // Linear 30 Wochen, dynamisch 45 — der NIH Body Weight Planner kommt
-      // fuer ein vergleichbares Profil auf ~41. Die lineare Zahl allein war
-      // also um ein Drittel zu optimistisch.
+      // 30 weeks linear, 45 dynamic; the NIH planner says ~41 for a comparable
+      // profile, so linear alone was a third too optimistic.
       const p3 = UserProfile(
         weightKg: 100,
         heightCm: 180,
@@ -423,10 +410,8 @@ void main() {
     });
 
     test('Defizit vor dem Ziel aufgebraucht ⇒ dynamisch null („fruehestens")', () {
-      // Standardprofil, Ziel 68 kg bei −0,25 kg/Woche: Erhaltung 2164, Ziel
-      // 1900 → 264 kcal/Tag. Pro verlorenem kg schrumpft das um 22 kcal — nach
-      // ~10 kg ist fast nichts mehr uebrig, die Rate faellt unter das
-      // Rauschen. Linear waeren es 42 Wochen — dynamisch unerreichbar.
+      // 68 kg at −0.25 kg/week: 264 kcal/day, shrinking by 22 per lost kg, so
+      // the rate falls below noise. Linear says 42 weeks, dynamic says never.
       final profile = base.copyWith(
         targetWeightKg: 68,
         weightGoal: WeightGoal.lose025kg,

@@ -4,33 +4,9 @@ import '../l10n/l10n.dart';
 import '../models/model_limits.dart';
 import '../models/user_profile.dart';
 
-/// Schätzt aktive Kilokalorien aus Schritten — **jeder Schritt zählt**.
-///
-/// Das ist bewusst kein fixer "kcal pro Schritt"-Wert. Schritte werden erst
-/// über eine höhenbasierte Schrittlänge in Distanz umgerechnet, dann über den
-/// etablierten Netto-Energieaufwand fürs Gehen geschätzt:
-///
-///   Distanz km = steps × stepLengthMeters / 1000
-///   active kcal ≈ 0.5 × bodyWeightKg × distanceKm
-///
-/// Die 0.5 kcal/kg/km stammen aus der horizontalen Netto-Komponente der
-/// ACSM-Walking-Gleichung (0.1 ml O2/kg/m × 5 kcal/L O2). Netto ist hier
-/// wichtig: Das Food-Ziel enthält bereits Grundumsatz, Thermogenese und den
-/// Alltag OHNE Gehen ([ActivityLevelInfo.palFactor], Kalorien-Review
-/// 2026-08-21); "Verbrannt" addiert nur die Gehkosten selbst, nicht den
-/// Ruheumsatz doppelt. Messreihen (Weyand 2010, Ludlow & Weyand 2016) liegen
-/// bei 0.52–0.63 — 0.5 ist also die konservative Untergrenze, nicht die
-/// Mitte. Die alte Konstante 0.00057 kcal/Schritt/kg (bis Juni 2026) war der
-/// Omni-Calculator-BRUTTO-Wert inklusive Ruheumsatz und zählte beim Addieren
-/// auf BMR×PAL rund 110–130 kcal doppelt.
-///
-/// Die Schrittlänge nutzt gängige Pedometer-Heuristiken aus der Körpergröße
-/// (männlich 41.5 %, weiblich 41.3 %, neutral 41.4 %) — eine Industrie-
-/// Konvention für zügiges Komfort-Tempo (~1.3 m/s), keine Studie. Bei
-/// langsamem Alltagsgehen überschätzt sie die Distanz, der höhere Netto-
-/// Aufwand pro km gleicht das bei den kcal weitgehend aus.
-///
-/// Liefert nie negative Werte und ist gegen Nonsense-Eingaben abgesichert.
+/// Step length in metres from height — pedometer heuristics, not a study.
+/// Base of [estimateKcalBurnedFromSteps]: 0.5 kcal/kg/km, the horizontal NET
+/// component of the ACSM equation. Net, because `palFactor` covers rest.
 double estimateStepLengthMeters({
   required int heightCm,
   BiologicalSex sex = BiologicalSex.neutral,
@@ -71,16 +47,11 @@ int estimateKcalBurnedFromSteps({
   return activeKcal.clamp(0, 99999).round();
 }
 
-/// Ergebnis von [KcalCalculator.weeksToGoalRange]: [linearWeeks] ist die
-/// optimistische Untergrenze (konstantes Defizit, 7700 kcal/kg),
-/// [dynamicWeeks] die Obergrenze aus der Wochensimulation mit sinkendem
-/// Bedarf — `null`, wenn das Ziel bei unverändertem Tagesziel gar nicht
-/// erreicht wird, weil das Defizit vorher aufgebraucht ist.
+/// [linearWeeks] is the optimistic lower bound, [dynamicWeeks] the simulated
+/// upper bound (`null` if the deficit runs out first).
 typedef WeeksToGoalRange = ({int linearWeeks, int? dynamicWeeks});
 
-/// Prognose-Satz der Onboarding-Zusammenfassung für eine [WeeksToGoalRange]:
-/// Spanne „in ca. 13–15 Wochen", bei zusammenfallenden Grenzen die einfache
-/// Form, ohne dynamische Obergrenze „frühestens".
+/// Forecast sentence for onboarding; degrades to one number or "earliest".
 String timelineEstimateText(
   AppLocalizations l10n, {
   required int targetWeightKg,
@@ -103,8 +74,7 @@ String timelineEstimateText(
   );
 }
 
-/// Gegenstück zu [timelineEstimateText] für die Plan-Karte im Profil
-/// („Noch 10 kg · Ziel in ca. 13–15 Wochen").
+/// Counterpart to [timelineEstimateText] for the plan card in the profile.
 String goalProgressWeeksText(
   AppLocalizations l10n, {
   required int gap,
@@ -135,13 +105,10 @@ class KcalTargets {
     required this.maxDeficitKcal,
   });
 
-  /// Tagesziel inkl. Ziel-Delta — ohne Schritt-Bonus (der kommt dynamisch
-  /// in der CaloriesOverviewCard oben drauf).
+  /// Daily goal incl. goal delta; the step bonus is added later by the UI.
   final int kcal;
 
-  /// Dasselbe Tagesziel **vor** der Sicherheitsklemme
-  /// ([floor] … [KcalCalculator.kcalCeiling]), bereits auf 50 gerundet und
-  /// bereits mit dem 1-%-Defizitdeckel ([maxDeficitKcal]) verrechnet.
+  /// Same goal **before** the safety clamp, rounded and deficit-capped.
   final int uncappedKcal;
 
   final int proteinG;
@@ -149,80 +116,55 @@ class KcalTargets {
   final int fatG;
   final int bmr;
 
-  /// Erhaltungsbedarf: BMR × PAL der gewählten Aktivitätsstufe, ohne
-  /// Ziel-Delta.
+  /// Maintenance need: BMR × PAL of the chosen activity level, no goal delta.
   final int maintenanceKcal;
   final WeightGoal goal;
 
-  /// Die für dieses Profil geltende Untergrenze
-  /// ([KcalCalculator.kcalFloorFor]): 1200 weiblich, 1500 männlich, 1350
-  /// neutral.
+  /// Floor for this profile ([KcalCalculator.kcalFloorFor]): 1200 female,
+  /// 1500 male, 1350 neutral.
   final int floor;
 
-  /// Das tatsächlich angesetzte Delta: [WeightGoalInfo.kcalDelta], aber beim
-  /// Abnehmen nie tiefer als −[maxDeficitKcal].
+  /// [WeightGoalInfo.kcalDelta], floored at −[maxDeficitKcal] when losing.
   final int appliedKcalDelta;
 
-  /// 1 % Körpergewicht pro Woche in kcal/Tag ([KcalCalculator.maxDeficitKcalPerDay]).
+  /// 1 % body weight per week in kcal/day ([KcalCalculator.maxDeficitKcalPerDay]).
   final int maxDeficitKcal;
 
-  /// Die Untergrenze hat das Ziel angehoben — der Nutzer isst mehr, als sein
-  /// gewähltes Tempo verlangt, und nimmt entsprechend langsamer ab.
+  /// The floor raised the goal, so the user loses slower than the chosen pace.
   bool get floorApplied => uncappedKcal < floor;
 
-  /// Die Obergrenze hat das Ziel gekappt — spiegelbildlich in der
-  /// Zunahme-Richtung.
+  /// The ceiling capped the goal — mirror image in the gain direction.
   bool get ceilingApplied => uncappedKcal > KcalCalculator.kcalCeiling;
 
-  /// Eine der beiden Sicherheitsgrenzen hat gegriffen.
+  /// One of the two safety limits kicked in.
   bool get safetyClampApplied => floorApplied || ceilingApplied;
 
-  /// Der 1-%-Deckel hat das gewünschte Defizit verkleinert (Review
-  /// 2026-08-21: −1100 kcal/Tag überschreitet alle Leitlinien-Defizite, sobald
-  /// 1 kg/Woche mehr als 1 % des Körpergewichts ist, also unter 100 kg).
+  /// The 1 % cap shrank the wanted deficit (Review 2026-08-21).
   bool get deficitCapApplied => appliedKcalDelta != goal.kcalDelta;
 
-  /// Tatsächliche tägliche Differenz zur Erhaltung: **negativ = Defizit**.
+  /// Actual daily difference from maintenance: **negative = deficit**.
   ///
-  /// Nicht [WeightGoal.kcalDelta] benutzen, um dem Nutzer etwas anzuzeigen —
-  /// das ist der Wunsch, das hier ist der Plan.
+  /// Display this, not [WeightGoal.kcalDelta] — that is the wish, this the plan.
   int get effectiveKcalDelta => kcal - maintenanceKcal;
 
-  /// Tatsächlich erreichbare Wochenrate in kg, vorzeichenbehaftet
-  /// (negativ = abnehmen).
+  /// Actually achievable weekly rate in kg, signed (negative = losing).
   double get effectiveWeeklyRateKg =>
       effectiveKcalDelta * 7 / kcalPerKgBodyMass;
 
-  /// Die vom gewählten Ziel versprochene Rate, gleiches Vorzeichen.
+  /// The rate promised by the chosen goal, same sign.
   double get promisedWeeklyRateKg => goal.signedWeeklyRateKg;
 
-  /// `true`, solange Wunsch und Wirklichkeit nur um die 50er-Rundung
-  /// auseinanderliegen ([weeklyRateNoiseKg]).
+  /// `true` while wish and reality differ only by rounding noise.
   bool get matchesPromisedPace =>
       (effectiveWeeklyRateKg - promisedWeeklyRateKg).abs() < weeklyRateNoiseKg;
 
-  /// Tempo-Label aus der **effektiven** Rate, z.B. "−0,72 kg/Woche". Liefert
-  /// "Gewicht stabil", wenn nichts Nennenswertes übrig bleibt.
-  ///
-  /// Seit der i18n-Migration (Paket 7, 2026-08-11) l10n-faehig: [l10n]
-  /// optional, Default Deutsch ([deL10n]) — gemeinsam migriert mit
-  /// [paceWarning] und `WeightGoalInfo.paceLabel`/`paceLabelForWeeklyRateKg`
-  /// (B2-Kopplung, s. Paket-6-/Paket-7-Bericht). Aus einem Getter wurde eine
-  /// Methode — Dart-Getter koennen keine Parameter tragen.
+  /// Pace label from the **effective** rate. A method, not a getter, because
+  /// Dart getters take no parameters.
   String effectivePaceLabel([AppLocalizations? l10n]) =>
       paceLabelForWeeklyRateKg(effectiveWeeklyRateKg, l10n);
 
-  /// Fertig formulierter Hinweis für die UI, wenn das Tagesziel das gewählte
-  /// Tempo nicht hergibt — sonst `null`.
-  ///
-  /// Reihenfolge = Bindungskraft: erst die Untergrenze, dann die Obergrenze,
-  /// dann der 1-%-Defizitdeckel, zuletzt ein nackter Tempo-Unterschied.
-  /// Gedacht für die Plan-Karte im Einstellungs-Sheet und die
-  /// Onboarding-Zusammenfassung.
-  ///
-  /// [l10n] optional, Default Deutsch ([deL10n]) — dasselbe Muster wie
-  /// [effectivePaceLabel]. Test-API bleibt kontextfrei aufrufbar
-  /// (`test/services/kcal_effective_pace_test.dart`).
+  /// UI hint when the daily goal cannot deliver the chosen pace, else `null`.
+  /// Order = binding force: floor, ceiling, 1 % deficit cap, pace mismatch.
   String? paceWarning([AppLocalizations? l10n]) {
     if (!safetyClampApplied && !deficitCapApplied && matchesPromisedPace) {
       return null;
@@ -230,9 +172,7 @@ class KcalTargets {
     final t = l10n ?? deL10n;
     final effectivePace = effectivePaceLabel(l10n);
     final promisedPace = goal.paceLabel(l10n);
-    // Frisst die Klemme das Defizit (fast) ganz, hieße der Satz sonst
-    // „… ist damit Gewicht stabil statt −0,25 kg/Woche" — dafür gibt es
-    // eine eigene Formulierung.
+    // A clamp that eats the whole deficit gets its own wording.
     final stable = effectiveWeeklyRateKg.abs() < weeklyRateNoiseKg;
     if (floorApplied) {
       return stable
@@ -272,36 +212,18 @@ class KcalTargets {
 class KcalCalculator {
   const KcalCalculator();
 
-  /// Ernährungsphysiologische Untergrenze des Tagesziels für Frauen — und
-  /// zugleich das absolute Minimum, das `calculate` je ausgibt.
-  ///
-  /// **Bewusst enger als die Datenbank.** `profiles.daily_kcal_goal` erlaubt
-  /// 800…7000 ([ProfileLimits.dailyKcalGoalMin] / …Max) — das ist die
-  /// Check-Constraint, also die Grenze für *manuell* gesetzte Ziele. Was
-  /// `calculate` *automatisch* vorschlägt, bleibt mit 1200…5000 innerhalb
-  /// davon.
-  ///
-  /// Die Untergrenze ist seit dem Kalorien-Review 2026-08-21
-  /// geschlechtsabhängig ([kcalFloorFor]): 1200 kcal ist die Leitlinien-
-  /// Untergrenze für Frauen (AHA/ACC/TOS 2013, Academy of Nutrition and
-  /// Dietetics), für Männer nennen dieselben Leitlinien 1500–1800 kcal. Die
-  /// frühere Unisex-Klemme bei 1200 setzte einen 100-kg-Mann ohne Warnung auf
-  /// 1200 kcal.
-  ///
-  /// Weil die App-Grenzen die DB-Grenzen echt einschließen, kann `calculate`
-  /// keinen `23514` erzeugen; ein Test in
-  /// test/services/kcal_effective_pace_test.dart hält diese Beziehung fest.
-  /// Die Klemme kostet allerdings Tempo — siehe [KcalTargets.floorApplied].
+  /// Nutritional floor for women and the minimum `calculate` returns.
+  /// **Tighter than the DB on purpose:** manual goals may span 800…7000, so
+  /// `calculate` (1200…5000) can never raise a `23514`. Costs pace.
   static const int kcalFloor = 1200;
 
-  /// Untergrenze für Männer (NIH/NHLBI, AHA/ACC/TOS: 1500 kcal).
+  /// Floor for men (NIH/NHLBI, AHA/ACC/TOS: 1500 kcal).
   static const int kcalFloorMale = 1500;
 
-  /// Untergrenze für „divers": Mittelwert der beiden Leitlinienwerte —
-  /// konsistent zum gemittelten Mifflin-Offset in [basalMetabolicRate].
+  /// Floor for "diverse": mean of both guideline values.
   static const int kcalFloorNeutral = 1350;
 
-  /// Obergrenze des automatisch berechneten Tagesziels, siehe [kcalFloor].
+  /// Ceiling of the automatically computed daily goal, see [kcalFloor].
   static const int kcalCeiling = 5000;
 
   static int kcalFloorFor(BiologicalSex sex) => switch (sex) {
@@ -310,73 +232,43 @@ class KcalCalculator {
         BiologicalSex.neutral => kcalFloorNeutral,
       };
 
-  /// Größtes Tagesdefizit, das `calculate` ansetzt: 1 % des Körpergewichts
-  /// pro Woche (ISSN, Garthe 2011 — Obergrenze für Abnehmen ohne
-  /// Muskelverlust), in kcal/Tag: kg × 0,01 × 7700 ÷ 7 = kg × 11 — **auf
-  /// 0,05 kg/Woche abgerundet** (55-kcal-Schritte, also (kg ÷ 5) × 55,
-  /// mindestens 275 ≙ 0,25 kg/Woche), damit das gedeckelte Tempo auf dem
-  /// Anzeige-Raster der Labels liegt: „auf 825 kcal/Tag begrenzt …
-  /// −0,75 kg/Woche" statt „auf 858 … −0,78".
-  ///
-  /// Beispiele: 60 kg → 660 (0,6), 70 kg → 770 (0,7), 78 kg → 825 (0,75),
-  /// 99 kg → 1045 (0,95), ab 100 kg 1100. Damit ist „−1 kg/Woche" erst ab
-  /// 100 kg erreichbar, „−0,75" ab 75 kg; darunter meldet
-  /// [KcalTargets.paceWarning] das tatsächliche Tempo. Leitlinien-Korridore
-  /// zum Vergleich: NHLBI 500–1000, AHA/ACC/TOS 500–750, DGE/DAG 500–600
-  /// kcal/Tag.
+  /// Largest daily deficit: 1 % of body weight per week (ISSN, Garthe 2011),
+  /// **rounded down to 0.05 kg/week** so the pace lands on the label grid.
   static int maxDeficitKcalPerDay(int weightKg) {
-    // 0,05 kg/Woche ≙ 7700 × 0,05 ÷ 7 = 55 kcal/Tag.
+    // 0.05 kg/week ≙ 7700 × 0.05 ÷ 7 = 55 kcal/day.
     final step = (kcalPerKgBodyMass * weeklyRateNoiseKg / 7).round();
     final floor = WeightGoal.lose025kg.kcalDelta.abs();
     return math.max(floor, (weightKg ~/ 5) * step);
   }
 
-  /// Hall-Faustregel für [weeksToGoalRange]: pro dauerhaft verlorenem
-  /// Kilogramm sinkt der Tagesbedarf um rund 22 kcal (Hall et al. 2011,
-  /// Lancet; enthält die adaptive Thermogenese). Die lineare 7700-Regel
-  /// ignoriert das und verspricht über ein Jahr etwa das Doppelte des realen
-  /// Verlusts.
+  /// Hall rule: each kg lost drops the daily requirement by ~22 kcal, which
+  /// the linear 7700 rule ignores.
   static const int kcalPerDayPerKgChanged = 22;
 
-  /// Länger simuliert [weeksToGoalRange] nicht — danach gilt das Ziel als bei
-  /// diesem Tagesziel nicht erreichbar.
+  /// Simulation cap; beyond this the goal counts as unreachable.
   static const int maxPrognosisWeeks = 520;
 
-  /// Protein pro kg **Referenzgewicht** ([proteinReferenceWeightKg]).
-  /// 1,6 g/kg ist der Morton-2018-Breakpoint und liegt in der ISSN-Spanne
-  /// 1,4–2,0.
+  /// Protein per kg **reference weight**; the Morton 2018 breakpoint.
   static const double proteinGPerKg = 1.6;
 
-  /// Unter diesen Wert drückt der Energie-Deckel das Protein nur, wenn sonst
-  /// [proteinHardMaxEnergyShare] überschritten würde (Leidy 2015: 1,2–1,6
-  /// g/kg in der Diät).
+  /// Only undercut to stay below [proteinHardMaxEnergyShare] (Leidy 2015).
   static const double proteinMinGPerKg = 1.2;
 
-  /// AMDR-Obergrenze für Protein (IOM: 10–35 % der Energie).
+  /// AMDR upper bound for protein (IOM: 10–35 % of energy).
   static const double proteinMaxEnergyShare = 0.35;
 
-  /// Harte Obergrenze, falls [proteinMinGPerKg] sonst unterschritten würde.
+  /// Hard ceiling, used when [proteinMinGPerKg] would otherwise be undercut.
   static const double proteinHardMaxEnergyShare = 0.40;
 
-  /// Fettanteil an der Energie (AMDR/EFSA 20–35 %).
+  /// Fat share of energy (AMDR/EFSA 20–35 %).
   static const double fatEnergyShare = 0.25;
 
-  /// Kohlenhydrate sind der Rest. Weil Protein höchstens
-  /// [proteinHardMaxEnergyShare] und Fett genau [fatEnergyShare] belegen,
-  /// bleiben mindestens 35 % der Energie — bei [kcalFloor] also ≥ 105 g und
-  /// damit über dem IOM-EAR von 100 g. Der Rest kann nie negativ werden; die
-  /// frühere Formel (1,6 g × Ist-Gewicht ohne Deckel) schrieb ab ~141 kg bei
-  /// 1200 kcal negative Kohlenhydrate, die nur der DB-Clamp auf 0 hob.
+  /// Carbs are the remainder: ≥ 35 % of energy, so ≥ 105 g at [kcalFloor],
+  /// above the IOM EAR of 100 g.
   static const int carbsMinG = 100;
 
-  /// Mifflin-St Jeor basal metabolic rate. For [BiologicalSex.neutral] we
-  /// average the male and female offsets (+5 / −161 → −78).
-  ///
-  /// Die Koeffizienten sind exakt Mifflin et al. 1990 (n = 498, 19–78 J.),
-  /// von der Academy of Nutrition and Dietetics für normal-, über- und
-  /// adipöse Erwachsene empfohlen; typische Trefferquote ±10 % bei 70–82 %
-  /// der Personen. Streng genommen schätzt die Formel den Ruheumsatz (REE),
-  /// nicht den Grundumsatz im engen Sinn.
+  /// Mifflin-St Jeor basal metabolic rate; [BiologicalSex.neutral] averages
+  /// the offsets (+5 / −161 → −78). Strictly this is resting expenditure.
   double basalMetabolicRate({
     required int weightKg,
     required int heightCm,
@@ -392,13 +284,8 @@ class KcalCalculator {
     return base + offset;
   }
 
-  /// Bezugsgewicht für das Proteinziel.
-  ///
-  /// Bis BMI 25 das Ist-Gewicht; darüber das adjustierte Körpergewicht
-  /// (ESPEN-Praxis, DGE: „ein Körpergewicht zugrunde legen, bei dem die
-  /// Person Normalgewicht hätte"): Gewicht bei BMI 25 plus 25 % des
-  /// Überschusses. 1,6 g × Ist-Gewicht ergab bei 130 kg 208 g Protein — bei
-  /// einem 1200-kcal-Ziel 69 % der Energie.
+  /// Reference weight for the protein goal: actual weight up to BMI 25, then
+  /// the ESPEN adjusted weight. Otherwise 130 kg would demand 208 g.
   static double proteinReferenceWeightKg({
     required int weightKg,
     required int heightCm,
@@ -421,7 +308,7 @@ class KcalCalculator {
     );
     final maintenance = bmr * profile.activityLevel.palFactor;
 
-    // 1-%-Deckel nur in Abnehm-Richtung; Zunahme-Stufen bleiben wie gewählt.
+    // 1 % cap only when losing; gain steps stay as chosen.
     final maxDeficit = maxDeficitKcalPerDay(profile.weightKg);
     final wishedDelta = profile.weightGoal.kcalDelta;
     final appliedDelta = wishedDelta < -maxDeficit ? -maxDeficit : wishedDelta;
@@ -432,14 +319,8 @@ class KcalCalculator {
     final floor = kcalFloorFor(profile.sex);
     final kcal = uncappedKcal.clamp(floor, kcalCeiling);
 
-    // Makros: Protein nach Referenzgewicht mit Energie-Deckel, Fett 25 %,
-    // Kohlenhydrate der Rest (≥ 35 % der Energie, s. [carbsMinG]).
-    //
-    // Alle drei Werte gehen als profiles.protein_goal_g / carbs_goal_g /
-    // fat_goal_g in die Datenbank und tragen dort Check-Constraints
-    // (0..400 / 0..800 / 0..300). Die Clamps aus [ProfileLimits] bleiben als
-    // letzte Sicherung stehen, auch wenn die Formel sie rechnerisch nicht
-    // mehr erreicht.
+    // All three hit DB check constraints; the [ProfileLimits] clamps stay as
+    // a last safeguard.
     final refKg = proteinReferenceWeightKg(
       weightKg: profile.weightKg,
       heightCm: profile.heightCm,
@@ -472,29 +353,10 @@ class KcalCalculator {
     );
   }
 
-  /// Geschätzte Wochen bis zum Wunschgewicht — **optimistische Untergrenze**
-  /// auf Basis des Tagesziels, das die App tatsächlich ausgibt, bei
-  /// konstantem Defizit.
-  ///
-  /// Gerechnet wird mit [KcalTargets.effectiveWeeklyRateKg]
-  /// ((Tagesziel − Erhaltung) ÷ [kcalPerKgBodyMass]), **nicht** mit
-  /// [WeightGoalInfo.weeklyRateKg]. Sonst verspricht die Prognose ein Tempo,
-  /// das der Defizitdeckel oder die Sicherheitsklemme gar nicht zulässt (B2).
-  ///
-  /// Für die Anzeige gehört [weeksToGoalRange] her: die lineare Zahl ist
-  /// systematisch zu optimistisch, weil der Bedarf mit jedem Kilo sinkt.
-  ///
-  /// Liefert `null`, wenn
-  /// * das Wunschgewicht schon erreicht ist,
-  /// * die effektive Rate unterhalb von [weeklyRateNoiseKg] liegt (Ziel
-  ///   „halten", oder die Klemme frisst das ganze Defizit) — dann gäbe es
-  ///   keine sinnvolle Zahl, und eine Division durch ~0 würde eine
-  ///   Fantasie-Wochenzahl in ein Widget schreiben,
-  /// * die Richtung nicht passt (Abnehm-Ziel bei höherem Wunschgewicht — oder
-  ///   ein Plan, der wegen der Klemme in die Gegenrichtung wirkt).
-  ///
-  /// [targets] darf übergeben werden, wenn der Aufrufer `calculate` ohnehin
-  /// schon aufgerufen hat; es muss aus demselben Profil stammen.
+  /// Weeks to target weight — **optimistic lower bound**; prefer
+  /// [weeksToGoalRange] for display. Uses [KcalTargets.effectiveWeeklyRateKg],
+  /// not [WeightGoalInfo.weeklyRateKg], which would promise a pace the caps
+  /// forbid (B2). `null` on a reached target, noise rate, or wrong direction.
   int? weeksToGoal(UserProfile profile, {KcalTargets? targets}) {
     final diffKg = (profile.weightKg - profile.targetWeightKg).abs();
     if (diffKg == 0) return null;
@@ -506,18 +368,9 @@ class KcalCalculator {
     return (diffKg / rate.abs()).ceil();
   }
 
-  /// Prognose als Spanne: linear ([weeksToGoal]) bis dynamisch.
-  ///
-  /// Die dynamische Zahl simuliert Woche für Woche mit festem Tagesziel und
-  /// einem Bedarf, der pro verändertem Kilogramm um
-  /// [kcalPerDayPerKgChanged] kcal sinkt (Abnehmen) bzw. steigt (Zunehmen).
-  /// Für 100 → 85 kg bei −550 kcal/Tag ergibt das 46 statt 30 Wochen; der
-  /// NIH Body Weight Planner liegt für ein vergleichbares Profil bei ~41.
-  ///
-  /// `dynamicWeeks == null`: das Defizit ist vor dem Ziel aufgebraucht (oder
-  /// [maxPrognosisWeeks] überschritten) — bei unverändertem Tagesziel wird
-  /// das Wunschgewicht nicht erreicht; die UI zeigt dann „frühestens".
-  /// Ganz `null`, wenn schon [weeksToGoal] keine Prognose hergibt.
+  /// Forecast as a range: linear ([weeksToGoal]) to dynamic. The dynamic bound
+  /// simulates weekly with a requirement moving by [kcalPerDayPerKgChanged] per
+  /// changed kg — 46 weeks instead of 30 for 100 → 85 kg.
   WeeksToGoalRange? weeksToGoalRange(
     UserProfile profile, {
     KcalTargets? targets,

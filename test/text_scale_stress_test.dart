@@ -9,15 +9,14 @@ import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Stress-Test fuer den textScaler-Cap (EatovaApp deckelt bei 2.0, WCAG
-// 1.4.4): die Kern-Screens muessen bei Systemschrift 200 % ohne
-// RenderFlex-Overflow rendern. Anders als testWidgetsRobust (widget_test.dart)
-// werden Overflows hier NICHT geschluckt, sondern gesammelt und als
-// Testfehler gemeldet — genau sie sind der Pruefgegenstand.
+// Stress test for the textScaler cap (EatovaApp caps at 2.0, WCAG 1.4.4): the
+// core screens must render at 200 % system font without RenderFlex overflows.
+// Unlike testWidgetsRobust, overflows are collected and reported as test
+// failures here — they are the subject.
 
 const double _stressScale = 2.0;
 
-/// iPhone-14-Viewport (393x852 logical) + Systemschrift auf [_stressScale].
+/// iPhone 14 viewport (393x852 logical) with system font at [_stressScale].
 void _pinViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
@@ -27,12 +26,11 @@ void _pinViewport(WidgetTester tester) {
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
-/// Faengt waehrend [body] alle Overflow-Fehler ab und meldet sie gesammelt.
+/// Collects all overflow errors during [body] and reports them together.
 ///
-/// WICHTIG: FlutterError.onError wird VOR dem expect() wiederhergestellt —
-/// das Test-Binding asserted sonst beim ersten TestFailure, solange der
-/// Handler noch ueberschrieben ist. Nicht-Overflow-Fehler laufen unveraendert
-/// in den Framework-Handler (normaler Testfehler).
+/// FlutterError.onError is restored BEFORE the expect(): the test binding
+/// otherwise asserts on the first TestFailure while the handler is still
+/// overridden. Non-overflow errors go to the framework handler unchanged.
 Future<void> _expectNoOverflow(
   String screen,
   Future<void> Function() body,
@@ -41,7 +39,7 @@ Future<void> _expectNoOverflow(
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
     if (details.exception.toString().contains('overflowed')) {
-      // Zusammenfassung + Verursacher-Widget fuer eine brauchbare Diagnose.
+      // Summary plus offending widget, for a usable diagnosis.
       final full = details.toString();
       final culprit = RegExp(r'\S+:file:///\S+').firstMatch(full)?.group(0);
       overflows.add(
@@ -70,12 +68,11 @@ DateTime _daysAgo(int n) {
   return DateTime(now.year, now.month, now.day - n);
 }
 
-/// Bootet die App und landet auf „Heute" (Index 0 seit dem Design-Refactor).
+/// Boots the app and lands on the "Heute" tab (index 0).
 ///
-/// `EatovaApp` ohne Locale-Override loest in `flutter test` NICHT auf `de`
-/// auf (Test-PlatformDispatcher-Default ist `en`, s. Paket-2-Bericht) —
-/// die Profil-Seite prueft weiter unten den migrierten Text „Verbindungen"
-/// (ARB-Wert unter `de`), deshalb hier fest auf `de` gepinnt.
+/// `EatovaApp` without a locale override does NOT resolve to `de` in
+/// `flutter test` (the test PlatformDispatcher defaults to `en`), and the
+/// profile assertions below expect German ARB values, so `de` is pinned here.
 Future<void> _bootApp(WidgetTester tester) async {
   tester.platformDispatcher.localesTestValue = <Locale>[
     const Locale('de', 'DE'),
@@ -86,22 +83,21 @@ Future<void> _bootApp(WidgetTester tester) async {
   expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
 }
 
-/// Wechselt auf einen Tab der unteren Leiste.
+/// Switches to a tab of the bottom bar.
 Future<void> _goToTab(WidgetTester tester, String label) async {
   await tester.tap(find.byKey(ValueKey<String>('nav-$label')));
   await tester.pumpAndSettle();
 }
 
-/// Der Coach-Hero dreht endlos (CoachOrb) — `pumpAndSettle` settlet dort nie.
+/// The coach hero spins forever (CoachOrb), so `pumpAndSettle` never settles.
 Future<void> _pumpFrames(WidgetTester tester, {int frames = 20}) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 50));
   }
 }
 
-/// Scrollt eine Liste bis ans Ende, damit auch die unteren Karten wirklich
-/// gelayoutet werden. Ohne das misst ein `ListView`-Screen bei 2.0 nur seine
-/// obersten zwei Karten — und genau die unteren tragen die dichten Zeilen.
+/// Scrolls a list to the end so the lower cards actually get laid out;
+/// otherwise a `ListView` screen only measures its top two cards at 2.0.
 Future<void> _scrollDurch(
   WidgetTester tester,
   Finder scrollable, {
@@ -130,7 +126,7 @@ void main() {
       await tester.pump();
       expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
 
-      // Auch die Registrieren-Variante (zusaetzliches Namensfeld) pumpen.
+      // Also pump the signup variant (extra name field).
       await tester.ensureVisible(
         find.byKey(const ValueKey('auth-toggle-register')),
       );
@@ -144,26 +140,22 @@ void main() {
 
   testWidgets('Heute-Tab (Landepunkt) rendert bei textScale 2.0 ohne Overflow',
       (tester) async {
-    // Neu seit dem Design-Refactor 2026-08-09 und zugleich der Kaltstart-
-    // Landepunkt: Forest-Hero mit drei Kennzahl-Kacheln nebeneinander, drei
-    // Makro-Balken (Label/Balken/Wert in EINER Zeile) und vier Slot-Zeilen.
-    // Jede dieser Zeilen ist eine klassische Bruchstelle bei 200 %
-    // Systemschrift. (Der frueher hier erwaehnte schwebende Knopf ist am
-    // 2026-08-10 auf Nutzer-Wunsch entfallen.)
+    // The cold-start landing point: forest hero with three metric tiles side
+    // by side, three macro bars (label/bar/value in ONE row) and four slot
+    // rows — all classic breaking points at 200 % system font.
     _pinViewport(tester);
     await _expectNoOverflow('Heute-Tab', () async {
       await _bootApp(tester);
       expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
 
-      // Der Archivtag ist ein eigener Zweig: „Vor 1 Tag" statt „Heute" in der
-      // Pille, „—" statt einer Zahl in VERBRANNT, andere Coach-Zeile.
+      // An archive day is its own branch: relative date in the pill, a dash
+      // instead of a number in the burned tile, a different coach line.
       await tester.tap(find.byKey(const ValueKey('today-date-prev')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('today-date-selected-label')),
           findsOneWidget);
 
-      // Die Karten unterhalb des Falzes (Makros, Mahlzeiten, Coach-Banner)
-      // werden erst beim Scrollen gelayoutet.
+      // The cards below the fold are only laid out once scrolled to.
       await _scrollDurch(
         tester,
         find.byKey(const ValueKey('screen-today')),
@@ -177,21 +169,20 @@ void main() {
       'ohne Overflow', (tester) async {
     _pinViewport(tester);
     await _expectNoOverflow('Food-Tab', () async {
-      // Seit dem Design-Refactor startet die App auf „Heute" (Index 0) —
-      // der Food-Tab wird im lazy IndexedStack erst beim ersten Besuch
-      // gebaut, `screen-kcal-tracker` existiert vorher gar nicht.
+      // The app starts on tab 0; the food tab is built lazily on first visit,
+      // so `screen-kcal-tracker` does not exist before that.
       await _bootApp(tester);
       await _goToTab(tester, 'Food');
       expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
-      // Datums-Chip-Wechsel rendert die Auswahl-Zustaende beider Chip-Formen.
+      // Switching the date chip renders both chip shapes' selected states.
       await tester.tap(
         find.byKey(const ValueKey('food-date-chip-3')),
         warnIfMissed: false,
       );
       await tester.pumpAndSettle();
 
-      // Die vier neuen Slot-Karten des Verlaufs liegen unter dem Falz.
+      // The four slot cards of the history sit below the fold.
       await _scrollDurch(
         tester,
         find.byKey(const ValueKey('kcal-page-fill')),
@@ -208,8 +199,8 @@ void main() {
       await _goToTab(tester, 'Rezepte');
       expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
 
-      // Suche mit Treffer-Zeile („N Treffer") — eigener Zweig ueber der Liste.
-      // Zuerst, solange das Feld noch oben steht.
+      // Search with its result line, a separate branch above the list. Done
+      // first, while the field is still at the top.
       await tester.enterText(
         find.byKey(const ValueKey('recipes-search-input')),
         'Reis',
@@ -218,8 +209,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('recipes-search-clear')));
       await tester.pumpAndSettle();
 
-      // Die Filter-Chip-Leiste und die Kachel-Liste; die Karten tragen Text
-      // auf halbtransparenten Overlays ueber dem Bild.
+      // Filter chip bar and tile list; the cards put text on semi-transparent
+      // overlays above the image.
       await _scrollDurch(
         tester,
         find.byKey(const ValueKey('screen-recipes')),
@@ -233,12 +224,12 @@ void main() {
     _pinViewport(tester);
     await _expectNoOverflow('Coach-Tab', () async {
       await _bootApp(tester);
-      // Kein pumpAndSettle: der CoachOrb dreht endlos.
+      // No pumpAndSettle: the CoachOrb spins forever.
       await tester.tap(find.byKey(const ValueKey('nav-Coach')));
       await _pumpFrames(tester);
       expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);
 
-      // Der Composer traegt vier Icon-Knoepfe plus Eingabefeld in EINER Zeile.
+      // The composer holds four icon buttons plus the field in ONE row.
       await tester.enterText(
         find.byKey(const ValueKey('coach-input')),
         'Was soll ich heute Abend essen?',
@@ -256,16 +247,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
 
-      // Die dichteste Seite: Kennzahl-Kacheln zu zweit, Plan-Karte mit drei
-      // Makro-Spalten, Gewichts-Sparkline und die Health-Karte ganz unten.
+      // The densest page: paired metric tiles, plan card with three macro
+      // columns, weight sparkline and the health card at the bottom.
       await _scrollDurch(
         tester,
         find.byKey(const ValueKey('screen-profile')),
         schritte: 8,
       );
-      // Anker am Seitenende. Bis 2026-08-10 stand hier
-      // `profile-action-about` — die Zeile ist mit dem Block „Daten & Konto"
-      // in die Einstellungen gezogen (`settings-about`, unten mitgeprueft).
+      // Anchor at the page end; the about row moved to the settings screen
+      // (`settings-about`, checked below).
       expect(find.text('Verbindungen'), findsOneWidget);
     });
   });
@@ -286,16 +276,12 @@ void main() {
         schritte: 8,
       );
 
-      // („Über Eatova" ist am 2026-08-10 aus dem Profil hierher gezogen. Sein
-      // Sheet ist eine eigene Route und wird von diesem Durchlauf nicht
-      // geoeffnet — der 2.0-Fall dafuer steht in
-      // `test/settings_screen_render_test.dart`.)
+      // The about sheet is its own route and is not opened here; its 2.0 case
+      // lives in `test/settings_screen_render_test.dart`.
 
-      // Seit der Trennung 2026-08-10 tragen die Einstellungen nur noch Konto,
-      // Anzeige, Daten und Gefahrenzone; Koerperdaten und Ziele (und damit
-      // „Speichern") leben eine Ebene tiefer. Der Stresstest laeuft deshalb
-      // weiter bis dorthin — die dichte Formularseite ist genau der Fall, den
-      // er finden soll.
+      // Settings only carries account, display, data and danger zone; body
+      // data and goals (and thus save) live one level deeper, so the stress
+      // test walks on to that dense form page.
       final zuDenZielen = find.byKey(const ValueKey('settings-open-goals'));
       await tester.ensureVisible(zuDenZielen);
       await tester.pumpAndSettle();
@@ -320,7 +306,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: buildEatovaTheme(Brightness.dark),
-          // TrendsScreen liest seit der i18n-Migration context.l10n.
+          // TrendsScreen reads context.l10n.
           locale: const Locale('de'),
           supportedLocales: const [Locale('de'), Locale('en')],
           localizationsDelegates: const [

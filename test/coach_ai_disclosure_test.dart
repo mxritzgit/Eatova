@@ -12,40 +12,28 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// C8 — Offenlegung der KI-Interaktion im Coach-Tab (Art. 50 Abs. 1 EU-AI-Act).
+// C8 — AI interaction disclosure in the coach tab (EU AI Act Art. 50(1)).
 //
-// Bis zum Review stand in der UI nirgends „KI": der Tab heisst „Coach", der
-// Leerzustand fragt „Wie kann ich dir helfen?", der Platzhalter sagt „Frag
-// Eatova…" und der (i)-Button zeigte nur das Tageskontingent. Dass jede
-// Nachricht zusaetzlich einen Tages-Snapshot (Gewicht, Ziel, Kalorien, Makros,
-// Namen der geloggten Mahlzeiten) an einen Drittanbieter in den USA schickt,
-// war ausschliesslich in PRIVACY.md nachlesbar.
+// These tests pin both halves: the AI is visible BEFORE typing, and the detail
+// (which data, sent where) lives in the (i) sheet.
 //
-// Diese Tests fixieren beides: die KI ist VOR dem Tippen sichtbar, und das
-// Detail (welche Daten, wohin) steht im (i)-Sheet.
+// `service: null` is the screen's built-in offline state (logged out): no
+// network, no bootstrap, but hero and composer render normally.
 //
-// `service: null` ist der eingebaute Offline-Zustand des Screens (nicht
-// eingeloggt): kein Netz, kein Bootstrap, aber Hero + Composer rendern normal.
-//
-// Nachtrag Abschluss-Review 2026-08-14: das (i)-Sheet gibt es in ZWEI
-// Fassungen — `_CoachInfoSheet` (bekanntes Kontingent, coach_composer.dart)
-// und `_CoachInfoSheetUnbekannt` (coach_chat_screen.dart). Beide tragen
-// denselben C8-Offenlegungsblock, und genau der ist der
-// datenschutzrechtlich relevante Teil (Art. 50 Abs. 1 EU-AI-Act). Solange die
-// Fassungen zwei Bauplaene sind, erreicht eine kuenftige Aenderung nur eine
-// von beiden — deshalb prueft der letzte Test hier BEIDE gegen dieselbe Liste
-// von l10n-Keys: ein einseitig geaenderter Block macht ihn rot.
+// The (i) sheet exists in two versions — `_CoachInfoSheet` (known quota) and
+// `_CoachInfoSheetUnbekannt`. Both carry the same disclosure block, so the
+// last two tests check BOTH against the same list of l10n keys; changing one
+// side only turns exactly one of them red.
 
-/// Nutzbare Flaeche eines iPhone 16 Pro — die 800x600-Standardview des
-/// Testbindings ist kuerzer als jedes Zielgeraet und laesst den Hero
-/// ueberlaufen (vgl. food_tab_layout_test.dart).
+/// Usable area of an iPhone 16 Pro: the binding's 800x600 default is shorter
+/// than any target device and overflows the hero.
 const _usableSize = Size(402, 781);
 
-/// Coach-Service ohne Netz, der ein BEKANNTES Kontingent meldet — nur mit ihm
-/// laesst sich die zweite Sheet-Fassung ueberhaupt oeffnen.
+/// Networkless coach service reporting a KNOWN quota — the only way to open
+/// the second sheet version.
 ///
-/// `stopAutoRefresh()` ist Pflicht: GoTrue startet im Konstruktor einen
-/// periodischen Timer, an dem jeder Widget-Test scheitert.
+/// `stopAutoRefresh()` is mandatory: GoTrue starts a periodic timer in its
+/// constructor that fails every widget test.
 class _QuotaCoach extends CoachChatService {
   _QuotaCoach(super.client, super.userId);
 
@@ -76,8 +64,8 @@ class _QuotaCoach extends CoachChatService {
       const ChatQuotaSnapshot(used: 2, remaining: 3, dailyLimit: 5);
 }
 
-/// Die Offenlegung, wie sie in JEDER Fassung des Sheets stehen muss — in
-/// Baum-Reihenfolge und ohne einen einzigen hartkodierten Nutzertext.
+/// The disclosure as it must appear in EVERY sheet version: in tree order and
+/// without a single hardcoded user-facing string.
 List<String> _c8Block(AppLocalizations l10n) => <String>[
       l10n.coachTitle,
       l10n.coachInfoIntro,
@@ -89,7 +77,7 @@ List<String> _c8Block(AppLocalizations l10n) => <String>[
       l10n.coachInfoLimitLabel,
     ];
 
-/// Alle Text-Inhalte im geoeffneten (i)-Sheet, in Baum-Reihenfolge.
+/// All text content in the open (i) sheet, in tree order.
 List<String> _sheetTexte(WidgetTester tester) => tester
     .widgetList<Text>(
       find.descendant(
@@ -109,8 +97,8 @@ Future<void> _pumpCoach(WidgetTester tester, {CoachChatService? service}) async 
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach calls context.l10n, so without localizations
+      // AppLocalizations.of() throws on the first build.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -120,7 +108,8 @@ Future<void> _pumpCoach(WidgetTester tester, {CoachChatService? service}) async 
         GlobalCupertinoLocalizations.delegate,
       ],
       home: MediaQuery(
-        // Orb + Composer animieren sonst endlos -> pumpAndSettle liefe aus.
+        // Orb and composer animate forever otherwise, so pumpAndSettle would
+        // time out.
         data: const MediaQueryData(disableAnimations: true),
         child: Scaffold(
           body: CoachChatScreen(service: service, userName: 'Moritz'),
@@ -160,16 +149,16 @@ void main() {
 
     expect(find.byKey(const ValueKey('coach-info-sheet')), findsOneWidget);
 
-    // WAS mitgeht — die vier Bestandteile aus home_store.coachContext.
+    // WHAT is sent: the four parts of home_store.coachContext.
     expect(find.textContaining('Gewicht'), findsAtLeastNWidgets(1));
     expect(find.textContaining('Kalorien'), findsAtLeastNWidgets(1));
     expect(find.textContaining('Makros'), findsAtLeastNWidgets(1));
     expect(find.textContaining('Mahlzeiten'), findsAtLeastNWidgets(1));
 
-    // WOHIN es geht — Drittanbieter und Land.
+    // WHERE it goes: third party and country.
     expect(find.textContaining('USA'), findsAtLeastNWidgets(1));
 
-    // Das Tageskontingent bleibt im selben Sheet erreichbar.
+    // The daily quota stays reachable in the same sheet.
     expect(find.textContaining('Fragen heute frei'), findsOneWidget);
   });
 
@@ -189,7 +178,7 @@ void main() {
       'die Offenlegung steht in der Fassung fuer UNBEKANNTES Kontingent '
       'vollstaendig und unveraendert', (tester) async {
     final l10n = await AppLocalizations.delegate.load(const Locale('de'));
-    // Ohne Service gibt es keinen Quota-Snapshot -> _CoachInfoSheetUnbekannt.
+    // No service means no quota snapshot -> _CoachInfoSheetUnbekannt.
     await _pumpCoach(tester);
     await tester.tap(find.byKey(const ValueKey('coach-info')));
     await tester.pumpAndSettle();

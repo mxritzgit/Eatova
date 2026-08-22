@@ -12,30 +12,15 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// D6 (Coach-Haelfte) — Nachweis, dass der IndexedStack von Agent W3-01 genuegt.
+// D6 (coach half) — proof that the IndexedStack suffices: `_bootstrap()` runs
+// in initState and the draft lives in a state-owned controller, so both losses
+// depended solely on the tab frame unmounting the subtree.
 //
-// Der Review haelt fest: `_bootstrap()` feuert loadSessions + loadHistory +
-// loadQuotaToday bei JEDEM Tab-Besuch neu (mit Spinner), und ein getippter
-// Entwurf ist weg. Beides haengt aber ausschliesslich daran, dass
-// eatova_home_page.dart den Teilbaum unmountet: `_bootstrap()` laeuft in
-// initState, und der Entwurf lebt in einem TextEditingController, den
-// _CoachChatScreenState besitzt — anders als das Rezepte-Suchfeld, das gar
-// keinen Controller hat und deshalb auch mit IndexedStack noch Arbeit braucht.
-//
-// Dieser Test stellt genau die Bedingung her, die der IndexedStack schafft
-// (der Screen bleibt gemountet, waehrend ein anderer Tab sichtbar ist) und
-// haelt fest: kein Nachladen, Entwurf bleibt. Im Coach war deshalb nichts zu
-// reparieren — der Test schuetzt das Ergebnis gegen ein spaeteres Zurueckfallen
-// auf einen unmountenden Rahmen.
-//
-// Bekannte Kehrseite (kein Fix in diesem Auftrag, s. Bericht): dauerhaft
-// gemountet heisst auch, dass `_bootstrap()` nur noch EINMAL pro App-Lauf
-// laeuft. Die Quota wird danach nur aus den send()-Antworten fortgeschrieben —
-// ein Reset um Mitternacht (UTC) erreicht den Screen erst beim Kaltstart.
+// Downside: `_bootstrap()` now runs ONCE per app run, so a UTC midnight quota
+// reset only reaches the screen on cold start.
 
-/// CoachChatService ohne Netz, der jeden Ladeaufruf mitzaehlt.
-/// `stopAutoRefresh()` ist Pflicht: GoTrue startet im Konstruktor einen
-/// periodischen Timer, an dem jeder Widget-Test scheitert.
+/// Networkless CoachChatService counting every load call. `stopAutoRefresh()`
+/// is mandatory: GoTrue's constructor timer trips every widget test.
 class _CountingService extends CoachChatService {
   _CountingService(super.client, super.userId);
 
@@ -78,8 +63,7 @@ class _CountingService extends CoachChatService {
   }
 }
 
-/// Minimaler Nachbau des Tab-Rahmens MIT IndexedStack: beide Kinder bleiben
-/// gemountet, sichtbar ist nur das ausgewaehlte.
+/// Minimal tab frame WITH IndexedStack: both children stay mounted.
 class _TabHost extends StatefulWidget {
   const _TabHost({required this.service});
 
@@ -134,8 +118,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.dark),
-        // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-        // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+        // The coach calls context.l10n; without localizations
+        // AppLocalizations.of() throws on the first build.
         locale: const Locale('de'),
         supportedLocales: const [Locale('de'), Locale('en')],
         localizationsDelegates: const [
@@ -152,7 +136,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Bootstrap ist durch: Spinner weg, Composer nutzbar.
     final afterBootstrap = service.calls;
     expect(service.historyCalls, 1);
     expect(service.quotaCalls, 1);
@@ -163,16 +146,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Weg und zurueck.
     await tester.tap(find.byKey(const ValueKey('to-other')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('to-coach')));
     await tester.pumpAndSettle();
 
-    // Kein einziger Ladeaufruf ist nachgefeuert — also auch kein Spinner.
+    // Not a single load call fired again — so no spinner either.
     expect(service.calls, afterBootstrap);
 
-    // Und der Entwurf steht noch da.
     final field = tester.widget<TextField>(
       find.byKey(const ValueKey('coach-input')),
     );

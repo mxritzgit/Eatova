@@ -1,26 +1,15 @@
-// SONDE fuer Schalter 4 aus docs/REVIEW-2026-08-08.md (G2):
-// `.toLocal()` an drei Stellen loeschen
+// PROBE for G2 (docs/REVIEW-2026-08-08.md): deleting `.toLocal()` in
 //   * lib/src/models/logged_meal.dart:58   (effectiveLocalDay)
 //   * lib/src/services/meal_totals.dart:23 (mealsForFoodDate)
 //   * lib/src/services/trend_service.dart:123 (aggregateDailyTotals)
 //
-// DIESE DATEI HEISST BEWUSST NICHT `*_test.dart`.
+// Deliberately NOT named `*_test.dart`: `flutter test` only collects those,
+// and this probe is started solely by `wire_local_day_tz_test.dart` in a
+// child process with `TZ` set. On a UTC machine `.toLocal()` is the identity,
+// so an in-process test can never see the deletion on CI.
 //
-// `flutter test` sammelt nur `*_test.dart` ein; diese Sonde wird
-// ausschliesslich von `wire_local_day_tz_test.dart` gestartet — und zwar in
-// einem KINDPROZESS MIT GESETZTER ZEITZONE (`TZ`). Der Grund ist der Kern des
-// Problems:
-//
-//   Auf einer UTC-Maschine ist `.toLocal()` die IDENTITAET. Es gibt dort
-//   keinen Eingabewert, fuer den ein Ergebnis MIT und ein Ergebnis OHNE
-//   `.toLocal()` verschieden waeren — die drei Aufrufe muenden alle in
-//   `localDayKey`, das nur Jahr/Monat/Tag liest. Ein Test, der in-process
-//   laeuft, kann die Loeschung auf der CI (UTC) prinzipiell nicht sehen.
-//
-// Deshalb: Zeitzone im Kindprozess erzwingen, dort einen Zeitpunkt waehlen,
-// dessen UTC-Kalendertag sich vom lokalen unterscheidet, und pruefen, welchen
-// der beiden Tage die Produktion liefert. Die Sonde weigert sich zu laufen,
-// wenn der Offset 0 ist — sonst waere sie eine gruene Nullaussage.
+// The probe picks an instant whose UTC calendar day differs from the local
+// one and checks which day production returns. It refuses to run at offset 0.
 
 import 'dart:io';
 
@@ -32,8 +21,8 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meal_totals.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
-/// Marker, den der Treiber in stdout sucht: erst er belegt, dass die Sonde
-/// wirklich in einer Zone ungleich UTC gelaufen ist.
+/// Marker the driver greps for in stdout; it proves the probe really ran in
+/// a non-UTC zone.
 const String zonenMarker = 'SONDE-ZONE-OK';
 
 const MealAnalysisResult _result = MealAnalysisResult(
@@ -48,8 +37,8 @@ const MealAnalysisResult _result = MealAnalysisResult(
   portionNotes: '',
 );
 
-/// Sucht einen UTC-Zeitpunkt, dessen LOKALER Kalendertag ein anderer ist.
-/// Existiert genau dann, wenn der Zonen-Offset nicht 0 ist.
+/// Finds a UTC instant whose local calendar day differs. Exists exactly when
+/// the zone offset is not 0.
 DateTime _zeitpunktMitAbweichendemTag() {
   for (var stunde = 0; stunde < 24; stunde++) {
     for (final minute in <int>[15, 45]) {
@@ -75,14 +64,14 @@ void main() {
           'kann die Loeschung nicht sehen. Der Treiber muss TZ setzen '
           '(gesetzt: TZ=${Platform.environment['TZ'] ?? '<nicht gesetzt>'}).',
     );
-    // Wird vom Treiber in stdout gesucht.
+    // The driver greps stdout for this.
     // ignore: avoid_print
     print('$zonenMarker offset=$offset tz=${Platform.environment['TZ']}');
   });
 
   group('23:45 Ortszeit buckt in den lokalen Tag, nicht in den UTC-Tag', () {
-    // Der Zeitpunkt kommt VOM SERVER: `logged_at` ist timestamptz und wird als
-    // UTC-Instanz geparst. Genau an dieser Kante entscheidet sich der Tag.
+    // The instant comes from the server: `logged_at` is timestamptz, parsed
+    // as UTC. That edge decides the day.
     late DateTime utcInstant;
     late String lokalerTag;
     late String utcTag;
@@ -91,8 +80,7 @@ void main() {
       utcInstant = _zeitpunktMitAbweichendemTag();
       lokalerTag = localDayKey(utcInstant.toLocal());
       utcTag = localDayKey(utcInstant);
-      // Sicherheitsnetz: die beiden MUESSEN verschieden sein, sonst prueft
-      // unten nichts.
+      // Safety net: they must differ, otherwise nothing below asserts.
       expect(lokalerTag, isNot(utcTag));
     });
 
@@ -100,7 +88,7 @@ void main() {
       final meal = LoggedMeal(
         id: 'm1',
         result: _result,
-        loggedAt: utcInstant, // wie aus meals_sync ohne vorherige Umrechnung
+        loggedAt: utcInstant, // as meals_sync delivers it, unconverted
       );
 
       expect(
@@ -142,7 +130,7 @@ void main() {
     });
 
     test('trend_service.dart: aggregateDailyTotals faellt lokal zurueck', () {
-      // Alt-Zeile ohne local_day — genau der Fallback-Pfad aus Zeile 123.
+      // Legacy row without local_day: the fallback path at line 123.
       final totals = aggregateDailyTotals(<Map<String, dynamic>>[
         <String, dynamic>{
           'local_day': null,
@@ -166,8 +154,7 @@ void main() {
     });
 
     test('alle drei Stellen liefern DENSELBEN Tag', () {
-      // Die eigentliche Aussage von DATA-6: Tagebuch, Bucketing und Trend
-      // duerfen fuer einen Zeitpunkt nie in verschiedene Tage laufen.
+      // DATA-6: diary, bucketing and trend must never disagree on the day.
       final meal = LoggedMeal(id: 'm3', result: _result, loggedAt: utcInstant);
       final totals = aggregateDailyTotals(<Map<String, dynamic>>[
         <String, dynamic>{

@@ -2,9 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/widgets/shared/target_bmi_hint.dart';
 
-// Pure BMI-Hinweis-Logik (target_bmi_hint.dart): Grenzfälle exakt 18,5 und
-// exakt 35,0 lösen KEINEN Hinweis aus; erst strikt darunter/darüber. Die
-// Formatierung nutzt deutsches Dezimalkomma.
+// Pure BMI hint logic (target_bmi_hint.dart): exactly 18.5 and exactly 35.0
+// trigger NO hint, only strictly below/above. Formatting uses a German
+// decimal comma.
 void main() {
   group('targetBmi', () {
     test('berechnet kg/m² korrekt', () {
@@ -27,7 +27,7 @@ void main() {
     });
 
     test('Grenzfall: BMI exakt 18,5 löst keinen Hinweis aus', () {
-      // 74 kg / 2,00 m² = exakt 18,5.
+      // 74 kg / 2,00 m² = exactly 18,5.
       expect(targetBmiHintText(heightCm: 200, targetWeightKg: 74), isNull);
     });
 
@@ -51,7 +51,7 @@ void main() {
     });
 
     test('Grenzfall: BMI exakt 35,0 löst keinen Hinweis aus', () {
-      // 140 kg / 2,00 m² = exakt 35,0.
+      // 140 kg / 2,00 m² = exactly 35,0.
       expect(targetBmiHintText(heightCm: 200, targetWeightKg: 140), isNull);
     });
 

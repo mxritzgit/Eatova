@@ -6,10 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/services/meilisearch_product_service.dart';
 import 'package:eatova/src/services/search_credentials.dart';
 
-// Der 403-Rotations-Pfad des Mirror-Clients gegen einen echten lokalen
-// HttpServer (Muster aus eatova_http_test.dart: plain `test()`, damit
-// dart:io unangetastet bleibt). Die Zugangsdaten kommen aus einem Fake-Seam
-// — kein SharedPreferences, kein Supabase, keine Edge Function.
+// The mirror client's 403 rotation path against a real local HttpServer (plain
+// `test()`, so dart:io stays untouched). Credentials come from a fake seam —
+// no SharedPreferences, no Supabase, no Edge Function.
 
 const String _hitsBody =
     '{"hits":[{"code":"111","product_name":"Salami",'
@@ -32,8 +31,8 @@ class _FakeSource extends SearchCredentialsSource {
 
   SearchCredentials active;
 
-  /// Was [invalidate] liefern soll. `null` steht fuer „kein Ersatz" und
-  /// wird — wie im echten Store — zu unbrauchbaren Credentials.
+  /// What [invalidate] should return. `null` means "no replacement" and
+  /// becomes unusable credentials, as in the real store.
   SearchCredentials? replacement;
 
   int resolveCalls = 0;
@@ -56,8 +55,8 @@ class _FakeSource extends SearchCredentialsSource {
   }
 }
 
-/// Mirror-Attrappe: spielt eine Statuscode-Folge ab und protokolliert den
-/// Authorization-Header JEDES Requests.
+/// Mirror stub: replays a status-code sequence and records the Authorization
+/// header of EVERY request.
 class _MirrorStub {
   _MirrorStub._(this._server, this.auths, this.paths);
 
@@ -104,15 +103,14 @@ void main() {
   test(
       'Sentinel-Rest D: 2xx mit kaputtem Body (ohne hits) wirft statt eine '
       'leere Trefferliste zu erfinden', () async {
-    // Ein 200 ohne `hits`-Liste (Proxy-Fehlerseite, Schema-Aenderung) hiess
-    // frueher „wirklich keine Treffer": leere Liste, kein Report. Ehrlich
-    // ist dieselbe Behandlung wie beim 5xx — werfen, der
-    // FallbackProductService klassifiziert/meldet und zieht zu OFF weiter.
-    // Eine ECHTE leere Antwort (`hits: []`) bleibt dagegen eine Antwort.
+    // A 200 without a `hits` list (proxy error page, schema change) used to
+    // mean "really no hits". The honest treatment is the 5xx one: throw, let
+    // FallbackProductService classify/report and move on to OFF. A genuine
+    // empty answer (`hits: []`) stays an answer.
     //
-    // Der Typ ist Teil der Zusicherung: eine HttpException waere eine
-    // IOException und damit fuer den FallbackProductService ein erwarteter
-    // Netzfehler — der Alarm bliebe still.
+    // The type is part of the assurance: an HttpException would be an
+    // IOException and therefore an expected network error for
+    // FallbackProductService — the alarm would stay silent.
     final stub = await _MirrorStub.start(<int>[200], body200: '{"ok":true}');
     addTearDown(stub.close);
     final source = _FakeSource(_at(stub.baseUrl, _oldKey));
@@ -138,7 +136,7 @@ void main() {
     expect(results, hasLength(1));
     expect(results.single.title, 'Salami');
     expect(stub.requestCount, 2);
-    // DIE zentrale Zusicherung: der zweite Versuch traegt den NEUEN Key.
+    // The central assurance: the second attempt carries the NEW key.
     expect(stub.auths[0], 'Bearer old-key');
     expect(stub.auths[1], 'Bearer new-key');
     expect(stub.paths, everyElement('/indexes/products/search'));
@@ -167,7 +165,7 @@ void main() {
   test('kein Ersatz-Key -> wirft, Server sah GENAU EINEN Request', () async {
     final stub = await _MirrorStub.start(<int>[403]);
     addTearDown(stub.close);
-    // replacement null -> SearchCredentials.disabled (unbrauchbar).
+    // replacement null -> SearchCredentials.disabled (unusable).
     final source = _FakeSource(_at(stub.baseUrl, _oldKey));
 
     await expectLater(
@@ -184,8 +182,7 @@ void main() {
     addTearDown(stub.close);
     final source = _FakeSource(
       _at(stub.baseUrl, _oldKey),
-      // Gleicher Key (z.B. Cooldown greift) -> ein Retry waere garantiert
-      // wieder 403.
+      // Same key (e.g. cooldown active) -> a retry would be 403 again.
       replacement: _at(stub.baseUrl, _oldKey),
     );
 

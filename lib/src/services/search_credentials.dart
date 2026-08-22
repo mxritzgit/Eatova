@@ -10,27 +10,26 @@ import '../config/supabase_config.dart';
 import 'eatova_http.dart';
 import 'local_cache.dart' show KeyValueStore, SharedPreferencesStore;
 
-/// Woher die gerade aktiven Such-Credentials stammen. Reine Diagnose —
-/// die Suche behandelt alle Quellen gleich.
+/// Where the active search credentials came from. Diagnostics only — the
+/// search treats every source alike.
 enum SearchCredentialsOrigin {
-  /// Einkompilierter `String.fromEnvironment`-Default (frischer Install
-  /// ohne Netz, oder Fetch noch nicht durch).
+  /// Compiled-in `String.fromEnvironment` default.
   compileTime,
 
-  /// Aus SharedPreferences hydratisiert (letzter bekannter Stand).
+  /// Hydrated from SharedPreferences (last known state).
   cache,
 
-  /// Frisch von der Edge Function `search-key` geholt.
+  /// Freshly fetched from the `search-key` edge function.
   network,
 
-  /// Mirror bewusst aus: Server-Kill-Switch oder abgelehnter Key ohne
-  /// Ersatz. Die Suche geht dann direkt zu OpenFoodFacts.
+  /// Mirror deliberately off: server kill switch or a rejected key with no
+  /// replacement. The search then goes straight to OpenFoodFacts.
   disabled,
 }
 
-/// Basis-URL + Search-only-Key des Meilisearch-Mirrors. URL und Key reisen
-/// IMMER zusammen: ein Umzug des Mirrors ist dadurch ein einziges
-/// Secret-Update und kann nicht in den Zustand "neue URL, alter Key" fallen.
+/// Base URL plus search-only key of the Meilisearch mirror. The two always
+/// travel together, so moving the mirror is one secret update and cannot end
+/// up as "new URL, old key".
 class SearchCredentials {
   const SearchCredentials({
     required this.baseUrl,
@@ -42,33 +41,29 @@ class SearchCredentials {
   final String searchKey;
   final SearchCredentialsOrigin source;
 
-  /// Die einkompilierte letzte Rueckfallebene (siehe [SearchConfig]).
+  /// The compiled-in last resort (see [SearchConfig]).
   static const SearchCredentials compileTimeDefault = SearchCredentials(
     baseUrl: SearchConfig.fallbackMirrorBaseUrl,
     searchKey: SearchConfig.fallbackMirrorSearchKey,
     source: SearchCredentialsOrigin.compileTime,
   );
 
-  /// Mirror aus. Leere Werte -> [isUsable] false -> die Suche laeuft ohne
-  /// eine einzige Netz-Anfrage direkt in den OpenFoodFacts-Fallback.
+  /// Mirror off. Empty values -> [isUsable] false -> the search goes to the
+  /// OpenFoodFacts fallback without a single network request.
   static const SearchCredentials disabled = SearchCredentials(
     baseUrl: '',
     searchKey: '',
     source: SearchCredentialsOrigin.disabled,
   );
 
-  /// Die Mirror-Basis-URL ist der einzige App-Endpunkt, der zur Laufzeit von
-  /// aussen kommt (Edge-Function-Antwort ODER SharedPreferences-Cache). Wird
-  /// sie je auf `http://` gesetzt — versehentlich im Server-Secret oder durch
-  /// einen lokalen Schreibzugriff auf den (bewusst unverschluesselten)
-  /// Credentials-Slot — ginge die Suche samt Search-Key im Klartext raus.
-  /// Deshalb wird `https` an den beiden untrusted EINGAENGEN erzwungen
-  /// (Fetch-Parse in [EdgeFunctionSearchKeyFetcher] und Cache-Parse in
-  /// [_CachedEntry.tryParse], Sicherheits-Audit 2026-08-09): ein
-  /// non-`https`-Mirror wird gar nicht erst zu einem [SearchCredentials] und
-  /// faellt still auf OpenFoodFacts zurueck. `isUsable` bleibt bewusst der
-  /// reine Leer-Check — direkt injizierte Creds (Loopback-Tests) laufen
-  /// nicht ueber die Eingaenge und sollen nicht doppelt geprueft werden.
+  /// The mirror base URL is the only app endpoint that arrives from outside
+  /// at runtime, so an `http://` value would send the search key in the
+  /// clear. `https` is therefore enforced at both untrusted entry points
+  /// (fetch parse in [EdgeFunctionSearchKeyFetcher], cache parse in
+  /// [_CachedEntry.tryParse]; audit 2026-08-09): a non-`https` mirror never
+  /// becomes a [SearchCredentials] and falls back to OpenFoodFacts.
+  /// `isUsable` stays a pure emptiness check — directly injected creds
+  /// (loopback tests) bypass the entry points on purpose.
   static bool isSecureBaseUrl(String url) =>
       Uri.tryParse(url.trim())?.scheme == 'https';
 
@@ -84,15 +79,15 @@ class SearchCredentials {
   @override
   int get hashCode => Object.hash(baseUrl, searchKey, source);
 
-  // Bewusst OHNE den Key im String — dieses Objekt landet sonst ueber
-  // toString() in Logs/Fehlermeldungen.
+  // Deliberately without the key: this object reaches logs and error
+  // messages via toString().
   @override
   String toString() =>
       'SearchCredentials(${source.name}, baseUrl: $baseUrl, key: '
       '${searchKey.isEmpty ? "<leer>" : "<${searchKey.length} Zeichen>"})';
 }
 
-/// Antwort der Edge Function: Credentials plus die server-vorgegebene TTL.
+/// Edge function response: credentials plus the server-supplied TTL.
 class FetchedSearchCredentials {
   const FetchedSearchCredentials({
     required this.baseUrl,
@@ -104,50 +99,40 @@ class FetchedSearchCredentials {
   final String searchKey;
   final Duration ttl;
 
-  /// Der Server hat den Mirror ausdruecklich abgeschaltet: BEIDE Felder leer
-  /// (Secret `EATOVA_MIRROR_SEARCH_KEY=disabled`, HTTP 200). Nur beide —
-  /// eine halb leere Antwort ist ein kaputter Server, kein Kill-Switch, und
-  /// wird bereits im Fetcher verworfen.
+  /// The server switched the mirror off: BOTH fields empty on HTTP 200. Only
+  /// both — a half-empty response is a broken server, not a kill switch, and
+  /// the fetcher already discards it.
   bool get isKillSwitch => baseUrl.trim().isEmpty && searchKey.trim().isEmpty;
 }
 
-/// Test-Seam fuer das Holen frischer Credentials.
+/// Test seam for fetching fresh credentials.
 ///
-/// Vertrag: [fetch] wirft NIE und liefert bei jedem Fehler (kein Netz, kein
-/// Token, 4xx/5xx, kaputtes JSON) `null`. `null` heisst ausschliesslich
-/// „diesmal nichts geholt" — NIE „Mirror abschalten".
+/// Contract: [fetch] never throws and returns `null` on any failure. `null`
+/// means only "nothing fetched this time", NEVER "switch the mirror off".
 ///
-/// „Mirror abschalten" sagt der Server auf dem EINEN dafuer vorgesehenen Weg:
-/// 200 mit beiden Feldern leer. Das kommt als [FetchedSearchCredentials] mit
-/// [FetchedSearchCredentials.isKillSwitch] zurueck — ein NICHT-`null`-Wert,
-/// weil der Store ihn uebernehmen und den alten Key aus Speicher UND Platte
-/// werfen muss. Waere auch das `null`, liefe der Kill-Switch ins Leere und
-/// jeder installierte Build suchte mit dem abgeflossenen Key weiter.
+/// The server says "switch off" on exactly one path: 200 with both fields
+/// empty, returned as a non-`null` [FetchedSearchCredentials] with
+/// [FetchedSearchCredentials.isKillSwitch], because the store must adopt it
+/// and evict the old key from memory AND disk.
 ///
-/// Der abgeschaltete Zustand ueberlebt den Neustart: er wird als Leer/Leer-
-/// Eintrag persistiert und von [_CachedEntry.tryParse] wieder als
-/// [SearchCredentials.disabled] gelesen. Ohne das griffe der Hebel nur fuer
-/// die laufende Sitzung — jeder Kaltstart faende den Slot ungueltig, raeumte
-/// ihn weg und suchte bis zum Ende des Fetches wieder mit dem
-/// einkompilierten [SearchConfig.fallbackMirrorSearchKey].
+/// The off state survives a restart: it is persisted as an empty/empty entry
+/// and read back as [SearchCredentials.disabled], otherwise the kill switch
+/// would only hold for the running session.
 abstract class SearchKeyFetcher {
   const SearchKeyFetcher();
 
-  /// [budget] deckelt den gesamten Roundtrip (der 403-Pfad hat es eilig).
+  /// [budget] caps the whole round trip (the 403 path is in a hurry).
   Future<FetchedSearchCredentials?> fetch({Duration? budget});
 }
 
-/// Production-Fetcher gegen die Edge Function `search-key`.
+/// Production fetcher against the `search-key` edge function.
 ///
-/// Rohes dart:io ueber [sendTextRequest] statt `functions.invoke` — wie
-/// [EdgeFunctionMealAnalyzer]: nur so liegt auf JEDER Phase ein Timeout.
+/// Raw dart:io via [sendTextRequest] instead of `functions.invoke`, so every
+/// phase carries a timeout.
 ///
-/// Die drei optionalen Parameter sind die Testnaht fuer den Laufzeit-
-/// Wire-Test (search_key_fetcher_wire_test.dart): vorher war der komplette
-/// HTTP-Pfad (Header-Bau, Statuscode-Weichen, JSON-Vertrag) nur per
-/// Quelltext-Abgleich gedeckt, weil Basis-URL, anon-Key und Token fest an
-/// den globalen Statics hingen. Produktion nutzt weiter den argumentlosen
-/// const-Konstruktor — die Defaults loesen zur Laufzeit auf die Statics auf.
+/// The three optional parameters are the seam for the runtime wire test
+/// (search_key_fetcher_wire_test.dart). Production uses the argument-less
+/// const constructor; the defaults resolve to the globals at runtime.
 class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
   const EdgeFunctionSearchKeyFetcher({
     String? baseUrl,
@@ -168,23 +153,23 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
   Future<FetchedSearchCredentials?> fetch({Duration? budget}) {
     final work = _fetch();
     if (budget == null) return work;
-    // Der Fetch selbst wirft nie; das Budget kappt nur die Wartezeit des
-    // Aufrufers. Ein danach noch eintrudelndes Ergebnis wird verworfen.
+    // The fetch never throws; the budget only caps the caller's wait. A late
+    // result is discarded.
     return work.timeout(budget, onTimeout: () => null);
   }
 
   Future<FetchedSearchCredentials?> _fetch() async {
     HttpClient? client;
     try {
-      // Der KOMPLETTE Supabase-Zugriff liegt im try: ohne
-      // `Supabase.initialize` (Preview/Test) wirft schon `Supabase.instance`.
-      // Das ist hier kein Fehler, sondern schlicht „kein Fetch moeglich".
+      // All Supabase access sits inside the try: without
+      // `Supabase.initialize` even `Supabase.instance` throws, which here
+      // simply means "no fetch possible".
       final token = _tokenProvider != null
           ? _tokenProvider()
           : Supabase.instance.client.auth.currentSession?.accessToken;
       if (token == null || token.isEmpty) {
-        // Kein Token = Kaltstart-Fenster, in dem eine wiederhergestellte
-        // Session gerade refresht wird. Behalten was da ist, nicht abschalten.
+        // No token = cold-start window while a restored session refreshes.
+        // Keep what is there, do not switch off.
         return null;
       }
 
@@ -206,9 +191,8 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
         },
       );
 
-      // Jeder Nicht-2xx (inkl. 500 `server_misconfigured`) heisst „behalte,
-      // was du hast" — ein fehlendes Server-Secret darf die funktionierende
-      // Suche eines Bestands-Builds nicht abschalten.
+      // Any non-2xx means "keep what you have": a missing server secret must
+      // not switch off a working search on an installed build.
       if (response.statusCode < 200 || response.statusCode >= 300) {
         dev.log(
           'search-key antwortete ${response.statusCode}',
@@ -228,25 +212,23 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
       final trimmedBaseUrl = baseUrl.trim();
       final trimmedKey = searchKey.trim();
 
-      // Beide Felder leer = Kill-Switch der Function. Der muss VOR dem
-      // https-Zwang stehen: eine leere URL ist nicht `https`, der Zwang
-      // machte aus der Abschaltung sonst ein `null` — und `null` heisst
-      // „behalte, was du hast". Genau daran scheiterte der Kill-Switch
-      // vorher still: Log sagte „disabled", jedes Geraet suchte weiter.
+      // Both fields empty = the function's kill switch. Must come BEFORE the
+      // https check: an empty URL is not `https`, so the check would turn the
+      // shutdown into `null`, which means "keep what you have".
       if (trimmedBaseUrl.isEmpty && trimmedKey.isEmpty) {
         dev.log('search-key meldet Kill-Switch — Mirror wird abgeschaltet',
             name: 'search_credentials');
         return FetchedSearchCredentials(baseUrl: '', searchKey: '', ttl: ttl);
       }
-      // Nur EINES der beiden Felder leer ist kein Kill-Switch, sondern ein
-      // kaputter Server (halbes Secret-Update). Bestand behalten.
+      // Only one field empty is not a kill switch but a broken server (half
+      // a secret update). Keep what is there.
       if (trimmedBaseUrl.isEmpty || trimmedKey.isEmpty) {
         dev.log('search-key lieferte halb leere Credentials — verworfen',
             name: 'search_credentials');
         return null;
       }
-      // Ein non-https-Mirror aus der Server-Antwort wird gar nicht erst
-      // uebernommen (kein Klartext-Key-Versand, kein Wegschreiben auf Platte).
+      // A non-https mirror is never adopted: no plaintext key on the wire,
+      // nothing written to disk.
       if (!SearchCredentials.isSecureBaseUrl(trimmedBaseUrl)) {
         dev.log('search-key lieferte non-https mirrorBaseUrl — verworfen',
             name: 'search_credentials');
@@ -272,23 +254,20 @@ class EdgeFunctionSearchKeyFetcher extends SearchKeyFetcher {
   }
 }
 
-/// Laufzeit-Aufloesung der Mirror-Zugangsdaten.
+/// Runtime resolution of the mirror credentials.
 ///
-/// Kette: **Cache -> Fetch -> Compile-Time-Default -> Mirror aus.** Die Suche
-/// darf NIE hart scheitern, nur weil der Key-Endpunkt nicht erreichbar ist —
-/// im schlimmsten Fall landet sie im OpenFoodFacts-Fallback.
+/// Chain: **cache -> fetch -> compile-time default -> mirror off.** The
+/// search must never hard-fail just because the key endpoint is unreachable;
+/// worst case it lands in the OpenFoodFacts fallback.
 ///
-/// Drei Eigenschaften tragen den ganzen Entwurf:
+/// Three properties carry the design:
 ///
-///  * [current] ist **synchron und blockiert nie** — der Konstruktionspfad
-///    des Food-Tabs laeuft bei jedem `notifyListeners()` erneut durch und
-///    vertraegt weder `await` noch einen SharedPreferences-Zugriff.
-///  * [resolveForRequest] wartet ausschliesslich auf die laufende
-///    PLATTEN-Hydration (max. [_hydrationGrace]) — nie aufs Netz. Die
-///    eigentliche Suche startet ohnehin erst ~1 s nach dem ersten Tastendruck
-///    (Debounce im Add-Sheet), der Warmlauf hat also reichlich Vorsprung.
-///  * [invalidate] ist der echte Rotations-Mechanismus (401/403 vom Mirror),
-///    single-flight und mit Cooldown.
+///  * [current] is synchronous and never blocks — the Food tab's build path
+///    reruns on every `notifyListeners()` and tolerates no `await`.
+///  * [resolveForRequest] waits only on the running DISK hydration (capped by
+///    [_hydrationGrace]), never on the network.
+///  * [invalidate] is the real rotation mechanism (401/403 from the mirror),
+///    single-flight and with a cooldown.
 class SearchCredentialsStore {
   SearchCredentialsStore({
     KeyValueStore? store,
@@ -300,35 +279,30 @@ class SearchCredentialsStore {
        _clock = clock ?? DateTime.now,
        _hydrationGrace = hydrationGrace;
 
-  /// Prozessweiter Singleton. Die Konstruktion ist reine Allokation —
-  /// kein Plugin-Channel, kein `Supabase.instance`, kein I/O.
+  /// Process-wide singleton. Construction is pure allocation: no plugin
+  /// channel, no `Supabase.instance`, no I/O.
   static SearchCredentialsStore get instance =>
       _instance ??= SearchCredentialsStore();
   static SearchCredentialsStore? _instance;
 
-  /// Persistenz-Slot. BEWUSST OHNE User-Suffix:
-  ///
-  ///  * Der Search-only-Key ist geraete-globale Konfiguration, keine PII —
-  ///    er sagt nichts ueber den Nutzer aus.
-  ///  * `LocalCache.clear()` raeumt beim Sign-out alle User-Slots; laege der
-  ///    Key dort mit drin, wuerfe jeder Logout einen funktionierenden Key
-  ///    weg und der naechste Login muesste ihn neu holen.
+  /// Persistence slot, deliberately without a user suffix: the search-only
+  /// key is device-global config, not PII, and `LocalCache.clear()` would
+  /// throw a working key away on every sign-out.
   static const String cacheKey = 'eatova.v1.search_credentials';
 
-  /// TTL-Grenzen. Ein Server, der Unsinn liefert (0 s -> Fetch-Sturm,
-  /// 10 Jahre -> nie wieder Rotation), wird hier eingefangen.
+  /// TTL bounds, catching a server that sends nonsense (0 s -> fetch storm,
+  /// 10 years -> never rotates again).
   static const Duration minTtl = Duration(hours: 1);
   static const Duration maxTtl = Duration(days: 7);
 
-  /// Zeitbudget des 403-Pfads: die Suche wartet bereits auf ein Ergebnis,
-  /// laenger als ~3 s lohnt der Umweg nicht — dann lieber OpenFoodFacts.
+  /// Time budget of the 403 path: the search is already waiting, so beyond
+  /// ~3 s the detour is not worth it and OpenFoodFacts wins.
   static const Duration _invalidateBudget = Duration(seconds: 3);
 
-  /// PFLICHT, nicht Kosmetik: das Add-Sheet wiederholt eine Suche bis zu 3x
-  /// (600 ms Abstand) und der 1000-ms-Debounce feuert pro Tipp-Pause eine
-  /// neue Suche. Ohne Cooldown wuerde ein Mirror, der aus einem ganz anderen
-  /// Grund 403 liefert, pro Tastendruck-Salve eine Edge-Function-Anfrage
-  /// ausloesen und das 20/h-Limit in Sekunden verbrennen.
+  /// Mandatory, not cosmetic: the add sheet retries a search up to 3x and the
+  /// 1000 ms debounce fires one per typing pause. Without a cooldown a mirror
+  /// returning 403 for unrelated reasons would burn the 20/h edge-function
+  /// limit in seconds.
   static const Duration _invalidateCooldown = Duration(minutes: 1);
 
   final KeyValueStore? _injectedStore;
@@ -345,18 +319,17 @@ class SearchCredentialsStore {
   Future<SearchCredentials>? _invalidateInFlight;
   DateTime? _lastInvalidateAt;
 
-  /// Zaehlt jede Invalidierung. Ein Hintergrund-Refresh, der VOR einer
-  /// Rotation losgeschickt wurde, darf den frisch geholten Key nicht mit
-  /// seinem (dann veralteten) Ergebnis ueberschreiben.
+  /// Counts every invalidation, so a background refresh started BEFORE a
+  /// rotation cannot overwrite the fresh key with its stale result.
   int _generation = 0;
 
-  /// Synchron, nie null, blockiert nie. Vor der Hydration (und wenn nichts
-  /// zwischengespeichert ist) der Compile-Time-Default.
+  /// Synchronous, never null, never blocks. Before hydration (and with
+  /// nothing cached) the compile-time default.
   SearchCredentials get current =>
       _memory ?? SearchCredentials.compileTimeDefault;
 
-  /// Idempotenter Warmlauf: Platte lesen, danach bei Bedarf das Netz.
-  /// Fire-and-forget — wirft nie, blockiert keinen UI-Pfad.
+  /// Idempotent warm-up: read disk, then the network if needed.
+  /// Fire-and-forget — never throws, never blocks a UI path.
   Future<void> warmUp() {
     final existing = _warmUp;
     if (existing != null) return existing;
@@ -365,41 +338,39 @@ class SearchCredentialsStore {
     return started;
   }
 
-  /// Was der naechste Such-Request benutzen soll. Wartet NUR auf die
-  /// laufende Platten-Hydration (gedeckelt), NIE aufs Netz.
+  /// What the next search request should use. Waits only on the running disk
+  /// hydration (capped), never on the network.
   Future<SearchCredentials> resolveForRequest() async {
-    // Startet die Hydration notfalls selbst — wir laufen hier im async
-    // Such-Pfad, nicht im Widget-Konstruktor. Ohne das waere die Suche auf
-    // den Warmlauf angewiesen, um den Cache ueberhaupt zu sehen.
+    // Starts the hydration itself if needed — this runs on the async search
+    // path, so the search does not depend on the warm-up to see the cache.
     final hydration = _hydrateFromDisk();
     try {
       await hydration.timeout(_hydrationGrace);
     } catch (_) {
-      // Platte zu langsam/kaputt -> mit dem weitermachen, was da ist.
+      // Disk too slow or broken -> carry on with what is there.
     }
     return current;
   }
 
-  /// Der Mirror hat [rejected] mit 401/403 abgelehnt. Wirft den Key aus
-  /// Speicher UND Platte und holt Ersatz. Liefert die neuen Credentials
-  /// (oder unbrauchbare, wenn es keinen Ersatz gibt). Wirft nie.
+  /// The mirror rejected [rejected] with 401/403. Evicts the key from memory
+  /// AND disk and fetches a replacement. Returns the new credentials (or
+  /// unusable ones if there is no replacement). Never throws.
   Future<SearchCredentials> invalidate(SearchCredentials rejected) async {
     try {
-      // 1. Single-flight: laeuft bereits eine Invalidierung, deren Ergebnis
-      //    teilen statt eine zweite Edge-Function-Anfrage zu feuern.
+      // 1. Single-flight: share a running invalidation's result instead of
+      //    firing a second edge-function request.
       //
-      //    MUSS vor der Stale-Pruefung stehen: eine laufende Invalidierung
-      //    hat `_memory` bereits geleert, ein paralleler Aufrufer wuerde
-      //    sonst faelschlich „schon rotiert" sehen und leere Credentials
-      //    zurueckbekommen, statt auf den neuen Key zu warten.
+      //    Must come before the stale check: a running invalidation already
+      //    cleared `_memory`, so a parallel caller would wrongly see "already
+      //    rotated" and get empty credentials.
       final inFlight = _invalidateInFlight;
       if (inFlight != null) return await inFlight;
 
-      // 2. Schon rotiert? Dann war ein anderer Aufrufer schneller — der
-      //    Retry soll den neuen Key nehmen, ohne irgendetwas zu holen.
+      // 2. Already rotated? Another caller was faster; the retry takes the
+      //    new key without fetching anything.
       if (!_isCurrent(rejected)) return current;
 
-      // 3. Cooldown (siehe [_invalidateCooldown]).
+      // 3. Cooldown (see [_invalidateCooldown]).
       final last = _lastInvalidateAt;
       if (last != null &&
           _clock().difference(last) < _invalidateCooldown) {
@@ -416,9 +387,9 @@ class SearchCredentialsStore {
         _invalidateInFlight = null;
       }
 
-      // Einmal loggen, wenn die Rotation wirklich griff. Ohne diese Zeile
-      // waere eine kaputte Rotation unsichtbar: der FallbackProductService
-      // liefert in beiden Faellen plausible OFF-Treffer.
+      // Log once when the rotation actually took, otherwise a broken
+      // rotation is invisible: FallbackProductService returns plausible OFF
+      // hits either way.
       if (replacement.isUsable && replacement.searchKey != rejected.searchKey) {
         dev.log(
           'Such-Key rotiert (${replacement.source.name}, '
@@ -438,14 +409,13 @@ class SearchCredentialsStore {
     }
   }
 
-  // --- intern ---------------------------------------------------------------
+  // --- internal -------------------------------------------------------------
 
   Future<void> _warmUpInternal() async {
     try {
       await _hydrateFromDisk();
-      // Abgelaufene Eintraege werden trotzdem BENUTZT (oben schon in
-      // `_memory`) und hier nur im Hintergrund erneuert — wer eine Woche
-      // offline war, sucht weiter.
+      // Expired entries are still USED (already in `_memory`) and only
+      // refreshed in the background, so a week offline still searches.
       final entry = _diskEntry;
       if (entry == null || entry.isExpired(_clock())) {
         await _refresh();
@@ -460,8 +430,8 @@ class SearchCredentialsStore {
     }
   }
 
-  /// Single-flight-Hintergrund-Refresh. Ein Fehlschlag laesst alles, wie es
-  /// ist — insbesondere bleibt ein abgelaufener Cache-Eintrag in Benutzung.
+  /// Single-flight background refresh. A failure changes nothing; an expired
+  /// cache entry in particular stays in use.
   Future<SearchCredentials> _refresh() {
     final inFlight = _refreshInFlight;
     if (inFlight != null) return inFlight;
@@ -473,15 +443,15 @@ class SearchCredentialsStore {
   Future<SearchCredentials> _fetchAndAdopt() async {
     final generation = _generation;
     final fetched = await _fetcher.fetch();
-    // Waehrend des Fetches wurde rotiert -> das hier ist der alte Stand.
+    // A rotation happened during the fetch -> this result is stale.
     if (fetched == null || generation != _generation) return current;
     return _adopt(fetched);
   }
 
   Future<SearchCredentials> _dropAndRefetch(SearchCredentials rejected) async {
     _generation++;
-    // Toten Key ZUERST aus Speicher und Platte werfen. Ein Absturz mitten im
-    // Refetch darf ihn nicht wieder auferstehen lassen.
+    // Evict the dead key from memory and disk FIRST: a crash mid-refetch
+    // must not resurrect it.
     _memory = SearchCredentials.disabled;
     _diskEntry = null;
     await _removeFromDisk();
@@ -489,25 +459,23 @@ class SearchCredentialsStore {
     final fetched = await _fetcher.fetch(budget: _invalidateBudget);
     if (fetched != null) return _adopt(fetched);
 
-    // Kein Ersatz erreichbar. Der Compile-Time-Default ist nur dann noch
-    // eine Option, wenn er nicht SELBST der abgelehnte Key ist — sonst
-    // waere der Retry garantiert wieder ein 403.
+    // No replacement reachable. The compile-time default is only an option
+    // if it is not itself the rejected key — otherwise the retry is a
+    // guaranteed 403.
     const fallback = SearchCredentials.compileTimeDefault;
     if (fallback.isUsable && fallback.searchKey != rejected.searchKey) {
       _memory = fallback;
       return fallback;
     }
 
-    // Bewusst unbrauchbar lassen: die naechste Suche ueberspringt den Mirror
-    // dann ohne eine einzige sinnlose Netz-Anfrage. Der naechste App-Start
-    // holt via [warmUp] wieder frische Credentials.
+    // Deliberately left unusable: the next search skips the mirror without a
+    // pointless request, and the next app start refetches via [warmUp].
     return current;
   }
 
   Future<SearchCredentials> _adopt(FetchedSearchCredentials fetched) async {
-    // Der Kill-Switch wird wie jede andere Antwort uebernommen — auch auf die
-    // Platte: erst das Ueberschreiben des Slots nimmt dem alten Key seine
-    // letzte Bleibe. Nur die Herkunft ist eine andere.
+    // The kill switch is adopted like any other response, disk included:
+    // only overwriting the slot takes the old key's last home.
     final credentials = fetched.isKillSwitch
         ? SearchCredentials.disabled
         : SearchCredentials(
@@ -548,14 +516,14 @@ class SearchCredentialsStore {
       if (raw == null || raw.isEmpty) return;
       final entry = _CachedEntry.tryParse(raw);
       if (entry == null) {
-        // Korrupt/unbekanntes Schema -> wie „nicht vorhanden" behandeln und
-        // wegraeumen (gleicher defensiver Geist wie LocalCache._readJson).
+        // Corrupt or unknown schema -> treat as absent and clear it (same
+        // defensive stance as LocalCache._readJson).
         await store.remove(cacheKey);
         return;
       }
       _diskEntry = entry;
-      // Ein bereits im Speicher stehender Wert (frisch geholt oder gerade
-      // invalidiert) gewinnt IMMER gegen die Platte.
+      // A value already in memory (just fetched or just invalidated) always
+      // beats the disk.
       _memory ??= entry.credentials;
     } catch (e, st) {
       dev.log(
@@ -595,8 +563,8 @@ class SearchCredentialsStore {
     }
   }
 
-  /// Eigene [SharedPreferencesStore]-Instanz — bewusst NICHT die von
-  /// [LocalCache]: dessen `clear()` raeumt beim Sign-out alles.
+  /// Own [SharedPreferencesStore] instance, deliberately not [LocalCache]'s:
+  /// its `clear()` wipes everything on sign-out.
   Future<KeyValueStore?> _resolveStore() async {
     final injected = _injectedStore;
     if (injected != null) return injected;
@@ -617,13 +585,12 @@ class SearchCredentialsStore {
     }
   }
 
-  /// TTL auf [minTtl]..[maxTtl] begrenzen.
+  /// Clamps the TTL to [minTtl]..[maxTtl].
   ///
-  /// Die TTL ist NICHT der Rotations-Mechanismus — das ist der 403-Pfad, und
-  /// der konvergiert innerhalb einer einzigen Suche. Ihr einziger
-  /// verbliebener Job ist, einen Wechsel der Basis-URL zu verbreiten: der
-  /// erzeugt Verbindungsfehler statt 403 und kann sich deshalb nicht selbst
-  /// heilen.
+  /// The TTL is not the rotation mechanism — the 403 path is, and it
+  /// converges within one search. Its only remaining job is propagating a
+  /// base-URL change, which yields connection errors instead of 403 and so
+  /// cannot heal itself.
   static Duration clampTtl(Duration ttl) {
     if (ttl < minTtl) return minTtl;
     if (ttl > maxTtl) return maxTtl;
@@ -631,7 +598,7 @@ class SearchCredentialsStore {
   }
 }
 
-/// Persistierter Eintrag. Wire-Format:
+/// Persisted entry. Wire format:
 /// `{"base_url":..,"key":..,"fetched_at":<iso>,"ttl_seconds":<int>}`.
 class _CachedEntry {
   const _CachedEntry({
@@ -653,8 +620,8 @@ class _CachedEntry {
     'ttl_seconds': ttl.inSeconds,
   });
 
-  /// Alles Fehlende/Falsch-Getypte/Unparsbare macht den GESAMTEN Eintrag
-  /// ungueltig (null) — nie ein Crash, nie ein halb geladener Key.
+  /// Anything missing, mistyped or unparsable invalidates the WHOLE entry
+  /// (null) — never a crash, never a half-loaded key.
   static _CachedEntry? tryParse(String raw) {
     try {
       final decoded = jsonDecode(raw);
@@ -667,18 +634,13 @@ class _CachedEntry {
       if (fetchedAtRaw is! String || ttlRaw is! num) return null;
       final trimmedBaseUrl = baseUrl.trim();
       final abgeschaltet = trimmedBaseUrl.isEmpty && key.trim().isEmpty;
-      // Beide Felder leer heisst hier dasselbe wie in der Server-Antwort:
-      // Kill-Switch. Der Eintrag entsteht ausschliesslich aus [_adopt] — der
-      // Store schreibt sonst nie leer — und muss den Neustart UEBERLEBEN.
-      // Fiele er hier durch, raeumte ihn `_readFromDisk` weg und jeder
-      // Kaltstart fuehre den Mirror bis zum Ende des Fetches wieder mit dem
-      // einkompilierten [SearchConfig.fallbackMirrorSearchKey] an — also
-      // womoeglich mit genau dem Key, dessentwegen der Hebel gezogen wurde.
-      // Halb leere Eintraege bleiben ungueltig (kaputte Platte, kein Hebel):
-      // sie scheitern unveraendert am https-Zwang.
+      // Both fields empty means the same as in the server response: kill
+      // switch. Such an entry only comes from [_adopt] and must survive a
+      // restart; rejecting it here would make every cold start fall back to
+      // the compiled-in key the switch was pulled for. Half-empty entries
+      // stay invalid (broken disk, not a switch) via the https check below.
       //
-      // Ein auf Platte manipulierter (oder aus einer alten http-Version
-      // stammender) Eintrag mit non-https-Mirror ist ungueltig.
+      // A tampered or legacy-http entry with a non-https mirror is invalid.
       if (!abgeschaltet && !SearchCredentials.isSecureBaseUrl(baseUrl)) {
         return null;
       }
@@ -701,13 +663,12 @@ class _CachedEntry {
   }
 }
 
-/// Seam zwischen [MeilisearchProductService] und dem Store.
+/// Seam between [MeilisearchProductService] and the store.
 ///
-/// Existiert, damit der Service `const`-konstruierbar bleibt: die Suche
-/// braucht Laufzeit-Werte, aber ihre Default-Parameter muessen
-/// Compile-Zeit-Konstanten sein. Eine `const`-Instanz darf in ihren
-/// METHODEN sehr wohl veraenderliche Statics lesen — genau das nutzt
-/// [GlobalSearchCredentialsSource].
+/// Exists so the service stays `const`-constructible: the search needs
+/// runtime values, but its default parameters must be compile-time
+/// constants. A `const` instance may read mutable statics in its METHODS,
+/// which is what [GlobalSearchCredentialsSource] does.
 abstract class SearchCredentialsSource {
   const SearchCredentialsSource();
 
@@ -716,7 +677,7 @@ abstract class SearchCredentialsSource {
   Future<SearchCredentials> invalidate(SearchCredentials rejected);
 }
 
-/// Production-Seam: delegiert an [SearchCredentialsStore.instance].
+/// Production seam: delegates to [SearchCredentialsStore.instance].
 class GlobalSearchCredentialsSource extends SearchCredentialsSource {
   const GlobalSearchCredentialsSource();
 

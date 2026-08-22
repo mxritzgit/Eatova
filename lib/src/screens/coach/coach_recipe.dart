@@ -1,15 +1,15 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// /rezept-Vorschlag (Spec 2026-08-12): Karte in der Coach-Blase plus das
-// Bestaetigungs-Sheet. Beides ist REINE Anzeige — gespeichert wird erst in
-// `_CoachChatScreenState._addProposalToRecipes`, nachdem der Nutzer im Sheet
-// bestaetigt hat (der Coach hat keinerlei eigene Rechte).
+// Recipe proposal: card in the coach bubble plus the confirmation sheet. Both
+// are DISPLAY ONLY — saving happens in
+// `_CoachChatScreenState._addProposalToRecipes` after the user confirms; the
+// coach has no write rights of its own.
 // ---------------------------------------------------------------------------
 
-/// Vorschlagskarte im Chat: Eyebrow, Foto (oder Platzhalter), Titel,
-/// kcal/Protein-Zeile und der Hinzufuegen-Knopf. Nach dem Uebernehmen wird
-/// der Knopf zum stillen „Hinzugefuegt"-Zustand — kein Doppel-Add.
+/// Proposal card in the chat: eyebrow, photo (or placeholder), title,
+/// kcal/protein line and the add button. Once added, the button becomes a
+/// quiet "added" state — no double add.
 class _RecipeProposalCard extends StatelessWidget {
   const _RecipeProposalCard({
     required this.proposal,
@@ -47,8 +47,8 @@ class _RecipeProposalCard extends StatelessWidget {
                   )
                 : LayoutBuilder(
                     builder: (context, constraints) {
-                      // Decode auf Kartenbreite begrenzen (Muster der
-                      // User-Foto-Blase weiter oben in _MessageView).
+                      // Limit decode to card width (same pattern as the user
+                      // photo bubble in _MessageView).
                       final dpr = MediaQuery.devicePixelRatioOf(context);
                       final w = constraints.maxWidth.isFinite
                           ? constraints.maxWidth
@@ -101,9 +101,9 @@ class _RecipeProposalCard extends StatelessWidget {
   }
 }
 
-/// Bestaetigungs-Sheet („Rezept hinzufügen"): volle Vorschau — Bild, Titel,
-/// Makro-Zeile, Beschreibung, Portion/Zutaten/Zubereitung — und erst der
-/// Hinzufuegen-Knopf poppt mit `true`. Wegwischen/Abbrechen = nichts.
+/// Confirmation sheet: full preview (image, title, macro line, description,
+/// portion/ingredients/preparation). Only the add button pops `true`;
+/// dismissing or cancelling does nothing.
 class _RecipeAddSheet extends StatelessWidget {
   const _RecipeAddSheet({required this.proposal});
 
@@ -119,8 +119,8 @@ class _RecipeAddSheet extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
         child: ConstrainedBox(
-          // Deckel, damit lange Zubereitungen scrollen statt das Sheet ueber
-          // den Screen zu druecken (Muster der Session-/Info-Sheets).
+          // Cap so long preparations scroll instead of pushing the sheet past
+          // the screen (same pattern as the session/info sheets).
           constraints: BoxConstraints(
             maxHeight: MediaQuery.sizeOf(context).height * 0.78,
           ),
@@ -207,10 +207,9 @@ class _RecipeAddSheet extends StatelessWidget {
   }
 }
 
-/// Befehls-Menue ueber dem Composer (Nachtrag 2026-08-13): erscheint,
-/// sobald der Entwurf wie ein angefangener Befehl aussieht ("/", "/r", …),
-/// und vervollstaendigt per Tap. Aktuell EIN Befehl (/recipe) — die Liste
-/// waechst mit, sollte je ein zweiter dazukommen.
+/// Command menu above the composer: appears once the draft looks like a
+/// started command ("/", "/r", …) and completes it on tap. Currently one
+/// command (/recipe).
 class _CommandSuggestions extends StatelessWidget {
   const _CommandSuggestions({required this.onPick});
 
@@ -234,8 +233,8 @@ class _CommandSuggestions extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           key: const ValueKey('coach-command-recipe'),
-          // Der Befehl selbst ist bewusst NICHT lokalisiert — nur seine
-          // Beschreibung folgt der App-Sprache.
+          // The command itself is deliberately not localized; only its
+          // description follows the app language.
           onTap: () => onPick('/recipe'),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
@@ -264,9 +263,8 @@ class _CommandSuggestions extends StatelessWidget {
   }
 }
 
-/// Sektion der Sheet-Vorschau; leere Inhalte fallen komplett weg (kein
-/// Platzhalter-Rauschen — anders als die Detail-Ansicht, die fuer
-/// Bestandsrezepte immer alle Sektionen traegt).
+/// Section of the sheet preview; empty bodies are dropped entirely, unlike the
+/// detail view which always shows every section.
 class _SheetSection extends StatelessWidget {
   const _SheetSection({required this.title, required this.body});
 

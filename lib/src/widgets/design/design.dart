@@ -1,12 +1,10 @@
-/// Die gemeinsame Design-Bibliothek (Design-Refactor 2026-08).
-///
-/// Ein Import fuer alle Screens:
+/// The shared design library — one import for all screens:
 /// ```dart
 /// import '../widgets/design/design.dart';
 /// ```
 ///
-/// Die Widgets lesen Farbe ueber `context.t` ([AppTokens]) und Schrift ueber
-/// [AppType]; keiner von ihnen kennt `app_colors.dart` oder eine harte Farbe.
+/// These widgets read color via `context.t` ([AppTokens]) and type via
+/// [AppType]; none of them knows `app_colors.dart` or a hardcoded color.
 library;
 
 export 'controls.dart';

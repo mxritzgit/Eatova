@@ -7,38 +7,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
-// A1/iOS: der Sentinel-Abbruch aus Welle 1 ist auf iOS ein SACKGASSE-Zustand.
+// A1/iOS: the sentinel abort is a DEAD END on iOS. ThisDeviceOnly keychain
+// items are excluded from backups, NSUserDefaults is not, so a restore leaves
+// sentinel + EATOVA1 blobs but no DEK and `obtain()` returns null forever.
 //
-// `iosOptions` benutzt `first_unlock_this_device`. Keychain-Items mit
-// `ThisDeviceOnly` sind von iCloud- UND von verschluesselten iTunes-Backups
-// ausgeschlossen (Apple: "Keychain items ... with ThisDeviceOnly ... are not
-// included in backups"). SharedPreferences/NSUserDefaults ist NICHT
-// ausgeschlossen — das Android-Gegenstueck `data_extraction_rules.xml` hat auf
-// iOS keine Entsprechung.
-//
-// Nach einem Restore auf ein neues Geraet liegt also vor:
-//   Sentinel da + EATOVA1-Blobs da + DEK weg.
-// Der Abbruch aus Welle 1 greift, `obtain()` liefert null, `LocalCache.create`
-// liefert null — in JEDER Session, dauerhaft. Kein Cache, keine persistierte
-// Outbox, kein Offline-Tagebuch. Jede offline geloggte Mahlzeit ist ab da
-// still weg.
-//
-// Diese Datei haelt den Ausweg fest:
-//   * kein einziger EATOVA1-Slot vorhanden -> praegen ist gefahrlos, sofort.
-//   * Blobs vorhanden -> abbrechen, ABER mitzaehlen; nach
-//     [CacheKeyProvider.vanishStrikeBudget] Starts wird der DEK als endgueltig
-//     verloren behandelt: tote Ciphertexte raeumen, frisch praegen,
-//     Nutzerhinweis hinterlegen.
+// The way out held here: with no EATOVA1 slot minting is harmless; with blobs
+// present abort but count it, and after [CacheKeyProvider.vanishStrikeBudget]
+// starts treat the DEK as lost (purge, mint fresh, notify).
 
-/// Keystore, der "kein Eintrag" meldet, OHNE zu werfen.
-///
-/// Das ist exakt das Signal beider Plattformen fuer einen verlorenen DEK:
-/// iOS liefert bei `errSecItemNotFound` `value: nil` mit `errSecSuccess`
-/// (flutter_secure_storage_darwin 0.3.2, `FlutterSecureStorage.swift:466`),
-/// Android liefert bei fehlendem Key schlicht null. Jeder ECHTE Fehler landet
-/// dagegen (seit `resetOnError: false`) als PlatformException im catch-Zweig
-/// von `_bootstrap` — der Sentinel-Zweig sieht also nie einen transienten
-/// Fehler, sondern immer ein definitives "gibt es nicht".
+/// Keystore reporting "no entry" WITHOUT throwing — both platforms' signal
+/// for a lost DEK. A REAL error lands in `_bootstrap`'s catch branch instead,
+/// so this branch sees only a definitive absence.
 class _AbsentDekKeyStore implements SecureKeyStore {
   final Map<String, String> data = <String, String>{};
   int writes = 0;
@@ -56,7 +35,7 @@ class _AbsentDekKeyStore implements SecureKeyStore {
   Future<void> delete(String key) async => data.remove(key);
 }
 
-/// Probe, deren Blick auf SharedPreferences scheitert (Plugin-Fehler).
+/// Probe whose look at SharedPreferences fails (plugin error).
 class _FailingProbe implements CacheCiphertextProbe {
   @override
   Future<List<String>> encryptedKeys() async =>
@@ -74,15 +53,15 @@ final Uint8List _hardCodedDek = Uint8List.fromList(
   List<int>.generate(AesGcmCacheCipher.dekLengthBytes, (i) => (i * 7 + 11) & 0xFF),
 );
 
-/// Seed + frische Instanz. `setMockInitialValues` setzt den internen Completer
-/// zurueck, ein vorher gehaltenes [SharedPreferences] waere danach veraltet.
+/// Seed plus fresh instance: `setMockInitialValues` resets the internal
+/// completer, staling any previously held [SharedPreferences].
 Future<SharedPreferences> _seedPrefs(Map<String, Object> values) async {
   SharedPreferences.setMockInitialValues(values);
   return SharedPreferences.getInstance();
 }
 
-/// Ein neuer App-Start: die Memoisierung UND der Pro-Prozess-Strike-Zaehler
-/// sind weg, SharedPreferences (Sentinel, Strikes, Blobs) ueberlebt.
+/// A new app start: memoisation and the per-process strike are gone,
+/// SharedPreferences survives.
 void _restartApp() => CacheKeyProvider.debugReset();
 
 void main() {
@@ -103,8 +82,7 @@ void main() {
         '(der Abbruchgrund existiert nicht)', () async {
       await _seedPrefs(<String, Object>{
         CacheKeyProvider.dekProvisionedKey: true,
-        // Klartext aus einer Alt-Installation — kein Grund abzubrechen, der
-        // migriert unter JEDEM DEK sauber.
+        // Plaintext from an old install migrates cleanly under ANY DEK.
         'eatova.v1.profile.user-1': '{"weight_kg":82}',
       });
       final keyStore = _AbsentDekKeyStore();
@@ -160,8 +138,7 @@ void main() {
       });
       final keyStore = _AbsentDekKeyStore();
 
-      // `obtain` merkt sich einen gescheiterten Bootstrap NICHT — der zweite
-      // Aufruf im selben Prozess laeuft also wirklich noch einmal durch.
+      // `obtain` does not memoise a failed bootstrap, so this really reruns.
       expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNull);
       expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNull);
       expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNull);
@@ -332,13 +309,13 @@ void main() {
       }
       _restartApp();
       await CacheKeyProvider.obtain(keyStore: keyStore);
-      // capture() laeuft unawaited.
+      // capture() runs unawaited.
       await Future<void>.delayed(Duration.zero);
 
       expect(contexts.where((c) => c == 'cache_dek_vanished'),
           hasLength(CacheKeyProvider.vanishStrikeBudget - 1));
       expect(contexts.where((c) => c == 'cache_dek_given_up'), hasLength(1));
-      // Kein Ciphertext, kein Slot-Wert im Report.
+      // No ciphertext, no slot value in the report.
       for (final e in errors) {
         expect(e.toString(), isNot(contains(_deadBlob)));
       }

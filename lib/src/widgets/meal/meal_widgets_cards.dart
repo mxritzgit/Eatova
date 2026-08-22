@@ -73,24 +73,13 @@ class _MealLoadingCardState extends State<MealLoadingCard>
   late final AnimationController _progress;
   int _stepIndex = 0;
 
-  /// Roughly how long a vision-model analysis takes in practice. The progress
-  /// bar fills linearly over this duration once and then stops — if the
-  /// network call is still pending after that we just stay on the last stage
-  /// (no looping back to 1/4).
-  ///
-  /// BEWUSST NICHT ueber `motionDuration`: das hier ist die Rueckmeldung
-  /// waehrend der Analyse, keine Deko. Auf `Duration.zero` gesetzt saesse der
-  /// Balken ab dem ersten Frame bei 95 % und die Stufe stuende dauerhaft auf
-  /// „Letzter Feinschliff...", waehrend das Netz noch laeuft — der Nutzer
-  /// haette dann GAR keine Rueckmeldung mehr. Nur die Text-Ueberblendung der
-  /// Stufen (AnimatedSwitcher unten) ist Deko und kollabiert.
+  /// Roughly how long a vision-model analysis takes; the bar fills once and
+  /// stops. DELIBERATELY NOT via `motionDuration`: this is feedback, not
+  /// decoration, and `Duration.zero` would pin it at 95 % from frame one.
   static const Duration _estimatedDuration = Duration(seconds: 7);
 
-  /// Seit der i18n-Migration (Paket 2, 2026-08-10) keine `static const`
-  /// Liste mehr — die ARB-Texte brauchen ein [AppLocalizations], das erst zur
-  /// Laufzeit vorliegt. `_stageCount` haelt die feste Laenge weiterhin ohne
-  /// `context`-Zugriff verfuegbar (fuer [_handleTick], das ausserhalb von
-  /// `build` laeuft).
+  /// The stage list needs a runtime [AppLocalizations], so this keeps the
+  /// fixed length reachable from [_handleTick], which runs outside `build`.
   static const int _stageCount = 4;
 
   List<(IconData, String)> _stages(AppLocalizations l10n) => [
@@ -197,9 +186,8 @@ class _MealLoadingCardState extends State<MealLoadingCard>
             child: AnimatedBuilder(
               animation: _progress,
               builder: (context, _) => LinearProgressIndicator(
-                // Cap the visible progress at 95 % so a long-running call
-                // doesn't sit at "100 %" and feel stuck. Once it actually
-                // finishes the parent removes the card.
+                // Cap visible progress at 95 % so a long call doesn't look
+                // stuck at 100 %; the parent removes the card when it finishes.
                 value: (_progress.value * 0.95).clamp(0.0, 0.95),
                 minHeight: 3,
                 backgroundColor: t.tile,

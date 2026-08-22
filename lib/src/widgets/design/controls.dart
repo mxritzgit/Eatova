@@ -4,19 +4,17 @@ import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 
 // ---------------------------------------------------------------------------
-// BEDIENELEMENTE — Icon-Knopf, Icon-Kachel, Schalter, Segment-Pille,
-// Filter-Chip, Primaeraktion, Navigationsleiste.
+// CONTROLS — icon button, icon tile, toggle, segmented pill, filter chip,
+// primary action, nav bar.
 //
-// Material traegt Verhalten und Semantik (InkWell, Semantics), die Tokens
-// tragen die Pixel. Geometrie 1:1 aus der Design-Vorlage.
+// Material carries behavior and semantics, the tokens carry the pixels.
 //
-// A11y-Regel fuer diese Datei (DESIGN_REFACTOR §5): jede Dauer laeuft durch
-// [motionDuration]. Eine fest verdrahtete `Duration` ignoriert den System-
-// Schalter „Bewegung reduzieren" — und diese Bausteine stehen auf JEDEM
-// Screen, der Schalter waere damit praktisch wirkungslos.
+// A11y rule for this file (DESIGN_REFACTOR §5): every duration goes through
+// [motionDuration]. A hardcoded `Duration` ignores "reduce motion", and these
+// blocks appear on EVERY screen.
 // ---------------------------------------------------------------------------
 
-/// Quadratischer 34er-Knopf mit Rand — Zurueck, Schliessen, Menue.
+/// Square 34 px bordered button — back, close, menu.
 class SquareIconButton extends StatelessWidget {
   const SquareIconButton({
     super.key,
@@ -32,11 +30,8 @@ class SquareIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Sichtbar bleiben die 34 px des Entwurfs — tippbar sind 44 px.
-    // Die Vorlage macht die ganze Kachel zur Trefferflaeche und landet damit
-    // unter der 44-px-Mindestgroesse, die fuer jeden Zurueck-Knopf und jedes
-    // Kopfzeilen-Icon der App gilt. Der Zuwachs ist transparent: er liegt
-    // ausserhalb der gezeichneten Flaeche.
+    // 34 px visible, 44 px tappable — the extra hit area is transparent and
+    // sits outside the drawn surface.
     return Semantics(
       button: true,
       enabled: onTap != null,
@@ -68,7 +63,7 @@ class SquareIconButton extends StatelessWidget {
   }
 }
 
-/// Schwach getoente Kachel hinter einem Icon (Listenzeilen, Statistiken).
+/// Faintly tinted tile behind an icon (list rows, stats).
 class IconTile extends StatelessWidget {
   const IconTile({super.key, required this.icon, this.color, this.size = 34});
 
@@ -86,12 +81,9 @@ class IconTile extends StatelessWidget {
         color: color == null ? t.tile : color!.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(11),
       ),
-      // Nicht die volle Kategoriefarbe: der Glyph saesse dann auf seiner
-      // EIGENEN 15-%-Tint und traegt im Hell-Modus rund 2.2:1. Genau dafuer
-      // ist [AppTokens.readableOnTint] gebaut — [MealAvatar] und
-      // [SlotSelector] fahren dieselbe Korrektur, diese Kachel war die letzte
-      // Stelle ohne. Ohne Farbe liegt der Glyph auf `tile` (fast farblos) und
-      // bleibt `ink`.
+      // Not the full category color: the glyph would sit on its OWN 15 % tint
+      // at ~2.2:1 in light mode — that is what [AppTokens.readableOnTint] is
+      // for. Without a color the glyph sits on `tile` and stays `ink`.
       child: Icon(
         icon,
         size: 16,
@@ -101,7 +93,7 @@ class IconTile extends StatelessWidget {
   }
 }
 
-/// Der Schalter der neuen Sprache: Kapsel mit wanderndem Knauf.
+/// The app's toggle: capsule with a travelling knob.
 class AppToggle extends StatelessWidget {
   const AppToggle({
     super.key,
@@ -114,9 +106,8 @@ class AppToggle extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
 
-  /// Gesperrter Schalter (Settings-Sheet zeigt Schalter, die an eine noch
-  /// fehlende Berechtigung gebunden sind): gedaempft und taub. Bewusst kein
-  /// `onChanged: null`, damit der Aufrufer den Callback behalten kann.
+  /// Locked toggle (e.g. bound to a missing permission): dimmed and deaf.
+  /// Deliberately not `onChanged: null`, so the caller keeps its callback.
   final bool enabled;
 
   final String? semanticLabel;
@@ -132,17 +123,13 @@ class AppToggle extends StatelessWidget {
       child: Opacity(
         opacity: enabled ? 1 : 0.45,
         child: GestureDetector(
-          // Opak, damit der durchsichtige Saum der Trefferflaeche wirklich
-          // traegt — mit dem Standard `deferToChild` endete das Ziel exakt an
-          // der gezeichneten Kapsel.
+          // Opaque so the transparent hit-area margin actually works; the
+          // default `deferToChild` ends the target at the drawn capsule.
           behavior: HitTestBehavior.opaque,
           onTap: enabled ? () => onChanged(!value) : null,
-          // Sichtbar bleiben die 46x27 des Entwurfs — tippbar sind 44 px hoch,
-          // dieselbe Untergrenze, die [SquareIconButton] weiter oben schon
-          // haelt. Die Kapsel haengt als `trailing` in Einstellungszeilen und
-          // war dort mit 27 px das kleinste Ziel der ganzen Seite. Die Zeile
-          // waechst dadurch mit; das ist der Preis, und er faellt nur dort an,
-          // wo wirklich ein Schalter steht.
+          // 46x27 visible, 44 px tall tappable — same floor as
+          // [SquareIconButton]. The settings row grows with it; that is the
+          // price, and only where a toggle actually sits.
           child: SizedBox(
             width: 46,
             height: 44,
@@ -181,7 +168,7 @@ class AppToggle extends StatelessWidget {
   }
 }
 
-/// Zwei bis drei sich ausschliessende Kurzoptionen (kg/lb, Woche/Monat).
+/// Two or three mutually exclusive short options (kg/lb, week/month).
 class SegmentedPill extends StatelessWidget {
   const SegmentedPill({
     super.key,
@@ -204,17 +191,15 @@ class SegmentedPill extends StatelessWidget {
         color: t.tile,
         borderRadius: BorderRadius.circular(9),
       ),
-      // Abweichung von der Vorlage: dort steht hier eine Row. Ein Wrap sieht
-      // bei normaler Schrift identisch aus, bricht bei textScaler 2.0 aber in
-      // eine zweite Zeile um, statt die Zeile zu sprengen.
+      // Wrap instead of Row: identical at normal font size, but wraps at
+      // textScaler 2.0 instead of overflowing.
       child: Wrap(
         spacing: 0,
         runSpacing: 3,
         children: <Widget>[
           for (final option in options)
-            // Wie [FilterChipPill]: ein blanker GestureDetector traegt weder
-            // `isButton` noch die Auswahl. Der Klon in den Einstellungen
-            // (SettingsThemeModePill) tut das schon — hier fehlte es.
+            // Like [FilterChipPill]: a bare GestureDetector carries neither
+            // `isButton` nor the selection.
             Semantics(
               button: true,
               selected: option == selected,
@@ -245,7 +230,7 @@ class SegmentedPill extends StatelessWidget {
   }
 }
 
-/// Rechteckige Filter-Pille fuer waagerechte Chip-Leisten.
+/// Rectangular filter pill for horizontal chip bars.
 class FilterChipPill extends StatelessWidget {
   const FilterChipPill({
     super.key,
@@ -261,10 +246,8 @@ class FilterChipPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Die Auswahl steckt allein in Fuell- und Schriftfarbe. Ohne `selected`
-    // im Semantik-Baum kann ein Screenreader-Nutzer in der Filterleiste der
-    // Rezepte nicht feststellen, welcher Filter gerade greift — dieselbe
-    // Zusicherung, die [AppNavBar] fuer die Tabs schon traegt.
+    // Selection is carried by fill and text color alone; without `selected` in
+    // the semantics tree a screen reader cannot tell which filter is active.
     return Semantics(
       button: true,
       selected: selected,
@@ -295,11 +278,10 @@ class FilterChipPill extends StatelessWidget {
   }
 }
 
-/// Die breite Hauptaktion am Fuss eines Screens („Essen eintragen").
+/// The wide primary action at the foot of a screen.
 ///
-/// Die Beschriftung nimmt [AppTokens.bg]: `ink` und `bg` sind in beiden Modi
-/// die Gegenpole zueinander, und auch auf `danger` (hell im Dunkelmodus,
-/// dunkel im Hellmodus) traegt `bg` deshalb immer den lesbaren Kontrast.
+/// The label uses [AppTokens.bg]: `ink` and `bg` are opposites in both modes,
+/// and on `danger` too `bg` always keeps readable contrast.
 class PrimaryActionButton extends StatelessWidget {
   const PrimaryActionButton({
     super.key,
@@ -320,13 +302,10 @@ class PrimaryActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final fill = destructive ? t.danger : t.ink;
-    // Ein blankes InkWell traegt WEDER `isButton` NOCH einen Enabled-Zustand:
-    // ein Screenreader kuendigte die Hauptaktion jedes Screens nur als Text
-    // an, und ein gesperrtes „Speichern" klang wie ein normaler Knopf, der
-    // nichts tut. Onboarding (onboarding_screen.dart:315) und Einstellungen
-    // (settings_screen.dart:564) hatten beide dieselbe Huelle lokal
-    // nachgebaut und in ihren Berichten hierher verwiesen — jetzt steht sie
-    // an EINER Stelle. `onTap == null` ist app-weit die Sperr-Konvention.
+    // A bare InkWell carries neither `isButton` nor an enabled state, so a
+    // screen reader would announce the primary action as plain text and a
+    // disabled one as a button that does nothing. `onTap == null` is the
+    // app-wide disabled convention.
     return Semantics(
       button: true,
       enabled: onTap != null,
@@ -338,8 +317,8 @@ class PrimaryActionButton extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
           child: ConstrainedBox(
-            // Abweichung von der Vorlage (SizedBox(height: 54)): bei
-            // textScaler 2.0 waere die Beschriftung hoeher als der Knopf.
+            // Min height, not a fixed one: at textScaler 2.0 the label would
+            // be taller than the button.
             constraints: BoxConstraints(minHeight: height),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -368,7 +347,7 @@ class PrimaryActionButton extends StatelessWidget {
   }
 }
 
-/// Ein Eintrag der [AppNavBar].
+/// One entry of the [AppNavBar].
 @immutable
 class AppNavItem {
   const AppNavItem({
@@ -381,15 +360,15 @@ class AppNavItem {
   final IconData icon;
   final IconData activeIcon;
 
-  /// Das sichtbare Label — laeuft ueber die ARB und wird uebersetzt.
+  /// The visible label — comes from the ARB and is translated.
   final String label;
 
-  /// Traegt den Testschluessel (`ValueKey('nav-$keyId')`). Bleibt DEUTSCH,
-  /// auch wenn [label] uebersetzt wird — Keys sind API (DESIGN_REFACTOR §6).
+  /// Carries the test key (`ValueKey('nav-$keyId')`). Stays GERMAN even when
+  /// [label] is translated — keys are API (DESIGN_REFACTOR §6).
   final String keyId;
 }
 
-/// Die untere Navigationsleiste — Lime-Kapsel um das aktive Icon.
+/// The bottom nav bar — lime capsule around the active icon.
 class AppNavBar extends StatelessWidget {
   const AppNavBar({
     super.key,
@@ -406,9 +385,7 @@ class AppNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final bottomInset = MediaQuery.of(context).padding.bottom;
-    // Die Vorgaengerleiste (widgets/app_shell/eatova_bottom_nav.dart:74) lief
-    // schon durch motionDuration — beim Umzug auf diese Leiste ging das
-    // verloren.
+    // Reduce-motion aware, like the predecessor bar.
     final motion = motionDuration(context, const Duration(milliseconds: 180));
 
     return Container(
@@ -416,12 +393,9 @@ class AppNavBar extends StatelessWidget {
         color: t.surf.withValues(alpha: 0.94),
         border: Border(top: BorderSide(color: t.line)),
       ),
-      // Flacher als die Vorlage (Nutzer-Wunsch 2026-08-10): dort summierten
-      // sich 10/10-Aussenpolsterung, 4er-Innenpolsterung, eine 30 px hohe
-      // Icon-Kapsel und 5 px Abstand zur Beschriftung auf ~76 px. Die Leiste
-      // liegt auf JEDEM Screen und nimmt diese Hoehe dem Inhalt weg. Die
-      // Trefferflaeche bleibt dabei ueber 44 px — das ist die Untergrenze,
-      // unter die diese Kuerzung nicht gehen darf.
+      // Flatter than the draft (~76 px): the bar sits on EVERY screen and takes
+      // that height from the content. The hit area stays above 44 px — the
+      // floor this shortening must not cross.
       padding: EdgeInsets.fromLTRB(10, 6, 10, 6 + bottomInset),
       child: Row(
         children: List<Widget>.generate(items.length, (i) {
@@ -459,13 +433,10 @@ class AppNavBar extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 3),
-                      // Die Beschriftung steht schon als Semantics-Label am
-                      // Item; ohne ExcludeSemantics liest der Screenreader
-                      // „Rezepte Rezepte".
-                      //
-                      // Abweichung von der Vorlage: harte Einzeiligkeit. Bei
-                      // textScaler 2.0 passt „Rezepte" sonst nicht mehr in
-                      // ein Drittel der Leiste.
+                      // The label is already the item's Semantics label;
+                      // without ExcludeSemantics it would be read twice.
+                      // Hard single line: at textScaler 2.0 it would not fit
+                      // into a third of the bar.
                       ExcludeSemantics(
                         child: Text(
                           item.label,

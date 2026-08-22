@@ -4,32 +4,26 @@ import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 
-// B2 (docs/REVIEW-2026-08-08.md): Das Tagesziel wird geklemmt, `paceLabel`
-// und `weeksToGoal` rechneten aber weiter mit dem UNGEKAPPTEN `kcalDelta` des
-// Ziels. Ergebnis: Die App verspricht ein Tempo, das ihr eigenes Tagesziel
-// nicht hergibt.
+// B2: the daily target is clamped, but `paceLabel` and `weeksToGoal` used to
+// keep computing from the uncapped goal delta, so the app promised a pace its
+// own target could not deliver. This file pins the *effective* rate: every
+// number derives from (kcal − maintenance), not from the wanted delta.
 //
-// Diese Datei sichert die *effektive* Rate ab: alles wird aus
-// (kcal − Erhaltung) hergeleitet, nicht aus dem Wunsch-Delta.
-//
-// Kalorien-Review 2026-08-21 (docs/REVIEW-KCAL-2026-08-21.md): Die Klemme
-// ist jetzt geschlechtsabhaengig (1200 w / 1500 m / 1350 neutral), davor
-// greift ein 1-%-Defizitdeckel (kg × 11 kcal/Tag), und die PAL-Leiter
-// beginnt bei 1,4. Das Standardprofil (78 kg, neutral) laeuft deshalb nicht
-// mehr in die Untergrenze — dafuer jetzt in den Deckel; die Klemmen-Faelle
-// tragen ein kleineres weibliches Profil.
+// Since the calorie review the floor is sex-dependent (1200 f / 1500 m / 1350
+// neutral) and a 1 % deficit cap (kg × 11 kcal/day) applies first. The default
+// profile therefore hits the cap, not the floor, so the clamp cases use a
+// smaller female profile.
 
 void main() {
   const calc = KcalCalculator();
 
-  // Standardprofil: 78 kg / 178 cm / 30 J. / neutral / sitzend.
-  // BMR 1664,5 · Erhaltung 2164 (×1,3, ohne Gehen) · Deckel 825 kcal/Tag
-  // (1 % = 858, auf 0,05 kg/Woche = 0,75 abgerundet).
+  // Default profile: 78 kg / 178 cm / 30 y / neutral / sedentary.
+  // BMR 1664.5 · maintenance 2164 (×1.3) · cap 825 kcal/day (1 % = 858,
+  // rounded down to the 0.05 kg/week grid).
   const standard = UserProfile();
 
-  // Kleineres weibliches Profil: 55 kg / 160 cm / 35 J. / weiblich / sitzend.
-  // BMR 1214 · Erhaltung 1578 (×1,3) · Deckel 605 kcal/Tag (1 % = 0,55
-  // kg/Woche).
+  // Smaller female profile: 55 kg / 160 cm / 35 y / female / sedentary.
+  // BMR 1214 · maintenance 1578 (×1.3) · cap 605 kcal/day.
   const frau = UserProfile(
     weightKg: 55,
     heightCm: 160,
@@ -43,10 +37,10 @@ void main() {
       final t = calc.calculate(frau.copyWith(weightGoal: WeightGoal.lose1kg));
 
       expect(t.maintenanceKcal, 1578);
-      // Erst der Deckel: 1578 − 605 = 973 → auf 50 gerundet 950.
+      // First the cap: 1578 − 605 = 973 → rounded to 950.
       expect(t.appliedKcalDelta, -605);
       expect(t.uncappedKcal, 950);
-      // Dann die Untergrenze fuer Frauen.
+      // Then the female floor.
       expect(t.floor, KcalCalculator.kcalFloor);
       expect(t.kcal, KcalCalculator.kcalFloor);
       expect(t.floorApplied, isTrue);
@@ -56,7 +50,7 @@ void main() {
     test('effektive Rate ist 0,35 kg/Woche, nicht die versprochene 1,0', () {
       final t = calc.calculate(frau.copyWith(weightGoal: WeightGoal.lose1kg));
 
-      // 1578 − 1200 = 378 kcal/Tag ≙ 378 × 7 / 7700 = 0,3436 kg/Woche.
+      // 1578 − 1200 = 378 kcal/day ≙ 378 × 7 / 7700 = 0.3436 kg/week.
       expect(t.effectiveKcalDelta, -378);
       expect(t.effectiveWeeklyRateKg, closeTo(-0.3436, 0.0005));
       expect(t.promisedWeeklyRateKg, -1.0);
@@ -73,9 +67,8 @@ void main() {
         frau.copyWith(weightGoal: WeightGoal.lose075kg),
       );
 
-      // Beide laufen in den Deckel (605) und dann in die Untergrenze — dann
-      // darf die App nicht zwei verschiedene Tempi und zwei verschiedene
-      // Zeitraeume ausweisen.
+      // Both hit the cap and then the floor, so the app must not report two
+      // different paces and two different timelines.
       expect(schnell.kcal, langsamer.kcal);
       expect(schnell.effectiveWeeklyRateKg, langsamer.effectiveWeeklyRateKg);
       expect(schnell.effectivePaceLabel(), langsamer.effectivePaceLabel());
@@ -87,7 +80,7 @@ void main() {
 
     test('weeksToGoal folgt der effektiven Rate: 15 statt 5 Wochen', () {
       final profil = frau.copyWith(weightGoal: WeightGoal.lose1kg);
-      // 5 kg / 0,3436 kg pro Woche = 14,6 → 15 Wochen (versprochen waeren 5).
+      // 5 kg / 0.3436 per week = 14.6 → 15 weeks (5 were promised).
       expect(calc.weeksToGoal(profil), 15);
       expect(
         calc.weeksToGoalRange(profil),
@@ -103,10 +96,9 @@ void main() {
       expect(t.kcal, 1600);
       expect(t.floorApplied, isFalse);
       expect(t.deficitCapApplied, isFalse);
-      // 2164 − 1600 = 564 statt 550 — reine 50er-Rundung, kein gebrochenes
-      // Versprechen (Rauschgrenze 0,05 kg/Woche ≙ 55 kcal/Tag). Das Label
-      // rastert auf 0,05 und zeigt deshalb die gewaehlte runde Zahl, nicht
-      // „−0,51".
+      // 2164 − 1600 = 564 instead of 550: pure rounding, not a broken promise
+      // (noise threshold 0.05 kg/week ≙ 55 kcal/day). The label snaps to the
+      // 0.05 grid and shows the chosen round number.
       expect(t.effectiveKcalDelta, -564);
       expect(t.matchesPromisedPace, isTrue);
       expect(t.effectivePaceLabel(), '−0,5 kg/Woche');
@@ -121,7 +113,7 @@ void main() {
       expect(hinweis, contains('1200'));
       expect(hinweis, contains('950'));
       expect(hinweis, contains('0,35'));
-      // Die Untergrenze ist bindender als der Deckel — nur SIE wird genannt.
+      // The floor binds harder than the cap, so only the floor is named.
       expect(hinweis, isNot(contains('1 %')));
     });
   });
@@ -134,7 +126,7 @@ void main() {
       expect(t.maxDeficitKcal, 825);
       expect(t.appliedKcalDelta, -825);
       expect(t.deficitCapApplied, isTrue);
-      expect(t.kcal, 1350); // 2164 − 825 = 1339 → 1350 = Untergrenze „divers"
+      expect(t.kcal, 1350); // 2164 − 825 = 1339 → 1350 = neutral floor
       expect(t.floorApplied, isFalse);
       expect(t.effectivePaceLabel(), '−0,75 kg/Woche');
 
@@ -157,8 +149,8 @@ void main() {
       final t = calc.calculate(hundert);
       expect(t.maxDeficitKcal, 1100);
       expect(t.deficitCapApplied, isFalse);
-      // Hier greift statt des Deckels die Maenner-Untergrenze (2509 − 1100 =
-      // 1409 → 1400 → 1500); der Hinweis nennt die Untergrenze, nicht 1 %.
+      // The male floor bites instead of the cap (2509 − 1100 = 1409 → 1500),
+      // so the warning names the floor, not the 1 % rule.
       expect(t.kcal, 1500);
       expect(t.floorApplied, isTrue);
       expect(t.paceWarning(), contains('1500'));
@@ -177,8 +169,8 @@ void main() {
   });
 
   group('B2 · Obergrenze in der Zunahme-Richtung', () {
-    // 160 kg / 200 cm / 20 J. / maennlich / athlete: Erhaltung 5235 kcal.
-    // +550 → 5785 → auf 50 gerundet 5800 → Obergrenze 5000.
+    // 160 kg / 200 cm / 20 y / male / athlete: maintenance 5235 kcal.
+    // +550 → 5785 → rounded 5800 → ceiling 5000.
     const gross = UserProfile(
       weightKg: 160,
       heightCm: 200,
@@ -196,8 +188,8 @@ void main() {
       expect(t.uncappedKcal, 5800);
       expect(t.kcal, KcalCalculator.kcalCeiling);
       expect(t.ceilingApplied, isTrue);
-      // Wer +0,5 kg/Woche gewaehlt hat, bekommt real ein Defizit von
-      // 235 kcal/Tag — die Richtung kippt.
+      // Choosing +0.5 kg/week really yields a 235 kcal/day deficit: the
+      // direction flips.
       expect(t.effectiveKcalDelta, -235);
       expect(t.effectiveWeeklyRateKg, lessThan(0));
       expect(t.matchesPromisedPace, isFalse);
@@ -219,7 +211,7 @@ void main() {
       expect(t.kcal, 2700);
       expect(t.ceilingApplied, isFalse);
       expect(t.effectiveKcalDelta, 536);
-      // 10 kg / 0,4873 = 20,5 → 21 Wochen.
+      // 10 kg / 0.4873 = 20.5 → 21 weeks.
       expect(calc.weeksToGoal(profil), 21);
     });
   });
@@ -228,7 +220,7 @@ void main() {
     test('Erhaltung: stabiles Label, keine Prognose', () {
       final t = calc.calculate(standard);
 
-      // 2164 → 2150 durch die 50er-Rundung: −14 kcal sind Rauschen.
+      // 2164 → 2150 through the rounding: −14 kcal is noise.
       expect(t.effectiveKcalDelta, -14);
       expect(t.effectivePaceLabel(), 'Gewicht stabil');
       expect(t.matchesPromisedPace, isTrue);
@@ -240,9 +232,9 @@ void main() {
     });
 
     test('Klemme frisst das Defizit fast vollstaendig ⇒ keine Prognose', () {
-      // 40 kg / 150 cm / 45 J. / weiblich / sitzend: Erhaltung 1237.
-      // −275 → 962 → gerundet 950 → Untergrenze 1200. Rest: −37 kcal/Tag
-      // ≙ 0,034 kg/Woche. Richtung stimmt, das Tempo ist nur bedeutungslos.
+      // 40 kg / 150 cm / 45 y / female / sedentary: maintenance 1237.
+      // −275 → 950 → floor 1200. What is left is −37 kcal/day ≙ 0.034 kg/week:
+      // right direction, meaningless pace.
       const knapp = UserProfile(
         weightKg: 40,
         heightCm: 150,
@@ -259,7 +251,7 @@ void main() {
       expect(t.effectivePaceLabel(), 'Gewicht stabil');
       expect(calc.weeksToGoal(knapp), isNull);
       expect(calc.weeksToGoalRange(knapp), isNull);
-      // Eigener Satz statt „… ist damit Gewicht stabil statt −0,25 kg/Woche".
+      // Its own sentence instead of the awkward pace phrasing.
       expect(
         t.paceWarning(),
         'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
@@ -269,9 +261,8 @@ void main() {
     });
 
     test('Untergrenze kann ein Abnehm-Ziel in einen Ueberschuss drehen', () {
-      // 35 kg / 140 cm / 80 J. / neutral: Erhaltung 971 — die Untergrenze
-      // 1350 liegt 379 kcal DARUEBER. „Abnehmen" wuerde real Zunehmen
-      // bedeuten.
+      // 35 kg / 140 cm / 80 y / neutral: maintenance 971, and the 1350 floor
+      // sits 379 kcal above it, so losing weight would really mean gaining.
       const winzig = UserProfile(
         weightKg: 35,
         heightCm: 140,
@@ -333,8 +324,8 @@ void main() {
                     dynamisch < spanne.linearWeeks) {
                   verstoesse.add('$wer: dynamisch $dynamisch < linear');
                 }
-                // Der Deckel darf nie in die Zunahme-Richtung wirken und nie
-                // das Wunsch-Defizit vergroessern.
+                // The cap must never act in the gain direction and never
+                // enlarge the wanted deficit.
                 if (goal.isGain && t.appliedKcalDelta != goal.kcalDelta) {
                   verstoesse.add('$wer: Deckel bei Zunahme');
                 }
@@ -354,8 +345,8 @@ void main() {
 
   group('B2 · Formatierung der Rate', () {
     test('die sieben Ziel-Labels bleiben unveraendert', () {
-      // paceLabel laeuft jetzt ueber paceLabelForWeeklyRateKg — die Ausgabe
-      // fuer die Picker darf sich dadurch nicht verschieben.
+      // paceLabel now routes through paceLabelForWeeklyRateKg; the picker
+      // output must not shift because of it.
       expect(WeightGoal.lose1kg.paceLabel(), '−1 kg/Woche');
       expect(WeightGoal.lose075kg.paceLabel(), '−0,75 kg/Woche');
       expect(WeightGoal.lose05kg.paceLabel(), '−0,5 kg/Woche');
@@ -366,9 +357,9 @@ void main() {
     });
 
     test('fast-ganzzahlige Raten ergeben "1", nicht "1,"', () {
-      // 1101 kcal/Tag ≙ 1,00091 kg/Woche — ein Wert, den nur die effektive
-      // Rate erzeugen kann. Die alte Formatierung schnitt aus "1.00" die
-      // Nullen weg und lieferte "+1, kg/Woche".
+      // 1101 kcal/day ≙ 1.00091 kg/week, a value only the effective rate can
+      // produce. The old formatting stripped the zeros from "1.00" and
+      // produced a stray comma.
       expect(paceLabelForWeeklyRateKg(1101 * 7 / kcalPerKgBodyMass),
           '+1 kg/Woche');
       expect(paceLabelForWeeklyRateKg(-0.7245), '−0,7 kg/Woche');
@@ -376,8 +367,8 @@ void main() {
     });
 
     test('das Label rastert auf 0,05 kg/Woche (Review 2026-08-21)', () {
-      // Die 50er-Rundung des Tagesziels verschiebt die Rate um bis zu
-      // ±0,023 — ein gewaehltes „−0,5" darf nicht als „−0,48" erscheinen.
+      // Rounding the daily target shifts the rate by up to ±0.023, so a chosen
+      // −0.5 must not surface as −0.48.
       expect(paceLabelForWeeklyRateKg(-0.4818), '−0,5 kg/Woche');
       expect(paceLabelForWeeklyRateKg(0.5182), '+0,5 kg/Woche');
       expect(paceLabelForWeeklyRateKg(-0.7545), '−0,75 kg/Woche');
@@ -398,9 +389,9 @@ void main() {
   group('B2 · Tagesziel bleibt innerhalb der DB-Grenzen', () {
     test('kcal-Klemmen der App liegen innerhalb von profiles.daily_kcal_goal',
         () {
-      // Die App-Grenzen (1200/1350/1500..5000) sind bewusst enger als die
-      // DB-Grenze (800..7000): sie sind Ernaehrungs-Untergrenzen, nicht die
-      // Constraint. Enger heisst: was die App rechnet, passt immer in die DB.
+      // The app limits (1200/1350/1500..5000) are deliberately tighter than
+      // the DB constraint (800..7000): they are nutritional floors, so
+      // anything the app computes always fits the DB.
       for (final sex in BiologicalSex.values) {
         expect(
           KcalCalculator.kcalFloorFor(sex),

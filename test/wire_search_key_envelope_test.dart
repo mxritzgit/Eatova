@@ -1,35 +1,18 @@
-// Vertrag zwischen der Edge Function `search-key` und ihrem einzigen Client
-// (docs/REVIEW-2026-08-08.md, G2, Schalter 3) — die DART-Seite.
+// Contract between the `search-key` edge function and its only client — the
+// DART side. The Deno test pins the field names on the SERVER side, but the
+// same one-token rename can happen on the client
+// (`decoded['mirrorBaseUrl']` -> `decoded['mirror_base_url']`) with the same
+// consequence: `fetch` returns `null`, `null` means "keep what you have", and
+// key rotation is silently dead forever.
 //
-// WAS DIESE DATEI ABDECKT, DAS DER DENO-TEST NICHT KANN
+// Source text is compared instead of behaviour because
+// `EdgeFunctionSearchKeyFetcher` has no test seam: base URL and token are
+// hard-wired, so a loopback wire test is impossible without a production
+// change. Until that seam exists, comparing both sources is the sharpest
+// available statement, and it catches renames in either direction.
 //
-// `supabase/functions/search-key/wire_response_contract_test.ts` faehrt den
-// echten Handler und nagelt die Feldnamen auf der SERVER-Seite fest. Die
-// Umbenennung kann aber genauso gut auf der CLIENT-Seite passieren:
-//
-//     final baseUrl = decoded['mirrorBaseUrl'];   ->  decoded['mirror_base_url']
-//
-// Das ist dieselbe Ein-Token-Aenderung mit derselben Folge — `fetch` liefert
-// `null`, `null` heisst „behalte, was du hast", die Rotation ist still und
-// dauerhaft tot. Und es gibt dafuer heute keinen einzigen Test:
-// `test/services/search_credentials_test.dart` steckt einen eigenen
-// `SearchKeyFetcher` ein und betritt `EdgeFunctionSearchKeyFetcher._fetch()`
-// nie.
-//
-// WARUM HIER QUELLTEXT VERGLICHEN WIRD UND NICHT VERHALTEN
-//
-// `EdgeFunctionSearchKeyFetcher` hat keine Testnaht: Basis-URL
-// (`EatovaSupabaseConfig.url`) und Token (`Supabase.instance`) sind fest
-// verdrahtet, es gibt keinen Konstruktor-Parameter wie den, den
-// `OpenFoodFactsProductService` fuer seinen Wire-Test bekommen hat. Ein
-// echter Loopback-Wire-Test der Client-Seite ist ohne Produktionsaenderung
-// unmoeglich (siehe Bericht). Bis diese Naht existiert, ist der Abgleich der
-// beiden Quelltexte die schaerfste verfuegbare Aussage — und er faengt beide
-// Umbenennungsrichtungen.
-//
-// Der Schluessel-Satz wird aus dem CLIENT gelesen, nicht aus der Function:
-// waere er hier als Literal notiert, stammte er wieder aus demselben
-// Denkmodell wie der Code.
+// The key set is read from the CLIENT, not the function — a literal here would
+// come from the same mental model as the code.
 
 import 'dart:io';
 
@@ -46,10 +29,9 @@ String _lies(String pfad) {
   return datei.readAsStringSync();
 }
 
-/// Der Rumpf von `EdgeFunctionSearchKeyFetcher._fetch()` — bewusst NUR dieser
-/// Ausschnitt: `_CachedEntry.tryParse` liest ebenfalls `decoded[...]`, aber
-/// aus dem PERSISTENZ-Format (`base_url`, `key`, `ttl_seconds`). Die beiden
-/// Formate sind verschieden, und genau ihre Verwechslung ist die Falle.
+/// The body of `EdgeFunctionSearchKeyFetcher._fetch()` — deliberately only
+/// this slice: `_CachedEntry.tryParse` also reads `decoded[...]`, but from the
+/// PERSISTENCE format. Confusing the two formats is the trap.
 String _fetchRumpf(String quelle) {
   final start = quelle.indexOf('Future<FetchedSearchCredentials?> _fetch()');
   expect(start, greaterThan(-1), reason: '_fetch() nicht gefunden');
@@ -73,9 +55,8 @@ void main() {
   });
 
   test('der Client liest ueberhaupt Felder aus der Antwort', () {
-    // Sicherheitsnetz gegen eine stille Nullaussage: waere der Parser
-    // umgebaut, wuerde die Extraktion leer laufen und alles unten waere
-    // trivial wahr.
+    // Safety net against a silent null statement: a rebuilt parser would make
+    // the extraction come up empty and everything below trivially true.
     expect(
       gelesendeFelder,
       hasLength(3),
@@ -102,8 +83,8 @@ void main() {
   });
 
   test('die beiden Pflichtfelder scheitern hart, nicht halb', () {
-    // Der Vertrag des Fetchers: fehlt eines der beiden, gibt es KEINE
-    // halb gefuellten Credentials, sondern null.
+    // The fetcher's contract: if either is missing there are NO half-filled
+    // credentials, only null.
     expect(
       _fetchRumpf(clientQuelle),
       contains('if (baseUrl is! String || searchKey is! String) return null;'),
@@ -114,8 +95,8 @@ void main() {
   });
 
   test('Wire-Format und Cache-Format werden nicht verwechselt', () {
-    // Die Function liefert camelCase, die Platte snake_case. Wer eines der
-    // beiden Formate ins andere kopiert, faellt hier auf.
+    // The function returns camelCase, the disk snake_case. Copying one format
+    // into the other trips here.
     for (final wireFeld in gelesendeFelder) {
       expect(
         wireFeld,

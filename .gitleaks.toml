@@ -1,9 +1,7 @@
-# gitleaks-Konfiguration für den security.yml-Secret-Scan (Audit 2026-06-09, M2).
-# Erweitert die Default-Regeln und allowlisted GENAU den einen credential-
-# förmigen String, der by design im öffentlichen Repo/Client-Bundle liegt:
-# den Supabase-ANON-JWT (iss=supabase, ref=ftoozzvmduptrvrrrshb, role=anon).
-# Der ist RLS-geschützt und kein Secret. Ein service_role-Key (role:service_role)
-# oder ein OpenRouter-/sb_secret_-Key würde NICHT matchen und bleibt ein Treffer.
+# gitleaks config for the security.yml secret scan (Audit 2026-06-09, M2).
+# Extends the default rules and allowlists exactly the one credential-shaped
+# string that is public by design: the RLS-protected Supabase ANON JWT
+# (role=anon). A service_role, OpenRouter or sb_secret_ key still matches.
 
 title = "Eatova gitleaks config"
 
@@ -15,20 +13,15 @@ description = """Zwei by-design öffentliche Muster: der Supabase-Anon-JWT und \
 die eatova.v1.*-Slotnamen der lokalen Speicher."""
 regexTarget = "match"
 regexes = [
-  # JWT-Header (HS256) + Payload-Prefix mit iss=supabase, ref=ftoozz…, role=anon.
-  # iat/exp/Signatur variabel -> der Rest bleibt offen gematcht.
+  # JWT header (HS256) + payload prefix: iss=supabase, ref=ftoozz…, role=anon.
+  # iat/exp/signature vary, so the tail stays open.
   '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0b296enZtZHVwdHJ2cnJyc2hiIiwicm9sZSI6ImFub24i[A-Za-z0-9_.\-]+''',
 
-  # Slotnamen von SharedPreferences und Keychain, z.B. 'eatova.v1.cache_dek'
-  # oder 'eatova.v1.dek_vanish_strikes'. Das sind ADRESSEN, kein Schluessel-
-  # material — sie stehen auf jedem Geraet und sind in
-  # test/wire_persisted_key_names_test.dart bewusst als Literale festgenagelt,
-  # weil eine Umbenennung bestehende Installationen von ihren Daten trennt.
-  #
-  # Die generic-api-key-Regel feuert darauf, weil die Konstanten auf `Key`
-  # enden und der Wert lang genug ist — zuerst aufgeschlagen bei
-  # `dekVanishStrikesKey` (Welle 6). Bewusst eng gefasst: nur der eigene
-  # Namensraum, nur Kleinbuchstaben, Ziffern, Punkt und Unterstrich. Ein
-  # echter Schluessel (base64, sb_secret_, sk-or-v1-, ein JWT) matcht das nicht.
+  # SharedPreferences/Keychain slot names, e.g. 'eatova.v1.cache_dek'. These
+  # are ADDRESSES, not key material, pinned as literals in
+  # test/wire_persisted_key_names_test.dart because renaming one cuts existing
+  # installs off from their data. generic-api-key fires because the constants
+  # end in `Key`; kept narrow to the own namespace so a real key (base64,
+  # sb_secret_, sk-or-v1-, a JWT) never matches.
   '''eatova\.v1\.[a-z0-9_.]+''',
 ]

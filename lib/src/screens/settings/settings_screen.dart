@@ -20,41 +20,24 @@ import 'account_change_messages.dart';
 import 'account_change_sheets.dart';
 import 'settings_controls.dart';
 
-/// Die Einstellungen — Konto, Anzeige, Daten, Gefahrenzone.
+/// Settings — account, appearance, data, danger zone.
 ///
-/// Aufteilung seit 2026-08-10 (Nutzer-Entscheid): Koerperdaten, Aktivitaet,
-/// Ziele, Energie/Makros und Tagesziele leben auf einer EIGENEN Seite
-/// ([GoalsScreen], erreichbar ueber „Profil & Ziele"). Hier bleibt, was das
-/// Konto und die App betrifft. Ein Screen, der Gewichtseingabe und
-/// Kontoloeschung mischte, war der Grund, warum das abgeloeste Sheet auf
-/// 1922 Zeilen kam.
+/// Body data, activity, goals and daily targets live on their own page
+/// ([GoalsScreen], reachable via "Profil & Ziele"); this page keeps what
+/// concerns the account and the app.
 ///
-/// **Was die Vorlage zeigt und hier bewusst fehlt** (`Downloads/
-/// settings_screen.dart`): „Units Metric/Imperial", „Language" und „Weekly
-/// summary email" haben in dieser App keine Funktion — die App ist deutsch und
-/// metrisch, und einen Wochen-Report gibt es nicht. Ein Schalter ohne Wirkung
-/// ist schlimmer als kein Schalter. Ebenso fehlt „Connected accounts": welcher
-/// Anbieter die Anmeldung getragen hat, weiss die App nicht — genauso wenig wie
-/// den Bestaetigungsstand, weshalb auch das „VERIFIED"-Abzeichen an der
-/// Mailadresse fehlt. Apple Health fehlt, weil die Verbindung im Profil bereits
-/// vollstaendig bedienbar ist (`HealthConnectionCard`) — derselbe Zustand an
-/// zwei Orten waere ein Fehler.
+/// Deliberately absent: units, weekly summary mail and connected accounts have
+/// no function here, and a switch without effect is worse than none. No
+/// "VERIFIED" badge either — the app does not know the confirmation state.
+/// Apple Health lives in the profile only; the same state in two places would
+/// be a bug.
 ///
-/// „Password" gibt es seit 2026-08-10 dagegen sehr wohl: das [AuthRepository]
-/// wird durchgereicht, und mit ihm haengen „Passwort ändern" und
-/// „E-Mail-Adresse ändern" in der Gruppe KONTO (Sheets in
-/// `account_change_sheets.dart`). Ohne Repository entfallen beide Zeilen
-/// ersatzlos — dieselbe Regel wie fuer Export und Ausloggen.
+/// Rows depending on [AuthRepository] (password and e-mail change) drop out
+/// entirely without it — same rule as export and sign-out. "Über Eatova"
+/// carries the ODbL attribution for OpenFoodFacts data and the GDPR Art. 13
+/// privacy link, hence its place in DATEN & PRIVATSPHÄRE.
 ///
-/// „Über Eatova" (`settings-about`) ist am 2026-08-10 aus dem Profil
-/// HIERHER gezogen, als der dortige Block „Daten & Konto" entfiel. Es ist die
-/// einzige der sechs Profil-Zeilen ohne Gegenstueck gewesen — und keine
-/// Kosmetik: sein Sheet traegt die nach ODbL vorgeschriebene Quellennennung
-/// fuer die OpenFoodFacts-Daten UND die Datenschutz-Zeile nach DSGVO Art. 13
-/// (erreichbar auch nach dem Login, nicht nur auf dem Auth-Screen). Es steht
-/// in DATEN & PRIVATSPHÄRE, weil genau das sein Inhalt ist.
-///
-/// Der Screen gibt nichts zurueck — jede Aktion laeuft ueber ihren Callback.
+/// The screen returns nothing; every action runs through its callback.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -66,47 +49,43 @@ class SettingsScreen extends StatefulWidget {
     this.onExportData,
   });
 
-  /// Mailadresse der Session. Null in Preview/Tests ohne Auth — die Zeile
-  /// wird dann ausgeblendet statt mit einem Platzhalter gefuellt.
+  /// Session mail address. Null in previews/tests without auth — the row is
+  /// hidden instead of filled with a placeholder.
   final String? email;
 
-  /// Traegt die Konto-Aenderungen (Passwort, Mailadresse) und seit dem Audit
-  /// vom 2026-08-14 auch die Re-Authentifizierung vor der Kontoloeschung. Null
-  /// in Preview/Tests ohne Auth — die betroffenen Zeilen entfallen dann, statt
-  /// ins Leere zu fuehren.
+  /// Carries account changes (password, mail) and the re-authentication before
+  /// account deletion. Null in previews/tests without auth — the affected rows
+  /// then drop out instead of leading nowhere.
   final AuthRepository? authRepository;
 
-  /// Fuehrt auf „Profil & Ziele".
+  /// Leads to "Profil & Ziele".
   final VoidCallback? onOpenGoals;
 
   final Future<void> Function()? onSignOut;
   final Future<void> Function()? onDeleteAccount;
 
-  /// Liefert die vollstaendige Datenauskunft als JSON (DSGVO Art. 15).
-  /// Null ohne Sync — der Eintrag entfaellt dann.
+  /// Supplies the full data export as JSON (GDPR Art. 15). Null without sync,
+  /// in which case the entry drops out.
   final Future<String> Function()? onExportData;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-/// App-Metadaten zur Laufzeit statt hartkodierter Strings, die beim
-/// Version-Bump auseinanderlaufen. In Widget-Tests (Kanal nicht gemockt)
-/// schlaegt die Future fehl — die Zeilen zeigen dann „—".
+/// App metadata at runtime instead of hardcoded strings that drift on a
+/// version bump. In widget tests the channel is unmocked and the future fails,
+/// so the rows show "—".
 ///
-/// Dieselbe Future existiert nochmal privat in `profile_screen.dart` (fuer die
-/// Wortmarke im Profil-Fuss); beide gehoeren in einen gemeinsamen Zugriff
-/// (siehe Bericht).
+/// A private twin exists in `profile_screen.dart`; both should share one
+/// accessor.
 final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  /// Die Adresse aus der laufenden Sitzung.
+  /// Address from the running session.
   ///
-  /// [SettingsScreen.email] wird beim Aufbau der Route eingefroren — nach einem
-  /// Adresswechsel stuende dort weiter die alte. Der Konto-Screen ist aber
-  /// genau der Ort, an dem man das Ergebnis sehen will, also haengt er selbst
-  /// am `authStateChanges`-Strom (dessen Vertrag steht in
-  /// `test/auth_account_change_test.dart`).
+  /// [SettingsScreen.email] freezes when the route is built and would keep the
+  /// old address after a change, so this screen listens to `authStateChanges`
+  /// itself (contract in `test/auth_account_change_test.dart`).
   String? _sessionEmail;
   StreamSubscription<EatovaUser?>? _sessionSub;
 
@@ -118,16 +97,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _sessionEmail = repo.currentUser?.email;
     _sessionSub = repo.authStateChanges.listen((user) {
       final adresse = user?.email;
-      // `null` heisst abgemeldet, nicht „keine Adresse mehr": in dem Fall
-      // raeumt der AuthGate diese Route ohnehin ab, und bis dahin ist die
-      // zuletzt bekannte Adresse die ehrlichere Anzeige.
+      // `null` means signed out, not "address gone": the AuthGate tears this
+      // route down anyway, and until then the last known address is honest.
       if (!mounted || adresse == null || adresse == _sessionEmail) return;
       setState(() => _sessionEmail = adresse);
     }, onError: (Object e, StackTrace st) {
-      // gotrue speist Fehler AKTIV in diesen Strom ein (notifyException bei
-      // AuthRetryableFetchException). Ohne Handler wird daraus ein
-      // unbehandelter Zonen-Fehler — und der ist ueber den BROWSABLE-Intent
-      // von aussen ausloesbar. Melden, nicht eskalieren.
+      // gotrue actively pushes errors into this stream; without a handler they
+      // become unhandled zone errors, triggerable from outside via the
+      // BROWSABLE intent. Report, do not escalate.
       unawaited(CrashReporter.capture(e, st, context: 'settings-session-stream'));
     });
   }
@@ -138,7 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  /// Die anzuzeigende Mailadresse — Sitzung schlaegt Aufruf-Parameter.
+  /// Mail address to display — session beats constructor parameter.
   String? get _adresse => _sessionEmail ?? widget.email;
 
   @override
@@ -146,10 +123,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final t = context.t;
     final l10n = context.l10n;
 
-    // Die Seite selbst zeigt nur die Mailadresse — das Auskunfts-Sheet darunter
-    // aber den vollstaendigen Datensatz inklusive Gewicht und Schlaf. Weil das
-    // Sheet als Route UEBER dieser hier liegt, bleibt dieser Guard waehrend
-    // seiner Anzeige gehalten und deckt ihn mit ab.
+    // The page shows only the mail address, but the export sheet shows the full
+    // record. That sheet is a route ABOVE this one, so this guard stays held
+    // and covers it too.
     return SecureScreenGuard(
       child: Scaffold(
         body: SafeArea(
@@ -174,8 +150,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Baut eine [SettingsGroup] nur, wenn sie ueberhaupt Zeilen hat — sonst
-  /// stuende eine leere Karte samt Versalien-Beschriftung auf der Seite.
+  /// Builds a [SettingsGroup] only when it has rows; otherwise an empty card
+  /// with its caption would sit on the page.
   List<Widget> _gruppe(
     String label,
     List<Widget> kinder, {
@@ -193,7 +169,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ];
   }
 
-  // --- KONTO ----------------------------------------------------------------
+  // --- ACCOUNT --------------------------------------------------------------
 
   List<Widget> _kontoGruppe(AppTokens t, AppLocalizations l10n) {
     final email = _adresse;
@@ -202,13 +178,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (email != null)
         SettingsRow(
           key: const ValueKey('settings-email'),
-          // Rein anzeigend, kein Chevron: geaendert wird sie in der Zeile
-          // darunter, und ein „VERIFIED"-Abzeichen kann die App nicht belegen.
-          // `accent` statt eines Makro-Tons: die Vorlage nimmt hier ein
-          // kraeftiges Blau, das bei uns `protein` waere — und Makro-Farben
-          // kodieren ausschliesslich Naehrwerte (DESIGN_REFACTOR §3, Schloss 1).
-          // Ein blaues Brief-Icon neben blauen Protein-Balken laese eine
-          // Verbindung vermuten, die es nicht gibt.
+          // Display only, no chevron: the row below does the change, and a
+          // "VERIFIED" badge cannot be substantiated. `accent` instead of a
+          // macro tone — macro colors encode nutrients only (DESIGN_REFACTOR
+          // §3, lock 1).
           leading: IconTile(icon: Icons.mail_outline_rounded, color: t.accent),
           title: l10n.settingsEmailLabel,
           subtitle: email,
@@ -217,15 +190,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (repo != null)
         SettingsRow(
           key: const ValueKey('settings-change-password'),
-          // `accent` statt eines Makro-Tons: die Nährwert-Farben kodieren
-          // ausschliesslich Naehrwerte (DESIGN_REFACTOR §3, Schloss 1).
+          // `accent` instead of a macro tone: macro colors encode nutrients
+          // only (DESIGN_REFACTOR §3, lock 1).
           leading: IconTile(icon: Icons.lock_outline_rounded, color: t.accent),
           title: l10n.settingsChangePasswordTitle,
           subtitle: l10n.settingsChangePasswordSubtitle,
           onTap: () => _openPasswortAendern(repo, email),
         ),
-      // Ohne bekannte Adresse geht der Wechsel nicht: der erste der beiden
-      // Codes wird gegen die BISHERIGE Adresse verifiziert.
+      // No change without a known address: the first of the two codes is
+      // verified against the CURRENT address.
       if (repo != null && email != null)
         SettingsRow(
           key: const ValueKey('settings-change-email'),
@@ -264,8 +237,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       currentEmail: email,
     );
     if (!erfolg || !mounted) return;
-    // Die neue Adresse steht schon in der Zeile darueber — der Strom hat sie
-    // gemeldet, bevor das Sheet zu war.
+    // The new address is already in the row above: the stream reported it
+    // before the sheet closed.
     showAppSnack(
       context,
       l10n.settingsEmailChangedSnack,
@@ -273,16 +246,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // --- PRAEFERENZEN ---------------------------------------------------------
+  // --- PREFERENCES ----------------------------------------------------------
 
   List<Widget> _praeferenzenGruppe(AppLocalizations l10n) {
-    // Ohne [ThemeModeScope] (Previews, Widget-Tests, die nur diesen Screen
-    // pumpen) faellt die Zeile ersatzlos weg — ein Schalter ohne Controller
-    // waere ein toter Schalter.
+    // Without [ThemeModeScope] (previews, widget tests) the row drops out — a
+    // switch without a controller would be a dead switch.
     final controller = ThemeModeScope.maybeOf(context);
-    // Dasselbe Wächter-Muster fuer die Sprachwahl (Spiegel des Anzeige-Modus,
-    // s.o.): ohne [LocaleScope] gibt es nichts, das den Override setzen
-    // koennte.
+    // Same guard for the language row: without [LocaleScope] nothing could set
+    // the override.
     final localeController = LocaleScope.maybeOf(context);
     return _gruppe(l10n.settingsGroupPreferences, <Widget>[
       if (widget.onOpenGoals != null)
@@ -294,20 +265,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       if (controller != null)
         SettingsRow(
-          // Die Vorlage nennt die Zeile „Dark appearance" und haengt einen
-          // Schalter daran. Unsere Auswahl hat DREI Zustaende
-          // (DESIGN_REFACTOR §2: Start ist ThemeMode.system) — „Dunkles
-          // Erscheinungsbild: Hell" waere ein Widerspruch in einer Zeile. Die
-          // Zeile heisst deshalb nach dem, was sie einstellt, nicht nach einem
-          // ihrer Werte.
+          // Three states, not a toggle (DESIGN_REFACTOR §2: default is
+          // ThemeMode.system), so the row is named after what it sets, not
+          // after one of its values.
           title: l10n.settingsAppearanceTitle,
           subtitle: l10n.settingsAppearanceSubtitle,
           chevron: false,
           trailing: SettingsThemeModePill(
             key: const ValueKey('settings-theme-mode'),
             mode: controller.mode,
-            // Geraeteeinstellung: sofort persistiert, nichts zu speichern und
-            // nichts zu verwerfen.
+            // Device setting: persisted immediately, nothing to save or drop.
             onChanged: controller.setMode,
           ),
         ),
@@ -319,14 +286,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           trailing: SettingsLanguagePill(
             key: const ValueKey('settings-language'),
             value: localeController.override,
-            // Geraeteeinstellung: sofort persistiert, nichts zu verwerfen.
+            // Device setting: persisted immediately, nothing to drop.
             onChanged: localeController.setOverride,
           ),
         ),
     ]);
   }
 
-  // --- DATEN & PRIVATSPHAERE ------------------------------------------------
+  // --- DATA & PRIVACY -------------------------------------------------------
 
   List<Widget> _datenGruppe(AppLocalizations l10n) {
     return _gruppe(l10n.settingsGroupDataPrivacy, <Widget>[
@@ -337,9 +304,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           subtitle: l10n.settingsExportDataSubtitle,
           onTap: _openExport,
         ),
-      // Die drei Rechtsseiten. Sie stehen als Zeilen statt als Fusszeile, weil
-      // dieser Screen ohnehin aus Zeilen besteht — die Schluessel sind
-      // unveraendert die aus [SettingsLegalLinks] (DESIGN_REFACTOR §6).
+      // The three legal pages as rows, not a footer; keys unchanged from
+      // [SettingsLegalLinks] (DESIGN_REFACTOR §6).
       _LegalRow(
         rowKey: const ValueKey('settings-privacy-link'),
         title: l10n.settingsLegalPrivacy,
@@ -355,10 +321,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: l10n.settingsLegalImprint,
         url: kImprintUrl,
       ),
-      // Version, Herkunft der Daten (ODbL-Namensnennung fuer OpenFoodFacts)
-      // und der Datenschutz-Link. Steht bewusst in DIESER Gruppe und nicht in
-      // einer eigenen: der Sheet-Inhalt ist von der ersten bis zur letzten
-      // Zeile eine Auskunft ueber Daten.
+      // Version, data provenance (ODbL attribution for OpenFoodFacts) and the
+      // privacy link — in this group because the sheet is entirely about data.
       SettingsRow(
         key: const ValueKey('settings-about'),
         title: l10n.settingsAboutTitle,
@@ -378,7 +342,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // --- GEFAHRENZONE ---------------------------------------------------------
+  // --- DANGER ZONE ----------------------------------------------------------
 
   List<Widget> _gefahrenzone(AppTokens t, AppLocalizations l10n) {
     final repo = widget.authRepository;
@@ -392,18 +356,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: l10n.settingsSignOutTitle,
             onTap: _signOut,
           ),
-        // Ohne Auth-Schicht ODER ohne bekannte Adresse gibt es nichts, wogegen
-        // sich der Nutzer erneut ausweisen koennte — und dann entfaellt die
-        // Zeile ersatzlos, statt die unwiderrufliche Aktion ohne zweite Huerde
-        // anzubieten (dieselbe Regel wie fuer Passwort- und Adresswechsel).
+        // Without an auth layer OR a known address there is nothing to
+        // re-authenticate against, so the row drops out rather than offering
+        // the irreversible action without a second hurdle.
         //
-        // GEPRUEFT (Befund-Verifikation 2026-08-18): ein Konto ohne
-        // E-Mail-Adresse kann in diesem Setup nicht entstehen (aktive Provider
-        // sind nur E-Mail und Google; GoTrue legt Google-Konten ohne
-        // email-Claim gar nicht an, und der native Flow liefert den Claim
-        // immer). Der null-Zweig ist reine Defensive fuer Tests/Previews —
-        // fuer jeden real existierenden Nutzer ist die Loeschung erreichbar,
-        // eine DSGVO-Luecke entsteht hier nicht.
+        // Verified 2026-08-18: an account without an e-mail address cannot
+        // arise here (only e-mail and Google providers, both always carry the
+        // claim). The null branch is defensive for tests/previews — deletion
+        // stays reachable for every real user, so no GDPR gap.
         if (widget.onDeleteAccount != null && repo != null && email != null)
           _deleteBlock(t, l10n, repo, email),
       ],
@@ -473,13 +433,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           height: 1.45,
                         ),
                       ),
-                      // Die Vorlage verspricht zusaetzlich eine Bestaetigung
-                      // der Identitaet und „Daten werden nach 30 Tagen
-                      // geloescht". Das Erste gibt es seit dem Sicherheits-
-                      // Audit vom 2026-08-14 wirklich (zweiter Schritt mit
-                      // Mail-Code, [_DeleteAccountSheet]) und der Satz nennt
-                      // es. Das Zweite bleibt gelogen: die Loeschung laeuft
-                      // sofort und unwiderruflich, es gibt keine Frist.
+                      // The identity confirmation is real (second step with a
+                      // mail code, [_DeleteAccountSheet]). No grace period is
+                      // promised: deletion is immediate and irreversible.
                       TextSpan(
                         text: l10n.settingsDeleteAccountPromptSuffixCode,
                       ),
@@ -495,13 +451,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Erst die Seite schliessen, dann abmelden.
+  /// Close the page first, then sign out.
   ///
-  /// Die Reihenfolge ist nicht kosmetisch: `AuthGate` raeumt beim
-  /// Identitaetswechsel alles ueber der Root-Route ab und zeigt dann „Deine
-  /// Sitzung ist abgelaufen". Wer selbst auf „Ausloggen" getippt hat, soll
-  /// diesen Satz nicht sehen — deshalb poppt die gewollte Abmeldung selbst,
-  /// bevor sie den Callback ruft (genauso wie im Profil).
+  /// The order matters: `AuthGate` tears down everything above the root route
+  /// on an identity change and shows a session-expired message. A deliberate
+  /// sign-out must not produce that, so it pops itself before the callback.
   Future<void> _signOut() async {
     final abmelden = widget.onSignOut;
     if (abmelden == null) return;
@@ -513,17 +467,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openDeleteSheet(AuthRepository repo, String email) async {
     final loeschen = widget.onDeleteAccount;
     if (loeschen == null) return;
-    // Zwei verschiedene Huerden, weil sie zwei verschiedene Faelle abfangen:
-    // das getippte Wort das Versehen (ein Ja/Nein-Dialog wie im Profil ist mit
-    // zwei Taps weg), der Mail-Code den fremden Finger am entsperrten Geraet.
-    // Der zweite Teil ist seit dem Audit vom 2026-08-14 Pflicht — und seit der
-    // Nachpruefung 2026-08-15 nicht mehr allein unsere Zusage: Migration
-    // 20260815120000_delete_account_reauth.sql laesst `delete_account()` jedes
-    // JWT ablehnen, dessen `amr`-Claim keinen 'otp'/'recovery'-Eintrag aus den
-    // letzten 5 Minuten traegt (EX_REAUTH_REQUIRED). Das Sheet liefert genau
-    // so eine Sitzung, weil `verifyRecoveryCode` sie unmittelbar davor anlegt.
-    // Die UI-Huerden bleiben trotzdem noetig: sie fangen Versehen und fremden
-    // Finger ab, BEVOR ueberhaupt eine Mail rausgeht.
+    // Two hurdles for two cases: the typed word catches accidents, the mail
+    // code catches a stranger's finger on an unlocked device. The server
+    // enforces the second one too — `delete_account()` rejects any JWT whose
+    // `amr` claim lacks an 'otp'/'recovery' entry from the last 5 minutes
+    // (EX_REAUTH_REQUIRED, migration 20260815120000_delete_account_reauth.sql),
+    // and `verifyRecoveryCode` creates exactly such a session. The UI hurdles
+    // still matter: they act BEFORE any mail goes out.
     final bestaetigt = await showEatovaSheet<bool>(
       context,
       _DeleteAccountSheet(
@@ -540,13 +490,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// Bausteine dieses Screens
+// Building blocks of this screen
 // ---------------------------------------------------------------------------
 
-/// Eine Zeile, die eine Rechtsseite im Browser oeffnet.
+/// A row that opens a legal page in the browser.
 ///
-/// Kein Chevron, sondern das Extern-Symbol: der Chevron verspricht eine
-/// Folgeseite IN der App, hier verlaesst man sie.
+/// External icon instead of a chevron: a chevron promises a follow-up page
+/// inside the app, this one leaves it.
 class _LegalRow extends StatelessWidget {
   const _LegalRow({
     required this.rowKey,
@@ -574,30 +524,21 @@ class _LegalRow extends StatelessWidget {
   }
 }
 
-/// Das „Über Eatova"-Sheet.
+/// The "Über Eatova" sheet.
 ///
-/// Bis 2026-08-10 privat in `profile_screen.dart` (Zeile `profile-action-about`
-/// im entfallenen Block „Daten & Konto"). Mit umgezogen sind [_AboutRow] und
-/// [_PrivacyLinkRow] — und mit ihnen der Testschluessel
-/// `profile-privacy-link`, der bewusst NICHT umbenannt wurde
-/// (DESIGN_REFACTOR §6: „Key bleibt Key, der Key wandert mit").
+/// Two rows in it are mandatory, not decoration:
+///  * **Sources** — ODbL attribution for the OpenFoodFacts data.
+///  * **Privacy policy** — GDPR Art. 13 requires it after login too, not just
+///    on the auth screen.
 ///
-/// Zwei Zeilen darin sind Pflicht, nicht Deko:
-///  * **Quellen** — die Namensnennung fuer die OpenFoodFacts-Daten (ODbL).
-///  * **Datenschutzerklärung** — DSGVO Art. 13 verlangt sie auch NACH dem
-///    Login, nicht nur auf dem Auth-Screen.
-///
-/// Die Fusszeile „Version … · Build …" der Einstellungen ist mit diesem Umzug
-/// entfallen: sie stand ab dann drei Zeilen unter einem Eintrag, der dasselbe
-/// noch einmal sagt. Ohne Tipp bleibt die Version im Profil-Fuss ablesbar
-/// (`Eatova · v1.2.3`).
+/// The test key `profile-privacy-link` travelled with the sheet from the
+/// profile and is deliberately NOT renamed (DESIGN_REFACTOR §6).
 class _AboutSheet extends StatelessWidget {
   const _AboutSheet();
 
-  /// Datenquellen ehrlich + plattformgerecht: Produktdaten kommen aus
-  /// OpenFoodFacts bzw. dem eigenen Suchindex; Schritte liefert Apple Health
-  /// (nur iOS — auf Android ist der Health-Pfad ein No-op, also dort nicht
-  /// nennen). "wger" war nie angebunden und ist raus.
+  /// Data sources, per platform: product data from OpenFoodFacts and the own
+  /// search index; steps from Apple Health on iOS only, since the health path
+  /// is a no-op on Android.
   static String _sources(AppLocalizations l10n) {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       return l10n.settingsAboutSourcesWithAppleHealth;
@@ -609,10 +550,8 @@ class _AboutSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // Scrollbar statt starr: bei doppelter Systemschrift ist der Block aus
-    // Beschreibung, Version, Build, Quellen und Datenschutz-Zeile hoeher als
-    // der Bildschirm (gemessen: 251 px Ueberlauf). Der Datenschutz-Link steht
-    // ganz unten — genau der Teil, der nie abgeschnitten werden darf.
+    // Scrollable, not rigid: at double system font the block overflows the
+    // screen (~251 px), and the privacy link at the bottom must never be cut.
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
       child: Column(
@@ -681,8 +620,7 @@ class _AboutSheet extends StatelessWidget {
             value: _sources(l10n),
           ),
           const SizedBox(height: 14),
-          // DSGVO Art. 13 / App-Store: Datenschutz auch nach dem Login
-          // erreichbar, nicht nur auf dem Auth-Screen.
+          // GDPR Art. 13 / app stores: privacy reachable after login too.
           const _PrivacyLinkRow(),
         ],
       ),
@@ -690,13 +628,10 @@ class _AboutSheet extends StatelessWidget {
   }
 }
 
-/// Tappbare Datenschutz-Zeile im [_AboutSheet]. Oeffnet die Policy extern
-/// (url_launcher).
+/// Tappable privacy row in the [_AboutSheet]; opens the policy externally.
 ///
-/// Der Schluessel heisst weiterhin `profile-privacy-link` — er ist mit dem
-/// Sheet aus dem Profil mitgewandert (DESIGN_REFACTOR §6). Die Zeile
-/// `settings-privacy-link` eine Ebene darueber ist ein ANDERES Bedienelement
-/// (Gruppe DATEN & PRIVATSPHÄRE) und bleibt davon unberuehrt.
+/// The key stays `profile-privacy-link` (DESIGN_REFACTOR §6);
+/// `settings-privacy-link` one level up is a DIFFERENT control.
 class _PrivacyLinkRow extends StatelessWidget {
   const _PrivacyLinkRow();
 
@@ -735,7 +670,7 @@ class _PrivacyLinkRow extends StatelessWidget {
   }
 }
 
-/// Beschriftung links, Wert rechts — die Zeilenform des [_AboutSheet].
+/// Label left, value right — the row shape of the [_AboutSheet].
 class _AboutRow extends StatelessWidget {
   const _AboutRow({required this.label, required this.value});
 
@@ -766,43 +701,23 @@ class _AboutRow extends StatelessWidget {
 
 enum _LoeschSchritt { wort, code }
 
-/// Die zweistufige Bestaetigung fuer die Kontoloeschung.
+/// Two-step confirmation for account deletion.
 ///
-/// Poppt mit `true`, sobald der Nutzer „LÖSCHEN" getippt UND den Code aus
-/// seinem Postfach bestaetigt hat; sonst mit `null`.
+/// Pops `true` once the user typed the confirm word AND confirmed the mail
+/// code; otherwise `null`. Both steps live in the SAME sheet — a sheet that
+/// closes and reopens looks like an error.
 ///
-/// WARUM DER ZWEITE SCHRITT (Sicherheits-Audit 2026-08-14)
-/// Bis dahin genuegte das getippte Wort — das direkt daneben als Hinweistext
-/// stand. Damit war die einzige unwiderrufliche Aktion der App schwaecher
-/// gesichert als der Passwortwechsel daneben, der einen Mail-Code verlangt:
-/// zwanzig Sekunden am entsperrten Telefon loeschten Profil, Tagebuch,
-/// Gewicht, Coach-Verlauf und Rezepte. Beide Schritte leben wie in
-/// `account_change_sheets.dart` im SELBEN Sheet: der zweite braucht den ersten,
-/// und ein Sheet, das sich schliesst und sofort wieder oeffnet, sieht aus wie
-/// ein Fehler.
+/// Why the recovery code and not `startPasswordChange()`: GoTrue's reauth
+/// nonce can only be redeemed TOGETHER with a new password, and silently
+/// swapping the password is not an option. `sendPasswordReset` +
+/// `verifyRecoveryCode` is the only pair where the SERVER really checks the
+/// code.
 ///
-/// WARUM DER RECOVERY-CODE UND NICHT `startPasswordChange()`
-/// Semantisch waere die Reauth-Mail von GoTrue (`reauthenticate()`) die
-/// passendere: sie sagt genau „bestaetige diese Aktion". Ihre Nonce laesst sich
-/// aber ausschliesslich ZUSAMMEN mit einem neuen Passwort einloesen
-/// ([AuthRepository.confirmPasswordChange]) — es gibt keinen Weg, sie allein
-/// pruefen zu lassen, und heimlich das Passwort zu tauschen kommt nicht in
-/// Frage. [AuthRepository.sendPasswordReset] + [AuthRepository.verifyRecoveryCode]
-/// ist deshalb das einzige vorhandene Paar, bei dem der SERVER den Code
-/// wirklich prueft. Eine Bestaetigung, die die App selbst „abnickt", waere
-/// Theater.
-///
-/// SEIT DER NACHPRUEFUNG 2026-08-15 ERZWINGT IHN AUCH DIE DATENBANK
-/// `delete_account()` verlangt ein JWT mit einem 'otp'/'recovery'-Eintrag im
-/// `amr`-Claim, der juenger als 5 Minuten ist (Migration
-/// 20260815120000_delete_account_reauth.sql) — sonst `EX_REAUTH_REQUIRED`.
-/// Genau so eine Sitzung entsteht durch [AuthRepository.verifyRecoveryCode]:
-/// GoTrue legt beim Verify eine NEUE Session an, und der Supabase-Client holt
-/// das Access-Token pro Request frisch. Fuer dieses Sheet aendert sich damit
-/// nichts — aber wer die Reihenfolge umbaut (Code-Schritt ueberspringen, den
-/// Loesch-Aufruf minutenlang aufschieben, ihn hinter einen erneuten Login
-/// haengen), bricht ab jetzt den Server-Vertrag und nicht nur eine
-/// Hausregel.
+/// The database enforces it too: `delete_account()` requires a JWT whose `amr`
+/// claim carries an 'otp'/'recovery' entry younger than 5 minutes (migration
+/// 20260815120000_delete_account_reauth.sql), else `EX_REAUTH_REQUIRED`.
+/// Reordering the steps — skipping the code, deferring the delete call — breaks
+/// that server contract.
 class _DeleteAccountSheet extends StatefulWidget {
   const _DeleteAccountSheet({
     super.key,
@@ -812,8 +727,8 @@ class _DeleteAccountSheet extends StatefulWidget {
 
   final AuthRepository authRepository;
 
-  /// Die Adresse, an die der Code geht — Pflicht, weil er gegen genau sie
-  /// verifiziert wird.
+  /// Address the code goes to — required, because it is verified against
+  /// exactly this one.
   final String email;
 
   @override
@@ -836,16 +751,15 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
     super.dispose();
   }
 
-  /// Gross-/Kleinschreibung egal: die Bestaetigung soll vor Versehen schuetzen,
-  /// nicht vor der Shift-Taste. Das erwartete Wort kommt aus der ARB (unter
-  /// `en` „DELETE" statt „LÖSCHEN") — deshalb ein Getter mit Context statt
-  /// einer `static const`.
+  /// Case-insensitive: the confirmation guards against accidents, not against
+  /// the shift key. The expected word comes from the ARB, hence a
+  /// context-taking method instead of a `static const`.
   bool _scharf(String wort) => _confirm.text.trim().toUpperCase() == wort;
 
   Future<void> _codeAnfordern(String wort) async {
-    // Der Doppel-Tap-Riegel liegt hier UND an `actionEnabled`: die Sperre am
-    // Knopf greift erst mit dem naechsten Frame. Ein zweiter Mailversand
-    // liefe ausserdem in die GoTrue-Drosselung und verbraenne den ersten Code.
+    // Double-tap guard here AND on `actionEnabled`: the button lock only takes
+    // effect next frame, and a second mail would hit the GoTrue throttle and
+    // burn the first code.
     if (_busy || !_scharf(wort)) return;
     setState(() {
       _busy = true;
@@ -872,8 +786,8 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
     if (_busy) return;
     final l10n = context.l10n;
     final code = _code.text.trim();
-    // Was die App selbst wissen kann, faengt sie hier ab: ein zu kurzer Code
-    // laeuft absehbar in einen Serverfehler und ist danach verbrannt.
+    // Caught locally: a too-short code would only earn a server error and be
+    // burnt afterwards.
     if (!isAccountCode(code)) {
       setState(() {
         _fehler = null;
@@ -892,8 +806,7 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
           .verifyRecoveryCode(email: widget.email, code: code);
     } catch (error) {
       if (!mounted) return;
-      // Kein Zuruecksetzen des Feldes: wer sich vertippt, soll korrigieren
-      // koennen statt neu anzufangen.
+      // Do not clear the field: a typo should be correctable, not restarted.
       setState(() {
         _busy = false;
         _fehler = accountChangeErrorMessage(error, context.l10n);
@@ -909,9 +822,8 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
     final l10n = context.l10n;
     final wort = l10n.settingsDeleteConfirmWord;
     final ersterSchritt = _schritt == _LoeschSchritt.wort;
-    // Der Scroller sitzt seit 2026-08-10 in [SheetScaffold] selbst — die
-    // Ueberlaufgefahr bei grosser Systemschrift betrifft jedes Sheet, nicht
-    // nur dieses.
+    // The scroller lives in [SheetScaffold] itself: large system fonts can
+    // overflow any sheet, not just this one.
     return SheetScaffold(
       title: l10n.settingsDeleteAccountTitle,
       subtitle: ersterSchritt
@@ -960,8 +872,8 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
           ? l10n.settingsDeleteAccountRequestingCta
           : l10n.settingsDeleteAccountCheckingCta;
     }
-    // Der Loesch-Knopf traegt seine Beschriftung erst im ZWEITEN Schritt: im
-    // ersten loescht er nichts, er fordert den Code an.
+    // The delete label appears only in the SECOND step; the first only
+    // requests the code.
     return ersterSchritt
         ? l10n.settingsDeleteAccountRequestCta
         : l10n.settingsDeleteAccountActionLabel;

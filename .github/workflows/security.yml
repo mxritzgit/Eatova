@@ -1,8 +1,6 @@
 name: security
 
-# Statisch + Dependency-Scans. Laeuft bei jedem Push auf main, bei jedem PR
-# gegen main und einmal pro Woche (Montag 06:00 UTC) damit neu publizierte
-# CVEs nicht unentdeckt liegen bleiben.
+# Static + dependency scans. Weekly cron catches newly published CVEs.
 on:
   push:
     branches: [main]
@@ -12,8 +10,8 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
-# Minimal-Default: nur Lesen. Jobs, die mehr brauchen (SARIF-Upload), heben
-# das Recht job-lokal an (Least-Privilege, Audit 2026-06-09, I1).
+# Read-only default; jobs needing more (SARIF upload) raise it job-locally
+# (least privilege, Audit 2026-06-09, I1).
 permissions:
   contents: read
 
@@ -33,32 +31,21 @@ jobs:
       - name: pub get
         run: flutter pub get
 
-      # --fatal-infos/--fatal-warnings: Info-/Warning-Lints failen den Build,
-      # damit die heute saubere Analyse nicht still erodiert (Audit 2026-06-09, L4).
+      # --fatal-infos/--fatal-warnings keeps the clean analysis from eroding
+      # silently (Audit 2026-06-09, L4).
       - name: analyze
         run: flutter analyze --fatal-infos --fatal-warnings
 
-      # Defines sind im CI Dummies — wir wollen nur dass Code kompiliert
-      # und Widget-Tests laufen, nicht gegen Supabase netzwerken.
-      # --coverage erzeugt coverage/lcov.info fuer den Floor-Check unten.
+      # Defines are CI dummies: compile + widget tests, no Supabase traffic.
+      # --coverage writes coverage/lcov.info for the floor check below.
       - name: test
         run: |
           flutter test --coverage \
             --dart-define=SUPABASE_URL=https://ci.invalid \
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 
-      # Coverage-Floor als Ratschet, nicht als Blocker.
-      #
-      # Profil der App: ~22k LOC sind UI (lib/src/widgets + screens), die nur
-      # punktuell von Widget-Tests beruehrt werden; die ~4,5k LOC Logik/Sync
-      # (models + services) sind dagegen dicht unit-getestet. Daraus ergibt sich
-      # eine realistische Gesamt-Line-Coverage im Bereich ~30-40 %.
-      #
-      # Der Floor steht bewusst ein paar Punkte UNTER dieser Schaetzung (30 %),
-      # damit er die jetzt aufgebaute Logik-/Sync-Coverage gegen stilles Erodieren
-      # absichert, ohne den Build bei harmlosen UI-Aenderungen faelschlich rot zu
-      # machen. Steigt die Coverage nachhaltig, kann der Floor spaeter angehoben
-      # werden (Ratschet-Prinzip).
+      # Coverage floor as a ratchet, not a blocker: UI dominates the LOC count
+      # and is only spot-tested, so the floor sits below the realistic ~30-40 %.
       - name: Coverage floor check
         env:
           COVERAGE_FLOOR: '30'
@@ -69,8 +56,7 @@ jobs:
             echo "::error::coverage/lcov.info nicht gefunden — lief 'flutter test --coverage'?"
             exit 1
           fi
-          # LCOV: LF = lines found (instrumentiert), LH = lines hit (getroffen).
-          # Total-Line-Coverage = sum(LH) / sum(LF) * 100.
+          # LCOV: LF = lines found, LH = lines hit; coverage = sum(LH)/sum(LF).
           PCT="$(awk -F: '
             /^LF:/ { found += $2 }
             /^LH:/ { hit   += $2 }
@@ -80,7 +66,7 @@ jobs:
             }
           ' "$LCOV")"
           echo "Total line coverage: ${PCT}% (floor: ${COVERAGE_FLOOR}%)"
-          # Float-Vergleich portabel via awk (bash kann nur Integer).
+          # Float compare via awk; bash only does integers.
           if awk -v p="$PCT" -v f="$COVERAGE_FLOOR" 'BEGIN { exit !(p < f) }'; then
             echo "::error::Line-Coverage ${PCT}% liegt unter dem Floor von ${COVERAGE_FLOOR}%. Bitte Logik-/Sync-Tests ergaenzen (Floor ist ein Ratschet, kein Stylegate)."
             exit 1
@@ -93,8 +79,8 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      # Temurin 21 explizit pinnen: Gradle 8.14 des Projekts bricht mit dem
-      # Java 25, das neuere Runner-Images als Default setzen.
+      # Pin Temurin 21: the project's Gradle 8.14 breaks on the Java 25 that
+      # newer runner images default to.
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -109,51 +95,19 @@ jobs:
       - name: pub get
         run: flutter pub get
 
-      # Schneller Vorab-Check: Debug baut in Minuten und faengt Manifest-Merge-,
-      # Gradle- und Plugin-Brueche ab, bevor der teure Release-Job unten
-      # ueberhaupt anlaeuft. Er ersetzt ihn NICHT - Debug fuehrt weder R8 noch
-      # den AOT-Dart-Compiler aus (Review 2026-08-08, G6). Der Release-Job
-      # `build-android-release` deckt genau das ab.
-      # Defines sind dieselben CI-Dummies wie im Test-Job; kein Artefakt-Upload,
-      # es geht nur um "baut es?".
+      # Fast pre-check for manifest-merge, Gradle and plugin breakage. Does NOT
+      # replace the release job: debug runs neither R8 nor Dart AOT (G6).
       - name: build apk (debug)
         run: |
           flutter build apk --debug \
             --dart-define=SUPABASE_URL=https://ci.invalid \
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 
-  # --- G6 (Review 2026-08-08): die CI baut jetzt auch das ausgelieferte -------
-  # Artefakt. Vorher lief ausschliesslich `flutter build apk --debug`. Debug ist
-  # ein anderer Build-Typ (kein R8, kein isShrinkResources, keine
-  # proguard-rules.pro) und ein anderer Dart-Kompilationsmodus (JIT statt AOT
-  # mit Tree-Shaking). Die 51 handgepflegten Keep-Rules und der gesamte
-  # Shrinking-Pfad wurden in der CI nie ausgefuehrt - der erste Durchlauf
-  # passierte auf einer Entwicklermaschine waehrend des Releases.
-  #
-  # SIGNING - und warum die E5-Wache hier NICHT aufgeweicht wird:
-  # android/app/build.gradle.kts bricht seit E5 jeden Release-Task ab, wenn
-  # android/key.properties fehlt (Regex ^(assemble|bundle|package)[A-Za-z0-9]*
-  # Release$ ueber gradle.taskGraph.whenReady). Der Grund ist gut: ohne die
-  # Datei faellt buildTypes.release auf den universellen Android-DEBUG-Key
-  # zurueck, Play lehnt den Upload ab und ein sideloadetes Build laesst Google
-  # Sign-In still fehlschlagen.
-  #
-  # Der Job umgeht die Wache nicht - er erfuellt ihre Bedingung ehrlich:
-  # er erzeugt pro Lauf einen WEGWERF-Keystore mit zufaelligem Passwort in
-  # $RUNNER_TEMP (ausserhalb des Workspace, verschwindet mit dem Runner) und
-  # schreibt eine key.properties, die darauf zeigt. Damit ist die Invariante,
-  # die E5 schuetzt - "kein Release-Artefakt traegt den Debug-Key" - erfuellt
-  # und nicht umgangen. Verworfene Alternativen:
-  #   - Keystore aus GitHub-Secrets: die Secrets existieren nicht
-  #     (/actions/secrets -> total_count 0). Ein Job, der sich hinter
-  #     `if: secrets != ''` versteckt, waere derselbe gruene No-Op wie der
-  #     Migrations-Drift-Check (G7).
-  #   - Nur den R8-Task direkt fahren (`:app:minifyReleaseWithR8` matcht die
-  #     E5-Regex nicht): haengt an AGP-internen Tasknamen und liesse Packaging,
-  #     Resource-Shrinking und den AAB-Split ungeprueft.
-  #
-  # Das Artefakt wird bewusst NICHT hochgeladen. Es ist mit einem Wegwerfschluessel
-  # signiert und darf nirgendwo landen, wo es jemand fuer auslieferbar haelt.
+  # --- G6 (Review 2026-08-08): CI builds the shipped artifact ----------------
+  # Debug alone never exercised R8, resource shrinking or Dart AOT. The E5
+  # guard aborts release tasks without android/key.properties, or the release
+  # would fall back to the universal Android DEBUG key; this job satisfies it
+  # with a per-run throwaway keystore. The artifact is NOT uploaded.
   build-android-release:
     name: Android Release-Build (AAB + R8)
     runs-on: ubuntu-latest
@@ -161,7 +115,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      # Gleiche Begruendung wie im Debug-Job: Gradle 8.14 bricht mit Java 25.
+      # Same reason as in the debug job: Gradle 8.14 breaks on Java 25.
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -176,10 +130,8 @@ jobs:
       - name: pub get
         run: flutter pub get
 
-      # Wegwerf-Keystore. Passwort ist pro Lauf zufaellig und wird nirgends
-      # ausgegeben; der Keystore liegt in $RUNNER_TEMP, nicht im Workspace, und
-      # ueberlebt den Job nicht. Kein Secret - deshalb auch kein ::add-mask::
-      # noetig, es gibt nichts Wiederverwendbares zu schuetzen.
+      # Throwaway keystore: random password per run, kept in $RUNNER_TEMP and
+      # gone with the runner. Not a secret, so no ::add-mask:: needed.
       - name: Wegwerf-Keystore fuer den Release-Build erzeugen
         run: |
           set -euo pipefail
@@ -196,8 +148,8 @@ jobs:
             -alias ci-throwaway \
             -storepass "$PW" -keypass "$PW" \
             -dname "CN=Eatova CI Throwaway, OU=CI, O=Eatova, C=DE" >/dev/null
-          # storeFile wird in build.gradle.kts ueber file() aufgeloest — mit
-          # absolutem Pfad eindeutig (relativ waere es android/app/).
+          # build.gradle.kts resolves storeFile via file(); absolute is
+          # unambiguous (relative would mean android/app/).
           {
             echo "storePassword=$PW"
             echo "keyPassword=$PW"
@@ -206,29 +158,17 @@ jobs:
           } > android/key.properties
           echo "Wegwerf-Keystore angelegt: $KS"
 
-      # Das ist der Befehl, der auch das Play-Artefakt erzeugt: bundleRelease,
-      # buildTypes.release, R8 + Resource-Shrinking, Dart-AOT mit Tree-Shaking.
-      # Defines sind dieselben CI-Dummies wie in den anderen Jobs — dart_defines
-      # .json ist gitignored (enthaelt echte Keys) und steht der CI nicht zur
-      # Verfuegung.
-      #
-      # Wenn dieser Schritt mit einem OutOfMemoryError des Gradle- oder
-      # R8-Prozesses abbricht: android/gradle.properties setzt
-      # org.gradle.jvmargs=-Xmx8G -XX:MaxMetaspaceSize=4G. Das ist auf einer
-      # Entwicklermaschine unproblematisch, auf einem ubuntu-latest-Runner
-      # (4 vCPU / 16 GB) zusammen mit dem Kotlin-Daemon aber knapp. Abhilfe dann:
-      #   echo "org.gradle.jvmargs=-Xmx5g" >> ~/.gradle/gradle.properties
-      # als eigener Schritt davor (Benutzer-Properties schlagen die des Projekts,
-      # ohne dass die lokale Konfiguration angefasst werden muss).
+      # Same command that produces the Play artifact. On an OutOfMemoryError:
+      # the project asks for -Xmx8G, tight on a 4 vCPU runner — prepend a step
+      # writing `org.gradle.jvmargs=-Xmx5g` to ~/.gradle/gradle.properties.
       - name: build appbundle (release, R8 + AOT)
         run: |
           flutter build appbundle --release \
             --dart-define=SUPABASE_URL=https://ci.invalid \
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 
-      # Beleg, dass R8 wirklich gelaufen ist und nicht still uebersprungen wurde
-      # (isMinifyEnabled koennte jemand versehentlich rausnehmen — dann faellt
-      # der Build nicht, es entstuende nur kein mapping.txt mehr).
+      # Proof that R8 ran: dropping isMinifyEnabled would not fail the build,
+      # it would only stop producing mapping.txt.
       - name: R8-Beleg pruefen
         run: |
           set -euo pipefail
@@ -254,7 +194,7 @@ jobs:
             echo "Das Artefakt ist mit einem Wegwerfschluessel signiert und wird bewusst **nicht** hochgeladen."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Kein upload-artifact: siehe Job-Kommentar.
+      # No upload-artifact: see the job comment.
 
   pub-outdated:
     name: Flutter pub outdated (Info)
@@ -267,10 +207,9 @@ jobs:
           flutter-version: 3.44.0
           cache: true
       - run: flutter pub get
-      # Info-only — failt den Job nicht. So sehen wir veraltete Deps im
-      # Action-Log ohne dass jeder Patch-Release den Build rot macht.
-      # (--mode=null-safety wurde mit Dart 3 entfernt und liess den Befehl
-      # frueher still mit Exit 65 abbrechen — Audit 2026-06-09, L1.)
+      # Info-only: outdated deps show in the log without turning the build red.
+      # (--mode=null-safety was removed in Dart 3 and exited 65 — Audit
+      # 2026-06-09, L1.)
       - name: pub outdated
         run: flutter pub outdated || true
 
@@ -280,9 +219,8 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          # Volle History scannen, nicht nur den HEAD-Commit, damit ein
-          # versehentlich (auch in einem aelteren Commit) committetes Secret
-          # auffaellt. Public Repo -> gitleaks ist kostenlos, kein Lizenz-Key.
+          # Scan the full history, not just HEAD, so a secret committed in an
+          # older commit still shows up. Public repo: gitleaks needs no key.
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
@@ -296,13 +234,9 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      # Scannt pubspec.lock (Pub-Ecosystem) und deno.lock falls vorhanden.
-      # SARIF-Upload landet im Security-Tab des Repos. KEIN continue-on-error
-      # mehr am Scanner-Step: ein bekannter CVE in den Deps failt den Build
-      # jetzt sichtbar, statt im Log eines gruenen Jobs zu verschwinden
-      # (Audit 2026-06-09, M4).
-      # v2-Migration: --skip-git wurde in osv-scanner v2 entfernt (Git-Commit-
-      # Scanning ist dort kein Default mehr) — Flag ersatzlos gestrichen.
+      # Scans pubspec.lock and deno.lock; SARIF lands in the Security tab.
+      # No continue-on-error here: a known CVE fails the build visibly
+      # (Audit 2026-06-09, M4). --skip-git was dropped in osv-scanner v2.
       - uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
@@ -310,11 +244,8 @@ jobs:
             --format=sarif
             --output=osv-results.sarif
             ./
-      # SARIF-Upload braucht Code-Scanning auf Repo-Ebene aktiviert
-      # (in den GitHub-Security-Settings). Solange das nicht aktiv ist,
-      # failt der Upload mit "Resource not accessible by integration".
-      # Tolerant halten — die Scan-Resultate stehen weiter im Job-Log, und
-      # der Scanner-Step oben faellt bereits bei echten Findings.
+      # Needs repo-level code scanning enabled, else "Resource not accessible
+      # by integration". Tolerant: the scanner step already fails on findings.
       - name: Upload SARIF
         if: always() && hashFiles('osv-results.sarif') != ''
         continue-on-error: true
@@ -329,14 +260,13 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
         with:
-          # Deno 1.x ist EOL; die Edge-Runtime ist auf Deno 2. Die Functions
-          # sind dependency-frei, der Umstieg ist risikoarm (Audit 2026-06-09, L7).
+          # Deno 1.x is EOL and the edge runtime is on Deno 2; the functions are
+          # dependency-free, so the switch is low risk (Audit 2026-06-09, L7).
           deno-version: v2.x
       - name: deno lint
         working-directory: supabase/functions
         run: deno lint
-      # `deno check` macht statische TypeScript-Pruefung gegen die Imports
-      # ohne die Function tatsaechlich zu deployen.
+      # `deno check` type-checks against the imports without deploying.
       - name: deno check
         working-directory: supabase/functions
         run: |
@@ -345,67 +275,10 @@ jobs:
             deno check "$fn" || exit 1
             echo "::endgroup::"
           done
-      # Unit-Tests der Edge Functions. Weiterhin ohne externe Dependencies:
-      #   coach-chat/prefilter_test.ts   -  9 Tests, Layer-1-Blocklist (rein)
-      #   coach-chat/guardrails_test.ts  -  7 Tests, Layer-2-Weichen (rein)
-      #   coach-chat/handler_test.ts     - 24 Tests, End-to-End ueber
-      #                                    handleRequest, fetch ist gestubbt
-      #                                    (inkl. Quota-vor-Classifier,
-      #                                    CWE-770-Fix 2026-08-11; +4 aus dem
-      #                                    Message-/History-Groessen-Fix,
-      #                                    CWE-400 2026-08-11; +3 aus dem
-      #                                    Anon-Key-Reject + Auth-Fail-
-      #                                    Limiter, CWE-400 2026-08-11; +3 aus
-      #                                    den Provider-Deadlines, Finding 6,
-      #                                    CWE-400 2026-08-11)
-      #   coach-chat/handler_sentinel_test.ts
-      #                                  -  7 Tests, Sentinel-Fehlerpfade
-      #                                    (Quota-Row, Provider, History,
-      #                                    Session-Check, Store, Rate-Limit;
-      #                                    Sentinel-Rest 2026-08-08)
-      #   _shared/client_ip_test.ts      - 15 Tests, IP-Normalisierung/Subject
-      #   analyze-meal/normalize_test.ts - 14 Tests, Normalisierung der
-      #                                    Modell-Antwort (Welle 2 +
-      #                                    confidence-Sentinel, 2026-08-08;
-      #                                    +3 aus der i18n-Runde 2026-08-10)
-      #   search-key/wire_response_contract_test.ts
-      #                                  -  6 Tests, Antwort-Vertrag gegen den
-      #                                    echten Handler (Welle 5 +
-      #                                    Rate-Limit-Shape, 2026-08-08)
-      #   coach-chat/recipe_test.ts      -  9 Tests, Rezept-Draft-Logik
-      #                                    (Parse/Klemmen/Prompts,
-      #                                    /recipe-Feature 2026-08-12)
-      #   coach-chat/handler_recipe_test.ts
-      #                                  -  8 Tests, End-to-End Recipe-Mode
-      #                                    (Quota/Refund/Bild-tolerant +
-      #                                    recipe-Spalte & Message-Id,
-      #                                    Nachtrag 2026-08-13)
-      #   _shared/rate_limit_prune_test.ts
-      #                                  -  Kapselung des Fire-and-Forget-Prune
-      #                                    (Audit 2026-08-14: ein rejectendes
-      #                                    fetch beendete sonst den Isolate)
-      #   analyze-meal/handler_test.ts   -  Auth-, Rate-Limit- und Bildpruef-
-      #                                    Pfade der Scan-Function (Review
-      #                                    2026-08-19: index.ts wurde dafuer in
-      #                                    Server + exportierten Handler
-      #                                    getrennt, Vorbild coach-chat)
-      #   _shared/env_rpc_bounds_test.ts -  Limit-Secrets ausserhalb der
-      #                                    RPC-Grenzen fallen auf den Default
-      #                                    zurueck statt die Function zu reissen
-      # Summe: 164 Tests. `deno test` ohne Pfadfilter sammelt alle zwoelf
-      # Dateien automatisch ein - eine neue *_test.ts-Datei braucht nur diese
-      # Aufzaehlung nachgezogen, der Aufruf unten bleibt unveraendert.
-      #
-      # --allow-env ist noetig (frueher liefen die Tests flaglos): handler.ts
-      # liest Modell-/Limit-Secrets bereits beim Modul-Load und handler_test.ts
-      # setzt die Request-Secrets per Deno.env.set. Ohne das Flag bricht schon
-      # der Import mit PermissionDenied ab. Mehr Permissions braucht es nicht -
-      # insbesondere KEIN --allow-net, weil fetch im Test ersetzt wird.
-      #
-      # Kein expliziter Pfad noetig: `deno test` steigt auch in das
-      # Unterstrich-Verzeichnis _shared/ ab (gegen Deno 2.8 verifiziert) - der
-      # Unterstrich haelt nur die Supabase-CLI davon ab, _shared als eigene
-      # deploybare Function zu behandeln.
+      # Edge Function unit tests, dependency-free and auto-discovered (`deno
+      # test` descends into _shared/ too). --allow-env is required because
+      # handler.ts reads secrets at module load; NO --allow-net, fetch is
+      # stubbed.
       - name: deno test
         working-directory: supabase/functions
         run: deno test --allow-env
@@ -415,96 +288,29 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       available: ${{ steps.secrets.outputs.available }}
-    # Faellt nur, wenn eine Repo-Migration NICHT in der Live-Migrationshistorie
-    # (supabase_migrations.schema_migrations) registriert ist. Nutzt die
-    # Management-API (kein DB-Passwort/CLI-Login noetig).
+    # Fails only when a repo migration is missing from the live history, via
+    # the Management API. G7: secrets present -> run; structurally unavailable
+    # (fork PR, Dependabot, foreign fork) -> skip with the reason in the
+    # summary; missing upstream -> FAIL with the setup commands.
     #
-    # --- G7 (Review 2026-08-08): der Check war ein dauerhaft gruener No-Op ----
-    # SUPABASE_ACCESS_TOKEN und SUPABASE_PROJECT_REF wurden nie gesetzt
-    # (/actions/secrets -> total_count 0). Schrittdaten des letzten Laufs:
-    # "Check Supabase secrets" success, "Migration drift check" SKIPPED, Job
-    # success. Der einzige automatische Abgleich zwischen Repo-Migrationen und
-    # Live-DB ist damit noch nie gelaufen — bei voll gruener Pipeline.
-    #
-    # Ein uebersprungener Schritt, der den Job gruen laesst, ist eine Luege.
-    # Ein Job, der bei jedem Fork-PR rot wird, ist die naechste Luege in die
-    # andere Richtung. Deshalb wird jetzt unterschieden:
-    #
-    #   Secrets da              -> Check laeuft (wie bisher)
-    #   Secrets fehlen, aber
-    #   der Lauf kann sie
-    #   strukturell nicht haben -> sauberer Skip + Hinweis, Job bleibt gruen
-    #   Secrets fehlen im
-    #   Upstream-Repo           -> Job FAELLT, mit den Setz-Befehlen im Summary
-    #
-    # "kann sie strukturell nicht haben" ist genau dreierlei:
-    #   1. PR aus einem Fork  - GitHub liefert Secrets an Fork-PRs grundsaetzlich
-    #                           nicht aus.
-    #   2. Dependabot         - laeuft gegen einen eigenen Secret-Store; die
-    #                           Actions-Secrets sind dort nicht sichtbar.
-    #   3. Fremdes Repo       - jemand hat das Projekt geforkt und pusht auf sein
-    #                           eigenes main. Kein Supabase-Projekt, kein Fehler.
-    #
-    # --- Audit 2026-08-14: das Management-Token gehoert in keinen PR-Lauf -----
-    # SUPABASE_ACCESS_TOKEN ist ein KONTOWEITER sbp_-PAT (nicht projektgebunden),
-    # und der Endpunkt unten (/database/query) fuehrt damit beliebiges SQL auf der
-    # Produktivdatenbank aus. Bei `pull_request` fuehrt GitHub die Workflow-Datei
-    # aus dem PR-HEAD aus: wer einen Branch in diesem Repo pushen darf, konnte den
-    # Schritt umschreiben und den Token ausleiten. Die Fork-Richtung war abgesichert
-    # (an Fork-PRs liefert GitHub grundsaetzlich keine Secrets), die Branch-Richtung
-    # nicht.
-    #
-    # Deshalb laeuft der Abgleich ab jetzt nur noch bei push/schedule/
-    # workflow_dispatch: bei pull_request wird der Token gar nicht erst
-    # interpoliert und der abfragende Schritt nicht ausgefuehrt.
-    #
-    # Preis: Drift faellt nicht mehr im PR auf, sondern im push-Lauf unmittelbar
-    # nach dem Merge (plus woechentlich per schedule). Das ist vertretbar, weil der
-    # Check die LIVE-DB gegen den Repo-Stand haelt — die Migration eines PRs ist vor
-    # dem Merge ohnehin noch nicht angewendet.
-    #
-    # Was die Bedingung NICHT leistet: sie steht in derselben Datei, die ein
-    # PR-Head aendern kann. Sie nimmt den Token aus dem ehrlichen Pfad und macht
-    # jeden Versuch, ihn zurueckzuholen, als Diff sichtbar — eine Schranke ist sie
-    # nicht. Der Audit-Punkt gilt damit als offen, nicht als geschlossen.
-    #
-    # Die Schranke ist ein Repo-Schritt, kein Code-Schritt; die Reihenfolge ist
-    # der eigentliche Inhalt der Liste:
-    #   1. Environment `supabase-drift` anlegen, Deployment-Branch-Policy auf
-    #      `main` beschraenken.
-    #   2. SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF aus den Repo-Secrets
-    #      loeschen und als Environment-Secrets dieser Environment neu setzen.
-    #   3. Den Token rotieren — er lag bisher jedem PR-Lauf offen.
-    #   4. `environment: supabase-drift` im Job `supabase-migration-drift-live`
-    #      einkommentieren.
-    # Wer mit 4 anfaengt, legt die Environment ungeschuetzt an; das Secret loest
-    # dann weiter auf und die Absicherung ist nur scheinbar da.
-    #
-    # Warum die Environment an den nachgelagerten Job gehoert und nicht an diesen:
-    # eine verletzte Deployment-Branch-Policy ueberspringt den Job nicht, sie laesst
-    # ihn FAILEN ("Branch is not allowed to deploy to ... due to environment
-    # protection rules"). An diesem Job — einem der sieben Pflicht-Checks — waere
-    # damit jeder PR dauerhaft rot und kein Merge mehr moeglich. Deshalb traegt den
-    # Token der Job `supabase-migration-drift-live` weiter unten, der bei
-    # pull_request gar nicht erst anlaeuft: ein uebersprungener Job erzeugt kein
-    # Deployment und stoesst die Policy nicht an.
-    #
-    # Der Job bleibt bei PRs GRUEN und meldet weiter — er ist einer der sieben
-    # Pflicht-Checks der Branch-Protection, und ein Pflicht-Check, der nicht meldet,
-    # blockiert jeden Merge dauerhaft. Damit daraus kein stiller No-Op wie vor G7
-    # wird, schreibt der Skip seinen Grund sichtbar in die Job-Summary.
+    # Audit 2026-08-14 (still OPEN): the account-wide PAT runs arbitrary SQL on
+    # production and `pull_request` runs the workflow file from the PR head, so
+    # the token is only interpolated on push/schedule/workflow_dispatch — which
+    # makes tampering a visible diff, not a barrier. The barrier is a repo
+    # step: create environment `supabase-drift` (branch policy `main`), move
+    # both secrets there, rotate the token, then uncomment `environment:` in
+    # `supabase-migration-drift-live`. It belongs on that downstream job
+    # because a violated policy FAILS, and this required check must stay green.
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      # Verfuegbarkeit der Secrets EINMAL als Output festhalten. Secrets duerfen
-      # nicht direkt in `if:`-Job-Conditions stehen, daher der Umweg ueber einen
-      # Step-Output.
+      # Record secret availability once as an output: secrets cannot be used
+      # directly in job-level `if:` conditions.
       - name: Check Supabase secrets
         id: secrets
         env:
-          # Bei pull_request bewusst LEER interpoliert: der Token darf einen Lauf,
-          # dessen Workflow-Datei aus dem PR-Head stammt, gar nicht erst erreichen
-          # (Audit 2026-08-14, siehe Job-Kommentar).
+          # Deliberately empty on pull_request: the token must never reach a run
+          # whose workflow file comes from the PR head (Audit 2026-08-14).
           SUPABASE_ACCESS_TOKEN: ${{ github.event_name != 'pull_request' && secrets.SUPABASE_ACCESS_TOKEN || '' }}
           SUPABASE_PROJECT_REF: ${{ github.event_name != 'pull_request' && secrets.SUPABASE_PROJECT_REF || '' }}
           IS_PR: ${{ github.event_name == 'pull_request' }}
@@ -512,9 +318,8 @@ jobs:
           IS_UPSTREAM: ${{ github.repository == 'mxritzgit/Eatova' }}
         run: |
           set -euo pipefail
-          # PR zuerst — und zwar unabhaengig davon, ob die Secrets ankommen:
-          # der Skip ist hier eine Entscheidung, kein Mangel. Fork-PRs fallen
-          # damit ebenfalls hierher (sie bekommen die Secrets ohnehin nie).
+          # PRs first, regardless of whether secrets arrive: the skip is a
+          # decision, not a defect. Fork PRs land here too.
           if [ "$IS_PR" = "true" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
             REASON="pull_request-Lauf — das Supabase-Management-Token wird hier bewusst nicht ausgegeben."
@@ -570,31 +375,24 @@ jobs:
           echo "::error::SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF sind im Upstream-Repo nicht gesetzt — der Migration-Drift-Check kann nicht laufen. Details und Setz-Befehle stehen in der Job-Summary."
           exit 1
 
-  # Der einzige Job, der den Management-Token wirklich anfasst — bewusst von
-  # `supabase-migration-drift` getrennt, damit die Environment-Schranke (siehe
-  # Kommentar dort) an einem Job haengt, der bei pull_request gar nicht erst
-  # anlaeuft. Er ist KEIN Pflicht-Check der Branch-Protection: er laeuft bei PRs
-  # nie und wuerde als Pflicht-Check jeden Merge blockieren.
+  # The only job that touches the management token, split off so the
+  # environment barrier hangs on a job that never starts on pull_request.
+  # NOT a required check: as one it would block every merge.
   supabase-migration-drift-live:
     name: Supabase migration drift (Live-Abgleich)
     runs-on: ubuntu-latest
     needs: supabase-migration-drift
-    # Doppelte Wache neben der leeren Interpolation im Vorgaenger-Job: der Job,
-    # der den Token braucht, laeuft in PR-Laeufen nicht an — auch dann nicht, wenn
-    # jemand den Output-Weg darueber umbaut.
+    # Second guard beside the empty interpolation upstream: this job stays down
+    # in PR runs even if someone reworks the output path above.
     if: needs.supabase-migration-drift.outputs.available == 'true' && github.event_name != 'pull_request'
     # environment: supabase-drift
-    # ^ Erst einkommentieren, wenn die Environment samt Deployment-Branch-Policy
-    #   `main` existiert und die Secrets dorthin umgezogen sind. Vorher legt
-    #   GitHub sie ungeschuetzt an (Reihenfolge siehe Job-Kommentar oben).
+    # ^ Uncomment only once that environment exists with branch policy `main`
+    #   and the secrets moved there; earlier GitHub creates it unprotected.
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      # Fragt die registrierte Migrationshistorie der Live-DB ueber die
-      # Management-API ab und vergleicht sie gegen die Dateinamen in
-      # supabase/migrations/. Eine Repo-Version, die nicht registriert ist ->
-      # Drift -> Job failt. Kein `supabase db push --dry-run` mehr: das brauchte
-      # ein zusaetzliches SUPABASE_DB_PASSWORD-Secret + DB-Login.
+      # Compares the live migration history against supabase/migrations/. Not
+      # `supabase db push --dry-run`: that needs a DB password secret + login.
       - name: Migration drift check (Management API)
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -603,8 +401,8 @@ jobs:
           set -euo pipefail
           QUERY="select coalesce(string_agg(version, ',' order by version), '') as v from supabase_migrations.schema_migrations"
           BODY="$(jq -n --arg q "$QUERY" '{query:$q}')"
-          # Browser-User-Agent: Supabase haengt vor der Management-API eine
-          # Cloudflare-Regel, die Default-curl-UAs mit Fehler 1010 blockt.
+          # Browser UA: a Cloudflare rule in front of the Management API blocks
+          # default curl UAs with error 1010.
           RESP="$(curl -sS -X POST \
             "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
             -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
@@ -640,8 +438,8 @@ jobs:
           fi
           COUNT="$(ls supabase/migrations/*.sql | wc -l)"
           echo "Keine Migration-Drift — alle ${COUNT} Repo-Migrationen sind auf der Live-DB registriert."
-          # Auch der Gutfall landet im Summary: nur so ist von aussen sichtbar,
-          # dass der Check wirklich gelaufen ist und nicht wieder still schlaeft.
+          # The good case goes into the summary too, so it stays visible that
+          # the check really ran.
           {
             echo "### Supabase Migration-Drift: OK"
             echo ""

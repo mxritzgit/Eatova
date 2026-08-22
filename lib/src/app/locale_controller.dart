@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Haelt die Anzeigesprache (System/Deutsch/Englisch) und persistiert sie.
+/// Holds and persists the display language (system/German/English).
 ///
-/// Bewusst SharedPreferences und NICHT der verschluesselte LocalCache oder
-/// die Supabase-Profil-Zeile: die Sprache muss vor dem Login greifen und ist
-/// eine Geraete-, keine Konto-Eigenschaft (Spiegel von ThemeModeController).
-///
-/// `override == null` heisst System: die Aufloesung uebernimmt
-/// [resolveEatovaLocale] ueber die Geraete-Sprachliste.
+/// SharedPreferences on purpose, not the encrypted LocalCache or the Supabase
+/// profile row: the language applies before login and is a device, not an
+/// account property. `override == null` means system, resolved by
+/// [resolveEatovaLocale].
 class LocaleController extends ChangeNotifier {
   LocaleController({Locale? initial}) : _override = initial;
 
@@ -26,7 +24,7 @@ class LocaleController extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {
-      // Prefs nicht verfuegbar: System bleibt.
+      // Prefs unavailable: stay on system.
     }
   }
 
@@ -38,7 +36,7 @@ class LocaleController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(storageKey, locale?.languageCode ?? 'system');
     } catch (_) {
-      // Nicht persistiert — die Sitzung laeuft trotzdem in der Wahl.
+      // Not persisted; the session still runs in the chosen language.
     }
   }
 
@@ -56,9 +54,9 @@ class LocaleController extends ChangeNotifier {
       };
 }
 
-/// Spec §3: Geraet spricht Deutsch -> de, alles andere -> en. Die
-/// Praeferenzliste des Geraets wird der Reihe nach gelaufen, damit
-/// [fr, de] bei Deutsch landet und [en, de] bei Englisch.
+/// Spec §3: device speaks German -> de, anything else -> en.
+/// Walks the device preference list in order, so [fr, de] lands on German and
+/// [en, de] on English.
 Locale resolveEatovaLocale(List<Locale>? deviceLocales) {
   for (final locale in deviceLocales ?? const <Locale>[]) {
     if (locale.languageCode == 'de') return const Locale('de');
@@ -67,8 +65,7 @@ Locale resolveEatovaLocale(List<Locale>? deviceLocales) {
   return const Locale('en');
 }
 
-/// Reicht den [LocaleController] an tiefe Screens durch (der Schalter sitzt
-/// in den Einstellungen, gesetzt wird er ganz oben) — Spiegel von
+/// Passes the [LocaleController] down to deep screens; mirror of
 /// [ThemeModeScope].
 class LocaleScope extends InheritedNotifier<LocaleController> {
   const LocaleScope({

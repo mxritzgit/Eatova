@@ -1,31 +1,15 @@
-// W3-07 / B5: Die Datumsleiste des Food-Tabs ueberspringt einen Tag.
+// W3-07 / B5: the food tab's date strip skipped a day.
 //
-// `Duration` ist Absolutzeit, kein Kalender. Am Montag 30.03.2026 in
-// Europe/Berlin (Fruehjahrsumstellung war Sonntag 29.03., ein 23-Stunden-Tag)
-// liefert `DateTime(2026, 3, 30).subtract(const Duration(days: 1))` den
-// `2026-03-28 23:00`. Die Leiste rendert dann
+// `Duration` is absolute time, not a calendar. Across a 23-hour DST day
+// `DateTime(2026, 3, 30).subtract(const Duration(days: 1))` lands on
+// `2026-03-28 23:00`, so 2026-03-29 was unreachable and the "yesterday" chip
+// carried the wrong day — logging meals under the wrong `local_day`.
 //
-//   Mi 25.3. | Do 26.3. | Fr 27.3. | Gestern 28.3. | Heute 30.3.
-//
-// Sonntag der 29.3. ist nicht erreichbar, und der Chip „Gestern" traegt den
-// 28.3.: ein Tap darauf ruft `setFoodDate(2026-03-28)`, der Nutzer sieht die
-// Kalorien des falschen Tages, und jede von dort geloggte Mahlzeit bekommt
-// `local_day = 2026-03-28`.
-//
-// ZONEN-UNABHAENGIGKEIT (Technik aus test/services/day_math_test.dart):
-// `flutter test` laeuft in der lokalen Zone der Maschine — hier Europe/Berlin,
-// in der CI UTC. In UTC EXISTIERT dieser Fehler nicht, ein Test kann dort also
-// gar nicht rot werden. Deshalb pruefen die Tests hier ausschliesslich
-// Eigenschaften, die in JEDER Zone gelten muessen:
-//
-//   1. Kalender-Assertions auf (Jahr, Monat, Tag).
-//   2. Ein Property-Test gegen ein UTC-Orakel: UTC kennt keine Sommerzeit,
-//      dort IST `add(Duration(days: n))` die Kalenderverschiebung.
-//   3. Rundreise-/Lueckenfreiheit ueber `daysBetween`.
-//
-// Die eine Assertion, die vom DST-Verhalten der Maschine abhaengt, ist als
-// bedingter Beleg formuliert: sie nagelt den Fehler NUR fest, wenn die
-// Maschine ihn ueberhaupt hat, und kann nirgends falsch rot werden.
+// Zone independence: `flutter test` runs in the machine's local zone (UTC in
+// CI), where the bug does not exist. These tests therefore only assert
+// properties that hold in EVERY zone: calendar (y, m, d) assertions, a
+// property test against a UTC oracle, and gap-freeness via `daysBetween`. The
+// one DST-dependent assertion is conditional, so it can never fail falsely.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -38,7 +22,7 @@ import 'package:eatova/src/theme/app_theme.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
-/// Kurzform fuer Kalender-Assertions: nur (Jahr, Monat, Tag) zaehlen.
+/// Shorthand for calendar assertions: only (year, month, day) count.
 ({int y, int m, int d}) ymd(DateTime value) =>
     (y: value.year, m: value.month, d: value.day);
 
@@ -67,9 +51,8 @@ Future<void> _pumpFoodTab(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // MealAnalysisScreen liest seit der i18n-Migration context.l10n —
-      // ohne Delegates/locale wirft AppLocalizations.of() (Muster
-      // test/home_page_tabs_test.dart).
+      // MealAnalysisScreen reads context.l10n; without delegates/locale
+      // AppLocalizations.of() throws.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -95,14 +78,14 @@ Future<void> _pumpFoodTab(
 }
 
 void main() {
-  // Der 30.03.2026 ist ein Montag; die Umstellung lag auf Sonntag, dem 29.03.
+  // 2026-03-30 is a Monday; the DST switch fell on Sunday 2026-03-29.
   final montagNachUmstellung = DateTime(2026, 3, 30);
 
   group('foodDateStripDays — die Leiste verschluckt keinen Tag', () {
     test('bedingter Beleg: die Duration-Subtraktion verliert den 29.03.', () {
       final naiv = DateTime(2026, 3, 30).subtract(const Duration(days: 1));
       if (naiv.day != 29) {
-        // Nur auf einer Maschine MIT Fruehjahrsumstellung am 29.03.2026.
+        // Only on a machine with a DST switch on 2026-03-29.
         expect(
           ymd(naiv),
           (y: 2026, m: 3, d: 28),
@@ -119,7 +102,7 @@ void main() {
         (y: 2026, m: 3, d: 26),
         (y: 2026, m: 3, d: 27),
         (y: 2026, m: 3, d: 28),
-        (y: 2026, m: 3, d: 29), // der Tag, den der Altcode verschluckte
+        (y: 2026, m: 3, d: 29), // the day the old code swallowed
         (y: 2026, m: 3, d: 30),
       ]);
     });
@@ -129,8 +112,8 @@ void main() {
         today: montagNachUmstellung,
         pastDays: 4,
       )) {
-        // Idempotenz statt `hour == 0`: in Zonen, die um Mitternacht
-        // umstellen, existiert 00:00 an einzelnen Tagen nicht.
+        // Idempotence instead of `hour == 0`: in zones that switch at
+        // midnight, 00:00 does not exist on some days.
         expect(startOfDay(tag), tag);
         expect(tag.isUtc, isFalse);
       }
@@ -160,9 +143,8 @@ void main() {
     });
 
     test('trifft ueber 2025..2028 hinweg immer das UTC-Orakel', () {
-      // UTC kennt keine Sommerzeit: dort IST add(Duration(days: n)) die
-      // Kalenderverschiebung. Genau dieses (y, m, d) muss die Leiste lokal
-      // ebenfalls treffen — in jeder Zone, an jedem Tag.
+      // UTC has no DST, so there add(Duration(days: n)) IS the calendar
+      // shift. The strip must hit the same (y, m, d) in any zone.
       var geprueft = 0;
       var cursor = DateTime.utc(2025, 1, 1);
       final ende = DateTime.utc(2028, 12, 31);
@@ -191,12 +173,12 @@ void main() {
         foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 30), _de),
         'Heute',
       );
-      // Altcode: 23 Stunden -> inDays == 0 -> faelschlich „Heute".
+      // Old code: 23 hours -> inDays == 0 -> wrongly "today".
       expect(
         foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 29), _de),
         'Gestern',
       );
-      // Altcode: 47 Stunden -> inDays == 1 -> faelschlich „Gestern".
+      // Old code: 47 hours -> inDays == 1 -> wrongly "yesterday".
       expect(
         foodDateChipLabel(montagNachUmstellung, DateTime(2026, 3, 28), _de),
         'Sa',
@@ -236,7 +218,7 @@ void main() {
             montagNachUmstellung, DateTime(2026, 3, 29), _de),
         'Gestern',
       );
-      // Altcode: 119 Stunden -> inDays == 4 -> „Vor 4 Tagen".
+      // Old code: 119 hours -> inDays == 4 -> "4 days ago".
       expect(
         foodDateSelectedLabel(
             montagNachUmstellung, DateTime(2026, 3, 25), _de),
@@ -253,11 +235,9 @@ void main() {
         await _pumpFoodTab(tester, onDateSelected: (d) => gewaehlt = d);
 
         final heute = startOfDay(DateTime.now());
-        // Seit der scrollbaren 30-Tage-Leiste laeuft der Streifen ABSTEIGEND
-        // (Heute zuerst, wie der Tages-Picker im Edit-Sheet): der Chip-Index
-        // IST der Tages-Offset (chip-0 = Heute, chip-1 = Gestern, ...).
-        // Geprueft werden die ersten fuenf — mehr baut der Test-Viewport
-        // einer horizontalen ListView ohnehin nicht auf.
+        // The 30-day strip runs descending (today first), so the chip index IS
+        // the day offset. Only the first five are checked — the test viewport
+        // does not build more of a horizontal ListView.
         for (var i = 0; i < 5; i++) {
           final tag = heute.subtract(Duration(days: i));
           expect(
@@ -270,8 +250,8 @@ void main() {
           );
         }
 
-        // Der Chip nach „Heute" ist „Gestern" — und liefert beim Tap einen
-        // Tag, der genau EINEN Kalendertag zurueckliegt.
+        // The chip after today is yesterday, and a tap yields a day exactly
+        // one calendar day back.
         expect(
           find.descendant(
             of: find.byKey(const ValueKey('food-date-chip-1')),

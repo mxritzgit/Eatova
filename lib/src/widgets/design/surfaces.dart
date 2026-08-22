@@ -3,14 +3,13 @@ import 'package:flutter/material.dart';
 import '../../theme/app_tokens.dart';
 
 // ---------------------------------------------------------------------------
-// FLAECHEN — Karte, Seitentitel, Abschnittszeile, Bild-Platzhalter, Add-Slot.
+// SURFACES — card, page title, section heading, image placeholder, add slot.
 //
-// Geometrie, Radien und Abstaende stammen 1:1 aus der Design-Vorlage
-// (newScreen/nutrition_app(1).dart); Farben ausschliesslich aus [AppTokens],
-// Schrift ausschliesslich aus [AppType].
+// Geometry, radii and spacing come from the design template; colors only from
+// [AppTokens], type only from [AppType].
 // ---------------------------------------------------------------------------
 
-/// Die Grundflaeche der neuen Sprache: ruhige Karte, 1-px-Rand, kein Schatten.
+/// The base surface: calm card, 1 px border, no shadow.
 class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
@@ -26,9 +25,8 @@ class AppCard extends StatelessWidget {
   final double radius;
   final Color? color;
 
-  /// Schneidet den Inhalt am Radius ab und nimmt dafuer die Innenpolsterung
-  /// weg — fuer Karten, deren Kinder (Listenzeilen, Bilder) bis an die Kante
-  /// laufen sollen.
+  /// Clips the content at the radius and drops the padding — for cards whose
+  /// children run to the edge.
   final bool clip;
 
   @override
@@ -47,7 +45,7 @@ class AppCard extends StatelessWidget {
   }
 }
 
-/// Der grosse Seitentitel oben auf einem Screen.
+/// The large page title at the top of a screen.
 class ScreenTitle extends StatelessWidget {
   const ScreenTitle({
     super.key,
@@ -88,13 +86,13 @@ class ScreenTitle extends StatelessWidget {
   }
 }
 
-/// Die Abschnittszeile ueber einer Gruppe („Makros" / „Tagesziele").
+/// The heading above a group of cards.
 class SectionHeading extends StatelessWidget {
   const SectionHeading({super.key, required this.title, this.trailing});
 
   final String title;
 
-  /// Gedaempfter Zusatz rechts (Zeitraum, Ziel, „Verwalten").
+  /// Muted addition on the right (period, goal, action).
   final String? trailing;
 
   @override
@@ -110,8 +108,8 @@ class SectionHeading extends StatelessWidget {
                 AppType.display(17, weight: FontWeight.w700, color: t.ink),
           ),
         ),
-        // Abweichung von der Vorlage: dort steht rechts ein freier Text. Bei
-        // textScaler 2.0 sprengt der die Zeile, deshalb Flexible statt starr.
+        // Flexible instead of a fixed text: at textScaler 2.0 the trailing
+        // text would burst the row.
         if (trailing != null)
           Flexible(
             child: Padding(
@@ -132,7 +130,7 @@ class SectionHeading extends StatelessWidget {
   }
 }
 
-/// Diagonal gestreifte Flaeche als Platzhalter fuer fehlende Fotografie.
+/// Diagonally striped surface standing in for a missing photo.
 class ImagePlaceholder extends StatelessWidget {
   const ImagePlaceholder({super.key, this.radius = 16, this.label = 'BILD'});
 
@@ -171,14 +169,14 @@ class _StripePainter extends CustomPainter {
     }
   }
 
-  // Das Streifenmuster haengt allein an den beiden Toenen; die Groesse
-  // steuert Flutter ueber die neue Leinwand.
+  // The stripe pattern depends only on the two tones; size is handled by
+  // Flutter via the new canvas.
   @override
   bool shouldRepaint(_StripePainter old) =>
       old.base != base || old.stripe != stripe;
 }
 
-/// Gestrichelter „Hier etwas hinzufuegen"-Slot am Ende einer Liste.
+/// Dashed "add something here" slot at the end of a list.
 class DottedAddSlot extends StatelessWidget {
   const DottedAddSlot({super.key, required this.label, this.onTap});
 

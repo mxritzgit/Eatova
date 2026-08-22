@@ -1,23 +1,13 @@
--- Security-Hardening-Followup (Audit 2026-06-03). Rein additiv + idempotent.
--- Status: am 2026-06-07 gegen die Live-DB verifiziert — angewendet UND in
--- supabase_migrations.schema_migrations registriert (delete_account-Guard live,
--- touch_chat_session fuer authenticated revoked).
+-- Security hardening follow-up (audit 2026-06-03). Additive and idempotent.
 --
--- 1) delete_account(): expliziter auth.uid()-Guard, wie ihn bereits alle
---    Chat-Session-RPCs haben (EX_USER_REQUIRED). delete_account() war der
---    einzige security-definer-RPC OHNE diesen Guard. Ohne ihn würde ein
---    unerwarteter Aufruferkontext mit non-null auth.uid() unmittelbar die
---    auth.users-Zeile löschen; mit leerem auth.uid() liefe ein
---    `delete ... where id = null` (löscht 0 Zeilen, aber unsauber). Defense in
---    depth — Verhalten für echte authenticated-Aufrufe unverändert.
+-- 1) delete_account(): explicit auth.uid() guard (EX_USER_REQUIRED), the only
+--    security-definer RPC that lacked one. Defense in depth; behaviour for
+--    real authenticated calls is unchanged.
 --
--- 2) touch_chat_session(uuid): expliziter `revoke ... from authenticated`
---    (Gürtel + Hosenträger). Die Funktion ist service-role-only, verließ sich
---    bisher aber allein auf den globalen Revoke aus
---    20260517220000_security_hardening.sql. Würden Migrationen out-of-order
---    angewendet, wäre sie kurzzeitig für authenticated aufrufbar. claim_chat_quota,
---    consume_edge_rate_limit und prune_edge_rate_limits haben diesen expliziten
---    Revoke bereits — touch_chat_session zieht hiermit nach.
+-- 2) touch_chat_session(uuid): explicit `revoke ... from authenticated`. The
+--    function is service-role-only but relied on the global revoke in
+--    20260517220000_security_hardening.sql, so an out-of-order apply would
+--    briefly expose it.
 
 create or replace function public.delete_account()
 returns void

@@ -3,69 +3,43 @@ import 'dart:developer' as dev;
 
 import 'package:supabase/supabase.dart';
 
-/// Baut die vollstaendige Datenauskunft (DSGVO Art. 15/20) direkt aus den
-/// Server-Tabellen — der autoritativen Kopie — statt aus dem In-Memory-Zustand
-/// der Session.
+/// Builds the full GDPR Art. 15/20 data export from the server tables (the
+/// authoritative copy), not from in-memory session state: every table with a
+/// `*_select_own` policy via an RLS-filtered `select('*')`.
 ///
-/// Hintergrund (C7, docs/REVIEW-2026-08-08.md): der fruehere „Daten Snapshot"
-/// enthielt weder Tagebuch noch Favoriten, Rezepte oder Coach-Verlauf und
-/// nannte sich selbst ehrlich „In-Memory Snapshot deiner aktuellen Session".
-/// Fuer die Auskunfts-Vollstaendigkeit verwies PRIVACY.md auf einen manuellen
-/// E-Mail-Prozess. Dieser Service holt stattdessen JEDE Tabelle mit einer
-/// `*_select_own`-Policy per RLS-gefiltertem `select('*')`.
+/// Each table gets its own try. An unreadable table must neither break the
+/// export nor silently look empty — it is named under `unvollstaendig`. A
+/// section cut at [einSeitenLimit] is listed separately under `gekappt`, so
+/// the recipient does not mistake the cap for their whole data set.
 ///
-/// Die Tabellen der zurueckgebauten Features (daily_logs, caffeine_entries,
-/// sleep_entries, weekly_plans, workout_sets) standen hier bis 2026-08-14 mit
-/// in der Liste, unter dem Argument „Altbestand ist Nutzerdaten, egal ob das
-/// Feature noch ein Tab ist". Diesen Altbestand gibt es nicht mehr:
-/// 20260803120000_drop_removed_feature_tables.sql hat die fuenf Tabellen samt
-/// Inhalt geloescht. PostgREST antwortete auf die Abfragen mit 404, womit
-/// JEDE Auskunft sich als unvollstaendig auswies, obwohl sie vollstaendig
-/// war — ein Warnsignal, das immer feuert, warnt niemanden.
-///
-/// Fehler-Politik wie bei `_restoreDroppedDeletes`: jede Tabelle in ihrem
-/// eigenen try. Eine nicht lesbare Tabelle darf weder den Export reissen noch
-/// still als „leer" erscheinen — sie steht namentlich unter `unvollstaendig`.
-/// Eine bei [einSeitenLimit] abgeschnittene Sektion ist etwas anderes als eine
-/// fehlende und steht deshalb getrennt unter `gekappt`: sonst haelt der
-/// Empfaenger die Kappungsgrenze fuer seinen vollstaendigen Datenbestand.
-///
-/// Weil hier JEDER Sektionsfehler einzeln abgefangen wird, wirft
-/// [buildExportJson] offline NIE — wer nur am ausbleibenden Fehler misst, haelt
-/// deshalb auch eine Auskunft fuer vollstaendig, in der keine einzige Sektion
-/// steht. Wie viel wirklich ankam, sagt [exportUmfangAus].
+/// Because every section error is caught, [buildExportJson] never throws
+/// offline; how much actually arrived is what [exportUmfangAus] reports.
 class DataExportService {
   DataExportService(this._client, this._userId, {this.pageSize = 1000});
 
   final SupabaseClient _client;
   final String _userId;
 
-  /// Seitengroesse der `logged_meals`-Pagination — im Test klein stellbar,
-  /// damit der Schleifenpfad wirklich laeuft.
+  /// Page size of the `logged_meals` pagination; small in tests so the loop
+  /// path is actually exercised.
   final int pageSize;
 
-  /// Obergrenze fuer die uebrigen Tabellen (eine Seite): Favoriten sind auf
-  /// 200 gedeckelt, Chat/Rezepte/Gewicht liegen um Groessenordnungen unter
-  /// diesem Limit. Nur das Tagebuch waechst unbegrenzt und paginiert deshalb.
-  /// Wird die Grenze doch erreicht, steht die Sektion unter `gekappt`.
+  /// One-page cap for all other tables; only the diary grows without bound
+  /// and therefore paginates. If the cap is hit, the section lands in
+  /// `gekappt`.
   static const int einSeitenLimit = 10000;
 
-  /// Format-Kennung im Kopf jeder Auskunft. Steht als Konstante hier, weil
-  /// [exportUmfangAus] daran erkennt, dass ein Text ueberhaupt eine Auskunft
-  /// DIESES Services ist und nicht irgendein anderes JSON.
+  /// Format tag in every export header; [exportUmfangAus] uses it to tell an
+  /// export of this service apart from any other JSON.
   static const String formatKennung = 'eatova-export/1';
 
-  /// `user_id`-gefilterte Tabellen mit einer Zeile-gehoert-dem-User-Policy.
-  /// `profiles` (Schluessel `id`) und `logged_meals` (paginiert) laufen
-  /// separat, stehen aber mit in [alleExportTabellen].
+  /// `user_id`-filtered tables with a row-owned-by-user policy. `profiles`
+  /// (key `id`) and `logged_meals` (paginated) run separately but are part of
+  /// [alleExportTabellen].
   ///
-  /// Gegen supabase/migrations/ abgeglichen (Stand 2026-08-14): das sind alle
-  /// heute existierenden Tabellen mit einer `*_select_own`-Policy. Bewusst
-  /// NICHT dabei ist `edge_rate_limits` — die Tabelle kennt keine `user_id`,
-  /// sondern nur einen SHA-256-Hash des Subjekts, hat keine select-Policy und
-  /// ist `authenticated` komplett entzogen (nur die security-definer-RPC
-  /// schreibt hinein). Eine neue Tabelle mit Nutzerdaten gehoert hier her,
-  /// sonst faellt sie aus der Auskunft.
+  /// `edge_rate_limits` is deliberately absent: no `user_id` (only a SHA-256
+  /// subject hash), no select policy, revoked from `authenticated`. Any new
+  /// table holding user data belongs here or it drops out of the export.
   static const List<String> userIdTabellen = <String>[
     'lifetime_stats',
     'favorite_meals',
@@ -76,17 +50,16 @@ class DataExportService {
     'chat_quota_usage',
   ];
 
-  /// Jede Sektion, die ein vollstaendiger Export enthalten muss. Der
-  /// Vollstaendigkeits-Test vergleicht diese Liste gegen ein eigenes, aus
-  /// supabase/migrations/ abgeleitetes Literal — er darf sie nicht als
-  /// Wahrheit uebernehmen, sonst sieht er Tabellen-Drift nie.
+  /// Every section a complete export must contain. The completeness test
+  /// compares this against its own literal derived from supabase/migrations/,
+  /// never adopting it as truth — otherwise it would never see table drift.
   static const List<String> alleExportTabellen = <String>[
     'profiles',
     'logged_meals',
     ...userIdTabellen,
   ];
 
-  /// Die komplette Auskunft als eingerücktes JSON.
+  /// The complete export as indented JSON.
   Future<String> buildExportJson() async {
     final export = <String, dynamic>{
       'format': formatKennung,
@@ -94,8 +67,7 @@ class DataExportService {
       'userId': _userId,
     };
     final unvollstaendig = <String>[];
-    // Sektion -> Zeilen, die der Server WIRKLICH fuer diesen Nutzer haelt.
-    // `null`, wenn er nicht mitgezaehlt hat (siehe [_rows]).
+    // Section -> rows the server really holds; `null` if it did not count.
     final gekappt = <String, int?>{};
 
     Future<void> sektion(
@@ -105,7 +77,7 @@ class DataExportService {
       try {
         export[name] = await laden();
       } catch (e, st) {
-        // Kein stilles Leer-Vortaeuschen: die Sektion FEHLT und sagt es.
+        // No silent empty section: it is missing and says so.
         unvollstaendig.add(name);
         dev.log('DataExport: $name nicht lesbar',
             error: e, stackTrace: st, name: 'data_export');
@@ -132,30 +104,22 @@ class DataExportService {
       export['gekappt'] = <String, dynamic>{
         'grenzeProSektion': einSeitenLimit,
         'sektionen': gekappt.keys.toList(),
-        // [einSeitenLimit] ist nur UNSERE Grenze; PostgREST kappt zusaetzlich
-        // bei `db-max-rows`. Ohne die echte Zeilenzahl haelt der Empfaenger
-        // sonst wieder eine fremde Grenze fuer seinen Datenbestand — derselbe
-        // Fehler, gegen den `gekappt` ueberhaupt eingefuehrt wurde.
+        // [einSeitenLimit] is only our cap; PostgREST also cuts at
+        // `db-max-rows`. Without the real row count the recipient would again
+        // mistake a foreign cap for their data set.
         if (gezaehlt.isNotEmpty) 'zeilenAufDemServer': gezaehlt,
       };
     }
     return const JsonEncoder.withIndent('  ').convert(export);
   }
 
-  /// Eine Sektion in einem Rutsch — die Kappung erkannt am Zaehler des
-  /// Servers, nicht an einer Vermutung ueber ihn.
+  /// One section in a single go, detecting truncation from the server's own
+  /// count rather than a guess about it.
   ///
-  /// Bis 2026-08-19 forderte diese Methode EINE Zeile ueber der Grenze an und
-  /// schloss aus „eine zuviel gekommen" auf eine Kappung. Das setzt voraus,
-  /// dass der Server so viele Zeilen ueberhaupt herausgibt — PostgREST tut das
-  /// nicht: bei gesetztem `db-max-rows` (Supabase-Default 1000) schneidet es
-  /// STILL auf sein eigenes Maximum ab. Die Zeile, an der die Erkennung hing,
-  /// kam dann nie an, der Hinweis blieb aus, und der Empfaenger hielt 1000
-  /// Zeilen fuer seinen vollstaendigen Datenbestand.
-  ///
-  /// `Prefer: count=exact` laesst den Server im SELBEN Request mitzaehlen (die
-  /// Zahl kommt als `Content-Range` zurueck). Zaehlt er mehr, als angekommen
-  /// ist, wurde gekappt — unabhaengig davon, WER gekappt hat.
+  /// `Prefer: count=exact` makes the server count in the same request
+  /// (`Content-Range`). If it counts more than arrived, something truncated —
+  /// our cap or PostgREST's silent `db-max-rows`, which an over-fetch-by-one
+  /// probe would miss entirely.
   Future<List<Map<String, dynamic>>> _rows(
     String tabelle, {
     required Map<String, int?> gekappt,
@@ -167,10 +131,8 @@ class DataExportService {
       gekappt[tabelle] = aufDemServer;
       return alle;
     }
-    // Eine Zeile ueber der Grenze mitholen und wieder abschneiden: nur so
-    // laesst sich ohne Zaehler „genau [einSeitenLimit] Zeilen vorhanden" von
-    // „es liegen mehr dahinter" unterscheiden. Ein falscher Kappungs-Hinweis
-    // waere derselbe Fehler wie ein falsches `unvollstaendig`.
+    // Fetch one row past the cap and trim it: without a count that is the
+    // only way to tell "exactly [einSeitenLimit] rows" from "more behind".
     if (alle.length > einSeitenLimit) {
       gekappt[tabelle] = null;
       return alle.sublist(0, einSeitenLimit);
@@ -178,14 +140,13 @@ class DataExportService {
     return alle;
   }
 
-  /// Eine Seite plus — wenn der Server ihn mitschickt — seinen Zeilen-Zaehler.
+  /// One page plus the server's row count, if it sent one.
   ///
-  /// Der Zaehler ist `null`, wenn die Antwort kein `Content-Range` mit
-  /// Gesamtzahl trug (Proxy davor, aeltere Gegenstelle): postgrest-dart wirft
-  /// dann beim Auspacken, und daran darf die Auskunft nicht scheitern. Der
-  /// Rueckfall holt eine Zeile ueber der Grenze und erkennt damit wenigstens
-  /// die SELBST gesetzte Kappung. Ein echter Fehler (500, RLS) wirft im
-  /// zweiten Anlauf erneut und landet wie bisher unter `unvollstaendig`.
+  /// The count is `null` when the response carried no total `Content-Range`
+  /// (proxy, older peer) — postgrest-dart throws while unpacking, and the
+  /// export must not fail on that. The fallback over-fetches by one and so
+  /// still catches our own cap; a real error (500, RLS) throws again and ends
+  /// up under `unvollstaendig`.
   Future<(List<Map<String, dynamic>>, int?)> _seiteMitZaehler(
     String tabelle,
     String keySpalte,
@@ -213,9 +174,8 @@ class DataExportService {
     }
   }
 
-  /// Das Tagebuch ist die einzige unbegrenzt wachsende Tabelle —
-  /// Offset-Pagination mit stabiler Gesamtordnung (logged_at, id), damit
-  /// Zeit-Gleichstaende an einer Seitengrenze keine Zeile verlieren.
+  /// The diary is the only unbounded table: offset pagination with a total
+  /// order (logged_at, id) so ties at a page boundary lose no row.
   Future<List<Map<String, dynamic>>> _alleLoggedMeals() async {
     final rows = <Map<String, dynamic>>[];
     final gesehen = <Object?>{};
@@ -239,35 +199,32 @@ class DataExportService {
   }
 }
 
-/// Wie vollstaendig eine fertige Auskunft WIRKLICH ist.
+/// How complete a finished export really is.
 ///
-/// Nicht dasselbe wie „der Abruf hat nicht geworfen":
-/// [DataExportService.buildExportJson] faengt jeden Sektionsfehler einzeln ab
-/// und wirft offline nie. Ohne diese Unterscheidung meldet das Export-Sheet
-/// eine vollstaendige Auskunft auch dann, wenn KEINE einzige Sektion ankam.
+/// Not the same as "the fetch did not throw":
+/// [DataExportService.buildExportJson] catches every section error and never
+/// throws offline, so without this the sheet would claim completeness even
+/// when no section arrived.
 enum ExportUmfang {
-  /// Jede Sektion da, nichts abgeschnitten.
+  /// Every section present, nothing truncated.
   vollstaendig,
 
-  /// Mindestens eine Sektion fehlt oder wurde gekappt.
+  /// At least one section missing or truncated.
   teilweise,
 
-  /// Nicht eine einzige Sektion ist angekommen.
+  /// Not a single section arrived.
   nichtsGeladen,
 }
 
-/// Liest den Umfang aus dem fertigen Export-JSON.
+/// Reads the scope out of a finished export JSON.
 ///
-/// `null` heisst „keine Auskunft dieses Formats" — Sitzungs-Auszug,
-/// Rueckfall-Text, unvollstaendiges JSON. Darueber ist hier nichts zu sagen,
-/// und Raten waere derselbe Fehler wie die Vollstaendigkeits-Behauptung, gegen
-/// die diese Funktion antritt.
+/// `null` means "not an export of this format" — nothing can be said about
+/// it, and guessing would repeat the very completeness claim this guards
+/// against.
 ///
-/// Bewusst ein voller `jsonDecode` und keine Textsuche: die Sektionsnamen
-/// stehen ueber die ganze Datei verteilt, und eine Heuristik auf Rohtext haette
-/// bei einem Nutzerwert, der zufaellig wie ein Schluessel aussieht, still das
-/// Falsche gemeldet. Der Aufrufer ruft das genau EINMAL pro Auskunft auf, nicht
-/// pro Frame.
+/// Deliberately a full `jsonDecode`, not a text search: a user value that
+/// happens to look like a key would silently report the wrong thing. Called
+/// once per export, not per frame.
 ExportUmfang? exportUmfangAus(String json) {
   final auskunft = _alsAuskunft(json);
   if (auskunft == null) return null;
@@ -283,9 +240,9 @@ ExportUmfang? exportUmfangAus(String json) {
   return ExportUmfang.vollstaendig;
 }
 
-/// Dekodiert [json], wenn es eine Auskunft aus [DataExportService] ist — sonst
-/// `null`. Die Format-Kennung ist die Bedingung: ein fremdes JSON hat keine
-/// Sektionen dieses Namens, saehe hier also wie eine leere Auskunft aus.
+/// Decodes [json] if it is a [DataExportService] export, else `null`. The
+/// format tag is the gate: foreign JSON has no sections of these names and
+/// would otherwise look like an empty export.
 Map<String, dynamic>? _alsAuskunft(String json) {
   try {
     final wert = jsonDecode(json);

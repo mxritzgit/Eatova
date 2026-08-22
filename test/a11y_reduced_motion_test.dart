@@ -1,26 +1,8 @@
-// A11y „Bewegung reduzieren" (iOS/Android System-Toggle) AUSSERHALB der
-// Design-Bibliothek.
-//
-// Die Bibliothek (lib/src/widgets/design/**) faehrt ihre Animationen laengst
-// ueber `motionDuration(context, ...)`. Die Screens und die kcal-/meal-Widgets
-// taten es nicht: dort standen rund zwei Dutzend fest verdrahtete `Duration`s,
-// die den Systemschalter schlicht ignorierten. Genau das haelt diese Suite
-// fest — und zwar nicht an einzelnen Zeilennummern, sondern als Eigenschaft
-// der gerenderten Flaeche: unter `disableAnimations: true` darf unterhalb der
-// gepruefte Wurzel KEIN implizit animiertes Widget mehr eine Dauer > 0 tragen.
-//
-// Warum als Sweep und nicht als Einzel-Assertions: eine neue `AnimatedContainer`
-// in einem dieser Screens faellt damit beim naechsten Lauf auf, ohne dass
-// jemand diesen Test erweitern muss.
-//
-// Nicht Gegenstand dieser Suite (bewusst):
-//   * Debounces, Snackbar-Standzeiten, HTTP-Timeouts und Retry-Backoffs —
-//     das ist Zeitsteuerung, keine Bewegung. Wuerden sie auf 0 kollabieren,
-//     waere das ein Verhaltensfehler.
-//   * Der 7-Sekunden-Fortschritt der `MealLoadingCard`. Er IST die
-//     Rueckmeldung waehrend der Analyse; auf 0 gesetzt saesse der Balken
-//     sofort bei 95 % fest. Der letzte Test hier haelt diese Entscheidung
-//     als Regressionsschutz fest.
+// A11y "reduce motion" OUTSIDE the design library. A sweep, not per-widget
+// assertions: under `disableAnimations: true` no implicitly animated widget
+// below the checked root may carry a duration > 0. Out of scope: debounces,
+// dwell times, timeouts and backoffs (timing, not motion), and
+// `MealLoadingCard`'s progress (see the last test).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -40,13 +22,12 @@ import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 // ---------------------------------------------------------------------------
-// Der Sweep
+// The sweep
 // ---------------------------------------------------------------------------
 
-/// Unsere impliziten Animations-Widgets. Materials eigene Bausteine
-/// (`AnimatedPhysicalModel` in `Material`, `AnimatedDefaultTextStyle` in
-/// `ListTile`) stehen bewusst NICHT drin: deren Dauern gehoeren dem Framework,
-/// wir koennen sie nicht setzen und sie sind kein Befund unserer Screens.
+/// Our implicit animation widgets. Material's own building blocks are
+/// deliberately absent: their durations belong to the framework and are no
+/// finding about our screens.
 const Set<String> _unsereTypen = <String>{
   'AnimatedContainer',
   'AnimatedOpacity',
@@ -69,16 +50,15 @@ Duration? _dauerVon(Widget widget) {
 
 bool _gehoertUns(Widget widget) {
   final name = widget.runtimeType.toString();
-  // TweenAnimationBuilder ist generisch -> `TweenAnimationBuilder<double>`.
+  // TweenAnimationBuilder is generic -> `TweenAnimationBuilder<double>`.
   return _unsereTypen.contains(name) || name.startsWith('TweenAnimationBuilder');
 }
 
-/// Alle implizit animierten Widgets unterhalb von [wurzel], deren Dauer NICHT
-/// auf 0 kollabiert ist. Leere Liste = die Flaeche respektiert den Schalter.
+/// All implicitly animated widgets below [wurzel] whose duration did not
+/// collapse to 0; an empty list means the surface respects the toggle.
 ///
-/// `TextField`/`InputDecorator` werden samt Unterbaum uebersprungen: Materials
-/// Eingabe-Deko blendet Hint und Fehlertext mit ihren eigenen, im Framework
-/// fest verdrahteten 200 ms ein.
+/// `TextField`/`InputDecorator` subtrees are skipped: Material's input
+/// decoration fades hint and error text with its own hardcoded 200 ms.
 List<String> _offeneAnimationen(WidgetTester tester, Finder wurzel) {
   final funde = <String>[];
   void lauf(Element element) {
@@ -100,13 +80,12 @@ List<String> _offeneAnimationen(WidgetTester tester, Finder wurzel) {
 Matcher get _keineBewegung => isEmpty;
 
 // ---------------------------------------------------------------------------
-// Huelle
+// Harness
 // ---------------------------------------------------------------------------
 
-/// Wie die App unter aktiviertem „Bewegung reduzieren" laeuft. Die
-/// `MediaQueryData` wird aus der echten View abgeleitet und nur um das Flag
-/// ergaenzt — ein blankes `MediaQueryData()` haette Groesse 0 und wuerde jedes
-/// Layout kaputtmessen.
+/// Runs the app with "reduce motion" on. The `MediaQueryData` is derived from
+/// the real view and only gets the flag added — a bare `MediaQueryData()`
+/// would have size 0 and break every layout measurement.
 Future<void> _pump(
   WidgetTester tester,
   Widget child, {
@@ -121,7 +100,7 @@ Future<void> _pump(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
-      // Mehrere gepumpte Screens lesen seit der i18n-Migration context.l10n.
+      // Several of the pumped screens read context.l10n.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -169,9 +148,8 @@ LoggedMeal _mahlzeit(String id, MealSlot slot) => LoggedMeal(
 
 void main() {
   group('MealSuggestionItem', () {
-    // Vier Fundstellen in einer Datei: Karten-Rahmen (AnimatedContainer),
-    // Aufklapp-Hoehe (AnimatedSize), Chevron (AnimatedRotation) und die
-    // Fokus-Aufhellung des Gramm-Feldes (AnimatedContainer).
+    // Four sites in one file: card border, expand height, chevron and the
+    // focus highlight of the gram field.
     testWidgets('aufgeklappt steht sofort im Endzustand', (tester) async {
       await _pump(
         tester,
@@ -210,9 +188,8 @@ void main() {
       );
     });
 
-    // Gegenprobe: ohne den Schalter laeuft die Karte weiter animiert. Sonst
-    // koennte der Test auch dann gruen sein, wenn jemand die Animationen
-    // ersatzlos entfernt haette.
+    // Counter-check: without the toggle the card still animates. Otherwise the
+    // test would stay green if someone deleted the animations outright.
     testWidgets('ohne den Schalter bleiben die Animationen erhalten',
         (tester) async {
       await _pump(
@@ -249,10 +226,9 @@ void main() {
           ],
         ),
       );
-      // Die Chip-Leiste scrollt sich im PostFrame-Callback ins Bild. Unter
-      // reduzierter Bewegung MUSS das ein Sprung sein: `animateTo` mit
-      // `Duration.zero` bricht in DrivenScrollActivity an
-      // `assert(duration > Duration.zero)`.
+      // The chip strip scrolls into view in the post-frame callback. Under
+      // reduced motion that must be a jump: `animateTo` with `Duration.zero`
+      // trips `assert(duration > Duration.zero)` in DrivenScrollActivity.
       await tester.pump();
       await tester.pump();
 
@@ -265,11 +241,9 @@ void main() {
 
     testWidgets('die Chip-Leiste SPRINGT zur Auswahl statt zu gleiten',
         (tester) async {
-      // Ein Tag weit hinten in der Leiste: der Streifen MUSS scrollen, damit
-      // der gewaehlte Chip sichtbar wird. Genau hier lag die Falle — mit
-      // `motionDuration` allein waere daraus `animateTo(..., Duration.zero)`
-      // geworden, und DrivenScrollActivity haette an
-      // `assert(duration > Duration.zero)` geworfen.
+      // A day far back in the strip, so it must scroll for the chosen chip to
+      // become visible — the trap: `motionDuration` alone would have made this
+      // `animateTo(..., Duration.zero)` and thrown.
       await _pump(
         tester,
         MealAnalysisScreen(
@@ -277,7 +251,7 @@ void main() {
           selectedDate: DateTime.now().subtract(const Duration(days: 20)),
         ),
       );
-      // Der Sprung passiert im PostFrame-Callback des ersten Frames.
+      // The jump happens in the first frame's post-frame callback.
       await tester.pump();
       expect(tester.takeException(), isNull);
 
@@ -298,8 +272,8 @@ void main() {
         reason: 'ohne Zeitvorschub muss die Leiste bereits am Ziel stehen',
       );
 
-      // Und sie gleitet nicht nach: eine laufende Scroll-Animation waere im
-      // naechsten Frame weitergerueckt.
+      // And it does not glide on: a running scroll animation would have moved
+      // further in the next frame.
       await tester.pump(const Duration(milliseconds: 130));
       expect(position.pixels, sofort);
     });
@@ -339,8 +313,8 @@ void main() {
           ],
         ),
       );
-      // EIN Frame ohne Zeitvorschub. Vorher lagen hier 40 ms Versatz je Zeile
-      // plus 280 ms Einblendung — die dritte Zeile war erst nach 400 ms da.
+      // ONE frame without advancing time. There used to be a 40 ms stagger per
+      // row plus a 280 ms fade, so row three appeared only after 400 ms.
       await tester.pump();
 
       final fades = tester
@@ -398,18 +372,17 @@ void main() {
         _keineBewegung,
       );
 
-      // Aufraeumen: der eigene Dismiss-Timer haengt am Snackbar-Inhalt.
+      // Cleanup: the custom dismiss timer hangs off the snackbar content.
       await tester.pump(const Duration(seconds: 4));
       await tester.pumpAndSettle();
     });
   });
 
   group('MealLoadingCard — bewusste Ausnahme', () {
-    // Diese Karte IST die Rueckmeldung waehrend der Foto-Analyse. Ihr
-    // 7-Sekunden-Fortschritt darf NICHT auf 0 kollabieren: der Balken saesse
-    // sonst ab der ersten Sekunde bei 95 % und die Stufenanzeige stuende
-    // dauerhaft auf „Gleich fertig...", waehrend das Netz noch laeuft.
-    // Der Test haelt die Entscheidung fest, damit sie niemand „aufraeumt".
+    // This card IS the feedback during photo analysis, so its 7-second
+    // progress must NOT collapse to 0 — the bar would sit at 95 % from the
+    // first second while the request is still running. Pinned so nobody
+    // "cleans it up".
     testWidgets('der Fortschritt laeuft auch unter reduzierter Bewegung',
         (tester) async {
       await _pump(tester, const MealLoadingCard());
@@ -427,7 +400,7 @@ void main() {
         reason: 'ohne laufenden Balken haette der Nutzer keine Rueckmeldung',
       );
 
-      // Die Text-Ueberblendung der Stufen ist dagegen reine Deko und muss weg.
+      // The stage text cross-fade is pure decoration and has to go.
       expect(
         _offeneAnimationen(tester, find.byType(MealLoadingCard)),
         _keineBewegung,

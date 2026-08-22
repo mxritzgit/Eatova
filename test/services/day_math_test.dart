@@ -2,30 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/day_math.dart';
 
-// B5: Sommerzeit-Umstellung ueberspringt einen Tag.
+// B5: the DST changeover skips a day. `Duration` arithmetic is absolute time,
+// so on 2026-03-30 in Europe/Berlin `subtract(Duration(days: 1))` yields
+// `2026-03-28 23:00` and Sunday vanishes from the date strip.
 //
-// `Duration`-Arithmetik ist Absolutzeit, keine Kalenderarithmetik. Am
-// 30.03.2026 in Europe/Berlin (Fruehjahrsumstellung am Sonntag 29.03., ein
-// 23-Stunden-Tag) liefert `DateTime(2026, 3, 30).subtract(Duration(days: 1))`
-// den `2026-03-28 23:00` — der Sonntag verschwindet aus der Datumsleiste und
-// der Chip „Gestern" traegt das falsche Datum.
-//
-// Zeitzonen-Unabhaengigkeit der Tests: `flutter test` laeuft in der lokalen
-// Zone der Maschine (hier Europe/Berlin, in der CI moeglicherweise UTC). Ein
-// Test, der nur in Berlin rot wird, ist wertlos. Deshalb pruefen die Tests
-// hier ausschliesslich Eigenschaften, die in JEDER Zone gelten muessen:
-//
-//   1. Kalender-Assertions auf (Jahr, Monat, Tag) — zonenunabhaengig wahr.
-//   2. Ein Property-Test gegen ein UTC-Orakel: UTC kennt keine Sommerzeit,
-//      dort IST `add(Duration(days: n))` exakt die Kalenderverschiebung.
-//      Was `addDays` lokal liefert, muss dasselbe (y, m, d) tragen.
-//   3. Rundreise-Eigenschaften: `daysBetween(addDays(d, n), d) == n`.
-//
-// Die eine Stelle, die vom DST-Verhalten der Maschine abhaengt, ist bewusst
-// als Beleg-Assertion formuliert, die den Fehler NUR dann festnagelt, wenn
-// die Maschine ihn ueberhaupt hat — sie kann nirgends falsch rot werden.
+// `flutter test` runs in the machine's local zone, so these tests assert only
+// properties true in EVERY zone: (y, m, d) comparisons, a property test
+// against a UTC oracle, and round trips. The one DST-dependent assertion pins
+// the bug down only where the machine actually has it.
 
-/// Kurzform fuer Kalender-Assertions: nur (Jahr, Monat, Tag) zaehlen.
+/// Shorthand for calendar assertions: only (year, month, day) count.
 ({int y, int m, int d}) ymd(DateTime value) =>
     (y: value.year, m: value.month, d: value.day);
 
@@ -34,10 +20,8 @@ void main() {
     test(
       'Fruehjahrsumstellung: der Vortag des 30.03.2026 ist der 29.03., nicht der 28.',
       () {
-        // Der dokumentierte Fehler, als Beleg. Auf einer Maschine in einer
-        // Zone MIT Fruehjahrsumstellung am 29.03.2026 (z. B. Europe/Berlin)
-        // rutscht die Duration-Subtraktion auf den 28.03. um 23:00. Auf einer
-        // UTC-Maschine passiert das nicht — dann ist hier nichts zu belegen.
+        // The bug as evidence: in a zone that springs forward on 2026-03-29
+        // the subtraction slips to the 28th at 23:00; on UTC it does not.
         final naiv = DateTime(2026, 3, 30).subtract(const Duration(days: 1));
         if (naiv.day != 29) {
           expect(
@@ -48,7 +32,7 @@ void main() {
           expect(naiv.hour, 23);
         }
 
-        // Das gilt in JEDER Zone.
+        // This holds in EVERY zone.
         expect(ymd(addDays(DateTime(2026, 3, 30), -1)), (y: 2026, m: 3, d: 29));
         expect(ymd(addDays(DateTime(2026, 3, 29), 1)), (y: 2026, m: 3, d: 30));
         expect(ymd(addDays(DateTime(2026, 3, 28), 2)), (y: 2026, m: 3, d: 30));
@@ -56,7 +40,7 @@ void main() {
     );
 
     test('Herbstumstellung (25-Stunden-Tag) verschiebt ebenfalls sauber', () {
-      // Europe/Berlin: Rueckstellung am Sonntag 25.10.2026.
+      // Europe/Berlin falls back on Sunday 2026-10-25.
       expect(ymd(addDays(DateTime(2026, 10, 26), -1)), (y: 2026, m: 10, d: 25));
       expect(ymd(addDays(DateTime(2026, 10, 25), 1)), (y: 2026, m: 10, d: 26));
       expect(ymd(addDays(DateTime(2026, 10, 24), 3)), (y: 2026, m: 10, d: 27));
@@ -76,7 +60,7 @@ void main() {
     test('Jahresgrenzen laufen ueber', () {
       expect(ymd(addDays(DateTime(2025, 12, 31), 1)), (y: 2026, m: 1, d: 1));
       expect(ymd(addDays(DateTime(2026, 1, 1), -1)), (y: 2025, m: 12, d: 31));
-      // 2025 hat 365 Tage — 366 Tage zurueck landet einen Tag frueher.
+      // 2025 has 365 days, so 366 days back lands a day earlier.
       expect(ymd(addDays(DateTime(2026, 1, 1), -365)), (y: 2025, m: 1, d: 1));
       expect(ymd(addDays(DateTime(2026, 1, 1), -366)), (y: 2024, m: 12, d: 31));
     });
@@ -85,9 +69,9 @@ void main() {
       expect(ymd(addDays(DateTime(2024, 2, 28), 1)), (y: 2024, m: 2, d: 29));
       expect(ymd(addDays(DateTime(2024, 3, 1), -1)), (y: 2024, m: 2, d: 29));
       expect(ymd(addDays(DateTime(2024, 2, 29), 1)), (y: 2024, m: 3, d: 1));
-      // 2026 ist kein Schaltjahr — der Vortag des 01.03. ist der 28.02.
+      // 2026 is no leap year: the day before 03-01 is 02-28.
       expect(ymd(addDays(DateTime(2026, 3, 1), -1)), (y: 2026, m: 2, d: 28));
-      // 2100 ist trotz Teilbarkeit durch 4 KEIN Schaltjahr.
+      // 2100 is divisible by 4 but is NOT a leap year.
       expect(ymd(addDays(DateTime(2100, 3, 1), -1)), (y: 2100, m: 2, d: 28));
     });
 
@@ -107,8 +91,8 @@ void main() {
 
   group('daysBetween — Tagesdifferenz ohne DST-Drift', () {
     test('Fruehjahr: der Folgetag ist 1 Tag entfernt, nicht 0', () {
-      // Gemessener Fehler des Altcodes in Europe/Berlin:
-      //   23h -> inDays == 0, 47h -> inDays == 1.
+      // Measured legacy bug in Europe/Berlin: 23h -> inDays == 0,
+      // 47h -> inDays == 1.
       expect(daysBetween(DateTime(2026, 3, 30), DateTime(2026, 3, 29)), 1);
       expect(daysBetween(DateTime(2026, 3, 30), DateTime(2026, 3, 28)), 2);
       expect(daysBetween(DateTime(2026, 3, 31), DateTime(2026, 3, 28)), 3);
@@ -192,8 +176,8 @@ void main() {
 
     test('jeder Eintrag ist eine lokale Mitternacht', () {
       for (final tag in dayStrip(today: DateTime(2026, 3, 30, 9), pastDays: 6)) {
-        // Idempotenz statt `hour == 0`: in Zonen, die um Mitternacht
-        // umstellen, existiert 00:00 an manchen Tagen nicht.
+        // Idempotence instead of `hour == 0`: in zones that switch at
+        // midnight, 00:00 does not exist on some days.
         expect(startOfDay(tag), tag);
         expect(tag.isUtc, isFalse);
       }
@@ -208,7 +192,7 @@ void main() {
           (y: 2026, m: 3, d: 26),
           (y: 2026, m: 3, d: 27),
           (y: 2026, m: 3, d: 28),
-          (y: 2026, m: 3, d: 29), // der Tag, den der Altcode verschluckt
+          (y: 2026, m: 3, d: 29), // the day the legacy code swallowed
           (y: 2026, m: 3, d: 30),
         ]);
       },
@@ -279,9 +263,8 @@ void main() {
   });
 
   group('Eigenschaften (zonenunabhaengig, gegen ein UTC-Orakel)', () {
-    // UTC kennt keine Sommerzeit: dort ist `add(Duration(days: n))` per
-    // Definition die Kalenderverschiebung. Genau dieses (y, m, d) muss
-    // `addDays` lokal ebenfalls treffen — in jeder Zone, an jedem Tag.
+    // UTC has no DST, so `add(Duration(days: n))` is the calendar shift there;
+    // `addDays` must hit the same (y, m, d) locally in every zone.
     const offsets = [-400, -366, -35, -34, -31, -30, -7, -2, -1, 0, 1, 2, 7, 30, 35, 365];
 
     test('addDays trifft ueber 2024..2032 hinweg immer das UTC-Orakel', () {
@@ -306,7 +289,7 @@ void main() {
         }
         cursor = cursor.add(const Duration(days: 1));
       }
-      // Sicherheitsnetz: die Schleife muss wirklich gelaufen sein.
+      // Safety net: the loop must really have run.
       expect(geprueft, greaterThan(50000));
     });
 

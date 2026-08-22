@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// Subtiler Auftritts-Effekt: sanftes Einblenden + leichtes Hochgleiten, wenn
-/// ein Inhalt erscheint. Bewusst dezent (keine „krassen" Animationen) — gibt
-/// den ansonsten statischen Seiten etwas Leben.
+/// Subtle entrance: soft fade-in plus a slight upward glide.
 ///
-/// Das Kind bleibt immer im Widget-Baum (nur [Opacity]/[Transform] ändern sich),
-/// damit Hit-Testing, Keys und Widget-Tests unberührt bleiben. Über einen
-/// wechselnden [key] (z.B. pro Tab) spielt der Auftritt erneut ab.
+/// The child always stays in the widget tree (only opacity/transform change),
+/// so hit-testing, keys and widget tests are untouched. A changing [key]
+/// replays the entrance.
 class LivelyEntrance extends StatefulWidget {
   const LivelyEntrance({
     super.key,
@@ -46,19 +44,14 @@ class _LivelyEntranceState extends State<LivelyEntrance>
 
   @override
   Widget build(BuildContext context) {
-    // A11y: "Bewegung reduzieren" respektieren — den Auftritt überspringen und
-    // den Inhalt sofort statisch zeigen (kein Fade/Slide).
+    // A11y: respect "reduce motion" — show the content statically.
     if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
       return widget.child;
     }
-    // FadeTransition statt eines roh animierten Opacity-Widgets: Letzteres
-    // erzwingt pro Frame ein saveLayer (Offscreen-Rasterung der GANZEN Seite)
-    // — 60x/s ueber die Auftrittsdauer, bei jedem Tab-Wechsel. FadeTransition
-    // nutzt die guenstige Opacity-Layer-Pipeline und baut das Kind nicht neu.
-    // Das Kind steckt in einer RepaintBoundary: die Seite wird einmal
-    // gerastert, der Auftritt komponiert nur den fertigen Layer neu statt ihn
-    // jeden Frame neu zu zeichnen. Der leichte Hochgleit-Effekt bleibt ein
-    // reiner Transform-Layer (billig, kein Re-Raster).
+    // FadeTransition instead of a raw animated Opacity: the latter forces a
+    // saveLayer (offscreen raster of the whole page) every frame. The
+    // RepaintBoundary rasters the page once so the entrance only recomposites
+    // the finished layer; the glide stays a cheap transform layer.
     return FadeTransition(
       opacity: _anim,
       child: AnimatedBuilder(

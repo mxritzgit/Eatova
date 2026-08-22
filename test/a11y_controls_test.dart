@@ -11,28 +11,15 @@ import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 // ---------------------------------------------------------------------------
-// A11y-Zusicherungen der gemeinsamen Bedienelemente (Verifikation 2026-08-09,
-// Bereich „Bedienbarkeit, Textskalierung, Bewegung").
-//
-// Warum eigene Datei: test/widgets/design/controls_test.dart prueft, was die
-// Bausteine ZEICHNEN. Hier steht, was sie einem Screenreader SAGEN — und das
-// faellt bei einem Umbau lautlos weg, weil kein Pixel sich aendert. Genau so
-// ist es beim Design-Refactor passiert: aus `FilledButton`/`IconButton`
-// wurden blanke `InkWell`s und `GestureDetector`s, die weder `isButton` noch
-// einen Enabled- oder Auswahl-Zustand tragen.
-//
-// Der Coach-Composer steht bewusst mit drin: seine drei Icon-Knoepfe
-// (Anhang, Mikrofon, Senden) hatten GAR KEINE Semantik — „Senden" war fuer
-// TalkBack/VoiceOver nicht einmal als Schaltflaeche erkennbar.
+// A11y guarantees of the shared controls (verification 2026-08-09).
+// controls_test.dart checks what the building blocks DRAW; this checks what
+// they SAY to a screen reader, which a refactor drops silently.
 // ---------------------------------------------------------------------------
 
 Widget _harness(Widget child, {Brightness brightness = Brightness.light}) {
   return MaterialApp(
     theme: buildEatovaTheme(brightness),
-    // PageHeader liest jetzt context.l10n (Review-Fixwelle Finding 2) — ohne
-    // Lokalisierung wirft AppLocalizations.of() beim Bau des Zurueck-Knopfs
-    // (docs/I18N_PAKETE.md, "Bekannte Fallen"). Generierte Listen statt
-    // eigenem Block, wie dort empfohlen.
+    // PageHeader reads context.l10n, which throws without localizations.
     locale: const Locale('de'),
     supportedLocales: AppLocalizations.supportedLocales,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -45,10 +32,6 @@ Widget _harness(Widget child, {Brightness brightness = Brightness.light}) {
 
 void main() {
   group('PrimaryActionButton', () {
-    // Vorher lag diese Huelle DOPPELT im Produktivcode (onboarding_screen.dart
-    // und settings_screen.dart), beide mit dem Kommentar „gehoert in die
-    // Bibliothek". Jetzt liegt sie in der Bibliothek — dieser Test haelt sie
-    // dort fest.
     testWidgets('ist eine Schaltflaeche und sagt seinen Enabled-Zustand',
         (tester) async {
       final handle = tester.ensureSemantics();
@@ -61,9 +44,8 @@ void main() {
         isSemantics(isButton: true, hasEnabledState: true, isEnabled: true),
       );
 
-      // `onTap == null` ist app-weit die Sperr-Konvention (settings-save,
-      // SheetScaffold): ohne `hasEnabledState` klaenge der gesperrte Knopf
-      // wie ein normaler, der nichts tut.
+      // `onTap == null` is the disabled convention; without `hasEnabledState`
+      // a locked button sounds like a normal one.
       await tester.pumpWidget(
         _harness(const PrimaryActionButton(label: 'Speichern')),
       );
@@ -92,9 +74,7 @@ void main() {
         ),
       );
 
-      // Die Auswahl steckt sonst allein in der Fuellfarbe — in der
-      // Rezepte-Filterleiste waere fuer einen Screenreader-Nutzer nicht
-      // feststellbar, welcher Filter aktiv ist.
+      // Otherwise selection lives only in the fill colour.
       expect(
         tester.getSemantics(find.widgetWithText(FilterChipPill, 'Alle')),
         isSemantics(isButton: true, isSelected: true),
@@ -134,8 +114,8 @@ void main() {
   group('PageHeader', () {
     testWidgets('der Zurueck-Knopf traegt einen echten Umlaut',
         (tester) async {
-      // Ein Semantics-Label ist GESPROCHENER Text: die ASCII-Umschrift
-      // „Zurueck" liest TalkBack als „zurookk" vor.
+      // A semantics label is SPOKEN text; an ASCII transliteration is read
+      // out literally.
       final handle = tester.ensureSemantics();
 
       await tester.pumpWidget(_harness(const PageHeader(title: 'Mein Profil')));
@@ -149,15 +129,9 @@ void main() {
   });
 
   group('MacroBar', () {
-    // Die Beschriftungsspalte der Vorlage ist fuer „Carbs" gerechnet (52 px).
-    // Auf Deutsch heisst das Makro „Kohlenhydrate" — es brach damit SCHON BEI
-    // SYSTEMSCHRIFT 1.0 zweizeilig um, waehrend „Protein" und „Fett" einzeilig
-    // blieben; die drei Balken standen sichtbar versetzt.
-    //
-    // Der Test laedt die gebuendelte Archivo: das Ersatzfont des Testbindings
-    // rendert JEDES Zeichen quadratisch in Schriftgroesse und ist damit rund
-    // doppelt so breit wie die echte Schrift — eine Breitenmessung darauf
-    // waere ohne Aussage ueber das Geraet.
+    // The label column is sized for "Carbs" (52 px) and the German label
+    // wrapped even at scale 1.0. Loads the bundled Archivo, since the test
+    // binding's fallback font is twice as wide and proves nothing.
     setUpAll(() async {
       final loader = FontLoader('Archivo');
       for (final datei in const <String>[

@@ -1,33 +1,25 @@
 import 'dart:io';
 
-/// Loescht die Temp-Datei, die Kamera bzw. Galerie-Picker fuer ein Essensfoto
-/// im App-Cache anlegen — aufzurufen, sobald deren Bytes gelesen und ueber
-/// `compressMealPhoto` gescrubbt sind.
+/// Deletes the temp file camera or gallery picker leaves in the app cache —
+/// call once its bytes are read and scrubbed via `compressMealPhoto`.
 ///
-/// DATENSCHUTZ (Review 2026-08-19): `CameraController.takePicture()` schreibt
-/// sein JPEG in ein Temp-Verzeichnis, und `ImagePicker.pickImage` legt seine
-/// skalierte Kopie im Cache-Verzeichnis ab. Die App braucht davon nur die
-/// Bytes; aufgeraeumt hat die Dateien bisher niemand. Sie ueberdauerten damit
-/// den Scan, die Abmeldung und auch die Kontoloeschung — das Betriebssystem
-/// raeumt den Cache erst unter Speicherdruck. Es geht nicht um Speicherplatz,
-/// sondern um Essensfotos, die der Nutzer laengst wieder losgeworden glaubt.
+/// Privacy: nothing used to clean these up, so meal photos survived the scan,
+/// sign-out and even account deletion (the OS only clears the cache under
+/// memory pressure).
 ///
-/// Betroffen ist immer nur die KOPIE des Plugins im App-Cache, nie das
-/// Original in der Galerie: `image_picker` re-encodiert wegen der gesetzten
-/// `imageQuality`/`maxWidth` grundsaetzlich in eine eigene Cache-Datei. Auf
-/// Desktop-Plattformen reicht `image_picker` dagegen den vom Dateidialog
-/// gewaehlten Originalpfad durch — Eatova baut nur Android/iOS, deshalb ist
-/// dieser Helfer dort und nur dort verdrahtet.
+/// Only ever the plugin's COPY in the app cache, never the gallery original:
+/// with `imageQuality`/`maxWidth` set, `image_picker` always re-encodes into
+/// its own cache file. Desktop passes the original path through, but Eatova
+/// only builds Android/iOS, so this helper is wired there only.
 ///
-/// Ein Fehlschlag ist bewusst KEIN Fehlerfall fuer den Aufrufer: der
-/// In-Memory-Weg (`XFile.fromData`) hat gar keine Datei, ein zweiter Aufruf
-/// auf demselben Pfad findet nichts mehr, und die Bytes liegen zu diesem
-/// Zeitpunkt ohnehin schon im Speicher.
+/// A failure is deliberately not an error for the caller: the in-memory path
+/// has no file, a second call finds nothing, and the bytes are in memory
+/// anyway.
 Future<void> deleteMealPhotoTempFile(String path) async {
   if (path.isEmpty) return;
   try {
     await File(path).delete();
   } catch (_) {
-    // Schon geloescht, keine Rechte, anderer Prozess: der Scan laeuft weiter.
+    // Already deleted, no permission, other process: the scan continues.
   }
 }

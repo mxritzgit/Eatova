@@ -1,32 +1,15 @@
-// Der Heute-Hero nennt das ROHE Tagesziel — und rechnet den Rest trotzdem
-// gegen Ziel + Verbranntes.
+// The today hero names the RAW daily goal while computing the remainder
+// against goal + burned.
 //
-// WARUM ES DIESE DATEI GIBT (Verifikation 2026-08-09):
-// Der Heute-Hero zeigte `Ziel ${kcalGoal + burnedKcal} kcal`, die
-// ZIEL-Kachel der Food-Zusammenfassung dagegen das rohe `profile.dailyKcalGoal`.
-// Bei Tagesziel 2000 und 300 verbrannten kcal stand auf der einen Flaeche
-// „Ziel 2.300 kcal" und einen Tab-Tap weiter „2.000 kcal" — zwei Zahlen fuer
-// dasselbe Wort, am selben Tag, im selben Profil.
+// The displayed goal is the value from the settings; burned credit only feeds
+// the REMAINING number and the progress, never the shown goal. The assertions
+// compare the displayed number against the raw `profile.dailyKcalGoal`, never
+// `+ burned`, across five situations (burned, archive day, overshoot, broken
+// profile, display mode).
 //
-// Aufgeloest wurde das zugunsten des ROHEN Ziels: „Ziel" ist der Wert aus den
-// Einstellungen. Das verbrannte Guthaben fliesst in die VERBLEIBENDE Zahl und
-// in den Fortschritt, nie in die angezeigte Zielzahl — genau so hielt es auch
-// die abgeloeste `calories_overview_card.dart` (Zeilen 34-39).
-//
-// UMGESCHRIEBEN 2026-08-10: Die Datei war die KLAMMER um zwei Flaechen und las
-// dieselben Zahlen aus Heute-Hero UND Food-Zusammenfassung, um eine Drift in
-// der Verdrahtung aufzudecken. Die Food-Zusammenfassung ist auf Nutzer-Entscheid
-// entfallen („das haben wir ja im Heute-Tab schon") — mit nur noch EINER
-// Flaeche ist der Vergleich gegenstandslos. Verglichen wird jetzt nicht mehr
-// Flaeche gegen Flaeche, sondern die angezeigte Zahl gegen die ROHE Zahl aus
-// dem Profil: „Ziel" muss `profile.dailyKcalGoal` sein, nie `+ burned`. Die
-// fuenf Lagen des alten Tabellen-Tests (Verbranntes, Archivtag, Ueberziehung,
-// kaputtes Profil, Anzeige-Modus) bleiben vollstaendig erhalten, jetzt mit
-// zeichengenauen Erwartungswerten statt eines Flaechen-Vergleichs.
-//
-// Grenze dieser Datei: sie liest bewusst aus dem SCREEN (`TodayScreen`), nicht
-// aus dem Hero-Widget darunter — so faellt auch eine Drift in der Verdrahtung
-// auf, etwa wenn die Schale kuenftig ein „effektives" Ziel durchreicht.
+// Reads deliberately from the SCREEN (`TodayScreen`), not from the hero widget
+// below it, so a wiring drift shows up too — e.g. if the shell ever passes an
+// "effective" goal.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -41,10 +24,10 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Sonntag, 9. August 2026, 10:00 — weit weg von jeder Tagesgrenze.
+/// Sunday, 9 August 2026, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
 
-/// Die Zahlen, die der Hero ueber den Tag behauptet.
+/// The numbers the hero claims about the day.
 class _Aussage {
   const _Aussage({
     required this.ziel,
@@ -52,13 +35,13 @@ class _Aussage {
     required this.einheit,
   });
 
-  /// Die ZIEL-Angabe, normalisiert auf „2.000 kcal".
+  /// The goal figure, normalised to a `"<number> kcal"` form.
   final String ziel;
 
-  /// Die verbleibenden kcal als reine Zahl („1.800").
+  /// The remaining kcal as a bare number.
   final String rest;
 
-  /// „kcal übrig" bzw. „kcal drüber".
+  /// The unit label — remaining or over.
   final String einheit;
 
   @override
@@ -75,7 +58,7 @@ class _Aussage {
   int get hashCode => Object.hash(ziel, rest, einheit);
 }
 
-/// Der Viewport des Tabs: iPhone 16 Pro, nutzbare Flaeche.
+/// The tab viewport: iPhone 16 Pro usable area.
 void _pinViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
@@ -83,12 +66,9 @@ void _pinViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// Dieselbe Huelle, die `EatovaHomePage` dem Tab gibt (SafeArea + 20/12/20/12)
-/// — sonst maesse der Test ein Layout, das die App nie zeichnet.
-///
-/// TodayScreen liest seit dem i18n-Paket 1 `context.l10n` (Muster von
-/// test/home_page_tabs_test.dart) — ohne die Lokalisierung wirft
-/// AppLocalizations.of() beim ersten Build.
+/// The same shell `EatovaHomePage` gives the tab (SafeArea + 20/12/20/12),
+/// otherwise the test would measure a layout the app never draws.
+/// TodayScreen reads `context.l10n`, so the localization is required.
 Widget _schale(Widget child, Brightness brightness) => MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: buildEatovaTheme(brightness),
@@ -113,14 +93,14 @@ Widget _schale(Widget child, Brightness brightness) => MaterialApp(
 String _textOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
 
-/// Zieht „2.000 kcal" aus „Ziel 2.000 kcal".
+/// Extracts the `"<number> kcal"` part from the goal label.
 String _zielZahl(String roh) {
   final treffer = RegExp(r'([\d.]+)\s*kcal').firstMatch(roh);
   expect(treffer, isNotNull, reason: 'keine Zielzahl in „$roh"');
   return '${treffer!.group(1)} kcal';
 }
 
-/// Findet die Einheit unter den sichtbaren Texten (today_hero.dart:127).
+/// Finds the unit label among the visible texts (today_hero.dart).
 String _einheit(WidgetTester tester) {
   if (find.text('kcal übrig').evaluate().isNotEmpty) return 'kcal übrig';
   if (find.text('kcal drüber').evaluate().isNotEmpty) return 'kcal drüber';
@@ -164,14 +144,12 @@ Future<_Aussage> _heute(
 
 void main() {
   group('Der Heute-Hero: Ziel roh, Verbranntes im Rest', () {
-    // Ein Tag, ein Profil — fuenf Lagen, in denen die Zielzahl frueher
-    // wegdriften konnte. Uebernommen aus dem Flaechen-Vergleich, den diese
-    // Datei bis 2026-08-10 fuehrte; die erwarteten Werte sind die, die dort
-    // BEIDE Flaechen liefern mussten.
+    // One day, one profile — the situations in which the goal number used to
+    // drift.
     final faelle =
         <String, (UserProfile, int, int, DateTime, _Aussage)>{
-      // Der konkrete Fund: Verbranntes vorhanden, Tag ist heute.
-      // 2000 + 300 - 500 = 1800 Rest, angezeigtes Ziel bleibt 2.000.
+      // The original finding: burned present, day is today.
+      // 2000 + 300 - 500 = 1800 remaining, displayed goal stays 2000.
       'mit verbrannten Kalorien': (
         const UserProfile(dailyKcalGoal: 2000),
         500,
@@ -183,8 +161,8 @@ void main() {
           einheit: 'kcal übrig',
         ),
       ),
-      // Archivtag: `burnedKcal` ist hart 0 (DESIGN_REFACTOR §5). Der Rest
-      // rechnet dann gegen das reine Tagesziel.
+      // Archive day: `burnedKcal` is hard 0, so the remainder is computed
+      // against the plain daily goal.
       'auf einem Archivtag ohne Schrittdaten': (
         const UserProfile(dailyKcalGoal: 2200),
         1200,
@@ -196,8 +174,8 @@ void main() {
           einheit: 'kcal übrig',
         ),
       ),
-      // Ueberzogen: Betrag OHNE Minuszeichen, das Vorzeichen traegt die
-      // Einheit. 1800 + 120 - 2400 = -480.
+      // Overshoot: magnitude WITHOUT a minus sign, the unit carries the sign.
+      // 1800 + 120 - 2400 = -480.
       'nach dem Ueberziehen': (
         const UserProfile(dailyKcalGoal: 1800),
         2400,
@@ -209,8 +187,8 @@ void main() {
           einheit: 'kcal drüber',
         ),
       ),
-      // Kaputtes Profil aus dem Netz: `goal <= 0 -> 1` ist die Notklemme
-      // gegen die Division durch 0 in `progress`.
+      // Broken profile from the network: `goal <= 0 -> 1` is the emergency
+      // clamp against a division by 0 in `progress`.
       'bei einem Tagesziel von 0': (
         const UserProfile(dailyKcalGoal: 0),
         400,
@@ -243,9 +221,9 @@ void main() {
 
     testWidgets('das genannte Ziel ist das ROHE Tagesziel, nicht '
         'Ziel+Verbranntes', (tester) async {
-      // Der eigentliche Fund, noch einmal zeichengenau: bei 2000 kcal Ziel und
-      // 300 verbrannten kcal darf nirgends „2.300" als ZIEL stehen. Die 2.300
-      // sind die Rechengroesse hinter dem Rest — und der steht als 1.800 da.
+      // The finding, character-exact: with a 2000 goal and 300 burned, 2300
+      // must never appear as the GOAL — it is only the quantity behind the
+      // remainder.
       const profile = UserProfile(dailyKcalGoal: 2000);
 
       final aussage = await _heute(
@@ -258,9 +236,9 @@ void main() {
 
       expect(aussage.ziel, '2.000 kcal');
       expect(aussage.rest, '1.800');
-      // Nirgends im Baum — auch nicht in einer Kachel oder einem Untertitel.
+      // Nowhere in the tree — not in a tile, not in a subtitle.
       expect(find.textContaining('2.300'), findsNothing);
-      // Nachvollziehbar bleibt die Rechnung ueber die VERBRANNT-Kachel.
+      // The burned tile keeps the arithmetic traceable.
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('today-stat-burned')),

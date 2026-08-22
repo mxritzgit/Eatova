@@ -7,23 +7,18 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/auth/welcome_screen.dart';
 
-// Widget-Tests fuer den Boot-/Willkommens-Screen („Fokus finden": der
-// Fokusring der Marke laedt sichtbar und rastet dann in die Wortmarke ein;
-// der Schriftzug ist GEMALT, deshalb suchen die Tests den Marken-Block ueber
-// den Key `boot-mark`, nicht ueber find.text).
+// Widget tests for the boot/welcome screen. The wordmark is PAINTED, so
+// tests look for the key `boot-mark` rather than find.text.
 //
-// Der Screen ist ein bewusster Sonderfall der Design-Refactor-Regeln: er ist
-// ein MARKEN-MOMENT und traegt in beiden Anzeige-Modi die Forest-Flaeche mit
-// Lime-Akzent, nicht den Modus-Grund. Der Test „traegt in beiden Modi die
-// Marken-Flaeche" nagelt genau das fest — sonst zieht jemand den Screen
-// spaeter „konsistenzhalber" auf t.bg und der Auftritt zerfaellt.
+// The screen is a deliberate exception to the design-refactor rules: as a
+// brand moment it uses the forest surface in both modes, never the mode
+// background. One test pins that down so nobody moves it to t.bg later.
 //
-// ACHTUNG: Der Fokus-Suchlauf laeuft als Dauer-Loop
-// (`_loopController.repeat()`). `pumpAndSettle` kehrt hier NIE zurueck. Alle
-// Tests pumpen deshalb in festen Schritten ueber [_tick].
+// The focus sweep runs as an endless loop, so `pumpAndSettle` never returns;
+// every test pumps in fixed steps via [_tick].
 
-/// iPhone 14 (393x852 logisch). Der Default-Testviewport (800x600) ist breiter
-/// und hoeher als jedes Telefon und wuerde Ueberlauf verstecken.
+/// iPhone 14 (393x852 logical). The default 800x600 test viewport is larger
+/// than any phone and would hide overflow.
 void _pinPhoneViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
@@ -31,8 +26,8 @@ void _pinPhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// Treibt die Uhr in Schritten weiter — der Ersatz fuer `pumpAndSettle`,
-/// solange der Komet-Loop im Baum haengt.
+/// Advances the clock in steps; replaces `pumpAndSettle` while the comet
+/// loop is in the tree.
 Future<void> _tick(
   WidgetTester tester,
   Duration total, {
@@ -61,9 +56,8 @@ Future<void> _pumpWelcome(
       home: Builder(
         builder: (context) => MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-          // Eigener Key je Modus: erzwingt einen frischen State, wenn ein Test
-          // beide Helligkeiten nacheinander pumpt (sonst bleibt initState und
-          // damit das erste profileReady stehen).
+          // Per-mode key: forces fresh state when a test pumps both
+          // brightnesses, otherwise the first profileReady sticks.
           child: WelcomeScreen(
             key: ValueKey('welcome-$brightness'),
             firstName: firstName,
@@ -149,8 +143,8 @@ void main() {
     expect(find.text('Willkommen, Mira.'), findsNothing);
 
     ready.complete();
-    await tester.pump(); // .then feuert
-    await _tick(tester, const Duration(milliseconds: 900)); // Einrasten + Switcher
+    await tester.pump(); // .then fires
+    await _tick(tester, const Duration(milliseconds: 900)); // snap + switcher
 
     expect(find.text('Willkommen, Mira.'), findsOneWidget);
     expect(find.text('Du bist drin.'), findsOneWidget);
@@ -158,7 +152,7 @@ void main() {
         reason: 'die eingerastete Marke bleibt stehen — der Willkommens-Text '
             'erscheint darunter, er ersetzt sie nicht');
 
-    // Halte-Pause + Exit leerpumpen, sonst haengt ein Timer im Teardown.
+    // Drain hold + exit, otherwise a timer hangs in teardown.
     await _tick(tester, const Duration(milliseconds: 2000));
     expect(tester.takeException(), isNull);
   });

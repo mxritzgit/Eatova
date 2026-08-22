@@ -1,7 +1,6 @@
-// Der Profil-Screen mischte bisher zwei Zahlenschreibweisen: der Hero zeigte
-// „78,4 kg" (deutsch), die Delta-Pille daneben „-2.6 kg" (englisch), weil sie
-// direkt aus toStringAsFixed kam. formatKgDe/formatBmiDe sind ab jetzt die
-// einzige Quelle fuer kg- und BMI-Zahlen der Profil-Seite.
+// The profile screen mixed two number notations: the hero used the localized
+// form while the delta pill came straight from toStringAsFixed. formatKgDe and
+// formatBmiDe are now the only source for kg and BMI numbers on that page.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,9 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-// Seit der i18n-Migration (Paket 5, 2026-08-10) brauchen formatKgDe/
-// formatBmiDe ein [AppLocalizations] — hier fest `de` (die Erwartungswerte
-// bleiben wortgleich zum Bestand, Regel 1 aus docs/I18N_PAKETE.md).
+// formatKgDe/formatBmiDe need an [AppLocalizations]; pinned to `de` here so the
+// expectations stay verbatim (rule 1 in docs/I18N_PAKETE.md).
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 final AppLocalizations _en = lookupAppLocalizations(const Locale('en'));
 

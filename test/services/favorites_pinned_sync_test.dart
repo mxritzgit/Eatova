@@ -9,12 +9,10 @@ import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
-// INT-2 / PROD-4: favorite_meals trennt jetzt angeheftete Favoriten (pinned)
-// von Auto-Recents (pinned=false). Diese Tests verifizieren ueber die PUBLIC
-// API (echter SupabaseClient + Mock-Client), dass das pinned-Flag round-trip
-// persistiert wird:
-//   1. upsertFavorite schreibt das pinned-Flag mit.
-//   2. loadFavorites liest pinned zurueck (fehlt die Spalte/null -> false).
+// INT-2 / PROD-4: favorite_meals separates pinned favorites from auto-recents
+// (pinned=false). These tests verify through the PUBLIC API that the pinned
+// flag round-trips: upsertFavorite writes it, loadFavorites reads it back
+// (missing column/null -> false).
 
 MealsSync _sync(
   Future<http.Response> Function(http.Request request) handler,

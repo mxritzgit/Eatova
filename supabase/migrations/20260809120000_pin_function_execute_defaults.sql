@@ -1,35 +1,20 @@
--- Sicherheits-Härtung (Audit 2026-08-09): die Ausführungsrechte neuer
--- Funktionen im Namensraum public explizit festnageln.
+-- Security hardening (audit 2026-08-09): pin the execute privileges of new
+-- functions in schema public.
 --
--- LIVE-BEFUND VOR DIESER MIGRATION (per Management-API verifiziert, deshalb
--- ist das hier eine ZUSICHERUNG, kein Reparatur-Fix):
---   * Alle 10 Nutzer-Tabellen haben RLS aktiv; ein Event-Trigger `ensure_rls`
---     (`rls_auto_enable()`) schaltet RLS auf JEDER neuen public-Tabelle
---     automatisch an — die „neue Tabelle ohne RLS"-Luecke ist bereits zu.
---   * KEINE public-Funktion traegt PUBLIC-EXECUTE; die Default-Privilegien
---     fuer Funktionen stehen bereits auf {postgres, service_role} OHNE PUBLIC.
+-- This is an ASSERTION, not a repair: live verification showed no public
+-- function carrying PUBLIC EXECUTE, and default privileges already stood at
+-- {postgres, service_role}. Versioning the intent makes a later accidental
+-- `grant execute ... to public` visible in the migration history.
 --
--- Der Audit (datei-basiert) hatte einen residualen PUBLIC-Grant auf
--- `handle_new_user_profile` vermutet — live ist er nicht (mehr) da. Diese
--- Migration macht die korrekte Absicht dennoch VERSIONIERT und
--- re-assertierbar, statt sie allein der Supabase-Verwaltung zu ueberlassen:
--- ein spaeteres versehentliches `grant execute ... to public` faellt beim
--- naechsten Blick auf die Migrationshistorie auf.
---
--- BEWUSST NICHT `force row level security`: `postgres` und `service_role`
--- tragen beide `rolbypassrls` und ignorieren RLS ohnehin; `authenticated`/
--- `anon` unterliegen ihr bereits (sie sind nie Tabellen-Owner). FORCE waere
--- hier ein wirkungsloser No-Op — und wuerde kuenftige Leser glauben machen,
--- er tue etwas.
+-- Deliberately NOT `force row level security`: `postgres` and `service_role`
+-- carry `rolbypassrls` anyway, and `authenticated`/`anon` are never table
+-- owners — FORCE would be a no-op that reads like protection.
 
--- 1) Kuenftige Funktionen: kein automatischer PUBLIC-EXECUTE. Das ist der
---    strukturelle Schutz — die manuelle „an public revoken"-Disziplin
---    entfaellt. service_role bleibt (Edge Functions), PUBLIC faellt weg.
+-- 1) Future functions get no automatic PUBLIC EXECUTE. service_role stays
+--    (edge functions), PUBLIC goes.
 alter default privileges in schema public
   revoke execute on functions from public;
 
--- 2) Defensiver Strip auf dem BESTAND: falls je eine Funktion (Dashboard-SQL,
---    Alt-Migration) PUBLIC-EXECUTE traegt, hier entfernen. Aktuell ein
---    No-Op (keine traegt es). Explizite Grants an service_role/authenticated
---    bleiben unberuehrt — nur der implizite PUBLIC-Grant faellt.
+-- 2) Defensive strip of existing functions: removes any stray PUBLIC EXECUTE
+--    (currently a no-op). Explicit grants to service_role/authenticated stay.
 revoke execute on all functions in schema public from public;

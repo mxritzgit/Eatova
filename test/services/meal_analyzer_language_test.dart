@@ -5,12 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 
-// Scan/Coach-PR (2026-08-11): analyze-meal bekommt einen `language`-Parameter
-// (Spec §5, KI-Scan). Client-seitig reist die App-Sprache ueber
-// MealAnalysisRequest.language ins Request-JSON (buildAnalyzeMealBody) —
-// diese Tests decken die reine Request/JSON-Ebene ab, ohne HTTP/Supabase-Fake
-// (analyze() selbst braucht eine echte Session und ist hier bewusst nicht
-// Ziel).
+// analyze-meal takes a `language` parameter; the app locale travels via
+// MealAnalysisRequest.language into the request JSON. These tests cover the
+// request/JSON level only — analyze() itself needs a real session.
 void main() {
   final imageBytes = Uint8List.fromList(const [1, 2, 3]);
 

@@ -5,12 +5,10 @@ import '../l10n/l10n.dart';
 enum BiologicalSex { male, female, neutral }
 
 extension BiologicalSexLabel on BiologicalSex {
-  /// Nutzersichtbares Label, sprachaktiv ueber die ARB.
+  /// User-facing label, localized via the ARB.
   ///
-  /// Seit der i18n-Migration (Paket 6, 2026-08-10) hier zuhause statt als
-  /// nackter Getter: die Persistenz (`sex.name`) blieb unberuehrt, s.
-  /// `profile_sync.dart`/`sync_outbox.dart` — nur die ANZEIGE braucht die
-  /// aktive Sprache. Mirrors [MealSlotStyle.label] (Paket 2).
+  /// Persistence still uses `sex.name`; only the display needs the active
+  /// language. Mirrors [MealSlotStyle.label].
   String label(AppLocalizations l10n) => switch (this) {
         BiologicalSex.male => l10n.commonSexLabelMale,
         BiologicalSex.female => l10n.commonSexLabelFemale,
@@ -18,34 +16,24 @@ extension BiologicalSexLabel on BiologicalSex {
       };
 }
 
-/// Beruf und Alltag **ohne Gehen und Laufen**. Multipliziert den Grundumsatz
-/// (BMR) zum Erhaltungsbedarf (TDEE); gezählte Schritte kommen vollständig
-/// obendrauf („Verbrannt", `estimateKcalBurnedFromSteps`).
+/// Work and daily life **excluding walking**. Multiplies BMR into TDEE; steps
+/// are added on top separately (`estimateKcalBurnedFromSteps`).
 ///
-/// Kalorien-Review 2026-08-21 (docs/REVIEW-KCAL-2026-08-21.md): Die alte
-/// Leiter 1,2/1,375/1,55/1,725/1,9 war eine Online-Rechner-Konvention ohne
-/// Primärquelle, ihre Texte („3–5× Sport/Woche") beschrieben
-/// gesamt-inklusive PAL-Stufen (FAO/WHO/UNU: sedentary 1,40–1,69 enthält
-/// schon ~1 h Gehen) — und trotzdem wurden alle Schritte addiert
-/// (Doppelzählung ab Stufe „leicht"). Produktentscheidung: Jeder Schritt soll
-/// zählen. Dann muss die Leiter das Gehen **ausklammern**: Basis 1,3 =
-/// FAO-PAR für Sitzen/leichte Tätigkeiten (1,2–1,3) plus nahrungsinduzierte
-/// Thermogenese; jede weitere Stufe +0,15 für Stehen, körperliche Arbeit
-/// und schrittfreien Sport. Das entspricht der gesamt-inklusiven
-/// DGE/FAO-Leiter (1,4 … 2,0) minus ~0,1 Gehanteil (≈ 5000 Schritte).
+/// The ladder excludes walking on purpose (kcal review 2026-08-21): every step
+/// should count, so a walking-inclusive ladder would double-count. Base 1.3 =
+/// FAO PAR for sitting plus diet-induced thermogenesis, +0.15 per step for
+/// standing, physical work and step-free sport — the DGE/FAO ladder minus the
+/// ~0.1 walking share (~5000 steps).
 ///
-/// Ohne verbundene Schrittquelle (Android, HealthKit nicht erlaubt) fehlt
-/// dieser Gehanteil — der Bedarf ist dann um ~0,1 × BMR (150–200 kcal)
-/// konservativ. Bewusst so belassen: Unterschätzen ist für Abnehmende die
-/// sichere Richtung (Intake-Underreporting 20–50 %); ein automatischer
-/// Aufschlag ohne Schrittquelle steht im Bericht als Folgepunkt.
+/// Without a connected step source that share is missing, leaving the
+/// requirement ~0.1 × BMR low. Kept: underestimating is the safe direction
+/// while cutting.
 enum ActivityLevel { sedentary, light, moderate, active, athlete }
 
 extension ActivityLevelInfo on ActivityLevel {
-  /// Physical Activity Level (PAL) ohne Gehen/Laufen — Multiplikator auf den
-  /// BMR. 1,3 sitzend · 1,45 viel stehend oder 2–3× schrittfreier Sport ·
-  /// 1,6 körperlich fordernd oder 4–5× schrittfreier Sport · 1,75 schwere
-  /// Arbeit oder tägliches Training · 1,9 schwere Arbeit plus Training.
+  /// Physical Activity Level (PAL) excluding walking — a BMR multiplier.
+  /// 1.3 sitting · 1.45 mostly standing · 1.6 physically demanding ·
+  /// 1.75 heavy work or daily training · 1.9 heavy work plus training.
   double get palFactor => switch (this) {
         ActivityLevel.sedentary => 1.3,
         ActivityLevel.light => 1.45,
@@ -71,11 +59,10 @@ extension ActivityLevelInfo on ActivityLevel {
       };
 }
 
-/// Ernährungspräferenz des Users. Steuert, welche Rezepte Eatova aktiv
-/// empfiehlt (Rezept-Empfehlungen + „Passt zu deinem Ziel"). Default [none]
-/// empfiehlt alles, damit Bestands-Profile und Tests unverändert bleiben.
-/// Keine medizinische Allergie-Garantie — eine Empfehlungs-Filterung, der User
-/// kann über den Kategorie-Filter weiterhin jedes Rezept manuell durchsuchen.
+/// Diet preference. Drives which recipes are recommended; default [none]
+/// recommends everything so existing profiles and tests stay unchanged.
+/// A recommendation filter, not an allergy guarantee — every recipe stays
+/// reachable through the category filter.
 enum DietPreference { none, vegetarian, vegan, pescetarian }
 
 extension DietPreferenceInfo on DietPreference {
@@ -94,35 +81,28 @@ extension DietPreferenceInfo on DietPreference {
       };
 }
 
-/// Energiegehalt von einem Kilogramm Körpermasse (Faustregel nach Wishnofsky).
+/// Energy content of one kilogram of body mass (Wishnofsky rule of thumb).
 ///
-/// **Einzige Quelle** für die Umrechnung kcal ↔ kg im Projekt: sowohl
-/// [WeightGoalInfo.weeklyRateKg] (das *versprochene* Tempo) als auch
-/// `KcalTargets.effectiveWeeklyRateKg` (das *tatsächlich erreichbare*) rechnen
-/// hierüber. Zwei verschiedene Zahlen an zwei Stellen waren genau der Kern von
-/// B2 (docs/REVIEW-2026-08-08.md).
+/// The **only** kcal ↔ kg conversion in the project: both
+/// [WeightGoalInfo.weeklyRateKg] (promised pace) and
+/// `KcalTargets.effectiveWeeklyRateKg` (achievable pace) go through it.
 const int kcalPerKgBodyMass = 7700;
 
-/// Unterhalb dieser Wochenrate ist eine Differenz reines Rundungsrauschen.
+/// Below this weekly rate a difference is pure rounding noise.
 ///
-/// `KcalCalculator` rundet das Tagesziel auf 50 kcal — das verschiebt die
-/// Rate um bis zu 25 kcal/Tag ≙ 0,023 kg/Woche. 0,05 kg/Woche (≙ 55 kcal/Tag)
-/// liegt sicher darüber und zugleich weit unter dem kleinsten echten Tempo
-/// ([WeightGoal.lose025kg] = 0,25 kg/Woche). Wird für drei Entscheidungen
-/// benutzt: „Gewicht stabil"-Label, „Versprechen gehalten?" und „Prognose
-/// überhaupt sinnvoll?".
+/// `KcalCalculator` rounds the daily target to 50 kcal, shifting the rate by up
+/// to 0.023 kg/week; 0.05 sits safely above that and far below the smallest
+/// real pace ([WeightGoal.lose025kg]). Used for the "stable" label, the
+/// promise check and whether a forecast makes sense at all.
 const double weeklyRateNoiseKg = 0.05;
 
-/// Gewichtsziel des Users — als wöchentliche Rate gedacht (kg/Woche). Bestimmt
-/// den kcal-Auf-/Abschlag auf den Erhaltungsbedarf (BMR × Aktivitäts-PAL).
-/// Schritte werden davon getrennt als "Verbrannt" angerechnet — siehe
-/// [KcalCalculator]. Annahme: ~7700 kcal pro kg → 1100 kcal/Tag ≙ 1 kg/Woche.
+/// Weight goal as a weekly rate (kg/week). Sets the kcal delta on the
+/// maintenance requirement; steps are credited separately, see
+/// [KcalCalculator]. Assumes ~7700 kcal per kg → 1100 kcal/day ≙ 1 kg/week.
 ///
-/// **Achtung:** Das hier ist der *Wunsch*. Ob er erreichbar ist, entscheidet
-/// erst `KcalCalculator.calculate` — die Sicherheitsgrenze von 1200 kcal kappt
-/// das Defizit für die Mehrheit der sitzenden Nutzer. Für alles, was dem
-/// Nutzer ein Tempo oder einen Zeitraum *anzeigt*, ist
-/// `KcalTargets.effectiveWeeklyRateKg` die richtige Größe, nicht [kcalDelta].
+/// This is the *wish*. Achievability is decided by `KcalCalculator.calculate`,
+/// whose safety floor caps the deficit — anything shown to the user must use
+/// `KcalTargets.effectiveWeeklyRateKg`, not [kcalDelta].
 enum WeightGoal {
   lose1kg,
   lose075kg,
@@ -133,7 +113,7 @@ enum WeightGoal {
   gain05kg,
 }
 
-/// Abnehm-Tempi von sanft bis ambitioniert (für Picker-Reihenfolge).
+/// Loss paces from gentle to ambitious (picker order).
 const List<WeightGoal> lossPaceGoals = <WeightGoal>[
   WeightGoal.lose025kg,
   WeightGoal.lose05kg,
@@ -141,14 +121,14 @@ const List<WeightGoal> lossPaceGoals = <WeightGoal>[
   WeightGoal.lose1kg,
 ];
 
-/// Zunehm-Tempi von sanft bis ambitioniert.
+/// Gain paces from gentle to ambitious.
 const List<WeightGoal> gainPaceGoals = <WeightGoal>[
   WeightGoal.gain025kg,
   WeightGoal.gain05kg,
 ];
 
 extension WeightGoalInfo on WeightGoal {
-  /// kcal-Delta auf den Erhaltungsbedarf (1100 kcal/Tag ≙ 1 kg/Woche).
+  /// kcal delta on the maintenance requirement (1100 kcal/day ≙ 1 kg/week).
   int get kcalDelta => switch (this) {
         WeightGoal.lose1kg => -1100,
         WeightGoal.lose075kg => -825,
@@ -162,44 +142,35 @@ extension WeightGoalInfo on WeightGoal {
   bool get isLoss => kcalDelta < 0;
   bool get isGain => kcalDelta > 0;
 
-  /// Wöchentliche kg-Veränderung (≈ 7700 kcal pro kg). Vorzeichenlos.
+  /// Weekly kg change (≈ 7700 kcal per kg). Unsigned.
   double get weeklyRateKg => kcalDelta.abs() * 7 / kcalPerKgBodyMass;
 
-  /// Dieselbe Rate mit Vorzeichen: negativ beim Abnehmen, positiv beim
-  /// Zunehmen. Gegenstück zu `KcalTargets.effectiveWeeklyRateKg`, damit sich
-  /// Versprechen und Wirklichkeit direkt vergleichen lassen.
+  /// Same rate signed: negative when losing, positive when gaining.
+  /// Counterpart to `KcalTargets.effectiveWeeklyRateKg` for direct comparison.
   double get signedWeeklyRateKg => kcalDelta * 7 / kcalPerKgBodyMass;
 
-  /// Richtungs-Label ohne Tempo, sprachaktiv ueber die ARB (Paket 6,
-  /// 2026-08-10) — s. [BiologicalSexLabel.label].
+  /// Direction label without pace, localized via the ARB — see
+  /// [BiologicalSexLabel.label].
   String label(AppLocalizations l10n) {
     if (kcalDelta == 0) return l10n.commonWeightGoalLabelMaintain;
     return isGain ? l10n.commonWeightGoalLabelGain : l10n.commonWeightGoalLabelLose;
   }
 
-  /// Vorzeichenbehaftetes Tempo, z.B. "−1 kg/Woche", "+0,5 kg/Woche".
+  /// Signed pace, e.g. "−1 kg/Woche". This is the **chosen** pace, right for
+  /// pickers and menus; wherever a concrete profile is involved use
+  /// `KcalTargets.effectivePaceLabel`, which knows the safety floor.
   ///
-  /// Das ist das **gewählte** Tempo — für Picker und Menüs richtig. Wo ein
-  /// konkretes Profil im Spiel ist (Plan-Karten, Zusammenfassungen), gehört
-  /// `KcalTargets.effectivePaceLabel` hin: nur das kennt die
-  /// Sicherheitsgrenze.
-  ///
-  /// Seit der i18n-Migration (Paket 7, 2026-08-11) l10n-faehig — gemeinsam mit
-  /// `paceLabelForWeeklyRateKg` und `KcalTargets.effectivePaceLabel`/
-  /// `.paceWarning`, die denselben Weg gehen (B2-Kopplung, s. Paket-6-Bericht):
-  /// [l10n] optional, Default Deutsch ([deL10n]), damit
-  /// `test/services/kcal_effective_pace_test.dart` als kontextfreie Test-API
-  /// weiterlaeuft (Regel 1, docs/I18N_PAKETE.md). Aus einem Getter wurde
-  /// dafuer eine Methode — Dart-Getter koennen keine Parameter tragen.
+  /// [l10n] is optional (default German, [deL10n]) so context-free tests keep
+  /// working — that is why this is a method, not a getter.
   String paceLabel([AppLocalizations? l10n]) =>
       paceLabelForWeeklyRateKg(signedWeeklyRateKg, l10n);
 
-  /// Kombiniertes Menü-Label, z.B. "Abnehmen · −1 kg/Woche".
+  /// Combined menu label, e.g. "Abnehmen · −1 kg/Woche".
   String menuLabel(AppLocalizations l10n) => kcalDelta == 0
       ? l10n.commonWeightGoalLabelMaintain
       : '${label(l10n)} · ${paceLabel(l10n)}';
 
-  /// Vorzeichenbehaftetes Delta-Label, z.B. "−1100 kcal" / "±0".
+  /// Signed delta label, e.g. "−1100 kcal" / "±0".
   String get deltaLabel {
     if (kcalDelta == 0) return '±0';
     final sign = kcalDelta > 0 ? '+' : '−';
@@ -207,25 +178,17 @@ extension WeightGoalInfo on WeightGoal {
   }
 }
 
-/// Label für eine **tatsächliche** Wochenrate (vorzeichenbehaftet, negativ =
-/// abnehmen), z.B. −0,7545 → "−0,75 kg/Woche".
+/// Label for an **actual** weekly rate (signed, negative = losing),
+/// e.g. −0.7545 → "−0,75 kg/Woche".
 ///
-/// Die Zahl wird auf das 0,05-Raster gerundet ([_formatRateKg]): die
-/// 50er-Rundung des Tagesziels verschiebt die Rate um bis zu ±0,023 kg/Woche,
-/// und „−0,48 kg/Woche" für ein gewähltes „−0,5" wäre falsche Präzision bei
-/// einer Formel mit ±10 % Unschärfe (Kalorien-Review 2026-08-21).
+/// Rounded to the 0.05 grid ([_formatRateKg]): the 50-kcal rounding of the
+/// daily target shifts the rate by up to ±0.023 kg/week, so more digits would
+/// be false precision on a ±10 % formula. Anything below [weeklyRateNoiseKg]
+/// reads as stable; non-finite values cannot occur but are caught so no
+/// "NaN kg/Woche" reaches a widget.
 ///
-/// Alles unterhalb von [weeklyRateNoiseKg] heißt "Gewicht stabil" — sonst
-/// würde die 50er-Rundung des Tagesziels beim Ziel „halten" ein Tempo von
-/// "+0 kg/Woche" ausweisen. Nicht-endliche Werte können hier nicht ankommen
-/// (die Rate entsteht aus zwei Ganzzahlen), werden aber trotzdem abgefangen,
-/// damit kein "NaN kg/Woche" in ein Widget gelangt.
-///
-/// [l10n] ist optional (Default Deutsch, [deL10n]) — dasselbe Muster wie
-/// Paket 6s `sync_error_messages.dart`. Seit dem Nachzieh-Fix (Paket 7,
-/// 2026-08-11) folgt auch die Zahl selbst ([_formatRateKg]) der Sprache:
-/// ein englisches "−0.5 kg/week" mit deutschem Komma ("−0,5") war dieselbe
-/// Leck-Klasse wie der Text drumherum, nur eine Ebene tiefer.
+/// [l10n] is optional (default German, [deL10n]); the number itself follows the
+/// locale too, so an English label never carries a German decimal comma.
 String paceLabelForWeeklyRateKg(double signedRateKg, [AppLocalizations? l10n]) {
   final t = l10n ?? deL10n;
   if (!signedRateKg.isFinite || signedRateKg.abs() < weeklyRateNoiseKg) {
@@ -237,19 +200,14 @@ String paceLabelForWeeklyRateKg(double signedRateKg, [AppLocalizations? l10n]) {
   );
 }
 
-/// Formatiert eine kg-Rate auf das 0,05-Raster, locale-bewusst: unter `de`
-/// 1.0 → "1", 0.5 → "0,5", 0.75 → "0,75", 0.4818 → "0,5", 0.7545 → "0,75",
-/// 0.118 → "0,1"; unter `en` dieselben Werte mit Punkt statt Komma ("0.5"
-/// usw.).
+/// Formats a kg rate onto the 0.05 grid, locale-aware (`de` 0.4818 → "0,5",
+/// `en` → "0.5").
 ///
-/// Erwartet einen vorzeichenlosen Wert; das Vorzeichen setzt der Aufrufer.
-/// Erst runden, dann formatieren: [NumberFormat]s eigene Rundung auf der
-/// UNGERUNDETEN Rate könnte anders runden als das explizite
-/// `(kg * 20).round() / 20` — deshalb bleibt der Rundungsschritt in eigener
-/// Hand, [NumberFormat] übernimmt nur noch die Anzeige (Trennzeichen,
-/// Nachkommastellen kappen) des bereits gerundeten Werts. 0,05 ist zugleich
-/// [weeklyRateNoiseKg]: was als „Versprechen gehalten" gilt, zeigt auch
-/// dieselbe Zahl.
+/// Expects an unsigned value; the caller adds the sign. Round first, then
+/// format: [NumberFormat]'s own rounding on the unrounded rate could differ
+/// from `(kg * 20).round() / 20`, so it only renders the already-rounded value.
+/// The grid equals [weeklyRateNoiseKg], so the promise check and the displayed
+/// number agree.
 String _formatRateKg(double kg, String localeName) {
   final gerundet = (kg.abs() * 20).round() / 20;
   return NumberFormat('0.##', localeName).format(gerundet);
@@ -280,13 +238,12 @@ class UserProfile {
   final int ageYears;
   final BiologicalSex sex;
 
-  /// Beruf/Alltag ohne Gehen für den Erhaltungsbedarf (PAL). Default sitzend
-  /// (1,3); „im Zweifel eine Stufe tiefer" gilt auch hier — die Schritte
-  /// kommen ohnehin obendrauf.
+  /// Work/daily life excluding walking, for the PAL. Default sitting (1.3);
+  /// when in doubt pick one level lower — steps are added on top anyway.
   final ActivityLevel activityLevel;
 
-  /// Wunschgewicht. Treibt nur die Zeit-Prognose (Wochen bis Ziel), nicht das
-  /// Tagesziel selbst — das hängt am gewählten Tempo ([weightGoal]).
+  /// Target weight. Drives only the time forecast, not the daily target —
+  /// that follows the chosen pace ([weightGoal]).
   final int targetWeightKg;
 
   final int dailyStepsGoal;
@@ -298,13 +255,12 @@ class UserProfile {
   final int fatGoalG;
   final WeightGoal weightGoal;
 
-  /// Ernährungspräferenz für die Rezept-Empfehlung. Default [DietPreference.none]
-  /// (alles). Gespiegelt nach public.profiles.diet_preference.
+  /// Diet preference for recipe recommendations. Default
+  /// [DietPreference.none]. Mirrored to public.profiles.diet_preference.
   final DietPreference diet;
 
-  /// True sobald der User das verpflichtende Onboarding durchlaufen hat.
-  /// Steuert das Gate in [EatovaHomePage] — gespiegelt nach
-  /// public.profiles.onboarding_completed.
+  /// True once the mandatory onboarding is done. Drives the gate in
+  /// [EatovaHomePage]; mirrored to public.profiles.onboarding_completed.
   final bool onboardingCompleted;
 
   UserProfile copyWith({

@@ -2,13 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/health_service.dart';
 
-// PROD-7 Two-Way-Health-Sync: testet die HealthService-Abstraktion (den Seam),
-// NICHT den echten HealthKit-Plugin-Channel (der liefert im Test null/
-// unsupported). Es geht um zwei Dinge:
-//  1) Off-iOS / Test == NoopHealthService -> alle neuen Methoden no-op-pen
-//     sicher (false / leer), kein Crash.
-//  2) Ein aufzeichnender Fake beweist, dass der Aufrufer die Write-Payloads
-//     korrekt formt (Gewicht: value+date).
+// PROD-7 two-way health sync: tests the HealthService seam, NOT the real
+// HealthKit channel (null/unsupported in tests). Off-iOS every method must
+// no-op safely, and a recording fake proves the write payloads' shape.
 
 class _RecordedWeight {
   const _RecordedWeight(this.kg, this.when);
@@ -16,8 +12,7 @@ class _RecordedWeight {
   final DateTime when;
 }
 
-/// Aufzeichnender Fake: merkt sich die exakten Write-Payloads und liefert
-/// vorbefuellbare Read-Daten fuer den Import-Pfad.
+/// Recording fake: keeps the write payloads, serves pre-fillable read data.
 class _RecordingHealthService implements HealthService {
   HealthAuthState _state = HealthAuthState.granted;
   final List<_RecordedWeight> weightWrites = [];
@@ -126,7 +121,7 @@ void main() {
 
       expect(snap, isNotNull);
       expect(snap!.stepsToday, 4200);
-      // Letztes (juengstes) Sample gewinnt.
+      // The latest sample wins.
       expect(snap.latestWeightKg, 80.2);
       expect(snap.lastSleepMinutes, 462);
     });

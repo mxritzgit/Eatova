@@ -1,7 +1,7 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Sessions-Sheet: Liste aller Konversationen + „Neu" oben.
+// Sessions sheet: all conversations, with "new" on top.
 // ---------------------------------------------------------------------------
 class _SessionsSheet extends StatelessWidget {
   const _SessionsSheet({
@@ -28,7 +28,7 @@ class _SessionsSheet extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          // Kein eigener Ziehgriff: showEatovaSheet setzt showDragHandle.
+          // No own drag handle: showEatovaSheet sets showDragHandle.
           padding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -117,7 +117,7 @@ class _SessionsSheet extends StatelessWidget {
     final l10n = context.l10n;
     showDialog<void>(
       context: context,
-      // Flaeche, Radius, Rand und die Textstile kommen aus dem dialogTheme.
+      // Surface, radius, border and text styles come from dialogTheme.
       builder: (ctx) => AlertDialog(
         title: Text(l10n.coachSessionDeleteTitle),
         content: Text(l10n.coachSessionDeleteBody(s.title)),
@@ -210,9 +210,8 @@ class _SessionTile extends StatelessWidget {
   }
 }
 
-/// Einmalige Initialisierung der `intl`-Datumssymbole — Muster
-/// `today_texts.dart._ensureDateSymbols`, eigener Guard: beide Dateien sind
-/// getrennte Libraries (kein Namenskonflikt, aber auch kein geteilter Zustand).
+/// One-time init of the `intl` date symbols; own guard because this file and
+/// `today_texts.dart` are separate libraries.
 bool _coachDateSymbolsReady = false;
 void _ensureCoachDateSymbols() {
   if (_coachDateSymbolsReady) return;
@@ -226,13 +225,8 @@ String _humanizeTimestamp(DateTime ts, AppLocalizations l10n) {
   if (diff.inMinutes < 60) return l10n.coachTimeMinutesAgo(diff.inMinutes);
   if (diff.inHours < 24) return l10n.coachTimeHoursAgo(diff.inHours);
   if (diff.inDays < 7) return l10n.coachTimeDaysAgo(diff.inDays);
-  // Reines Zahlenformat, aber ab jetzt ueber `intl` mit der aktiven Locale
-  // aufgeloest (Scan/Coach-PR, 2026-08-11) statt fest verdrahteter
-  // Interpunktion — unter 'de' weiterhin byte-gleich 'dd.MM.yyyy'. Bewusst
-  // DASSELBE numerische Muster fuer 'en': Tag.Monat.Jahr bleibt unzweideutig;
-  // ein Wechsel zu 'MM/dd' laese sich von US- und GB/DE-Lesern unterschiedlich
-  // lesen — genau die Verwechslungsgefahr, die der alte Kommentar hier schon
-  // vermeiden wollte.
+  // The SAME numeric pattern on purpose for 'en': day.month.year stays
+  // unambiguous, whereas 'MM/dd' reads differently to US and GB/DE readers.
   _ensureCoachDateSymbols();
   return DateFormat('dd.MM.yyyy', l10n.localeName).format(ts);
 }

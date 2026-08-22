@@ -5,10 +5,8 @@ class CoachSpeechInput {
 
   static const MethodChannel _channel = MethodChannel('eatova/speech');
 
-  /// [l10n] fehlt bewusst nicht in der Signatur: [CoachSpeechInput] hat
-  /// keinen `BuildContext` (MethodChannel-Klasse, ohne Widget-Baum) — der
-  /// Aufrufer (`_toggleSpeechInput` in coach_chat_screen.dart, hat Context)
-  /// reicht die Uebersetzungen durch, statt hier ein eigenes Lookup zu bauen.
+  /// [l10n] is passed in because [CoachSpeechInput] has no `BuildContext`;
+  /// the caller (`_toggleSpeechInput`) supplies the translations.
   Future<String?> listen({
     String localeId = 'de_DE',
     required AppLocalizations l10n,
@@ -35,8 +33,8 @@ class CoachSpeechInput {
     try {
       await _channel.invokeMethod<void>('stop');
     } catch (_) {
-      // Stop ist best-effort; die laufende listen()-Future liefert sonst den
-      // letzten erkannten Text oder laeuft mit ihrem eigenen Fehler aus.
+      // Best effort: the running listen() future still yields the last
+      // recognised text or fails on its own.
     }
   }
 }

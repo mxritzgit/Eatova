@@ -1,12 +1,11 @@
-// Der Profil-Screen nach dem Design-Refactor 2026-08-09.
+// The profile screen after the design refactor.
 //
-// Drei Dinge sichert dieser Test, die vorher nirgends abgedeckt waren:
-//   * beide Anzeige-Modi (der Screen liest seine Farben jetzt ueber Tokens),
-//   * das Schritte-Format '<ist>/<soll>' — daran haengt der Live-Refresh-
-//     Beweis in profile_route_refresh_test, der derzeit an der Schale
-//     scheitert; hier haelt ihn ein Test, der ohne die Schale auskommt,
-//   * die Identitaetskarte erfindet keine Daten (kein PREMIUM, kein
-//     „MEMBER SINCE" — die Design-Vorlage zeigt beides, wir haben es nicht).
+// Covers three things nothing else did:
+//   * both display modes (the screen reads its colors from tokens),
+//   * the steps format '<actual>/<goal>', which profile_route_refresh_test
+//     relies on,
+//   * the identity card invents no data (no PREMIUM, no "MEMBER SINCE" — the
+//     design mock shows both, we have neither).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -21,7 +20,7 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-/// iPhone-14-Viewport (393x852 logisch).
+/// iPhone 14 viewport (393x852 logical).
 void _pinViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
@@ -75,8 +74,8 @@ Widget _profile({
   );
 }
 
-/// Pumpt den Screen als eigene Route ueber einem Start-Screen, damit
-/// `profile-close` (maybePop) wirklich etwas zu schliessen hat.
+/// Pumps the screen as its own route above a start screen, so
+/// `profile-close` (maybePop) actually has something to close.
 Future<void> _pumpAsRoute(
   WidgetTester tester,
   Widget screen, {
@@ -87,7 +86,7 @@ Future<void> _pumpAsRoute(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
-      // ProfileScreen liest seit der i18n-Migration context.l10n.
+      // ProfileScreen reads context.l10n.
       locale: locale,
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -146,30 +145,22 @@ void main() {
       ),
     );
 
-    // Das Zahnrad fuehrt in die EINSTELLUNGEN — nicht auf „Profil & Ziele".
-    // Bis 2026-08-10 hingen beide am selben Callback; das Zahnrad trug die
-    // Beschriftung „Einstellungen" und oeffnete die Ziele, waehrend die
-    // Einstellungen nur hinter einem Schieberegler-Symbol im Food-Kopf lagen.
-    // Der Nutzer fand sie schlicht nicht.
+    // The gear opens SETTINGS, not the goals page; both once hung on the same
+    // callback and the settings were effectively unreachable.
     await tester.tap(find.byKey(const ValueKey('profile-open-settings')));
     await tester.pumpAndSettle();
     expect(einstellungen, 1);
     expect(ziele, 0, reason: 'das Zahnrad darf NICHT auf die Ziele fuehren');
 
-    // Und der Zurueck-Knopf schliesst die Route.
+    // And the back button closes the route.
     await tester.tap(find.byKey(const ValueKey('profile-close')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsNothing);
   });
 
-  // Bis 2026-08-10 stand hier „alle sechs Konto-Aktionen sind da". Der Block
-  // „Daten & Konto" ist auf Nutzer-Entscheid entfallen, weil er die
-  // Einstellungen doppelte. Aus der Zusicherung wird damit ihr Gegenteil: die
-  // sechs Zeilen duerfen hier NICHT mehr stehen — und weil ein blosses
-  // „ist weg" ein stiller Funktionsverlust waere, haelt
-  // `test/settings_erreichbarkeit_test.dart` die Gegenstuecke in den
-  // Einstellungen fest (`settings-open-goals`, `settings-export`,
-  // `settings-about`, `settings-sign-out`, `settings-delete-account`).
+  // The account block was removed because it duplicated the settings, so the
+  // six rows must NOT be here. `test/settings_erreichbarkeit_test.dart` pins
+  // their counterparts in the settings so the removal is not a silent loss.
   testWidgets('der Block „Daten & Konto" steht nicht mehr im Profil',
       (tester) async {
     _pinViewport(tester);
@@ -187,20 +178,19 @@ void main() {
     }
     expect(find.text('DATEN & KONTO'), findsNothing);
     expect(find.text('Daten & Konto'), findsNothing);
-    // „Tagesdaten zurücksetzen" gibt es in der ganzen App nicht mehr — weder
-    // hier noch auf „Profil & Ziele" (`settings-reset-day`).
+    // The day-reset action is gone from the whole app, here and on the goals
+    // page (`settings-reset-day`).
     expect(find.text('Tagesdaten zurücksetzen'), findsNothing);
-    // Der letzte Abschnitt ist jetzt „Verbindungen"; darunter nur noch die
-    // Wortmarke mit der Version.
+    // The last section is now Connections, followed only by the wordmark and
+    // version.
     expect(find.text('Verbindungen'), findsOneWidget);
   });
 
   testWidgets('die Bearbeiten-Knoepfe an Plan- und Zielkarte tragen die Ziele',
       (tester) async {
-    // Mit dem Block „Daten & Konto" ist die Zeile `profile-action-edit`
-    // entfallen. Der Weg auf „Profil & Ziele" darf dadurch nicht abreissen —
-    // er haengt seither ausschliesslich an diesen beiden Knoepfen (und an der
-    // Zeile `settings-open-goals` in den Einstellungen).
+    // `profile-action-edit` went with the account block, so the route to the
+    // goals page now hangs solely on these two buttons (plus
+    // `settings-open-goals`).
     _pinViewport(tester);
     var editCalls = 0;
     await _pumpAsRoute(tester, _profile(onEditProfile: () => editCalls++));
@@ -224,11 +214,12 @@ void main() {
     _pinViewport(tester);
     await _pumpAsRoute(tester, _profile(dailySteps: 1000));
 
-    // Ohne Scrollen findbar — der Screen baut eifrig (SingleChildScrollView),
-    // kein ListView. Genau darauf verlaesst sich profile_route_refresh_test.
+    // Findable without scrolling: the screen builds eagerly
+    // (SingleChildScrollView, not ListView), which
+    // profile_route_refresh_test relies on.
     expect(find.text('1000/8000'), findsOneWidget);
     expect(find.text('1000 / 8000'), findsNothing);
-    // Und die Kalorien-Zeile daneben in derselben Schreibweise.
+    // The calories row beside it uses the same notation.
     expect(find.text('900/2200'), findsOneWidget);
   });
 
@@ -239,9 +230,8 @@ void main() {
     expect(find.text('PREMIUM'), findsNothing);
     expect(find.textContaining('MEMBER SINCE'), findsNothing);
     expect(find.textContaining('Seit 20'), findsNothing);
-    // Stattdessen die beiden Felder, die es wirklich gibt. („Gewicht halten"
-    // steht zusaetzlich auf der Plan-Karte weiter unten — deshalb hier
-    // gezielt in der Identitaetskarte suchen.)
+    // Instead the two fields that really exist. The goal label also appears on
+    // the plan card below, so search inside the identity card specifically.
     expect(
       find.descendant(
         of: find.byType(IdentityCard),
@@ -258,14 +248,9 @@ void main() {
     );
   });
 
-  // Die Sheets des Profils standen bisher in KEINEM Test. Sie sind der Ort, an
-  // dem eine feste Sheet-Hoehe und grosse Systemschrift aufeinander treffen —
-  // genau die Bruchstelle aus §5 des Vertrags.
-  //
-  // Aus den urspruenglich vier Faellen sind zwei geworden: „Über Eatova" und
-  // die „Datenauskunft" haengen seit 2026-08-10 an den Einstellungen. Ihre
-  // 2.0-Faelle sind nicht gestrichen, sondern nach
-  // `test/settings_screen_render_test.dart` umgezogen.
+  // The profile sheets are where a fixed sheet height meets large system text
+  // — the break point from §5 of the contract. Two of the original four cases
+  // moved to `test/settings_screen_render_test.dart` with their sheets.
   for (final sheet in <({String name, String key, String? tooltip})>[
     (name: 'Gewicht loggen', key: 'profile-log-weight', tooltip: null),
     (name: 'BMI-Erklärung', key: '', tooltip: 'BMI-Erklärung'),
@@ -320,10 +305,9 @@ void main() {
         ),
         textScaler: const TextScaler.linear(2.0),
       );
-      // Bis ans Ende scrollen, damit auch die unteren Karten wirklich
-      // gelayoutet werden. Anker ist seit dem Wegfall des Blocks
-      // „Daten & Konto" der Verbinden-Knopf der Health-Karte — der letzte
-      // Bedienpunkt der Seite (bei `unverified` sichtbar, s. oben).
+      // Scroll to the end so the lower cards actually lay out. The anchor is
+      // the health card's connect button, the page's last control (visible at
+      // `unverified`).
       await tester.ensureVisible(
         find.byKey(const ValueKey('profile-health-connect')),
       );
@@ -332,9 +316,8 @@ void main() {
   });
 
   group('EN-Render-Smoke (i18n-Paket 5, Spec §6)', () {
-    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
-    // mindestens eine echte englische Uebersetzung steht im Baum. Muster:
-    // test/coach_design_test.dart (Paket 4).
+    // Renders under locale `en` in both brightnesses: no crash, and at least
+    // one real English translation is in the tree.
     for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
       testWidgets('rendert unter en in $brightness ohne Ausnahme',
           (tester) async {
@@ -348,7 +331,7 @@ void main() {
 
         expect(tester.takeException(), isNull,
             reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
-        // „Mein Profil" -> „My Profile", „Verbindungen" -> „Connections".
+        // The two headings in their English wording.
         expect(find.text('My Profile'), findsOneWidget);
         expect(find.text('Connections'), findsOneWidget);
       });

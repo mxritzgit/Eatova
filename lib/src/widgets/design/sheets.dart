@@ -5,13 +5,12 @@ import 'package:flutter/material.dart';
 import '../../theme/app_tokens.dart';
 
 // ---------------------------------------------------------------------------
-// SHEETS — Geruest, Eingabefeld und der Oeffner.
+// SHEETS — scaffold, input field and the opener.
 //
-// Geometrie 1:1 aus der Design-Vorlage; Farben aus [AppTokens].
+// Geometry 1:1 from the design mock; colors from [AppTokens].
 // ---------------------------------------------------------------------------
 
-/// Das Innenleben eines Bottom-Sheets: Titel, erklaerender Satz, Felder und
-/// genau eine Aktion am Fuss.
+/// A bottom sheet's inside: title, line, fields, one action at the foot.
 class SheetScaffold extends StatelessWidget {
   const SheetScaffold({
     super.key,
@@ -30,24 +29,18 @@ class SheetScaffold extends StatelessWidget {
   final String actionLabel;
   final bool destructive;
 
-  /// Standard ist Schliessen — ein Sheet ohne eigene Aktion bestaetigt nur.
+  /// Defaults to closing: a sheet without its own action only confirms.
   final VoidCallback? onAction;
 
-  /// Scharfschaltung der Aktion (Loesch-Sheet erst, wenn LOESCHEN getippt
-  /// wurde). Gesperrt heisst: gedaempft und taub, nicht unsichtbar.
+  /// Arms the action. Disabled means dimmed and deaf, not invisible.
   final bool actionEnabled;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final fill = destructive ? t.danger : t.forest;
-    // Scrollbar, nicht nur schrumpfend: die Vorlage baut eine reine
-    // `Column(mainAxisSize: min)`. Ein Sheet waechst mit der Systemschrift,
-    // hat aber nur die Hoehe, die ihm der Bildschirm laesst — bei
-    // textScaler 2.0 lief dieses Geruest um gemessene 101 px ueber. Mit
-    // `shrinkWrap` bleibt das Sheet bei normaler Schrift genauso hoch wie
-    // vorher (es waechst nur bis zu seinem Inhalt) und wird erst scrollbar,
-    // wenn der Inhalt sonst nicht mehr passt.
+    // Scrollable, not just shrink-wrapping: a plain Column overflowed by
+    // ~101 px at textScaler 2.0.
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
       child: Column(
@@ -78,8 +71,8 @@ class SheetScaffold extends StatelessWidget {
                     : null,
                 borderRadius: BorderRadius.circular(16),
                 child: ConstrainedBox(
-                  // Abweichung von der Vorlage (SizedBox(height: 52)): bei
-                  // textScaler 2.0 waere die Beschriftung hoeher als der Knopf.
+                  // Not a fixed SizedBox(height: 52): at textScaler 2.0 the
+                  // label would be taller than the button.
                   constraints: const BoxConstraints(minHeight: 52),
                   child: Padding(
                     padding:
@@ -93,9 +86,8 @@ class SheetScaffold extends StatelessWidget {
                             style: AppType.ui(
                               14.5,
                               weight: FontWeight.w700,
-                              // `bg` ist in beiden Modi der Gegenpol zu den
-                              // beiden Fuellfarben und traegt deshalb auch auf
-                              // `danger` (hell im Dunkelmodus) den Kontrast.
+                              // `bg` is the counterpole to both fills in each
+                              // mode, so it also contrasts on `danger`.
                               color: destructive ? t.bg : t.onForest,
                             ),
                           ),
@@ -113,7 +105,7 @@ class SheetScaffold extends StatelessWidget {
   }
 }
 
-/// Beschriftetes Eingabefeld im Sheet-Stil.
+/// Labelled input field in sheet style.
 class SheetField extends StatelessWidget {
   const SheetField({
     super.key,
@@ -132,15 +124,14 @@ class SheetField extends StatelessWidget {
   final String hint;
   final bool obscure;
 
-  /// Die Vorlage kommt ohne Controller aus (statische Demo); echte Sheets
-  /// brauchen ihn.
+  /// The static design mock needs no controller; real sheets do.
   final TextEditingController? controller;
 
   final bool enabled;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onChanged;
 
-  /// Eine Zeile in [AppTokens.danger] unter dem Feld; faerbt zugleich den Rand.
+  /// One [AppTokens.danger] line under the field; also colors the border.
   final String? errorText;
 
   final Widget? suffix;
@@ -208,34 +199,19 @@ class SheetField extends StatelessWidget {
   }
 }
 
-/// Luft zwischen oberer Safe-Area (Statusleiste, Notch, Dynamic Island) und
-/// der Oberkante eines Sheets.
+/// Gap between the top safe area and a sheet's top edge.
 const double kSheetTopGap = 12;
 
-/// Untergrenze fuer [sheetMaxHeight]: bei extremen Werten (kleiner Bildschirm,
-/// hohe Tastatur, Querformat) schrumpft ein Sheet nicht unter diese Hoehe —
-/// lieber ragt es in Grenzfaellen an den Rand, als dass der Kopf mit seinen
-/// Aktionen in einem Streifen von wenigen Pixeln verschwindet.
+/// Floor for [sheetMaxHeight], so a small screen or tall keyboard cannot
+/// collapse the header into a few pixels.
 const double kSheetMinHeight = 320;
 
-/// Die hoechste Hoehe, die ein Bottom-Sheet auf diesem Bildschirm haben darf,
-/// ohne unter die obere Safe-Area zu rutschen.
+/// The tallest a sheet may be without sliding under the top safe area, never
+/// below [kSheetMinHeight].
 ///
-/// `size.height - viewPadding.top - viewInsets.bottom - kSheetTopGap`, nie
-/// kleiner als [kSheetMinHeight].
-///
-/// Warum nicht ein fester Anteil (`size.height * 0.92`)? Ein Sheet liegt
-/// oberhalb der Tastatur (`Padding(bottom: viewInsets.bottom)`), und der
-/// Anteil kannte die Tastatur nicht: Sheet-Hoehe plus Tastatur ueberstiegen
-/// die Bildschirmhoehe, die Route klemmte das Sheet auf `Bildschirm minus
-/// Tastatur` — und damit bis an den oberen Rand, unter Statusleiste und
-/// Dynamic Island. Der Kopf mit Kamera/Galerie/Barcode war auf dem iPhone
-/// nicht mehr zu sehen. Ohne Tastatur waren 8 % auf Geraeten mit 59 pt
-/// Safe-Area ohnehin knapp. Mit dieser Formel schrumpft bei offener
-/// Tastatur der Scrollbereich, nicht der sichtbare Kopf.
-///
-/// Reine Funktion ueber den Daten — fuer Sheets im Baum steht
-/// [sheetMaxHeightOf] bereit, das die obere Safe-Area korrekt beschafft.
+/// Not a fixed fraction: that ignored the keyboard, so the route clamped the
+/// sheet under the status bar and hid its header. Sheets in the tree use
+/// [sheetMaxHeightOf].
 double sheetMaxHeight(MediaQueryData mediaQuery) {
   final available = mediaQuery.size.height -
       mediaQuery.viewPadding.top -
@@ -244,16 +220,10 @@ double sheetMaxHeight(MediaQueryData mediaQuery) {
   return math.max(kSheetMinHeight, available);
 }
 
-/// [sheetMaxHeight] fuer den Build-Kontext eines Sheets.
-///
-/// Im Builder von `showModalBottomSheet` ist `viewPadding.top` bereits 0:
-/// die Route legt `MediaQuery.removePadding(removeTop: true)` um ihr Kind
-/// (damit ein `SafeArea` IM Sheet oben keine Luecke reisst), und
-/// `removePadding` zieht dabei auch `viewPadding.top` auf 0. Die Formel
-/// liefe dort ins Leere. Die Safe-Area des Geraets kennt aber weiterhin der
-/// [FlutterView]; von dort kommt sie, wenn die MediaQuery sie nicht mehr
-/// traegt. `useSafeArea: true` an der Route waere keine Loesung — das setzt
-/// den Wert genauso auf 0 und nimmt dem Sheet zusaetzlich die 12 pt Luft.
+/// [sheetMaxHeight] for a sheet's build context. Inside
+/// `showModalBottomSheet`'s builder `viewPadding.top` is already 0, so the
+/// device safe area comes from the [FlutterView]; `useSafeArea: true` zeroes
+/// it the same way and eats the gap.
 double sheetMaxHeightOf(BuildContext context) {
   final mediaQuery = MediaQuery.of(context);
   final viewTop = MediaQueryData.fromView(View.of(context)).viewPadding.top;
@@ -265,9 +235,8 @@ double sheetMaxHeightOf(BuildContext context) {
   );
 }
 
-/// Oeffnet [sheet] als Eatova-Bottom-Sheet: scrollgesteuert, auf [AppTokens.bg],
-/// mit Ziehgriff, [rSheet]-Kappe, Tastatur-Ausgleich und Safe-Area-Deckel
-/// ([sheetMaxHeight]).
+/// Opens [sheet] as an Eatova bottom sheet: scroll-controlled, drag handle,
+/// [rSheet] cap, keyboard inset and the safe-area cap ([sheetMaxHeight]).
 Future<T?> showEatovaSheet<T>(BuildContext context, Widget sheet) {
   final t = context.t;
   return showModalBottomSheet<T>(
@@ -283,12 +252,9 @@ Future<T?> showEatovaSheet<T>(BuildContext context, Widget sheet) {
         bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
       ),
       child: ConstrainedBox(
-        // Der Deckel gilt fuer das ganze Sheet; `showDragHandle` setzt den
-        // Griff als `kMinInteractiveDimension` hohes Polster UEBER den
-        // Builder-Inhalt (Stack + Padding in BottomSheet.build), also geht
-        // er hier ab. Ohne Deckel fuellt ein langer Inhalt (SheetScaffold
-        // bei grosser Schrift, offene Tastatur im Feld) den Rest des
-        // Bildschirms bis unter die Statusleiste.
+        // `showDragHandle` adds a `kMinInteractiveDimension` pad ABOVE the
+        // builder content, so it is subtracted here. Without the cap, long
+        // content fills the screen up under the status bar.
         constraints: BoxConstraints(
           maxHeight: sheetMaxHeightOf(sheetContext) - kMinInteractiveDimension,
         ),

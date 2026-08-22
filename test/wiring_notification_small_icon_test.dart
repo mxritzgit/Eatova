@@ -1,29 +1,17 @@
-// VERDRAHTUNGS-WAECHTER — das kleine Benachrichtigungs-Icon (Small Icon).
+// Wiring guard for the notification small icon.
 //
-// DER FUND (Komplettreview 2026-08-19)
-// `AndroidInitializationSettings('@mipmap/ic_launcher')` hat den Launcher als
-// Small Icon gesetzt. Android wertet dafuer seit API 21 AUSSCHLIESSLICH den
-// Alphakanal aus und faerbt das Ergebnis selbst ein; minSdk ist 26, der Fall
-// tritt also auf jedem Geraet ein. Der Launcher ist ein vollflaechig deckendes
-// Bitmap (Alpha ueberall 255) — in der Statusleiste kam davon ein weisses
-// Quadrat an. Sichtbar wird das erst auf einem echten Geraet, kein Test und
-// kein Build haetten es gemeldet: `getIdentifier` loest `@mipmap/ic_launcher`
-// sauber auf, die Verdrahtung war also technisch korrekt und trotzdem falsch.
+// Android evaluates ONLY the alpha channel of a small icon since API 21 and
+// tints the result itself (minSdk is 26, so always). Pointing it at the fully
+// opaque launcher bitmap produced a white square in the status bar — and no
+// test or build reported it, because `getIdentifier` resolved the name fine.
 //
-// WAS DIESE DATEI IST UND WAS NICHT
-// Sie prueft die ABHAENGIGKEIT ZWISCHEN DART UND ANDROID-RESSOURCEN, so wie
-// `wiring_android_manifest_test.dart` es fuer das Manifest tut: welchen Namen
-// der Dart-Code an das Plugin gibt, ob unter diesem Namen ueberhaupt etwas
-// liegt, und ob das, was dort liegt, die Alphakanal-Bedingung erfuellt.
-// Quelltext und XML werden vorher entkommentiert — die Begruendungen in beiden
-// Dateien nennen den alten Wert (`@mipmap/ic_launcher`) und `android:tint`
-// woertlich, ein naives `contains` wuerde also seinen eigenen Kommentar lesen.
+// This file checks the COUPLING between Dart and Android resources: which
+// name the Dart code hands the plugin, whether anything exists under it, and
+// whether that satisfies the alpha-channel condition. Source and XML are
+// stripped of comments first — the rationales quote the old value and
+// `android:tint` verbatim, so a naive `contains` would read its own comment.
 //
-// Was sie NICHT kann: beweisen, dass SystemUI die Datei zeichnet. Dafuer
-// braeuchte es einen Geraetetest mit Blick auf die Statusleiste.
-//
-// EINSTUFUNG: mittel. Strukturpruefung eines Build-Artefakts plus der
-// Kopplung zum Dart-Code, keine Wirkungspruefung.
+// It cannot prove that SystemUI draws the file; that needs a device test.
 
 import 'dart:io';
 
@@ -34,10 +22,9 @@ const String _resWurzel = 'android/app/src/main/res';
 const String _libWurzel = 'lib';
 const String _pluginImport = 'flutter_local_notifications';
 
-/// Bitmap-Endungen, die der Ressourcen-Merger als Drawable akzeptiert. Eine
-/// Datei mit diesen Endungen und gleichem Basisnamen in einem dichte-
-/// qualifizierten Ordner wuerde das Vektor-Drawable auf dem passenden Geraet
-/// verdraengen — und damit genau den Fund zurueckbringen.
+/// Bitmap extensions the resource merger accepts as a drawable. A file with
+/// one of these and the same base name in a density-qualified folder would
+/// displace the vector drawable on matching devices.
 const List<String> _bitmapEndungen = <String>[
   '.png',
   '.webp',
@@ -54,8 +41,8 @@ String _lies(String pfad) {
   return datei.readAsStringSync();
 }
 
-/// Dart-Quelltext ohne Kommentare. Ohne diesen Schritt liest die Pruefung
-/// unten den Begruendungs-Kommentar mit, in dem der alte Wert steht.
+/// Dart source without comments. Without this the checks below would read the
+/// rationale comment that still names the old value.
 String _dartOhneKommentare(String quelle) => quelle
     .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
     .split('\n')
@@ -68,8 +55,8 @@ String _dartOhneKommentare(String quelle) => quelle
 String _xmlOhneKommentare(String xml) =>
     xml.replaceAll(RegExp(r'<!--.*?-->', dotAll: true), '');
 
-/// Alle Dart-Dateien unter `lib/`, die das Notification-Plugin ansteuern —
-/// dynamisch ermittelt, damit ein NEUER Aufrufer automatisch mitgeprueft wird.
+/// All Dart files under `lib/` that drive the notification plugin, discovered
+/// dynamically so a NEW caller is covered automatically.
 List<String> _notificationQuellen() {
   final wurzel = Directory(_libWurzel);
   if (!wurzel.existsSync()) {
@@ -84,8 +71,8 @@ List<String> _notificationQuellen() {
   return quellen;
 }
 
-/// Das Argument von `AndroidInitializationSettings('...')` — der Name, den das
-/// Plugin per `Resources.getIdentifier` aufloest.
+/// The argument of `AndroidInitializationSettings('...')` — the name the
+/// plugin resolves via `Resources.getIdentifier`.
 String _defaultIcon(String quelleOhneKommentare) {
   final m = RegExp(r"AndroidInitializationSettings\(\s*'([^']+)'")
       .firstMatch(quelleOhneKommentare);
@@ -98,25 +85,24 @@ String _defaultIcon(String quelleOhneKommentare) {
 
 final RegExp _attributRegex = RegExp(r'([A-Za-z_][\w.:-]*)\s*=\s*"([^"]*)"');
 
-/// Alle Attribute des Dokuments als (Name, Wert)-Paare. Reicht fuer die
-/// flache Struktur eines VectorDrawable; `package:xml` ist nur transitiv
-/// aufgeloest und braeuchte einen pubspec-Eintrag (siehe
-/// `wiring_android_manifest_test.dart`).
+/// All attributes of the document as (name, value) pairs. Enough for the flat
+/// structure of a VectorDrawable; `package:xml` is only a transitive
+/// dependency and would need a pubspec entry.
 List<MapEntry<String, String>> _attribute(String xml) =>
     <MapEntry<String, String>>[
       for (final a in _attributRegex.allMatches(xml))
         MapEntry(a.group(1)!, a.group(2)!),
     ];
 
-/// Ob [wert] als Farbe entweder rein weiss oder voellig transparent ist — die
-/// beiden einzigen Werte, bei denen die Form ausschliesslich im Alphakanal
-/// steckt. Alles andere ist eine Farbflaeche, die Android platt einfaerbt.
+/// Whether [wert] is pure white or fully transparent — the only two values
+/// that keep the shape entirely in the alpha channel. Anything else is a
+/// colored area that Android flattens into one tint.
 bool _weissOderUnsichtbar(String wert) {
   if (wert == '@android:color/white') return true;
   final m = RegExp(r'^#([0-9a-fA-F]{3,8})$').firstMatch(wert);
   if (m == null) return false;
   var hex = m.group(1)!;
-  // Kurzformen auf AARRGGBB normalisieren.
+  // Normalise short forms to AARRGGBB.
   if (hex.length == 3) {
     hex = 'FF${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}';
   } else if (hex.length == 4) {
@@ -169,7 +155,7 @@ void main() {
       final res = Directory(_resWurzel);
       for (final e in res.listSync(recursive: true)) {
         if (e is! File) continue;
-        // Windows liefert Backslashes, die CI Slashes — beide trennen hier.
+        // Windows yields backslashes, CI slashes — split on both.
         final datei = e.path.split(RegExp(r'[/\\]')).last;
         for (final endung in _bitmapEndungen) {
           if (datei == '$name$endung') kollisionen.add(e.path);
@@ -184,10 +170,9 @@ void main() {
     });
 
     test('kein Aufrufer setzt irgendwo einen @mipmap-Verweis fuers Plugin', () {
-      // Gegenrichtung zum ersten Test: AndroidNotificationDetails.icon
-      // ueberschreibt den Default pro Benachrichtigung
-      // (FlutterLocalNotificationsPlugin.java:499-501). Ein @mipmap dort waere
-      // derselbe Fund an anderer Stelle.
+      // Counterpart to the first test: AndroidNotificationDetails.icon
+      // overrides the default per notification, so a @mipmap there would be
+      // the same finding in a different place.
       final treffer = notificationQuellen
           .where((q) => q.contains('@mipmap/'))
           .toList();

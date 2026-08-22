@@ -4,29 +4,15 @@ import 'package:health/health.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/health_service.dart';
 
-// Sentinel-Rest, Cluster B (Nachverifikation 2026-08-08):
-// `requestAuthorization()` machte aus einem FEHLER die positive
-// Geraete-Behauptung `unsupported` — und die Health-Karte versteckt bei
-// `unsupported` den Verbinden-Button komplett („Auf diesem Geraet nicht
-// aktiv", profile_widgets_actions.dart). Ein transienter Plugin-Fehler wurde
-// damit zur Sackgasse ohne Rueckweg bis zum App-Neustart.
+// Sentinel remainder, cluster B (2026-08-08). `requestAuthorization()` turned
+// an ERROR into `unsupported`, which hides the connect button, and Apple's
+// `success == false` ("the request failed", not a user "no") into `denied`.
 //
-// Gleiche Klasse eine Zeile hoeher: Apples `success == false` heisst laut
-// eigenem Kommentar „die Anfrage selbst ist gescheitert — kein Nutzer-Nein",
-// wurde aber als `denied` uebernommen, das die Karte als „Zugriff entzogen —
-// wieder freigeben" rendert und den Nutzer in die Einstellungen schickt, wo
-// nichts zu finden ist.
-//
-// Neuer Vertrag: beide Fehlformen landen auf `unknown` — die Karte zeigt
-// „Apple Health einrichten" mit Verbinden-Button, der Nutzer kann es einfach
-// erneut versuchen, und der wahre Grund geht an den CrashReporter.
-// `unsupported` bleibt dem einzigen echten Geraete-Fakt vorbehalten:
-// Nicht-iOS-Plattform.
+// New contract: both failure shapes land on `unknown`, so the card offers a
+// retry. `unsupported` is reserved for the one device fact: non-iOS.
 
-/// Implementiert nur die Aufrufe, die `requestAuthorization` wirklich macht.
-/// Alles Uebrige wirft via noSuchMethod — die Evidenz-Leser im Service stehen
-/// je in einem eigenen try/catch und werten das als „kein Signal", genau wie
-/// ein fehlender Plattform-Kanal.
+/// Implements only what `requestAuthorization` calls; the rest throws via
+/// noSuchMethod, which the service's try/catch reads as "no signal".
 class _FakeHealth implements Health {
   _FakeHealth({this.configureError, this.sheetShown = true, this.steps});
 

@@ -8,18 +8,14 @@ import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
-// G9b: `jsonEncode + AES-GCM + base64` kostet laut Review 91,5 ms bei 210
-// Mahlzeiten (Desktop-JIT; mobiles AOT 2-4x langsamer) — und laeuft synchron
-// im Tap-Handler. Eine Fuenfer-Serie (Mahlzeit hinzufuegen, korrigieren,
-// loeschen, ...) verschluesselte den GANZEN Blob bisher fuenfmal.
+// G9b: `jsonEncode + AES-GCM + base64` costs ~91.5 ms at 210 meals (desktop
+// JIT, mobile AOT 2-4x slower) and runs synchronously in the tap handler. A
+// burst of five actions used to encrypt the whole blob five times.
 //
-// Diese Tests messen die Schreibfrequenz ueber einen zaehlenden KeyValueStore
-// und sichern:
-//   1. Mehrere Aufrufe innerhalb des Debounce-Fensters -> genau EIN Write.
-//   2. Der letzte Stand gewinnt (kein alter Blob ueberschreibt den neuen).
-//   3. flush() zwingt den ausstehenden Write sofort raus (App-Pause/Detach!).
-//   4. Lesen sieht den ausstehenden Stand (kein Read-after-Write-Loch).
-//   5. clear() verwirft ausstehende Writes (keine PII-Auferstehung).
+// These tests count writes through a counting KeyValueStore: several calls
+// inside the debounce window produce exactly one write, the last state wins,
+// flush() forces the pending write out, reads see the pending state, and
+// clear() discards pending writes (no PII resurrection).
 
 MealAnalysisResult _result() => const MealAnalysisResult(
       mealName: 'Bowl',
@@ -42,8 +38,7 @@ LoggedMeal _meal(String id) => LoggedMeal(
       localDay: '2026-08-05',
     );
 
-/// Zaehlt setString pro Slot — der Stellvertreter fuer "einmal den ganzen
-/// Blob verschluesseln".
+/// Counts setString per slot — the proxy for "encrypt the whole blob once".
 class _ZaehlenderStore implements KeyValueStore {
   final Map<String, String> _data = {};
   final Map<String, int> _writes = {};
@@ -96,7 +91,7 @@ void main() {
       for (var i = 1; i <= 5; i++) {
         cache.writeLoggedMealsDebounced([_meal('m-$i')]);
       }
-      // Waehrend des Fensters ist noch NICHTS verschluesselt worden.
+      // Nothing has been encrypted yet inside the window.
       expect(store.writesFuer(_mealsKey), 0);
       expect(cache.hasPendingWrites, isTrue);
 
@@ -143,9 +138,9 @@ void main() {
 
       cache.writeLoggedMealsDebounced([_meal('m-7')]);
 
-      // Noch nichts auf der Platte …
+      // Nothing on disk yet …
       expect(store.snapshot.containsKey(_mealsKey), isFalse);
-      // … der Cache liefert den ausstehenden Stand trotzdem.
+      // … the cache still returns the pending state.
       final back = await cache.readLoggedMeals();
       expect(back, hasLength(1));
       expect(back!.single.id, 'm-7');
@@ -184,14 +179,13 @@ void main() {
       final store = _ZaehlenderStore();
       final cache = LocalCache(store, 'user-1');
 
-      // Drei Anlagen kurz hintereinander (Rezept anlegen, korrigieren,
-      // zweites anlegen) duerfen den Blob nur einmal verschluesseln …
+      // Three writes in quick succession may encrypt the blob only once …
       cache.writeUserRecipesDebounced([_recipe('user_1')]);
       cache.writeUserRecipesDebounced([_recipe('user_1'), _recipe('user_2')]);
       cache.writeUserRecipesDebounced([_recipe('user_3')]);
       expect(store.writesFuer(_recipesKey), 0);
-      // … und der Lesepfad sieht den ausstehenden Stand trotzdem sofort (kein
-      // Read-after-Write-Loch fuer die Boot-Hydration).
+      // … and the read path still sees the pending state immediately (no
+      // read-after-write hole for the boot hydration).
       expect((await cache.readUserRecipes())!.single.slug, 'user_3');
 
       await cache.flush();
@@ -224,7 +218,7 @@ void main() {
       await cache.writeOutbox([SyncOp.mealDelete('m-2')]);
       await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
 
-      // Kein flush() — die beiden Slots liegen schon roh auf der Platte.
+      // No flush() — both slots are already on disk.
       expect(store.writesFuer('eatova.v1.outbox.user-1'), 2);
       expect(store.snapshot.containsKey('eatova.v1.outbox.user-1'), isTrue);
       expect(
@@ -254,7 +248,7 @@ void main() {
       cache.writeLoggedMealsDebounced([_meal('m-privat')]);
       await cache.clear();
 
-      // Timer haette laengst gefeuert — es darf nichts nachkommen.
+      // The timer would long have fired — nothing may follow.
       await Future<void>.delayed(
           LocalCache.writeDebounce + const Duration(milliseconds: 200));
 

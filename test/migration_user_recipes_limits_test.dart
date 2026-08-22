@@ -1,38 +1,14 @@
-// VERDRAHTUNGS-WAECHTER — die Groessen- und Wertegrenzen von
-// `public.user_recipes` und `public.chat_sessions.title`.
+// WIRING GUARD for the limits of `public.user_recipes` and
+// `public.chat_sessions.title` set in
+// supabase/migrations/20260819140000_user_recipes_limits.sql. `user_recipes`
+// postdates the hardening migration and never entered its
+// `<table>_safe_ranges_check` block; a NEW column can drop out as silently.
 //
-// Migration: supabase/migrations/20260819140000_user_recipes_limits.sql
-// (Komplettreview 2026-08-19).
-//
-// AUSGANGSLAGE. `user_recipes` entstand 13 Tage NACH der Haertungsmigration
-// 20260517220000_security_hardening.sql und ist deshalb nie in deren
-// `<tabelle>_safe_ranges_check`-Block gewandert — sie war bis zu dieser
-// Migration die einzige client-beschreibbare Tabelle ohne Laengen- oder
-// Wertebereichsgrenze. Genau dieses Vergessen kann sich wiederholen: eine
-// NEUE Spalte in `user_recipes` faellt ohne Waechter still aus dem Check.
-//
-// WAS DIESE DATEI IST UND WAS NICHT. Sie liest die Migration, die in die
-// Datenbank geht, und prueft sie STRUKTURELL: SQL-Kommentare werden entfernt,
-// die Check-Ruempfe der beiden Constraints herausgeschnitten und die Grenzen
-// als Zahlen gelesen. Einrueckung, Reihenfolge der Konjunkte und
-// Kommentartext sind ihr damit egal. Was sie NICHT kann: beweisen, dass
-// PostgreSQL die Migration akzeptiert oder dass die Constraint auf der
-// Produktivdatenbank angelegt wurde — dafuer braeuchte es eine echte DB.
-//
-// DER TEIL, DER MEHR IST ALS EINE ZEILENPRUEFUNG. Drei Behauptungen sind
-// ABHAENGIGKEITEN zwischen Migration und Schreibpfad und werden rot, wenn
-// jemand nur EINE Seite anfasst:
-//
-//   * jede client-beschreibbare Spalte aus 20260530091000_user_recipes.sql
-//     kommt im Check vor (neue Spalte ohne Grenze -> rot),
-//   * jede Grenze ist mindestens so gross wie das, was die App real schreibt
-//     (Client: LoggedMealLimits; Coach: RECIPE_LIMITS aus recipe.ts) — eine
-//     Grenze, die legitime Nutzerdaten abweist, waere schlimmer als keine,
-//   * `chat_sessions.title` fasst den Auto-Titel der Edge Function
-//     (handler.ts, `trimmed.slice(0, N)`).
-//
-// EINSTUFUNG: mittel. Kein `contains` ueber eine Quelltextzeile, aber auch
-// keine Wirkungspruefung gegen eine laufende Datenbank.
+// Checks the migration STRUCTURALLY, so it cannot prove PostgreSQL accepts
+// it. Three assertions go red if only ONE side moves: every client-writable
+// column appears in the check; every limit is at least what the app writes,
+// since one rejecting legitimate data is worse than none; and
+// `chat_sessions.title` holds the edge function's auto title.
 
 import 'dart:io';
 
@@ -50,11 +26,10 @@ const String _handlerTsPfad = 'supabase/functions/coach-chat/handler.ts';
 const String _userRecipesCheck = 'user_recipes_safe_ranges_check';
 const String _chatSessionsCheck = 'chat_sessions_safe_ranges_check';
 
-/// Spalten aus dem `create table`-Block, die NICHT vom Client kommen: die
-/// vergibt die DB per Default bzw. Trigger, bzw. RLS haelt sie fest.
+/// Columns the client never writes: DB default, trigger, or pinned by RLS.
 const Set<String> _keineClientSpalten = {'id', 'user_id', 'created_at', 'updated_at'};
 
-/// Zeilenanfaenge im `create table`-Block, die keine Spalte sind.
+/// Line starts in the `create table` block that are not a column.
 const Set<String> _keineSpaltenSchluesselwoerter = {
   'unique',
   'primary',
@@ -74,9 +49,8 @@ String _lies(String pfad) {
   return datei.readAsStringSync();
 }
 
-/// Entfernt `--`-Kommentare. Ohne das matcht die Begruendung im Kopf der
-/// Migration (sie nennt jede Spalte und jede Zahl) genauso wie der echte
-/// Check-Rumpf, und der Waechter waere wertlos.
+/// Strips `--` comments; the header rationale names every column and number
+/// and would otherwise match like the real check body.
 String _ohneKommentare(String sql) => sql
     .split('\n')
     .map((zeile) {
@@ -85,7 +59,7 @@ String _ohneKommentare(String sql) => sql
     })
     .join('\n');
 
-/// Der Rumpf EINER Constraint: von `add constraint <name>` bis `not valid`.
+/// The body of ONE constraint: from `add constraint <name>` to `not valid`.
 String _checkRumpf(String sql, String conname) {
   final start = sql.indexOf('add constraint $conname');
   expect(
@@ -105,7 +79,7 @@ String _checkRumpf(String sql, String conname) {
   return sql.substring(start, ende);
 }
 
-/// Obergrenze aus `<ausdruck> between <min> and <max>`.
+/// Bounds from `<expr> between <min> and <max>`.
 ({int min, int max}) _bereich(String rumpf, String ausdruck) {
   final treffer = RegExp(
     '${RegExp.escape(ausdruck)}\\s+between\\s+(\\d+)\\s+and\\s+(\\d+)',
@@ -118,7 +92,7 @@ String _checkRumpf(String sql, String conname) {
   return (min: int.parse(treffer!.group(1)!), max: int.parse(treffer.group(2)!));
 }
 
-/// Obergrenze aus `<ausdruck> <= <max>`.
+/// Upper bound from `<expr> <= <max>`.
 int _obergrenze(String rumpf, String ausdruck) {
   final treffer = RegExp(
     '${RegExp.escape(ausdruck)}\\s*<=\\s*(\\d+)',
@@ -131,8 +105,8 @@ int _obergrenze(String rumpf, String ausdruck) {
   return int.parse(treffer!.group(1)!);
 }
 
-/// Ein Wert aus dem `RECIPE_LIMITS`-Objekt in recipe.ts. TypeScript-Zahlen
-/// duerfen `_` als Tausendertrenner tragen (`2_000`).
+/// One `RECIPE_LIMITS` value from recipe.ts; TypeScript numbers may carry
+/// `_` as a thousands separator.
 int _tsLimit(String ts, String name) {
   final treffer =
       RegExp('${RegExp.escape(name)}\\s*:\\s*([0-9_]+)').firstMatch(ts);
@@ -140,7 +114,7 @@ int _tsLimit(String ts, String name) {
   return int.parse(treffer!.group(1)!.replaceAll('_', ''));
 }
 
-/// Spaltennamen aus dem `create table … public.user_recipes (` -Block.
+/// Column names from the `create table … public.user_recipes (` block.
 List<String> _spalten(String sql) {
   const kopf = 'create table if not exists public.user_recipes (';
   final start = sql.indexOf(kopf);
@@ -160,20 +134,17 @@ List<String> _spalten(String sql) {
   return namen;
 }
 
-/// Die Migration ohne Kommentare. Bewusst pro Test gelesen statt in einem
-/// `setUpAll`: `_lies` prueft selbst mit `expect`, und das gehoert in einen
-/// Testrumpf.
+/// The migration without comments; read per test, since `_lies` asserts.
 String _migration() => _ohneKommentare(_lies(_migrationPfad));
 
-/// Der Check-Rumpf von `user_recipes_safe_ranges_check`.
+/// The check body of `user_recipes_safe_ranges_check`.
 String _userRecipesRumpf() => _checkRumpf(_migration(), _userRecipesCheck);
 
 void main() {
   group('20260819140000_user_recipes_limits — Struktur', () {
     test('beide Constraints werden idempotent ueber pg_constraint geprobt', () {
       final migration = _migration();
-      // Muster aus 20260517220000_security_hardening.sql, Abschnitt 3: ohne
-      // die Probe bricht ein zweiter Lauf der Migration mit 42710 ab.
+      // Without the probe, a second run of the migration aborts with 42710.
       for (final conname in [_userRecipesCheck, _chatSessionsCheck]) {
         expect(
           migration.contains(
@@ -187,7 +158,7 @@ void main() {
 
     test('beide Constraints sind `not valid`', () {
       final migration = _migration();
-      // _checkRumpf wirft sonst schon; hier zusaetzlich fuer chat_sessions.
+      // _checkRumpf already throws otherwise; here also for chat_sessions.
       expect(_checkRumpf(migration, _chatSessionsCheck), isNotEmpty);
       expect(
         RegExp('not valid').allMatches(migration).length,
@@ -199,10 +170,8 @@ void main() {
     });
 
     test('JEDE client-beschreibbare Spalte von user_recipes hat eine Grenze', () {
-      // Der eigentliche Fund war eine VERGESSENE Tabelle. Dieselbe Luecke
-      // entsteht wieder, sobald jemand eine Spalte ergaenzt und den Check
-      // nicht nachzieht — deshalb kommt die Spaltenliste aus der
-      // Tabellen-Migration und nicht aus einer Handliste hier.
+      // The finding was a FORGOTTEN table, so the column list comes from the
+      // table migration, not a hand-written one.
       final userRecipesRumpf = _userRecipesRumpf();
       final spalten = _spalten(_ohneKommentare(_lies(_tabellenPfad)));
       for (final spalte in spalten) {
@@ -220,10 +189,8 @@ void main() {
 
   group('20260819140000_user_recipes_limits — Grenzen sind grosszuegig genug', () {
     test('Zahlen decken die logged_meals-Grenzen ab', () {
-      // Ein Rezept wird ueber FitnessRecipe.toMealResult zur Mahlzeit und
-      // muss dort durch logged_meals_safe_ranges_check. Waere user_recipes
-      // ENGER, liesse sich eine geloggte Mahlzeit nicht mehr als Rezept
-      // speichern.
+      // A recipe becomes a meal via toMealResult and must pass
+      // logged_meals_safe_ranges_check, so it must not be tighter.
       final userRecipesRumpf = _userRecipesRumpf();
       final kcal = _bereich(userRecipesRumpf, 'calories_kcal');
       expect(kcal.min, lessThanOrEqualTo(UserRecipeLimits.caloriesKcalMin));
@@ -248,8 +215,7 @@ void main() {
       final userRecipesRumpf = _userRecipesRumpf();
       final ts = _lies(_recipeTsPfad);
 
-      // Titel: das Anlege-Sheet begrenzt per `maxLength` auf
-      // LoggedMealLimits.mealNameMaxChars, der Coach kappt auf titleMaxChars.
+      // Title: the sheet caps at mealNameMaxChars, the coach at titleMaxChars.
       final titel = _bereich(userRecipesRumpf, 'char_length(title)');
       expect(titel.min, lessThanOrEqualTo(1));
       expect(
@@ -267,8 +233,7 @@ void main() {
         _obergrenze(userRecipesRumpf, 'char_length(portion)'),
         greaterThanOrEqualTo(_tsLimit(ts, 'portionMaxChars')),
       );
-      // ingredients UND preparation kommen aus demselben Coach-Limit; das
-      // Sheet-Feld fuer Zutaten ist sogar ganz ohne maxLength.
+      // Both share one coach limit; the ingredients field has no maxLength.
       final langtext = _tsLimit(ts, 'longTextMaxChars');
       expect(
         _obergrenze(userRecipesRumpf, 'char_length(ingredients)'),
@@ -279,22 +244,21 @@ void main() {
         greaterThanOrEqualTo(langtext),
       );
 
-      // image_asset traegt `local:img_<32 hex>.jpg` (~46 Zeichen) bzw. einen
-      // Bundle-Assetpfad. 256 ist die Untergrenze, unter der es eng wuerde.
+      // image_asset holds `local:img_<32 hex>.jpg` (~46 chars) or a bundle
+      // path, so 256 is the floor.
       expect(
         _obergrenze(userRecipesRumpf, 'char_length(image_asset)'),
         greaterThanOrEqualTo(256),
       );
 
-      // slug: `user_coach_<message-uuid>` ist mit 47 Zeichen der laengste.
+      // slug: `user_coach_<message-uuid>` is the longest at 47 chars.
       final slug = _bereich(userRecipesRumpf, 'char_length(slug)');
       expect(slug.min, lessThanOrEqualTo(1));
       expect(slug.max, greaterThanOrEqualTo(128));
     });
 
     test('categories ist nach Anzahl UND Gesamtlaenge gedeckelt', () {
-      // Nur `cardinality` (das Muster von daily_logs) liesse den EINZELNEN
-      // Eintrag unbegrenzt — 1 Kategorie mit 100 MB waere weiter erlaubt.
+      // `cardinality` alone would leave the single entry unbounded.
       final userRecipesRumpf = _userRecipesRumpf();
       expect(
         _obergrenze(userRecipesRumpf, 'cardinality(categories)'),
@@ -311,8 +275,8 @@ void main() {
     });
 
     test('chat_sessions.title fasst den Auto-Titel der Edge Function', () {
-      // handler.ts (maybeAutoTitle) kappt bei N Zeichen und haengt eine
-      // Ellipse an — N + 1 ist der laengste Titel, den der Server je schreibt.
+      // maybeAutoTitle cuts at N and appends an ellipsis, so N + 1 is the
+      // longest title the server ever writes.
       final handler = _lies(_handlerTsPfad);
       final treffer =
           RegExp(r'trimmed\.slice\(0,\s*(\d+)\)').firstMatch(handler);

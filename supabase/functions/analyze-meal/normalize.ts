@@ -1,21 +1,10 @@
-// Normalisierung der rohen Modell-Antwort auf den Wire-Vertrag der Function.
+// Normalises the raw model answer onto the function's wire contract. Split out
+// of index.ts so normalize_test.ts can import it without starting a server.
 //
-// Bewusst aus index.ts herausgeloest (gleiches Muster wie coach-chat:
-// index.ts = nur Deno.serve, Logik daneben), damit normalize_test.ts die
-// Funktion importieren kann, OHNE dass beim Modul-Load ein Server startet
-// und ohne --allow-net.
-//
-// LEITSATZ (Review 2026-08-08, B1): Fuer eine ZAHL, die eine
-// Gesundheitsangabe traegt, gibt es genau zwei ehrliche Antworten — den Wert
-// des Modells oder "fehlt". Ein Default ist die dritte, unehrliche: er sieht
-// aus wie eine Messung, ist aber eine Erfindung des Servers.
-//
-// Bis 2026-08-08 gab clampNumber/clampInt bei unparsebarem Input `min` = 0
-// zurueck. Lieferte das Modell "186 kcal/100g" als String statt als Zahl,
-// stand `kcalPer100G: 0` im Wire-Vertrag: die Karte zeigte 780 kcal, das
-// Tagebuch bekam nach "Portion anpassen" (kcalPer100G * g / 100) aber 0.
-// Seitdem: null statt min. Das Klemmen PARSEBARER Werte auf [min, max]
-// bleibt unveraendert — das ist echte Validierung, keine Erfindung.
+// Guiding rule (Review 2026-08-08, B1): a NUMBER carrying a health claim has
+// two honest answers, the model's value or "missing" — a default looks like a
+// measurement but is the server's invention. Unparseable input therefore
+// yields null, never `min`; clamping PARSEABLE values stays.
 
 export interface NormalizedMealItem {
   name: string;
@@ -43,8 +32,8 @@ export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMea
     .filter(isRecord)
     .slice(0, 20)
     .map((item) => ({
-      // Ein Name ist ein Label, keine Messung: ein Fallback-Text erzeugt keine
-      // falsche Zahl, deshalb bleibt clampString hier richtig.
+      // A name is a label, not a measurement: a fallback text invents no
+      // number, so clampString stays right here.
       name: clampString(item.name, 'Lebensmittel', 80),
       grams: optionalInt(item.grams, 0, 10000),
       caloriesKcal: optionalInt(item.caloriesKcal, 0, 10000),
@@ -59,10 +48,8 @@ export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMea
     proteinG: optionalInt(raw.proteinG, 0, 1000),
     carbsG: optionalInt(raw.carbsG, 0, 1000),
     fatG: optionalInt(raw.fatG, 0, 1000),
-    // Sentinel-Rest E7: confidence ist die Aussage des Modells ueber die
-    // eigene Sicherheit, kein Label — fehlt sie, ist sie nicht "medium",
-    // sondern fehlt (Leitsatz dieser Datei). Der Client zeigt dann
-    // "Unbekannt" statt eines erfundenen Vertrauensgrads.
+    // E7: confidence is the model's statement about itself, not a label — if
+    // it is missing it is missing, not "medium". The client says so.
     confidence: ['high', 'medium', 'low'].includes(String(raw.confidence))
       ? String(raw.confidence)
       : null,
@@ -77,21 +64,10 @@ export function clampString(value: unknown, fallback: string, maxLength: number)
 }
 
 /**
- * Streng: nur echte, endliche Zahlen und Strings, die als GANZES eine Zahl
- * sind ("186", " 420 ", "185.7"). Alles andere -> null.
- *
- * Warum nicht `Number(value)` allein: Number() macht aus einer ganzen Reihe
- * von "keine Zahl"-Werten still eine 0 —
- *   Number('') === 0, Number('  ') === 0, Number(null) === 0,
- *   Number(false) === 0, Number([]) === 0, Number([186]) === 186.
- * Genau diese stillen Nullen sind der B1-Bug.
- *
- * Warum KEINE Regex-Extraktion der ersten Ziffernfolge (wie es die Dart-Seite
- * in ihrer Fallback-Kette tut): aus "1/2 Tasse" wuerde 1, aus "100-150 g"
- * wuerde 100, aus "ca. 2 Portionen" wuerde 2. Das sind selbstbewusst falsche
- * Zahlen — dieselbe Fehlerklasse, die wir gerade schliessen. Der Server raet
- * nicht; er meldet "fehlt" und ueberlaesst dem Client die dokumentierte,
- * sichtbare Fallback-Kette.
+ * Strict: only finite numbers and strings that are a number AS A WHOLE;
+ * everything else -> null. Not plain `Number(value)`, which turns '', null,
+ * false and [] silently into 0 (the B1 bug), and no regex extraction of the
+ * first digit run either — "1/2 cup" would become 1.
  */
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value === 'number') {
@@ -106,34 +82,32 @@ function toFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-/** Unparsebar -> null. Parsebar -> auf [min, max] geklemmt (unveraendert). */
+/** Unparseable -> null; parseable -> clamped to [min, max]. */
 export function optionalNumber(value: unknown, min: number, max: number): number | null {
   const number = toFiniteNumber(value);
   if (number === null) return null;
   return Math.min(max, Math.max(min, number));
 }
 
-/** Wie optionalNumber, zusaetzlich auf eine ganze Zahl gerundet. */
+/** Like optionalNumber, additionally rounded to an integer. */
 export function optionalInt(value: unknown, min: number, max: number): number | null {
   const number = optionalNumber(value, min, max);
   return number === null ? null : Math.round(number);
 }
 
 export interface KcalRatioMismatch {
-  /** Was das Modell als kcalPer100G behauptet hat. */
+  /** What the model claimed as kcalPer100G. */
   reported: number;
-  /** Was caloriesKcal/estimatedGrams implizieren. */
+  /** What caloriesKcal/estimatedGrams imply. */
   implied: number;
   deviationPct: number;
 }
 
 /**
- * Zweiter Fehlermodus aus B1: das Modell liefert drei Zahlen, die sich
- * widersprechen ({caloriesKcal: 850, estimatedGrams: 300, kcalPer100G: 260} —
- * 260 * 300 / 100 = 780, nicht 850).
+ * Second B1 failure mode: the model returns three numbers that contradict
+ * each other (850 kcal at 300 g is not 260 kcal/100 g).
  *
- * Diese Funktion MELDET den Widerspruch nur (index.ts loggt ihn); sie
- * korrigiert nichts. Begruendung siehe Kopf von index.ts beim Aufruf.
+ * This only REPORTS the contradiction; index.ts logs it, nothing corrects it.
  */
 export function kcalPer100GMismatch(
   caloriesKcal: number | null,
@@ -145,9 +119,8 @@ export function kcalPer100GMismatch(
 
   const implied = (caloriesKcal * 100) / estimatedGrams;
   const deviation = Math.abs(implied - kcalPer100G);
-  // Absoluter UND relativer Korridor: das Modell rundet auf ganze kcal/Gramm,
-  // was bei kleinen Portionen prozentual gross aussieht, ohne ein Widerspruch
-  // zu sein. Nur wenn BEIDE Korridore gerissen werden, ist es einer.
+  // Absolute AND relative corridor: the model rounds to whole kcal/grams,
+  // which looks large in percent on small portions. Only breaking both counts.
   if (deviation <= 5 || deviation / implied <= 0.05) return null;
 
   return { reported: kcalPer100G, implied, deviationPct: (deviation / implied) * 100 };
@@ -158,24 +131,19 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Log-Redaktion fuer rohen Provider-Content (Security-Review 2026-08-11,
-// Finding 4, CWE-532): Modell-Output und Provider-Fehler-Bodies sind aus dem
-// Essensfoto + Nutzer-Hint abgeleitet — private Ernaehrungs-/Gesundheits-/
-// Freitext-Infos gehoeren nicht in operative Logs. index.ts loggt statt des
-// Inhalts nur die Allowlist-Metadaten aus diesen zwei Helfern; hier
-// ausgelagert (gleiches Muster wie der Rest der Datei), damit
-// normalize_test.ts absichern kann, dass der Inhalt selbst nie im
-// Log-Objekt landet.
+// Log redaction for raw provider content (Security review 2026-08-11,
+// finding 4, CWE-532): model output and provider error bodies derive from the
+// food photo and user hint, so index.ts logs only the allowlisted metadata
+// from these two helpers, kept here so normalize_test.ts can prove it.
 // ---------------------------------------------------------------------------
 
 export type UnparseableShape = 'empty' | 'not_json' | 'not_object';
 
 /**
- * Grobe Form-Kategorie des unparsebaren Modell-Outputs — genug, um im Log
- * "leer nach extractJson" von "kein JSON" oder "JSON, aber kein Objekt" zu
- * unterscheiden, ohne den Inhalt zu zeigen. `parseError` ist der Fehler aus
- * dem JSON.parse/isRecord-Block in index.ts: JSON.parse wirft SyntaxError
- * (-> not_json), der isRecord-Guard einen gewoehnlichen Error (-> not_object).
+ * Coarse shape category of unparseable model output — enough to tell "empty",
+ * "no JSON" and "JSON but no object" apart in the log without showing the
+ * content. `parseError` comes from the JSON.parse/isRecord block in index.ts:
+ * JSON.parse throws SyntaxError, the isRecord guard a plain Error.
  */
 export function unparseableShape(jsonText: string, parseError: unknown): UnparseableShape {
   if (!jsonText.trim()) return 'empty';
@@ -183,10 +151,9 @@ export function unparseableShape(jsonText: string, parseError: unknown): Unparse
 }
 
 /**
- * Redaktions-Ersatz fuer den frueheren `raw:`-Slice: Laenge + SHA-256-Praefix
- * (12 Hex-Zeichen). Der Digest erlaubt Dedupe/Korrelation ("dieselbe kaputte
- * Antwort wie in Request X?") und den Abgleich mit einer konkret vorliegenden
- * Antwort, verraet aber nichts ueber den Inhalt.
+ * Redacted stand-in for the former `raw:` slice: length plus a 12-hex-char
+ * SHA-256 prefix. The digest allows dedupe and correlation without revealing
+ * anything about the content.
  */
 export async function redactedContentMeta(content: string): Promise<{ len: number; sha256: string }> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));

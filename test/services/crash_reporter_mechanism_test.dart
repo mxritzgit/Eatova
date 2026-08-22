@@ -3,19 +3,15 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
-/// C1, Leck 4: `exceptions[].mechanism`.
+/// C1, leak 4: `exceptions[].mechanism`.
 ///
-/// `beforeSend` sanitisierte lange nur `exceptions[].value`. Der von
-/// `SentryFlutter.init` per Default registrierte
-/// `PlatformExceptionEventProcessor` legt `code` und `message` der
-/// `PlatformException` aber zusaetzlich in `mechanism.data` ab
-/// (`platform_exception_event_processor.dart:27-38`) — und Event-Prozessoren
-/// laufen VOR `beforeSend` (`sentry_client.dart:160-177`). Genau der Text, den
-/// die Allowlist in `sanitizeForReport` auf der `value`-Seite zurueckhaelt,
-/// ging damit ueber `mechanism.data['message']` doch hinaus.
+/// `PlatformExceptionEventProcessor` also puts `code` and `message` into
+/// `mechanism.data`, and event processors run BEFORE `beforeSend`. So the very
+/// text the allowlist holds back on the `value` side escaped through
+/// `mechanism.data['message']`.
 void main() {
-  // Der reale Fall: Google Sign-In gibt die Server-Begruendung woertlich in
-  // `PlatformException.message` zurueck, samt Konto und Anmelde-Token.
+  // The real case: Google Sign-In returns the server reason verbatim in
+  // `PlatformException.message`, account and sign-in token included.
   const String email = 'max@example.com';
   const String token =
       'ya29.a0AfB_byC-3kQm7Zx1LpR9vTn4WqE8sJhG2dYbN6cVfU0iKoP';
@@ -27,9 +23,9 @@ void main() {
     details: 'Failing account: $email',
   );
 
-  /// Baut das Event exakt so, wie es der `PlatformExceptionEventProcessor` an
-  /// `beforeSend` uebergibt: `value` aus `throwable.toString()`, dazu ein
-  /// `mechanism` vom Typ `platformException` mit `code` und `message`.
+  /// Builds the event exactly as `PlatformExceptionEventProcessor` hands it to
+  /// `beforeSend`: `value` from `throwable.toString()` plus a
+  /// `platformException` mechanism carrying `code` and `message`.
   SentryEvent eventWiePlatformProzessor(PlatformException fehler) => SentryEvent(
         exceptions: <SentryException>[
           SentryException(
@@ -65,8 +61,7 @@ void main() {
     });
 
     test('nichts davon steht mehr im serialisierten Event', () {
-      // Der eigentliche Beleg: was `toJson` liefert, ist woertlich das, was
-      // das Geraet verlaesst.
+      // The actual proof: `toJson` is literally what leaves the device.
       final SentryEvent sanitisiert =
           sanitizeSentryEvent(eventWiePlatformProzessor(platform), Hint())!;
 
@@ -79,8 +74,8 @@ void main() {
     });
 
     test('der code bleibt — sonst ist der Report wertlos', () {
-      // `code` ist ein vom Plugin vergebener Konstant-String und genau das
-      // Feld, das sanitizeForReport auch in `value` durchlaesst.
+      // `code` is a plugin-assigned constant and exactly the field
+      // sanitizeForReport lets through in `value` too.
       final SentryEvent sanitisiert =
           sanitizeSentryEvent(eventWiePlatformProzessor(platform), Hint())!;
 
@@ -92,9 +87,8 @@ void main() {
     });
 
     test('das Geruest des Mechanismus bleibt stehen', () {
-      // `type` und `handled` steuern in Sentry die Unhandled-Markierung, die
-      // Gruppen-IDs die Darstellung verketteter Exceptions. Beides sind
-      // Konstanten bzw. Indizes und darf die Redaktion ueberleben.
+      // `type`/`handled` drive Sentry's unhandled marker, the group ids the
+      // rendering of chained exceptions — constants and indices, safe to keep.
       final SentryEvent event = eventWiePlatformProzessor(platform);
       event.exceptions!.single.mechanism!
         ..source = 'originalError'
@@ -114,8 +108,7 @@ void main() {
     });
 
     test('description faellt weg — das ist Freitext', () {
-      // `SentryHttpClient` setzt dort die rohe Fehlerbegruendung
-      // (`failed_request_client.dart:183-186`).
+      // `SentryHttpClient` puts the raw failure reason there.
       final SentryEvent event = eventWiePlatformProzessor(platform);
       event.exceptions!.single.mechanism!.description =
           'Exception while fetching profile of $email';
@@ -129,9 +122,8 @@ void main() {
 
   group('sanitizeSentryEvent — mechanism.meta', () {
     test('meta wird geleert — die Eintraege passen nie auf die Allowlist', () {
-      // `meta` ist im Protokoll fuer Betriebssystem-Fehlercodes gedacht
-      // (`io_exception_event_processor.dart:120-126`), ist aber eine offene
-      // Map: ein Prozessor kann dort alles ablegen.
+      // `meta` is meant for OS error codes but is an open map: a processor can
+      // put anything there.
       final SentryEvent event = eventWiePlatformProzessor(platform);
       event.exceptions!.single.mechanism = Mechanism(
         type: 'platformException',
@@ -153,8 +145,8 @@ void main() {
     test(
         'aus dem nativen Layer geloggte Events verlieren ihre mechanism-Daten '
         'komplett', () {
-      // Ohne `throwable` faellt `value` auf den blossen Typnamen zurueck —
-      // dann gibt es nichts, was ein mechanism-Feld noch decken koennte.
+      // Without `throwable`, `value` falls back to the bare type name, so no
+      // mechanism field could be covered by it.
       final SentryEvent event = SentryEvent(
         exceptions: <SentryException>[
           SentryException(
@@ -207,8 +199,7 @@ void main() {
     });
 
     test('der Hook wirft auch bei kaputten mechanism-Werten nicht', () {
-      // Ein Throw aus `beforeSend` verwirft das GANZE Event
-      // (`sentry_client.dart:571/580`) — ein stiller Totalausfall.
+      // A throw from `beforeSend` drops the WHOLE event — a silent outage.
       final SentryEvent event = eventWiePlatformProzessor(platform);
       event.exceptions!.single.mechanism!.data = <String, dynamic>{
         'code': <String, dynamic>{'verschachtelt': 'sign_in_failed'},

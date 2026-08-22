@@ -11,29 +11,25 @@ import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// D5: Sheets verwerfen ausgefuellte Formulare kommentarlos.
+// D5: sheets discard filled-in forms silently.
 //
-// Das „Eigenes Rezept"-Sheet ist der schlimmste Fall der drei: acht
-// TextEditingController (Name, Portion, kcal, Gramm, Protein, KH, Fett,
-// mehrzeilige Zutatenliste) und `isDismissible`/`enableDrag` auf Default
-// `true`. Ein Tap knapp ueber das Sheet — der uebliche Reflex, um die Tastatur
-// zu schliessen — verwarf alles.
+// The "own recipe" sheet is the worst case: eight TextEditingControllers and
+// `isDismissible`/`enableDrag` at their `true` defaults. A tap just above the
+// sheet — the usual reflex to dismiss the keyboard — discarded everything.
 //
-// Die beiden Dismiss-Wege laufen im Framework VERSCHIEDEN und werden hier
-// beide geprueft:
-//   * Barriere-Tap → ModalBarrier.handleDismiss → Navigator.maybePop
-//     (modal_barrier.dart:225-230) — fragt PopScope.
-//   * Ziehen → BottomSheet._handleDragEnd → onClosing → Navigator.pop
-//     (bottom_sheet.dart:769-771) — fragt PopScope NICHT.
+// The two dismiss routes differ in the framework and are both tested:
+//   * Barrier tap → ModalBarrier.handleDismiss → Navigator.maybePop — asks
+//     PopScope.
+//   * Drag → BottomSheet._handleDragEnd → onClosing → Navigator.pop — does
+//     NOT ask PopScope.
 //
-// Ausserdem: Feldvalidierung. `user_recipes` kennt laut Constraint-Inventur
-// nur `>= 0`; die engeren `logged_meals`-Grenzen greifen erst beim Loggen
-// (FitnessRecipe.toMealResult). Ein Rezept mit 50 000 kcal liess sich also
-// anlegen und danach nie verwenden.
+// Also field validation: `user_recipes` only constrains `>= 0`, and the tighter
+// `logged_meals` bounds apply on logging (FitnessRecipe.toMealResult), so a
+// 50,000 kcal recipe could be created and then never used.
 
-/// Alle Eingabefelder des Sheets. Kommt ein neuntes dazu, wird
-/// „Sheet hat genau so viele Felder wie diese Liste" rot — und der
-/// Verwerfen-Schutz ist damit auch fuer das neue Feld belegt.
+/// All input fields of the sheet. A ninth one turns the "sheet has exactly as
+/// many fields as this list" test red, which also proves the discard guard
+/// covers the new field.
 const List<String> alleFeldKeys = <String>[
   'recipe-create-name',
   'recipe-create-portion',
@@ -45,7 +41,7 @@ const List<String> alleFeldKeys = <String>[
   'recipe-create-ingredients',
 ];
 
-/// Viewport-Pinning + Overflow-Toleranz wie in edit_meal_sheet_test.dart.
+/// Viewport pinning + overflow tolerance, as in edit_meal_sheet_test.dart.
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   testWidgets(description, (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -67,10 +63,9 @@ void testWidgetsRobust(String description, WidgetTesterCallback callback) {
 class _CreateCapture {
   final List<FitnessRecipe> created = <FitnessRecipe>[];
 
-  /// Seit Luecke E meldet der Hook zurueck, was mit dem Rezept passiert ist —
-  /// hier immer „zugestellt", diese Suite prueft den Verwerfen-Schutz und die
-  /// Feldvalidierung, nicht die Sync-Rueckmeldung (die liegt in
-  /// recipes_save_feedback_test.dart).
+  /// The hook reports what happened to the recipe; always "delivered" here.
+  /// This suite tests the discard guard and field validation, not the sync
+  /// feedback (see recipes_save_feedback_test.dart).
   Future<SyncDelivery> add(FitnessRecipe recipe) async {
     created.add(recipe);
     return SyncDelivery.delivered;
@@ -102,23 +97,23 @@ Future<void> _openSheet(WidgetTester tester, _CreateCapture capture) async {
   expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
 }
 
-/// Text in ein Feld tippen.
+/// Types text into a field.
 ///
-/// Das `pumpAndSettle` ist Pflicht, nicht Kosmetik: `WidgetTester.enterText`
-/// setzt erst den Fokus und schickt den Text dann an die aktuell verbundene
-/// Text-Input-Verbindung. Ohne den Frame dazwischen laeuft die zweite Eingabe
-/// noch gegen die Verbindung des vorigen Feldes und geht verloren.
+/// The `pumpAndSettle` is mandatory: `WidgetTester.enterText` sets focus first
+/// and then sends the text to the currently connected text input. Without the
+/// frame in between, the second entry hits the previous field's connection and
+/// is lost.
 Future<void> _tippe(WidgetTester tester, String feldKey, String text) async {
   await tester.enterText(find.byKey(ValueKey(feldKey)), text);
   await tester.pumpAndSettle();
 }
 
-/// Der aktuelle Inhalt eines Feldes — robuster als `find.text` bei
-/// mehrzeiligem Text.
+/// Current content of a field — more robust than `find.text` for multiline
+/// text.
 String _inhalt(WidgetTester tester, String feldKey) =>
     tester.widget<TextField>(find.byKey(ValueKey(feldKey))).controller!.text;
 
-/// Tap oben links = auf die Barriere, nicht auf das Sheet.
+/// A tap at the top left hits the barrier, not the sheet.
 Future<void> _tapBarrier(WidgetTester tester) async {
   await tester.tapAt(const Offset(10, 10));
   await tester.pumpAndSettle();
@@ -185,7 +180,7 @@ void main() {
 
       expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
       expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
-      // Die Eingaben stehen noch da.
+      // The entries are still there.
       expect(_inhalt(tester, 'recipe-create-name'), 'Protein-Bowl');
       expect(
         _inhalt(tester, 'recipe-create-ingredients'),
@@ -211,8 +206,8 @@ void main() {
     testWidgetsRobust(
         'ein Tap neben den Dialog ist „Abbrechen" — das Sheet bleibt offen',
         (tester) async {
-      // Beweist zugleich, dass der Dialog UEBER der Sheet-Route liegt: sein
-      // eigener Barrier schluckt den Tap, das Sheet darunter sieht ihn nie.
+      // Also proves the dialog sits ABOVE the sheet route: its own barrier
+      // swallows the tap, the sheet below never sees it.
       final capture = _CreateCapture();
       await _openSheet(tester, capture);
 
@@ -255,7 +250,7 @@ void main() {
     testWidgetsRobust(
         'auf den Ausgangswert zurueckgesetzt gilt wieder als unberuehrt',
         (tester) async {
-      // _dirty vergleicht gegen den Startzustand, nicht „wurde mal getippt".
+      // _dirty compares against the initial state, not "was ever typed in".
       final capture = _CreateCapture();
       await _openSheet(tester, capture);
 
@@ -303,16 +298,16 @@ void main() {
       }
     });
 
-    // Jedes einzelne Feld muss allein genuegen — das ist die Eigenschaft, die
-    // eine handgepflegte Feldliste im Sheet frueher oder spaeter verliert.
+    // Every single field must suffice on its own — the property a hand-kept
+    // field list in the sheet loses sooner or later.
     for (final key in alleFeldKeys) {
       testWidgetsRobust('eine Aenderung nur in $key loest den Dialog aus',
           (tester) async {
         final capture = _CreateCapture();
         await _openSheet(tester, capture);
 
-        // '7' ist fuer jedes Feld ein zulaessiger, vom Startwert verschiedener
-        // Text — auch fuer die digitsOnly-Felder.
+        // '7' is valid for every field and differs from the initial value —
+        // including the digitsOnly fields.
         await _tippe(tester, key, '7');
         await tester.pumpAndSettle();
 
@@ -329,7 +324,7 @@ void main() {
 
   group('Feldvalidierung — die logged_meals-Grenzen gelten schon beim Anlegen',
       () {
-    /// Fuellt Name + kcal (die Pflichtfelder) mit gueltigen Werten.
+    /// Fills name + kcal (the required fields) with valid values.
     Future<void> fuelleGueltig(WidgetTester tester) async {
       await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
       await _tippe(tester, 'recipe-create-kcal', '520');
@@ -346,10 +341,9 @@ void main() {
       expect(_saveButton(tester).onPressed, isNotNull);
     });
 
-    // Die Grenzen und die Fehlertexte werden aus LoggedMealLimits abgeleitet.
-    // Das Sheet spiegelt sie als lokale Konstanten, weil es ein `part` ohne
-    // eigene Imports ist — laufen die beiden Seiten auseinander, wird hier
-    // etwas rot.
+    // Bounds and error texts derive from LoggedMealLimits. The sheet mirrors
+    // them as local constants because it is a `part` without its own imports;
+    // if the two drift apart, something here turns red.
     const kcalMax = LoggedMealLimits.caloriesKcalMax;
     const gramsMax = LoggedMealLimits.estimatedGMax;
     final macroMax = LoggedMealLimits.macroGMax.toInt();
@@ -381,7 +375,7 @@ void main() {
       expect(_saveButton(tester).onPressed, isNotNull);
       expect(find.text('1–$kcalMax kcal'), findsNothing);
 
-      // Genau eins darueber kippt.
+      // Exactly one above flips it.
       await _tippe(tester, 'recipe-create-kcal', '${kcalMax + 1}');
       await tester.pumpAndSettle();
       expect(_saveButton(tester).onPressed, isNull);
@@ -428,7 +422,7 @@ void main() {
         expect(_saveButton(tester).onPressed, isNull, reason: key);
         expect(find.text('0–$macroMax g'), findsOneWidget, reason: key);
 
-        // Leer heisst „nicht angegeben" und ist erlaubt.
+        // Empty means "not stated" and is allowed.
         await _tippe(tester, key, '');
         await tester.pumpAndSettle();
         expect(_saveButton(tester).onPressed, isNotNull, reason: key);
@@ -437,7 +431,7 @@ void main() {
 
     testWidgetsRobust('ein zu langer Name wird gekuerzt, nicht abgelehnt',
         (tester) async {
-      // Texte werden gekuerzt (Regel aus Welle 1), Zahlen abgelehnt.
+      // Texts are truncated, numbers are rejected.
       final capture = _CreateCapture();
       await _openSheet(tester, capture);
 

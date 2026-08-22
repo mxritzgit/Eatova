@@ -1,81 +1,48 @@
-# This file configures the analyzer, which statically analyzes Dart code to
-# check for errors, warnings, and lints.
-#
-# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
-# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
-# invoked from the command line by running `flutter analyze`.
+# Analyzer configuration. Findings show up in Dart-enabled IDEs and in
+# `flutter analyze`.
 
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
+# Recommended lint set for Flutter apps, packages and plugins.
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
-  # Ausgeschlossen bleibt nur, was uns nicht gehoert: generierter Code
-  # (`*.g.dart` wird von build_runner erzeugt, Lints dort waeren nicht
-  # fixbar) und die Build-Artefakte unter `build/`.
-  #
-  # Das fruehere pauschale `"*.dart"` ist raus: es stammt aus der Zeit der
-  # Web-Editor-Drafts im Repo-Root, die laengst geloescht sind. Der Glob
-  # matcht ausschliesslich Dateien direkt im Repo-Root (`*` matcht kein `/`),
-  # haette also jede kuenftige Root-Datei still vor `flutter analyze`
-  # versteckt, statt irgendetwas Sinnvolles zu filtern.
+  # Exclude only what is not ours: generated code and build artifacts.
+  # A blanket `"*.dart"` used to sit here; it matches only repo-root files
+  # (`*` never matches `/`) and would silently hide future root files.
   exclude:
     - "**/*.g.dart"
     - "build/**"
-    # Design-Refactor 2026-08-09: `newScreen/nutrition_app(1).dart` ist die
-    # eingeschleppte Gestaltungs-VORLAGE (DESIGN_REFACTOR.md §1), kein
-    # App-Code. Sie importiert `package:google_fonts`, das nicht in der
-    # pubspec steht, und kann deshalb per Definition nie analysierbar sein —
-    # `flutter analyze` meldete darauf 5 Fehler + 2 Infos und ging lokal auf
-    # Exit 1. Damit war die Abschluss-Pflicht des Vertrags (§7.5) fuer
-    # niemanden mehr erfuellbar, und der CI-Schritt
-    # `flutter analyze --fatal-infos --fatal-warnings` (security.yml:39)
-    # waere in dem Moment rot geworden, in dem der Ordner (aktuell untracked,
-    # aber NICHT in .gitignore) versehentlich mit `git add -A` mitkommt.
+    # `newScreen/` holds the imported design TEMPLATE (DESIGN_REFACTOR.md §1),
+    # not app code: it imports `package:google_fonts`, which is not in the
+    # pubspec, so it can never analyze cleanly. Untracked but not gitignored,
+    # so one `git add -A` would turn the CI analyze step red.
     - "newScreen/**"
   errors:
-    # ARCH-2: Der globale unused_element/unused_field-Ignore versteckte frisch
-    # entstandenen toten Code (z.B. _addSteps/_resetWater in
-    # eatova_home_page.dart). Die Leichen sind entfernt, der frueher als
-    # "Halde" deklarierte Rest (Wasser/Koffein/Schlaf-Handler) ist inzwischen
-    # via Today-Log-Sheet verdrahtet. Zurueck auf `warning`, damit kuenftiger
-    # toter Code wieder im Analyzer auftaucht statt still liegenzubleiben.
-    # Bewusst `warning` (nicht `error`), damit ein vereinzelter Orphan
-    # `flutter analyze` nicht hart rot macht.
+    # ARCH-2: a global ignore here used to hide freshly created dead code.
+    # `warning`, not `error`, so a single orphan does not fail the build.
     unused_element: warning
     unused_field: warning
-    # `info`-Level Style-Lints sollen `flutter analyze` nicht fail-en.
+    # Info-level style lints must not fail `flutter analyze`.
     unnecessary_underscores: ignore
     unnecessary_brace_in_string_interps: ignore
     prefer_const_constructors_in_immutables: ignore
     prefer_conditional_assignment: ignore
     use_null_aware_elements: ignore
-    # http/testing.dart (MockClient) und supabase werden in Tests direkt
-    # importiert, kommen aber transitiv ueber supabase_flutter — kein eigener
-    # dev_dependency-Eintrag noetig, daher den info-Lint hier demoten.
+    # Tests import http/testing.dart and supabase directly, but both come in
+    # transitively via supabase_flutter — no dev_dependency entry needed.
     depend_on_referenced_packages: ignore
 
 linter:
-  # The lint rules applied to this project can be customized in the
-  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
-  # included above or to enable additional rules. A list of all available lints
-  # and their documentation is published at https://dart.dev/lints.
-  #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the `// ignore: name_of_lint` and
-  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
-  # producing the lint.
+  # Enable or disable rules from the included set here; all lints are listed
+  # at https://dart.dev/lints. For a single line or file, prefer
+  # `// ignore: name_of_lint` / `// ignore_for_file: name_of_lint`.
   rules:
     # avoid_print: false  # Uncomment to disable the `avoid_print` rule
     # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
-    # Zusätzliche Wert-Lints (über flutter_lints hinaus). Alle per `dart fix`
-    # auto-fixbar und compile-geprüft — const-Widgets sparen Rebuilds, final
-    # locals dokumentieren Nicht-Mutation.
+    # Extra lints beyond flutter_lints, all auto-fixable via `dart fix`:
+    # const widgets save rebuilds, final locals document non-mutation.
     prefer_const_constructors: true
     prefer_const_declarations: true
     prefer_const_literals_to_create_immutables: true
     prefer_final_locals: true
 
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+# More on this file: https://dart.dev/guides/language/analysis-options

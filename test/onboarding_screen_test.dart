@@ -9,8 +9,8 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Delegates fuer die drei MaterialApp-Instanzen dieser Datei — der Screen
-/// ruft seit Paket 6 (i18n) durchgehend `context.l10n`.
+/// Delegates for the MaterialApp instances here; the screen uses
+/// `context.l10n` throughout.
 const _l10nDelegates = [
   AppLocalizations.delegate,
   GlobalMaterialLocalizations.delegate,
@@ -18,12 +18,9 @@ const _l10nDelegates = [
   GlobalCupertinoLocalizations.delegate,
 ];
 
-// Der Design-Refactor 2026-08-09 hat am Onboarding nichts als das Aussehen
-// geaendert — Ablauf, Schritte, Validierung, Keys und Texte sind gleich
-// geblieben. Diese Datei ist der Beleg dafuer: die einzige Aenderung gegenueber
-// der Fassung davor ist das `theme:` an den drei pumpWidget-Stellen (der
-// Screen liest seine Farben jetzt ueber `context.t`, und AppTokens.of wirft
-// bewusst, wenn die ThemeExtension fehlt).
+// Behaviour tests for the onboarding flow: steps, validation, keys and texts.
+// Every pumpWidget needs `theme:`, because the screen reads its colors via
+// `context.t` and AppTokens.of throws without the theme extension.
 void main() {
   Future<UserProfile> runFullFlow(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -62,43 +59,43 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // Intro → Geschlecht
+    // intro → sex
     await next();
     await tester.tap(find.byKey(const ValueKey('onboarding-sex-male')));
     await tester.pumpAndSettle();
     await next();
 
-    // Alter / Größe / Gewicht — Defaults übernehmen
+    // age / height / weight — keep the defaults
     await next(); // age
     await next(); // height
     await next(); // weight
 
-    // Aktivität
+    // activity
     await tester.tap(find.byKey(const ValueKey('onboarding-activity-moderate')));
     await tester.pumpAndSettle();
     await next();
 
-    // Ziel: Abnehmen wählen (schaltet Zielgewicht + Tempo frei)
+    // goal: losing weight unlocks the target and pace steps
     await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
     await tester.pumpAndSettle();
     await next();
 
-    // Zielgewicht — Default (Gewicht − 5) übernehmen
+    // target weight — keep the default (weight − 5)
     expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
     await next();
 
-    // Tempo: −1 kg/Woche (ambitioniert)
+    // pace: −1 kg/week
     await tester.tap(find.byKey(const ValueKey('onboarding-pace-lose1kg')));
     await tester.pumpAndSettle();
     await next();
 
-    // Ernährungsweise: Vegetarisch wählen (PROD-6 Diät-Schritt)
+    // diet: pick vegetarian
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('onboarding-diet-vegetarian')));
     await tester.pumpAndSettle();
     await next();
 
-    // Zusammenfassung
+    // summary
     expect(find.byKey(const ValueKey('onboarding-summary-kcal')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('onboarding-finish')));
     await tester.pumpAndSettle();
@@ -111,7 +108,7 @@ void main() {
       (tester) async {
     final result = await runFullFlow(tester);
 
-    // Auswahl wurde übernommen.
+    // Selections were kept.
     expect(result.sex, BiologicalSex.male);
     expect(result.activityLevel, ActivityLevel.moderate);
     expect(result.weightGoal, WeightGoal.lose1kg);
@@ -119,12 +116,9 @@ void main() {
     expect(result.diet, DietPreference.vegetarian);
     expect(result.onboardingCompleted, isTrue);
 
-    // Berechnetes Tagesziel (Kalorien-Review 2026-08-21, PAL-Leiter ohne
-    // Gehen — „jeder Schritt zaehlt"): BMR(male,78,178,30) = 1747.5 × 1.6
-    // (moderat) = 2796. „−1 kg/Woche" wuenscht −1100, der 1-%-Defizitdeckel
-    // (78 kg × 11 = 858, auf die Tempo-Stufe abgerundet = 825 kcal/Tag)
-    // laesst nur −825 zu → 1971 → auf 50 gerundet = 1950.
-    // Die Untergrenze fuer Maenner (1500) greift nicht.
+    // Daily target: BMR(male,78,178,30) = 1747.5 × 1.6 (moderate) = 2796.
+    // −1 kg/week wants −1100, but the 1 % deficit cap (825 kcal/day) allows
+    // only −825 → 1971 → rounded to 1950. The male floor (1500) does not bite.
     expect(result.dailyKcalGoal, 1950);
     expect(result.proteinGoalG, greaterThan(0));
     expect(result.carbsGoalG, greaterThan(0));
@@ -171,14 +165,14 @@ void main() {
     await next(); // height → weight
     await next(); // weight → activity
     await next(); // activity → goal
-    // Default-Ziel ist "halten" → Zielgewicht + Tempo entfallen, nächster
-    // Schritt ist der Diät-Schritt, dann die Summary.
+    // The default goal is maintain, so target and pace are skipped and the
+    // diet step comes next.
     await next(); // goal → diet
 
-    // Zielgewicht-/Tempo-Schritte sind übersprungen, der Diät-Schritt nicht.
+    // Target and pace are skipped, the diet step is not.
     expect(find.byKey(const ValueKey('onboarding-step-target')), findsNothing);
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
-    await next(); // diet → summary (Default-Diät „Alles" übernehmen)
+    await next(); // diet → summary, keeping the default diet
 
     expect(find.byKey(const ValueKey('onboarding-summary-kcal')), findsOneWidget);
 
@@ -187,19 +181,19 @@ void main() {
 
     expect(captured, isNotNull);
     expect(captured!.weightGoal, WeightGoal.maintain);
-    expect(captured!.diet, DietPreference.none); // Default unverändert
+    expect(captured!.diet, DietPreference.none); // default unchanged
     expect(captured!.onboardingCompleted, isTrue);
   });
 
-  // Viewport-Pinning + Overflow-Toleranz wie in runFullFlow, für Tests die
-  // nicht den kompletten Flow fahren.
+  // Viewport pinning and overflow tolerance as in runFullFlow, for tests that
+  // do not walk the whole flow.
   Future<void> pumpOnboarding(
     WidgetTester tester, {
     required UserProfile initialProfile,
     ValueChanged<UserProfile>? onComplete,
-    // Frischer Key = echtes Remount samt initState. Noetig, wenn ein Test das
-    // Onboarding zweimal mit unterschiedlichen Profilen pumpt: sonst wird das
-    // bestehende State-Objekt nur aktualisiert und behaelt seinen Schritt.
+    // A fresh key forces a real remount with initState. Needed when a test
+    // pumps the onboarding twice with different profiles, or the existing
+    // state object is merely updated and keeps its step.
     Key? screenKey,
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -233,7 +227,7 @@ void main() {
 
   testWidgets('age is clamped to a minimum of 16 (DSGVO Art. 8)',
       (tester) async {
-    // Profil mit zu niedrigem Alter (z.B. Altbestand) → Onboarding hebt auf 16.
+    // A legacy profile below the minimum is lifted to 16.
     await pumpOnboarding(
       tester,
       initialProfile: const UserProfile(ageYears: 13),
@@ -252,7 +246,7 @@ void main() {
         .data!;
     expect(ageValue(), '16');
 
-    // Der Stepper kommt nicht unter das Minimum.
+    // The stepper cannot go below the minimum.
     await tester.tap(find.byKey(const ValueKey('onboarding-age-dec')));
     await tester.pumpAndSettle();
     expect(ageValue(), '16');
@@ -261,8 +255,8 @@ void main() {
   testWidgets(
       'target step shows gentle BMI hint below 18.5 and hides it again',
       (tester) async {
-    // Gewicht 60 kg / Größe 178 cm: Default-Ziel beim Abnehmen = 55 kg
-    // → Ziel-BMI 17,4 (< 18,5) → Hinweis sichtbar.
+    // 60 kg / 178 cm: the default loss target of 55 kg gives BMI 17.4, below
+    // 18.5, so the hint shows.
     await pumpOnboarding(
       tester,
       initialProfile: const UserProfile(weightKg: 60),
@@ -287,7 +281,7 @@ void main() {
     expect(find.byKey(const ValueKey('target-bmi-hint')), findsOneWidget);
     expect(find.textContaining('unterhalb'), findsOneWidget);
 
-    // Ziel auf 59 kg anheben → BMI 18,6 → Hinweis verschwindet.
+    // Raising the target to 59 kg gives BMI 18.6 and the hint disappears.
     for (var i = 0; i < 4; i++) {
       await tester.tap(find.byKey(const ValueKey('onboarding-target-inc')));
       await tester.pump();
@@ -298,7 +292,7 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // D4 · Systemzurueck (Android-Button / Randgeste)
+  // D4 · System back (Android button / edge gesture)
   // -------------------------------------------------------------------------
 
   Future<void> tapNext(WidgetTester tester) async {
@@ -312,10 +306,9 @@ void main() {
     }
   }
 
-  /// Simuliert den Android-Systemzurueck-Button bzw. die Randgeste (die Engine
-  /// schickt `popRoute` auf `flutter/navigation`) und meldet, ob die Engine
-  /// daraufhin die Activity beenden wuerde — `SystemNavigator.pop` heisst hier
-  /// woertlich: die App schliesst sich.
+  /// Simulates the Android back button / edge gesture (`popRoute` on
+  /// `flutter/navigation`) and reports whether the engine would close the
+  /// activity, i.e. whether `SystemNavigator.pop` was called.
   Future<bool> systemBackClosesApp(WidgetTester tester) async {
     final platformCalls = <String>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -342,8 +335,7 @@ void main() {
   testWidgets(
       'Systemzurueck geht einen Schritt zurueck statt acht Antworten wegzuwerfen',
       (tester) async {
-    // Abnehm-Ziel vorbelegt → Zielgewicht- und Tempo-Schritt sind sichtbar,
-    // der Flow hat 11 Schritte (Index 0..10).
+    // A loss goal makes target and pace visible, so the flow has 11 steps.
     await pumpOnboarding(
       tester,
       initialProfile: const UserProfile(
@@ -352,7 +344,7 @@ void main() {
       ),
     );
 
-    // Acht beantwortete Schritte durchlaufen → wir stehen auf „Ernaehrungsweise".
+    // After eight answered steps we stand on the diet step.
     await advance(tester, 9);
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
 
@@ -379,18 +371,18 @@ void main() {
     );
     await advance(tester, 9);
 
-    await systemBackClosesApp(tester); // Geste: diet → pace
+    await systemBackClosesApp(tester); // gesture: diet → pace
     expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('onboarding-back'))); // Pfeil
+    await tester.tap(find.byKey(const ValueKey('onboarding-back'))); // arrow
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
   });
 
   testWidgets('Systemzurueck auf dem Intro-Schritt schliesst die App',
       (tester) async {
-    // Schritt 0: nichts investiert. Die Root-Route gibt den Pop frei, damit
-    // sich die App wie jede andere Android-App verhaelt.
+    // Step 0: nothing invested, so the root route releases the pop and the app
+    // behaves like any other Android app.
     await pumpOnboarding(tester, initialProfile: const UserProfile());
     expect(find.byKey(const ValueKey('onboarding-step-intro')), findsOneWidget);
     expect(find.byKey(const ValueKey('onboarding-back')), findsNothing);
@@ -399,10 +391,10 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // B2 · Plan-Karte zeigt das effektive Tempo, nicht das versprochene
+  // B2 · The plan card shows the effective pace, not the promised one
   // -------------------------------------------------------------------------
 
-  /// Die beiden Texte der „Ziel"-Zeile in der Aufschluesselung: [Label, Wert].
+  /// The two texts of the goal row in the breakdown: [label, value].
   List<String> goalRowTexts(WidgetTester tester) => tester
       .widgetList<Text>(
         find.descendant(
@@ -416,8 +408,8 @@ void main() {
   String textOfKey(WidgetTester tester, String key) =>
       tester.widget<Text>(find.byKey(ValueKey(key))).data!;
 
-  /// Fuehrt das Onboarding bis zur Zusammenfassung durch, ohne unterwegs etwas
-  /// anzutippen — alle Antworten kommen aus [initialProfile].
+  /// Runs the onboarding to the summary without tapping anything; all answers
+  /// come from [initialProfile].
   Future<void> pumpToSummary(
     WidgetTester tester,
     UserProfile initialProfile, {
@@ -435,14 +427,11 @@ void main() {
   testWidgets(
       'Zusammenfassung weist das tatsaechliche Tempo aus, nicht das versprochene',
       (tester) async {
-    // Standardprofil aus dem Review: 78 kg / 178 cm / 30 J. / neutral /
-    // sitzend (PAL 1,3 — die Leiter klammert seit „jeder Schritt zaehlt" das
-    // Gehen aus), Ziel 68 kg bei −1 kg/Woche. BMR 1664,5 × 1,3 = 2163,85 →
-    // Erhaltung 2164, gewuenscht −1100 — der 1-%-Defizitdeckel (78 kg × 11 =
-    // 858, auf die Tempo-Stufe abgerundet = 825 kcal/Tag) laesst nur −825 zu
-    // → 1338,85 → auf 50 gerundet 1350. Das ist zugleich die Untergrenze fuer
-    // „divers" — erreicht, nicht unterschritten, also keine Klemme. Real sind
-    // das −814 kcal ≙ −0,74 kg/Woche, auf dem 0,05-Raster „−0,75 kg/Woche".
+    // Default profile: 78 kg / 178 cm / 30 y / neutral / sedentary (PAL 1.3),
+    // target 68 kg at −1 kg/week. Maintenance 2164; the 1 % deficit cap
+    // (825 kcal/day) allows only −825 → 1350 after rounding. That equals the
+    // neutral floor (1350) without undercutting it, so no clamp. Really
+    // −814 kcal ≙ −0.74 kg/week, shown as −0.75 on the 0.05 grid.
     await pumpToSummary(
       tester,
       const UserProfile(weightGoal: WeightGoal.lose1kg, targetWeightKg: 68),
@@ -452,18 +441,16 @@ void main() {
     expect(textOfKey(tester, 'onboarding-summary-kcal'), '1350');
     expect(goalRowTexts(tester), ['Ziel · −0,75 kg/Woche', '−814 kcal']);
 
-    // Das Versprechen darf nirgends mehr als Zusage stehen.
+    // The promise must not appear as a commitment anywhere.
     expect(find.text('Ziel · −1 kg/Woche'), findsNothing);
     expect(find.text('−1100 kcal'), findsNothing);
 
-    // 2164 − 1350 = 814: die Karte rechnet in sich auf.
+    // 2164 − 1350 = 814: the card adds up internally.
     expect(textOfKey(tester, 'onboarding-summary-maintenance'), '2164 kcal');
 
-    // Fertiger Warnsatz aus KcalTargets.paceWarning — hier spricht der
-    // Defizitdeckel, nicht die Untergrenze (1350 liegt genau AUF den 1350
-    // fuer „divers"; floorApplied verlangt ein echtes Unterschreiten). Weil
-    // der Deckel auf 0,05 kg/Woche abgerundet ist, nennt der Satz runde
-    // Zahlen: 825 kcal/Tag und −0,75 kg/Woche, nicht 858 und −0,78.
+    // Warning from KcalTargets.paceWarning: the deficit cap speaks here, not
+    // the floor (floorApplied needs a real undercut). Since the cap is rounded
+    // to the 0.05 kg/week grid, the sentence names 825 and −0.75.
     expect(
       textOfKey(tester, 'onboarding-summary-pace-warning'),
       'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir nicht: '
@@ -471,9 +458,8 @@ void main() {
       'ist damit −0,75 kg/Woche statt −1 kg/Woche.',
     );
 
-    // Prognose aus der echten Rate, als Spanne: linear 10 kg / 0,74 = 13,5
-    // → 14 Wochen (nicht 10), dynamisch mit sinkendem Bedarf (22 kcal pro
-    // verlorenem Kilo) 16 Wochen.
+    // Forecast from the real rate, as a range: linear 10 / 0.74 = 13.5 → 14
+    // weeks, dynamic (falling requirement) 16 weeks.
     expect(
       textOfKey(tester, 'onboarding-summary-timeline'),
       '68 kg in ca. 14–16 Wochen erreichbar – anfangs schneller, später '
@@ -484,15 +470,9 @@ void main() {
   testWidgets(
       'identischer Plan wird nicht mehr als zwei verschiedene Versprechen ausgewiesen',
       (tester) async {
-    // Fuer das Standardprofil fallen „Zuegig" und „Ambitioniert" seit dem auf
-    // 0,05 kg/Woche abgerundeten 1-%-Deckel (78 kg → 825 kcal/Tag) wieder
-    // zusammen (beide 1350 kcal) — dort greift aber nur der Deckel. Deckel UND
-    // Untergrenze stapeln sich bei 55 kg / 160 cm / 35 J. / weiblich /
-    // sitzend: BMR 1214 × 1,3 = 1578 Erhaltung, Deckel 55 × 11 = 605
-    // (0,55 kg/Woche) — beide Tempi wuenschen mehr (−825 / −1100), beide
-    // bekommen −605 → 973 → auf 50 gerundet 950, und die Untergrenze fuer
-    // Frauen hebt beide auf 1200. Real: −378 kcal ≙ −0,34 kg/Woche, auf dem
-    // 0,05-Raster „−0,35", fuer beide.
+    // Cap and floor stack at 55 kg / 160 cm / 35 y / female / sedentary:
+    // maintenance 1578, cap 605, so both paces get −605 → 950, and the female
+    // floor lifts both to 1200. Really −378 kcal ≙ −0.35 kg/week for both.
     const klemme = UserProfile(
       weightKg: 55,
       heightCm: 160,
@@ -527,7 +507,7 @@ void main() {
         reason: 'Gleiches Tagesziel muss gleiches Tempo und gleiche Prognose '
             'zeigen — sonst versprechen zwei Plaene Verschiedenes bei '
             'identischer Zahl.');
-    // Prognose 55 → 48 kg: linear 7 / 0,3436 = 20,4 → 21 Wochen, dynamisch 26.
+    // Forecast 55 → 48 kg: linear 7 / 0.3436 = 20.4 → 21 weeks, dynamic 26.
     expect(ambitioniert, [
       '1200',
       'Ziel · −0,35 kg/Woche',
@@ -539,19 +519,13 @@ void main() {
 
   testWidgets('ohne belastbare Prognose steht keine Wochenzahl da',
       (tester) async {
-    // 40 kg / 150 cm / 45 J. / weiblich / sitzend: BMR 951,5 × 1,3 = 1237
-    // Erhaltung, „Sanft" wuenscht −275 (der 1-%-Deckel liegt bei 40 kg bei
-    // 440 und greift nicht) → 962 → auf 50 gerundet 950 → die Untergrenze
-    // fuer Frauen hebt auf 1200. Uebrig bleiben −37 kcal ≙ −0,03 kg/Woche —
-    // unterhalb des Rundungsrauschens (weeklyRateNoiseKg = 0,05), also
-    // „Gewicht stabil". weeksToGoal liefert korrekt null statt einer
-    // Fantasie-Wochenzahl aus einer Division durch fast nichts.
-    //
-    // Bis zur PAL-Leiter ohne Gehen stand hier 60 J. (Erhaltung 1227 bei
-    // PAL 1,4). Mit 1,3 ergaebe dasselbe Profil 1139 → 850 → 1200: die
-    // Klemme kippt den Plan in die Gegenrichtung (+61 kcal ≙ „+0,05
-    // kg/Woche") und liegt damit nicht mehr im Rauschen — 45 J. trifft den
-    // Fall wieder.
+    // 40 kg / 150 cm / 45 y / female / sedentary: maintenance 1237, the gentle
+    // pace wants −275 (the cap of 440 does not bite) → 950, and the female
+    // floor lifts to 1200. What is left is −37 kcal ≙ −0.03 kg/week, below the
+    // rounding noise (weeklyRateNoiseKg = 0.05), so "weight stable" and
+    // weeksToGoal correctly returns null instead of a fantasy number.
+    // The age is 45, not 60: at 60 the clamp would tip the plan the other way
+    // (+61 kcal) and no longer sit in the noise.
     await pumpToSummary(
       tester,
       const UserProfile(
@@ -567,16 +541,15 @@ void main() {
 
     expect(goalRowTexts(tester), ['Ziel · Gewicht stabil', '−37 kcal']);
     expect(find.textContaining('in ca.'), findsNothing);
-    // Auch die offene Form „fruehestens in ca. N Wochen" darf hier nicht
-    // stehen — sie setzt eine lineare Prognose voraus, die es nicht gibt.
+    // The open form ("at the earliest in N weeks") is banned too: it presumes
+    // a linear forecast that does not exist here.
     expect(find.textContaining('frühestens'), findsNothing);
     expect(
       textOfKey(tester, 'onboarding-summary-timeline'),
       'Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.',
     );
-    // Frisst die Klemme das Defizit praktisch ganz, nimmt paceWarning die
-    // eigene Formulierung commonPaceWarningFloorStable — statt des schiefen
-    // „… ist damit Gewicht stabil statt −0,25 kg/Woche".
+    // When the clamp eats nearly the whole deficit, paceWarning uses
+    // commonPaceWarningFloorStable instead of the awkward pace phrasing.
     expect(
       textOfKey(tester, 'onboarding-summary-pace-warning'),
       'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
@@ -587,13 +560,10 @@ void main() {
 
   testWidgets('ohne Sicherheitsklemme steht kein Warnsatz auf der Karte',
       (tester) async {
-    // 78 kg / 178 cm / 30 J. / neutral / sitzend bei −0,75 kg/Woche:
-    // Erhaltung 2164, gewuenscht −825 — genau auf dem 1-%-Deckel von
-    // 825 kcal/Tag (858 auf 0,05 kg/Woche abgerundet), nicht darueber;
-    // Ziel 1350 liegt genau AUF der Untergrenze von 1350 fuer „divers", und
-    // die Klemme verlangt ein echtes Unterschreiten. Keine der drei Grenzen
-    // greift, das Versprechen wird gehalten (−814 statt −825 kcal ist reines
-    // 50er-Rundungsrauschen: |−0,74 − (−0,75)| < 0,05).
+    // 78 kg / 178 cm / 30 y / neutral / sedentary at −0.75 kg/week: the wanted
+    // −825 sits exactly on the cap, and 1350 exactly on the floor, which needs
+    // a real undercut. No limit bites, the promise holds (−814 vs −825 is pure
+    // rounding noise).
     await pumpToSummary(
       tester,
       const UserProfile(weightGoal: WeightGoal.lose075kg, targetWeightKg: 68),
@@ -608,40 +578,21 @@ void main() {
     );
   });
 
-  /// Der Untertitel einer Tempo-Option — innerhalb ihrer eigenen Zeile gesucht.
+  /// The subtitle of a pace option, searched inside its own row.
   Finder paceOptionText(String goalName, String text) => find.descendant(
         of: find.byKey(ValueKey('onboarding-pace-$goalName')),
         matching: find.text(text),
       );
 
-  // Diese Erwartung hiess bis Welle 6 „der Tempo-Picker zeigt weiter das
-  // gewaehlte Tempo" und nagelte fest, dass im Picker '−1100 kcal / Tag' steht.
-  // Die Begruendung dafuer lautete: „dort gibt es noch kein Profil-Ergebnis".
+  // The pace step is number 9 of 11, so weight, height, age, sex and activity
+  // are all fixed and `KcalCalculator.calculate` can run. The picker used to
+  // show the raw kcal delta, promising two different paces for what is one
+  // and the same plan once cap and floor apply.
   //
-  // Das war fuer den Onboarding-Picker falsch. Der Tempo-Schritt ist Nummer 9
-  // von 11 (_Step: intro, sex, age, height, weight, activity, goal, target,
-  // PACE, diet, summary) — Gewicht, Groesse, Alter, Geschlecht und Aktivitaet
-  // stehen zu diesem Zeitpunkt alle fest, `KcalCalculator.calculate` braucht
-  // nichts weiter. Fuer das Standardprofil ergeben „Zuegig" (−825 kcal) und
-  // „Ambitioniert" (−1100 kcal) beide dasselbe Tagesziel von 1200 kcal; der
-  // Picker versprach zwei verschiedene Tempi fuer denselben Plan und erst der
-  // NAECHSTE Schritt korrigierte auf −0,72 kg/Woche. Genau das nennt der
-  // Review woertlich „identischer Plan, zwei verschiedene Versprechen".
-  //
-  // Der Titel bleibt das Versprechen — er ist der Name der Option, und zwei
-  // Zeilen „Ambitioniert · −0,72 kg/Woche" waeren nicht unterscheidbar. Neu
-  // ist der Untertitel: er nennt statt des ungedeckten kcal-Deltas den Plan,
-  // den die Option mit DIESEM Koerper ergibt.
-  //
-  // Seit dem Kalorien-Review 2026-08-21 (PAL-Leiter ohne Gehen, sitzend 1,3;
-  // Untergrenze 1350 fuer „divers"; 1-%-Defizitdeckel auf 0,05 kg/Woche
-  // abgerundet) fallen „Zuegig" und „Ambitioniert" fuer das Standardprofil
-  // erneut zusammen — jetzt ist es der Deckel (78 kg → 825 kcal/Tag), der
-  // „Ambitioniert" auf genau den Plan von „Zuegig" drueckt (1350 kcal ·
-  // −0,75 kg/Woche). Das Prinzip ist dasselbe: der Untertitel sagt, was
-  // WIRKLICH herauskommt, bevor der Nutzer waehlt — zwei Optionen mit
-  // identischem Untertitel sind ehrlicher als zwei verschiedene Versprechen
-  // fuer denselben Plan.
+  // The title stays the promise (it is the option's name), but the subtitle
+  // now names the plan this option actually produces for this body. Two
+  // options with an identical subtitle are more honest than two different
+  // promises for the same plan.
   testWidgets('der Tempo-Picker nennt den Plan, den jede Option ergibt',
       (tester) async {
     await pumpOnboarding(
@@ -654,31 +605,27 @@ void main() {
     await advance(tester, 8);
     expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
 
-    // Titel = Auswahl. Bleibt.
+    // Title = the choice; unchanged.
     expect(find.text('Ambitioniert · −1 kg/Woche'), findsOneWidget);
     expect(find.text('Zügig · −0,75 kg/Woche'), findsOneWidget);
 
-    // Untertitel = Folge, mit DIESEM Koerper gerechnet (78 kg / 178 cm /
-    // 30 J. / neutral / sitzend, Erhaltung 2164). „Ambitioniert" wuenscht
-    // −1100, bekommt wegen des 1-%-Deckels (825) nur −825 → 1350 kcal ≙
-    // −0,75 kg/Woche — und genau das steht da, vor der Auswahl, nicht erst in
-    // der Zusammenfassung.
+    // Subtitle = the consequence for this body (maintenance 2164). The
+    // ambitious pace wants −1100 but the cap allows −825 → 1350 kcal ≙
+    // −0.75 kg/week, stated before the choice, not only in the summary.
     expect(
       paceOptionText('lose1kg', 'Ergibt 1350 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
 
-    // „Zuegig" wuenscht −825 und liegt damit genau auf dem Deckel: derselbe
-    // Plan wie „Ambitioniert" — und der Untertitel verschweigt das nicht.
+    // The brisk pace wants −825 and sits exactly on the cap: the same plan as
+    // the ambitious one, and the subtitle says so.
     expect(
       paceOptionText('lose075kg', 'Ergibt 1350 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
 
-    // Wo weder Deckel noch Untergrenze greifen, steht dieselbe Zeile mit den
-    // Zahlen, die das gewaehlte Tempo auch wirklich liefert — auf dem
-    // 0,05-Raster („−0,5" statt „−0,51"): 2164 − 550 → 1600, 2164 − 275 →
-    // 1900.
+    // Where neither cap nor floor bites, the same line carries the numbers the
+    // chosen pace really delivers, on the 0.05 grid.
     expect(
       paceOptionText('lose05kg', 'Ergibt 1600 kcal/Tag · −0,5 kg/Woche'),
       findsOneWidget,
@@ -688,21 +635,20 @@ void main() {
       findsOneWidget,
     );
 
-    // Das ungedeckte Versprechen ist weg: „−1 kg/Woche" steht genau einmal
-    // auf dem Schritt — als Name der Option, nicht als Folge.
+    // The uncovered promise is gone: −1 kg/week appears exactly once on the
+    // step, as the option's name, not as its consequence.
     expect(find.text('−1100 kcal / Tag'), findsNothing);
     expect(find.text('−825 kcal / Tag'), findsNothing);
     expect(find.textContaining('−1 kg/Woche'), findsOneWidget);
   });
 
   // -------------------------------------------------------------------------
-  // Gespiegelte Grenzen — das Onboarding hatte 16..99 / 40..200 / 120..220 als
-  // Literale im Code, waehrend `profiles` 16..100 / 30..300 / 100..250 zulaesst
-  // (ProfileLimits). model_limits.dart wurde gar nicht importiert, die Kopien
-  // konnten also unbemerkt auseinanderlaufen.
+  // Mirrored limits: the onboarding used to hardcode narrower ranges than
+  // `profiles` allows (ProfileLimits), without importing model_limits.dart, so
+  // the copies could drift apart unnoticed.
   // -------------------------------------------------------------------------
 
-  /// Springt vom Intro zum Schritt [field] und liest dessen grosse Zahl.
+  /// Jumps from the intro to step [field] and reads its large number.
   Future<String> pickerValue(
     WidgetTester tester,
     UserProfile initialProfile, {
@@ -723,9 +669,8 @@ void main() {
   testWidgets(
       'ein Gewicht von 210 kg ueberlebt das Onboarding — die DB erlaubt bis 300',
       (tester) async {
-    // Vorher wurde in initState still auf 200 geklemmt: ein Nutzer mit 210 kg
-    // konnte sein Gewicht gar nicht wahrheitsgemaess angeben, obwohl
-    // profiles.weight_kg (30..300) es akzeptiert haette.
+    // initState used to clamp silently to 200, so a 210 kg user could not
+    // state their weight truthfully even though profiles.weight_kg allows it.
     expect(
       await pickerValue(
         tester,
@@ -767,13 +712,10 @@ void main() {
   testWidgets(
       'die Regler-Grenzen stammen aus ProfileLimits, nicht aus Literalen',
       (tester) async {
-    // Der eigentliche Fund ist nicht die einzelne Zahl, sondern dass die
-    // Kopien driften koennen. Die 16 ist Art. 8 DSGVO (Gesundheitsdaten nach
-    // Art. 9) und wurde mit Migration 20260807090000 schon einmal von 13 auf
-    // 16 verschoben — eine Kopie, die beim naechsten Mal stehen bleibt, ist
-    // ein Rechtsverstoss mit Ansage. Deshalb pruefen die Erwartungen gegen die
-    // Konstanten, nicht gegen Zahlen: verschiebt jemand ProfileLimits, wandert
-    // das Onboarding mit.
+    // The finding is drift, not any single number. The minimum age is GDPR
+    // Art. 8 and has already been moved once (13 -> 16), so a stale copy would
+    // be a legal violation waiting to happen. The expectations therefore check
+    // against the constants, not against literals.
     Future<double> sliderRange(
       WidgetTester tester, {
       required String field,

@@ -1,16 +1,7 @@
--- Coach-Chat: Mehr-Session-Support
---
--- Bisher hatten wir genau einen fortlaufenden Chat pro User. Jetzt:
---   - chat_sessions  : Konversations-Threads (id, title, last_message_at...).
---   - chat_messages  : bekommt session_id, alte Zeilen wandern in eine
---                      "Allgemein"-Default-Session pro User.
--- RPCs:
---   - list_chat_sessions()              : Sessions des Users (neueste zuerst).
---   - ensure_default_chat_session()     : SECURITY DEFINER, sorgt fuer eine
---                                         Default-Session (Backfill + Bootstrap).
---   - create_chat_session(title)        : neue Session anlegen.
---   - rename_chat_session(id, title)    : umbenennen.
---   - delete_chat_session(id)           : kaskadiert Messages weg.
+-- Coach chat: multi-session support, replacing the single running chat per
+-- user. Adds chat_sessions (conversation threads), chat_messages.session_id
+-- with a backfill into one default session per user, and the RPCs to list,
+-- ensure, create, rename and delete sessions.
 
 -- ---------------------------------------------------------------------------
 -- chat_sessions
@@ -62,7 +53,7 @@ grant select, insert, update, delete on public.chat_sessions to authenticated;
 grant all on public.chat_sessions to service_role;
 
 -- ---------------------------------------------------------------------------
--- chat_messages.session_id (nullable, mit Backfill in eine Default-Session)
+-- chat_messages.session_id (nullable, backfilled into a default session)
 -- ---------------------------------------------------------------------------
 alter table public.chat_messages
   add column if not exists session_id uuid references public.chat_sessions(id) on delete cascade;
@@ -70,8 +61,8 @@ alter table public.chat_messages
 create index if not exists chat_messages_session_created_idx
   on public.chat_messages (session_id, created_at);
 
--- Backfill: pro User mit alten Messages ohne session_id genau eine
--- "Allgemein"-Session anlegen und alle alten Zeilen darauf zeigen lassen.
+-- Backfill: one "Allgemein" session per user with session_id-less messages,
+-- and point all their old rows at it.
 do $$
 declare
   v_user record;
@@ -121,9 +112,9 @@ $$;
 grant execute on function public.list_chat_sessions() to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- RPC: ensure_default_chat_session - liefert immer eine Session-ID, legt bei
--- Bedarf eine an. Wird sowohl vom Client beim Bootstrap als auch von der
--- Edge Function als Fallback aufgerufen.
+-- RPC: ensure_default_chat_session - always returns a session id, creating one
+-- if needed. Called by the client on bootstrap and by the edge function as a
+-- fallback.
 -- ---------------------------------------------------------------------------
 create or replace function public.ensure_default_chat_session(
   p_user_id uuid default null
@@ -161,7 +152,7 @@ grant execute on function public.ensure_default_chat_session(uuid)
   to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- RPC: create_chat_session - immer eine neue, frische Session.
+-- RPC: create_chat_session - always a fresh session.
 -- ---------------------------------------------------------------------------
 create or replace function public.create_chat_session(
   p_title text default 'Neue Unterhaltung'
@@ -221,7 +212,7 @@ grant execute on function public.rename_chat_session(uuid, text)
   to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- RPC: delete_chat_session  (kaskadiert ueber FK alle Messages mit weg)
+-- RPC: delete_chat_session (the FK cascades all messages away)
 -- ---------------------------------------------------------------------------
 create or replace function public.delete_chat_session(
   p_session_id uuid
@@ -248,7 +239,7 @@ grant execute on function public.delete_chat_session(uuid)
   to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- RPC: touch_chat_session  (Edge Function setzt last_message_at neu).
+-- RPC: touch_chat_session (the edge function resets last_message_at).
 -- ---------------------------------------------------------------------------
 create or replace function public.touch_chat_session(
   p_session_id uuid

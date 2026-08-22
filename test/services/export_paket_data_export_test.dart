@@ -1,19 +1,16 @@
-// Komplettreview 2026-08-19, Paket „export" — zwei Funde am DataExportService:
+// Two DataExportService findings (review 2026-08-19):
 //
-// 1. Die Kappungs-Erkennung in `_rows` beruhte darauf, dass der Server
-//    `limit`+1 Zeilen wirklich HERAUSGIBT. PostgREST tut das bei gesetztem
-//    `db-max-rows` (Supabase-Default 1000) nicht — es schneidet still auf sein
-//    eigenes Maximum ab. Die eine Zeile, an der die Erkennung hing, kam nie an,
-//    der Hinweis feuerte nie, und der Empfaenger hielt 1000 Zeilen fuer seinen
-//    vollstaendigen Datenbestand.
-// 2. `buildExportJson` faengt jeden Sektionsfehler einzeln ab und wirft
-//    deshalb offline NIE. Wer nur am ausbleibenden Fehler misst, meldet auch
-//    dann eine vollstaendige Auskunft, wenn keine einzige Sektion ankam.
+// 1. Truncation detection assumed the server really hands out `limit`+1 rows.
+//    PostgREST does not: with `db-max-rows` (Supabase default 1000) it cuts
+//    silently, so the probe row never arrived and the recipient mistook 1000
+//    rows for their whole data set.
+// 2. `buildExportJson` catches every section error and never throws offline,
+//    so measuring only "no error" reports a complete export even when no
+//    section arrived.
 //
-// Die Attrappe hier verhaelt sich deshalb wie der ECHTE PostgREST: sie schickt
-// bei jedem GET einen `Content-Range`-Kopf, nennt die Gesamtzahl aber nur, wenn
-// `Prefer: count=exact` angefragt wurde — und sie gibt nie mehr Zeilen heraus,
-// als ihr `db-max-rows` erlaubt.
+// The fake here therefore behaves like real PostgREST: a `Content-Range` on
+// every GET, the total only under `Prefer: count=exact`, and never more rows
+// than `db-max-rows` allows.
 
 import 'dart:convert';
 import 'dart:math' as math;
@@ -31,20 +28,18 @@ class _ZaehlenderPostgrest {
     this.statusCode = 200,
   });
 
-  /// Tabelle -> Zeilen, die der Nutzer WIRKLICH auf dem Server hat.
+  /// Table -> rows the user really has on the server.
   final Map<String, int> vorhanden;
 
-  /// Was PostgREST maximal herausgibt (`db-max-rows`). Supabase-Default 1000 —
-  /// deutlich unter [DataExportService.einSeitenLimit], genau darum ging es.
-  /// Fest verdrahtet: die Tests brauchen genau diesen Default, und ein
-  /// Konstruktor-Parameter, den niemand setzt, ist ein Analyzer-Fund.
+  /// What PostgREST hands out at most (`db-max-rows`). Supabase default 1000,
+  /// well below [DataExportService.einSeitenLimit] — that is the whole point.
+  /// Hardwired: the tests need exactly this default.
   final int serverMax = 1000;
 
-  /// 200 oder ein Fehler-Status fuer den „gar nichts geladen"-Fall.
+  /// 200, or an error status for the "nothing loaded at all" case.
   final int statusCode;
 
-  /// Requests pro Tabelle — Beleg dafuer, dass der Zaehler-Weg mit EINEM
-  /// Request auskommt und nicht heimlich zweimal laedt.
+  /// Requests per table — proof the counting path needs only ONE request.
   final Map<String, int> requests = <String, int>{};
 
   http.Client client() => MockClient(_handle);
@@ -82,8 +77,8 @@ class _ZaehlenderPostgrest {
       200,
       headers: <String, String>{
         'Content-Type': 'application/json',
-        // PostgREST antwortet auf GET immer mit Content-Range; die Gesamtzahl
-        // steht darin NUR bei `count=exact`, sonst ein `*`.
+        // PostgREST always answers a GET with Content-Range; the total is in
+        // it only under `count=exact`, otherwise a `*`.
         'content-range': zaehlt
             ? '$offset-${offset + geliefert - 1}/$gesamt'
             : '$offset-${offset + geliefert - 1}/*',
@@ -93,8 +88,8 @@ class _ZaehlenderPostgrest {
   }
 }
 
-/// Baut einen fertigen Export-JSON-Text von Hand — fuer die Umfang-Erkennung,
-/// die auf dem Ergebnis arbeitet und nicht auf dem Service.
+/// Builds a finished export JSON by hand, for the scope detection that works
+/// on the result rather than on the service.
 String _exportJson({
   Iterable<String>? sektionen,
   List<String> unvollstaendig = const <String>[],
@@ -134,9 +129,8 @@ void main() {
     test(
         'kappt der SERVER still bei db-max-rows, steht die Kappung trotzdem im '
         'Export', () async {
-      // 4200 Zeilen liegen da, PostgREST gibt 1000 heraus — die alte
-      // Erkennung („kam eine Zeile ueber einSeitenLimit?") sah davon nichts,
-      // weil 1000 weit unter 10001 liegt.
+      // 4200 rows exist, PostgREST hands out 1000 — the old probe saw nothing
+      // because 1000 is far below einSeitenLimit + 1.
       final server = _ZaehlenderPostgrest(
         vorhanden: const <String, int>{'chat_messages': 4200},
       );
@@ -199,8 +193,8 @@ void main() {
       final server = _ZaehlenderPostgrest(statusCode: 500);
       final roh = await service(server).buildExportJson();
 
-      // Der Service wirft weiterhin nicht — genau deshalb kann der Aufrufer
-      // die Vollstaendigkeit nicht am ausbleibenden Fehler ablesen.
+      // The service still does not throw, which is exactly why the caller
+      // cannot read completeness off a missing error.
       final json = jsonDecode(roh) as Map<String, dynamic>;
       expect(json['unvollstaendig'], hasLength(
           DataExportService.alleExportTabellen.length));

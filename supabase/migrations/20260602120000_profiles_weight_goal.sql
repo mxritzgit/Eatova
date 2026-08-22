@@ -1,10 +1,6 @@
--- profiles.weight_goal: das pro-Tempo gewählte Abnehm-/Zunehm-/Halte-Ziel.
--- Wird von ProfileSync gelesen UND geschrieben (lib/src/services/profile_sync.dart:22,77),
--- fehlte aber bislang in den Repo-Migrationen. Eine frische DB hätte damit keinen
--- weight_goal-Spalt -> jeder Profil-Save (upsert().select().single()) würde eine
--- PostgrestException werfen und onboarding_completed nie persistieren (Onboarding-Loop).
--- Idempotent (add column if not exists / guarded constraint): bricht eine bereits
--- out-of-band gepatchte Live-DB nicht.
+-- profiles.weight_goal: the chosen lose/gain/maintain target, read and written
+-- by ProfileSync. Without it every profile upsert throws and onboarding loops.
+-- Idempotent, so an already out-of-band patched live DB still applies.
 
 alter table public.profiles
   add column if not exists weight_goal text not null default 'maintain';

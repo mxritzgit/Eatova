@@ -12,40 +12,26 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
-// SEC-1: der LocalCache haelt DSGVO-Art.-9-Gesundheitsdaten (35 Tage Tagebuch
-// inkl. Freitext, Gewichtsreihe, Koerpermasse). EncryptedKeyValueStore legt
-// AES-256-GCM darunter, der Key liegt im OS-Keystore.
+// SEC-1: LocalCache holds GDPR Art. 9 health data, so EncryptedKeyValueStore
+// puts AES-256-GCM underneath with the key in the OS keystore.
 //
-// Diese Tests treiben den Dekorator ueber einen InMemoryKeyValueStore mit
-// injizierter Cipher — KEIN Plugin-Channel, weder shared_preferences noch
-// flutter_secure_storage. Gesichert wird:
-//   1. Roundtrip + der rohe Slot enthaelt keinen Klartext mehr.
-//   2. Legacy-Klartext wird beim ERSTEN Read migriert, ohne den Read zu
-//      verlieren; die Migration ist idempotent.
-//   3. Ein unentschluesselbarer Slot liefert null, wird geraeumt und wirft
-//      nicht — auch nicht durch LocalCache hindurch.
-//   4. AAD-Bindung: ein Ciphertext laesst sich nicht in einen anderen Slot
-//      (= anderen User) verschieben.
-//   5. Nonce-Frische: zweimal dasselbe verschluesseln ergibt zwei Blobs.
-//   6. Der DEK-Bootstrap ist single-flight (sonst zwei DEKs, zweiter gewinnt,
-//      alle Daten des Verlierers lautlos verloren).
-//   7. Ein Smoke-Test mit der ECHTEN pointycastle-Cipher durch LocalCache,
-//      damit eine API-Fehlbenutzung nicht hinter dem Fake verschwindet.
+// Driven over an InMemoryKeyValueStore with an injected cipher, no plugin
+// channel. Covers roundtrip, idempotent legacy migration, purge-and-null on
+// an undecryptable slot, AAD binding against slot (= user) swaps, nonce
+// freshness, a single-flight DEK bootstrap, and the REAL cipher.
 
 // ---------------------------------------------------------------------------
 // Fakes
 // ---------------------------------------------------------------------------
 
-/// Deterministische Test-Cipher im echten Wire-Format-Rahmen.
-/// [salt] steht fuer "der DEK": eine andere Instanz = ein anderer Key.
-/// Die Cipher bindet den Slot-Key genauso wie AES-GCM ihn als AAD bindet.
+/// Deterministic test cipher in the real wire-format frame. [salt] stands for
+/// the DEK, and the slot key is bound the way AES-GCM binds AAD.
 class _FakeCipher implements CacheCipher {
   _FakeCipher(this.salt);
 
   final String salt;
 
-  /// Kuenstliche Verzoegerung pro Aufruf — modelliert den Isolate-Hop der
-  /// echten Cipher. Wird von vorne abgearbeitet, danach ohne Delay.
+  /// Per-call delay modelling the isolate hop; consumed from the front.
   final List<Duration> encryptDelays = [];
 
   @override
@@ -71,9 +57,8 @@ class _FakeCipher implements CacheCipher {
   }
 }
 
-/// Zaehlender Fake-Keystore fuer den Single-Flight-Test. Der kuenstliche
-/// Delay im read() oeffnet genau das Fenster, in dem zwei nebenlaeufige
-/// Bootstraps sich gegenseitig ueberschreiben wuerden.
+/// Counting fake keystore for the single-flight test; the delay in read()
+/// opens the window in which two bootstraps would overwrite each other.
 class _CountingKeyStore implements SecureKeyStore {
   final Map<String, String> data = {};
   int reads = 0;
@@ -97,17 +82,14 @@ class _CountingKeyStore implements SecureKeyStore {
   Future<void> delete(String key) async => data.remove(key);
 }
 
-/// A1: modelliert flutter_secure_storage 10.x mit `resetOnError = true`.
-///
-/// `FlutterSecureStorage.java:58-67` faengt einen Keystore-Fehler ab, ruft
-/// `delete(key)` und wiederholt den Read — Dart bekommt `null`, also exakt
-/// dasselbe Signal wie bei einem Erststart. Genau diese Ununterscheidbarkeit
-/// ist der Fund.
+/// A1: flutter_secure_storage 10.x with `resetOnError = true`, where an error
+/// deletes the key and the retry returns `null` — indistinguishable from a
+/// first start, which is the finding.
 class _ResettingKeyStore implements SecureKeyStore {
   final Map<String, String> data = {};
   int writes = 0;
 
-  /// Ab jetzt verhaelt sich der Keystore wie nach `handleStorageError`.
+  /// From now on the keystore behaves as after `handleStorageError`.
   bool keystoreResetsOnRead = false;
 
   @override
@@ -138,7 +120,7 @@ const String _pii = 'Rueckenschmerzen nach dem Kebab';
 const String _profileJson =
     '{"weight_kg":82,"height_cm":181,"age_years":34,"sex":"male"}';
 
-/// 32 Byte, hart kodiert — der Smoke-Test darf NICHT an den OS-Keystore.
+/// 32 bytes, hardcoded — the smoke test must NOT touch the OS keystore.
 final Uint8List _hardCodedDek = Uint8List.fromList(
   List<int>.generate(AesGcmCacheCipher.dekLengthBytes, (i) => (i * 7 + 11) & 0xFF),
 );
@@ -165,8 +147,7 @@ LoggedMeal _meal(String id) => LoggedMeal(
     );
 
 void main() {
-  // Der DEK-Sentinel (A1) liegt in SharedPreferences, nicht im Secure Storage —
-  // deshalb braucht dieser File das Test-Binding und den Prefs-Mock.
+  // The DEK sentinel (A1) lives in SharedPreferences, hence the prefs mock.
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
@@ -210,7 +191,7 @@ void main() {
       expect(raw.snapshot[key], startsWith(cacheCipherMagic));
       expect(raw.snapshot[key], isNot(contains('weight_kg')));
 
-      // Zweiter Read geht ueber den Entschluesselungs-Zweig, gleiches Ergebnis.
+      // The second read takes the decryption branch, same result.
       expect(await store.getString(key), _profileJson);
     });
 
@@ -228,7 +209,7 @@ void main() {
       expect(first, '{"items":[]}');
       expect(second, '{"items":[]}');
       expect(third, '{"items":[]}');
-      // Nach der ersten Migration aendert sich der rohe Wert nicht mehr.
+      // After the first migration the raw value no longer changes.
       expect(afterFirst, startsWith(cacheCipherMagic));
       expect(afterSecond, afterFirst);
       expect(raw.snapshot[key], afterFirst);
@@ -243,7 +224,7 @@ void main() {
       await writer.setString(key, _profileJson);
       expect(raw.snapshot.containsKey(key), isTrue);
 
-      // Anderer DEK — z.B. nach einem invalidierten Keystore-Key.
+      // Another DEK, e.g. after an invalidated keystore key.
       final reader = EncryptedKeyValueStore(raw, _FakeCipher('dek-b'));
 
       expect(await reader.getString(key), isNull);
@@ -266,7 +247,7 @@ void main() {
       expect(await broken.readProfile(), isNull);
       expect(await broken.readLoggedMeals(), isNull);
       expect(await broken.readOutbox(), isNull);
-      // Alle Slots sind geraeumt — der naechste Netz-Load fuellt sie neu.
+      // All slots purged; the next network load refills them.
       expect(raw.snapshot.keys.where((k) => k.startsWith('eatova.v1.')), isEmpty);
     });
   });
@@ -280,13 +261,12 @@ void main() {
       final store = EncryptedKeyValueStore(raw, AesGcmCacheCipher(_hardCodedDek));
 
       await store.setString(k1, _profileJson);
-      // Angreifer mit Schreibzugriff kopiert den Blob in den Slot des anderen
-      // Users. Ohne AAD-Bindung wuerde der sich sauber entschluesseln lassen.
+      // Without AAD binding this copy into another slot would decrypt.
       await raw.setString(k2, raw.snapshot[k1]!);
 
       expect(await store.getString(k2), isNull);
       expect(raw.snapshot.containsKey(k2), isFalse);
-      // Der Original-Slot bleibt intakt.
+      // The original slot stays intact.
       expect(await store.getString(k1), _profileJson);
     });
 
@@ -308,7 +288,7 @@ void main() {
       final cipher = AesGcmCacheCipher(_hardCodedDek);
       final armored = await cipher.encrypt(key, _profileJson);
 
-      // Ein Zeichen im base64-Teil kippen.
+      // Flip one character in the base64 part.
       final body = armored.substring(cacheCipherMagic.length);
       final flipped = (body[0] == 'A' ? 'B' : 'A') + body.substring(1);
 
@@ -319,8 +299,7 @@ void main() {
 
     test('SMOKE: voller writeLoggedMeals/readLoggedMeals-Roundtrip durch '
         'LocalCache mit echter pointycastle-Cipher', () async {
-      // Kein Keystore, kein Channel — nur der hart kodierte 32-Byte-DEK.
-      // Faengt pointycastle-API-Fehlbenutzung, die ein Fake verstecken wuerde.
+      // Catches pointycastle API misuse a fake would hide.
       final raw = InMemoryKeyValueStore();
       final cache = LocalCache(
         EncryptedKeyValueStore(raw, AesGcmCacheCipher(_hardCodedDek)),
@@ -392,35 +371,30 @@ void main() {
         InMemoryKeyValueStore(),
         keyStore: _FailingKeyStore(),
       );
-      // Kein Klartext-Fallback: lieber gar kein Cache.
+      // No plaintext fallback: rather no cache at all.
       expect(store, isNull);
     });
   });
 
   // -------------------------------------------------------------------------
-  // A1: resetOnError entwertet den Keystore-Schutz
+  // A1: resetOnError devalues the keystore protection
   // -------------------------------------------------------------------------
   group('A1 DEK-Sentinel', () {
     test(
         'geloeschter DEK bei gesetztem Sentinel praegt KEINEN neuen '
         '(sonst sind bis zu 500 nicht quittierte Writes weg)', () async {
-      // Die Outbox, um die es in diesem Test geht, muss auch DA sein: der
-      // Schutz haengt daran, dass ein frischer DEK etwas verwaisen laesst.
-      // Ohne Blob im Store wuerde der Bootstrag zu Recht durchpraegen
-      // (siehe secure_cache_store_dek_recovery_test.dart).
+      // The protection depends on a fresh DEK orphaning something.
       SharedPreferences.setMockInitialValues(<String, Object>{
         'eatova.v1.outbox.user-1': '${cacheCipherMagic}bmljaHQgcXVpdHRpZXJ0',
       });
       final keyStore = _ResettingKeyStore();
 
-      // 1. Erststart: DEK wird angelegt, Sentinel wandert nach SharedPreferences.
+      // 1. First start: DEK is created, sentinel moves to SharedPreferences.
       final first = await CacheKeyProvider.obtain(keyStore: keyStore);
       expect(first, isNotNull, reason: 'Erststart muss einen DEK praegen.');
       expect(keyStore.writes, 1);
 
-      // 2. Der Android-Keystore wirft beim naechsten Read; resetOnError=true
-      //    loescht den Eintrag und liefert null — ununterscheidbar von
-      //    "Erststart".
+      // 2. resetOnError=true deletes the entry and returns null.
       CacheKeyProvider.debugReset();
       keyStore.keystoreResetsOnRead = true;
 
@@ -466,17 +440,16 @@ void main() {
     test('ohne Sentinel bleibt der Erststart moeglich (kein Bricking)',
         () async {
       final keyStore = _ResettingKeyStore();
-      // Frisches Geraet: weder DEK noch Sentinel.
+      // Fresh device: neither DEK nor sentinel.
       expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNotNull);
     });
   });
 
   // -------------------------------------------------------------------------
-  // G9: Verschluesselung friert die UI ein
+  // G9: encryption freezes the UI
   // -------------------------------------------------------------------------
   group('G9 Krypto laeuft nicht im Aufrufer-Stack', () {
-    // 256 kB — die im Review benchmarkte Groessenordnung (210 Mahlzeiten =
-    // 108 kB = 91,5 ms synchron auf Desktop-JIT, mobil AOT 2-4x langsamer).
+    // 256 kB: 210 meals = 108 kB = 91.5 ms synchronous on desktop JIT.
     final String big = 'x' * 262144;
     const String key = 'eatova.v1.logged_meals.user-1';
 
@@ -527,7 +500,7 @@ void main() {
     test(
         'WIRE-FORMAT: Golden-Blob aus der SYNCHRONEN Fassung bleibt lesbar '
         '(byte-identisches Format, AAD unveraendert)', () async {
-      // Erzeugt mit der Fassung vor dem compute()-Umbau, gleicher DEK.
+      // Produced by the version before the compute() rewrite, same DEK.
       const golden = 'EATOVA1:XVBMN7A2JEKw9nyL7fLgHj53HpbeXoMtRyx6d/Nl5ATL9Mlr'
           'wKDsaeDUxBqzt/UPSleFveICKMU0kyb2O8elPdCIDEXWtgUPLFENVkD7EyfUyPG3R+'
           'LwSA==';
@@ -535,7 +508,7 @@ void main() {
 
       expect(await cipher.decrypt('eatova.v1.profile.user-1', golden),
           _profileJson);
-      // AAD bleibt der Slot-Key: derselbe Blob im fremden Slot muss werfen.
+      // AAD stays the slot key: the same blob in a foreign slot must throw.
       await expectLater(
           () async => cipher.decrypt('eatova.v1.profile.user-2', golden),
           throwsA(anything));
@@ -548,8 +521,7 @@ void main() {
           'false',
           reason: 'Mit true loescht die Java-Seite den DEK bei JEDEM '
               'Keystore-Fehler und meldet Dart ein blankes null.');
-      // Gegenprobe, damit dieser Test nicht still nutzlos wird, falls das
-      // Plugin den Default je wieder umstellt.
+      // Counter-check, in case the plugin changes its default again.
       expect(const AndroidOptions().toMap()['resetOnError'], 'true',
           reason: 'Der 10.x-Plugin-Default — genau der Fund A1.');
     });
@@ -570,13 +542,12 @@ void main() {
       final raw = InMemoryKeyValueStore();
       final cipher = _FakeCipher('dek-a')
         ..encryptDelays.addAll([
-          const Duration(milliseconds: 40), // der ERSTE rechnet laenger
+          const Duration(milliseconds: 40), // the FIRST one takes longer
           Duration.zero,
         ]);
       final store = EncryptedKeyValueStore(raw, cipher);
 
-      // Exakt das Muster aus _cacheLoggedMeals(): zwei unawaited Writes des
-      // kompletten Blobs kurz hintereinander.
+      // The _cacheLoggedMeals() pattern: two unawaited writes in a row.
       final first = store.setString(key, '{"items":["ALT"]}');
       final second = store.setString(key, '{"items":["NEU"]}');
       await Future.wait([first, second]);
@@ -594,7 +565,7 @@ void main() {
       final store = EncryptedKeyValueStore(raw, cipher);
 
       final write = store.setString(key, _profileJson);
-      final removal = store.remove(key); // LocalCache.clear() beim Logout
+      final removal = store.remove(key); // LocalCache.clear() on logout
       await Future.wait([write, removal]);
 
       expect(raw.snapshot.containsKey(key), isFalse,
@@ -614,8 +585,7 @@ void main() {
       ]);
       sw.stop();
 
-      // Serialisiert waeren es >= 60 ms nacheinander; parallel bleibt es bei
-      // ~60 ms gesamt. Grosszuegige Schranke gegen CI-Jitter.
+      // ~60 ms in parallel vs. >= 120 ms serialised; loose against CI jitter.
       expect(sw.elapsedMilliseconds, lessThan(200));
       expect(raw.snapshot, hasLength(2));
     });
@@ -645,16 +615,14 @@ void main() {
       await LocalCache(raw, 'user-1').dropLegacySlots();
 
       expect(raw.snapshot.containsKey('eatova.v1.daily.user-1'), isFalse);
-      // Fremder Namensraum bleibt unangetastet.
+      // Foreign namespace stays untouched.
       expect(raw.snapshot.containsKey('eatova.v1.daily.user-2'), isTrue);
     });
   });
 }
 
-/// Keystore, dessen Read wirft — simuliert einen kaputten OS-Keystore. In dem
-/// Fall wird BEWUSST kein neuer DEK erzeugt (ein vorhandener koennte nur
-/// gerade unlesbar sein; ihn zu ueberschreiben wuerde den Cache endgueltig
-/// verwaisen lassen).
+/// Keystore whose read throws. No new DEK is minted: an existing one may be
+/// temporarily unreadable, and overwriting it orphans the cache.
 class _FailingKeyStore implements SecureKeyStore {
   @override
   Future<String?> read(String key) async => throw StateError('keystore kaputt');

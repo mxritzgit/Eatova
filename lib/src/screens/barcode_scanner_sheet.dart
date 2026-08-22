@@ -10,8 +10,8 @@ import '../services/crash_reporter.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/kcal/scan_slot_chips.dart';
 
-/// Ergebnis des Barcode-Scanners: der getrimmte Code und der Slot, den der
-/// Nutzer ueber die Chips auf dem Kamerabild gewaehlt hat.
+/// Barcode scanner result: the trimmed code and the slot picked via the chips
+/// on the camera preview.
 class BarcodeScan {
   const BarcodeScan({required this.code, required this.slot});
 
@@ -19,13 +19,11 @@ class BarcodeScan {
   final MealSlot slot;
 }
 
-/// Oeffnet den Barcode-Scanner als animiertes Bottom-Panel (~60% Hoehe) im
-/// gleichen Rahmen wie die KI-Scan-Kamera ([MealCameraSheet]) — gleitet von
-/// unten ein statt Vollbild-Wechsel. Liefert Code + gewaehlten Slot, oder
-/// null bei Abbruch (X, Barrier-Tap oder Runterwischen).
+/// Opens the barcode scanner as a ~60% bottom panel, same frame as the AI scan
+/// camera ([MealCameraSheet]). Returns code + slot, or null on cancel.
 ///
-/// [initialSlot] belegt die Slot-Chips vor (Uhrzeit-Heuristik bzw. der im
-/// Add-Sheet gewaehlte Slot); die Wahl im Scanner hat das letzte Wort.
+/// [initialSlot] preselects the slot chips; the choice made in the scanner
+/// wins.
 Future<BarcodeScan?> showBarcodeScannerSheet(
   BuildContext context, {
   required MealSlot initialSlot,
@@ -34,8 +32,8 @@ Future<BarcodeScan?> showBarcodeScannerSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
-    // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
+    // No token on purpose: the scrim behind a sheet darkens in both modes —
+    // a light scrim would dim nothing.
     barrierColor: Colors.black.withValues(alpha: 0.55),
     builder: (_) => BarcodeScannerSheet(initialSlot: initialSlot),
   );
@@ -54,9 +52,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   final MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     formats: const [BarcodeFormat.ean8, BarcodeFormat.ean13, BarcodeFormat.upcA],
-    // autoZoom holt den Barcode heran, statt ihn im weitwinkligen Sensorbild
-    // klein zu lassen — behebt den „zu weit weg / Weitwinkel"-Eindruck und
-    // macht das Scannen zuverlaessiger.
+    // autoZoom pulls the barcode in instead of leaving it small in the
+    // wide-angle sensor image, which makes scanning far more reliable.
     autoZoom: true,
   );
   bool hasReturned = false;
@@ -77,45 +74,30 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     super.dispose();
   }
 
-  /// Macht Analysefehler sichtbar, statt sie zu verschlucken.
+  /// Surfaces analysis errors instead of swallowing them.
   ///
-  /// **Der ERSTE Fehler zaehlt.** Das war zunaechst anders gebaut (Schwelle 3,
-  /// „ein einzelner Ausrutscher soll den Nutzer nicht behelligen") — die
-  /// Annahme war falsch, und zwar in beide Richtungen:
+  /// The FIRST error counts. A blurry frame produces no error at all (it takes
+  /// the success path with an empty barcode list); `onDetectError` only fires
+  /// on an ML Kit processing error, and that branch never calls
+  /// `imageProxy.close()`. With STRATEGY_KEEP_ONLY_LATEST CameraX then
+  /// delivers no further frame, so any threshold > 1 is unreachable.
   ///
-  /// * Ein unscharfes Bild erzeugt **gar keinen Fehler**. Es laeuft ueber den
-  ///   Erfolgspfad mit leerer Barcode-Liste, der den `ImageProxy` ordentlich
-  ///   schliesst. `onDetectError` feuert ausschliesslich bei einem ML-Kit-
-  ///   *Verarbeitungs*fehler — fehlendes Modell, Decoder-Fehler.
-  /// * Genau dieser Zweig (`MobileScanner.kt:225-229`, mobile_scanner 7.4.0)
-  ///   ruft **kein** `imageProxy.close()`. Mit `STRATEGY_KEEP_ONLY_LATEST`
-  ///   (`:425`) reicht CameraX dann keinen weiteren Frame durch — die Zahl der
-  ///   ueberhaupt zustellbaren Fehlframes ist durch die Reader-Tiefe begrenzt
-  ///   und erreicht die 3 in keinem Fall garantiert.
-  ///
-  /// Eine Schwelle > 1 machte das Overlay also genau in dem Szenario
-  /// unerreichbar, fuer das es gebaut wurde.
-  ///
-  /// Der Neustart ist noetig, weil der Analyzer sich aus demselben Grund nicht
-  /// selbst erholt: ohne ihn bliebe das Bild live und der Scanner trotzdem tot.
+  /// The restart is required because the analyzer cannot recover on its own —
+  /// otherwise the preview stays live while the scanner is dead.
   void handleDetectError(Object error, StackTrace stackTrace) {
     if (hasReturned || !mounted || _analyzerHaengt) return;
     setState(() => _analyzerHaengt = true);
     CrashReporter.capture(error, stackTrace, context: 'barcode-detect');
   }
 
-  /// Schaltet den Analyzer ab und markiert dieses Sheet als erledigt.
+  /// Stops the analyzer and marks this sheet as done.
   ///
-  /// **Muss vor JEDEM Pop laufen.** Die Schliess-Animation dauert ~250 ms, und
-  /// erst an deren Ende baut Flutter den [MobileScanner] ab. Bis dahin liefert
-  /// der Analyzer weiter Treffer — frueher fielen die durch die Wache in
-  /// [handleDetect] (`hasReturned` blieb beim Schliessen ungesetzt) und popten
-  /// ein zweites Mal. Der zweite Pop traf dann die darunterliegende Route, also
-  /// das Sheet, aus dem der Scanner geoeffnet wurde, und schloss es mit.
+  /// Must run before EVERY pop: the close animation takes ~250 ms and the
+  /// [MobileScanner] is only torn down at its end, so a late hit would pop a
+  /// second time and take the underlying sheet with it.
   ///
-  /// `controller.stop()` kappt die Barcode-Subscription noch synchron; nur der
-  /// Plattform-Stop dahinter ist asynchron. Deshalb wird hier angestossen und
-  /// nicht gewartet — die Ausblendzeit soll nicht daran haengen.
+  /// `controller.stop()` cuts the barcode subscription synchronously; only the
+  /// platform stop behind it is async, so it is fired and not awaited.
   void _erkennungBeenden() {
     if (hasReturned) return;
     hasReturned = true;
@@ -126,8 +108,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     try {
       await controller.stop();
     } catch (_) {
-      // Das Sheet ist auf dem Weg nach draussen und `dispose()` raeumt danach
-      // ohnehin auf — ein fehlgeschlagener Stop hat hier keine Folge mehr.
+      // The sheet is on its way out and `dispose()` cleans up anyway, so a
+      // failed stop has no consequence here.
     }
   }
 
@@ -150,8 +132,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
       await controller.stop();
       await controller.start();
     } catch (_) {
-      // Scheitert der Neustart, bleibt der Hinweis das Naechste, was der
-      // Nutzer sieht — ein stiller Fehlschlag waere genau der Bug von vorher.
+      // If the restart fails, keep the notice up — a silent failure would be
+      // exactly the previous bug.
       if (mounted) setState(() => _analyzerHaengt = true);
     }
   }
@@ -160,15 +142,14 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     if (hasReturned || !mounted) {
       return;
     }
-    // Zweite Wache gegen denselben Doppel-Pop: `hasReturned` deckt nur ab, was
-    // ueber diese Klasse laeuft. Ist die Route nicht mehr die oberste — weil
-    // gerade gepoppt wird oder etwas darueber liegt —, wuerde ein Pop hier die
-    // darunterliegende Route treffen.
+    // Second guard against the same double pop: `hasReturned` only covers
+    // what goes through this class. If the route is no longer topmost, a pop
+    // here would hit the route below.
     if (ModalRoute.of(context)?.isCurrent != true) {
       return;
     }
 
-    // Ein guter Frame heisst: der Analyzer laeuft wieder.
+    // A good frame means the analyzer is running again.
     if (_analyzerHaengt) setState(() => _analyzerHaengt = false);
 
     for (final barcode in capture.barcodes) {
@@ -185,16 +166,14 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    // ~60% der Bildschirmhoehe — deckungsgleich mit dem KI-Scan-Panel, damit
-    // beide Scan-Wege als dasselbe In-App-Muster gelesen werden.
+    // ~60% of screen height, identical to the AI scan panel so both scan
+    // paths read as the same in-app pattern.
     final panelHeight = mediaQuery.size.height * 0.6;
 
     return PopScope<Object?>(
-      // Reiner Horchposten, kein Veto: `canPop` bleibt true. Wischen,
-      // Barrier-Tap und System-Zurueck poppen an [_schliessen] vorbei — ueber
-      // `onPopInvokedWithResult` erfaehrt das Sheet trotzdem von jedem dieser
-      // Wege und kann den Analyzer abschalten, bevor die Ausblendzeit laeuft
-      // (Begruendung in [_erkennungBeenden]).
+      // Listener only, no veto: `canPop` stays true. Swipe, barrier tap and
+      // system back bypass [_schliessen], so this is how the sheet learns of
+      // them and can stop the analyzer before the fade-out.
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) _erkennungBeenden();
       },
@@ -225,34 +204,27 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                           MobileScanner(
                             controller: controller,
                             onDetect: handleDetect,
-                            // Ohne diesen Handler ist der Default laut
-                            // mobile_scanner.dart:157-160 woertlich
-                            // `// Do nothing.` — jeder Analysefehler wurde also
-                            // ERSATZLOS verschluckt. `errorBuilder` haengt an
-                            // `controller.value.error`, und Analysefehler
-                            // setzen das nie; der rote Zweig erschien deshalb
-                            // nie.
-                            //
-                            // Erschwerend: `MobileScanner.kt:225-229` ruft im
-                            // Fehlerpfad kein `imageProxy.close()`. Mit
-                            // STRATEGY_KEEP_ONLY_LATEST liefert CameraX dann
-                            // keinen weiteren Frame — der Analyzer steht nach
-                            // dem ERSTEN Fehlframe still und erholt sich nicht
-                            // von selbst. Der Nutzer sah: Live-Bild,
-                            // Scanrahmen, nie ein Treffer, nie eine Meldung.
+                            // Without this handler the default is literally
+                            // "do nothing", so analysis errors vanished:
+                            // `errorBuilder` hangs off
+                            // `controller.value.error`, which they never set.
+                            // Worse, the error path never closes the
+                            // imageProxy, so under
+                            // STRATEGY_KEEP_ONLY_LATEST the analyzer stalls
+                            // after the FIRST bad frame — live preview, scan
+                            // frame, never a hit and never a message.
                             onDetectError: handleDetectError,
-                            // Formatfuellend + verzerrungsfrei (croppt statt zu
-                            // stauchen) — wie die Kamera-Vorschau im KI-Scan.
+                            // Fills the frame without distortion (crops
+                            // instead of squashing), like the AI scan preview.
                             fit: BoxFit.cover,
                             placeholderBuilder: (_) =>
                                 const _ScannerLoadingLayer(),
                             errorBuilder: (_, __) =>
                                 const _ScannerFailedLayer(),
                           ),
-                          // Overlays nur solange die Kamera nicht im
-                          // Fehler-Zustand ist — sonst laegen Rahmen + Hinweis
-                          // mitten auf der Fehlermeldung
-                          // (z.B. Simulator/Berechtigung).
+                          // Overlays only while the camera is not in an error
+                          // state, or frame and hint would sit on top of the
+                          // error message.
                           ValueListenableBuilder<MobileScannerState>(
                             valueListenable: controller,
                             builder: (context, state, child) =>
@@ -264,11 +236,10 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                               children: [
                                 const _EdgeScrim(),
                                 const Center(child: _ScanFrame()),
-                                // Slot-Chips oben auf dem Kamerabild —
-                                // dieselbe Reihe wie im KI-Scan. Bis
-                                // 2026-08-22 fehlte sie hier: der
-                                // Barcode-Weg aus dem Food-Tab landete
-                                // stumm im Uhrzeit-Slot.
+                                // Slot chips on the camera preview, same row
+                                // as the AI scan. Missing until 2026-08-22,
+                                // when the barcode path silently used the
+                                // time-of-day slot.
                                 Positioned(
                                   top: 10,
                                   left: 10,
@@ -279,8 +250,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                                     keyPrefix: 'barcode-slot',
                                   ),
                                 ),
-                                // Der Hinweis rueckt unter die Chips;
-                                // der Scanrahmen in der Mitte bleibt frei.
+                                // Hint sits below the chips; the scan frame in
+                                // the centre stays clear.
                                 Positioned(
                                   top: 50,
                                   left: 10,
@@ -319,9 +290,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                                     ),
                                   ),
                                 ),
-                                // Torch-Toggle unten mittig — beim Scannen im
-                                // Dunkeln oft der Unterschied zwischen Treffer
-                                // und Frust.
+                                // Torch toggle, bottom centre — often decisive
+                                // when scanning in the dark.
                                 Positioned(
                                   bottom: 14,
                                   left: 0,
@@ -350,8 +320,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   }
 }
 
-/// Zielrahmen in Barcode-Proportion; forgeLime = Food-Tab-Akzent (der alte
-/// Cyan-Rahmen war eine Makro-Datenfarbe und damit Palette-fremd).
+/// Target frame in barcode proportions; lime is the food-tab accent (cyan was
+/// a macro data colour and off-palette).
 class _ScanFrame extends StatelessWidget {
   const _ScanFrame();
 
@@ -362,9 +332,8 @@ class _ScanFrame extends StatelessWidget {
       height: 132,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(rCard),
-        // Der Rahmen liegt AUF dem Kamerabild: `lime` traegt dort in beiden
-        // Anzeige-Modi, `accent` waere im Hell-Modus dunkelgruen auf dunklem
-        // Bild.
+        // The frame sits ON the camera image: `lime` carries in both modes,
+        // `accent` would be dark green on a dark image in light mode.
         border: Border.all(
           color: context.t.lime.withValues(alpha: 0.9),
           width: 2,
@@ -466,14 +435,12 @@ class _ScannerFailedLayer extends StatelessWidget {
   }
 }
 
-/// Sanfte dunkle Verlaeufe oben/unten, damit Hinweis-Pill + Torch-Button auf
-/// hellen Kamerabildern lesbar bleiben (deckungsgleich mit MealCameraSheet).
+/// Soft dark gradients top and bottom so hint pill and torch stay readable on
+/// bright camera images (same as MealCameraSheet).
 ///
-/// Die harten `Colors.black`/`Colors.white` in diesem Overlay bleiben bewusst
-/// stehen und sind KEIN vergessener Token: sie liegen auf einem LIVE-Kamerabild
-/// und nicht auf einer Theme-Flaeche. Ein token-gefaerbter Scrim wuerde im
-/// Hell-Modus zu einem hellen Schleier auf einem beliebig hellen Bild — genau
-/// die Lesbarkeit, die er herstellen soll, waere dahin.
+/// The literal `Colors.black`/`Colors.white` here are NOT forgotten tokens:
+/// they sit on a live camera image, not a theme surface. A token-coloured
+/// scrim would become a light veil on a light image and destroy readability.
 class _EdgeScrim extends StatelessWidget {
   const _EdgeScrim();
 
@@ -549,14 +516,12 @@ class _HeaderRow extends StatelessWidget {
   }
 }
 
-/// Der Analyzer liefert keine Frames mehr — sichtbar statt still.
+/// The analyzer stopped delivering frames — shown, not swallowed.
 ///
-/// Nicht `_ScannerFailedLayer` wiederverwendet: der beschreibt einen toten
-/// Kamerazugriff (Berechtigung, Simulator) und bietet keinen Ausweg. Hier ist
-/// die Kamera in Ordnung, nur die Erkennung haengt, und ein Neustart hilft.
-///
-/// Liegt wie [_EdgeScrim] ueber dem LIVE-Kamerabild — die harten
-/// Schwarz/Weiss-Werte sind bewusst kein Token (Begruendung dort).
+/// Not `_ScannerFailedLayer`: that describes dead camera access with no way
+/// out. Here the camera is fine, only detection stalled, and a restart helps.
+/// Sits over the live image, so the literal black/white is no token (see
+/// [_EdgeScrim]).
 class _AnalyzerStalledLayer extends StatelessWidget {
   const _AnalyzerStalledLayer({required this.onRetry});
 

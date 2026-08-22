@@ -356,8 +356,8 @@ void main() {
         ),
       );
 
-      // Der Vertrag aus DESIGN_REFACTOR §6: der Key ist API und bleibt
-      // deutsch, auch wenn das sichtbare Label uebersetzt ist.
+      // DESIGN_REFACTOR §6: the key is API and stays German even when the
+      // visible label is translated.
       expect(find.byKey(const ValueKey<String>('nav-Rezepte')), findsOneWidget);
       expect(find.text('Recipes'), findsOneWidget);
     });
@@ -371,17 +371,15 @@ void main() {
         ),
       );
 
-      // Nutzer-Wunsch 2026-08-10: die Leiste wurde von ~76 auf ~58 px
-      // gekuerzt, weil sie auf jedem Screen liegt. Waechst sie wieder, soll
-      // das ein bewusster Bruch dieses Tests sein, kein Nebeneffekt.
+      // The bar was shortened from ~76 to ~58 px because it sits on every
+      // screen; growing it again should break this test deliberately.
       expect(
         tester.getSize(find.byType(AppNavBar)).height,
         lessThanOrEqualTo(62),
       );
 
-      // Die Untergrenze der Kuerzung: 44 px Trefferflaeche pro Item. Der
-      // Guideline-Check laeuft ueber die Semantik-Knoten, prueft also genau
-      // das, was ein Finger trifft.
+      // The floor of that shortening: 44 px hit area per item. The guideline
+      // check runs over the semantics nodes, i.e. what a finger hits.
       await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
       handle.dispose();
     });

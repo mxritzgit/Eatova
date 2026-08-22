@@ -10,44 +10,33 @@ import '../common/app_snack.dart';
 import '../design/design.dart';
 
 // ---------------------------------------------------------------------------
-// DATENAUSKUNFT (DSGVO Art. 15/20) als Bottom-Sheet.
+// DATA ACCESS REQUEST (GDPR Art. 15/20) as a bottom sheet.
 //
-// Herkunft: `_ExportSheet` in `lib/src/screens/profile_screen.dart` (C7). Die
-// Einstellungen brauchen exakt dasselbe Sheet — und ein zweites, eigenes waere
-// genau die Sorte Doppelbedienung, die der Design-Refactor abbaut. Weil die
-// Vorlage dort PRIVAT ist und `profile_screen.dart` einem anderen Paket
-// gehoert, steht die gemeinsame Fassung hier (widgets/shared gehoert dem
-// Einstellungs-Paket).
+// Shared version of the former private `_ExportSheet` in
+// `profile_screen.dart`, because the settings need exactly the same sheet.
 //
-// **Nachzuziehen:** `profile_screen.dart` soll seine private Kopie durch
-// [showDataExportSheet] ersetzen; der Testschluessel `profile-export-copy` ist
-// deshalb bewusst uebernommen und NICHT umbenannt (DESIGN_REFACTOR §6:
-// „Key bleibt Key"). Danach gibt es die Kopie nur noch einmal.
+// TODO(settings): let `profile_screen.dart` replace its private copy with
+// [showDataExportSheet]. The test key `profile-export-copy` is kept unchanged
+// on purpose (DESIGN_REFACTOR 6: a key stays a key).
 // ---------------------------------------------------------------------------
 
-/// Gibt die VOLLE Auskunft als Datei heraus — Teilen-Dialog des Systems,
-/// E-Mail-Anhang, Ablage. [inhalt] ist der komplette Export, NICHT die
-/// gekuerzte Vorschau.
+/// Hands the FULL export out as a file (system share sheet, mail attachment,
+/// storage). [inhalt] is the complete export, not the shortened preview.
 typedef ExportDateiTeiler = Future<void> Function(
   String inhalt,
   String dateiname,
 );
 
-/// Oeffnet die Datenauskunft.
+/// Opens the data export sheet.
 ///
-/// [snapshot] ist die (asynchron geladene) Auskunft, [fallbackSnapshot] der
-/// Text, der bei einem Fehler stattdessen gezeigt wird — ohne ihn bleibt die
-/// Karte im Fehlerfall leer und das Sheet sagt es im Untertitel.
-/// [snapshot] ist bewusst eine FABRIK und keine fertige Future: Sie wird erst
-/// im Builder des Sheets aufgerufen, also genau dort, wo der `FutureBuilder`
-/// sie im selben Zug abonniert.
+/// [snapshot] is a FACTORY, not a ready future: it is called inside the
+/// sheet's builder, exactly where the `FutureBuilder` subscribes to it. An
+/// already running future would have no error listener between the call and
+/// the first sheet frame, so a failed server export would surface as an
+/// unhandled zone error instead of falling back to the session snapshot.
 ///
-/// Eine hier uebergebene, schon laufende Future haette zwischen Aufruf und
-/// erstem Sheet-Frame niemanden, der auf ihren Fehler hoert — ein
-/// fehlgeschlagener Server-Export schlaegt dann als unbehandelter Zonen-Fehler
-/// durch, statt im Sheet als ehrlicher Rueckfall auf den Sitzungs-Auszug zu
-/// landen. Genau daran ist die Zusammenlegung der beiden Sheets zuerst
-/// gescheitert.
+/// [fallbackSnapshot] is shown when [snapshot] fails; without it the card
+/// stays empty and the subtitle says so.
 Future<void> showDataExportSheet(
   BuildContext context, {
   required Future<String> Function() snapshot,
@@ -58,9 +47,9 @@ Future<void> showDataExportSheet(
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: context.t.bg,
-    // Das Theme setzt global `false`; hier steht der Griff aber an der Route
-    // richtig, weil das Sheet selbst ein DraggableScrollableSheet ist und
-    // keinen eigenen Kopfbereich hat.
+    // The theme sets `false` globally, but the handle belongs on the route
+    // here: this sheet is a DraggableScrollableSheet with no header of its
+    // own.
     showDragHandle: true,
     isScrollControlled: true,
     builder: (_) => DataExportSheet(
@@ -72,8 +61,8 @@ Future<void> showDataExportSheet(
   );
 }
 
-/// Das Innenleben der Datenauskunft: Titel, Herkunfts-Satz, JSON-Vorschau und
-/// die Ausgabewege (Zwischenablage, Datei).
+/// The sheet's content: title, provenance line, JSON preview and the output
+/// paths (clipboard, file).
 class DataExportSheet extends StatefulWidget {
   const DataExportSheet({
     super.key,
@@ -83,30 +72,25 @@ class DataExportSheet extends StatefulWidget {
     this.dateiTeilen,
   });
 
-  /// Die (asynchron geladene) Auskunft — mit Sync die vollstaendige
-  /// Server-Kopie.
+  /// The asynchronously loaded export; with sync, the full server copy.
   final Future<String> snapshot;
 
-  /// Wird gezeigt, wenn [snapshot] fehlschlaegt (offline) — zusammen mit einem
-  /// Hinweis, dass es sich dann nicht um die vollstaendige Kopie handelt.
+  /// Shown when [snapshot] fails (offline), together with a hint that this is
+  /// not the complete copy.
   final String fallbackSnapshot;
 
   final bool vollstaendig;
 
-  /// Reicht die volle Auskunft als Datei weiter. Bleibt `null`, solange die App
-  /// kein Teilen-Plugin hat — dann entfaellt der Knopf, statt einen Ausgabeweg
-  /// anzubieten, den es nicht gibt.
+  /// Passes the full export on as a file. `null` while the app has no share
+  /// plugin; the button then disappears instead of offering a dead path.
   final ExportDateiTeiler? dateiTeilen;
 
-  /// Ab wieviel Zeichen die Karte nur noch eine Vorschau zeigt.
+  /// Above how many characters the card shows a preview only.
   ///
-  /// Ein Jahr Nutzung sind schnell mehrere Megabyte JSON — jede Tagebuchzeile
-  /// mit ihrer JSONB-Nutzlast, eingerueckt. Flutter legt aus einem
-  /// `SelectableText` EINEN Paragraphen an, und `TextPainter.layout` laeuft
-  /// dabei auf dem UI-Isolate: das Sheet fror ein, bis das Layout durch war.
-  /// Die Vorschau ist deshalb hart begrenzt. Die vollstaendigen Daten
-  /// verlassen das Sheet ueber Kopieren bzw. [dateiTeilen] — nicht ueber die
-  /// Textdarstellung.
+  /// A year of use is several megabytes of JSON, and a `SelectableText` is ONE
+  /// paragraph whose `TextPainter.layout` runs on the UI isolate — the sheet
+  /// froze until the layout finished. The full data leaves through copy or
+  /// [dateiTeilen], never through the text view.
   static const int vorschauMaxZeichen = 20 * 1024;
 
   @override
@@ -131,9 +115,9 @@ class _DataExportSheetState extends State<DataExportSheet> {
     }
   }
 
-  /// Kuerzen und Umfang-Lesen laufen ueber den GANZEN Text. In `build` waere
-  /// das eine Megabyte-Arbeit pro Frame; hier passiert es einmal, und zwar
-  /// noch waehrend der Spinner steht.
+  /// Shortening and scope detection run over the WHOLE text. In `build` that
+  /// would be megabytes of work per frame; here it happens once, while the
+  /// spinner is still up.
   Future<_Auskunft> _aufbereiten() async {
     try {
       return _Auskunft.aus(await widget.snapshot);
@@ -144,8 +128,8 @@ class _DataExportSheetState extends State<DataExportSheet> {
     }
   }
 
-  /// Datumsbehafteter Dateiname: mehrere Auskuenfte im Download-Ordner sollen
-  /// sich unterscheiden lassen.
+  /// Dated file name, so several exports in the downloads folder stay
+  /// distinguishable.
   String _dateiname() {
     final jetzt = DateTime.now();
     String zwei(int n) => n.toString().padLeft(2, '0');
@@ -157,10 +141,9 @@ class _DataExportSheetState extends State<DataExportSheet> {
     try {
       await Clipboard.setData(ClipboardData(text: text));
     } catch (e, st) {
-      // Die Zwischenablage ist ein Plattformkanal und kann fehlschlagen (kein
-      // Fokus, restriktives OS, sehr grosse Nutzlast). Ohne diesen Fang wuerde
-      // daraus ein unbehandelter Zonen-Fehler — und die Bestaetigung unten
-      // behauptete trotzdem, es sei kopiert.
+      // The clipboard is a platform channel and can fail (no focus,
+      // restrictive OS, huge payload). Without this catch it becomes an
+      // unhandled zone error while the snack still claims success.
       dev.log('DataExport: Kopieren fehlgeschlagen',
           error: e, stackTrace: st, name: 'data_export_sheet');
       return;
@@ -179,8 +162,8 @@ class _DataExportSheetState extends State<DataExportSheet> {
     try {
       await teiler(text, _dateiname());
     } catch (e, st) {
-      // Ein abgebrochener oder fehlgeschlagener Teilen-Dialog ist kein Grund,
-      // das Sheet zu reissen — die Auskunft liegt weiter davor.
+      // A cancelled or failed share dialog is no reason to tear down the
+      // sheet; the export is still there.
       dev.log('DataExport: Teilen fehlgeschlagen',
           error: e, stackTrace: st, name: 'data_export_sheet');
     }
@@ -191,13 +174,11 @@ class _DataExportSheetState extends State<DataExportSheet> {
     if (auskunft.fehler) return l10n.exportSheetErrorSubtitle;
     if (!widget.vollstaendig) return l10n.exportSheetSessionSubtitle;
     return switch (auskunft.umfang) {
-      // Der Abruf hat nicht geworfen — geladen hat er trotzdem nichts. Ohne
-      // diesen Fall behauptete das Sheet offline eine vollstaendige Auskunft
-      // ueber eine leere Datei.
+      // The fetch did not throw but loaded nothing; without this case the
+      // sheet would claim a complete export over an empty file.
       ExportUmfang.nichtsGeladen => l10n.exportNothingLoaded,
-      // Kein eigener Satz fuer „teilweise": der Fehler-Satz ist der
-      // naechstliegende, der KEINE Vollstaendigkeit behauptet und zum erneuten
-      // Oeffnen mit Netz raet — genau das hilft hier.
+      // No separate sentence for "partial": the error sentence is the closest
+      // one that claims no completeness and advises retrying online.
       ExportUmfang.teilweise => l10n.exportSheetErrorSubtitle,
       _ => l10n.exportSheetFullSubtitle,
     };
@@ -220,16 +201,14 @@ class _DataExportSheetState extends State<DataExportSheet> {
             final auskunft = snap.data;
             final text = auskunft?.voll ?? '';
             final untertitel = _untertitel(l10n, laedt, auskunft);
-            // EIN Scroller fuer das ganze Sheet (Kopf + JSON), getrieben vom
-            // Controller des DraggableScrollableSheet: bei doppelter
-            // Systemschrift waechst der Kopf sonst ueber die Sheet-Hoehe
-            // hinaus und die Spalte laeuft ueber.
+            // ONE scroller for the whole sheet (header + JSON), driven by the
+            // DraggableScrollableSheet controller: at double system font the
+            // header alone would overflow the sheet height.
             return SingleChildScrollView(
               controller: controller,
-              // AlwaysScrollable: ein kurzer Snapshot fuellt das Sheet nicht
-              // aus. Ohne diese Physik nimmt der Scroller die Zieh-Geste dann
-              // gar nicht erst an — und das DraggableScrollableSheet, das
-              // genau daran haengt, liesse sich nicht mehr ziehen.
+              // AlwaysScrollable: a short snapshot does not fill the sheet,
+              // and without this physics the scroller rejects the drag gesture
+              // the DraggableScrollableSheet depends on.
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
               child: Column(
@@ -268,9 +247,9 @@ class _DataExportSheetState extends State<DataExportSheet> {
                     padding: const EdgeInsets.all(14),
                     color: t.surf2,
                     child: laedt || auskunft == null
-                        // Feste Hoehe waehrend des Ladens: ohne den JSON-Text
-                        // schrumpfte die Karte sonst auf den Spinner zusammen
-                        // und das Sheet saehe nach einem Fehler aus.
+                        // Fixed height while loading: without the JSON the
+                        // card would collapse onto the spinner and the sheet
+                        // would look broken.
                         ? const SizedBox(
                             height: 180,
                             child: Center(
@@ -323,8 +302,8 @@ class _DataExportSheetState extends State<DataExportSheet> {
   }
 }
 
-/// Die aufbereitete Auskunft: der volle Text fuer die Ausgabewege, die
-/// gekuerzte Fassung fuer die Darstellung und das Urteil ueber ihren Umfang.
+/// The prepared export: full text for the output paths, shortened text for
+/// display, plus the verdict on its scope.
 @immutable
 class _Auskunft {
   const _Auskunft({
@@ -347,9 +326,8 @@ class _Auskunft {
         fehler: fehler,
       );
     }
-    // An der letzten Zeilengrenze schneiden: eine halb abgeschnittene
-    // JSON-Zeile sieht nach kaputten Daten aus, und genau das soll die
-    // Vorschau nicht suggerieren.
+    // Cut at the last line break: a half-truncated JSON line looks like
+    // broken data.
     final roh = text.substring(0, grenze);
     final letzterUmbruch = roh.lastIndexOf('\n');
     return _Auskunft(
@@ -361,23 +339,23 @@ class _Auskunft {
     );
   }
 
-  /// Der komplette Export — was kopiert bzw. als Datei herausgegeben wird.
+  /// The complete export: what gets copied or written to a file.
   final String voll;
 
-  /// Was die Karte zeichnet: hoechstens
-  /// [DataExportSheet.vorschauMaxZeichen] Zeichen.
+  /// What the card paints: at most [DataExportSheet.vorschauMaxZeichen]
+  /// characters.
   final String vorschau;
 
   final bool gekuerzt;
 
-  /// `null`, wenn [voll] gar keine Auskunft im Export-Format ist.
+  /// `null` when [voll] is not an export-formatted document at all.
   final ExportUmfang? umfang;
 
   final bool fehler;
 }
 
-/// Der „Kopieren"-Knopf. Gesperrt, solange die Auskunft laedt — sonst landete
-/// der Platzhalter in der Zwischenablage.
+/// The copy button. Disabled while the export loads, or the placeholder would
+/// end up on the clipboard.
 class _CopyButton extends StatelessWidget {
   const _CopyButton({required this.enabled, required this.onCopy});
 
@@ -387,9 +365,8 @@ class _CopyButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // `enabled` explizit an die Semantik: gesperrt heisst gedaempft UND fuer
-    // den Screenreader hoerbar gesperrt — sonst kuendigt er einen Knopf an,
-    // der waehrend des Ladens nichts tut.
+    // `enabled` explicitly on the semantics: disabled means dimmed AND
+    // announced as disabled, not a button that silently does nothing.
     return Semantics(
       button: true,
       enabled: enabled,
@@ -427,8 +404,8 @@ class _CopyButton extends StatelessWidget {
   }
 }
 
-/// Der Weg fuer die VOLLEN Daten: eine Datei statt einer Textflaeche. Steht
-/// unter der Karte, weil die Vorschau darueber ausdruecklich nicht alles ist.
+/// The path for the FULL data: a file instead of a text area. Sits below the
+/// card, because the preview above is explicitly not everything.
 class _ShareFileButton extends StatelessWidget {
   const _ShareFileButton({required this.enabled, required this.onShare});
 

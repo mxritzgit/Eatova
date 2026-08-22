@@ -11,37 +11,12 @@ import 'package:eatova/src/screens/settings/account_change_messages.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Die Re-Authentifizierung vor der Kontoloeschung (Sicherheits-Audit
-// 2026-08-14).
-//
-// Bis dahin genuegte das getippte Wort „LÖSCHEN" — das direkt daneben als
-// Hinweistext stand. Die einzige unwiderrufliche Aktion der App war damit
-// schwaecher gesichert als der Passwortwechsel eine Gruppe darueber, der einen
-// Mail-Code verlangt.
-//
-// Seit der Nachpruefung 2026-08-15 haengt die Hemmschwelle nicht mehr allein
-// an dieser Oberflaeche: `delete_account()` lehnt jedes JWT ohne frischen
-// 'otp'/'recovery'-Eintrag im `amr`-Claim ab (Migration
-// 20260815120000_delete_account_reauth.sql, EX_REAUTH_REQUIRED). Diese Datei
-// deckt weiterhin die UI-Haelfte ab — dass die Oberflaeche ueberhaupt zu so
-// einer Sitzung fuehrt und ohne sie nichts ausloest. Die Wire-Haelfte (neues
-// Token am RPC, Fehler-Roundtrip, Store-Verhalten bei Ablehnung) liegt in
-// `test/delete_account_wire_test.dart`.
-//
-// Drei Zusicherungen tragen die Datei:
-//
-//   1. Das getippte Wort ALLEIN loescht nichts mehr — es fordert nur den Code
-//      an. Der Loesch-Callback bleibt nachweislich aus.
-//   2. Erst der bestaetigte Code aus dem Postfach loest die Loeschung aus.
-//   3. Ein abgelehnter Code loescht nicht, meldet verstaendlich und laesst die
-//      Eingabe stehen.
-//
-// Gegenstelle ist das [InMemoryAuthRepository] (`passwordResets`,
-// `verifiedCodes`, `verifyFails`) — dasselbe Muster wie in
-// `test/account_change_flows_test.dart`.
+// Re-authentication before account deletion (security audit 2026-08-14).
+// Server-side, `delete_account()` rejects any JWT without a fresh
+// 'otp'/'recovery' `amr` entry; this file covers the UI half. The wire half is
+// in `test/delete_account_wire_test.dart`.
 
-/// Gegenstelle, deren Code-Anforderung haengen bleibt, bis der Test sie
-/// freigibt — nur so laesst sich der Doppel-Tap ueberhaupt beobachten.
+/// Code request hangs until released — the only way to see the double tap.
 class _LangsamerVersand extends InMemoryAuthRepository {
   _LangsamerVersand({super.initialUser});
 
@@ -67,8 +42,7 @@ void main() {
     return repo;
   }
 
-  /// Pumpt die Seite als ROUTE ueber einer Starterseite — nur so laesst sich
-  /// pruefen, dass die Loeschung die Seite vorher schliesst.
+  /// Pumps the page as a ROUTE, so the test can see deletion close it.
   Future<void> pump(
     WidgetTester tester, {
     AuthRepository? repo,
@@ -135,7 +109,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Bis zum Code-Schritt: Sheet auf, Wort getippt, Code angefordert.
+  /// Up to the code step: sheet open, word typed, code requested.
   Future<void> oeffneCodeSchritt(
     WidgetTester tester,
     InMemoryAuthRepository repo,
@@ -147,7 +121,7 @@ void main() {
     await tippe(tester, find.text('Code anfordern'));
   }
 
-  // --- (a) Das getippte Wort allein loescht NICHT mehr -----------------------
+  // --- (a) The typed word alone no longer deletes ---------------------------
 
   testWidgets('das getippte Wort fordert nur den Code an und loescht nichts',
       (tester) async {
@@ -156,9 +130,6 @@ void main() {
     await pump(tester, repo: repo, onDeleteAccount: () async => geloescht++);
 
     await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
-    // Der alte Zustand: mit dem getippten Wort stand hier sofort der
-    // Loesch-Knopf, und ein Tap darauf war das Konto. Im ersten Schritt gibt
-    // es ihn gar nicht mehr.
     expect(find.text('Konto endgültig löschen'), findsNothing);
 
     await schreibe(tester, 'settings-delete-confirm-field', 'LÖSCHEN');
@@ -168,7 +139,6 @@ void main() {
 
     expect(geloescht, 0, reason: 'das Wort allein loescht nichts');
     expect(repo.passwordResets, <String>['jonas@eatova.de']);
-    // Stattdessen steht die Seite noch, und das Sheet fragt jetzt den Code.
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('settings-delete-code-field')),
@@ -179,12 +149,7 @@ void main() {
 
   testWidgets('ohne das richtige Wort geht nicht einmal die Anforderung raus',
       (tester) async {
-    // Die Wort-Huerde selbst ist mit dem zweiten Schritt NICHT weggefallen —
-    // sie faengt weiter das Versehen ab, bevor ueberhaupt eine Mail rausgeht.
-    // Diese Zusicherung lag bis zum Audit in `settings_screen_test`
-    // („Konto löschen" verlangt das getippte Wort) und gehoert jetzt hierher,
-    // weil der Rest jenes Falls (Wort tippen = geloescht) genau das ist, was
-    // dieser Fix abgeschafft hat.
+    // The word hurdle still catches the slip before any mail goes out.
     final repo = baueRepo();
     var geloescht = 0;
     await pump(tester, repo: repo, onDeleteAccount: () async => geloescht++);
@@ -200,7 +165,6 @@ void main() {
       findsNothing,
     );
 
-    // Ein FALSCHES Wort schaltet ebenfalls nicht scharf.
     await schreibe(tester, 'settings-delete-confirm-field', 'löschen bitte');
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
@@ -212,8 +176,7 @@ void main() {
       findsNothing,
     );
 
-    // Kleinschreibung dagegen genuegt: die Huerde schuetzt vor dem Versehen,
-    // nicht vor der Shift-Taste.
+    // Lower case is enough: the hurdle guards a slip, not the shift key.
     await schreibe(tester, 'settings-delete-confirm-field', 'löschen');
     await tippe(tester, find.text('Code anfordern'));
 
@@ -221,7 +184,7 @@ void main() {
     expect(geloescht, 0);
   });
 
-  // --- (b) Erst der bestaetigte Code loescht --------------------------------
+  // --- (b) Only the confirmed code deletes ----------------------------------
 
   testWidgets('erst der bestaetigte Code loescht das Konto', (tester) async {
     final repo = baueRepo();
@@ -233,14 +196,12 @@ void main() {
 
     expect(repo.verifiedCodes, <String>['jonas@eatova.de:12345678']);
     expect(geloescht, 1);
-    // Erst schliessen, dann loeschen — sonst raeumt der AuthGate die Seite
-    // unter dem Nutzer weg und erklaert ihm eine „abgelaufene Sitzung".
+    // Close first, then delete, or the AuthGate blames an expired session.
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
   });
 
   testWidgets('ein zu kurzer Code blockt VOR dem Aufruf', (tester) async {
-    // Ein absehbar aussichtsloser Aufruf verbrennt nur den Code — GoTrue
-    // akzeptiert ihn nur einmal.
+    // A hopeless call only burns the code — GoTrue accepts it once.
     final repo = baueRepo();
     var geloescht = 0;
     await oeffneCodeSchritt(tester, repo, () async => geloescht++);
@@ -253,7 +214,7 @@ void main() {
     expect(find.text(kAccountCodeInvalid()), findsOneWidget);
   });
 
-  // --- (c) Ein falscher Code loescht nicht ----------------------------------
+  // --- (c) A wrong code does not delete -------------------------------------
 
   testWidgets('ein falscher Code loescht nicht und meldet verstaendlich',
       (tester) async {
@@ -268,17 +229,16 @@ void main() {
     expect(geloescht, 0);
     expect(find.byKey(const ValueKey('settings-delete-error')), findsOneWidget);
     expect(find.text(kAccountCodeRejected()), findsOneWidget);
-    // Kein Roh-Detail auf dem Screen.
+    // No raw details on screen.
     expect(find.textContaining('AuthException'), findsNothing);
     expect(find.textContaining('Token has expired'), findsNothing);
-    // Sheet bleibt offen, die Eingabe steht noch — wer sich vertippt, soll
-    // korrigieren koennen statt von vorn anzufangen.
+    // Sheet stays open with the input intact, so a typo is correctable.
     expect(find.byKey(const ValueKey('delete-account-sheet')), findsOneWidget);
     expect(find.text('00000000'), findsOneWidget);
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
   });
 
-  // --- Riegel und Sichtbarkeit ---------------------------------------------
+  // --- Latch and visibility -------------------------------------------------
 
   testWidgets('zwei Taps auf „Code anfordern" fordern nur EINEN Code an',
       (tester) async {
@@ -291,8 +251,8 @@ void main() {
     await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
     await schreibe(tester, 'settings-delete-confirm-field', 'LÖSCHEN');
 
-    // Zwei Taps OHNE Frame dazwischen: der Baum traegt den Knopf noch als
-    // scharf, allein der Riegel im Handler verhindert den zweiten Versand.
+    // Two taps with NO frame between: the tree still shows the button armed,
+    // so only the handler latch stops the second send.
     await tester.tap(find.text('Code anfordern'));
     await tester.tap(find.text('Code anfordern'));
     await tester.pump();
@@ -311,10 +271,7 @@ void main() {
 
   testWidgets('beide Schritte rendern bei textScale 2.0 ohne Overflow',
       (tester) async {
-    // Uebernommen aus `settings_screen_render_test` — dort konnte der Fall nur
-    // den ersten Schritt sehen, weil es keinen zweiten gab. Der Code-Schritt
-    // ist der engere von beiden: Untertitel mit voller Mailadresse,
-    // beschriftetes Ziffernfeld und der 52-px-Knopf.
+    // The code step is the tighter one: full mail address plus digit field.
     final repo = baueRepo();
     final overflows = <String>[];
     final prior = FlutterError.onError;
@@ -334,9 +291,7 @@ void main() {
         textScale: 2.0,
       );
 
-      // Bei doppelter Schrift liegt der Loesch-Block weit unterhalb des
-      // Viewports, und die Seite ist eine (lazy) ListView — ohne Scrollen
-      // existiert er gar nicht erst im Baum.
+      // At 2.0 the delete block sits below the viewport of a lazy ListView.
       final oeffner = find.byKey(const ValueKey('settings-delete-account'));
       await tester.scrollUntilVisible(
         oeffner,
@@ -367,15 +322,7 @@ void main() {
 
   testWidgets('ohne AuthRepository fehlt der Loesch-Block ganz',
       (tester) async {
-    // Ohne Auth-Schicht gibt es nichts, wogegen sich der Nutzer erneut
-    // ausweisen koennte — dann wird die unwiderrufliche Aktion gar nicht erst
-    // angeboten (dieselbe Regel wie fuer Passwort- und Adresswechsel).
-    //
-    // Im Betrieb tritt der Fall nicht auf: `EatovaApp` reicht Repository und
-    // Adresse gemeinsam durch (`eatova_app.dart:162`), waehrend der
-    // Loesch-Callback am Sync haengt. Nur Previews und Tests, die den Screen
-    // nackt pumpen, sehen ihn — und dort ist die fehlende Zeile die richtige
-    // Antwort.
+    // Nothing to re-authenticate against, so the action is not offered.
     await pump(tester, onDeleteAccount: () async {});
 
     expect(find.byKey(const ValueKey('settings-delete-account')), findsNothing);
@@ -383,13 +330,8 @@ void main() {
 
   testWidgets('ohne bekannte Adresse fehlt der Loesch-Block ebenfalls',
       (tester) async {
-    // Der Code wird gegen GENAU diese Adresse verifiziert — ohne sie liesse
-    // sich der zweite Schritt nicht abschliessen, und ein Sheet, das in einer
-    // Sackgasse endet, ist schlimmer als eine fehlende Zeile.
-    //
-    // Die Sitzung schlaegt den Aufruf-Parameter (`_adresse`), also muss auch
-    // der Nutzer des Repositorys ohne Adresse dastehen — sonst prueft der Fall
-    // nichts.
+    // The code is verified against EXACTLY this address, so without it step
+    // two is a dead end. The session beats `_adresse`, hence the bare user.
     final repo = InMemoryAuthRepository(
       initialUser: const EatovaUser(id: 'u1'),
     );

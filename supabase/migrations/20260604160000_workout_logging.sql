@@ -1,20 +1,14 @@
--- FitPilot — workout_sets (echtes Workout-Logging, PROD-5)
+-- FitPilot — workout_sets (real workout logging, PROD-5)
 --
--- Rein additiv + idempotent. Speichert einzelne geloggte Arbeitssaetze
--- (Uebung, Gewicht, Wiederholungen, optional RPE) pro user_id. Laeuft
--- additiv NEBEN dem bestehenden statischen Template-Advisor (ShiftMeta) —
--- nichts Bestehendes wird angefasst.
+-- Purely additive and idempotent. Stores individual logged working sets
+-- (exercise, weight, reps, optional RPE) per user_id.
 --
--- RLS strikt user_id = auth.uid(). GRANTs fuer die authenticated-Rolle
--- EXPLIZIT, da Raw-SQL via Management-API/psql sie NICHT automatisch setzt
--- (siehe 20260516180000_grants.sql; sonst 42501 "permission denied").
---
--- Hinweis: Das Client-Wiring (WorkoutLogSync ist in FitPilotSync registriert)
--- existiert; die Verdrahtung der UI in die HomePage (Boot-Load + Injektion
--- der optionalen WeekPlannerScreen-Parameter) erfolgt durch den Integrator.
+-- RLS strictly user_id = auth.uid(). GRANTs for the authenticated role are
+-- EXPLICIT because raw SQL via Management API/psql does not set them
+-- (see 20260516180000_grants.sql; otherwise 42501 "permission denied").
 
 -- ---------------------------------------------------------------------------
--- 1) Tabelle
+-- 1) Table
 -- ---------------------------------------------------------------------------
 create table if not exists public.workout_sets (
   id          uuid primary key default gen_random_uuid(),
@@ -28,8 +22,8 @@ create table if not exists public.workout_sets (
   created_at  timestamptz not null default now()
 );
 
--- Schneller Zugriff auf "die Saetze eines Users an einem lokalen Tag" und
--- generell auf die juengste Historie pro User.
+-- Fast access to "a user's sets on a local day" and to the recent history per
+-- user.
 create index if not exists workout_sets_user_local_day_idx
   on public.workout_sets (user_id, local_day desc);
 
@@ -37,7 +31,7 @@ create index if not exists workout_sets_user_exercise_logged_idx
   on public.workout_sets (user_id, exercise, logged_at desc);
 
 -- ---------------------------------------------------------------------------
--- 2) Row Level Security — user sieht/aendert nur eigene Zeilen
+-- 2) Row Level Security — a user only sees/changes their own rows
 -- ---------------------------------------------------------------------------
 alter table public.workout_sets enable row level security;
 
@@ -60,8 +54,8 @@ create policy "workout_sets_delete_own"
   using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
--- 3) GRANTs — explizit, da raw SQL sie nicht automatisch vergibt.
---    service_role bekommt vollen Zugriff (Server/Backfill).
+-- 3) GRANTs — explicit, since raw SQL does not grant automatically.
+--    service_role gets full access (server/backfill).
 -- ---------------------------------------------------------------------------
 grant select, insert, update, delete on public.workout_sets to authenticated;
 grant all on public.workout_sets to service_role;

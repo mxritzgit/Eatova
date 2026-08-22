@@ -4,20 +4,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/weight_log.dart';
 
-/// Sync fuer die Gewichts-Zeitreihe (weight_log). Frueher lagen hier auch
-/// Koffein- und Schlaf-Sync; beide sind mit dem Heute-Tab entfernt worden
-/// (Rework spaeter). Jede Methode ist atomar gegen ihre Tabelle.
+/// Sync for the weight time series (weight_log). Each method is atomic against
+/// its table.
 class TrackingSync {
   TrackingSync(this._client, this._userId);
 
   final SupabaseClient _client;
   final String _userId;
 
-  /// Bounded Load fuer die Gewichts-Zeitreihe: 365 Messpunkte decken ein Jahr
-  /// taegliches Wiegen — grosszuegig fuer den Verlaufs-Chart, der die Liste
-  /// komplett zeichnet (WeightLog.add trimmt lokal ohnehin auf 30 Eintraege).
-  /// Serverseitig desc + Limit, damit bei mehr Historie die AELTESTEN
-  /// Messpunkte wegfallen, nie die aktuellen.
+  /// Bounded load: 365 points cover a year of daily weigh-ins. Server-side desc
+  /// + limit so extra history drops the OLDEST points, never the current ones.
   static const int weightLogLimit = 365;
 
   Future<WeightLog> loadWeightLog() async {
@@ -35,9 +31,9 @@ class TrackingSync {
           weightKg: (row['weight_kg'] as num).toDouble(),
         );
       }).toList()
-        // Zurueck in die aufsteigende Reihenfolge, die WeightLog erwartet
-        // (latest == entries.last, Chart zeichnet links->rechts). Expliziter
-        // Sort statt reversed: robust, egal wie der Server sortiert hat.
+        // Back to the ascending order WeightLog expects (latest ==
+        // entries.last). Explicit sort instead of reversed: robust regardless
+        // of the server's ordering.
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       return WeightLog(entries: entries);
     } catch (e, stack) {
@@ -47,12 +43,10 @@ class TrackingSync {
     }
   }
 
-  /// Schreibt einen Gewichts-Messpunkt. Mit [id] (Client-UUID) laeuft der
-  /// Write als Upsert auf den Primary Key — ein Outbox-Retry nach unklarem
-  /// Netzwerk-Timeout schreibt dann dieselbe Zeile erneut statt ein Duplikat
-  /// anzulegen (gleiche Idempotenz-Mechanik wie MealsSync.insertLoggedMeal;
-  /// die weight_log-id-Spalte hat einen DB-Default, akzeptiert aber Client-
-  /// Werte). Ohne [id] bleibt der alte insert-Pfad (Server vergibt die id).
+  /// Writes a weight data point. With [id] (client UUID) the write is an upsert
+  /// on the primary key, so an outbox retry rewrites the same row instead of
+  /// duplicating it (same idempotency as MealsSync.insertLoggedMeal). Without
+  /// [id] the plain insert path applies and the server assigns the id.
   Future<void> insertWeight(
     double weightKg,
     DateTime timestamp, {

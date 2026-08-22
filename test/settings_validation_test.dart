@@ -9,19 +9,13 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
-// C1 — die Freitextfelder der Einstellungen gingen ungeprueft in den Upsert.
-// `digitsOnly` ist ein Typ-Guard, kein Wertebereichs-Guard: „75,5" verliert das
-// Komma und wird zu 755, gegen `weight_kg between 30 and 300`. Der resultierende
-// PostgreSQL-Fehler 23514 traegt die komplette fehlgeschlagene Zeile inklusive
-// E-Mail — das war der reale Ausloeser des Sentry-Leaks.
+// C1 — the settings free-text fields went into the upsert unchecked.
+// `digitsOnly` is a type guard, not a range guard: "75,5" becomes 755 and
+// violates `weight_kg between 30 and 300`, and the resulting PostgreSQL 23514
+// carries the whole failed row including the email (the Sentry leak).
 //
-// Richtig ist ABLEHNEN, nicht klemmen: 755 auf 300 zu klemmen schriebe eine
-// Zahl ins Profil, die der Nutzer nie gemeint hat.
-//
-// Seit dem Design-Refactor 2026-08-09 ist „Profil & Ziele" eine ROUTE statt
-// eines Sheets; geprueft wird woertlich dasselbe, nur ueber Navigator.push.
-// Der Speichern-Knopf ist ein [PrimaryActionButton] (onTap) statt eines
-// FilledButton (onPressed) — „gesperrt" heisst weiterhin: kein Callback.
+// REJECT, not clamp: clamping 755 to 300 writes a number nobody meant.
+// "locked" means: no callback on the [PrimaryActionButton].
 void main() {
   Future<Future<SettingsResult?>> openSettings(
     WidgetTester tester, {
@@ -179,18 +173,16 @@ void main() {
   testWidgets(
       'manuelles kcal-Ziel misst an der DB-Grenze, nicht an der Rechner-Klemme',
       (tester) async {
-    // Standardprofil: 2200 gespeichert vs. 2150 gerechnet (Kalorien-Review
-    // 2026-08-21: PAL 1,3 ohne Gehen, Erhaltung 2164, auf 50 gerundet) → Manuell-Modus,
-    // die kcal-/Makro-Felder sind sichtbar.
+    // 2200 stored vs. 2150 computed → manual mode, so the kcal/macro fields
+    // are visible.
     final resultFuture = await openSettings(tester);
 
     await tippe(tester, 'settings-kcal', '500');
     expect(find.text('800–7000 kcal'), findsOneWidget);
     expect(saveHandler(tester), isNull);
 
-    // 1000 liegt unter der Rechner-Untergrenze (1350 fuer „divers",
-    // KcalCalculator.kcalFloorFor), ist aber eine bewusste manuelle
-    // Entscheidung und von der DB gedeckt (800..7000).
+    // 1000 is below the calculator floor (1350), but it is a deliberate manual
+    // choice and within the DB range (800..7000).
     await tippe(tester, 'settings-kcal', '1000');
     expect(saveHandler(tester), isNotNull);
 
@@ -228,8 +220,8 @@ void main() {
       (tester) async {
     final resultFuture = await openSettings(tester);
 
-    // Unsinn ins kcal-Feld, dann zurueck in den Live-Modus: das Feld ist weg,
-    // die Werte kommen aus der Rechnung — nichts darf mehr gesperrt sein.
+    // Garbage into the kcal field, then back to live mode: the field is gone
+    // and the values come from the calculation, so nothing may stay locked.
     await tippe(tester, 'settings-kcal', '500');
     expect(saveHandler(tester), isNull);
 
@@ -247,8 +239,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('settings-save')));
     await tester.pumpAndSettle();
 
-    // Live-Wert des Standardprofils seit dem Kalorien-Review 2026-08-21:
-    // BMR 1665 × PAL 1,3 = 2164 → auf 50 gerundet 2150 (vorher 2000).
+    // Live value: BMR 1665 × PAL 1.3 = 2164 → 2150 rounded to 50.
     expect((await resultFuture)!.profile.dailyKcalGoal, 2150);
   });
 }

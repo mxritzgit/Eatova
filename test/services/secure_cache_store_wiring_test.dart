@@ -6,30 +6,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
-// VERDRAHTUNGS-WAECHTER.
+// WIRING GUARD.
 //
-// `secure_cache_store_test.dart` prueft die Options-KONSTANTEN
-// (`androidOptions.toMap()['resetOnError'] == 'false'`) und die Fakes pruefen
-// das Verhalten des Bootstraps. Dazwischen liegt eine Luecke, durch die der
-// gesamte A1-Fix lautlos verschwinden koennte, ohne dass ein Test rot wird:
-//
-//   1. `FlutterSecureStorage()` ohne `aOptions:`/`iOptions:` — die Konstanten
-//      waeren weiter korrekt, produktiv liefe der Keystore aber mit dem
-//      10.x-Default `resetOnError: true` und der Default-Accessibility
-//      `unlocked`. Genau der Zustand, den A1 beseitigt hat.
-//   2. `sentinelStore ?? <irgendein No-Op>` in `CacheKeyProvider.obtain` —
-//      der Sentinel feuerte nie.
-//   3. `probe ?? <irgendein No-Op>` — die Ciphertext-Probe saehe nie einen
-//      Blob und der Bootstrap praegte im Restore-Fall sofort neu.
-//
-// Diese Datei schliesst alle drei. Sie prueft NICHT die Konstanten (das tut
-// der andere File), sondern ausschliesslich, dass die Produktionspfade sie
-// tatsaechlich benutzen.
+// The option CONSTANTS and the bootstrap behaviour are tested elsewhere;
+// between them sits a gap through which the whole A1 fix could vanish without
+// a test going red: `FlutterSecureStorage()` without `aOptions:`/`iOptions:`
+// (production on the 10.x defaults), or a no-op default for `sentinelStore`
+// or `probe`. This file checks only that the production paths use them.
 
-/// Plattform-Fake, der aufschreibt, welche Options-Map bei ihm ankommt.
-///
-/// `extends` (nicht `implements`) ist Pflicht: `FlutterSecureStoragePlatform`
-/// prueft im Setter ein privates Token, das nur der eigene Konstruktor setzt.
+/// Platform fake recording which options map reaches it. `extends`, not
+/// `implements`: the setter checks a token only its own constructor sets.
 class _RecordingPlatform extends FlutterSecureStoragePlatform {
   Map<String, String>? lastOptions;
   String? lastKey;
@@ -90,7 +76,7 @@ class _RecordingPlatform extends FlutterSecureStoragePlatform {
   }
 }
 
-/// Keystore ohne Eintrag und ohne Fehler — das Signal "es gibt keinen DEK".
+/// Keystore without entry and without error — the "there is no DEK" signal.
 class _AbsentDekKeyStore implements SecureKeyStore {
   int writes = 0;
 
@@ -132,9 +118,8 @@ void main() {
     });
 
     test('Android-READ traegt resetOnError=false', () async {
-      // `FlutterSecureStorage._selectOptions` waehlt anhand von
-      // `defaultTargetPlatform`. Ohne Override liefe der Test auf dem
-      // Host-Betriebssystem und saehe die Windows-Options.
+      // `_selectOptions` picks by `defaultTargetPlatform`; without the
+      // override the test would see the host's options.
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
 
       await const PluginSecureKeyStore().read(CacheKeyProvider.dekStorageKey);
@@ -236,7 +221,7 @@ void main() {
         () async {
       SharedPreferences.setMockInitialValues(<String, Object>{
         CacheKeyProvider.dekProvisionedKey: true,
-        // Klartext, kein EATOVA1 — darf den Bootstrap nicht blockieren.
+        // Plaintext, no EATOVA1 — must not block the bootstrap.
         'eatova.v1.profile.user-1': '{"weight_kg":82}',
       });
 

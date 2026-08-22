@@ -1,16 +1,10 @@
--- /rezept-Vorschlaege ueberleben den Reload (Nachtrag zur Spec 2026-08-12).
+-- Recipe proposals survive a reload: the assistant row now carries the
+-- server-clamped recipe JSON (coach-chat/recipe.ts RECIPE_LIMITS), NULL on
+-- every other row. Image bytes stay out (device-local, RecipeImageStore).
 --
--- Die Assistant-Zeile eines Rezept-Vorschlags traegt ab jetzt das (bereits
--- serverseitig geklemmte, s. coach-chat/recipe.ts RECIPE_LIMITS) Rezept-JSON
--- — der Client baut daraus nach einem Reload die Vorschlagskarte wieder auf.
--- NULL fuer alle anderen Zeilen; Bild-BYTES bleiben wie bei User-Fotos
--- draussen (geraetelokal, RecipeImageStore).
---
--- Geschrieben wird die Spalte ausschliesslich aus der Edge Function
--- (service_role) — der Client hat auf chat_messages weiterhin keine
--- INSERT/UPDATE-Policy. Der Groessen-Check spiegelt den content-Check aus
--- 20260811130000: die Function klemmt jedes Textfeld (<= 2000 Zeichen),
--- der Check ist Guertel + Hosentraeger gegen kuenftige Schreiber.
+-- Written only from the edge function (service_role); the client still has no
+-- INSERT/UPDATE policy on chat_messages. The size check mirrors the content
+-- check from 20260811130000 as a belt-and-braces guard for future writers.
 alter table public.chat_messages
   add column if not exists recipe jsonb;
 

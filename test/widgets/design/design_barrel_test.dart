@@ -6,8 +6,8 @@ import 'package:eatova/src/widgets/design/design.dart';
 
 import 'design_harness.dart';
 
-// Das Fass ist der Vertrag: die Screens importieren genau diese eine Datei.
-// Der Test faellt um, sobald ein Export fehlt.
+// The barrel is the contract: screens import exactly this one file, so this
+// test fails as soon as an export goes missing.
 void main() {
   testWidgets('das Fass liefert je ein Widget aus allen fuenf Dateien',
       (tester) async {

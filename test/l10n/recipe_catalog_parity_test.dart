@@ -3,13 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/recipe_catalog_de.dart';
 import 'package:eatova/src/models/recipe_catalog_en.dart';
 
-/// Wächter der Spec §6 (Inhalte-PR): der deutsche und der englische
-/// Rezeptkatalog müssen exakt dieselbe Slug-Menge tragen. Der Slug ist die
-/// sprachneutrale Identität, an der Favoriten und der Ziel-Abgleich hängen
-/// (s. `fitness_recipe.dart`, `recipeCatalogForLocale`) — fehlt ein Slug auf
-/// einer Seite, verschwindet das Rezept beim Sprachwechsel spurlos aus der
-/// Liste, oder ein Favorit findet unter der anderen Sprache keinen Treffer
-/// mehr. Pendant zu `arb_parity_test.dart`.
+/// Guard for spec §6: the German and English recipe catalogs must carry the
+/// exact same slug set. The slug is the language-neutral identity favorites and
+/// goal matching hang on, so a missing slug makes a recipe vanish on language
+/// switch. Counterpart to `arb_parity_test.dart`.
 void main() {
   test('beide Kataloge tragen 30 Rezepte mit identischer Slug-Menge', () {
     expect(recipeCatalogDe, hasLength(30));
@@ -48,10 +45,7 @@ void main() {
       expect(en.carbsG, de.carbsG, reason: de.slug);
       expect(en.fatG, de.fatG, reason: de.slug);
       expect(en.estimatedGrams, de.estimatedGrams, reason: de.slug);
-      // Die Textfelder muessen sich UNTERSCHEIDEN (Uebersetzung, nicht
-      // versehentlich dieselbe Zeile kopiert) — ausser wo Deutsch und
-      // Englisch zufaellig gleich lauten (z. B. "Vegan" in Kategorien ist
-      // schon oben verglichen, hier geht es um die Prosa-Felder).
+      // Prose fields must DIFFER — a translation, not the same line copied.
       expect(en.title, isNot(de.title), reason: de.slug);
     }
   });

@@ -1,15 +1,10 @@
-// Komplettreview 2026-08-19: der Lade-Zustand des Tabs „Heute" hing nur an der
-// Mahlzeiten-Karte.
+// Full review 2026-08-19: the today tab's loading state only covered the meals
+// card. The calorie hero and macro card had no `dayLoading` guard, so paging
+// into an archive day outside the boot window showed the full day balance of
+// an EMPTY day while loading, then jumped to the real values.
 //
-// Kalorien-Hero und Makro-Karte bekamen keinen `dayLoading`-Guard. Beim
-// Blaettern in einen Archivtag ausserhalb des Boot-Fensters stand deshalb fuer
-// die Dauer des Nachladens die volle Tagesbilanz eines LEEREN Tages da:
-// „2.000 kcal uebrig", 0 g Protein — obwohl der Tag noch gar nicht geladen
-// war. Eine Sekunde spaeter sprangen beide Flaechen auf die echten Werte um.
-//
-// Der Harness stellt die Schale nach wie test/screens/today/today_screen_test
-// .dart (Eatova-Theme, Telefon-Viewport, das Padding aus
-// eatova_home_page.dart:420-424).
+// The harness mirrors test/screens/today/today_screen_test.dart (Eatova theme,
+// phone viewport, the padding from eatova_home_page.dart).
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -23,12 +18,11 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-/// Sonntag, 9. August 2026, 10:00 — weit weg von jeder Tagesgrenze.
+/// 2026-08-09, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
 
-/// Ein Tag weit ausserhalb des 35-Tage-Boot-Fensters: nur dort setzt
-/// `HomeStore.isLoadingFoodDay` ueberhaupt jemals `dayLoading`
-/// (home_store_meals.dart:28-32).
+/// A day well outside the 35-day boot window: only there does
+/// `HomeStore.isLoadingFoodDay` ever set `dayLoading`.
 final DateTime _archivtag = DateTime(2026, 6, 12);
 
 const UserProfile _profil = UserProfile(
@@ -82,8 +76,8 @@ Future<void> _pumpToday(
     ),
   );
 
-  // KEIN pumpAndSettle: die Ladekarte dreht einen CircularProgressIndicator
-  // endlos, dort settlet nichts.
+  // No pumpAndSettle: the loading card spins a CircularProgressIndicator
+  // forever, so nothing ever settles.
   for (var i = 0; i < 8; i++) {
     await tester.pump(const Duration(milliseconds: 50));
   }
@@ -101,8 +95,8 @@ void main() {
       });
 
       expect(_key('today-kcal-hero'), findsNothing);
-      // Die eigentliche Luege: „2.000" + „kcal uebrig" fuer einen Tag, an dem
-      // vielleicht 2.400 kcal stehen — die Zahlen sind nur noch nicht da.
+      // The actual lie: a remaining-kcal figure for a day whose numbers have
+      // not arrived yet.
       expect(_key('today-kcal-remaining'), findsNothing);
       expect(find.text('kcal übrig', skipOffstage: false), findsNothing);
       expect(_key('today-kcal-goal'), findsNothing);
@@ -120,8 +114,8 @@ void main() {
 
     testWidgets('die Ladekarte bleibt die EINZIGE Lade-Aussage',
         (tester) async {
-      // Der Zustand gehoert einmal auf den Schirm, nicht dreimal: Hero und
-      // Makros weichen, die Karte unter der Ueberschrift traegt ihn.
+      // The state belongs on screen once, not three times: hero and macros
+      // step aside, the card under the heading carries it.
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(tester, dayLoading: true);
       });
@@ -129,14 +123,14 @@ void main() {
       expect(_key('today-day-loading'), findsOneWidget);
       expect(find.text('Tag wird geladen…', skipOffstage: false),
           findsOneWidget);
-      // Die Ueberschrift bleibt stehen — auf einem Archivtag ohne „Heutige".
+      // The heading stays, without the "today" prefix on an archive day.
       expect(find.text('Mahlzeiten', skipOffstage: false), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
     testWidgets('ohne dayLoading stehen Hero und Makros unveraendert da',
         (tester) async {
-      // Gegenprobe: der Guard darf die geladene Ansicht nicht anfassen.
+      // Counter-check: the guard must not touch the loaded view.
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(
           tester,
@@ -152,13 +146,12 @@ void main() {
       });
 
       expect(_key('today-kcal-hero'), findsOneWidget);
-      // 2.000 Ziel + 0 verbrannt − 700 gegessen.
+      // 2000 goal + 0 burned - 700 eaten.
       expect(tester.widget<Text>(_key('today-kcal-remaining')).data, '1.300');
       expect(_key('today-day-loading'), findsNothing);
 
-      // Herangescrollt statt geraten: die ListView baut ihre unteren Kinder
-      // erst beim Heranscrollen, und wo die Makro-Karte auf dem Testgeraet
-      // endet, haengt an der Systemschrift.
+      // Scrolled into view rather than guessed: the ListView builds its lower
+      // children lazily, and the macro card's position depends on text scale.
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('today-macros-card')),
         220,

@@ -8,20 +8,18 @@ import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
-// DATA-7 Write-Outbox: SyncOp ist das persistierbare Wire-Format fuer
-// fehlgeschlagene Sync-Writes. Diese Tests sichern:
-//   1. Jede Op-Art roundtrippt verlustfrei durch toJson/tryFromJson.
-//   2. Korrupte/unbekannte Eintraege liefern null statt zu crashen.
-//   3. enqueueCoalesced haelt die Queue kurz, OHNE die Reihenfolge pro
-//      Entitaet (insert -> update -> delete) zu brechen.
-//   4. Der Zustellversuchs-Zaehler (attempts) roundtrippt, bleibt
-//      abwaertskompatibel (fehlt im Legacy-JSON -> 0) und wird beim
-//      Koaleszieren bewusst ZURUECKGESETZT.
-//   5. capOutbox deckelt die Queue und verwirft dabei die AELTESTEN Ops.
-//      *Delete-Ops fallen ZULETZT — deren Verlust ist der einzige, den der
-//      naechste Kaltstart nicht heilt, sondern rueckgaengig macht (die
-//      Serverzeile ueberlebt, der lokale Zustand nicht). Sie fallen aber:
-//      der Cap ist eine harte Obergrenze, sonst waechst der Blob unbegrenzt.
+// DATA-7 write outbox: SyncOp is the persistable wire format for failed sync
+// writes. These tests pin:
+//   1. every op kind roundtrips losslessly through toJson/tryFromJson.
+//   2. corrupt/unknown entries yield null instead of crashing.
+//   3. enqueueCoalesced keeps the queue short without breaking per-entity
+//      order (insert -> update -> delete).
+//   4. attempts roundtrips, stays backwards compatible (missing -> 0) and is
+//      deliberately RESET on coalescing.
+//   5. capOutbox caps the queue and drops the OLDEST ops. Deletes fall LAST —
+//      losing one is the only loss the next cold start reverses rather than
+//      heals — but they do fall: the cap is hard, else the blob grows without
+//      bound.
 
 MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
     MealAnalysisResult(
@@ -217,11 +215,9 @@ void main() {
     test(
         'ein unvollstaendiges Profil in der Payload ist UNLESBAR (null), nicht '
         'halb erfunden', () {
-      // Die Gegenprobe zum Sentinel-Fund 3: frueher fuellten fehlende
-      // Zahlenfelder sich mit Ctor-Defaults auf. In einer Outbox-Op waere das
-      // fatal — der Replay schriebe 78 kg / 2200 kcal ueber die echte
-      // Serverzeile, mit Retry. Null heisst hier: der Replay wirft und
-      // verwirft die Op (A8-Pfad), statt Fantasie zuzustellen.
+      // Counter-check to sentinel finding 3: missing numeric fields used to
+      // fall back to ctor defaults, so a replay would write invented values
+      // over the real server row. Null means the replay drops the op instead.
       final vollstaendig =
           SyncOp.profileUpsert(const UserProfile(weightKg: 91)).toJson();
       final payload = (vollstaendig['payload'] as Map)
@@ -245,8 +241,8 @@ void main() {
         isNull,
         reason: 'ohne entity_id ist die Op nicht zuordenbar',
       );
-      // Kaputter Payload: Op selbst bleibt lesbar, der Meal-Zugriff ist null
-      // (der Replay laesst so eine Op still verfallen).
+      // Broken payload: the op stays readable, meal is null, and the replay
+      // lets such an op expire silently.
       final op = SyncOp.tryFromJson(const {
         'kind': 'mealInsert',
         'entity_id': 'm-x',
@@ -288,9 +284,8 @@ void main() {
     });
 
     test('ein Streak-Tag ist KEIN Delete — er faellt am Cap zuerst', () {
-      // Ein verworfener Streak-Tag kostet einen Zaehler, ein verworfener
-      // Delete laesst geloeschte Nutzerdaten auferstehen. Die Reihenfolge in
-      // capOutbox haengt genau an dieser Unterscheidung.
+      // A dropped streak day costs a counter; a dropped delete resurrects user
+      // data. capOutbox's ordering rests on that distinction.
       expect(SyncOp.trackingDay('2026-08-10').isDelete, isFalse);
     });
   });
@@ -317,24 +312,20 @@ void main() {
             requestId: '6561746f-7661-6d73-f461-74732d726964', meals: 1),
       ];
       expect(ops.map((o) => o.attempts), everyElement(0));
-      // Vollstaendigkeit statt einer Zahl im Testnamen: wer eine Op-Familie
-      // ergaenzt und sie hier vergisst, macht den Test rot (die alte Fassung
-      // hiess „alle acht Factories" und haette profileUpsert stillschweigend
-      // ausgelassen).
+      // Completeness instead of a number in the test name: adding an op family
+      // and forgetting it here turns the test red.
       expect(ops.map((o) => o.kind).toSet(), SyncOpKind.values.toSet());
     });
 
     test(
         'Delete-Ops zaehlen ihre Versuche MIT — ohne Zaehler waeren sie '
         'unsterblich und die Outbox nie leer', () {
-      // Ein verworfener Delete ist der einzige Verlust, den der naechste
-      // Kaltstart nicht nur nicht heilt, sondern aktiv rueckgaengig macht:
-      // die geloeschte Mahlzeit kommt vom Server zurueck und zaehlt erneut.
-      // Deletes bekommen deshalb ein VIEL groesseres Budget
-      // ([kOutboxDeleteMaxAttempts]) — aber eben ein endliches. Ein Delete
-      // ohne Zaehler haette die Queue dauerhaft gefuellt gehalten: 4-Minuten-
-      // Retry-Timer ohne Ende, `preserveOutbox` fuer immer true (Audit M-1)
-      // und ein Queue-Cap, der den Ueberlauf nicht mehr abbauen kann.
+      // A dropped delete is the one loss the next cold start actively
+      // reverses: the meal comes back from the server. Deletes therefore get a
+      // much bigger but still finite budget ([kOutboxDeleteMaxAttempts]).
+      // Without a counter they would keep the queue full forever: endless
+      // retry timers, `preserveOutbox` permanently true, and a cap that can no
+      // longer drain the overflow.
       final deletes = <SyncOp>[
         SyncOp.mealDelete('m-1'),
         SyncOp.favoriteDelete('barcode:4001234'),
@@ -347,7 +338,7 @@ void main() {
             reason: '${op.kind.name}: der Zaehler ueberlebt den App-Neustart');
         expect(op.attempts, 0, reason: 'das Original bleibt unangetastet');
       }
-      // Gegenprobe: Schreib-Ops zaehlen unveraendert weiter.
+      // Counter-check: write ops keep counting as before.
       expect(SyncOp.mealUpsert(_meal('m-1')).incrementAttempt().attempts, 1);
     });
 
@@ -419,7 +410,7 @@ void main() {
     });
 
     test('Legacy-JSON ohne attempts-Key laedt als 0 (Migrations-Beweis)', () {
-      // Handgeschriebenes 4-Key-Format eines Builds VOR diesem Fix.
+      // Hand-written 4-key format from a build before this fix.
       const legacy = <String, dynamic>{
         'kind': 'mealDelete',
         'entity_id': 'm-legacy',
@@ -447,8 +438,7 @@ void main() {
       expect(SyncOp.tryFromJson(withAttempts(-3))!.attempts, 0);
       expect(SyncOp.tryFromJson(withAttempts('viele'))!.attempts, 0);
       expect(SyncOp.tryFromJson(withAttempts(null))!.attempts, 0);
-      // Ein double (z.B. aus einem JS-/JSON-Roundtrip) wird abgeschnitten,
-      // nicht verworfen.
+      // A double (e.g. from a JSON roundtrip) is truncated, not rejected.
       expect(SyncOp.tryFromJson(withAttempts(2.0))!.attempts, 2);
     });
   });
@@ -519,13 +509,13 @@ void main() {
     test(
         'Koaleszenz SETZT attempts ZURUECK — die korrigierte Eingabe darf '
         'nicht am Budget der kaputten sterben', () {
-      // Szenario: 200000 kcal getippt -> Check-Constraint, Zaehler klettert.
+      // Scenario: 200000 kcal typed -> check constraint, counter climbs.
       var poisoned =
           SyncOp.mealInsert(_meal('m-1', kcal: 200000), trackDay: true);
       poisoned = poisoned.incrementAttempt().incrementAttempt().incrementAttempt();
       expect(poisoned.attempts, 3);
 
-      // Der User korrigiert auf 500 — eine voellig gueltige Payload.
+      // The user corrects to 500, a perfectly valid payload.
       final queue = enqueueCoalesced(
           <SyncOp>[poisoned], SyncOp.mealUpsert(_meal('m-1', kcal: 500)));
 
@@ -570,7 +560,7 @@ void main() {
       expect(capped.queue, same(queue));
       expect(capped.dropped, isEmpty);
 
-      // Auch exakt AUF dem Cap wird nichts angefasst.
+      // Exactly at the cap nothing is touched either.
       expect(capOutbox(queue, maxOps: 2).dropped, isEmpty);
     });
 
@@ -602,7 +592,7 @@ void main() {
       ];
       final capped = capOutbox(queue, maxOps: 4);
 
-      // Gekappt wird ausschliesslich in der Anlege-Richtung, aeltestes zuerst.
+      // Trimming happens only from the head, oldest first.
       expect(capped.dropped.map((o) => o.entityId).toList(),
           <String>['m-0', 'm-1', 'm-2']);
       expect(capped.dropped.map((o) => o.isDelete), everyElement(isFalse));
@@ -620,13 +610,10 @@ void main() {
     test(
         'der Cap ist eine HARTE Obergrenze — auch eine reine Loesch-Queue '
         'wird gekappt, sobald keine Schreib-Op mehr da ist', () {
-      // Zielkollision: „Deletes nie kappen" haette den Cap fuer eine Queue
-      // aus lauter unzustellbaren Deletes komplett ausgehebelt — genau das
-      // unbegrenzte Wachstum des SharedPreferences-Blobs (JSON-Encode/Decode
-      // bei JEDEM Write, irgendwann ANR), gegen das der Cap geschrieben
-      // wurde. Aufloesung: Deletes sind die LETZTEN, die fallen, aber sie
-      // fallen. Der Store blendet die betroffenen Eintraege danach wieder ein
-      // und meldet es.
+      // "Never cap deletes" would disable the cap entirely for a queue of
+      // undeliverable deletes — exactly the unbounded blob growth the cap
+      // exists against. Resolution: deletes fall LAST, but they fall. The
+      // store then restores the affected entries and says so.
       final queue = <SyncOp>[
         for (var i = 0; i < 6; i++) SyncOp.mealDelete('m-$i'),
       ];
@@ -673,19 +660,18 @@ void main() {
       expect(capped.dropped, hasLength(kOutboxMaxOps * 2));
       expect(capped.queue.first.entityId, 'w-${kOutboxMaxOps * 2}');
       expect(capped.queue.last.entityId, 'w-${kOutboxMaxOps * 3 - 1}');
-      // Idempotent: ein zweiter Durchlauf findet nichts mehr zu kappen.
+      // Idempotent: a second pass finds nothing left to cap.
       expect(capOutbox(capped.queue).dropped, isEmpty);
     });
   });
 
-  // --- Fix 3: der Zaehler-Folgeeintrag (statsIncrement) ---------------------
+  // --- Fix 3: the counter follow-up op (statsIncrement) ---------------------
   //
-  // Er traegt seine Server-Request-Id als entityId und ist damit die einzige
-  // Op-Familie, deren IDENTITAET zugleich ihr Idempotenz-Schluessel ist. Zwei
-  // Eigenschaften duerfen deshalb nie kippen: das Wire-Format muss
-  // verlustfrei roundtrippen (sonst sendet der Retry etwas anderes), und der
-  // Eintrag darf NIE koalesziert werden (das verschluckte einen Zaehler,
-  // dessen Id serverseitig womoeglich schon verbucht ist).
+  // It carries its server request id as entityId, the only op family whose
+  // identity is also its idempotency key. So the wire format must roundtrip
+  // losslessly (else the retry sends something else), and the entry must never
+  // be coalesced (that would swallow a counter whose id the server may already
+  // have booked).
 
   group('SyncOp.statsIncrement (Fix 3)', () {
     const rid = '6561746f-7661-6d73-f461-74732d726964';
@@ -724,9 +710,8 @@ void main() {
     });
 
     test('korrupte/fehlende Zahlen liefern 0 statt zu werfen', () {
-      // So sieht ein manipulierter/halb geschriebener Blob aus. Der Store
-      // macht daraus den A8-Verwurf — ein Increment ueber 0 waere ein
-      // Request, der nur eine Request-Id verbraucht.
+      // A tampered or half-written blob. The store drops it (A8); an increment
+      // of 0 would be a request that only burns a request id.
       final kaputt = SyncOp.tryFromJson(<String, dynamic>{
         'kind': 'statsIncrement',
         'entity_id': rid,
@@ -756,8 +741,8 @@ void main() {
     });
 
     test('Rueckwaertskompatibilitaet: alte Blobs parsen unveraendert', () {
-      // Exakt die Wire-Form von VOR Fix 3 (kein statsIncrement weit und
-      // breit): sie muss Eintrag fuer Eintrag unveraendert durchkommen.
+      // The exact wire form from before fix 3 (no statsIncrement anywhere):
+      // every entry must load unchanged.
       final alt = <Map<String, dynamic>>[
         SyncOp.mealInsert(_meal('m-alt'), trackDay: true).toJson(),
         SyncOp.trackingDay('2026-08-10').toJson(),
@@ -776,9 +761,8 @@ void main() {
     });
 
     test('ein unbekannter Kind reisst die uebrige Queue nicht mit', () {
-      // Die Gegenrichtung (Downgrade): ein ALTER Build liest einen NEUEN
-      // Blob. `statsIncrement` ist dort unbekannt und faellt PRO EINTRAG weg —
-      // dieselbe bewusste Klasse wie beim attempts-Feld.
+      // Downgrade direction: an old build reads a new blob. Unknown kinds drop
+      // per entry, same deliberate behaviour as the attempts field.
       final gemischt = <Map<String, dynamic>>[
         SyncOp.mealInsert(_meal('m-neu'), trackDay: false).toJson(),
         <String, dynamic>{

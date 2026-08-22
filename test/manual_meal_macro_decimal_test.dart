@@ -7,12 +7,11 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 
-// Makro-Eingabe im manuellen Eintrag (Audit 2026-08-14): der digitsOnly-
-// Formatter machte aus „3,5" stumm 35 — fuer 125 g wurden dann 43,8 g Fett
-// persistiert statt 4,4. Die Kalorien blieben dabei richtig, deshalb fiel der
-// Widerspruch weder in den Ringen noch im 90-Tage-Schnitt auf.
-// Komma UND Punkt muessen durchkommen, die Grenze 0..1000 g muss danach auf
-// dem DEZIMALWERT greifen — nicht auf der Ziffernfolge.
+// Macro input in the manual entry (Audit 2026-08-14): the digitsOnly
+// formatter silently turned "3,5" into 35, persisting a tenfold fat value
+// while the calories stayed right, so nothing looked wrong.
+// Comma AND dot must pass, and the 0..1000 g bound must then apply to the
+// DECIMAL value, not to the digit string.
 
 class _ResultHalter {
   MealAnalysisResult? result;
@@ -60,9 +59,8 @@ Future<void> _tippe(WidgetTester tester, String key, String wert) =>
 String _feldText(WidgetTester tester, String key) =>
     tester.widget<TextField>(find.byKey(ValueKey(key))).controller?.text ?? '';
 
-/// Name, kcal/100 g und Portion — ohne sie sperrt Save unabhaengig von den
-/// Makros. 265 kcal auf 125 g ist derselbe Fall wie in
-/// manual_meal_sheet_test.dart.
+/// Name, kcal/100 g and portion: without them save stays disabled regardless
+/// of the macros.
 Future<void> _pflichtfelder(WidgetTester tester) async {
   await _tippe(tester, 'manual-meal-name', 'Hofladen-Butter');
   await _tippe(tester, 'manual-meal-kcal100', '265');
@@ -136,8 +134,8 @@ void main() {
     );
     expect(find.text('0–1000 g'), findsOneWidget);
 
-    // Der Formatter laesst mehrere Trennzeichen durch — Unparsebares ist ein
-    // Eingabefehler und wird abgelehnt, nicht stumm zurechtgebogen.
+    // The formatter lets several separators through; unparseable input is
+    // rejected, not silently bent into shape.
     await _tippe(tester, 'manual-meal-carbs', '3,,5');
     await tester.pump();
     expect(_saveButton(tester).onPressed, isNull);
@@ -172,7 +170,7 @@ void main() {
     expect(r.caloriesKcal, referenz.caloriesKcal);
     expect(r.estimatedGrams, referenz.estimatedGrams);
     expect(r.kcalPer100G, referenz.kcalPer100G);
-    // Herkunfts-Codes und die 0-kcal-Herkunft ueberleben den Umbau in _save.
+    // Provenance codes and the zero-kcal origin survive the rebuild in _save.
     expect(r.confidence, referenz.confidence);
     expect(r.portionNotes, referenz.portionNotes);
     expect(r.sourceLabel, referenz.sourceLabel);

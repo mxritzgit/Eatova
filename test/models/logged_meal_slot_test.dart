@@ -4,11 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
-// TEST-4: Slot-Heuristik flake-frei machen. currentMealSlot() liest clock.now()
-// statt der nackten Wanduhr, daher koennen wir die Zeit per withClock fest
-// ueber Mitternacht und ueber eine DST-Umstellung pinnen. Die reine Funktion
-// mealSlotForHour deckt die Stundengrenzen direkt ab, die Instanz-Heuristik
-// (LoggedMeal.slot) bleibt dabei byte-genau identisch.
+// TEST-4: make the slot heuristic flake-free. currentMealSlot() reads
+// clock.now(), so withClock can pin the time across midnight and a DST switch.
 
 MealAnalysisResult _result() => const MealAnalysisResult(
       mealName: 'Test',
@@ -27,11 +24,11 @@ void main() {
     test('Grenzen 11/15/21 inklusiv/exklusiv', () {
       expect(mealSlotForHour(0), MealSlot.breakfast);
       expect(mealSlotForHour(10), MealSlot.breakfast);
-      expect(mealSlotForHour(11), MealSlot.lunch); // Grenze
+      expect(mealSlotForHour(11), MealSlot.lunch); // boundary
       expect(mealSlotForHour(14), MealSlot.lunch);
-      expect(mealSlotForHour(15), MealSlot.dinner); // Grenze
+      expect(mealSlotForHour(15), MealSlot.dinner); // boundary
       expect(mealSlotForHour(20), MealSlot.dinner);
-      expect(mealSlotForHour(21), MealSlot.snack); // Grenze
+      expect(mealSlotForHour(21), MealSlot.snack); // boundary
       expect(mealSlotForHour(23), MealSlot.snack);
     });
   });
@@ -54,7 +51,7 @@ void main() {
       final m = LoggedMeal(
         id: 'x',
         result: _result(),
-        loggedAt: DateTime(2026, 6, 2, 23, 0), // waere snack
+        loggedAt: DateTime(2026, 6, 2, 23, 0), // would be snack
         forcedSlot: MealSlot.breakfast,
       );
       expect(m.slot, MealSlot.breakfast);
@@ -63,13 +60,13 @@ void main() {
 
   group('currentMealSlot (clock.now-getrieben)', () {
     test('default (ohne withClock) liest echte Zeit ohne Crash', () {
-      // Kein Pin -> Default-Clock == DateTime.now(); Slot ist einer der vier.
+      // No pin -> default clock == DateTime.now(); slot is one of the four.
       expect(MealSlot.values, contains(currentMealSlot()));
     });
 
     test('um 23:58 -> Snack, 2 Minuten spaeter (00:01 naechster Tag) -> Fruehstueck', () {
-      // Genau der Mitternachts-Flake, den die alte DateTime.now()-Variante
-      // unreproduzierbar machte: hier hart festgenagelt.
+      // The midnight flake the old DateTime.now() variant made
+      // unreproducible, pinned here.
       withClock(Clock.fixed(DateTime(2026, 6, 2, 23, 58)), () {
         expect(currentMealSlot(), MealSlot.snack);
       });
@@ -87,17 +84,16 @@ void main() {
     });
 
     test('DST-Sprung (DE 30.03.2025: 02:00 -> 03:00) bleibt deterministisch', () {
-      // Lokale Wanduhr springt von 01:59 auf 03:00. Beide Seiten sind
-      // Fruehstueck (< 11 Uhr) — der Slot darf an der Umstellung nicht kippen
-      // und nicht flaken.
+      // The wall clock jumps 01:59 -> 03:00. Both sides are breakfast
+      // (< 11), so the slot must neither flip nor flake at the switch.
       withClock(Clock.fixed(DateTime(2025, 3, 30, 1, 59)), () {
         expect(currentMealSlot(), MealSlot.breakfast);
       });
       withClock(Clock.fixed(DateTime(2025, 3, 30, 3, 0)), () {
         expect(currentMealSlot(), MealSlot.breakfast);
       });
-      // Und ueber dieselbe DST-Stunde hinweg in den Mittag: 10:30 vs 11:30
-      // muessen sauber Fruehstueck -> Mittag trennen.
+      // Across the same DST hour into lunch: 10:30 vs 11:30 must separate
+      // breakfast from lunch cleanly.
       withClock(Clock.fixed(DateTime(2025, 3, 30, 10, 30)), () {
         expect(currentMealSlot(), MealSlot.breakfast);
       });

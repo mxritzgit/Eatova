@@ -1,34 +1,30 @@
--- GRANTs fuer die authenticated-Rolle. Ohne diese Grants kann selbst
--- ein eingeloggter User trotz passender RLS-Policy nicht auf die
--- public-Tabellen schreiben - Postgres macht die Privilege-Pruefung
--- VOR der RLS-Pruefung. Symptom: 42501 "permission denied for table X".
---
--- Im Supabase-Dashboard-Tabelleneditor passiert das automatisch; bei
--- raw SQL via Management-API/psql muss man die Grants selber setzen.
+-- GRANTs for the authenticated role. Without them even a logged-in user
+-- cannot write to the public tables despite a matching RLS policy: Postgres
+-- checks privileges BEFORE RLS. Symptom: 42501 "permission denied for table
+-- X". The dashboard table editor does this automatically; raw SQL via the
+-- Management API or psql does not.
 
--- Schema-Level (USAGE noetig damit ueber das Schema gequeried werden darf).
+-- Schema level (USAGE is required to query through the schema).
 grant usage on schema public to anon, authenticated, service_role;
 
--- Volle CRUD-Rechte fuer eingeloggte User. RLS-Policies schraenken
--- danach welche Rows tatsaechlich sichtbar/aenderbar sind.
+-- Full CRUD for logged-in users; RLS policies then decide which rows are
+-- actually visible or changeable.
 grant select, insert, update, delete on all tables in schema public
   to authenticated;
 
--- service_role bekommt sowieso alles (Edge Functions, Admin).
+-- service_role gets everything anyway (edge functions, admin).
 grant all on all tables in schema public to service_role;
 
--- Sequenzen (z.B. fuer serial PKs) brauchen separate Grants.
+-- Sequences (e.g. for serial PKs) need separate grants.
 grant usage, select on all sequences in schema public to authenticated;
 grant all on all sequences in schema public to service_role;
 
--- Funktionen: authenticated darf alle plpgsql-Funktionen aufrufen die
--- in public liegen (z.B. fuer custom RPC).
+-- Functions: authenticated may call every function in public (custom RPC).
 grant execute on all functions in schema public to authenticated, service_role;
 
--- Default Privileges: alle KUENFTIGEN Tabellen/Sequenzen/Funktionen
--- die im public-Schema vom postgres-Owner erstellt werden, kriegen
--- die Grants automatisch. Damit muss diese Migration nicht jedes Mal
--- nachgezogen werden wenn neue Tabellen dazukommen.
+-- Default privileges: every FUTURE table/sequence/function created in public
+-- by the postgres owner gets these grants automatically, so this migration
+-- does not have to be re-run for new tables.
 alter default privileges in schema public
   grant select, insert, update, delete on tables to authenticated;
 alter default privileges in schema public

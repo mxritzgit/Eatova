@@ -4,21 +4,19 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 
-// Regressionstests zu docs/REVIEW-2026-08-08.md, B1 / B7 / B8.
+// Regression tests for docs/REVIEW-2026-08-08.md, B1 / B7 / B8.
 //
-// Bewusst OHNE Import von open_food_facts_product_service.dart, damit dieser
-// Test unabhaengig von der parallel laufenden Service-Ueberarbeitung
-// kompiliert.
+// Deliberately without importing open_food_facts_product_service.dart so this
+// test compiles independently of the service rework.
 //
-// Die Testdaten bilden die REALEN Serverformen ab: Zahl, 0 (der bisherige
-// clampNumber-Sentinel), null (die Form nach dem Server-Fix) und fehlender
-// Schluessel. Genau daran scheiterte die alte Testabdeckung — sie fuetterte
-// ausschliesslich fehlende Schluessel, eine Form, die der Server nie sendet.
+// The test data mirrors the REAL server shapes: number, 0 (the old clampNumber
+// sentinel), null (the shape after the server fix) and missing key. The old
+// coverage only fed missing keys, a shape the server never sends.
 
 void main() {
   group('B1 · adjustedToGrams behandelt kcalPer100G <= 0 als "fehlt"', () {
-    // Der Server lieferte fuer nicht parsebare Modellwerte 0 statt null.
-    // 780 kcal auf 300 g, Dichte-Feld unbrauchbar.
+    // The server returned 0 instead of null for unparsable model values.
+    // 780 kcal on 300 g, density field unusable.
     const tellerOhneDichte = MealAnalysisResult(
       mealName: 'Teller',
       caloriesKcal: 780,
@@ -47,8 +45,8 @@ void main() {
     });
 
     test('caloriesKcal ist autoritativ gegenueber widerspruechlicher Dichte', () {
-      // Server klemmt caloriesKcal, estimatedGrams und kcalPer100G unabhaengig
-      // voneinander und gleicht sie nie ab: 850/300 g waeren 283, nicht 260.
+      // The server clamps caloriesKcal, estimatedGrams and kcalPer100G
+      // independently and never reconciles them: 850/300 g is 283, not 260.
       const widerspruch = MealAnalysisResult(
         mealName: 'Bowl',
         caloriesKcal: 850,
@@ -162,8 +160,8 @@ void main() {
     });
 
     test('kcalPer100G: -1 wird serverseitig zu 0 und gilt als "fehlt"', () {
-      // Der Server klemmt parsebare negative Werte auf 0 statt sie zu
-      // verwerfen. Der Guard muss deshalb <= 0 pruefen, nicht == null.
+      // The server clamps parsable negative values to 0 instead of dropping
+      // them, so the guard must check <= 0, not == null.
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Suppe',
         'caloriesKcal': 240,
@@ -174,8 +172,8 @@ void main() {
     });
 
     test('echte Modellzahlen schlagen die namensbasierte Referenzdichte', () {
-      // 'Apfelkuchen' enthaelt 'apfel' -> _knownKcalPer100G liefert 52.
-      // Die beiden autoritativen Zahlen dieses Fotos sagen 333.
+      // 'Apfelkuchen' contains 'apfel' -> _knownKcalPer100G returns 52, but the
+      // two authoritative numbers of this photo say 333.
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Apfelkuchen',
         'caloriesKcal': 400,
@@ -222,13 +220,10 @@ void main() {
     test(
         'Sentinel-Rest C: ohne jede Zahl und ohne Referenztreffer wird '
         'NICHTS erfunden', () {
-      // Frueher stand am Ende der Dichte-Kette ein nacktes `: 52.0` — ein
-      // Foto, aus dem das Modell WEDER Kalorien NOCH Gramm NOCH Dichte lesen
-      // konnte und dessen Name nicht in der Referenztabelle steht, wurde
-      // damit zur loggbaren "78 kcal / 150 g"-Mahlzeit. Die etablierte
-      // Unbekannt-Form ist 0 OHNE explicitZeroKcal: die Log-Guards
-      // (add_meal_sheet/meal_analysis_sheet) blockieren sie mit Hinweis,
-      // statt Fantasie ins Tagebuch zu schreiben.
+      // The density chain used to end in a bare `: 52.0`, turning a photo with
+      // no kcal, no grams, no density and no reference-table hit into a
+      // loggable "78 kcal / 150 g" meal. The unknown form is 0 WITHOUT
+      // explicitZeroKcal; the log guards block that with a hint.
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Xyzzq',
         'caloriesKcal': null,
@@ -245,16 +240,15 @@ void main() {
     });
 
     test('Sentinel-Rest C: fehlende confidence wird nicht zu "Mittel"', () {
-      // `confidence` ist eine Aussage DES MODELLS ueber seine eigene
-      // Sicherheit. Fehlt sie, ist sie nicht "mittel" — der Nutzer richtet
-      // danach, wie sehr er der kcal-Zahl traut.
+      // `confidence` is the MODEL's own statement about its certainty. Missing
+      // is not "medium"; the user calibrates their trust by it.
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Apfel',
         'caloriesKcal': 95,
         'estimatedGrams': 150,
         'kcalPer100G': 63,
       });
-      // Review-Fixwelle (2026-08-11): neutraler Code statt 'Unbekannt'.
+      // Neutral code instead of a localized label.
       expect(r.confidence, 'unknown');
       expect(r.resolvedConfidence(deL10n), 'Unbekannt');
     });
@@ -276,8 +270,8 @@ void main() {
 
   group('B7 · Open Food Facts: Bezugsgroesse, kJ, Plausibilitaet', () {
     test('energy-kcal_value allein wird NICHT als per-100-g gelesen', () {
-      // Tiefkuehlpizza, pro Portion erfasst. Ohne nutrition_data_per ist die
-      // Bezugsgroesse unbekannt -> der Wert ist unbrauchbar.
+      // Frozen pizza, recorded per serving. Without nutrition_data_per the
+      // reference size is unknown, so the value is unusable.
       final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
         'product_name': 'Ofenfrische Salami',
         'nutriments': <String, dynamic>{'energy-kcal_value': 900},
@@ -355,9 +349,8 @@ void main() {
     });
 
     test('unplausible serving_quantity faellt auf den 100-g-Bezug zurueck', () {
-      // 250 kg ist keine Portion. Auf 10000 g zu klemmen wuerde einen
-      // 10-kg-"Teller" erfinden; der 100-g-Bezug ist die Groesse, auf die die
-      // Naehrwerte ohnehin normiert sind.
+      // 250 kg is not a serving. Clamping to 10000 g would invent a 10 kg
+      // plate; the 100 g reference is what the nutrients are normalized to.
       final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
         'product_name': 'Sack Mehl',
         'serving_quantity': 250000,
@@ -441,9 +434,9 @@ void main() {
     });
 
     test('synthetisierter Einzelposten (OFF/Barcode) skaliert die Makros', () {
-      // Ohne items synthetisiert das Bestandteil-Sheet genau einen Posten aus
-      // der Gesamtmahlzeit. Eine Gramm-Aenderung darauf ist eine echte
-      // Portionsaenderung, keine Zusammensetzungsaenderung.
+      // Without items the components sheet synthesizes exactly one item from
+      // the whole meal, so a gram change on it is a real portion change, not a
+      // composition change.
       const produkt = MealAnalysisResult(
         mealName: 'Magerquark',
         caloriesKcal: 168,

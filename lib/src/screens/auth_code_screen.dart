@@ -14,19 +14,16 @@ import '../theme/app_colors.dart';
 import '../widgets/common/app_snack.dart';
 import 'settings/account_change_messages.dart' show kAccountCodeLength;
 
-/// Welcher Code-Flow laeuft: Passwort-Reset oder Registrierungs-Bestaetigung.
+/// Which code flow is running: password reset or signup confirmation.
 enum AuthCodeFlow { recovery, signup }
 
-/// Grobe Klassifizierung eines Auth-Fehlers — reicht fuer die drei Saetze,
-/// die diese Seite zeigt.
+/// Coarse classification of an auth error — enough for the three messages
+/// this page shows.
 enum _AuthErrorKind { rateLimited, codeRejected, unknown }
 
-/// Reihenfolge wie in `settings/account_change_messages.dart`: erst das
-/// Drossel-Limit, dann der abgelehnte Code. GoTrue drosselt den Mailversand
-/// hart („For security purposes, you can only request this after 51 seconds");
-/// diese Meldung darf NICHT im Sammelzweig landen, der zum naechsten Versuch
-/// auffordert — genau das erzeugt die Tap-Schleife, die das Kontingent
-/// leerlaufen laesst.
+/// Order as in `settings/account_change_messages.dart`: rate limit first, then
+/// the rejected code. GoTrue's throttle message must NOT fall into the catch-all
+/// branch that invites a retry — that is the tap loop which drains the quota.
 _AuthErrorKind _classifyAuthError(Object error) {
   final raw = error.toString().toLowerCase();
   if (raw.contains('rate limit') ||
@@ -41,7 +38,7 @@ _AuthErrorKind _classifyAuthError(Object error) {
   return _AuthErrorKind.unknown;
 }
 
-/// Stand des Riegels fuer EINE Adresse.
+/// Guard state for ONE address.
 class _ThrottleState {
   const _ThrottleState({this.lastSent, this.failedAttempts = 0});
 
@@ -49,43 +46,27 @@ class _ThrottleState {
   final int failedAttempts;
 }
 
-/// Persistenter, an die ADRESSE gebundener Riegel fuer den Code-Versand
-/// (Audit 2026-08-14).
+/// Persistent, ADDRESS-bound guard for sending codes (audit 2026-08-14).
 ///
-/// `sendPasswordReset` schickt eine Mail an eine BELIEBIGE eingetippte
-/// Adresse. Ein Riegel, der nur an der Screen-Instanz haengt, ist deshalb
-/// keiner: wer die Seite verlaesst und neu oeffnet, faengt sonst bei null an —
-/// das Postfach eines Fremden laesst sich fluten, das GoTrue-Stundenkontingent
-/// laeuft leer (danach bekommt KEIN Nutzer mehr Mails) und jede Zustellung
-/// kostet den eigenen Mailserver. Der Zeitstempel liegt darum im
-/// Geraetespeicher, geschluesselt ueber die Adresse.
+/// `sendPasswordReset` mails any typed address, so a guard living only on the
+/// screen instance is none: leaving and reopening the page would reset it and
+/// let a stranger's inbox be flooded while the GoTrue hourly quota drains.
+/// The timestamp therefore goes to device storage, keyed by the address.
 ///
-/// Der Schluessel traegt einen FNV-1a-Digest der normalisierten Adresse statt
-/// ihres Klartexts: die Prefs sollen keine Liste der hier eingetippten
-/// (womoeglich fremden) Adressen zurueckhalten. Der Digest muss nur stabil
-/// ueber Neustarts und kollisionsarm sein, nicht kryptografisch — das spart
-/// eine Dependency.
+/// The key holds an FNV-1a digest of the normalized address, not its plaintext,
+/// so prefs keep no list of typed (possibly foreign) addresses. The digest only
+/// needs to be stable and collision-poor, not cryptographic.
 ///
-/// Der Speicher traegt die HALTBARKEIT des Riegels ueber Neustarts hinweg —
-/// er ist nicht seine Bedingung. Antwortet er nicht (kein Plugin-Channel,
-/// langsames Geraet), laeuft der Versand trotzdem: [_AuthCodeScreenState]
-/// wartet auf keinen Lese- oder Schreibvorgang, sondern liest vorab (beim
-/// Tippen) und schreibt nebenher. Frueher hing der Knopf an diesen Futures —
-/// blieb einer offen, ging KEINE Mail mehr raus und der Spinner drehte
-/// weiter: fail-closed statt des hier beschriebenen fail-open. Der Riegel
-/// innerhalb der Sitzung gilt darum immer, der serverseitige GoTrue-Riegel
-/// bleibt der Rueckfall.
+/// Storage carries the guard's DURABILITY, it is not its precondition: if it
+/// does not answer, sending still proceeds — the state is read ahead (while
+/// typing) and written alongside, never awaited on the send path. Awaiting it
+/// once made the button fail-closed and could block every mail.
 ///
-/// ACHTUNG (Kommentar-Ehrlichkeit): der Riegel ist bewusst FAIL-OPEN (s.o.)
-/// und rein CLIENTSEITIG — er lebt nur in diesem Widget-Zustand und im
-/// lokalen Geraetespeicher. Ein eigener Client (curl, ein zweites Geraet,
-/// eine gepatchte App) umgeht ihn trivial, [maxAttempts] eingeschlossen: er
-/// zaehlt schlicht keine Fehlversuche mehr mit. Als KOSTEN- und
-/// MISSBRAUCHSBREMSE fuer den gutartigen Fall (diese App, dieses Geraet)
-/// taugt er; als BRUTE-FORCE-SCHUTZ fuer den Ziffern-Code NICHT. Der
-/// echte Schutz muss serverseitig kommen (8-stelliger Keyspace,
-/// GoTrue-Rate-Limits, Code-Ablauf nach mailer_otp_exp, ggf. IP-Sperren —
-/// Rechnung in supabase/AUTH_EMAIL_OTP.md).
+/// Deliberately FAIL-OPEN and purely CLIENT-SIDE: another client (curl, a
+/// second device, a patched app) bypasses it trivially, [maxAttempts]
+/// included. It is a cost and abuse brake for the benign case, NOT brute-force
+/// protection — that must come from the server (see
+/// supabase/AUTH_EMAIL_OTP.md).
 class _OtpSendThrottle {
   _OtpSendThrottle(this._injected);
 
@@ -95,9 +76,8 @@ class _OtpSendThrottle {
 
   final KeyValueStore? _injected;
 
-  /// Die EINE laufende Aufloesung. Ohne diesen Cache startete jeder Lese- und
-  /// Schreibvorgang ein weiteres `SharedPreferences.getInstance()`, solange
-  /// das erste noch offen war.
+  /// The single in-flight resolution; without it every read and write would
+  /// start another `SharedPreferences.getInstance()`.
   Future<KeyValueStore?>? _resolving;
 
   Future<KeyValueStore?> _store() {
@@ -110,7 +90,7 @@ class _OtpSendThrottle {
     try {
       return await SharedPreferencesStore.create();
     } catch (_) {
-      // Prefs nicht verfuegbar: s. Klassen-Kommentar (fail-open).
+      // Prefs unavailable: see class comment (fail-open).
       return null;
     }
   }
@@ -140,30 +120,24 @@ class _OtpSendThrottle {
             : null,
         failedAttempts: fehl is int && fehl > 0 ? fehl : 0,
       );
-      // Aufraeumen statt liegenlassen (W3c): die Schluessel `otp_guard.<hash>`
-      // sammeln sich sonst unbegrenzt an, weil hier nie geloescht wird. Kein
-      // eigener Hintergrundjob noetig — es reicht, beim ohnehin faelligen
-      // Lesen mit aufzuraeumen.
+      // Clean up on read (W3c): `otp_guard.<hash>` keys would otherwise pile
+      // up forever; no background job needed.
       if (_expired(stand)) {
         unawaited(store.remove(key));
         return const _ThrottleState();
       }
       return stand;
     } catch (_) {
-      // Kaputter Eintrag darf den Flow nicht blockieren.
+      // A broken entry must not block the flow.
       return const _ThrottleState();
     }
   }
 
-  /// `true`, wenn [stand] keine Wirkung mehr hat und der Eintrag darum
-  /// geraeumt werden darf.
+  /// `true` when [stand] no longer has any effect and may be evicted.
   ///
-  /// Eine aktive Sperre (>= [maxAttempts] Fehlversuche) verfaellt NICHT von
-  /// selbst — sie gilt bis zu einem echten neuen Versand ([_stamp] mit
-  /// `resetAttempts: true`) und darf durchs Aufraeumen nicht heimlich
-  /// aufgehoben werden. Nur wenn der Cooldown seit [_ThrottleState.lastSent]
-  /// laengst verstrichen ist UND keine Sperre greift, traegt der Eintrag
-  /// nichts mehr bei.
+  /// An active lockout (>= [maxAttempts]) never expires on its own — it holds
+  /// until a real new send ([_stamp] with `resetAttempts: true`) and must not
+  /// be lifted silently by the cleanup.
   bool _expired(_ThrottleState stand) {
     if (stand.failedAttempts >= maxAttempts) return false;
     final start = stand.lastSent;
@@ -171,7 +145,7 @@ class _OtpSendThrottle {
     return clock.now().difference(start) >= cooldown;
   }
 
-  /// `true`, wenn der Stand wirklich weggeschrieben wurde.
+  /// `true` when the state was actually persisted.
   Future<bool> write(String email, _ThrottleState state) async {
     final store = await _store();
     if (store == null) return false;
@@ -190,18 +164,14 @@ class _OtpSendThrottle {
   }
 }
 
-/// Eigene Seite fuer die 8-stelligen E-Mail-Codes (OTP statt Mail-Link,
-/// Laenge zentral in [kAccountCodeLength]).
+/// Page for the 8-digit e-mail codes (OTP instead of mail link, length in
+/// [kAccountCodeLength]). Codes are valid 10 minutes (mailer_otp_exp).
 ///
-///  * [AuthCodeFlow.recovery]: E-Mail eingeben -> Code anfordern -> Code
-///    pruefen (verifyOTP recovery, stellt die Session her) -> neues Passwort
-///    setzen. Die Versand-Bestaetigung bleibt NEUTRAL — ob zur Adresse ein
-///    Konto existiert (oder ein reines Google-Konto), verraet die App nicht.
-///  * [AuthCodeFlow.signup]: die Adresse steht fest (frisch registriert),
-///    nur der Code wird geprueft; der AuthGate wechselt danach von selbst
-///    auf die Home-Page (Session-Stream).
-///
-/// Die Codes sind serverseitig 10 Minuten gueltig (mailer_otp_exp).
+///  * [AuthCodeFlow.recovery]: enter mail -> request code -> verify (creates
+///    the session) -> set new password. The send confirmation stays NEUTRAL:
+///    it never reveals whether an account exists for the address.
+///  * [AuthCodeFlow.signup]: address is fixed, only the code is checked; the
+///    AuthGate then switches to the home page on its own.
 class AuthCodeScreen extends StatefulWidget {
   const AuthCodeScreen({
     super.key,
@@ -215,16 +185,15 @@ class AuthCodeScreen extends StatefulWidget {
   final AuthCodeFlow flow;
   final String initialEmail;
 
-  /// Ersetzt SharedPreferences als Ablage des Versand-Riegels — gedacht fuer
-  /// Tests, die den Cooldown ohne Plugin-Channel nachstellen
-  /// (`InMemoryKeyValueStore`, Muster `LocalCache`).
+  /// Replaces SharedPreferences as the guard's storage — for tests that
+  /// reproduce the cooldown without a plugin channel.
   final KeyValueStore? throttleStore;
 
   @override
   State<AuthCodeScreen> createState() => _AuthCodeScreenState();
 }
 
-/// Schritte des Recovery-Flows; Signup startet direkt beim Code.
+/// Steps of the recovery flow; signup starts at the code.
 enum _Step { email, code, password }
 
 class _AuthCodeScreenState extends State<AuthCodeScreen> {
@@ -247,32 +216,29 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   int _cooldownSeconds = 0;
   Timer? _ticker;
 
-  /// Adresse, zu der [_lastSent] und [_failedAttempts] gerade gehoeren —
-  /// zugleich das Marken-Token gegen spaet eintreffende Lesevorgaenge.
+  /// Address [_lastSent] and [_failedAttempts] currently belong to, and the
+  /// token that fences off late-arriving reads.
   String? _guardFor;
 
-  /// `true`, sobald diese Sitzung fuer [_guardFor] selbst gestempelt oder
-  /// gezaehlt hat. Ein danach eintreffender Lesevorgang ist aelter als der
-  /// Stand im Screen und darf ihn nicht zurueckdrehen.
+  /// `true` once this session stamped or counted for [_guardFor]; a read
+  /// arriving afterwards is stale and must not roll the screen state back.
   bool _guardTouched = false;
 
   bool get _isRecovery => widget.flow == AuthCodeFlow.recovery;
 
-  /// Die Adresse, an der Riegel und Fehlversuchszaehler haengen. Ab dem
-  /// Code-Schritt ist das Feld nicht mehr sichtbar, der Wert also stabil.
+  /// Address the guard and the failure counter hang on. From the code step on
+  /// the field is hidden, so the value is stable.
   String get _guardEmail => _email.text.trim();
 
-  /// Speicher und Riegel muessen dieselbe Adresse meinen — gleiche
-  /// Normalisierung wie [_OtpSendThrottle._key].
+  /// Storage and guard must mean the same address — same normalization as
+  /// [_OtpSendThrottle._key].
   static String _normalisiert(String email) => email.trim().toLowerCase();
 
   bool get _locked => _failedAttempts >= _OtpSendThrottle.maxAttempts;
 
-  /// Die Auth-Seiten stehen noch aus der i18n-Migration (docs/I18N_PAKETE.md)
-  /// und werden in Bestandstests OHNE Localizations-Delegates gepumpt —
-  /// `context.l10n` wuerde dort werfen. Die NEUEN Texte dieses Audits kommen
-  /// trotzdem aus dem ARB, deshalb derselbe Deutsch-Default wie in
-  /// `sync_error_messages.dart`.
+  /// The auth pages still await the i18n migration and existing tests pump
+  /// them WITHOUT localization delegates, where `context.l10n` would throw —
+  /// hence the same German default as in `sync_error_messages.dart`.
   AppLocalizations get _l10n =>
       Localizations.of<AppLocalizations>(context, AppLocalizations) ?? deL10n;
 
@@ -293,19 +259,18 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     super.dispose();
   }
 
-  /// Holt Stempel und Fehlversuchszaehler aus dem Speicher. Laeuft beim Aufbau
-  /// der Seite und bei jeder Adress-Aenderung — nur so ueberlebt der Riegel das
-  /// Wegnavigieren, den Rebuild und den Neustart.
+  /// Loads stamp and failure counter from storage, on page build and on every
+  /// address change — that is how the guard survives navigation and restarts.
   ///
-  /// Bewusst NICHT auf dem Weg zum Versand: der Tap auf „Code anfordern" darf
-  /// nie auf den Geraetespeicher warten (s. [_OtpSendThrottle]). Steht der
-  /// Stand noch aus, gilt der Riegel eben nicht — fail-open.
+  /// Deliberately NOT on the send path: the tap must never wait for device
+  /// storage (see [_OtpSendThrottle]). If the state is still pending, the
+  /// guard simply does not apply — fail-open.
   Future<void> _hydrate(String email) async {
     final ziel = _normalisiert(email);
     if (ziel.isEmpty) return;
     _guardFor = ziel;
     final stand = await _throttle.read(ziel);
-    // Inzwischen eine andere Adresse — oder wir wissen es selbst besser?
+    // Different address by now — or the screen already knows better?
     if (!mounted || _guardFor != ziel || _guardTouched) return;
     setState(() {
       _lastSent = stand.lastSent;
@@ -315,9 +280,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     _syncTicker();
   }
 
-  /// Der Riegel haengt an der ADRESSE: was fuer die vorige galt, gilt fuer eine
-  /// neu getippte nicht. Der Speicher wird deshalb schon beim Tippen gelesen —
-  /// bis zum Tap auf den Knopf ist der Stand da, ohne dass der Tap wartet.
+  /// The guard is bound to the ADDRESS, so a newly typed one starts fresh.
+  /// Storage is read while typing, so the state is there before the tap.
   void _onEmailChanged() {
     final ziel = _normalisiert(_email.text);
     if (ziel == _guardFor) return;
@@ -336,14 +300,10 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     final start = _lastSent;
     if (start == null) return 0;
     final rest = _OtpSendThrottle.cooldown - clock.now().difference(start);
-    // Nach UNTEN klemmt `isNegative` (Cooldown laengst vorbei). Nach OBEN
-    // braucht es dieselbe Klemme: ein Rest, der die Cooldown-Dauer selbst
-    // uebersteigt, ist per Definition unmoeglich (`start` liegt dann in der
-    // "Zukunft" relativ zu `clock.now()`) und bedeutet eine zurueckgestellte
-    // Geraeteuhr oder einen Zeitzonenwechsel — nicht einen echten, noch
-    // laengeren Cooldown. Ohne diese Klemme entstuende ein persistenter
-    // Selbst-DoS ("naechster Code in 86400 s"), aus dem der Nutzer nicht mehr
-    // herauskaeme (W3b).
+    // `isNegative` clamps the low end; the high end needs the same clamp: a
+    // remainder above the cooldown itself means a rewound device clock, not a
+    // longer cooldown. Without it the user is stuck in a persistent self-DoS
+    // ("next code in 86400 s") (W3b).
     if (rest.isNegative || rest > _OtpSendThrottle.cooldown) return 0;
     return (rest.inMilliseconds / 1000).ceil();
   }
@@ -359,7 +319,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
 
   void _tick() {
     final rest = _remainingSeconds();
-    // Ohne sichtbare Aenderung kein Rebuild.
+    // No rebuild without a visible change.
     if (rest == _cooldownSeconds) return;
     setState(() => _cooldownSeconds = rest);
     if (rest <= 0) {
@@ -368,10 +328,9 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     }
   }
 
-  /// Stempelt den Versand. Der Riegel gilt SOFORT; das Wegschreiben laeuft
-  /// nebenher und macht ihn nur haltbar (s. [_OtpSendThrottle]).
-  /// [resetAttempts] gilt fuer echte Versande — ein neuer Code macht die alten
-  /// Fehlversuche gegenstandslos.
+  /// Stamps a send. The guard applies IMMEDIATELY; persisting runs alongside
+  /// and only makes it durable. [resetAttempts] is for real sends — a new code
+  /// voids the old failed attempts.
   void _stamp(String email, {required bool resetAttempts}) {
     final jetzt = clock.now();
     final versuche = resetAttempts ? 0 : _failedAttempts;
@@ -390,8 +349,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     _syncTicker();
   }
 
-  /// Wie [_stamp] ohne Warten auf den Speicher: der Zaehler kostet niemanden
-  /// eine Mail, er sperrt nur die Eingabe, bis ein neuer Code da ist.
+  /// Like [_stamp] without awaiting storage: the counter costs no mail, it
+  /// only locks the input until a new code arrives.
   void _countFailedAttempt(String email) {
     final naechster = _failedAttempts + 1;
     _guardTouched = true;
@@ -432,9 +391,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     }
   }
 
-  /// Faengt die Drossel-Meldung des Servers ab: sie stempelt den Riegel
-  /// ebenfalls, damit der Countdown zeigt, wann es weitergeht, statt dass der
-  /// Nutzer blind weitertippt.
+  /// Catches the server's throttle error and stamps the guard too, so the
+  /// countdown shows when sending resumes instead of blind retries.
   Future<void> _sendGuarded(
     String email,
     Future<void> Function() versand,
@@ -456,9 +414,9 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       setState(() => _error = 'Bitte gib eine gültige E-Mail ein.');
       return;
     }
-    // Der Stand FUER DIESE Adresse kam beim Tippen (_onEmailChanged); hier
-    // wird nur noch gelesen, was schon da ist. Ein Warten auf den Speicher
-    // wuerde den allerersten Versand aufhalten — genau das darf nie passieren.
+    // The state for this address arrived while typing (_onEmailChanged); this
+    // only reads what is already there — awaiting storage would stall the very
+    // first send.
     final rest = _remainingSeconds();
     if (rest > 0) {
       setState(() => _error = _l10n.authCodeThrottleWait(rest));
@@ -515,24 +473,20 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
           await widget.authRepository
               .verifySignupCode(email: email, code: code);
           if (!mounted) return;
-          // Session steht — der AuthGate unter dieser Route wechselt auf die
-          // Home-Page, die Seite hat ihren Zweck erfuellt.
+          // Session established — the AuthGate below this route switches to
+          // the home page, so this screen is done.
           Navigator.of(context).pop();
         }
       } catch (error) {
-        // Nur ein wirklich ABGELEHNTER Code zaehlt: ein Netz- oder
-        // Drosselfehler heisst, der Server hat gar nicht geprueft.
+        // Only a truly REJECTED code counts: a network or throttle error means
+        // the server never checked it.
         if (_classifyAuthError(error) == _AuthErrorKind.codeRejected) {
           _countFailedAttempt(email);
           if (_locked) {
-            // Dieser Fehlversuch hat die Sperre gerade ausgeloest: ab jetzt
-            // uebernimmt der Dauerhinweis in build() (`authCodeTooManyAttempts`)
-            // die Meldung. Wuerde hier trotzdem weitergeworfen, setzte `_run`
-            // den codespezifischen Fehlertext in `_error` — und der haette laut
-            // build() VORRANG vor dem Dauerhinweis, obwohl der Nutzer am
-            // gesperrten Feld nichts mehr tun kann. Ein spaeter neu
-            // auftretender Fehler (z.B. beim Neuanfordern waehrend der Sperre)
-            // ist davon unberuehrt: der setzt `_error` erst NACH diesem Punkt.
+            // This attempt just triggered the lockout; from here the standing
+            // hint in build() owns the message. Rethrowing would let `_run`
+            // put the code-specific text into `_error`, which takes precedence
+            // over that hint even though the field is locked.
             return;
           }
         }
@@ -561,11 +515,10 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   @override
   Widget build(BuildContext context) {
     final gesperrt = _locked && _step == _Step.code;
-    // Ein AKTUELLER Fehler (z.B. ein gescheitertes Neuanfordern waehrend der
-    // Sperre — offline, GoTrue-Drossel) hat Vorrang vor dem Dauerhinweis der
-    // Sperre; ohne `_error` faellt die Meldung auf den Dauerhinweis zurueck.
-    // Vorher verschluckte `gesperrt ? ... : _error` JEDEN weiteren Fehler,
-    // sobald die Sperre einmal griff — der Link wirkte tot (W3).
+    // A CURRENT error (e.g. a failed resend during the lockout) outranks the
+    // lockout's standing hint; without `_error` the hint shows. The reverse
+    // order swallowed every later error once locked, making the link look dead
+    // (W3).
     final fehlerText =
         _error ?? (gesperrt ? _l10n.authCodeTooManyAttempts : null);
     return SecureScreenGuard(
@@ -715,9 +668,9 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                 Center(
                   child: GestureDetector(
                     key: const ValueKey('code-resend'),
-                    // Waehrend des Cooldowns bleibt der Tap absichtlich
-                    // moeglich: _resend sagt dann, wie lange es noch dauert —
-                    // ein toter Link liesse den Nutzer raten.
+                    // The tap stays enabled during the cooldown so _resend can
+                    // say how long is left; a dead link would leave the user
+                    // guessing.
                     onTap: _busy ? null : _resend,
                     behavior: HitTestBehavior.opaque,
                     child: Padding(
@@ -746,8 +699,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   }
 }
 
-/// Rahmenlose Soft-Kapsel (Design-Vorgabe: keine Hairlines/Fokusringe,
-/// Fokus = Flaechen-Aufhellung).
+/// Borderless soft capsule (design rule: no hairlines or focus rings, focus is
+/// a surface lightening).
 class _CapsuleField extends StatefulWidget {
   const _CapsuleField({
     required this.fieldKey,
@@ -846,8 +799,7 @@ class _CapsuleFieldState extends State<_CapsuleField> {
   }
 }
 
-/// Grosse Code-Kapsel: [kAccountCodeLength] Ziffern, weit gesperrt, tabular —
-/// die Zahl ist der Held der Seite.
+/// Large code capsule: [kAccountCodeLength] digits, wide tracking, tabular.
 class _CodeField extends StatelessWidget {
   const _CodeField({
     required this.fieldKey,
@@ -876,8 +828,7 @@ class _CodeField extends StatelessWidget {
         enabled: enabled,
         autofocus: true,
         keyboardType: TextInputType.number,
-        // Ohne den Hinweis bietet der Passwortmanager den gerade
-        // eingegangenen Code gar nicht erst an.
+        // Without this hint the password manager never offers the code.
         autofillHints: const [AutofillHints.oneTimeCode],
         inputFormatters: [
           FilteringTextInputFormatter.digitsOnly,

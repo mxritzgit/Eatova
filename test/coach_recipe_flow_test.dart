@@ -18,21 +18,20 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Coach-Rezept-Generator (Spec 2026-08-12 + Nachtrag 2026-08-13):
-//   * NUR /recipe ist ein Befehl (englisch, in beiden App-Sprachen);
-//     unbekannte /-Befehle (auch das alte /rezept) gehen NIE ans Modell —
-//     lokaler Hinweis statt verbranntem Tages-Slot.
-//   * Befehls-Menue: "/" im Composer schlaegt /recipe mit lokalisierter
-//     Beschreibung vor, Tap vervollstaendigt.
-//   * Karte -> Sheet -> genau EIN onCreateRecipe mit den Haus-Regeln.
-//   * „Hinzugefuegt" gilt nur, solange das Rezept noch existiert — Loeschen
-//     im Rezepte-Tab aktiviert den Button wieder.
-//   * Vorschlaege aus dem VERLAUF (chat_messages.recipe) bauen die Karte
-//     nach einem Reload wieder auf.
+// Coach recipe generator:
+//   * /recipe is the only command (English in both app languages); unknown
+//     /-commands never reach the model — a local hint instead of a burnt slot.
+//   * "/" in the composer suggests /recipe with a localized description; a tap
+//     completes it.
+//   * Card -> sheet -> exactly one onCreateRecipe.
+//   * "Added" holds only while the recipe exists; deleting it in the recipes
+//     tab re-enables the button.
+//   * Proposals from history (chat_messages.recipe) rebuild the card after a
+//     reload.
 
 const Size _usableSize = Size(402, 781);
 
-/// 1x1-PNG fuer Image.memory in der Karte.
+/// 1x1 PNG for the card's Image.memory.
 final Uint8List _pngBytes = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
 );
@@ -68,10 +67,10 @@ class _RecipeCoach extends CoachChatService {
   final List<({String wish, String locale})> recipeCalls =
       <({String wish, String locale})>[];
 
-  /// Verlauf, den loadHistory liefert (fuer die Reload-Karten-Tests).
+  /// History returned by loadHistory (for the reload-card tests).
   List<ChatMessage> history = const <ChatMessage>[];
 
-  /// Ohne Override liefert requestRecipe den Standard-Vorschlag.
+  /// Without an override, requestRecipe returns the default proposal.
   CoachRecipeReply Function(String sessionId)? recipeReply;
 
   @override
@@ -168,9 +167,9 @@ Future<void> _pumpCoach(
             child: CoachChatScreen(
               service: service,
               userName: 'Moritz',
-              // Die Schale spiegelt hier den HomeStore: createUserRecipe
-              // macht das Rezept SOFORT sichtbar — deshalb wandert der Slug
-              // im selben Zug in die Live-Slug-Sicht.
+              // The shell mirrors the HomeStore: createUserRecipe makes the
+              // recipe visible at once, so the slug enters the live slug view
+              // in the same step.
               onCreateRecipe: created == null
                   ? null
                   : (recipe) async {
@@ -210,7 +209,7 @@ void main() {
     expect(svc.sendCalls, 0, reason: 'der Chat-Pfad bleibt unberuehrt');
     expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
     expect(find.text('Huehnchenauflauf'), findsOneWidget);
-    // Die User-Blase zeigt die Original-Eingabe inkl. Befehl.
+    // The user bubble shows the original input including the command.
     expect(find.text('/recipe Huehnchenauflauf mit Bild'), findsOneWidget);
   });
 
@@ -267,7 +266,7 @@ void main() {
     );
     expect(field.controller?.text, '/recipe ');
 
-    // Normaler Text und Nicht-Praefixe zeigen kein Menue.
+    // Plain text and non-prefixes show no menu.
     await tester.enterText(
       find.byKey(const ValueKey('coach-input')),
       'hallo Coach',
@@ -302,8 +301,8 @@ void main() {
     'Bestaetigen speichert einmal; Loeschen im Rezepte-Tab reaktiviert den Button',
     (tester) async {
       final svc = _RecipeCoach.create()
-        // Ohne Bild-Bytes: der Speicherpfad braucht dann keinen
-        // RecipeImageStore (Plugin-Channel) — das Bild testet der Karten-Test.
+        // Without image bytes the save path needs no RecipeImageStore
+        // (plugin channel); the card test covers the image.
         ..recipeReply = (sessionId) => CoachRecipeReply(
           reply: 'Rezeptvorschlag: Huehnchenauflauf.',
           refusal: false,
@@ -357,8 +356,8 @@ void main() {
       );
       expect(find.text('Hinzugefügt'), findsOneWidget);
 
-      // Nutzer loescht das Rezept im Rezepte-Tab: die Live-Slug-Sicht der
-      // Schale verliert den Slug, der naechste Build reaktiviert den Button.
+      // Deleting in the recipes tab drops the slug from the live view, and the
+      // next build re-enables the button.
       slugs.remove(recipe.slug);
       await _pumpCoach(
         tester,
@@ -378,9 +377,8 @@ void main() {
   testWidgets(
     'Neustart: Verlaufs-Karte kennt „Hinzugefügt", solange das Rezept existiert',
     (tester) async {
-      // DER Bug der Spec 2026-08-13: Karte aus dem Verlauf + Rezept existiert
-      // noch -> frueher fragte die Karte erneut. Der Slug ist jetzt aus der
-      // Message-Id ableitbar, die In-Memory-Map ist weg.
+      // A card from history whose recipe still exists used to offer to add it
+      // again; the slug is now derivable from the message id.
       final svc = _RecipeCoach.create()
         ..history = <ChatMessage>[
           ChatMessage(
@@ -407,7 +405,7 @@ void main() {
         reason: 'das Rezept existiert noch — kein zweites Angebot',
       );
 
-      // Loeschen im Rezepte-Tab reaktiviert den Button (Live-Sicht).
+      // Deleting in the recipes tab re-enables the button (live view).
       slugs.clear();
       await _pumpCoach(
         tester,
@@ -464,9 +462,9 @@ void main() {
   testWidgets(
     'Reload-Karte: ein Vorschlag aus dem VERLAUF rendert mit aktivem Button',
     (tester) async {
-      // Nachtrag 2026-08-13: chat_messages.recipe traegt das Rezept-JSON —
-      // fromRow baut das Proposal (ohne Bytes), die Karte erscheint nach dem
-      // Neustart wieder. Bild fehlt (kein Store im Test) -> Platzhalter.
+      // chat_messages.recipe carries the recipe JSON; fromRow rebuilds the
+      // proposal without bytes, so the card returns after a restart with a
+      // placeholder image (no store in the test).
       final svc = _RecipeCoach.create()
         ..history = <ChatMessage>[
           ChatMessage(

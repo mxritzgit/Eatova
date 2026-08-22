@@ -9,9 +9,7 @@ import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Widget-Tests fuer die Trend-Ansicht: Empty State, Kennzahlen-Rendering,
-// Zeitraum-Umschalter und Fehler-/Retry-Zustand — alles mit injizierten
-// Fake-Loadern, ohne Supabase.
+// Widget tests for the trend view, with injected fake loaders, no Supabase.
 
 DateTime _daysAgo(int n) {
   final now = DateTime.now();
@@ -43,7 +41,7 @@ Future<void> _pumpTrends(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
-      // TrendsScreen liest seit der i18n-Migration context.l10n.
+      // TrendsScreen reads context.l10n since the i18n migration.
       locale: locale,
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -62,7 +60,7 @@ Future<void> _pumpTrends(
   );
 }
 
-/// iPhone-14-Viewport, damit die Karten eine realistische Breite bekommen.
+/// iPhone 14 viewport, so the cards get a realistic width.
 void _pinViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
@@ -70,9 +68,8 @@ void _pinViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// Sammelt Overflow-Fehler waehrend [body] und meldet sie gesammelt.
-/// FlutterError.onError wird VOR dem expect() zurueckgesetzt — sonst asserted
-/// das Test-Binding beim ersten TestFailure.
+/// Collects overflow errors during [body]. onError is restored BEFORE the
+/// expect(), or the binding asserts on the first failure.
 Future<void> _expectNoOverflow(Future<void> Function() body) async {
   final overflows = <String>[];
   final prior = FlutterError.onError;
@@ -118,7 +115,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('trends-empty')), findsOneWidget);
     expect(find.text('Noch zu wenig Daten'), findsOneWidget);
-    // Keine Kennzahlen/kein Chart im Empty State.
+    // No metrics and no chart in the empty state.
     expect(find.byKey(const ValueKey('trends-avg-kcal')), findsNothing);
     expect(find.byKey(const ValueKey('trends-chart')), findsNothing);
   });
@@ -126,10 +123,8 @@ void main() {
   testWidgets('rendert Kennzahlen (Ø kcal, Treffer-Quote, Ø Makros)', (
     tester,
   ) async {
-    // Drei getrackte Tage: heute 2200, gestern 2000 (Hit, Korridor
-    // 1980-2420), vor 10 Tagen 1000 (Miss). Luecken dazwischen duerfen den
-    // Schnitt NICHT auf 0 ziehen — und heute zaehlt als Teiltag gar nicht
-    // erst mit (B6), bleibt aber im Chart.
+    // Today 2200, yesterday 2000 (hit), 10 days ago 1000 (miss). Gaps must
+    // NOT pull the average to 0; today is excluded (B6) but stays charted.
     final totals = [
       _day(0, kcal: 2200, p: 120, c: 200, f: 60),
       _day(1, kcal: 2000, p: 100, c: 180, f: 80),
@@ -139,11 +134,11 @@ void main() {
     await tester.pump();
     await tester.pumpAndSettle();
 
-    // Default-Zeitraum 30 Tage, ohne heute: Schnitt (2000+1000)/2 = 1500.
+    // Default range 30 days, without today: average (2000+1000)/2 = 1500.
     expect(find.text('1.500 kcal'), findsOneWidget);
     expect(find.text('50 %'), findsOneWidget);
     expect(find.text('1 von 2 Tagen (±10 %)'), findsOneWidget);
-    // Ø Makros ohne heute: P (100+80)/2, C (180+100)/2, F (80+40)/2.
+    // Avg macros without today: P (100+80)/2, C (180+100)/2, F (80+40)/2.
     expect(find.text('90 g'), findsOneWidget);
     expect(find.text('140 g'), findsOneWidget);
     expect(find.text('60 g'), findsOneWidget);
@@ -154,20 +149,19 @@ void main() {
     final totals = [
       _day(0, kcal: 2200),
       _day(1, kcal: 2000),
-      _day(10, kcal: 1000), // liegt ausserhalb des 7-Tage-Fensters
+      _day(10, kcal: 1000), // outside the 7-day window
     ];
     await _pumpTrends(tester, loader: () => Future.value(totals));
     await tester.pump();
     await tester.pumpAndSettle();
 
-    // 30 Tage ohne heute: (2000+1000)/2 = 1500.
+    // 30 days without today: (2000+1000)/2 = 1500.
     expect(find.text('1.500 kcal'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('trends-range-7')));
     await tester.pumpAndSettle();
 
-    // 7 Tage: der 10-Tage-alte Wert faellt raus, heute zaehlt nicht mit ->
-    // bleibt gestern allein, im Korridor.
+    // 7 days: the old value drops out and today does not count.
     expect(find.text('2.000 kcal'), findsOneWidget);
     expect(find.text('100 %'), findsOneWidget);
     expect(find.text('1 von 1 Tag (±10 %)'), findsOneWidget);
@@ -176,9 +170,8 @@ void main() {
   testWidgets('B6: der laufende Teiltag verwaessert die Kennzahlen nicht', (
     tester,
   ) async {
-    // Review-Szenario: sechs abgeschlossene Tage mit exakt dem Ziel, dann
-    // heute Morgen ein 350-kcal-Fruehstueck. Vorher zeigte die Ansicht
-    // 1.936 kcal / 86 % / „6 von 7 Tagen".
+    // Six days on target, then a 350 kcal breakfast this morning, which used
+    // to dilute the view to 1,936 kcal / 86 %.
     final totals = [
       _day(0, kcal: 350, p: 10, c: 40, f: 8),
       for (var d = 1; d <= 6; d++) _day(d, kcal: 2200, p: 120, c: 200, f: 60),
@@ -193,21 +186,20 @@ void main() {
     expect(find.text('2.200 kcal'), findsOneWidget);
     expect(find.text('100 %'), findsOneWidget);
     expect(find.text('6 von 6 Tagen (±10 %)'), findsOneWidget);
-    // Ø Makros ebenfalls unverduennt.
+    // Avg macros likewise undiluted.
     expect(find.text('120 g'), findsOneWidget);
     expect(find.text('200 g'), findsOneWidget);
     expect(find.text('60 g'), findsOneWidget);
-    // Das Chart behaelt den laufenden Tag.
+    // The chart keeps the current day.
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-    // Und die Beschriftung sagt, dass heute nicht mitzaehlt.
+    // And the label says today does not count.
     expect(find.byKey(const ValueKey('trends-metrics-note')), findsOneWidget);
   });
 
   testWidgets(
     'B6: nur heute im Fenster -> Kennzahlen leer statt NaN, Chart bleibt',
     (tester) async {
-      // Zwei Tagessummen (der Empty-State greift also nicht), aber im
-      // 7-Tage-Fenster liegt nur der laufende Tag.
+      // Two totals, so not the empty state, but only today is in the window.
       final totals = [_day(0, kcal: 1800), _day(40, kcal: 2000)];
       await _pumpTrends(tester, loader: () => Future.value(totals));
       await tester.pump();
@@ -217,9 +209,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-      // Beide Kennzahlen-Kacheln zeigen den Gedankenstrich, keine 0 und
-      // kein NaN aus einer 0/0-Division.
-      expect(find.text('–'), findsNWidgets(5)); // 2 Kacheln + 3 Makros
+      // Both metric tiles show the dash, no 0 and no NaN from a 0/0 division.
+      expect(find.text('–'), findsNWidgets(5)); // 2 tiles + 3 macros
       expect(find.text('noch kein abgeschlossener Tag'), findsNWidgets(2));
       expect(find.textContaining('NaN'), findsNothing);
       expect(find.text('0 von 0 Tagen (±10 %)'), findsNothing);
@@ -252,9 +243,8 @@ void main() {
     expect(calls, 2);
   });
 
-  // Design-Vertrag §7.2: jeder Screen muss in BEIDEN Anzeige-Modi rendern.
-  // Der Trend-Painter bekommt seine fuenf Farben seit dem Refactor als
-  // Parameter — faellt eine davon aus dem Vertrag, faellt es hier auf.
+  // Design contract §7.2: both modes must render, and the painter's five
+  // colours are parameters, so a drop shows up here.
   for (final brightness in <Brightness>[Brightness.light, Brightness.dark]) {
     testWidgets('rendert in ${brightness.name} ohne Exception', (tester) async {
       _pinViewport(tester);
@@ -288,7 +278,7 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
 
-      // Auch die 7-Tage-Ansicht (Wochentags-Achse) einmal zeichnen.
+      // Draw the 7-day view (weekday axis) once as well.
       await tester.tap(find.byKey(const ValueKey('trends-range-7')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
@@ -298,9 +288,8 @@ void main() {
   testWidgets('auch ein synchron werfender Loader endet im Retry-Zustand', (
     tester,
   ) async {
-    // Produktionsfall: Supabase.instance nicht initialisiert -> der Default-
-    // Loader wirft SYNCHRON. Das darf kein Crash sein, sondern der normale
-    // Fehler-Zustand.
+    // Uninitialized, the default loader throws SYNCHRONOUSLY, which must be
+    // the error state, not a crash.
     await _pumpTrends(
       tester,
       loader: () => throw StateError('Supabase nicht initialisiert'),
@@ -313,9 +302,7 @@ void main() {
   });
 
   group('EN-Render-Smoke (i18n-Paket 5, Spec §6)', () {
-    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
-    // mindestens eine echte englische Uebersetzung steht im Baum. Muster:
-    // test/coach_design_test.dart (Paket 4).
+    // Renders under `en` with at least one real English translation.
     for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
       testWidgets('rendert unter en in $brightness ohne Ausnahme',
           (tester) async {
@@ -334,7 +321,7 @@ void main() {
 
         expect(tester.takeException(), isNull,
             reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
-        // „Trends" bleibt „Trends", „Ø KALORIEN" -> „AVG CALORIES".
+        // "Trends" stays "Trends", the avg-calories label is translated.
         expect(find.text('Trends'), findsOneWidget);
         expect(find.text('AVG CALORIES'), findsOneWidget);
         expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);

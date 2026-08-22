@@ -4,14 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-// Der Anzeige-Modus ist eine GERAETE-Einstellung, keine Profil-Spalte: er
-// muss schon vor dem Login greifen (Auth-Screens) und darf nicht auf einen
-// Sync warten. Deshalb SharedPreferences statt LocalCache/Supabase.
+// The display mode is a device setting, not a profile column: it must apply
+// before login and must not wait for a sync, hence SharedPreferences.
 //
-// Vertrag:
-//   * ohne gespeicherten Wert -> ThemeMode.system (Nutzer-Entscheid 2026-08-09)
-//   * Setzen persistiert und benachrichtigt Hoerer
-//   * ein unbekannter/kaputter Wert faellt still auf system zurueck
+// Contract:
+//   * no stored value -> ThemeMode.system
+//   * setting persists and notifies listeners
+//   * an unknown or broken value falls back to system silently
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
@@ -61,7 +60,7 @@ void main() {
     await controller.setMode(ThemeMode.dark);
     expect(rufe, 1);
 
-    // Derselbe Wert erneut: kein unnoetiger Rebuild der ganzen App.
+    // Same value again: no needless rebuild of the whole app.
     await controller.setMode(ThemeMode.dark);
     expect(rufe, 1);
 

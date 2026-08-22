@@ -14,24 +14,16 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Sentinel-Rest A1 (Sweep 2026-08-08): `_writeCacheSnapshot` lief am
-// Boot-Ende UNGEGUARDET. Die Kombination „Cache-Lesefehler + Offline-Boot"
-// liess den Store mit reinen Ctor-Defaults zurueck (const UserProfile(),
-// leere Listen) — und der Snapshot schrieb genau diese Defaults ueber den
-// vorhandenen (intakten, nur gerade unlesbaren) Cache-Bestand:
-// Offline-Tagebuch, Favoriten und Gewichtslog endgueltig weg. Schlimmer
-// noch: der NAECHSTE Boot las das erfundene Profil als echte
-// Hydrationsquelle (_hydratedFromRealSource = true) — damit oeffnete sich
-// die Clobber-Sperre, die applySettings genau davor schuetzen soll, und der
-// naechste Save schrieb die Defaults auf den Server.
+// A1 (sweep 2026-08-08): `_writeCacheSnapshot` ran unguarded at boot end, so
+// "cache read error + offline boot" wrote pure ctor defaults over an intact
+// but momentarily unreadable cache — and the next boot took those defaults for
+// a real hydration source, opening the clobber lock towards the server.
 //
-// Neuer Vertrag: der Snapshot laeuft nur, wenn der Zustand aus einer echten
-// Quelle hydriert wurde (Cache ODER Server). Ohne echte Quelle wird der
-// durable Bestand nicht angefasst.
+// New contract: the snapshot runs only when the state was hydrated from a real
+// source (cache OR server).
 
-/// Simuliert die Lesefehler-Seite: die Daten SIND da (blobs), aber jeder
-/// Lesezugriff scheitert (z. B. Plattform-/Entschluesselungsfehler).
-/// Schreibzugriffe werden protokolliert — genau sie sind die Gefahr.
+/// The data IS there, but every read fails; writes are recorded, since those
+/// are the danger.
 class _LesefehlerStore implements KeyValueStore {
   _LesefehlerStore(Map<String, String> initial) : blobs = {...initial};
 
@@ -62,7 +54,7 @@ void _noopSnack(
   SnackBarAction? action,
 }) {}
 
-/// Voll-offline-Server: jede Anfrage scheitert mit 503.
+/// Fully offline server: every request fails with 503.
 http.Client _offlineClient() => MockClient((req) async => http.Response(
       jsonEncode({'message': 'offline'}),
       503,
@@ -103,8 +95,7 @@ void main() {
       'A1: Lesefehler + Offline-Boot fasst den durablen Bestand NICHT an '
       '(kein Default-Snapshot ueber echte Daten)', () async {
     final kv = _LesefehlerStore(<String, String>{
-      // Ein vorhandener Bestand — Inhalt egal, er ist ja unlesbar. Dass er
-      // NACH dem Boot unveraendert daliegt, ist die Zusicherung.
+      // Existing content; that it is unchanged AFTER the boot is the point.
       'eatova.v1.profile.user-snap': '<intakter, aber unlesbarer Blob>',
       'eatova.v1.logged_meals.user-snap': '<tagebuch>',
     });

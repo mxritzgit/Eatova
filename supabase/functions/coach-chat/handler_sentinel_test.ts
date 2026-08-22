@@ -1,10 +1,9 @@
-// Sentinel-Rest-Tests fuer handleRequest (Nachverifikation 2026-08-08):
-// Stellen, an denen der Handler "ich weiss es nicht" (fehlender Row,
-// gescheiterter Fetch, Provider-Fehler) in einen konkreten Wert verwandelte,
-// den der Client nicht von echtem Wissen unterscheiden kann.
+// Sentinel tests for handleRequest: places where the handler turned "unknown"
+// (missing row, failed fetch, provider error) into a concrete value the client
+// cannot tell from real knowledge.
 //
-// Gleicher Stil wie handler_test.ts: gestubbtes globalThis.fetch, keine
-// externen Test-Dependencies, `deno test --allow-env`.
+// Same style as handler_test.ts: stubbed globalThis.fetch, no external test
+// dependencies, `deno test --allow-env`.
 
 import { handleRequest } from "./handler.ts";
 
@@ -26,17 +25,17 @@ interface RecordedCall {
 }
 
 interface StubOptions {
-  /** Antwort-Body des claim_chat_quota-RPC (Default: [{used:1,remaining:4}]). */
+  /** Response body of the claim_chat_quota RPC (default [{used:1,remaining:4}]). */
   quotaBody?: unknown;
-  /** Antwort-Body des consume_edge_rate_limit-RPC. */
+  /** Response body of the consume_edge_rate_limit RPC. */
   rateLimitBody?: unknown;
-  /** Der teure Answer-Call (max_tokens 600) scheitert mit 500. */
+  /** The expensive answer call (max_tokens 600) fails with 500. */
   answerFails?: boolean;
-  /** GET auf chat_messages (loadHistory) antwortet 500. */
+  /** GET on chat_messages (loadHistory) answers 500. */
   historyFails?: boolean;
-  /** GET auf chat_sessions?id=... (Besitzpruefung) antwortet 500. */
+  /** GET on chat_sessions?id=... (ownership check) answers 500. */
   sessionCheckFails?: boolean;
-  /** POST auf chat_messages (storeMessage) antwortet 500. */
+  /** POST on chat_messages (storeMessage) answers 500. */
   storeFails?: boolean;
 }
 
@@ -168,11 +167,10 @@ function makeRequest(payload: JsonRecord): Request {
 // ---------------------------------------------------------------------------
 
 Deno.test("E1: leerer Quota-Row -> `remaining` FEHLT statt 0 (Composer-Sperre aus dem Nichts)", async () => {
-  // claim_chat_quota antwortet 200 mit leerem Array (Schema-Drift, kaputter
-  // Return). Frueher wurde daraus `remaining: 0` — der Client sperrte den
-  // Composer bis Mitternacht, direkt nach einer ERFOLGREICHEN Antwort. Der
-  // Wire-Vertrag kann "weiss ich nicht" ausdruecken: Feld weglassen
-  // (Flutter behandelt fehlendes remaining als "kein Update").
+  // claim_chat_quota answers 200 with an empty array (schema drift). That used
+  // to become `remaining: 0`, locking the composer until midnight right after
+  // a successful reply. The wire contract expresses "unknown" by omitting the
+  // field; Flutter reads a missing remaining as "no update".
   const stub = installFetch({ quotaBody: [] });
   try {
     const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
@@ -201,21 +199,18 @@ Deno.test("E10: der Erfolgs-Response traegt daily_limit (Client rechnet sonst ge
 });
 
 Deno.test("E2: Provider-Fehler -> ehrlicher 502 statt erfundener Coach-Antwort mit 200", async () => {
-  // Frueher: catch -> reply "Da ging gerade was schief..." als PERSISTIERTE
-  // Assistant-Nachricht, refusal_reason "model_refusal", HTTP 200. Der Client
-  // kann das nicht von einer echten Refusal unterscheiden, die Fake-Zeile
-  // vergiftet als History den Kontext aller Folgefragen.
+  // Used to persist a fake assistant message with refusal_reason
+  // "model_refusal" and HTTP 200: indistinguishable from a real refusal and it
+  // poisons the history of every follow-up.
   const stub = installFetch({ answerFails: true });
   try {
     const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
     const body = await res.json() as JsonRecord;
     assertEquals(res.status, 502, "Status");
     assertEquals(body.error, "provider_error", "Fehlercode");
-    // Die User-Message ist gespeichert (sie ist echt), aber KEINE erfundene
-    // Assistant-Zeile.
+    // The user message is stored (it is real), no invented assistant row.
     assertEquals(stub.postsTo("chat_messages").length, 1, "nur die User-Message persistiert");
-    // Migrations-Runde: der geclaimte Slot wird zurueckgegeben — ein Abend
-    // mit Provider-Ausfall darf nicht alle Tages-Slots verbrennen.
+    // The claimed slot is refunded: a provider outage must not burn the day.
     assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Slot refundiert");
   } finally {
     stub.restore();
@@ -223,10 +218,8 @@ Deno.test("E2: Provider-Fehler -> ehrlicher 502 statt erfundener Coach-Antwort m
 });
 
 Deno.test("E3: History nicht ladbar -> Abbruch VOR dem Quota-Claim statt kontextloser Antwort", async () => {
-  // Frueher: `if (!resp.ok) return []` — der Coach beantwortete die
-  // Folgefrage ohne Kontext ("und davon 200 g?"), der Nutzer haelt den
-  // Kontextverlust fuer Modellversagen. Und weil die History NACH dem Claim
-  // geladen wurde, war der Tages-Slot trotzdem weg.
+  // `if (!resp.ok) return []` used to answer follow-ups without context, and
+  // since history loaded after the claim, the day's slot was gone anyway.
   const stub = installFetch({ historyFails: true });
   try {
     const res = await handleRequest(makeRequest({ message: "Und davon 200 g?" }));
@@ -241,9 +234,8 @@ Deno.test("E3: History nicht ladbar -> Abbruch VOR dem Quota-Claim statt kontext
 });
 
 Deno.test("E4: Besitzpruefung transient kaputt -> Fehler statt stiller Umleitung in die Default-Session", async () => {
-  // Frueher fiel `!resp.ok` in denselben Fallthrough wie "Session gehoert
-  // dir nicht" — die Nachricht landete kommentarlos in einer ANDEREN
-  // Unterhaltung.
+  // `!resp.ok` used to share the fallthrough with "session is not yours", so
+  // the message silently landed in a different conversation.
   const stub = installFetch({ sessionCheckFails: true });
   try {
     const res = await handleRequest(makeRequest({
@@ -264,9 +256,8 @@ Deno.test("E4: Besitzpruefung transient kaputt -> Fehler statt stiller Umleitung
 });
 
 Deno.test("E5: User-Message nicht speicherbar -> Fehler statt Antwort auf eine Nachricht, die es nie gab", async () => {
-  // Frueher lief `storeMessage` ohne resp.ok-Pruefung: der Client bekam 200
-  // samt Antwort, aber die Nachricht fehlte nach dem Reload und in der
-  // History jeder Folgefrage.
+  // `storeMessage` used to skip the resp.ok check: 200 plus a reply, but the
+  // message was missing after a reload and in every follow-up's history.
   const stub = installFetch({ storeFails: true });
   try {
     const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
@@ -277,7 +268,7 @@ Deno.test("E5: User-Message nicht speicherbar -> Fehler statt Antwort auf eine N
       stub.calls.every((c) => !c.url.includes("openrouter.ai") || JSON.parse(c.body).max_tokens === 50),
       "kein teurer Answer-Call fuer eine Nachricht, die nicht persistiert ist",
     );
-    // Migrations-Runde: auch hier geht der geclaimte Slot zurueck.
+    // The claimed slot is refunded here too.
     assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Slot refundiert");
   } finally {
     stub.restore();
@@ -285,10 +276,9 @@ Deno.test("E5: User-Message nicht speicherbar -> Fehler statt Antwort auf eine N
 });
 
 Deno.test("E6: Rate-Limit-RPC mit kaputtem Shape -> rate_limit_unavailable statt erfundenem 429", async () => {
-  // Frueher wurde `allowed: data?.allowed === true` aus einem leeren Objekt
-  // zu false — ein 429 "Zu viele Anfragen" mit erfundenen Zahlen, obwohl nie
-  // ein Limit gemessen wurde. Ein kaputter Shape ist ein Ausfall des
-  // Limiters, kein Limit.
+  // `allowed: data?.allowed === true` on an empty object became false: a 429
+  // with invented numbers although no limit was ever measured. A broken shape
+  // is a limiter outage, not a limit.
   const stub = installFetch({ rateLimitBody: {} });
   try {
     const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));

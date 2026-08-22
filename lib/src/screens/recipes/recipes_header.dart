@@ -1,8 +1,8 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Kopfbereich der Rezeptliste: Seitentitel + Anlegen-Knopf, Suchfeld und die
-// waagerechte Kategorie-Filter-Leiste.
+// Recipe list header: page title + create button, search field and the
+// horizontal category filter bar.
 // ---------------------------------------------------------------------------
 class _RecipesHeader extends StatelessWidget {
   const _RecipesHeader({this.onCreate});
@@ -27,27 +27,26 @@ class _RecipesHeader extends StatelessWidget {
   }
 }
 
-/// Suchkapsel in der Sprache der Vorlage (`SearchBarField`), hier lokal
-/// nachgebaut: die Design-Bibliothek hat das Widget (noch) nicht, und der
-/// [ValueKey] muss zwingend DIREKT auf dem [TextField] sitzen —
-/// test/home_page_tabs_test.dart castet darauf.
+/// Local rebuild of `SearchBarField`: the design library lacks the widget, and
+/// the [ValueKey] must sit DIRECTLY on the [TextField] — test/home_page_tabs
+/// _test.dart casts on it.
 class _RecipeSearchField extends StatelessWidget {
   const _RecipeSearchField({required this.controller, required this.onClear});
 
-  /// Gehoert dem [_RecipesScreenState] (dort erzeugt und entsorgt). Ohne
-  /// eigenen Controller laege der Text nur im `EditableText`-State und waere
-  /// weg, sobald die lazy Liste das Feld beim Scrollen abraeumt (D6).
+  /// Owned by [_RecipesScreenState]. Without an external controller the text
+  /// would live only in `EditableText` state and vanish when the lazy list
+  /// disposes the field while scrolling (D6).
   final TextEditingController controller;
 
-  /// Leert Suchtext und damit den Textfilter.
+  /// Clears the search text and with it the text filter.
   final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Container(
-      // Abweichung von der Vorlage (`height: 48`): eine feste Hoehe plus
-      // wachsende Schrift ist ein garantierter Overflow.
+      // Not the template's fixed `height: 48`: fixed height plus growing text
+      // is a guaranteed overflow.
       constraints: const BoxConstraints(minHeight: 48),
       decoration: BoxDecoration(
         color: t.surf,
@@ -59,26 +58,24 @@ class _RecipeSearchField extends StatelessWidget {
         controller: controller,
         cursorOpacityAnimates: false,
         style: AppType.ui(14, color: t.ink),
-        // Abweichung von der Vorlage (`cursorColor: t.forest`): `forest` ist
-        // im Dunkelmodus eine dunkle FLAECHE — der Cursor waere auf `surf`
-        // praktisch unsichtbar. `accent` ist der Tinten-Zwilling dazu.
+        // Not the template's `t.forest`: in dark mode that is a dark surface,
+        // so the cursor would be invisible on `surf`. `accent` is its ink twin.
         cursorColor: t.accent,
         decoration: InputDecoration(
           isDense: true,
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
-          // Waagerechter Anteil 1:1 aus der Vorlage — ohne ihn klebte der Text
-          // an der Lupe und (mit Loesch-X) am rechten Rand.
+          // Horizontal part taken from the template; without it the text
+          // sticks to the magnifier and to the clear button.
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
           prefixIcon: Icon(Icons.search_rounded, size: 18, color: t.ink2),
           prefixIconConstraints: const BoxConstraints(minWidth: 44),
           hintText: context.l10n.recipesSearchHint,
           hintStyle: AppType.ui(14, color: t.ink2),
-          // Der Suchtext bleibt jetzt ueber Scrollen und Tab-Wechsel stehen —
-          // dann muss der User ihn auch sichtbar wieder loswerden koennen.
-          // (Der Kategorie-Filter hat dafuer seinen „Alle"-Chip.)
+          // The search text survives scrolling and tab switches, so there must
+          // be a visible way to clear it.
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
             builder: (context, value, _) {
@@ -116,9 +113,8 @@ class _RecipeFilterChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     return SizedBox(
-      // Die Leiste waechst mit der Schrift mit, statt bei 38 px zu reissen.
-      // Gedeckelt, damit sie bei doppelter Schrift nicht den halben Screen
-      // frisst.
+      // Grows with the text scale instead of breaking at 38 px, capped so
+      // double-size text does not eat half the screen.
       height: MediaQuery.textScalerOf(context).scale(38).clamp(38.0, 80.0),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -126,11 +122,9 @@ class _RecipeFilterChips extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final filter = recipeFilters[index];
-          // Die Leiste gibt ihren Kindern eine feste Hoehe; `Center` laesst
-          // dem Chip seine natuerliche Groesse und haelt ihn mittig.
-          // `key`/`onTap`/`selected` haengen weiter am NEUTRALEN `filter`-
-          // Wert (Logik-Identitaet); nur das sichtbare `label` laeuft ueber
-          // die ARB (recipeCategoryLabel, Inhalte-PR).
+          // `Center` keeps the chip at its natural size inside the bar's fixed
+          // height. Keys and callbacks stay on the neutral `filter` value;
+          // only the visible label is localised.
           return Center(
             child: FilterChipPill(
               key: ValueKey('recipe-filter-$filter'),

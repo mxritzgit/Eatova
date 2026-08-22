@@ -11,22 +11,19 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// PROD-6: Diät-/Präferenz-Personalisierung. Ein vegetarisches/veganes Profil
-// darf NIE ein fleisch-/fischhaltiges Rezept aktiv empfohlen bekommen
-// (Empfehlungs-Carousel + „Passt zu deinem Ziel"). Der User kann über den
-// Kategorie-Filter weiterhin alles manuell durchsuchen — das wird hier bewusst
-// NICHT eingeschränkt. Netz-/Client-frei für die Modell-Tests, ein
-// Widget-Test deckt zusätzlich die echte Screen-Verdrahtung ab.
+// PROD-6: a vegetarian or vegan profile must NEVER be actively recommended a
+// meat or fish recipe, while manual browsing stays unrestricted on purpose.
+// One widget test covers the real screen wiring.
 
 FitnessRecipe _byTitle(String title) =>
     fitnessRecipes.firstWhere((r) => r.title == title);
 
 void main() {
   group('FitnessRecipe.matchesDiet (reine Eignungs-Heuristik)', () {
-    final lachs = _byTitle('Lachs mit Süßkartoffel & Spargel'); // Fisch
-    final rind = _byTitle('Rindersteak mit Kartoffeln & Bohnen'); // Fleisch
-    final tofu = _byTitle('Tofu mit Reis & Edamame'); // Vegetarisch-Tag
-    final omelett = _byTitle('Omelett mit Spinat & Avocado'); // Ei, kein Tag
+    final lachs = _byTitle('Lachs mit Süßkartoffel & Spargel'); // fish
+    final rind = _byTitle('Rindersteak mit Kartoffeln & Bohnen'); // meat
+    final tofu = _byTitle('Tofu mit Reis & Edamame'); // vegetarian tag
+    final omelett = _byTitle('Omelett mit Spinat & Avocado'); // egg, no tag
 
     test('none erlaubt jedes Rezept', () {
       for (final r in fitnessRecipes) {
@@ -39,12 +36,12 @@ void main() {
       expect(lachs.matchesDiet(DietPreference.vegetarian), isFalse);
       expect(rind.matchesDiet(DietPreference.vegetarian), isFalse);
       expect(tofu.matchesDiet(DietPreference.vegetarian), isTrue);
-      expect(omelett.matchesDiet(DietPreference.vegetarian), isTrue); // Ei = veg
+      expect(omelett.matchesDiet(DietPreference.vegetarian), isTrue); // egg = veg
     });
 
     test('vegan: nur explizit pflanzlich markierte Gerichte, keine Eier', () {
       expect(tofu.matchesDiet(DietPreference.vegan), isTrue);
-      expect(omelett.matchesDiet(DietPreference.vegan), isFalse); // Ei nicht vegan
+      expect(omelett.matchesDiet(DietPreference.vegan), isFalse); // egg not vegan
       expect(lachs.matchesDiet(DietPreference.vegan), isFalse);
       expect(rind.matchesDiet(DietPreference.vegan), isFalse);
     });
@@ -89,8 +86,7 @@ void main() {
   });
 
   group('RecipesScreen empfiehlt keine präferenz-verletzenden Rezepte', () {
-    // Restmakros, bei denen die High-Protein-Fleisch-/Fisch-Teller ohne Filter
-    // ganz oben ranken würden — so ist der Diät-Vorfilter scharf getestet.
+    // Macros where the meat/fish plates would rank top without a filter.
     const remaining =
         MacroProgress(proteinG: 60, carbsG: 60, fatG: 25, kcal: 700);
 
@@ -127,7 +123,7 @@ void main() {
         (tester) async {
       await pump(tester, DietPreference.vegetarian);
 
-      // Ziel-Matches steht am Listenende → erst ins Bild scrollen (lazy List).
+      // Goal matches sit at the list end of a lazy list.
       final goalMatches = find.byKey(const ValueKey('recipe-goal-matches'));
       await tester.dragUntilVisible(
         goalMatches,
@@ -137,8 +133,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(goalMatches, findsOneWidget);
 
-      // Im beworbenen Match-Carousel dürfen Lachs/Rindersteak NIE auftauchen.
-      // (In der ungefilterten Hauptliste schon — das ist Absicht.)
+      // Never in the promoted carousel; in the main list they may, by design.
       expect(
         find.descendant(
           of: goalMatches,
@@ -158,7 +153,7 @@ void main() {
     testWidgets('none: Lachs darf weiterhin als Ziel-Match erscheinen',
         (tester) async {
       await pump(tester, DietPreference.none);
-      // Ohne Präferenz ist der ungefilterte Pfad aktiv — der Screen rendert.
+      // Without a preference the unfiltered path is active.
       expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
       final goalMatches = find.byKey(const ValueKey('recipe-goal-matches'));
       await tester.dragUntilVisible(

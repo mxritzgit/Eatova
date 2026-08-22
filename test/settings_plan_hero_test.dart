@@ -8,29 +8,17 @@ import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// B2 — die Plan-Karte widersprach sich selbst: sie versprach das GEWAEHLTE
-// Tempo (WeightGoal.paceLabel), obwohl die Sicherheitsklemme das Tagesziel
-// anhebt. Fuer das damalige Standardprofil stand „Erhaltung 1997 ·
-// −1 kg/Woche" direkt ueber „1200" — 1997 − 1200 = 797, das sind
-// −0,72 kg/Woche, nicht −1.
+// B2 — the plan card promised the CHOSEN pace even though the safety floor
+// raises the daily target, so "maintenance 1997 · −1 kg/week" stood right
+// above "1200", which is −0.72 kg/week.
 //
-// Seit dem Design-Refactor 2026-08-09 ist die Karte ein Forest-Hero auf einer
-// Route statt einer Glaskarte im Sheet; die zeichengenauen Erwartungen sind
-// geblieben.
-//
-// Zahlen seit dem Kalorien-Review 2026-08-21 und „jeder Schritt zaehlt"
-// (PAL-Leiter OHNE Gehen 1,3 / 1,45 / 1,6 / 1,75 / 1,9, keine Schritt-Basis
-// mehr; 1-%-Defizitdeckel kg × 11 kcal/Tag — auf 0,05 kg/Woche abgerundet,
-// also 55-kcal-Schritte —, geschlechtsabhaengige Untergrenze, Tempo-Labels
-// auf dem 0,05-Raster): Standardprofil 78 kg / 178 cm / 30 J. / neutral /
-// sitzend → BMR 1665, Erhaltung 1664,5 × 1,3 = 2164, Deckel 858 → 825
-// kcal/Tag, Untergrenze 1350. Fuer dieses Profil greift bei „−1 kg/Woche"
-// nicht die Untergrenze, sondern der Deckel: 2163,85 − 825 = 1338,85 → 1350
-// landet GENAU auf der Untergrenze, nicht darunter — die Klemme selbst
-// braucht ein leichteres Profil (s. [klemmProfil]).
+// Numbers as of the calorie review 2026-08-21: default profile 78 kg / 178 cm
+// / 30 y / neutral / sedentary → maintenance 2164, cap 825 kcal/day, floor
+// 1350. At "−1 kg/week" the cap binds and 1350 lands EXACTLY on the floor, so
+// testing the floor itself needs a lighter profile (see [klemmProfil]).
 void main() {
-  /// Profil, dessen gespeicherte Energie-Ziele exakt der Rechnung entsprechen.
-  /// Nur dann startet der Screen im Live-Modus (Manuell-Schalter aus).
+  /// Profile whose stored energy goals match the calculation exactly — only
+  /// then does the screen start in live mode (manual switch off).
   UserProfile autoProfil(
     WeightGoal goal, {
     UserProfile basis = const UserProfile(),
@@ -45,11 +33,9 @@ void main() {
     );
   }
 
-  /// Profil, bei dem Deckel UND Untergrenze greifen: 55 kg / 160 cm / 35 J. /
-  /// weiblich / sitzend → BMR 1214, Erhaltung 1214 × 1,3 = 1578, Deckel
-  /// 605 kcal/Tag, Untergrenze 1200. „Ambitioniert" (−1100) wird auf −605
-  /// gedeckelt, landet bei 973 → 950 und wird auf 1200 hochgeklemmt —
-  /// effektiv −378 kcal/Tag ≙ −0,35 kg/Woche.
+  /// Profile where cap AND floor bind: maintenance 1578, cap 605, floor 1200.
+  /// −1100 is capped to −605, lands at 950 and is raised to 1200 — effectively
+  /// −378 kcal/day, i.e. −0.35 kg/week.
   const klemmProfil = UserProfile(
     weightKg: 55,
     heightCm: 160,
@@ -110,8 +96,7 @@ void main() {
       (tester) async {
     await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
 
-    // Erhaltung 2164, Tagesziel 1350 (Defizit auf 825 gedeckelt) →
-    // −814 kcal/Tag ≙ −0,74 → im Raster −0,75 kg/Woche.
+    // Maintenance 2164, target 1350 (deficit capped at 825) → −0.75 kg/week.
     expect(find.text('Erhaltung 2164 · −0,75 kg/Woche'), findsOneWidget);
     expect(find.text('Erhaltung 2164 · −1 kg/Woche'), findsNothing);
   });
@@ -123,10 +108,8 @@ void main() {
       profile: autoProfil(WeightGoal.lose1kg, basis: klemmProfil),
     );
 
-    // Erhaltung 1578, Tagesziel 1200 (aus 950 hochgeklemmt; Deckel 605 →
-    // 973 → 950) → −378 kcal/Tag ≙ −0,35 kg/Woche.
-    // Die Untergrenze bindet staerker als der Deckel: der Satz nennt die
-    // Klemme, nicht das 1 %.
+    // Maintenance 1578, target 1200 (raised from 950) → −0.35 kg/week. The
+    // floor binds harder than the cap, so the sentence names the floor.
     expect(find.text('Erhaltung 1578 · −0,35 kg/Woche'), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-pace-warning')), findsOneWidget);
     expect(
@@ -143,11 +126,9 @@ void main() {
       (tester) async {
     await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
 
-    // Die Untergrenze (1350) greift hier nicht — das Ziel landet mit 1350
-    // genau AUF ihr, `floorApplied` verlangt echtes Unterschreiten. Der Deckel
-    // (78 kg × 11 = 858, auf 0,05 kg/Woche = 825 abgerundet) bremst das
-    // Versprechen von −1100 auf −825, und der Satz nennt die runde Stufe statt
-    // „858 … −0,78".
+    // The floor does not bind — the target lands exactly ON it and
+    // `floorApplied` needs a real undershoot. The cap (858 rounded down to
+    // 825) slows −1100 to −825, and the sentence names the rounded step.
     expect(find.byKey(const ValueKey('settings-pace-warning')), findsOneWidget);
     expect(
       find.text(
@@ -162,21 +143,16 @@ void main() {
   testWidgets('ohne Klemme bleibt die Plan-Karte ohne Hinweis', (tester) async {
     await openSettings(tester, profile: autoProfil(WeightGoal.maintain));
 
-    // 2163,85 → 2150 kcal; 2150 − 2164 = −14 kcal/Tag liegt im 0,05-Rauschen.
+    // 2163.85 → 2150 kcal; −14 kcal/day is inside the 0.05 noise band.
     expect(find.byKey(const ValueKey('settings-pace-warning')), findsNothing);
     expect(find.text('Erhaltung 2164 · Gewicht stabil'), findsOneWidget);
   });
 
   testWidgets('manuelles Tagesziel bestimmt das angezeigte Tempo',
       (tester) async {
-    // Standardprofil mit 2500 kcal gespeichert, gerechnet waeren es 2150 → der
-    // Screen startet im Manuell-Modus. 2500 − 2164 = +336 kcal/Tag ≙ +0,305
-    // kg/Woche, im 0,05-Raster „+0,3 kg/Woche".
-    //
-    // Bewusst NICHT der Default 2200: seit der PAL-Leiter ohne Gehen liegt
-    // die Erhaltung bei 2164, und +36 kcal/Tag bleiben unter dem 0,05-Rauschen
-    // → „Gewicht stabil" — dieselbe Zeichenkette wie fuer das gerechnete Ziel,
-    // der Test saehe nicht mehr, dass die MANUELLE Zahl das Tempo bestimmt.
+    // 2500 stored against a computed 2150 starts manual mode: +336 kcal/day,
+    // i.e. +0.3 kg/week. NOT the default 2200 — those +36 kcal/day stay in the
+    // noise band and would render the same string as the computed target.
     await openSettings(
       tester,
       profile: const UserProfile().copyWith(dailyKcalGoal: 2500),

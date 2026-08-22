@@ -5,19 +5,9 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
 import 'today_texts.dart';
 
-/// Die Forest-Flaeche oben auf „Heute": Budget, verbleibende kcal, Tick-
-/// Anzeige und drei Kennzahlen.
-///
-/// Der Rechenkern ist woertlich der von [CaloriesOverviewCard]
-/// (calories_overview_card.dart:34-39) — dieselben Klemmen, dieselbe
-/// Zielanpassung: `goal + burned` fliesst in `remaining` und `progress`, das
-/// ANGEZEIGTE Ziel bleibt das rohe — es ist der Wert, den der Nutzer in den
-/// Zielen gesetzt hat, nicht eine Zwischenrechnung. Festgehalten von
-/// `test/kcal_goal_consistency_test.dart`.
-///
-/// Seit dem 2026-08-10 ist das die EINZIGE Flaeche mit dieser Rechnung: die
-/// Kalorien-Karte im Food-Tab ist auf Nutzer-Wunsch entfallen („das haben wir
-/// ja im Heute-Tab schon").
+/// The forest surface at the top of "Today" and sole home of this calculation:
+/// `goal + burned` feeds `remaining` and `progress`, but the DISPLAYED goal
+/// stays the raw user goal (`test/kcal_goal_consistency_test.dart`).
 class TodayCalorieHero extends StatelessWidget {
   const TodayCalorieHero({
     super.key,
@@ -29,14 +19,13 @@ class TodayCalorieHero extends StatelessWidget {
 
   final int consumedKcal;
 
-  /// Heute live aus dem Schrittstand; an einem Archivtag der pro Tag
-  /// festgeschriebene Endwert (HomeStore.burnedKcalForFoodDate). 0 heisst
-  /// „kein Eintrag" — die Kachel zeigt dann „—" statt einer erfundenen Null.
+  /// Live from the step count today, frozen on archive days. 0 means "no
+  /// entry" — the tile shows a dash rather than an invented zero.
   final int burnedKcal;
 
   final int kcalGoal;
 
-  /// Bereits ueber `LifetimeStats.effectiveStreakOn` aufgeloest.
+  /// Already resolved via `LifetimeStats.effectiveStreakOn`.
   final int streak;
 
   @override
@@ -78,13 +67,9 @@ class TodayCalorieHero extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    // Hier steht das ROHE Tagesziel — der Wert, den der Nutzer
-                    // in seinen Zielen gesetzt hat. Das verbrannte Guthaben
-                    // gehoert in die VERBLEIBENDE Zahl, nicht ins Ziel; sonst
-                    // stuende hier 2.300, waehrend die Ziele 2.000 sagen.
-                    // Nachvollziehbar bleibt die Rechnung ueber die
-                    // VERBRANNT-Kachel weiter unten.
-                    // Festgenagelt von test/kcal_goal_consistency_test.dart.
+                    // The RAW daily goal: burned credit belongs in the
+                    // REMAINING number, or this reads 2,300 while the goals
+                    // screen says 2,000.
                     Flexible(
                       child: Text(
                         l10n.todayKcalGoalLabel(kcalThousands(goal, l10n)),
@@ -100,8 +85,7 @@ class TodayCalorieHero extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
-                // FittedBox: 66 px Grundschrift werden bei textScaler 2.0 zu
-                // 132 px und waeren breiter als die Karte.
+                // 66 px base font becomes 132 px at textScaler 2.0.
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
@@ -110,8 +94,7 @@ class TodayCalorieHero extends StatelessWidget {
                     textBaseline: TextBaseline.alphabetic,
                     children: <Widget>[
                       Text(
-                        // Der Betrag, nicht der negative Wert: das Vorzeichen
-                        // traegt die Einheit daneben.
+                        // Magnitude only; the unit carries the sign.
                         kcalThousands(remaining.abs(), l10n),
                         key: const ValueKey('today-kcal-remaining'),
                         style: AppType.display(
@@ -130,11 +113,8 @@ class TodayCalorieHero extends StatelessWidget {
                               : l10n.todayKcalRemaining,
                           style: AppType.ui(
                             13,
-                            // Die grosse Zahl bleibt in beiden Faellen
-                            // onForest: `danger` ist auf der Forest-Flaeche im
-                            // Hellmodus kaum lesbar, das waere ein Kontrast-
-                            // bruch statt eines Signals. Das Signal traegt die
-                            // Einheit — in Lime und schwerer gesetzt.
+                            // Stays onForest: `danger` is illegible on forest
+                            // in light mode, so the unit carries the signal.
                             weight:
                                 ueberzogen ? FontWeight.w700 : FontWeight.w600,
                             color: ueberzogen
@@ -167,8 +147,7 @@ class TodayCalorieHero extends StatelessWidget {
                     const SizedBox(width: 16),
                     _Kachel(
                       keyValue: 'today-stat-burned',
-                      // Wortgleich zur alten Karte
-                      // (calories_overview_card.dart:198-200).
+                      // Same as calories_overview_card.dart:198-200.
                       value: burned == 0 ? '—' : kcalThousands(burned, l10n),
                       label: l10n.todayStatBurned,
                     ),
@@ -207,12 +186,9 @@ class _Kachel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // FittedBox um BEIDE Zeilen: die drei Kacheln teilen sich die Kartenbreite
-    // zu je einem Drittel (~92 px auf einem Telefon). Bei textScaler 2.0 sind
-    // „12.345" und „VERBRANNT" breiter als das — ohne Schrumpfen bricht der
-    // Text dort mitten im Wort um und die Zahl stand als Buchstabensalat
-    // untereinander (gemessen: 174 px hoch statt 24). Ein Ueberlauf FLIEGT
-    // dabei nicht, deshalb faellt das keinem Row-Overflow-Test auf.
+    // FittedBox around BOTH lines: each tile gets ~92 px, and at textScaler
+    // 2.0 the text wraps mid-word instead. No overflow is thrown, so no
+    // Row-overflow test catches it.
     return Expanded(
       child: Column(
         key: ValueKey<String>(keyValue),

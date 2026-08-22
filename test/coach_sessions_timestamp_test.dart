@@ -12,27 +12,18 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Review-Fixwelle (2026-08-11): `_humanizeTimestamp`s >=7-Tage-Datumsfallback
-// war der einzige neue Formatierungspfad des Scan/Coach-PRs ohne eigenen
-// Test (die Funktion selbst ist library-privat in coach_sessions.dart — nur
-// ueber die gerenderte `_SessionTile` im Sessions-Sheet erreichbar, Muster
-// coach_design_test.dart). Deckt: 'de' bleibt byte-gleich 'dd.MM.yyyy'
-// (Bestand vor der intl-Umstellung), 'en' rendert dasselbe numerische Muster
-// UND wirft nicht (Beleg, dass DateFormat(..., 'en') tatsaechlich lokalisiert
-// aufgeloest wird, nicht nur zufaellig gleich aussieht).
+// Covers `_humanizeTimestamp`'s >=7-day date fallback, reachable only through
+// the rendered `_SessionTile`: 'de' stays byte-identical to 'dd.MM.yyyy' and
+// 'en' renders the same pattern without throwing.
 
 const Size _usableSize = Size(402, 781);
 
 class _FakeCoach extends CoachChatService {
   _FakeCoach(super.client, super.userId);
 
-  /// `stopAutoRefresh()` ist Pflicht: GoTrue startet im Konstruktor einen
-  /// periodischen Timer, an dem jeder Widget-Test scheitert (Muster
-  /// coach_design_test.dart). `loadHistory`/`loadQuotaToday` sind ebenfalls
-  /// ueberschrieben — die Basisklasse wuerde sonst echte Supabase-Queries
-  /// ueber den Mock-Client schicken; der Sessions-Bootstrap in
-  /// `_bootstrapIntern` braucht beide, bevor er `_sessions` ueberhaupt
-  /// setzt.
+  /// `stopAutoRefresh()` is mandatory: GoTrue's constructor starts a periodic
+  /// timer that fails every widget test. `loadHistory`/`loadQuotaToday` are
+  /// overridden so the bootstrap sends no real queries.
   static _FakeCoach create() {
     final client = SupabaseClient(
       'https://example.supabase.co',
@@ -45,9 +36,7 @@ class _FakeCoach extends CoachChatService {
 
   @override
   Future<List<ChatSession>> loadSessions() async => <ChatSession>[
-        // Weit in der Vergangenheit, nicht relativ zu DateTime.now() gewaehlt:
-        // die diff.inDays >= 7-Schwelle greift so unabhaengig vom Testlauf-
-        // Datum sicher, und der erwartete Text bleibt deterministisch.
+        // Far in the past, so the >= 7 day threshold holds on any run.
         ChatSession(
           id: 's1',
           title: 'Alte Unterhaltung',
@@ -117,11 +106,8 @@ void main() {
       (tester) async {
     await _pumpCoach(tester, locale: const Locale('en'));
 
-    // Bewusst dasselbe Muster wie 'de' (Design-Entscheidung, s. Kommentar in
-    // coach_sessions.dart): ein Wechsel zu 'MM/dd' waere zwischen US- und
-    // GB/DE-Lesern zweideutig. Der Beleg hier ist, dass DateFormat(...,
-    // 'en') ueberhaupt erfolgreich aufloest (kein LocaleDataException) und
-    // dasselbe Ergebnis liefert wie unter 'de'.
+    // Same pattern as 'de' on purpose ('MM/dd' would be ambiguous); the point
+    // is that DateFormat(..., 'en') resolves at all.
     expect(find.text('05.03.2020'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

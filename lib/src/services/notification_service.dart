@@ -8,13 +8,8 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../l10n/l10n.dart';
 
-/// Ein vollstaendig aufgeloester, plan-fertiger Notification-Spec. Reiner
-/// Wert-Typ (immutable, mit Gleichheit), den der NotificationService 1:1 an
-/// zonedSchedule weiterreichen kann. Keine Flutter-/IO-Abhaengigkeit.
-///
-/// Lebte frueher in der NotificationContentEngine (Heute-Tab-Nudges); die
-/// Engine ist mit dem Heute-Tab entfernt, der Spec bleibt als Wire-Format
-/// fuer kuenftige Erinnerungen.
+/// A fully resolved, schedule-ready notification spec. Pure immutable value
+/// type passed straight to zonedSchedule; no Flutter or IO dependency.
 class NotificationSpec {
   const NotificationSpec({
     required this.id,
@@ -23,14 +18,13 @@ class NotificationSpec {
     required this.scheduledFor,
   });
 
-  /// Stabile, deterministische Plattform-ID. Gleiche Eingaben -> gleiche IDs,
-  /// damit ein erneutes scheduleAll alte Eintraege ueberschreibt statt zu
-  /// duplizieren.
+  /// Stable, deterministic platform id: same inputs -> same ids, so a repeat
+  /// scheduleAll overwrites old entries instead of duplicating them.
   final int id;
   final String title;
   final String body;
 
-  /// Wandzeit (lokale Zone), zu der der Nudge feuern soll.
+  /// Wall-clock time (local zone) the nudge should fire at.
   final DateTime scheduledFor;
 
   @override
@@ -49,74 +43,57 @@ class NotificationSpec {
       'NotificationSpec(id: $id, scheduledFor: $scheduledFor, title: "$title")';
 }
 
-/// Abstrakte Notification-Schicht (PROD-1, on-device-Retention).
+/// Abstract notification layer (PROD-1, on-device retention).
 ///
-/// Bewusst als Interface, damit Aufrufer (Onboarding/Boot/Settings) gegen eine
-/// Mock-/Noop-Implementierung testen koennen, ohne die Plattform-Plugins zu
-/// ziehen. Die echte Implementierung [LocalNotificationService] kapselt
-/// flutter_local_notifications + timezone und plant rein lokal via
-/// zonedSchedule — KEIN APNs/FCM/Server, das haelt den Gratis-Apple-Team-Status
-/// und die Zero-Cost-Constraint.
+/// An interface so callers can test against a mock/noop without the platform
+/// plugins. [LocalNotificationService] schedules purely locally via
+/// zonedSchedule — no APNs/FCM/server, which keeps the zero-cost constraint.
 abstract class NotificationService {
-  /// Einmalige Initialisierung (Timezone-DB + Plugin-Init). Idempotent.
+  /// One-time init (timezone DB + plugin). Idempotent.
   Future<void> init();
 
-  /// Loest den System-Permission-Dialog aus (iOS: alert/badge/sound,
-  /// Android 13+: POST_NOTIFICATIONS). Liefert true, wenn erlaubt.
+  /// Triggers the system permission dialog (iOS: alert/badge/sound,
+  /// Android 13+: POST_NOTIFICATIONS). True if granted.
   Future<bool> requestPermission();
 
-  /// Loescht alle bisher geplanten Nudges und plant [specs] neu.
-  /// Aufrufer soll IMMER die volle Liste uebergeben — die alten Eintraege
-  /// werden zuvor verworfen, damit nichts dupliziert/verwaist.
+  /// Cancels all scheduled nudges and schedules [specs] instead. Callers must
+  /// always pass the full list, since the old entries are dropped first.
   Future<void> scheduleAll(List<NotificationSpec> specs);
 
-  /// Verwirft alle geplanten/angezeigten Nudges (z.B. bei Logout oder wenn der
-  /// User Erinnerungen in den Settings deaktiviert).
+  /// Cancels all scheduled/shown nudges (logout, reminders turned off).
   Future<void> cancelAll();
 }
 
-/// Zusatz-Naht zu [NotificationService]: liest die Berechtigung auf OS-Ebene
-/// GEGEN — ohne einen Systemdialog auszuloesen.
+/// Extra seam on [NotificationService]: reads the OS-level permission without
+/// triggering a system dialog (D11, Review 2026-08-08).
 ///
-/// **Pruefen ist nicht Anfragen.** [NotificationService.requestPermission]
-/// zeigt dem Nutzer einen Dialog und darf nur auf eine explizite Geste hin
-/// laufen (Settings-Schalter, Onboarding). [hasPermission] ist still und darf
-/// jederzeit laufen — insbesondere beim Kaltstart, wo ein Dialog den Nutzer
-/// ueberfallen wuerde (D11, Review 2026-08-08).
+/// Checking is not asking: [NotificationService.requestPermission] shows a
+/// dialog and needs an explicit gesture; [hasPermission] is silent and may run
+/// any time, notably on cold start.
 ///
-/// Bewusst ein EIGENES Interface statt eines weiteren Members von
-/// [NotificationService]: bestehende Test-Doubles implementieren das
-/// Basis-Interface per `implements` und wuerden von einem neuen abstrakten
-/// Member gebrochen. Aufrufer pruefen deshalb per `is` und behandeln das
-/// Fehlen als „unbekannt" (siehe `home_store_profile.dart`).
+/// A separate interface, not another member of [NotificationService], so
+/// existing `implements` test doubles keep compiling. Callers probe via `is`
+/// and treat absence as "unknown".
 abstract class NotificationPermissionProbe {
-  /// Ob das OS Benachrichtigungen dieser App aktuell ausliefert.
-  ///
-  /// Fragt NICHT nach — der Nutzer sieht keinen Dialog. Der Wert kann sich
-  /// jederzeit ohne Zutun der App aendern (Systemeinstellungen), er ist also
-  /// nie cachebar.
+  /// Whether the OS currently delivers this app's notifications. Never
+  /// prompts, and never cacheable — system settings can change it any time.
   Future<bool> hasPermission();
 }
 
-/// Zusatz-Naht zu [NotificationService] (Muster [NotificationPermissionProbe]):
-/// traegt der Dienst einen Android-Notification-Kanal mit Name/Beschreibung
-/// (nur [LocalNotificationService]), reicht [setLocalizations] das aktive
-/// Sprachpaket hinein — der Kanal-Text wird beim naechsten `init()` in dieser
-/// Sprache (re-)angelegt (Scan/Coach-PR, 2026-08-11).
+/// Extra seam on [NotificationService] (same pattern as
+/// [NotificationPermissionProbe]): passes the active locale in so the Android
+/// channel name/description is (re-)created in that language on the next
+/// `init()`.
 ///
-/// Bewusst ein EIGENES Interface statt eines neuen Members von
-/// [NotificationService]: [NotificationService.init] behaelt seine
-/// parameterlose Signatur, bestehende Test-Doubles (`implements
-/// NotificationService`, `init()` ohne Argumente) bleiben unveraendert
-/// gueltig. Der Aufrufer prueft per `is` (Muster
-/// `home_store_profile.dart._osDeliversNotifications`) und behandelt das
-/// Fehlen als „unlokalisierbar" — kein Fehler, der Kanal bleibt dann Deutsch.
+/// A separate interface keeps `init()`'s parameterless signature and existing
+/// test doubles valid. Callers probe via `is`; absence just means the channel
+/// stays German.
 abstract class NotificationLocalizable {
   void setLocalizations(AppLocalizations l10n);
 }
 
-/// No-op-Implementierung fuer Plattformen ohne lokale Notifications (Web/Test)
-/// oder als sichere Default-Injection. Tut nichts, crasht nie.
+/// No-op implementation for platforms without local notifications (web/test)
+/// or as a safe default injection. Does nothing, never crashes.
 class NoopNotificationService
     implements NotificationService, NotificationPermissionProbe {
   const NoopNotificationService();
@@ -127,7 +104,7 @@ class NoopNotificationService
   @override
   Future<bool> requestPermission() async => false;
 
-  /// Ehrlich `false`: diese Implementierung stellt nie etwas zu.
+  /// Honest `false`: this implementation never delivers anything.
   @override
   Future<bool> hasPermission() async => false;
 
@@ -138,8 +115,8 @@ class NoopNotificationService
   Future<void> cancelAll() async {}
 }
 
-/// Echte, plattform-gestuetzte Implementierung. Nur iOS/Android werden bedient;
-/// auf allen anderen Plattformen no-op-pt sie hart (statt zu crashen).
+/// Real platform-backed implementation. Serves iOS/Android only; everywhere
+/// else it hard no-ops instead of crashing.
 class LocalNotificationService
     implements
         NotificationService,
@@ -151,10 +128,9 @@ class LocalNotificationService
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;
 
-  /// Sprachpaket fuer den Android-Kanal-Namen/-Beschreibung — s.
-  /// [NotificationLocalizable]. Default Deutsch ([deL10n]): reproduziert den
-  /// vorherigen hartkodierten Text, solange niemand [setLocalizations] ruft
-  /// (bestehende Tests bleiben unveraendert gruen).
+  /// Locale for the Android channel name/description (see
+  /// [NotificationLocalizable]). Defaults to German, reproducing the previous
+  /// hardcoded string while nobody calls [setLocalizations].
   AppLocalizations _l10n = deL10n;
 
   @override
@@ -170,26 +146,20 @@ class LocalNotificationService
   Future<void> init() async {
     if (_initialized || !_supported) return;
 
-    // Timezone-DB laden + lokale Zone setzen. zonedSchedule braucht eine
-    // gesetzte local-Location, sonst wirft tz.local. Wir nehmen die vom System
-    // gemeldete Zone; faellt das fehl, bleibt UTC (besser als Crash).
+    // zonedSchedule needs a local location set, or tz.local throws. Use the
+    // system zone; on failure stay on UTC (better than crashing).
     tzdata.initializeTimeZones();
     await _setLocalTimezone();
 
-    // Das Small Icon wertet Android seit API 21 NUR ueber den Alphakanal aus
-    // und faerbt das Ergebnis selbst ein (minSdk 26 — der Fall tritt immer
-    // ein). @mipmap/ic_launcher ist ein vollflaechig deckendes Bitmap, sein
-    // Alphakanal ist ueberall 255; in der Statusleiste kam davon ein weisses
-    // Quadrat an. Deshalb das eigene, monochrome Vektor-Drawable, dessen Form
-    // allein in der Transparenz steckt (res/drawable/ic_notification.xml,
-    // Fokusring der Wortmarke). Es ist der DEFAULT fuer alle Nudges —
-    // AndroidNotificationDetails.icon bleibt in _details() bewusst leer,
-    // sonst muesste jede Aufrufstelle den Verweis mitpflegen.
+    // Android reads the small icon only through its alpha channel, so the
+    // fully opaque @mipmap/ic_launcher rendered as a white square. Hence the
+    // monochrome vector drawable whose shape lives in transparency. It is the
+    // default for all nudges; AndroidNotificationDetails.icon stays empty in
+    // _details() so no call site has to repeat the reference.
     const androidInit =
         AndroidInitializationSettings('@drawable/ic_notification');
     const iosInit = DarwinInitializationSettings(
-      // Permission NICHT beim Init erzwingen — der explizite Schritt laeuft
-      // ueber requestPermission() (Onboarding-gesteuert).
+      // Do not force permission at init — that runs via requestPermission().
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
@@ -200,8 +170,8 @@ class LocalNotificationService
     );
     await _plugin.initialize(settings: settings);
 
-    // Android 8+ braucht einen expliziten Channel, sonst werden Nudges nicht
-    // angezeigt. Idempotent — wiederholtes Anlegen ist ein no-op.
+    // Android 8+ needs an explicit channel or nudges are not shown.
+    // Idempotent — recreating it is a no-op.
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(
@@ -216,23 +186,19 @@ class LocalNotificationService
     _initialized = true;
   }
 
-  /// Setzt die lokale tz-Location aus dem IANA-Namen der Geraete-Zone
-  /// (z.B. "Europe/Berlin"). flutter_timezone liefert den vollen IANA-Namen,
-  /// den tz.getLocation aufloesen kann — anders als DateTime.now().timeZoneName,
-  /// das oft nur Abkuerzungen (CET/CEST) liefert und damit auf UTC zurueckfaellt
-  /// (der CET/CEST->UTC-Fallback, den die Infra angemerkt hat). In try/catch:
-  /// schlaegt der Plugin-Call oder der Location-Lookup fehl (unsupported
-  /// Platform / fehlender Plattform-Channel im Test), bleibt der UTC-Default.
+  /// Sets the local tz location from the device's IANA zone name. Uses
+  /// flutter_timezone, not DateTime.now().timeZoneName, which often yields
+  /// only abbreviations (CET/CEST) that fall back to UTC. Wrapped in
+  /// try/catch: if plugin call or lookup fails, the UTC default stays.
   Future<void> _setLocalTimezone() async {
     try {
-      // flutter_timezone 5.x liefert ein TimezoneInfo; der volle IANA-Name
-      // (z.B. "Europe/Berlin") steht in .identifier. getLocation loest nur
-      // diesen vollen Namen auf (nicht die CET/CEST-Abkuerzungen).
+      // flutter_timezone 5.x returns a TimezoneInfo; the full IANA name is in
+      // .identifier, and only that resolves via getLocation.
       final name = (await FlutterTimezone.getLocalTimezone()).identifier;
       tz.setLocalLocation(tz.getLocation(name));
     } catch (_) {
-      // UTC-Default behalten — Engine-Plan-Zeiten sind lokale Wandzeiten, die
-      // wir in scheduleAll als local interpretieren.
+      // Keep the UTC default — planned times are local wall clock and are
+      // interpreted as local in scheduleAll.
     }
   }
 
@@ -262,25 +228,17 @@ class LocalNotificationService
     return false;
   }
 
-  /// Liest die Berechtigung still gegen. Die Wahrheit steht pro Plattform in
-  /// einer ANDEREN Plugin-Methode:
+  /// Reads the permission silently. Each platform exposes it in a DIFFERENT
+  /// plugin method:
   ///
-  ///  * Android: `AndroidFlutterLocalNotificationsPlugin.areNotificationsEnabled()`
-  ///    (`flutter_local_notifications-22.2.0/lib/src/platform_flutter_local_notifications.dart:624`).
-  ///    Ab Android 13 (API 33) ist das der Stand von `POST_NOTIFICATIONS`,
-  ///    davor der Schalter „Benachrichtigungen zulassen" (Default an). Eine
-  ///    `checkPermissions()`-Variante gibt es auf Android NICHT.
-  ///  * iOS: `IOSFlutterLocalNotificationsPlugin.checkPermissions()`
-  ///    (dieselbe Datei, Zeile 770) liefert ein
-  ///    [NotificationsEnabledOptions]; `isEnabled` ist nativ
-  ///    `authorizationStatus == UNAuthorizationStatusAuthorized`
-  ///    (`ios/.../FlutterLocalNotificationsPlugin.m:552`). „Noch nie gefragt"
-  ///    zaehlt damit korrekt als NICHT erlaubt. Ein `areNotificationsEnabled()`
-  ///    gibt es auf iOS nicht.
+  ///  * Android: `areNotificationsEnabled()` — `POST_NOTIFICATIONS` from API
+  ///    33, the "allow notifications" switch before. No `checkPermissions()`.
+  ///  * iOS: `checkPermissions()`; `isEnabled` maps to
+  ///    `authorizationStatus == UNAuthorizationStatusAuthorized`, so "never
+  ///    asked" correctly counts as not granted. No `areNotificationsEnabled()`.
   ///
-  /// Defensiv: schlaegt der Plattform-Call fehl (kein Channel im Test,
-  /// unbekannte Plattform), gilt „nicht erlaubt" — lieber der ehrliche
-  /// blockiert-Zustand als ein Schalter, der wieder luegt.
+  /// Defensive: a failing platform call counts as not granted — an honest
+  /// blocked state beats a switch that lies.
   @override
   Future<bool> hasPermission() async {
     if (!_supported) return false;
@@ -308,8 +266,8 @@ class LocalNotificationService
     if (!_supported) return;
     await init();
 
-    // Erst aufraeumen, dann neu planen — verhindert Duplikate/Waisen, wenn die
-    // Engine zwischen zwei Laeufen weniger oder andere Specs liefert.
+    // Clear first, then reschedule — avoids duplicates and orphans when a run
+    // yields fewer or different specs.
     await _plugin.cancelAll();
 
     final details = _details();
@@ -324,25 +282,15 @@ class LocalNotificationService
         spec.scheduledFor.minute,
         spec.scheduledFor.second,
       );
-      // Defensive: nie in die Vergangenheit planen (Plattform-zonedSchedule
-      // wuerde sonst sofort feuern).
+      // Defensive: never schedule into the past (zonedSchedule would fire
+      // immediately).
       if (!when.isAfter(now)) continue;
-      // BEWUSST OHNE matchDateTimeComponents (D10, Review 2026-08-08).
-      // Das naheliegende `DateTimeComponents.time` waere hier ein Bug: beide
-      // Plattformen verwerfen dann den DATUMS-Anteil und behalten nur die
-      // Uhrzeit —
-      //   Android: `zonedSchedule` ueberschreibt scheduledDateTime mit
-      //     getNextFireDateMatchingDateTimeComponents(...)
-      //     (android/.../FlutterLocalNotificationsPlugin.java:1687-1692 bzw.
-      //     :1369-1410), das nur Stunde/Minute/Sekunde uebernimmt;
-      //   iOS: `Time` baut NSDateComponents ausschliesslich aus
-      //     hour/minute/second und triggert `repeats:YES`
-      //     (ios/.../FlutterLocalNotificationsPlugin.m:835-844).
-      // Eine Liste aus n Specs zur selben Wandzeit wuerde damit zu n taeglich
-      // wiederkehrenden Benachrichtigungen kollabieren — jeden Abend n Stueck,
-      // fuer immer. Der Planner loest den Horizont deshalb in datierte
-      // Einzeltermine auf; das ist zugleich der einzige Ausstieg, der ohne
-      // laufende App greift (siehe streak_reminder_planner.dart).
+      // Deliberately WITHOUT matchDateTimeComponents (D10, Review
+      // 2026-08-08). `DateTimeComponents.time` would be a bug: both platforms
+      // then drop the DATE part and keep only hour/minute/second, so n specs
+      // at the same wall-clock time collapse into n daily repeating
+      // notifications, forever. The planner therefore resolves the horizon
+      // into dated one-shots (see streak_reminder_planner.dart).
       await _plugin.zonedSchedule(
         id: spec.id,
         title: spec.title,

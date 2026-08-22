@@ -2,17 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
 
-// Sentinel-Rest S4 (Sweep 2026-08-08): `fromRow` erfand fuer einen fehlenden
-// Slug einen FRISCHEN (`userRecipeSlug()` = user_<millis>). Der Slug ist aber
-// der Konflikt-Schluessel des Upserts (user_id,slug) — ueber den
-// Outbox-Replay (SyncOp.recipe -> fromRow(payload) -> upsert) legte jeder
-// Retry mit korruptem Payload damit eine NEUE Serverzeile an statt zu
-// aktualisieren: Duplikate im Rezeptbestand.
+// S4 (Sweep 2026-08-08): `fromRow` used to invent a FRESH slug when one was
+// missing. The slug is the upsert conflict key (user_id,slug), so every outbox
+// replay of a corrupt payload created a NEW server row instead of updating —
+// duplicate recipes.
 //
-// Neuer Vertrag: ohne Slug ist die Zeile/der Payload korrupt -> Wurf. Der
-// Replay faengt ihn (SyncOp.recipe -> null -> _CorruptOpPayload -> Drop mit
-// Meldung), und in public.user_recipes ist slug als Konflikt-Schluessel
-// ohnehin NOT NULL — Server-Zeilen trifft der Wurf nie.
+// Contract now: no slug means the row/payload is corrupt -> throw. The replay
+// catches it (-> _CorruptOpPayload -> drop with a message), and slug is NOT
+// NULL in public.user_recipes, so server rows never hit the throw.
 
 Map<String, dynamic> _zeile() => <String, dynamic>{
       'slug': 'user_123',

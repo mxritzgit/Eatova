@@ -4,16 +4,13 @@ import '../l10n/l10n.dart';
 import '../models/logged_meal.dart';
 import 'app_tokens.dart';
 
-/// Zentrale UI-Stilzuordnung für [MealSlot] (Akzentfarbe, Tageszeit-Icon,
-/// kompaktes Label). Vorher war dieses switch 5–6× über Widgets dupliziert
-/// (add_meal_sheet, recipes_screen, meal_analysis_sheet, existing_meals_list)
-/// und die Icons begannen zu divergieren. Eine Quelle der Wahrheit.
+/// Single source of truth for [MealSlot] UI style (accent color, icon,
+/// labels) — this switch used to be duplicated across half a dozen widgets
+/// and the icons started to diverge.
 extension MealSlotStyle on MealSlot {
-  /// Die Slot-Farbe aus den Theme-Tokens — funktioniert in beiden
-  /// Anzeige-Modi. Die Zuordnung folgt dem Entwurf: Frühstück trägt den
-  /// Kohlenhydrat-Ton, Mittag den Protein-Ton, Abend den Fett-Ton. Snack
-  /// bekommt eine eigene vierte Farbe statt Grau — ein grauer Slot läse
-  /// sich wie „deaktiviert".
+  /// The slot color from the theme tokens; works in both modes. Breakfast
+  /// carries the carb tone, lunch protein, dinner fat. Snack gets its own
+  /// fourth color rather than grey, which would read as "disabled".
   Color accentOn(AppTokens t) => switch (this) {
         MealSlot.breakfast => t.carbs,
         MealSlot.lunch => t.protein,
@@ -21,14 +18,11 @@ extension MealSlotStyle on MealSlot {
         MealSlot.snack => t.snack,
       };
 
-  /// Bequemer Zugriff, wo ein [BuildContext] zur Hand ist.
+  /// Convenience accessor where a [BuildContext] is at hand.
   Color accentIn(BuildContext context) => accentOn(context.t);
 
-  // Der frühere `accent`-Getter (feste Dunkel-Palette aus app_colors.dart)
-  // ist mit der Verifikations-Welle 2026-08-09 entfallen: er hatte in lib/
-  // und test/ keinen Aufrufer mehr und war der letzte Grund, warum
-  // lib/src/theme/ noch `app_colors.dart` importierte. Slot-Farben kommen
-  // ausschließlich über [accentOn]/[accentIn] — die kennen beide Modi.
+  // Slot colors come exclusively from [accentOn]/[accentIn]; the old fixed
+  // dark-palette `accent` getter is gone.
 
   IconData get icon => switch (this) {
         MealSlot.breakfast => Icons.wb_sunny_outlined,
@@ -37,14 +31,10 @@ extension MealSlotStyle on MealSlot {
         MealSlot.snack => Icons.cookie_outlined,
       };
 
-  /// Der volle, NUTZERSICHTBARE Slot-Name („Frühstück"/„Mittagessen"/
-  /// „Abendessen"/„Snacks") — aus der ARB, spricht die aktive App-Sprache.
-  ///
-  /// Seit der i18n-Migration (Paket 2, 2026-08-10) hier zuhause statt als
-  /// `MealSlotLabel.label`-Getter in `models/logged_meal.dart`: ein Getter
-  /// ohne Sprachparameter kann die ARB nicht erreichen. Der alte Name blieb
-  /// dort als [MealSlotLabel.germanLabel] fuer den einen verbliebenen
-  /// nicht-UI-Aufrufer (KI-Kontext) erhalten — s. dort.
+  /// The full, user-visible slot name from the ARB, in the active app
+  /// language. Lives here rather than as a getter on the model because a
+  /// getter without a locale parameter cannot reach the ARB;
+  /// [MealSlotLabel.germanLabel] remains there for the one non-UI caller.
   String label(AppLocalizations l10n) => switch (this) {
         MealSlot.breakfast => l10n.commonSlotBreakfast,
         MealSlot.lunch => l10n.commonSlotLunch,
@@ -52,8 +42,7 @@ extension MealSlotStyle on MealSlot {
         MealSlot.snack => l10n.commonSlotSnacks,
       };
 
-  /// Kompaktes Label für enge Slots (Segmented-Control) — kürzer als
-  /// [label], z. B. „Mittag" statt „Mittagessen".
+  /// Compact label for tight spots (segmented control) — shorter than [label].
   String shortLabel(AppLocalizations l10n) => switch (this) {
         MealSlot.breakfast => l10n.commonSlotBreakfastShort,
         MealSlot.lunch => l10n.commonSlotLunchShort,
@@ -61,8 +50,7 @@ extension MealSlotStyle on MealSlot {
         MealSlot.snack => l10n.commonSlotSnackShort,
       };
 
-  /// Anfangsbuchstabe für den runden Slot-Avatar der neuen Karten — aus dem
-  /// sprachaktiven [label], damit er unter `en` mit „B"/„L"/„D"/„S" statt
-  /// weiterhin „F"/„M"/„A"/„S" uebereinstimmt.
+  /// Initial for the round slot avatar, taken from the localized [label] so
+  /// it follows the active language.
   String initial(AppLocalizations l10n) => label(l10n).substring(0, 1).toUpperCase();
 }

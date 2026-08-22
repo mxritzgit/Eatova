@@ -5,14 +5,10 @@ import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/widgets/kcal/slot_selector.dart';
 
-// Nutzer-Feedback 2026-08-10: Der schwebende „Essen loggen"-Knopf auf „Heute"
-// ist entfallen. Damit sind die Mahlzeiten-Zeilen der EINZIGE Weg zum
-// Nachtragen — und sie mussten bis dahin ihre Aussage unterwegs abgeben: die
-// Schale warf den Slot weg (`onOpenMealSlot: (_) => setTab(food)`), der Nutzer
-// landete im Food-Tab und musste „Mittagessen" ein zweites Mal waehlen.
-//
-// Diese Tests halten den Durchstich fest: Wer auf „Mittagessen" tippt, landet
-// im Hinzufuegen-Fenster fuer Mittagessen.
+// With the floating log button gone, the meal rows are the ONLY way to add an
+// entry — and the shell used to drop the slot on the way
+// (`onOpenMealSlot: (_) => setTab(food)`). These tests pin the end-to-end
+// path: tapping a slot opens the add sheet for that slot.
 
 void main() {
   Future<void> bootHeute(WidgetTester tester) async {
@@ -29,22 +25,17 @@ void main() {
       'GENAU diesen Slot', (tester) async {
     await bootHeute(tester);
 
-    // IMMER erst heranscrollen: Die Mahlzeiten-Zeilen liegen am unteren Rand,
-    // und wie weit genau haengt an der Schriftmetrik der Plattform. Lokal
-    // (Windows) war „Mittagessen" gerade noch tippbar, auf dem CI-Runner
-    // (Linux) sass es bei y=801 von 852 — der Tipp ging dort ins Leere und der
-    // Test behauptete danach etwas Falsches.
+    // ALWAYS scroll into view first: how far down the rows sit depends on the
+    // platform's font metrics, so on CI the tap missed silently.
     final mittag = find.byKey(const ValueKey('today-meal-row-lunch'));
     await tester.ensureVisible(mittag);
     await tester.pumpAndSettle();
     await tester.tap(mittag);
     await tester.pumpAndSettle();
 
-    // Der Wechsel auf den Food-Tab ist passiert ...
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
-    // ... und das Sheet steht offen, mit Mittagessen vorgewaehlt.
     expect(find.byKey(const ValueKey('add-meal-slot-select')), findsOneWidget);
-    // Der Key sitzt am Padding, der Waehler liegt darunter.
+    // The key sits on the padding, the selector below it.
     final waehler = tester.widget<SlotSelector>(
       find.descendant(
         of: find.byKey(const ValueKey('add-meal-slot-select')),
@@ -58,9 +49,8 @@ void main() {
       (tester) async {
     await bootHeute(tester);
 
-    // Abendessen liegt auf einem 852-px-Schirm unter der Falz — ohne
-    // ensureVisible tippt der Test ins Leere und behauptet danach etwas
-    // Falsches.
+    // Dinner sits below the fold on an 852 px screen; without ensureVisible
+    // the tap misses.
     final abend = find.byKey(const ValueKey('today-meal-row-dinner'));
     await tester.ensureVisible(abend);
     await tester.pumpAndSettle();
@@ -68,8 +58,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('add-meal-slot-select')), findsOneWidget);
 
-    // Zurueck auf „Heute" und erneut tippen — die Anfrage darf sich nicht
-    // aufstauen und beim naechsten Tab-Besuch ein Geister-Sheet oeffnen.
+    // Back and forth: the request must not queue up and open a ghost sheet on
+    // the next tab visit.
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));

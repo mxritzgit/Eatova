@@ -14,19 +14,16 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Audit 2026-06-09, M-1: der lokale Klartext-PII-Cache (Profil, Mood-Notiz,
-// Lifetime-Stats, Notification-Flag) wurde bisher NUR bei der Konto-Löschung
-// geräumt, nicht beim normalen Sign-Out. Damit blieben Gesundheits-/Profildaten
-// nach dem Logout unverschlüsselt in den SharedPreferences liegen.
+// Audit 2026-06-09, M-1: the local PII cache used to be cleared only on account
+// deletion, not on a normal sign-out, so health/profile data stayed in
+// SharedPreferences after logout.
 //
-// signOutCleanup() schließt diese Lücke. Der Test treibt den Store ohne Sync
-// (kein Supabase nötig) mit einem injizierten In-Memory-Cache und prüft, dass
-// nach signOutCleanup() KEINE der gecachten Zeilen mehr lesbar ist.
+// signOutCleanup() closes that gap. The test drives the store without sync
+// (no Supabase needed) against an injected in-memory cache and checks that no
+// cached row is readable afterwards.
 //
-// DATA-7 (2026-08-06): der Cache spiegelt inzwischen auch Tagebuch, Favoriten,
-// Gewichts-Log, die Write-Outbox und pendende Stats-Deltas — alles PII
-// (Essverhalten, Koerpergewicht). Auch diese Slots MUESSEN beim Sign-Out
-// verschwinden.
+// DATA-7: the cache also mirrors diary, favorites, weight log, the write outbox
+// and pending stats deltas — all PII, so those slots must go too.
 
 void _noopSnack(
   String message, {
@@ -36,9 +33,8 @@ void _noopSnack(
   SnackBarAction? action,
 }) {}
 
-/// Zählt [cancelAll] mit — D9 (Review 2026-08-08): geplante Erinnerungen sind
-/// OS-Zustand und kennen keinen User, überleben also Logout UND Kontolöschung,
-/// solange sie niemand verwirft.
+/// Counts [cancelAll] — D9: scheduled reminders are OS state and know no user,
+/// so they survive logout AND account deletion unless discarded.
 class _SpyNotificationService implements NotificationService {
   int cancelAllCalls = 0;
 
@@ -55,14 +51,12 @@ class _SpyNotificationService implements NotificationService {
   Future<void> cancelAll() async => cancelAllCalls++;
 }
 
-/// Zählt [reset] mit — B3 (Review 2026-08-08): der Health-Zustand ist
-/// prozesslokal und kennt keinen User. Ohne Reset zeigt Nutzer B auf einem
-/// geteilten Gerät weiter As „Apple Health · Synchronisiert". Dieselbe
-/// Fehlerklasse wie D9 bei den Benachrichtigungen.
+/// Counts [reset] — B3: health state is process-local and knows no user, so
+/// without a reset user B keeps seeing A's connection on a shared device.
 ///
-/// Zurückgesetzt werden MUSS beides: der Verifier UND das gecachte
-/// [authState] in `AppleHealthService` — `refreshHealthSteps` liest genau
-/// letzteres, ein reiner Verifier-Reset bliebe also unsichtbar.
+/// BOTH must be reset: the verifier AND the cached [authState] in
+/// `AppleHealthService` — `refreshHealthSteps` reads the latter, so a
+/// verifier-only reset would stay invisible.
 class _SpyHealthService implements HealthService {
   int resetCalls = 0;
   HealthAuthState _state = HealthAuthState.granted;
@@ -128,7 +122,7 @@ void main() {
     ));
     await cache.writeLifetimeStats(LifetimeStats(mealsLogged: 12));
     await cache.writeNotificationsEnabled(true);
-    // DATA-7-Slots: Tagebuch, Favoriten, Gewicht, Outbox, Stats-Deltas.
+    // DATA-7 slots: diary, favorites, weight, outbox, stats deltas.
     const result = MealAnalysisResult(
       mealName: 'Private Bowl',
       caloriesKcal: 500,
@@ -158,7 +152,7 @@ void main() {
     await cache.writeOutbox([SyncOp.mealInsert(meal, trackDay: true)]);
     await cache.writePendingStatsDeltas(meals: 1, weightLogs: 1);
 
-    // Vorbedingung: alles ist da.
+    // Precondition: everything is present.
     expect(await cache.readProfile(), isNotNull);
     expect(await cache.readLifetimeStats(), isNotNull);
     expect(await cache.readNotificationsEnabled(), isTrue);
@@ -171,20 +165,18 @@ void main() {
 
     await _storeWith(cache).signOutCleanup();
 
-    // Nach dem Logout darf vom PII-Cache nichts mehr lesbar sein.
+    // After logout nothing of the PII cache may be readable.
     expect(await cache.readProfile(), isNull);
     expect(await cache.readLifetimeStats(), isNull);
     expect(await cache.readNotificationsEnabled(), isNull);
     expect(await cache.readLoggedMeals(), isNull);
     expect(await cache.readFavorites(), isNull);
     expect(await cache.readWeightLog(), isNull);
-    // Die beiden Sync-Slots dagegen ueberleben: dieser Store hat nie
-    // hydriert (kein start()) und nie zugestellt (sync: null) — die geseedete
-    // Op waere sonst ohne Zustellversuch vernichtet. Genau das war das
-    // A2-Restfenster; die erste Fassung dieses Tests schrieb es als Soll fest.
-    // Die Slots sind AES-verschluesselt und per User-ID genamespaced, ein
-    // anderes Konto auf demselben Geraet liest sie nie (home_store_sync.dart,
-    // Begruendung an signOutCleanup).
+    // The two sync slots survive: this store never hydrated (no start()) and
+    // never delivered (sync: null), so the seeded op would otherwise be
+    // destroyed without a delivery attempt (the A2 window). The slots are
+    // AES-encrypted and namespaced by user id, so another account on the same
+    // device never reads them.
     expect(await cache.readOutbox(), isNotNull);
     expect(await cache.readPendingStatsDeltas(), isNotNull);
     expect(
@@ -250,7 +242,7 @@ void main() {
   });
 
   test('signOutCleanup ist ohne Cache ein gefahrloses No-Op', () async {
-    // Kein debugCache, kein Sync -> nichts zu räumen, kein Crash/Channel.
+    // No debugCache, no sync -> nothing to clear, no crash/channel.
     final store = HomeStore(
       sync: null,
       health: const NoopHealthService(),

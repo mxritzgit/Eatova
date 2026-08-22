@@ -6,19 +6,16 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-/// C4, dritter Bildpfad. `meal_camera_sheet` und der Coach-Chat scrubben seit
-/// Welle 3 — `DeviceMealPhotoInput` nicht. Dieser Pfad ist der gefaehrlichste
-/// der drei: seine Bytes landen in `MealAnalysisRequest.imageBytes`, gehen
-/// also an die Edge Function und von dort an das Drittanbieter-Modell in den
-/// USA. Benutzt von `add_meal_sheet.dart` (Kamera UND Galerie) und
-/// `meal_analysis_screen.dart`.
+/// C4, third image path. This one is the most dangerous of the three: its bytes
+/// go into `MealAnalysisRequest.imageBytes`, hence to the edge function and on
+/// to the third-party model. Used by `add_meal_sheet.dart` (camera and gallery)
+/// and `meal_analysis_screen.dart`.
 ///
-/// Geprueft wird die **Ausgabe auf Byte-Ebene**, nicht ob eine Funktion
-/// aufgerufen wurde: `Exif\x00\x00` ist die APP1-Signatur, die das Geraet
-/// tatsaechlich verlaesst.
+/// Asserts the **output at byte level**, not that a function was called:
+/// `Exif\x00\x00` is the APP1 signature that actually leaves the device.
 
-/// Ein JPEG mit GPS-Sub-IFD — so schreibt es die Systemkamera mit
-/// Standort-Tagging in die Galerie.
+/// A JPEG with a GPS sub-IFD, as the system camera writes with location
+/// tagging enabled.
 Uint8List _geotaggedJpeg({int width = 480, int height = 360}) {
   final image = img.Image(width: width, height: height);
   img.fill(image, color: img.ColorRgb8(180, 120, 60));
@@ -35,7 +32,7 @@ Uint8List _geotaggedJpeg({int width = 480, int height = 360}) {
   return Uint8List.fromList(img.encodeJpg(image, quality: 90));
 }
 
-/// Sucht die APP1-Signatur im rohen Byte-Strom.
+/// Searches the raw byte stream for the APP1 signature.
 bool _hasExifSegment(Uint8List bytes) {
   const marker = <int>[0x45, 0x78, 0x69, 0x66, 0x00, 0x00]; // "Exif\0\0"
   for (var i = 0; i + marker.length <= bytes.length; i++) {
@@ -78,7 +75,7 @@ void main() {
   });
 
   test('Vorbedingung: das Fixture traegt GPS wirklich im Byte-Strom', () {
-    // Ohne diese Wache waere der Scrub-Test vakuum-gruen.
+    // Without this guard the scrub test would be vacuously green.
     expect(_hasExifSegment(original), isTrue);
     final decoded = img.decodeJpg(original)!;
     expect(decoded.exif.gpsIfd.keys, isNotEmpty);

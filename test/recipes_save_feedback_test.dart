@@ -1,22 +1,13 @@
-// Luecke E — die Erfolgsmeldung des Rezepte-Tabs hatte keine Deckung.
+// Gap E: the recipe tab's success toast was unbacked. `_openCreateSheet`
+// claimed "saved" synchronously, then the store's queue hint replaced it, so
+// the user saw two messages of which the first over-promised.
 //
-// `_openCreateSheet` rief `onCreateRecipe?.call(recipe)` und zeigte
-// UNMITTELBAR danach, synchron und unbedingt, „„X" gespeichert." — egal was
-// Store und Netz taten. Lokal stimmte die Aussage (seit Luecke A liegt das
-// Rezept im Cache), aber der Store schob bei einem gescheiterten Write seinen
-// eigenen Warteschlangen-Hinweis nach, und `showAppSnack` raeumt den vorigen
-// Toast dabei ab: der Nutzer sah „gespeichert." kurz aufblitzen und dann
-// „Offline — …". Zwei Meldungen, von denen die erste zu viel versprach.
+// This suite pins that exactly ONE message appears and that it mirrors the
+// real outcome, driving the screen through the [SyncDelivery] hook contract.
 //
-// Diese Suite haelt fest, dass GENAU EINE Meldung kommt und dass sie den
-// tatsaechlichen Ausgang spiegelt. Sie treibt den Screen ueber den echten
-// Hook-Vertrag ([SyncDelivery]); wer den Ausgang liefert (der Store) ist in
-// home_store_outbox_test.dart geprueft.
-//
-// Zweites Thema: `_locallyMutated` sperrte fuer den REST DER SITZUNG jede
-// Uebernahme des Store-Stands, sobald der Nutzer einmal etwas angelegt oder
-// geloescht hatte. Nach den Fixes A–C ist der Store die verlaesslichere Quelle
-// — und die Sperre richtet aktiven Schaden an, siehe letzter Test.
+// Second topic: `_locallyMutated` blocked every store update for the rest of
+// the session after one create or delete. The store is the more reliable
+// source, so that lock does active harm — see the last test.
 
 import 'dart:async';
 
@@ -51,9 +42,9 @@ FitnessRecipe _recipe(String slug, {String title = 'Server-Bowl'}) =>
       userCreated: true,
     );
 
-/// Bildet die Home-Schale nach: sie reicht `store.userRecipes` durch und baut
-/// den Screen neu, sobald der Store notifyt (der weist die Liste bei jeder
-/// Mutation NEU zu — daran haengt `didUpdateWidget`).
+/// Mimics the home shell: forwards `store.userRecipes` and rebuilds on every
+/// store notification (each mutation reassigns the list, which
+/// `didUpdateWidget` relies on).
 class _Host extends StatefulWidget {
   const _Host({
     this.onCreate,
@@ -72,8 +63,8 @@ class _Host extends StatefulWidget {
 class _HostState extends State<_Host> {
   late List<FitnessRecipe> _recipes = widget.initial;
 
-  /// Ein neuer Store-Stand kommt herein (Boot-Load, Merge, Wiedereinblendung
-  /// nach verworfener Loesch-Op).
+  /// A new store state arrives (boot load, merge, or restore after a dropped
+  /// delete op).
   void meldeStoreStand(List<FitnessRecipe> next) =>
       setState(() => _recipes = next);
 
@@ -99,7 +90,7 @@ class _HostState extends State<_Host> {
       );
 }
 
-/// Viewport-Pinning + Overflow-Toleranz wie in recipe_create_sheet_test.dart.
+/// Viewport pinning plus overflow tolerance.
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   testWidgets(description, (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -118,7 +109,7 @@ void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   });
 }
 
-/// Legt ueber das Sheet ein Rezept namens [name] an.
+/// Creates a recipe named [name] through the sheet.
 Future<void> _legeRezeptAn(WidgetTester tester, {String name = 'Protein-Bowl'}) async {
   await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
   await tester.pumpAndSettle();
@@ -130,7 +121,7 @@ Future<void> _legeRezeptAn(WidgetTester tester, {String name = 'Protein-Bowl'}) 
   await tester.pumpAndSettle();
 }
 
-/// Alle gerade sichtbaren Snack-Texte.
+/// All currently visible snack texts.
 Iterable<String> _snackTexte(WidgetTester tester) => tester
     .widgetList<SnackBar>(find.byType(SnackBar))
     .expand((s) => _texteIn(tester, s));
@@ -167,7 +158,7 @@ void main() {
             'du wieder online bist.'),
         findsOneWidget,
       );
-      // Und eben NICHT die blanke Erfolgsmeldung: sie war der ganze Bug.
+      // Not the bare success message: that was the bug.
       expect(find.text('„Protein-Bowl" gespeichert.'), findsNothing);
     });
 
@@ -193,8 +184,7 @@ void main() {
       await tester.pumpWidget(_Host(onCreate: (_) => ausgang.future));
       await _legeRezeptAn(tester);
 
-      // Solange der Store nicht geantwortet hat, gibt es nichts zu melden —
-      // frueher stand hier schon „gespeichert.".
+      // Nothing to report until the store answers.
       expect(_snackTexte(tester), isEmpty);
 
       ausgang.complete(SyncDelivery.queuedOffline);
@@ -253,11 +243,9 @@ void main() {
         'nach einer lokalen Aenderung wird ein neuer Store-Stand TROTZDEM '
         'uebernommen (Wiedereinblendung nach verworfener Loesch-Op)',
         (tester) async {
-      // Szenario aus _restoreDroppedDeletes: der Nutzer loescht ein Rezept,
-      // die Loesch-Op faellt endgueltig aus, der Store blendet den Eintrag
-      // wieder ein und meldet „der Eintrag ist wieder da". Mit `_locallyMutated`
-      // hat die Loeschung die Sperre gesetzt — der Screen zeigte das Rezept
-      // danach NIE wieder, obwohl der Snack das Gegenteil behauptete.
+      // _restoreDroppedDeletes scenario: the delete op is dropped for good and
+      // the store brings the recipe back. With `_locallyMutated` the delete had
+      // set the lock, so the screen never showed it again.
       final zurueck = _recipe('user_zurueck', title: 'Wieder-da-Bowl');
       await tester.pumpWidget(_Host(
         initial: <FitnessRecipe>[zurueck],
@@ -272,7 +260,7 @@ void main() {
           findsNothing,
           reason: 'Vorbedingung: lokal ist das Rezept weg');
 
-      // Der Store holt es zurueck.
+      // The store brings it back.
       tester
           .state<_HostState>(find.byType(_Host))
           .meldeStoreStand(<FitnessRecipe>[zurueck]);
@@ -288,10 +276,9 @@ void main() {
     testWidgetsRobust(
         'ein selbst angelegtes Rezept ueberlebt die Uebernahme des '
         'Store-Stands', (tester) async {
-      // Die Gegenprobe zur Sperre: sie existierte, weil ein nachgereichter
-      // Boot-Stand das frisch angelegte Rezept sonst wegwarf. Seit Luecke C
-      // MERGT der Store statt zu ersetzen — der nachgereichte Stand traegt das
-      // eigene Rezept also selbst.
+      // Counter-check: the lock existed because a late boot state used to drop
+      // the fresh recipe. The store now merges instead of replacing, so the
+      // late state already carries it.
       final eigenes = <FitnessRecipe>[];
       await tester.pumpWidget(_Host(onCreate: (r) async {
         eigenes.add(r);

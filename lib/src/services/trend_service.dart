@@ -5,50 +5,35 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'day_math.dart';
 import 'local_day.dart';
 
-/// Laedt Tagesaggregate (kcal + Makros) fuer die Trend-Ansicht direkt aus
-/// public.logged_meals — bewusst UNABHAENGIG vom 35-Tage-Boot-Fenster des
-/// HomeStore (MealsSync.loggedMealsWindowDays): Trends brauchen ~90 Tage,
-/// das Tagebuch nur ~5.
+/// Daily aggregates (kcal + macros) for the trends view, read straight from
+/// public.logged_meals and independent of the HomeStore boot window.
 ///
-/// Projektion: NUR die denormalisierten Spalten (local_day, logged_at,
-/// calories_kcal, protein_g, carbs_g, fat_g). Der JSONB-Payload bleibt
-/// komplett drauessen — seine Makro-Felder (`payload->>'protein'` usw.) sind
-/// Anzeige-Strings wie "25 g", waehrend die numerischen Spalten seit der
-/// Ur-Migration (20260516160000_app_data_schema.sql) existieren und von jedem
-/// Insert-/Update-Pfad in meals_sync.dart mitgeschrieben werden.
+/// Projects only the denormalised numeric columns; the JSONB payload's macro
+/// fields are display strings like "25 g".
 class TrendService {
   TrendService(this._client, this._userId);
 
   final SupabaseClient _client;
   final String _userId;
 
-  /// Trend-Fenster in Tagen (laengster Zeitraum der UI: 90-Tage-Ansicht).
-  /// Gefiltert wird wie in MealsSync auf logged_at statt local_day, weil
-  /// sehr alte Zeilen local_day=null tragen koennen und bei einem
-  /// local_day-Filter kommentarlos fehlen wuerden.
+  /// Trend window in days. Filtered on logged_at, not local_day: very old
+  /// rows may carry local_day=null and would silently disappear.
   static const int trendWindowDays = 90;
 
-  /// Defensiver Zeilen-Deckel (~27 Logs/Tag im 90-Tage-Fenster): PostgREST
-  /// kappt bei gesetztem db-max-rows STILL — mit explizitem Limit ist die
-  /// Obergrenze deterministisch, und dank order desc verschwinden hoechstens
-  /// die AELTESTEN Zeilen des Fensters (Muster aus MealsSync.loggedMealsMaxRows).
+  /// Defensive row cap: PostgREST truncates SILENTLY under db-max-rows, so an
+  /// explicit limit makes the ceiling deterministic (order desc drops oldest).
   static const int trendMaxRows = 2500;
 
   static const String _projection =
       'local_day, logged_at, calories_kcal, protein_g, carbs_g, fat_g';
 
-  /// Laedt das 90-Tage-Fenster und aggregiert clientseitig zu Tagessummen
-  /// (aufsteigend sortiert). Fehler werden geloggt und rethrown — die UI
-  /// faengt sie und zeigt einen Retry-Zustand.
+  /// Aggregates the window to daily totals client-side (ascending). Errors
+  /// are logged and rethrown; the UI shows a retry state.
   Future<List<TrendDayTotals>> loadDailyTotals() async {
     try {
-      // B5: Hier steht bewusst Absolutzeit, KEINE Kalenderarithmetik. Der
-      // Cutoff ist eine grosszuegige Server-Grenze auf `logged_at` (einem
-      // Instant), kein Kalendertag — 90x24h ist genau die gemeinte Semantik,
-      // und ein um eine DST-Stunde verschobener Rand aendert nichts am
-      // Ergebnis, weil das Fenster ohnehin weiter reicht als jede UI-Ansicht
-      // (laengster Zeitraum: 90 Tage). Tagesgrenzen entstehen erst
-      // clientseitig in aggregateDailyTotals/denseTrendWindow.
+      // B5: absolute time on purpose. The cutoff is a generous bound on the
+      // `logged_at` instant, so a DST-shifted edge changes nothing; day
+      // boundaries appear client-side in aggregateDailyTotals.
       final cutoffIso = DateTime.now()
           .toUtc()
           .subtract(const Duration(days: trendWindowDays))
@@ -60,8 +45,7 @@ class TrendService {
           .gte('logged_at', cutoffIso)
           .order('logged_at', ascending: false)
           .limit(trendMaxRows);
-      // Aggregation ist reihenfolge-unabhaengig — dass die Query desc sortiert
-      // (fuer das Limit), spielt fuer die Tagessummen keine Rolle.
+      // Aggregation is order-independent; the desc sort only serves the limit.
       return aggregateDailyTotals(rows);
     } catch (e, stack) {
       dev.log(
@@ -75,11 +59,10 @@ class TrendService {
   }
 }
 
-/// Signatur des Trend-Laders, wie ihn der TrendsScreen injiziert bekommt —
-/// Produktions-Pfad ist [TrendService.loadDailyTotals], Tests reichen Fakes.
+/// Trend loader injected into TrendsScreen; tests pass fakes.
 typedef TrendTotalsLoader = Future<List<TrendDayTotals>> Function();
 
-/// Eine Tagessumme (lokaler Kalendertag) fuer die Trend-Ansicht.
+/// One daily total (local calendar day) for the trends view.
 class TrendDayTotals {
   const TrendDayTotals({
     required this.day,
@@ -89,7 +72,7 @@ class TrendDayTotals {
     required this.fatG,
   });
 
-  /// Lokaler Kalendertag (date-only, keine Uhrzeit).
+  /// Local calendar day (date-only, no time).
   final DateTime day;
   final int kcal;
   final double proteinG;
@@ -97,16 +80,11 @@ class TrendDayTotals {
   final double fatG;
 }
 
-/// Toleranz des Zielkorridors: ein Tag "trifft" das Kalorienziel, wenn seine
-/// Summe innerhalb von +/-10 % des Tagesziels liegt (inklusive Grenzen).
+/// A day "hits" the kcal goal within +/-10 % of it (bounds inclusive).
 const double trendGoalTolerance = 0.10;
 
-/// Pure Aggregation: PostgREST-Zeilen -> Tagessummen, aufsteigend sortiert.
-///
-/// Tages-Schluessel ist `local_day` (kanonisch, DATA-6); Zeilen ohne
-/// local_day (sehr alte Eintraege) fallen auf den lokalen Kalendertag von
-/// `logged_at` zurueck — dieselbe Fallback-Logik wie das Meals-Bucketing.
-/// Null-Makros (aeltere Zeilen / unparsebare Angaben) zaehlen als 0.
+/// Pure aggregation: PostgREST rows -> daily totals, ascending. Day key is
+/// `local_day` (DATA-6), falling back to `logged_at`; null macros count as 0.
 List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
   final byDay = <String, ({int kcal, double p, double c, double f})>{};
   for (final row in rows) {
@@ -116,7 +94,7 @@ List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
       final loggedAt = loggedAtRaw == null
           ? null
           : DateTime.tryParse(loggedAtRaw);
-      // Defensiv: Zeile ohne jedes Datum ueberspringen.
+      // Defensive: skip a row without any date.
       if (loggedAt == null) {
         continue;
       }
@@ -133,12 +111,11 @@ List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
   final totals = <TrendDayTotals>[];
   for (final entry in byDay.entries) {
     final day = DateTime.tryParse(entry.key);
-    if (day == null) continue; // defensiv: kaputter Tages-Schluessel
+    if (day == null) continue; // defensive: broken day key
     totals.add(
       TrendDayTotals(
-        // startOfDay statt DateTime(y, m, d): identischer Wert, aber es ist
-        // dieselbe Kalender-Normalisierung, die day_math.dart ueberall sonst
-        // im Projekt liefert (B5).
+        // startOfDay, not DateTime(y, m, d): same value, but the same calendar
+        // normalisation day_math.dart provides everywhere else (B5).
         day: startOfDay(day),
         kcal: entry.value.kcal,
         proteinG: entry.value.p,
@@ -151,14 +128,9 @@ List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
   return totals;
 }
 
-/// Dichtes Fenster der letzten [days] Kalendertage (aeltester zuerst, letzter
-/// Eintrag = [today]): pro Tag entweder die Tagessumme oder `null` fuer
-/// Luecken-Tage ohne Logs. Tage ausserhalb des Fensters werden verworfen.
-///
-/// Dass der LETZTE Eintrag [today] ist, ist eine zugesicherte Eigenschaft —
-/// [completedDaysOf] verlaesst sich darauf.
-///
-/// Ein [days] von 0 oder weniger liefert ein leeres Fenster (statt zu werfen).
+/// Dense window of the last [days] calendar days, oldest first: the total per
+/// day or `null` for a gap. The last entry is [today], a property
+/// [completedDaysOf] relies on; [days] <= 0 yields an empty window.
 List<TrendDayTotals?> denseTrendWindow(
   List<TrendDayTotals> totals, {
   required DateTime today,
@@ -167,49 +139,27 @@ List<TrendDayTotals?> denseTrendWindow(
   final byKey = <String, TrendDayTotals>{
     for (final t in totals) localDayKey(t.day): t,
   };
-  // B5: dayStrip rechnet in Kalendertagen (Day-Overflow im Konstruktor). Eine
-  // Duration-Subtraktion wuerde ueber eine DST-Kante hinweg auf 23:00 des
-  // Vortags rutschen und Tage doppeln/ueberspringen — nach der
-  // Fruehjahrsumstellung faellt sonst ein ganzer Tag aus dem Chart.
+  // B5: dayStrip counts calendar days; a Duration subtraction would slip to
+  // 23:00 across a DST edge and drop a whole day out of the chart.
   return [
     for (final day in dayStrip(today: today, pastDays: days - 1))
       byKey[localDayKey(day)],
   ];
 }
 
-/// B6: Der Kennzahlen-Ausschnitt eines [denseTrendWindow] — alle Tage AUSSER
-/// dem laufenden (dem letzten Eintrag).
+/// B6: the metrics slice of a [denseTrendWindow] — every day EXCEPT the
+/// running one, which the averages would treat as complete and let a single
+/// breakfast drag down. A day viewed at 23:50 therefore does not count either;
+/// a clock heuristic would be arbitrary and untestable.
 ///
-/// Warum: `averageKcalOf`/`goalHitsOf`/`averageMacrosOf` behandeln jeden Tag
-/// mit mindestens einem Eintrag als vollstaendig. Der laufende Tag ist das per
-/// Definition nicht. Wer morgens um 08:30 ein 350-kcal-Fruehstueck loggt und
-/// direkt auf Trends tippt, saehe sonst bei sechs perfekten Vortagen a 2200
-/// kcal einen Schnitt von (6 x 2200 + 350) / 7 = 1936 kcal „pro getracktem
-/// Tag" und eine Trefferquote von 6 von 7 Tagen — der Fehler ist am groessten
-/// genau dann, wenn der Nutzer am ehesten hinschaut.
-///
-/// **Der Preis:** Wer abends um 23:50 schaut, hat einen praktisch
-/// vollstaendigen Tag, der trotzdem nicht mitzaehlt. Das ist bewusst so: eine
-/// Uhrzeit-Heuristik („ab 20 Uhr zaehlt heute mit") waere willkuerlich, waere
-/// vom Essrhythmus des Nutzers abhaengig und liesse sich nicht sinnvoll
-/// testen. „Abgeschlossen heisst: der Tag ist vorbei" ist die einzige Regel,
-/// die ohne Annahmen ueber den Nutzer auskommt.
-///
-/// Das CHART bekommt weiterhin das volle [denseTrendWindow] — die Kurve soll
-/// den laufenden Tag zeigen, nur die Kennzahlen-Kacheln rechnen ohne ihn. Die
-/// Kacheln muessen das beschriften (`trends_screen.dart`).
-///
-/// Ein leeres Fenster bleibt leer; ein Fenster mit nur einem Tag (heute) wird
-/// leer — der Aufrufer bekommt dann `null` aus den Durchschnitten und
-/// `tracked == 0` aus [goalHitsOf] und muss daraus einen Leerzustand bauen,
-/// statt 0/0 zu rechnen.
+/// The CHART still gets the full window. A window holding only today becomes
+/// empty, so callers must render an empty state instead of computing 0/0.
 List<TrendDayTotals?> completedDaysOf(List<TrendDayTotals?> window) {
   if (window.isEmpty) return const <TrendDayTotals?>[];
   return window.sublist(0, window.length - 1);
 }
 
-/// Anzahl der Tage mit mindestens einem Eintrag (Luecken zaehlen nicht).
-/// Ein Tag mit 0 kcal ist getrackt — „nicht getrackt" ist kein 0-kcal-Tag.
+/// Days with at least one entry. A 0-kcal day counts as tracked.
 int trackedDaysOf(Iterable<TrendDayTotals?> window) {
   var tracked = 0;
   for (final day in window) {
@@ -218,9 +168,7 @@ int trackedDaysOf(Iterable<TrendDayTotals?> window) {
   return tracked;
 }
 
-/// Durchschnitts-kcal ueber die GETRACKTEN Tage des Fensters (Luecken-Tage
-/// zaehlen nicht als 0 — ein nicht getrackter Tag ist kein 0-kcal-Tag).
-/// `null`, wenn kein Tag Daten hat.
+/// Average kcal over the TRACKED days; gap days are not 0. `null` if none.
 double? averageKcalOf(Iterable<TrendDayTotals?> window) {
   var sum = 0;
   var tracked = 0;
@@ -232,10 +180,8 @@ double? averageKcalOf(Iterable<TrendDayTotals?> window) {
   return tracked == 0 ? null : sum / tracked;
 }
 
-/// Ziel-Treffer: wie viele getrackte Tage liegen im Korridor
-/// `goalKcal * (1 +/- tolerance)` (Grenzen inklusive)? Luecken-Tage zaehlen
-/// weder als Treffer noch als getrackt. Ein Ziel <= 0 hat keinen sinnvollen
-/// Korridor -> 0 Treffer.
+/// Tracked days inside `goalKcal * (1 +/- tolerance)`, bounds inclusive. Gap
+/// days count as neither; a goal <= 0 has no corridor -> 0 hits.
 ({int hit, int tracked}) goalHitsOf(
   Iterable<TrendDayTotals?> window, {
   required int goalKcal,
@@ -253,8 +199,7 @@ double? averageKcalOf(Iterable<TrendDayTotals?> window) {
   return (hit: hit, tracked: tracked);
 }
 
-/// Durchschnitts-Makros (P/C/F in Gramm) ueber die getrackten Tage.
-/// `null`, wenn kein Tag Daten hat.
+/// Average macros (P/C/F in grams) over the tracked days. `null` if none.
 ({double proteinG, double carbsG, double fatG})? averageMacrosOf(
   Iterable<TrendDayTotals?> window,
 ) {

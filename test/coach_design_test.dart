@@ -16,21 +16,17 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
-// Design-Refactor 2026-08-09, Paket „Coach".
-//
-// Diese Datei haelt fest, was der Umbau NEU zusichert (Kopfzeile, Blasen,
-// Composer ohne Theme-Kasten) und was er NICHT veraendern darf (ein Vorschlag
-// fuellt nur das Feld, „Verlauf nicht ladbar" zeigt weder Hero noch
-// Vorschlaege). Die Zustands-Zusicherungen des Screens liegen weiter in den
-// sieben bestehenden coach_*-Dateien; hier steht nur, was Optik heisst.
+// Coach design refactor: this file pins what the redesign guarantees (header,
+// bubbles, composer without a theme box) and what it must not change. The
+// state assertions live in the existing coach_* files; this one is about
+// appearance.
 
-/// Nutzbare Flaeche eines iPhone 16 Pro. Die 800x600-Standardview des
-/// Testbindings ist kuerzer als jedes Zielgeraet und laesst den Hero
-/// ueberlaufen (vgl. coach_ai_disclosure_test.dart).
+/// Usable area of an iPhone 16 Pro. The binding's 800x600 default view is
+/// shorter than any target device and lets the hero overflow.
 const Size _usableSize = Size(402, 781);
 
-/// Bleibt im Zuhoer-Zustand haengen: `listen()` loest nie auf, `_listening`
-/// bleibt also true, bis der Test fertig ist.
+/// Stays in the listening state: `listen()` never resolves, so `_listening`
+/// remains true until the test ends.
 class _EndlosMikro extends CoachSpeechInput {
   const _EndlosMikro();
 
@@ -48,8 +44,8 @@ class _EndlosMikro extends CoachSpeechInput {
 class _FakeCoach extends CoachChatService {
   _FakeCoach(super.client, super.userId);
 
-  /// `stopAutoRefresh()` ist Pflicht: GoTrue startet im Konstruktor einen
-  /// periodischen Timer, an dem jeder Widget-Test scheitert.
+  /// `stopAutoRefresh()` is mandatory: GoTrue starts a periodic timer in its
+  /// constructor that fails every widget test.
   static _FakeCoach create() {
     final client = SupabaseClient(
       'https://example.supabase.co',
@@ -66,7 +62,7 @@ class _FakeCoach extends CoachChatService {
       const ChatQuotaSnapshot(used: 0, remaining: 5, dailyLimit: 5);
   int sendCalls = 0;
 
-  /// Gesetzt: `send()` haengt (fuer den Denk-Zustand).
+  /// When set, `send()` hangs (for the thinking state).
   Completer<CoachChatReply>? sendGate;
 
   @override
@@ -137,18 +133,16 @@ Future<void> _pumpCoach(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  // Wer in einem Test zweimal pumpt (hell/dunkel im selben Rumpf), bekommt
-  // sonst DENSELBEN Element-Baum zurueck: gleiche Widget-Typen an gleicher
-  // Stelle heisst Wiederverwendung, und damit ueberleben State (z. B. ein
-  // laufendes Mikro) und offene Routen (ein Sheet aus dem ersten Durchlauf)
-  // den Moduswechsel. Der leere Zwischenschritt wirft den Baum weg.
+  // Pumping twice in one test (light/dark) would otherwise reuse the SAME
+  // element tree, so state (a running mic) and open routes (a sheet from the
+  // first pass) survive the mode switch. The empty step throws the tree away.
   await tester.pumpWidget(const SizedBox.shrink());
 
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
-      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach calls context.l10n; without localization
+      // AppLocalizations.of() throws on the first build.
       locale: locale,
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -158,19 +152,18 @@ Future<void> _pumpCoach(
         GlobalCupertinoLocalizations.delegate,
       ],
       home: MediaQuery(
-        // Aus der echten View abgeleitet statt frisch gebaut: ein blankes
-        // MediaQueryData haette Size.zero, und alles, was seine Breite oder
-        // Hoehe daraus liest, rechnete mit 0.
-        // `disableAnimations`: sonst laufen Orb, Mic-Puls und Denk-Punkte
-        // endlos und pumpAndSettle laeuft aus.
+        // Derived from the real view, not freshly built: a blank
+        // MediaQueryData would have Size.zero. `disableAnimations` stops the
+        // endless orb/mic/thinking animations that would time out
+        // pumpAndSettle.
         data: MediaQueryData.fromView(tester.view).copyWith(
           disableAnimations: true,
           textScaler: TextScaler.linear(textScale),
         ),
         child: Scaffold(
           body: Padding(
-            // Dieselbe Schale wie eatova_home_page.dart: der Tab bekommt
-            // seinen Seitenrand von aussen, der Screen setzt innen 0.
+            // Same shell as eatova_home_page.dart: the tab gets its side
+            // padding from outside, the screen uses 0 inside.
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
             child: CoachChatScreen(
               service: service,
@@ -186,8 +179,8 @@ Future<void> _pumpCoach(
   await tester.pumpAndSettle();
 }
 
-/// Die Blase um einen Nachrichtentext: der naechste [Container] mit
-/// [BoxDecoration] oberhalb des Textes.
+/// The bubble around a message text: the nearest [Container] with a
+/// [BoxDecoration] above the text.
 BoxDecoration _bubbleDecoration(WidgetTester tester, String text) {
   final container = tester
       .widgetList<Container>(
@@ -254,9 +247,8 @@ void main() {
       find.byKey(const ValueKey('coach-input')),
     );
     final deco = field.decoration!;
-    // Ohne diese vier Ueberschreibungen schlaegt inputDecorationTheme durch
-    // (filled: true + OutlineInputBorder) und es sitzt ein zweiter gefuellter,
-    // gerahmter Kasten in der Composer-Kapsel.
+    // Without these overrides inputDecorationTheme bleeds through (filled +
+    // OutlineInputBorder) and a second boxed field sits in the composer.
     expect(deco.filled, isFalse);
     expect(deco.border, InputBorder.none);
     expect(deco.enabledBorder, InputBorder.none);
@@ -314,8 +306,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('coach-send')));
-    // Terminiert nur, wenn _ThinkingRow seinen Dauer-Controller unter
-    // disableAnimations anhaelt — sonst laeuft pumpAndSettle in den Timeout.
+    // Only terminates if _ThinkingRow stops its endless controller under
+    // disableAnimations; otherwise pumpAndSettle times out.
     await tester.pumpAndSettle();
 
     expect(svc.sendCalls, 1);
@@ -324,9 +316,8 @@ void main() {
 
   testWidgets('der Zuhoer-Zustand des Mikros ist in beiden Modi sichtbar',
       (tester) async {
-    // `lime` auf der hellen Composer-Kapsel kaeme im Hellmodus auf rund
-    // 1,2:1 — das Mikro saehe aus, als sei nichts passiert, obwohl es
-    // zuhoert. Der Zustand faerbt sich deshalb in `accent`.
+    // `lime` on the light composer capsule reaches only ~1.2:1, so the mic
+    // would look idle while listening. The state uses `accent` instead.
     for (final (brightness, tokens) in <(Brightness, AppTokens)>[
       (Brightness.dark, AppTokens.dark),
       (Brightness.light, AppTokens.light),
@@ -437,9 +428,8 @@ void main() {
   });
 
   group('EN-Render-Smoke (i18n-Paket 4, Spec §6)', () {
-    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
-    // mindestens eine echte englische Uebersetzung steht im Baum. Muster:
-    // test/recipes_design_test.dart (Paket 3).
+    // Renders under locale `en` in both brightnesses: no crash, and at least
+    // one real English translation is in the tree.
     for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
       testWidgets('Coach-Tab rendert unter en in $brightness ohne Ausnahme',
           (tester) async {
@@ -452,8 +442,7 @@ void main() {
 
         expect(tester.takeException(), isNull,
             reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
-        // „KI-Coach" -> „AI Coach", „Wie kann ich dir helfen?" ->
-        // „How can I help you?".
+        // The German header strings become their English counterparts.
         expect(find.text('AI Coach'), findsOneWidget);
         expect(find.text('How can I help you?'), findsOneWidget);
       });

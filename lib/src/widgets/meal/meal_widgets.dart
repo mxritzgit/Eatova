@@ -1,9 +1,5 @@
-/// Meal-Analyse-Widgets — als Bibliothek aus mehreren `part`-Dateien gebaut.
-///
-/// Rein mechanischer Split: die kohaerenten Gruppen (Cards, Result-Karte,
-/// Anpassungs-Sheets) liegen in den unten referenzierten `part of`-Dateien.
-/// Importe + Sichtbarkeit (library-private `_`-Klassen) bleiben unveraendert,
-/// kein Import-Site aendert sich.
+/// Meal analysis widgets — a library split mechanically into `part` files
+/// (cards, result card, adjustment sheets). Imports and visibility unchanged.
 library;
 
 import 'package:flutter/material.dart';

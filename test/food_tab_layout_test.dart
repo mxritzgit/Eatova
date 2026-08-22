@@ -7,29 +7,26 @@ import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-// Layout-Tests fuer den Food-Tab.
+// Layout tests for the food tab.
 //
-// Bewusst KEINE Assertion auf „kein RenderFlex-Overflow": der Headless-
-// Renderer nutzt eine Test-Schrift mit anderen Metriken als SF auf dem Geraet.
-// Derselbe Baum, der im Simulator ~56 pt Luft hat, meldet hier einen Overflow —
-// die Zahlen sind also kein brauchbares Orakel. Aus demselben Grund schluckt
-// `testWidgetsRobust` in widget_test.dart diese Fehler. Hier stehen die
-// Aussagen, die von der Schriftmetrik unabhaengig sind.
+// Deliberately no "no RenderFlex overflow" assertion: the headless renderer
+// uses a test font with different metrics, so a tree with ~56 pt of slack on
+// device reports an overflow here. Only font-metric-independent claims live in
+// this file.
 
-/// Nutzbare Flaeche (Screen minus Safe Area), also das, was der Scaffold im
-/// Food-Tab bekommt. Die Test-View hat kein View-Padding, daher ist die Safe
-/// Area hier schon abgezogen.
+/// Usable area (screen minus safe area) — what the scaffold gets in the food
+/// tab. The test view has no view padding, so the safe area is already gone.
 const _usableSize = Size(402, 781); // iPhone 16 Pro
 
-/// Baut den Food-Tab in derselben Huelle wie EatovaHomePage: Scaffold mit
-/// Bottom-Nav, SafeArea und dem festen 20/12-Padding des fixed-height-Tabs.
+/// Builds the food tab in the same shell as the home page: scaffold with
+/// bottom nav, SafeArea and the fixed 20/12 padding.
 Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
   tester.view.devicePixelRatio = 3.0;
   tester.view.physicalSize = _usableSize * 3.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  // Overflow-Meldungen schlucken — s. Datei-Kommentar oben.
+  // Swallow overflow reports — see the file comment above.
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
     if (details.exception.toString().contains('overflowed')) return;
@@ -40,7 +37,7 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // MealAnalysisScreen liest seit der i18n-Migration context.l10n.
+      // MealAnalysisScreen reads context.l10n.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -50,22 +47,15 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
         GlobalCupertinoLocalizations.delegate,
       ],
       home: MediaQuery(
-        // Spiegelt den Textscaler-Deckel aus EatovaApp (seit dem
-        // A11y-Pass 2.0 statt 1.3, s. text_scale_stress_test.dart).
+        // Mirrors the text scaler cap from EatovaApp.
         data: MediaQueryData(
           textScaler: TextScaler.linear(textScale).clamp(maxScaleFactor: 2.0),
           size: _usableSize,
         ),
         child: Scaffold(
-          // Der Seitengrund kommt aus dem Theme (scaffoldBackgroundColor);
-          // eine harte Konstante haette den Hell-Modus ausgeschlossen.
-          //
-          // Verifikations-Welle 2026-08-09: Diese Huelle stand vorher auf
-          // `EatovaBottomNav` — der 3-Tab-Leiste von vor dem Refactor, die
-          // ihre Farben noch aus `app_colors.dart` las und in der App
-          // nirgends mehr vorkam (die Schale baut `AppNavBar`). Die Leiste
-          // hier traegt jetzt dieselben vier Eintraege wie EatovaHomePage,
-          // damit die Huelle das misst, was die App wirklich zeichnet.
+          // Page ground comes from the theme; a hard constant would rule out
+          // light mode. The nav bar carries the same four items as the real
+          // home page so the harness measures what the app draws.
           bottomNavigationBar: AppNavBar(
             index: 1,
             onChanged: (_) {},
@@ -109,9 +99,8 @@ void main() {
   testWidgets('Food date chips do not repeat the date twice', (tester) async {
     await _pumpFoodTab(tester);
 
-    // Seit der absteigenden 30-Tage-Leiste ist chip-0 „Heute"; der erste
-    // Chip mit Wochentags-Kopfzeile ist chip-2 (Vor 2 Tagen): Kopfzeile =
-    // Wochentag, Unterzeile = Datum. Beide duerfen nicht identisch sein.
+    // chip-0 is today; chip-2 is the first with a weekday header line, so
+    // header = weekday, sub-line = date. The two must not be identical.
     final texts = tester
         .widgetList<Text>(
           find.descendant(
@@ -127,21 +116,15 @@ void main() {
     expect(texts.first, matches(RegExp(r'^(Mo|Di|Mi|Do|Fr|Sa|So)$')));
   });
 
-  // GESTRICHEN 2026-08-10: „Calories card shows the goal only once".
-  // Der Testfall hielt fest, dass das Tagesziel in der Kalorien-Karte nicht
-  // doppelt steht (einmal als Unterzeile „Ziel: 2.200 kcal", einmal in der
-  // ZIEL-Kachel). Die Karte ist auf Nutzer-Entscheid komplett aus dem Food-Tab
-  // entfernt — der Food-Tab nennt das Tagesziel jetzt an KEINER Stelle mehr,
-  // die Aussage ist damit gegenstandslos. Dass der Tab die Karte nicht mehr
-  // traegt, prueft `food_diary_screen_test.dart` („Ohne Kalorien-Karte"); dass
-  // der Heute-Tab das Ziel genau einmal und roh nennt,
-  // `kcal_goal_consistency_test.dart`.
+  // Removed: "Calories card shows the goal only once". The card is gone from
+  // the food tab, which now names the daily goal nowhere. Its absence is
+  // covered by food_diary_screen_test.dart, the goal itself by
+  // kcal_goal_consistency_test.dart.
 
   testWidgets('Food action labels stay on one line', (tester) async {
     await _pumpFoodTab(tester, textScale: 1.3);
 
-    // Die Labels waren frueher zweizeilig und liefen bei 64 px Buttonhoehe in
-    // einen Overflow. Jetzt steht das Label einzeilig neben dem Icon.
+    // The labels used to wrap to two lines and overflow the 64 px button.
     for (final key in const [
       ValueKey('food-action-barcode'),
       ValueKey('food-action-ai'),

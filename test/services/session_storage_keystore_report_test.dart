@@ -7,45 +7,37 @@ import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
-// Komplettreview 2026-08-19: `SecureSessionLocalStorage` verschluckte jeden
-// Keystore-Fehler in einem reinen `dev.log`, das das Geraet nie verlaesst.
+// Full review 2026-08-19: `SecureSessionLocalStorage` swallowed every keystore
+// error in a `dev.log` that never leaves the device.
 //
-// Fall A (Lesen scheitert): auf einem Geraet mit beschaedigtem Keystore wird
-// der Nutzer bei JEDEM Start stumm ausgeloggt.
-// Fall B (Loeschen scheitert): das Abmelden wirkt lokal nicht — die UI zeigt
-// den Login-Screen, der Refresh-Token liegt weiter im Keystore.
+// Case A (read fails): a device with a damaged keystore logs the user out
+// silently on every start. Case B (delete fails): signing out has no local
+// effect — the UI shows the login screen while the refresh token stays.
 //
-// Beides ist ohne Report unsichtbar. Gesichert wird hier:
-//   1. jeder der fuenf Fehlerpfade meldet ueberhaupt,
-//   2. mit einem eigenen `context`-Tag (Lesefehler darf den seltenen
-//      Loeschfehler nicht stillstellen),
-//   3. HOECHSTENS EINMAL je Vorgang und Prozess (der Lesepfad laeuft bei jedem
-//      Start und mehrfach je Start),
-//   4. und ohne Token, Session-Inhalt oder Plugin-Freitext — nur Fehlertyp
-//      plus das eine technische Detail, das `sanitizeForReport` durchlaesst.
+// Pinned here: each of the five error paths reports at all, with its own
+// `context` tag (a read error must not silence the rare delete error), at most
+// ONCE per operation and process, and without token, session content or plugin
+// free text — only the error type plus the one detail `sanitizeForReport`
+// lets through.
 
-// Beide Werte stehen als eigene Konstanten und werden unten NUR interpoliert.
-// Ein Literal, das den Feldnamen und einen JWT-foermigen Wert in DERSELBEN
-// Zeile traegt, laesst den Secret-Scan der CI anschlagen (gitleaks,
-// generic-api-key) — obwohl hier nichts Echtes steht. Gleiches Muster wie in
-// session_storage_test.dart, das aus demselben Grund so gebaut ist.
+// Both values are separate constants and only interpolated below: a literal
+// carrying the field name and a JWT-shaped value on the SAME line trips the CI
+// secret scan (gitleaks, generic-api-key), even though nothing here is real.
 const String _accessToken = 'eyJhbGciOiJIUzI1NiJ9.header-payload.sig';
 const String _refreshToken = 'refresh-o5Xq7c9aTtZZ-nicht-im-report';
 const String _sessionJson = '{"access_token":"$_accessToken",'
     '"refresh_token":"$_refreshToken","user":{"email":"nutzer@example.de"}}';
 
-/// Der Fehler, den flutter_secure_storage auf Android real liefert: eine
-/// `PlatformException` mit einem konstanten `code` und beliebigem Fremdtext in
-/// `message`/`details`. Genau diese Form trennt die Allowlist im
-/// `CrashReporter` auf — sie ist deshalb der richtige Testfall und nicht ein
-/// nackter `StateError`.
+/// The error flutter_secure_storage really produces on Android: a
+/// `PlatformException` with a constant `code` and arbitrary foreign text in
+/// `message`/`details` — the shape the CrashReporter allowlist splits on.
 PlatformException _keystoreFehler() => PlatformException(
       code: 'keystore_defekt',
       message: 'konnte $_refreshToken nicht entschluesseln',
       details: _sessionJson,
     );
 
-/// Keystore, der je Vorgang gezielt scheitert.
+/// Keystore that fails per operation on demand.
 class _KaputterKeyStore implements SecureKeyStore {
   _KaputterKeyStore({
     this.leseFehler = false,
@@ -80,7 +72,7 @@ class _KaputterKeyStore implements SecureKeyStore {
   }
 }
 
-/// Klartext-Slot, der je Vorgang gezielt scheitert.
+/// Plaintext slot that fails per operation on demand.
 class _KaputterLegacyStore implements KeyValueStore {
   _KaputterLegacyStore({
     this.leseFehler = false,
@@ -110,7 +102,7 @@ class _KaputterLegacyStore implements KeyValueStore {
   }
 }
 
-/// Ein gemeldeter Vorfall, so wie ihn Sentry saehe.
+/// A reported incident as Sentry would see it.
 class _Report {
   const _Report(this.error, this.context);
 
@@ -128,8 +120,8 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     key = EatovaSupabaseConfig.sessionPersistKey;
     reports = <_Report>[];
-    // Die Senke sitzt VOR der isActive-Schranke und bekommt exakt das Objekt,
-    // das sonst an `Sentry.captureException` ginge — inklusive Sanitisierung.
+    // The sink sits before the isActive gate and gets exactly the object that
+    // would go to `Sentry.captureException`, sanitization included.
     CrashReporter.debugSentrySink = (error, stack, context) {
       reports.add(_Report(error, context));
     };
@@ -165,8 +157,8 @@ void main() {
         legacyStore: InMemoryKeyValueStore(),
       );
 
-      // recoverSession() -> hasAccessToken() -> accessToken(), danach jeder
-      // weitere Zugriff der laufenden Session.
+      // recoverSession() -> hasAccessToken() -> accessToken(), then every
+      // further access of the running session.
       await storage.initialize();
       await storage.hasAccessToken();
       await storage.accessToken();

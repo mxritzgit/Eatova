@@ -14,44 +14,31 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Audit 2026-08-14, Befund A + B — die Antwort gehoert der Sitzung, aus der
-// die Frage kam, und ein Fehlschlag frisst den getippten Text nicht.
+// Audit 2026-08-14: a reply belongs to the session its question came from, and
+// a failure must not eat the typed text.
 //
-// Die Kette hinter A: `_send` prueft nach dem `await` nur `mounted`. Der Screen
-// bleibt seit D6 dauerhaft gemountet und der Sitzungs-Knopf bleibt waehrend des
-// Sendens bedienbar — die Antwort auf die Frage aus Sitzung A wurde deshalb an
-// `_messages` angehaengt, das zu diesem Zeitpunkt laengst den Verlauf von
-// Sitzung B trug. Ergebnis: eine Coach-Blase in einer fremden Unterhaltung,
-// ohne die zugehoerige Frage. Dass `_switchToSession` `_sending` stehen liess,
-// stellte den Composer der neuen Sitzung obendrein tot.
+// `_send` only checked `mounted` after the await, but the screen stays mounted
+// and the session button stays usable, so a reply to session A was appended to
+// the messages of session B — a coach bubble in a foreign conversation without
+// its question. The same held one door further in `_switchToSession`, which
+// also wrote the error state of the session just left, and reset `_sending`,
+// letting two requests run in parallel (two daily slots from one gesture).
 //
-// Kette hinter B: das Eingabefeld wird VOR dem Request geleert; scheitert er,
-// war eine lange Frage weg.
+// The input field is cleared before the request, so a failed send must restore
+// it. And the (i) sheet used to fall back to the standard daily limit when the
+// quota RPC failed, telling a user with no quota left that all questions were
+// still free.
 //
-// Kette hinter C: das (i)-Sheet bekam zwei `int` gereicht und fiel bei
-// unbekanntem Kontingent auf ChatQuotaSnapshot.standardTageslimit zurueck —
-// nach einem gescheiterten Quota-RPC las ein Nutzer mit verbrauchtem
-// Kontingent „5 von 5 Fragen heute frei" samt vollem Balken.
-//
-// Der Test haelt die Antwort ueber einen Completer offen und wechselt dazwischen
-// die Sitzung — nur so entsteht das Zeitfenster, in dem der Fehler lebt.
-//
-// Nachtrag Abschluss-Review 2026-08-14 (W2/W2b): derselbe Fehler stand eine
-// Tuer weiter in `_switchToSession` — dort pruefte nur `mounted`, und der
-// CoachDataUnavailable-Arm schrieb sogar den Fehlerzustand der VERLASSENEN
-// Sitzung. Dazu kam, dass der Wechsel `_sending` auf false stellte: damit
-// liessen sich zwei Anfragen parallel absetzen (in A senden, wechseln, in B
-// senden) — zwei Tages-Slots aus einem Bedienschritt.
-//
-// Ausserdem nagelte diese Datei den Sitzungs-Vergleich bisher nur NEGATIV
-// fest: dreht man `!=` auf `==`, wird JEDE Antwort verworfen und die Suite
-// bleibt gruen. Die positive Gegenprobe steht deshalb jetzt als erster Test.
+// The tests hold replies open on completers and switch sessions in between,
+// which is the only way to open the window the bug lives in. The first test is
+// the positive counter-check: flipping `!=` to `==` would discard every reply
+// while the findsNothing tests stayed green.
 
 class _RaceCoach extends CoachChatService {
   _RaceCoach(super.client, super.userId);
 
-  /// `stopAutoRefresh()` ist Pflicht: GoTrue startet im Konstruktor einen
-  /// periodischen Timer, an dem jeder Widget-Test scheitert.
+  /// `stopAutoRefresh()` is mandatory: GoTrue starts a periodic timer in its
+  /// constructor that fails every widget test.
   static _RaceCoach create() {
     final client = SupabaseClient(
       'https://example.supabase.co',
@@ -62,27 +49,26 @@ class _RaceCoach extends CoachChatService {
     return _RaceCoach(client, 'user-123');
   }
 
-  /// Nachricht, die im Verlauf von Sitzung B steht — der Beleg dafuer, dass
-  /// wirklich B angezeigt wird, wenn die Antwort auf A eintrifft.
+  /// Message in session B's history: proof that B is shown when A's reply
+  /// arrives.
   static const String verlaufB = 'Das ist der Verlauf von Sitzung B.';
 
-  /// Dasselbe fuer Sitzung C: den braucht der Wechsel A -> B -> C, in dem der
-  /// Nachzuegler von B den Verlauf von C ueberschreiben wuerde.
+  /// Same for session C, needed for the A -> B -> C switch where B's late
+  /// history would overwrite C's.
   static const String verlaufC = 'Das ist der Verlauf von Sitzung C.';
 
-  /// Offene Sende-Auftraege in Eingangsreihenfolge; der Test loest sie von
-  /// Hand auf, um den Wechsel MITTEN im Request zu setzen.
+  /// Pending send jobs in arrival order; tests resolve them by hand to place
+  /// the session switch mid-request.
   final List<Completer<CoachChatReply>> offen = <Completer<CoachChatReply>>[];
 
-  /// Sitzungs-Ids der `send()`-Aufrufe, in Reihenfolge.
+  /// Session ids of the `send()` calls, in order.
   final List<String> gesendeteSessions = <String>[];
 
-  /// Solange true, haengt JEDER `loadHistory`-Aufruf an einem Completer —
-  /// nur so laesst sich ein zweiter Wechsel setzen, waehrend der erste
-  /// Verlauf noch unterwegs ist.
+  /// While true every `loadHistory` call hangs on a completer, so a second
+  /// switch can happen while the first history is still in flight.
   bool verlaufHaengt = false;
 
-  /// Offene Verlaufs-Auftraege, gekeyt an der Sitzungs-Id.
+  /// Pending history jobs, keyed by session id.
   final Map<String, Completer<List<ChatMessage>>> offeneVerlaeufe =
       <String, Completer<List<ChatMessage>>>{};
 
@@ -114,8 +100,8 @@ class _RaceCoach extends CoachChatService {
   @override
   Future<String?> ensureDefaultSession() async => 's1';
 
-  /// Verlauf einer Sitzung — Sitzung A ist leer, B und C tragen je eine
-  /// unverwechselbare Nachricht.
+  /// History of a session: A is empty, B and C each carry one unmistakable
+  /// message.
   static List<ChatMessage> verlaufVon(String sessionId) => switch (sessionId) {
     's2' => <ChatMessage>[
       ChatMessage(
@@ -146,15 +132,15 @@ class _RaceCoach extends CoachChatService {
     return auftrag.future;
   }
 
-  /// Stand, den der Server nennt.
+  /// The state the server reports.
   ChatQuotaSnapshot quota = const ChatQuotaSnapshot(
     used: 0,
     remaining: 5,
     dailyLimit: 5,
   );
 
-  /// Der Quota-RPC scheitert — der Service wirft dann, statt Zahlen zu
-  /// erfinden (W6-07), und `_quota` bleibt null.
+  /// Makes the quota RPC fail: the service throws instead of inventing
+  /// numbers (W6-07) and `_quota` stays null.
   bool quotaUnbekannt = false;
 
   @override
@@ -191,8 +177,8 @@ Future<void> _pumpCoach(WidgetTester tester, _RaceCoach service) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // Der Coach ruft seit der i18n-Migration context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach uses context.l10n, and AppLocalizations.of() throws on the
+      // first build without localization.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -202,8 +188,8 @@ Future<void> _pumpCoach(WidgetTester tester, _RaceCoach service) async {
         GlobalCupertinoLocalizations.delegate,
       ],
       home: MediaQuery(
-        // `disableAnimations` haelt Denk-Punkte, Orb und Motion still —
-        // sonst kommt pumpAndSettle bei laufendem `_sending` nie an.
+        // `disableAnimations` stills the thinking dots, orb and motion;
+        // otherwise pumpAndSettle never settles while `_sending` runs.
         data: MediaQueryData.fromView(
           tester.view,
         ).copyWith(disableAnimations: true),
@@ -226,7 +212,7 @@ Future<void> _tippenUndSenden(WidgetTester tester, String text) async {
   await tester.pumpAndSettle();
 }
 
-/// Wechselt ueber das Sessions-Sheet auf die Unterhaltung mit diesem Titel.
+/// Switches to the conversation with this title via the sessions sheet.
 Future<void> _wechsleAufSitzung(WidgetTester tester, String titel) async {
   await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
   await tester.pumpAndSettle();
@@ -234,18 +220,16 @@ Future<void> _wechsleAufSitzung(WidgetTester tester, String titel) async {
   await tester.pumpAndSettle();
 }
 
-/// Ein paar Frames pumpen, OHNE auf Ruhe zu warten.
-///
-/// Haengt ein Verlauf, dreht sich der Lade-Kringel endlos — `pumpAndSettle`
-/// liefe dann in seinen Timeout, statt etwas ueber den Zustand auszusagen.
-/// Die Dauern reichen fuer die Sheet-Transition (250 ms) mit Reserve.
+/// Pumps a few frames without waiting for settle: while a history hangs the
+/// spinner never stops, so `pumpAndSettle` would just time out. The durations
+/// cover the 250 ms sheet transition with room to spare.
 Future<void> _pumpFrames(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
   await tester.pump(const Duration(milliseconds: 400));
 }
 
-/// Wie [_wechsleAufSitzung], aber fuer den Fall, dass der Verlauf haengt.
+/// Like [_wechsleAufSitzung], but for a hanging history.
 Future<void> _wechsleAufSitzungOhneRuhe(
   WidgetTester tester,
   String titel,
@@ -256,7 +240,7 @@ Future<void> _wechsleAufSitzungOhneRuhe(
   await _pumpFrames(tester);
 }
 
-/// Oeffnet das (i)-Sheet ueber den Kopfzeilen-Knopf.
+/// Opens the (i) sheet via the header button.
 Future<void> _oeffneInfoSheet(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('coach-info')));
   await tester.pumpAndSettle();
@@ -302,8 +286,7 @@ void main() {
         reason: 'die Frage steht weiter ueber der Antwort',
       );
 
-      // Und der Composer ist wieder frei: der In-Flight-Zaehler steht nach
-      // dem Ausgang wieder auf 0.
+      // The composer is free again: the in-flight counter is back to 0.
       await _tippenUndSenden(tester, 'Und noch eine Frage');
       expect(svc.gesendeteSessions, <String>['s1', 's1']);
     },
@@ -327,7 +310,7 @@ void main() {
         reason: 'ab hier sieht der Nutzer Sitzung B',
       );
 
-      // Jetzt erst trifft die Antwort auf die Frage aus Sitzung A ein.
+      // Only now does the reply to session A's question arrive.
       svc.offen.first.complete(
         const CoachChatReply(
           reply: 'Antwort auf die Frage aus Sitzung A',
@@ -351,8 +334,8 @@ void main() {
         reason: 'Sitzung B bleibt unveraendert',
       );
 
-      // Die Blase ist verworfen — der Tages-Slot ist es nicht. Faellt der
-      // Quota-Stand mit der Antwort weg, behauptet die Anzeige weiter „5 frei".
+      // The bubble is discarded, the daily slot is not: dropping the quota
+      // with the reply would keep claiming all questions are free.
       await _oeffneInfoSheet(tester);
       expect(
         find.textContaining('4 von 5 Fragen heute frei'),
@@ -372,9 +355,9 @@ void main() {
       await _tippenUndSenden(tester, 'Frage aus Sitzung A');
       await _wechsleAufSitzung(tester, 'Chat B');
 
-      // Frueher stellte der Wechsel `_sending` auf false — ein Tippen +
-      // Senden in B schickte damit eine ZWEITE Anfrage los, waehrend die
-      // erste noch lief: zwei Tages-Slots aus einem Bedienschritt.
+      // The switch used to reset `_sending`, so typing and sending in B fired
+      // a second request while the first still ran: two daily slots from one
+      // gesture.
       await _tippenUndSenden(tester, 'Frage aus Sitzung B');
       expect(
         svc.gesendeteSessions,
@@ -382,9 +365,8 @@ void main() {
         reason: 'solange eine Anfrage laeuft, geht keine zweite raus',
       );
 
-      // Der Wechsel selbst bleibt benutzbar, und sobald die erste Anfrage
-      // einen Ausgang hat, ist die neue Sitzung sendebereit — auch dann,
-      // wenn die Antwort verworfen wurde.
+      // Switching stays usable, and once the first request has an outcome the
+      // new session can send, even if the reply was discarded.
       svc.offen.first.complete(
         const CoachChatReply(
           reply: 'Antwort auf die Frage aus Sitzung A',
@@ -422,7 +404,7 @@ void main() {
         reason: 'beide Verlaeufe sind unterwegs',
       );
 
-      // Der langsame Load der VERLASSENEN Sitzung trifft zuerst ein.
+      // The slow load of the abandoned session arrives first.
       svc.offeneVerlaeufe['s2']!.complete(_RaceCoach.verlaufVon('s2'));
       await _pumpFrames(tester);
       expect(
@@ -432,7 +414,7 @@ void main() {
             'sind Gesundheitsdaten am falschen Ort',
       );
 
-      // Und C kommt trotzdem an.
+      // And C still arrives.
       svc.offeneVerlaeufe['s3']!.complete(_RaceCoach.verlaufVon('s3'));
       await tester.pumpAndSettle();
       expect(find.text(_RaceCoach.verlaufC), findsOneWidget);
@@ -516,7 +498,7 @@ void main() {
       await _pumpCoach(tester, svc);
 
       await _tippenUndSenden(tester, 'Erste Frage');
-      // Tippen ist waehrend einer laufenden Antwort erlaubt (_canType).
+      // Typing is allowed while a reply is in flight (_canType).
       await tester.enterText(
         find.byKey(const ValueKey('coach-input')),
         'Schon die naechste Frage',

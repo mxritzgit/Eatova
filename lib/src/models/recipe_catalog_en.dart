@@ -1,19 +1,14 @@
 import 'fitness_recipe.dart';
 
-/// Der englische Bestandskatalog der 30 eingebauten Rezepte.
+/// English catalog of the 30 built-in recipes.
 ///
-/// Natürliche Küchen-Übersetzung von [recipeCatalogDe] (Inhalte-PR,
-/// 2026-08-11) — KEINE Umrechnung von Mengen, nur Sprache: dieselben
-/// Zahlen/Einheiten wie im deutschen Original, nur mit englischen
-/// Zutaten-/Maßeinheitsbezeichnungen (TL → tsp, EL → tbsp; g/ml/cm bleiben).
-/// Slug, `imageAsset`, Nährwerte und `categories` sind sprachneutrale
-/// Identität und bewusst NICHT übersetzt — identisch zu [recipeCatalogDe],
-/// Zeile für Zeile in derselben Reihenfolge (s.
+/// Natural kitchen translation of [recipeCatalogDe]: language only, no
+/// conversion of amounts (TL → tsp, EL → tbsp; g/ml/cm stay). Slug,
+/// `imageAsset`, nutrients and `categories` are language-neutral identity and
+/// stay untranslated, line for line in the same order (see
 /// `test/l10n/recipe_catalog_parity_test.dart`).
 ///
-/// Diese Datei steht im Hartkodierungs-Wächter
-/// (`test/l10n/hartkodierung_waechter_test.dart`) — sie MUSS englisch
-/// bleiben.
+/// Listed in the hardcoded-string guard: this file MUST stay English.
 const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
   FitnessRecipe(
     slug: "hahnchen_mit_reis_and_brokkoli",

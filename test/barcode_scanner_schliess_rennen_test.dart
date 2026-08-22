@@ -12,7 +12,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Das Sheet liest `context.l10n` — dasselbe Delegates-Buendel wie
+/// The sheet reads `context.l10n` — same delegate bundle as
 /// test/meal_camera_sheet_test.dart.
 const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
   AppLocalizations.delegate,
@@ -21,14 +21,12 @@ const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
   GlobalCupertinoLocalizations.delegate,
 ];
 
-/// Ersetzt die echte Scanner-Plattform: die Kamera startet sofort, und
-/// [emit] schiebt einen Treffer in denselben Stream, aus dem der echte
-/// Analyzer liefert. Nur so ist das Rennen zwischen Schliess-Animation und
-/// nachlaufendem Treffer ueberhaupt nachstellbar.
+/// Replaces the real scanner platform: the camera starts at once and [emit]
+/// pushes a hit into the same stream the real analyzer feeds, which is the
+/// only way to reproduce the close-animation race.
 ///
-/// [stopCalls] zaehlt die Plattform-Stops — daran haengt der Nachweis, dass
-/// der Analyzer BEIM Schliessen abgeschaltet wird und nicht erst am Ende der
-/// Ausblendzeit durch `dispose`.
+/// [stopCalls] counts platform stops — the proof that the analyzer is turned
+/// off ON close, not only at the end of the fade via `dispose`.
 class _FakeScannerPlatform extends MobileScannerPlatform
     with MockPlatformInterfaceMixin {
   final StreamController<BarcodeCapture?> _barcodes =
@@ -98,7 +96,7 @@ class _FakeScannerPlatform extends MobileScannerPlatform
   Future<void> dispose() async {}
 }
 
-/// Sammelt, was der Aufrufer aus [showBarcodeScannerSheet] zurueckbekommt.
+/// Collects what the caller gets back from [showBarcodeScannerSheet].
 class _Ergebnis {
   BarcodeScan? scan;
   bool geschlossen = false;
@@ -106,9 +104,8 @@ class _Ergebnis {
   String? get code => scan?.code;
 }
 
-/// Baut die Schachtelung des echten Flows nach: der Scanner haengt IMMER
-/// ueber einem anderen Sheet (Add-Sheet bzw. Analyse-Screen). Genau dieses
-/// darunterliegende Sheet riss der zweite Pop frueher mit.
+/// Rebuilds the real flow's nesting: the scanner always sits above another
+/// sheet, and that lower sheet is what a second pop used to tear down.
 Future<void> _oeffneScannerUeberSheet(
   WidgetTester tester,
   _FakeScannerPlatform platform,
@@ -165,8 +162,7 @@ void main() {
   late _FakeScannerPlatform platform;
 
   setUp(() {
-    // Der Session-Besitzer ist statisch und wuerde sonst zwischen den Tests
-    // durchschlagen.
+    // The session owner is static and would otherwise leak between tests.
     MobileScannerController.resetPlatformSessionOwner();
     platform = _FakeScannerPlatform();
     MobileScannerPlatform.instance = platform;
@@ -184,8 +180,8 @@ void main() {
       await _oeffneScannerUeberSheet(tester, platform, ergebnis);
 
       await tester.tap(find.byKey(const ValueKey('barcode-close-button')));
-      // Genau ein Frame: die Ausblendzeit laeuft, das Sheet steht noch im
-      // Baum — das ist das Fenster, in dem der Analyzer frueher weiterlief.
+      // Exactly one frame: the fade is running and the sheet is still in the
+      // tree — the window in which the analyzer used to keep running.
       await tester.pump();
       expect(find.byType(BarcodeScannerSheet), findsOneWidget);
 
@@ -212,8 +208,7 @@ void main() {
       await _oeffneScannerUeberSheet(tester, platform, ergebnis);
       final stopsVorher = platform.stopCalls;
 
-      // Oberer Bildschirmrand: dort liegt der Scrim des Scanner-Sheets, nicht
-      // das ~60% hohe Panel selbst.
+      // Top edge: that is the sheet's scrim, not the ~60%-tall panel.
       await tester.tapAt(const Offset(20, 20));
       await tester.pump();
 
@@ -247,7 +242,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(ergebnis.code, '4001234567890');
-      // Ohne Umwahl traegt der Treffer den vorbelegten Slot.
+      // Without reselection the hit carries the preset slot.
       expect(ergebnis.scan?.slot, MealSlot.lunch);
       expect(find.byType(BarcodeScannerSheet), findsNothing);
       expect(
@@ -264,9 +259,9 @@ void main() {
       final ergebnis = _Ergebnis();
       await _oeffneScannerUeberSheet(tester, platform, ergebnis);
 
-      // Alle vier Chips stehen oben auf dem Bild (Befund 2026-08-22: vom
-      // Food-Tab-Knopf aus war der Slot vorher gar nicht waehlbar) — und der
-      // Hinweis ist unter sie gerueckt statt mit ihnen zu kollidieren.
+      // All four chips sit on top of the image (finding 2026-08-22: from the
+      // Food tab button the slot was not selectable at all), with the hint
+      // moved below them instead of colliding.
       for (final slot in MealSlot.values) {
         expect(
           find.byKey(ValueKey('barcode-slot-${slot.name}')),

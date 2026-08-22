@@ -7,29 +7,23 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// INT-B / ARCH-1+PERF-2 Tests fuer eatova_home_page.dart:
+// INT-B / ARCH-1+PERF-2 tests for eatova_home_page.dart:
 //
-//  * Der setState-Override bumpt _profileRefresh nicht mehr UNBEDINGT, sondern
-//    NUR solange die via _openProfile gepushte ProfileScreen-Route offen ist
-//    (_profileRouteOpen). Die ProfileScreen-Route liegt in einem eigenen
-//    Navigator-Subtree, den das HomePage-setState NICHT erreicht — der
-//    AnimatedBuilder + _profileRefresh ist die Bruecke, die einen MID-ROUTE
-//    State-Wechsel (hier: ein Health-Steps-Refresh) auf die OFFENE
-//    ProfileScreen durchreicht. Test 1 beweist, dass diese Bruecke intakt
-//    geblieben ist (sonst zeigte die offene ProfileScreen die alten Schritte).
-//  * Test 2 (Scoping-Sanity): nach dem Schliessen der Route bumpt ein
-//    Store-Notify das _profileRefresh nicht mehr — eine Mutation auf dem
-//    Food-Tab (Datum wechseln) bleibt crash-frei; die geschlossene
-//    Profil-Bruecke wird nicht laenger pro Notify mitgeschleift.
+//  * The setState override bumps _profileRefresh only while the pushed
+//    ProfileScreen route is open (_profileRouteOpen). That route lives in its
+//    own navigator subtree which HomePage's setState cannot reach, so
+//    AnimatedBuilder + _profileRefresh is the bridge carrying a mid-route
+//    state change (a health steps refresh) into the open screen. Test 1
+//    proves the bridge is intact.
+//  * Test 2 (scoping sanity): after closing the route a store notify no
+//    longer bumps _profileRefresh, and a Food-tab mutation stays crash-free.
 //
-// Bewusst sync == null: dann landet die Page sofort auf dem Home (kein
-// Onboarding-/Boot-Gate) und _logWeight/_refreshHealthSteps laufen ohne
-// Supabase. Der injizierte HealthService liefert kontrollierte Snapshots.
+// sync == null on purpose: the page lands on home immediately (no onboarding
+// gate) and the health paths run without Supabase.
 
-/// HealthService mit umschaltbarer Steps-Antwort. authState = granted, damit
-/// die ProfileScreen den 'profile-health-refresh'-Button zeigt (nur bei
-/// granted sichtbar). [nextSteps] steuert, welchen Steps-Wert der naechste
-/// readSnapshot() liefert.
+/// HealthService with a switchable steps answer. authState = granted so the
+/// ProfileScreen shows the 'profile-health-refresh' button. [nextSteps] picks
+/// the value the next readSnapshot() returns.
 class _StepsHealthService implements HealthService {
   _StepsHealthService(this.nextSteps);
 
@@ -90,15 +84,14 @@ void main() {
       'Offene ProfileScreen reflektiert einen mid-route Health-Steps-Refresh '
       '(AnimatedBuilder/_profileRefresh-Bruecke intakt)', (tester) async {
     _pinViewport(tester);
-    // Boot-Snapshot: 1000 Schritte. Der PostFrame-_connectHealth ruft
-    // requestAuthorization (-> granted) und readSnapshot (-> 1000), setzt also
-    // dailySteps = 1000 und macht den Refresh-Button (granted) sichtbar.
+    // Boot snapshot: 1000 steps. The post-frame _connectHealth grants
+    // authorization and reads the snapshot, making the refresh button visible.
     final health = _StepsHealthService(1000);
 
     await tester.pumpWidget(MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
-      // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+      // _navItems() reads context.l10n; without these delegates
+      // AppLocalizations.of() throws while building the bottom nav.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -114,40 +107,33 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // Design-Refactor 2026-08-09: die Schale landet jetzt auf „Heute" (Tab 0),
-    // der Food-Tab ist Index 1. Der TopBar-Avatar, den dieser Test seit jeher
-    // als Einstieg benutzt, haengt am Food-Tab — also erst dorthin wechseln.
-    // Geprueft wird unveraendert die _profileRefresh-Bruecke, nicht der Weg
-    // dorthin (docs/DESIGN_REFACTOR.md §6: Ablauf geaendert -> Test
-    // umgeschrieben, keine Erwartung entfernt).
+    // The shell lands on Today (tab 0); the TopBar avatar this test uses as
+    // its entry point lives on the Food tab (index 1), so switch there first.
+    // What is under test is still the _profileRefresh bridge, not the path.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    // ProfileScreen oeffnen (TopBar-Avatar -> _openProfile -> _profileRouteOpen
-    // = true).
+    // Open the ProfileScreen (avatar -> _openProfile -> _profileRouteOpen).
     await tester.tap(find.byKey(const ValueKey('topbar-profile')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
 
-    // Default-Steps-Ziel ist 8000. Die "Schritte"-Kachel zeigt aktuell den
-    // Boot-Stand 1000/8000.
+    // Default steps goal is 8000; the tile shows the boot state 1000/8000.
     expect(find.text('1000/8000'), findsOneWidget);
 
-    // Jetzt MID-ROUTE den Health-Store auf 12345 Schritte umstellen und ueber
-    // den Refresh-Button (auf der offenen ProfileScreen) _refreshHealthSteps
-    // ausloesen. Das ist ein setState der HomePage UNTER der offenen Route —
-    // nur die _profileRefresh-Bruecke bringt den neuen Wert in die ProfileScreen.
+    // Switch the health store mid-route and trigger _refreshHealthSteps from
+    // the open screen. That is a HomePage setState UNDER the open route, so
+    // only the _profileRefresh bridge carries the new value across.
     health.nextSteps = 12345;
-    // Der Refresh-Button liegt in der HealthConnectionCard weit unten in der
-    // scrollbaren ProfileScreen — bei der gepinnten Viewport-Hoehe (852 logisch)
-    // off-screen. Erst sichtbar scrollen, sonst trifft tap() ins Leere.
+    // The button sits far down the scrollable screen, off-screen at the
+    // pinned viewport height — scroll it into view or tap() misses.
     final refreshBtn = find.byKey(const ValueKey('profile-health-refresh'));
     await tester.ensureVisible(refreshBtn);
     await tester.pumpAndSettle();
     await tester.tap(refreshBtn);
     await tester.pumpAndSettle();
 
-    // Beweis: die OFFENE ProfileScreen zeigt jetzt den frischen Steps-Wert.
+    // Proof: the open ProfileScreen now shows the fresh steps value.
     expect(find.text('12345/8000'), findsOneWidget,
         reason: 'mid-route Health-Refresh muss auf der offenen ProfileScreen '
             'ankommen (_profileRouteOpen-gegated _profileRefresh-Bump)');
@@ -162,8 +148,8 @@ void main() {
 
     await tester.pumpWidget(MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() liest jetzt context.l10n (Spec §4) — ohne diese
-      // Lokalisierung wirft AppLocalizations.of() beim Bau der Bottom-Nav.
+      // _navItems() reads context.l10n; without these delegates
+      // AppLocalizations.of() throws while building the bottom nav.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -179,12 +165,12 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // Erst auf den Food-Tab (Index 1 seit dem Design-Refactor), dort haengt
-    // sowohl der TopBar-Avatar als auch der Datums-Chip unten im Test.
+    // To the Food tab first (index 1): both the avatar and the date chip
+    // used below live there.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    // Oeffnen + sofort wieder schliessen -> _profileRouteOpen wieder false.
+    // Open and close again -> _profileRouteOpen is false once more.
     await tester.tap(find.byKey(const ValueKey('topbar-profile')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
@@ -192,9 +178,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
-    // Eine Store-Mutation (Food-Datum wechseln) loest jetzt ein Notify aus,
-    // OHNE dass eine Profil-Route offen ist -> _profileRefresh wird nicht mehr
-    // gebumpt. Das muss crash-frei bleiben und der Tab neu rendern.
+    // A store mutation now notifies with no profile route open, so
+    // _profileRefresh is not bumped; this must stay crash-free and re-render.
     await tester.tap(find.byKey(const ValueKey('food-date-chip-0')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);

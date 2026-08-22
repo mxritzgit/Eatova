@@ -9,24 +9,20 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 
 // ---------------------------------------------------------------------------
-// Komplettreview 2026-08-19, Fund 3 — der Tag-Picker des Bearbeiten-Sheets
-// lief bei grosser Systemschrift ueber.
+// Review 2026-08-19, finding 3: the day picker of the edit sheet overflowed at
+// large system font sizes. A horizontal ListView gives its children a tight
+// cross axis, so the strip height is the chip height; a hardcoded 58 px left
+// 40 px for two scaling text lines.
 //
-// Eine waagerechte ListView gibt ihren Kindern eine STRAFFE Querachse: die
-// Hoehe des Streifens IST die Hoehe jedes Chips. Fest verdrahtete 58 px
-// liessen nach dem 9+9-Polster 40 px fuer zwei mitskalierende Textzeilen —
-// zu wenig, sobald der Nutzer die Schrift hochdreht.
-//
-// Gemessen wird geometrisch statt ueber die Ueberlauf-Ausnahme: das Sheet
-// traegt bei doppelter Schrift an anderen Stellen eigene Ueberlaeufe (der
-// Bestands-Harness in edit_meal_sheet_test.dart schluckt sie deshalb), eine
-// Ausnahme waere hier also kein Beweis FUER DIESE Stelle.
+// Measured geometrically rather than via the overflow exception: the sheet has
+// other overflows at double text size, so an exception would prove nothing
+// about this spot.
 // ---------------------------------------------------------------------------
 
-/// Der Wert, den der Entwurf setzt — und der vor dem Fix fest verdrahtet war.
+/// The value from the design, hardcoded before the fix.
 const double entwurfshoehe = 58;
 
-/// Das senkrechte Innenpolster eines Chips (oben wie unten).
+/// Vertical inner padding of a chip, top and bottom.
 const double chipPolster = 9;
 
 MealAnalysisResult _result() => const MealAnalysisResult(
@@ -66,8 +62,8 @@ Future<void> _openSheet(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  // Ueberlaeufe ANDERER Stellen des Sheets duerfen diesen Test nicht faerben —
-  // hier zaehlt allein die Geometrie des Tag-Streifens.
+  // Overflows elsewhere in the sheet must not colour this test; only the
+  // geometry of the day strip counts.
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
     if (details.exception.toString().contains('overflowed')) return;
@@ -86,8 +82,8 @@ Future<void> _openSheet(
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      // Der `builder` liegt UEBER dem Navigator — nur so erreicht die
-      // Skalierung auch die modale Sheet-Route.
+      // The `builder` sits above the Navigator, so the scaling also reaches
+      // the modal sheet route.
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(textScaler: textScaler),
         child: child!,

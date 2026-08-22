@@ -1,65 +1,47 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// „Eigenes Rezept"-Formular: Bottom-Sheet zum Anlegen eines eigenen Rezepts
-// (Foto, Name, Portion, Nährwerte, Zutaten) inkl. des Eingabefelds, der
-// Foto-Auswahl und des Verwerfen-Schutzes.
+// "Own recipe" form: bottom sheet for creating a recipe (photo, name, portion,
+// nutrition, ingredients), incl. field, photo picker and discard guard.
 // ---------------------------------------------------------------------------
 
-/// Grenzen aus `LoggedMealLimits` bzw. `PlausibilityLimits`
-/// (lib/src/models/model_limits.dart) — hier **gespiegelt statt importiert**:
-/// diese Datei ist ein `part of 'recipes_screen.dart'` und kann keine eigenen
-/// Import-Direktiven tragen; der Import muesste in die Elterndatei.
-///
-/// Die Kopplung ist per Test gesichert: test/recipe_create_sheet_test.dart
-/// leitet jede Grenze und jeden Fehlertext aus `LoggedMealLimits.*` ab. Laufen
-/// die Werte auseinander, wird der Test rot. Wer den Import spaeter nach
-/// recipes_screen.dart hebt, loescht diesen Block ersatzlos.
+/// Limits mirrored from `LoggedMealLimits` / `PlausibilityLimits` instead of
+/// imported: this file is a `part of 'recipes_screen.dart'` and cannot carry
+/// import directives. test/recipe_create_sheet_test.dart derives every limit
+/// and error text from `LoggedMealLimits.*`, so drift turns the test red.
 const int _kcalMax = 10000; // LoggedMealLimits.caloriesKcalMax
 const int _gramsMax = 10000; // LoggedMealLimits.estimatedGMax
 const int _macroMax = 1000; // LoggedMealLimits.macroGMax
 const int _nameMaxChars = 160; // LoggedMealLimits.mealNameMaxChars
 
-/// Untergrenzen. `logged_meals` liesse 0 zu, aber eine Mahlzeit mit 0 kcal
-/// oder 0 g ist keine — und 0 g fuehrt in `MealAnalysisResult.adjustedToGrams`
-/// zur Division durch die Ursprungsportion sowie zu `kcalPer100G == 0`
-/// (`PlausibilityLimits.portionGramsMin`).
+/// Floors. `logged_meals` would allow 0, but 0 g breaks
+/// `MealAnalysisResult.adjustedToGrams` (division by the source portion,
+/// `kcalPer100G == 0`).
 const int _kcalMin = 1;
 const int _gramsMin = 1;
 const int _macroMin = 0;
 
-/// Ein Feld des Formulars samt seinem Ausgangswert.
-///
-/// Das Paar entsteht ausschliesslich in [_CreateRecipeSheetState._feld] —
-/// siehe die Begruendung dort.
+/// One form field plus its initial value. Only [_CreateRecipeSheetState._feld]
+/// creates the pair — see the rationale there.
 class _RecipeField {
   _RecipeField(this.controller, this.start);
 
   final TextEditingController controller;
 
-  /// Nicht `final`: die Portion-Vorbelegung ist erst ab `didChangeDependencies`
-  /// bekannt (l10n braucht einen aufgebauten `BuildContext`, `initState` hat
-  /// noch keinen) und wird dort einmalig nachgetragen — sonst zaehlte das Feld
-  /// sich selbst gegen seinen leeren Ausgangswert als „veraendert" (s. dort).
+  /// Not `final`: the portion default is only known in
+  /// `didChangeDependencies` (l10n needs a built `BuildContext`) and is
+  /// backfilled there, otherwise the field would count itself as changed.
   String start;
 
   bool get veraendert => controller.text != start;
 }
 
-/// D5: „Aenderungen verwerfen?" — die gemeinsame Bestaetigung fuer jeden Weg,
-/// ein ausgefuelltes Sheet zu schliessen.
-///
-/// `barrierDismissible` bleibt auf dem Default `true`: ein Tap neben den
-/// Dialog ist „Abbrechen", also die harmlose Antwort. Der Dialog liegt auf dem
-/// Root-Navigator und damit UEBER der Sheet-Route — sein eigener Barrier
-/// schluckt den Tap, das Sheet darunter bekommt ihn nie zu sehen. Der Dialog
-/// kann sich also nicht selbst mitsamt dem Sheet wegklicken.
-///
-/// Zwilling von `_confirmDiscardChanges` in
-/// lib/src/widgets/kcal/edit_meal_sheet.dart. Die Dopplung ist der Preis
-/// dafuer, dass diese Datei ein `part` ohne eigene Imports ist; beide Fassungen
-/// gehoeren zusammen nach lib/src/widgets/common/, sobald jemand den Import in
-/// recipes_screen.dart setzen darf.
+/// D5: shared "discard changes?" confirmation for every way of closing a
+/// filled sheet. `barrierDismissible` stays `true`: a tap outside means
+/// cancel, and the dialog's own barrier swallows it, so the sheet below never
+/// sees it. Twin of `_confirmDiscardChanges` in
+/// lib/src/widgets/kcal/edit_meal_sheet.dart — duplicated because this file is
+/// a `part` without imports.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
   final t = context.t;
   final l10n = context.l10n;
@@ -98,31 +80,17 @@ Future<bool> _confirmDiscardChanges(BuildContext context) async {
   return verwerfen ?? false;
 }
 
-/// D5: faengt das Nach-unten-Ziehen eines modalen Bottom-Sheets ab.
+/// D5: intercepts the drag-down dismiss of a modal bottom sheet.
 ///
-/// **Warum ein `PopScope` allein nicht reicht:** die beiden Dismiss-Wege
-/// laufen im Framework verschieden.
+/// A `PopScope` is not enough: a barrier tap goes through `Navigator.maybePop`
+/// (asks the pop disposition), but dragging goes `BottomSheet._handleDragEnd`
+/// → `onClosing` → `Navigator.pop`, which does not. The only lever from inside
+/// is the gesture arena: a vertical drag recognizer in the builder child sits
+/// below `_BottomSheetGestureDetector` and wins. Scrollables sit below this
+/// guard and stay unaffected. With [active] false no recognizer is registered
+/// at all, so an empty sheet still drags away.
 ///
-///  * Barriere-Tap → `ModalBarrier.handleDismiss` → `Navigator.maybePop`
-///    (`modal_barrier.dart:225-230`) — fragt die Pop-Disposition, also
-///    `PopScope`.
-///  * Ziehen → `BottomSheet._handleDragEnd` → `onClosing` → **`Navigator.pop`**
-///    (`bottom_sheet.dart:769-771`) — fragt sie **nicht**. Ein `PopScope` sieht
-///    diesen Weg nie.
-///
-/// Von innerhalb des Sheets gibt es dafuer genau einen Hebel: die Gesten-Arena.
-/// Der `_BottomSheetGestureDetector` sitzt ueber dem `builder`-Kind; ein
-/// eigener Vertikal-Drag-Erkenner IM Kind liegt tiefer und gewinnt die Arena —
-/// dasselbe Prinzip, aus dem eine ScrollView im Sheet das Ziehen schluckt.
-/// Scrollbare Bereiche liegen wiederum tiefer als dieser Guard und bleiben
-/// unberuehrt.
-///
-/// Ist [active] false (nichts ausgefuellt), wird gar kein Erkenner registriert
-/// — das Sheet laesst sich dann wie gewohnt wegziehen. Ein Sheet, das man ohne
-/// Dialog nicht mehr zubekommt, waere schlimmer als der Bug.
-///
-/// Zwilling von `_DiscardDragGuard` in
-/// lib/src/widgets/kcal/edit_meal_sheet.dart.
+/// Twin of `_DiscardDragGuard` in lib/src/widgets/kcal/edit_meal_sheet.dart.
 class _DiscardDragGuard extends StatefulWidget {
   const _DiscardDragGuard({
     required this.active,
@@ -139,12 +107,12 @@ class _DiscardDragGuard extends StatefulWidget {
 }
 
 class _DiscardDragGuardState extends State<_DiscardDragGuard> {
-  /// Mindeststrecke nach unten, ab der ein Zug als „zumachen" gilt. Bewusst
-  /// klein: der Guard schluckt die Geste ohnehin, die Frage ist nur, ob der
-  /// Nutzer dazu eine Antwort bekommt.
+  /// Minimum downward distance counted as "close". Deliberately small: the
+  /// guard swallows the gesture anyway, the only question is whether the user
+  /// gets an answer.
   static const double _closeIntentPx = 32;
 
-  /// Flick-Schwelle, gespiegelt an `_kMinFlingVelocity` aus bottom_sheet.dart.
+  /// Fling threshold, mirroring `_kMinFlingVelocity` from bottom_sheet.dart.
   static const double _flingVelocity = 700;
 
   double _dy = 0;
@@ -164,7 +132,7 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
   Widget build(BuildContext context) {
     if (!widget.active) return widget.child;
     return GestureDetector(
-      // Ohne translucent bleiben Luecken zwischen den Kindern unbedeckt.
+      // Without translucent, gaps between children stay uncovered.
       behavior: HitTestBehavior.translucent,
       onVerticalDragStart: _onStart,
       onVerticalDragUpdate: _onUpdate,
@@ -174,31 +142,19 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
   }
 }
 
-/// Bottom-Sheet zum Anlegen eines eigenen Rezepts (Foto, Name, Portion,
-/// Nährwerte, Zutaten). Gibt beim Speichern ein [FitnessRecipe] via
-/// Navigator.pop zurück.
+/// Bottom sheet for creating an own recipe (photo, name, portion, nutrition,
+/// ingredients). Returns a [FitnessRecipe] via Navigator.pop on save.
 ///
-/// **Aufbau.** Vier benannte Gruppen statt einer Feldkolonne — „Foto" ·
-/// „Was ist es" · „Nährwerte" · „Zutaten", jede mit einer Versalien-Kopfzeile
-/// ([_SheetGroup]) über ihrem Inhalt. Die Eingabekapseln bleiben die des
-/// Design-Vertrags (`SheetField`-Optik: [AppTokens.surf] mit
-/// [AppTokens.line]-Rand); rot umrandet wird, was einen Fehler trägt.
-///
-/// Die vier Nährwerte stehen nebeneinander statt untereinander — bei normaler
-/// Schrift vierspaltig, ab ~1,25-facher Schrift zweispaltig (siehe
-/// [_FieldGrid]). Zusammen mit „Portion + Gewicht" auf einer Zeile war das der
-/// teuerste Höhenposten der alten Fassung.
-///
-/// **Höhe ist hier ein Funktionsmerkmal, keine Kosmetik** — siehe die
-/// Begründung an [_SheetGroup]. Der zugehörige Test heißt
-/// „bei normaler Schrift kommt es ohne Scrollen aus"
-/// (test/recipe_create_photo_test.dart).
+/// Four named groups ([_SheetGroup]) instead of one field column; the four
+/// nutrition fields sit side by side, four columns at normal text scale and
+/// two above ~1.25x (see [_FieldGrid]). Height is a functional constraint
+/// here, not cosmetics — see [_SheetGroup].
 class _CreateRecipeSheet extends StatefulWidget {
   const _CreateRecipeSheet({required this.photoInput});
 
-  /// Kamera-/Galerie-Auswahl. Liefert die Bytes bereits EXIF-frei zurück
-  /// (`DeviceMealPhotoInput` schickt sie durch `compressMealPhoto`) — das ist
-  /// dieselbe Pipeline wie beim KI-Scan, hier wird keine zweite gebaut.
+  /// Camera/gallery picker. Returns EXIF-free bytes already
+  /// (`DeviceMealPhotoInput` runs them through `compressMealPhoto`) — the same
+  /// pipeline the AI scan uses.
   final MealPhotoInput photoInput;
 
   @override
@@ -206,23 +162,14 @@ class _CreateRecipeSheet extends StatefulWidget {
 }
 
 class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
-  /// Registry ALLER Eingabefelder — die einzige Liste, die es hier gibt.
+  /// Registry of ALL input fields — the only such list here.
   ///
-  /// D5 verlangt ein `_dirty`, das ein neuntes Feld nicht vergisst. Deshalb
-  /// gibt es keinen zweiten Ort, an dem Felder aufgezaehlt werden: [_feld] ist
-  /// die einzige Quelle eines Controllers, und wer sie benutzt, bekommt
-  /// automatisch alle drei Dinge, die man sonst einzeln vergisst —
-  ///
-  ///   1. den Ausgangswert fuer den [_dirty]-Vergleich,
-  ///   2. den Listener, der Speichern-Freigabe UND `PopScope.canPop`
-  ///      nachfuehrt (ohne ihn bliebe `canPop` bei einem Feld ohne
-  ///      `onChanged` stehen — genau die Luecke, die eine Handliste reisst),
-  ///   3. das `dispose()`.
-  ///
-  /// Ein direkt gebauter `TextEditingController` haette keins davon und faellt
-  /// sofort auf. Der Vergleich laeuft gegen den Startzustand, nicht gegen
-  /// „wurde mal getippt": wer eine Eingabe wieder zuruecknimmt, bekommt keinen
-  /// Dialog mehr.
+  /// [_feld] is the single source of a controller, so every field
+  /// automatically gets its start value for [_dirty], the listener that keeps
+  /// save-enablement and `PopScope.canPop` current, and its `dispose()`. A
+  /// hand-built `TextEditingController` would have none of them. The
+  /// comparison runs against the start state, so undoing an edit clears
+  /// dirty again.
   final List<_RecipeField> _felder = <_RecipeField>[];
 
   late final TextEditingController _name;
@@ -238,8 +185,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   void initState() {
     super.initState();
     _name = _feld();
-    // Vorbelegung "1 Portion" kommt erst in didChangeDependencies — l10n
-    // braucht einen aufgebauten BuildContext, den initState noch nicht hat.
+    // The portion default lands in didChangeDependencies — l10n needs a built
+    // BuildContext, which initState does not have yet.
     _portion = _feld();
     _grams = _feld('300');
     _kcal = _feld();
@@ -249,12 +196,10 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     _ingredients = _feld();
   }
 
-  /// Setzt die l10n-abhaengige Portion-Vorbelegung genau einmal — nicht in
-  /// [initState] (dort ist noch kein BuildContext fuer die Lokalisierung
-  /// aufgebaut), aber auch nicht bei jedem [didChangeDependencies]-Aufruf
-  /// (ein Locale-Wechsel WAEHREND das Sheet offen ist, duerfte einen bereits
-  /// getippten Text nicht ueberschreiben). [_RecipeField.start] wird
-  /// mitgezogen, sonst zaehlte das frische Feld sich selbst als „veraendert".
+  /// Applies the l10n-dependent portion default exactly once: not in
+  /// [initState] (no localized BuildContext yet), and not on every
+  /// [didChangeDependencies] (a locale switch must not overwrite typed text).
+  /// [_RecipeField.start] moves with it, or the fresh field counts as changed.
   bool _defaultsVorbelegt = false;
 
   @override
@@ -290,15 +235,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     super.dispose();
   }
 
-  // ── Foto ────────────────────────────────────────────────────────────────
+  // ── Photo ───────────────────────────────────────────────────────────────
   //
-  // Die Bytes bleiben bis zum Speichern IM SPEICHER. Erst [_save] legt sie
-  // ab — wer das Sheet verwirft, hinterlaesst keine verwaiste Datei. Der
-  // Dateiname haengt am Slug, und den gibt es vor dem Speichern noch nicht.
+  // Bytes stay in memory until [_save] writes them, so discarding the sheet
+  // leaves no orphaned file.
 
   Uint8List? _photoBytes;
 
-  /// Solange die Systemauswahl offen ist bzw. die Bytes gescrubbt werden.
+  /// True while the system picker is open or the bytes are being scrubbed.
   bool _photoBusy = false;
 
   bool get _hasPhoto => _photoBytes != null;
@@ -309,9 +253,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     Uint8List? bytes;
     try {
       final auswahl = await widget.photoInput.pick(source);
-      // `previewBytes` ist der bereits gescrubbte Stand. Null heisst: nicht
-      // dekodierbar — fail-closed, dann lieber gar kein Bild (dieselbe Regel
-      // wie im Upload-Pfad, s. compressMealPhoto).
+      // `previewBytes` is the already scrubbed state; null means undecodable —
+      // fail closed and keep no image (same rule as the upload path).
       bytes = auswahl?.previewBytes;
       if (auswahl != null && bytes == null && mounted) {
         _melde(context.l10n.recipesPhotoUnreadableError);
@@ -338,32 +281,26 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     );
   }
 
-  /// D5: irgendein Feld weicht vom Ausgangszustand ab — oder es liegt ein
-  /// noch nicht gespeichertes Foto im Sheet. Ohne den zweiten Teil wäre ein
-  /// gerade aufgenommenes Bild der einzige Inhalt, den ein Barriere-Tap
-  /// kommentarlos verwirft.
+  /// D5: any field differs from its start value, or an unsaved photo sits in
+  /// the sheet. Without the second half a fresh photo would be the one content
+  /// a barrier tap discards silently.
   bool get _dirty => _felder.any((feld) => feld.veraendert) || _hasPhoto;
 
-  // ── Feldvalidierung ─────────────────────────────────────────────────────
+  // ── Field validation ────────────────────────────────────────────────────
   //
-  // `user_recipes` kennt laut Constraint-Inventur nur `>= 0`; faktische Grenze
-  // ist der `integer`-Typ. Die deutlich strengeren `logged_meals`-Grenzen
-  // greifen erst beim Konvertieren (`FitnessRecipe.toMealResult`) — ein Rezept
-  // mit 50 000 kcal liess sich also anlegen und danach nie loggen. Deshalb
-  // gelten sie hier bereits beim Anlegen.
+  // `user_recipes` only constrains `>= 0`; the much stricter `logged_meals`
+  // limits apply on conversion (`FitnessRecipe.toMealResult`), so a 50 000 kcal
+  // recipe could be created and never logged. They are enforced here already.
   //
-  // ABGELEHNT, nicht geklemmt (Regel aus Welle 1): 50 000 auf 10 000 zu
-  // klemmen schriebe eine Zahl ins Rezept, die der Nutzer nie gemeint hat, und
-  // zwar unbemerkt. Nur der Name wird gekuerzt — Texte sind die dokumentierte
-  // Ausnahme, und das Kuerzen passiert sichtbar schon bei der Eingabe
+  // Rejected, not clamped: clamping would silently store a number the user
+  // never meant. Only the name is truncated, visibly, during input
   // (`maxLength`).
 
-  /// Fehlertext fuer ein Ganzzahlfeld oder null.
+  /// Error text for an integer field, or null.
   ///
-  /// Ein leeres Feld bekommt bewusst KEINEN Fehler: „noch nichts eingegeben"
-  /// ist kein Eingabefehler. Das Fehlen eines Pflichtwerts sperrt allein
-  /// [_isValid] — sonst begruesst das frisch geoeffnete Sheet den Nutzer mit
-  /// zwei roten Feldern.
+  /// An empty field gets no error — "nothing typed yet" is not an input error.
+  /// A missing required value is blocked by [_isValid] alone, so a freshly
+  /// opened sheet does not greet the user with red fields.
   String? _zahlFehler(
     TextEditingController controller, {
     required int min,
@@ -398,11 +335,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         bereichstext: context.l10n.recipesRangeErrorGrams,
       );
 
-  /// Speichern ist frei, wenn die Pflichtfelder gefuellt und ALLE Felder
-  /// innerhalb ihrer Grenzen sind.
+  /// Save is enabled when the required fields are filled and all fields are
+  /// within their limits.
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
-    // Pflichtfelder: leer ist hier kein „optional", sondern fehlend.
+    // Required fields: empty means missing, not optional.
     if (_kcal.text.trim().isEmpty || _grams.text.trim().isEmpty) return false;
     return _kcalFehler == null &&
         _gramsFehler == null &&
@@ -414,45 +351,33 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   int _zahl(TextEditingController controller) =>
       int.tryParse(controller.text.trim()) ?? 0;
 
-  /// Läuft ohne Foto vollständig synchron durch (kein `await` vor dem `pop`) —
-  /// nur der Bild-Zweig wartet auf die Ablage.
-  ///
-  /// Der Rückgabetyp ist `Future<void>`; als `VoidCallback` am
-  /// [FilledButton] bleibt `onPressed` unverändert lesbar (`null` = gesperrt),
-  /// woran recipe_create_sheet_test hängt.
+  /// Runs fully synchronously without a photo (no `await` before the `pop`);
+  /// only the image branch waits on the store. Returns `Future<void>` but
+  /// stays readable as a `VoidCallback` on the [FilledButton] (`null` =
+  /// disabled), which recipe_create_sheet_test relies on.
   Future<void> _save() async {
     if (!_isValid || _saving) return;
     final l10n = context.l10n;
-    // Der Name ist durch `maxLength` bereits auf <= 160 UTF-16-Einheiten
-    // begrenzt; `char_length` in Postgres zaehlt Code Points und ist damit nie
-    // groesser. Bleibt das Trimmen.
+    // `maxLength` already caps the name at <= 160 UTF-16 units; Postgres'
+    // `char_length` counts code points and is never larger. Only trim left.
     final name = _name.text.trim();
     final ingredients = _ingredients.text.trim();
-    // Platzhalter-Fix (Inhalte-PR, 2026-08-11, Branch-Review-Finding): dieses
-    // Sheet hat KEIN eigenes Feld fuer description/preparation/
-    // professionalHint — bisher fuellte `_save` sie unconditional mit dem
-    // aktuell-lokalisierten ARB-Text und PERSISTIERTE ihn. Wechselte der
-    // Nutzer spaeter die App-Sprache, blieb die alte Sprache fuer immer in
-    // der Zeile stehen. Neu: leer speichern (neutraler Marker); die Anzeige
-    // loest ihn ueber `FitnessRecipe.display*` in die AKTUELLE Locale auf
-    // (s. `fitness_recipe.dart`). Dieselbe Logik gilt fuer die Portion: das
-    // Feld ist l10n-abhaengig VORBEFUELLT (`foodPortionFallback`, s.
-    // didChangeDependencies) — liess der Nutzer den Vorschlag unveraendert
-    // stehen ODER leerte er ihn, ist das ebenfalls "kein echter Wert" und
-    // wird nicht mehr persistiert. `_RecipeField.veraendert` (dirty-Check,
-    // vergleicht gegen den l10n-Vorschlag als `start`) ist die verlaessliche
-    // Unterscheidung — robuster als ein String-Vergleich gegen den aktuellen
-    // ARB-Wortlaut.
+    // description/preparation/professionalHint have no field here and are
+    // stored empty (neutral marker); display resolves them into the CURRENT
+    // locale via `FitnessRecipe.display*`. Persisting the localized ARB text
+    // would freeze the language the recipe was created in. Same for the
+    // portion: its default is l10n-dependent, so an untouched or emptied
+    // suggestion is "no real value". `_RecipeField.veraendert` decides — more
+    // robust than comparing against the current ARB wording.
     final portionField =
         _felder.firstWhere((feld) => feld.controller == _portion);
     final portion = portionField.veraendert ? _portion.text.trim() : '';
     final slug = FitnessRecipe.userRecipeSlug();
 
-    // Das Bild bekommt seinen Namen vom Store — kryptografisch zufaellig,
-    // NICHT mehr aus dem Slug abgeleitet (Security-Review 2026-08-11,
-    // Finding 5: `user_<ms>` war erratbar). Scheitert die Ablage (kein
-    // Verzeichnis, Bytes nicht dekodierbar, volle Platte), wird das Rezept OHNE
-    // Bild gespeichert — eine Referenz ins Leere waere schlimmer als keine.
+    // The store names the image cryptographically at random, not from the slug
+    // (Security review 2026-08-11, finding 5: `user_<ms>` was guessable). If
+    // the write fails, the recipe is saved without an image — a dangling
+    // reference would be worse than none.
     var imageAsset = '';
     final bytes = _photoBytes;
     if (bytes != null) {
@@ -489,12 +414,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     );
   }
 
-  /// Sperrt den Speichern-Knopf, solange die Bytes geschrieben werden.
+  /// Blocks the save button while the bytes are being written.
   bool _saving = false;
 
-  /// D5: laeuft fuer jeden abgefangenen Dismiss-Versuch — Barriere-Tap und
-  /// System-Zurueck kommen ueber [PopScope], das Ziehen ueber
-  /// [_DiscardDragGuard]. Mehrfach-Versuche stapeln keine Dialoge.
+  /// D5: guards every intercepted dismiss attempt (barrier tap and system back
+  /// via [PopScope], drag via [_DiscardDragGuard]) so retries do not stack
+  /// dialogs.
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
@@ -503,8 +428,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final verwerfen = await _confirmDiscardChanges(context);
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
-    // Der Dialog ist hier bereits gepoppt — oberste Route ist wieder das
-    // Sheet. Ohne Ergebnis: verworfen ist nicht gespeichert.
+    // The dialog is already popped, so the sheet is topmost again. No result:
+    // discarded is not saved.
     Navigator.of(context).pop();
   }
 
@@ -512,8 +437,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
     return PopScope<FitnessRecipe?>(
-      // Nur solange wirklich etwas drinsteht. Ein leeres Sheet schliesst wie
-      // bisher sofort.
+      // Only while something is actually filled in; an empty sheet closes
+      // immediately.
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
@@ -533,14 +458,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   Widget _buildSheet(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // Der Rumpf ist der SheetScaffold-Optik nachgebaut statt sie zu benutzen:
-    // `SheetScaffold` kennt keinen Key an der Fussaktion, und der
-    // Speichern-Knopf muss ein `FilledButton` mit `recipe-create-save` bleiben.
+    // Rebuilt in the SheetScaffold look instead of using it: `SheetScaffold`
+    // has no key on its footer action, and the save button must stay a
+    // `FilledButton` keyed `recipe-create-save`.
     return Container(
       key: const ValueKey('recipe-create-sheet'),
-      // Safe-Area- und Tastatur-bewusst statt fester 92 % (sheetMaxHeight):
-      // acht Textfelder — mit offener Tastatur schob der feste Anteil die
-      // Oberkante unter Statusleiste/Dynamic Island.
+      // Safe-area and keyboard aware instead of a fixed 92 % (sheetMaxHeight):
+      // with eight text fields and the keyboard open, the fixed share pushed
+      // the top edge under the status bar / Dynamic Island.
       constraints: BoxConstraints(maxHeight: sheetMaxHeightOf(context)),
       decoration: BoxDecoration(
         color: t.bg,
@@ -568,9 +493,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               style: AppType.display(24, color: t.ink, height: 1.15),
             ),
             const SizedBox(height: 4),
-            // Bewusst kurz: der Satz stand vorher zweizeilig ueber dem
-            // Formular. Was optional ist, sagen jetzt die Gruppen selbst
-            // („optional" rechts in der Kopfzeile).
+            // Deliberately short: the groups themselves mark what is optional
+            // (trailing label in their header).
             Text(
               l10n.recipesNameAndCaloriesSuffice,
               style: AppType.ui(12.5, color: t.ink2, height: 1.4),
@@ -601,9 +525,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   ),
                   const SizedBox(height: 12),
                   _FieldGrid(
-                    // Portion und Gewicht beschreiben dasselbe: „wie viel ist
-                    // eine Portion". Sie stehen deshalb nebeneinander, und die
-                    // Naehrwerte-Gruppe bleibt rein numerisch.
+                    // Portion and weight describe the same thing, so they sit
+                    // together and the nutrition group stays purely numeric.
                     columns: 2,
                     children: [
                       _RecipeSheetField(
@@ -629,10 +552,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             _SheetGroup(
               label: l10n.recipesGroupNutrition,
               trailing: l10n.recipesPerPortion,
-              // Vier Zahlen nebeneinander statt vier vollen Zeilen. Die drei
-              // Makro-Felder tragen ihren Token-Ton als Punkt vor der
-              // Beschriftung — dieselbe Kodierung wie im Naehrwert-Grid der
-              // Detail-Ansicht, damit die Farben nicht auseinanderlaufen.
+              // Four numbers side by side instead of four full rows. The macro
+              // fields carry their token color as a dot, same encoding as the
+              // nutrition grid in the detail view.
               child: _FieldGrid(
                 columns: 4,
                 children: [
@@ -685,17 +607,15 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 label: l10n.recipesSectionIngredients,
                 hint: l10n.recipesIngredientsHint,
                 maxLines: 3,
-                // Die Gruppe traegt die Beschriftung schon in ihrer Kopfzeile;
-                // eine zweite direkt darunter waere Dopplung. Der
-                // Screenreader-Bezug bleibt (Semantics im Feld selbst).
+                // The group header already carries the label; a second one
+                // would duplicate it. Screen-reader label stays (Semantics).
                 showLabel: false,
               ),
             ),
             const SizedBox(height: 14),
-            // Bleibt ein `FilledButton` mit `onPressed: _isValid ? _save : null`
-            // — recipe_create_sheet_test castet darauf und liest
-            // `onPressed == null` als Sperrsignal. Nur der Stil wandert auf die
-            // Fussaktion der neuen Sheet-Sprache.
+            // Must stay a `FilledButton` with `onPressed: _isValid ? _save :
+            // null` — recipe_create_sheet_test casts to it and reads
+            // `onPressed == null` as the disabled signal.
             FilledButton.icon(
               key: const ValueKey('recipe-create-save'),
               onPressed: _isValid && !_saving ? _save : null,
@@ -709,8 +629,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 foregroundColor: t.onForest,
                 disabledBackgroundColor: t.surf2,
                 disabledForegroundColor: t.ink2,
-                // `minimumSize` statt fester Hoehe: bei doppelter Schrift waere
-                // die Beschriftung sonst hoeher als der Knopf.
+                // `minimumSize` instead of a fixed height: at 2x text scale
+                // the label would otherwise be taller than the button.
                 minimumSize: const Size.fromHeight(52),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -724,17 +644,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   }
 }
 
-/// Eine benannte Gruppe des Anlege-Sheets: Versalien-Kopfzeile über ihrem
-/// Inhalt.
+/// A named group of the create sheet: all-caps header above its content.
 ///
-/// Bewusst OHNE umschliessende Karte. Der erste Entwurf steckte jede Gruppe in
-/// eine [AppCard] — das sah geordnet aus und kostete 4 x 24 px Innenpolsterung.
-/// Zusammen mit dem Rest lag das Sheet bei gemessenen 889 px Inhalt auf einem
-/// 852-px-Geraet, also ueber seinem 92-%-Deckel: es wurde scrollbar, der
-/// Speichern-Knopf rutschte unter den Rand — und der Verwerfen-Schutz verlor
-/// seinen Zug-Weg an die Scrollflaeche (ein Scroller gewinnt die Gestenarena
-/// gegen den `_DiscardDragGuard` darueber). Die Kopfzeile allein gruppiert
-/// genauso gut; so macht es auch das Bearbeiten-Sheet (`_SectionLabel`).
+/// Deliberately without a wrapping card: an [AppCard] per group cost 4 x 24 px
+/// of padding and pushed the sheet over its height cap, which made it
+/// scrollable — and a scrollable wins the gesture arena against
+/// [_DiscardDragGuard], killing the discard guard's drag path.
 class _SheetGroup extends StatelessWidget {
   const _SheetGroup({
     required this.label,
@@ -745,7 +660,7 @@ class _SheetGroup extends StatelessWidget {
   final String label;
   final Widget child;
 
-  /// Gedämpfter Zusatz rechts („pro Portion", „optional").
+  /// Muted trailing note on the right ("per portion", "optional").
   final String? trailing;
 
   @override
@@ -764,8 +679,8 @@ class _SheetGroup extends StatelessWidget {
               ),
             ),
             if (trailing != null)
-              // `Flexible`, nicht starr: bei doppelter Schrift sprengt der
-              // Zusatz die Zeile sonst.
+              // `Flexible`, not fixed: at 2x text scale the note overflows the
+              // row otherwise.
               Flexible(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 10),
@@ -789,13 +704,11 @@ class _SheetGroup extends StatelessWidget {
   }
 }
 
-/// Gleich breite Zellen nebeneinander — mit einer Notbremse für große Schrift.
+/// Equal-width cells side by side, with an escape hatch for large text.
 ///
-/// Vier Zahlenfelder auf einer Zeile sind bei normaler Schrift genau richtig
-/// und bei textScaler 2.0 unbenutzbar (jede Zelle bekäme ~75 px, in denen eine
-/// zweistellige Zahl und ihre Beschriftung liegen müssten). Ab dem 1,25-fachen
-/// halbiert sich deshalb die Spaltenzahl; ein `Wrap` bricht dann sauber um,
-/// statt die Zeile zu sprengen.
+/// Four number fields per row are right at normal scale and unusable at 2.0
+/// (~75 px per cell). Above 1.25x the column count halves and the `Wrap`
+/// breaks cleanly instead of overflowing.
 class _FieldGrid extends StatelessWidget {
   const _FieldGrid({required this.columns, required this.children});
 
@@ -825,12 +738,10 @@ class _FieldGrid extends StatelessWidget {
   }
 }
 
-/// Die Foto-Gruppe: Vorschau und Erklärung nebeneinander, darunter die
-/// Aktionen (Kamera · Galerie · Entfernen).
+/// Photo group: preview and explanation side by side, actions below.
 ///
-/// Der ehrliche Hinweis („Bleibt auf diesem Gerät") steht bewusst hier und
-/// nicht im Kleingedruckten: die Bytes gehen NICHT in die Cloud. Ein zweites
-/// Gerät sieht das Rezept, aber den Platzhalter statt des Fotos.
+/// The "stays on this device" note is prominent on purpose — the bytes never
+/// reach the cloud, so a second device sees the recipe with a placeholder.
 class _RecipePhotoPicker extends StatelessWidget {
   const _RecipePhotoPicker({
     required this.bytes,
@@ -909,10 +820,9 @@ class _RecipePhotoPicker extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          // Eine feste Zeile mit gleich breiten Kapseln statt eines `Wrap`:
-          // im Wrap brach die dritte Kapsel in eine zweite Reihe um und kostete
-          // das Sheet ~37 px Hoehe — bei einem Sheet, das seinen Deckel nicht
-          // reissen darf (s. `_SheetGroup`), ist das nicht drin.
+          // Fixed row of equal-width chips instead of a `Wrap`: there the
+          // third chip wrapped to a second line and cost ~37 px of height,
+          // which this sheet cannot spare (see `_SheetGroup`).
           Row(
             children: [
               Expanded(
@@ -952,7 +862,7 @@ class _RecipePhotoPicker extends StatelessWidget {
   }
 }
 
-/// Kleine Kapsel-Aktion der Foto-Gruppe.
+/// Small chip action of the photo group.
 class _PhotoAction extends StatelessWidget {
   const _PhotoAction({
     required this.actionKey,
@@ -993,10 +903,9 @@ class _PhotoAction extends StatelessWidget {
                 children: [
                   Icon(icon, size: 15, color: ton),
                   const SizedBox(width: 6),
-                  // `Flexible` ist hier keine Kosmetik: bei doppelter Schrift
-                  // ist „Entfernen" breiter als die Spalte neben der
-                  // Bildkachel, und ein `Wrap` kann ein einzelnes Kind nicht
-                  // umbrechen — es lief um gemessene 27 px ueber.
+                  // `Flexible` is load-bearing: at 2x text scale the label is
+                  // wider than its column, and a `Wrap` cannot break a single
+                  // child — it overflowed by ~27 px.
                   Flexible(
                     child: Text(
                       label,
@@ -1016,22 +925,14 @@ class _PhotoAction extends StatelessWidget {
   }
 }
 
-/// Beschriftetes Eingabefeld in der Optik von `SheetField`, hier lokal
-/// nachgebaut: das Bibliotheks-Widget kennt (noch) weder einen Key auf dem
-/// inneren [TextField] noch `maxLines`/`maxLength`/`inputFormatters` — und der
-/// [ValueKey] muss zwingend direkt am [TextField] sitzen, weil
-/// recipe_create_sheet_test darauf castet.
+/// Labeled input in the `SheetField` look, rebuilt locally: the library widget
+/// has no key on the inner [TextField] and no
+/// `maxLines`/`maxLength`/`inputFormatters`, and the [ValueKey] must sit
+/// directly on the [TextField] because recipe_create_sheet_test casts to it.
 ///
-/// Zwei Abweichungen von `SheetField`, beide der neuen Gruppierung geschuldet:
-///
-///  * **Fläche `surf2` statt `surf` ohne Rahmen.** Das Feld sitzt jetzt in
-///    einer [AppCard] (die ist `surf` mit `line`-Rand) — ein Rahmen im Rahmen
-///    wäre doppelt gezeichnet, und eine `surf`-Kapsel auf `surf` unsichtbar.
-///    Rot umrandet wird weiterhin, was einen Fehler trägt.
-///  * **Die Einheit steht in der Kopfzeile, nicht in der Kapsel.** Ein Suffix
-///    NEBEN einem `Expanded`-Textfeld ist bei doppelter Schrift die klassische
-///    Overflow-Quelle; in der Beschriftung bricht es einfach um. Nebenbei
-///    passen dadurch vier Zahlenfelder auf eine Zeile.
+/// The capsule keeps the design contract (`surf` with a `line` border, red
+/// when it carries an error); the unit lives in the header rather than as a
+/// suffix, which overflows next to an `Expanded` field at large text scale.
 class _RecipeSheetField extends StatelessWidget {
   const _RecipeSheetField({
     required this.fieldKey,
@@ -1052,27 +953,26 @@ class _RecipeSheetField extends StatelessWidget {
   final String label;
   final String? hint;
 
-  /// Maßeinheit — erscheint als Zusatz in der Versalien-Kopfzeile.
+  /// Unit — shown as a suffix in the all-caps header.
   final String? unit;
 
   final bool numeric;
   final int maxLines;
 
-  /// Blendet die Kopfzeile aus, wenn die Gruppe sie schon trägt. Der
-  /// Screenreader-Bezug bleibt davon unberührt ([Semantics] unten).
+  /// Hides the header when the group already carries the label. The
+  /// screen-reader label is unaffected ([Semantics] below).
   final bool showLabel;
 
-  /// Kategorie-Punkt vor der Beschriftung (Makro-Token). Nur Kodierung, keine
-  /// Dekoration — dieselben Töne wie das Nährwert-Grid der Detail-Ansicht.
+  /// Category dot before the label (macro token). Encoding, not decoration —
+  /// same colors as the detail view's nutrition grid.
   final Color? dot;
 
-  /// Harte Laengenbegrenzung waehrend der Eingabe. Zaehlt UTF-16-Einheiten und
-  /// ist damit nie grosszuegiger als Postgres' `char_length` (Code Points) —
-  /// die Constraint kann also nicht mehr verletzt werden.
+  /// Hard length limit during input. Counts UTF-16 units, so never more
+  /// generous than Postgres' `char_length` (code points).
   final int? maxChars;
 
-  /// Feldfehler statt stiller Klemmung. Sperrt zusammen mit [_isValid] das
-  /// Speichern und sagt dem Nutzer, welcher Bereich gilt.
+  /// Field error instead of silent clamping. Blocks saving together with
+  /// [_isValid] and names the valid range.
   final String? errorText;
 
   @override
@@ -1086,15 +986,10 @@ class _RecipeSheetField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (showLabel) ...[
-          // Feste Kopfzeilen-Höhe, GENAU eine Zeile.
-          //
-          // Ohne sie brach „KALORIEN · KCAL" in einer 81-px-Spalte auf zwei
-          // Zeilen um, „KH · G" blieb einzeilig — und weil die Spalten oben
-          // bündig stehen, sassen die Eingabefelder von KH und Fett sichtbar
-          // höher als die von Kalorien und Protein (Nutzer-Befund
-          // 2026-08-10). Der FittedBox schrumpft die langen Kopfzeilen
-          // stattdessen leicht; alle vier Felder beginnen damit auf
-          // derselben Höhe, in jeder Schriftgrösse.
+          // Fixed header height, exactly one line: a wrapping long header made
+          // the neighbouring fields start visibly higher (user finding
+          // 2026-08-10). The FittedBox shrinks long headers instead, so all
+          // four fields align at any text size.
           SizedBox(
             height: MediaQuery.textScalerOf(context).scale(9.5) * 1.35,
             child: Row(
@@ -1137,12 +1032,9 @@ class _RecipeSheetField extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                // Die Beschriftung steht als eigene Versalien-Zeile UEBER dem
-                // Feld statt als `InputDecoration.labelText` darin. Optisch ist
-                // das die neue Sprache — fuer den Screenreader waere das Feld
-                // damit aber unbeschriftet („Textfeld, leer"), waehrend es
-                // vorher „Kalorien" ansagte. Die Annotation holt den Bezug
-                // zurueck, ohne die Optik anzufassen.
+                // The label is a separate all-caps line above the field, not
+                // `InputDecoration.labelText`, which would leave the field
+                // unlabeled for screen readers. This annotation restores it.
                 child: Semantics(
                   label: label,
                   child: TextField(
@@ -1170,9 +1062,8 @@ class _RecipeSheetField extends StatelessWidget {
                       contentPadding: const EdgeInsets.symmetric(vertical: 12),
                       hintText: hint,
                       hintStyle: AppType.ui(14, color: t.ink2),
-                      // Der Zeichenzaehler waere hier nur Rauschen — gekuerzt
-                      // wird ohnehin sichtbar, weil die Eingabe an der Grenze
-                      // stehen bleibt.
+                      // The character counter is noise here; input visibly
+                      // stops at the limit anyway.
                       counterText: '',
                     ),
                   ),

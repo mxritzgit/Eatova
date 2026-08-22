@@ -1,49 +1,24 @@
-// Wire-Test fuer den Antwort-Umschlag von `search-key`
-// (docs/REVIEW-2026-08-08.md, G2, Schalter 3).
+// Wire test for the `search-key` response envelope.
 //
-// DER SCHALTER
+// `index.ts` returns `{ mirrorBaseUrl, searchKey, ttlSeconds }`. Renaming a
+// field (e.g. to snake_case) makes the Dart client in
+// `lib/src/services/search_credentials.dart` return `null` — and by the
+// fetcher's contract `null` means "keep what you have", not "disable". Key
+// rotation would then be permanently and silently dead, with nothing turning
+// red.
 //
-// `index.ts` liefert dem Client `{ mirrorBaseUrl, searchKey, ttlSeconds }`.
-// Benennt jemand ein Feld um (z. B. `mirrorBaseUrl` -> `mirror_base_url`),
-// laeuft der Client in `lib/src/services/search_credentials.dart` auf
+// `test/services/search_credentials_test.dart` never crosses the JSON
+// boundary (it injects its own fetcher and even uses the snake_case
+// PERSISTENCE format), so it cannot catch this.
 //
-//     final baseUrl = decoded['mirrorBaseUrl'];
-//     final searchKey = decoded['searchKey'];
-//     if (baseUrl is! String || searchKey is! String) return null;
+// This test loads `index.ts` unchanged (intercepting Deno.serve to grab the
+// real handler), feeds it a real Request, and runs the real body through a
+// faithful replica of the Dart parser, asserting it does not yield `null`.
+// The three field names live once in KLIENT_FELDER and are cross-checked
+// against the real Dart source where read permission allows.
 //
-// und liefert `null`. Und `null` heisst per dokumentiertem Vertrag des
-// Fetchers ausdruecklich NICHT "abschalten", sondern "behalte, was du hast".
-// Die Key-Rotation ist damit DAUERHAFT und STILL tot: der 403-Pfad wirft den
-// abgelehnten Key weg, bekommt keinen Ersatz, faellt auf den
-// Compile-Time-Default zurueck — und `FallbackProductService` liefert
-// weiterhin plausible OpenFoodFacts-Treffer. Nichts wird rot, nichts wird
-// sichtbar.
-//
-// WARUM DIESER TEST DIE FALLE NICHT WIEDERHOLT
-//
-// `test/services/search_credentials_test.dart` steckt seinen eigenen
-// `SearchKeyFetcher` ein und baut `FetchedSearchCredentials` direkt als
-// Dart-Objekt. Die JSON-Grenze — also genau die Stelle, an der der Feldname
-// steht — wird dort nie betreten. Sein Fake-Umschlag benutzt sogar
-// snake_case (`'ttl_seconds'`), weil er das PERSISTENZ-Format nachbaut und
-// nicht das Antwort-Format; die beiden sind verschieden und niemand haelt sie
-// auseinander.
-//
-// Dieser Test dagegen:
-//   * laedt `index.ts` UNVERAENDERT (Deno.serve wird abgefangen, der echte
-//     Handler wird herausgezogen — kein Nachbau der Response-Logik),
-//   * schickt einen echten `Request` hinein und liest den echten Response-
-//     Body als Text,
-//   * gibt diesen Text durch eine ZEICHENGETREUE Nachbildung des
-//     Dart-Client-Parsers und behauptet, dass dabei KEIN `null` herauskommt.
-//
-// Die drei Feldnamen stehen unten in KLIENT_FELDER an genau einer Stelle und
-// werden — wo Lese-Rechte vorhanden sind — zusaetzlich gegen den echten
-// Dart-Quelltext gehalten, damit sie nicht aus demselben Denkmodell stammen
-// wie die Function.
-//
-// Laeuft mit `deno test --allow-env` (wie die CI). Kein Netz, kein Socket:
-// `Deno.serve` wird nie ausgefuehrt.
+// Runs with `deno test --allow-env` like CI. No network: `Deno.serve` never
+// executes.
 
 const BASE_URL = "https://supabase.test.invalid";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -52,7 +27,7 @@ const MIRROR_URL = "https://eatova.test.invalid/meili";
 const MIRROR_KEY = "test-search-only-key-0123456789";
 const TTL = "43200";
 
-/** Die Felder, die der Dart-Client aus dem Body liest. Quelle:
+/** Fields the Dart client reads from the body. Source:
  *  lib/src/services/search_credentials.dart, `_fetch()`. */
 const KLIENT_FELDER = {
   baseUrl: "mirrorBaseUrl",
@@ -81,7 +56,7 @@ function assertEquals(actual: unknown, expected: unknown, message: string): void
   }
 }
 
-/** Antwortet auf die drei Supabase-Aufrufe, die `search-key` intern macht. */
+/** Answers the three Supabase calls `search-key` makes internally. */
 function installFetch(options: { rateLimitBody?: unknown } = {}): () => void {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: string | URL | Request): Promise<Response> => {
@@ -126,17 +101,15 @@ function installFetch(options: { rateLimitBody?: unknown } = {}): () => void {
   };
 }
 
-/** Faengt den an `Deno.serve` uebergebenen Handler ab, statt einen Port zu
- *  binden — so laeuft der Test ohne `--allow-net`, aber gegen den ECHTEN
- *  Handler aus index.ts. */
+/** Captures the handler passed to `Deno.serve` instead of binding a port, so
+ *  the test runs without `--allow-net` against the real index.ts handler. */
 let handler: Handler | null = null;
 
 async function ladeHandler(): Promise<Handler> {
   if (handler) return handler;
 
-  // `Deno.serve` ist ein Getter ohne Setter, aber configurable — deshalb
-  // defineProperty statt Zuweisung. Der Deskriptor wird danach exakt so
-  // zurueckgelegt, wie er war.
+  // `Deno.serve` is a getter without a setter but configurable, hence
+  // defineProperty; the descriptor is restored exactly afterwards.
   const original = Object.getOwnPropertyDescriptor(Deno, "serve");
   assert(original !== undefined, "Deno.serve existiert nicht");
 
@@ -149,7 +122,7 @@ async function ladeHandler(): Promise<Handler> {
         "Deno.serve wurde ohne Handler-Funktion aufgerufen",
       );
       handler = kandidat as Handler;
-      // Ein Objekt in der Form eines HttpServer, damit nichts stolpert.
+      // An HttpServer-shaped object so nothing trips over it.
       return {
         finished: Promise.resolve(),
         shutdown: () => Promise.resolve(),
@@ -182,10 +155,9 @@ function anfrage(): Request {
 }
 
 /**
- * Zeichengetreue Nachbildung von `EdgeFunctionSearchKeyFetcher._fetch()`
- * (search_credentials.dart). Liefert `null` in exakt denselben Faellen wie
- * der Client — und `null` heisst dort "behalte, was du hast", also: keine
- * Rotation, fuer immer.
+ * Faithful replica of `EdgeFunctionSearchKeyFetcher._fetch()`
+ * (search_credentials.dart). Returns `null` in exactly the same cases as the
+ * client, where `null` means "keep what you have" — i.e. no rotation, ever.
  */
 function clientParse(
   status: number,
@@ -207,7 +179,7 @@ function clientParse(
   return {
     baseUrl: baseUrl.trim(),
     searchKey: searchKey.trim(),
-    // Der Client faellt bei fehlender/falsch getypter TTL auf 12 h zurueck.
+    // The client falls back to 12 h for a missing or mistyped TTL.
     ttlSeconds: typeof ttlRaw === "number" ? Math.round(ttlRaw) : 43200,
   };
 }
@@ -251,8 +223,8 @@ Deno.test("search-key: kein Feld traegt eine zweite Schreibweise", async () => {
           "Ein umbenanntes Feld macht die Rotation still und dauerhaft tot.",
       );
     }
-    // Umbenennungen in snake_case sind die naheliegende Variante (die
-    // uebrigen Supabase-Nutzlasten in diesem Projekt sind snake_case).
+    // snake_case is the likely rename: every other Supabase payload here uses
+    // it.
     for (const verboten of ["mirror_base_url", "search_key", "ttl_seconds"]) {
       assert(
         !schluessel.includes(verboten),
@@ -311,11 +283,10 @@ Deno.test("search-key: der Key steht nie im Log", async () => {
 Deno.test(
   "search-key: die Feldnamen stimmen mit dem Dart-Client ueberein",
   async () => {
-    // Die eigentliche Absicherung gegen "Fake aus demselben Denkmodell":
-    // KLIENT_FELDER wird gegen den echten Client-Quelltext gehalten, nicht
-    // gegen die Function. Ohne Lese-Recht (die CI faehrt `deno test
-    // --allow-env`) bleibt die Behauptung oben stehen — sie faengt die
-    // Umbenennung auch allein.
+    // Guards against a fake built from the same mental model: KLIENT_FELDER
+    // is checked against the real client source, not the function. Without
+    // read permission (CI runs `deno test --allow-env`) the assertions above
+    // still catch a rename on their own.
     const pfad = "../../../lib/src/services/search_credentials.dart";
     const url = new URL(pfad, import.meta.url);
     const erlaubt = await Deno.permissions.query({ name: "read", path: url });
@@ -341,10 +312,9 @@ Deno.test(
 Deno.test(
   "Sentinel-Rest E6: kaputter Rate-Limit-Shape -> 500 rate_limit_unavailable statt erfundenem 429",
   async () => {
-    // `data.allowed === true` machte aus einem leeren/umgeformten RPC-Body
-    // ein `allowed: false` — der Client bekam einen 429 samt erfundener
-    // rateLimit-Zahlen, obwohl nie ein Limit gemessen wurde. Ein kaputter
-    // Shape ist ein Ausfall des Limiters, kein Limit.
+    // `data.allowed === true` turned an empty or reshaped RPC body into
+    // `allowed: false`, so the client got a 429 with invented rateLimit
+    // numbers. A broken shape is a limiter outage, not a limit.
     const handlerFn = await ladeHandler();
     const restore = installFetch({ rateLimitBody: {} });
     try {

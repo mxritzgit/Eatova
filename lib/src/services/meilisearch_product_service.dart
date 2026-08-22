@@ -6,25 +6,20 @@ import 'eatova_http.dart';
 import 'open_food_facts_product_service.dart';
 import 'search_credentials.dart';
 
-/// Textsuche gegen den eigenen Meilisearch-Index (OFF-Dump, DE/AT/CH,
-/// nur Produkte mit kcal — siehe /opt/off-import.py auf dem Server).
+/// Text search against the own Meilisearch index (OFF dump, DE/AT/CH, kcal
+/// products only; see /opt/off-import.py on the server).
 ///
-/// Die Index-Dokumente tragen das OFF-Produktschema (nutriments
-/// verschachtelt), deshalb laufen die Treffer unveraendert durch
-/// [ProductSearchResult.fromOpenFoodFacts]. Ranking macht Meilisearch:
-/// alle Wörter zuerst (matchingStrategy "last"), Tippfehler-Toleranz
-/// (Salami ~ Salame), danach Popularitaet (scans:desc).
+/// Index documents carry the OFF product schema, so hits pass unchanged
+/// through [ProductSearchResult.fromOpenFoodFacts]. Meilisearch does the
+/// ranking: all words first, typo tolerance, then popularity (scans:desc).
 ///
-/// Bewusst NUR Suche: Barcode-Lookups beantwortet der Index nicht
-/// ([lookupBarcode] wirft sofort) — der [FallbackProductService] reicht
-/// sie damit direkt an die OFF-Live-API (v3) weiter, die auch brandneue
-/// Produkte kennt.
+/// Search ONLY: the index answers no barcode lookups ([lookupBarcode] throws),
+/// so [FallbackProductService] forwards those to the OFF live API, which also
+/// knows brand-new products.
 ///
-/// **Zugangsdaten kommen zur Laufzeit** aus [SearchCredentialsSource]
-/// (Cache -> Fetch -> Compile-Time-Default -> aus). Der Service bleibt
-/// dadurch `const`-konstruierbar: Default-Parameter muessen
-/// Compile-Zeit-Konstanten sein, und eine `const`-Seam-Instanz darf in
-/// ihren Methoden sehr wohl veraenderliche Statics lesen.
+/// Credentials resolve at RUNTIME from [SearchCredentialsSource] (cache ->
+/// fetch -> compile-time default -> off), which keeps the service `const`
+/// constructible.
 class MeilisearchProductService implements ProductLookupService {
   const MeilisearchProductService({
     this.credentials = const GlobalSearchCredentialsSource(),
@@ -46,43 +41,40 @@ class MeilisearchProductService implements ProductLookupService {
       return const <ProductSearchResult>[];
     }
 
-    // Wartet hoechstens auf die laufende Platten-Hydration, nie aufs Netz.
+    // Waits at most for the running disk hydration, never for the network.
     final creds = await credentials.resolve();
     if (!creds.isUsable) {
-      // Mirror aus (Server-Kill-Switch oder abgelehnter Key ohne Ersatz):
-      // sofort werfen, damit der FallbackProductService OHNE eine einzige
-      // Netz-Anfrage zu OpenFoodFacts weiterzieht.
+      // Mirror off (kill switch, or rejected key without replacement): throw
+      // at once so the FallbackProductService moves on to OpenFoodFacts
+      // without a single network request.
       throw const HttpException('Mirror search disabled: no usable key.');
     }
 
-    // Knackige Timeouts (HttpTimeoutPolicy.mirror): der Mirror ist entweder
-    // schnell oder der FallbackProductService soll zuegig zu OpenFoodFacts
-    // weiterziehen.
+    // Tight timeouts (HttpTimeoutPolicy.mirror): the mirror is either fast or
+    // the fallback should move on to OpenFoodFacts.
     final client = createHttpClient(HttpTimeoutPolicy.mirror);
     try {
       try {
         return await _searchOnce(client, creds, cleanQuery);
       } on _MirrorAuthException {
-        // DER Rotations-Pfad. Meilisearch antwortet auf einen widerrufenen
-        // oder falschen Key mit 403 (fehlender Header: 401). Ohne diesen
-        // Zweig wuerde nach einer Rotation JEDER installierte Build still
-        // und dauerhaft auf OpenFoodFacts zurueckfallen — und die Rotation
-        // waere trotzdem nicht durchfuehrbar.
+        // THE rotation path. Meilisearch answers a revoked or wrong key with
+        // 403 (missing header: 401). Without this branch every installed build
+        // would silently fall back to OpenFoodFacts forever after a rotation.
         final replacement = await credentials.invalidate(creds);
         if (!replacement.isUsable ||
             replacement.searchKey == creds.searchKey) {
-          // Kein anderer Key verfuegbar -> werfen, der Fallback nimmt OFF.
+          // No other key available -> throw, the fallback takes OFF.
           throw const HttpException(
             'Mirror search rejected the key and no replacement was available.',
           );
         }
-        // GENAU EIN Retry: _searchOnce ruft sich nie selbst auf, ein
-        // weiterer 401/403 fliegt aus dem Block heraus in den Fallback.
+        // EXACTLY one retry: _searchOnce never recurses, another 401/403
+        // leaves this block into the fallback.
         return await _searchOnce(client, replacement, cleanQuery);
       }
     } finally {
-      // Wird auch bei Retry genau EINMAL geschlossen — der zweite Versuch
-      // nutzt bewusst denselben (bereits verbundenen) Client.
+      // Closed exactly once, retry included: the second attempt reuses the
+      // already connected client.
       client.close(force: true);
     }
   }
@@ -107,9 +99,9 @@ class MeilisearchProductService implements ProductLookupService {
       body: jsonEncode(<String, Object>{'q': cleanQuery, 'limit': 12}),
     );
 
-    // NUR 401/403 sind ein Rotations-Signal. Ein 5xx heisst „Mirror kaputt",
-    // nicht „Key ungueltig" — den Key deswegen wegzuwerfen wuerde bei jedem
-    // Server-Wackler eine Edge-Function-Anfrage ausloesen.
+    // ONLY 401/403 signal a rotation. A 5xx means broken mirror, not invalid
+    // key; discarding the key there would fire an edge-function request on
+    // every server hiccup.
     if (response.statusCode == 401 || response.statusCode == 403) {
       throw _MirrorAuthException(response.statusCode);
     }
@@ -120,15 +112,14 @@ class MeilisearchProductService implements ProductLookupService {
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final hits = decoded['hits'];
     if (hits is! List) {
-      // Sentinel-Rest D: ein 2xx ohne `hits`-Liste (Proxy-Fehlerseite,
-      // Schema-Aenderung) ist ein kaputter Mirror, keine leere Suche — die
-      // Antwort auf eine echte leere Suche ist `hits: []`. Werfen wie beim
-      // 5xx: der FallbackProductService klassifiziert/meldet den Fehler
-      // (_meldeWennUnerwartet) und zieht zu OpenFoodFacts weiter.
+      // A 2xx without a `hits` list (proxy error page, schema change) is a
+      // broken mirror, not an empty search — an empty search returns
+      // `hits: []`. Throw like on a 5xx so the fallback classifies, reports
+      // and moves on.
       //
-      // BEWUSST [MirrorSchemaException] und keine [HttpException]: letztere
-      // ist eine IOException und zaehlt dort zu den erwarteten Netzfehlern —
-      // der Alarm haette nie gemeldet.
+      // [MirrorSchemaException], not [HttpException]: the latter is an
+      // IOException and counts as an expected network error there, so the
+      // alarm would never fire.
       throw const MirrorSchemaException(
         'Mirror search returned a malformed body (no hits list).',
       );
@@ -146,18 +137,15 @@ class MeilisearchProductService implements ProductLookupService {
   }
 }
 
-/// Der Mirror hat auf einen 2xx etwas geliefert, das keine Suchantwort ist
-/// (Proxy-Fehlerseite, geaendertes Index-Schema).
+/// The mirror returned a 2xx that is not a search response (proxy error page,
+/// changed index schema).
 ///
-/// Der Typ existiert allein wegen der Klassifizierung im
-/// [FallbackProductService]: dort gilt die ganze `IOException`-Familie als
-/// erwarteter Netzfehler und bleibt still. Eine [HttpException] — die
-/// naheliegende Wahl — ist eine IOException, der Schema-Drift-Alarm haette
-/// also nie gemeldet. Deshalb `implements Exception` und sonst nichts: nur
-/// so faellt er in den „unerwartet"-Zweig und erreicht den CrashReporter.
+/// The type exists only for classification in [FallbackProductService], where
+/// the whole `IOException` family counts as an expected network error and
+/// stays silent. Hence plain `implements Exception`, so it lands in the
+/// unexpected branch and reaches the CrashReporter.
 ///
-/// [message] ist eine Konstante aus diesem Service, nie ein Antwort-Body —
-/// im Report landet ohnehin nur der Typname (sanitizeForReport).
+/// [message] is always a constant from this service, never a response body.
 class MirrorSchemaException implements Exception {
   const MirrorSchemaException(this.message);
 
@@ -167,10 +155,10 @@ class MirrorSchemaException implements Exception {
   String toString() => 'MirrorSchemaException: $message';
 }
 
-/// Der Mirror hat den Search-Key abgelehnt (401 fehlender Header /
-/// 403 widerrufener oder falscher Key). Rein intern: verlaesst
-/// [MeilisearchProductService.searchProducts] nie, dort wird daraus
-/// entweder ein Retry oder eine [HttpException] fuer den Fallback.
+/// The mirror rejected the search key (401 missing header / 403 revoked or
+/// wrong key). Internal only: never leaves
+/// [MeilisearchProductService.searchProducts], which turns it into a retry or
+/// an [HttpException] for the fallback.
 class _MirrorAuthException implements Exception {
   const _MirrorAuthException(this.statusCode);
 

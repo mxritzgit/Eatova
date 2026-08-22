@@ -1,7 +1,7 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Hero: animierter Orb + Zeit-Begruessung mit echtem Vornamen.
+// Hero: animated orb plus time-of-day greeting with the real first name.
 // ---------------------------------------------------------------------------
 class _CoachHero extends StatelessWidget {
   const _CoachHero({
@@ -10,15 +10,12 @@ class _CoachHero extends StatelessWidget {
   });
   final String name;
 
-  /// Oeffnet das (i)-Sheet mit den Details (welche Daten, wohin).
+  /// Opens the (i) sheet detailing which data goes where.
   final VoidCallback onDisclosureTap;
 
-  /// Byte-gleich zu `greetingForHour` (today_texts.dart) — beide lasen bis
-  /// zur Coach-Migration (Paket 4) unabhaengige Texte (die Kopie schon aus
-  /// der ARB, das Original hier hartkodiert deutsch). Jetzt ruft das
-  /// Original die Kopie: `today_texts.dart` ist Flutter-frei und oeffentlich,
-  /// eine zweite ARB-Anbindung derselben vier Werte waere dieselbe Aussage
-  /// ein zweites Mal. Der Drift-Test bleibt in `today_texts_test.dart`.
+  /// Delegates to `greetingForHour` (today_texts.dart) so the two cannot
+  /// drift; that file is Flutter-free and owns the ARB lookup.
+  /// Drift test lives in `today_texts_test.dart`.
   String _timeGreeting(AppLocalizations l10n) =>
       greetingForHour(DateTime.now().hour, l10n);
 
@@ -34,10 +31,8 @@ class _CoachHero extends StatelessWidget {
     final l10n = context.l10n;
     return Center(
       key: const ValueKey('coach-empty'),
-      // Scrollbar statt starr: der Leerzustand traegt seit C8 eine Zeile mehr,
-      // und auf kurzen Geraeten (bzw. bei grosser Systemschrift) wuerde die
-      // Column sonst ueberlaufen und den Orb abschneiden. Passt der Inhalt,
-      // bleibt er wie bisher mittig.
+      // Scrollable, not rigid: on short screens or large system fonts the
+      // column would overflow and clip the orb. It stays centred if it fits.
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Column(
@@ -65,10 +60,9 @@ class _CoachHero extends StatelessWidget {
   }
 }
 
-/// C8 — die Offenlegung im Leerzustand: hier antwortet eine KI, und ein Tap
-/// fuehrt zum Detail (welche Daten mitgehen, wohin) im (i)-Sheet. Bewusst hier
-/// und nicht nur hinter dem (i): der Nutzer soll es lesen koennen, BEVOR er
-/// tippt. Ton wie beim Meal-Scanner ("KI-Schaetzung") statt Juristendeutsch.
+/// AI disclosure in the empty state (C8); tapping opens the (i) sheet.
+/// Shown up front, not only behind the (i), so the user reads it before
+/// typing.
 class _CoachAiNote extends StatelessWidget {
   const _CoachAiNote({required this.onTap});
 

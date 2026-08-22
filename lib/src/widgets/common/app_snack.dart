@@ -5,21 +5,19 @@ import 'package:flutter/material.dart';
 import '../../theme/app_tokens.dart';
 import 'motion.dart';
 
-/// Standard-Toast-Dauern — bewusst kurz, damit nichts „hängen bleibt".
+/// Standard toast durations — deliberately short.
 ///
-/// Das sind STANDZEITEN, keine Bewegung: sie laufen bewusst NICHT über
-/// [motionDuration]. Unter „Bewegung reduzieren" auf 0 gesetzt wäre der Toast
-/// weg, bevor ihn jemand lesen kann — ein Verhaltensfehler, kein A11y-Fix.
-const Duration kSnackShort = Duration(milliseconds: 1600); // einfache Bestätigung
-const Duration kSnackAction = Duration(milliseconds: 2200); // mit Aktion (Undo) —
-// kurz genug, dass der Toast klar von selbst verschwindet, lang genug um die
-// „Rückgängig"-Aktion noch zu treffen.
+/// These are DWELL times, not motion: they must NOT run through
+/// [motionDuration]. Reduced to 0 under "reduce motion" the toast would be gone
+/// before anyone can read it — a behaviour bug, not an a11y fix.
+const Duration kSnackShort = Duration(milliseconds: 1600); // plain confirmation
+const Duration kSnackAction = Duration(milliseconds: 2200); // with action (undo)
+// — short enough to clearly self-dismiss, long enough to still hit the undo.
 const Duration kSnackError = Duration(milliseconds: 3000);
 
-/// Bedeutung statt Farbe. Der [HomeStore] und andere nicht-visuelle Schichten
-/// sagen, WAS ein Toast ist — welcher Ton dazu gehoert, entscheidet das Theme.
-/// Vorher reichten sie `Color`-Konstanten durch; das schloss den Hell-Modus
-/// aus und streute Design-Entscheidungen in die Logik.
+/// Meaning instead of color: non-visual layers say WHAT a toast is, the theme
+/// decides the tone. Passing `Color` constants ruled out light mode and spread
+/// design decisions into the logic.
 enum SnackTone { positive, neutral, warning, error }
 
 Color _toneColor(AppTokens t, SnackTone tone) => switch (tone) {
@@ -29,18 +27,13 @@ Color _toneColor(AppTokens t, SnackTone tone) => switch (tone) {
       SnackTone.error => t.danger,
     };
 
-/// Zeigt einen kurzen, floating Toast. Entfernt IMMER zuerst den aktuellen
-/// Toast, damit sich Snackbars bei schnellen Aktionen NICHT stapeln. Optionales
-/// Leading-Icon poppt beim Erscheinen kurz auf (kleine Animation), optionale
-/// [action] (z. B. Undo).
+/// Shows a short floating toast. ALWAYS removes the current one first so
+/// snackbars do not stack on rapid actions.
 ///
-/// Auto-Dismiss: Flutters eingebauter Snackbar-Timer feuert NICHT zuverlässig,
-/// wenn die System-Animation aus ist („Bewegung reduzieren") — dann schließt die
-/// Entrance synchron ab und der Timer wird nie gestartet, die Snackbar bleibt
-/// stehen. Wir hängen deshalb einen eigenen Dismiss-Timer an den Lifecycle des
-/// Snackbar-Inhalts ([_AutoDismiss]): er greift unabhängig von der Animation-
-/// Einstellung und wird bei Widget-Dispose sauber abgeräumt (kein dangling Timer
-/// in Tests).
+/// Auto-dismiss: Flutter's built-in snackbar timer does NOT fire reliably when
+/// system animations are off ("reduce motion") — the entrance completes
+/// synchronously and the timer never starts. Hence an own dismiss timer on the
+/// content's lifecycle ([_AutoDismiss]), cancelled on dispose.
 void showAppSnack(
   BuildContext context,
   String message, {
@@ -53,10 +46,9 @@ void showAppSnack(
   final messenger = ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
   messenger.removeCurrentSnackBar();
-  // Der Toast liegt auf der Marken-Flaeche (snackBarTheme), das Icon traegt
-  // deshalb den Lime-Akzent — nicht den Karten-Akzent, der hier unsichtbar
-  // waere. [accent] bleibt als direkte Uebersteuerung erhalten, solange noch
-  // nicht migrierte Flaechen eine Farbe durchreichen.
+  // The toast sits on the brand surface (snackBarTheme), so the icon takes the
+  // lime accent, not the card accent, which would be invisible here. [accent]
+  // stays as a direct override for surfaces that still pass a color.
   final effectiveAccent = accent ?? _toneColor(context.t, tone);
   final effective = duration ?? (action != null ? kSnackAction : kSnackShort);
   messenger.showSnackBar(
@@ -80,10 +72,9 @@ void showAppSnack(
   );
 }
 
-/// Hängt einen Dismiss-Timer an den Snackbar-Inhalt. Greift auch dann, wenn der
-/// eingebaute Auto-Dismiss ausbleibt (Animation aus). Da der Timer am State des
-/// Snackbar-Inhalts hängt, wird er bei Dispose (Snackbar weg / von neuer ersetzt
-/// / Test-Teardown) automatisch gecancelt — daher kein hängender Timer in Tests.
+/// Attaches a dismiss timer to the snackbar content, covering the case where
+/// the built-in auto-dismiss does not fire (animations off). Bound to the
+/// content's state, so dispose cancels it — no dangling timer in tests.
 class _AutoDismiss extends StatefulWidget {
   const _AutoDismiss({required this.child, required this.duration});
 
@@ -100,15 +91,13 @@ class _AutoDismissState extends State<_AutoDismiss> {
   @override
   void initState() {
     super.initState();
-    // Etwas nach der Snackbar-Dauer: lässt dem eingebauten Timer den Vortritt,
-    // springt aber ein, wenn der ausbleibt.
+    // Slightly after the snackbar duration: gives the built-in timer priority
+    // but steps in when it does not fire.
     _timer = Timer(
       widget.duration + const Duration(milliseconds: 400),
       () {
-        // removeCurrentSnackBar (statt hideCurrentSnackBar): entfernt SOFORT
-        // ohne Exit-Animation -> auch dann garantiert weg, wenn Animationen
-        // aus/kaputt sind. Greift nur wenn diese Snackbar noch aktuell ist
-        // (sonst ist dieses Widget längst disposed + der Timer gecancelt).
+        // removeCurrentSnackBar (not hideCurrentSnackBar): removes IMMEDIATELY
+        // without exit animation, so it is gone even with animations off.
         if (mounted) {
           ScaffoldMessenger.maybeOf(context)?.removeCurrentSnackBar(
             reason: SnackBarClosedReason.timeout,
@@ -128,7 +117,7 @@ class _AutoDismissState extends State<_AutoDismiss> {
   Widget build(BuildContext context) => widget.child;
 }
 
-/// Kleines, beim Erscheinen kurz aufpoppendes Icon (easeOutBack-Scale).
+/// Small icon that pops in on appearance (easeOutBack scale).
 class _SnackIcon extends StatelessWidget {
   const _SnackIcon({required this.icon, required this.accent});
 

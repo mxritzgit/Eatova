@@ -14,21 +14,18 @@ import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Komplettreview 2026-08-19, Paket „gate-sync" — der AuthGate als EINZIGE
-// Stelle, durch die jeder Auth-Uebergang laeuft:
+// The AuthGate as the ONLY place every auth transition passes through:
 //
-//   Fund 1: `HomeStore.signOutCleanup` raeumt den PII-Cache, haengt aber am
-//           Ausloggen-Knopf. Unfreiwilliges Sitzungsende und der direkte
-//           Wechsel A -> B sehen ihn nie — Profil, Tagebuch, Favoriten,
-//           Gewicht und das Erinnerungs-Flag von A blieben liegen. Die Outbox
-//           muss dabei stehen bleiben: sie traegt nicht zugestellte Writes.
-//   Fund 2: die Abonnements hatten keinen `onError`. gotrue speist Fehler
-//           aktiv in den Strom ein — ohne Handler ein unbehandelter
-//           Zonen-Fehler, von aussen ueber den Deeplink-Intent ausloesbar.
-//   Fund 3: „Deine Sitzung ist abgelaufen" haing an „lag etwas ueber der
-//           Root-Route". Seit der Ausloggen-Knopf in den Einstellungen sitzt
-//           (also auf einer gepushten Route), traf das ausgerechnet den
-//           GEWOLLTEN Logout.
+//   Finding 1: `HomeStore.signOutCleanup` clears the PII cache but hangs off
+//              the sign-out button, so an involuntary session end and a direct
+//              A -> B switch never saw it. The outbox must survive: it holds
+//              undelivered writes.
+//   Finding 2: the subscriptions had no `onError`. gotrue pushes errors into
+//              the stream, so without a handler it is an unhandled zone error,
+//              triggerable from outside via the deeplink intent.
+//   Finding 3: the session-expired message hung off "something was above the
+//              root route", which since the sign-out button moved into the
+//              settings hit the INTENTIONAL logout.
 
 const _userA = EatovaUser(
   id: 'user-a',
@@ -42,7 +39,7 @@ const _userB = EatovaUser(
   displayName: 'Ben',
 );
 
-/// Auth-Repository, dessen Ereignisse UND Fehler der Test direkt steuert.
+/// Auth repository whose events AND errors the test drives directly.
 class _ScriptedAuthRepository implements AuthRepository {
   _ScriptedAuthRepository(this._user);
 
@@ -54,8 +51,8 @@ class _ScriptedAuthRepository implements AuthRepository {
     _controller.add(user);
   }
 
-  /// Genau das, was gotrue tut: ein Fehler auf demselben Strom, der sonst
-  /// Nutzer liefert.
+  /// Exactly what gotrue does: an error on the same stream that otherwise
+  /// delivers users.
   void emitError(Object error) => _controller.addError(error);
 
   void dispose() => _controller.close();
@@ -119,15 +116,15 @@ class _ScriptedAuthRepository implements AuthRepository {
   Future<void> signOut() async => emit(null);
 }
 
-/// Foto-Store-Double ohne IO — was der echte Purge tut, prueft
+/// Photo store double without IO; the real purge is covered by
 /// test/services/recipe_image_store_test.dart.
 class _StummerFotoStore extends RecipeImageStore {
   @override
   Future<void> setActiveUser(String? userId) => Future<void>.value();
 }
 
-/// Baut dieselbe Huelle wie EatovaApp: AuthGate als MaterialApp.home, darueber
-/// eine pushbare Route (steht fuer „Einstellungen").
+/// Same shell as EatovaApp: AuthGate as MaterialApp.home with a pushable route
+/// above it (standing in for the settings).
 Future<void> _pumpGate(
   WidgetTester tester,
   _ScriptedAuthRepository repository, {
@@ -152,10 +149,9 @@ Future<void> _pumpGate(
                       child: TextButton(
                         key: const ValueKey('sign-out'),
                         onPressed: () async {
-                          // Produktionsnahe Reihenfolge: der Knopf sitzt auf
-                          // einer GEPUSHTEN Route und poppt NICHT selbst
-                          // (settings_screen.dart) — genau die Lage, in der
-                          // die alte Abgrenzung kippte.
+                          // Production order: the button sits on a PUSHED
+                          // route and does not pop itself — exactly the case
+                          // the old heuristic got wrong.
                           IntentionalSignOut.mark();
                           await repository.signOut();
                         },
@@ -281,17 +277,17 @@ void main() {
       addTearDown(repository.dispose);
       await _pumpGate(tester, repository);
 
-      // Ohne onError-Handler ist das ein unbehandelter Zonen-Fehler und der
-      // Test faellt hier durch — genau die Eskalation, die von aussen ueber
-      // den BROWSABLE-Deeplink-Intent ausloesbar war.
+      // Without an onError handler this is an unhandled zone error and the
+      // test fails here — the escalation reachable from outside via the
+      // BROWSABLE deeplink intent.
       repository.emitError(StateError('AuthRetryableFetchException'));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('screen-fake-home')), findsOneWidget,
           reason: 'ein Strom-Fehler ist kein Session-Verlust');
 
-      // Und der Gate hoert weiter zu: ein Fehler darf das Abonnement nicht
-      // beenden, sonst bekaeme er den echten Widerruf nie mit.
+      // The gate keeps listening: an error must not end the subscription, or
+      // it would miss the real revocation.
       repository.emit(null);
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
@@ -329,13 +325,13 @@ void main() {
       addTearDown(repository.dispose);
       await _pumpGate(tester, repository);
 
-      // Kein Push, nichts abzuraeumen — nach der alten Regel („nur wenn Routen
-      // wegfielen") blieb der Nutzer hier ohne jede Erklaerung auf dem Login.
+      // No push, nothing to tear down — under the old rule the user landed on
+      // the login without any explanation.
       repository.emit(null);
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Sitzung ist abgelaufen'), findsOneWidget);
-      // Die Snackbar darf keinen haengenden Timer hinterlassen.
+      // The snackbar must not leave a pending timer.
       await tester.pumpAndSettle(const Duration(seconds: 6));
     });
 

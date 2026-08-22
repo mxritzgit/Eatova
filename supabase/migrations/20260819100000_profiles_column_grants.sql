@@ -1,33 +1,17 @@
--- Befund-Verifikation 2026-08-19: Mass Assignment auf public.profiles.
+-- Mass assignment on public.profiles (finding 2026-08-19): RLS is row-based,
+-- but the grants were table-wide, so a client could set email, display_name,
+-- avatar_url and created_at — columns the app never writes. Integrity only.
 --
--- Die RLS-Update-Policy (profiles_update_own) ist zeilenbasiert, die Grants
--- waren tabellenweit (20260517220000: grant insert/update on all tables to
--- authenticated). Ein manipulierter Client durfte damit per PostgREST auch
--- email, display_name, avatar_url und created_at direkt setzen — Spalten,
--- die die App nie schreibt. Ein verfaelschtes profiles.email wanderte in den
--- DSGVO-Export (data_export.dart holt profiles per select('*'), Art. 15).
--- Keine Vertraulichkeitsluecke, reine Integritaet.
+-- Fix: narrow the write grants to the ProfileSync.save payload. The remaining
+-- columns are set by security-definer triggers or column defaults, and trigger
+-- assignments are not subject to the statement column grants.
 --
--- Fix: Schreib-Grants exakt auf die App-Schreibmenge (ProfileSync.save-
--- Payload, lib/src/services/profile_sync.dart) einschraenken. Die uebrigen
--- Spalten pflegen ausschliesslich security-definer-Trigger bzw. die DB:
---   email/display_name  -> handle_new_user_profile (Signup + E-Mail-Wechsel)
---   avatar_url          -> derzeit niemand (bleibt zu, bis ein Feature kommt)
---   created_at          -> Spalten-Default
---   updated_at          -> profiles_set_updated_at (BEFORE-UPDATE-Trigger;
---                          Trigger-Zuweisungen unterliegen NICHT den
---                          Spalten-Grants des Statements)
+-- id must be in both lists: the PostgREST upsert puts every payload column into
+-- the on-conflict SET list, including the PK. RLS and the FK still rule out an
+-- id change.
 --
--- id MUSS in beiden Listen stehen: der PostgREST-Upsert von ProfileSync.save
--- uebernimmt JEDE Payload-Spalte in die on-conflict-SET-Liste, auch den PK —
--- ohne UPDATE-Grant auf id scheitert der Upsert einer bestehenden Zeile.
--- Ein id-Wechsel bleibt trotzdem ausgeschlossen (RLS with check
--- auth.uid() = id + FK auf auth.users).
---
--- MERKE fuer kuenftige profiles-Spalten, die die App schreiben soll: der
--- Grant muss hier explizit nachgezogen werden. Fehlt er, wirft der Upsert
--- laut 42501 (ProfileSync.save rethrowt, Sentry sieht es) — kein stiller
--- Datenverlust.
+-- New profiles columns the app writes must be granted here, or the upsert fails
+-- loudly with 42501.
 
 revoke insert, update on public.profiles from authenticated;
 

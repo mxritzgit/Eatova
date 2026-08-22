@@ -1,13 +1,10 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Slot-Picker-Sheet („Wann eintragen?"): fragt nach dem Hinzufügen-Tap den
-// MealSlot (Frühstück/Mittag/Abend/Snack) ab.
+// Slot picker sheet: asks for the MealSlot after the add tap.
 //
-// Läuft über `showEatovaSheet` — das bringt Fläche, Ziehgriff, rSheet-Kappe und
-// Tastatur-Ausgleich mit. Anders als beim Anlege-Sheet ist hier nichts zu
-// verlieren: das Sheet trägt kein Formular, ein Zug am Griff ist also
-// unschädlich.
+// Runs through `showEatovaSheet`. Unlike the create sheet there is nothing to
+// lose here — no form, so a drag dismiss is harmless.
 // ---------------------------------------------------------------------------
 class _MealSlotPickerSheet extends StatelessWidget {
   const _MealSlotPickerSheet({required this.recipe});
@@ -27,8 +24,7 @@ class _MealSlotPickerSheet extends StatelessWidget {
 
     return SafeArea(
       top: false,
-      // Vier Zeilen plus Kopf sprengen bei doppelter Schrift sonst die
-      // Sheet-Höhe.
+      // Four rows plus the header exceed the sheet height at 2x text scale.
       child: SingleChildScrollView(
         child: Padding(
           key: const ValueKey('recipe-meal-picker-sheet'),

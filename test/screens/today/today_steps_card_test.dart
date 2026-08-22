@@ -1,13 +1,12 @@
-// Die Schritte-Karte im Tab „Heute" (Nutzer-Wunsch 2026-08-22).
+// The steps card on the Today tab.
 //
-// Sie steht direkt unter dem Kalorien-Hero und macht die Rechnung hinter der
-// VERBRANNT-Kachel sichtbar: Tagesstand, Fortschritt zum Schrittziel aus dem
-// Profil, die daraus geschaetzten kcal. Ohne Schrittquelle (`steps == null`,
-// s. HomeStore.stepsForFoodDate) gibt es die Karte nicht — „0 / 8.000" waere
-// eine Aussage ueber Daten, die es nicht gibt.
+// It sits under the calorie hero and shows the math behind the burned tile:
+// day total, progress towards the profile's step goal, estimated kcal. Without
+// a step source (`steps == null`) there is no card — "0 / 8.000" would be a
+// claim about data that does not exist.
 //
-// Harness wie test/screens/today/today_screen_test.dart: Eatova-Theme,
-// Telefon-Viewport, das Padding der Schale.
+// Harness as in today_screen_test.dart: Eatova theme, phone viewport, shell
+// padding.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -96,7 +95,7 @@ Future<void> _pump(
     ),
   );
   if (dayLoading) {
-    // Die Ladekarte dreht endlos — pumpAndSettle wuerde nie settlen.
+    // The loading card spins forever; pumpAndSettle would never settle.
     for (var i = 0; i < 16; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
@@ -118,7 +117,7 @@ void main() {
 
       expect(find.byKey(_karte), findsNothing);
       expect(find.byType(TodayStepsCard), findsNothing);
-      // Der Rest des Tages steht unveraendert.
+      // The rest of the day is unchanged.
       expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
       expect(find.byKey(const ValueKey('today-macros-card')), findsOneWidget);
     });
@@ -133,7 +132,7 @@ void main() {
       expect(_text(tester, _wert), '7.000');
       expect(find.text('SCHRITTE'), findsOneWidget);
       expect(_text(tester, _untertitel), '≈ 261 kcal verbrannt · Ziel 8.000');
-      // 7000 / 8000 nach dem Einschwingen der Animation.
+      // 7000 / 8000 after the animation settles.
       expect(_balkenWert(tester), closeTo(0.875, 0.001));
     });
 
@@ -149,7 +148,7 @@ void main() {
       );
       expect(karte.top, greaterThanOrEqualTo(hero.bottom));
       expect(makros.top, greaterThanOrEqualTo(karte.bottom));
-      // Dieselbe Spalte wie die Nachbarn — kein zweiter Seitenrand.
+      // Same column as its neighbours - no second side margin.
       expect(karte.left, hero.left);
       expect(karte.right, hero.right);
     });
@@ -208,13 +207,13 @@ void main() {
     });
 
     testWidgets('der Screenreader hoert Stand und Ziel', (tester) async {
-      // Explizit am Ende entsorgt (nicht per addTearDown): das Framework
-      // prueft VOR den Teardowns, ob noch ein Handle offen ist.
+      // Disposed explicitly, not via addTearDown: the framework checks for
+      // open handles BEFORE the teardowns run.
       final handle = tester.ensureSemantics();
       await _pump(tester, steps: 7000, burnedKcal: 261);
 
-      // RegExp + contains: die Karte verschmilzt den Balken-Knoten mit den
-      // Texten darueber, Label und Wert stehen also nicht allein im Knoten.
+      // RegExp + contains: the card merges the bar node with the texts above
+      // it, so label and value do not stand alone in the node.
       final balken = find.bySemanticsLabel(RegExp('Schrittziel'));
       expect(balken, findsOneWidget);
       expect(

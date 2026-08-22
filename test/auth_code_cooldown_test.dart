@@ -13,30 +13,25 @@ import 'package:eatova/src/services/local_cache.dart'
     show InMemoryKeyValueStore, KeyValueStore;
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Versand-Riegel der Code-Seite (Audit 2026-08-14).
+// Send guard of the code screen (Audit 2026-08-14).
 //
-// Vorher war `if (_busy) return;` der einzige Riegel am Neu-anfordern-Link —
-// rund 200 ms. Jeder Tap ist ein echter Mailversand an eine BELIEBIGE
-// eingetippte Adresse: Postfach-Flut beim Opfer, leergelaufenes
-// GoTrue-Kontingent (danach bekommt KEIN Nutzer mehr Mails) und Zustellkosten
-// am eigenen Mailserver. Die 429-Antwort des Servers fiel zudem in den
-// Sammelzweig „Bitte nochmal versuchen" — die App forderte woertlich zum
-// naechsten Tap auf.
+// `if (_busy) return;` was the only bar on the resend link (~200 ms), and every
+// tap is a real mail to ANY typed address: inbox flooding, a drained GoTrue
+// quota (after which NO user gets mail) and delivery cost. The server's 429 also
+// fell into the generic "try again" branch, literally inviting the next tap.
 //
-// Geprueft wird deshalb VERHALTEN, nicht die Existenz der neuen Methoden:
-// wie oft das Repository wirklich gerufen wird, was nach einem Rebuild noch
-// gilt, und welcher Satz bei einer Drosselung erscheint.
+// So this checks BEHAVIOUR, not the existence of the new methods: how often the
+// repository is really called, what survives a rebuild, and which sentence
+// appears on throttling.
 //
-// Die Uhr steht per `withClock` fest (der Screen liest sie ueber
-// `clock.now()`), damit der Countdown-Wert deterministisch ist. Der Speicher
-// ist ein [InMemoryKeyValueStore] — dieselbe Rolle wie SharedPreferences auf
-// dem Geraet, nur ohne Plugin-Channel.
+// The clock is pinned via `withClock` so the countdown is deterministic; the
+// store is an [InMemoryKeyValueStore], SharedPreferences' role without the
+// plugin channel.
 
 const String _adresse = 'opfer@example.com';
 final DateTime _jetzt = DateTime(2026, 8, 14, 9, 30);
 
-/// Drosselt jeden Neuversand so, wie GoTrue es tut („For security purposes,
-/// you can only request this after 51 seconds").
+/// Throttles every resend the way GoTrue does.
 class _DrosselndesAuthRepository extends InMemoryAuthRepository {
   @override
   Future<void> resendSignupCode(String email) async {
@@ -45,8 +40,8 @@ class _DrosselndesAuthRepository extends InMemoryAuthRepository {
   }
 }
 
-/// Speicher, der NIE antwortet — so verhaelt sich SharedPreferences ohne
-/// Plugin-Channel, und so kann sich ein blockiertes Geraet verhalten.
+/// Store that NEVER answers — SharedPreferences without a plugin channel, and
+/// how a blocked device can behave.
 class _StummerSpeicher implements KeyValueStore {
   @override
   Future<String?> getString(String key) => Completer<String?>().future;
@@ -84,9 +79,8 @@ Future<void> _pumpCode(
   await tester.pumpAndSettle();
 }
 
-/// Baut den Screen ab. Der laufende Countdown haengt an einem
-/// `Timer.periodic`; ohne `dispose()` meldet flutter_test am Testende einen
-/// offenen Timer.
+/// Tears the screen down. The countdown runs on a `Timer.periodic`; without
+/// dispose flutter_test reports a pending timer at the end of the test.
 Future<void> _entsorgeScreen(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pumpAndSettle();
@@ -123,11 +117,10 @@ void main() {
 
   testWidgets('ein Speicher, der nie antwortet, haelt den Versand NICHT auf',
       (tester) async {
-    // Regression: der Riegel las und schrieb den Geraetespeicher MIT `await`
-    // auf dem Weg zum Versand. Bleibt dessen Future offen, ging danach gar
-    // keine Mail mehr raus — „Passwort vergessen" war tot, der Knopf drehte
-    // endlos. Der Speicher traegt nur die HALTBARKEIT des Riegels ueber
-    // Neustarts, er ist nicht seine Bedingung: fail-open.
+    // Regression: the guard awaited the device store on the way to sending, so
+    // a never-resolving future killed sending entirely. The store only carries
+    // the guard's DURABILITY across restarts, it is not its condition:
+    // fail-open.
     final repo = InMemoryAuthRepository();
 
     await withClock(Clock.fixed(_jetzt), () async {
@@ -140,8 +133,7 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsNothing,
           reason: 'der Knopf ist wieder frei statt ewig zu drehen');
 
-      // Der Riegel gilt trotzdem — innerhalb der Sitzung braucht er den
-      // Speicher nicht.
+      // The guard still holds — within a session it does not need the store.
       await tester.tap(_resendLink);
       await tester.pumpAndSettle();
       expect(repo.signupResends, hasLength(1));
@@ -161,8 +153,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(deL10n.authCodeResendCountdown(60)), findsOneWidget);
 
-      // Wegnavigieren und zurueck: neue Screen-Instanz, derselbe
-      // Geraetespeicher.
+      // Navigate away and back: new screen instance, same device store.
       await _entsorgeScreen(tester);
       await _pumpCode(tester, repo, speicher);
 
@@ -197,9 +188,8 @@ void main() {
       expect(tester.widget<TextField>(_codeFeld).enabled, isFalse);
       expect(tester.widget<FilledButton>(_primaerKnopf).onPressed, isNull);
 
-      // Der sechste Versuch erreicht den Server nicht mehr — ohne Zaehler
-      // liefe er durch (verifyFails ist verbraucht) und landete in
-      // verifiedCodes.
+      // The sixth attempt no longer reaches the server — without the counter it
+      // would pass (verifyFails is spent) and land in verifiedCodes.
       await tester.tap(_primaerKnopf, warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(repo.verifiedCodes, isEmpty);
@@ -237,11 +227,9 @@ void main() {
   testWidgets(
       'nach der Sperre zeigt ein NEUER Fehler beim Neuanfordern sich selbst '
       'statt nur den Dauerhinweis der Sperre (W3)', (tester) async {
-    // Regression: `gesperrt ? tooManyAttempts : _error` verschluckte JEDEN
-    // weiteren Fehler, sobald die Sperre einmal griff. Der Nutzer tippt
-    // "Neuen Code anfordern", der Versand scheitert serverseitig (hier: die
-    // Drossel aus `_DrosselndesAuthRepository`) — es erschien NICHTS, der
-    // Link wirkte tot.
+    // Regression: `gesperrt ? tooManyAttempts : _error` swallowed EVERY further
+    // error once the lock engaged, so a failing resend showed NOTHING and the
+    // link looked dead.
     final repo = _DrosselndesAuthRepository();
     final speicher = InMemoryKeyValueStore();
 
@@ -258,8 +246,8 @@ void main() {
           reason: 'der Dauerhinweis der Sperre bleibt ohne neuen Fehler '
               'sichtbar');
 
-      // Der Resend-Link bleibt waehrend der Sperre absichtlich antippbar
-      // (s. Kommentar am Link in auth_code_screen.dart) und scheitert hier.
+      // The resend link stays tappable during the lock on purpose (see the link
+      // in auth_code_screen.dart) and fails here.
       await tester.tap(_resendLink);
       await tester.pumpAndSettle();
 
@@ -273,16 +261,13 @@ void main() {
   testWidgets(
       'eine zurueckgestellte Geraeteuhr fuehrt zu keinem Rest groesser als '
       'die Cooldown-Dauer (W3b)', (tester) async {
-    // Regression: `_remainingSeconds` klemmte nur nach unten. Stellt der
-    // Nutzer die Uhr zurueck (oder wechselt die Zeitzone), entsteht sonst ein
-    // persistenter Selbstblock ("naechster Code in 86400 s"), aus dem er
-    // nicht mehr herauskommt.
+    // Regression: `_remainingSeconds` clamped only downwards, so turning the
+    // clock back (or switching time zone) created a permanent self-block.
     final repo = InMemoryAuthRepository();
     final speicher = InMemoryKeyValueStore();
     final inDerZukunft = _jetzt.add(const Duration(days: 1));
 
-    // Phase 1: Versand wird gestempelt, waehrend die Geraeteuhr (irrtuemlich)
-    // einen Tag voraus geht.
+    // Phase 1: the send is stamped while the device clock is a day ahead.
     await withClock(Clock.fixed(inDerZukunft), () async {
       await _pumpCode(tester, repo, speicher);
       await tester.tap(_resendLink);
@@ -291,10 +276,9 @@ void main() {
       await _entsorgeScreen(tester);
     });
 
-    // Phase 2: Die Uhr steht wieder auf dem urspruenglichen (frueheren) Wert —
-    // deutlich VOR dem gespeicherten Stempel. Ohne die obere Klemme laege der
-    // Rest bei ueber einem Tag; die Seite muss das stattdessen als abgelaufen
-    // behandeln.
+    // Phase 2: the clock is back to the earlier value, well BEFORE the stored
+    // stamp. Without the upper clamp the remainder would exceed a day; the
+    // screen must treat it as expired.
     await withClock(Clock.fixed(_jetzt), () async {
       await _pumpCode(tester, repo, speicher);
 

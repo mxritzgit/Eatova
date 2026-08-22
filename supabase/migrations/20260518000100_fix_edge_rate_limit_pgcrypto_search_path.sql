@@ -1,7 +1,5 @@
--- Fix FitPilot Edge Function rate limiter on Supabase.
--- pgcrypto is available through the extensions schema on hosted Supabase, while
--- the previous security-definer function only searched public. That made
--- digest(p_subject, 'sha256') fail at runtime.
+-- Fix the Edge Function rate limiter: pgcrypto lives in the extensions schema
+-- on hosted Supabase, so digest() failed with a public-only search_path.
 
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;

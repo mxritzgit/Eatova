@@ -1,9 +1,8 @@
-// Der Tab „Heute" (Design-Refactor 2026-08-09).
+// The "today" tab.
 //
-// Der Harness stellt die SCHALE nach, in der der Screen spaeter haengt:
-// Eatova-Theme, Telefon-Viewport und das Padding, das
-// eatova_home_page.dart:420-424 bereits liefert (SafeArea + 20/12/20/12). Nur
-// so laesst sich pruefen, dass der Screen KEINEN zweiten Seitenrand setzt.
+// The harness reproduces the SHELL the screen later hangs in (theme, phone
+// viewport, SafeArea + 20/12/20/12 padding from eatova_home_page.dart), which
+// is what makes it testable that the screen adds NO second side margin.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -20,7 +19,7 @@ import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-/// Sonntag, 9. August 2026, 10:00 — weit weg von jeder Tagesgrenze.
+/// Sunday, 9 August 2026, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
 
 LoggedMeal _meal(String name, MealSlot slot, int kcal) => LoggedMeal(
@@ -49,9 +48,8 @@ Widget _harness(
   return MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: buildEatovaTheme(brightness),
-    // TodayScreen und seine Teilbaeume lesen jetzt context.l10n (i18n-Paket
-    // 1, Muster von test/home_page_tabs_test.dart) — ohne diese
-    // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+    // TodayScreen and its subtrees read context.l10n; without these
+    // localizations AppLocalizations.of() throws on the first build.
     locale: locale,
     supportedLocales: AppLocalizations.supportedLocales,
     localizationsDelegates: const [
@@ -95,8 +93,7 @@ Future<void> _pumpToday(
   Brightness brightness = Brightness.light,
   TextScaler textScaler = TextScaler.noScaling,
   Locale locale = const Locale('de'),
-  // Die Ladekarte dreht einen CircularProgressIndicator endlos —
-  // `pumpAndSettle` wuerde dort nie settlen.
+  // The loading card spins forever, so `pumpAndSettle` would never settle.
   bool settle = true,
 }) async {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -144,16 +141,16 @@ Finder _in(String key, String text) => find.descendant(
       matching: find.text(text),
     );
 
-/// Scrollt [ziel] in die Sicht — der Screen ist laenger als ein Telefon.
+/// Scrolls [ziel] into view — the screen is taller than a phone.
 Future<void> _scrollTo(WidgetTester tester, Finder ziel) async {
   await tester.scrollUntilVisible(ziel, 220,
       scrollable: find.byType(Scrollable).first);
   await tester.pumpAndSettle();
 }
 
-/// Dasselbe ohne `pumpAndSettle` — die Ladekarte dreht endlos, dort settlet
-/// nichts. Bricht ab, sobald [ziel] gebaut ist (die ListView baut ihre unteren
-/// Kinder erst beim Heranscrollen).
+/// Same without `pumpAndSettle`, for the endlessly spinning loading card.
+/// Stops once [ziel] is built; the ListView builds its lower children only
+/// while scrolling.
 Future<void> _scrollToUnsettled(WidgetTester tester, Finder ziel) async {
   for (var i = 0; i < 14 && ziel.evaluate().isEmpty; i++) {
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -240));
@@ -175,19 +172,13 @@ void main() {
         );
       });
 
-      // UMGESCHRIEBEN (Verifikation 2026-08-09). Der Test nagelte vorher
-      // „Ziel 2.300 kcal" fest — die Summe aus Tagesziel und Verbranntem.
-      // Einen Tab weiter zeigt die Food-Zusammenfassung fuer denselben Tag
-      // „2.000 kcal" in ihrer ZIEL-Kachel; der Nutzer sah zwei Zahlen fuer
-      // dasselbe Wort. „Ziel" ist der Wert aus den Einstellungen, das
-      // verbrannte Guthaben gehoert in die verbleibende Zahl (so hielt es
-      // auch die abgeloeste calories_overview_card.dart:34-39).
+      // The goal is the raw settings value; folding the burned credit into it
+      // showed two different numbers for the same word across tabs.
       expect(_textOf(tester, 'today-kcal-goal'), 'Ziel 2.000 kcal');
-      // Der Rest rechnet weiterhin gegen Ziel + Verbranntes: 2000+300-500.
+      // The remainder still counts against goal + burned: 2000+300-500.
       expect(_textOf(tester, 'today-kcal-remaining'), '1.800');
       expect(find.text('kcal übrig'), findsOneWidget);
-      // Und die Rechnung bleibt nachvollziehbar: das Verbrannte steht als
-      // eigene Kachel da.
+      // Burned keeps its own tile, so the arithmetic stays traceable.
       expect(_in('today-stat-burned', '300'), findsOneWidget);
     });
 
@@ -225,9 +216,8 @@ void main() {
     });
 
     testWidgets('ein Tagesziel von 0 stuerzt nicht ab', (tester) async {
-      // Kaputte/unvollstaendige Profile kommen aus dem Netz. Der Rechenkern
-      // faengt das mit `goal <= 0 -> 1` ab (calories_overview_card.dart:34) —
-      // ohne diesen Zweig waere `eaten / adjustedGoal` eine Division durch 0.
+      // Broken profiles arrive from the network; `goal <= 0 -> 1` keeps
+      // `eaten / adjustedGoal` from dividing by zero.
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(
           tester,
@@ -242,14 +232,9 @@ void main() {
       expect(find.text('kcal drüber'), findsOneWidget);
     });
 
-    // VERSCHOBEN aus test/widgets/calories_overview_glass_test.dart
-    // („der Fortschritt ist fuer einen Screenreader vorhanden"). Die
-    // Food-Zusammenfassung, die dieselbe Ansage trug, ist am 2026-08-10 aus
-    // dem Food-Tab entfernt worden — der Hero ist seitdem die EINZIGE Flaeche,
-    // an der ein Screenreader den Tagesfortschritt erfaehrt. Der TickGauge ist
-    // ein CustomPaint und damit semantisch leer; ohne diese Annotation gaebe es
-    // den Fortschritt fuer einen Screenreader gar nicht. Geprueft wird deshalb
-    // der WERT, nicht nur die Existenz des Labels (das taten wir schon).
+    // TickGauge is a CustomPaint and semantically empty, so without this
+    // annotation the daily progress would not exist for a screen reader at
+    // all — hence asserting the VALUE, not just the label.
     testWidgets('der Screenreader hoert den Fortschritt als Prozentwert',
         (tester) async {
       final handle = tester.ensureSemantics();
@@ -261,8 +246,8 @@ void main() {
         );
       });
 
-      // RegExp statt Gleichheit: der Hero verschmilzt den Gauge-Knoten mit den
-      // Texten darum herum, das Label steht also nicht allein im Knoten.
+      // RegExp instead of equality: the hero merges the gauge node with the
+      // surrounding texts, so the label is not alone in the node.
       final gauge = find.bySemanticsLabel(RegExp('Kalorienfortschritt'));
       expect(gauge, findsOneWidget);
       expect(
@@ -343,15 +328,14 @@ void main() {
       expect(find.text('Tag wird geladen…'), findsOneWidget);
       expect(find.byKey(const ValueKey('today-meals-card'), skipOffstage: false),
           findsNothing);
-      // Die Ueberschrift bleibt stehen, sonst springt der Screen beim Laden.
+      // The heading stays, otherwise the screen jumps while loading.
       expect(find.text('Heutige Mahlzeiten'), findsOneWidget);
     });
 
     testWidgets('waehrend des Ladens behauptet der Coach keinen leeren Tag',
         (tester) async {
-      // `meals` ist beim Laden leer, OHNE dass der Tag leer WAERE. Der
-      // Leer-Teaser waere hier eine Aussage ueber ungeladene Daten — und
-      // spraenge eine Sekunde spaeter auf einen anderen Satz um.
+      // `meals` is empty while loading WITHOUT the day being empty, so the
+      // empty teaser would claim something about unloaded data.
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(tester, dayLoading: true, settle: false);
       });
@@ -404,10 +388,9 @@ void main() {
 
     testWidgets('der Rueckwaerts-Schritt ueberlebt die Zeitumstellung',
         (tester) async {
-      // B5-Anker: mit `subtract(Duration(days: 1))` landete der 30.03.2026 in
-      // Europe/Berlin auf dem 28.03. um 23:00 — der Sonntag fiel aus der
-      // Leiste, und jede von dort geloggte Mahlzeit bekam den falschen
-      // local_day.
+      // B5 anchor: `subtract(Duration(days: 1))` landed 2026-03-30 on the 28th
+      // at 23:00, dropping Sunday from the strip and giving every meal logged
+      // there the wrong local_day.
       DateTime? gewaehlt;
       await withClock(Clock.fixed(DateTime(2026, 3, 30, 9)), () async {
         await _pumpToday(tester, onDateSelected: (d) => gewaehlt = d);
@@ -431,8 +414,8 @@ void main() {
       expect(_textOf(tester, 'today-date-selected-label'), 'Vor 5 Tagen');
       expect(find.text('Mahlzeiten'), findsOneWidget);
       expect(find.text('Heutige Mahlzeiten'), findsNothing);
-      // Die Eyebrow folgt dem GEWAEHLTEN Tag, nicht der Wanduhr — sonst
-      // widerspraeche sie dem Streifen direkt darunter.
+      // The eyebrow follows the SELECTED day, not the wall clock, or it would
+      // contradict the strip right below it.
       expect(_textOf(tester, 'today-eyebrow'), 'DIENSTAG, 4. AUGUST');
     });
 
@@ -468,8 +451,7 @@ void main() {
   });
 
   group('Aktionen', () {
-    // UMGESCHRIEBEN (Nutzer-Entscheid 2026-08-10): der Test tippte hier vorher
-    // zusaetzlich auf „Essen loggen" und erwartete den `onLogFood`-Rueckruf.
+    // The log-food button is gone, so this no longer taps it.
     testWidgets('Profil, Slot und Coach melden sich zurueck', (tester) async {
       var profil = 0;
       var coach = 0;
@@ -517,11 +499,8 @@ void main() {
   });
 
   group('Der schwebende „Essen loggen"-Knopf ist fort', () {
-    // UMGESCHRIEBEN, nicht geloescht (Nutzer-Entscheid 2026-08-10): der Knopf
-    // entfaellt ersatzlos. Zum Loggen fuehren die Mahlzeiten-Zeilen in den
-    // Food-Tab — zwei Wege zum selben Ziel waren einer zu viel. Die Tests
-    // bleiben als Wachposten stehen, damit der Knopf nicht unbemerkt
-    // zurueckkehrt.
+    // The button was dropped without replacement; the meal rows lead into the
+    // food tab. These tests stay as sentries so it cannot return unnoticed.
     testWidgets('weder Key noch Beschriftung sind noch im Baum',
         (tester) async {
       await withClock(Clock.fixed(_jetzt), () async {
@@ -541,9 +520,8 @@ void main() {
 
     testWidgets('die Wurzel ist eine reine Liste ohne Knopf-Reserve',
         (tester) async {
-      // Die untere Reserve wuchs frueher mit der Systemschrift mit (sie musste
-      // die Knopfhoehe freihalten). Ohne Knopf ist sie eine glatte 12 — bei
-      // jeder Textgroesse.
+      // The bottom reserve used to grow with the system font to clear the
+      // button height. Without the button it is a flat 12 at any text size.
       for (final skalierung in <TextScaler>[
         TextScaler.noScaling,
         const TextScaler.linear(2.0),
@@ -552,9 +530,9 @@ void main() {
           await _pumpToday(tester, textScaler: skalierung);
         });
 
-        // Der Cast ist die eigentliche Aussage: die Wurzel ist wieder eine
-        // ListView, kein Stack. (Ein `findsNothing` auf Stack ginge nicht —
-        // das Coach-Banner bringt selbst einen mit.)
+        // The cast is the actual assertion: the root is a ListView again, not
+        // a Stack. `findsNothing` on Stack would not work — the coach banner
+        // brings its own.
         final liste = tester
             .widget<ListView>(find.byKey(const ValueKey('screen-today')));
         expect(liste.padding, const EdgeInsets.fromLTRB(0, 0, 0, 12),
@@ -566,10 +544,9 @@ void main() {
   group('Robustheit', () {
     testWidgets('ohne den Knopf-Stack bleibt jede Kombination layoutbar',
         (tester) async {
-      // Bis 2026-08-10 war die Wurzel ein Stack aus Liste + schwebendem Knopf.
-      // Diese Matrix haelt fest, dass die reine ListView in keiner Kombination
-      // bricht — auch nicht ganz unten, wo die ListView ihre Kinder erst beim
-      // Heranscrollen baut.
+      // The root used to be a Stack of list + floating button. This matrix
+      // pins that the plain ListView breaks in no combination, including at
+      // the bottom where children are built only while scrolling.
       for (final helligkeit in Brightness.values) {
         for (final skalierung in <TextScaler>[
           TextScaler.noScaling,
@@ -655,7 +632,7 @@ void main() {
       });
       expect(tester.takeException(), isNull);
 
-      // Auch nach unten gescrollt darf nichts ueberlaufen.
+      // Nothing may overflow after scrolling down either.
       await tester.drag(find.byType(Scrollable).first, const Offset(0, -900));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -663,12 +640,10 @@ void main() {
 
     testWidgets('die Hero-Kennzahlen schrumpfen, statt umzubrechen',
         (tester) async {
-      // Die drei Kacheln teilen sich die Kartenbreite zu je einem Drittel
-      // (~92 px). Bei textScaler 2.0 sind „12.345" und „VERBRANNT" breiter als
-      // das. Ohne FittedBox brach der Text mitten im Wort um — die Zahl stand
-      // als Buchstabensalat untereinander (gemessen: 174 px statt 24). Ein
-      // Text-Ueberlauf WIRFT nicht, deshalb faengt das kein
-      // `takeException`-Test.
+      // Each tile takes a third of the card (~92 px), narrower than its
+      // content at textScaler 2.0; without FittedBox the text wrapped mid-word
+      // (174 px instead of 24). An overflow does not THROW, so no
+      // `takeException` test catches it.
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(
           tester,
@@ -690,8 +665,8 @@ void main() {
         for (final text in <String>[fall[1], fall[2]]) {
           final zeile = find.descendant(of: kachel, matching: find.text(text));
           expect(zeile, findsOneWidget);
-          // Einzeilig: 20 bzw. 10.5 px Grundschrift ergeben bei 2.0 hoechstens
-          // ~48 px Zeilenhoehe — alles darueber ist ein Umbruch.
+          // Single line: 20 / 10.5 px base type at 2.0 gives at most ~48 px
+          // line height; anything above that is a wrap.
           expect(
             tester.getSize(zeile).height,
             lessThan(80),
@@ -699,7 +674,7 @@ void main() {
           );
         }
 
-        // Und die geschrumpfte Darstellung bleibt in der Kachel.
+        // And the shrunken rendering stays inside the tile.
         for (final box in tester.widgetList<FittedBox>(
           find.descendant(of: kachel, matching: find.byType(FittedBox)),
         )) {
@@ -716,16 +691,10 @@ void main() {
       }
     });
 
-    // VERSCHOBEN aus test/widgets/calories_overview_glass_test.dart
-    // („ueberleben in $brightness die Systemschrift 2.0"). Die grosse Restzahl
-    // stand bis 2026-08-10 auf ZWEI Flaechen; seit die Food-Zusammenfassung
-    // entfernt ist, steht sie nur noch hier — und zwar mit 66 px Grundschrift,
-    // also der groessten Zahl der App. Gemessen wird die FITTEDBOX: der Text
-    // darin behaelt seine ungeschrumpfte Groesse, die Verkleinerung steckt in
-    // der Transformation darueber.
-    //
-    // Beide Modi, weil der Hellmodus andere Randstaerken und damit andere
-    // Innenmasse hat (DESIGN_REFACTOR §7.2).
+    // The remaining number is the app's largest type (66 px base). The
+    // FITTEDBOX is measured, not the text: the text keeps its unshrunk size
+    // and the scaling sits in the transform above it. Both brightness modes,
+    // because light mode has different border widths and inner dimensions.
     for (final helligkeit in Brightness.values) {
       testWidgets('die Restzahl schrumpft in $helligkeit bei Systemschrift 2.0, '
           'statt den Hero zu sprengen', (tester) async {
@@ -756,20 +725,19 @@ void main() {
 
     testWidgets('die Vorlese-Beschriftungen tragen echte Umlaute',
         (tester) async {
-      // Ein Semantics-Label ist gesprochener Text — „Profil oeffnen" liest
-      // der Screenreader auch so vor.
+      // A semantics label is spoken text, so ASCII transliterations would be
+      // read out as written.
       final handle = tester.ensureSemantics();
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(tester, selectedDate: DateTime(2026, 8, 8));
       });
 
-      // RegExp statt Gleichheit: das Profil-Badge verschmilzt sein Label mit
-      // der Initiale darunter zu „Profil öffnen\nM".
+      // RegExp instead of equality: the profile badge merges its label with
+      // the initial below it.
       expect(find.bySemanticsLabel(RegExp('Profil öffnen')), findsOneWidget);
       expect(find.bySemanticsLabel(RegExp('Tag zurück')), findsOneWidget);
       expect(find.bySemanticsLabel(RegExp('Tag vor')), findsOneWidget);
-      // Der Tick-Gauge ist ein CustomPaint — ohne diese Annotation waere der
-      // Fortschritt fuer einen Screenreader gar nicht vorhanden.
+      // The CustomPaint gauge is only reachable through this annotation.
       expect(find.bySemanticsLabel(RegExp('Kalorienfortschritt')),
           findsOneWidget);
       handle.dispose();
@@ -796,10 +764,9 @@ void main() {
   });
 
   group('EN-Render-Smoke (i18n-Paket 1, Spec §6)', () {
-    // Rendert unter Locale `en` in beiden Helligkeiten: kein Absturz, und
-    // mindestens eine echte englische Uebersetzung steht im Baum. Englische
-    // Texte sind teils laenger als die deutschen — das faengt Overflows, die
-    // ein reiner `de`-Lauf nie zeigen wuerde.
+    // Renders under locale `en` in both brightnesses: no crash, and at least
+    // one real English translation in the tree. English strings are sometimes
+    // longer, catching overflows a `de`-only run would never show.
     for (final helligkeit in Brightness.values) {
       testWidgets('rendert unter en in $helligkeit ohne Ausnahme',
           (tester) async {
@@ -817,15 +784,13 @@ void main() {
         expect(tester.takeException(), isNull,
             reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
 
-        // „KALORIENBUDGET" -> „CALORIE BUDGET": eindeutig englisch, steht
-        // ohne Scrollen im Baum (Teil des Hero, der Screen-Oberkante).
+        // Unambiguously English and visible without scrolling.
         expect(find.text('CALORIE BUDGET'), findsOneWidget);
 
         await _scrollTo(
             tester, find.byKey(const ValueKey('today-coach-banner')));
         expect(tester.takeException(), isNull,
             reason: 'nach unten gescrollt: en/$helligkeit');
-        // „Zum Coach" -> „Go to coach".
         expect(find.text('Go to coach'), findsOneWidget);
       });
     }

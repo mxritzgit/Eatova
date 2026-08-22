@@ -10,26 +10,21 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
-// Sentinel-Rest S1 (Sweep 2026-08-08): `mealResultFromJson` fuellte ein
-// fehlendes/unlesbares `caloriesKcal` mit 0 auf — OHNE explicitZeroKcal,
-// also exakt die Sorte 0, die das Projekt muehsam von der gemessenen 0
-// trennt, hier aber ununterscheidbar produziert. Der Wert wanderte in die
-// Tagesbilanz, ins Tagebuch UND ueber den Outbox-Replay als
-// `calories_kcal: 0` dauerhaft auf den Server.
+// Sentinel S1: `mealResultFromJson` filled a missing/unreadable `caloriesKcal`
+// with 0 WITHOUT explicitZeroKcal — indistinguishable from a measured 0, and it
+// reached the daily balance, the diary and, via outbox replay, the server.
 //
-// Neuer Vertrag:
-//  * `caloriesKcal` ist PFLICHT im Payload (mealResultToJson schreibt es
-//    seit jeher unconditional) — fehlt/unlesbar => FormatException.
-//    Die Wurf-Abnehmer sind bereits ehrlich verdrahtet: SyncOp.meal faengt
-//    ihn zu null => Replay wirft _CorruptOpPayload => Drop mit Meldung (A8);
-//    LocalCache.readLoggedMeals faengt ihn => Slot unlesbar => Server-Boot
-//    liefert die Wahrheit.
-//  * `estimatedGrams`/`kcalPer100G` behalten 0 als dokumentierte
-//    Unbekannt-Form dieses Modells (siehe meal_analysis_hardening_test).
-//  * Eine ECHTE 0 mit explicitZeroKcal roundtrippt unveraendert (B7).
-//  * Server-Zeilen mit kaputtem Payload werden beim Laden UEBERSPRUNGEN und
-//    gemeldet — eine einzige kaputte Zeile darf nicht das ganze Tagebuch
-//    am Laden hindern (das waere schlimmer als der Bug).
+// New contract:
+//  * `caloriesKcal` is REQUIRED in the payload; missing or unreadable =>
+//    FormatException. The catchers are already honest: SyncOp.meal catches it
+//    to null => replay throws _CorruptOpPayload => drop with message (A8);
+//    LocalCache.readLoggedMeals catches it => slot unreadable => the server
+//    boot supplies the truth.
+//  * `estimatedGrams`/`kcalPer100G` keep 0 as this model's documented unknown
+//    form (see meal_analysis_hardening_test).
+//  * A REAL 0 with explicitZeroKcal round-trips unchanged (B7).
+//  * Server rows with a broken payload are SKIPPED on load and reported: one
+//    bad row must not block the whole diary.
 
 Map<String, dynamic> _payloadOhne(String key) {
   final json = mealResultToJson(const MealAnalysisResult(
@@ -111,7 +106,7 @@ void main() {
     ((raw['payload'] as Map)['meal'] as Map)
         .cast<String, dynamic>()['result'] = <String, dynamic>{
       'mealName': 'Bowl',
-      // caloriesKcal fehlt -> korrupt.
+      // caloriesKcal missing -> corrupt.
     };
     final corrupt = SyncOp.tryFromJson(raw)!;
 

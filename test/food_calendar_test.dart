@@ -6,13 +6,12 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Kalender-Zugriff auf aeltere Tage im Food-Tab (2026-08-06): neben den
-// Datums-Chips sitzt ein Kalender-Knopf (showDatePicker, dank de-Locale
-// deutsch), dessen Auswahl ueber denselben onDateSelected-Pfad laeuft wie die
-// Chips (setFoodDate-Kette im Store). Dazu der Lade-Zustand fuer on-demand
-// nachgeladene Alt-Tage: dayLoading ersetzt den Verlauf durch einen Spinner.
+// Calendar access to older days in the food tab: a calendar button next to
+// the date chips whose selection runs through the same onDateSelected path as
+// the chips. Plus the loading state for on-demand days, where dayLoading
+// replaces the history with a spinner.
 
-// Viewport-Pinning + Overflow-Toleranz wie in widget_test.dart.
+// Viewport pinning + overflow tolerance as in widget_test.dart.
 void testWidgetsRobust(
   String description,
   WidgetTesterCallback callback,
@@ -34,7 +33,7 @@ void testWidgetsRobust(
   });
 }
 
-/// Food-Tab-Haerness mit derselben de-Lokalisierung wie EatovaApp.
+/// Food tab harness with the same de localization as EatovaApp.
 Future<void> _pumpFoodTab(
   WidgetTester tester, {
   ValueChanged<DateTime>? onDateSelected,
@@ -65,8 +64,8 @@ Future<void> _pumpFoodTab(
       ),
     ),
   );
-  // Mit dayLoading dreht der Spinner endlos — pumpAndSettle wuerde nie
-  // settlen, daher dort nur begrenzt pumpen.
+  // With dayLoading the spinner never stops, so pumpAndSettle would never
+  // settle: pump a bounded amount instead.
   if (dayLoading) {
     await tester.pump(const Duration(milliseconds: 100));
   } else {
@@ -85,14 +84,14 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('food-date-calendar')));
     await tester.pumpAndSettle();
 
-    // Deutscher Dialog (de-Delegates), eigener Hilfetext.
+    // German dialog (de delegates), custom help text.
     expect(find.byType(DatePickerDialog), findsOneWidget);
     expect(find.text('Tag wählen'), findsOneWidget);
     expect(find.text('Abbrechen'), findsOneWidget);
 
-    // Deterministisch in den VORMONAT blaettern und den 15. waehlen: den 15.
-    // gibt es in jedem Monat, er liegt immer in der Vergangenheit (lastDate =
-    // heute greift nie) und kollidiert nie mit dem Heute-Sonderfall.
+    // Page to the PREVIOUS month and pick the 15th: it exists in every month,
+    // is always in the past (lastDate = today never bites) and never collides
+    // with the today special case.
     await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
     await tester.tap(find.descendant(
@@ -114,7 +113,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('food-day-loading')), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    // Verlaufs-Slots sind waehrend des Ladens nicht da.
+    // History slots are absent while loading.
     expect(find.text('Tag wird geladen…'), findsOneWidget);
   });
 

@@ -5,14 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Gemeinsamer Unterbau fuer alle Tests der Design-Bibliothek.
+// Shared scaffolding for all design-library tests.
 //
-// Die Widgets lesen ihre Farben ueber `context.t` aus der ThemeExtension —
-// ohne echtes Eatova-Theme wirft `AppTokens.of` bewusst. Jeder Test haengt sein
-// Pruefobjekt deshalb in [designHarness], nie in ein nacktes MaterialApp.
+// The widgets read their colors from the ThemeExtension via `context.t`, and
+// `AppTokens.of` throws without a real Eatova theme. Every test therefore
+// mounts its subject in [designHarness], never in a bare MaterialApp.
 
-/// iPhone 14 (393x852 logisch). Der Default-Testviewport (800x600) ist
-/// breiter als jedes Telefon und wuerde Ueberlauf-Fehler verstecken.
+/// iPhone 14 (393x852 logical). The default 800x600 test viewport is wider
+/// than any phone and would hide overflow errors.
 void pinPhoneViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
@@ -20,18 +20,18 @@ void pinPhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// iPhone 14 Pro: 390x844 logisch, 59 pt Dynamic Island, 34 pt Home-Balken —
-/// wahlweise mit offener Tastatur (336 pt). Anders als [pinPhoneViewport]
-/// setzt das auch Safe-Area und Tastatur am [FlutterView], damit Sheets ihre
-/// Hoehe gegen echte Geraete-Insets rechnen (`sheetMaxHeight`).
+/// iPhone 14 Pro: 390x844 logical, 59 pt Dynamic Island, 34 pt home bar,
+/// optionally with the keyboard open (336 pt). Unlike [pinPhoneViewport] this
+/// also sets safe area and keyboard on the [FlutterView] so sheets compute
+/// their height against real device insets.
 void pinIphone14Pro(WidgetTester tester, {bool keyboard = false}) {
   const dpr = 3.0;
   tester.view.devicePixelRatio = dpr;
   tester.view.physicalSize = const Size(390 * dpr, 844 * dpr);
   tester.view.viewPadding =
       const FakeViewPadding(top: 59 * dpr, bottom: 34 * dpr);
-  // Mit Tastatur verdeckt diese den Home-Balken: `padding.bottom` faellt
-  // auf 0, `viewPadding.bottom` bleibt — so meldet es auch die Engine.
+  // With the keyboard up it covers the home bar: `padding.bottom` drops to 0
+  // while `viewPadding.bottom` stays, exactly as the engine reports it.
   tester.view.padding = keyboard
       ? const FakeViewPadding(top: 59 * dpr)
       : const FakeViewPadding(top: 59 * dpr, bottom: 34 * dpr);
@@ -40,8 +40,8 @@ void pinIphone14Pro(WidgetTester tester, {bool keyboard = false}) {
   addTearDown(tester.view.reset);
 }
 
-/// [child] im vollstaendigen Eatova-Theme, mit dem Seitenrand, den die
-/// Screens spaeter auch setzen (20 px).
+/// [child] in the full Eatova theme, with the 20 px side padding the screens
+/// use as well.
 Widget designHarness(
   Widget child, {
   Brightness brightness = Brightness.light,
@@ -79,8 +79,8 @@ Widget designHarness(
   );
 }
 
-/// Pumpt [build] in Hell UND Dunkel und besteht darauf, dass beide Durchgaenge
-/// ohne Exception (inkl. Overflow) durchlaufen.
+/// Pumps [build] in light AND dark and requires both passes to run without an
+/// exception, overflow included.
 Future<void> expectRendersInBothBrightnesses(
   WidgetTester tester,
   Widget Function() build, {
@@ -99,8 +99,8 @@ Future<void> expectRendersInBothBrightnesses(
   }
 }
 
-/// Pumpt [child] bei doppelter Systemschrift — der Deckel, den EatovaApp
-/// setzt. Ein RenderFlex-Ueberlauf schlaegt hier als Exception durch.
+/// Pumps [child] at double system font size — the cap EatovaApp sets. A
+/// RenderFlex overflow surfaces here as an exception.
 Future<void> expectSurvivesTextScale(
   WidgetTester tester,
   Widget child, {
@@ -122,7 +122,7 @@ Future<void> expectSurvivesTextScale(
   );
 }
 
-/// Die BoxDecoration des ersten Containers unterhalb von [of].
+/// The BoxDecoration of the first Container below [of].
 BoxDecoration decorationOf(WidgetTester tester, Finder of) {
   final container = tester.widget<Container>(
     find.descendant(of: of, matching: find.byType(Container)).first,

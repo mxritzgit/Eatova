@@ -7,26 +7,23 @@ import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
 
-// DATA-3: LocalCache ist der durable Write-Through-Cache (JSON) fuer Profil
-// und lifetime_stats. Diese Tests treiben ihn ueber den InMemoryKeyValueStore
-// (kein SharedPreferences-Channel noetig) und sichern:
-//   1. Profil/Stats roundtrippen verlustfrei — JEDES Feld, siehe A7.
-//   2. Korrupte/teilweise Eintraege liefern null statt zu crashen.
-//   3. Ein leerer Cache liefert ueberall null (Kaltstart ohne Vorstand).
-//   4. clear() entfernt alle Eintraege inkl. des Legacy-daily-Slots (M-1).
-//   5. Der Cache ist pro userId getrennt (kein Cross-User-Leak).
+// DATA-3: LocalCache is the durable write-through JSON cache for the profile
+// and lifetime_stats. Driven here through InMemoryKeyValueStore (no
+// SharedPreferences channel): lossless roundtrips of EVERY field (see A7),
+// corrupt or partial entries return null instead of crashing, an empty cache
+// returns null everywhere, clear() removes all entries including the legacy
+// daily slot (M-1), and the cache is separated per userId.
 
 LocalCache _cache(InMemoryKeyValueStore store, [String userId = 'user-1']) =>
     LocalCache(store, userId);
 
-/// camelCase -> snake_case, die Namenskonvention des Cache-Wire-Formats.
+/// camelCase -> snake_case, the naming convention of the cache wire format.
 String _snake(String camel) =>
     camel.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m[0]!.toLowerCase()}');
 
-/// Vollstaendiger Zahlen-Teil eines Profil-Blobs. Seit Sentinel-Fund 3 ist
-/// ein Blob ohne lesbare Zahlenfelder ALS GANZES keine Hydrationsquelle mehr
-/// — die Enum-Nachsicht wird deshalb auf zahlen-vollstaendigen Blobs
-/// getestet.
+/// Complete numeric part of a profile blob. A blob with unreadable numbers is
+/// no hydration source at all, so enum leniency is tested on numerically
+/// complete blobs.
 Map<String, dynamic> _zahlenVollstaendig() => <String, dynamic>{
       'weight_kg': 82,
       'height_cm': 181,
@@ -83,9 +80,9 @@ void main() {
       expect(back.carbsGoalG, 250);
       expect(back.fatGoalG, 80);
       expect(back.weightGoal, WeightGoal.lose05kg);
-      // A7: diet fehlte im Wire-Format komplett — der Cache lieferte still
-      // DietPreference.none zurueck und der naechste profile.save() schrieb
-      // das dauerhaft auf den Server.
+      // A7: diet was missing from the wire format entirely — the cache
+      // silently returned DietPreference.none and the next profile.save()
+      // persisted that to the server.
       expect(back.diet, DietPreference.vegan);
       expect(back.onboardingCompleted, isTrue);
     });
@@ -93,13 +90,11 @@ void main() {
     test(
         'Legacy-Blob ohne Zahlen-Schluessel liefert null statt erfundener '
         'Werte (Sentinel-Fund 3)', () async {
-      // Ein Blob aus einem aelteren Build, dem ein Zahlenfeld fehlt, wurde
-      // bisher mit erfundenen Werten aufgefuellt (hier: protein_goal_g ->
-      // 130 g) und setzte als Cache-Hydration die Clobber-Sperre
-      // (_hydratedFromRealSource) — der naechste profile.save() schrieb die
-      // Fantasie dauerhaft auf den Server, exakt der A7-Mechanismus. Ein
-      // unvollstaendiger Blob ist deshalb ALS GANZES keine Hydrationsquelle:
-      // null, der Server-Load direkt danach liefert die Wahrheit.
+      // A blob from an older build missing a numeric field used to be filled
+      // with invented values and still set the clobber lock
+      // (_hydratedFromRealSource), so the next profile.save() persisted the
+      // fantasy — the A7 mechanism. An incomplete blob is therefore no
+      // hydration source at all: null, and the server load provides truth.
       final store = InMemoryKeyValueStore();
       final cache = _cache(store);
       final blob = <String, dynamic>{
@@ -113,7 +108,7 @@ void main() {
         'daily_kcal_goal': 2450,
         'daily_water_goal_ml': 3000,
         'daily_sleep_goal_minutes': 480,
-        // protein_goal_g fehlt — wie ein Blob von vor der Makro-Erweiterung.
+        // protein_goal_g missing, like a blob from before the macro rollout.
         'carbs_goal_g': 250,
         'fat_goal_g': 80,
         'weight_goal': 'lose05kg',
@@ -138,10 +133,9 @@ void main() {
 
     test('Wire-Format deckt JEDES UserProfile-Feld ab (neue Felder -> rot)',
         () async {
-      // A7 strukturell abgesichert: wer ein Feld an UserProfile haengt, ohne
-      // es in _profileToJson aufzunehmen, macht diesen Test rot. Reflection
-      // gibt es in Flutter nicht (kein dart:mirrors), deshalb lesen wir die
-      // Felddeklarationen direkt aus der Modellquelle.
+      // A7 pinned structurally: adding a field to UserProfile without adding
+      // it to _profileToJson turns this test red. Flutter has no reflection,
+      // so the field declarations are read from the model source.
       final quelle =
           File('lib/src/models/user_profile.dart').readAsStringSync();
       final klassenRumpf =
@@ -153,9 +147,8 @@ void main() {
       expect(felder, hasLength(16),
           reason: 'Feldliste aus lib/src/models/user_profile.dart gelesen');
 
-      // Feldname -> Cache-Schluessel. Regel ist camelCase -> snake_case; die
-      // einzige Ausnahme ist `diet`, das (wie serverseitig) `diet_preference`
-      // heisst.
+      // Field name -> cache key: camelCase -> snake_case, with `diet` the one
+      // exception (server-side it is `diet_preference`).
       const aliase = <String, String>{'diet': 'diet_preference'};
       final erwarteteSchluessel =
           felder.map((f) => aliase[f] ?? _snake(f)).toSet();
@@ -205,10 +198,8 @@ void main() {
       expect(back!.sex, BiologicalSex.neutral);
       expect(back.activityLevel, ActivityLevel.sedentary);
       expect(back.weightGoal, WeightGoal.maintain);
-      // Die Zahlen kommen aus dem Blob. Die erste Fassung dieses Tests
-      // schrieb hier „fehlende Zahlen-Spalten fallen auf 78/178" als Soll
-      // fest — genau der Sentinel, den Fund 3 entfernt hat: erfundene
-      // Messwerte gelten nicht mehr als Hydrationsquelle.
+      // The numbers come from the blob: invented measurements no longer count
+      // as a hydration source.
       expect(back.weightKg, 82);
       expect(back.heightCm, 181);
     });
@@ -250,8 +241,8 @@ void main() {
 
   group('LocalCache Housekeeping', () {
     test('clear() entfernt Profil + Stats + Legacy-daily-Slot (M-1)', () async {
-      // Legacy-Eintrag des frueheren Heute-Tabs (inkl. Mood-Notiz = PII):
-      // wird nicht mehr geschrieben, muss beim Logout aber weiter verschwinden.
+      // Legacy entry of the old today tab (mood note = PII): no longer
+      // written, but must still disappear on logout.
       final store = InMemoryKeyValueStore({
         'eatova.v1.daily.user-1': '{"mood_note":"privat"}',
       });
@@ -272,7 +263,7 @@ void main() {
       final b = _cache(store, 'user-b');
 
       await a.writeProfile(const UserProfile(weightKg: 95));
-      // user-b hat nichts geschrieben -> sieht user-a NICHT.
+      // user-b wrote nothing -> does NOT see user-a.
       expect(await b.readProfile(), isNull);
       expect((await a.readProfile())!.weightKg, 95);
     });

@@ -1,18 +1,11 @@
-// B2: Die Plan-Karte im Profil verspricht ein Tempo, das sie nicht liefert.
+// B2: the plan card promised a pace it does not deliver — it showed the CHOSEN
+// pace even with a concrete profile. Two things brake the wish: the 1 % deficit
+// cap (kg × 11 kcal/day, rounded down to 0.05 kg/week = 55-kcal steps) and the
+// sex-dependent floor (1200 female / 1500 male / 1350 neutral).
 //
-// GoalPlanCard zeigte `goal.paceLabel` — das GEWAEHLTE Tempo — obwohl ein
-// konkretes Profil vorliegt. Seit dem Kalorien-Review 2026-08-21 bremsen zwei
-// Dinge das Wunsch-Tempo: der 1-%-Defizitdeckel (kg × 11 kcal/Tag, auf die
-// 0,05 kg/Woche = 55-kcal-Schritte abgerundet) und die
-// geschlechtsabhaengige Untergrenze (1200 weiblich / 1500 maennlich / 1350
-// neutral). Fuer das Standardprofil (78 kg / 178 cm / 30 J. / neutral /
-// sitzend, Ziel 68 kg, lose1kg) kappt der Deckel das Defizit von 1100 auf
-// 825 kcal: real sind es −0,75 kg/Woche, nicht −1.
-//
-// KcalTargets (W2-03) liefert dafuer effectivePaceLabel (seit dem Review auf
-// das 0,05-Raster gerundet, s. paceLabelForWeeklyRateKg); weeksToGoalRange
-// rechnet mit der effektiven Rate (linear bis dynamisch) und liefert null,
-// wenn die Klemme das ganze Defizit frisst — beides wird hier festgenagelt.
+// KcalTargets supplies effectivePaceLabel (snapped to the 0.05 grid) and
+// weeksToGoalRange, which computes from the effective rate and returns null
+// when the clamp eats the whole deficit. Both are pinned here.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -23,16 +16,12 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-/// Standardprofil aus dem Review: BMR 1664,5, Erhaltung 2164 (PAL 1,3 —
-/// seit „jeder Schritt zaehlt" ohne Gehen), Deckel 78 × 11 = 858 → auf
-/// 0,05 kg/Woche abgerundet 825 kcal/Tag → 2164 − 825 = 1339 → 1350 kcal.
-/// Das ist exakt die neutrale Untergrenze (1350): uncappedKcal == floor, also
-/// NICHT geklemmt (floorApplied prueft auf „kleiner"). Reales Defizit
-/// 814 kcal/Tag ≙ −0,74 → Label „−0,75 kg/Woche", Prognose 14 (linear) bis
-/// 16 (dynamisch) Wochen statt 10.
-///
-/// dailyKcalGoal ist auf der Karte reine Anzeige (Tagesziel-Chip) und haelt
-/// hier den Rechner-Wert, damit die Karte in sich stimmig bleibt.
+/// Standard profile: BMR 1664.5, maintenance 2164 (PAL 1.3), cap 78 × 11 = 858
+/// rounded down to 825 kcal/day → 1339 → 1350 kcal. That equals the neutral
+/// floor exactly, so it is NOT clamped (floorApplied tests for "less than").
+/// Real deficit 814 kcal/day ≙ −0.74 → label "−0,75 kg/Woche", forecast 14–16
+/// weeks instead of 10. dailyKcalGoal is display only and holds the computed
+/// value so the card stays self-consistent.
 const _standard = UserProfile(
   weightKg: 78,
   heightCm: 178,
@@ -42,18 +31,14 @@ const _standard = UserProfile(
   dailyKcalGoal: 1350,
 );
 
-/// Kleines Profil: Erhaltung 1237 (BMR 951,5 × 1,3), Wunsch −275 (der Deckel
-/// 40 × 11 = 440 liegt ueber dem Wunsch, greift also nicht) → 962 →
-/// 950 kcal; die 1200er-Untergrenze (weiblich) hebt das Ziel an und laesst
-/// 37 kcal/Tag Defizit uebrig (≙ 0,034 kg/Woche) — unterhalb von
-/// weeklyRateNoiseKg. weeksToGoalRange muss hier null liefern statt einer
-/// Fantasie-Wochenzahl; paceWarning formuliert dafuer den „Stable"-Satz
-/// (commonPaceWarningFloorStable) ohne „tatsächliches Tempo".
+/// Small profile: maintenance 1237, wish −275 (the cap 40 × 11 = 440 is above
+/// the wish and does not bite) → 950 kcal; the female floor of 1200 raises the
+/// target and leaves 37 kcal/day ≙ 0.034 kg/week — below weeklyRateNoiseKg.
+/// weeksToGoalRange must return null here instead of a fantasy week count, and
+/// paceWarning produces the "stable" sentence.
 ///
-/// 45 statt frueher 60 Jahre: mit der PAL-Leiter ohne Gehen (1,3 statt 1,4)
-/// laege die 60-Jaehrige bei Erhaltung 1139 → 850 → 1200 und damit 61 kcal
-/// UEBER dem Bedarf (+0,055 kg/Woche) — knapp ausserhalb des Rauschbands,
-/// also kein „stabil" mehr.
+/// Age 45, not 60: with PAL 1.3 a 60-year-old would land 61 kcal ABOVE
+/// maintenance, just outside the noise band and thus no longer "stable".
 const _clampedFlat = UserProfile(
   weightKg: 40,
   heightCm: 150,
@@ -64,11 +49,9 @@ const _clampedFlat = UserProfile(
   dailyKcalGoal: 1200,
 );
 
-/// Profil, bei dem die Untergrenze WIRKLICH klemmt: Erhaltung 1578 (BMR 1214
-/// × 1,3), Deckel 55 × 11 = 605 (0,55 kg/Woche) → 973 → 950 kcal → 1200
-/// (weiblich). Effektiv −378 kcal/Tag ≙ −0,3436 → „−0,35 kg/Woche".
-/// paceWarning nennt die Klemme (hoechste Bindungskraft), nicht den ebenfalls
-/// greifenden Deckel.
+/// Profile where the floor REALLY clamps: maintenance 1578, cap 605 → 950 →
+/// 1200 (female). Effectively −378 kcal/day ≙ −0.3436 → "−0,35 kg/Woche".
+/// paceWarning names the floor (the binding constraint), not the cap.
 const _clampedFloor = UserProfile(
   weightKg: 55,
   heightCm: 160,
@@ -88,7 +71,7 @@ Future<void> _pumpCard(WidgetTester tester, UserProfile profile) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
-      // GoalPlanCard liest seit der i18n-Migration context.l10n.
+      // GoalPlanCard reads context.l10n.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -97,8 +80,8 @@ Future<void> _pumpCard(WidgetTester tester, UserProfile profile) async {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      // Kein backgroundColor mehr: das Theme setzt scaffoldBackgroundColor
-      // aus den Tokens, ein harter Wert wuerde den Hell-Modus aushebeln.
+      // No backgroundColor: the theme sets scaffoldBackgroundColor from the
+      // tokens, and a hard value would break light mode.
       home: Scaffold(
         body: Padding(
           padding: const EdgeInsets.all(20),
@@ -125,9 +108,9 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _standard);
 
-    // Linear: 10 kg / 0,74 kg pro Woche = 13,5 -> 14. Dynamisch (Bedarf
-    // sinkt um 22 kcal pro verlorenem kg): 16. Beides aus der effektiven
-    // Rate, nicht aus den 10 Wochen des Wunsch-Tempos.
+    // Linear: 10 kg / 0.74 per week = 13.5 -> 14. Dynamic (requirement drops
+    // 22 kcal per lost kg): 16. Both from the effective rate, not the 10 weeks
+    // of the wished pace.
     expect(find.text('Noch 10 kg · Ziel in ca. 14–16 Wochen'), findsOneWidget,
         reason: 'Spanne aus weeksToGoalRange, untere Grenze 14 statt 10');
   });
@@ -136,10 +119,10 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _clampedFlat);
 
-    // weeksToGoalRange == null -> die Karte darf keine Wochenzahl erfinden.
+    // weeksToGoalRange == null -> the card must not invent a week count.
     expect(find.text('Noch 4 kg bis zum Wunschgewicht'), findsOneWidget);
     expect(find.textContaining('Wochen'), findsNothing);
-    // ... und das Tempo ist ehrlich „stabil", nicht −0,25 kg/Woche.
+    // ... and the pace is honestly "stable", not −0.25 kg/week.
     expect(find.text('Gewicht stabil'), findsOneWidget);
     expect(find.text('−0,25 kg/Woche'), findsNothing);
   });
@@ -148,11 +131,9 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _standard);
 
-    // Der fertige Satz aus KcalTargets.paceWarning haengt als Tooltip/
-    // Semantics am Tempo-Chip — kein zweiter Fliesstext-Block auf der Karte
-    // (den zeigt W3-04 im Settings-Sheet), aber auch nicht wortlos. Fuer das
-    // Standardprofil greift nur der Deckel, also der Deckel-Satz mit dem
-    // abgerundeten 825er-Deckel und dem gerasterten Tempo.
+    // KcalTargets.paceWarning hangs on the pace chip as tooltip/semantics —
+    // no second prose block on the card, but not silent either. For the
+    // standard profile only the cap bites.
     expect(
       find.byTooltip(
         'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir '
@@ -167,9 +148,8 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _clampedFloor);
 
-    // Deckel UND Untergrenze greifen; paceWarning nennt die bindendere
-    // Untergrenze mit dem ungeklemmten 950er-Wert (Erhaltung 1578 minus
-    // Deckel 605 = 973, auf 50 gerundet), nicht den Deckel.
+    // Cap AND floor bite; paceWarning names the binding floor with the
+    // unclamped 950 value, not the cap.
     expect(find.text('−0,35 kg/Woche'), findsOneWidget);
     expect(
       find.byTooltip(
@@ -185,12 +165,10 @@ void main() {
 
   testWidgets('Ohne Abweichung haengt kein Hinweis am Tempo-Chip',
       (tester) async {
-    // Grosser, aktiver Nutzer (BMR 2040, Erhaltung 3570 bei PAL 1,75): weder
-    // die 1500er-Untergrenze noch der Deckel (1100 > 550) greifen, uebrig
-    // bleibt nur die 50er-Rundung des Tagesziels — 3000 statt 3020 ergibt
-    // rechnerisch −0,52 kg/Woche. Das liegt im Rauschband (weeklyRateNoiseKg),
-    // also kein Hinweis — und das 0,05-Raster des Labels zeigt davon genau
-    // das gewaehlte „−0,5", nicht mehr die falsche Praezision „−0,52".
+    // Large, active user (maintenance 3570 at PAL 1.75): neither the 1500
+    // floor nor the cap bites, only the 50-kcal rounding of the daily target
+    // remains — 3000 instead of 3020 computes to −0.52 kg/week, inside the
+    // noise band, so no warning. The 0.05 grid shows "−0,5".
     await _pumpCard(
       tester,
       const UserProfile(
@@ -209,9 +187,9 @@ void main() {
     expect(paceValue, findsOneWidget);
     expect(find.text('−0,52 kg/Woche'), findsNothing,
         reason: 'Label rastert auf 0,05 kg/Woche');
-    // Der „Ziel anpassen"-IconButton bringt seinen eigenen Tooltip mit — hier
-    // zaehlt nur, dass KEIN Tooltip den Tempo-Chip umschliesst (_MaybeTooltip
-    // reicht das Chip bei paceWarning == null unveraendert durch).
+    // The edit IconButton has its own tooltip; what counts is that NO tooltip
+    // wraps the pace chip (_MaybeTooltip passes it through when paceWarning is
+    // null).
     expect(find.ancestor(of: paceValue, matching: find.byType(Tooltip)),
         findsNothing,
         reason: 'Kein Widerspruch -> kein Hinweis');

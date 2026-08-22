@@ -9,25 +9,20 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-// Registrierung auf eine Adresse, zu der es schon ein Konto gibt
-// (Audit 2026-08-14):
-//
-//  * Vorher: der Screen versprach „Bestätigungs-Code unterwegs", schob die
-//    Code-Seite davor — und es kam nie eine Mail. Sackgasse.
-//  * Jetzt: NEUTRALE Meldung (keine Aussage, OB das Konto existiert) und
-//    Wechsel in den Login-Modus, damit es einen Weg nach vorn gibt.
-//  * Ausserdem: zwei schnelle Taps auf den CTA sind eine Registrierung, nicht
-//    zwei — die Sperre am Knopf greift erst mit dem naechsten Frame.
+// Signing up with an address that already has an account (Audit 2026-08-14):
+// a NEUTRAL message (no statement about whether the account exists) plus a
+// switch to login mode, instead of a code screen that never gets a mail. Also:
+// two fast taps on the CTA are one signup — the button lock only takes effect
+// on the next frame.
 
-/// Fake, der beide Spielarten des Konflikts nachstellen kann:
+/// Fake covering both variants of the conflict:
 ///
-///  * [SignUpOutcome.emailAlreadyRegistered] — der STILLE Produktionsfall bei
-///    aktiver Mail-Bestaetigung: GoTrue antwortet erfolgreich, nur mit leerem
-///    `identities`-Array, und schickt keine Mail;
-///  * [wirft] — die laute Variante ohne Mail-Bestaetigung (`AuthException`).
+///  * [SignUpOutcome.emailAlreadyRegistered] — the SILENT production case with
+///    mail confirmation on: GoTrue succeeds with an empty `identities` array
+///    and sends no mail;
+///  * [wirft] — the loud variant without mail confirmation (`AuthException`).
 ///
-/// `signUpCalls` zaehlt die Anfragen, `tor` haelt die erste offen, solange der
-/// Test im Zustand „laeuft gerade" messen will.
+/// `signUpCalls` counts requests, `tor` holds the first one open.
 class _ExistingAccountAuthRepository implements AuthRepository {
   _ExistingAccountAuthRepository({this.wirft = false, this.tor});
 
@@ -116,8 +111,8 @@ Future<void> _pumpAuth(WidgetTester tester, AuthRepository repo) async {
   await tester.pumpAndSettle();
 }
 
-/// Wechselt in den Registrier-Modus, fuellt alle drei Felder gueltig aus und
-/// scrollt den CTA in den sichtbaren Bereich.
+/// Switches to signup mode, fills all three fields validly and scrolls the CTA
+/// into view.
 Future<void> _fillRegistration(WidgetTester tester) async {
   await tester
       .ensureVisible(find.byKey(const ValueKey('auth-toggle-register')));
@@ -137,8 +132,8 @@ Future<void> _fillRegistration(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Prueft den Ausgang, den beide Spielarten teilen: neutrale Meldung im
-/// Bestaetigungs-Slot, kein Fehler, keine Code-Seite, Login-Modus.
+/// Checks the outcome both variants share: neutral message, no error, no code
+/// screen, login mode.
 void _erwarteNeutralenAusweg() {
   expect(find.byKey(const ValueKey('auth-code-screen')), findsNothing,
       reason: 'ohne Mail waere die Code-Seite eine Sackgasse');
@@ -152,8 +147,8 @@ void _erwarteNeutralenAusweg() {
   expect(find.textContaining('schon registriert'), findsNothing,
       reason: 'keine Konto-Enumeration (auth_repository.dart:48-51)');
 
-  // Der Ausweg: Login-Modus. Das Namensfeld ist weg, der CTA heisst wieder
-  // „Einloggen", der Toggle bietet „Registrieren" an.
+  // The way out is login mode: no name field, the CTA reads "Einloggen" again
+  // and the toggle offers signup.
   expect(find.byKey(const ValueKey('auth-name-field')), findsNothing);
   expect(find.byKey(const ValueKey('auth-toggle-register')), findsOneWidget);
   expect(find.text('Einloggen'), findsOneWidget);
@@ -193,8 +188,8 @@ void main() {
     await _pumpAuth(tester, repo);
     await _fillRegistration(tester);
 
-    // Beide Taps im SELBEN Frame — genau die Luecke, die die Knopf-Sperre
-    // (`enabled: !_busy`) offen laesst: sie wirkt erst nach dem Rebuild.
+    // Both taps in the SAME frame — the gap the button lock
+    // (`enabled: !_busy`) leaves open, since it only applies after a rebuild.
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pump();

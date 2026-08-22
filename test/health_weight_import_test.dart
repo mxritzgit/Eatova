@@ -6,20 +6,17 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// HealthKit-Gewichts-Import (2026-08-04): refreshHealthSteps() wertet jetzt
-// auch snapshot.latestWeightKg aus und bietet den Wert per Snack-Aktion
-// ("Übernehmen") zum Import an, statt ihn wegzuwerfen. Getestet wird:
-//  * Angebot bei neuem Gewicht (auch wenn noch NIE gewogen wurde),
-//  * In-Memory-Dedup: derselbe Wert wird nicht bei jedem Resume erneut
-//    angeboten,
-//  * 0.1-kg-Schwelle gegen das letzte geloggte Gewicht,
-//  * importHealthWeight schreibt NICHT nach HealthKit zurueck (kein
-//    Echo-Duplikat), logWeight dagegen schon,
-//  * der Import aktualisiert weightLog und unterdrueckt damit von selbst
-//    weitere Angebote desselben Werts.
+// HealthKit weight import: refreshHealthSteps() also reads
+// snapshot.latestWeightKg and offers it via a snack action. Covered:
+//  * offer on a new weight, even with no prior log,
+//  * in-memory dedup, so a resume does not re-offer the same value,
+//  * 0.1 kg threshold against the last logged weight,
+//  * importHealthWeight does not write back to HealthKit (no echo
+//    duplicate), logWeight does,
+//  * the import updates weightLog and thereby suppresses further offers.
 
-/// Fake-HealthService: liefert einen kontrollierbaren Snapshot (Steps +
-/// optionales Gewicht) und zaehlt writeWeight-Aufrufe.
+/// Fake HealthService: controllable snapshot (steps + optional weight) and a
+/// writeWeight call counter.
 class _FakeHealthService implements HealthService {
   int steps = 4200;
   double? nextWeightKg;
@@ -62,9 +59,8 @@ class _FakeHealthService implements HealthService {
   Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
-/// Capture fuer den context-freien SnackEmitter des Stores: merkt sich
-/// Nachricht + Aktion jedes Aufrufs, damit Tests Angebot und Aktions-Tap
-/// pruefen koennen.
+/// Capture for the store's context-free SnackEmitter: records message and
+/// action per call so tests can check the offer and its tap.
 class _SnackCapture {
   final List<String> messages = <String>[];
   final List<SnackBarAction?> actions = <SnackBarAction?>[];
@@ -107,7 +103,7 @@ void main() {
     expect(s.snacks.messages, ['Apple Health: 82,4 kg übernehmen?']);
     expect(s.snacks.actions.single, isNotNull);
     expect(s.snacks.actions.single!.label, 'Übernehmen');
-    // Steps-Pfad bleibt unangetastet mit dabei.
+    // The steps path stays untouched.
     expect(s.store.dailySteps, 4200);
   });
 
@@ -182,14 +178,14 @@ void main() {
     await s.store.refreshHealthSteps();
     expect(s.snacks.actions.single, isNotNull);
 
-    // Tap auf "Übernehmen" (die Page reicht onPressed 1:1 durch).
+    // Tap the action; the page forwards onPressed unchanged.
     s.snacks.actions.single!.onPressed();
 
     expect(s.store.weightLog.latest?.weightKg, 82.4);
     expect(s.health.writeWeightCalls, 0);
 
-    // Naechster Resume mit unveraendertem HealthKit-Stand: weightLog.latest ==
-    // kg, die 0.1-kg-Schwelle unterdrueckt das Angebot von selbst.
+    // Next resume with unchanged HealthKit data: weightLog.latest == kg, so
+    // the 0.1 kg threshold suppresses the offer.
     await s.store.refreshHealthSteps();
     expect(s.snacks.messages, hasLength(1));
   });

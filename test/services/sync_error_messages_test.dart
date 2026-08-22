@@ -9,11 +9,9 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/sync_outbox.dart'
     show SyncOpKind, kOutboxMaxAttempts, kOutboxDeleteMaxAttempts;
 
-// Pures Fehlertext-Mapping fuer Sync-/Profil-Fehler: Netzwerkfehler werden als
-// solche erkannt (-> ehrlicher Offline-Hinweis), alles andere bekommt eine
-// freundliche deutsche Meldung OHNE Exception-Details. Wichtigste Invariante:
-// KEIN Mapping-Ergebnis enthaelt jemals Roh-Text der Exception (Postgres-
-// Codes, Tabellennamen, Constraint-Namen — Schema-Leakage im UI).
+// Pure error-text mapping for sync/profile errors: network errors get an
+// honest offline hint, everything else a friendly message. Key invariant: no
+// result ever leaks raw exception text (codes, table or constraint names).
 
 void main() {
   group('isNetworkSyncError', () {
@@ -24,22 +22,18 @@ void main() {
           isTrue);
       expect(isNetworkSyncError(TimeoutException('timeout', const Duration(seconds: 8))),
           isTrue);
-      // package:http (IOClient) wickelt Socket-Fehler in ClientException —
-      // derselbe Typ, den der MockClient der Store-Tests offline wirft.
+      // package:http wraps socket errors in ClientException.
       expect(isNetworkSyncError(http.ClientException('offline')), isTrue);
-      // gotrues "retryable fetch"-Huelle fuer Netzfehler im Auth-Stack.
+      // gotrue's "retryable fetch" wrapper for auth-stack network errors.
       expect(isNetworkSyncError(AuthRetryableFetchException()), isTrue);
     });
 
     test(
         'TLS-Fehler sind Netzfehler — Captive Portal / MITM-Proxy erreichen '
         'den Server NIE', () {
-      // dart:io: `class HandshakeException extends TlsException` und
-      // `class TlsException implements IOException` — also KEINER der oben
-      // gelisteten Typen. package:http wickelt nur SocketException und
-      // HttpException in ClientException, postgrest rethrowt den Rest roh:
-      // ohne diesen Arm kommt CERTIFICATE_VERIFY_FAILED unklassifiziert an
-      // und verbrennt das Verwurfs-Budget.
+      // TlsException is none of the types above, and package:http only wraps
+      // SocketException/HttpException, so without this arm
+      // CERTIFICATE_VERIFY_FAILED arrives unclassified and burns the budget.
       expect(
         isNetworkSyncError(
             const HandshakeException('Handshake error in client')),
@@ -55,8 +49,7 @@ void main() {
     });
 
     test('Server-Fehler und Programmfehler sind KEINE Netzwerk-Fehler', () {
-      // Postgrest-500/Constraint: der Server war erreichbar — "Offline" waere
-      // gelogen, und der Fehler verschwindet nicht von selbst.
+      // The server was reachable, so "offline" would be a lie.
       expect(
         isNetworkSyncError(const PostgrestException(
           message: 'duplicate key value violates unique constraint '
@@ -90,7 +83,7 @@ void main() {
       final hint = queuedSyncHint(error);
       expect(hint,
           'Änderung konnte nicht gespeichert werden — wird automatisch erneut versucht.');
-      // Schema-Leakage-Guard: nichts vom Roh-Fehler darf durchsickern.
+      // Schema leakage guard: nothing from the raw error may seep through.
       expect(hint, isNot(contains('logged_meals')));
       expect(hint, isNot(contains('PGRST')));
       expect(hint, isNot(contains('Exception')));
@@ -105,14 +98,8 @@ void main() {
   });
 
   group('Profil-Save haengt seit Luecke D am Outbox-Netz', () {
-    // Vorher gab es hier `profileSyncErrorMessage` mit „Bitte speichere es
-    // später erneut." — die ehrliche Meldung fuer einen Save OHNE Retry.
-    // Seit der Profil-Save als profileUpsert in die Outbox geht, ist genau
-    // dieser Satz falsch: es gibt einen Auto-Retry, und der Nutzer muss
-    // nichts tun. Die Zusicherungen der alten Tests gelten unveraendert
-    // weiter — Offline wird von Server-Fehlern unterschieden, und weder Text
-    // traegt Roh-Details —, nur eben auf dem Text, den der Profil-Save
-    // heute wirklich ausloest.
+    // The profile save goes through the outbox, so a "save it again later"
+    // message would be wrong: there is an auto-retry.
     test('offline -> derselbe Warteschlangen-Hinweis wie jeder andere Write',
         () {
       expect(
@@ -149,19 +136,17 @@ void main() {
   });
 
   group('classifyOutboxFailure (Retry vs. endgueltig verwerfen)', () {
-    // Achtung: PostgrestException hat KEIN statusCode-Feld. Der HTTP-Status
-    // landet nur dann in `code`, wenn der Antwort-Body selbst keinen `code`
-    // traegt — eine echte PostgREST-Fehlerantwort tut das aber immer. Eine
-    // Check-Constraint-Verletzung kommt also als SQLSTATE an, NIE als '400'.
+    // PostgrestException has NO statusCode field: the HTTP status only lands
+    // in `code` when the body has none, which a real PostgREST error always
+    // does — so a check-constraint violation arrives as SQLSTATE, never '400'.
     PostgrestException pg(String code) =>
         PostgrestException(message: 'irgendwas Technisches', code: code);
 
     test('payload-determinierte Constraint-Fehler werden SOFORT verworfen',
         () {
-      // 23502 not_null_violation — das erzeugt keine Nutzereingabe, das ist
-      // ein Client-Bug.
+      // 23502 not_null_violation — no user input produces this.
       expect(classifyOutboxFailure(pg('23502'), 0), OutboxVerdict.drop);
-      // Klasse 22 (data exception), hier numeric_value_out_of_range.
+      // Class 22 (data exception), here numeric_value_out_of_range.
       expect(classifyOutboxFailure(pg('22003'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('22P02'), 0), OutboxVerdict.drop);
     });
@@ -169,15 +154,12 @@ void main() {
     test(
         '23514 (Check-Constraint) ist KEIN Sofort-Verwurf — das ist der '
         'Normalfall einer Nutzereingabe, nicht korrupte Daten', () {
-      // „75,5" ins Gewichtsfeld (Komma wird weggefiltert -> 755 kg), ein
-      // langes OFF-Etikett, 2000 g Portion: reproduzierbar, nicht zuordenbar
-      // und genau das Korrekturfenster, mit dem die Attempts-Ruecksetzung in
-      // sync_outbox.dart begruendet ist. Solange die Clamps an den
-      // Modellgrenzen fehlen, laeuft 23514 ins Budget statt in den Muell.
+      // "75,5" in the weight field (-> 755 kg) is reproducible user input,
+      // and the correction window the attempts reset is built on.
       expect(classifyOutboxFailure(pg('23514'), 0), OutboxVerdict.retryCounted);
       expect(classifyOutboxFailure(pg('23514'), kOutboxMaxAttempts - 2),
           OutboxVerdict.retryCounted);
-      // Das Budget bleibt die Notbremse: ewig kreist auch ein 23514 nicht.
+      // The budget stays the emergency brake: not even a 23514 loops forever.
       expect(classifyOutboxFailure(pg('23514'), kOutboxMaxAttempts - 1),
           OutboxVerdict.drop);
     });
@@ -205,7 +187,7 @@ void main() {
       expect(classifyOutboxFailure(pg('404'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('400'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('422'), 0), OutboxVerdict.drop);
-      // 401/403: fast immer ein abgelaufener Token, der Refresh heilt das.
+      // 401/403: almost always an expired token, which the refresh heals.
       expect(classifyOutboxFailure(pg('401'), 0), OutboxVerdict.retryCounted);
       expect(classifyOutboxFailure(pg('403'), 0), OutboxVerdict.retryCounted);
     });
@@ -214,7 +196,7 @@ void main() {
       expect(classifyOutboxFailure(pg('42501'), 0), OutboxVerdict.retryCounted);
       expect(
           classifyOutboxFailure(pg('PGRST301'), 0), OutboxVerdict.retryCounted);
-      // Andere PGRST-Codes beschreiben eine strukturell kaputte Anfrage.
+      // Other PGRST codes describe a structurally broken request.
       expect(classifyOutboxFailure(pg('PGRST204'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('PGRST100'), 0), OutboxVerdict.drop);
     });
@@ -237,9 +219,7 @@ void main() {
         TimeoutException('timeout', const Duration(seconds: 8)),
         http.ClientException('offline'),
         AuthRetryableFetchException(),
-        // TLS-Familie: Captive Portal / MITM-Proxy. Das Geraet hat den Server
-        // nie erreicht — acht Backoff-Durchlaeufe duerfen hier nichts
-        // verwerfen.
+        // TLS family: the device never reached the server at all.
         const HandshakeException('Handshake error in client'),
         const TlsException('CERTIFICATE_VERIFY_FAILED(ssl_client.cc)'),
         const CertificateException('bad certificate'),
@@ -255,10 +235,8 @@ void main() {
     test(
         'Delete-Ops sterben nicht am SCHREIB-Budget — ein verworfener Delete '
         'holt die geloeschte Mahlzeit vom Server zurueck', () {
-      // Die Serverzeile ueberlebt den Verwurf, der lokale Zustand nicht: beim
-      // naechsten Kaltstart ist die geloeschte 1800-kcal-Mahlzeit wieder da
-      // und zaehlt erneut. Deletes sind idempotent und billig — sie bekommen
-      // deshalb ihr eigenes, viel groesseres Budget.
+      // A dropped delete leaves the server row, so the next cold start counts
+      // the meal again. Deletes are idempotent, hence their own budget.
       for (final kind in const <SyncOpKind>[
         SyncOpKind.mealDelete,
         SyncOpKind.favoriteDelete,
@@ -276,7 +254,7 @@ void main() {
             reason: '${kind.name} am Schreib-Budget-Rand');
       }
 
-      // Gegenprobe: Schreib-Ops laufen unveraendert ins Budget.
+      // Counter-check: write ops still run into the budget.
       for (final kind in const <SyncOpKind>[
         SyncOpKind.mealInsert,
         SyncOpKind.mealUpsert,
@@ -290,7 +268,7 @@ void main() {
             OutboxVerdict.drop,
             reason: '${kind.name} behaelt sein Budget');
       }
-      // Ohne kind (Aufrufer ohne Op-Kontext) bleibt es beim alten Verhalten.
+      // Without kind (caller without op context) the old behaviour stands.
       expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 1),
           OutboxVerdict.drop);
     });
@@ -298,28 +276,17 @@ void main() {
     test(
         'ein strukturell unmoeglicher Delete wird NICHT sofort verworfen — '
         'sonst kehrt die geloeschte Mahlzeit still vom Server zurueck', () {
-      // Frueher stand das Code-Verdikt VOR der Delete-Ausnahme, die galt also
-      // nur dem Budget. Damit blieb der Schaden offen, den A5 schliessen
-      // wollte: der Nutzer loescht eine fehlgescannte 1800-kcal-Mahlzeit, der
-      // Delete trifft einen kalten Schema-Cache (PGRST202/204 nach einer
-      // Migration) oder eine 404 vom Gateway — Sofort-Verwurf. Lokal ist die
-      // Zeile weg, es kommt kein weiterer Write, der naechste Kaltstart liest
-      // die Serverzeile: 1800 kcal zaehlen erneut.
-      //
-      // Beide Codes sind transient-verdaechtig, nicht payload-determiniert:
-      // eine leere Delete-Payload KANN keine Datenverletzung ausloesen. Der
-      // Schutz gilt deshalb Code-Verdikt UND Budget; begrenzt wird ein Delete
-      // nur durch sein eigenes, viel groesseres Budget und (im Store) durch
-      // eine lange Frist — und sein Verwurf blendet die Mahlzeit lokal wieder
-      // ein, statt sie stillschweigend auferstehen zu lassen.
+      // Transient-suspect, not payload-determined: an empty delete payload
+      // CANNOT cause a data violation, so a cold schema cache or gateway 404
+      // must not drop it. The exemption covers code verdict AND budget.
       for (final code in const <String>[
-        'PGRST202', // Schema-Cache kennt die Funktion/Route (noch) nicht
+        'PGRST202', // schema cache does not know the function/route yet
         'PGRST204',
         'PGRST100',
-        '404', // Gateway-Route waehrend eines Deploys
+        '404', // gateway route during a deploy
         '400',
         '422',
-        '22003', // Klasse 22 — fuer eine LEERE Payload strukturell unmoeglich
+        '22003', // class 22 — structurally impossible for an EMPTY payload
         '22P02',
         '23502',
       ]) {
@@ -332,7 +299,7 @@ void main() {
               OutboxVerdict.retryCounted,
               reason: '${kind.name} gegen $code darf nicht sofort sterben');
         }
-        // Gegenprobe: fuer Schreib-Ops bleibt der Sofort-Verwurf.
+        // Counter-check: write ops keep the instant drop.
         expect(classifyOutboxFailure(pg(code), 0, kind: SyncOpKind.mealInsert),
             OutboxVerdict.drop,
             reason: 'mealInsert gegen $code bleibt ein Sofort-Verwurf');
@@ -342,12 +309,8 @@ void main() {
     test(
         'das Delete-Budget ist gross, aber ENDLICH — sonst ist die Outbox nie '
         'leer und der Logout traegt PII weiter', () {
-      // Zielkollision aufgeloest: „Deletes nie verwerfen" haette eine Op
-      // erzeugt, die kein Budget verbraucht, nie verworfen wird, den
-      // 4-Minuten-Retry-Timer dauerhaft am Leben haelt, den Queue-Cap
-      // aushebelt und `preserveOutbox` fuer immer auf true nagelt (Audit M-1).
-      // Stattdessen: ein eigenes Budget, um ein Vielfaches groesser als das
-      // der Schreib-Ops — und im Store zusaetzlich an die Wanduhr gekoppelt.
+      // "Never drop deletes" would pin `preserveOutbox` to true forever
+      // (audit M-1); instead a large budget plus a wall-clock bound.
       expect(kOutboxDeleteMaxAttempts, greaterThan(kOutboxMaxAttempts * 4));
       for (final kind in const <SyncOpKind>[
         SyncOpKind.mealDelete,
@@ -367,8 +330,8 @@ void main() {
             classifyOutboxFailure(pg('500'), kOutboxDeleteMaxAttempts + 99,
                 kind: kind),
             OutboxVerdict.drop);
-        // Netzfehler bleiben auch fuer Deletes gratis — ein Offline-Urlaub
-        // darf eine Loeschung nie kosten.
+        // Network errors stay free for deletes too — an offline holiday must
+        // never cost a deletion.
         expect(
             classifyOutboxFailure(const SocketException('offline'),
                 kOutboxDeleteMaxAttempts + 99,
@@ -411,11 +374,8 @@ void main() {
   });
 
   group('deliveryHint (Luecke E)', () {
-    // Paket 6 (i18n): deliveryHint/queuedSyncHint/directSyncErrorMessage/
-    // outboxLossHint/outboxDeleteLossHint nehmen jetzt ein optionales
-    // [AppLocalizations] (Default Deutsch, s. `lib/src/l10n/l10n.dart`
-    // `deL10n`) statt fest verdrahteten deutschen Textes — die Werte hier
-    // bleiben unter Deutsch (Default) byte-identisch zum vorherigen Stand.
+    // These hint functions take an optional [AppLocalizations] (default
+    // German), under which the values here stay byte-identical.
     test('delivered haengt nur einen Punkt an', () {
       expect(
         deliveryHint('„Bowl" gespeichert', SyncDelivery.delivered),

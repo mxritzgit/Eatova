@@ -1,29 +1,22 @@
 part of 'profile_widgets.dart';
 
-/// Der Gedankenstrich, den die Profil-Seite ueberall dort zeigt, wo eine Zahl
-/// fehlt oder unbrauchbar ist. Bewusst U+2013 wie im Rest der App.
+/// Dash shown wherever the profile page has no usable number. U+2013, as
+/// elsewhere in the app.
 const String _keineZahl = '–';
 
-/// Kilogramm mit der Locale der aktiven Sprache: hoechstens eine
-/// Nachkommastelle, eine glatte Zahl steht ohne Nachkommastelle da.
+/// Kilograms in the active locale: at most one decimal, dropped when the
+/// value is round. Single source for every kg number in the profile.
 ///
-/// Eine Quelle fuer alle kg-Zahlen des Profils — vorher stand im Hero
-/// „78,4 kg" und in der Delta-Pille daneben „-2.6 kg".
-///
-/// Seit der i18n-Migration (Paket 5, 2026-08-10) ueber `package:intl`s
-/// `NumberFormat('0.#', ...)`: die Vorrundung auf eine Nachkommastelle
-/// bleibt (byte-identisches Rundungsverhalten zum Bestand), nur der
-/// Dezimaltrenner kommt jetzt aus den CLDR-Daten der aktiven Sprache
-/// (`de`: Komma, `en`: Punkt) statt fest verdrahtet zu sein.
+/// Pre-rounds to one decimal (unchanged rounding behavior) and takes the
+/// decimal separator from CLDR instead of hardcoding it.
 String formatKgDe(double kg, AppLocalizations l10n) {
   if (!kg.isFinite) return _keineZahl;
   final gerundet = (kg * 10).round() / 10;
   return NumberFormat('0.#', l10n.localeName).format(gerundet);
 }
 
-/// BMI mit der Locale der aktiven Sprache: immer genau eine
-/// Nachkommastelle (ein glattes „22" laese sich wie eine gerundete
-/// Schaetzung).
+/// BMI in the active locale: always exactly one decimal (a bare "22" would
+/// read like a rough estimate).
 String formatBmiDe(double bmi, AppLocalizations l10n) {
   if (!bmi.isFinite) return _keineZahl;
   return NumberFormat('0.0', l10n.localeName).format(bmi);

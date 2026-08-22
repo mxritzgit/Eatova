@@ -1,13 +1,12 @@
-// Die Gewichts-Karte ersetzt seit dem Design-Refactor die alte
-// BodyStatsCard + WeightHistoryCard. Vier Aussagen, die sie halten muss:
+// The weight card replaces the old BodyStatsCard + WeightHistoryCard. Four
+// invariants it must hold:
 //
-//   * die Delta-Pille sagt deutsch und mit echtem Vorzeichen, was passiert
-//     ist (vorher stand dort '-2.6 kg' neben einem '78,4 kg'),
-//   * unter zwei Messungen gibt es keine Verlaufslinie, sondern einen Satz,
-//   * ein Wunschgewicht GLEICH dem Startgewicht erzeugt keine
-//     100-%-Erfolgsmeldung (und keine Division durch Null),
-//   * das Gewichts-Sheet bleibt BEWUSST ohne Verwerfen-Rueckfrage (D5) —
-//     dieser Test verhindert, dass sie jemand gutgemeint nachruestet.
+//   * the delta pill uses localized formatting and a real sign character,
+//   * below two measurements there is a sentence, not a sparkline,
+//   * a target weight EQUAL to the start weight produces no 100 % success
+//     message and no division by zero,
+//   * the weight sheet deliberately has NO discard prompt (D5) — this test
+//     stops anyone from helpfully adding one.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -45,7 +44,7 @@ Future<void> _pumpCard(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(brightness),
-      // WeightCard liest seit der i18n-Migration context.l10n.
+      // WeightCard reads context.l10n since the i18n migration.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -134,7 +133,7 @@ void main() {
 
   group('Ziel-Fortschritt', () {
     testWidgets('rechnet vom ersten Eintrag zum Wunschgewicht', (tester) async {
-      // Start 80, Ziel 70, aktuell 75 -> genau die Haelfte.
+      // Start 80, target 70, current 75 -> exactly half.
       await _pumpCard(
         tester,
         log: _log([80.0, 75.0]),
@@ -210,7 +209,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Ueber die Barriere schliessen.
+        // Close via the barrier.
         await tester.tapAt(const Offset(20, 20));
         await tester.pumpAndSettle();
 

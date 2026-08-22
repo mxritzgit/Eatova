@@ -1,23 +1,19 @@
 part of 'profile_widgets.dart';
 
-/// Der Identitaets-Anker des Profils: Forest-Flaeche mit Initialen-Kachel,
-/// Name und zwei Tags aus ECHTEN Profilfeldern.
+/// Identity anchor of the profile: forest surface with initials tile, name and
+/// two tags from REAL profile fields.
 ///
-/// Die Design-Vorlage zeigt hier zusaetzlich E-Mail, ein „PREMIUM"-Tag und
-/// „MEMBER SINCE 2024". Nichts davon existiert bei uns: der Screen bekommt nur
-/// einen Namen, und `LifetimeStats.sessionStart` ist der Start DIESER Sitzung,
-/// kein Beitrittsdatum. Erfundene Daten auf der Identitaetskarte waeren die
-/// teuerste Art von Designschuld — also stehen dort die beiden Felder, die es
-/// wirklich gibt.
+/// The mock also shows e-mail, a premium tag and a join date; none of that
+/// exists here (`LifetimeStats.sessionStart` is this session's start, not a
+/// join date), so only the two fields that really exist are shown.
 class IdentityCard extends StatelessWidget {
   const IdentityCard({super.key, required this.name, required this.profile});
 
   final String name;
   final UserProfile profile;
 
-  /// Initialen aus dem Anzeigenamen. Bewusst OHNE Platzhalter-Buchstaben:
-  /// ein leerer Name ergibt eine leere Zeichenkette, die Kachel zeigt dann ein
-  /// Personen-Glyph statt zweier erfundener Buchstaben.
+  /// Initials from the display name. No placeholder letters: an empty name
+  /// yields an empty string and the tile falls back to a person glyph.
   String get _initials {
     final parts = name.trim().split(RegExp(r'\s+'))
       ..removeWhere((p) => p.isEmpty);
@@ -68,8 +64,8 @@ class IdentityCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(22),
                       ),
                       alignment: Alignment.center,
-                      // FittedBox: die Kachel hat eine feste Kantenlaenge, die
-                      // Initialen wachsen aber mit der Systemschrift.
+                      // FittedBox: the tile has a fixed edge length, the
+                      // initials grow with the system font.
                       child: initials.isEmpty
                           ? Icon(Icons.person_outline,
                               size: 28, color: t.onLime)
@@ -97,8 +93,8 @@ class IdentityCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Wrap statt Row: bei textScaler 2.0 passen zwei Tags nicht
-                // mehr nebeneinander, sie sollen umbrechen statt zu sprengen.
+                // Wrap instead of Row: at textScaler 2.0 the two tags no longer
+                // fit side by side and should wrap, not overflow.
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -147,12 +143,11 @@ class _IdentityTag extends StatelessWidget {
   }
 }
 
-/// Ziel-Uebersicht: aktuelles Gewicht → Wunschgewicht, Tempo (kg/Woche),
-/// Tagesziel und grobe Zeit-Prognose.
+/// Goal overview: current weight → target weight, pace (kg/week), daily goal
+/// and a rough time forecast.
 ///
-/// Klassenname und Konstruktor-Signatur sind API: `profile_hero_pace_test`
-/// baut die Karte direkt und nagelt fuenf Saetze zeichengenau fest. Der
-/// Design-Refactor tauscht hier nur Flaechen, Farben und Radien.
+/// Class name and constructor signature are API: `profile_hero_pace_test`
+/// builds the card directly and pins five sentences character-exactly.
 class GoalPlanCard extends StatelessWidget {
   const GoalPlanCard({super.key, required this.profile, this.onEdit});
 
@@ -166,23 +161,18 @@ class GoalPlanCard extends StatelessWidget {
     final goal = profile.weightGoal;
     final isMaintain = goal == WeightGoal.maintain;
     final gap = (profile.weightKg - profile.targetWeightKg).abs();
-    // B2: Hier liegt ein konkretes Profil vor, also gehoert die EFFEKTIVE
-    // Rechnung auf die Karte und nicht das gewaehlte Wunsch-Tempo. Fuer das
-    // Standardprofil (78/178/30, sitzend, Ziel 68, −1 kg/Woche) kappt der
-    // 1-%-Deckel das Defizit von 1100 auf 825 kcal: real sind das
-    // −0,75 kg/Woche und 14–16 Wochen, nicht −1 und 10.
-    //
-    // targets einmal berechnen und an weeksToGoal durchreichen — sonst rechnet
-    // calculate() zweimal, und die Karte koennte im Extremfall zwei
-    // Ergebnisse mischen.
+    // B2: with a concrete profile the card must show the EFFECTIVE result, not
+    // the requested pace — the 1 % cap can turn a chosen −1 kg/week into
+    // −0.75 kg/week. Compute targets once and pass them on, otherwise
+    // calculate() runs twice and the card could mix two results.
     final targets = const KcalCalculator().calculate(profile);
-    // Spanne linear…dynamisch (Kalorien-Review 2026-08-21), s.
+    // Range linear…dynamic (Kcal review 2026-08-21), see
     // KcalCalculator.weeksToGoalRange.
     final weeks =
         const KcalCalculator().weeksToGoalRange(profile, targets: targets);
-    // Fertig formulierter Satz aus KcalTargets, sonst null.
+    // Ready-made sentence from KcalTargets, else null.
     final paceWarning = isMaintain ? null : targets.paceWarning(l10n);
-    // Ein Ziel mit Richtung traegt den Marken-Akzent, „halten" bleibt ruhig.
+    // A directional goal carries the brand accent, "maintain" stays quiet.
     final accent = isMaintain ? t.ink2 : t.accent;
 
     return AppCard(
@@ -222,7 +212,7 @@ class GoalPlanCard extends StatelessWidget {
                 ),
               ),
               if (onEdit != null)
-                // A11y: volle 48er Tap-Flaeche (kein compact), Glyph bleibt 18.
+                // A11y: full 48 px tap area (not compact), glyph stays 18.
                 IconButton(
                   key: const ValueKey('profile-goalplan-edit'),
                   onPressed: onEdit,
@@ -265,12 +255,10 @@ class GoalPlanCard extends StatelessWidget {
           Row(
             children: <Widget>[
               Expanded(
-                // Den fertigen paceWarning-Satz haengt die Karte NICHT als
-                // eigenen Textblock an: W3-04 zeigt ihn im Einstellungs-Sheet,
-                // und derselbe Dreizeiler ein zweites Mal wuerde die
-                // Zwei-Chip-Zeile hier erschlagen. Als Tooltip/Semantics am
-                // Tempo-Chip erklaert er die Zahl auf Abruf, ohne sie zu
-                // wiederholen — und Screenreader bekommen ihn ohne Umweg.
+                // paceWarning is not a separate text block here: the settings
+                // sheet (W3-04) already shows it, and repeating the three-liner
+                // would swamp the two-chip row. As a tooltip/semantics on the
+                // pace chip it explains the number on demand.
                 child: _MaybeTooltip(
                   message: paceWarning,
                   child: _PlanChip(
@@ -330,10 +318,9 @@ class GoalPlanCard extends StatelessWidget {
   }
 }
 
-/// Haengt [message] als Tooltip an [child] — oder reicht [child] unveraendert
-/// durch, wenn nichts zu erklaeren ist. Vermeidet ein `Tooltip` mit leerer
-/// Nachricht (das faenge Long-Press ab und kuendigte Screenreadern eine
-/// Beschreibung an, die es nicht gibt).
+/// Attaches [message] as a tooltip to [child], or passes [child] through.
+/// Avoids an empty `Tooltip`, which would swallow long-press and announce a
+/// description that does not exist.
 class _MaybeTooltip extends StatelessWidget {
   const _MaybeTooltip({required this.message, required this.child});
 
@@ -366,8 +353,8 @@ class _WeightPole extends StatelessWidget {
       children: <Widget>[
         Text(label.toUpperCase(), style: AppType.eyebrow(t.ink2, size: 10.5)),
         const SizedBox(height: 4),
-        // FittedBox: die grosse Zahl waechst mit der Systemschrift, die halbe
-        // Kartenbreite tut es nicht.
+        // FittedBox: the big number grows with the system font, the half card
+        // width does not.
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Row(

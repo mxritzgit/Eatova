@@ -9,18 +9,13 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/config/supabase_config.dart';
 
-// „Passwort vergessen" (2026-08-08): der Sign-in bekommt einen Reset-Weg.
-//
-// Kontrakt der Repository-Schicht:
-//  * [AuthRepository.sendPasswordReset] stoesst die Recovery-Mail an
-//    (GoTrue /auth/v1/recover) und traegt den App-Deep-Link als redirect_to,
-//    damit der Mail-Link zurueck in die App fuehrt (dort loest
-//    supabase_flutter das passwordRecovery-Event aus).
-//  * Die UI zeigt IMMER eine neutrale Bestaetigung — ob die Mail existiert
-//    (oder ein reines Google-Konto ist), verraet weder Server noch App:
-//    alles andere waere ein Konto-Enumerations-Leck.
-//  * [UnavailableAuthRepository] scheitert LAUT (wie signIn), statt still
-//    eine Mail zu versprechen, die nie rausgeht.
+// Password reset contract of the repository layer:
+//  * [AuthRepository.sendPasswordReset] triggers the recovery mail
+//    (GoTrue /auth/v1/recover).
+//  * The UI always shows a neutral confirmation — neither server nor app
+//    reveals whether the address exists (account enumeration).
+//  * [UnavailableAuthRepository] fails LOUDLY instead of silently promising a
+//    mail that never goes out.
 
 void main() {
   test('sendPasswordReset ruft /auth/v1/recover mit App-Redirect auf',
@@ -34,9 +29,8 @@ void main() {
         return http.Response('{}', 200,
             headers: const {'Content-Type': 'application/json'});
       }),
-      // implicit statt pkce: der rohe Test-Client hat keinen PKCE-Storage
-      // (in Produktion liefert SecurePkceAsyncStorage ihn via
-      // Supabase.initialize); am /recover-Wire-Format aendert das nichts.
+      // implicit instead of pkce: the raw test client has no PKCE storage.
+      // The /recover wire format is unaffected.
       authOptions: const AuthClientOptions(
         autoRefreshToken: false,
         authFlowType: AuthFlowType.implicit,
@@ -52,10 +46,9 @@ void main() {
     final body = jsonDecode(captured!.body) as Map<String, dynamic>;
     expect(body['email'], 'user@example.com',
         reason: 'getrimmt wie bei signIn');
-    // KEIN redirect_to: der Reset laeuft ueber den 8-stelligen Code, nicht
-    // ueber einen Mail-Link. Ein redirect_to wuerde den kaperbaren
-    // eatova://-Deep-Link-Weg reaktivieren, falls das Server-Template je auf
-    // {{ .ConfirmationURL }} zurueckfaellt (Sicherheits-Audit 2026-08-09).
+    // NO redirect_to: the reset runs through the 8-digit code. One would
+    // reactivate the hijackable eatova:// deep-link path if the server
+    // template ever fell back to {{ .ConfirmationURL }}.
     expect(captured!.url.queryParameters.containsKey('redirect_to'), isFalse,
         reason: 'kein Deep-Link im Reset — nur der Code');
     expect(captured!.body.contains(EatovaSupabaseConfig.oauthRedirectUrl),

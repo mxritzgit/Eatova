@@ -1,16 +1,13 @@
-/// Zustand der Health-Freigabe.
+/// State of the health permission.
 ///
-/// [unverified] ist der Zwischenzustand aus Review B3: HealthKit hat das
-/// Berechtigungs-Sheet fehlerfrei angezeigt (Apples `success == true`), aber
-/// nichts belegt, dass wirklich Daten fliessen. Auf iOS ist das der Normalfall,
-/// wenn der Nutzer im Sheet keinen Schalter umgelegt hat — er darf NICHT als
-/// [granted] durchgehen, sonst zeigt die App „Synchronisiert" und rechnet
-/// dauerhaft mit 0 Schritten.
+/// [unverified] (review B3): HealthKit showed the sheet without error, but
+/// nothing proves data actually flows — the normal case when the user toggled
+/// nothing. It must not pass as [granted], or the app claims it is synced and
+/// permanently counts 0 steps.
 enum HealthAuthState { unknown, granted, unverified, denied, unsupported }
 
-/// Ein einzelnes Gewichts-Sample aus dem Health-Store (Apple Health). Wird fuer
-/// den (spaeteren) Import-Pfad gebraucht: beim Connect koennen wir das letzte
-/// Gewicht vorbefuellen, statt den User es erneut eintippen zu lassen.
+/// A single weight sample from the health store, used by the import path to
+/// prefill the last known weight on connect.
 class WeightSample {
   const WeightSample({required this.kg, required this.measuredAt});
 
@@ -18,8 +15,8 @@ class WeightSample {
   final DateTime measuredAt;
 }
 
-/// Ein zusammengefasster Schlaf-Block (Summe der "asleep"-Phasen) ueber ein
-/// Nacht-Fenster. Bewusst minimal — der App-Schlaf-Tracker arbeitet in Minuten.
+/// One aggregated sleep block (sum of the "asleep" phases) over a night
+/// window, in minutes.
 class SleepSample {
   const SleepSample({required this.minutesAsleep, required this.end});
 
@@ -38,81 +35,59 @@ class HealthSnapshot {
   final int stepsToday;
   final DateTime fetchedAt;
 
-  /// Letztes bekanntes Koerpergewicht (kg) aus dem Health-Store, falls
-  /// gelesen/autorisiert. Null = nicht verfuegbar (Default-Verhalten bleibt
-  /// damit identisch zum Steps-only-Snapshot von vorher).
+  /// Last known body weight (kg) from the health store, null if unavailable.
   final double? latestWeightKg;
 
-  /// Schlafdauer der letzten Nacht in Minuten.
-  ///
-  /// Bleibt seit 2026-08-19 immer null — der Apple-Service fragt den
-  /// SLEEP-Scope nicht mehr an (s. [readLastSleep]). Das Feld existiert nur
-  /// noch, bis die HealthService-Fakes der Testsuite nachgezogen sind.
+  /// Last night's sleep in minutes; always null since 2026-08-19 because the
+  /// SLEEP scope is no longer requested (see [readLastSleep]). Kept only until
+  /// the HealthService test fakes are brought in line.
   final int? lastSleepMinutes;
 }
 
 abstract class HealthService {
   HealthAuthState get authState;
 
-  /// Trennt die Health-Verbindung prozesslokal (Logout, Kontoloeschung).
+  /// Drops the health connection process-locally (logout, account deletion).
   ///
-  /// Der Health-Zustand kennt keinen User: er lebt im Service-Objekt, nicht im
-  /// namensraumgetrennten Cache. Ohne diesen Aufruf zeigt Nutzer B auf einem
-  /// geteilten Geraet weiter As „Apple Health · Synchronisiert" — dieselbe
-  /// Fehlerklasse wie D9 bei den geplanten Benachrichtigungen.
-  ///
-  /// Muss ALLE ueberlebenden Zustaende raeumen. In `AppleHealthService` sind
-  /// das zwei: der `HealthAuthVerifier` und das gecachte `_authState`. Ein
-  /// reiner Verifier-Reset bliebe unsichtbar, weil `refreshHealthSteps`
-  /// `health.authState` liest.
-  ///
-  /// Synchron und wurffrei — der Logout-Pfad darf daran nicht haengenbleiben.
+  /// Health state lives in the service object, not the namespaced cache, so
+  /// without this user B keeps seeing A's connected state (class of D9). Must
+  /// clear ALL surviving state — the verifier AND the cached `_authState`.
+  /// Synchronous and non-throwing.
   void reset();
 
   /// Triggers the system permission prompt. Returns the resulting auth state.
-  /// Fragt READ (Steps/Weight) UND WRITE (Weight) in einem Zug an, sodass der
-  /// Write-Back-Pfad nach einem erfolgreichen Connect sofort nutzbar ist —
-  /// kein zweiter Permission-Dialog spaeter. Mehr Scopes als diese beiden
-  /// duerfen es nicht werden, solange kein Feature sie liest: der Zwecktext in
-  /// `ios/Runner/Info.plist` muss zu jedem angefragten Scope passen.
+  /// Requests READ (steps/weight) and WRITE (weight) in one go so write-back
+  /// works right after connect. Never add scopes no feature reads — the
+  /// purpose strings in `ios/Runner/Info.plist` must match every scope.
   Future<HealthAuthState> requestAuthorization();
 
   /// Reads today's step count (plus optional weight/sleep). Returns null when
   /// not authorized or no data.
   Future<HealthSnapshot?> readSnapshot();
 
-  /// Liest die Schrittsumme EINES lokalen Kalendertages [day] — der
-  /// Backfill-Pfad fuer die "Verbrannt"-Anzeige vergangener Tage.
-  ///
-  /// Liefert nur positive Werte, sonst null: `getTotalStepsInInterval`
-  /// summiert ohne Leseberechtigung eine leere Collection und liefert 0
-  /// statt eines Fehlers (s. `HealthAuthEvidence.steps` im Apple-Service).
-  /// Eine 0 ist damit nicht von "kein Zugriff" unterscheidbar und darf nie
-  /// als Tagesendwert eingefroren werden — ein echter 0-Schritte-Tag zeigt
-  /// ohnehin "—". Off-iOS / nicht unterstuetzt immer null.
+  /// Step total of one local calendar day [day], the backfill path for past
+  /// days. Positive values only, else null: without read permission
+  /// `getTotalStepsInInterval` sums to 0 instead of failing, so 0 is
+  /// indistinguishable from "no access". Always null off iOS.
   Future<int?> readStepsOnDay(DateTime day);
 
-  /// Schreibt ein Koerpergewicht-Sample (kg) zum Zeitpunkt [when] in den
-  /// Health-Store. Liefert true bei Erfolg, false wenn nicht unterstuetzt /
-  /// nicht autorisiert / Fehler. Off-iOS immer no-op -> false.
+  /// Writes a body weight sample (kg) at [when] to the health store. False if
+  /// unsupported, unauthorized or on error; off iOS a no-op.
   Future<bool> writeWeight(double kg, DateTime when);
 
-  /// Liest Gewichts-Samples im Fenster [from]..[to] (fuer den Import-Pfad).
-  /// Leere Liste wenn nicht unterstuetzt / nicht autorisiert / keine Daten.
+  /// Weight samples in the window [from]..[to] for the import path; empty if
+  /// unsupported, unauthorized or no data.
   Future<List<WeightSample>> readWeightSamples({
     required DateTime from,
     required DateTime to,
   });
 
-  /// Liest den letzten zusammenhaengenden Schlaf-Block vor [before] (Default:
-  /// jetzt).
+  /// Last contiguous sleep block before [before] (default: now).
   ///
-  /// Liefert seit 2026-08-19 in JEDER Implementierung null: der SLEEP-Scope
-  /// wird nicht mehr angefragt, weil ihn kein Feature liest (der Schlafwert
-  /// floss nur in die Auth-Evidenz), und Apple lehnt HealthKit-Scopes ohne
-  /// sichtbaren Nutzen im Review ab. Der Vertrag bleibt vorerst am Interface
-  /// stehen, weil mehrere Test-Fakes ihn ueberschreiben — wer ihn abbaut, muss
-  /// [SleepSample] und [HealthSnapshot.lastSleepMinutes] gleich mitnehmen.
+  /// Null in EVERY implementation since 2026-08-19: the SLEEP scope is no
+  /// longer requested, because Apple rejects unused HealthKit scopes. Kept
+  /// only for the test fakes; removing it also removes [SleepSample] and
+  /// [HealthSnapshot.lastSleepMinutes].
   Future<SleepSample?> readLastSleep({DateTime? before});
 }
 

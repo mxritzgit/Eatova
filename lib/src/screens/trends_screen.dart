@@ -13,13 +13,9 @@ import '../widgets/common/lively.dart';
 import '../widgets/common/motion.dart';
 import '../widgets/design/design.dart';
 
-/// Trend-Ansicht (Langzeit-Perspektive): Kalorien-Balken pro Tag mit
-/// Ziellinie + Zielkorridor, Zeitraum-Umschalter 7/30/90 Tage und
-/// Kennzahlen (Durchschnitts-kcal, Ziel-Treffer-Quote, Durchschnitts-Makros).
-///
-/// Datenpfad ist der injizierte [TrendTotalsLoader] (Produktions-Pfad:
-/// TrendService.loadDailyTotals) — bewusst UNABHAENGIG vom HomeStore und
-/// seinem 35-Tage-Fenster. Das Kalorienziel kommt als Konstruktor-Parameter.
+/// Long-term trend view: daily calorie bars with target line and corridor, a
+/// 7/30/90-day range switch, and metrics. Data comes from the injected
+/// [TrendTotalsLoader], INDEPENDENT of HomeStore's 35-day window.
 class TrendsScreen extends StatefulWidget {
   const TrendsScreen({
     super.key,
@@ -27,7 +23,7 @@ class TrendsScreen extends StatefulWidget {
     required this.loadTotals,
   });
 
-  /// Tagesziel in kcal (aus dem Profil durchgereicht).
+  /// Daily target in kcal, passed through from the profile.
   final int kcalGoal;
 
   final TrendTotalsLoader loadTotals;
@@ -47,12 +43,12 @@ class _TrendsScreenState extends State<TrendsScreen> {
   @override
   void initState() {
     super.initState();
-    // Kein setState noetig: _loading startet bereits true. _fetch selbst
-    // setStated erst nach einem await — nie synchron waehrend des Mounts.
+    // No setState needed: _loading starts true and _fetch only setStates
+    // after an await.
     _fetch();
   }
 
-  /// Retry-Einstieg (Button): zurueck in den Lade-Zustand, dann neu laden.
+  /// Retry entry point: back to the loading state, then reload.
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -63,9 +59,8 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
   Future<void> _fetch() async {
     try {
-      // Future.sync: auch ein SYNCHRON werfender Loader (z.B. Supabase nicht
-      // initialisiert) landet als Future-Fehler im catch — asynchron, also
-      // nie als setState mitten im ersten Build.
+      // Future.sync: a synchronously throwing loader becomes a future error,
+      // never a setState during the first build.
       final totals = await Future.sync(widget.loadTotals);
       if (!mounted) return;
       setState(() {
@@ -74,8 +69,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
         _error = null;
       });
     } catch (e) {
-      // Der Service hat bereits geloggt — hier nur in den Retry-Zustand
-      // uebersetzen, keine rohe Exception in die UI durchreichen.
+      // The service already logged; never leak a raw exception to the UI.
       if (!mounted) return;
       setState(() {
         _error = e;
@@ -90,9 +84,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
     return Scaffold(
       body: SafeArea(
         child: LivelyEntrance(
-          // Wie im Profil bewusst SingleChildScrollView + Column statt eines
-          // ListView: alle Kennzahlen sollen im Elementbaum stehen, auch die,
-          // die gerade unterhalb des Bildschirms liegen.
+          // Column, not ListView: every metric must be in the element tree.
           child: SingleChildScrollView(
             key: const ValueKey('screen-trends'),
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
@@ -139,11 +131,8 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
     final today = DateTime.now();
     final window = denseTrendWindow(_totals, today: today, days: _rangeDays);
-    // B6: Das CHART bekommt das volle Fenster inklusive des laufenden Tages —
-    // die Kurve soll zeigen, wo man heute steht. Die KENNZAHLEN rechnen ohne
-    // ihn, weil ein Teiltag sonst als vollstaendiger Tag in den Schnitt und
-    // in die Trefferquote eingeht (siehe completedDaysOf). Die Kacheln
-    // beschriften das unten mit einer Fussnote.
+    // B6: the CHART includes today; the METRICS exclude it, or a partial day
+    // would count as a full one.
     final completed = completedDaysOf(window);
     final avgKcal = averageKcalOf(completed);
     final hits = goalHitsOf(completed, goalKcal: widget.kcalGoal);
@@ -155,16 +144,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
         rangeDays: _rangeDays,
         kcalGoal: widget.kcalGoal,
         avgKcal: avgKcal,
-        // Zaehlt die gezeichneten Balken (inkl. heute), damit die A11y-Ansage
-        // zum Chart passt und nicht zu den Kennzahlen-Kacheln.
+        // Counts drawn bars so the a11y announcement matches the chart.
         trackedDays: trackedDaysOf(window),
-        // B5: Kalender-Arithmetik (DST-sicher), analog zu denseTrendWindow.
+        // B5: calendar arithmetic (DST-safe), as in denseTrendWindow.
         firstDay: addDays(startOfDay(today), -(_rangeDays - 1)),
       ),
       const SizedBox(height: 14),
-      // IntrinsicHeight statt CrossAxisAlignment.stretch: im ScrollView ist
-      // die Hoehe unbegrenzt, stretch wuerde h=Infinity erzwingen. So werden
-      // beide Kennzahlen-Karten gleich hoch wie die hoehere von beiden.
+      // IntrinsicHeight: height is unbounded here, so stretch means Infinity.
       IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -186,8 +172,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
               child: _StatCard(
                 key: const ValueKey('trends-goal-rate'),
                 label: l10n.trendsStatGoalRateLabel,
-                // tracked == 0 ist der einzige Weg zu einer 0/0-Division —
-                // hier abgefangen, damit nie ein NaN ins Widget geraet.
+                // tracked == 0 is the only 0/0 route; keeps NaN out.
                 value: hits.tracked == 0
                     ? '–'
                     : '${(hits.hit / hits.tracked * 100).round()} %',
@@ -202,17 +187,15 @@ class _TrendsScreenState extends State<TrendsScreen> {
       const SizedBox(height: 12),
       _MacroAveragesCard(macros: macros),
       const SizedBox(height: 10),
-      // B6: Die Beschriftung muss zur Rechnung passen — die drei Kennzahlen
-      // oben zaehlen den laufenden Tag nicht mit, das Chart schon.
+      // B6: the label must match the maths, which excludes the current day.
       const _MetricsNote(),
     ];
   }
 }
 
-/// Fussnote unter den Kennzahlen: benennt, dass der laufende Tag aus den
-/// Durchschnitten und der Trefferquote herausfaellt (B6). Eine Zeile fuer alle
-/// drei Kacheln — in den 11-px-Sublabels der schmalen Karten waere derselbe
-/// Hinweis dreimal umgebrochen.
+/// Footnote saying the current day is excluded from the averages and hit
+/// rate (B6). One line for all three tiles, since the sublabels would wrap it
+/// three times.
 class _MetricsNote extends StatelessWidget {
   const _MetricsNote();
 
@@ -234,7 +217,7 @@ class _MetricsNote extends StatelessWidget {
   }
 }
 
-/// Zeitraum-Umschalter: drei gleich breite Filter-Pillen.
+/// Range switch: three equally wide filter pills.
 class _RangeSelector extends StatelessWidget {
   const _RangeSelector({
     required this.ranges,
@@ -253,9 +236,8 @@ class _RangeSelector extends StatelessWidget {
       children: [
         for (var i = 0; i < ranges.length; i++) ...[
           Expanded(
-            // Der Key sitzt auf der Semantics-Huelle, nicht auf der Pille:
-            // so tippen die Tests unveraendert `trends-range-7` und der
-            // Screenreader behaelt seinen erklaerenden Namen.
+            // Key on the Semantics wrapper so tests keep their finder and
+            // the screen reader its descriptive name.
             child: Semantics(
               key: ValueKey('trends-range-${ranges[i]}'),
               button: true,
@@ -296,11 +278,9 @@ class _ChartCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // A11y: das Chart ist nur gezeichnet -> Kennwerte als Sprachwert.
-    // [avgKcal] kommt aus den abgeschlossenen Tagen und kann null sein,
-    // waehrend das Chart schon einen Balken zeigt (nur heute geloggt). Dann
-    // faellt der Schnitt-Teilsatz weg — `?? 0` haette „im Schnitt 0
-    // Kilokalorien" angesagt, was schlicht falsch waere.
+    // A11y: the chart is only painted, so values go out as speech. [avgKcal]
+    // can be null while a bar already shows, so the average clause is dropped
+    // rather than announcing a false 0.
     final avg = avgKcal;
     final semanticsValue = trackedDays == 0
         ? l10n.trendsChartSemanticsEmpty
@@ -351,8 +331,7 @@ class _ChartCard extends StatelessWidget {
               value: semanticsValue,
               child: RepaintBoundary(
                 child: TweenAnimationBuilder<double>(
-                  // Key pro Zeitraum: der Balken-Aufbau spielt beim Umschalten
-                  // erneut; unter reduzierter Bewegung kollabiert er sofort.
+                  // Key per range so the build-up replays on switching.
                   key: ValueKey('trends-chart-anim-$rangeDays'),
                   tween: Tween(begin: 0, end: 1),
                   duration: motionDuration(
@@ -383,8 +362,7 @@ class _ChartCard extends StatelessWidget {
           if (rangeDays > 7) ...[
             const SizedBox(height: 6),
             Padding(
-              // Gleiche seitliche Anker wie die Zeichenflaeche des Painters
-              // (links Achsen-Rinne, rechts Innenrand).
+              // Same lateral anchors as the painter's canvas.
               padding: const EdgeInsets.only(left: 40, right: 8),
               child: Row(
                 children: [
@@ -503,8 +481,8 @@ class _MacroAveragesCard extends StatelessWidget {
   }
 }
 
-/// Eine Makro-Kennzahl: farbiger Identitaets-Punkt neben Text in Text-Tokens
-/// (die Makro-Farbe traegt nie den Text selbst — zu wenig Kontrast).
+/// One macro metric: a coloured dot next to text in text tokens, since the
+/// macro colour has too little contrast to carry text.
 class _MacroAvg extends StatelessWidget {
   const _MacroAvg({
     required this.color,
@@ -528,8 +506,7 @@ class _MacroAvg extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
-        // Flexible + ellipsis: bei 200%-Systemschrift sprengt
-        // "Kohlenhydrate" sonst das Spalten-Drittel der Makro-Karte.
+        // At 200% font the longest macro label would blow out its third.
         Flexible(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -638,15 +615,9 @@ class _ErrorCard extends StatelessWidget {
   }
 }
 
-/// Kalorien-Balken pro Tag (eine Serie -> keine Legende, der Kartentitel
-/// benennt sie). Balken wachsen von der 0-Basislinie, abgerundetes Daten-Ende
-/// oben, eckig an der Basis; Luecken-Tage bleiben Luecken (kein 0-Balken —
-/// „nicht getrackt" ist kein 0-kcal-Tag). Ruhige, durchgezogene Hairline-
-/// Gridlines; die Ziellinie ist heller und traegt ein Label, der Korridor
-/// (±10 %) liegt als leise Flaeche dahinter.
-///
-/// Alle fuenf Farben kommen als Felder herein und stehen in [shouldRepaint]:
-/// beim Wechsel Hell/Dunkel aendert sich nur die Farbe, nicht die Datenlage.
+/// Daily calorie bars (one series, so no legend), growing from the 0
+/// baseline; gap days stay gaps, since "not tracked" is not a 0 kcal day.
+/// All five colours arrive as fields and are checked in [shouldRepaint].
 class _KcalTrendPainter extends CustomPainter {
   _KcalTrendPainter({
     required this.window,
@@ -667,9 +638,8 @@ class _KcalTrendPainter extends CustomPainter {
   final double progress;
   final Color gridColor, barColor, goalLineColor, bandColor, axisTextColor;
 
-  /// Widgets ohne BuildContext-Zugriff (hier: ein `CustomPainter`) bekommen
-  /// die Lokalisierung als Parameter gereicht (docs/I18N_PAKETE.md §3),
-  /// statt ein globales Lookup zu bauen — Vorbild `CoachSpeechInput.listen`.
+  /// A `CustomPainter` has no BuildContext, so localization is a parameter
+  /// rather than a global lookup (docs/I18N_PAKETE.md §3).
   final AppLocalizations l10n;
 
   @override
@@ -696,8 +666,7 @@ class _KcalTrendPainter extends CustomPainter {
     final base = math.max(maxKcal, goalKcal);
     final niceMax = _niceMax(base);
 
-    // Ruhiges Grid: 4 durchgezogene Hairlines (0 bis niceMax in Dritteln),
-    // Tick-Werte rechtsbuendig in der Achsen-Rinne.
+    // Quiet grid: 4 solid hairlines (0 to niceMax in thirds).
     final gridPaint = Paint()
       ..color = gridColor
       ..strokeWidth = 1;
@@ -718,7 +687,7 @@ class _KcalTrendPainter extends CustomPainter {
       return;
     }
 
-    // Zielkorridor (±10 %) als leise Flaeche hinter den Balken.
+    // Target corridor (±10 %) as a quiet area behind the bars.
     if (goalKcal > 0) {
       final loY =
           inner.bottom -
@@ -735,8 +704,7 @@ class _KcalTrendPainter extends CustomPainter {
       canvas.drawRect(band, Paint()..color = bandColor);
     }
 
-    // Balken: duenne Marken mit Flaechen-Luecke zwischen Nachbarn, Daten-Ende
-    // oben abgerundet, Basis eckig. Hoehe skaliert mit [progress] (Motion).
+    // Rounded at the data end, square at the base; height from [progress].
     final n = window.length;
     final slotW = inner.width / n;
     final gapW = slotW >= 8 ? 2.0 : 1.0;
@@ -758,7 +726,7 @@ class _KcalTrendPainter extends CustomPainter {
       );
     }
 
-    // Ziellinie: heller als das Grid, durchgezogen, mit Label am rechten Ende.
+    // Target line: brighter than the grid, solid, labelled at the right end.
     if (goalKcal > 0) {
       final goalY = inner.bottom - (goalKcal / niceMax) * inner.height;
       final goalPaint = Paint()
@@ -778,11 +746,10 @@ class _KcalTrendPainter extends CustomPainter {
       );
     }
 
-    // 7-Tage-Ansicht: Wochentags-Kuerzel unter jedem Slot als X-Beschriftung.
+    // 7-day view: weekday abbreviations under each slot as the x labels.
     if (showWeekdays) {
       for (var i = 0; i < n; i++) {
-        // B5: Kalendertag-Verschiebung; eine Duration-Addition wuerde die
-        // Wochentags-Kuerzel nach einer DST-Kante um einen Tag verschieben.
+        // B5: calendar-day shift; a Duration would slip a day across DST.
         final day = addDays(firstDay, i);
         _drawText(
           canvas,
@@ -794,8 +761,8 @@ class _KcalTrendPainter extends CustomPainter {
     }
   }
 
-  /// Rundet die Achsen-Spitze auf einen sauberen Wert, der sich glatt
-  /// dritteln laesst (Ticks wie 0 / 1.000 / 2.000 / 3.000).
+  /// Rounds the axis top to a clean value divisible into thirds
+  /// (ticks like 0 / 1,000 / 2,000 / 3,000).
   static int _niceMax(int base) {
     if (base <= 0) return 300;
     const steps = [100, 200, 250, 500, 1000, 2000, 2500, 5000];
@@ -866,11 +833,8 @@ class _KcalTrendPainter extends CustomPainter {
       old.l10n != l10n;
 }
 
-/// Einmalige Initialisierung der `intl`-Datumssymbole (Wochentagskuerzel des
-/// Trend-Charts). Gleiches Muster wie `today_texts.dart`s
-/// `_ensureDateSymbols`: `initializeDateFormatting()` laedt synchron eine
-/// gebuendelte Tabelle, der Bool-Waechter verhindert nur den wiederholten
-/// Aufbau bei jedem Repaint.
+/// One-time init of the `intl` date symbols for the weekday labels; the load
+/// is synchronous from a bundled table.
 bool _dateSymbolsReady = false;
 void _ensureDateSymbols() {
   if (_dateSymbolsReady) return;

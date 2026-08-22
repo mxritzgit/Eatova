@@ -7,11 +7,9 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// REGRESSION (2026-08-04): Nach dem Training-Tab-Aus (a267e15) hatte die
-// Streak keinen Schreiber mehr — sie blieb trotz taeglichem Essens-Logging
-// fuer immer auf 0. Seitdem ist sie eine LOGGING-Streak: das Loggen einer
-// Mahlzeit fuer HEUTE fuehrt sie (auch offline/optimistisch) fort;
-// Nachtraege fuer vergangene Tage lassen sie unangetastet.
+// Regression (2026-08-04): with the training tab gone the streak had no writer
+// and stayed at 0. It is now a LOGGING streak: logging a meal for TODAY
+// continues it, even offline; late entries for past days do not.
 
 void _noopSnack(
   String message, {

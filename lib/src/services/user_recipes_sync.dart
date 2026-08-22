@@ -4,19 +4,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/fitness_recipe.dart';
 
-/// Liest und schreibt selbst angelegte Rezepte gegen public.user_recipes.
-/// Spiegelt MealsSync: eine Instanz gehoert einem user_id, jede Methode ist
-/// atomar gegen die Tabelle. Der Konflikt-Schluessel ist (user_id, slug) —
-/// derselbe stabile User-Slug, den FitnessRecipe.userRecipeSlug() vergibt.
+/// Reads and writes user-created recipes against public.user_recipes.
+/// Mirrors MealsSync: one instance per user_id, every method atomic against
+/// the table. Conflict key is (user_id, slug) from
+/// FitnessRecipe.userRecipeSlug().
 class UserRecipesSync {
   UserRecipesSync(this._client, this._userId);
 
   final SupabaseClient _client;
   final String _userId;
 
-  /// Grosszuegiger Deckel fuer selbst angelegte Rezepte (neueste zuerst).
-  /// Rezepte entstehen einzeln von Hand — 200 liegt weit ueber jedem
-  /// realistischen Bestand, verhindert aber den unbounded Boot-Read.
+  /// Generous cap for user recipes (newest first). Recipes are created one by
+  /// one, so 200 is far above any real count but bounds the boot read.
   static const int userRecipesLimit = 200;
 
   Future<List<FitnessRecipe>> load() async {

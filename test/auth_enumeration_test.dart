@@ -10,18 +10,14 @@ import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/account_change_messages.dart';
 
-// Konto-Enumeration und das, was `signUp` verschwieg (Audit 2026-08-14):
+// Account enumeration and what `signUp` used to hide (Audit 2026-08-14):
 //
-//  * Der Adresswechsel meldete woertlich „Diese E-Mail-Adresse wird bereits
-//    verwendet" — jeder angemeldete Nutzer konnte fremde Adressen
-//    durchprobieren und bekam die Kontoexistenz bestaetigt. Das widerspricht
-//    der Hauslinie, die der Passwort-Reset ausdruecklich verteidigt
-//    (auth_repository.dart, `sendPasswordReset`).
-//  * `signUp` war `Future<void>` und warf die `AuthResponse` weg. GoTrue
-//    signalisiert die schon vergebene Adresse aber genau dort: gleicher
-//    Erfolgs-Status, LEERES `identities`-Array, keine Mail.
-//  * Dazu der ungeklaerte Nonce-Widerspruch — hier nur FESTGESCHRIEBEN, nicht
-//    geaendert (siehe Kommentar an `updatePassword`).
+//  * The email change confirmed account existence verbatim, contradicting the
+//    line the password reset defends.
+//  * `signUp` returned `Future<void>` and dropped the `AuthResponse`, which is
+//    where GoTrue signals a taken address: success status, EMPTY `identities`,
+//    no mail.
+//  * Plus the unresolved nonce contradiction — only pinned here, not changed.
 
 const Map<String, String> _jsonHeader = {'Content-Type': 'application/json'};
 
@@ -43,9 +39,9 @@ Map<String, dynamic> _sessionJson() => {
       'user': _userJson(),
     };
 
-/// Roher Supabase-Client am MockClient — wie in `auth_password_reset_test.dart`
-/// bewusst `implicit` statt `pkce`: ohne `Supabase.initialize` gibt es keinen
-/// PKCE-Storage. Am Wire-Format der hier geprueften Aufrufe aendert das nichts.
+/// Raw Supabase client on a MockClient. `implicit` rather than `pkce` because
+/// without `Supabase.initialize` there is no PKCE storage; the wire format of
+/// the calls checked here is unaffected.
 SupabaseClient _clientAm(MockClient transport) => SupabaseClient(
       'https://example.supabase.co',
       'test-anon-key',
@@ -58,7 +54,7 @@ SupabaseClient _clientAm(MockClient transport) => SupabaseClient(
 
 void main() {
   group('Kontoenumeration', () {
-    // Alle Formulierungen, mit denen GoTrue die belegte Adresse meldet.
+    // Every phrasing GoTrue uses to report a taken address.
     const belegtMeldungen = <String>[
       'A user with this email address has already been registered',
       'User already registered',
@@ -66,10 +62,9 @@ void main() {
       'Email address already in use',
     ];
 
-    // Die BEHAUPTENDEN Wendungen — in beiden Sprachen. Keine davon darf in
-    // einer Nutzer-Meldung auftauchen. Nicht auf der Liste steht das blosse
-    // „exists"/„gibt": im Konditional („Falls es … schon ein Konto gibt")
-    // behauptet es nichts, und genau diese Form ist die gewollte.
+    // The ASSERTING phrasings, in both languages; none may appear in a user
+    // message. Bare "exists" is not listed: in the conditional form it asserts
+    // nothing, and that form is the intended one.
     const verraeter = <String>[
       'bereits verwendet',
       'bereits vergeben',
@@ -96,8 +91,8 @@ void main() {
     });
 
     test('die Meldung laesst den Nutzer trotzdem nicht im Regen stehen', () {
-      // Konditional statt behauptend („Falls ... schon ein Konto ...") und mit
-      // dem Ausweg, den es in BEIDEN Faellen gibt.
+      // Conditional rather than asserting, and with the way out that exists in
+      // BOTH cases.
       expect(deL10n.settingsAccountEmailNotAvailable.toLowerCase(),
           contains('falls'));
       expect(enL10n.settingsAccountEmailNotAvailable.toLowerCase(),
@@ -196,11 +191,11 @@ void main() {
     });
   });
 
-  // BEFUND B: NICHT geaendert, nur festgenagelt. Welcher der beiden Zweige
-  // falsch ist, haengt am Live-Verhalten von GoTrue (Analyse im Bericht
-  // `.superpowers/sdd/audit-2026-08-14/reports/auth-repo-hygiene.md`). Dieser
-  // Test schlaegt fehl, sobald jemand eine der beiden Seiten angleicht — dann
-  // gehoert die Klaerung mit in denselben Commit.
+  // FINDING B: not changed, only pinned. Which branch is wrong depends on live
+  // GoTrue behaviour (see
+  // `.superpowers/sdd/audit-2026-08-14/reports/auth-repo-hygiene.md`). This
+  // test fails as soon as someone aligns one side, and the clarification then
+  // belongs in the same commit.
   group('Nonce: heutiges Wire-Verhalten', () {
     test('Recovery setzt ohne Nonce, die Einstellungen mit', () async {
       final koerper = <Map<String, dynamic>>[];
@@ -220,7 +215,7 @@ void main() {
       addTearDown(client.dispose);
 
       final repo = SupabaseAuthRepository(client);
-      // Sitzung wie nach `verifyRecoveryCode`: frisch und ohne Nonce im Gepaeck.
+      // Session as after `verifyRecoveryCode`: fresh and carrying no nonce.
       await repo.signIn(email: 'user@eatova.de', password: 'eatova123');
 
       await repo.updatePassword('neues-passwort');

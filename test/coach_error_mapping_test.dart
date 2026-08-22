@@ -7,22 +7,19 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/coach_chat_service.dart';
 
-// D2 — Fehler-Mapping von CoachChatService.send().
+// D2 — error mapping of CoachChatService.send().
 //
-// `functions_client 2.7.1` WIRFT bei jedem Nicht-2xx (functions_client.dart:
-// 255-269): Erfolg -> FunctionResponse, `x-relay-error: true` ->
-// FunctionsRelayException, sonst -> FunctionsHttpException. Ein 429 erreicht
-// den Aufrufer also NIE als `res.status`, sondern immer als Exception.
+// `functions_client` throws on every non-2xx: `x-relay-error: true` gives
+// FunctionsRelayException, otherwise FunctionsHttpException. A 429 therefore
+// never reaches the caller as `res.status`.
 //
-// Diese Tests treiben deshalb den echten SupabaseClient mit einem MockClient
-// (package:http/testing.dart) und pruefen die Form, die der Server WIRKLICH
-// sendet — 429 mit JSON-Body, nicht 200 mit error-Feld. Zwei Zusagen stehen
-// hier im Mittelpunkt:
-//   1. Ein Quota-429 muss CoachQuotaExceeded werden (sonst bleibt der Composer
-//      offen und der Nutzer rennt in dieselbe Wand).
-//   2. Ein Rate-Limit-429 darf das NICHT werden (es traegt kein daily_limit
-//      und wuerde den Composer faelschlich fuer den Rest des Tages sperren).
-// Quer ueber alle Faelle gilt: nie rohe Serverdaten im UI-Text.
+// These tests drive the real SupabaseClient through a MockClient and check the
+// shape the server actually sends. Two promises matter:
+//   1. A quota 429 must become CoachQuotaExceeded, or the composer stays open
+//      and the user hits the same wall.
+//   2. A rate-limit 429 must NOT, since it carries no daily_limit and would
+//      lock the composer for the rest of the day.
+// Across all cases: never raw server data in UI text.
 
 CoachChatService _service(
   Future<http.Response> Function(http.Request request) handler,
@@ -43,8 +40,8 @@ http.Response _json(Object body, int status, {Map<String, String>? headers}) =>
       headers: {'Content-Type': 'application/json', ...?headers},
     );
 
-/// Faengt die Exception aus send() ein, damit einzelne Felder geprueft werden
-/// koennen (throwsA-Matcher reichen fuer die Textpruefungen nicht).
+/// Captures the exception from send() so individual fields can be checked;
+/// throwsA matchers are not enough for the text assertions.
 Future<Object> _failureOf(CoachChatService svc) async {
   try {
     await svc.send('Hi Coach', sessionId: 's1');
@@ -82,9 +79,8 @@ void main() {
 
     test('429 + rate_limited -> CoachChatException, NICHT CoachQuotaExceeded',
         () async {
-      // rate_limited traegt kein daily_limit. Als Quota gemappt wuerde der
-      // Composer fuer den Rest des Tages gesperrt, obwohl der Nutzer in 30
-      // Sekunden wieder senden darf.
+      // rate_limited carries no daily_limit; mapped as quota it would lock the
+      // composer all day although sending is allowed again in 30 seconds.
       final svc = _service((req) async {
         return _json({
           'error': 'rate_limited',
@@ -197,8 +193,8 @@ void main() {
 
     test('FunctionsRelayException (x-relay-error) -> eigener, sauberer Zweig',
         () async {
-      // functions_client.dart:258-264 — der Relay-Fehler ist ein ANDERER Typ
-      // als FunctionsHttpException und muss trotzdem eine Meldung ergeben.
+      // The relay error is a different type from FunctionsHttpException and
+      // must still produce a message.
       final svc = _service((req) async {
         return _json({'msg': 'relay down'}, 500,
             headers: const {'x-relay-error': 'true'});

@@ -10,20 +10,19 @@ import 'package:eatova/src/services/meilisearch_product_service.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/services/search_credentials.dart';
 
-// Die Klassifizierung der Produktsuche-Fehler — zwei Luecken aus dem
-// Komplettreview 2026-08-19:
+// Error classification of the product search — two gaps from review 2026-08-19:
 //
-//  * Der Schema-Drift-Alarm des Mirrors warf eine HttpException. Die ist eine
-//    IOException und zaehlt im FallbackProductService zu den erwarteten
-//    Netzfehlern: der Alarm meldete nie.
-//  * Klassifiziert wurde nur das PRIMAER-Bein. Produktiv ist OFF aber immer
-//    das Fallback-Bein — also genau die Quelle, deren Formataenderung die
-//    Klassifizierung ueberhaupt sichtbar machen soll.
+//  * The mirror's schema-drift alarm threw an HttpException, which is an
+//    IOException and thus an expected network error in FallbackProductService:
+//    the alarm never fired.
+//  * Only the PRIMARY leg was classified, while in production OFF is always the
+//    fallback leg — the very source whose format changes the classification is
+//    supposed to surface.
 //
-// Plain `test()` wie in meilisearch_key_rotation_test.dart: dart:io bleibt
-// unangetastet, der Mirror ist ein echter lokaler HttpServer.
+// Plain `test()`: dart:io is untouched and the mirror is a real local
+// HttpServer.
 
-// ─── Attrappen ─────────────────────────────────────────────────────────────
+// ─── Stubs ─────────────────────────────────────────────────────────────────
 
 class _FakeProduktService implements ProductLookupService {
   _FakeProduktService({
@@ -45,8 +44,7 @@ class _FakeProduktService implements ProductLookupService {
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) async {
     if (barcodeError != null) throw barcodeError!;
-    // Die Barcode-Strecke steht in diesen Tests nur als Fehlerquelle zur
-    // Verfuegung — ein Treffer wird nirgends gebraucht.
+    // The barcode path only serves as an error source here; no hit is needed.
     throw UnimplementedError('lookupBarcode-Treffer wird hier nicht gebraucht');
   }
 }
@@ -68,7 +66,7 @@ class _FakeCredentials extends SearchCredentialsSource {
   }
 }
 
-/// Mirror-Attrappe mit fest verdrahtetem Status und Body.
+/// Mirror stub with a fixed status and body.
 class _MirrorStub {
   _MirrorStub._(this._server);
 
@@ -130,21 +128,20 @@ void main() {
 
   tearDown(() => CrashReporter.debugSentrySink = null);
 
-  // capture() laeuft unawaited los; ein Mikrotask-Durchlauf reicht.
+  // capture() runs unawaited; one microtask pass is enough.
   Future<void> pumpe() => Future<void>.delayed(Duration.zero);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fund 1 — der Schema-Drift-Alarm des Mirrors darf nicht als Netzfehler
-  // durchgehen.
+  // Finding 1 — the mirror's schema-drift alarm must not pass as a network
+  // error.
   // ─────────────────────────────────────────────────────────────────────────
 
   group('Mirror-Schema-Drift', () {
     test('2xx ohne hits-Liste wird GEMELDET, OFF uebernimmt trotzdem',
         () async {
-      // Genau der Fall, fuer den der Alarm gebaut wurde: der Mirror antwortet
-      // mit 200, aber der Body ist keine Suchantwort (Proxy-Fehlerseite,
-      // geaendertes Index-Schema). Vorher war das eine HttpException und
-      // damit — via IOException — ein "erwarteter" Netzfehler: still.
+      // The case the alarm was built for: the mirror answers 200 but the body
+      // is no search response (proxy error page, changed index schema).
+      // Previously an HttpException and thus a silent "expected" network error.
       final stub = await _MirrorStub.start(status: 200, body: '{"ok":true}');
       addTearDown(stub.close);
       final creds = _FakeCredentials(
@@ -169,8 +166,8 @@ void main() {
     });
 
     test('MirrorSchemaException ist bewusst KEINE IOException', () {
-      // Die eine Eigenschaft, an der alles haengt: faellt der Typ je wieder
-      // unter IOException, ist der Alarm sofort und unbemerkt wieder tot.
+      // The one property everything hangs on: if the type ever becomes an
+      // IOException again, the alarm is silently dead.
       const fehler = MirrorSchemaException('malformed');
       expect(fehler, isA<Exception>());
       expect(fehler, isNot(isA<IOException>()));
@@ -200,8 +197,8 @@ void main() {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Fund 2 — das Fallback-Bein (produktiv IMMER OFF) lief an der
-  // Klassifizierung vorbei.
+  // Finding 2 — the fallback leg (always OFF in production) bypassed the
+  // classification.
   // ─────────────────────────────────────────────────────────────────────────
 
   group('Klassifizierung des Fallback-Beins', () {
@@ -244,8 +241,8 @@ void main() {
 
     test('Barcode: TypeError bei OFF wird gemeldet und weitergereicht',
         () async {
-      // Die Form, die entsteht, wenn OFF ein Naehrwert-Feld von num auf
-      // String umstellt und ein `as double` im Parser darauf trifft.
+      // What happens when OFF switches a nutrient field from num to String and
+      // an `as double` in the parser hits it.
       final svc = FallbackProductService(
         _FakeProduktService(
           barcodeError: UnsupportedError('Mirror kann keine Barcodes'),
@@ -259,14 +256,14 @@ void main() {
       );
       await pumpe();
 
-      // Der UnsupportedError des Mirrors ist Normalbetrieb und bleibt still —
-      // gemeldet wird ausschliesslich der OFF-Fehler.
+      // The mirror's UnsupportedError is normal operation and stays silent;
+      // only the OFF error is reported.
       expect(gemeldet, hasLength(1));
       expect(kontexte.single, 'product.barcode.fallback');
     });
 
     test('Barcode: "nicht gefunden" bei OFF bleibt still', () async {
-      // Der Regelfall eines Scans auf ein Produkt, das OFF nicht kennt.
+      // The normal case: a scan of a product OFF does not know.
       final svc = FallbackProductService(
         _FakeProduktService(
           barcodeError: UnsupportedError('Mirror kann keine Barcodes'),

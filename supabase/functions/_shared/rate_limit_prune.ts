@@ -1,33 +1,26 @@
-// Opportunistische Tabellen-Hygiene fuer public.edge_rate_limits.
+// Opportunistic table hygiene for public.edge_rate_limits.
 //
-// Aufgerufen wird das ausnahmslos fire-and-forget (`void pruneRateLimits(...)`),
-// damit der Nutzer-Request nicht auf die Aufraeumarbeit wartet. GENAU DESHALB
-// muss jeder Fehler hier drin bleiben: ein rejectender fetch (DNS, TCP, Abort —
-// nicht zu verwechseln mit einem HTTP-Fehlerstatus, den fetch NICHT wirft)
-// waere sonst eine unhandled rejection und beendet den Isolate. Bei
-// analyze-meal trifft das mitten in das 45-Sekunden-Fenster des Modellaufrufs:
-// der Provider-Call ist bezahlt, der Rate-Limit-Slot verbraucht, und einen
-// Refund-Pfad gibt es dort nicht. Der User-Request darf von der Aufraeumarbeit
-// nie blockiert oder abgerissen werden.
+// Always called fire-and-forget (`void pruneRateLimits(...)`) so the user
+// request never waits for it. That is exactly why every error must stay
+// inside: a rejecting fetch would be an unhandled rejection and kill the
+// isolate — in analyze-meal that lands mid model call, with the provider call
+// paid, the rate-limit slot spent and no refund path.
 //
-// Die Funktion stand wortgleich in analyze-meal und search-key (beide ohne
-// diese Haertung) und ein drittes Mal, gehaertet, in coach-chat/handler.ts —
-// dort mit vertauschter Parameterreihenfolge, weshalb die Zugangsdaten hier
-// als Objekt uebergeben werden. Alle drei Functions nutzen jetzt diese Fassung.
+// Shared by analyze-meal, search-key and coach-chat.
 
-/** Zugangsdaten des Service-Role-Aufrufs. Bewusst ein Objekt statt zweier
- *  String-Parameter: vertauscht faellt der Unterschied nirgends auf — der
- *  Aufruf ginge dann mit dem Key als Basis-URL raus. */
+/** Credentials of the service-role call. An object rather than two string
+ *  parameters: swapped, they would go out with the key as base URL and nothing
+ *  would look wrong. */
 export type PruneRateLimitsOptions = {
   supabaseUrl: string;
   serviceKey: string;
 };
 
 /**
- * Ruft die RPC `prune_edge_rate_limits` auf und schluckt jeden Fehler.
+ * Calls the `prune_edge_rate_limits` RPC and swallows every error.
  *
- * Resolved IMMER — auch bei Netzwerkfehler oder Fehlerstatus. Aufrufer duerfen
- * sich darauf verlassen, dass `void pruneRateLimits(...)` folgenlos bleibt.
+ * ALWAYS resolves, network errors and error statuses included, so
+ * `void pruneRateLimits(...)` stays without consequence.
  */
 export async function pruneRateLimits(options: PruneRateLimitsOptions): Promise<void> {
   try {
@@ -40,10 +33,9 @@ export async function pruneRateLimits(options: PruneRateLimitsOptions): Promise<
       },
       body: "{}",
     });
-    // fetch wirft bei 4xx/5xx nicht. Ohne diese Zeile bliebe eine dauerhaft
-    // fehlschlagende RPC (entzogenes grant, verschluckte Migration) voellig
-    // unsichtbar: die Tabelle waechst und niemand erfaehrt davon. Nur Status
-    // loggen — der Body kann nichts enthalten, was hier gebraucht wird.
+    // fetch does not throw on 4xx/5xx. Without this, a permanently failing RPC
+    // (revoked grant, missed migration) would stay invisible while the table
+    // grows. Log the status only; the body holds nothing needed here.
     if (!response.ok) {
       console.error(`prune_edge_rate_limits failed: HTTP ${response.status}`);
     }

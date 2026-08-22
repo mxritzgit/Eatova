@@ -11,23 +11,19 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// Kehrseite des D6-Fixes: seit der Coach-Screen im IndexedStack dauerhaft
-// gemountet bleibt, laeuft `_bootstrap()` nur noch EINMAL pro App-Lauf.
-//
-// Bei erschoepftem Kontingent ist der Composer deaktiviert ("Limit fuer heute
-// erreicht") — es gibt also gar keine send()-Antwort mehr, die den Zaehler
-// korrigieren koennte. Wer die App ueber die UTC-Mitternacht offen liess,
-// blieb bis zum Kaltstart ausgesperrt.
-//
-// Der Hebel ist `TickerMode`: der unsichtbare Tab ist stummgeschaltet, ein
-// Wechsel zurueck auf den Coach flippt ihn auf `true`.
+// Downside of the D6 fix: the coach screen stays mounted in the IndexedStack,
+// so `_bootstrap()` runs only ONCE per app run. With the quota exhausted the
+// composer is disabled and no send() response can correct the counter, so
+// anyone leaving the app open across UTC midnight stayed locked out until a
+// cold start. The lever is `TickerMode`: the invisible tab is muted, returning
+// to the coach flips it to `true`.
 
 class _MidnightService extends CoachChatService {
   _MidnightService(super.client, super.userId);
 
   int quotaCalls = 0;
 
-  /// Ab dem wievielten `loadQuotaToday()` das Kontingent wieder voll ist.
+  /// From which `loadQuotaToday()` call on the quota is full again.
   int resetAtCall = 2;
 
   static _MidnightService create() {
@@ -60,8 +56,8 @@ class _MidnightService extends CoachChatService {
   }
 }
 
-/// Minimaler Nachbau des Tab-Rahmens: `IndexedStack` + `TickerMode`, genau wie
-/// `eatova_home_page.dart` es seit D6 baut.
+/// Minimal replica of the tab shell: `IndexedStack` + `TickerMode`, as
+/// `eatova_home_page.dart` builds it.
 class _TabHost extends StatefulWidget {
   const _TabHost({required this.service});
 
@@ -110,12 +106,11 @@ void main() {
       (tester) async {
     final svc = _MidnightService.create();
     await tester.pumpWidget(MaterialApp(
-      // Ohne das Eatova-Theme wirft `AppTokens.of` (Theme.of(...)
-      // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
-      // Design-Refactor ueber `context.t`.
+      // Without the Eatova theme `AppTokens.of` throws; the screen reads its
+      // colours via `context.t`.
       theme: buildEatovaTheme(Brightness.dark),
-      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach calls context.l10n, so AppLocalizations.of() would throw on
+      // the first build without localizations.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -130,8 +125,8 @@ void main() {
     expect(svc.quotaCalls, 1, reason: 'Bootstrap: 0 uebrig, Composer gesperrt');
     expect(find.text('Limit für heute erreicht'), findsOneWidget);
 
-    await _wechsleTab(tester); // weg
-    await _wechsleTab(tester); // und zurueck
+    await _wechsleTab(tester); // away
+    await _wechsleTab(tester); // and back
 
     expect(svc.quotaCalls, 2, reason: 'die Rueckkehr muss neu fragen');
     expect(find.text('Limit für heute erreicht'), findsNothing,
@@ -141,12 +136,11 @@ void main() {
   testWidgets('das Verlassen des Tabs allein fragt nichts ab', (tester) async {
     final svc = _MidnightService.create();
     await tester.pumpWidget(MaterialApp(
-      // Ohne das Eatova-Theme wirft `AppTokens.of` (Theme.of(...)
-      // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
-      // Design-Refactor ueber `context.t`.
+      // Without the Eatova theme `AppTokens.of` throws; the screen reads its
+      // colours via `context.t`.
       theme: buildEatovaTheme(Brightness.dark),
-      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach calls context.l10n, so AppLocalizations.of() would throw on
+      // the first build without localizations.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [
@@ -159,7 +153,7 @@ void main() {
     ));
     await tester.pump(const Duration(milliseconds: 400));
 
-    await _wechsleTab(tester); // nur weg
+    await _wechsleTab(tester); // away only
 
     expect(svc.quotaCalls, 1,
         reason: 'ein Request im Hintergrund waere reine Verschwendung');
@@ -170,12 +164,11 @@ void main() {
       (tester) async {
     final svc = _MidnightService.create()..resetAtCall = 99;
     await tester.pumpWidget(MaterialApp(
-      // Ohne das Eatova-Theme wirft `AppTokens.of` (Theme.of(...)
-      // .extension<AppTokens>()!) — der Screen liest seine Farben seit dem
-      // Design-Refactor ueber `context.t`.
+      // Without the Eatova theme `AppTokens.of` throws; the screen reads its
+      // colours via `context.t`.
       theme: buildEatovaTheme(Brightness.dark),
-      // Der Coach ruft seit der i18n-Migration (Paket 4) context.l10n — ohne
-      // Lokalisierung wirft AppLocalizations.of() beim ersten Build.
+      // The coach calls context.l10n, so AppLocalizations.of() would throw on
+      // the first build without localizations.
       locale: const Locale('de'),
       supportedLocales: const [Locale('de'), Locale('en')],
       localizationsDelegates: const [

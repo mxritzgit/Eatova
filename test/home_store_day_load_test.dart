@@ -18,29 +18,16 @@ import 'package:eatova/src/services/meals_sync.dart'
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// On-Demand-Laden alter Tage (2026-08-06): der Boot laedt nur das 35-Tage-
-// Fenster (MealsSync.loggedMealsWindowDays). Waehlt der Nutzer per Kalender
-// einen aelteren Tag, laedt der Store GENAU diesen Tag nach und merged ihn
-// duplikat-sicher (per id) in loggedMeals. Diese Tests treiben den ECHTEN
-// HomeStore ueber einen zustandsbehafteten MockClient (Muster:
-// home_store_outbox_test.dart), dessen logged_meals-GET die gte/lt-Filter wie
-// PostgREST anwendet, und sichern:
-//   1. Tages-Query + Merge + Session-Cache (kein doppelter GET, keine Dups).
-//   2. Lade-Zustand fuer die UI (isLoadingFoodDay) waehrend des Nachladens.
-//   3. Fehlerpfad: klassifizierte Meldung (sync_error_messages), kein
-//      haengender Spinner, erneuter Tap laedt erneut.
-//   4. Outbox-Sicherheit: pendende Inserts bleiben sichtbar, ein pendender
-//      Delete belebt eine frisch geladene Server-Zeile NICHT wieder.
-//   5. Cache-Write-Through blaeht nicht auf: Alt-Tage bleiben In-Memory.
-//   6. Naechste Session (Fenster-Refresh): keine Geister-Duplikate — der
-//      Alt-Tag ist wieder draussen und laedt bei Auswahl frisch.
+// On-demand loading of old days: the boot loads only the 35-day window, and
+// picking an older day loads exactly that day and merges it by id. Driven
+// against the REAL HomeStore over a stateful MockClient that applies the
+// gte/lt filters like PostgREST.
 
-/// Zustandsbehafteter Fake-PostgREST mit gte/lt-Filterung auf logged_at.
+/// Stateful fake PostgREST with gte/lt filtering on logged_at.
 class _FakeServer {
   bool offline = false;
 
-  /// Haelt logged_meals-GETs offen, bis der Completer abgeschlossen wird
-  /// (Lade-Zustands-Szenario).
+  /// Holds logged_meals GETs open until completed, for the loading-state test.
   Completer<void>? holdMealReads;
 
   final List<http.Request> requests = <http.Request>[];
@@ -51,8 +38,8 @@ class _FakeServer {
 
   http.Client client() => MockClient(_handle);
 
-  /// Alle logged_meals-GETs, die einen lt.-Filter tragen — also die
-  /// On-Demand-Tages-Queries (der Boot-Fenster-Query sendet nur gte.).
+  /// The logged_meals GETs carrying an lt. filter, i.e. the on-demand day
+  /// queries; the boot window query only sends gte.
   List<http.Request> get dayReads => requests
       .where((r) =>
           r.method == 'GET' &&
@@ -98,7 +85,7 @@ class _FakeServer {
         mealRows.remove(_eqParam(req, 'id'));
         return ok(const <dynamic>[]);
       }
-      // GET: optionales Anhalten + gte/lt-Filter wie PostgREST anwenden.
+      // GET: optional hold, then apply gte/lt filters like PostgREST.
       final hold = holdMealReads;
       if (hold != null) await hold.future;
       final filters = req.url.queryParametersAll['logged_at'] ?? const [];
@@ -128,7 +115,7 @@ class _FakeServer {
               })
           .toList());
     }
-    // Uebrige Reads leer, uebrige Writes Erfolg (siehe outbox-Test).
+    // Remaining reads empty, remaining writes succeed (see outbox test).
     if (req.method == 'GET') return ok(const <dynamic>[]);
     return http.Response('', 201, request: req);
   }
@@ -234,7 +221,7 @@ Map<String, dynamic> _serverMealRow(
       'payload': mealResultToJson(_result(name, kcal: kcal)),
     };
 
-/// Alt-Tag klar ausserhalb des 35-Tage-Fensters.
+/// An old day clearly outside the 35-day window.
 DateTime get _oldDay => DateUtils.dateOnly(DateTime.now())
     .subtract(const Duration(days: MealsSync.loggedMealsWindowDays + 5));
 
@@ -262,7 +249,7 @@ void main() {
         'win-1', DateTime.now().subtract(const Duration(days: 1)));
     await _boot(s.store);
 
-    // Boot-Fenster enthaelt nur die junge Zeile.
+    // The boot window holds only the recent row.
     expect(s.store.loggedMeals.map((m) => m.id), ['win-1']);
 
     s.store.setFoodDate(oldDay);
@@ -276,7 +263,7 @@ void main() {
       reason: 'Merge ist duplikat-sicher per id',
     );
 
-    // Genau EIN Tages-GET mit halboffenem Fenster auf logged_at.
+    // Exactly ONE day GET with a half-open window on logged_at.
     expect(s.server.dayReads, hasLength(1));
     final bounds =
         s.server.dayReads.single.url.queryParametersAll['logged_at']!;
@@ -287,7 +274,7 @@ void main() {
     expect(gte, DateTime(oldDay.year, oldDay.month, oldDay.day).toUtc());
     expect(lt, DateTime(oldDay.year, oldDay.month, oldDay.day + 1).toUtc());
 
-    // Erneuter Besuch desselben Tags: Session-Cache, kein weiterer GET.
+    // Revisiting the same day hits the session cache, no further GET.
     s.store.setFoodDate(DateTime.now());
     s.store.setFoodDate(oldDay);
     await _settle();
@@ -337,14 +324,13 @@ void main() {
       s.snacks.messages.last,
       'Offline — das hat gerade nicht geklappt. Bitte versuch es mit Internetverbindung erneut.',
     );
-    // Kein Schema-/Exception-Leak in die UI.
+    // No schema or exception leak into the UI.
     for (final m in s.snacks.messages) {
       expect(m, isNot(contains('ClientException')));
       expect(m, isNot(contains('logged_meals')));
     }
 
-    // Netz zurueck: derselbe Tag laedt beim naechsten Tap erneut (der
-    // Fehlschlag hat ihn NICHT als geladen markiert).
+    // The failure did NOT mark the day as loaded, so the next tap reloads.
     s.server.offline = false;
     s.store.setFoodDate(oldDay);
     await _settle();
@@ -360,16 +346,14 @@ void main() {
         _serverMealRow('old-srv', oldDay.add(const Duration(hours: 12)));
     await _boot(s.store);
 
-    // Offline: Nachtrag auf den Alt-Tag + Loeschung der (nie gebooteten)
-    // Server-Zeile — beides landet als Op in der Outbox.
+    // Offline: a late entry plus a delete of the never-booted server row.
     s.server.offline = true;
     final localId = s.store
         .addResultToDailyTotal(_result('Nachtrag', kcal: 200), foodDate: oldDay);
     s.store.removeLoggedMeal('old-srv');
     await _settle();
 
-    // Wieder online: der Tages-Load merged den Server-Stand — die pendenden
-    // Ops werden danach erneut ueberlagert.
+    // The day load merges the server state, then the pending ops go on top.
     s.server.offline = false;
     s.store.setFoodDate(oldDay);
     await _settle();
@@ -397,7 +381,7 @@ void main() {
     await _settle();
     expect(s.store.mealsForFoodDate(oldDay), hasLength(1));
 
-    // Write-Through ausloesen: heutigen Log hinzufuegen.
+    // Trigger a write-through by logging something for today.
     s.store.setFoodDate(DateTime.now());
     final todayId = s.store.addResultToDailyTotal(_result('Heute-Bowl'));
     await _settle();
@@ -407,7 +391,6 @@ void main() {
     expect(cached!.map((m) => m.id), contains(todayId));
     expect(cached.map((m) => m.id), isNot(contains('old-1')),
         reason: 'Alt-Tage wandern bewusst NICHT in den durablen Cache');
-    // In-Memory bleibt der Alt-Tag natuerlich da.
     expect(s.store.mealsForFoodDate(oldDay), hasLength(1));
   });
 
@@ -418,7 +401,7 @@ void main() {
     final kv = InMemoryKeyValueStore();
     final oldDay = _oldDay;
 
-    // Session 1: Alt-Tag besuchen (gemerged, in-memory).
+    // Session 1: visit the old day (merged, in memory).
     final a = _setup(kv: kv);
     a.server.mealRows['old-1'] =
         _serverMealRow('old-1', oldDay.add(const Duration(hours: 12)));
@@ -427,28 +410,23 @@ void main() {
     await _settle();
     expect(a.store.mealsForFoodDate(oldDay), hasLength(1));
 
-    // Session 2 auf demselben Cache + Server: der Boot ersetzt das Fenster,
-    // der Alt-Tag kommt weder aus dem Cache noch als Geist mit.
+    // Session 2, same cache and server: the boot replaces the window and the
+    // old day returns neither from cache nor as a ghost.
     final b = _setup(kv: kv, server: a.server);
     await _boot(b.store);
     expect(b.store.loggedMeals.where((m) => m.id == 'old-1'), isEmpty);
 
-    // Auswahl laedt frisch — exakt EINE Kopie, keine Duplikate.
+    // Selecting it loads fresh: exactly ONE copy, no duplicates.
     b.store.setFoodDate(oldDay);
     await _settle();
     expect(b.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1']);
     expect(b.store.loggedMeals.where((m) => m.id == 'old-1'), hasLength(1));
   });
 
-  // B5 (2026-08-08): _isOutsideBootWindow rechnete die Fenstergrenze mit
-  // `dateOnly(now).difference(dateOnly(day)).inDays` — Absolutzeit. Ueber die
-  // Fruehjahrsumstellung (Europe/Berlin, Sonntag 29.03.2026, 23 Stunden) fehlt
-  // in jedem Zeitraum, der sie enthaelt, eine Stunde: der Randtag des
-  // 35-Tage-Fensters zaehlt nur als 34 und gilt faelschlich als „im Fenster"
-  // geladen. Er wurde deshalb NIE nachgeladen und blieb dauerhaft leer, obwohl
-  // der Boot-Query (Zeitstempel-Cutoff) ihn hoechstens partiell mitbringt.
-  //
-  // Nachgerechnet auf dieser Maschine (Europe/Berlin):
+  // B5 (2026-08-08): _isOutsideBootWindow measured the window in absolute time
+  // via `difference(...).inDays`. A span containing the spring DST switch is an
+  // hour short, so the 35-day edge day counted as 34, was wrongly treated as
+  // loaded and stayed empty forever.
   //   DateTime(2026,4,20).difference(DateTime(2026,3,16)).inDays == 34
   group('B5 — Fenstergrenze ueber die Fruehjahrsumstellung', () {
     test(
@@ -481,7 +459,7 @@ void main() {
       await _boot(s.store);
 
       await withClock(Clock.fixed(DateTime(2026, 4, 20, 10)), () async {
-        // 34 Kalendertage zurueck — der Boot-Query deckt ihn ab.
+        // 34 calendar days back: covered by the boot query.
         s.store.setFoodDate(DateTime(2026, 3, 17));
         await _settle();
       });

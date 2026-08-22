@@ -7,9 +7,8 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 
-// Manueller Eintrag (Spec 2026-08-13): Formular pro 100 g + Portion.
-// Menschen-Eingaben werden ABGELEHNT statt geklemmt: Save sperrt, Feld
-// traegt den Bereichs-Fehler.
+// Manual entry: form per 100 g plus portion. Human input is REJECTED, not
+// clamped — save locks and the field shows the range error.
 
 class _ResultHalter {
   MealAnalysisResult? result;
@@ -172,7 +171,7 @@ void main() {
 
   testWidgets('Abbrechen liefert null', (tester) async {
     final halter = await _open(tester);
-    // Sheet per Barriere-Tap schließen (oberhalb des Sheets tippen).
+    // Close the sheet by tapping the barrier above it.
     await tester.tapAt(const Offset(200, 40));
     await tester.pumpAndSettle();
     expect(halter.result, isNull);

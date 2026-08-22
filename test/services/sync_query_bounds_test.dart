@@ -9,21 +9,14 @@ import 'package:eatova/src/services/meals_sync.dart';
 import 'package:eatova/src/services/tracking_sync.dart';
 import 'package:eatova/src/services/user_recipes_sync.dart';
 
-// PERF/DATA: Die vier Boot-Reads (Tagebuch, Favoriten, Gewicht, Rezepte)
-// waren unbounded — nach einem Jahr Tracking laed jeder Kaltstart Tausende
-// JSONB-Zeilen, und ein gesetztes db-max-rows kappt bei PostgREST STILL
-// (aeltere Eintraege verschwinden kommentarlos). Diese Tests fahren die
-// echten Sync-Services gegen einen aufzeichnenden MockClient (Muster aus
-// home_store_outbox_test.dart) und sichern die Bounds AUF DEM WIRE:
-//   1. logged_meals: Datumsfenster (gte auf logged_at, ~35 Tage) + order
-//      desc + explizites Limit; Ergebnis-Reihenfolge = Server-Reihenfolge.
-//   2. favorite_meals: order desc + grosszuegiges Limit.
-//   3. weight_log: order desc + Limit auf dem Wire, aber AUFSTEIGENDE
-//      Reihenfolge im Ergebnis (WeightLog-Kontrakt: latest == entries.last).
-//   4. user_recipes: order desc + grosszuegiges Limit.
+// PERF/DATA: the four boot reads were unbounded — after a year of tracking
+// every cold start pulls thousands of JSONB rows, and a db-max-rows setting
+// truncates SILENTLY in PostgREST. These tests pin the bounds ON THE WIRE:
+// order desc plus an explicit limit everywhere, a date window on logged_meals,
+// and an ASCENDING result for weight_log (latest == entries.last).
 
-/// SupabaseClient gegen einen MockClient, der jeden Request aufzeichnet und
-/// fuer GETs die uebergebenen Zeilen liefert.
+/// SupabaseClient over a MockClient that records every request and answers
+/// GETs with the given rows.
 ({SupabaseClient client, List<http.Request> requests}) _recordingClient(
   Object rows,
 ) {
@@ -36,7 +29,7 @@ import 'package:eatova/src/services/user_recipes_sync.dart';
       return http.Response(jsonEncode(rows), 200,
           headers: const {'Content-Type': 'application/json'}, request: req);
     }),
-    // Kein GoTrue-Auto-Refresh-Ticker im Test (siehe home_store_outbox_test).
+    // No GoTrue auto-refresh ticker in tests.
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
   addTearDown(client.dispose);
@@ -73,9 +66,8 @@ void main() {
     });
 
     test('behaelt die Server-Reihenfolge (neueste zuerst) bei', () async {
-      // Seit Sentinel-Rest S1 ist ein Payload ohne caloriesKcal korrupt und
-      // die Zeile wird uebersprungen — die Fixtures tragen deshalb das
-      // Pflichtfeld (die erste Fassung nutzte leere Payloads).
+      // A payload without caloriesKcal counts as corrupt and its row is
+      // skipped, so the fixtures carry that required field.
       final c = _recordingClient([
         {
           'id': 'neu',
@@ -113,7 +105,7 @@ void main() {
       expect(params['order'], startsWith('logged_at.desc'));
       expect(params['limit'], '${MealsSync.loggedMealsDayMaxRows}');
 
-      // gte + lt teilen sich den Query-Key logged_at -> queryParametersAll.
+      // gte and lt share the query key logged_at -> queryParametersAll.
       final bounds = req.url.queryParametersAll['logged_at'] ?? const [];
       final gte = bounds
           .singleWhere((f) => f.startsWith('gte.'))
@@ -121,8 +113,8 @@ void main() {
       final lt = bounds
           .singleWhere((f) => f.startsWith('lt.'))
           .substring('lt.'.length);
-      // Lokale Mitternacht des Tages bzw. des Folgetags, nach UTC uebersetzt —
-      // die Uhrzeit des uebergebenen DateTime ist egal.
+      // Local midnight of the day and the next, translated to UTC; the time
+      // of the passed DateTime does not matter.
       expect(DateTime.parse(gte), DateTime(2026, 3, 14).toUtc());
       expect(DateTime.parse(lt), DateTime(2026, 3, 15).toUtc());
     });
@@ -143,7 +135,7 @@ void main() {
   test(
       'TrackingSync.loadWeightLog: bounded auf dem Wire (desc + Limit), '
       'Ergebnis aufsteigend (WeightLog-Kontrakt)', () async {
-    // Server liefert desc (neueste zuerst) — genau wie die Query bestellt.
+    // Server answers desc (newest first), exactly as the query asked.
     final c = _recordingClient([
       {'recorded_at': '2026-08-05T07:00:00Z', 'weight_kg': 81.0},
       {'recorded_at': '2026-08-01T07:00:00Z', 'weight_kg': 82.5},
@@ -158,8 +150,8 @@ void main() {
     expect(params['order'], startsWith('recorded_at.desc'));
     expect(params['limit'], '${TrackingSync.weightLogLimit}');
 
-    // Client-seitig zurueck in die aufsteigende Reihenfolge: latest ==
-    // entries.last, der Verlaufs-Chart zeichnet links (alt) -> rechts (neu).
+    // Flipped back to ascending on the client: latest == entries.last, and the
+    // history chart draws old on the left, new on the right.
     expect(log.entries.map((e) => e.weightKg).toList(), [84.0, 82.5, 81.0]);
     expect(log.latest?.weightKg, 81.0);
     final timestamps = log.entries.map((e) => e.timestamp).toList();

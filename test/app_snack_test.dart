@@ -4,17 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// Regression: Snackbars (z. B. "Mahlzeit gelöscht / Rückgängig") blieben auf
-// dem Gerät stehen und mussten manuell weggewischt werden. Ursache: bei
-// deaktivierter System-Animation ("Bewegung reduzieren") schließt die
-// Snackbar-Entrance synchron ab und Flutters eingebauter Auto-Dismiss-Timer
-// feuert teils nicht. showAppSnack hat dafür ein Safety-Net.
+// Regression: with system animations disabled the snackbar entrance finishes
+// synchronously and Flutter's auto-dismiss timer sometimes never fires, so
+// toasts stayed on screen. showAppSnack has a safety net for that.
 
-// Design-Refactor 2026-08: showAppSnack liest den Toast-Ton seit der
-// Token-Migration ueber `context.t` (SnackTone -> AppTokens). `AppTokens.of`
-// wirft absichtlich, wenn die ThemeExtension fehlt — eine nackte MaterialApp
-// reicht als Wirt deshalb nicht mehr. In der App haengt jeder Toast unter
-// `buildEatovaTheme` (eatova_app.dart:95/96), die Harness bildet das nach.
+// showAppSnack reads the toast tone via `context.t`, and `AppTokens.of` throws
+// without the theme extension, so the host must build the real theme.
 Widget _host(VoidCallback onTap) => MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
       home: Scaffold(
@@ -53,7 +48,7 @@ void main() {
     await tester.pump();
     expect(find.text('Auto-weg-Test'), findsOneWidget);
 
-    // Über Dauer (300ms) + Safety-Net-Puffer (350ms) hinaus -> muss weg sein.
+    // Past duration (300ms) plus safety-net buffer (350ms): must be gone.
     await tester.pump(const Duration(milliseconds: 800));
     await tester.pumpAndSettle();
     expect(find.text('Auto-weg-Test'), findsNothing);
@@ -67,7 +62,7 @@ void main() {
         tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
 
     await tester.pumpWidget(_host(() {}));
-    await tester.tap(find.text('go')); // baut ctx via overlay
+    await tester.tap(find.text('go')); // builds ctx via overlay
     await tester.pump();
 
     final ctx = tester.element(find.text('go'));

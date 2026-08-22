@@ -1,7 +1,6 @@
-// Produktsuche-Flows (aus test/widget_test.dart aufgeteilt): Textsuche mit
-// Treffer-Auswahl, Live-Vorschlaege beim Tippen und die Retry-Logik bei
-// transienten Fehlern — sowie die Gegenprobe, dass ein LEERES Ergebnis
-// keinen Retry mehr ausloest (Komplettreview 2026-08-19).
+// Product search flows: text search with result selection, live suggestions
+// while typing, retry on transient failures, and the counter-check that an
+// EMPTY result triggers no retry.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,8 +45,8 @@ void main() {
     await tester.tap(addButton);
     await tester.pumpAndSettle();
 
-    // Das Sheet schliessen und im Heute-Tab nachsehen: dort steht das
-    // Tagestotal, seit die Kalorien-Karte aus dem Food-Tab entfernt ist.
+    // Close the sheet and check the today tab: the daily total lives there
+    // since the calorie card left the food tab.
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
     await expectTagestotalAufHeute(tester, '252');
@@ -107,15 +106,10 @@ void main() {
     expect(find.text('OpenFoodFacts-Suche gerade nicht erreichbar.'), findsNothing);
   });
 
-  // Komplettreview 2026-08-19: leer ist eine ANTWORT, kein Fehler.
-  //
-  // Bis dahin lief ein leeres (aber fehlerfreies) Ergebnis durch dieselbe
-  // Retry-Schleife wie ein Netzfehler — in der Annahme, der Mirror sei nur
-  // kalt. Bezahlt hat das jede erfolglose Suche: ein Versuch faechert sich in
-  // der Dienstschicht ueber Mirror + OFF-de + OFF-world auf, drei Versuche
-  // machen daraus neun Anfragen fuer ein "gibt es nicht". Der Dienst wird
-  // seitdem genau EINMAL gefragt; Retries bleiben echten Fehlern vorbehalten
-  // (siehe den Flaky-Test darueber).
+  // Empty is an ANSWER, not an error. One attempt fans out across mirror +
+  // OFF-de + OFF-world in the service layer, so three attempts would mean
+  // nine requests for a "does not exist". The service is asked exactly ONCE;
+  // retries stay reserved for real failures (see the flaky test above).
   testWidgetsRobust('Kcal live product search takes an empty result as final', (
     WidgetTester tester,
   ) async {
@@ -132,8 +126,8 @@ void main() {
       find.byKey(const ValueKey('kcal-product-search-input')),
       'Wagner Salami',
     );
-    // Debounce (1000 ms) plus der Raum, den zwei Retries (je 600 ms) brauchen
-    // wuerden — genau der Raum, der jetzt ungenutzt bleiben muss.
+    // Debounce (1000 ms) plus the room two retries (600 ms each) would need —
+    // exactly the room that must now stay unused.
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump(const Duration(milliseconds: 1300));
     await tester.pumpAndSettle();
@@ -145,10 +139,8 @@ void main() {
           'anfassen',
     );
     expect(find.byKey(const ValueKey('kcal-product-suggestion-0')), findsNothing);
-    // Der Flow-Harness startet die App ohne erzwungene Sprache und landet
-    // deshalb auf ENGLISCH — der Hinweis wird hier in seiner en-Fassung
-    // geprueft (die beiden findsNothing-Zusicherungen weiter oben sind gegen
-    // diese Falle immun, ein findsOneWidget waere es nicht).
+    // The flow harness starts the app without a forced language and lands on
+    // ENGLISH, so the hint is checked in its en wording.
     expect(
       find.text('No matching products found. Try a brand plus product name.'),
       findsOneWidget,

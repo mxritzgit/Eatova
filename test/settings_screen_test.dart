@@ -9,21 +9,19 @@ import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-// Die Einstellungen (Design-Refactor 2026-08-10) — Konto, Präferenzen, Daten,
-// Gefahrenzone. „Profil & Ziele" ist seit dieser Trennung eine eigene Seite;
-// hier steht nur noch die Zeile, die dorthin fuehrt.
+// The settings page — account, preferences, data, danger zone. Profile &
+// goals is its own page; only the row leading there lives here.
 //
-// Der Pruefgegenstand dieser Datei ist VERHALTEN, nicht Geometrie:
+// This file tests BEHAVIOUR, not geometry:
 //
-//   1. Jede Zeile ruft ihren Callback — sonst ist sie Dekoration.
-//   2. Ein FEHLENDER Callback blendet seine Zeile AUS. Bewusst nicht
-//      „deaktiviert": ein grauer Eintrag behauptet, es gaebe den Weg, und die
-//      App koenne ihn gerade nur nicht. Ohne Sync gibt es ihn schlicht nicht.
-//   3. Der Erscheinungsbild-Umschalter setzt den Modus wirklich (er ist die
-//      einzige Einstellung, die dieser Screen selbst schreibt).
-/// Zaehlt Route-Pops. Dient dem Ordnungsbeweis „erst schliessen, dann den
-/// Callback rufen" — der Widget-Baum taugt dafuer nicht, weil die gepoppte
-/// Route waehrend ihrer Ausblend-Animation noch darin steht.
+//   1. Every row calls its callback, or it is decoration.
+//   2. A MISSING callback hides its row. Deliberately not "disabled": a grey
+//      entry claims the path exists and is merely unavailable.
+//   3. The appearance switch really sets the mode (the only setting this
+//      screen writes itself).
+/// Counts route pops, proving the order "close first, then call the
+/// callback". The widget tree cannot show it: the popped route is still in it
+/// during its fade-out.
 class _PopSpion extends NavigatorObserver {
   int pops = 0;
 
@@ -37,15 +35,14 @@ class _PopSpion extends NavigatorObserver {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  /// Pumpt die Seite als ROUTE ueber einer Starterseite — nur so laesst sich
-  /// pruefen, dass Ausloggen und Loeschen die Seite vorher schliessen.
+  /// Pumps the page as a ROUTE above a starter page — the only way to check
+  /// that sign-out and delete close it first.
   Future<void> pump(
     WidgetTester tester, {
     String? email = 'jonas@example.com',
-    /// Die Auth-Schicht. Seit dem Sicherheits-Audit 2026-08-14 traegt sie
-    /// nicht nur Passwort- und Adresswechsel, sondern auch die
-    /// Re-Authentifizierung vor der Kontoloeschung — ohne sie entfaellt der
-    /// Loesch-Block ersatzlos.
+    /// The auth layer: password and address change plus the
+    /// re-authentication before account deletion. Without it the delete block
+    /// disappears entirely.
     AuthRepository? authRepository,
     VoidCallback? onOpenGoals,
     Future<void> Function()? onSignOut,
@@ -120,9 +117,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Gegenstelle fuer die Zeilen, die an der Auth-Schicht haengen — dieselbe
-  /// wie in `test/account_change_flows_test.dart` und
-  /// `test/delete_account_reauth_test.dart`.
+  /// Peer for the rows hanging off the auth layer — the same one used in
+  /// `test/account_change_flows_test.dart`.
   InMemoryAuthRepository baueRepo() {
     final repo = InMemoryAuthRepository(
       initialUser: const EatovaUser(id: 'u1', email: 'jonas@example.com'),
@@ -131,7 +127,7 @@ void main() {
     return repo;
   }
 
-  // --- Grundgeruest ---------------------------------------------------------
+  // --- Skeleton -------------------------------------------------------------
 
   testWidgets('die Seite traegt ihren Schluessel und ihren Titel',
       (tester) async {
@@ -139,21 +135,19 @@ void main() {
 
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
     expect(find.text('Einstellungen'), findsOneWidget);
-    // Der Schluessel `screen-goals` gehoert seit der Trennung der ANDEREN
-    // Seite — hier darf er nicht auftauchen.
+    // The key `screen-goals` belongs to the other page and must not show up.
     expect(find.byKey(const ValueKey('screen-goals')), findsNothing);
 
-    // Kein Verwerfen-Schutz: dieser Screen haelt keinen ungespeicherten
-    // Entwurf. Jede Zeile wirkt sofort, der Zurueck-Knopf geht also sofort.
+    // No discard guard: this screen holds no unsaved draft, every row takes
+    // effect at once, so back leaves immediately.
     await tippe(tester, find.byKey(const ValueKey('settings-back')));
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
   });
 
   testWidgets('die Attrappen der Vorlage sind nicht gebaut', (tester) async {
-    // „Units", „Language", „Weekly summary email" haben in dieser App keine
-    // Funktion (deutsch, metrisch, kein Wochen-Report). Diese Zusicherung ist
-    // die Bremse gegen ein spaeteres „bauen wir schonmal ein".
+    // Units, language and weekly summary have no function in this app; this
+    // assertion is the brake against building them in "for later".
     await pump(tester, onOpenGoals: () {});
 
     for (final text in const <String>[
@@ -167,7 +161,7 @@ void main() {
     }
   });
 
-  // --- KONTO ----------------------------------------------------------------
+  // --- ACCOUNT --------------------------------------------------------------
 
   testWidgets('die Mailadresse steht als Untertitel', (tester) async {
     await pump(tester, email: 'jonas@example.com');
@@ -184,7 +178,7 @@ void main() {
     expect(find.text('KONTO'), findsNothing);
   });
 
-  // --- PRAEFERENZEN ---------------------------------------------------------
+  // --- PREFERENCES ----------------------------------------------------------
 
   testWidgets('„Profil & Ziele" ruft onOpenGoals', (tester) async {
     var aufgerufen = 0;
@@ -225,15 +219,15 @@ void main() {
 
   testWidgets('ohne ThemeModeScope fehlt die Erscheinungsbild-Zeile ersatzlos',
       (tester) async {
-    // Previews und Tests, die nur diesen Screen pumpen. Ein Schalter ohne
-    // Controller waere ein toter Schalter — also gar keiner.
+    // Previews and tests that pump only this screen: a switch without a
+    // controller would be a dead switch, so there is none.
     await pump(tester);
 
     expect(find.text('Erscheinungsbild'), findsNothing);
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
 
-  // --- DATEN & PRIVATSPHAERE ------------------------------------------------
+  // --- DATA & PRIVACY -------------------------------------------------------
 
   testWidgets('„Daten exportieren" oeffnet die Auskunft mit dem JSON',
       (tester) async {
@@ -251,8 +245,7 @@ void main() {
     expect(aufgerufen, 1);
     expect(find.text('Datenauskunft'), findsOneWidget);
     expect(find.text('{ "meals": [] }'), findsOneWidget);
-    // Derselbe Kopieren-Knopf wie im Profil — ein zweites Export-Sheet gibt
-    // es bewusst nicht.
+    // Same copy button as in the profile; there is no second export sheet.
     expect(find.byKey(const ValueKey('profile-export-copy')), findsOneWidget);
   });
 
@@ -264,9 +257,8 @@ void main() {
 
   testWidgets('die drei Rechtsseiten stehen als Zeilen mit ihren Schluesseln',
       (tester) async {
-    // DSGVO Art. 13 / § 5 DDG: nach dem Login erreichbar, nicht nur auf dem
-    // Auth-Screen. Die Schluessel sind unveraendert die aus
-    // [SettingsLegalLinks] (DESIGN_REFACTOR §6: „Key bleibt Key").
+    // GDPR Art. 13 / § 5 DDG: reachable after login, not only on the auth
+    // screen. The keys are still the ones from [SettingsLegalLinks].
     await pump(tester);
 
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
@@ -276,16 +268,14 @@ void main() {
     expect(find.text('Impressum'), findsOneWidget);
   });
 
-  // --- GEFAHRENZONE ---------------------------------------------------------
+  // --- DANGER ZONE ----------------------------------------------------------
 
   testWidgets('„Ausloggen" schliesst erst die Seite und ruft dann den Callback',
       (tester) async {
-    // Die Reihenfolge ist Absicht: `AuthGate` zeigt „Deine Sitzung ist
-    // abgelaufen", wenn beim Auth-Wechsel noch Routen offen sind. Nach einem
-    // gewollten Logout waere das schlicht falsch.
-    // Gemessen wird die Navigator-Historie, nicht der Widget-Baum: die Route
-    // ist beim Callback bereits gepoppt, ihre Ausblend-Animation laeuft aber
-    // noch — der Baum wuerde also luegen.
+    // The order is deliberate: `AuthGate` claims the session expired if
+    // routes are still open during the auth change, which would be wrong
+    // after an intentional logout. Measured on the navigator history, not the
+    // tree — the route is popped but still fading out.
     final spion = _PopSpion();
     var abgemeldet = 0;
     var popsBeimCallback = -1;
@@ -313,8 +303,8 @@ void main() {
 
   testWidgets('ohne beide Gefahren-Callbacks fehlt die ganze Gruppe',
       (tester) async {
-    // MIT Auth-Schicht, damit der Fall wirklich die fehlenden Callbacks misst
-    // und nicht bloss das fehlende Repository.
+    // WITH the auth layer, so this measures the missing callbacks and not
+    // just the missing repository.
     await pump(tester, authRepository: baueRepo());
 
     expect(find.text('GEFAHRENZONE'), findsNothing);
@@ -323,16 +313,12 @@ void main() {
 
   testWidgets('„Konto löschen" verlangt das getippte Wort und danach den Code',
       (tester) async {
-    // Seit dem Sicherheits-Audit 2026-08-14 sind es ZWEI Huerden, und dieser
-    // Fall haelt fest, dass KEINE von beiden allein loescht. Bis dahin genuegte
-    // das getippte Wort — das direkt daneben als Hinweistext stand.
+    // TWO hurdles, and neither deletes on its own. The typed word catches the
+    // accident before any mail goes out; the code catches a stranger's finger
+    // on an unlocked device.
     //
-    // Die Wort-Huerde ist dabei NICHT entfallen: sie faengt weiter das
-    // Versehen ab, bevor ueberhaupt eine Mail rausgeht. Der Code faengt den
-    // fremden Finger am entsperrten Geraet.
-    //
-    // Die Feinheiten des zweiten Schritts (zu kurzer Code, abgelehnter Code,
-    // Doppel-Tap) liegen in `test/delete_account_reauth_test.dart`.
+    // The second step's edge cases live in
+    // `test/delete_account_reauth_test.dart`.
     final repo = baueRepo();
     var geloescht = 0;
     await pump(
@@ -342,19 +328,17 @@ void main() {
     );
 
     await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
-    // Schritt 1 traegt den Loesch-Knopf gar nicht: hier wird nichts geloescht,
-    // hier wird der Code angefordert.
+    // Step 1 has no delete button at all: it only requests the code.
     expect(find.text('Code anfordern'), findsOneWidget);
     expect(find.text('Konto endgültig löschen'), findsNothing);
 
-    // Ohne das Wort ist der Knopf nicht scharf — es geht nicht einmal eine
-    // Mail raus.
+    // Without the word the button is not armed — not even a mail goes out.
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
     expect(repo.passwordResets, isEmpty);
     expect(geloescht, 0);
 
-    // Ein FALSCHES Wort schaltet ebenfalls nicht scharf.
+    // A WRONG word does not arm it either.
     await tester.enterText(
       find.byKey(const ValueKey('settings-delete-confirm-field')),
       'löschen bitte',
@@ -365,9 +349,9 @@ void main() {
     expect(repo.passwordResets, isEmpty);
     expect(geloescht, 0);
 
-    // Mit dem Wort geht der Code raus (Kleinschreibung genuegt: die Huerde
-    // schuetzt vor dem Versehen, nicht vor der Shift-Taste) — geloescht ist
-    // damit aber NICHTS.
+    // With the word the code goes out (lowercase is enough: the hurdle
+    // guards against accidents, not against the shift key) — but nothing is
+    // deleted yet.
     await tester.enterText(
       find.byKey(const ValueKey('settings-delete-confirm-field')),
       'löschen',
@@ -384,15 +368,15 @@ void main() {
       findsOneWidget,
     );
 
-    // Auch der Loesch-Knopf selbst loescht nicht, solange kein Code steht.
+    // The delete button itself deletes nothing while no code is entered.
     await tester.tap(find.text('Konto endgültig löschen'));
     await tester.pumpAndSettle();
     expect(repo.verifiedCodes, isEmpty);
     expect(geloescht, 0);
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 
-    // Erst der vom SERVER bestaetigte Code laeuft durch — Seite zu, dann der
-    // Callback.
+    // Only the server-confirmed code goes through: page closes, then the
+    // callback runs.
     await tester.enterText(
       find.byKey(const ValueKey('settings-delete-code-field')),
       '12345678',
@@ -407,8 +391,8 @@ void main() {
   });
 
   testWidgets('ohne onDeleteAccount fehlt der Loesch-Block', (tester) async {
-    // Auch hier mit Repository: die Zeile fehlt wegen des fehlenden Callbacks,
-    // nicht wegen der fehlenden Auth-Schicht.
+    // With repository again: the row is missing because of the missing
+    // callback, not the missing auth layer.
     await pump(
       tester,
       authRepository: baueRepo(),

@@ -1,8 +1,6 @@
-// G2/Nachverifikation 2026-08-08: der Dart-Client-Pfad von `search-key` war
-// nur per Quelltext-Abgleich gedeckt (wire_search_key_envelope_test.dart) —
-// `EdgeFunctionSearchKeyFetcher._fetch()` hatte keine Testnaht, der echte
-// HTTP-Pfad (Header-Bau, Statuscode-Weichen, JSON-Vertrag, Budget) blieb
-// unausgefuehrt. Hier laeuft er ueber einen echten Loopback-HttpServer.
+// G2: the Dart client path of `search-key` was only covered by source
+// comparison. This runs the real HTTP path (header construction, status code
+// branches, JSON contract, budget) over a loopback HttpServer.
 
 import 'dart:convert';
 import 'dart:io';
