@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
+import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'today_texts.dart';
 
@@ -134,6 +136,163 @@ class TodayMealRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Die Schritte-Karte unter dem Kalorien-Hero: Tagesstand, Fortschritt zum
+/// Schrittziel und die daraus geschaetzten kcal — die Rechnung hinter der
+/// VERBRANNT-Kachel, an einer Stelle sichtbar gemacht (Nutzer-Wunsch
+/// 2026-08-22).
+///
+/// Gleiche Anatomie wie eine [TodayMealRow] (Kachel links, Titel + Untertitel,
+/// Zahl + Einheit rechts), darunter ein Balken wie in [MacroBar] — damit die
+/// Karte als Teil derselben Familie gelesen wird und nicht als Fremdkoerper.
+///
+/// Die Schale laesst die Karte ganz weg, wenn es keine Schrittquelle gibt
+/// (`TodayScreen.steps == null`): ohne Health-Anbindung stuende hier sonst
+/// jeden Tag „0 / 8.000" — eine Aussage ueber Daten, die es nicht gibt.
+class TodayStepsCard extends StatelessWidget {
+  const TodayStepsCard({
+    super.key,
+    required this.steps,
+    required this.goal,
+    required this.burnedKcal,
+  });
+
+  final int steps;
+
+  /// `UserProfile.dailyStepsGoal` (Ziele-Seite, min. 1000).
+  final int goal;
+
+  /// Die aus [steps] geschaetzten kcal (HomeStore.burnedKcalForFoodDate).
+  /// 0 heisst „keine Aussage" — der Teil des Untertitels entfaellt dann.
+  final int burnedKcal;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final locale = l10n.localeName;
+
+    final schritte = steps.clamp(0, 9999999).toInt();
+    final ziel = goal.clamp(0, 9999999).toInt();
+    final pct = ziel <= 0 ? 0.0 : (schritte / ziel).clamp(0.0, 1.0);
+    final erreicht = ziel > 0 && schritte >= ziel;
+
+    // „≈ 261 kcal verbrannt · Ziel 8.000" bzw. „… · Ziel erreicht".
+    final untertitel = <String>[
+      if (burnedKcal > 0)
+        l10n.todayStepsBurned(formatThousands(burnedKcal, locale)),
+      if (erreicht)
+        l10n.todayStepsGoalReached
+      else if (ziel > 0)
+        l10n.todayStepsGoal(formatThousands(ziel, locale)),
+    ].join(' · ');
+
+    return AppCard(
+      key: const ValueKey('today-steps-card'),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              // Kachel statt Buchstaben-Avatar: Schritte sind kein Slot.
+              // 14 wie das Profil-Badge der Kopfzeile; Lime-Ton, damit sie an
+              // die VERBRANNT-Kachel im Hero anschliesst.
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: t.lime.withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.directions_walk_rounded,
+                  size: 22,
+                  color: t.accent,
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      l10n.todayStepsTitle,
+                      style:
+                          AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                    ),
+                    if (untertitel.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 2),
+                      Text(
+                        untertitel,
+                        key: const ValueKey('today-steps-subtitle'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.ui(11.5, color: t.ink2),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  Text(
+                    formatThousands(schritte, locale),
+                    key: const ValueKey('today-steps-value'),
+                    style: AppType.display(
+                      16,
+                      weight: FontWeight.w700,
+                      color: t.ink,
+                    ),
+                  ),
+                  Text(
+                    l10n.todayStepsUnit,
+                    style: AppType.ui(
+                      9.5,
+                      weight: FontWeight.w500,
+                      color: t.ink2,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Derselbe Balken wie [MacroBar] (Hoehe, Radius, Animation), nur
+          // ohne die Label-/Wert-Spalten — die stehen hier schon darueber.
+          Semantics(
+            label: l10n.todaySemanticsStepsProgress,
+            value: l10n.todaySemanticsStepsProgressValue(
+              formatThousands(schritte, locale),
+              formatThousands(ziel, locale),
+            ),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: pct),
+              duration: motionDuration(
+                context,
+                const Duration(milliseconds: 500),
+              ),
+              curve: Curves.easeOutCubic,
+              builder: (context, v, _) => ClipRRect(
+                borderRadius: BorderRadius.circular(5),
+                child: LinearProgressIndicator(
+                  key: const ValueKey('today-steps-bar'),
+                  value: v,
+                  minHeight: 9,
+                  backgroundColor: t.tile,
+                  valueColor: AlwaysStoppedAnimation<Color>(t.accent),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

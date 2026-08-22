@@ -73,6 +73,29 @@
   "todayStatEaten": "EATEN",
   "todayStatBurned": "BURNED",
   "todayStatStreak": "DAY STREAK",
+  "todayStepsTitle": "Steps",
+  "todayStepsUnit": "STEPS",
+  "todayStepsGoal": "Goal {goal}",
+  "@todayStepsGoal": {
+    "placeholders": {
+      "goal": { "type": "String" }
+    }
+  },
+  "todayStepsGoalReached": "Goal reached",
+  "todayStepsBurned": "≈ {kcal} kcal burned",
+  "@todayStepsBurned": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "todaySemanticsStepsProgress": "Step goal",
+  "todaySemanticsStepsProgressValue": "{steps} of {goal} steps",
+  "@todaySemanticsStepsProgressValue": {
+    "placeholders": {
+      "steps": { "type": "String" },
+      "goal": { "type": "String" }
+    }
+  },
   "todayMealKcalLabel": "KCAL",
   "todayCoachEyebrow": "AI COACH",
   "todayCoachCta": "Go to coach",

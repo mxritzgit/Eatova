@@ -226,19 +226,24 @@ class MealAnalysisScreen extends StatelessWidget {
   // Barcode: In-App-Scanner als Bottom-Panel (wie der KI-Scan) -> OFF-Lookup
   // -> Ergebnis-Sheet. Direkt, nicht mehr ueber das generische Add-Sheet.
   Future<void> _scanBarcode(BuildContext context) async {
-    final code = await showBarcodeScannerSheet(context);
-    final trimmed = code?.trim();
-    if (trimmed == null || trimmed.isEmpty || !context.mounted) return;
+    // Der Uhrzeit-Slot belegt nur die Chips im Scanner vor — die Wahl dort
+    // entscheidet, wohin das Produkt wandert (Befund 2026-08-22: von diesem
+    // Knopf aus war der Slot vorher gar nicht waehlbar).
+    final scan = await showBarcodeScannerSheet(
+      context,
+      initialSlot: _heuristicSlot(),
+    );
+    if (scan == null || !context.mounted) return;
     await showMealAnalysisSheet(
       context,
-      slot: _heuristicSlot(),
-      resultFuture: productService.lookupBarcode(trimmed),
+      slot: scan.slot,
+      resultFuture: productService.lookupBarcode(scan.code),
       previewImage: null,
       onAdd: onAddMeal,
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
-      failureMessage: context.l10n.foodBarcodeNotFoundMessage(trimmed),
+      failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
     );
   }
 

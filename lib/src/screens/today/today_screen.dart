@@ -35,6 +35,7 @@ class TodayScreen extends StatelessWidget {
     required this.meals,
     required this.selectedDate,
     required this.streak,
+    this.steps,
     this.profileInitial,
     this.dayLoading = false,
     this.onDateSelected,
@@ -54,6 +55,11 @@ class TodayScreen extends StatelessWidget {
   final int burnedKcal;
 
   final MacroProgress macroProgress;
+
+  /// Schrittstand des [selectedDate] — `null` heisst „keine Schrittquelle"
+  /// (HomeStore.stepsForFoodDate), dann entfaellt die Schritte-Karte ganz
+  /// statt „0 / 8.000" zu behaupten. Das Ziel kommt aus dem Profil.
+  final int? steps;
 
   /// Nur die Mahlzeiten des [selectedDate].
   final List<LoggedMeal> meals;
@@ -89,6 +95,7 @@ class TodayScreen extends StatelessWidget {
 
     final restProtein =
         (profile.proteinGoalG - macroProgress.proteinG).round().clamp(0, 99999);
+    final schritte = steps;
 
     // KEIN eigenes SafeArea und KEIN horizontaler Rand: beides liefert die
     // Schale bereits (eatova_home_page.dart:420-424). Ein zweites Padding
@@ -140,6 +147,17 @@ class TodayScreen extends StatelessWidget {
             kcalGoal: profile.dailyKcalGoal,
             streak: streak,
           ),
+          // Die Schritte direkt unter dem Hero: sie sind die Rechnung hinter
+          // der VERBRANNT-Kachel (Nutzer-Wunsch 2026-08-22). Ohne
+          // Schrittquelle entfaellt die Karte — s. [steps].
+          if (schritte != null) ...<Widget>[
+            const SizedBox(height: 14),
+            TodayStepsCard(
+              steps: schritte,
+              goal: profile.dailyStepsGoal,
+              burnedKcal: burnedKcal,
+            ),
+          ],
           const SizedBox(height: 14),
           AppCard(
             key: const ValueKey('today-macros-card'),

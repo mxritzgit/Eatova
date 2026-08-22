@@ -650,6 +650,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           // Map-Identitaet als Fingerabdruck (G11): jeder Upsert/Backfill
           // ersetzt die Map, ein Archivtag-Nachtrag erreicht die Kachel also.
           _store.dailyActivity,
+          // Entscheidet mit, ob die Schritte-Karte ueberhaupt erscheint
+          // (stepsForFoodDate: granted -> auch eine 0 ist ein Wert).
+          _store.healthAuthState,
           _store.userName,
           _store.lifetimeStats,
           _store.isLoadingFoodDay(_store.selectedFoodDate),
@@ -669,6 +672,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // Heute live aus dem Schrittstand, Archivtage aus dem pro Tag
             // festgeschriebenen Endwert (0 = kein Eintrag -> Kachel zeigt „—").
             burnedKcal: _store.burnedKcalForFoodDate(tag),
+            // null = keine Schrittquelle -> keine Schritte-Karte.
+            steps: _store.stepsForFoodDate(tag),
             streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
             profileInitial: _store.profileInitial,
             onDateSelected: _store.setFoodDate,

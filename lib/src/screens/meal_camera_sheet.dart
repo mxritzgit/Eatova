@@ -13,8 +13,7 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_compressor.dart';
 import '../services/meal_photo_temp_file.dart';
 import '../theme/app_tokens.dart';
-import '../theme/meal_slot_style.dart';
-import '../widgets/common/motion.dart';
+import '../widgets/kcal/scan_slot_chips.dart';
 
 /// In-App-Kamera als animiertes Bottom-Panel (~60% Hoehe) statt Vollbild-
 /// Wechsel: Live-Vorschau (verzerrungsfrei cover-gecroppt), Slot-Chips oben,
@@ -345,9 +344,10 @@ class _MealCameraSheetState extends State<MealCameraSheet>
                           top: 10,
                           left: 10,
                           right: 10,
-                          child: _SlotChips(
+                          child: ScanSlotChips(
                             selected: _slot,
                             onSelected: _selectSlot,
+                            keyPrefix: 'meal-camera-slot',
                           ),
                         ),
                         // Ausloeser + Galerie unten auf der Vorschau.
@@ -554,109 +554,6 @@ class _HeaderRow extends StatelessWidget {
             icon: Icon(Icons.close_rounded, color: t.ink2),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Slot-Auswahl als Chip-Reihe. Aktiver Chip traegt die Slot-Akzentfarbe; die
-/// Wahl bestimmt, in welchen Slot die analysierte Mahlzeit wandert.
-class _SlotChips extends StatelessWidget {
-  const _SlotChips({required this.selected, required this.onSelected});
-
-  final MealSlot selected;
-  final ValueChanged<MealSlot> onSelected;
-
-  static const List<MealSlot> _slots = <MealSlot>[
-    MealSlot.breakfast,
-    MealSlot.lunch,
-    MealSlot.dinner,
-    MealSlot.snack,
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (final slot in _slots) ...[
-          Flexible(
-            child: _SlotChip(
-              slot: slot,
-              selected: slot == selected,
-              onTap: () => onSelected(slot),
-            ),
-          ),
-          if (slot != _slots.last) const SizedBox(width: 6),
-        ],
-      ],
-    );
-  }
-}
-
-class _SlotChip extends StatelessWidget {
-  const _SlotChip({
-    required this.slot,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final MealSlot slot;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    // Der Chip liegt AUF dem Live-Kamerabild, zusammen mit den harten
-    // schwarz/weissen Scrims und Beschriftungen dieser Datei — deshalb die
-    // DUNKEL-Palette in beiden Anzeige-Modi, nicht `accentIn(context)`.
-    // Dasselbe Argument wie beim Scanrahmen und beim Ausloeser: die hellen
-    // Slot-Toene tragen auf einem beliebig hellen Bild, die dunklen des
-    // Hell-Modus (Mittag = tiefes Blau) haetten das schwarze Chip-Label auf
-    // 3,6:1 gedrueckt. Kein Brightness-Abzweig, sondern eine feste Palette
-    // fuer eine Flaeche, die immer dunkel ist.
-    final accent = slot.accentOn(AppTokens.dark);
-    return InkWell(
-      key: ValueKey('meal-camera-slot-${slot.name}'),
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rPill),
-      child: AnimatedContainer(
-        duration: motionDuration(context, const Duration(milliseconds: 160)),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected
-              ? accent.withValues(alpha: 0.92)
-              : Colors.black.withValues(alpha: 0.42),
-          borderRadius: BorderRadius.circular(rPill),
-          border: Border.all(
-            color: selected ? accent : Colors.white.withValues(alpha: 0.35),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              slot.icon,
-              size: 13,
-              color: selected ? Colors.black : Colors.white,
-            ),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                slot.shortLabel(context.l10n),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? Colors.black : Colors.white,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.1,
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

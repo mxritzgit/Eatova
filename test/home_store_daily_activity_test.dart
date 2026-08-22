@@ -210,6 +210,33 @@ void main() {
     expect(s.store.burnedKcalForFoodDate(vorgestern), 115);
   });
 
+  test('stepsForFoodDate: null ohne Schrittquelle, heute live, Archivtag '
+      'gespeichert', () async {
+    final s = _setupLight();
+
+    // Vor dem ersten Refresh ist die Berechtigung unverifiziert und kein
+    // Schrittstand da: keine Quelle -> null, die Heute-Karte entfaellt.
+    expect(s.store.stepsForFoodDate(clock.now()), isNull);
+
+    await s.store.refreshHealthSteps();
+    expect(s.store.stepsForFoodDate(clock.now()), 12000);
+
+    // Granted + 0 Schritte ist eine echte 0 (frueher Morgen), kein null.
+    s.health.stepsToday = 0;
+    await s.store.refreshHealthSteps();
+    expect(s.store.stepsForFoodDate(clock.now()), 0);
+
+    // Archivtag ohne Eintrag: null; nach dem Backfill der gespeicherte Wert
+    // — derselbe, aus dem burnedKcalForFoodDate rechnet.
+    final gestern = tageZurueck(1);
+    expect(s.store.stepsForFoodDate(gestern), isNull);
+    s.health.stepsByDay[localDayKey(gestern)] = 9000;
+    s.store.setFoodDate(gestern);
+    await Future<void>.delayed(Duration.zero);
+    expect(s.store.stepsForFoodDate(gestern), 9000);
+    expect(s.store.burnedKcalForFoodDate(gestern), _erwarteteKcal(s.store, 9000));
+  });
+
   test('Backfill fragt die Historie genau einmal pro Tag und Sitzung',
       () async {
     final s = _setupLight();
