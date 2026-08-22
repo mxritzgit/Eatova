@@ -109,6 +109,25 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return dailyActivity[localDayKey(date)]?.kcal ?? 0;
   }
 
+  /// Schrittstand fuer [date] — heute live aus [dailySteps], fuer vergangene
+  /// Tage der festgeschriebene Tageswert aus [dailyActivity]. `null` heisst
+  /// „keine Schrittquelle": die Schritte-Karte im Heute-Tab entfaellt dann
+  /// ganz, statt dauerhaft „0 / 8.000" zu behaupten (Android ohne Health-
+  /// Anbindung, iOS vor der Freigabe, Archivtag ohne Eintrag).
+  ///
+  /// Heute gilt die Quelle als vorhanden, sobald die Berechtigung verifiziert
+  /// ist ODER schon einmal ein Schrittstand ankam — ein frueher Morgen mit
+  /// 0 Schritten ist dann eine echte 0, kein fehlender Wert.
+  int? stepsForFoodDate(DateTime date) {
+    if (_isSameFoodDate(date, clock.now())) {
+      if (healthAuthState == HealthAuthState.granted || dailySteps > 0) {
+        return dailySteps;
+      }
+      return null;
+    }
+    return dailyActivity[localDayKey(date)]?.steps;
+  }
+
   /// Upsert des Kalendertags von [day] mit [steps]; die kcal werden mit dem
   /// AKTUELLEN Profil eingefroren (das damalige Gewicht laege hoechstens
   /// wenige kg daneben — die Schaetzung selbst ist groeber). Muss innerhalb

@@ -1,30 +1,50 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../l10n/l10n.dart';
+import '../models/logged_meal.dart';
 import '../services/crash_reporter.dart';
 import '../theme/app_tokens.dart';
+import '../widgets/kcal/scan_slot_chips.dart';
+
+/// Ergebnis des Barcode-Scanners: der getrimmte Code und der Slot, den der
+/// Nutzer ueber die Chips auf dem Kamerabild gewaehlt hat.
+class BarcodeScan {
+  const BarcodeScan({required this.code, required this.slot});
+
+  final String code;
+  final MealSlot slot;
+}
 
 /// Oeffnet den Barcode-Scanner als animiertes Bottom-Panel (~60% Hoehe) im
 /// gleichen Rahmen wie die KI-Scan-Kamera ([MealCameraSheet]) — gleitet von
-/// unten ein statt Vollbild-Wechsel. Liefert den gescannten Code, oder null
-/// bei Abbruch (X, Barrier-Tap oder Runterwischen).
-Future<String?> showBarcodeScannerSheet(BuildContext context) {
-  return showModalBottomSheet<String>(
+/// unten ein statt Vollbild-Wechsel. Liefert Code + gewaehlten Slot, oder
+/// null bei Abbruch (X, Barrier-Tap oder Runterwischen).
+///
+/// [initialSlot] belegt die Slot-Chips vor (Uhrzeit-Heuristik bzw. der im
+/// Add-Sheet gewaehlte Slot); die Wahl im Scanner hat das letzte Wort.
+Future<BarcodeScan?> showBarcodeScannerSheet(
+  BuildContext context, {
+  required MealSlot initialSlot,
+}) {
+  return showModalBottomSheet<BarcodeScan>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     // Bewusst kein Token: der Scrim hinter einem Sheet dunkelt in beiden
     // Anzeige-Modi ab — ein heller Scrim wuerde nichts daempfen.
     barrierColor: Colors.black.withValues(alpha: 0.55),
-    builder: (_) => const BarcodeScannerSheet(),
+    builder: (_) => BarcodeScannerSheet(initialSlot: initialSlot),
   );
 }
 
 class BarcodeScannerSheet extends StatefulWidget {
-  const BarcodeScannerSheet({super.key});
+  const BarcodeScannerSheet({super.key, required this.initialSlot});
+
+  final MealSlot initialSlot;
 
   @override
   State<BarcodeScannerSheet> createState() => _BarcodeScannerSheetState();
@@ -42,6 +62,14 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
   bool hasReturned = false;
 
   bool _analyzerHaengt = false;
+
+  late MealSlot _slot;
+
+  @override
+  void initState() {
+    super.initState();
+    _slot = widget.initialSlot;
+  }
 
   @override
   void dispose() {
@@ -103,6 +131,12 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     }
   }
 
+  void _selectSlot(MealSlot slot) {
+    if (slot == _slot) return;
+    HapticFeedback.selectionClick();
+    setState(() => _slot = slot);
+  }
+
   void _schliessen() {
     _erkennungBeenden();
     Navigator.of(context).pop();
@@ -142,7 +176,7 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
       if (rawValue != null && rawValue.trim().isNotEmpty) {
         final code = rawValue.trim();
         _erkennungBeenden();
-        Navigator.of(context).pop(code);
+        Navigator.of(context).pop(BarcodeScan(code: code, slot: _slot));
         return;
       }
     }
@@ -230,8 +264,25 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                               children: [
                                 const _EdgeScrim(),
                                 const Center(child: _ScanFrame()),
+                                // Slot-Chips oben auf dem Kamerabild —
+                                // dieselbe Reihe wie im KI-Scan. Bis
+                                // 2026-08-22 fehlte sie hier: der
+                                // Barcode-Weg aus dem Food-Tab landete
+                                // stumm im Uhrzeit-Slot.
                                 Positioned(
                                   top: 10,
+                                  left: 10,
+                                  right: 10,
+                                  child: ScanSlotChips(
+                                    selected: _slot,
+                                    onSelected: _selectSlot,
+                                    keyPrefix: 'barcode-slot',
+                                  ),
+                                ),
+                                // Der Hinweis rueckt unter die Chips;
+                                // der Scanrahmen in der Mitte bleibt frei.
+                                Positioned(
+                                  top: 50,
                                   left: 10,
                                   right: 10,
                                   child: Center(

@@ -8,6 +8,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
@@ -99,8 +100,10 @@ class _FakeScannerPlatform extends MobileScannerPlatform
 
 /// Sammelt, was der Aufrufer aus [showBarcodeScannerSheet] zurueckbekommt.
 class _Ergebnis {
-  String? code;
+  BarcodeScan? scan;
   bool geschlossen = false;
+
+  String? get code => scan?.code;
 }
 
 /// Baut die Schachtelung des echten Flows nach: der Scanner haengt IMMER
@@ -127,8 +130,9 @@ Future<void> _oeffneScannerUeberSheet(
                 child: Center(
                   child: TextButton(
                     onPressed: () async {
-                      ergebnis.code = await showBarcodeScannerSheet(
+                      ergebnis.scan = await showBarcodeScannerSheet(
                         sheetContext,
+                        initialSlot: MealSlot.lunch,
                       );
                       ergebnis.geschlossen = true;
                     },
@@ -243,12 +247,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(ergebnis.code, '4001234567890');
+      // Ohne Umwahl traegt der Treffer den vorbelegten Slot.
+      expect(ergebnis.scan?.slot, MealSlot.lunch);
       expect(find.byType(BarcodeScannerSheet), findsNothing);
       expect(
         find.text('scannen'),
         findsOneWidget,
         reason: 'die neue Routen-Wache darf den Normalfall nicht abwuergen',
       );
+    },
+  );
+
+  testWidgets(
+    'die Slot-Chips auf dem Kamerabild entscheiden, wohin der Treffer wandert',
+    (tester) async {
+      final ergebnis = _Ergebnis();
+      await _oeffneScannerUeberSheet(tester, platform, ergebnis);
+
+      // Alle vier Chips stehen oben auf dem Bild (Befund 2026-08-22: vom
+      // Food-Tab-Knopf aus war der Slot vorher gar nicht waehlbar) — und der
+      // Hinweis ist unter sie gerueckt statt mit ihnen zu kollidieren.
+      for (final slot in MealSlot.values) {
+        expect(
+          find.byKey(ValueKey('barcode-slot-${slot.name}')),
+          findsOneWidget,
+          reason: slot.name,
+        );
+      }
+      final chips =
+          tester.getRect(find.byKey(const ValueKey('barcode-slot-lunch')));
+      final hinweis =
+          tester.getRect(find.byKey(const ValueKey('barcode-scanner-hint')));
+      expect(hinweis.top, greaterThanOrEqualTo(chips.bottom));
+
+      await tester.tap(find.byKey(const ValueKey('barcode-slot-dinner')));
+      await tester.pump();
+
+      platform.emit('4001234567890');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pumpAndSettle();
+
+      expect(ergebnis.scan?.code, '4001234567890');
+      expect(ergebnis.scan?.slot, MealSlot.dinner);
+      expect(find.byType(BarcodeScannerSheet), findsNothing);
     },
   );
 }

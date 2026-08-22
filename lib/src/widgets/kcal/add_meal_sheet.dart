@@ -530,20 +530,26 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   Future<void> _scanBarcode() async {
     // Bottom-Panel (~60% Hoehe) wie beim KI-Scan statt Vollbild-Wechsel.
-    final barcode = await showBarcodeScannerSheet(context);
-    final trimmed = barcode?.trim();
-    if (trimmed == null || trimmed.isEmpty || !mounted) return;
+    // Die Chips im Scanner starten auf dem hier gewaehlten Slot.
+    final scan = await showBarcodeScannerSheet(
+      context,
+      initialSlot: _selectedSlot,
+    );
+    if (scan == null || !mounted) return;
+    // Eine Umwahl im Scanner gilt auch fuer dieses Sheet — sonst stuende
+    // im Kopf „Abendessen", waehrend der Treffer ins Mittagessen ging.
+    _selectSlot(scan.slot);
 
     await showMealAnalysisSheet(
       context,
-      slot: _selectedSlot,
-      resultFuture: widget.productService.lookupBarcode(trimmed),
+      slot: scan.slot,
+      resultFuture: widget.productService.lookupBarcode(scan.code),
       previewImage: null,
       onAdd: widget.onAdd,
       onUpdateMeal: widget.onUpdateMeal,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
-      failureMessage: context.l10n.foodBarcodeNotFoundMessage(trimmed),
+      failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
     );
   }
 
