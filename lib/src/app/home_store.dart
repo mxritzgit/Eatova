@@ -19,7 +19,6 @@ import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
 import '../services/eatova_sync.dart';
-import '../services/expired_jwt_retry.dart';
 import '../services/health_service.dart';
 import '../services/kcal_calculator.dart';
 import '../services/local_cache.dart';
@@ -30,6 +29,7 @@ import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/search_credentials.dart';
 import '../services/secure_cache_store.dart';
+import '../services/stale_auth_retry.dart';
 import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
@@ -564,17 +564,18 @@ class HomeStore extends _HomeStoreBase
   Future<void> _bootFromSupabase() async {
     final s = sync!;
     final today = clock.now();
-    // Sentry FLUTTER-9: a boot load rejected with an expired JWT (PGRST303)
-    // used to fail for good. One shared refresh + one retry per load; see
-    // ExpiredJwtRetry for why the client-side expiry check is not enough.
-    final jwt = ExpiredJwtRetry(() => s.client.auth.refreshSession());
+    // Sentry FLUTTER-9/-A/-B: at every cold start the server rejected ONE of
+    // these six loads for its (freshly refreshed) token, and that load was
+    // lost for the session. StaleAuthRetry waits and retries, refreshing
+    // only on the second strike — see its doc for the edge-log evidence.
+    final auth = StaleAuthRetry(() => s.client.auth.refreshSession());
     final results = await Future.wait<Object?>([
-      _safeLoad('boot-profile', () => jwt.run(s.profile.load)),
-      _safeLoad('boot-meals', () => jwt.run(s.meals.loadLoggedMeals)),
-      _safeLoad('boot-favorites', () => jwt.run(s.meals.loadFavorites)),
-      _safeLoad('boot-weight-log', () => jwt.run(s.tracking.loadWeightLog)),
-      _safeLoad('boot-lifetime-stats', () => jwt.run(s.lifetimeStats.load)),
-      _safeLoad('boot-user-recipes', () => jwt.run(s.userRecipes.load)),
+      _safeLoad('boot-profile', () => auth.run(s.profile.load)),
+      _safeLoad('boot-meals', () => auth.run(s.meals.loadLoggedMeals)),
+      _safeLoad('boot-favorites', () => auth.run(s.meals.loadFavorites)),
+      _safeLoad('boot-weight-log', () => auth.run(s.tracking.loadWeightLog)),
+      _safeLoad('boot-lifetime-stats', () => auth.run(s.lifetimeStats.load)),
+      _safeLoad('boot-user-recipes', () => auth.run(s.userRecipes.load)),
     ]);
     if (_disposed) return;
     _mutate(() {

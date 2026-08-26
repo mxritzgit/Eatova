@@ -209,15 +209,18 @@ void main() {
       expect(classifyOutboxFailure(pg('PGRST100'), 0), OutboxVerdict.drop);
     });
 
-    test('isExpiredJwtError kennt beide PostgREST-Codes und sonst nichts', () {
-      expect(isExpiredJwtError(pg('PGRST301')), isTrue);
-      expect(isExpiredJwtError(pg('PGRST303')), isTrue);
-      expect(isExpiredJwtError(pg('PGRST302')), isFalse);
-      expect(isExpiredJwtError(pg('401')), isFalse);
-      expect(isExpiredJwtError(pg('42501')), isFalse);
-      expect(isExpiredJwtError(const SocketException('offline')), isFalse);
+    test('isStaleAuthError kennt die drei Token-Ablehnungen und sonst nichts',
+        () {
+      expect(isStaleAuthError(pg('PGRST301')), isTrue);
+      expect(isStaleAuthError(pg('PGRST303')), isTrue);
+      // Bare HTTP status = the gateway answered, not PostgREST (FLUTTER-B).
+      expect(isStaleAuthError(pg('401')), isTrue);
+      expect(isStaleAuthError(pg('PGRST302')), isFalse);
+      expect(isStaleAuthError(pg('403')), isFalse);
+      expect(isStaleAuthError(pg('42501')), isFalse);
+      expect(isStaleAuthError(const SocketException('offline')), isFalse);
       expect(
-          isExpiredJwtError(AuthRetryableFetchException(message: 'x')), isFalse);
+          isStaleAuthError(AuthRetryableFetchException(message: 'x')), isFalse);
     });
 
     test('transiente SQLSTATE-Klassen bleiben liegen', () {
