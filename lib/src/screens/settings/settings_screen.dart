@@ -104,8 +104,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }, onError: (Object e, StackTrace st) {
       // gotrue actively pushes errors into this stream; without a handler they
       // become unhandled zone errors, triggerable from outside via the
-      // BROWSABLE intent. Report, do not escalate.
-      unawaited(CrashReporter.capture(e, st, context: 'settings-session-stream'));
+      // BROWSABLE intent. Report, do not escalate. `captureSyncFailure` like
+      // the AuthGate: the stream replays a failed background token refresh
+      // (AuthRetryableFetchException) to every late subscriber, and that
+      // outage is expected, not an incident (Sentry FLUTTER-8).
+      unawaited(CrashReporter.captureSyncFailure(e, st,
+          context: 'settings-session-stream'));
     });
   }
 

@@ -19,6 +19,7 @@ import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
 import '../services/eatova_sync.dart';
+import '../services/expired_jwt_retry.dart';
 import '../services/health_service.dart';
 import '../services/kcal_calculator.dart';
 import '../services/local_cache.dart';
@@ -563,13 +564,17 @@ class HomeStore extends _HomeStoreBase
   Future<void> _bootFromSupabase() async {
     final s = sync!;
     final today = clock.now();
+    // Sentry FLUTTER-9: a boot load rejected with an expired JWT (PGRST303)
+    // used to fail for good. One shared refresh + one retry per load; see
+    // ExpiredJwtRetry for why the client-side expiry check is not enough.
+    final jwt = ExpiredJwtRetry(() => s.client.auth.refreshSession());
     final results = await Future.wait<Object?>([
-      _safeLoad('boot-profile', () => s.profile.load()),
-      _safeLoad('boot-meals', () => s.meals.loadLoggedMeals()),
-      _safeLoad('boot-favorites', () => s.meals.loadFavorites()),
-      _safeLoad('boot-weight-log', () => s.tracking.loadWeightLog()),
-      _safeLoad('boot-lifetime-stats', () => s.lifetimeStats.load()),
-      _safeLoad('boot-user-recipes', () => s.userRecipes.load()),
+      _safeLoad('boot-profile', () => jwt.run(s.profile.load)),
+      _safeLoad('boot-meals', () => jwt.run(s.meals.loadLoggedMeals)),
+      _safeLoad('boot-favorites', () => jwt.run(s.meals.loadFavorites)),
+      _safeLoad('boot-weight-log', () => jwt.run(s.tracking.loadWeightLog)),
+      _safeLoad('boot-lifetime-stats', () => jwt.run(s.lifetimeStats.load)),
+      _safeLoad('boot-user-recipes', () => jwt.run(s.userRecipes.load)),
     ]);
     if (_disposed) return;
     _mutate(() {
@@ -664,7 +669,10 @@ class HomeStore extends _HomeStoreBase
     } catch (e, st) {
       dev.log('Eatova load failed ($operation)',
           error: e, stackTrace: st, name: 'eatova_sync');
-      unawaited(CrashReporter.capture(e, st, context: operation));
+      // `captureSyncFailure`, not `capture`: a cold start offline is the
+      // designed cache-then-network flow, not an incident — and since the
+      // expired-JWT retry the refresh itself can fail offline here too.
+      unawaited(CrashReporter.captureSyncFailure(e, st, context: operation));
       return null;
     }
   }

@@ -192,13 +192,32 @@ void main() {
       expect(classifyOutboxFailure(pg('403'), 0), OutboxVerdict.retryCounted);
     });
 
-    test('42501 (RLS) und PGRST301 (JWT abgelaufen) sind retrybar', () {
+    test('42501 (RLS) und PGRST301/PGRST303 (JWT abgelaufen) sind retrybar',
+        () {
       expect(classifyOutboxFailure(pg('42501'), 0), OutboxVerdict.retryCounted);
       expect(
           classifyOutboxFailure(pg('PGRST301'), 0), OutboxVerdict.retryCounted);
-      // Other PGRST codes describe a structurally broken request.
+      // Sentry FLUTTER-9 (2026-08-26): PostgREST >= 12.2 reports an expired
+      // JWT as PGRST303, which until then fell into the drop branch — a write
+      // rejected only because of token age would have been thrown away.
+      expect(
+          classifyOutboxFailure(pg('PGRST303'), 0), OutboxVerdict.retryCounted);
+      // Other PGRST codes describe a structurally broken request; PGRST302
+      // (anonymous access disabled) is a config error, not a token age.
+      expect(classifyOutboxFailure(pg('PGRST302'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('PGRST204'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('PGRST100'), 0), OutboxVerdict.drop);
+    });
+
+    test('isExpiredJwtError kennt beide PostgREST-Codes und sonst nichts', () {
+      expect(isExpiredJwtError(pg('PGRST301')), isTrue);
+      expect(isExpiredJwtError(pg('PGRST303')), isTrue);
+      expect(isExpiredJwtError(pg('PGRST302')), isFalse);
+      expect(isExpiredJwtError(pg('401')), isFalse);
+      expect(isExpiredJwtError(pg('42501')), isFalse);
+      expect(isExpiredJwtError(const SocketException('offline')), isFalse);
+      expect(
+          isExpiredJwtError(AuthRetryableFetchException(message: 'x')), isFalse);
     });
 
     test('transiente SQLSTATE-Klassen bleiben liegen', () {
