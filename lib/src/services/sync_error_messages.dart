@@ -86,6 +86,25 @@ String directSyncErrorMessage(Object error, [AppLocalizations? l10n]) {
       : t.commonGenericRetryError;
 }
 
+/// True for a server rejection of the access token itself — the request was
+/// fine, only the bearer was not accepted — which a retry (after a wait or a
+/// session refresh) heals.
+///
+/// Three codes, because the rejection has three sources: up to PostgREST 12.1
+/// an expired JWT reported `PGRST301` (generic "JWT invalid"); since 12.2
+/// exp/nbf/iat claim failures carry their own `PGRST303`, which Supabase
+/// serves today; and a bare `401` (raw HTTP status, body without a PostgREST
+/// code) comes from the API gateway in front of it. Sentry FLUTTER-9/-A/-B
+/// (2026-08-26) were exactly these three on the boot loads — until then only
+/// `PGRST301` was known here, so PGRST303 was treated as a broken request.
+/// `PGRST302` (anonymous access disabled) stays out on purpose: that is a
+/// config error, not a token.
+bool isStaleAuthError(Object error) =>
+    error is PostgrestException &&
+    (error.code == 'PGRST301' ||
+        error.code == 'PGRST303' ||
+        error.code == '401');
+
 /// True for the server-side re-auth rejection of `delete_account()`, which
 /// throws `EX_REAUTH_REQUIRED` with SQLSTATE 28000. Both are checked: the
 /// message token is precise, the errcode survives a reworded message. A bare
@@ -172,9 +191,10 @@ OutboxVerdict _verdictForCode(Object error) {
 
   // --- PostgREST's own codes ----------------------------------------------
   if (code.startsWith('PGRST')) {
-    // PGRST301 = expired JWT, healed by the next refresh. Every other PGRST*
-    // code means a broken request; resending the same bytes never helps.
-    return code == 'PGRST301'
+    // Token rejection (PGRST301/PGRST303, see isStaleAuthError) is healed by
+    // the next refresh. Every other PGRST* code means a broken request;
+    // resending the same bytes never helps.
+    return isStaleAuthError(error)
         ? OutboxVerdict.retryCounted
         : OutboxVerdict.drop;
   }

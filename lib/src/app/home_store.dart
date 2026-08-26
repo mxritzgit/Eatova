@@ -29,6 +29,7 @@ import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/search_credentials.dart';
 import '../services/secure_cache_store.dart';
+import '../services/stale_auth_retry.dart';
 import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
@@ -563,13 +564,18 @@ class HomeStore extends _HomeStoreBase
   Future<void> _bootFromSupabase() async {
     final s = sync!;
     final today = clock.now();
+    // Sentry FLUTTER-9/-A/-B: at every cold start the server rejected ONE of
+    // these six loads for its (freshly refreshed) token, and that load was
+    // lost for the session. StaleAuthRetry waits and retries, refreshing
+    // only on the second strike — see its doc for the edge-log evidence.
+    final auth = StaleAuthRetry(() => s.client.auth.refreshSession());
     final results = await Future.wait<Object?>([
-      _safeLoad('boot-profile', () => s.profile.load()),
-      _safeLoad('boot-meals', () => s.meals.loadLoggedMeals()),
-      _safeLoad('boot-favorites', () => s.meals.loadFavorites()),
-      _safeLoad('boot-weight-log', () => s.tracking.loadWeightLog()),
-      _safeLoad('boot-lifetime-stats', () => s.lifetimeStats.load()),
-      _safeLoad('boot-user-recipes', () => s.userRecipes.load()),
+      _safeLoad('boot-profile', () => auth.run(s.profile.load)),
+      _safeLoad('boot-meals', () => auth.run(s.meals.loadLoggedMeals)),
+      _safeLoad('boot-favorites', () => auth.run(s.meals.loadFavorites)),
+      _safeLoad('boot-weight-log', () => auth.run(s.tracking.loadWeightLog)),
+      _safeLoad('boot-lifetime-stats', () => auth.run(s.lifetimeStats.load)),
+      _safeLoad('boot-user-recipes', () => auth.run(s.userRecipes.load)),
     ]);
     if (_disposed) return;
     _mutate(() {
@@ -664,7 +670,10 @@ class HomeStore extends _HomeStoreBase
     } catch (e, st) {
       dev.log('Eatova load failed ($operation)',
           error: e, stackTrace: st, name: 'eatova_sync');
-      unawaited(CrashReporter.capture(e, st, context: operation));
+      // `captureSyncFailure`, not `capture`: a cold start offline is the
+      // designed cache-then-network flow, not an incident — and since the
+      // expired-JWT retry the refresh itself can fail offline here too.
+      unawaited(CrashReporter.captureSyncFailure(e, st, context: operation));
       return null;
     }
   }

@@ -149,10 +149,33 @@ class EatovaSupabaseConfig {
   /// closeInAppWebView is a no-op when no in-app browser is open, so session
   /// restore and email/password login are unaffected.
   static void _wireOAuthSheetDismiss() {
-    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    wireOAuthSheetDismiss(Supabase.instance.client.auth.onAuthStateChange);
+  }
+
+  /// The listener behind [_wireOAuthSheetDismiss]; the stream and the close
+  /// call are seams for tests, production passes neither.
+  ///
+  /// `onError` is NOT optional: gotrue pushes refresh failures into this
+  /// stream as errors (`notifyException`), typically an
+  /// `AuthRetryableFetchException` when the auto-refresh timer fires while iOS
+  /// has the app in the background without network. This was the last
+  /// listener without a handler, so that error became an unhandled zone error
+  /// and a "fatal" Sentry event (FLUTTER-8, 2026-08-23). Log only: the
+  /// AuthGate subscribes to the same stream and already reports what matters.
+  @visibleForTesting
+  static StreamSubscription<AuthState> wireOAuthSheetDismiss(
+    Stream<AuthState> authStates, {
+    Future<void> Function() closeSheet = closeInAppWebView,
+  }) {
+    return authStates.listen((data) {
       if (data.event == AuthChangeEvent.signedIn) {
-        closeInAppWebView();
+        unawaited(closeSheet());
       }
+    }, onError: (Object error, StackTrace stack) {
+      dev.log(
+          'Auth-Stream-Fehler (OAuth-Sheet-Listener) — nur geloggt, AuthGate '
+          'meldet',
+          name: 'supabase_config', error: error, stackTrace: stack);
     });
   }
 }

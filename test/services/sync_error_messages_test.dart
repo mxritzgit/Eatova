@@ -192,13 +192,35 @@ void main() {
       expect(classifyOutboxFailure(pg('403'), 0), OutboxVerdict.retryCounted);
     });
 
-    test('42501 (RLS) und PGRST301 (JWT abgelaufen) sind retrybar', () {
+    test('42501 (RLS) und PGRST301/PGRST303 (JWT abgelaufen) sind retrybar',
+        () {
       expect(classifyOutboxFailure(pg('42501'), 0), OutboxVerdict.retryCounted);
       expect(
           classifyOutboxFailure(pg('PGRST301'), 0), OutboxVerdict.retryCounted);
-      // Other PGRST codes describe a structurally broken request.
+      // Sentry FLUTTER-9 (2026-08-26): PostgREST >= 12.2 reports an expired
+      // JWT as PGRST303, which until then fell into the drop branch — a write
+      // rejected only because of token age would have been thrown away.
+      expect(
+          classifyOutboxFailure(pg('PGRST303'), 0), OutboxVerdict.retryCounted);
+      // Other PGRST codes describe a structurally broken request; PGRST302
+      // (anonymous access disabled) is a config error, not a token age.
+      expect(classifyOutboxFailure(pg('PGRST302'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('PGRST204'), 0), OutboxVerdict.drop);
       expect(classifyOutboxFailure(pg('PGRST100'), 0), OutboxVerdict.drop);
+    });
+
+    test('isStaleAuthError kennt die drei Token-Ablehnungen und sonst nichts',
+        () {
+      expect(isStaleAuthError(pg('PGRST301')), isTrue);
+      expect(isStaleAuthError(pg('PGRST303')), isTrue);
+      // Bare HTTP status = the gateway answered, not PostgREST (FLUTTER-B).
+      expect(isStaleAuthError(pg('401')), isTrue);
+      expect(isStaleAuthError(pg('PGRST302')), isFalse);
+      expect(isStaleAuthError(pg('403')), isFalse);
+      expect(isStaleAuthError(pg('42501')), isFalse);
+      expect(isStaleAuthError(const SocketException('offline')), isFalse);
+      expect(
+          isStaleAuthError(AuthRetryableFetchException(message: 'x')), isFalse);
     });
 
     test('transiente SQLSTATE-Klassen bleiben liegen', () {
