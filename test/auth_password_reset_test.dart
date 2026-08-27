@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart' hide AuthException;
-import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/config/supabase_config.dart';
@@ -60,7 +59,8 @@ void main() {
     await expectLater(
       const UnavailableAuthRepository('kaputt')
           .sendPasswordReset('user@example.com'),
-      throwsA(isA<AuthException>()),
+      // Typed, so the auth screen can localize it (fix run 2026-08-27, B).
+      throwsA(isA<AuthUnavailableException>()),
     );
   });
 

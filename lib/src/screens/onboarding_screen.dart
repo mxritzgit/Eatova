@@ -313,7 +313,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _buildStep(_Step step) {
     final l10n = context.l10n;
     return switch (step) {
-      _Step.intro => _IntroStep(firstName: widget.firstName),
+      // Questions between intro and summary — what the user actually answers.
+      _Step.intro => _IntroStep(
+          firstName: widget.firstName,
+          questionCount: _steps.length - 2,
+        ),
       _Step.sex => _StepFrame(
           title: l10n.onboardingSexStepTitle,
           subtitle: l10n.onboardingSexStepSubtitle,
@@ -538,9 +542,13 @@ class _StepFrame extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _IntroStep extends StatelessWidget {
-  const _IntroStep({required this.firstName});
+  const _IntroStep({required this.firstName, required this.questionCount});
 
   final String firstName;
+
+  /// Number of questions ahead; the intro must not promise "6" when the flow
+  /// has 7 or 9.
+  final int questionCount;
 
   @override
   Widget build(BuildContext context) {
@@ -566,7 +574,7 @@ class _IntroStep extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          l10n.onboardingWelcomeBody,
+          l10n.onboardingWelcomeBody(questionCount),
           style: AppType.ui(
             15,
             weight: FontWeight.w500,
@@ -642,43 +650,52 @@ class _SexPicker extends StatelessWidget {
       BiologicalSex.female: (l10n.onboardingSexFemale, Icons.female_rounded),
       BiologicalSex.neutral: (l10n.onboardingSexNeutral, Icons.person_rounded),
     };
-    return Row(
-      children: [
-        for (final sex in BiologicalSex.values) ...[
-          Expanded(
-            child: _TileCard(
-              keyValue: ValueKey('onboarding-sex-${sex.name}'),
-              selected: value == sex,
-              onTap: () => onChanged(sex),
-              child: Column(
-                children: [
-                  Icon(
-                    labels[sex]!.$2,
-                    size: 30,
-                    color: value == sex ? t.lime : t.ink2,
-                  ),
-                  const SizedBox(height: 10),
-                  // The tile is a third of the row and the label grows with the
-                  // system font, so it must be allowed to shrink.
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      labels[sex]!.$1,
-                      maxLines: 1,
-                      style: AppType.ui(
-                        14,
-                        weight: FontWeight.w700,
-                        color: value == sex ? t.onForest : t.ink2,
+    // Width is reserved for the longest label at the current text scale
+    // (like MacroBar, not FittedBox — that would freeze the label at 14 px).
+    // When a third of the row cannot hold it, the tiles take the full width
+    // and stack.
+    const gap = 12.0;
+    final labelWidth = MediaQuery.textScalerOf(context).scale(68) + 16;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final third = (constraints.maxWidth - 2 * gap) / 3;
+        final tileWidth = labelWidth <= third ? third : constraints.maxWidth;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final sex in BiologicalSex.values)
+              SizedBox(
+                width: tileWidth,
+                child: _TileCard(
+                  keyValue: ValueKey('onboarding-sex-${sex.name}'),
+                  selected: value == sex,
+                  onTap: () => onChanged(sex),
+                  child: Column(
+                    children: [
+                      Icon(
+                        labels[sex]!.$2,
+                        size: 30,
+                        color: value == sex ? t.lime : t.ink2,
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      Text(
+                        labels[sex]!.$1,
+                        maxLines: 2,
+                        textAlign: TextAlign.center,
+                        style: AppType.ui(
+                          14,
+                          weight: FontWeight.w700,
+                          color: value == sex ? t.onForest : t.ink2,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
-          if (sex != BiologicalSex.values.last) const SizedBox(width: 12),
-        ],
-      ],
+          ],
+        );
+      },
     );
   }
 }
@@ -873,7 +890,9 @@ class _NumberPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final safeValue = value.clamp(min, _hi).toInt();
+    String spoken(double v) => '${v.round()} $unit';
     return Column(
       children: [
         Row(
@@ -882,11 +901,13 @@ class _NumberPicker extends StatelessWidget {
             _StepButton(
               keyValue: ValueKey('onboarding-$field-dec'),
               icon: Icons.remove_rounded,
+              semanticLabel: l10n.onboardingStepDownSemanticLabel,
               onTap: () => _set(safeValue - 1),
             ),
             const SizedBox(width: 20),
             // Not a fixed width: at textScaler 2.0 the 52 pt digits exceed
-            // 150 px. The column takes the remaining space, the number shrinks.
+            // 150 px. The column takes the remaining space; only the hero
+            // number may shrink (F8-09), the unit scales like any label.
             Flexible(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -902,17 +923,14 @@ class _NumberPicker extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      unit,
-                      maxLines: 1,
-                      style: AppType.ui(
-                        13,
-                        weight: FontWeight.w600,
-                        color: t.ink2,
-                        letterSpacing: 0.2,
-                      ),
+                  Text(
+                    unit,
+                    textAlign: TextAlign.center,
+                    style: AppType.ui(
+                      13,
+                      weight: FontWeight.w600,
+                      color: t.ink2,
+                      letterSpacing: 0.2,
                     ),
                   ),
                 ],
@@ -922,6 +940,7 @@ class _NumberPicker extends StatelessWidget {
             _StepButton(
               keyValue: ValueKey('onboarding-$field-inc'),
               icon: Icons.add_rounded,
+              semanticLabel: l10n.onboardingStepUpSemanticLabel,
               onTap: () => _set(safeValue + 1),
             ),
           ],
@@ -941,6 +960,9 @@ class _NumberPicker extends StatelessWidget {
               value: safeValue.toDouble(),
               min: min.toDouble(),
               max: _hi.toDouble(),
+              // A screen reader hears "75 kg", not a percentage.
+              label: spoken(safeValue.toDouble()),
+              semanticFormatterCallback: spoken,
               onChanged: (v) => _set(v.round()),
             ),
           ),
@@ -972,29 +994,37 @@ class _StepButton extends StatelessWidget {
   const _StepButton({
     required this.keyValue,
     required this.icon,
+    required this.semanticLabel,
     required this.onTap,
   });
 
   final Key keyValue;
   final IconData icon;
+
+  /// Spoken name — the glyph alone says nothing to a screen reader.
+  final String semanticLabel;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return InkWell(
-      key: keyValue,
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rPill),
-      child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          color: t.surf,
-          shape: BoxShape.circle,
-          border: Border.all(color: t.line),
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: InkWell(
+        key: keyValue,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rPill),
+        child: Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: t.surf,
+            shape: BoxShape.circle,
+            border: Border.all(color: t.line),
+          ),
+          child: Icon(icon, color: t.ink, size: 24),
         ),
-        child: Icon(icon, color: t.ink, size: 24),
       ),
     );
   }
@@ -1020,23 +1050,31 @@ class _TileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return InkWell(
-      key: keyValue,
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rCard),
-      child: AnimatedContainer(
-        duration: motionDuration(context, const Duration(milliseconds: 160)),
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
-        decoration: BoxDecoration(
-          // Selected means a full brand surface, not a tinted border, so the
-          // selection reads through contrast rather than hue.
-          color: selected ? t.forest : t.surf,
+    // One node per card: button + selected, label from the child text.
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: InkWell(
+          key: keyValue,
+          onTap: onTap,
           borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(
-            color: selected ? t.forest : t.line,
+          child: AnimatedContainer(
+            duration:
+                motionDuration(context, const Duration(milliseconds: 160)),
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
+            decoration: BoxDecoration(
+              // Selected means a full brand surface, not a tinted border, so
+              // the selection reads through contrast rather than hue.
+              color: selected ? t.forest : t.surf,
+              borderRadius: BorderRadius.circular(rCard),
+              border: Border.all(
+                color: selected ? t.forest : t.line,
+              ),
+            ),
+            child: child,
           ),
         ),
-        child: child,
       ),
     );
   }
@@ -1064,7 +1102,12 @@ class _RowCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return InkWell(
+    // One node per row: button + selected, label from title and subtitle.
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: InkWell(
       key: keyValue,
       onTap: onTap,
       borderRadius: BorderRadius.circular(rCard),
@@ -1130,6 +1173,8 @@ class _RowCard extends StatelessWidget {
               Icon(Icons.check_circle_rounded, color: t.lime, size: 20),
             ],
           ],
+        ),
+      ),
         ),
       ),
     );
@@ -1417,26 +1462,21 @@ class _MacroChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
         child: Column(
           children: [
-            // The tile is a third of the row, so at textScaler 2.0 the content
-            // needs the shrink fallback.
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                value,
-                maxLines: 1,
-                style:
-                    AppType.display(16, weight: FontWeight.w700, color: color),
-              ),
+            // No FittedBox (F8-09): the texts scale with the system font and
+            // wrap inside the tile instead of shrinking back to 16/12 px.
+            Text(
+              value,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              style:
+                  AppType.display(16, weight: FontWeight.w700, color: color),
             ),
             const SizedBox(height: 4),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                style:
-                    AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-              ),
+            Text(
+              label,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
             ),
           ],
         ),

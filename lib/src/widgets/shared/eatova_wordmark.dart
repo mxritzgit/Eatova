@@ -18,12 +18,10 @@ class EatovaWordmark extends StatelessWidget {
   final double fontSize;
 
   /// Defaults to the brand surface pair from [AppTokens]: `onForest` for the
-  /// text, `lime` for the ring.
-  ///
-  /// Deliberately not `ink`/`accent`: the wordmark only appears on the dark
-  /// auth screen, which stays dark in both themes, so `ink` would be near
-  /// black on near black in light mode. Callers placing it on a light card
-  /// pass both colors themselves.
+  /// text, `lime` for the ring — meant for `forest` surfaces in both modes.
+  /// The only current site, the auth screen, sits on the mode ground and
+  /// passes `ink`/`accent` itself (`onForest` would vanish on the light
+  /// ground). The welcome screen paints its own mark with a CustomPainter.
   final Color? textColor;
   final Color? ringColor;
 
@@ -40,23 +38,28 @@ class EatovaWordmark extends StatelessWidget {
     // Slightly larger than the x-height and nudged down so it sits optically
     // on the lowercase midline.
     final ringBox = fontSize * 0.82;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text('eat', style: style),
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: fontSize * 0.05),
-          child: Transform.translate(
-            offset: Offset(0, fontSize * 0.09),
-            child: CustomPaint(
-              size: Size.square(ringBox),
-              painter: _FocusRingPainter(ringColor ?? t.lime),
+    // One spoken label: without it a screen reader reads "eat va".
+    return Semantics(
+      label: 'Eatova',
+      excludeSemantics: true,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text('eat', style: style),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: fontSize * 0.05),
+            child: Transform.translate(
+              offset: Offset(0, fontSize * 0.09),
+              child: CustomPaint(
+                size: Size.square(ringBox),
+                painter: _FocusRingPainter(ringColor ?? t.lime),
+              ),
             ),
           ),
-        ),
-        Text('va', style: style),
-      ],
+          Text('va', style: style),
+        ],
+      ),
     );
   }
 }

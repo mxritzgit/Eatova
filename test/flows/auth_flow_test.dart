@@ -24,9 +24,10 @@ void main() {
     expect(find.byKey(const ValueKey('auth-hero')), findsOneWidget);
     expect(find.byKey(const ValueKey('auth-google-oauth')), findsOneWidget);
     expect(find.byKey(const ValueKey('auth-apple-oauth')), findsNothing);
-    expect(find.text('Mit Google anmelden'), findsOneWidget);
-    expect(find.text('Mit Apple anmelden'), findsNothing);
-    expect(find.text('Einloggen'), findsOneWidget);
+    // Flow tests resolve to English (test PlatformDispatcher locale).
+    expect(find.text('Sign in with Google'), findsOneWidget);
+    expect(find.text('Sign in with Apple'), findsNothing);
+    expect(find.text('Log in'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('auth-toggle-register')));
     await tester.pumpAndSettle();

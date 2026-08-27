@@ -10,9 +10,13 @@ import '../l10n/l10n.dart';
 import '../services/local_cache.dart'
     show KeyValueStore, SharedPreferencesStore;
 import '../services/secure_screen.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/auth/auth_controls.dart';
 import '../widgets/common/app_snack.dart';
-import 'settings/account_change_messages.dart' show kAccountCodeLength;
+import '../widgets/design/controls.dart';
+import '../widgets/design/sheets.dart';
+import 'settings/account_change_messages.dart'
+    show kAccountCodeLength, kAccountMinPasswordLength;
 
 /// Which code flow is running: password reset or signup confirmation.
 enum AuthCodeFlow { recovery, signup }
@@ -236,11 +240,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
 
   bool get _locked => _failedAttempts >= _OtpSendThrottle.maxAttempts;
 
-  /// The auth pages still await the i18n migration and existing tests pump
-  /// them WITHOUT localization delegates, where `context.l10n` would throw —
-  /// hence the same German default as in `sync_error_messages.dart`.
-  AppLocalizations get _l10n =>
-      Localizations.of<AppLocalizations>(context, AppLocalizations) ?? deL10n;
+  AppLocalizations get _l10n => context.l10n;
 
   @override
   void initState() {
@@ -384,10 +384,9 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       case _AuthErrorKind.rateLimited:
         return _l10n.authCodeRateLimited;
       case _AuthErrorKind.codeRejected:
-        return 'Der Code stimmt nicht oder ist abgelaufen. Fordere unten '
-            'einfach einen neuen an.';
+        return _l10n.authCodeErrorRejected;
       case _AuthErrorKind.unknown:
-        return 'Das hat gerade nicht geklappt. Bitte nochmal versuchen.';
+        return _l10n.authErrorGeneric;
     }
   }
 
@@ -411,7 +410,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   Future<void> _sendCode() async {
     final email = _email.text.trim();
     if (!email.contains('@') || !email.contains('.')) {
-      setState(() => _error = 'Bitte gib eine gültige E-Mail ein.');
+      setState(() => _error = _l10n.authErrorInvalidEmail);
       return;
     }
     // The state for this address arrived while typing (_onEmailChanged); this
@@ -428,8 +427,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       if (!mounted) return;
       setState(() {
         _step = _Step.code;
-        _message = 'Falls ein Konto mit dieser E-Mail existiert, ist der '
-            '8-stellige Code unterwegs. Er ist 10 Minuten gültig.';
+        _message = _l10n.authCodeSentNeutral(kAccountCodeLength);
       });
     });
   }
@@ -449,8 +447,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
             : widget.authRepository.resendSignupCode(email),
       );
       if (!mounted) return;
-      setState(() => _message =
-          'Neuer Code angefordert — er ist 10 Minuten gültig.');
+      setState(() => _message = _l10n.authCodeResent);
     });
   }
 
@@ -458,7 +455,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     if (_locked) return;
     final code = _code.text.trim();
     if (code.length != kAccountCodeLength) {
-      setState(() => _error = 'Der Code hat $kAccountCodeLength Ziffern.');
+      setState(() => _error = _l10n.authCodeErrorLength(kAccountCodeLength));
       return;
     }
     final email = _guardEmail;
@@ -496,19 +493,19 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   }
 
   Future<void> _savePassword() async {
-    if (_password.text.length < 8) {
-      setState(() => _error = 'Das Passwort braucht mindestens 8 Zeichen.');
+    if (_password.text.length < kAccountMinPasswordLength) {
+      setState(() => _error =
+          _l10n.authErrorPasswordTooShort(kAccountMinPasswordLength));
       return;
     }
     await _run(() async {
       await widget.authRepository.updatePassword(_password.text);
       if (!mounted) return;
+      // Lets the password manager store the new password.
+      TextInput.finishAutofillContext();
+      final done = _l10n.authCodePasswordUpdated;
       Navigator.of(context).pop();
-      showAppSnack(
-        context,
-        'Passwort aktualisiert. Du bist eingeloggt.',
-        icon: Icons.lock_reset_rounded,
-      );
+      showAppSnack(context, done, icon: Icons.lock_reset_rounded);
     });
   }
 
@@ -521,285 +518,165 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     // (W3).
     final fehlerText =
         _error ?? (gesperrt ? _l10n.authCodeTooManyAttempts : null);
+    final t = context.t;
+    final l10n = _l10n;
+    final email = _email.text.trim();
     return SecureScreenGuard(
       child: Scaffold(
-      key: const ValueKey('auth-code-screen'),
-      backgroundColor: bg,
-      appBar: AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          key: const ValueKey('auth-code-back'),
-          onPressed: _busy ? null : () => Navigator.of(context).maybePop(),
-          icon: const Icon(Icons.arrow_back_rounded, size: 20),
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-              24, 8, 24, 24 + MediaQuery.viewInsetsOf(context).bottom),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                switch (_step) {
-                  _Step.email => 'Passwort zurücksetzen',
-                  _Step.code => 'Code eingeben',
-                  _Step.password => 'Neues Passwort',
-                },
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.8,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                switch (_step) {
-                  _Step.email =>
-                    'Wir schicken dir einen 8-stelligen Code per E-Mail.',
-                  _Step.code => _isRecovery
-                      ? 'Gib den Code aus der E-Mail an ${_email.text.trim()} ein.'
-                      : 'Bestätige deine E-Mail ${_email.text.trim()} mit dem '
-                          'Code aus der Willkommens-Mail.',
-                  _Step.password =>
-                    'Der Code stimmt. Leg jetzt dein neues Passwort fest.',
-                },
-                style: const TextStyle(
-                  color: textMuted,
-                  fontSize: 13.5,
-                  height: 1.45,
-                ),
-              ),
-              const SizedBox(height: 26),
-              if (_step == _Step.email) ...[
-                _CapsuleField(
-                  fieldKey: const ValueKey('code-email-field'),
-                  controller: _email,
-                  hint: 'du@beispiel.de',
-                  icon: Icons.alternate_email_rounded,
-                  enabled: !_busy,
-                  keyboardType: TextInputType.emailAddress,
-                  onSubmitted: _sendCode,
-                ),
-              ],
-              if (_step == _Step.code) ...[
-                _CodeField(
-                  fieldKey: const ValueKey('code-field'),
-                  controller: _code,
-                  enabled: !_busy && !gesperrt,
-                  onSubmitted: _verify,
-                ),
-              ],
-              if (_step == _Step.password) ...[
-                _CapsuleField(
-                  fieldKey: const ValueKey('code-password-field'),
-                  controller: _password,
-                  hint: 'Mind. 8 Zeichen',
-                  icon: Icons.lock_outline_rounded,
-                  enabled: !_busy,
-                  autofillHints: const [AutofillHints.newPassword],
-                  obscure: !_passwordVisible,
-                  onSubmitted: _savePassword,
-                  trailing: GestureDetector(
-                    onTap: () =>
-                        setState(() => _passwordVisible = !_passwordVisible),
-                    child: Icon(
-                      _passwordVisible
-                          ? Icons.visibility_off_rounded
-                          : Icons.visibility_rounded,
-                      size: 19,
-                      color: textMuted,
-                    ),
-                  ),
-                ),
-              ],
-              if (fehlerText != null) ...[
-                const SizedBox(height: 14),
-                _Note(
-                    noteKey: const ValueKey('code-error'),
-                    text: fehlerText,
-                    color: danger),
-              ],
-              if (_message != null) ...[
-                const SizedBox(height: 14),
-                _Note(
-                    noteKey: const ValueKey('code-message'),
-                    text: _message!,
-                    color: lime),
-              ],
-              const SizedBox(height: 22),
-              FilledButton(
-                key: const ValueKey('code-primary'),
-                onPressed: _busy || gesperrt
-                    ? null
-                    : switch (_step) {
-                        _Step.email => _sendCode,
-                        _Step.code => _verify,
-                        _Step.password => _savePassword,
-                      },
-                style: FilledButton.styleFrom(
-                  backgroundColor: lime,
-                  foregroundColor: bg,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(rControl),
-                  ),
-                ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: bg),
-                      )
-                    : Text(
-                        switch (_step) {
-                          _Step.email => 'Code anfordern',
-                          _Step.code => 'Code prüfen',
-                          _Step.password => 'Passwort speichern',
-                        },
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 14),
+        key: const ValueKey('auth-code-screen'),
+        backgroundColor: t.bg,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+                20, 8, 20, 24 + MediaQuery.viewInsetsOf(context).bottom),
+            // One autofill context: the password manager sees e-mail and new
+            // password together and is told when they are final.
+            child: AutofillGroup(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Own header instead of a Material AppBar: the AppBar drew
+                  // its scheme surface over the page ground (F2-01).
+                  Row(
+                    children: [
+                      SquareIconButton(
+                        key: const ValueKey('auth-code-back'),
+                        icon: Icons.chevron_left_rounded,
+                        onTap: _busy
+                            ? null
+                            : () => Navigator.of(context).maybePop(),
+                        semanticLabel: l10n.authBackSemanticLabel,
                       ),
-              ),
-              if (_step == _Step.code) ...[
-                const SizedBox(height: 12),
-                Center(
-                  child: GestureDetector(
-                    key: const ValueKey('code-resend'),
-                    // The tap stays enabled during the cooldown so _resend can
-                    // say how long is left; a dead link would leave the user
-                    // guessing.
-                    onTap: _busy ? null : _resend,
-                    behavior: HitTestBehavior.opaque,
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Text(
-                        _cooldownSeconds > 0
-                            ? _l10n.authCodeResendCountdown(_cooldownSeconds)
-                            : 'Keinen Code bekommen? Neuen anfordern',
-                        style: const TextStyle(
-                          color: textMuted,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
-                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    switch (_step) {
+                      _Step.email => l10n.authCodeTitleEmail,
+                      _Step.code => l10n.authCodeTitleCode,
+                      _Step.password => l10n.authCodeTitlePassword,
+                    },
+                    style: AppType.display(28, color: t.ink, height: 1.08),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    switch (_step) {
+                      _Step.email =>
+                        l10n.authCodeSubtitleEmail(kAccountCodeLength),
+                      _Step.code => _isRecovery
+                          ? l10n.authCodeSubtitleRecovery(email)
+                          : l10n.authCodeSubtitleSignup(email),
+                      _Step.password => l10n.authCodeSubtitlePassword,
+                    },
+                    style: AppType.ui(13.5, color: t.ink2, height: 1.45),
+                  ),
+                  const SizedBox(height: 26),
+                  if (_step == _Step.email) ...[
+                    AuthField(
+                      fieldKey: const ValueKey('code-email-field'),
+                      controller: _email,
+                      label: l10n.authFieldEmailLabel,
+                      hint: l10n.authFieldEmailHint,
+                      icon: Icons.alternate_email_rounded,
+                      enabled: !_busy,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.done,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      autofillHints: const [AutofillHints.email],
+                      onSubmitted: (_) => _sendCode(),
+                    ),
+                  ],
+                  if (_step == _Step.code) ...[
+                    _CodeField(
+                      fieldKey: const ValueKey('code-field'),
+                      controller: _code,
+                      enabled: !_busy && !gesperrt,
+                      onSubmitted: _verify,
+                    ),
+                  ],
+                  if (_step == _Step.password) ...[
+                    AuthField(
+                      fieldKey: const ValueKey('code-password-field'),
+                      controller: _password,
+                      label: l10n.authCodeTitlePassword,
+                      hint: l10n.authFieldPasswordHint,
+                      icon: Icons.lock_outline_rounded,
+                      enabled: !_busy,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.newPassword],
+                      obscure: !_passwordVisible,
+                      onSubmitted: (_) => _savePassword(),
+                      trailing: AuthPasswordToggle(
+                        toggleKey: const ValueKey('code-toggle-password'),
+                        visible: _passwordVisible,
+                        showLabel: l10n.authShowPasswordTooltip,
+                        hideLabel: l10n.authHidePasswordTooltip,
+                        onTap: () => setState(
+                            () => _passwordVisible = !_passwordVisible),
                       ),
                     ),
+                  ],
+                  if (fehlerText != null) ...[
+                    const SizedBox(height: 14),
+                    AuthInlineNote(
+                      noteKey: const ValueKey('code-error'),
+                      text: fehlerText,
+                      tone: AuthNoteTone.error,
+                    ),
+                  ],
+                  if (_message != null) ...[
+                    const SizedBox(height: 14),
+                    AuthInlineNote(
+                      noteKey: const ValueKey('code-message'),
+                      text: _message!,
+                      tone: AuthNoteTone.info,
+                    ),
+                  ],
+                  const SizedBox(height: 22),
+                  AuthPrimaryButton(
+                    buttonKey: const ValueKey('code-primary'),
+                    label: switch (_step) {
+                      _Step.email => l10n.authCodeRequestCta,
+                      _Step.code => l10n.authCodeVerifyCta,
+                      _Step.password => l10n.authCodeSavePasswordCta,
+                    },
+                    loading: _busy,
+                    enabled: !_busy && !gesperrt,
+                    onTap: switch (_step) {
+                      _Step.email => _sendCode,
+                      _Step.code => _verify,
+                      _Step.password => _savePassword,
+                    },
                   ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    ),
-    );
-  }
-}
-
-/// Borderless soft capsule (design rule: no hairlines or focus rings, focus is
-/// a surface lightening).
-class _CapsuleField extends StatefulWidget {
-  const _CapsuleField({
-    required this.fieldKey,
-    required this.controller,
-    required this.hint,
-    required this.icon,
-    required this.enabled,
-    required this.onSubmitted,
-    this.obscure = false,
-    this.keyboardType,
-    this.autofillHints,
-    this.trailing,
-  });
-
-  final Key fieldKey;
-  final TextEditingController controller;
-  final String hint;
-  final IconData icon;
-  final bool enabled;
-  final bool obscure;
-  final TextInputType? keyboardType;
-  final Iterable<String>? autofillHints;
-  final Widget? trailing;
-  final VoidCallback onSubmitted;
-
-  @override
-  State<_CapsuleField> createState() => _CapsuleFieldState();
-}
-
-class _CapsuleFieldState extends State<_CapsuleField> {
-  final FocusNode _focus = FocusNode();
-  bool _focused = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _focus.addListener(() {
-      if (_focused != _focus.hasFocus) {
-        setState(() => _focused = _focus.hasFocus);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _focus.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOutCubic,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      height: 52,
-      decoration: BoxDecoration(
-        color: Color.alphaBlend(
-          Colors.white.withValues(alpha: _focused ? 0.055 : 0.0),
-          surfaceSoft,
-        ),
-        borderRadius: BorderRadius.circular(rControl),
-      ),
-      child: Row(
-        children: [
-          Icon(widget.icon, size: 18, color: _focused ? lime : textMuted),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              key: widget.fieldKey,
-              controller: widget.controller,
-              focusNode: _focus,
-              enabled: widget.enabled,
-              obscureText: widget.obscure,
-              keyboardType: widget.keyboardType,
-              autofillHints: widget.autofillHints,
-              cursorColor: lime,
-              onSubmitted: (_) => widget.onSubmitted(),
-              style: const TextStyle(fontSize: 14.5),
-              decoration: InputDecoration(
-                hintText: widget.hint,
-                hintStyle: const TextStyle(color: textMuted, fontSize: 14),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                filled: false,
-                isCollapsed: true,
+                  if (_step == _Step.code) ...[
+                    const SizedBox(height: 12),
+                    Center(
+                      child: AuthTextLink(
+                        linkKey: const ValueKey('code-resend'),
+                        label: _cooldownSeconds > 0
+                            ? l10n.authCodeResendCountdown(_cooldownSeconds)
+                            : l10n.authCodeResendCta,
+                        // The tap stays enabled during the cooldown so
+                        // _resend can say how long is left; a dead link
+                        // would leave the user guessing.
+                        onTap: _busy ? null : _resend,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
-          if (widget.trailing != null) widget.trailing!,
-        ],
+        ),
       ),
     );
   }
 }
 
 /// Large code capsule: [kAccountCodeLength] digits, wide tracking, tabular.
+/// A [FieldCapsule] like [AuthField] (field / fieldFocus, no ring); a minimum
+/// height instead of a fixed one, so 200 % system font does not overflow.
 class _CodeField extends StatelessWidget {
   const _CodeField({
     required this.fieldKey,
@@ -815,69 +692,69 @@ class _CodeField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: surfaceSoft,
-        borderRadius: BorderRadius.circular(rCard),
-      ),
-      alignment: Alignment.center,
-      child: TextField(
-        key: fieldKey,
-        controller: controller,
-        enabled: enabled,
-        autofocus: true,
-        keyboardType: TextInputType.number,
-        // Without this hint the password manager never offers the code.
-        autofillHints: const [AutofillHints.oneTimeCode],
-        inputFormatters: [
-          FilteringTextInputFormatter.digitsOnly,
-          LengthLimitingTextInputFormatter(kAccountCodeLength),
-        ],
-        textAlign: TextAlign.center,
-        cursorColor: lime,
-        onSubmitted: (_) => onSubmitted(),
-        style: const TextStyle(
-          fontSize: 26,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 10,
-          fontFeatures: [FontFeature.tabularFigures()],
+    final t = context.t;
+    final label = context.l10n.authCodeFieldLabel;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: AppType.eyebrow(t.ink2, size: 10.5),
         ),
-        decoration: const InputDecoration(
-          hintText: '········',
-          hintStyle: TextStyle(color: textMuted, letterSpacing: 10),
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          disabledBorder: InputBorder.none,
-          filled: false,
-          isCollapsed: true,
+        const SizedBox(height: 8),
+        // The `Focus` ancestor only observes (cannot take focus, skipped in
+        // traversal): `Focus.of` rebuilds the capsule on focus changes.
+        Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          includeSemantics: false,
+          child: Builder(
+            builder: (context) => FieldCapsule(
+              focused: Focus.of(context).hasFocus,
+              enabled: enabled,
+              constraints: const BoxConstraints(minHeight: 64),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              alignment: Alignment.center,
+              // Spoken name for the field; without it a screen reader only
+              // reads the dot hint.
+              child: Semantics(
+                label: label,
+                child: TextField(
+                  key: fieldKey,
+                  controller: controller,
+                  enabled: enabled,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  // Without this hint the password manager never offers the
+                  // code.
+                  autofillHints: const [AutofillHints.oneTimeCode],
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(kAccountCodeLength),
+                  ],
+                  textAlign: TextAlign.center,
+                  cursorColor: t.accent,
+                  onSubmitted: (_) => onSubmitted(),
+                  style: AppType.display(26, color: t.ink, letterSpacing: 10),
+                  decoration: InputDecoration(
+                    // One placeholder dot per digit.
+                    hintText: '·' * kAccountCodeLength,
+                    hintStyle:
+                        AppType.display(26, color: t.ink2, letterSpacing: 10),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    filled: false,
+                    isCollapsed: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _Note extends StatelessWidget {
-  const _Note({required this.noteKey, required this.text, required this.color});
-
-  final Key noteKey;
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: noteKey,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(rControl),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(color: color, fontSize: 12.5, height: 1.4),
-      ),
+      ],
     );
   }
 }

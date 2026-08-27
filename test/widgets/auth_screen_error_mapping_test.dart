@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-/// Throws the German cancellation message that runNativeGoogleSignIn produces
-/// when the user aborts.
+/// Throws the typed cancellation that runNativeGoogleSignIn produces when the
+/// user aborts.
 class _CancelingAuthRepository implements AuthRepository {
   @override
   EatovaUser? get currentUser => null;
@@ -66,7 +66,7 @@ class _CancelingAuthRepository implements AuthRepository {
 
   @override
   Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {
-    throw const AuthException('Google Login wurde abgebrochen.');
+    throw const AuthCancelledException('Google');
   }
 
   @override
@@ -76,15 +76,17 @@ class _CancelingAuthRepository implements AuthRepository {
 void main() {
   testWidgets(
       'Google-Abbruch zeigt die Abbruch-Meldung, nicht die Generik '
-      '(Regression: Mapper kannte nur engl. "cancel", nicht "abgebrochen")',
+      '(Regression: Mapper matchte auf Text; jetzt auf den Typ)',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        // The wordmark in the AuthScreen header reads its colors via
-        // `context.t`, and `AppTokens.of` throws without the ThemeExtension —
-        // a bare MaterialApp would die in the first build, before the error
-        // mapper runs.
+        // The screen reads `context.t` and `context.l10n`: without theme
+        // extension and delegates it would die in the first build, before the
+        // error mapper runs.
         theme: buildEatovaTheme(Brightness.dark),
+        locale: const Locale('de'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
         home: AuthScreen(authRepository: _CancelingAuthRepository()),
       ),
     );

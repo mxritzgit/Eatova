@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
+import 'package:eatova/src/auth/auth_exceptions.dart';
 import 'package:eatova/src/auth/google_id_token_provider.dart';
 
 class _FakeProvider implements GoogleIdTokenProvider {
@@ -22,7 +23,8 @@ void main() {
       expect(exchanged, ['token-123']);
     });
 
-    test('User-Abbruch wirft AuthException und tauscht nichts ein', () async {
+    test('User-Abbruch wirft den TYP AuthCancelledException, keinen Satz',
+        () async {
       var exchangeCalls = 0;
       await expectLater(
         runNativeGoogleSignIn(
@@ -30,11 +32,8 @@ void main() {
           exchangeIdToken: (_) async => exchangeCalls++,
         ),
         throwsA(
-          isA<AuthException>().having(
-            (e) => e.message,
-            'message',
-            'Google Login wurde abgebrochen.',
-          ),
+          isA<AuthCancelledException>()
+              .having((e) => e.provider, 'provider', 'Google'),
         ),
       );
       expect(exchangeCalls, 0);

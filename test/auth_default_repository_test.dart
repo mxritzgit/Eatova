@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
 
@@ -32,16 +31,17 @@ void main() {
 
     test('Release-Pfad: Anmeldeversuche scheitern LAUT statt still', () async {
       final repo = buildDefaultAuthRepository(allowPreview: false);
+      // Typed, so the auth screen can localize it (fix run 2026-08-27, B).
       await expectLater(repo.signIn(email: 'a@example.com', password: 'pw'),
-          throwsA(isA<AuthException>()),
+          throwsA(isA<AuthUnavailableException>()),
           reason: 'ein stiller No-Op liesse den Nutzer endlos auf dem '
               'Login-Button druecken');
       await expectLater(
           repo.signUp(
               email: 'a@example.com', password: 'pw', displayName: 'A'),
-          throwsA(isA<AuthException>()));
+          throwsA(isA<AuthUnavailableException>()));
       await expectLater(repo.signInWithOAuth(EatovaOAuthProvider.google),
-          throwsA(isA<AuthException>()));
+          throwsA(isA<AuthUnavailableException>()));
     });
 
     test('Release-Pfad: signOut bleibt gefahrlos', () async {
