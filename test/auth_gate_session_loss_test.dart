@@ -22,6 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 /// Auth repository whose events the test drives directly, so a server-side
@@ -136,6 +137,10 @@ Future<void> _pumpGate(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
+      // The signed-out branch renders AuthScreen, which reads `context.l10n`.
+      locale: const Locale('de'),
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       home: AuthGate(
         authRepository: repository,
         builder: (context, user, freshLogin) => Scaffold(
@@ -291,6 +296,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildEatovaTheme(Brightness.dark),
+        locale: const Locale('de'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
         home: AuthGate(
           authRepository: repository,
           builder: (context, user, freshLogin) => Scaffold(

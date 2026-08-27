@@ -14,6 +14,7 @@ import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
+import '../models/model_limits.dart' show isValidWeightLogKg;
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
@@ -126,14 +127,63 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   // sync, not the other way round.
   HealthAuthState healthAuthState = HealthAuthState.unknown;
   DateTime selectedFoodDate = DateUtils.dateOnly(clock.now());
-  UserProfile profile = const UserProfile();
   MacroProgress macroProgress = MacroProgress.empty;
-  List<FavoriteMeal> favorites = <FavoriteMeal>[];
-  List<LoggedMeal> loggedMeals = <LoggedMeal>[];
-  List<FitnessRecipe> _userRecipes = const <FitnessRecipe>[];
-  WeightLog weightLog = const WeightLog();
-  LifetimeStats lifetimeStats = LifetimeStats();
   String userName = 'Moritz';
+
+  // The six server-mirrored collections sit behind setters that bump a
+  // per-collection version (F1-01, review 2026-08-27). Every assignment in
+  // any part goes through them, so the boot load can tell "unchanged since
+  // the request went out" (full replacement) from "mutated in the window"
+  // (merge, local wins) without the parts knowing about it.
+  UserProfile _profileState = const UserProfile();
+  List<FavoriteMeal> _favoritesState = <FavoriteMeal>[];
+  List<LoggedMeal> _loggedMealsState = <LoggedMeal>[];
+  List<FitnessRecipe> _userRecipesState = const <FitnessRecipe>[];
+  WeightLog _weightLogState = const WeightLog();
+  LifetimeStats _lifetimeStatsState = LifetimeStats();
+
+  int _profileVersion = 0;
+  int _favoritesVersion = 0;
+  int _loggedMealsVersion = 0;
+  int _userRecipesVersion = 0;
+  int _weightLogVersion = 0;
+  int _lifetimeStatsVersion = 0;
+
+  UserProfile get profile => _profileState;
+  set profile(UserProfile value) {
+    _profileState = value;
+    _profileVersion++;
+  }
+
+  List<FavoriteMeal> get favorites => _favoritesState;
+  set favorites(List<FavoriteMeal> value) {
+    _favoritesState = value;
+    _favoritesVersion++;
+  }
+
+  List<LoggedMeal> get loggedMeals => _loggedMealsState;
+  set loggedMeals(List<LoggedMeal> value) {
+    _loggedMealsState = value;
+    _loggedMealsVersion++;
+  }
+
+  List<FitnessRecipe> get _userRecipes => _userRecipesState;
+  set _userRecipes(List<FitnessRecipe> value) {
+    _userRecipesState = value;
+    _userRecipesVersion++;
+  }
+
+  WeightLog get weightLog => _weightLogState;
+  set weightLog(WeightLog value) {
+    _weightLogState = value;
+    _weightLogVersion++;
+  }
+
+  LifetimeStats get lifetimeStats => _lifetimeStatsState;
+  set lifetimeStats(LifetimeStats value) {
+    _lifetimeStatsState = value;
+    _lifetimeStatsVersion++;
+  }
 
   LocalCache? _cache;
   bool _hydratedFromRealSource = false;
@@ -346,7 +396,73 @@ class HomeStore extends _HomeStoreBase
           name: 'eatova_sync');
       _completeProfileReady();
     });
-    unawaited(_hydrateThenBoot());
+    unawaited(_hydrateThenBootGuarded());
+  }
+
+  /// F1-09: the boot chain is fire-and-forget, so a throw anywhere in it (a
+  /// PlatformException from the notification plugin at its very end) used to
+  /// be an unhandled zone error — "fatal" in Sentry, boot half done. Reported
+  /// through the sync filter (an outage is not an incident) and the gate is
+  /// opened so the user is not stuck until the budget.
+  Future<void> _hydrateThenBootGuarded() async {
+    // The whole chain counts as "loading" for the shell: the budget can open
+    // the gate while the chain is still before its server load (keystore,
+    // hydration, replay), and a retry then must show progress, not start a
+    // parallel load.
+    _bootChainInFlight = true;
+    try {
+      await _hydrateThenBoot();
+    } catch (e, st) {
+      dev.log('Boot-Kette abgebrochen', error: e, stackTrace: st,
+          name: 'eatova_sync');
+      unawaited(CrashReporter.captureSyncFailure(e, st, context: 'boot'));
+      if (!_disposed) _completeProfileReady();
+    } finally {
+      if (_disposed) {
+        _bootChainInFlight = false;
+      } else {
+        _mutate(() => _bootChainInFlight = false);
+      }
+    }
+  }
+
+  // --- Boot without an answer (F1-06) ---------------------------------------
+
+  /// The boot-profile load has ANSWERED — a row or "no row" — at least once.
+  /// An error or a timeout is not an answer.
+  bool _serverProfileAnswered = false;
+
+  /// A server load is running ([_bootFromSupabase]); the shell shows progress
+  /// instead of the retry button. Also the re-entry guard of that method.
+  bool _bootLoadInFlight = false;
+
+  /// The boot chain ([_hydrateThenBootGuarded]) is running — covers the
+  /// phase BEFORE the server load too.
+  bool _bootChainInFlight = false;
+
+  /// True while the store knows nothing about the user: no cached profile,
+  /// and the server has not answered yet. Once the welcome gate has fallen
+  /// (budget or fast failure) the shell shows the "slow connection" state
+  /// instead of the onboarding that `needsOnboarding` would claim from ctor
+  /// defaults — a returning user must never see onboarding for a slow socket,
+  /// and `completeOnboarding` must never overwrite a real profile row.
+  bool get bootUnanswered =>
+      sync != null && !_hydratedFromRealSource && !_serverProfileAnswered;
+
+  bool get bootLoadInFlight => _bootLoadInFlight || _bootChainInFlight;
+
+  /// Retry button of the unanswered state: runs the server load again. No-op
+  /// while the boot chain or a load is running — two taps are one load.
+  Future<void> retryBoot() async {
+    if (sync == null || _disposed || bootLoadInFlight) return;
+    try {
+      await _bootFromSupabase();
+    } catch (e, st) {
+      unawaited(CrashReporter.captureSyncFailure(e, st, context: 'boot-retry'));
+      if (!_disposed && _bootLoadInFlight) {
+        _mutate(() => _bootLoadInFlight = false);
+      }
+    }
   }
 
   Future<void> _hydrateThenBoot() async {
@@ -440,6 +556,7 @@ class HomeStore extends _HomeStoreBase
     var outboxLesefehler = false;
     var deltaLesefehler = false;
     final cachedProfile = await _leseSlot('profile', cache.readProfile);
+    _cachedProfileAtBoot = cachedProfile;
     final cachedStats = await _leseSlot('stats', cache.readLifetimeStats);
     final cachedMeals = await _leseSlot('logged_meals', cache.readLoggedMeals);
     final cachedFavorites = await _leseSlot('favorites', cache.readFavorites);
@@ -562,32 +679,69 @@ class HomeStore extends _HomeStoreBase
   }
 
   Future<void> _bootFromSupabase() async {
+    // Re-entry guard: a second concurrent load would reset the flag from the
+    // first finished run and adopt a stale snapshot over a fresh one.
+    if (_bootLoadInFlight || _disposed) return;
     final s = sync!;
     final today = clock.now();
+    _mutate(() => _bootLoadInFlight = true);
+    // F1-01: the gate is open on the cached profile while these loads run, so
+    // a live write can land in the window. Remember each collection's version
+    // and content BEFORE the requests go out: unchanged afterwards means the
+    // answer may replace the list wholesale; changed means the answer is a
+    // snapshot from before the write and gets MERGED (local wins, missing
+    // server ids added, ids deleted locally in the window not revived).
+    final vorher = _BootBaseline.of(this);
     // Sentry FLUTTER-9/-A/-B: at every cold start the server rejected ONE of
     // these six loads for its (freshly refreshed) token, and that load was
     // lost for the session. StaleAuthRetry waits and retries, refreshing
     // only on the second strike — see its doc for the edge-log evidence.
     final auth = StaleAuthRetry(() => s.client.auth.refreshSession());
     final results = await Future.wait<Object?>([
-      _safeLoad('boot-profile', () => auth.run(s.profile.load)),
+      _safeLoad('boot-profile', () async {
+        final loaded = await auth.run(s.profile.load);
+        // "No row" is an answer too (fresh user -> onboarding); only a throw
+        // leaves this unset (F1-06).
+        _serverProfileAnswered = true;
+        return loaded;
+      }),
       _safeLoad('boot-meals', () => auth.run(s.meals.loadLoggedMeals)),
       _safeLoad('boot-favorites', () => auth.run(s.meals.loadFavorites)),
       _safeLoad('boot-weight-log', () => auth.run(s.tracking.loadWeightLog)),
       _safeLoad('boot-lifetime-stats', () => auth.run(s.lifetimeStats.load)),
       _safeLoad('boot-user-recipes', () => auth.run(s.userRecipes.load)),
     ]);
-    if (_disposed) return;
+    if (_disposed) {
+      _bootLoadInFlight = false;
+      return;
+    }
+    var healSave = false;
     _mutate(() {
+      _bootLoadInFlight = false;
       final loadedProfile = results[0] as UserProfile?;
-      if (loadedProfile != null) {
+      // A profile written in the window (onboarding completed, settings
+      // saved) is newer than any snapshot the server can return.
+      if (loadedProfile != null && vorher.profileVersion == _profileVersion) {
         profile = loadedProfile;
         _hydratedFromRealSource = true;
+        healSave =
+            s.profile.lastLoadHealed && _serverGoalsLookStale(loadedProfile);
+        // The adopted row is the new reference, so a retryBoot does not
+        // queue the same correction twice.
+        _cachedProfileAtBoot = loadedProfile;
       }
 
       final loadedMeals = results[1] as List<LoggedMeal>?;
       if (loadedMeals != null) {
-        loggedMeals = loadedMeals;
+        loggedMeals = vorher.loggedMealsVersion == _loggedMealsVersion
+            ? loadedMeals
+            : _mergeRacedLoad(
+                local: loggedMeals,
+                server: loadedMeals,
+                baseline: vorher.loggedMeals,
+                keyOf: (m) => m.id,
+                sort: (a, b) => b.loggedAt.compareTo(a.loggedAt),
+              );
         // The fresh window load REPLACES the list, so previously fetched
         // archive days are gone and must be reloaded on re-selection. Without
         // this reset the session cache would call the day "loaded" and show it
@@ -602,20 +756,50 @@ class HomeStore extends _HomeStoreBase
       // cold start. `loadFavorites` returns added_at DESC, the order the cap
       // relies on (pinned favorites stay untouched).
       if (loadedFavorites != null) {
-        favorites = _cappedFavorites(loadedFavorites);
+        favorites = vorher.favoritesVersion == _favoritesVersion
+            ? _cappedFavorites(loadedFavorites)
+            : _cappedFavorites(_mergeRacedLoad(
+                local: favorites,
+                server: loadedFavorites,
+                baseline: vorher.favorites,
+                keyOf: (f) => f.id,
+                sort: (a, b) => b.addedAt.compareTo(a.addedAt),
+              ));
       }
 
       final loadedWeightLog = results[3] as WeightLog?;
-      if (loadedWeightLog != null) weightLog = loadedWeightLog;
+      if (loadedWeightLog != null) {
+        weightLog = vorher.weightLogVersion == _weightLogVersion
+            ? loadedWeightLog
+            : WeightLog(
+                entries: _mergeRacedLoad(
+                  local: weightLog.entries,
+                  server: loadedWeightLog.entries,
+                  baseline: vorher.weightLog.entries,
+                  keyOf: (e) => e.timestamp.toUtc().toIso8601String(),
+                  sort: (a, b) => a.timestamp.compareTo(b.timestamp),
+                ),
+              );
+      }
 
       final loadedStats = results[4] as LifetimeStats?;
-      if (loadedStats != null) {
+      // A row adopted in the window (live meal, RPC answer) is newer than
+      // the snapshot; the next flush brings the authoritative counters.
+      if (loadedStats != null &&
+          vorher.lifetimeStatsVersion == _lifetimeStatsVersion) {
         lifetimeStats = loadedStats;
       }
 
       final loadedRecipes = results[5] as List<FitnessRecipe>?;
       if (loadedRecipes != null) {
-        _userRecipes = _mergeUserRecipes(loadedRecipes);
+        _userRecipes = vorher.userRecipesVersion == _userRecipesVersion
+            ? _mergeUserRecipes(loadedRecipes)
+            : _mergeRacedLoad(
+                local: _userRecipes,
+                server: loadedRecipes,
+                baseline: vorher.userRecipes,
+                keyOf: (r) => r.slug,
+              );
       }
 
       // Cache-then-network merge: server data wins for synced entries, but
@@ -631,8 +815,57 @@ class HomeStore extends _HomeStoreBase
     if (_isOutsideBootWindow(selectedFoodDate)) {
       unawaited(_ensureArchiveDayLoaded(selectedFoodDate));
     }
+    if (healSave) _queueHealedProfileSave();
     unawaited(_writeCacheSnapshot());
     _completeProfileReady();
+  }
+
+  // --- Live-goal write-back (F7-01, boot hook) -----------------------------
+
+  /// The profile slot as hydration found it, replaced by the adopted server
+  /// row after each load — the re-entry guard for [_serverGoalsLookStale].
+  UserProfile? _cachedProfileAtBoot;
+
+  /// Whether a healed load still needs its write-back.
+  ///
+  /// The exact signal is `ProfileSync.lastLoadHealed` (checked by the
+  /// caller): the row differed from the CURRENT calculator and `load` healed
+  /// it locally but stayed a read. This guard only keeps the write from
+  /// repeating: skipped while a profile op is queued (that save carries the
+  /// fix) and when the adopted reference already carries the healed goals
+  /// (a retryBoot before the save landed). Without a reference (fresh
+  /// device) the healed signal alone decides.
+  bool _serverGoalsLookStale(UserProfile loaded) {
+    if (loaded.manualEnergy || !loaded.onboardingCompleted) return false;
+    if (_outbox.any((o) => o.kind == SyncOpKind.profileUpsert)) return false;
+    final cached = _cachedProfileAtBoot;
+    if (cached == null) return true;
+    return cached.dailyKcalGoal != loaded.dailyKcalGoal ||
+        cached.proteinGoalG != loaded.proteinGoalG ||
+        cached.carbsGoalG != loaded.carbsGoalG ||
+        cached.fatGoalG != loaded.fatGoalG;
+  }
+
+  /// Writes the healed live goals back — one full-row upsert through the
+  /// regular outbox path (same entity key as every profile op, so it
+  /// coalesces and never double-saves).
+  void _queueHealedProfileSave() {
+    final s = sync;
+    if (s == null || _disposed) return;
+    final healed = profile;
+    dev.log(
+        'Live-Ziele nach Boot-Heilung zurueckgeschrieben '
+        '(${healed.dailyKcalGoal} kcal)',
+        name: 'eatova_sync');
+    // Silent: an automatic correction at cold start must not raise the
+    // "queued, will retry" snack the user did nothing to cause; the outbox
+    // still carries the op.
+    unawaited(_syncOrQueue(
+      'Profil-Sync (Heilung)',
+      () => s.profile.save(healed),
+      () => SyncOp.profileUpsert(healed),
+      aufruferMeldetAusgang: true,
+    ));
   }
 
   /// Gap C: layers the freshly loaded server list OVER the local one instead
@@ -661,6 +894,32 @@ class HomeStore extends _HomeStoreBase
     // Local first: the list shows own recipes on top, and the one just
     // created is what the user is looking at.
     return <FitnessRecipe>[...nurLokal, ...fromServer];
+  }
+
+  /// F1-01 merge for a collection mutated while its load was in flight.
+  ///
+  /// [local] wins for every shared key (it may carry an edit the snapshot
+  /// predates). Server rows are added only if they are in NEITHER list: a key
+  /// in [baseline] but not in [local] was deleted locally in the window and
+  /// must not come back. [sort] restores the server order afterwards.
+  static List<T> _mergeRacedLoad<T>({
+    required List<T> local,
+    required List<T> server,
+    required List<T> baseline,
+    required String Function(T) keyOf,
+    int Function(T, T)? sort,
+  }) {
+    final localKeys = local.map(keyOf).toSet();
+    final baselineKeys = baseline.map(keyOf).toSet();
+    final merged = <T>[
+      ...local,
+      ...server.where((row) {
+        final key = keyOf(row);
+        return !localKeys.contains(key) && !baselineKeys.contains(key);
+      }),
+    ];
+    if (sort != null) merged.sort(sort);
+    return merged;
   }
 
   Future<T?> _safeLoad<T>(
@@ -769,11 +1028,58 @@ class HomeStore extends _HomeStoreBase
     _disposed = true;
     _statsSaveDebounce?.cancel();
     _outboxRetryTimer?.cancel();
+    _outboxRetryTimer = null;
     _midnightTimer?.cancel();
     _midnightTimer = null;
     _bootBudgetTimer?.cancel();
     _bootBudgetTimer = null;
+    // F1-02: a debounce armed by the last mutation must not write this
+    // store's mirror state after the session it belonged to is gone. Discard,
+    // not close — the instance may still serve a purge.
+    _cache?.discardPendingWrites();
     sync?.dispose();
     super.dispose();
   }
+}
+
+/// Versions and contents of the mirrored collections at the moment the boot
+/// loads went out (F1-01). Contents are the immutable list instances of that
+/// moment, so holding them costs nothing.
+class _BootBaseline {
+  const _BootBaseline({
+    required this.profileVersion,
+    required this.loggedMealsVersion,
+    required this.favoritesVersion,
+    required this.weightLogVersion,
+    required this.lifetimeStatsVersion,
+    required this.userRecipesVersion,
+    required this.loggedMeals,
+    required this.favorites,
+    required this.weightLog,
+    required this.userRecipes,
+  });
+
+  factory _BootBaseline.of(_HomeStoreBase store) => _BootBaseline(
+        profileVersion: store._profileVersion,
+        loggedMealsVersion: store._loggedMealsVersion,
+        favoritesVersion: store._favoritesVersion,
+        weightLogVersion: store._weightLogVersion,
+        lifetimeStatsVersion: store._lifetimeStatsVersion,
+        userRecipesVersion: store._userRecipesVersion,
+        loggedMeals: store.loggedMeals,
+        favorites: store.favorites,
+        weightLog: store.weightLog,
+        userRecipes: store._userRecipes,
+      );
+
+  final int profileVersion;
+  final int loggedMealsVersion;
+  final int favoritesVersion;
+  final int weightLogVersion;
+  final int lifetimeStatsVersion;
+  final int userRecipesVersion;
+  final List<LoggedMeal> loggedMeals;
+  final List<FavoriteMeal> favorites;
+  final WeightLog weightLog;
+  final List<FitnessRecipe> userRecipes;
 }

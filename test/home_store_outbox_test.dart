@@ -2269,7 +2269,7 @@ void main() {
 
     a.server.offline = true;
     await a.store.applySettings(
-      newProfile: a.store.profile.copyWith(weightKg: 84, dailyKcalGoal: 1900),
+      newProfile: a.store.profile.copyWith(weightKg: 84, dailyKcalGoal: 1900, manualEnergy: true),
       notificationsEnabled: false,
     );
     await _settle();
@@ -2349,16 +2349,21 @@ void main() {
     expect(profilOps.single.profile!.weightKg, 86);
     expect(profilOps.single.profile!.dailyKcalGoal, 2000);
 
+    // Only the replay counts: the hand-set 2200 kcal of the fixture is a
+    // stale live row, so the boot itself already wrote the healed goals back
+    // (F7-01 write-back on `ProfileSync.lastLoadHealed`).
+    int profilPosts() => a.server.requests
+        .where((r) => r.method == 'POST' && r.url.path.contains('/profiles'))
+        .length;
+    final vorReplay = profilPosts();
+
     a.server.offline = false;
     a.store.flushPendingWrites();
     await _settle();
 
     expect(a.server.profileRow!['weight_kg'], 86);
     expect(a.server.profileRow!['daily_kcal_goal'], 2000);
-    expect(
-        a.server.requests.where(
-            (r) => r.method == 'POST' && r.url.path.contains('/profiles')),
-        hasLength(1),
+    expect(profilPosts() - vorReplay, 1,
         reason: 'genau ein Zustellversuch fuer beide Aenderungen');
     expect(a.store.pendingOutbox, isEmpty);
   });
@@ -2972,7 +2977,7 @@ void main() {
     a.store.logWeight(79.4);
     await a.store.createUserRecipe(_recipe('user_inventur'));
     await a.store.applySettings(
-      newProfile: a.store.profile.copyWith(dailyKcalGoal: 1750),
+      newProfile: a.store.profile.copyWith(dailyKcalGoal: 1750, manualEnergy: true),
       notificationsEnabled: false,
     );
     await _settle();

@@ -58,6 +58,17 @@ class EatovaSupabaseConfig {
   static final String sessionPersistKey =
       'sb-${Uri.parse(url).host.split('.').first}-auth-token';
 
+  /// Client-wide PostgREST request timeout (review 2026-08-27, F1-05).
+  ///
+  /// Without it a silent socket never resolved a request: the entity stayed
+  /// in `_inFlightOps` for the process lifetime, follow-up updates queued
+  /// silently, and `signOutCleanup` hung on its delivery attempt. 20 s is
+  /// well above a slow mobile round trip and inside the 25 s logout budget.
+  /// The resulting [TimeoutException] is already a network error for the
+  /// outbox (`isNetworkSyncError`): retried for free, never reported.
+  static const PostgrestClientOptions postgrestOptions =
+      PostgrestClientOptions(requestTimeout: Duration(seconds: 20));
+
   static Future<void> initialize() async {
     // supabase_flutter 2.14 deprecated the `anonKey` init parameter in favour
     // of `publishableKey` (legacy anon JWT still accepted); the internal
@@ -70,6 +81,7 @@ class EatovaSupabaseConfig {
     await Supabase.initialize(
       url: url,
       publishableKey: anonKey,
+      postgrestOptions: postgrestOptions,
       authOptions: FlutterAuthClientOptions(
         localStorage: buildSessionStorage(),
         // Without this override the PKCE code verifier would be the last

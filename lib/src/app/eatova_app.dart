@@ -169,7 +169,9 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           healthService: widget.healthService,
           notificationService:
               widget.notificationService ?? const NoopNotificationService(),
-          initialUserName: user.firstName,
+          // Localized fallback (no display name, no mail): the builder's
+          // context sits below the MaterialApp, so the bundle is resolvable.
+          initialUserName: user.firstNameFor(context.l10n),
           userEmail: user.email,
           authRepository: repository,
           onSignOut: repository.signOut,

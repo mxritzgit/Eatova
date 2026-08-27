@@ -356,12 +356,28 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       );
     }
 
-    // PERF-2: only (tab, onboarding gate) rebuild the shell; data slices
-    // rebuild their own tab contents.
+    // PERF-2: only (tab, boot state, onboarding gate) rebuild the shell; data
+    // slices rebuild their own tab contents.
     return StoreSelector(
       store: _store,
-      selector: () => (_store.selectedTab, _store.needsOnboarding),
+      selector: () => (
+        _store.selectedTab,
+        _store.bootUnanswered,
+        _store.bootLoadInFlight,
+        _store.needsOnboarding,
+      ),
       builder: (context) {
+        // F1-06: the gate fell (budget or fast failure) without a cached
+        // profile and without a server answer. `needsOnboarding` would be
+        // true from ctor defaults here — a returning user must see "slow
+        // connection", not onboarding.
+        if (_store.bootUnanswered) {
+          return _BootUnansweredScreen(
+            loading: _store.bootLoadInFlight,
+            onRetry: _store.retryBoot,
+          );
+        }
+
         // Mandatory onboarding for real users; skipped in test/preview.
         //
         // D7: must stay ABOVE the shell's PopScope — OnboardingScreen has its
@@ -594,6 +610,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onSettingsPressed: _openSettings,
               onProfilePressed: _openProfile,
               profileInitial: _store.profileInitial,
+              // Trends measure "goal hit" against goal + step bonus, like
+              // the Today tab (F7-05).
+              trendBurnedKcalFor: _store.burnedKcalForFoodDate,
               addSlotRequest: _addSlotRequest,
             ),
           );
@@ -676,6 +695,74 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           );
         },
       );
+}
+
+/// Boot without a server answer (F1-06): no cached profile, budget spent or
+/// load failed. Offers a retry; shows progress while a load is running.
+class _BootUnansweredScreen extends StatelessWidget {
+  const _BootUnansweredScreen({required this.loading, required this.onRetry});
+
+  final bool loading;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Scaffold(
+      key: const ValueKey('screen-boot-unanswered'),
+      backgroundColor: t.bg,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.cloud_off_rounded, size: 40, color: t.ink2),
+                const SizedBox(height: 18),
+                // `header: true` lets a screen reader jump to the screen
+                // title, as in the sheets.
+                Semantics(
+                  header: true,
+                  child: Text(
+                    l10n.commonBootUnansweredTitle,
+                    textAlign: TextAlign.center,
+                    style: AppType.display(22, color: t.ink),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.commonBootUnansweredBody,
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(14, color: t.ink2, height: 1.4),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: loading
+                      ? Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2.5, color: t.accent),
+                          ),
+                        )
+                      : PrimaryActionButton(
+                          key: const ValueKey('boot-unanswered-retry'),
+                          label: l10n.commonBootUnansweredRetry,
+                          icon: Icons.refresh_rounded,
+                          onTap: onRetry,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Test seam (G11): counts subtree builds per tab index. Only maintained

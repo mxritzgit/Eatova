@@ -45,6 +45,10 @@ abstract final class IntentionalSignOut {
 /// The outbox is kept: pending writes replay on the next login (A2).
 Future<void> purgePersonalCacheFor(String userId) async {
   if (userId.isEmpty) return;
+  // F1-02: silence the store's OWN instance first — its debounce timer and
+  // late live-op callbacks would otherwise write into the slots this purge
+  // clears. Independent of whether the second instance can be built.
+  LocalCache.closeInstancesFor(userId);
   try {
     final cache = await LocalCache.create(userId);
     if (cache != null) await purgePersonalCache(cache);

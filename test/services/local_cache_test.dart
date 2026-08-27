@@ -144,7 +144,7 @@ void main() {
           .allMatches(klassenRumpf)
           .map((m) => m.group(1)!)
           .toList();
-      expect(felder, hasLength(16),
+      expect(felder, hasLength(17),
           reason: 'Feldliste aus lib/src/models/user_profile.dart gelesen');
 
       // Field name -> cache key: camelCase -> snake_case, with `diet` the one

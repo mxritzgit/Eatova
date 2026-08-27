@@ -12,6 +12,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 // The AuthGate as the ONLY place every auth transition passes through:
@@ -133,6 +134,10 @@ Future<void> _pumpGate(
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
+      // The signed-out branch renders AuthScreen, which reads `context.l10n`.
+      locale: const Locale('de'),
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       home: AuthGate(
         authRepository: repository,
         debugPurgeCache: purge,
