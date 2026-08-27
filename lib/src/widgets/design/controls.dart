@@ -50,7 +50,7 @@ class SquareIconButton extends StatelessWidget {
                 height: 34,
                 decoration: BoxDecoration(
                   color: t.surf,
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(rChip),
                   border: Border.all(color: t.line),
                 ),
                 child: Icon(icon, size: 17, color: t.ink2),
@@ -79,7 +79,7 @@ class IconTile extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         color: color == null ? t.tile : color!.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: BorderRadius.circular(rChip),
       ),
       // Not the full category color: the glyph would sit on its OWN 15 % tint
       // at ~2.2:1 in light mode — that is what [AppTokens.readableOnTint] is
@@ -140,9 +140,15 @@ class AppToggle extends StatelessWidget {
                 width: 46,
                 height: 27,
                 padding: const EdgeInsets.all(3),
+                // OFF: track ink2@35 %, knob edge full ink2 — `tile`/`line`
+                // were under 1.4:1 everywhere. The track itself is only
+                // ~1.7:1 (L) / 1.8:1 (D) against the card: WCAG 1.4.11 asks
+                // 3:1 for the component BOUNDARY, and that is the knob's ink2
+                // ring — 3.3–3.5:1 against the track, 5.7+ against card and
+                // knob. A 3:1 track would need ink2@75 % and eat the knob.
                 decoration: BoxDecoration(
-                  color: value ? t.forest : t.tile,
-                  borderRadius: BorderRadius.circular(14),
+                  color: value ? t.forest : t.ink2.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(rPill),
                 ),
                 child: AnimatedAlign(
                   duration: motion,
@@ -155,7 +161,7 @@ class AppToggle extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: value ? t.lime : t.surf,
                       shape: BoxShape.circle,
-                      border: value ? null : Border.all(color: t.line),
+                      border: value ? null : Border.all(color: t.ink2),
                     ),
                   ),
                 ),
@@ -189,7 +195,7 @@ class SegmentedPill extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: t.tile,
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(rChip),
       ),
       // Wrap instead of Row: identical at normal font size, but wraps at
       // textScaler 2.0 instead of overflowing.
@@ -211,7 +217,8 @@ class SegmentedPill extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
                   decoration: BoxDecoration(
                     color: option == selected ? t.forest : Colors.transparent,
-                    borderRadius: BorderRadius.circular(7),
+                    // Concentric with the 3 px padded outer capsule.
+                    borderRadius: BorderRadius.circular(rChip - 3),
                   ),
                   child: Text(
                     option,
@@ -230,46 +237,121 @@ class SegmentedPill extends StatelessWidget {
   }
 }
 
+/// Size of a [FilterChipPill].
+enum FilterChipSize {
+  /// Dense bars (slot pickers inside sheets).
+  sm,
+
+  /// Screen-level filter bars — the default.
+  md,
+}
+
+/// Tone of a [FilterChipPill].
+enum FilterChipTone {
+  /// Text only.
+  neutral,
+
+  /// A colored dot in front of the label — meal slots, categories. The dot
+  /// takes [FilterChipPill.dotColor].
+  slot,
+}
+
 /// Rectangular filter pill for horizontal chip bars.
+///
+/// ONE selection language for every chip in the app: selected = forest fill
+/// with `onForest` text (and icon), unselected = `surf` with a `line` edge.
+/// Radius [rChip].
 class FilterChipPill extends StatelessWidget {
   const FilterChipPill({
     super.key,
     required this.label,
     required this.selected,
     this.onTap,
+    this.icon,
+    this.size = FilterChipSize.md,
+    this.tone = FilterChipTone.neutral,
+    this.dotColor,
+    this.semanticLabel,
   });
 
   final String label;
   final bool selected;
   final VoidCallback? onTap;
 
+  /// Leading glyph, drawn in the label color.
+  final IconData? icon;
+
+  final FilterChipSize size;
+  final FilterChipTone tone;
+
+  /// Dot color for [FilterChipTone.slot]; falls back to the label color.
+  final Color? dotColor;
+
+  /// Spoken name; defaults to [label].
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final small = size == FilterChipSize.sm;
+    final fg = selected ? t.onForest : t.ink2;
+    final fontSize = small ? 11.0 : 12.0;
+    final padding = small
+        ? const EdgeInsets.symmetric(horizontal: 11, vertical: 6)
+        : const EdgeInsets.symmetric(horizontal: 15, vertical: 9);
     // Selection is carried by fill and text color alone; without `selected` in
     // the semantics tree a screen reader cannot tell which filter is active.
+    // With an explicit spoken name the visible label is excluded, otherwise
+    // the node would read "name, label" twice over.
     return Semantics(
       button: true,
       selected: selected,
+      label: semanticLabel,
+      excludeSemantics: semanticLabel != null,
       child: Material(
         color: selected ? t.forest : t.surf,
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: BorderRadius.circular(rChip),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(11),
+          borderRadius: BorderRadius.circular(rChip),
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(rChip),
               border: Border.all(color: selected ? Colors.transparent : t.line),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
-            child: Text(
-              label,
-              style: AppType.ui(
-                12,
-                weight: selected ? FontWeight.w600 : FontWeight.w500,
-                color: selected ? t.onForest : t.ink2,
-              ),
+            padding: padding,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (tone == FilterChipTone.slot) ...<Widget>[
+                  Container(
+                    key: const ValueKey('filter-chip-dot'),
+                    width: small ? 6 : 8,
+                    height: small ? 6 : 8,
+                    decoration: BoxDecoration(
+                      // On the forest fill the dot keeps its hue but must
+                      // stay visible: onForest is the safe fallback.
+                      color: selected ? t.onForest : (dotColor ?? fg),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  SizedBox(width: small ? 6 : 8),
+                ],
+                if (icon != null) ...<Widget>[
+                  Icon(icon, size: small ? 13 : 15, color: fg),
+                  SizedBox(width: small ? 4 : 6),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    style: AppType.ui(
+                      fontSize,
+                      weight: selected ? FontWeight.w600 : FontWeight.w500,
+                      color: fg,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -278,10 +360,14 @@ class FilterChipPill extends StatelessWidget {
   }
 }
 
+/// Fill opacity of a disabled [PrimaryActionButton].
+const double kDisabledFillAlpha = 0.38;
+
 /// The wide primary action at the foot of a screen.
 ///
 /// The label uses [AppTokens.bg]: `ink` and `bg` are opposites in both modes,
-/// and on `danger` too `bg` always keeps readable contrast.
+/// and on `danger` too `bg` always keeps readable contrast. `onTap == null`
+/// renders the visible disabled state (dimmed fill and label).
 class PrimaryActionButton extends StatelessWidget {
   const PrimaryActionButton({
     super.key,
@@ -289,33 +375,41 @@ class PrimaryActionButton extends StatelessWidget {
     this.icon,
     this.onTap,
     this.destructive = false,
-    this.height = 54,
+    this.height = kPrimaryButtonHeight,
   });
 
   final String label;
   final IconData? icon;
   final VoidCallback? onTap;
   final bool destructive;
+
+  /// Minimum height; [kPrimaryButtonHeight] is the app-wide default.
   final double height;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final fill = destructive ? t.danger : t.ink;
+    final enabled = onTap != null;
+    // Disabled: the fill drops to 38 % (still 2.4:1 L / 3.2:1 D against
+    // `surf`, 4.6+:1 to the enabled fill) and the label dims — a locked
+    // CTA must not look pressable. InkWell without onTap draws no ripple.
+    final fill = (destructive ? t.danger : t.ink)
+        .withValues(alpha: enabled ? 1 : kDisabledFillAlpha);
+    final onFill = t.bg.withValues(alpha: enabled ? 1 : 0.8);
     // A bare InkWell carries neither `isButton` nor an enabled state, so a
     // screen reader would announce the primary action as plain text and a
     // disabled one as a button that does nothing. `onTap == null` is the
     // app-wide disabled convention.
     return Semantics(
       button: true,
-      enabled: onTap != null,
+      enabled: enabled,
       child: Material(
         color: fill,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(rButton),
         elevation: 0,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(rButton),
           child: ConstrainedBox(
             // Min height, not a fixed one: at textScaler 2.0 the label would
             // be taller than the button.
@@ -326,15 +420,18 @@ class PrimaryActionButton extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
                   if (icon != null) ...<Widget>[
-                    Icon(icon, size: 18, color: t.bg),
+                    Icon(icon, size: 18, color: onFill),
                     const SizedBox(width: 8),
                   ],
                   Flexible(
                     child: Text(
                       label,
                       textAlign: TextAlign.center,
-                      style:
-                          AppType.ui(15, weight: FontWeight.w700, color: t.bg),
+                      style: AppType.ui(
+                        15,
+                        weight: FontWeight.w700,
+                        color: onFill,
+                      ),
                     ),
                   ),
                 ],
@@ -409,7 +506,7 @@ class AppNavBar extends StatelessWidget {
               child: InkWell(
                 key: ValueKey<String>('nav-${item.keyId}'),
                 onTap: () => onChanged(i),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(rControl),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Column(
@@ -424,7 +521,7 @@ class AppNavBar extends StatelessWidget {
                         ),
                         decoration: BoxDecoration(
                           color: active ? t.lime : Colors.transparent,
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(rChip),
                         ),
                         child: Icon(
                           active ? item.activeIcon : item.icon,

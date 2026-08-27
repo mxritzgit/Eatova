@@ -108,7 +108,7 @@ class SettingsGroup extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: t.surf,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(rCard),
             border: Border.all(color: borderColor ?? t.line),
           ),
           child: Column(

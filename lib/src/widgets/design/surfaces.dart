@@ -15,7 +15,7 @@ class AppCard extends StatelessWidget {
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(18),
-    this.radius = 24,
+    this.radius = rCard,
     this.color,
     this.clip = false,
   });
@@ -132,7 +132,11 @@ class SectionHeading extends StatelessWidget {
 
 /// Diagonally striped surface standing in for a missing photo.
 class ImagePlaceholder extends StatelessWidget {
-  const ImagePlaceholder({super.key, this.radius = 16, this.label = 'BILD'});
+  const ImagePlaceholder({
+    super.key,
+    this.radius = rControl,
+    this.label = 'BILD',
+  });
 
   final double radius;
   final String label;
@@ -188,9 +192,9 @@ class DottedAddSlot extends StatelessWidget {
     final t = context.t;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(rControl),
       child: CustomPaint(
-        painter: _DashedBorderPainter(color: t.line, radius: 14),
+        painter: _DashedBorderPainter(color: t.line, radius: rControl),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 13),

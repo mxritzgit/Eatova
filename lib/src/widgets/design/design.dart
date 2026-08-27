@@ -12,3 +12,4 @@ export 'meters.dart';
 export 'rows.dart';
 export 'sheets.dart';
 export 'surfaces.dart';
+export 'text_scale.dart';

@@ -265,14 +265,20 @@ void main() {
                 .first,
           );
 
+      // With a handler: without one the button draws its disabled fill
+      // (alpha 0.38), and this test is about the fill hue.
       await tester.pumpWidget(
-        designHarness(const PrimaryActionButton(label: 'Speichern')),
+        designHarness(PrimaryActionButton(label: 'Speichern', onTap: () {})),
       );
       expect(materialOf().color, AppTokens.light.ink);
 
       await tester.pumpWidget(
         designHarness(
-          const PrimaryActionButton(label: 'Loeschen', destructive: true),
+          PrimaryActionButton(
+            label: 'Loeschen',
+            destructive: true,
+            onTap: () {},
+          ),
         ),
       );
       expect(materialOf().color, AppTokens.light.danger);

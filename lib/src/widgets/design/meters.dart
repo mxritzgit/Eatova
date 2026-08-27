@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
+import 'text_scale.dart';
 
 // ---------------------------------------------------------------------------
 // METERS — tick gauge, macro bar, meal avatar, sparkline, dot grid.
@@ -79,6 +80,8 @@ class _TickGaugePainter extends CustomPainter {
     for (var i = 0; i < count; i++) {
       final x = i * (tickWidth + gap);
       paint.color = (x + tickWidth) <= filledUpTo ? fillColor : trackColor;
+      // Deliberate literal, not a scale token: the cap of a 4 px tick has to
+      // be half its width, or the ticks turn into dots.
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(x, 0, tickWidth, size.height),
@@ -121,9 +124,8 @@ class MacroBar extends StatelessWidget {
     // them does not vanish. Base 84 because the longest German macro name
     // needs ~80 px at AppType.ui(12) and wrapped to two lines even at scale
     // 1.0, leaving the three bars visibly misaligned.
-    final scaler = MediaQuery.textScalerOf(context);
-    final labelWidth = scaler.scale(84).clamp(84.0, 124.0);
-    final valueWidth = scaler.scale(68).clamp(68.0, 120.0);
+    final labelWidth = scaledWidth(context, 84, max: 124);
+    final valueWidth = scaledWidth(context, 68, max: 120);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 13),
@@ -145,6 +147,8 @@ class MacroBar extends StatelessWidget {
                 const Duration(milliseconds: 500),
               ),
               curve: Curves.easeOutCubic,
+              // Deliberate literal (bar cap = half of the 9 px bar), outside
+              // the rChip/rControl scale on purpose.
               builder: (context, v, _) => ClipRRect(
                 borderRadius: BorderRadius.circular(5),
                 child: LinearProgressIndicator(
@@ -196,27 +200,28 @@ class MealAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    // No FittedBox: that neutralised the system font. The tile grows with the
+    // scaler (capped at 1.5x) and the letter follows the tile, so at 2.0 the
+    // glyph is honestly larger and still inside its box.
+    final side = scaledWidth(context, size);
     return Container(
-      width: size,
-      height: size,
+      width: side,
+      height: side,
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(size * 0.33),
+        borderRadius: BorderRadius.circular(side * 0.33),
       ),
       alignment: Alignment.center,
-      // FittedBox: the tile has a fixed edge length but the letter grows with
-      // the system font and would escape the tile at 2.0.
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(
-          letter,
-          style: AppType.display(
-            size * 0.38,
-            weight: FontWeight.w700,
-            // Not the full slot color: on its own 16 % tint it only reaches
-            // 2.15:1 in light mode (carb amber).
-            color: t.readableOnTint(color),
-          ),
+      child: Text(
+        letter,
+        maxLines: 1,
+        textScaler: TextScaler.noScaling,
+        style: AppType.display(
+          side * 0.38,
+          weight: FontWeight.w700,
+          // Not the full slot color: on its own 16 % tint it only reaches
+          // 2.15:1 in light mode (carb amber).
+          color: t.readableOnTint(color),
         ),
       ),
     );
