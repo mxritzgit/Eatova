@@ -158,7 +158,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// ([_lastOfferedHealthWeightKg]). After an import the 0.1 kg threshold
   /// suppresses the next offer on its own.
   void _maybeOfferHealthWeight(double? kg) {
-    if (_disposed || kg == null || kg <= 0) return;
+    // Outside 20..400 kg the sample is a unit or sensor error; offering it
+    // would only lead to a tap that [importHealthWeight] discards.
+    if (_disposed || kg == null || !isValidWeightLogKg(kg)) return;
     final lastLogged = weightLog.latest?.weightKg;
     if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
     if (_lastOfferedHealthWeightKg == kg) return;
@@ -186,12 +188,25 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   /// Import FROM Apple Health: like [logWeight] but WITHOUT
   /// `health.writeWeight` — writing back would create an echo duplicate.
-  void importHealthWeight(double kg) =>
-      _logWeightInternal(kg, writeToHealth: false);
+  ///
+  /// Out-of-range samples (20..400 kg) are DISCARDED, not clamped (review G
+  /// M-4): a clamped 20 kg from a 7.55 lb/stone sample would be a fiction in
+  /// the log. The clamp stays the last barrier for manual input only.
+  void importHealthWeight(double kg) {
+    if (!isValidWeightLogKg(kg)) return;
+    _logWeightInternal(kg, writeToHealth: false);
+  }
 
   /// Shared core of [logWeight] and [importHealthWeight]. The haptic fires in
   /// BOTH paths: the import is user-triggered too (snack action).
-  void _logWeightInternal(double kg, {required bool writeToHealth}) {
+  ///
+  /// Last barrier before cache, HealthKit and server (F7-02): the sheet
+  /// rejects out-of-range input, but a HealthKit import or any other caller
+  /// still passes through here, and `weight_log_safe_range_check` would
+  /// reject the row with 23514 while the local log already showed it.
+  void _logWeightInternal(double rawKg, {required bool writeToHealth}) {
+    final kg = WeightLog.sanitizeKg(rawKg);
+    if (kg == null) return;
     HapticFeedback.lightImpact();
     final ts = clock.now();
     _mutate(() {
@@ -249,7 +264,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     }).catchError((Object e, StackTrace st) {
       dev.log('recordTrackingDay failed — Tag bleibt in der Outbox liegen',
           error: e, name: 'home_store');
-      unawaited(CrashReporter.capture(e, st, context: 'record-tracking-day'));
+      // Network failures stay out of Sentry (F1-04); the outbox retries.
+      unawaited(CrashReporter.captureSyncFailure(e, st,
+          context: 'record-tracking-day'));
       _queueTrackingDay(tag);
     });
   }

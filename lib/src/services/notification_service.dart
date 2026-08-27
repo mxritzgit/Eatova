@@ -7,6 +7,7 @@ import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../l10n/l10n.dart';
+import 'crash_reporter.dart';
 
 /// A fully resolved, schedule-ready notification spec. Pure immutable value
 /// type passed straight to zonedSchedule; no Flutter or IO dependency.
@@ -115,17 +116,127 @@ class NoopNotificationService
   Future<void> cancelAll() async {}
 }
 
+/// Platform [LocalNotificationService] targets. Detected from [Platform] in
+/// production; tests inject one so the plugin-backed paths run on the host.
+enum NotificationPlatform { ios, android, unsupported }
+
+NotificationPlatform _detectPlatform() {
+  if (kIsWeb) return NotificationPlatform.unsupported;
+  if (Platform.isIOS) return NotificationPlatform.ios;
+  if (Platform.isAndroid) return NotificationPlatform.android;
+  return NotificationPlatform.unsupported;
+}
+
+/// Thin seam over [FlutterLocalNotificationsPlugin] (F7-04 test seam).
+///
+/// The plugin resolves its per-platform implementations at runtime, so a
+/// fake of the plugin class alone cannot answer `resolvePlatformSpecific…`.
+/// The gateway exposes exactly the calls the service makes; [_PluginGateway]
+/// forwards them to the real plugin, tests implement this interface.
+abstract class NotificationPluginGateway {
+  Future<void> initialize(InitializationSettings settings);
+  Future<void> createAndroidChannel(AndroidNotificationChannel channel);
+  Future<bool?> requestIosPermissions();
+  Future<bool?> requestAndroidPermission();
+  Future<bool?> iosPermissionGranted();
+  Future<bool?> androidNotificationsEnabled();
+  Future<void> zonedSchedule({
+    required int id,
+    required String title,
+    required String body,
+    required tz.TZDateTime scheduledDate,
+    required NotificationDetails details,
+  });
+  Future<void> cancelAll();
+}
+
+class _PluginGateway implements NotificationPluginGateway {
+  _PluginGateway(this._plugin);
+
+  final FlutterLocalNotificationsPlugin _plugin;
+
+  AndroidFlutterLocalNotificationsPlugin? get _android =>
+      _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+
+  IOSFlutterLocalNotificationsPlugin? get _ios =>
+      _plugin.resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>();
+
+  @override
+  Future<void> initialize(InitializationSettings settings) =>
+      _plugin.initialize(settings: settings);
+
+  @override
+  Future<void> createAndroidChannel(AndroidNotificationChannel channel) async =>
+      _android?.createNotificationChannel(channel);
+
+  @override
+  Future<bool?> requestIosPermissions() async =>
+      _ios?.requestPermissions(alert: true, badge: true, sound: true);
+
+  @override
+  Future<bool?> requestAndroidPermission() async =>
+      _android?.requestNotificationsPermission();
+
+  @override
+  Future<bool?> iosPermissionGranted() async =>
+      (await _ios?.checkPermissions())?.isEnabled;
+
+  @override
+  Future<bool?> androidNotificationsEnabled() async =>
+      _android?.areNotificationsEnabled();
+
+  @override
+  Future<void> zonedSchedule({
+    required int id,
+    required String title,
+    required String body,
+    required tz.TZDateTime scheduledDate,
+    required NotificationDetails details,
+  }) =>
+      _plugin.zonedSchedule(
+        id: id,
+        title: title,
+        body: body,
+        scheduledDate: scheduledDate,
+        notificationDetails: details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+
+  @override
+  Future<void> cancelAll() => _plugin.cancelAll();
+}
+
 /// Real platform-backed implementation. Serves iOS/Android only; everywhere
 /// else it hard no-ops instead of crashing.
+///
+/// Robustness (F7-12 / F1-09): every plugin call is fenced. A failing
+/// `initialize`/`createNotificationChannel` used to escape as a zone error on
+/// each cold start; now it is reported via [CrashReporter], the service stays
+/// "not available" ([isAvailable] false — permission reads answer `false`,
+/// scheduling no-ops) and the next [init] retries.
 class LocalNotificationService
     implements
         NotificationService,
         NotificationPermissionProbe,
         NotificationLocalizable {
-  LocalNotificationService({FlutterLocalNotificationsPlugin? plugin})
-      : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  /// [gateway], [platform] and [localTimezoneName] are test seams; production
+  /// passes nothing and gets the real plugin, the detected platform and
+  /// `flutter_timezone`.
+  LocalNotificationService({
+    FlutterLocalNotificationsPlugin? plugin,
+    NotificationPluginGateway? gateway,
+    NotificationPlatform? platform,
+    Future<String> Function()? localTimezoneName,
+  })  : _gateway =
+            gateway ?? _PluginGateway(plugin ?? FlutterLocalNotificationsPlugin()),
+        _platform = platform ?? _detectPlatform(),
+        _localTimezoneName = localTimezoneName ?? _flutterTimezoneName;
 
-  final FlutterLocalNotificationsPlugin _plugin;
+  final NotificationPluginGateway _gateway;
+  final NotificationPlatform _platform;
+  final Future<String> Function() _localTimezoneName;
   bool _initialized = false;
 
   /// Locale for the Android channel name/description (see
@@ -140,16 +251,19 @@ class LocalNotificationService
   String get _androidChannelName => _l10n.notifChannelName;
   String get _androidChannelDescription => _l10n.notifChannelDescription;
 
-  bool get _supported => !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+  bool get _supported => _platform != NotificationPlatform.unsupported;
+
+  /// Whether the plugin came up. False before [init] and after a failed one.
+  bool get isAvailable => _initialized;
+
+  /// flutter_timezone 5.x returns a TimezoneInfo; the full IANA name is in
+  /// .identifier, and only that resolves via getLocation.
+  static Future<String> _flutterTimezoneName() async =>
+      (await FlutterTimezone.getLocalTimezone()).identifier;
 
   @override
   Future<void> init() async {
     if (_initialized || !_supported) return;
-
-    // zonedSchedule needs a local location set, or tz.local throws. Use the
-    // system zone; on failure stay on UTC (better than crashing).
-    tzdata.initializeTimeZones();
-    await _setLocalTimezone();
 
     // Android reads the small icon only through its alpha channel, so the
     // fully opaque @mipmap/ic_launcher rendered as a white square. Hence the
@@ -168,64 +282,67 @@ class LocalNotificationService
       android: androidInit,
       iOS: iosInit,
     );
-    await _plugin.initialize(settings: settings);
-
-    // Android 8+ needs an explicit channel or nudges are not shown.
-    // Idempotent — recreating it is a no-op.
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    await android?.createNotificationChannel(
-      AndroidNotificationChannel(
-        _androidChannelId,
-        _androidChannelName,
-        description: _androidChannelDescription,
-        importance: Importance.defaultImportance,
-      ),
-    );
-
-    _initialized = true;
+    try {
+      // zonedSchedule needs a local location set, or tz.local throws. Use
+      // the system zone; on failure stay on UTC (better than crashing).
+      // Inside the fence (G M-6): a throwing tz database must not escape
+      // init as a zone error either.
+      tzdata.initializeTimeZones();
+      await _setLocalTimezone();
+      await _gateway.initialize(settings);
+      // Android 8+ needs an explicit channel or nudges are not shown.
+      // Idempotent — recreating it is a no-op.
+      if (_platform == NotificationPlatform.android) {
+        await _gateway.createAndroidChannel(
+          AndroidNotificationChannel(
+            _androidChannelId,
+            _androidChannelName,
+            description: _androidChannelDescription,
+            importance: Importance.defaultImportance,
+          ),
+        );
+      }
+      _initialized = true;
+    } catch (e, st) {
+      // Not available for now; the next init() retries. Reported, not
+      // rethrown: a PlatformException here was a zone error per cold start.
+      await CrashReporter.capture(e, st, context: 'notification-init');
+    }
   }
 
   /// Sets the local tz location from the device's IANA zone name. Uses
   /// flutter_timezone, not DateTime.now().timeZoneName, which often yields
-  /// only abbreviations (CET/CEST) that fall back to UTC. Wrapped in
-  /// try/catch: if plugin call or lookup fails, the UTC default stays.
+  /// only abbreviations (CET/CEST) that fall back to UTC.
+  ///
+  /// On failure the UTC default stays — harmless for [scheduleAll], which
+  /// converts the INSTANT ([tz.TZDateTime.from]), not the wall-clock parts.
+  /// Still reported (F7-04): a silent fallback hid this for weeks.
   Future<void> _setLocalTimezone() async {
     try {
-      // flutter_timezone 5.x returns a TimezoneInfo; the full IANA name is in
-      // .identifier, and only that resolves via getLocation.
-      final name = (await FlutterTimezone.getLocalTimezone()).identifier;
+      final name = await _localTimezoneName();
       tz.setLocalLocation(tz.getLocation(name));
-    } catch (_) {
-      // Keep the UTC default — planned times are local wall clock and are
-      // interpreted as local in scheduleAll.
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-timezone');
     }
   }
 
   @override
   Future<bool> requestPermission() async {
     if (!_supported) return false;
-    await init();
-
-    if (Platform.isIOS) {
-      final ios = _plugin.resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin>();
-      final granted = await ios?.requestPermissions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+    try {
+      await init();
+      if (!_initialized) return false;
+      final granted = switch (_platform) {
+        NotificationPlatform.ios => await _gateway.requestIosPermissions(),
+        NotificationPlatform.android =>
+          await _gateway.requestAndroidPermission(),
+        NotificationPlatform.unsupported => false,
+      };
       return granted ?? false;
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-request');
+      return false;
     }
-
-    if (Platform.isAndroid) {
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      final granted = await android?.requestNotificationsPermission();
-      return granted ?? false;
-    }
-
-    return false;
   }
 
   /// Reads the permission silently. Each platform exposes it in a DIFFERENT
@@ -237,68 +354,65 @@ class LocalNotificationService
   ///    `authorizationStatus == UNAuthorizationStatusAuthorized`, so "never
   ///    asked" correctly counts as not granted. No `areNotificationsEnabled()`.
   ///
-  /// Defensive: a failing platform call counts as not granted — an honest
-  /// blocked state beats a switch that lies.
+  /// Defensive, init included: a failing platform call counts as not granted
+  /// — an honest blocked state beats a switch that lies.
   @override
   Future<bool> hasPermission() async {
     if (!_supported) return false;
-    await init();
     try {
-      if (Platform.isIOS) {
-        final ios = _plugin.resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>();
-        final options = await ios?.checkPermissions();
-        return options?.isEnabled ?? false;
-      }
-      if (Platform.isAndroid) {
-        final android = _plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-        return await android?.areNotificationsEnabled() ?? false;
-      }
-    } catch (_) {
+      await init();
+      if (!_initialized) return false;
+      final granted = switch (_platform) {
+        NotificationPlatform.ios => await _gateway.iosPermissionGranted(),
+        NotificationPlatform.android =>
+          await _gateway.androidNotificationsEnabled(),
+        NotificationPlatform.unsupported => false,
+      };
+      return granted ?? false;
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-permission');
       return false;
     }
-    return false;
   }
 
   @override
   Future<void> scheduleAll(List<NotificationSpec> specs) async {
     if (!_supported) return;
     await init();
+    if (!_initialized) return;
 
-    // Clear first, then reschedule — avoids duplicates and orphans when a run
-    // yields fewer or different specs.
-    await _plugin.cancelAll();
+    try {
+      // Clear first, then reschedule — avoids duplicates and orphans when a
+      // run yields fewer or different specs.
+      await _gateway.cancelAll();
 
-    final details = _details();
-    final now = tz.TZDateTime.now(tz.local);
-    for (final spec in specs) {
-      final when = tz.TZDateTime(
-        tz.local,
-        spec.scheduledFor.year,
-        spec.scheduledFor.month,
-        spec.scheduledFor.day,
-        spec.scheduledFor.hour,
-        spec.scheduledFor.minute,
-        spec.scheduledFor.second,
-      );
-      // Defensive: never schedule into the past (zonedSchedule would fire
-      // immediately).
-      if (!when.isAfter(now)) continue;
-      // Deliberately WITHOUT matchDateTimeComponents (D10, Review
-      // 2026-08-08). `DateTimeComponents.time` would be a bug: both platforms
-      // then drop the DATE part and keep only hour/minute/second, so n specs
-      // at the same wall-clock time collapse into n daily repeating
-      // notifications, forever. The planner therefore resolves the horizon
-      // into dated one-shots (see streak_reminder_planner.dart).
-      await _plugin.zonedSchedule(
-        id: spec.id,
-        title: spec.title,
-        body: spec.body,
-        scheduledDate: when,
-        notificationDetails: details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      );
+      final details = _details();
+      final now = tz.TZDateTime.now(tz.local);
+      for (final spec in specs) {
+        // The INSTANT, not the wall-clock components (F7-04): building
+        // TZDateTime(tz.local, y, m, d, 20, 0) reinterpreted a local 20:00
+        // as 20:00 in whatever tz.local was — with the UTC fallback that is
+        // 22:00 in Berlin summer, 21:00 in winter, straight into iOS Focus.
+        final when = tz.TZDateTime.from(spec.scheduledFor, tz.local);
+        // Defensive: never schedule into the past (zonedSchedule would fire
+        // immediately).
+        if (!when.isAfter(now)) continue;
+        // Deliberately WITHOUT matchDateTimeComponents (D10, Review
+        // 2026-08-08). `DateTimeComponents.time` would be a bug: both
+        // platforms then drop the DATE part and keep only hour/minute/second,
+        // so n specs at the same wall-clock time collapse into n daily
+        // repeating notifications, forever. The planner therefore resolves
+        // the horizon into dated one-shots (see streak_reminder_planner.dart).
+        await _gateway.zonedSchedule(
+          id: spec.id,
+          title: spec.title,
+          body: spec.body,
+          scheduledDate: when,
+          details: details,
+        );
+      }
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-schedule');
     }
   }
 
@@ -306,7 +420,12 @@ class LocalNotificationService
   Future<void> cancelAll() async {
     if (!_supported) return;
     await init();
-    await _plugin.cancelAll();
+    if (!_initialized) return;
+    try {
+      await _gateway.cancelAll();
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-cancel');
+    }
   }
 
   NotificationDetails _details() {

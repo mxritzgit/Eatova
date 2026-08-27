@@ -57,19 +57,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
   late final TextEditingController _age;
   late final TextEditingController _steps;
   late final TextEditingController _kcal;
-  late final TextEditingController _water;
   late final TextEditingController _protein;
   late final TextEditingController _carbs;
   late final TextEditingController _fat;
   late final TextEditingController _targetWeight;
   late BiologicalSex _sex;
   late ActivityLevel _activity;
-  late int _sleepGoalMinutes;
   late WeightGoal _goal;
 
-  /// True when the user overrode kcal/macros by hand. By default they are
-  /// computed live from body, activity and goal; manual values survive only
-  /// when the stored values differ or the switch is flipped.
+  /// True when the user overrode kcal/macros by hand. Comes from the persisted
+  /// [UserProfile.manualEnergy] (F7-01) — never reconstructed by comparing
+  /// stored and computed numbers, which flipped every profile to manual after
+  /// each calculator change. Saving writes it back explicitly.
   late bool _manualEnergy;
 
   /// Local reminder state (D11). On save this becomes
@@ -96,24 +95,27 @@ class _GoalsScreenState extends State<GoalsScreen> {
     _age = TextEditingController(text: p.ageYears.toString());
     _steps = TextEditingController(text: p.dailyStepsGoal.toString());
     _kcal = TextEditingController(text: p.dailyKcalGoal.toString());
-    _water = TextEditingController(text: p.dailyWaterGoalMl.toString());
     _protein = TextEditingController(text: p.proteinGoalG.toString());
     _carbs = TextEditingController(text: p.carbsGoalG.toString());
     _fat = TextEditingController(text: p.fatGoalG.toString());
     _targetWeight = TextEditingController(text: p.targetWeightKg.toString());
     _sex = p.sex;
     _activity = p.activityLevel;
-    _sleepGoalMinutes = p.dailySleepGoalMinutes;
     _goal = p.weightGoal;
 
-    // The manual switch is NOT persisted; it is reconstructed by comparing the
-    // profile against the calculator.
-    final computed = const KcalCalculator().calculate(p);
-    _manualEnergy = p.dailyKcalGoal != computed.kcal ||
-        p.proteinGoalG != computed.proteinG ||
-        p.carbsGoalG != computed.carbsG ||
-        p.fatGoalG != computed.fatG;
+    _manualEnergy = p.manualEnergy;
     _manualStart = _manualEnergy;
+    if (!_manualEnergy) {
+      // Live mode: the stored goals are only a cache of an earlier
+      // calculation. Prefill the (hidden) energy fields from the live result,
+      // so flipping to manual starts from the number on the hero, not from a
+      // stale one.
+      final t = const KcalCalculator().calculate(p);
+      _kcal.text = t.kcal.toString();
+      _protein.text = t.proteinG.toString();
+      _carbs.text = t.carbsG.toString();
+      _fat.text = t.fatG.toString();
+    }
     _textStart = <TextEditingController, String>{
       for (final c in _alleFelder) c: c.text,
     };
@@ -125,7 +127,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
         _age,
         _steps,
         _kcal,
-        _water,
         _protein,
         _carbs,
         _fat,
@@ -139,7 +140,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
     _age.dispose();
     _steps.dispose();
     _kcal.dispose();
-    _water.dispose();
     _protein.dispose();
     _carbs.dispose();
     _fat.dispose();
@@ -170,8 +170,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
       ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax);
   String get _bereichSchritte => context.l10n.settingsRangeErrorSteps(
       ProfileLimits.dailyStepsGoalMin, ProfileLimits.dailyStepsGoalMax);
-  String get _bereichWasser => context.l10n.settingsRangeErrorMl(
-      ProfileLimits.dailyWaterGoalMlMin, ProfileLimits.dailyWaterGoalMlMax);
   String get _bereichKcal => context.l10n.settingsRangeErrorKcal(
       ProfileLimits.dailyKcalGoalMin, ProfileLimits.dailyKcalGoalMax);
   String get _bereichProtein => context.l10n.settingsRangeErrorGrams(
@@ -203,8 +201,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
       _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
   String? get _stepsError =>
       _fehler(_steps, isValidDailyStepsGoal, _bereichSchritte);
-  String? get _waterError =>
-      _fehler(_water, isValidDailyWaterGoalMl, _bereichWasser);
 
   // The manual path validates against the DB bounds (800..7000), not the
   // calculator's tighter floors (1200/1350/1500 by sex): setting 1000 on
@@ -223,7 +219,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
         _ageError,
         _targetWeightError,
         _stepsError,
-        _waterError,
         if (_manualEnergy) ...<String?>[
           _kcalError,
           _proteinError,
@@ -310,11 +305,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final t = _liveTargets;
     // copyWith preserves fields the screen never touches, above all
     // onboardingCompleted — otherwise saving sends the user back to onboarding.
+    // Water and sleep goals are no longer editable (F7-06: nothing reads
+    // them), so they pass through unchanged as well.
     return _draftForCalc().copyWith(
       dailyStepsGoal: _wertOder(_steps, isValidDailyStepsGoal, p.dailyStepsGoal),
-      dailyWaterGoalMl:
-          _wertOder(_water, isValidDailyWaterGoalMl, p.dailyWaterGoalMl),
-      dailySleepGoalMinutes: _sleepGoalMinutes,
+      // Explicit in both directions: live -> false, manual -> true.
+      manualEnergy: _manualEnergy,
       dailyKcalGoal:
           _manualEnergy ? _wertOder(_kcal, isValidDailyKcalGoal, t.kcal) : t.kcal,
       proteinGoalG: _manualEnergy
@@ -330,17 +326,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   // --- Discard prompt (D5) -------------------------------------------------
 
-  /// Did the user touch anything? Ten number fields, four pickers and two
+  /// Did the user touch anything? Nine number fields, three pickers and two
   /// switches — none of them may vanish silently.
   ///
   /// The theme mode is not in this list: it lives in [SettingsScreen] as a
   /// device setting, is persisted immediately and cannot be discarded.
   bool get _dirty {
     final p = widget.profile;
-    if (_sex != p.sex ||
-        _activity != p.activityLevel ||
-        _goal != p.weightGoal ||
-        _sleepGoalMinutes != p.dailySleepGoalMinutes) {
+    if (_sex != p.sex || _activity != p.activityLevel || _goal != p.weightGoal) {
       return true;
     }
     if (_manualEnergy != _manualStart) return true;
@@ -432,25 +425,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
     if (gewaehlt == null || !mounted) return;
     _goal = gewaehlt;
     _recompute();
-  }
-
-  Future<void> _pickSleepGoal() async {
-    final gewaehlt = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(
-        hour: _sleepGoalMinutes ~/ 60,
-        minute: _sleepGoalMinutes % 60,
-      ),
-      helpText: context.l10n.goalsFieldSleep,
-    );
-    if (gewaehlt == null || !mounted) return;
-    // The time picker allows 0:00..23:59, `daily_sleep_goal_minutes` only
-    // 180..900. Clamped rather than rejected: the value comes from a picker,
-    // and the row then shows exactly what gets saved.
-    setState(
-      () => _sleepGoalMinutes =
-          clampDailySleepGoalMinutes(gewaehlt.hour * 60 + gewaehlt.minute),
-    );
   }
 
   @override
@@ -632,7 +606,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             key: const ValueKey('settings-activity'),
             title: l10n.goalsFieldActivity,
             subtitle: l10n.goalsFieldActivitySubtitle,
-            value: '${_activity.label(l10n)} · ×${_activity.palFactor}',
+            value: '${_activity.label(l10n)} · ×${formatPalFactor(_activity, l10n)}',
             onTap: _pickActivity,
           ),
           SettingsNumberRow(
@@ -749,10 +723,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
     ];
   }
 
+  /// Only the step goal is left (F7-06): water and sleep goals were settings
+  /// without an effect — nothing in the app reads them since the tracking
+  /// tabs went. The columns and defaults stay; the rows are gone.
   List<Widget> _tageszieleGruppe() {
     final l10n = context.l10n;
-    final stunden = _sleepGoalMinutes ~/ 60;
-    final rest = _sleepGoalMinutes % 60;
     return <Widget>[
       SettingsGroup(
         label: l10n.goalsGroupDailyTargets,
@@ -764,23 +739,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
             fieldKey: const ValueKey('settings-steps-goal'),
             errorText: _stepsError,
             onChanged: (_) => setState(() {}),
-          ),
-          SettingsNumberRow(
-            label: l10n.goalsFieldWater,
-            suffix: l10n.commonUnitMl,
-            controller: _water,
-            fieldKey: const ValueKey('settings-water'),
-            errorText: _waterError,
-            onChanged: (_) => setState(() {}),
-          ),
-          SettingsRow(
-            key: const ValueKey('settings-sleep-goal'),
-            title: l10n.goalsFieldSleep,
-            value: l10n.goalsSleepGoalValue(
-              stunden,
-              rest.toString().padLeft(2, '0'),
-            ),
-            onTap: _pickSleepGoal,
           ),
           SettingsNote(l10n.goalsDailyTargetsNote),
         ],

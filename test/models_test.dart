@@ -323,14 +323,15 @@ void main() {
       expect(log.add(70).add(75).trendDelta, closeTo(5, 0.001));
     });
 
-    test('begrenzt auf 30 Einträge, ältester fällt raus', () {
+    test('begrenzt auf maxEntries (365) Einträge, ältester fällt raus', () {
       var log = const WeightLog();
-      for (var i = 1; i <= 31; i++) {
+      for (var i = 1; i <= 366; i++) {
         log = log.add(i.toDouble());
       }
-      expect(log.entries.length, 30);
+      expect(log.entries.length, WeightLog.maxEntries);
+      expect(log.entries.length, 365);
       expect(log.entries.first.weightKg, 2); // 1.0 evicted
-      expect(log.latest!.weightKg, 31);
+      expect(log.latest!.weightKg, 366);
     });
   });
 

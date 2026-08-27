@@ -55,9 +55,27 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     // No opt-in -> the OS is never asked.
     if (!enabled) return;
 
-    _syncNotificationLocale();
-    await notificationService.init();
-    await _applyOsPermission(cache);
+    await _syncWithOsGuarded(cache, context: 'notifications-cold-start');
+  }
+
+  /// init + OS re-check, fenced (F7-12 / F1-09): a PlatformException from the
+  /// plugin used to escape as an unhandled zone error on every cold start.
+  /// Now the user lands in [ReminderState.blocked] — they opted in, the OS
+  /// layer is unusable right now — and the error goes to [CrashReporter].
+  /// The opt-in flag stays untouched: nothing was proven either way.
+  Future<void> _syncWithOsGuarded(
+    LocalCache cache, {
+    required String context,
+  }) async {
+    try {
+      _syncNotificationLocale();
+      await notificationService.init();
+      await _applyOsPermission(cache);
+    } catch (e, st) {
+      unawaited(CrashReporter.capture(e, st, context: context));
+      if (_disposed) return;
+      _setReminderState(ReminderState.blocked);
+    }
   }
 
   /// Passes the current locale to the notification service if it is
@@ -130,11 +148,22 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
       return;
     }
 
-    _syncNotificationLocale();
-    await notificationService.init();
-    // D11: ask first, THEN persist. Previously `true` sat in the cache before
-    // the system dialog was even answered, and stayed on "Don't allow".
-    final granted = await notificationService.requestPermission();
+    final bool granted;
+    try {
+      _syncNotificationLocale();
+      await notificationService.init();
+      // D11: ask first, THEN persist. Previously `true` sat in the cache
+      // before the system dialog was even answered, and stayed on "Don't
+      // allow".
+      granted = await notificationService.requestPermission();
+    } catch (e, st) {
+      // Same fence as the cold start: blocked instead of a zone error.
+      unawaited(CrashReporter.capture(e, st, context: 'notifications-opt-in'));
+      if (_disposed) return;
+      _setReminderState(ReminderState.blocked);
+      await cache?.writeNotificationsEnabled(false);
+      return;
+    }
     if (_disposed) return;
 
     if (!granted) {
@@ -172,9 +201,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     if (_reminderState == ReminderState.off) return;
     final cache = _notificationCache;
     if (cache == null) return;
-    _syncNotificationLocale();
-    await notificationService.init();
-    await _applyOsPermission(cache);
+    await _syncWithOsGuarded(cache, context: 'notifications-refresh');
   }
 
   /// Cold-start path as a public facade — boot calls it from

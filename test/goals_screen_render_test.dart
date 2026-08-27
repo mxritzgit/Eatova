@@ -286,7 +286,14 @@ void main() {
 
   testWidgets('jedes Zahlenfeld traegt seine Beschriftung als Semantik-Name',
       (tester) async {
-    await pumpOhneOverflow(tester, 'a11y-Felder', brightness: Brightness.light);
+    // Manual mode is a persisted flag (F7-01); only then are the kcal/macro
+    // fields on the page at all. The water row is gone (F7-06).
+    await pumpOhneOverflow(
+      tester,
+      'a11y-Felder',
+      brightness: Brightness.light,
+      profile: const UserProfile(manualEnergy: true),
+    );
 
     const felder = <String, String>{
       'settings-weight': 'Gewicht',
@@ -294,7 +301,6 @@ void main() {
       'settings-age': 'Alter',
       'settings-target-weight': 'Wunschgewicht',
       'settings-steps-goal': 'Schritte',
-      'settings-water': 'Wasser',
       'settings-kcal': 'Kcal Ziel',
       'settings-protein': 'Protein',
       'settings-carbs': 'Carbs',

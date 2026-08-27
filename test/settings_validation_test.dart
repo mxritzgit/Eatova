@@ -147,8 +147,8 @@ void main() {
     expect(saveHandler(tester), isNull);
   });
 
-  testWidgets('Schritt- und Wasserziel tragen ihre DB-Grenzen',
-      (tester) async {
+  testWidgets('Schrittziel traegt seine DB-Grenze', (tester) async {
+    // The water row is gone (F7-06: nothing read it), so only steps remain.
     await openSettings(tester);
 
     await tippe(tester, 'settings-steps-goal', '999');
@@ -156,10 +156,8 @@ void main() {
     expect(saveHandler(tester), isNull);
     await tippe(tester, 'settings-steps-goal', '8000');
     expect(saveHandler(tester), isNotNull);
-
-    await tippe(tester, 'settings-water', '99');
-    expect(find.text('500–12000 ml'), findsOneWidget);
-    expect(saveHandler(tester), isNull);
+    expect(find.byKey(const ValueKey('settings-water')), findsNothing);
+    expect(find.byKey(const ValueKey('settings-sleep-goal')), findsNothing);
   });
 
   testWidgets('leeres Pflichtfeld sperrt das Speichern', (tester) async {
@@ -173,9 +171,12 @@ void main() {
   testWidgets(
       'manuelles kcal-Ziel misst an der DB-Grenze, nicht an der Rechner-Klemme',
       (tester) async {
-    // 2200 stored vs. 2150 computed → manual mode, so the kcal/macro fields
-    // are visible.
-    final resultFuture = await openSettings(tester);
+    // Manual mode comes from the persisted flag (F7-01), not from a stored
+    // vs. computed comparison, so the kcal/macro fields are visible.
+    final resultFuture = await openSettings(
+      tester,
+      profile: const UserProfile(manualEnergy: true),
+    );
 
     await tippe(tester, 'settings-kcal', '500');
     expect(find.text('800–7000 kcal'), findsOneWidget);
@@ -196,7 +197,7 @@ void main() {
 
   testWidgets('manuelle Makros tragen ihre eigenen DB-Grenzen',
       (tester) async {
-    await openSettings(tester);
+    await openSettings(tester, profile: const UserProfile(manualEnergy: true));
 
     await tippe(tester, 'settings-protein', '401');
     expect(find.text('0–400 g'), findsOneWidget);
@@ -218,7 +219,10 @@ void main() {
 
   testWidgets('versteckte Makro-Felder blockieren das Speichern nicht',
       (tester) async {
-    final resultFuture = await openSettings(tester);
+    final resultFuture = await openSettings(
+      tester,
+      profile: const UserProfile(manualEnergy: true),
+    );
 
     // Garbage into the kcal field, then back to live mode: the field is gone
     // and the values come from the calculation, so nothing may stay locked.
@@ -240,6 +244,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // Live value: BMR 1665 × PAL 1.3 = 2164 → 2150 rounded to 50.
-    expect((await resultFuture)!.profile.dailyKcalGoal, 2150);
+    final result = (await resultFuture)!.profile;
+    expect(result.dailyKcalGoal, 2150);
+    expect(result.manualEnergy, isFalse,
+        reason: 'live -> false wird explizit geschrieben (F7-01)');
   });
 }

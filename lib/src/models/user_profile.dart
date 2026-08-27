@@ -213,6 +213,11 @@ String _formatRateKg(double kg, String localeName) {
   return NumberFormat('0.##', localeName).format(gerundet);
 }
 
+/// PAL factor for display, locale-aware (`de` 1.45 → "1,45", `en` → "1.45").
+/// Interpolating the double directly showed "×1.45" under `de` too (F7-09).
+String formatPalFactor(ActivityLevel level, AppLocalizations l10n) =>
+    NumberFormat('0.##', l10n.localeName).format(level.palFactor);
+
 class UserProfile {
   const UserProfile({
     this.weightKg = 78,
@@ -231,6 +236,7 @@ class UserProfile {
     this.weightGoal = WeightGoal.maintain,
     this.diet = DietPreference.none,
     this.onboardingCompleted = false,
+    this.manualEnergy = false,
   });
 
   final int weightKg;
@@ -263,6 +269,14 @@ class UserProfile {
   /// [EatovaHomePage]; mirrored to public.profiles.onboarding_completed.
   final bool onboardingCompleted;
 
+  /// True when the user set kcal/macros by hand (goals page switch). False =
+  /// live mode: `KcalCalculator.calculate` is the truth and the stored goals
+  /// are only a cache that `ProfileSync.load` heals. Persisted explicitly
+  /// (profiles.manual_energy) — reconstructing it by comparing stored and
+  /// computed values flipped every profile to manual after each calculator
+  /// change (review 2026-08-27, F7-01).
+  final bool manualEnergy;
+
   UserProfile copyWith({
     int? weightKg,
     int? heightCm,
@@ -280,6 +294,7 @@ class UserProfile {
     WeightGoal? weightGoal,
     DietPreference? diet,
     bool? onboardingCompleted,
+    bool? manualEnergy,
   }) {
     return UserProfile(
       weightKg: weightKg ?? this.weightKg,
@@ -299,6 +314,7 @@ class UserProfile {
       weightGoal: weightGoal ?? this.weightGoal,
       diet: diet ?? this.diet,
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
+      manualEnergy: manualEnergy ?? this.manualEnergy,
     );
   }
 }

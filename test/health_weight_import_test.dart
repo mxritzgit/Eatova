@@ -171,6 +171,36 @@ void main() {
     expect(s.store.weightLog.latest?.weightKg, 81.0);
   });
 
+  test('importHealthWeight VERWIRFT Werte ausserhalb 20..400 kg statt zu '
+      'klemmen (G M-4)', () {
+    final s = _setup();
+
+    s.store.importHealthWeight(7.55);
+    s.store.importHealthWeight(755);
+    s.store.importHealthWeight(double.nan);
+
+    expect(s.store.weightLog.entries, isEmpty,
+        reason: 'ein geklemmtes 20 kg / 400 kg waere eine Fiktion im Log');
+    expect(s.store.lifetimeStats.weightLogs, 0);
+    expect(s.health.writeWeightCalls, 0);
+
+    // The manual path keeps the clamp as its last barrier.
+    s.store.logWeight(7.55);
+    expect(s.store.weightLog.latest?.weightKg, 20.0);
+  });
+
+  test('ein Snapshot-Gewicht ausserhalb 20..400 kg wird gar nicht erst '
+      'angeboten', () async {
+    final s = _setup();
+    s.health.nextWeightKg = 755;
+
+    await s.store.refreshHealthSteps();
+
+    expect(s.snacks.messages, isEmpty,
+        reason: 'der Tap wuerde sonst ins Leere laufen');
+    expect(s.store.dailySteps, 4200);
+  });
+
   test('Aktions-Tap importiert den Wert und unterdrueckt weitere Angebote',
       () async {
     final s = _setup();

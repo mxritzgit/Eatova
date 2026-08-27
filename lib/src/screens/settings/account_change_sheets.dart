@@ -535,54 +535,67 @@ class _CodeFeld extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 7),
-          Opacity(
-            opacity: enabled ? 1 : 0.55,
-            child: Container(
-              decoration: BoxDecoration(
-                color: t.surf,
-                borderRadius: BorderRadius.circular(rControl),
-                border: Border.all(color: hatFehler ? t.danger : t.line),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 15),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: TextField(
-                      key: fieldKey,
-                      controller: controller,
-                      enabled: enabled,
-                      // Otherwise the cursor fade animates forever and
-                      // `pumpAndSettle` never settles.
-                      cursorOpacityAnimates: false,
-                      cursorColor: t.accent,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: <TextInputFormatter>[
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(kAccountCodeLength),
-                      ],
-                      style: AppType.display(
-                        18,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                        letterSpacing: 5,
+          // [FieldCapsule] carries the fill language (field / fieldFocus /
+          // fieldError, shadow, dimmed when disabled); the error line below
+          // names the problem. The `Focus` ancestor only observes (cannot
+          // take focus, skipped in traversal): `Focus.of` re-renders on every
+          // focus change of the descendant field.
+          Focus(
+            canRequestFocus: false,
+            skipTraversal: true,
+            includeSemantics: false,
+            child: Builder(
+              builder: (context) {
+                return FieldCapsule(
+                  focused: Focus.of(context).hasFocus,
+                  error: hatFehler,
+                  enabled: enabled,
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: TextField(
+                          key: fieldKey,
+                          controller: controller,
+                          enabled: enabled,
+                          // Otherwise the cursor fade animates forever and
+                          // `pumpAndSettle` never settles.
+                          cursorOpacityAnimates: false,
+                          cursorColor: t.accent,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: <TextInputFormatter>[
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(
+                              kAccountCodeLength,
+                            ),
+                          ],
+                          style: AppType.display(
+                            18,
+                            weight: FontWeight.w700,
+                            color: t.ink,
+                            letterSpacing: 5,
+                          ),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            filled: false,
+                            isDense: true,
+                            contentPadding:
+                                const EdgeInsets.symmetric(vertical: 15),
+                            hintText: '••••••••',
+                            hintStyle: AppType.ui(
+                              14,
+                              color: t.ink2,
+                              letterSpacing: 5,
+                            ),
+                          ),
+                        ),
                       ),
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        disabledBorder: InputBorder.none,
-                        filled: false,
-                        isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 15),
-                        hintText: '••••••••',
-                        hintStyle:
-                            AppType.ui(14, color: t.ink2, letterSpacing: 5),
-                      ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
           if (hatFehler) ...<Widget>[

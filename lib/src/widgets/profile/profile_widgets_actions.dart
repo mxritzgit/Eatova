@@ -110,8 +110,7 @@ class HealthConnectionCard extends StatelessWidget {
       return l10n.profileHealthTimeMinutesAgo(diff.inMinutes);
     }
     if (diff.inHours < 24) return l10n.profileHealthTimeHoursAgo(diff.inHours);
-    return '${d.day.toString().padLeft(2, '0')}.'
-        '${d.month.toString().padLeft(2, '0')}.';
+    return formatShortDate(d, l10n);
   }
 }
 

@@ -52,6 +52,10 @@ Map<String, dynamic> _vollstaendigeZeile() => <String, dynamic>{
       'weight_goal': 'lose05kg',
       'diet_preference': 'vegan',
       'onboarding_completed': true,
+      // Manual mode: load() returns the stored goals untouched. Without the
+      // flag the live-mode healing (F7-01) would replace 2450 with the
+      // calculator's value — covered in fixlauf_g_manual_energy_test.
+      'manual_energy': true,
     };
 
 void main() {

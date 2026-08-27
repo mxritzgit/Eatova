@@ -127,7 +127,8 @@ void main() {
 
   testWidgets('der System-Zurueck-Button fragt genauso nach', (tester) async {
     await openSettings(tester);
-    await tester.enterText(find.byKey(const ValueKey('settings-water')), '3000');
+    await tester.enterText(
+        find.byKey(const ValueKey('settings-steps-goal')), '9000');
     await tester.pump();
 
     // What Android sends on the back swipe.
@@ -197,18 +198,20 @@ void main() {
 
     // Typing in other fields still works.
     await tester.enterText(find.byKey(const ValueKey('settings-height')), '182');
-    await tester.enterText(find.byKey(const ValueKey('settings-water')), '3000');
+    await tester.enterText(
+        find.byKey(const ValueKey('settings-steps-goal')), '9000');
     await tester.pump();
     expect(feldText(tester, 'settings-height'), '182');
-    expect(feldText(tester, 'settings-water'), '3000');
+    expect(feldText(tester, 'settings-steps-goal'), '9000');
 
-    // The macro toggle still reacts to taps.
+    // The macro toggle still reacts to taps: the default profile starts in
+    // live mode (persisted flag, F7-01), so the tap reveals the kcal field.
     await tester
         .ensureVisible(find.byKey(const ValueKey('settings-manual-energy')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-manual-energy')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('settings-kcal')), findsNothing);
+    expect(find.byKey(const ValueKey('settings-kcal')), findsOneWidget);
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
   });
 
