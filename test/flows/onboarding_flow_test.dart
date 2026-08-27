@@ -11,18 +11,16 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 
+import '../support/harness.dart' hide testWidgetsRobust;
 import 'flow_test_helpers.dart';
 
 const String _userId = 'user-onboarding-flow';
@@ -70,22 +68,18 @@ void main() {
         const FakeAccessibilityFeatures(disableAnimations: true);
     addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
 
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(Brightness.light),
-      locale: const Locale('en'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: EatovaHomePage(
+    await pumpLocalized(
+      tester,
+      EatovaHomePage(
         sync: _sync(),
         debugCache: LocalCache(InMemoryKeyValueStore(), _userId),
         showWelcome: false,
       ),
-    ));
+      locale: const Locale('en'),
+      brightness: Brightness.light,
+      scaffold: false,
+      safeArea: false,
+    );
 
     // Welcome screen until the (empty) boot load returns, then the gate.
     final welcome = find.byKey(const ValueKey('screen-welcome'));
