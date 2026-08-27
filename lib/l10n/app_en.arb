@@ -102,7 +102,7 @@
   "todayDayLoading": "Loading day…",
   "todaySemanticsDatePrev": "Previous day",
   "todaySemanticsDateNext": "Next day",
-  "foodAnalysisFailedMessage": "Analysis failed. Check your internet connection, Supabase, and OpenRouter.",
+  "foodAnalysisFailedMessage": "The analysis didn't work. Check your internet connection and try again.",
   "foodBarcodeNotFoundMessage": "Barcode {code} not found, or OpenFoodFacts is unreachable.",
   "@foodBarcodeNotFoundMessage": {
     "placeholders": {
@@ -183,6 +183,20 @@
   "foodEmptyStateTitle": "Search above or scan a barcode",
   "foodEmptyStateSubtitle": "Entries appear directly in the list above.",
   "foodAnalysisTimeoutMessage": "That's taking too long. Please try again in a moment.",
+  "foodAnalysisErrorTitle": "That didn't work",
+  "foodAnalysisRetryButton": "Try again",
+  "foodAnalysisManualEntryButton": "Enter manually",
+  "foodAnalysisSlowHint": "Taking longer than usual…",
+  "foodAnalysisOfflineMessage": "No connection. Check your internet and try again.",
+  "foodAnalysisProviderErrorMessage": "The analysis couldn't be completed. Please try again in a moment.",
+  "foodAnalysisServiceUnavailableMessage": "Analysis is currently unavailable. Please try again later.",
+  "foodAnalysisImageUnusableMessage": "The photo couldn't be processed. Please take a new one.",
+  "foodAnalysisRateLimitUntilMessage": "Too many photo analyses. Available again from {time}.",
+  "@foodAnalysisRateLimitUntilMessage": {
+    "placeholders": {
+      "time": { "type": "String" }
+    }
+  },
   "foodReviewAnalysisSubtitle": "Review analysis",
   "foodPortionAdjustedUpdated": "Adjusted to {grams} g. Today's total updated.",
   "@foodPortionAdjustedUpdated": {
@@ -371,6 +385,14 @@
   "foodPhotoCaptureFailedMessage": "Couldn't take the photo. Please try again.",
   "foodImageLoadFailedMessage": "Couldn't load the image.",
   "foodCameraUnavailableGalleryMessage": "Camera unavailable. Check the permission or choose a photo from the gallery.",
+  "foodCameraPermissionDeniedMessage": "Camera access denied. Allow it in Settings or choose a photo from the gallery.",
+  "foodBarcodePermissionDeniedMessage": "Camera access denied. Allow it in Settings or type the barcode in.",
+  "foodOpenSettingsButton": "Open Settings",
+  "foodBarcodeTypeInButton": "Type barcode",
+  "foodBarcodeManualLabel": "Barcode number",
+  "foodBarcodeManualHint": "8, 12 or 13 digits",
+  "foodBarcodeManualInvalid": "Please enter 8, 12 or 13 digits.",
+  "foodBarcodeManualSubmit": "Look up product",
   "foodScanMealTitle": "Scan meal",
   "recipesSubtitle": "Clean meals with real photos and tracked macros.",
   "recipesCreateSemantics": "Create your own recipe",
@@ -471,6 +493,10 @@
       "max": { "type": "int" }
     }
   },
+  "recipesNameTooLongError": "Name is too long — please shorten it.",
+  "@recipesNameTooLongError": {
+    "description": "Field error under the recipe name when it exceeds the server limit of 300 code points (Flutter's maxLength counts graphemes, so ZWJ emoji can overshoot)."
+  },
   "recipesPhotoSaveFailedError": "Couldn't save the photo.",
   "recipesNoDataProvided": "Not specified",
   "recipesNoPreparationYet": "Your own recipe — no preparation steps added.",
@@ -547,6 +573,10 @@
   "coachSessionsTitle": "Coach sessions",
   "coachSessionsNewLabel": "New",
   "coachSessionsEmpty": "No conversations yet. Ask your coach the first question.",
+  "coachSessionDefaultTitle": "New conversation",
+  "@coachSessionDefaultTitle": {
+    "description": "Title of a freshly created coach conversation until the server derives one from the first question; also shown for stored default titles."
+  },
   "coachSessionDeleteTitle": "Delete session?",
   "coachSessionDeleteBody": "\"{title}\" and all messages in it will be removed.",
   "@coachSessionDeleteBody": {
@@ -573,7 +603,7 @@
       "count": { "type": "int" }
     }
   },
-  "coachSpeechPermissionDenied": "Microphone or speech recognition access was denied. You can re-enable the permission in iOS Settings.",
+  "coachSpeechPermissionDenied": "Microphone or speech recognition access was denied. You can re-enable the permission in your device settings.",
   "coachSpeechUnavailable": "Speech recognition is not available on this device right now.",
   "coachSpeechFailed": "Speech recognition failed.",
   "coachErrorNotLoggedIn": "Please log in first to use the coach.",
@@ -592,7 +622,7 @@
   "coachErrorImageOpenFailed": "The image could not be opened.",
   "coachCameraAccessNoun": "Camera access",
   "coachPhotoAccessNoun": "Photo access",
-  "coachPermissionDenied": "{access} was denied. You can re-enable the permission in iOS Settings.",
+  "coachPermissionDenied": "{access} was denied. You can re-enable the permission in your device settings.",
   "@coachPermissionDenied": {
     "placeholders": {
       "access": { "type": "String" }
@@ -688,6 +718,14 @@
   "profileBmiInfoSheetTitle": "BMI guide",
   "profileBmiInfoSheetBody": "Body Mass Index is a rough heuristic. For athletes and athletic builds, the trend matters more than the absolute value.",
   "profileWeightInputLabel": "Current weight",
+  "profileWeightInputRangeError": "{min}–{max} kg",
+  "@profileWeightInputRangeError": {
+    "description": "Error line under the weigh-in field when the value is outside the weight_log table range.",
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "profileGoalsCalories": "Calories",
   "profileGoalsSteps": "Steps",
   "profileGoalsEditCta": "Adjust goals",
@@ -743,6 +781,10 @@
     }
   },
   "trendsMetricsNote": "Metrics only count completed days. Today is still running and only appears in the chart above.",
+  "trendsGoalBonusNote": "Goal per day = base goal plus the kcal burned by steps on that day — same as the Today tab.",
+  "@trendsGoalBonusNote": {
+    "description": "Footnote under the trend metrics when at least one day in the window carries a step bonus."
+  },
   "trendsRangeDaysLabel": "{days} days",
   "@trendsRangeDaysLabel": {
     "placeholders": {
@@ -905,6 +947,9 @@
   "commonSyncErrorOffline": "Offline — that didn't work just now. Please try again with an internet connection.",
   "commonOutboxLossHint": "Some changes couldn't be saved and were discarded.",
   "commonOutboxDeleteLossHint": "A deletion couldn't be saved — the entry is back. Please delete it again.",
+  "commonBootUnansweredTitle": "Slow connection",
+  "commonBootUnansweredBody": "Your data couldn't be loaded from the server yet. Check your connection and try again.",
+  "commonBootUnansweredRetry": "Try again",
 
   "settingsFieldRequired": "Please fill in",
   "settingsRangeErrorKg": "{min}–{max} kg (whole number)",
@@ -988,7 +1033,7 @@
       "minutes": { "type": "String" }
     }
   },
-  "goalsDailyTargetsNote": "For tracking only – doesn't change your calories.",
+  "goalsDailyTargetsNote": "The step goal only drives the steps card – it doesn't change your calorie goal.",
   "goalsGroupReminders": "REMINDERS",
   "goalsFieldReminders": "Reminders",
   "goalsRemindersSubtitle": "Daily streak reminder in the evening — local, no server.",
@@ -1029,7 +1074,6 @@
   "settingsDeleteAccountBlockSubtitle": "Removes all entries permanently",
   "settingsDeleteAccountPromptPrefix": "You'll be asked to type ",
   "settingsDeleteConfirmWord": "DELETE",
-  "settingsDeleteAccountPromptSuffix": ". After that your account and all data are gone immediately and irreversibly.",
   "settingsAboutAppName": "Eatova",
   "settingsAboutTagline": "Nutrition. Tracking. Coach.",
   "settingsAboutDescription": "Track calories and macros without friction — via AI photo scan, barcode and product search, with a personal nutrition coach.",
@@ -1071,7 +1115,6 @@
   "settingsAccountCodeRejected": "The code is wrong or has expired. Request a new one.",
   "settingsAccountOfflineError": "Offline — the change couldn't be submitted. Please try again with an internet connection.",
   "settingsAccountRateLimited": "Too many attempts in a short time. Please wait a moment and try again.",
-  "settingsAccountEmailInUse": "This email address is already in use.",
   "settingsAccountEmailLooksInvalid": "This email address doesn't look valid.",
   "settingsAccountPasswordSameAsOld": "The new password must be different from the old one.",
   "settingsAccountPasswordWeak": "This password is too weak. Use a longer or more unusual one.",
@@ -1175,10 +1218,17 @@
       "firstName": { "type": "String" }
     }
   },
-  "onboardingWelcomeBody": "In 6 short steps, we'll calculate your personal daily goal — tailored to your body and your target weight.",
+  "onboardingWelcomeBody": "In {steps} short steps, we'll calculate your personal daily goal — tailored to your body and your target weight.",
+  "@onboardingWelcomeBody": {
+    "placeholders": {
+      "steps": { "type": "int" }
+    }
+  },
   "onboardingBulletFormula": "Scientific Mifflin-St Jeor formula",
   "onboardingBulletAutoMacros": "Calories & macros set automatically",
   "onboardingBulletAdjustable": "Adjustable anytime in settings",
+  "onboardingStepDownSemanticLabel": "Decrease",
+  "onboardingStepUpSemanticLabel": "Increase",
   "onboardingSexMale": "Male",
   "onboardingSexFemale": "Female",
   "onboardingSexNeutral": "Other",
@@ -1323,14 +1373,124 @@
 
   "authCodeRateLimited": "Too many requests in a short time. Sending is paused for now — please wait about a minute before trying again.",
   "authCodeResendCountdown": "Request a new code in {sekunden} s",
+  "@authCodeResendCountdown": {
+    "placeholders": {
+      "sekunden": { "type": "int" }
+    }
+  },
   "authCodeThrottleWait": "Too many requests. The next code can be requested in {sekunden} s.",
+  "@authCodeThrottleWait": {
+    "placeholders": {
+      "sekunden": { "type": "int" }
+    }
+  },
   "authCodeTooManyAttempts": "Too many incorrect codes. For security reasons, please request a new code.",
   "authSignupExistingAccountHint": "If an account already exists for this address, please sign in.",
+  "authBackSemanticLabel": "Back",
+  "authEyebrowLogin": "WELCOME BACK",
+  "authEyebrowRegister": "CREATE ACCOUNT",
+  "authHeadlineLogin": "Good to\nsee you.",
+  "authHeadlineRegister": "Start your\njourney.",
+  "authSublineLogin": "Sign in and pick up right where you left off.",
+  "authSublineRegister": "Create your account and set up your daily goal in a minute.",
+  "authGoogleCta": "Sign in with Google",
+  "authOrWithEmail": "or with email",
+  "authFieldNameLabel": "Name",
+  "authFieldNameHint": "Your name",
+  "authFieldEmailLabel": "Email",
+  "authFieldEmailHint": "you@example.com",
+  "authFieldPasswordLabel": "Password",
+  "authFieldPasswordHint": "At least 8 characters",
+  "authShowPasswordTooltip": "Show password",
+  "authHidePasswordTooltip": "Hide password",
+  "authForgotPasswordCta": "Forgot password?",
+  "authSubmitLogin": "Log in",
+  "authSubmitRegister": "Create account",
+  "authTogglePromptLogin": "No account yet?",
+  "authToggleActionRegister": "Sign up",
+  "authTogglePromptRegister": "Already have an account?",
+  "authToggleActionLogin": "Log in",
+  "authConsentPrefix": "By signing in you accept our ",
+  "authConsentTerms": "Terms",
+  "authConsentMiddle": " and consent to the processing of your health and nutrition data as described in our ",
+  "authConsentPrivacy": "Privacy Policy",
+  "authConsentSuffix": ".",
+  "authErrorInvalidEmail": "Please enter a valid email address.",
+  "authErrorPasswordTooShort": "Your password needs at least {minLength} characters.",
+  "@authErrorPasswordTooShort": {
+    "placeholders": {
+      "minLength": { "type": "int" }
+    }
+  },
+  "authErrorNameMissing": "What should we call you?",
+  "authSignupCodeSent": "Confirmation code on its way to {email} (valid for 10 minutes).",
+  "@authSignupCodeSent": {
+    "placeholders": {
+      "email": { "type": "String" }
+    }
+  },
+  "authErrorInvalidCredentials": "Email or password is incorrect.",
+  "authErrorEmailNotConfirmed": "Please confirm your email first.",
+  "authEnterCodeCta": "Enter code",
+  "authErrorProviderDisabled": "This sign-in provider isn't enabled in Supabase yet.",
+  "authErrorRedirect": "The OAuth redirect isn't configured correctly yet.",
+  "authErrorCancelled": "Sign-in was cancelled.",
+  "authErrorUnavailable": "Sign-in isn't available right now. Please restart the app.",
+  "authErrorGeneric": "That didn't work just now. Please try again.",
+  "authFallbackFirstName": "Guest",
+  "authWelcomeSignedIn": "You're in.",
+  "authCodeTitleEmail": "Reset password",
+  "authCodeTitleCode": "Enter code",
+  "authCodeTitlePassword": "New password",
+  "authCodeSubtitleEmail": "We'll email you a {digits}-digit code.",
+  "@authCodeSubtitleEmail": {
+    "placeholders": {
+      "digits": { "type": "int" }
+    }
+  },
+  "authCodeSubtitleRecovery": "Enter the code from the email sent to {email}.",
+  "@authCodeSubtitleRecovery": {
+    "placeholders": {
+      "email": { "type": "String" }
+    }
+  },
+  "authCodeSubtitleSignup": "Confirm your email {email} with the code from the welcome message.",
+  "@authCodeSubtitleSignup": {
+    "placeholders": {
+      "email": { "type": "String" }
+    }
+  },
+  "authCodeSubtitlePassword": "Code accepted. Now set your new password.",
+  "authCodeFieldLabel": "Confirmation code",
+  "authCodeRequestCta": "Request code",
+  "authCodeVerifyCta": "Verify code",
+  "authCodeSavePasswordCta": "Save password",
+  "authCodeResendCta": "Didn't get a code? Request a new one",
+  "authCodeSentNeutral": "If an account exists for this email, the {digits}-digit code is on its way. It's valid for 10 minutes.",
+  "@authCodeSentNeutral": {
+    "placeholders": {
+      "digits": { "type": "int" }
+    }
+  },
+  "authCodeResent": "New code requested — it's valid for 10 minutes.",
+  "authCodeErrorLength": "The code has {digits} digits.",
+  "@authCodeErrorLength": {
+    "placeholders": {
+      "digits": { "type": "int" }
+    }
+  },
+  "authCodeErrorRejected": "The code is wrong or has expired. Just request a new one below.",
+  "authCodePasswordUpdated": "Password updated. You're logged in.",
   "coachInfoLimitUnknown": "How many questions are left today can't be retrieved right now. Resets at midnight (UTC).",
   "settingsAccountEmailNotAvailable": "We can't switch to this address. If an account already exists for it, sign in with that one; otherwise please check the spelling.",
   "settingsDeleteAccountCheckingCta": "Checking…",
   "settingsDeleteAccountCodeFieldLabel": "Confirmation code",
   "settingsDeleteAccountCodeSentTo": "For security, we're sending you an 8-digit code to {adresse}. It's valid for 10 minutes — without it, nothing is deleted.",
+  "@settingsDeleteAccountCodeSentTo": {
+    "placeholders": {
+      "adresse": { "type": "String" }
+    }
+  },
   "settingsDeleteAccountPromptSuffixCode": " and then to confirm an 8-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
   "settingsDeleteAccountReauthExpired": "Your confirmation has expired. Please restart the account deletion and request a new code.",
   "settingsDeleteAccountRequestCta": "Request code",
@@ -1396,7 +1556,17 @@
   "searchRateLimited": "Too many searches — try again in a moment.",
   "commonFavoriteRemoved": "Favorite removed",
   "foodFavoritesAllButton": "All ({count})",
+  "@foodFavoritesAllButton": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "foodFavoritesSheetTitle": "Favorites ({count})",
+  "@foodFavoritesSheetTitle": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "foodFavoritesSheetSubtitle": "Tap to expand. \"Add\" logs into the selected meal, the heart removes the favorite.",
   "foodFavoritesSearchHint": "Search favorites",
   "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
