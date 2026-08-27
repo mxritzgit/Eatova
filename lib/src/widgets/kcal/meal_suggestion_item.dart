@@ -87,7 +87,13 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
   @override
   void didUpdateWidget(covariant MealSuggestionItem oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.result.estimatedGrams != widget.result.estimatedGrams) {
+    // Identity, not just grams: the lists key rows by INDEX, so after an
+    // unpin/filter this State receives the next row's result. Comparing
+    // grams alone carried a user-edited 110 g onto a neighbour that also
+    // ships 100 g (review B, 2026-08-27). Callers hand out stable result
+    // instances across rebuilds, so identity does not reset spuriously.
+    if (!identical(oldWidget.result, widget.result) ||
+        oldWidget.result.estimatedGrams != widget.result.estimatedGrams) {
       _grams = _fromForeignSource(widget.result.estimatedGrams);
       _gramsInvalid = false;
       _syncControllerText();
