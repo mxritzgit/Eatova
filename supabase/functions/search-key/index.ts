@@ -31,6 +31,33 @@ const KILL_SWITCH = 'disabled';
 const MIRROR_SEARCH_KEY = (Deno.env.get('EATOVA_MIRROR_SEARCH_KEY') ?? '').trim();
 const MIRROR_BASE_URL = (Deno.env.get('EATOVA_MIRROR_BASE_URL') ?? 'https://eatova.de/meili').trim();
 
+// Tenant-token mode (F9-02). The shared search key handed to every signed-in
+// client had no expiry and could only be revoked by rotation. With
+// EATOVA_MIRROR_KEY_UID set, `searchKey` becomes a Meilisearch tenant token
+// instead: an HS256 JWT signed with the search key, scoped to the product
+// index, expiring after ttlSeconds. The key itself never leaves the server.
+//
+// Operator setup:
+//   1. `curl -H "Authorization: Bearer <MASTER_KEY>" https://<mirror>/keys`
+//      and copy the `uid` of the search-only key whose `key` is stored in
+//      EATOVA_MIRROR_SEARCH_KEY (the token is only valid for THAT key).
+//   2. `supabase secrets set EATOVA_MIRROR_KEY_UID=<uid>`; optionally
+//      EATOVA_MIRROR_SEARCH_INDEX if the client ever queries another index
+//      (lib/src/services/meilisearch_product_service.dart uses `products`).
+//   3. Unset the uid to fall back to the static key.
+// The client treats the token like any key (`Authorization: Bearer`); an
+// expired token yields 403, which is its existing refetch path.
+const MIRROR_KEY_UID = (Deno.env.get('EATOVA_MIRROR_KEY_UID') ?? '').trim();
+const MIRROR_SEARCH_INDEX = (Deno.env.get('EATOVA_MIRROR_SEARCH_INDEX') ?? '').trim() || 'products';
+const TENANT_TOKEN_MODE = MIRROR_KEY_UID.length > 0;
+// Token outlives the announced ttlSeconds by this much (see the issue site).
+const TENANT_TOKEN_GRACE_SECONDS = 600;
+// Meilisearch key uids are UUIDs, index uids are [a-zA-Z0-9_-]. Anything
+// else would produce tokens the mirror rejects — a misconfiguration,
+// surfaced as 500 like a missing key.
+const KEY_UID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const INDEX_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
 // TTL bounds (the client clamps identically). The TTL is NOT the rotation
 // mechanism — that is the client's 403 path. Its only job is to propagate a
 // base-URL change, which causes connection errors instead of 403 and therefore
@@ -99,25 +126,41 @@ Deno.serve(async (request) => {
     void pruneRateLimits({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY });
 
     const disabled = MIRROR_SEARCH_KEY === KILL_SWITCH;
-    // NEVER log the key. Only whether one was issued.
-    console.log('search-key issued', { requestId, disabled, ttlSeconds: TTL_SECONDS });
+    // NEVER log the key or token. Only whether one was issued and how.
+    console.log('search-key issued', {
+      requestId,
+      disabled,
+      ttlSeconds: TTL_SECONDS,
+      tenantToken: TENANT_TOKEN_MODE,
+    });
+
+    // ttlSeconds stays the client's cache duration; the token itself lives
+    // TENANT_TOKEN_GRACE_SECONDS longer, because the client keeps using an
+    // expired entry while it refreshes in the background
+    // (search_credentials.dart) — without the grace that search would 403.
+    const searchKey = disabled
+      ? ''
+      : TENANT_TOKEN_MODE
+      ? await issueTenantToken(Math.floor(Date.now() / 1000) + TTL_SECONDS + TENANT_TOKEN_GRACE_SECONDS)
+      : MIRROR_SEARCH_KEY;
 
     return jsonResponse(
       request,
       {
         mirrorBaseUrl: disabled ? '' : MIRROR_BASE_URL,
-        searchKey: disabled ? '' : MIRROR_SEARCH_KEY,
+        searchKey: searchKey,
         ttlSeconds: TTL_SECONDS,
         requestId,
       },
       200,
       {
-        // Deliberate exception from the house 'no-store': this is shared
-        // CONFIGURATION, identical for every signed-in client. The body carries
-        // a credential though, so it must never reach a shared cache —
-        // 'private' allows the browser/client cache only. max-age == ttlSeconds
-        // keeps HTTP cache and client TTL in step.
-        'cache-control': `private, max-age=${TTL_SECONDS}`,
+        // Static mode: deliberate exception from the house 'no-store' — the
+        // key is shared CONFIGURATION, identical for every signed-in client,
+        // and 'private' keeps it out of shared caches while max-age ==
+        // ttlSeconds keeps HTTP cache and client TTL in step.
+        // Tenant mode: every response is a freshly minted, expiring token, so
+        // nothing may be replayed from an HTTP cache.
+        'cache-control': TENANT_TOKEN_MODE ? 'private, no-store' : `private, max-age=${TTL_SECONDS}`,
         // Authorization belongs in the cache key: another user must not inherit
         // a hit.
         'vary': 'Origin, Authorization',
@@ -152,6 +195,38 @@ function assertConfigured() {
   if (!MIRROR_BASE_URL) {
     throw new HttpError(500, 'server_misconfigured', 'Suchkonfiguration unvollständig.');
   }
+  if (TENANT_TOKEN_MODE && (!KEY_UID_RE.test(MIRROR_KEY_UID) || !INDEX_NAME_RE.test(MIRROR_SEARCH_INDEX))) {
+    throw new HttpError(500, 'server_misconfigured', 'Suchkonfiguration unvollständig.');
+  }
+}
+
+// Meilisearch tenant token: `header.payload.signature`, base64url without
+// padding, HMAC-SHA256 over `header.payload` with the search key as secret
+// (https://www.meilisearch.com/docs/learn/security/tenant_tokens). Web
+// Crypto only — no dependency for three lines of JWT.
+async function issueTenantToken(expUnixSeconds: number): Promise<string> {
+  const header = base64url(new TextEncoder().encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const payload = base64url(new TextEncoder().encode(JSON.stringify({
+    apiKeyUid: MIRROR_KEY_UID,
+    searchRules: { [MIRROR_SEARCH_INDEX]: {} },
+    exp: expUnixSeconds,
+  })));
+  const signingInput = `${header}.${payload}`;
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(MIRROR_SEARCH_KEY),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
+  return `${signingInput}.${base64url(new Uint8Array(signature))}`;
+}
+
+function base64url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function clampTtl(raw: string | undefined): number {

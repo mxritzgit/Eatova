@@ -58,6 +58,7 @@ interface RecordedCall {
   url: string;
   method: string;
   body: string;
+  headers: Headers;
 }
 
 interface StubOptions {
@@ -70,7 +71,11 @@ interface StubOptions {
   authBody?: JsonRecord;
   /** Answer of the IP gate (default: allowed). */
   ipAllowed?: boolean;
-  /** Answer of the user gate (default: allowed). */
+  /** Answer of the global day gate (default: allowed). */
+  globalAllowed?: boolean;
+  /** Answer of the per-user day gate (default: allowed). */
+  userDayAllowed?: boolean;
+  /** Answer of the hourly user gate (default: allowed). */
   userAllowed?: boolean;
   /**
    * consume_edge_rate_limit answers 200 but without a readable `allowed`
@@ -85,8 +90,14 @@ interface FetchStub {
   callsTo(fragment: string): RecordedCall[];
   /** Scopes of the consume_edge_rate_limit calls, in call order. */
   rateLimitScopes(): string[];
+  /** Parameters of the consume_edge_rate_limit call for `scope`. */
+  rateLimitParams(scope: string): JsonRecord | undefined;
   restore(): void;
 }
+
+/** Gate order since F9-01: abuse hits its originator first; the global bill
+ *  cap counts only requests that would actually trigger a paid call. */
+const GATE_ORDER = 'analyze-meal:ip,analyze-meal:user-day,analyze-meal:user,analyze-meal:global';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -122,9 +133,16 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes('/rest/v1/rpc/consume_edge_rate_limit')) {
       if (options.rateLimitBroken) return jsonRes({ ok: true });
       const params = JSON.parse(body) as JsonRecord;
-      const allowed = params.p_scope === 'analyze-meal:ip'
-        ? options.ipAllowed ?? true
-        : options.userAllowed ?? true;
+      const allowedByScope: Record<string, boolean | undefined> = {
+        'analyze-meal:ip': options.ipAllowed,
+        'analyze-meal:global': options.globalAllowed,
+        'analyze-meal:user-day': options.userDayAllowed,
+        'analyze-meal:user': options.userAllowed,
+      };
+      if (!(String(params.p_scope) in allowedByScope)) {
+        throw new Error(`Unbekannter Rate-Limit-Scope im Test: ${String(params.p_scope)}`);
+      }
+      const allowed = allowedByScope[String(params.p_scope)] ?? true;
       const limit = Number(params.p_limit);
       const windowSeconds = Number(params.p_window_seconds);
       // Mirror limit/window from the request instead of hardcoding the
@@ -161,7 +179,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       : input.url;
     const method = (init?.method ?? 'GET').toUpperCase();
     const body = typeof init?.body === 'string' ? init.body : '';
-    calls.push({ url, method, body });
+    calls.push({ url, method, body, headers: new Headers(init?.headers) });
     return Promise.resolve(route(url, body));
   }) as typeof globalThis.fetch;
 
@@ -173,6 +191,11 @@ function installFetch(options: StubOptions = {}): FetchStub {
       calls
         .filter((call) => call.url.includes('/rpc/consume_edge_rate_limit'))
         .map((call) => String((JSON.parse(call.body) as JsonRecord).p_scope)),
+    rateLimitParams: (scope: string) =>
+      calls
+        .filter((call) => call.url.includes('/rpc/consume_edge_rate_limit'))
+        .map((call) => JSON.parse(call.body) as JsonRecord)
+        .find((params) => params.p_scope === scope),
     restore: () => {
       globalThis.fetch = original;
     },
@@ -318,8 +341,52 @@ Deno.test('IP-Limit erschoepft -> 429 mit retry-after, ohne bezahlten Provider-C
   }
 });
 
-Deno.test('User-Limit erschoepft -> 429 nach beiden Gates', async () => {
+Deno.test('User-Limit erschoepft -> 429 vor dem globalen Gate', async () => {
   const stub = installFetch({ userAllowed: false });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 429, 'Status');
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, 'rate_limited', 'Fehlercode');
+    // A user over their hourly budget must not consume the shared bill cap.
+    assertEquals(
+      stub.rateLimitScopes().join(','),
+      'analyze-meal:ip,analyze-meal:user-day,analyze-meal:user',
+      'Gate-Reihenfolge',
+    );
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('F9-01: globales Tageslimit erschoepft -> 429 als letztes Gate, kein Provider-Call', async () => {
+  const stub = installFetch({ globalAllowed: false });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 429, 'Status');
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, 'rate_limited', 'Fehlercode');
+    const limit = body.rateLimit as JsonRecord;
+    assertEquals(limit.allowed, false, 'rateLimit.allowed');
+    assertEquals(typeof limit.resetAt, 'string', 'rateLimit.resetAt');
+    assert(Number(res.headers.get('retry-after')) >= 1, 'retry-after');
+    // The bill cap is the last gate: it only counts requests that passed
+    // every per-user budget, i.e. those that would have paid for a call.
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+
+    const params = stub.rateLimitParams('analyze-meal:global')!;
+    assertEquals(params.p_subject, 'all', 'ein Bucket fuer alle Nutzer');
+    assertEquals(params.p_limit, 5000, 'Default 5000/Tag');
+    assertEquals(params.p_window_seconds, 86400, 'Tagesfenster');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('F9-01: User-Tageslimit erschoepft -> 429 direkt nach dem IP-Gate', async () => {
+  const stub = installFetch({ userDayAllowed: false });
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
     assertEquals(res.status, 429, 'Status');
@@ -327,10 +394,15 @@ Deno.test('User-Limit erschoepft -> 429 nach beiden Gates', async () => {
     assertEquals(body.error, 'rate_limited', 'Fehlercode');
     assertEquals(
       stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user',
+      'analyze-meal:ip,analyze-meal:user-day',
       'Gate-Reihenfolge',
     );
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+
+    const params = stub.rateLimitParams('analyze-meal:user-day')!;
+    assertEquals(params.p_subject, USER_ID, 'Subject ist der Nutzer');
+    assertEquals(params.p_limit, 100, 'Default 100/Tag');
+    assertEquals(params.p_window_seconds, 86400, 'Tagesfenster');
   } finally {
     stub.restore();
   }
@@ -438,10 +510,15 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
     const rateLimit = body.rateLimit as JsonRecord;
     assertEquals((rateLimit.ip as JsonRecord).allowed, true, 'rateLimit.ip.allowed');
     assertEquals((rateLimit.user as JsonRecord).allowed, true, 'rateLimit.user.allowed');
+    assertEquals((rateLimit.userDay as JsonRecord).allowed, true, 'rateLimit.userDay.allowed');
+    // The global bucket is operator information, not client information.
+    assertEquals('global' in rateLimit, false, 'rateLimit.global bleibt intern');
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+    // Cosmetic: the referer names the real domain.
     assertEquals(
-      stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user',
-      'Gate-Reihenfolge',
+      stub.callsTo('openrouter.ai')[0].headers.get('http-referer'),
+      'https://eatova.de',
+      'HTTP-Referer',
     );
     // Table hygiene runs fire-and-forget and must not tear down the request.
     assertEquals(stub.callsTo('prune_edge_rate_limits').length, 1, 'Prune-Calls');
@@ -464,6 +541,11 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
     assert(promptText.includes('ENGLISCH'), 'language "en" muss die Sprachregel umstellen');
     assert(promptText.includes('mit extra Sauce'), 'Freitext-Hinweis fehlt im Prompt');
     assert(promptText.includes('~50% mehr als Standardportion'), 'portionHint "large" fehlt im Prompt');
+    // F9-10: text inside the photo is content, never an instruction.
+    assert(
+      /Text im Bild[\s\S]*Bildinhalt[\s\S]*Anweisung/i.test(promptText),
+      'Schutzsatz gegen Anweisungen im Bild fehlt im BASE_PROMPT',
+    );
   } finally {
     stub.restore();
   }

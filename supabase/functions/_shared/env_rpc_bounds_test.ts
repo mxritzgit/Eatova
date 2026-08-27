@@ -72,6 +72,23 @@ Deno.test("Fenster-Aufrufer koennen die weitere Grenze explizit uebergeben", () 
   assertEquals(parsed("86400"), FALLBACK, "ohne explizites max greift der engere Deckel");
 });
 
+Deno.test("F9-01: Tagesfenster-Werte ueber 10000 s brauchen das explizite max", () => {
+  // The footgun behind analyze-meal's day caps: a day window read via
+  // positiveIntFromEnv WITHOUT max silently becomes the fallback — with a
+  // day-long fallback the operator would never notice the override is dead.
+  const DAY_FALLBACK = 86400;
+  let withMax = 0;
+  let withoutMax = 0;
+  withValue("43200", () => {
+    withMax = positiveIntFromEnv(VAR, DAY_FALLBACK, EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS);
+    withoutMax = positiveIntFromEnv(VAR, DAY_FALLBACK);
+  });
+  assertEquals(withMax, 43200, "12 h mit explizitem Fenster-max kommt durch");
+  assertEquals(withoutMax, DAY_FALLBACK, "12 h ohne max faellt still auf den Tages-Default");
+  assertEquals(parsed("86400", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), 86400, "voller Tag erlaubt");
+  assertEquals(parsed("172800", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), FALLBACK, "zwei Tage wirft in der RPC");
+});
+
 Deno.test("bisheriges Verhalten bleibt: unbrauchbare Werte -> Default", () => {
   assertEquals(parsed(null), FALLBACK, "nicht gesetzt");
   assertEquals(parsed(""), FALLBACK, "leer");

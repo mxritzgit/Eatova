@@ -29,7 +29,7 @@ interface StubOptions {
   quotaBody?: unknown;
   /** Response body of the consume_edge_rate_limit RPC. */
   rateLimitBody?: unknown;
-  /** The expensive answer call (max_tokens 600) fails with 500. */
+  /** The expensive answer call (max_tokens 800) fails with 500. */
   answerFails?: boolean;
   /** GET on chat_messages (loadHistory) answers 500. */
   historyFails?: boolean;
