@@ -11,18 +11,15 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader;
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/sheets.dart';
 import 'package:eatova/src/widgets/kcal/favorites_sheet.dart';
 
-import 'widgets/design/design_harness.dart' show pinIphone14Pro;
+import 'support/harness.dart';
 
 const double _hoehe = 844;
 const double _safeAreaOben = 59;
@@ -84,7 +81,7 @@ Future<void> _ladeFonts() async {
 /// Opens the sheet through the real route and returns the errors reported.
 Future<List<Object>> _oeffneSheet(
   WidgetTester tester, {
-  TextScaler textScaler = TextScaler.noScaling,
+  double textScale = 1.0,
 }) async {
   final fehler = <Object>[];
   final prior = FlutterError.onError;
@@ -94,39 +91,27 @@ Future<List<Object>> _oeffneSheet(
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      // `builder` sits above the Navigator, so the scaling reaches the route.
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-        child: child!,
-      ),
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: TextButton(
-              onPressed: () => showFavoritesSheet(
-                context,
-                favorites: _dreissig,
-                slot: MealSlot.dinner,
-                onAdd: (_, __) => 'id-1',
-                onUnpin: (_) {},
-              ),
-              child: const Text('oeffnen'),
-            ),
+  // The harness puts the scaling above the Navigator, so it reaches the route.
+  // No SafeArea: the sheet computes its own cap from the device insets.
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => Center(
+        child: TextButton(
+          onPressed: () => showFavoritesSheet(
+            context,
+            favorites: _dreissig,
+            slot: MealSlot.dinner,
+            onAdd: (_, __) => 'id-1',
+            onUnpin: (_) {},
           ),
+          child: const Text('oeffnen'),
         ),
       ),
     ),
+    reducedMotion: false,
+    textScale: textScale,
+    safeArea: false,
   );
   await tester.pumpAndSettle();
   await tester.tap(find.text('oeffnen'));
@@ -237,10 +222,7 @@ void main() {
 
   testWidgets('bei doppelter Systemschrift läuft nichts über', (tester) async {
     pinIphone14Pro(tester);
-    final fehler = await _oeffneSheet(
-      tester,
-      textScaler: const TextScaler.linear(2.0),
-    );
+    final fehler = await _oeffneSheet(tester, textScale: 2.0);
     expect(fehler, isEmpty,
         reason: 'RenderFlex-Ueberlauf bei textScaler 2.0: $fehler');
     _erwarteGedeckelt(tester);
@@ -264,10 +246,7 @@ void main() {
       'bei doppelter Systemschrift UND Tastatur bleibt der Kopf sichtbar und '
       'die Liste behält Scrollweg', (tester) async {
     pinIphone14Pro(tester, keyboard: true);
-    final fehler = await _oeffneSheet(
-      tester,
-      textScaler: const TextScaler.linear(2.0),
-    );
+    final fehler = await _oeffneSheet(tester, textScale: 2.0);
     expect(fehler, isEmpty,
         reason: 'RenderFlex-Ueberlauf bei textScaler 2.0 + Tastatur: $fehler');
     _erwarteGedeckelt(tester);

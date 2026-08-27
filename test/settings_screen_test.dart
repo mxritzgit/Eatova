@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
+
+import 'support/harness.dart';
 
 // The settings page — account, preferences, data, danger zone. Profile &
 // goals is its own page; only the row leading there lives here.
@@ -64,41 +63,31 @@ void main() {
     };
     addTearDown(() => FlutterError.onError = prior);
 
-    final app = MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      navigatorObservers: <NavigatorObserver>[
-        if (observer != null) observer,
-      ],
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: FilledButton(
-              key: const ValueKey('open-settings'),
-              onPressed: () => Navigator.of(context).push<void>(
-                MaterialPageRoute<void>(
-                  builder: (_) => SettingsScreen(
-                    email: email,
-                    authRepository: authRepository,
-                    onOpenGoals: onOpenGoals,
-                    onSignOut: onSignOut,
-                    onDeleteAccount: onDeleteAccount,
-                    onExportData: onExportData,
-                  ),
+    // `localizedApp` instead of `pumpLocalized`: the ThemeModeScope has to sit
+    // ABOVE the MaterialApp, or the pushed settings route would not see it.
+    final app = localizedApp(
+      Builder(
+        builder: (context) => Center(
+          child: FilledButton(
+            key: const ValueKey('open-settings'),
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => SettingsScreen(
+                  email: email,
+                  authRepository: authRepository,
+                  onOpenGoals: onOpenGoals,
+                  onSignOut: onSignOut,
+                  onDeleteAccount: onDeleteAccount,
+                  onExportData: onExportData,
                 ),
               ),
-              child: const Text('open'),
             ),
+            child: const Text('open'),
           ),
         ),
       ),
+      brightness: brightness,
+      navigatorObserver: observer,
     );
 
     await tester.pumpWidget(

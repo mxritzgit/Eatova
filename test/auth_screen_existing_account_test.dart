@@ -7,7 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Signing up with an address that already has an account (Audit 2026-08-14):
 // a NEUTRAL message (no statement about whether the account exists) plus a
@@ -101,13 +102,15 @@ class _ExistingAccountAuthRepository implements AuthRepository {
 }
 
 Future<void> _pumpAuth(WidgetTester tester, AuthRepository repo) async {
-  await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    supportedLocales: AppLocalizations.supportedLocales,
-    home: AuthScreen(authRepository: repo),
-  ));
+  await pumpLocalized(
+    tester,
+    AuthScreen(authRepository: repo),
+    // Motion on: the mode toggle sits in an AnimatedSize, and a zero duration
+    // makes it re-dirty itself during layout.
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
+  );
   await tester.pumpAndSettle();
 }
 

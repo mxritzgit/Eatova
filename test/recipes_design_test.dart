@@ -11,22 +11,22 @@
 //   3. The tab's key inventory is complete, so a lost key fails ONE test
 //      instead of scattering across four suites.
 //
-// Deliberately without design_harness.dart: no dependency on a foreign helper.
+// The mode loops are `renderMatrix` calls now; it declares the same cases and
+// asserts the overflow freedom this file used to hand-roll.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/theme/app_theme.dart';
-import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/theme/app_tokens.dart' show AppType;
 import 'package:eatova/src/widgets/design/design.dart';
+
+import 'support/harness.dart';
 
 const _remaining = MacroProgress(
   proteinG: 90,
@@ -55,80 +55,47 @@ final _eigenes = FitnessRecipe(
   userCreated: true,
 );
 
-/// The tab in its real environment: the home shell pads every tab with
-/// `EdgeInsets.fromLTRB(20, 12, 20, 12)`. Without that padding the test would
-/// measure a width that does not exist in the app.
-Widget _app(
-  Brightness brightness, {
+/// The recipes tab. In its real environment the home shell pads every tab
+/// with `EdgeInsets.fromLTRB(20, 12, 20, 12)` — see [_schalenrand]; without
+/// that padding the test would measure a width that does not exist in the app.
+Widget _tab({List<FitnessRecipe> userRecipes = const <FitnessRecipe>[]}) =>
+    RecipesScreen(
+      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+      remainingMacros: _remaining,
+      onCreateRecipe: (_) async => SyncDelivery.delivered,
+      initialUserRecipes: userRecipes,
+    );
+
+const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
+
+/// Mounts the tab for one matrix case.
+Future<void> _pumpTab(
+  WidgetTester tester,
+  RenderCase c, {
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
-  Locale locale = const Locale('de'),
-}) {
-  return MaterialApp(
-    theme: buildEatovaTheme(brightness),
-    // RecipesScreen calls slot.label(l10n) for the slot picker, so it needs
-    // context.l10n.
-    locale: locale,
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: RecipesScreen(
-            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-            remainingMacros: _remaining,
-            onCreateRecipe: (_) async => SyncDelivery.delivered,
-            initialUserRecipes: userRecipes,
-          ),
-        ),
-      ),
-    ),
+}) async {
+  pinPhoneViewport(tester);
+  await c.pump(
+    tester,
+    _tab(userRecipes: userRecipes),
+    padding: _schalenrand,
+    settle: true,
   );
 }
 
-void _pinViewport(WidgetTester tester, {double textScale = 1.0}) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  tester.platformDispatcher.textScaleFactorTestValue = textScale;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-}
-
-/// Collects overflow errors during [body] and reports them together.
-///
-/// `FlutterError.onError` is restored BEFORE the `expect`: otherwise the
-/// binding asserts on the first TestFailure while the handler is still in
-/// place.
-Future<void> _expectNoOverflow(
-  String was,
-  Future<void> Function() body,
-) async {
-  final overflows = <String>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) {
-      final culprit =
-          RegExp(r'\S+:file:///\S+').firstMatch(details.toString())?.group(0);
-      overflows.add('${details.summary} (${culprit ?? 'Verursacher unbekannt'})');
-      return;
-    }
-    prior?.call(details);
-  };
-  try {
-    await body();
-  } finally {
-    FlutterError.onError = prior;
-  }
-  expect(
-    overflows,
-    isEmpty,
-    reason: '$was overflowt bei doppelter Schrift:\n${overflows.join('\n')}',
+/// Mounts the tab outside a matrix (fixed mode, fixed scale).
+Future<void> _pumpTabPlain(
+  WidgetTester tester, {
+  Brightness brightness = Brightness.dark,
+  List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
+}) async {
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    _tab(userRecipes: userRecipes),
+    brightness: brightness,
+    padding: _schalenrand,
+    settle: true,
   );
 }
 
@@ -193,129 +160,119 @@ Future<void> _openDetail(WidgetTester tester) async {
 }
 
 void main() {
-  group('Beide Anzeige-Modi', () {
-    for (final brightness in Brightness.values) {
-      final modus = brightness == Brightness.light ? 'hell' : 'dunkel';
+  // The tab itself: both modes AND both languages from one call. The old file
+  // had this as two separate loops (mode loop + EN-Render-Smoke group), and it
+  // never paired `en` with the 2.0 case at all.
+  renderMatrix(
+    'Der Rezepte-Tab rendert overflow-frei',
+    (tester, c) async {
+      await _pumpTab(tester, c);
 
-      testWidgets('Rezepte-Tab rendert im $modus-Modus', (tester) async {
-        _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
-        await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
+      expect(find.text(c.l10n.navRecipes), findsOneWidget);
+      expect(find.text(c.l10n.recipesRecommendedTitle), findsOneWidget);
+    },
+    locales: const <Locale>[Locale('de'), Locale('en')],
+  );
 
-        expect(tester.takeException(), isNull);
-        expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
-        expect(find.text('Rezepte'), findsOneWidget);
-        expect(find.text('Empfehlungen'), findsOneWidget);
-      });
+  renderMatrix('Die Rezept-Detailansicht rendert overflow-frei',
+      (tester, c) async {
+    await _pumpTab(tester, c);
+    await _openDetail(tester);
 
-      testWidgets('Detail-Ansicht rendert im $modus-Modus', (tester) async {
-        _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
-        await tester.pumpAndSettle();
-        await _openDetail(tester);
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(
+        const ValueKey('recipe-detail-hahnchen_mit_reis_and_brokkoli'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('recipe-add-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('recipe-add-button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('recipe-detail-back')), findsOneWidget);
+  });
 
-        expect(tester.takeException(), isNull);
-        expect(
-          find.byKey(
-            const ValueKey('recipe-detail-hahnchen_mit_reis_and_brokkoli'),
-          ),
-          findsOneWidget,
-        );
-        expect(find.byKey(const ValueKey('recipe-add-card')), findsOneWidget);
-        expect(find.byKey(const ValueKey('recipe-add-button')), findsOneWidget);
-        expect(find.byKey(const ValueKey('recipe-detail-back')), findsOneWidget);
-      });
+  renderMatrix('Der Slot-Picker rendert overflow-frei', (tester, c) async {
+    await _pumpTab(tester, c);
+    await _openDetail(tester);
+    await _openSlotPicker(tester);
 
-      testWidgets('Slot-Picker rendert im $modus-Modus', (tester) async {
-        _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
-        await tester.pumpAndSettle();
-        await _openDetail(tester);
-        await _openSlotPicker(tester);
+    expect(tester.takeException(), isNull);
+    for (final slot in MealSlot.values) {
+      expect(
+        find.byKey(ValueKey('recipe-meal-picker-${slot.name}')),
+        findsOneWidget,
+        reason: '${slot.name} fehlt im Picker',
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('recipe-meal-picker-cancel')),
+      findsOneWidget,
+    );
+    expect(find.text(c.l10n.recipesWhenToLogTitle), findsOneWidget);
+  });
 
-        expect(tester.takeException(), isNull);
-        for (final slot in MealSlot.values) {
-          expect(
-            find.byKey(ValueKey('recipe-meal-picker-${slot.name}')),
-            findsOneWidget,
-            reason: '${slot.name} fehlt im Picker',
-          );
-        }
-        expect(
-          find.byKey(const ValueKey('recipe-meal-picker-cancel')),
-          findsOneWidget,
-        );
-        expect(find.text('Wann eintragen?'), findsOneWidget);
-      });
+  // The only place in this package where text does NOT sit on a token
+  // surface: the carousel image tile. Its scrim is dark in both modes, so
+  // `t.ink` would be black on black in light mode — an exception-free test
+  // would not catch that.
+  renderMatrix('Text auf dem Foto bleibt hell', (tester, c) async {
+    await _pumpTab(tester, c);
 
-      // The only place in this package where text does NOT sit on a token
-      // surface: the carousel image tile. Its scrim is dark in both modes, so
-      // `t.ink` would be black on black in light mode — an exception-free test
-      // would not catch that.
-      testWidgets('Text auf dem Foto bleibt im $modus-Modus hell',
-          (tester) async {
-        _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
-        await tester.pumpAndSettle();
+    final overlay = find
+        .ancestor(
+          of: find.text('EMPFOHLEN').first,
+          matching: find.byType(Column),
+        )
+        .first;
+    final texte = tester
+        .widgetList<Text>(
+          find.descendant(of: overlay, matching: find.byType(Text)),
+        )
+        .toList();
 
-        final overlay = find
-            .ancestor(
-              of: find.text('EMPFOHLEN').first,
-              matching: find.byType(Column),
-            )
-            .first;
-        final texte = tester
-            .widgetList<Text>(
-              find.descendant(of: overlay, matching: find.byType(Text)),
-            )
-            .toList();
-
-        // The title uses the display family, the metrics row 11 pt; the badge
-        // (onForest on forest, 9.5 pt) falls through both filters.
-        final aufDemFoto = texte.where(
-          (w) =>
-              w.style?.fontFamily == AppType.displayFamily ||
-              w.style?.fontSize == 11,
-        );
-        expect(
-          aufDemFoto.length,
-          greaterThanOrEqualTo(2),
-          reason: 'Titel und Kennzahlen der Bildkachel wurden nicht gefunden.',
-        );
-        for (final w in aufDemFoto) {
-          expect(
-            w.style!.color!.computeLuminance(),
-            greaterThan(0.5),
-            reason: '„${w.data}" steht auf dem dunklen Foto-Scrim und braucht '
-                'helle Schrift.',
-          );
-        }
-      });
-
-      testWidgets('Anlege-Sheet rendert im $modus-Modus', (tester) async {
-        _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-        await tester.pumpAndSettle();
-
-        expect(tester.takeException(), isNull);
-        expect(
-          find.byKey(const ValueKey('recipe-create-sheet')),
-          findsOneWidget,
-        );
-        expect(find.text('Eigenes Rezept'), findsWidgets);
-      });
+    // The title uses the display family, the metrics row 11 pt; the badge
+    // (onForest on forest, 9.5 pt) falls through both filters.
+    final aufDemFoto = texte.where(
+      (w) =>
+          w.style?.fontFamily == AppType.displayFamily ||
+          w.style?.fontSize == 11,
+    );
+    expect(
+      aufDemFoto.length,
+      greaterThanOrEqualTo(2),
+      reason: 'Titel und Kennzahlen der Bildkachel wurden nicht gefunden.',
+    );
+    for (final w in aufDemFoto) {
+      expect(
+        w.style!.color!.computeLuminance(),
+        greaterThan(0.5),
+        reason: '„${w.data}" steht auf dem dunklen Foto-Scrim und braucht '
+            'helle Schrift.',
+      );
     }
   });
 
+  renderMatrix('Das Anlege-Sheet rendert overflow-frei', (tester, c) async {
+    await _pumpTab(tester, c);
+
+    await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
+    expect(find.text(c.l10n.recipesOwnTitle), findsWidgets);
+  });
+
   group('Textskalierung 2.0', () {
-    testWidgets('Rezepte-Tab overflowt nicht', (tester) async {
-      _pinViewport(tester, textScale: 2.0);
-      await _expectNoOverflow('Der Rezepte-Tab', () async {
-        await tester.pumpWidget(_app(Brightness.dark));
-        await tester.pumpAndSettle();
+    // One mode each, deliberately: these cases scroll the whole list at 2x
+    // font, which is the expensive part; the mode-specific metrics are already
+    // covered by the matrices above.
+    renderMatrix(
+      'Der Rezepte-Tab overflowt bei doppelter Schrift nicht',
+      (tester, c) async {
+        await _pumpTab(tester, c);
         // To the end of the list: the goal section sits behind the main list.
         await _scrollThrough(tester, const ValueKey('screen-recipes'));
         expect(
@@ -323,51 +280,54 @@ void main() {
           findsOneWidget,
           reason: 'Vorbedingung: die Ziel-Sektion muss erreicht worden sein.',
         );
-      });
-    });
+      },
+      brightnesses: const <Brightness>[Brightness.dark],
+      textScales: const <double>[2.0],
+    );
 
-    testWidgets('Detail-Ansicht overflowt nicht', (tester) async {
-      _pinViewport(tester, textScale: 2.0);
-      await _expectNoOverflow('Die Rezept-Detailansicht', () async {
-        await tester.pumpWidget(_app(Brightness.light));
-        await tester.pumpAndSettle();
+    renderMatrix(
+      'Die Rezept-Detailansicht overflowt bei doppelter Schrift nicht',
+      (tester, c) async {
+        await _pumpTab(tester, c);
         await _openDetail(tester);
         // All the way down: at 2x font the four info sections sit several
         // screens deep; a single -600 drag did not reach them.
         await _scrollThrough(tester, const ValueKey('recipe-detail-scroll'));
         expect(
-          find.text('Profi-Hinweis'),
+          find.text(c.l10n.recipesSectionProHint),
           findsOneWidget,
           reason: 'Vorbedingung: das Listenende muss erreicht worden sein.',
         );
-      });
-    });
+      },
+      brightnesses: const <Brightness>[Brightness.light],
+      textScales: const <double>[2.0],
+    );
 
-    testWidgets('Slot-Picker overflowt nicht', (tester) async {
-      _pinViewport(tester, textScale: 2.0);
-      await _expectNoOverflow('Der Slot-Picker', () async {
-        await tester.pumpWidget(_app(Brightness.dark));
-        await tester.pumpAndSettle();
+    renderMatrix(
+      'Der Slot-Picker overflowt bei doppelter Schrift nicht',
+      (tester, c) async {
+        await _pumpTab(tester, c);
         await _openDetail(tester);
         await _openSlotPicker(tester);
-      });
-    });
+      },
+      brightnesses: const <Brightness>[Brightness.dark],
+      textScales: const <double>[2.0],
+    );
 
-    testWidgets('Anlege-Sheet overflowt nicht', (tester) async {
-      _pinViewport(tester, textScale: 2.0);
-      await _expectNoOverflow('Das Anlege-Sheet', () async {
-        await tester.pumpWidget(_app(Brightness.dark));
-        await tester.pumpAndSettle();
+    renderMatrix(
+      'Das Anlege-Sheet overflowt bei doppelter Schrift nicht',
+      (tester, c) async {
+        await _pumpTab(tester, c);
         await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
         await tester.pumpAndSettle();
-      });
-    });
+      },
+      brightnesses: const <Brightness>[Brightness.dark],
+      textScales: const <double>[2.0],
+    );
   });
 
   testWidgets('Key-Inventar des Rezepte-Tabs ist vollstaendig', (tester) async {
-    _pinViewport(tester);
-    await tester.pumpWidget(_app(Brightness.dark));
-    await tester.pumpAndSettle();
+    await _pumpTabPlain(tester);
 
     expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipes-search-input')), findsOneWidget);
@@ -425,9 +385,7 @@ void main() {
   group('Toasts', () {
     testWidgets('Eintragen meldet „590 kcal zu Mittagessen hinzugefügt."',
         (tester) async {
-      _pinViewport(tester);
-      await tester.pumpWidget(_app(Brightness.light));
-      await tester.pumpAndSettle();
+      await _pumpTabPlain(tester, brightness: Brightness.light);
       await _openDetail(tester);
       await _openSlotPicker(tester);
 
@@ -440,9 +398,7 @@ void main() {
 
     testWidgets('Loeschen eines Eigen-Rezepts meldet den Titel',
         (tester) async {
-      _pinViewport(tester);
-      await tester.pumpWidget(_app(Brightness.dark, userRecipes: [_eigenes]));
-      await tester.pumpAndSettle();
+      await _pumpTabPlain(tester, userRecipes: [_eigenes]);
 
       final tile = find.byKey(ValueKey('recipe-tile-${_eigenes.slug}'));
       await _scrollTo(tester, tile);
@@ -459,9 +415,7 @@ void main() {
 
     testWidgets('Speichern eines neuen Rezepts meldet den Titel',
         (tester) async {
-      _pinViewport(tester);
-      await tester.pumpWidget(_app(Brightness.light));
-      await tester.pumpAndSettle();
+      await _pumpTabPlain(tester, brightness: Brightness.light);
 
       await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
       await tester.pumpAndSettle();
@@ -489,9 +443,7 @@ void main() {
   testWidgets('Jedes Feld des Anlege-Sheets sagt sich mit Namen an',
       (tester) async {
     final semantics = tester.ensureSemantics();
-    _pinViewport(tester);
-    await tester.pumpWidget(_app(Brightness.dark));
-    await tester.pumpAndSettle();
+    await _pumpTabPlain(tester);
 
     await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
     await tester.pumpAndSettle();
@@ -522,9 +474,7 @@ void main() {
   // on the list tile.
   testWidgets('Die Listenkachel zeigt kcal und alle drei Makros',
       (tester) async {
-    _pinViewport(tester);
-    await tester.pumpWidget(_app(Brightness.light));
-    await tester.pumpAndSettle();
+    await _pumpTabPlain(tester, brightness: Brightness.light);
 
     final tile = find.byKey(
       const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli'),
@@ -542,9 +492,7 @@ void main() {
 
   group('Echte Bilder bleiben, der Platzhalter ist der Ausnahmefall', () {
     testWidgets('Bestandsrezepte zeigen keinen Platzhalter', (tester) async {
-      _pinViewport(tester);
-      await tester.pumpWidget(_app(Brightness.dark));
-      await tester.pumpAndSettle();
+      await _pumpTabPlain(tester);
 
       expect(
         find.byType(ImagePlaceholder),
@@ -557,35 +505,29 @@ void main() {
 
     testWidgets('ein Eigen-Rezept ohne Bild bekommt den Platzhalter',
         (tester) async {
-      _pinViewport(tester);
-      await tester.pumpWidget(_app(Brightness.dark, userRecipes: [_eigenes]));
-      await tester.pumpAndSettle();
+      await _pumpTabPlain(tester, userRecipes: [_eigenes]);
 
       expect(find.byType(ImagePlaceholder), findsWidgets);
     });
   });
 
-  group('EN-Render-Smoke (i18n-Paket 3, Spec §6)', () {
-    // Renders under locale `en` in both brightnesses: no crash, and at least
-    // one real English translation is in the tree. English strings are
-    // sometimes longer than German, catching overflows a pure `de` run misses.
-    for (final helligkeit in Brightness.values) {
-      testWidgets('Rezepte-Tab rendert unter en in $helligkeit ohne Ausnahme',
-          (tester) async {
-        _pinViewport(tester);
-        await tester.pumpWidget(_app(helligkeit, locale: const Locale('en')));
-        await tester.pumpAndSettle();
+  testWidgets('unter en ist der Katalog selbst uebersetzt, nicht nur die '
+      'Schale', (tester) async {
+    // The `en` chrome is covered by the matrix at the top of this file; what
+    // it cannot show is that the CATALOG is bilingual too. The first catalog
+    // recipe always shows in the carousel without scrolling.
+    pinPhoneViewport(tester);
+    await pumpLocalized(
+      tester,
+      _tab(),
+      locale: const Locale('en'),
+      padding: _schalenrand,
+      settle: true,
+    );
 
-        expect(tester.takeException(), isNull,
-            reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
-        // Screen chrome in English.
-        expect(find.text('Recipes'), findsOneWidget);
-        expect(find.text('Recommendations'), findsOneWidget);
-        // The catalog itself is bilingual, so under en the real translation is
-        // in the tree, not just the screen chrome. The first catalog recipe
-        // always shows in the carousel without scrolling.
-        expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
-      });
-    }
+    expect(tester.takeException(), isNull);
+    expect(find.text('Recipes'), findsOneWidget);
+    expect(find.text('Recommendations'), findsOneWidget);
+    expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
   });
 }

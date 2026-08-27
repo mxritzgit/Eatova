@@ -3,15 +3,14 @@
 // unpin via heart, and the 0-kcal guard.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/favorites_sheet.dart';
+
+import 'support/harness.dart';
 
 MealAnalysisResult _mahlzeit(
   String name, {
@@ -48,27 +47,17 @@ FavoriteMeal _favorit(
   );
 }
 
-Widget _app(Widget sheet, {Brightness helligkeit = Brightness.dark}) {
-  return MaterialApp(
-    theme: buildEatovaTheme(helligkeit),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(body: sheet),
-  );
-}
+/// `reducedMotion: false`: the snack timers below are pumped in real
+/// durations, so the sheet keeps its normal motion here.
+Widget _app(Widget sheet, {Brightness helligkeit = Brightness.dark}) =>
+    localizedApp(
+      sheet,
+      brightness: helligkeit,
+      reducedMotion: false,
+      safeArea: false,
+    );
 
-void _telefon(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
+void _telefon(WidgetTester tester) => pinPhoneViewport(tester);
 
 String _titel(WidgetTester tester) =>
     tester.widget<Text>(find.byKey(const ValueKey('favorites-sheet-title')))
@@ -331,7 +320,11 @@ void main() {
     await _timerAblaufen(tester);
   });
 
-  testWidgets('rendert im Hell-Modus ohne Fehler', (tester) async {
+  // The pure light/dark render smoke lives in
+  // `test/favorites_sheet_light_dark_test.dart` (renderMatrix over de/en x
+  // hell/dunkel). What is pinned HERE is the row content in light mode, which
+  // this suite's own row helpers describe.
+  testWidgets('rendert im Hell-Modus mit befuellter Zeile', (tester) async {
     _telefon(tester);
     await tester.pumpWidget(_app(
       FavoritesSheet(

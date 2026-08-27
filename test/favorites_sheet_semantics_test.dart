@@ -6,15 +6,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsNode;
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/favorites_sheet.dart';
+
+import 'support/harness.dart';
 
 const _titel = ValueKey('favorites-sheet-title');
 const _suche = ValueKey('favorites-sheet-search');
@@ -48,37 +47,24 @@ FavoriteMeal _favorit(MealAnalysisResult result, {required DateTime am}) =>
     );
 
 Future<void> _pump(WidgetTester tester) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    FavoritesSheet(
+      favorites: [
+        _favorit(_mahlzeit('Haferdrink', marke: 'Alpro'),
+            am: DateTime(2026, 8, 20)),
+        _favorit(_mahlzeit('Skyr'), am: DateTime(2026, 8, 10)),
       ],
-      home: Scaffold(
-        body: FavoritesSheet(
-          favorites: [
-            _favorit(_mahlzeit('Haferdrink', marke: 'Alpro'),
-                am: DateTime(2026, 8, 20)),
-            _favorit(_mahlzeit('Skyr'), am: DateTime(2026, 8, 10)),
-          ],
-          slot: MealSlot.snack,
-          onAdd: (_, __) => 'id',
-          onUnpin: (_) {},
-        ),
-      ),
+      slot: MealSlot.snack,
+      onAdd: (_, __) => 'id',
+      onUnpin: (_) {},
     ),
+    // Motion as before the migration.
+    reducedMotion: false,
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 /// The one text-field node in the tree (rows are collapsed, so the gram

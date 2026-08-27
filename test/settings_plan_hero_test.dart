@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // B2 — the plan card promised the CHOSEN pace even though the safety floor
 // raises the daily target, so "maintenance 1997 · −1 kg/week" stood right
@@ -60,33 +59,24 @@ void main() {
     };
     addTearDown(() => FlutterError.onError = prior);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Center(
-              child: FilledButton(
-                key: const ValueKey('open-settings'),
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute<void>(
-                    builder: (_) => GoalsScreen(profile: profile),
-                  ),
-                ),
-                child: const Text('open'),
+    await pumpLocalized(
+      tester,
+      Builder(
+        builder: (context) => Center(
+          child: FilledButton(
+            key: const ValueKey('open-settings'),
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => GoalsScreen(profile: profile),
               ),
             ),
+            child: const Text('open'),
           ),
         ),
       ),
+      reducedMotion: false,
+      brightness: Brightness.light,
+      safeArea: false,
     );
     await tester.tap(find.byKey(const ValueKey('open-settings')));
     await tester.pumpAndSettle();

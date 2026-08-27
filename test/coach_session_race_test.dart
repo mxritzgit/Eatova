@@ -1,18 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Audit 2026-08-14: a reply belongs to the session its question came from, and
 // a failure must not eat the typed text.
@@ -174,33 +173,13 @@ Future<void> _pumpCoach(WidgetTester tester, _RaceCoach service) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // The coach uses context.l10n, and AppLocalizations.of() throws on the
-      // first build without localization.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        // `disableAnimations` stills the thinking dots, orb and motion;
-        // otherwise pumpAndSettle never settles while `_sending` runs.
-        data: MediaQueryData.fromView(
-          tester.view,
-        ).copyWith(disableAnimations: true),
-        child: Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: CoachChatScreen(service: service, userName: 'Moritz'),
-          ),
-        ),
-      ),
-    ),
+  // `reducedMotion` stills the thinking dots, orb and motion; otherwise
+  // pumpAndSettle never settles while `_sending` runs.
+  await pumpLocalized(
+    tester,
+    CoachChatScreen(service: service, userName: 'Moritz'),
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+    safeArea: false,
   );
   await tester.pumpAndSettle();
 }

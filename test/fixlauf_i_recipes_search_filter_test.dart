@@ -8,16 +8,15 @@
 //   * "Eigene"-Chip direkt nach "Alle", nur solange es eigene Rezepte gibt.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import 'support/harness.dart';
 
 const _eigenes = FitnessRecipe(
   slug: 'user_mein_teller',
@@ -41,36 +40,19 @@ Widget _app({
   Locale locale = const Locale('de'),
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
 }) {
-  return MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: locale,
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: RecipesScreen(
-            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-            initialUserRecipes: userRecipes,
-          ),
-        ),
-      ),
+  return localizedApp(
+    RecipesScreen(
+      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+      initialUserRecipes: userRecipes,
     ),
+    locale: locale,
+    // Motion as before the migration.
+    reducedMotion: false,
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
 }
 
-void _pinViewport(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
+void _pinViewport(WidgetTester tester) => pinPhoneViewport(tester);
 
 Future<void> _suche(WidgetTester tester, String query) async {
   await tester.enterText(

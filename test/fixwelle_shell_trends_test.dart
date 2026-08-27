@@ -9,15 +9,14 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 /// Health double with a fixed step count, so the store KNOWS activity today.
 class _StepsHealth implements HealthService {
@@ -78,19 +77,12 @@ Future<void> _pumpHomeOnFoodTab(WidgetTester tester) async {
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: EatovaHomePage(healthService: _StepsHealth()),
-    ),
+  await pumpLocalized(
+    tester,
+    EatovaHomePage(healthService: _StepsHealth()),
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
   );
   await _pumpFrames(tester);
   // Food is tab 1 and unbuilt at cold start; switch via the store (the

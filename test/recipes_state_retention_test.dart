@@ -8,17 +8,16 @@
 //    `switch`. The harness models that and the `IndexedStack` target.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import 'support/harness.dart';
 
 const _remaining = MacroProgress(
   proteinG: 90,
@@ -60,17 +59,8 @@ class _TabHarnessState extends State<_TabHarness> {
           )
         : (_tab == 0 ? other : _recipesScreen());
 
-    return MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
+    return localizedApp(
+      Scaffold(
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
@@ -96,6 +86,10 @@ class _TabHarnessState extends State<_TabHarness> {
           ],
         ),
       ),
+      // Motion as before the migration.
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
     );
   }
 }
@@ -103,10 +97,7 @@ class _TabHarnessState extends State<_TabHarness> {
 void _pinViewport(WidgetTester tester) {
   // Fixed viewport: at the 800x600 default the list is too short for the
   // search field to scroll out of the cache at all.
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  pinPhoneViewport(tester);
 }
 
 /// Scroll position of the main list (the inner carousels are horizontal).
@@ -166,21 +157,14 @@ void main() {
       'Suchtext ueberlebt das Wegscrollen des Suchfelds (Listen-Recycling)',
       (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(body: _recipesScreen()),
-      ),
+    await pumpLocalized(
+      tester,
+      _recipesScreen(),
+      // Motion as before the migration.
+      reducedMotion: false,
+      safeArea: false,
+      settle: true,
     );
-    await tester.pumpAndSettle();
 
     await tester.enterText(
       find.byKey(const ValueKey('recipes-search-input')),
@@ -215,21 +199,14 @@ void main() {
   testWidgets('Loesch-X leert Suchtext und Trefferliste sichtbar',
       (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(body: _recipesScreen()),
-      ),
+    await pumpLocalized(
+      tester,
+      _recipesScreen(),
+      // Motion as before the migration.
+      reducedMotion: false,
+      safeArea: false,
+      settle: true,
     );
-    await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('recipes-search-clear')), findsNothing,
         reason: 'Leeres Feld braucht kein Loesch-X.');

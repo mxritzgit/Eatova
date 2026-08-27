@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // User finding 2026-08-10: "I cannot find the settings". Both screens hung
 // on ONE callback, so the gear labelled settings opened the goals — with
@@ -162,26 +161,19 @@ void main() {
     );
     addTearDown(repo.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: SettingsScreen(
-          email: 'jonas@example.com',
-          authRepository: repo,
-          onOpenGoals: () {},
-          onSignOut: () async {},
-          onDeleteAccount: () async {},
-          onExportData: () async => '{}',
-        ),
+    await pumpLocalized(
+      tester,
+      SettingsScreen(
+        email: 'jonas@example.com',
+        authRepository: repo,
+        onOpenGoals: () {},
+        onSignOut: () async {},
+        onDeleteAccount: () async {},
+        onExportData: () async => '{}',
       ),
+      brightness: Brightness.light,
+      scaffold: false,
+      safeArea: false,
     );
     await tester.pumpAndSettle();
 

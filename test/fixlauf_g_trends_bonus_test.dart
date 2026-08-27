@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/trend_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // F7-05: Trends measured "goal hit" as ±10 % around the BASE goal while the
 // Today tab steers by goal + step bonus (model B). Goal 2200 + 8000 steps
@@ -23,37 +22,28 @@ TrendDayTotals _tag(int vorTagen, int kcal) => TrendDayTotals(
       fatG: 0,
     );
 
+/// No `renderMatrix` here: this suite pins the step-bonus ARITHMETIC and its
+/// footnote, which do not vary by brightness, locale or text scale.
 Future<void> _pump(
   WidgetTester tester, {
   required List<TrendDayTotals> totals,
   int Function(DateTime day)? bonus,
 }) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: bonus == null
-          ? TrendsScreen(kcalGoal: 2200, loadTotals: () async => totals)
-          : TrendsScreen(
-              kcalGoal: 2200,
-              loadTotals: () async => totals,
-              burnedKcalFor: bonus,
-            ),
-    ),
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    bonus == null
+        ? TrendsScreen(kcalGoal: 2200, loadTotals: () async => totals)
+        : TrendsScreen(
+            kcalGoal: 2200,
+            loadTotals: () async => totals,
+            burnedKcalFor: bonus,
+          ),
+    // TrendsScreen brings its own Scaffold and SafeArea.
+    scaffold: false,
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 void main() {

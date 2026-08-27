@@ -1,14 +1,3 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/l10n/l10n.dart';
-import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
-import 'package:eatova/src/theme/theme_mode_controller.dart';
-
 // DESIGN_REFACTOR §7.2 / §5: every screen renders in both brightnesses and at
 // 200 % system font without RenderFlex overflow.
 //
@@ -17,154 +6,125 @@ import 'package:eatova/src/theme/theme_mode_controller.dart';
 // address, and the delete block with its explainer box.
 //
 // Unlike the behaviour tests, overflows are NOT swallowed here — they are the
-// thing under test.
+// thing under test. The four hand-written smokes (hell / dunkel / 2.0 hell /
+// 2.0 dunkel) are one `renderMatrix` now, which also covers `en`.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/theme/theme_mode_controller.dart';
+
+import 'support/harness.dart';
+
+const String _mail = 'jonas.schmidt.mit.langer.adresse@beispiel-mail.de';
+
+/// Three rows hang off the auth layer (password, address, delete); without
+/// them this is half a page instead of the densest case.
+InMemoryAuthRepository _auth(String? email) {
+  final repo = InMemoryAuthRepository(
+    initialUser: EatovaUser(id: 'u1', email: email),
+  );
+  addTearDown(repo.dispose);
+  return repo;
+}
+
+ThemeModeController _themeController() {
+  final controller = ThemeModeController();
+  addTearDown(controller.dispose);
+  return controller;
+}
+
+/// All callbacks set: the full screen and thus the densest case; the thinned
+/// variants cannot overflow more than this one.
+Widget _seite({
+  String? email = _mail,
+  bool mitScope = true,
+  bool mitAuth = true,
+}) {
+  final Widget page = SettingsScreen(
+    email: email,
+    authRepository: mitAuth ? _auth(email) : null,
+    onOpenGoals: () {},
+    onSignOut: () async {},
+    onDeleteAccount: () async {},
+    onExportData: () async => '{}',
+  );
+  // [ThemeModeScope] sits inside `home`, which is enough: only the page
+  // itself reads it (settings_screen.dart), no sheet does.
+  return mitScope
+      ? ThemeModeScope(controller: _themeController(), child: page)
+      : page;
+}
+
+/// Mounts the page and pins the two things every case shares.
+Future<void> _pump(
+  WidgetTester tester, {
+  required Brightness brightness,
+  Locale locale = const Locale('de'),
+  double textScale = 1.0,
+  String? email = _mail,
+  bool mitScope = true,
+  bool mitAuth = true,
+}) async {
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    _seite(email: email, mitScope: mitScope, mitAuth: mitAuth),
+    brightness: brightness,
+    locale: locale,
+    textScale: textScale,
+    // SettingsScreen brings its own Scaffold and SafeArea.
+    scaffold: false,
+    safeArea: false,
+    settle: true,
+  );
+  expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
+  expect(tester.takeException(), isNull);
+}
+
+/// The page is a lazy ListView; rows below the fold are not in the tree until
+/// scrolled to, and building them is exactly when an overflow would trip.
+Future<void> _scrollTo(WidgetTester tester, Key key, double schritt) async {
+  await tester.scrollUntilVisible(
+    find.byKey(key),
+    schritt,
+    scrollable: find.descendant(
+      of: find.byKey(const ValueKey('screen-settings')),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  Future<void> pumpOhneOverflow(
-    WidgetTester tester,
-    String fall, {
-    required Brightness brightness,
-    double textScale = 1.0,
-    String? email = 'jonas.schmidt.mit.langer.adresse@beispiel-mail.de',
-    bool mitScope = true,
-    bool mitAuth = true,
-  }) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    tester.platformDispatcher.textScaleFactorTestValue = textScale;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-
-    final controller = ThemeModeController();
-    addTearDown(controller.dispose);
-
-    // Three rows hang off the auth layer (password, address, delete); without
-    // them this is half a page instead of the densest case.
-    final repo = mitAuth
-        ? InMemoryAuthRepository(
-            initialUser: EatovaUser(id: 'u1', email: email),
-          )
-        : null;
-    if (repo != null) addTearDown(repo.dispose);
-
-    // All callbacks set: the full screen and thus the densest case; the
-    // thinned variants cannot overflow more than this one.
-    final app = MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: SettingsScreen(
-        email: email,
-        authRepository: repo,
-        onOpenGoals: () {},
-        onSignOut: () async {},
-        onDeleteAccount: () async {},
-        onExportData: () async => '{}',
-      ),
-    );
-
-    try {
-      await tester.pumpWidget(
-        mitScope ? ThemeModeScope(controller: controller, child: app) : app,
-      );
-      await tester.pumpAndSettle();
-    } finally {
-      FlutterError.onError = prior;
-    }
-
-    expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    expect(
-      overflows,
-      isEmpty,
-      reason: '$fall overflowt:\n${overflows.join('\n')}',
-    );
-  }
-
-  testWidgets('rendert im Hellmodus', (tester) async {
-    await pumpOhneOverflow(tester, 'hell', brightness: Brightness.light);
-  });
-
-  testWidgets('rendert im Dunkelmodus', (tester) async {
-    await pumpOhneOverflow(tester, 'dunkel', brightness: Brightness.dark);
-  });
-
-  testWidgets('rendert bei textScale 2.0 (hell)', (tester) async {
-    await pumpOhneOverflow(
-      tester,
-      'hell @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-    );
-  });
-
-  testWidgets('rendert bei textScale 2.0 (dunkel)', (tester) async {
-    await pumpOhneOverflow(
-      tester,
-      'dunkel @2.0',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-    );
-  });
+  renderMatrix(
+    'Einstellungen rendern overflow-frei',
+    (tester, c) async {
+      await _pump(tester, brightness: c.brightness, locale: c.locale,
+          textScale: c.textScale);
+    },
+    locales: const <Locale>[Locale('de'), Locale('en')],
+    textScales: const <double>[1.0, 2.0],
+  );
 
   testWidgets('die Erscheinungsbild-Zeile traegt die Pille auch bei 2.0',
       (tester) async {
     // The page's densest row: title and subtitle left, three-segment pill
     // right. At 2.0 the pill must wrap to a second line, not burst the row.
-    await pumpOhneOverflow(
-      tester,
-      'Erscheinungsbild @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-    );
+    final overflows = await collectOverflows(() async {
+      await _pump(tester, brightness: Brightness.light, textScale: 2.0);
 
-    // The row sits below the viewport (the account group now has three rows),
-    // and the page is a lazy ListView, so without scrolling the pill is not
-    // in the tree at all. The overflow guard runs along, since that is
-    // exactly when building the row would trip it.
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
+      // The row sits below the viewport (the account group now has three
+      // rows), so without scrolling the pill is not in the tree at all.
+      await _scrollTo(tester, const ValueKey('settings-theme-mode'), 300);
+    });
 
-    try {
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('settings-theme-mode')),
-        300,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('screen-settings')),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-    } finally {
-      FlutterError.onError = prior;
-    }
-
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
+    expect(overflows, isEmpty, reason: describeOverflows(overflows));
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('settings-theme-mode-dark')),
@@ -176,22 +136,24 @@ void main() {
       (tester) async {
     // Without mail address, auth layer and ThemeModeScope half the page is
     // gone; an empty [SettingsGroup] would be the weak spot here.
-    await pumpOhneOverflow(
-      tester,
-      'ohne Konto @2.0',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-      email: null,
-      mitScope: false,
-      mitAuth: false,
-    );
+    final overflows = await collectOverflows(() async {
+      await _pump(
+        tester,
+        brightness: Brightness.dark,
+        textScale: 2.0,
+        email: null,
+        mitScope: false,
+        mitAuth: false,
+      );
+    });
 
+    expect(overflows, isEmpty, reason: describeOverflows(overflows));
     expect(find.text('KONTO'), findsNothing);
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
 
   testWidgets('das Loesch-Sheet rendert bei 2.0 ohne Overflow', (tester) async {
-    // Its own route above the page, unreachable by the cases above. Title,
+    // Its own route above the page, unreachable by the matrix above. Title,
     // three lines of explainer, a field and a 52-px button are the app's
     // tightest spot at double font size.
     //
@@ -199,37 +161,12 @@ void main() {
     // the full mail address, then a labelled digit field and the button. The
     // whole path is checked, ending with the delete button still reachable
     // rather than clipped off the bottom.
-    await pumpOhneOverflow(
-      tester,
-      'Loesch-Sheet Grundzustand',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-    );
+    final overflows = await collectOverflows(() async {
+      await _pump(tester, brightness: Brightness.dark, textScale: 2.0);
 
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-
-    try {
-      // At double font size the delete block sits far below the viewport of
-      // a lazy ListView, so without scrolling it is not in the tree.
-      final oeffner = find.byKey(const ValueKey('settings-delete-account'));
-      await tester.scrollUntilVisible(
-        oeffner,
-        400,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('screen-settings')),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(oeffner);
+      // At double font size the delete block sits far below the viewport.
+      await _scrollTo(tester, const ValueKey('settings-delete-account'), 400);
+      await tester.tap(find.byKey(const ValueKey('settings-delete-account')));
       await tester.pumpAndSettle();
 
       // Step 1: the typed word. The button still only requests the code.
@@ -272,11 +209,9 @@ void main() {
       expect(rect.top, greaterThanOrEqualTo(0.0), reason: 'oben beschnitten');
       expect(rect.bottom, lessThanOrEqualTo(bild.height),
           reason: 'unten beschnitten');
-    } finally {
-      FlutterError.onError = prior;
-    }
+    });
 
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
+    expect(overflows, isEmpty, reason: describeOverflows(overflows));
   });
 
   testWidgets('das „Über Eatova"-Sheet rendert bei 2.0 ohne Overflow',
@@ -284,35 +219,11 @@ void main() {
     // Not cosmetic: the block of description, version, build, sources and
     // privacy row was once 251 px too tall at double font size — and the
     // bottom row is the one that must never be clipped.
-    await pumpOhneOverflow(
-      tester,
-      'Über-Sheet Grundzustand',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-    );
+    final overflows = await collectOverflows(() async {
+      await _pump(tester, brightness: Brightness.dark, textScale: 2.0);
 
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-
-    try {
-      final oeffner = find.byKey(const ValueKey('settings-about'));
-      await tester.scrollUntilVisible(
-        oeffner,
-        400,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('screen-settings')),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(oeffner);
+      await _scrollTo(tester, const ValueKey('settings-about'), 400);
+      await tester.tap(find.byKey(const ValueKey('settings-about')));
       await tester.pumpAndSettle();
 
       // The sheet's two mandatory rows: the ODbL attribution for the
@@ -328,19 +239,17 @@ void main() {
         findsOneWidget,
         reason: 'Key bleibt Key — er ist mit dem Sheet mitgewandert',
       );
-    } finally {
-      FlutterError.onError = prior;
-    }
+    });
 
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
+    expect(overflows, isEmpty, reason: describeOverflows(overflows));
   });
 
-  testWidgets('der Seitenfuss steht ohne vorheriges Scrollen im Baum',
-      (tester) async {
+  testWidgets('der Seitenfuss der Einstellungen steht ohne vorheriges '
+      'Scrollen im Baum', (tester) async {
     // The page is a lazy ListView; this pins that the legal links are still
     // found while the viewport carries them, or the behaviour tests would
     // miss before anyone scrolls.
-    await pumpOhneOverflow(tester, 'Fuss', brightness: Brightness.light);
+    await _pump(tester, brightness: Brightness.light);
 
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);
@@ -349,15 +258,7 @@ void main() {
 
     // The danger zone slipped one row down and sits just below the edge when
     // fully wired, so this asserts reachability rather than visibility.
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('settings-sign-out')),
-      300,
-      scrollable: find.descendant(
-        of: find.byKey(const ValueKey('screen-settings')),
-        matching: find.byType(Scrollable),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, const ValueKey('settings-sign-out'), 300);
     expect(find.byKey(const ValueKey('settings-sign-out')), findsOneWidget);
   });
 }

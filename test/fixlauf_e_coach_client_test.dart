@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -14,7 +13,8 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Fix run 2026-08-27, package E (coach client):
 //
@@ -159,35 +159,20 @@ Future<void> _pumpCoach(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        // Motion off, or `pumpAndSettle` never returns while sending.
-        data: MediaQueryData.fromView(tester.view)
-            .copyWith(disableAnimations: true),
-        child: Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: CoachChatScreen(
-              service: service,
-              userName: 'Moritz',
-              speechInput: speechInput,
-            ),
-          ),
-        ),
-      ),
+  // reducedMotion (harness default): motion off, or `pumpAndSettle` never
+  // returns while sending.
+  await pumpLocalized(
+    tester,
+    CoachChatScreen(
+      service: service,
+      userName: 'Moritz',
+      speechInput: speechInput,
     ),
+    locale: locale,
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 Future<void> _tippenUndSenden(WidgetTester tester, String text) async {

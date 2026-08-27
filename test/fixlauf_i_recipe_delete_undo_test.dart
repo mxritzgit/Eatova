@@ -9,17 +9,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 /// Bildspeicher-Double: merkt sich nur, was gelöscht werden sollte.
 class _RecordingImageStore extends RecipeImageStore {
@@ -78,28 +77,19 @@ class _Host extends StatelessWidget {
   final bool visible;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: TickerMode(
-            enabled: visible,
-            child: RecipesScreen(
-              onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-              initialUserRecipes: recipes,
-              onDeleteRecipe: onDelete,
-            ),
-          ),
+  Widget build(BuildContext context) => TickerMode(
+        enabled: visible,
+        child: RecipesScreen(
+          onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+          initialUserRecipes: recipes,
+          onDeleteRecipe: onDelete,
         ),
       );
 }
+
+/// [_Host] in the localized harness (dark, de) — same tree as before.
+Future<void> _pumpHost(WidgetTester tester, _Host host) =>
+    pumpLocalized(tester, host, reducedMotion: false, safeArea: false);
 
 void _pinViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -144,7 +134,7 @@ void main() {
       'persistiert, solange die Frist läuft', (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (slug) async {
         calls.add(slug);
@@ -167,7 +157,7 @@ void main() {
       (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (slug) async {
         calls.add(slug);
@@ -194,7 +184,7 @@ void main() {
       'Snack bei Zustellung', (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (slug) async {
         calls.add(slug);
@@ -216,7 +206,7 @@ void main() {
   testWidgets('nur eingereiht: nach der Frist folgt die ehrliche Meldung, '
       'das Bild bleibt', (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (_) async => SyncDelivery.queuedOffline,
     ));
@@ -239,7 +229,7 @@ void main() {
   testWidgets('Undo-Snack ist Ausnahme des Gap-E-Prinzips: nach Ablauf '
       'genau eine Folge-Meldung', (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (_) async => SyncDelivery.queuedRetry,
     ));
@@ -261,7 +251,7 @@ void main() {
       'persistiert', (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (slug) async {
         calls.add(slug);
@@ -283,7 +273,7 @@ void main() {
   testWidgets('„Eigene"-Filter fällt mit dem letzten eigenen Rezept auf '
       '„Alle" zurück und kommt per Undo wieder', (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (_) async => SyncDelivery.delivered,
     ));
@@ -317,12 +307,13 @@ void main() {
 
     _pinViewport(tester);
     final rezepte = [_rezept('user_weg')];
-    await tester.pumpWidget(_Host(recipes: rezepte, onDelete: onDelete));
+    await _pumpHost(tester, _Host(recipes: rezepte, onDelete: onDelete));
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_weg');
     // Tab-Wechsel: der Screen bleibt gemountet, wird aber gedämpft.
-    await tester.pumpWidget(
+    await _pumpHost(
+      tester,
       _Host(recipes: rezepte, onDelete: onDelete, visible: false),
     );
     await _fristAblaufen(tester);
@@ -334,7 +325,7 @@ void main() {
             'später an falscher Stelle auf.');
 
     // Zurück auf den Tab: das Rezept ist weg, kein nachgeholter Snack.
-    await tester.pumpWidget(_Host(recipes: rezepte, onDelete: onDelete));
+    await _pumpHost(tester, _Host(recipes: rezepte, onDelete: onDelete));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsNothing);
     expect(find.byType(SnackBar), findsNothing);
@@ -345,7 +336,7 @@ void main() {
       (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [
         _rezept('user_a', title: 'A-Bowl'),
         _rezept('user_b', title: 'B-Bowl'),
@@ -389,7 +380,7 @@ void main() {
       (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await tester.pumpWidget(_Host(
+    await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
       onDelete: (slug) async {
         calls.add(slug);

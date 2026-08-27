@@ -1,15 +1,17 @@
 // Fix run for review 2026-08-27, F3-05: the add-meal sheet, its slot
 // selector and the manual-entry sheet used fixed heights (46/46/56) that
 // left no room for large system text. Now `minHeight`, the slot segments
-// scale with the text like the edit sheet's day picker. Overflows are
-// collected and reported, not swallowed — they are the subject here.
+// scale with the text like the edit sheet's day picker. Overflows are the
+// subject here, so `renderMatrix` asserts on them instead of swallowing them.
+//
+// The scale loop (1.3 / 2.0) plus the separate 1.0 case are one matrix now:
+// 1.0 / 1.3 / 2.0 in BOTH brightnesses, since the light theme draws different
+// border widths and thus different inner heights.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -17,10 +19,11 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/slot_selector.dart';
+
+import 'support/harness.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -55,113 +58,72 @@ const MealAnalysisResult _apfel = MealAnalysisResult(
   portionNotes: '',
 );
 
-Widget _app(Widget home, double scale) => MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
+/// The three scales the sheet has to hold: normal, the 1.25 grid breakpoint's
+/// neighbour, and the WCAG 1.4.4 cap.
+const List<double> _skalen = <double>[1.0, 1.3, 2.0];
+
+Future<void> _pumpAddSheet(WidgetTester tester, RenderCase c) async {
+  pinPhoneViewport(tester);
+  await c.pump(
+    tester,
+    AddMealSheet(
+      slot: MealSlot.snack,
+      analyzer: _StummerAnalyzer(),
+      productService: _StummerProduktdienst(),
+      photoInput: _StummeFotoquelle(),
+      favorites: [
+        FavoriteMeal(
+          id: FavoriteMeal.idFor(_apfel),
+          result: _apfel,
+          addedAt: DateTime(2026, 8, 20),
+          pinned: true,
+        ),
       ],
-      // Above the navigator, so modal routes scale too.
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(textScaler: TextScaler.linear(scale)),
-        child: child!,
-      ),
-      home: home,
-    );
-
-/// Phone viewport plus an overflow collector; returns the collected list.
-List<String> _rig(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  final overflows = <String>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) {
-      overflows.add(details.summary.toString());
-      return;
-    }
-    prior?.call(details);
-  };
-  addTearDown(() => FlutterError.onError = prior);
-  return overflows;
-}
-
-Future<List<String>> _pumpAddSheet(WidgetTester tester, double scale) async {
-  final overflows = _rig(tester);
-  await tester.pumpWidget(
-    _app(
-      Scaffold(
-        body: AddMealSheet(
-          slot: MealSlot.snack,
-          analyzer: _StummerAnalyzer(),
-          productService: _StummerProduktdienst(),
-          photoInput: _StummeFotoquelle(),
-          favorites: [
-            FavoriteMeal(
-              id: FavoriteMeal.idFor(_apfel),
-              result: _apfel,
-              addedAt: DateTime(2026, 8, 20),
-              pinned: true,
-            ),
-          ],
-          existingMeals: [
-            LoggedMeal(
-              id: 'm-1',
-              result: _apfel,
-              loggedAt: DateTime.now(),
-              forcedSlot: MealSlot.snack,
-            ),
-          ],
-          onAdd: (_, __) => 'id-1',
-          onUpdateMeal: (_, __) {},
-          onRemoveFavorite: (_) {},
-          onRemoveMeal: (_) {},
+      existingMeals: [
+        LoggedMeal(
+          id: 'm-1',
+          result: _apfel,
+          loggedAt: DateTime.now(),
+          forcedSlot: MealSlot.snack,
         ),
-      ),
-      scale,
+      ],
+      onAdd: (_, __) => 'id-1',
+      onUpdateMeal: (_, __) {},
+      onRemoveFavorite: (_) {},
+      onRemoveMeal: (_) {},
     ),
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
-  return overflows;
 }
 
-Future<List<String>> _openManualSheet(WidgetTester tester, double scale) async {
-  final overflows = _rig(tester);
-  await tester.pumpWidget(
-    _app(
-      Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: TextButton(
-              onPressed: () => showManualMealSheet(context),
-              child: const Text('open'),
-            ),
-          ),
+/// Opens the manual-entry sheet as a modal route. The text scale sits above
+/// the navigator (see harness), so the route scales along.
+Future<void> _openManualSheet(WidgetTester tester, RenderCase c) async {
+  pinPhoneViewport(tester);
+  await c.pump(
+    tester,
+    Builder(
+      builder: (context) => Center(
+        child: TextButton(
+          onPressed: () => showManualMealSheet(context),
+          child: const Text('open'),
         ),
       ),
-      scale,
     ),
+    safeArea: false,
+    settle: true,
   );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
   expect(find.byKey(const ValueKey('manual-meal-save')), findsOneWidget);
-  return overflows;
 }
 
 void main() {
-  for (final scale in const <double>[1.3, 2.0]) {
-    testWidgets('Add-Sheet rendert bei textScale $scale ohne Overflow',
-        (tester) async {
-      final overflows = await _pumpAddSheet(tester, scale);
-      expect(overflows, isEmpty, reason: overflows.join('\n'));
+  renderMatrix(
+    'Das Add-Sheet traegt seine Kapseln bei jeder Systemschrift',
+    (tester, c) async {
+      await _pumpAddSheet(tester, c);
 
       // Search capsule: at least the design height, taller when needed.
       final capsule =
@@ -181,43 +143,39 @@ void main() {
         tester.getSize(row).height,
         greaterThanOrEqualTo(tester.getSize(label).height),
       );
-    });
+    },
+    textScales: _skalen,
+  );
 
-    testWidgets('Slot-Wähler skaliert seine Segmente bei textScale $scale',
-        (tester) async {
-      await _pumpAddSheet(tester, scale);
-      final expected = (56 * scale).clamp(56.0, 80.0);
-      final segment =
-          tester.getSize(find.byKey(const ValueKey('slot-select-snack')));
-      expect(segment.height, moreOrLessEquals(expected, epsilon: 0.5));
+  renderMatrix(
+    'Der Slot-Waehler skaliert seine Segmente mit der Systemschrift',
+    (tester, c) async {
+      await _pumpAddSheet(tester, c);
+
+      // 56 at normal size, growing with the text up to the 80 px cap. This
+      // covers the old "bei Normalschrift exakt 56 hoch" case at 1.0x.
+      final expected = (56 * c.textScale).clamp(56.0, 80.0);
+      final segment = find.byKey(const ValueKey('slot-select-snack'));
+      expect(tester.getSize(segment).height,
+          moreOrLessEquals(expected, epsilon: 0.5));
+      expect(find.byType(SlotSelector), findsOneWidget);
+
       // The label stays inside its segment.
-      final text = find.descendant(
-        of: find.byKey(const ValueKey('slot-select-snack')),
-        matching: find.byType(Text),
-      );
+      final text = find.descendant(of: segment, matching: find.byType(Text));
       expect(
         tester.getRect(text).bottom,
-        lessThanOrEqualTo(
-          tester.getRect(find.byKey(const ValueKey('slot-select-snack'))).bottom +
-              0.5,
-        ),
+        lessThanOrEqualTo(tester.getRect(segment).bottom + 0.5),
       );
-    });
+    },
+    textScales: _skalen,
+  );
 
-    testWidgets('Manuell-Sheet rendert bei textScale $scale ohne Overflow',
-        (tester) async {
-      final overflows = await _openManualSheet(tester, scale);
-      expect(overflows, isEmpty, reason: overflows.join('\n'));
-    });
-  }
-
-  testWidgets('bei Normalschrift bleibt der Slot-Wähler exakt 56 hoch',
-      (tester) async {
-    await _pumpAddSheet(tester, 1.0);
-    expect(
-      tester.getSize(find.byKey(const ValueKey('slot-select-snack'))).height,
-      56,
-    );
-    expect(find.byType(SlotSelector), findsOneWidget);
-  });
+  renderMatrix(
+    'Das Manuell-Sheet rendert bei jeder Systemschrift overflow-frei',
+    (tester, c) async {
+      await _openManualSheet(tester, c);
+      expect(tester.takeException(), isNull);
+    },
+    textScales: _skalen,
+  );
 }

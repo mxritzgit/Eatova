@@ -1,18 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Full review 2026-08-19, coach package — three findings:
 //
@@ -136,32 +135,17 @@ class _FixCoach extends CoachChatService {
 
 const Size _usableSize = Size(402, 781);
 
-Widget _app(
-  _FixCoach service,
-  MediaQueryData basis, {
+Future<void> _pumpApp(
+  WidgetTester tester,
+  _FixCoach service, {
   required bool bewegungAus,
 }) =>
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // The coach calls context.l10n; without localizations
-      // AppLocalizations.of() throws on the first build.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        data: bewegungAus ? basis.copyWith(disableAnimations: true) : basis,
-        child: Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: CoachChatScreen(service: service, userName: 'Moritz'),
-          ),
-        ),
-      ),
+    pumpLocalized(
+      tester,
+      CoachChatScreen(service: service, userName: 'Moritz'),
+      reducedMotion: bewegungAus,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      safeArea: false,
     );
 
 /// Motion disabled, or `pumpAndSettle` never returns while `_sending` runs.
@@ -171,9 +155,7 @@ Future<void> _pumpCoachRuhig(WidgetTester tester, _FixCoach service) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    _app(service, MediaQueryData.fromView(tester.view), bewegungAus: true),
-  );
+  await _pumpApp(tester, service, bewegungAus: true);
   await tester.pumpAndSettle();
 }
 
@@ -185,9 +167,7 @@ Future<void> _pumpCoachBewegt(WidgetTester tester, _FixCoach service) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    _app(service, MediaQueryData.fromView(tester.view), bewegungAus: false),
-  );
+  await _pumpApp(tester, service, bewegungAus: false);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 600));
 }

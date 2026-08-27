@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart' show ReminderState;
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
+
+import 'support/harness.dart';
 
 // D11 — the permission switch only knew on/off and therefore lied: denying the
 // system dialog still showed "active" while nothing ever arrived. The store
@@ -23,10 +22,7 @@ void main() {
     bool notificationsEnabled = false,
     VoidCallback? onOpenSystemSettings,
   }) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    pinPhoneViewport(tester);
 
     final prior = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -36,40 +32,32 @@ void main() {
     addTearDown(() => FlutterError.onError = prior);
 
     late Future<SettingsResult?> result;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Center(
-              child: FilledButton(
-                key: const ValueKey('open-settings'),
-                onPressed: () {
-                  result = Navigator.of(context).push<SettingsResult>(
-                    MaterialPageRoute<SettingsResult>(
-                      builder: (_) => GoalsScreen(
-                        profile: const UserProfile(),
-                        notificationsEnabled: notificationsEnabled,
-                        reminderState: reminderState,
-                        onOpenSystemSettings: onOpenSystemSettings,
-                      ),
-                    ),
-                  );
-                },
-                child: const Text('open'),
-              ),
-            ),
+    await pumpLocalized(
+      tester,
+      Builder(
+        builder: (context) => Center(
+          child: FilledButton(
+            key: const ValueKey('open-settings'),
+            onPressed: () {
+              result = Navigator.of(context).push<SettingsResult>(
+                MaterialPageRoute<SettingsResult>(
+                  builder: (_) => GoalsScreen(
+                    profile: const UserProfile(),
+                    notificationsEnabled: notificationsEnabled,
+                    reminderState: reminderState,
+                    onOpenSystemSettings: onOpenSystemSettings,
+                  ),
+                ),
+              );
+            },
+            child: const Text('open'),
           ),
         ),
       ),
+      brightness: Brightness.light,
+      // Motion as before the migration.
+      reducedMotion: false,
+      safeArea: false,
     );
     await tester.tap(find.byKey(const ValueKey('open-settings')));
     await tester.pumpAndSettle();

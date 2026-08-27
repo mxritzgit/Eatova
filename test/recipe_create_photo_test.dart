@@ -2,12 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -16,8 +14,9 @@ import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import 'support/harness.dart';
 
 // Photos on user recipes: in-app pick (camera/gallery) through the EXISTING
 // `MealPhotoInput` pipeline (which scrubs EXIF), stored locally via
@@ -161,46 +160,36 @@ FitnessRecipe _eigenes({required String slug, required String imageAsset}) =>
 late Directory _temp;
 late _TestImageStore _store;
 
-void _pinViewport(WidgetTester tester, {double textScale = 1.0}) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  tester.platformDispatcher.textScaleFactorTestValue = textScale;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-}
+/// The home shell pads every tab with `EdgeInsets.fromLTRB(20, 12, 20, 12)`.
+const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
+
+Widget _tab({
+  MealPhotoInput? photoInput,
+  _CreateCapture? capture,
+  List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
+}) =>
+    RecipesScreen(
+      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+      onCreateRecipe: capture?.add,
+      photoInput: photoInput,
+      initialUserRecipes: userRecipes,
+    );
 
 Widget _app(
   Brightness brightness, {
   MealPhotoInput? photoInput,
   _CreateCapture? capture,
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
-}) {
-  return MaterialApp(
-    theme: buildEatovaTheme(brightness),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: RecipesScreen(
-            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-            onCreateRecipe: capture?.add,
-            photoInput: photoInput,
-            initialUserRecipes: userRecipes,
-          ),
-        ),
+}) =>
+    localizedApp(
+      _tab(
+        photoInput: photoInput,
+        capture: capture,
+        userRecipes: userRecipes,
       ),
-    ),
-  );
-}
+      brightness: brightness,
+      padding: _schalenrand,
+    );
 
 Future<void> _openSheet(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
@@ -211,25 +200,6 @@ Future<void> _openSheet(WidgetTester tester) async {
 Future<void> _tippe(WidgetTester tester, String key, String text) async {
   await tester.enterText(find.byKey(ValueKey(key)), text);
   await tester.pumpAndSettle();
-}
-
-/// Collects overflow errors during [body] (pattern from recipes_design_test).
-Future<void> _expectNoOverflow(String was, Future<void> Function() body) async {
-  final overflows = <String>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) {
-      overflows.add('${details.summary}');
-      return;
-    }
-    prior?.call(details);
-  };
-  try {
-    await body();
-  } finally {
-    FlutterError.onError = prior;
-  }
-  expect(overflows, isEmpty, reason: '$was overflowt:\n${overflows.join('\n')}');
 }
 
 void main() {
@@ -247,7 +217,7 @@ void main() {
   group('Foto aufnehmen oder waehlen', () {
     testWidgets('Kamera-Knopf holt das Foto und zeigt die Vorschau',
         (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       final quelle = _FakeFotoquelle(bytes: _jpeg());
       await tester.pumpWidget(_app(Brightness.dark, photoInput: quelle));
       await tester.pumpAndSettle();
@@ -265,7 +235,7 @@ void main() {
     });
 
     testWidgets('Galerie-Knopf fragt die Galerie', (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       final quelle = _FakeFotoquelle(bytes: _jpeg());
       await tester.pumpWidget(_app(Brightness.light, photoInput: quelle));
       await tester.pumpAndSettle();
@@ -281,7 +251,7 @@ void main() {
     });
 
     testWidgets('Entfernen nimmt die Vorschau wieder weg', (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
       );
@@ -304,7 +274,7 @@ void main() {
 
     testWidgets('ein abgebrochener Griff zur Kamera aendert nichts',
         (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle()),
       );
@@ -325,7 +295,7 @@ void main() {
 
     testWidgets('ein gewaehltes Foto zaehlt als „ausgefuellt" (D5)',
         (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
       );
@@ -346,7 +316,7 @@ void main() {
   group('Das Bild haengt am Rezept und ueberlebt', () {
     testWidgets('Speichern legt die Bytes ab und setzt die local:-Referenz',
         (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       final capture = _CreateCapture();
       await tester.pumpWidget(
         _app(
@@ -377,7 +347,7 @@ void main() {
 
     testWidgets('ohne Foto bleibt imageAsset leer (Abwaertskompatibilitaet)',
         (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       final capture = _CreateCapture();
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(), capture: capture),
@@ -418,7 +388,7 @@ void main() {
       final referenz = _legeAb(_store, 'user_mit_bild', _jpeg());
       final rezept = _eigenes(slug: 'user_mit_bild', imageAsset: referenz);
 
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(_app(Brightness.dark, userRecipes: [rezept]));
       await tester.pumpAndSettle();
 
@@ -450,7 +420,7 @@ void main() {
         imageAsset: '${RecipeImageStore.referencePrefix}user_fremd.jpg',
       );
 
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(_app(Brightness.light, userRecipes: [rezept]));
       await tester.pumpAndSettle();
 
@@ -474,7 +444,7 @@ void main() {
       final referenz = _legeAb(_store, 'user_detail', _jpeg());
       final rezept = _eigenes(slug: 'user_detail', imageAsset: referenz);
 
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(_app(Brightness.dark, userRecipes: [rezept]));
       await tester.pumpAndSettle();
 
@@ -499,7 +469,7 @@ void main() {
     final referenz = _legeAb(_store, 'user_weg', _jpeg());
     final rezept = _eigenes(slug: 'user_weg', imageAsset: referenz);
 
-    _pinViewport(tester);
+    pinPhoneViewport(tester);
     await tester.pumpWidget(_app(Brightness.dark, userRecipes: [rezept]));
     await tester.pumpAndSettle();
 
@@ -533,7 +503,7 @@ void main() {
 
   group('Das Sheet bleibt heil', () {
     testWidgets('es hat weiterhin genau acht Textfelder', (tester) async {
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
       );
@@ -549,14 +519,18 @@ void main() {
       );
     });
 
-    for (final brightness in Brightness.values) {
-      final modus = brightness == Brightness.light ? 'hell' : 'dunkel';
-      testWidgets('mit Foto rendert es im $modus-Modus', (tester) async {
-        _pinViewport(tester);
-        await tester.pumpWidget(
-          _app(brightness, photoInput: _FakeFotoquelle(bytes: _jpeg())),
+    // Mode loop plus the separate 2.0 case, folded into one matrix: both
+    // modes x normal and double system font, so hell@2.0 is covered too.
+    renderMatrix(
+      'Das Anlege-Sheet mit Foto rendert overflow-frei',
+      (tester, c) async {
+        pinPhoneViewport(tester);
+        await c.pump(
+          tester,
+          _tab(photoInput: _FakeFotoquelle(bytes: _jpeg())),
+          padding: _schalenrand,
+          settle: true,
         );
-        await tester.pumpAndSettle();
         await _openSheet(tester);
         await tester
             .tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
@@ -565,23 +539,9 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
             findsOneWidget);
-      });
-    }
-
-    testWidgets('mit Foto overflowt es bei doppelter Schrift nicht',
-        (tester) async {
-      _pinViewport(tester, textScale: 2.0);
-      await _expectNoOverflow('Das Anlege-Sheet mit Foto', () async {
-        await tester.pumpWidget(
-          _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
-        );
-        await tester.pumpAndSettle();
-        await _openSheet(tester);
-        await tester
-            .tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
-        await tester.pumpAndSettle();
-      });
-    });
+      },
+      textScales: const <double>[1.0, 2.0],
+    );
 
     testWidgets('bei normaler Schrift kommt es ohne Scrollen aus',
         (tester) async {
@@ -590,7 +550,7 @@ void main() {
       // viewport) the sheet becomes scrollable, and then the save button slides
       // off screen and the discard guard loses its drag, because a scroller
       // wins the gesture arena against `_DiscardDragGuard`.
-      _pinViewport(tester);
+      pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
       );
@@ -634,13 +594,16 @@ void main() {
     //
     // This measures the FIELDS, not the headers: headers may differ in height,
     // the boxes below must not jump.
-    for (final skalierung in <double>[1.0, 1.3, 2.0]) {
-      testWidgets('bei Systemschrift ${skalierung}x', (tester) async {
-        _pinViewport(tester, textScale: skalierung);
-        await tester.pumpWidget(
-          _app(Brightness.dark, photoInput: _FakeFotoquelle()),
+    renderMatrix(
+      'Die vier Naehrwert-Felder beginnen buendig',
+      (tester, c) async {
+        pinPhoneViewport(tester);
+        await c.pump(
+          tester,
+          _tab(photoInput: _FakeFotoquelle()),
+          padding: _schalenrand,
+          settle: true,
         );
-        await tester.pumpAndSettle();
         await _openSheet(tester);
 
         double obenVon(String key) {
@@ -662,7 +625,7 @@ void main() {
         // The grid drops from four to two columns above 1.25x text scale
         // (_FieldGrid), so which fields share a row depends on the scale —
         // computed here rather than guessed.
-        final paare = skalierung <= 1.25
+        final paare = c.textScale <= 1.25
             ? <List<String>>[
                 <String>[
                   'recipe-create-kcal',
@@ -682,8 +645,9 @@ void main() {
               reason: 'Felder derselben Zeile (${zeile.join(", ")}) muessen '
                   'buendig beginnen, gemessen: $tops');
         }
-      });
-    }
+      },
+      textScales: const <double>[1.0, 1.3, 2.0],
+    );
   });
 
 

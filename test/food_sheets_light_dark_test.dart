@@ -1,20 +1,20 @@
-// DESIGN_REFACTOR §7.2 for the food sheets: at least one widget test per screen
+// DESIGN_REFACTOR §7.2 for the food sheets: at least one widget test per sheet
 // pumps it under buildEatovaTheme(Brightness.light) AND (Brightness.dark).
 //
 // The existing sheet suites only pump dark, since they test flows. This covers
-// the missing half: do both modes render without exception and without
-// RenderFlex overflow? Overflows are COLLECTED, not swallowed.
+// the missing half via `renderMatrix`, which also adds the `en` column the old
+// hand-written brightness loop never had: does every sheet render without
+// exception and without RenderFlex overflow in every combination? Overflows
+// are checked by the matrix itself, never swallowed.
 //
 // Camera and barcode sheets are deliberately absent: their surfaces sit on a
 // live camera image and are dark in both modes, and their states depend on
 // platform fakes that meal_camera_sheet_test already provides.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -22,10 +22,12 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
+
+import 'support/harness.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -67,54 +69,29 @@ final FavoriteMeal _favorit = FavoriteMeal(
   result: _resultat,
 );
 
-const Size _viewport = Size(393, 852);
+const List<Locale> _beideSprachen = <Locale>[Locale('de'), Locale('en')];
 
-/// Pumps [inhalt] in the Eatova theme and returns the errors reported.
-Future<List<Object>> _pump(
+/// Mounts [inhalt] bottom-aligned, the way a modal sheet sits on the screen.
+Future<void> _pumpSheet(
   WidgetTester tester,
-  Brightness brightness,
+  RenderCase c,
   Widget inhalt,
 ) async {
-  tester.view.devicePixelRatio = 3.0;
-  tester.view.physicalSize = _viewport * 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  final fehler = <Object>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    fehler.add(details.exception);
-    prior?.call(details);
-  };
-  addTearDown(() => FlutterError.onError = prior);
-
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      // The sheets read context.l10n.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Align(alignment: Alignment.bottomCenter, child: inhalt),
-      ),
-    ),
+  pinPhoneViewport(tester);
+  await c.pump(
+    tester,
+    Align(alignment: Alignment.bottomCenter, child: inhalt),
+    settle: true,
   );
-  await tester.pumpAndSettle();
-  return fehler;
 }
 
 void main() {
-  for (final brightness in Brightness.values) {
-    testWidgets('Das Add-Sheet rendert in $brightness sauber', (tester) async {
-      final fehler = await _pump(
+  renderMatrix(
+    'Das Add-Sheet rendert sauber',
+    (tester, c) async {
+      await _pumpSheet(
         tester,
-        brightness,
+        c,
         AddMealSheet(
           slot: MealSlot.lunch,
           analyzer: _StummerAnalyzer(),
@@ -136,21 +113,24 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(fehler, isEmpty);
-      // Slot header and the already-added list show in both modes — the card
-      // takes its surface from the tokens, not from a constant.
-      expect(find.text('Mittagessen'), findsWidgets);
+      // Slot header and the already-added list show in every combination — the
+      // card takes its surface from the tokens, not from a constant, and its
+      // heading from the ARB, not from a German literal.
+      expect(find.text(MealSlot.lunch.label(c.l10n)), findsWidgets);
       expect(
         find.byKey(const ValueKey('analyse-existing-meals')),
         findsOneWidget,
       );
-    });
+    },
+    locales: _beideSprachen,
+  );
 
-    testWidgets('Das Analyse-Sheet rendert in $brightness sauber',
-        (tester) async {
-      final fehler = await _pump(
+  renderMatrix(
+    'Das Analyse-Sheet rendert sauber',
+    (tester, c) async {
+      await _pumpSheet(
         tester,
-        brightness,
+        c,
         MealAnalysisSheet(
           slot: MealSlot.dinner,
           resultFuture: Future<MealAnalysisResult>.value(_resultat),
@@ -162,19 +142,21 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(fehler, isEmpty);
       expect(find.byKey(const ValueKey('analyse-result-card')), findsOneWidget);
       expect(
         find.byKey(const ValueKey('analyse-add-daily-button')),
         findsOneWidget,
       );
-    });
+    },
+    locales: _beideSprachen,
+  );
 
-    testWidgets('Das Bearbeiten-Sheet rendert in $brightness sauber',
-        (tester) async {
-      final fehler = await _pump(
+  renderMatrix(
+    'Das Bearbeiten-Sheet rendert sauber',
+    (tester, c) async {
+      await _pumpSheet(
         tester,
-        brightness,
+        c,
         EditMealSheet(
           meal: LoggedMeal(
             id: 'm1',
@@ -189,9 +171,38 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(fehler, isEmpty);
       expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
-      expect(find.text('Mahlzeit bearbeiten'), findsOneWidget);
-    });
-  }
+      expect(find.text(c.l10n.foodEditMealTitle), findsOneWidget);
+    },
+    locales: _beideSprachen,
+  );
+
+  testWidgets('Auf Englisch traegt das Bearbeiten-Sheet den englischen Titel',
+      (tester) async {
+    // Counter-check to the matrices above: they read the same ARB the sheets
+    // read, so a regress in app_en.arb would pass unnoticed. One hard anchor
+    // per language proves the title really CHANGES with the language.
+    pinPhoneViewport(tester);
+    await pumpLocalized(
+      tester,
+      Align(
+        alignment: Alignment.bottomCenter,
+        child: EditMealSheet(
+          meal: LoggedMeal(
+            id: 'm1',
+            result: _resultat,
+            loggedAt: DateTime.now(),
+            forcedSlot: MealSlot.dinner,
+          ),
+          onUpdateMeal: (_, {result, slot, day}) => null,
+          onRemoveMeal: (_) {},
+        ),
+      ),
+      locale: const Locale('en'),
+      settle: true,
+    );
+
+    expect(find.text('Edit meal'), findsOneWidget);
+    expect(find.text('Mahlzeit bearbeiten'), findsNothing);
+  });
 }

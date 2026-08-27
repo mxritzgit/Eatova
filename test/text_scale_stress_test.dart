@@ -1,65 +1,47 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Stress test for the textScaler cap (EatovaApp caps at 2.0, WCAG 1.4.4): the
 // core screens must render at 200 % system font without RenderFlex overflows.
 // Unlike testWidgetsRobust, overflows are collected and reported as test
 // failures here — they are the subject.
+//
+// This suite is parameterised over SCREENS, not over locale/brightness/scale,
+// so it stays one test per screen instead of a `renderMatrix`: each case boots
+// the whole app and walks its own path. Only the overflow plumbing comes from
+// the harness now.
 
 const double _stressScale = 2.0;
 
-/// iPhone 14 viewport (393x852 logical) with system font at [_stressScale].
+/// iPhone 14 viewport (393x852 logical) with SYSTEM font at [_stressScale].
+///
+/// The scale has to come from the platform dispatcher here, not from a
+/// MediaQuery: these cases boot `EatovaApp`, which builds its own MaterialApp,
+/// so there is no place above it to inject one.
 void _pinViewport(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
+  pinPhoneViewport(tester);
   tester.platformDispatcher.textScaleFactorTestValue = _stressScale;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
 /// Collects all overflow errors during [body] and reports them together.
-///
-/// FlutterError.onError is restored BEFORE the expect(): the test binding
-/// otherwise asserts on the first TestFailure while the handler is still
-/// overridden. Non-overflow errors go to the framework handler unchanged.
 Future<void> _expectNoOverflow(
   String screen,
   Future<void> Function() body,
 ) async {
-  final overflows = <String>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) {
-      // Summary plus offending widget, for a usable diagnosis.
-      final full = details.toString();
-      final culprit = RegExp(r'\S+:file:///\S+').firstMatch(full)?.group(0);
-      overflows.add(
-        '${details.summary} (${culprit ?? 'Verursacher unbekannt'})',
-      );
-      return;
-    }
-    prior?.call(details);
-  };
-  try {
-    await body();
-  } finally {
-    FlutterError.onError = prior;
-  }
+  final overflows = await collectOverflows(body);
   expect(
     overflows,
     isEmpty,
-    reason:
-        '$screen overflowt bei textScale $_stressScale:\n'
-        '${overflows.join('\n')}',
+    reason: '$screen overflowt bei textScale $_stressScale: '
+        '${describeOverflows(overflows)}',
   );
 }
 
@@ -303,32 +285,27 @@ void main() {
   ) async {
     _pinViewport(tester);
     await _expectNoOverflow('Trend-Ansicht', () async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.dark),
-          // TrendsScreen reads context.l10n.
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          home: TrendsScreen(
-            kcalGoal: 2200,
-            loadTotals: () => Future.value([
-              for (var i = 0; i < 7; i++)
-                TrendDayTotals(
-                  day: _daysAgo(i),
-                  kcal: 1800 + i * 60,
-                  proteinG: 120,
-                  carbsG: 200,
-                  fatG: 70,
-                ),
-            ]),
-          ),
+      await pumpLocalized(
+        tester,
+        TrendsScreen(
+          kcalGoal: 2200,
+          loadTotals: () => Future.value([
+            for (var i = 0; i < 7; i++)
+              TrendDayTotals(
+                day: _daysAgo(i),
+                kcal: 1800 + i * 60,
+                proteinG: 120,
+                carbsG: 200,
+                fatG: 70,
+              ),
+          ]),
         ),
+        // Not read from the platform dispatcher here: this case mounts the
+        // screen directly, so the MediaQuery above it carries the scale.
+        textScale: _stressScale,
+        // TrendsScreen brings its own Scaffold and SafeArea.
+        scaffold: false,
+        safeArea: false,
       );
       await tester.pump();
       await tester.pumpAndSettle();

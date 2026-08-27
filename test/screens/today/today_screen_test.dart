@@ -6,18 +6,17 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import '../../support/harness.dart';
 
 /// Sunday, 9 August 2026, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -39,39 +38,53 @@ LoggedMeal _meal(String name, MealSlot slot, int kcal) => LoggedMeal(
       ),
     );
 
-Widget _harness(
-  Widget child, {
-  Brightness brightness = Brightness.light,
-  TextScaler textScaler = TextScaler.noScaling,
-  Locale locale = const Locale('de'),
-}) {
-  return MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: buildEatovaTheme(brightness),
-    // TodayScreen and its subtrees read context.l10n; without these
-    // localizations AppLocalizations.of() throws on the first build.
-    locale: locale,
-    supportedLocales: AppLocalizations.supportedLocales,
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Builder(
-      builder: (context) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-        child: Scaffold(
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: child,
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
+/// The shell pads every tab with `EdgeInsets.fromLTRB(20, 12, 20, 12)` — that
+/// is what makes it testable that the screen adds NO second side margin.
+const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
+
+TodayScreen _today({
+  UserProfile profile = const UserProfile(),
+  String userName = 'Moritz',
+  String? profileInitial,
+  int consumedKcal = 0,
+  int burnedKcal = 0,
+  MacroProgress macroProgress = MacroProgress.empty,
+  List<LoggedMeal> meals = const <LoggedMeal>[],
+  DateTime? selectedDate,
+  int streak = 0,
+  bool dayLoading = false,
+  ValueChanged<DateTime>? onDateSelected,
+  VoidCallback? onOpenCoach,
+  VoidCallback? onOpenProfile,
+  ValueChanged<MealSlot>? onOpenMealSlot,
+}) =>
+    TodayScreen(
+      userName: userName,
+      profile: profile,
+      consumedKcal: consumedKcal,
+      burnedKcal: burnedKcal,
+      macroProgress: macroProgress,
+      meals: meals,
+      selectedDate: selectedDate ?? startOfDay(clock.now()),
+      streak: streak,
+      profileInitial: profileInitial,
+      dayLoading: dayLoading,
+      onDateSelected: onDateSelected,
+      onOpenCoach: onOpenCoach,
+      onOpenProfile: onOpenProfile,
+      onOpenMealSlot: onOpenMealSlot,
+    );
+
+/// The loading card spins forever, so `pumpAndSettle` would never settle;
+/// [settle] switches to a bounded number of frames.
+Future<void> _finish(WidgetTester tester, {required bool settle}) async {
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    for (var i = 0; i < 16; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+  }
 }
 
 Future<void> _pumpToday(
@@ -91,46 +104,37 @@ Future<void> _pumpToday(
   VoidCallback? onOpenProfile,
   ValueChanged<MealSlot>? onOpenMealSlot,
   Brightness brightness = Brightness.light,
-  TextScaler textScaler = TextScaler.noScaling,
+  double textScale = 1.0,
   Locale locale = const Locale('de'),
-  // The loading card spins forever, so `pumpAndSettle` would never settle.
   bool settle = true,
 }) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  await tester.pumpWidget(
-    _harness(
-      TodayScreen(
-        userName: userName,
-        profile: profile,
-        consumedKcal: consumedKcal,
-        burnedKcal: burnedKcal,
-        macroProgress: macroProgress,
-        meals: meals,
-        selectedDate: selectedDate ?? startOfDay(clock.now()),
-        streak: streak,
-        profileInitial: profileInitial,
-        dayLoading: dayLoading,
-        onDateSelected: onDateSelected,
-        onOpenCoach: onOpenCoach,
-        onOpenProfile: onOpenProfile,
-        onOpenMealSlot: onOpenMealSlot,
-      ),
-      brightness: brightness,
-      textScaler: textScaler,
-      locale: locale,
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    _today(
+      profile: profile,
+      userName: userName,
+      profileInitial: profileInitial,
+      consumedKcal: consumedKcal,
+      burnedKcal: burnedKcal,
+      macroProgress: macroProgress,
+      meals: meals,
+      selectedDate: selectedDate,
+      streak: streak,
+      dayLoading: dayLoading,
+      onDateSelected: onDateSelected,
+      onOpenCoach: onOpenCoach,
+      onOpenProfile: onOpenProfile,
+      onOpenMealSlot: onOpenMealSlot,
     ),
+    brightness: brightness,
+    locale: locale,
+    textScale: textScale,
+    // The gauge and the entry animations are part of what is measured here.
+    reducedMotion: false,
+    padding: _schalenrand,
   );
-  if (settle) {
-    await tester.pumpAndSettle();
-  } else {
-    for (var i = 0; i < 16; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-  }
+  await _finish(tester, settle: settle);
 }
 
 String _textOf(WidgetTester tester, String key) =>
@@ -518,92 +522,96 @@ void main() {
       );
     });
 
-    testWidgets('die Wurzel ist eine reine Liste ohne Knopf-Reserve',
-        (tester) async {
-      // The bottom reserve used to grow with the system font to clear the
-      // button height. Without the button it is a flat 12 at any text size.
-      for (final skalierung in <TextScaler>[
-        TextScaler.noScaling,
-        const TextScaler.linear(2.0),
-      ]) {
+    renderMatrix(
+      'die Wurzel ist eine reine Liste ohne Knopf-Reserve',
+      (tester, c) async {
+        // The bottom reserve used to grow with the system font to clear the
+        // button height. Without the button it is a flat 12 at any text size.
         await withClock(Clock.fixed(_jetzt), () async {
-          await _pumpToday(tester, textScaler: skalierung);
+          await _pumpToday(
+            tester,
+            brightness: c.brightness,
+            textScale: c.textScale,
+          );
         });
 
         // The cast is the actual assertion: the root is a ListView again, not
         // a Stack. `findsNothing` on Stack would not work — the coach banner
         // brings its own.
-        final liste = tester
-            .widget<ListView>(find.byKey(const ValueKey('screen-today')));
+        final liste =
+            tester.widget<ListView>(find.byKey(const ValueKey('screen-today')));
         expect(liste.padding, const EdgeInsets.fromLTRB(0, 0, 0, 12),
-            reason: 'Reserve bei $skalierung');
-      }
-    });
+            reason: 'Reserve bei ${c.label}');
+      },
+      textScales: const <double>[1.0, 2.0],
+    );
   });
 
   group('Robustheit', () {
-    testWidgets('ohne den Knopf-Stack bleibt jede Kombination layoutbar',
-        (tester) async {
-      // The root used to be a Stack of list + floating button. This matrix
-      // pins that the plain ListView breaks in no combination, including at
-      // the bottom where children are built only while scrolling.
-      for (final helligkeit in Brightness.values) {
-        for (final skalierung in <TextScaler>[
-          TextScaler.noScaling,
-          const TextScaler.linear(2.0),
-        ]) {
-          for (final mitMahlzeiten in <bool>[false, true]) {
-            final fall = '$helligkeit / $skalierung / '
-                'Mahlzeiten=$mitMahlzeiten';
-            await withClock(Clock.fixed(_jetzt), () async {
-              await _pumpToday(
-                tester,
-                brightness: helligkeit,
-                textScaler: skalierung,
-                consumedKcal: mitMahlzeiten ? 610 : 0,
-                meals: mitMahlzeiten
-                    ? <LoggedMeal>[_meal('Lachsbowl', MealSlot.dinner, 610)]
-                    : const <LoggedMeal>[],
-              );
-            });
-            expect(tester.takeException(), isNull, reason: fall);
+    // The root used to be a Stack of list + floating button. This matrix pins
+    // that the plain ListView breaks in no combination, including at the
+    // bottom where children are built only while scrolling. The empty and the
+    // filled day stay an inner loop — they are not a matrix dimension.
+    renderMatrix(
+      'ohne den Knopf-Stack bleibt jede Kombination layoutbar',
+      (tester, c) async {
+        for (final mitMahlzeiten in <bool>[false, true]) {
+          final fall = '${c.label} / Mahlzeiten=$mitMahlzeiten';
+          await withClock(Clock.fixed(_jetzt), () async {
+            await _pumpToday(
+              tester,
+              brightness: c.brightness,
+              textScale: c.textScale,
+              consumedKcal: mitMahlzeiten ? 610 : 0,
+              meals: mitMahlzeiten
+                  ? <LoggedMeal>[_meal('Lachsbowl', MealSlot.dinner, 610)]
+                  : const <LoggedMeal>[],
+            );
+          });
+          expect(tester.takeException(), isNull, reason: fall);
 
-            await _scrollTo(
-                tester, find.byKey(const ValueKey('today-coach-banner')));
-            expect(tester.takeException(), isNull,
-                reason: 'nach unten gescrollt: $fall');
-          }
+          await _scrollTo(
+              tester, find.byKey(const ValueKey('today-coach-banner')));
+          expect(tester.takeException(), isNull,
+              reason: 'nach unten gescrollt: $fall');
         }
-      }
-    });
+      },
+      textScales: const <double>[1.0, 2.0],
+    );
 
-    testWidgets('auch waehrend dayLoading bleibt die Liste heil',
-        (tester) async {
-      for (final helligkeit in Brightness.values) {
+    renderMatrix(
+      'auch waehrend dayLoading bleibt die Liste heil',
+      (tester, c) async {
         await withClock(Clock.fixed(_jetzt), () async {
           await _pumpToday(
             tester,
-            brightness: helligkeit,
-            textScaler: const TextScaler.linear(2.0),
+            brightness: c.brightness,
+            textScale: c.textScale,
             dayLoading: true,
             settle: false,
           );
         });
-        expect(tester.takeException(), isNull, reason: '$helligkeit');
+        expect(tester.takeException(), isNull, reason: c.label);
 
         await _scrollToUnsettled(
             tester, find.byKey(const ValueKey('today-coach-banner')));
         expect(tester.takeException(), isNull,
-            reason: 'nach unten gescrollt: $helligkeit');
-      }
-    });
+            reason: 'nach unten gescrollt: ${c.label}');
+      },
+      textScales: const <double>[2.0],
+    );
 
-    testWidgets('rendert in beiden Helligkeiten ohne Ausnahme', (tester) async {
-      for (final helligkeit in Brightness.values) {
+    // Both modes AND both languages: English strings are sometimes longer and
+    // catch overflows a `de`-only run would never show. Was two separate
+    // blocks (brightness loop + EN-Render-Smoke group) before.
+    renderMatrix(
+      'der Heute-Tab rendert overflow-frei',
+      (tester, c) async {
         await withClock(Clock.fixed(_jetzt), () async {
           await _pumpToday(
             tester,
-            brightness: helligkeit,
+            brightness: c.brightness,
+            locale: c.locale,
             consumedKcal: 1400,
             burnedKcal: 220,
             streak: 5,
@@ -611,15 +619,25 @@ void main() {
           );
         });
         expect(tester.takeException(), isNull,
-            reason: 'Rendering unter $helligkeit ist fehlgeschlagen');
-      }
-    });
+            reason: 'Rendering unter ${c.label} ist fehlgeschlagen');
+
+        // Visible without scrolling, and translated.
+        expect(find.text(c.l10n.todayKcalBudgetEyebrow), findsOneWidget);
+
+        await _scrollTo(
+            tester, find.byKey(const ValueKey('today-coach-banner')));
+        expect(tester.takeException(), isNull,
+            reason: 'nach unten gescrollt: ${c.label}');
+        expect(find.text(c.l10n.todayCoachCta), findsOneWidget);
+      },
+      locales: const <Locale>[Locale('de'), Locale('en')],
+    );
 
     testWidgets('ueberlebt textScaler 2.0 ohne Ueberlauf', (tester) async {
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(
           tester,
-          textScaler: const TextScaler.linear(2.0),
+          textScale: 2.0,
           consumedKcal: 12345,
           burnedKcal: 1234,
           streak: 365,
@@ -648,7 +666,7 @@ void main() {
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(
           tester,
-          textScaler: const TextScaler.linear(2.0),
+          textScale: 2.0,
           consumedKcal: 12345,
           burnedKcal: 1234,
           streak: 365,
@@ -701,14 +719,15 @@ void main() {
     // FITTEDBOX is measured, not the text: the text keeps its unshrunk size
     // and the scaling sits in the transform above it. Both brightness modes,
     // because light mode has different border widths and inner dimensions.
-    for (final helligkeit in Brightness.values) {
-      testWidgets('die Restzahl schrumpft in $helligkeit bei Systemschrift 2.0, '
-          'statt den Hero zu sprengen', (tester) async {
+    renderMatrix(
+      'die Restzahl schrumpft bei Systemschrift 2.0, statt den Hero zu '
+      'sprengen',
+      (tester, c) async {
         await withClock(Clock.fixed(_jetzt), () async {
           await _pumpToday(
             tester,
-            brightness: helligkeit,
-            textScaler: const TextScaler.linear(2.0),
+            brightness: c.brightness,
+            textScale: c.textScale,
             profile: const UserProfile(dailyKcalGoal: 99999),
             consumedKcal: 12345,
             burnedKcal: 1234,
@@ -726,8 +745,9 @@ void main() {
           tester.getSize(kasten).width,
           lessThanOrEqualTo(tester.getSize(hero).width),
         );
-      });
-    }
+      },
+      textScales: const <double>[2.0],
+    );
 
     testWidgets('die Vorlese-Beschriftungen tragen echte Umlaute',
         (tester) async {
@@ -769,36 +789,25 @@ void main() {
     });
   });
 
-  group('EN-Render-Smoke (i18n-Paket 1, Spec §6)', () {
-    // Renders under locale `en` in both brightnesses: no crash, and at least
-    // one real English translation in the tree. English strings are sometimes
-    // longer, catching overflows a `de`-only run would never show.
-    for (final helligkeit in Brightness.values) {
-      testWidgets('rendert unter en in $helligkeit ohne Ausnahme',
-          (tester) async {
-        await withClock(Clock.fixed(_jetzt), () async {
-          await _pumpToday(
-            tester,
-            brightness: helligkeit,
-            locale: const Locale('en'),
-            consumedKcal: 1400,
-            burnedKcal: 220,
-            streak: 5,
-            meals: <LoggedMeal>[_meal('Salmon bowl', MealSlot.dinner, 610)],
-          );
-        });
-        expect(tester.takeException(), isNull,
-            reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
+  testWidgets('unter en stehen die englischen Beschriftungen im Baum',
+      (tester) async {
+    // Counter-check to the `en` column of the render matrix above: the labels
+    // must really CHANGE with the language, not just resolve to some ARB hit.
+    await withClock(Clock.fixed(_jetzt), () async {
+      await _pumpToday(
+        tester,
+        locale: const Locale('en'),
+        consumedKcal: 1400,
+        burnedKcal: 220,
+        streak: 5,
+        meals: <LoggedMeal>[_meal('Salmon bowl', MealSlot.dinner, 610)],
+      );
+    });
 
-        // Unambiguously English and visible without scrolling.
-        expect(find.text('CALORIE BUDGET'), findsOneWidget);
+    expect(find.text('CALORIE BUDGET'), findsOneWidget);
+    expect(find.text('KALORIENBUDGET'), findsNothing);
 
-        await _scrollTo(
-            tester, find.byKey(const ValueKey('today-coach-banner')));
-        expect(tester.takeException(), isNull,
-            reason: 'nach unten gescrollt: en/$helligkeit');
-        expect(find.text('Go to coach'), findsOneWidget);
-      });
-    }
+    await _scrollTo(tester, find.byKey(const ValueKey('today-coach-banner')));
+    expect(find.text('Go to coach'), findsOneWidget);
   });
 }

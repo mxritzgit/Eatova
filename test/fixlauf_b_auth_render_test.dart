@@ -10,9 +10,10 @@ import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/services/local_cache.dart'
     show InMemoryKeyValueStore;
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
+
+import 'support/harness.dart';
 
 // Fix run 2026-08-27, package B (F2-01/F8-01, F2-02, F2-04/F8-05, F2-06):
 // the two auth screens follow the theme (light AND dark readable), render at
@@ -24,13 +25,15 @@ import 'package:eatova/src/widgets/design/controls.dart';
 AppTokens _tokensFor(Brightness b) =>
     b == Brightness.light ? AppTokens.light : AppTokens.dark;
 
-void _pinPhone(WidgetTester tester, {double textScale = 1.0}) {
+/// Viewport only. The text scale does NOT belong here: the harness writes
+/// `textScaler` into its own MediaQuery unconditionally, so a
+/// `platformDispatcher.textScaleFactorTestValue` set before the pump is
+/// overwritten and measures nothing. It goes to `_pumpScreen` instead.
+void _pinPhone(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
-  tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
 /// Collects overflow errors during [body]; other errors keep their handler.
@@ -52,42 +55,56 @@ Future<List<String>> _overflowsDuring(Future<void> Function() body) async {
   return overflows;
 }
 
-Widget _app(Brightness brightness, Widget home) => MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
-      supportedLocales: AppLocalizations.supportedLocales,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      home: home,
-    );
+/// Both screens bring their own Scaffold, so the harness adds none. The text
+/// scale goes through the harness because it owns the MediaQuery.
+Future<void> _pumpScreen(
+  WidgetTester tester,
+  Brightness brightness,
+  Widget screen, {
+  double textScale = 1.0,
+}) async {
+  await pumpLocalized(
+    tester,
+    screen,
+    reducedMotion: false,
+    brightness: brightness,
+    textScale: textScale,
+    scaffold: false,
+    safeArea: false,
+  );
+  await tester.pumpAndSettle();
+}
 
 Future<void> _pumpAuth(
   WidgetTester tester,
   Brightness brightness, {
   AuthRepository? repo,
-}) async {
-  await tester.pumpWidget(_app(
-    brightness,
-    AuthScreen(authRepository: repo ?? InMemoryAuthRepository()),
-  ));
-  await tester.pumpAndSettle();
-}
+  double textScale = 1.0,
+}) =>
+    _pumpScreen(
+      tester,
+      brightness,
+      AuthScreen(authRepository: repo ?? InMemoryAuthRepository()),
+      textScale: textScale,
+    );
 
 Future<void> _pumpCode(
   WidgetTester tester,
   Brightness brightness, {
   required AuthCodeFlow flow,
   InMemoryAuthRepository? repo,
-}) async {
-  await tester.pumpWidget(_app(
-    brightness,
-    AuthCodeScreen(
-      authRepository: repo ?? InMemoryAuthRepository(),
-      flow: flow,
-      initialEmail: 'user@example.com',
-    ),
-  ));
-  await tester.pumpAndSettle();
-}
+  double textScale = 1.0,
+}) =>
+    _pumpScreen(
+      tester,
+      brightness,
+      AuthCodeScreen(
+        authRepository: repo ?? InMemoryAuthRepository(),
+        flow: flow,
+        initialEmail: 'user@example.com',
+      ),
+      textScale: textScale,
+    );
 
 /// OAuth that never returns — keeps the screen in its busy state.
 class _HangingOAuthRepository extends InMemoryAuthRepository {
@@ -143,9 +160,9 @@ void main() {
       for (final scale in const [1.0, 1.3, 2.0]) {
         testWidgets('AuthScreen $brightness @$scale (Login + Registrieren)',
             (tester) async {
-          _pinPhone(tester, textScale: scale);
+          _pinPhone(tester);
           final overflows = await _overflowsDuring(() async {
-            await _pumpAuth(tester, brightness);
+            await _pumpAuth(tester, brightness, textScale: scale);
             final scaffold = tester
                 .widget<Scaffold>(find.byKey(const ValueKey('screen-auth')));
             expect(scaffold.backgroundColor, _tokensFor(brightness).bg,
@@ -168,9 +185,10 @@ void main() {
 
         testWidgets('AuthCodeScreen $brightness @$scale (alle drei Schritte)',
             (tester) async {
-          _pinPhone(tester, textScale: scale);
+          _pinPhone(tester);
           final overflows = await _overflowsDuring(() async {
-            await _pumpCode(tester, brightness, flow: AuthCodeFlow.recovery);
+            await _pumpCode(tester, brightness,
+                flow: AuthCodeFlow.recovery, textScale: scale);
             expect(find.byType(AppBar), findsNothing,
                 reason: 'kein Material-AppBar mit fremder Flaeche');
             final scaffold = tester.widget<Scaffold>(
@@ -429,7 +447,8 @@ void main() {
       final repo = InMemoryAuthRepository();
       addTearDown(repo.dispose);
       await withClock(Clock.fixed(DateTime(2026, 8, 27, 9)), () async {
-        await tester.pumpWidget(_app(
+        await _pumpScreen(
+          tester,
           Brightness.dark,
           AuthCodeScreen(
             authRepository: repo,
@@ -437,8 +456,7 @@ void main() {
             initialEmail: 'user@example.com',
             throttleStore: InMemoryKeyValueStore(),
           ),
-        ));
-        await tester.pumpAndSettle();
+        );
 
         const primary = ValueKey('code-primary');
         for (var versuch = 1; versuch <= 5; versuch++) {

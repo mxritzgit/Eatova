@@ -1,13 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import '../support/harness.dart';
 
 // Widget tests for the trend view, with injected fake loaders, no Supabase.
 
@@ -35,58 +34,26 @@ Future<void> _pumpTrends(
   required TrendTotalsLoader loader,
   int kcalGoal = 2200,
   Brightness brightness = Brightness.dark,
-  TextScaler? textScaler,
+  double textScale = 1.0,
   Locale locale = const Locale('de'),
 }) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      // TrendsScreen reads context.l10n since the i18n migration.
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: textScaler == null
-          ? TrendsScreen(kcalGoal: kcalGoal, loadTotals: loader)
-          : MediaQuery(
-              data: MediaQueryData(textScaler: textScaler),
-              child: TrendsScreen(kcalGoal: kcalGoal, loadTotals: loader),
-            ),
-    ),
+  await pumpLocalized(
+    tester,
+    TrendsScreen(kcalGoal: kcalGoal, loadTotals: loader),
+    brightness: brightness,
+    locale: locale,
+    textScale: textScale,
+    // TrendsScreen brings its own Scaffold and SafeArea.
+    scaffold: false,
+    safeArea: false,
   );
 }
 
-/// iPhone 14 viewport, so the cards get a realistic width.
-void _pinViewport(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
-
-/// Collects overflow errors during [body]. onError is restored BEFORE the
-/// expect(), or the binding asserts on the first failure.
-Future<void> _expectNoOverflow(Future<void> Function() body) async {
-  final overflows = <String>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) {
-      overflows.add(details.summary.toString());
-      return;
-    }
-    prior?.call(details);
-  };
-  try {
-    await body();
-  } finally {
-    FlutterError.onError = prior;
-  }
-  expect(overflows, isEmpty, reason: overflows.join('\n'));
-}
+/// Six days of realistic totals — the fixture every render smoke uses.
+List<TrendDayTotals> _sechsTage() => <TrendDayTotals>[
+      for (var d = 0; d < 6; d++)
+        _day(d, kcal: 1800 + d * 90, p: 110, c: 190, f: 65),
+    ];
 
 void main() {
   testWidgets('zeigt Lade-Zustand bis der Loader antwortet', (tester) async {
@@ -244,46 +211,38 @@ void main() {
   });
 
   // Design contract §7.2: both modes must render, and the painter's five
-  // colours are parameters, so a drop shows up here.
-  for (final brightness in <Brightness>[Brightness.light, Brightness.dark]) {
-    testWidgets('rendert in ${brightness.name} ohne Exception', (tester) async {
-      _pinViewport(tester);
-      await _pumpTrends(
+  // colours are parameters, so a drop shows up here. The old trio (both
+  // brightnesses / textScaler 2.0 / EN smoke) is one matrix now, which pairs
+  // `en` with 2.0 for the first time.
+  renderMatrix(
+    'Die Trend-Ansicht rendert overflow-frei',
+    (tester, c) async {
+      pinPhoneViewport(tester);
+      await c.pump(
         tester,
-        brightness: brightness,
-        loader: () => Future.value([
-          for (var d = 0; d < 6; d++) _day(d, kcal: 1800 + d * 90, p: 110, c: 190, f: 65),
-        ]),
+        TrendsScreen(kcalGoal: 2200, loadTotals: () async => _sechsTage()),
+        scaffold: false,
+        safeArea: false,
       );
       await tester.pump();
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-      expect(find.text('Trends'), findsOneWidget);
+      expect(find.text(c.l10n.trendsTitle), findsOneWidget);
       expect(find.byKey(const ValueKey('trends-close')), findsOneWidget);
-    });
-  }
+      // Not just chrome: the avg-calories label is a real translation.
+      expect(find.text(c.l10n.trendsStatAvgKcalLabel), findsOneWidget);
 
-  testWidgets('rendert bei textScaler 2.0 ohne Overflow', (tester) async {
-    _pinViewport(tester);
-    await _expectNoOverflow(() async {
-      await _pumpTrends(
-        tester,
-        textScaler: const TextScaler.linear(2.0),
-        loader: () => Future.value([
-          for (var d = 0; d < 6; d++) _day(d, kcal: 2200, p: 120, c: 200, f: 60),
-        ]),
-      );
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      // Draw the 7-day view (weekday axis) once as well.
+      // Draw the 7-day view (weekday axis) once as well — its own layout with
+      // a weekday axis instead of the 30-day date axis.
       await tester.tap(find.byKey(const ValueKey('trends-range-7')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-    });
-  });
+    },
+    locales: const <Locale>[Locale('de'), Locale('en')],
+    textScales: const <double>[1.0, 2.0],
+  );
 
   testWidgets('auch ein synchron werfender Loader endet im Retry-Zustand', (
     tester,
@@ -301,31 +260,20 @@ void main() {
     expect(find.byKey(const ValueKey('trends-retry')), findsOneWidget);
   });
 
-  group('EN-Render-Smoke (i18n-Paket 5, Spec §6)', () {
-    // Renders under `en` with at least one real English translation.
-    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
-      testWidgets('rendert unter en in $brightness ohne Ausnahme',
-          (tester) async {
-        _pinViewport(tester);
-        await _pumpTrends(
-          tester,
-          brightness: brightness,
-          locale: const Locale('en'),
-          loader: () => Future.value([
-            for (var d = 0; d < 6; d++)
-              _day(d, kcal: 1800 + d * 90, p: 110, c: 190, f: 65),
-          ]),
-        );
-        await tester.pump();
-        await tester.pumpAndSettle();
+  testWidgets('unter en steht die englische Kennzahl-Beschriftung im Baum',
+      (tester) async {
+    // Counter-check to the matrix above: the label must really CHANGE with
+    // the language, not just resolve to whatever the ARB lookup returns.
+    pinPhoneViewport(tester);
+    await _pumpTrends(
+      tester,
+      locale: const Locale('en'),
+      loader: () async => _sechsTage(),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
 
-        expect(tester.takeException(), isNull,
-            reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
-        // "Trends" stays "Trends", the avg-calories label is translated.
-        expect(find.text('Trends'), findsOneWidget);
-        expect(find.text('AVG CALORIES'), findsOneWidget);
-        expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-      });
-    }
+    expect(find.text('AVG CALORIES'), findsOneWidget);
+    expect(find.text('Ø KALORIEN'), findsNothing);
   });
 }

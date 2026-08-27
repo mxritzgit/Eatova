@@ -9,39 +9,24 @@
 //     destruktive Rot bleibt.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
-Widget _app(Brightness brightness) {
-  return MaterialApp(
-    theme: buildEatovaTheme(brightness),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: RecipesScreen(
-            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-          ),
-        ),
-      ),
-    ),
-  );
-}
+import 'support/harness.dart';
+
+/// The recipes screen in the tab's own padding.
+Future<void> _pumpApp(WidgetTester tester, Brightness brightness) =>
+    pumpLocalized(
+      tester,
+      RecipesScreen(onAddMeal: (MealAnalysisResult _, MealSlot __) {}),
+      reducedMotion: false,
+      brightness: brightness,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+    );
 
 void _pinViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -83,7 +68,7 @@ void main() {
       testWidgets('Suchfeld: kein Rahmen, weicher Schatten, Fokus hellt auf',
           (tester) async {
         _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
+        await _pumpApp(tester, brightness);
         await tester.pumpAndSettle();
 
         final ruhe = _kapsel(tester, 'recipes-search-input');
@@ -103,7 +88,7 @@ void main() {
       testWidgets('Sheet-Felder: rahmenlos, Fehler = Danger-Tönung + Text',
           (tester) async {
         _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
+        await _pumpApp(tester, brightness);
         await tester.pumpAndSettle();
         await _openSheet(tester);
 
@@ -142,7 +127,7 @@ void main() {
       testWidgets('„EMPFOHLEN"-Badge ist Forest + onForest mit rChip',
           (tester) async {
         _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
+        await _pumpApp(tester, brightness);
         await tester.pumpAndSettle();
 
         final badgeText = find.text('EMPFOHLEN').first;
@@ -161,7 +146,7 @@ void main() {
       testWidgets('Buttons tragen keine lokalen Farbkopien mehr',
           (tester) async {
         _pinViewport(tester);
-        await tester.pumpWidget(_app(brightness));
+        await _pumpApp(tester, brightness);
         await tester.pumpAndSettle();
         await _openSheet(tester);
 

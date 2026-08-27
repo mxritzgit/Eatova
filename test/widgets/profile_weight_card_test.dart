@@ -9,15 +9,14 @@
 //     stops anyone from helpfully adding one.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
+
+import '../support/harness.dart';
 
 WeightLog _log(List<double> kg) => WeightLog(
       entries: <WeightLogEntry>[
@@ -29,6 +28,17 @@ WeightLog _log(List<double> kg) => WeightLog(
       ],
     );
 
+Widget _card(
+  WeightLog log,
+  UserProfile profile,
+  ValueChanged<double>? onLogWeight,
+) =>
+    WeightCard(
+      profile: profile,
+      log: log,
+      onLogWeight: onLogWeight ?? (_) {},
+    );
+
 Future<void> _pumpCard(
   WidgetTester tester, {
   required WeightLog log,
@@ -36,36 +46,14 @@ Future<void> _pumpCard(
   ValueChanged<double>? onLogWeight,
   Brightness brightness = Brightness.dark,
 }) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      // WeightCard reads context.l10n since the i18n migration.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: WeightCard(
-            profile: profile,
-            log: log,
-            onLogWeight: onLogWeight ?? (_) {},
-          ),
-        ),
-      ),
-    ),
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    _card(log, profile, onLogWeight),
+    brightness: brightness,
+    padding: const EdgeInsets.all(20),
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -226,15 +214,20 @@ void main() {
     );
   });
 
-  testWidgets('rendert in Hell und Dunkel ohne Exception', (tester) async {
-    for (final brightness in <Brightness>[Brightness.light, Brightness.dark]) {
-      await _pumpCard(
-        tester,
-        log: _log([80.0, 79.1, 78.4]),
-        profile: const UserProfile(weightKg: 78, targetWeightKg: 72),
-        brightness: brightness,
-      );
-      expect(tester.takeException(), isNull, reason: brightness.name);
-    }
+  // One case per brightness instead of a loop inside one test: a failure now
+  // names the mode, and the matrix reports an overflow instead of hiding it.
+  renderMatrix('Die Gewichtskarte rendert overflow-frei', (tester, c) async {
+    pinPhoneViewport(tester);
+    await c.pump(
+      tester,
+      _card(
+        _log([80.0, 79.1, 78.4]),
+        const UserProfile(weightKg: 78, targetWeightKg: 72),
+        null,
+      ),
+      padding: const EdgeInsets.all(20),
+      settle: true,
+    );
+    expect(tester.takeException(), isNull, reason: c.brightness.name);
   });
 }

@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -10,12 +9,12 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // C4 (coach half) — the coach photo left the device unscrubbed:
 // `image_picker` scales but copies the metadata back, GPS sub-IFD included,
@@ -192,32 +191,16 @@ Future<void> _pumpCoach(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // The coach calls context.l10n, so without localizations
-      // AppLocalizations.of() throws on the first build.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        data: const MediaQueryData(disableAnimations: true),
-        child: Scaffold(
-          body: CoachChatScreen(
-            service: service,
-            userName: 'Moritz',
-            imagePicker: picker,
-          ),
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    CoachChatScreen(
+      service: service,
+      userName: 'Moritz',
+      imagePicker: picker,
     ),
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 /// Triggers the gallery path and waits REAL time: compression runs via

@@ -13,13 +13,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/data_export.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/shared/data_export_sheet.dart';
+
+import '../support/harness.dart';
 
 /// An export in the real format: all sections present and [mahlzeiten] diary
 /// rows with JSONB payload, so the text really grows.
@@ -65,27 +65,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    // `theme: buildEatovaTheme(...)` is mandatory: the cards read colors via
-    // `AppTokens.of`, and a bare MaterialApp carries no ThemeExtension.
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: const <Locale>[Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: DataExportSheet(
-            snapshot: Future<String>.value(auskunft),
-            fallbackSnapshot: '',
-            vollstaendig: vollstaendig,
-            dateiTeilen: dateiTeilen,
-          ),
-        ),
+    await pumpLocalized(
+      tester,
+      DataExportSheet(
+        snapshot: Future<String>.value(auskunft),
+        fallbackSnapshot: '',
+        vollstaendig: vollstaendig,
+        dateiTeilen: dateiTeilen,
       ),
     );
     await tester.pumpAndSettle();

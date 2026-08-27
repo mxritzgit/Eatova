@@ -1,10 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import '../support/harness.dart';
 
 /// Throws the typed cancellation that runNativeGoogleSignIn produces when the
 /// user aborts.
@@ -78,17 +77,15 @@ void main() {
       'Google-Abbruch zeigt die Abbruch-Meldung, nicht die Generik '
       '(Regression: Mapper matchte auf Text; jetzt auf den Typ)',
       (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        // The screen reads `context.t` and `context.l10n`: without theme
-        // extension and delegates it would die in the first build, before the
-        // error mapper runs.
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: AppLocalizations.supportedLocales,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        home: AuthScreen(authRepository: _CancelingAuthRepository()),
-      ),
+    // The screen reads `context.t` and `context.l10n`: without theme extension
+    // and delegates it would die in the first build, before the error mapper
+    // runs.
+    await pumpLocalized(
+      tester,
+      AuthScreen(authRepository: _CancelingAuthRepository()),
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
     );
 
     await tester.tap(find.text('Mit Google anmelden'));

@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // D6 (coach half) — proof that the IndexedStack suffices: `_bootstrap()` runs
 // in initState and the draft lives in a state-owned controller, so both losses
@@ -115,26 +114,13 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final service = _CountingService.create();
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        // The coach calls context.l10n; without localizations
-        // AppLocalizations.of() throws on the first build.
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: MediaQuery(
-          data: const MediaQueryData(disableAnimations: true),
-          child: _TabHost(service: service),
-        ),
-      ),
+    await pumpLocalized(
+      tester,
+      _TabHost(service: service),
+      scaffold: false,
+      safeArea: false,
+      settle: true,
     );
-    await tester.pumpAndSettle();
 
     final afterBootstrap = service.calls;
     expect(service.historyCalls, 1);

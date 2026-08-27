@@ -1,19 +1,23 @@
 // The food tab after the 2026-08 design refactor: four slot cards carry the
 // diary. Pins that plus DESIGN_REFACTOR §7.2 (both modes) and §5 (scale 2.0).
+//
+// The three hand-written brightness loops (plain render / textScale 2.0 /
+// EN smoke) are one `renderMatrix` now: de+en x hell+dunkel x 1.0+2.0, so the
+// combinations en@2.0 and en@hell@2.0 are covered for the first time.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/local_day.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
+
+import 'support/harness.dart';
 
 const _resultat = MealAnalysisResult(
   mealName: 'Haferbrei',
@@ -42,10 +46,11 @@ LoggedMeal _mahlzeit({
       localDay: localDay,
     );
 
-const Size _viewport = Size(393, 852);
+/// The shell pads every tab with `EdgeInsets.fromLTRB(20, 12, 20, 12)`.
+const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
 
 /// The food tab in the same shell as EatovaHomePage.
-Future<List<Object>> _pumpFoodTab(
+Future<void> _pumpFoodTab(
   WidgetTester tester, {
   Brightness brightness = Brightness.dark,
   double textScale = 1.0,
@@ -56,74 +61,88 @@ Future<List<Object>> _pumpFoodTab(
   VoidCallback? onProfilePressed,
   Locale locale = const Locale('de'),
 }) async {
-  tester.view.devicePixelRatio = 3.0;
-  tester.view.physicalSize = _viewport * 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  // Overflows are collected, NOT swallowed — the point of the scaling case.
-  final fehler = <Object>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    fehler.add(details.exception);
-    prior?.call(details);
-  };
-  addTearDown(() => FlutterError.onError = prior);
-
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      // MealAnalysisScreen reads context.l10n.
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        data: MediaQueryData(
-          textScaler: TextScaler.linear(textScale).clamp(maxScaleFactor: 2.0),
-          size: _viewport,
-        ),
-        child: Scaffold(
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: MealAnalysisScreen(
-                dailyConsumedKcal: dailyConsumedKcal,
-                profile: profile,
-                loggedMeals: meals,
-                onSettingsPressed: onSettingsPressed,
-                onProfilePressed: onProfilePressed,
-              ),
-            ),
-          ),
-        ),
-      ),
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    MealAnalysisScreen(
+      dailyConsumedKcal: dailyConsumedKcal,
+      profile: profile,
+      loggedMeals: meals,
+      onSettingsPressed: onSettingsPressed,
+      onProfilePressed: onProfilePressed,
     ),
+    brightness: brightness,
+    locale: locale,
+    textScale: textScale,
+    padding: _schalenrand,
+    settle: true,
   );
-  await tester.pumpAndSettle();
-  return fehler;
 }
 
+/// Same via a [RenderCase], so the matrix combination is applied 1:1.
+Future<void> _pumpFall(
+  WidgetTester tester,
+  RenderCase c, {
+  List<LoggedMeal> meals = const <LoggedMeal>[],
+  int dailyConsumedKcal = 0,
+}) async {
+  pinPhoneViewport(tester);
+  await c.pump(
+    tester,
+    MealAnalysisScreen(
+      dailyConsumedKcal: dailyConsumedKcal,
+      loggedMeals: meals,
+    ),
+    padding: _schalenrand,
+    settle: true,
+  );
+}
+
+Finder _inSlotkarte(String text) => find.descendant(
+      of: find.byType(DiaryMealCard),
+      matching: find.text(text),
+    );
+
 void main() {
-  // Two cases, not one: re-pumping with another theme never lets
-  // pumpAndSettle settle (theme lerp over entry animations).
-  for (final brightness in Brightness.values) {
-    testWidgets('Der Food-Tab rendert in $brightness ohne Ausnahme',
-        (tester) async {
-      final fehler = await _pumpFoodTab(
+  // One matrix instead of three brightness loops. English strings are longer
+  // than German ones and catch overflows a de-only run never shows; the
+  // assertions read the ARB, so they hold in every language.
+  renderMatrix(
+    'Der Food-Tab rendert overflow-frei',
+    (tester, c) async {
+      await _pumpFall(
         tester,
-        brightness: brightness,
-        meals: [_mahlzeit(slot: MealSlot.lunch)],
-        dailyConsumedKcal: 320,
+        c,
+        meals: [
+          _mahlzeit(slot: MealSlot.breakfast, id: 'a'),
+          _mahlzeit(slot: MealSlot.snack, id: 'b'),
+        ],
+        dailyConsumedKcal: 640,
       );
+
       expect(tester.takeException(), isNull);
-      expect(fehler, isEmpty);
-    });
-  }
+      expect(find.text(c.l10n.foodTitle), findsOneWidget);
+      expect(_inSlotkarte(MealSlot.breakfast.label(c.l10n)), findsOneWidget);
+      // Lunch and dinner stay empty — their placeholder comes from the ARB.
+      expect(find.text(c.l10n.todayMealSlotEmpty), findsNWidgets(2));
+    },
+    locales: const <Locale>[Locale('de'), Locale('en')],
+    textScales: const <double>[1.0, 2.0],
+  );
+
+  testWidgets('unter en stehen die englischen Beschriftungen im Baum',
+      (tester) async {
+    // Counter-check to the matrix above: it reads the same ARB the widget
+    // reads, so a regress in app_en.arb would pass unnoticed. One hard anchor
+    // per language catches it — the label must really CHANGE with the
+    // language, not just resolve to whatever the lookup returns.
+    await _pumpFoodTab(tester, locale: const Locale('en'));
+
+    expect(find.text('Nutrition'), findsOneWidget);
+    expect(find.text('Ernährung'), findsNothing);
+    expect(_inSlotkarte('Breakfast'), findsOneWidget);
+    expect(find.text('Nothing logged yet'), findsNWidgets(4));
+  });
 
   testWidgets('Vier Slot-Karten tragen die deutschen Slot-Namen',
       (tester) async {
@@ -136,14 +155,7 @@ void main() {
       'Abendessen',
       'Snacks',
     ]) {
-      expect(
-        find.descendant(
-          of: find.byType(DiaryMealCard),
-          matching: find.text(label),
-        ),
-        findsOneWidget,
-        reason: label,
-      );
+      expect(_inSlotkarte(label), findsOneWidget, reason: label);
     }
   });
 
@@ -268,12 +280,12 @@ void main() {
     });
 
     // A blur over a flat surface costs every frame while showing nothing.
-    for (final brightness in Brightness.values) {
-      testWidgets('Der Food-Tab rastert in $brightness nichts Teures',
-          (tester) async {
-        await _pumpFoodTab(
+    renderMatrix(
+      'Der Food-Tab rastert nichts Teures',
+      (tester, c) async {
+        await _pumpFall(
           tester,
-          brightness: brightness,
+          c,
           meals: [_mahlzeit(slot: MealSlot.lunch)],
           dailyConsumedKcal: 320,
         );
@@ -287,29 +299,9 @@ void main() {
           find.descendant(of: tab, matching: find.byType(ImageFiltered)),
           findsNothing,
         );
-      });
-    }
+      },
+    );
   });
-
-  // BOTH modes: light mode has different border widths, so different metrics.
-  for (final brightness in Brightness.values) {
-    testWidgets('Der Food-Tab ueberlebt textScale 2.0 in $brightness '
-        'overflow-frei', (tester) async {
-      final fehler = await _pumpFoodTab(
-        tester,
-        brightness: brightness,
-        textScale: 2.0,
-        meals: [
-          _mahlzeit(slot: MealSlot.breakfast, id: 'a'),
-          _mahlzeit(slot: MealSlot.snack, id: 'b'),
-        ],
-        dailyConsumedKcal: 640,
-      );
-
-      expect(fehler, isEmpty);
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   testWidgets('Der Block traegt weiterhin die Ueberschrift „Verlauf"',
       (tester) async {
@@ -368,28 +360,5 @@ void main() {
     expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
     expect(find.byKey(const ValueKey('topbar-settings')), findsNothing);
     expect(find.byKey(const ValueKey('topbar-profile')), findsNothing);
-  });
-
-  group('EN-Render-Smoke (i18n-Paket 2, Spec §6)', () {
-    // Longer English strings catch overflows a de-only run never shows.
-    for (final helligkeit in Brightness.values) {
-      testWidgets('rendert unter en in $helligkeit ohne Ausnahme',
-          (tester) async {
-        final fehler = await _pumpFoodTab(
-          tester,
-          brightness: helligkeit,
-          locale: const Locale('en'),
-          meals: [_mahlzeit(slot: MealSlot.lunch)],
-          dailyConsumedKcal: 320,
-        );
-        expect(tester.takeException(), isNull,
-            reason: 'Rendering unter en/$helligkeit ist fehlgeschlagen');
-        expect(fehler, isEmpty);
-
-        expect(find.text('Nutrition'), findsOneWidget);
-        expect(find.text('Breakfast'), findsOneWidget);
-        expect(find.text('Nothing logged yet'), findsWidgets);
-      });
-    }
   });
 }

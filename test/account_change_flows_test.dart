@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
@@ -12,7 +11,8 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/account_change_messages.dart';
 import 'package:eatova/src/services/secure_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // The two account-change flows in settings.
 //
@@ -80,20 +80,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(brightness),
-        // context.l10n throughout; without delegates it throws.
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: SettingsScreen(email: email, authRepository: repo),
-      ),
+    await pumpLocalized(
+      tester,
+      SettingsScreen(email: email, authRepository: repo),
+      brightness: brightness,
+      scaffold: false,
+      safeArea: false,
     );
     await tester.pumpAndSettle();
   }

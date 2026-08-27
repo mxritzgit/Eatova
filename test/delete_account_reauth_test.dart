@@ -1,15 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/account_change_messages.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Re-authentication before account deletion (security audit 2026-08-14).
 // Server-side, `delete_account()` rejects any JWT without a fresh
@@ -52,42 +51,30 @@ void main() {
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
-    tester.platformDispatcher.textScaleFactorTestValue = textScale;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: FilledButton(
-                key: const ValueKey('open-settings'),
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute<void>(
-                    builder: (_) => SettingsScreen(
-                      email: email,
-                      authRepository: repo,
-                      onDeleteAccount: onDeleteAccount,
-                    ),
-                  ),
+    await pumpLocalized(
+      tester,
+      Builder(
+        builder: (context) => Center(
+          child: FilledButton(
+            key: const ValueKey('open-settings'),
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => SettingsScreen(
+                  email: email,
+                  authRepository: repo,
+                  onDeleteAccount: onDeleteAccount,
                 ),
-                child: const Text('open'),
               ),
             ),
+            child: const Text('open'),
           ),
         ),
       ),
+      brightness: Brightness.light,
+      textScale: textScale,
     );
     await tester.tap(find.byKey(const ValueKey('open-settings')));
     await tester.pumpAndSettle();
