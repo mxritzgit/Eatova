@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
+import '../../models/meal_analysis_request.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
+import '../../services/meal_analyzer.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -14,12 +18,14 @@ import '../common/app_snack.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
 
-/// Maps an analysis/lookup error to the snack message shown to the user.
+/// Maps an analysis/lookup error to the message shown in the sheet.
 ///
-/// Two cases are more precise than the flow's generic [fallback]:
+/// Typed [MealAnalysisException]s carry a language-neutral code that is
+/// resolved here, at display time (F4-01/F9-03). Beyond those:
 ///
 ///  * [TimeoutException] — the connection was up, only the answer never came,
 ///    so a "check your connection" message would mislead.
+///  * [SocketException] — no route at all: that IS the connection message.
 ///  * [ProductWithoutNutritionException] — the product was found but carries
 ///    no loggable energy value, so the "not found" message would be wrong.
 ///    The error already brings its own message.
@@ -28,8 +34,14 @@ String mealAnalysisErrorMessage(
   String fallback,
   AppLocalizations l10n,
 ) {
+  if (error is MealAnalysisException) {
+    return _mealAnalysisExceptionMessage(error, fallback, l10n);
+  }
   if (error is TimeoutException) {
     return l10n.foodAnalysisTimeoutMessage;
+  }
+  if (error is SocketException) {
+    return l10n.foodAnalysisOfflineMessage;
   }
   if (error is ProductWithoutNutritionException) {
     return error.userMessage(l10n);
@@ -37,10 +49,68 @@ String mealAnalysisErrorMessage(
   return fallback;
 }
 
+String _mealAnalysisExceptionMessage(
+  MealAnalysisException error,
+  String fallback,
+  AppLocalizations l10n,
+) {
+  return switch (error) {
+    MealAnalysisReauthRequired() => l10n.foodReauthRequiredError,
+    MealImageTooLarge() => l10n.foodImageTooLargeError,
+    MealAnalysisCancelled() => fallback,
+    MealAnalysisRateLimited(:final resetAt) =>
+      resetAt != null && resetAt.isAfter(clock.now())
+          ? l10n.foodAnalysisRateLimitUntilMessage(_clockLabel(resetAt))
+          : l10n.foodAnalysisRateLimitError,
+    MealAnalysisServerError(:final code) => switch (code) {
+        'provider_timeout' => l10n.foodAnalysisTimeoutMessage,
+        'provider_error' ||
+        'provider_invalid_response' ||
+        'provider_invalid_json' ||
+        'provider_empty_response' ||
+        'invalid_result' =>
+          l10n.foodAnalysisProviderErrorMessage,
+        'provider_not_configured' ||
+        'server_misconfigured' ||
+        'rate_limit_unavailable' ||
+        'internal_error' =>
+          l10n.foodAnalysisServiceUnavailableMessage,
+        'missing_image' ||
+        'invalid_image_base64' ||
+        'image_too_small' =>
+          l10n.foodAnalysisImageUnusableMessage,
+        // Deliberately unmapped: unsupported_content_type, invalid_json,
+        // invalid_body, method_not_allowed are client bugs, not user
+        // situations — the flow's fallback is the honest text for them.
+        _ => fallback,
+      },
+  };
+}
+
+/// `HH:mm` in local time, without intl: `DateFormat` needs locale data that a
+/// context-free caller cannot guarantee is loaded.
+String _clockLabel(DateTime at) {
+  final local = at.toLocal();
+  final hh = local.hour.toString().padLeft(2, '0');
+  final mm = local.minute.toString().padLeft(2, '0');
+  return '$hh:$mm';
+}
+
+/// What the sheet was closed with. Null = plain close.
+enum MealAnalysisSheetOutcome {
+  /// The user chose "enter manually" from the error state; the caller opens
+  /// the manual entry sheet.
+  manualEntry,
+}
+
 /// Sub-sheet for photo/barcode analysis, started by AddMealSheet once an
 /// image or barcode is captured. Shows the loading card, then the
 /// `MealResultCard` with adjust + add; there is no confirm step.
-Future<void> showMealAnalysisSheet(
+///
+/// [retry] re-creates the analysis future from the bytes the caller still
+/// holds; null hides "try again" (barcode lookups). [cancellation] is
+/// cancelled when the sheet goes away while a request is in flight.
+Future<MealAnalysisSheetOutcome?> showMealAnalysisSheet(
   BuildContext context, {
   required MealSlot slot,
   required Future<MealAnalysisResult> resultFuture,
@@ -50,14 +120,14 @@ Future<void> showMealAnalysisSheet(
   required String failureMessage,
   bool Function(MealAnalysisResult)? isFavorite,
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
+  Future<MealAnalysisResult> Function()? retry,
+  MealAnalysisCancellation? cancellation,
 }) {
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<MealAnalysisSheetOutcome>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // No token on purpose: the scrim behind a sheet darkens in both modes —
-    // a light scrim would dim nothing.
-    barrierColor: Colors.black.withValues(alpha: 0.55),
+    barrierColor: context.t.scrim,
     builder: (sheetContext) {
       return MealAnalysisSheet(
         slot: slot,
@@ -68,6 +138,8 @@ Future<void> showMealAnalysisSheet(
         failureMessage: failureMessage,
         isFavorite: isFavorite,
         onToggleFavorite: onToggleFavorite,
+        retry: retry,
+        cancellation: cancellation,
       );
     },
   );
@@ -84,7 +156,13 @@ class MealAnalysisSheet extends StatefulWidget {
     required this.failureMessage,
     this.isFavorite,
     this.onToggleFavorite,
+    this.retry,
+    this.cancellation,
   });
+
+  /// After this long without an answer the loading card gets a "taking
+  /// longer" line plus a cancel button. Well under the 60 s client timeout.
+  static const Duration slowAfter = Duration(seconds: 12);
 
   final MealSlot slot;
   final Future<MealAnalysisResult> resultFuture;
@@ -106,13 +184,21 @@ class MealAnalysisSheet extends StatefulWidget {
   /// Favorite toggle. Null -> no heart button.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
 
+  /// Starts a fresh attempt from the same bytes. Null -> no retry button.
+  final Future<MealAnalysisResult> Function()? retry;
+
+  /// Cancelled on dispose while a request is still running.
+  final MealAnalysisCancellation? cancellation;
+
   @override
   State<MealAnalysisSheet> createState() => _MealAnalysisSheetState();
 }
 
 class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   MealAnalysisResult? _result;
+  Object? _error;
   bool _isLoading = true;
+  bool _slowHint = false;
   bool _addedToDailyTotal = false;
   // Client UUID of the logged row; a later re-portion applies to this id.
   String? _addedMealId;
@@ -120,10 +206,23 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   // so a HomePage setState does not rebuild it and the heart would lag.
   bool? _favoriteOverride;
 
+  Timer? _slowTimer;
+  // Attempt counter: a late answer from a superseded attempt is dropped.
+  int _attempt = 0;
+  // False while an attempt is in flight -> dispose cancels it.
+  bool _settled = false;
+
   @override
   void initState() {
     super.initState();
-    _loadResult();
+    _run(widget.resultFuture);
+  }
+
+  @override
+  void dispose() {
+    _slowTimer?.cancel();
+    if (!_settled) widget.cancellation?.cancel();
+    super.dispose();
   }
 
   bool get _isFavoriteNow {
@@ -138,26 +237,62 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     setState(() => _favoriteOverride = next);
   }
 
-  Future<void> _loadResult() async {
+  Future<void> _run(Future<MealAnalysisResult> future) async {
+    final attempt = ++_attempt;
+    _settled = false;
+    _slowTimer?.cancel();
+    _slowTimer = Timer(MealAnalysisSheet.slowAfter, () {
+      if (!mounted || attempt != _attempt || !_isLoading) return;
+      setState(() => _slowHint = true);
+    });
     try {
-      final value = await widget.resultFuture;
+      final value = await future;
+      if (attempt != _attempt) return;
+      _settled = true;
       if (!mounted) return;
       setState(() {
         _result = value;
         _isLoading = false;
+        _slowHint = false;
       });
     } catch (error) {
+      if (attempt != _attempt) return;
+      _settled = true;
       if (!mounted) return;
-      setState(() => _isLoading = false);
-      showAppSnack(
-          context,
-          mealAnalysisErrorMessage(
-              error, widget.failureMessage, context.l10n),
-          icon: Icons.error_outline_rounded,
-          tone: SnackTone.error,
-          duration: kSnackError);
-      Navigator.of(context).maybePop();
+      // Our own cancel (dispose or the cancel button): the sheet is closing
+      // and still mounted for the ~250 ms pop animation — an error card
+      // would flash. Nothing to show.
+      if (error is MealAnalysisCancelled) return;
+      setState(() {
+        _error = error;
+        _isLoading = false;
+        _slowHint = false;
+      });
+    } finally {
+      if (attempt == _attempt) _slowTimer?.cancel();
     }
+  }
+
+  void _retry() {
+    final retry = widget.retry;
+    if (retry == null) return;
+    setState(() {
+      _error = null;
+      _isLoading = true;
+      _slowHint = false;
+    });
+    // Future.sync: a synchronous throw inside `retry` lands in the error
+    // state instead of escaping the tap handler.
+    _run(Future<MealAnalysisResult>.sync(retry));
+  }
+
+  void _cancelAndClose() {
+    widget.cancellation?.cancel();
+    Navigator.of(context).pop();
+  }
+
+  void _manualEntry() {
+    Navigator.of(context).pop(MealAnalysisSheetOutcome.manualEntry);
   }
 
   void _addToDaily() {
@@ -252,13 +387,72 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     // the status bar or Dynamic Island.
     final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
+    final error = _error;
 
     // No SheetScaffold: that assumes a fixed title plus exactly one footer
     // action. Here a fixed header sits above a capped scroll area and the
     // actions live on the result card.
+    final body = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _SheetHandle(),
+        _Header(slot: widget.slot, onClose: () => Navigator.of(context).pop()),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              0,
+              20,
+              28 + mediaQuery.viewPadding.bottom,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (widget.previewImage != null) ...[
+                  MealPreviewCard(imageBytes: widget.previewImage),
+                  const SizedBox(height: 14),
+                ],
+                if (_isLoading) ...[
+                  const MealLoadingCard(),
+                  if (_slowHint) ...[
+                    const SizedBox(height: 10),
+                    _SlowHint(onCancel: _cancelAndClose),
+                  ],
+                ] else if (error != null)
+                  _AnalysisErrorCard(
+                    message: mealAnalysisErrorMessage(
+                      error,
+                      widget.failureMessage,
+                      context.l10n,
+                    ),
+                    onRetry: widget.retry == null ? null : _retry,
+                    onManualEntry: _manualEntry,
+                  )
+                else if (_result != null)
+                  MealResultCard(
+                    result: _result!,
+                    addedToDailyTotal: _addedToDailyTotal,
+                    onAdjustRequested: _adjustPortion,
+                    onAddToDailyRequested: _addToDaily,
+                    isFavorite: _isFavoriteNow,
+                    onToggleFavorite: widget.onToggleFavorite == null
+                        ? null
+                        : _handleToggleFavorite,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+    // SnackHost INSIDE the ground color (review I-2): the sheet stays open
+    // after add, re-portion and the 0-kcal guard, so their toasts must land
+    // above the scrim in a strip the host reserves below the content — not
+    // under it on the root messenger, where they read as dead.
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(
+        key: const ValueKey('analyse-sheet'),
         constraints: BoxConstraints(maxHeight: maxHeight),
         decoration: BoxDecoration(
           color: t.bg,
@@ -266,46 +460,104 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
             top: Radius.circular(rSheet),
           ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const _SheetHandle(),
-            _Header(slot: widget.slot, onClose: () => Navigator.of(context).pop()),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  0,
-                  20,
-                  28 + mediaQuery.viewPadding.bottom,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.previewImage != null) ...[
-                      MealPreviewCard(imageBytes: widget.previewImage),
-                      const SizedBox(height: 14),
-                    ],
-                    if (_isLoading)
-                      const MealLoadingCard()
-                    else if (_result != null)
-                      MealResultCard(
-                        result: _result!,
-                        addedToDailyTotal: _addedToDailyTotal,
-                        onAdjustRequested: _adjustPortion,
-                        onAddToDailyRequested: _addToDaily,
-                        isFavorite: _isFavoriteNow,
-                        onToggleFavorite: widget.onToggleFavorite == null
-                            ? null
-                            : _handleToggleFavorite,
-                      ),
-                  ],
+        child: SnackHost(child: body),
+      ),
+    );
+  }
+}
+
+/// Error state INSIDE the sheet (F4-02): the preview above stays, the user
+/// can retry from the same bytes or switch to manual entry.
+class _AnalysisErrorCard extends StatelessWidget {
+  const _AnalysisErrorCard({
+    required this.message,
+    required this.onRetry,
+    required this.onManualEntry,
+  });
+
+  final String message;
+  final VoidCallback? onRetry;
+  final VoidCallback onManualEntry;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return AppCard(
+      key: const ValueKey('analyse-error'),
+      radius: rCard,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.error_outline_rounded, color: t.danger, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l10n.foodAnalysisErrorTitle,
+                  style: AppType.ui(14, weight: FontWeight.w700, color: t.ink),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            key: const ValueKey('analyse-error-message'),
+            style: AppType.ui(13, color: t.ink2, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          if (onRetry != null) ...[
+            PrimaryActionButton(
+              key: const ValueKey('analyse-retry'),
+              label: l10n.foodAnalysisRetryButton,
+              icon: Icons.refresh_rounded,
+              onTap: onRetry,
+              height: 48,
             ),
+            const SizedBox(height: 4),
           ],
-        ),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              key: const ValueKey('analyse-manual-entry'),
+              onPressed: onManualEntry,
+              child: Text(l10n.foodAnalysisManualEntryButton),
+            ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+/// Shown under the loading card once [MealAnalysisSheet.slowAfter] passed.
+class _SlowHint extends StatelessWidget {
+  const _SlowHint({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Row(
+      key: const ValueKey('analyse-slow-hint'),
+      children: [
+        Expanded(
+          child: Text(
+            l10n.foodAnalysisSlowHint,
+            style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink2),
+          ),
+        ),
+        TextButton(
+          key: const ValueKey('analyse-cancel'),
+          onPressed: onCancel,
+          child: Text(l10n.commonCancel),
+        ),
+      ],
     );
   }
 }

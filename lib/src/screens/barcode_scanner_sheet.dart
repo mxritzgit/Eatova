@@ -7,7 +7,9 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../l10n/l10n.dart';
 import '../models/logged_meal.dart';
 import '../services/crash_reporter.dart';
+import '../services/meal_camera_launcher.dart' show openAppSettingsForCamera;
 import '../theme/app_tokens.dart';
+import '../widgets/design/design.dart';
 import '../widgets/kcal/scan_slot_chips.dart';
 
 /// Barcode scanner result: the trimmed code and the slot picked via the chips
@@ -32,12 +34,15 @@ Future<BarcodeScan?> showBarcodeScannerSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // No token on purpose: the scrim behind a sheet darkens in both modes —
-    // a light scrim would dim nothing.
-    barrierColor: Colors.black.withValues(alpha: 0.55),
+    barrierColor: context.t.scrim,
     builder: (_) => BarcodeScannerSheet(initialSlot: initialSlot),
   );
 }
+
+/// EAN-8, UPC-A (12) and EAN-13 — the formats the scanner accepts.
+bool isValidTypedBarcode(String digits) =>
+    RegExp(r'^\d+$').hasMatch(digits) &&
+    (digits.length == 8 || digits.length == 12 || digits.length == 13);
 
 class BarcodeScannerSheet extends StatefulWidget {
   const BarcodeScannerSheet({super.key, required this.initialSlot});
@@ -48,7 +53,8 @@ class BarcodeScannerSheet extends StatefulWidget {
   State<BarcodeScannerSheet> createState() => _BarcodeScannerSheetState();
 }
 
-class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
+class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
+    with WidgetsBindingObserver {
   final MobileScannerController controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     formats: const [BarcodeFormat.ean8, BarcodeFormat.ean13, BarcodeFormat.upcA],
@@ -60,18 +66,60 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
 
   bool _analyzerHaengt = false;
 
+  /// Manual entry layer open (permission denied / camera dead).
+  bool _manuelleEingabe = false;
+
+  /// Set when the user was sent to Settings: the next resume retries the
+  /// camera even though the last start ended in `permissionDenied`.
+  bool _settingsGeoeffnet = false;
+
   late MealSlot _slot;
 
   @override
   void initState() {
     super.initState();
+    // [MobileScanner] only observes the lifecycle for its OWN controller; with
+    // an injected one (ours) the preview froze after an app switch (F4-03).
+    WidgetsBinding.instance.addObserver(this);
     _slot = widget.initialSlot;
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     controller.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (hasReturned) return;
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        unawaited(_analyzerStoppen());
+      case AppLifecycleState.resumed:
+        unawaited(_nachResumeStarten());
+    }
+  }
+
+  /// Restart after an interruption. Permission guard as in mobile_scanner's
+  /// own observer — except right after a Settings visit, which is the one
+  /// moment a fresh start may succeed where the last one was denied.
+  Future<void> _nachResumeStarten() async {
+    final value = controller.value;
+    if (value.isRunning || value.isStarting) return;
+    final retryAfterSettings = _settingsGeoeffnet;
+    _settingsGeoeffnet = false;
+    if (!value.hasCameraPermission && !retryAfterSettings) return;
+    try {
+      await controller.start();
+    } catch (_) {
+      // `start()` reports permission errors via `value.error`; anything else
+      // (already starting, disposed) leaves the current layer in place.
+    }
   }
 
   /// Surfaces analysis errors instead of swallowing them.
@@ -138,6 +186,27 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
     }
   }
 
+  void _einstellungenOeffnen() {
+    _settingsGeoeffnet = true;
+    unawaited(openAppSettingsForCamera());
+  }
+
+  void _manuellEingeben() {
+    setState(() => _manuelleEingabe = true);
+  }
+
+  void _manuelleEingabeSchliessen() {
+    setState(() => _manuelleEingabe = false);
+  }
+
+  /// Typed code takes the same exit as a scanned one, so the caller's
+  /// `lookupBarcode` path stays the single consumer.
+  void _codeAbgeben(String code) {
+    if (hasReturned || !mounted) return;
+    _erkennungBeenden();
+    Navigator.of(context).pop(BarcodeScan(code: code, slot: _slot));
+  }
+
   void handleDetect(BarcodeCapture capture) {
     if (hasReturned || !mounted) {
       return;
@@ -156,8 +225,7 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
       final rawValue = barcode.rawValue;
       if (rawValue != null && rawValue.trim().isNotEmpty) {
         final code = rawValue.trim();
-        _erkennungBeenden();
-        Navigator.of(context).pop(BarcodeScan(code: code, slot: _slot));
+        _codeAbgeben(code);
         return;
       }
     }
@@ -219,8 +287,12 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                             fit: BoxFit.cover,
                             placeholderBuilder: (_) =>
                                 const _ScannerLoadingLayer(),
-                            errorBuilder: (_, __) =>
-                                const _ScannerFailedLayer(),
+                            errorBuilder: (_, error) => _ScannerFailedLayer(
+                              permissionDenied: error.errorCode ==
+                                  MobileScannerErrorCode.permissionDenied,
+                              onOpenSettings: _einstellungenOeffnen,
+                              onTypeBarcode: _manuellEingeben,
+                            ),
                           ),
                           // Overlays only while the camera is not in an error
                           // state, or frame and hint would sit on top of the
@@ -305,6 +377,11 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet> {
                           ),
                           if (_analyzerHaengt)
                             _AnalyzerStalledLayer(onRetry: _neuStarten),
+                          if (_manuelleEingabe)
+                            _ManualBarcodeLayer(
+                              onSubmit: _codeAbgeben,
+                              onBack: _manuelleEingabeSchliessen,
+                            ),
                         ],
                       ),
                     ),
@@ -401,13 +478,25 @@ class _ScannerLoadingLayer extends StatelessWidget {
   }
 }
 
+/// Camera dead or permission denied (F4-04). Both offer typing the code;
+/// only the permission case sends to Settings, where the fix actually is.
 class _ScannerFailedLayer extends StatelessWidget {
-  const _ScannerFailedLayer();
+  const _ScannerFailedLayer({
+    required this.permissionDenied,
+    required this.onOpenSettings,
+    required this.onTypeBarcode,
+  });
+
+  final bool permissionDenied;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onTypeBarcode;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return ColoredBox(
+      key: const ValueKey('barcode-scanner-failed'),
       color: t.bg,
       child: Center(
         child: Padding(
@@ -418,7 +507,9 @@ class _ScannerFailedLayer extends StatelessWidget {
               Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
               const SizedBox(height: 12),
               Text(
-                context.l10n.foodCameraUnavailableMessage,
+                permissionDenied
+                    ? l10n.foodBarcodePermissionDeniedMessage
+                    : l10n.foodCameraUnavailableMessage,
                 textAlign: TextAlign.center,
                 style: AppType.ui(
                   13.5,
@@ -427,8 +518,116 @@ class _ScannerFailedLayer extends StatelessWidget {
                   height: 1.4,
                 ),
               ),
+              const SizedBox(height: 14),
+              // Theme-styled on purpose (F8-10): no colour copies here.
+              if (permissionDenied)
+                OutlinedButton.icon(
+                  key: const ValueKey('barcode-open-settings'),
+                  onPressed: onOpenSettings,
+                  icon: const Icon(Icons.settings_outlined, size: 18),
+                  label: Text(l10n.foodOpenSettingsButton),
+                ),
+              TextButton.icon(
+                key: const ValueKey('barcode-type-in'),
+                onPressed: onTypeBarcode,
+                icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
+                label: Text(l10n.foodBarcodeTypeInButton),
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Typed barcode as a fallback for a dead camera. Borderless soft capsule
+/// (no hairline, no focus ring); the error text under it is the only red.
+class _ManualBarcodeLayer extends StatefulWidget {
+  const _ManualBarcodeLayer({required this.onSubmit, required this.onBack});
+
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onBack;
+
+  @override
+  State<_ManualBarcodeLayer> createState() => _ManualBarcodeLayerState();
+}
+
+class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
+  final TextEditingController _controller = TextEditingController();
+  bool _invalid = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final digits = _controller.text.trim();
+    if (!isValidTypedBarcode(digits)) {
+      setState(() => _invalid = true);
+      return;
+    }
+    widget.onSubmit(digits);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return ColoredBox(
+      key: const ValueKey('barcode-manual-layer'),
+      color: t.bg,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.foodBarcodeManualLabel.toUpperCase(),
+              style: AppType.eyebrow(t.ink2, size: 9.5),
+            ),
+            const SizedBox(height: 7),
+            // Capsule, fill states (rest/focus/error) and the error line come
+            // from inputDecorationTheme — no decoration copy here.
+            TextField(
+              key: const ValueKey('barcode-manual-field'),
+              controller: _controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(13),
+              ],
+              onChanged: (_) {
+                if (_invalid) setState(() => _invalid = false);
+              },
+              onSubmitted: (_) => _submit(),
+              style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+              decoration: InputDecoration(
+                hintText: l10n.foodBarcodeManualHint,
+                errorText: _invalid ? l10n.foodBarcodeManualInvalid : null,
+              ),
+            ),
+            const SizedBox(height: 14),
+            PrimaryActionButton(
+              key: const ValueKey('barcode-manual-submit'),
+              label: l10n.foodBarcodeManualSubmit,
+              icon: Icons.search_rounded,
+              onTap: _submit,
+              height: 48,
+            ),
+            const SizedBox(height: 4),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                key: const ValueKey('barcode-manual-back'),
+                onPressed: widget.onBack,
+                child: Text(l10n.commonCancel),
+              ),
+            ),
+          ],
         ),
       ),
     );

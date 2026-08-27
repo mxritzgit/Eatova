@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as dev;
 
 import 'package:camera/camera.dart';
@@ -13,6 +14,7 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_compressor.dart';
 import '../services/meal_photo_temp_file.dart';
 import '../theme/app_tokens.dart';
+import '../widgets/common/app_snack.dart';
 import '../widgets/kcal/scan_slot_chips.dart';
 
 /// In-app camera as an animated bottom panel. Pops a [MealCameraCapture], or
@@ -26,12 +28,24 @@ class MealCameraSheet extends StatefulWidget {
   State<MealCameraSheet> createState() => _MealCameraSheetState();
 }
 
+/// Why the preview is not running. Permission gets its own state because the
+/// way out differs: Settings, not "try again".
+enum _CameraFailure { unavailable, permissionDenied }
+
+/// `CameraException.code` values of camera_android_camerax and
+/// camera_avfoundation for a denied/restricted permission.
+const Set<String> _permissionErrorCodes = <String>{
+  'CameraAccessDenied',
+  'CameraAccessDeniedWithoutPrompt',
+  'CameraAccessRestricted',
+};
+
 class _MealCameraSheetState extends State<MealCameraSheet>
     with WidgetsBindingObserver {
   CameraController? _controller;
   late MealSlot _slot;
   bool _busy = false;
-  bool _cameraFailed = false;
+  _CameraFailure? _failure;
 
   /// Serialises camera setup/teardown: lifecycle events outrun `initialize()`,
   /// so two controllers could coexist or a pause be lost.
@@ -104,7 +118,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       final cameras = await availableCameras();
       if (!mounted) return;
       if (cameras.isEmpty) {
-        setState(() => _cameraFailed = true);
+        setState(() => _failure = _CameraFailure.unavailable);
         return;
       }
       final back = cameras.firstWhere(
@@ -137,9 +151,9 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       }
       setState(() {
         _controller = controller;
-        _cameraFailed = false;
+        _failure = null;
       });
-    } catch (_) {
+    } catch (error) {
       // Permission revoked, no camera, plugin error: show the error layer.
       final partial = controller;
       if (partial != null && !identical(_controller, partial)) {
@@ -149,9 +163,20 @@ class _MealCameraSheetState extends State<MealCameraSheet>
           // A controller that never finished setup has nothing to release.
         }
       }
-      if (mounted) setState(() => _cameraFailed = true);
+      if (mounted) setState(() => _failure = _classifyFailure(error));
     }
   }
+
+  static _CameraFailure _classifyFailure(Object error) {
+    if (error is CameraException && _permissionErrorCodes.contains(error.code)) {
+      return _CameraFailure.permissionDenied;
+    }
+    return _CameraFailure.unavailable;
+  }
+
+  /// After Settings the OS resumes the app; the lifecycle observer then
+  /// re-initialises the camera, so no explicit retry is needed here.
+  void _openSettings() => unawaited(openAppSettingsForCamera());
 
   /// Only exit for image bytes from this sheet — camera **and** gallery.
   /// [compressMealPhoto] shrinks (base64 adds 33 %, server caps at 5 MB) and
@@ -244,18 +269,26 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     if (!mounted) return;
     Navigator.of(context).pop(
       MealCameraCapture(
-        request: MealAnalysisRequest(imageId: path, imageBytes: bytes),
+        request: MealAnalysisRequest(
+          imageId: path,
+          imageBytes: bytes,
+          // Lets the result sheet abort the upload when it is swiped away.
+          cancellation: MealAnalysisCancellation(),
+        ),
         previewBytes: bytes,
         slot: _slot,
       ),
     );
   }
 
-  void _showError(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
+  /// App toast (routes above a sheet host, auto-dismisses under reduced
+  /// motion) instead of a raw Material snackbar.
+  void _showError(String message) => showAppSnack(
+        context,
+        message,
+        icon: Icons.error_outline_rounded,
+        tone: SnackTone.error,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -265,6 +298,60 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     final controller = _controller;
     final ready = controller != null && controller.value.isInitialized;
 
+    final body = Column(
+      children: [
+        const _SheetHandle(),
+        _HeaderRow(onClose: () => Navigator.of(context).pop()),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(rCard),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (ready)
+                    _CoveredCameraPreview(controller: controller)
+                  else if (_failure != null)
+                    _CameraFailedLayer(
+                      failure: _failure!,
+                      onOpenSettings: _openSettings,
+                    )
+                  else
+                    const _CameraLoadingLayer(),
+                  const _EdgeScrim(),
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    right: 10,
+                    child: ScanSlotChips(
+                      selected: _slot,
+                      onSelected: _selectSlot,
+                      keyPrefix: 'meal-camera-slot',
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 14,
+                    left: 20,
+                    right: 20,
+                    child: _CaptureBar(
+                      canCapture: ready && !_busy,
+                      busy: _busy,
+                      onCapture: _capture,
+                      onGallery: _pickFromGallery,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: mediaQuery.viewPadding.bottom + 6),
+      ],
+    );
+    // SnackHost INSIDE the ground color (review I-2): capture and gallery
+    // errors keep the sheet open, so [_showError] must land above the modal
+    // scrim, in the strip the host reserves below the preview.
     return Padding(
       padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
       child: SizedBox(
@@ -277,54 +364,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
             ),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              const _SheetHandle(),
-              _HeaderRow(onClose: () => Navigator.of(context).pop()),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(rCard),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (ready)
-                          _CoveredCameraPreview(controller: controller)
-                        else if (_cameraFailed)
-                          const _CameraFailedLayer()
-                        else
-                          const _CameraLoadingLayer(),
-                        const _EdgeScrim(),
-                        Positioned(
-                          top: 10,
-                          left: 10,
-                          right: 10,
-                          child: ScanSlotChips(
-                            selected: _slot,
-                            onSelected: _selectSlot,
-                            keyPrefix: 'meal-camera-slot',
-                          ),
-                        ),
-                        Positioned(
-                          bottom: 14,
-                          left: 20,
-                          right: 20,
-                          child: _CaptureBar(
-                            canCapture: ready && !_busy,
-                            busy: _busy,
-                            onCapture: _capture,
-                            onGallery: _pickFromGallery,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(height: mediaQuery.viewPadding.bottom + 6),
-            ],
-          ),
+          child: SnackHost(child: body),
         ),
       ),
     );
@@ -391,13 +431,22 @@ class _CameraLoadingLayer extends StatelessWidget {
 }
 
 class _CameraFailedLayer extends StatelessWidget {
-  const _CameraFailedLayer();
+  const _CameraFailedLayer({
+    required this.failure,
+    required this.onOpenSettings,
+  });
+
+  final _CameraFailure failure;
+  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
+    final denied = failure == _CameraFailure.permissionDenied;
     // NO spinner here: the error state explains, it does not wait.
     return ColoredBox(
+      key: const ValueKey('meal-camera-failed'),
       color: t.bg,
       child: Center(
         child: Padding(
@@ -408,7 +457,9 @@ class _CameraFailedLayer extends StatelessWidget {
               Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
               const SizedBox(height: 12),
               Text(
-                context.l10n.foodCameraUnavailableGalleryMessage,
+                denied
+                    ? l10n.foodCameraPermissionDeniedMessage
+                    : l10n.foodCameraUnavailableGalleryMessage,
                 textAlign: TextAlign.center,
                 style: AppType.ui(
                   13.5,
@@ -417,6 +468,16 @@ class _CameraFailedLayer extends StatelessWidget {
                   height: 1.4,
                 ),
               ),
+              if (denied) ...[
+                const SizedBox(height: 14),
+                // Theme-styled on purpose (F8-10): no colour copies here.
+                OutlinedButton.icon(
+                  key: const ValueKey('meal-camera-open-settings'),
+                  onPressed: onOpenSettings,
+                  icon: const Icon(Icons.settings_outlined, size: 18),
+                  label: Text(l10n.foodOpenSettingsButton),
+                ),
+              ],
             ],
           ),
         ),
