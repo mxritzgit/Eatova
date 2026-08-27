@@ -6,6 +6,7 @@ import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
+import '../design/sheets.dart';
 
 /// Shared item widget for search hits, favorites and recent meals in the
 /// AddMealSheet.
@@ -554,17 +555,11 @@ class _ExpandedBody extends StatelessWidget {
               key: addButtonKey,
               onPressed: onAdd,
               icon: const Icon(Icons.add_rounded, size: 18),
+              // No styleFrom: fill, ink and shape come from the app-wide
+              // filledButtonTheme (review F8-10).
               label: Text(
                 l10n.commonAdd,
                 style: AppType.ui(14, weight: FontWeight.w700),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: t.forest,
-                foregroundColor: t.onForest,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
               ),
             ),
           ),
@@ -616,8 +611,8 @@ class _StepperButton extends StatelessWidget {
   }
 }
 
-/// Borderless gram capsule following the coach composer pattern: no hairline,
-/// no focus ring — focus is a surface lightening, the number is the hero.
+/// Borderless gram pill on a [FieldCapsule] (rest `field`, focus
+/// `fieldFocus`): no hairline, no focus ring — the number is the hero.
 class _GramsField extends StatefulWidget {
   const _GramsField({required this.controller, required this.onChanged});
 
@@ -630,17 +625,6 @@ class _GramsField extends StatefulWidget {
 
 class _GramsFieldState extends State<_GramsField> {
   final FocusNode _focus = FocusNode();
-  bool _focused = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _focus.addListener(() {
-      if (_focused != _focus.hasFocus) {
-        setState(() => _focused = _focus.hasFocus);
-      }
-    });
-  }
 
   @override
   void dispose() {
@@ -651,16 +635,13 @@ class _GramsFieldState extends State<_GramsField> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return AnimatedContainer(
-      duration: motionDuration(context, const Duration(milliseconds: 160)),
-      curve: Curves.easeOutCubic,
-      height: 48,
-      decoration: BoxDecoration(
-        // Focus = surface lightening, no ring: `surf` sits one step above
-        // `tile` in both modes and takes exactly this role.
-        color: _focused ? t.surf : t.tile,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
+    return FieldCapsule(
+      focusNode: _focus,
+      shape: SheetFieldShape.pill,
+      // Sits on the expanded item card, which is already raised.
+      shadow: false,
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: EdgeInsets.zero,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [

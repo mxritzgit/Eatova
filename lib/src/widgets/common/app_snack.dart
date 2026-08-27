@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -43,7 +44,12 @@ void showAppSnack(
   SnackBarAction? action,
   Duration? duration,
 }) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
+  // A live sheet host wins over the caller's own messenger: the root one
+  // paints UNDER a modal sheet's scrim, where an undo button looks alive but
+  // is dead (review F3-02). Store toasts arrive with the home page context
+  // and are redirected the same way.
+  final host = SnackHost._topmost;
+  final messenger = host?._messenger ?? ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
   messenger.removeCurrentSnackBar();
   // The toast sits on the brand surface (snackBarTheme), so the icon takes the
@@ -51,25 +57,169 @@ void showAppSnack(
   // stays as a direct override for surfaces that still pass a color.
   final effectiveAccent = accent ?? _toneColor(context.t, tone);
   final effective = duration ?? (action != null ? kSnackAction : kSnackShort);
-  messenger.showSnackBar(
-    SnackBar(
+  final snackBar = SnackBar(
+    duration: effective,
+    // Keep the action on the text's row: Material's default wraps a button
+    // wider than 25 % onto its own line, which makes an undo toast twice as
+    // tall as the strip a [SnackHost] reserves for it. Messages here are
+    // short; the text wraps before the action does.
+    actionOverflowThreshold: 1,
+    content: _AutoDismiss(
       duration: effective,
-      content: _AutoDismiss(
-        duration: effective,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              _SnackIcon(icon: icon, accent: effectiveAccent),
-              const SizedBox(width: 10),
-            ],
-            Flexible(child: Text(message)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            _SnackIcon(icon: icon, accent: effectiveAccent),
+            const SizedBox(width: 10),
           ],
-        ),
+          Flexible(child: Text(message)),
+        ],
       ),
-      action: action,
     ),
+    action: action,
   );
+  if (host != null) {
+    host._show(snackBar);
+  } else {
+    messenger.showSnackBar(snackBar);
+  }
+}
+
+/// Toast surface INSIDE a modal sheet that stays open after actions (add-meal,
+/// favorites).
+///
+/// Wraps the sheet content in its own [ScaffoldMessenger]. While a toast
+/// shows, the host reserves a strip below the content and presents the toast
+/// there on a transparent [Scaffold] — so it sits below the last row instead
+/// of on it, and the content above stays tappable. Without a toast the strip
+/// has no height and ignores pointers. While the host's route is on the
+/// navigator it is the target of every [showAppSnack] — sheet-local and
+/// store-emitted alike — so toasts land above the scrim. Nested hosts stack;
+/// the topmost live one wins.
+class SnackHost extends StatefulWidget {
+  const SnackHost({super.key, required this.child});
+
+  final Widget child;
+
+  static final List<_SnackHostState> _hosts = <_SnackHostState>[];
+
+  static _SnackHostState? get _topmost {
+    for (final host in _hosts.reversed) {
+      if (host._isLive) return host;
+    }
+    return null;
+  }
+
+  /// Is some sheet host currently the toast target? For tests that pin the
+  /// routing without inspecting the tree.
+  @visibleForTesting
+  static bool get hasLiveHost => _topmost != null;
+
+  /// Empties the registry — for tests whose tree is not unmounted between
+  /// cases. Hosts unregister themselves in `dispose` otherwise.
+  @visibleForTesting
+  static void debugResetHosts() => _hosts.clear();
+
+  @override
+  State<SnackHost> createState() => _SnackHostState();
+}
+
+class _SnackHostState extends State<SnackHost> {
+  final GlobalKey<ScaffoldMessengerState> _messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+  ModalRoute<dynamic>? _route;
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _current;
+  bool _visible = false;
+
+  ScaffoldMessengerState? get _messenger => _messengerKey.currentState;
+
+  /// Live only while the host's route is on the navigator: a popped sheet
+  /// stays in the tree for its exit animation but must not catch toasts, and
+  /// a host without a route is never a target.
+  bool get _isLive => mounted && (_route?.isActive ?? false);
+
+  @override
+  void initState() {
+    super.initState();
+    SnackHost._hosts.add(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+    assert(
+      _route != null,
+      'SnackHost needs a route (ModalRoute.of) to know when it stops being live',
+    );
+  }
+
+  @override
+  void dispose() {
+    SnackHost._hosts.remove(this);
+    super.dispose();
+  }
+
+  /// Presents [snackBar] and keeps the strip reserved until it has closed —
+  /// the controller's `closed` future is the only lifecycle signal needed.
+  void _show(SnackBar snackBar) {
+    final messenger = _messenger;
+    if (messenger == null) return;
+    setState(() => _visible = true);
+    final controller = messenger.showSnackBar(snackBar);
+    _current = controller;
+    controller.closed.then((_) {
+      if (!mounted || !identical(_current, controller)) return;
+      setState(() {
+        _visible = false;
+        _current = null;
+      });
+    });
+  }
+
+  /// Height reserved for the toast: two lines of snackbar text plus its
+  /// 14 px vertical padding, the floating margins and some slack. An estimate
+  /// on purpose — generous rather than exact, so the toast never lands on
+  /// content. The action shares the text row (see [showAppSnack]).
+  static double _toastReserve(BuildContext context) {
+    final line = MediaQuery.textScalerOf(context).scale(13.5) * 1.5;
+    return math.max(48.0, 2 * line + 28) + 24;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reserve = _visible ? _toastReserve(context) : 0.0;
+    return ScaffoldMessenger(
+      key: _messengerKey,
+      child: Stack(
+        children: <Widget>[
+          AnimatedPadding(
+            duration:
+                motionDuration(context, const Duration(milliseconds: 160)),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(bottom: reserve),
+            child: widget.child,
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: reserve,
+            child: IgnorePointer(
+              ignoring: !_visible,
+              child: const Scaffold(
+                backgroundColor: Colors.transparent,
+                // The sheet already lifts itself above the keyboard.
+                resizeToAvoidBottomInset: false,
+                body: SizedBox.shrink(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Attaches a dismiss timer to the snackbar content, covering the case where

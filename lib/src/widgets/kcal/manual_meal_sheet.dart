@@ -23,8 +23,7 @@ Future<MealAnalysisResult?> showManualMealSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // As in the add-meal sheet: the scrim dims in both display modes.
-    barrierColor: Colors.black.withValues(alpha: 0.55),
+    barrierColor: context.t.scrim,
     builder: (sheetContext) => ManualMealSheet(initialName: initialName),
   );
 }
@@ -372,19 +371,11 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                 key: const ValueKey('manual-meal-save'),
                 onPressed: _isValid ? _save : null,
                 icon: const Icon(Icons.check_rounded, size: 18),
+                // No styleFrom: fill, ink, disabled tone and shape come from
+                // the app-wide filledButtonTheme (review F8-10).
                 label: Text(
                   l10n.commonSave,
                   style: AppType.ui(14.5, weight: FontWeight.w700),
-                ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: t.forest,
-                  foregroundColor: t.onForest,
-                  disabledBackgroundColor: t.surf2,
-                  disabledForegroundColor: t.ink2,
-                  minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
                 ),
               ),
             ],
@@ -443,10 +434,10 @@ class _ManualGroup extends StatelessWidget {
   }
 }
 
-/// Labelled input field — local copy of the `_RecipeSheetField` pattern:
-/// uppercase header with unit, capsule without an InputDecoration border, red
-/// only on error, semantics label for the screen reader.
-class _ManualField extends StatelessWidget {
+/// Labelled input field: uppercase header with unit and macro dot on a
+/// [FieldCapsule] (rest `field`, focus `fieldFocus`, error `fieldError` plus
+/// the error line below), semantics label for the screen reader.
+class _ManualField extends StatefulWidget {
   const _ManualField({
     required this.fieldKey,
     required this.controller,
@@ -476,21 +467,38 @@ class _ManualField extends StatelessWidget {
   final Color? dot;
 
   @override
+  State<_ManualField> createState() => _ManualFieldState();
+}
+
+class _ManualFieldState extends State<_ManualField> {
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final label = widget.label;
+    final unit = widget.unit;
+    final dot = widget.dot;
+    final errorText = widget.errorText;
     final hasError = errorText != null;
-    final zifferntastatur = decimal
+    final zifferntastatur = widget.decimal
         ? const TextInputType.numberWithOptions(decimal: true)
         : TextInputType.number;
     // `digitsOnly` swallows the separator SILENTLY: "3,5" becomes 35 — a
     // factor of 10 in the rings, the database and the 90-day average, with
     // the still-correct calories hiding it.
-    final ziffernfilter = decimal
+    final ziffernfilter = widget.decimal
         ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
         : FilteringTextInputFormatter.digitsOnly;
     final kopfzeile = unit == null
         ? label.toUpperCase()
-        : '${label.toUpperCase()} · ${unit!.toUpperCase()}';
+        : '${label.toUpperCase()} · ${unit.toUpperCase()}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -525,12 +533,9 @@ class _ManualField extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 5),
-        Container(
-          decoration: BoxDecoration(
-            color: t.surf,
-            borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: hasError ? t.danger : t.line),
-          ),
+        FieldCapsule(
+          focusNode: _focus,
+          error: hasError,
           padding: const EdgeInsets.symmetric(horizontal: 13),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -539,15 +544,16 @@ class _ManualField extends StatelessWidget {
                 child: Semantics(
                   label: label,
                   child: TextField(
-                    key: fieldKey,
+                    key: widget.fieldKey,
+                    focusNode: _focus,
                     cursorOpacityAnimates: false,
-                    controller: controller,
-                    maxLength: maxChars,
-                    keyboardType: numeric
+                    controller: widget.controller,
+                    maxLength: widget.maxChars,
+                    keyboardType: widget.numeric
                         ? zifferntastatur
                         : TextInputType.text,
-                    inputFormatters: numeric ? [ziffernfilter] : null,
-                    textCapitalization: numeric
+                    inputFormatters: widget.numeric ? [ziffernfilter] : null,
+                    textCapitalization: widget.numeric
                         ? TextCapitalization.none
                         : TextCapitalization.sentences,
                     style: AppType.ui(14, color: t.ink),
@@ -559,7 +565,7 @@ class _ManualField extends StatelessWidget {
                       filled: false,
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                      hintText: hint,
+                      hintText: widget.hint,
                       hintStyle: AppType.ui(14, color: t.ink2),
                       counterText: '',
                     ),
@@ -572,7 +578,7 @@ class _ManualField extends StatelessWidget {
         if (hasError) ...[
           const SizedBox(height: 6),
           Text(
-            errorText!,
+            errorText,
             style: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
           ),
         ],

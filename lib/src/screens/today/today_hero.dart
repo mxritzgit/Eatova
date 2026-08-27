@@ -135,24 +135,19 @@ class TodayCalorieHero extends StatelessWidget {
                   child: TickGauge(progress: progress),
                 ),
                 const SizedBox(height: 18),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
+                _StatTiles(
+                  tiles: <_Kachel>[
                     _Kachel(
                       keyValue: 'today-stat-eaten',
                       value: kcalThousands(eaten, l10n),
                       label: l10n.todayStatEaten,
                     ),
-                    const _Trenner(),
-                    const SizedBox(width: 16),
                     _Kachel(
                       keyValue: 'today-stat-burned',
                       // Same as calories_overview_card.dart:198-200.
                       value: burned == 0 ? '—' : kcalThousands(burned, l10n),
                       label: l10n.todayStatBurned,
                     ),
-                    const _Trenner(),
-                    const SizedBox(width: 16),
                     _Kachel(
                       keyValue: 'today-stat-streak',
                       value: '$streak',
@@ -166,6 +161,52 @@ class TodayCalorieHero extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The three metric tiles. Side by side up to [_stackAbove] text scale, one
+/// under the other beyond it: a third of the card (~92 px) cannot hold a
+/// scaled label, and a FittedBox would only undo the user's text setting
+/// (review F8-09). The hero number above keeps its FittedBox — it is the one
+/// place where shrinking is the intent.
+class _StatTiles extends StatelessWidget {
+  const _StatTiles({required this.tiles});
+
+  final List<_Kachel> tiles;
+
+  static const double _stackAbove = 1.3;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final stacked = scaler.scale(10) / 10 > _stackAbove;
+    if (stacked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (var i = 0; i < tiles.length; i++) ...<Widget>[
+            if (i > 0) ...<Widget>[
+              const SizedBox(height: 10),
+              const _Trenner(horizontal: true),
+              const SizedBox(height: 10),
+            ],
+            tiles[i],
+          ],
+        ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (var i = 0; i < tiles.length; i++) ...<Widget>[
+          if (i > 0) ...<Widget>[
+            _Trenner(height: scaler.scale(34)),
+            const SizedBox(width: 16),
+          ],
+          Expanded(child: tiles[i]),
+        ],
+      ],
     );
   }
 }
@@ -186,54 +227,50 @@ class _Kachel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // FittedBox around BOTH lines: each tile gets ~92 px, and at textScaler
-    // 2.0 the text wraps mid-word instead. No overflow is thrown, so no
-    // Row-overflow test catches it.
-    return Expanded(
-      child: Column(
-        key: ValueKey<String>(keyValue),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              style: AppType.display(
-                20,
-                weight: FontWeight.w700,
-                color: valueColor ?? t.onForest,
-              ),
-            ),
+    // Real text size, no FittedBox: the layout above makes room instead.
+    // Labels may wrap at a hyphen ("TAGE-STREAK"); numbers never wrap.
+    return Column(
+      key: ValueKey<String>(keyValue),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          value,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+          style: AppType.display(
+            20,
+            weight: FontWeight.w700,
+            color: valueColor ?? t.onForest,
           ),
-          const SizedBox(height: 2),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              label,
-              style: AppType.ui(
-                10.5,
-                weight: FontWeight.w500,
-                color: t.onForest.withValues(alpha: 0.6),
-                letterSpacing: 0.5,
-              ),
-            ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: AppType.ui(
+            10.5,
+            weight: FontWeight.w500,
+            color: t.onForest.withValues(alpha: 0.6),
+            letterSpacing: 0.5,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
+/// Hairline between tiles: vertical beside them, horizontal when stacked.
 class _Trenner extends StatelessWidget {
-  const _Trenner();
+  const _Trenner({this.horizontal = false, this.height = 34});
+
+  final bool horizontal;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 1,
-      height: 34,
+      width: horizontal ? double.infinity : 1,
+      height: horizontal ? 1 : height,
       color: context.t.onForest.withValues(alpha: 0.18),
     );
   }

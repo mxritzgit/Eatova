@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -79,8 +80,7 @@ Future<MealEditOutcome?> showEditMealSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // Deliberately not a token: the scrim must darken in both themes.
-    barrierColor: Colors.black.withValues(alpha: 0.55),
+    barrierColor: context.t.scrim,
     builder: (sheetContext) {
       return EditMealSheet(
         meal: meal,
@@ -270,7 +270,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
   /// in the future. Feeds the same _day state as the chips; saving still runs
   /// only through updateLoggedMealDetails.
   Future<void> _pickOtherDay() async {
-    final today = DateUtils.dateOnly(DateTime.now());
+    final today = DateUtils.dateOnly(clock.now());
     final firstDate = DateTime(today.year - 2, today.month, today.day);
     var initial = _day;
     if (initial.isBefore(firstDate)) initial = firstDate;
@@ -429,17 +429,11 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       key: const ValueKey('edit-meal-save-button'),
                       onPressed: _dirty ? _save : null,
                       icon: const Icon(Icons.check_rounded, size: 17),
+                      // No styleFrom: fill, ink and shape come from the
+                      // app-wide filledButtonTheme (review F8-10).
                       label: Text(
                         l10n.commonSave,
                         style: AppType.ui(14, weight: FontWeight.w600),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: t.forest,
-                        foregroundColor: t.onForest,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(rControl),
-                        ),
                       ),
                     ),
                   ),
@@ -614,6 +608,17 @@ void _ensureDateSymbols() {
   _dateSymbolsReady = true;
 }
 
+/// A chip's date line, locale-aware via `intl`'s `Md` skeleton ("27.8." in
+/// `de`, "8/27" in `en`) — the same format the store's move snack uses.
+@visibleForTesting
+String editMealDayChipDate({
+  required DateTime date,
+  required AppLocalizations l10n,
+}) {
+  _ensureDateSymbols();
+  return DateFormat.Md(l10n.localeName).format(date);
+}
+
 /// The chip picker's days: [count] calendar days down from [today] (today
 /// first), plus [selected] if it falls outside that window.
 ///
@@ -680,7 +685,7 @@ class _DayPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final today = startOfDay(DateTime.now());
+    final today = startOfDay(clock.now());
     // Calendar arithmetic, not absolute time — see [editMealPickerDays].
     final days = editMealPickerDays(
       today: today,
@@ -747,7 +752,9 @@ class _DayPicker extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      '${date.day}.${date.month}.',
+                      // Locale-aware like the store's snack ("28.3." vs
+                      // "3/28"), not a hardcoded German pattern.
+                      editMealDayChipDate(date: date, l10n: l10n),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppType.display(

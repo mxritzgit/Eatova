@@ -158,14 +158,14 @@ void main() {
     });
 
     testWidgets(
-        'Die Suchkapsel nimmt in $brightness tile aus den Tokens und hellt '
-        'bei Fokus auf surf auf — ohne Rahmen', (tester) async {
+        'Die Suchkapsel nimmt in $brightness field aus den Tokens und hellt '
+        'bei Fokus auf fieldFocus auf — ohne Rahmen', (tester) async {
       await _pump(tester, brightness, _zwei);
 
-      expect(_kapsel(tester).color, t.tile);
+      expect(_kapsel(tester).color, t.field);
       expect(_kapsel(tester).border, isNull, reason: 'kein Hairline-Rahmen');
 
-      // Repo rule: focus is a surface step (tile -> surf), no focus ring.
+      // Repo rule: focus is a surface step (field -> fieldFocus), no ring.
       final feld = tester.widget<TextField>(find.byKey(_suche));
       expect(feld.decoration!.enabledBorder, InputBorder.none);
       expect(feld.decoration!.focusedBorder, InputBorder.none);
@@ -173,7 +173,7 @@ void main() {
 
       await tester.tap(find.byKey(_suche));
       await tester.pumpAndSettle();
-      expect(_kapsel(tester).color, t.surf);
+      expect(_kapsel(tester).color, t.fieldFocus);
       expect(tester.takeException(), isNull);
     });
   }
@@ -190,7 +190,7 @@ void main() {
     expect(dunkel, isNotNull);
     expect(hell, isNot(equals(dunkel)),
         reason: 'die Kapsel folgt nicht dem Theme — hardcodierte Farbe?');
-    expect(hell, _tokens(Brightness.light).tile);
-    expect(dunkel, _tokens(Brightness.dark).tile);
+    expect(hell, _tokens(Brightness.light).field);
+    expect(dunkel, _tokens(Brightness.dark).field);
   });
 }

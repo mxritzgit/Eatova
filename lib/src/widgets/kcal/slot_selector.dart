@@ -67,6 +67,10 @@ class _SlotSegment extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final color = slot.accentIn(context);
+    // Scales with the system text like the edit sheet's day picker, capped
+    // so four segments do not eat the sheet at 2.0; exactly 56 at 1.0
+    // (review F3-05). Minimum, not fixed: icon + label decide the rest.
+    final hoehe = MediaQuery.textScalerOf(context).scale(56).clamp(56.0, 80.0);
     // A11y: button with selection state and the full slot name; the visible
     // short label alone would be a truncated word.
     return Semantics(
@@ -79,7 +83,7 @@ class _SlotSegment extends StatelessWidget {
         borderRadius: BorderRadius.circular(rControl),
         child: AnimatedContainer(
           duration: motionDuration(context, const Duration(milliseconds: 160)),
-          height: 56,
+          constraints: BoxConstraints(minHeight: hoehe),
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
           decoration: BoxDecoration(
             color: selected ? color.withValues(alpha: 0.16) : t.surf2,

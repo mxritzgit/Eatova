@@ -236,6 +236,14 @@ void main() {
           );
 
           expect(tester.takeException(), isNull);
+          // At 2.0 the hero's metric tiles stack (F8-09) and push the card
+          // below the lazy ListView's viewport; scroll it into existence.
+          await tester.scrollUntilVisible(
+            find.byKey(_karte),
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          expect(tester.takeException(), isNull);
           expect(find.byKey(_karte), findsOneWidget);
           expect(_text(tester, _wert), '12.345');
         },
