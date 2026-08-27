@@ -160,13 +160,22 @@ class _MessageView extends StatelessWidget {
                         enabled: recipeAddEnabled,
                         onAdd: onAddRecipe,
                       )
-                    else
+                    else if (fromUser)
                       Text(
                         message.content,
                         style: AppType.ui(
                           13.5,
-                          color: fromUser ? t.onForest : t.ink,
+                          color: t.onForest,
                           height: 1.5,
+                        ),
+                      )
+                    else
+                      // Coach answers are plain text (the prompt forbids
+                      // Markdown) and copyable via long press.
+                      SelectionArea(
+                        child: Text(
+                          message.content,
+                          style: AppType.ui(13.5, color: t.ink, height: 1.5),
                         ),
                       ),
                   ],
@@ -217,6 +226,7 @@ class _ThinkingRowState extends State<_ThinkingRow>
   Widget build(BuildContext context) {
     final t = context.t;
     return Padding(
+      key: const ValueKey('coach-thinking'),
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: <Widget>[

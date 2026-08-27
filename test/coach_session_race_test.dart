@@ -461,8 +461,11 @@ void main() {
   );
 
   testWidgets(
-    'Fehlschlag: der getippte Text steht wieder im Eingabefeld',
+    'Fehlschlag: die Frage bleibt als Blase mit Marker, das Feld bleibt leer',
     (tester) async {
+      // Fix run 2026-08-27 (F5-01): draft restore AND retry marker were two
+      // homes for the same text — the send button produced a duplicate. The
+      // marker is the only one now.
       final svc = _RaceCoach.create();
       await _pumpCoach(tester, svc);
 
@@ -484,37 +487,77 @@ void main() {
       expect(find.text('Verbindung fehlgeschlagen.'), findsOneWidget);
       expect(
         _feldText(tester),
-        frage,
-        reason: 'gesendet wurde die Frage nicht — sie darf nicht verloren '
-            'gehen, nur weil das Feld vorab geleert wurde',
+        isEmpty,
+        reason: 'die Frage lebt in der Blase mit „Nicht gesendet" weiter, '
+            'nicht ein zweites Mal im Feld',
       );
+      expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
+      expect(find.byKey(const ValueKey('coach-unsent-retry')), findsOneWidget);
     },
   );
 
   testWidgets(
-    'Fehlschlag ueberschreibt keinen NEU getippten Entwurf',
+    'Erneut senden ueberschreibt keinen NEU getippten Entwurf',
     (tester) async {
+      // Fix run 2026-08-27 (F5-01): the failure itself no longer touches the
+      // field, so the only path that clears it is the retry — `_send` always
+      // clears, even with `textOverride`, and must hand the draft back.
       final svc = _RaceCoach.create();
       await _pumpCoach(tester, svc);
 
       await _tippenUndSenden(tester, 'Erste Frage');
-      // Typing is allowed while a reply is in flight (_canType).
+      svc.offen.first.completeError(
+        const CoachChatException('Verbindung fehlgeschlagen.'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('coach-unsent-retry')), findsOneWidget);
+
       await tester.enterText(
         find.byKey(const ValueKey('coach-input')),
         'Schon die naechste Frage',
       );
       await tester.pump();
 
-      svc.offen.first.completeError(
-        const CoachChatException('Verbindung fehlgeschlagen.'),
-      );
+      await tester.tap(find.byKey(const ValueKey('coach-unsent-retry')));
       await tester.pumpAndSettle();
 
+      expect(svc.offen, hasLength(2), reason: 'der Retry ging als Request raus');
       expect(
         _feldText(tester),
         'Schon die naechste Frage',
         reason: 'den gerade entstehenden Text zu ueberschreiben waere '
             'schlimmer als der Verlust des alten',
+      );
+    },
+  );
+
+  testWidgets(
+    'Erneut senden mit derselben Frage im Feld: das Feld bleibt leer',
+    (tester) async {
+      final svc = _RaceCoach.create();
+      await _pumpCoach(tester, svc);
+
+      await _tippenUndSenden(tester, 'Erste Frage');
+      svc.offen.first.completeError(
+        const CoachChatException('Verbindung fehlgeschlagen.'),
+      );
+      await tester.pumpAndSettle();
+
+      // Typed the failed question again by hand, then chose the retry.
+      await tester.enterText(
+        find.byKey(const ValueKey('coach-input')),
+        'Erste Frage',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('coach-unsent-retry')));
+      await tester.pumpAndSettle();
+
+      expect(svc.offen, hasLength(2), reason: 'der Retry ging als Request raus');
+      expect(
+        _feldText(tester),
+        isEmpty,
+        reason: 'der Wiederholversuch hat genau diesen Text verbraucht — ihn '
+            'zurueckzulegen hiesse, ihn ein drittes Mal anzubieten',
       );
     },
   );

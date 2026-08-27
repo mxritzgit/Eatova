@@ -125,7 +125,9 @@ class CoachChatService {
     }
   }
 
-  Future<String?> createSession({String title = 'Neue Unterhaltung'}) async {
+  /// [title] is the localized placeholder (`coachSessionDefaultTitle`); the
+  /// server replaces it with an auto title after the first question.
+  Future<String?> createSession({required String title}) async {
     try {
       final res = await _client.rpc(
         'create_chat_session',

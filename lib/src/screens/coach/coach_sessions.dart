@@ -120,11 +120,14 @@ class _SessionsSheet extends StatelessWidget {
       // Surface, radius, border and text styles come from dialogTheme.
       builder: (ctx) => AlertDialog(
         title: Text(l10n.coachSessionDeleteTitle),
-        content: Text(l10n.coachSessionDeleteBody(s.title)),
+        content: Text(l10n.coachSessionDeleteBody(_sessionTitle(s, l10n))),
         actions: <Widget>[
+          // Cancel stays quiet (ink2): the theme's accent would shout louder
+          // than the destructive action next to it.
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(l10n.commonCancel, style: TextStyle(color: t.ink2)),
+            style: TextButton.styleFrom(foregroundColor: t.ink2),
+            child: Text(l10n.commonCancel),
           ),
           TextButton(
             onPressed: () {
@@ -178,7 +181,7 @@ class _SessionTile extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     Text(
-                      session.title,
+                      _sessionTitle(session, l10n),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppType.ui(
@@ -209,6 +212,11 @@ class _SessionTile extends StatelessWidget {
     );
   }
 }
+
+/// Display title: stored placeholders (schema default, older builds, the
+/// other language) show as the localized default; real titles pass through.
+String _sessionTitle(ChatSession session, AppLocalizations l10n) =>
+    session.isDefaultTitle ? l10n.coachSessionDefaultTitle : session.title;
 
 /// One-time init of the `intl` date symbols; own guard because this file and
 /// `today_texts.dart` are separate libraries.

@@ -1,9 +1,9 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Composer capsule on `surf`: attach, text, mic, send tile. Focus brightens
-// the surface to `surf2` instead of drawing a ring; a tappable hint sits above
-// it when the quota runs low.
+// Composer capsule ([FieldCapsule]: field / fieldFocus, no ring): attach,
+// text, mic, send tile. A tappable hint sits above it when the quota runs
+// low.
 // ---------------------------------------------------------------------------
 class _Composer extends StatefulWidget {
   const _Composer({
@@ -77,21 +77,12 @@ class _ComposerState extends State<_Composer> {
         children: <Widget>[
           if (showQuotaHint)
             _QuotaHint(remaining: widget.remaining, onTap: widget.onQuotaTap),
-          AnimatedContainer(
-            duration: motionDuration(context, const Duration(milliseconds: 200)),
-            curve: Curves.easeOutCubic,
-            // Horizontal 0: the side margin comes from the shell.
-            margin: const EdgeInsets.only(bottom: 4),
+          // Horizontal 0: the side margin comes from the shell. The shadow is
+          // the only raised surface on this screen (composer above the list).
+          FieldCapsule(
+            focused: _focused,
             constraints: const BoxConstraints(minHeight: 52, maxHeight: 160),
             padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-            decoration: BoxDecoration(
-              color: _focused ? t.surf2 : t.surf,
-              borderRadius: BorderRadius.circular(17),
-              border: Border.all(color: t.line),
-              // The only raised surface on this screen: the composer sits
-              // above the scrolling list.
-              boxShadow: softShadow(t),
-            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: <Widget>[
@@ -140,12 +131,17 @@ class _ComposerState extends State<_Composer> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 2),
-                _MicButton(
-                  enabled: widget.canSend,
-                  listening: widget.listening,
-                  onTap: widget.onMic,
-                ),
+                // The `eatova/speech` channel is implemented in the iOS
+                // runner only; elsewhere the button could merely fail.
+                // `defaultTargetPlatform` honours the test override.
+                if (defaultTargetPlatform == TargetPlatform.iOS) ...<Widget>[
+                  const SizedBox(width: 2),
+                  _MicButton(
+                    enabled: widget.canSend,
+                    listening: widget.listening,
+                    onTap: widget.onMic,
+                  ),
+                ],
                 const SizedBox(width: 2),
                 _SendButton(
                   active: hasText,
@@ -155,6 +151,7 @@ class _ComposerState extends State<_Composer> {
               ],
             ),
           ),
+          const SizedBox(height: 4),
         ],
       ),
     );
