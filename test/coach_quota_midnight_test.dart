@@ -1,15 +1,14 @@
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'support/harness.dart';
 
 // Downside of the D6 fix: the coach screen stays mounted in the IndexedStack,
 // so `_bootstrap()` runs only ONCE per app run. With the quota exhausted the
@@ -105,22 +104,13 @@ void main() {
       'der Nutzer ueber Mitternacht bis zum Kaltstart ausgesperrt',
       (tester) async {
     final svc = _MidnightService.create();
-    await tester.pumpWidget(MaterialApp(
-      // Without the Eatova theme `AppTokens.of` throws; the screen reads its
-      // colours via `context.t`.
-      theme: buildEatovaTheme(Brightness.dark),
-      // The coach calls context.l10n, so AppLocalizations.of() would throw on
-      // the first build without localizations.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: _TabHost(service: svc),
-    ));
+    await pumpLocalized(
+      tester,
+      _TabHost(service: svc),
+      // The host brings its own Scaffold.
+      scaffold: false,
+      safeArea: false,
+    );
     await tester.pump(const Duration(milliseconds: 400));
     expect(svc.quotaCalls, 1, reason: 'Bootstrap: 0 uebrig, Composer gesperrt');
     expect(find.text('Limit für heute erreicht'), findsOneWidget);
@@ -135,22 +125,13 @@ void main() {
 
   testWidgets('das Verlassen des Tabs allein fragt nichts ab', (tester) async {
     final svc = _MidnightService.create();
-    await tester.pumpWidget(MaterialApp(
-      // Without the Eatova theme `AppTokens.of` throws; the screen reads its
-      // colours via `context.t`.
-      theme: buildEatovaTheme(Brightness.dark),
-      // The coach calls context.l10n, so AppLocalizations.of() would throw on
-      // the first build without localizations.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: _TabHost(service: svc),
-    ));
+    await pumpLocalized(
+      tester,
+      _TabHost(service: svc),
+      // The host brings its own Scaffold.
+      scaffold: false,
+      safeArea: false,
+    );
     await tester.pump(const Duration(milliseconds: 400));
 
     await _wechsleTab(tester); // away only
@@ -163,22 +144,13 @@ void main() {
       'ist das Kontingent wirklich aufgebraucht, bleibt der Composer gesperrt',
       (tester) async {
     final svc = _MidnightService.create()..resetAtCall = 99;
-    await tester.pumpWidget(MaterialApp(
-      // Without the Eatova theme `AppTokens.of` throws; the screen reads its
-      // colours via `context.t`.
-      theme: buildEatovaTheme(Brightness.dark),
-      // The coach calls context.l10n, so AppLocalizations.of() would throw on
-      // the first build without localizations.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: _TabHost(service: svc),
-    ));
+    await pumpLocalized(
+      tester,
+      _TabHost(service: svc),
+      // The host brings its own Scaffold.
+      scaffold: false,
+      safeArea: false,
+    );
     await tester.pump(const Duration(milliseconds: 400));
 
     await _wechsleTab(tester);

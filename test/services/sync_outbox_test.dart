@@ -1,12 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+
+import 'sync_test_helpers.dart';
 
 // DATA-7 write outbox: SyncOp is the persistable wire format for failed sync
 // writes. These tests pin:
@@ -21,21 +22,15 @@ import 'package:eatova/src/services/sync_outbox.dart';
 //      heals — but they do fall: the cap is hard, else the blob grows without
 //      bound.
 
+/// The shared fixture plus the fields only the wire-format assertions here
+/// care about: a component list, a barcode and a brand.
 MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
-    MealAnalysisResult(
-      mealName: name,
-      caloriesKcal: kcal,
-      estimatedGrams: 350,
-      kcalPer100G: 85.7,
-      protein: '30 g',
-      carbs: '40 g',
-      fat: '10 g',
-      confidence: 'Hoch',
-      portionNotes: 'Testportion.',
+    testResult(
+      name: name,
+      kcal: kcal,
       items: const [
         MealComponent(name: 'Reis', grams: 150, caloriesKcal: 195),
       ],
-      sourceLabel: 'Foto-KI',
       barcode: '4001234',
       brand: 'Testmarke',
     );
@@ -58,13 +53,8 @@ FitnessRecipe _recipe() => const FitnessRecipe(
       userCreated: true,
     );
 
-LoggedMeal _meal(String id, {int kcal = 300}) => LoggedMeal(
-      id: id,
-      result: _result(kcal: kcal),
-      loggedAt: DateTime(2026, 8, 5, 12, 30),
-      forcedSlot: MealSlot.lunch,
-      localDay: '2026-08-05',
-    );
+LoggedMeal _meal(String id, {int kcal = 300}) =>
+    testMeal(id, result: _result(kcal: kcal));
 
 void main() {
   group('SyncOp Serialisierung', () {
@@ -112,12 +102,8 @@ void main() {
     });
 
     test('favoriteUpsert/-Delete roundtrippen inkl. pinned', () {
-      final fav = FavoriteMeal(
-        id: 'barcode:4001234',
-        result: _result(),
-        addedAt: DateTime(2026, 8, 5, 13),
-        pinned: true,
-      );
+      final fav =
+          testFavorite('barcode:4001234', result: _result(), pinned: true);
       final back = SyncOp.tryFromJson(SyncOp.favoriteUpsert(fav).toJson());
       expect(back!.kind, SyncOpKind.favoriteUpsert);
       expect(back.favorite!.id, 'barcode:4001234');
@@ -283,11 +269,6 @@ void main() {
               'in chronologischer Reihenfolge nachgespielt werden');
     });
 
-    test('ein Streak-Tag ist KEIN Delete — er faellt am Cap zuerst', () {
-      // A dropped streak day costs a counter; a dropped delete resurrects user
-      // data. capOutbox's ordering rests on that distinction.
-      expect(SyncOp.trackingDay('2026-08-10').isDelete, isFalse);
-    });
   });
 
   group('SyncOp.attempts (Zustellversuchs-Budget)', () {
@@ -298,11 +279,7 @@ void main() {
         SyncOp.mealDelete('m-1'),
         SyncOp.weightInsert(
             id: 'w-1', weightKg: 80, recordedAt: DateTime(2026, 8, 6)),
-        SyncOp.favoriteUpsert(FavoriteMeal(
-          id: 'fav-1',
-          result: _result(),
-          addedAt: DateTime(2026, 8, 5),
-        )),
+        SyncOp.favoriteUpsert(testFavorite('fav-1', result: _result())),
         SyncOp.favoriteDelete('fav-1'),
         SyncOp.recipeUpsert(_recipe()),
         SyncOp.recipeDelete('user_123'),
@@ -347,6 +324,10 @@ void main() {
       expect(SyncOp.favoriteDelete('fav-1').isDelete, isTrue);
       expect(SyncOp.recipeDelete('user_123').isDelete, isTrue);
 
+      // A dropped streak day costs a counter; a dropped delete resurrects user
+      // data. capOutbox's ordering rests on that distinction.
+      expect(SyncOp.trackingDay('2026-08-10').isDelete, isFalse,
+          reason: 'ein Streak-Tag ist KEIN Delete — er faellt am Cap zuerst');
       expect(SyncOp.mealInsert(_meal('m-1'), trackDay: true).isDelete, isFalse);
       expect(SyncOp.mealUpsert(_meal('m-1')).isDelete, isFalse);
       expect(
@@ -354,13 +335,7 @@ void main() {
                   id: 'w-1', weightKg: 80, recordedAt: DateTime(2026, 8, 6))
               .isDelete,
           isFalse);
-      expect(
-          SyncOp.favoriteUpsert(FavoriteMeal(
-            id: 'fav-1',
-            result: _result(),
-            addedAt: DateTime(2026, 8, 5),
-          )).isDelete,
-          isFalse);
+      expect(SyncOp.favoriteUpsert(testFavorite('fav-1')).isDelete, isFalse);
       expect(SyncOp.recipeUpsert(_recipe()).isDelete, isFalse);
       expect(SyncOp.profileUpsert(const UserProfile()).isDelete, isFalse);
     });
@@ -392,13 +367,12 @@ void main() {
       expect(next.meal!.result.caloriesKcal, 300);
       expect(next.queuedAt, op.queuedAt,
           reason: 'queuedAt ist die FIFO-Position, kein Versuchs-Merkmal');
-    });
 
-    test('attempts roundtrippt durch toJson/tryFromJson', () {
-      final op = SyncOp.mealUpsert(_meal('m-1')).incrementAttempt();
-      final json = op.toJson();
-      expect(json['attempts'], 1);
-      expect(SyncOp.tryFromJson(json)!.attempts, 1);
+      // The counter survives the blob: toJson carries it, tryFromJson reads it
+      // back — without that the budget restarts at every app start.
+      final json = next.toJson();
+      expect(json['attempts'], 2);
+      expect(SyncOp.tryFromJson(json)!.attempts, 2);
     });
 
     test('attempts == 0 taucht im JSON gar nicht auf (Wire-Format bleibt '
@@ -564,19 +538,28 @@ void main() {
       expect(capOutbox(queue, maxOps: 2).dropped, isEmpty);
     });
 
-    test('ueber dem Cap fliegen die AELTESTEN Schreib-Ops raus (Kopf-Trim)',
-        () {
-      final queue = <SyncOp>[
-        for (var i = 0; i < 6; i++) SyncOp.mealUpsert(_meal('m-$i')),
-      ];
-      final capped = capOutbox(queue, maxOps: 4);
+    // Same head trim for both op families: the ONLY difference is whether the
+    // queue holds writes or deletes. "Never cap deletes" would disable the cap
+    // entirely for a queue of undeliverable deletes — exactly the unbounded
+    // blob growth the cap exists against. Resolution: deletes fall LAST, but
+    // they fall; the store then restores the affected entries and says so.
+    for (final (art, baue) in <(String, SyncOp Function(int))>[
+      ('Schreib-Ops', (i) => SyncOp.mealUpsert(_meal('m-$i'))),
+      ('Loesch-Ops', (i) => SyncOp.mealDelete('m-$i')),
+    ]) {
+      test('ueber dem Cap fliegen die AELTESTEN $art raus (Kopf-Trim)', () {
+        final queue = <SyncOp>[for (var i = 0; i < 6; i++) baue(i)];
+        final capped = capOutbox(queue, maxOps: 4);
 
-      expect(capped.queue.map((o) => o.entityId).toList(),
-          <String>['m-2', 'm-3', 'm-4', 'm-5'],
-          reason: 'das Neueste — worauf der User gerade schaut — bleibt');
-      expect(capped.dropped.map((o) => o.entityId).toList(),
-          <String>['m-0', 'm-1']);
-    });
+        expect(capped.queue, hasLength(4));
+        expect(capped.queue.map((o) => o.entityId).toList(),
+            <String>['m-2', 'm-3', 'm-4', 'm-5'],
+            reason: 'das Neueste — worauf der User gerade schaut — bleibt');
+        expect(capped.dropped.map((o) => o.entityId).toList(),
+            <String>['m-0', 'm-1'],
+            reason: 'aeltestes zuerst');
+      });
+    }
 
     test(
         'Deletes ueberleben den Kopf-Trim — sonst kehrt die geloeschte '
@@ -605,26 +588,6 @@ void main() {
             'meal:m-3',
           ],
           reason: 'FIFO-Reihenfolge bleibt, alle drei Loeschungen bleiben');
-    });
-
-    test(
-        'der Cap ist eine HARTE Obergrenze — auch eine reine Loesch-Queue '
-        'wird gekappt, sobald keine Schreib-Op mehr da ist', () {
-      // "Never cap deletes" would disable the cap entirely for a queue of
-      // undeliverable deletes — exactly the unbounded blob growth the cap
-      // exists against. Resolution: deletes fall LAST, but they fall. The
-      // store then restores the affected entries and says so.
-      final queue = <SyncOp>[
-        for (var i = 0; i < 6; i++) SyncOp.mealDelete('m-$i'),
-      ];
-      final capped = capOutbox(queue, maxOps: 4);
-
-      expect(capped.queue, hasLength(4));
-      expect(capped.dropped.map((o) => o.entityId).toList(),
-          <String>['m-0', 'm-1'],
-          reason: 'aeltestes zuerst, wie bei den Schreib-Ops');
-      expect(capped.queue.map((o) => o.entityId).toList(),
-          <String>['m-2', 'm-3', 'm-4', 'm-5']);
     });
 
     test(
@@ -693,13 +656,12 @@ void main() {
       expect(back.statsMeals, 1);
       expect(back.statsWeightLogs, 0);
       expect(back.entityKey, 'stats:$rid');
-    });
 
-    test('Gewichts-Eintrag roundtrippt genauso', () {
-      final back = SyncOp.tryFromJson(
+      // The weight entry takes the same path with the fields swapped.
+      final gewicht = SyncOp.tryFromJson(
           SyncOp.statsIncrement(requestId: rid, weightLogs: 1).toJson())!;
-      expect(back.statsWeightLogs, 1);
-      expect(back.statsMeals, 0);
+      expect(gewicht.statsWeightLogs, 1);
+      expect(gewicht.statsMeals, 0);
     });
 
     test('Wire-Sparsamkeit: nur gesetzte Schluessel stehen im Blob', () {
@@ -741,13 +703,65 @@ void main() {
     });
 
     test('Rueckwaertskompatibilitaet: alte Blobs parsen unveraendert', () {
-      // The exact wire form from before fix 3 (no statsIncrement anywhere):
-      // every entry must load unchanged.
-      final alt = <Map<String, dynamic>>[
-        SyncOp.mealInsert(_meal('m-alt'), trackDay: true).toJson(),
-        SyncOp.trackingDay('2026-08-10').toJson(),
-        SyncOp.mealDelete('m-weg').toJson(),
+      // HAND-WRITTEN wire form from a build before fix 3 (no statsIncrement
+      // anywhere, no attempts key), same technique as the legacy fixture in
+      // 'Legacy-JSON ohne attempts-Key laedt als 0' above. Encoding the
+      // fixture with today's `toJson()` would only prove that the current
+      // encoder pairs with the current decoder — a renamed key would move in
+      // both at once and the test could never turn red.
+      const alt = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'kind': 'mealInsert',
+          'entity_id': 'm-alt',
+          'queued_at': '2026-08-05T12:30:00.000',
+          'payload': <String, dynamic>{
+            'meal': <String, dynamic>{
+              'id': 'm-alt',
+              'logged_at': '2026-08-05T12:30:00.000',
+              'forced_slot': 'lunch',
+              'local_day': '2026-08-05',
+              'result': <String, dynamic>{
+                'mealName': 'Bowl',
+                'caloriesKcal': 300,
+                'estimatedGrams': 350,
+                'kcalPer100G': 85.7,
+                'protein': '30 g',
+                'carbs': '40 g',
+                'fat': '10 g',
+                'confidence': 'Hoch',
+                'portionNotes': 'Testportion.',
+                'items': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'name': 'Reis',
+                    'grams': 150,
+                    'caloriesKcal': 195,
+                  },
+                ],
+                'isAdjusted': false,
+                'sourceLabel': 'Foto-KI',
+                'barcode': '4001234',
+                'brand': 'Testmarke',
+              },
+            },
+            'track_day': true,
+          },
+        },
+        <String, dynamic>{
+          'kind': 'trackingDay',
+          'entity_id': '2026-08-10',
+          'queued_at': '2026-08-10T09:00:00.000',
+          'payload': <String, dynamic>{},
+        },
+        <String, dynamic>{
+          'kind': 'mealDelete',
+          'entity_id': 'm-weg',
+          'queued_at': '2026-08-05T18:00:00.000',
+          'payload': <String, dynamic>{},
+        },
       ];
+      expect(alt.every((e) => !e.containsKey('attempts')), isTrue,
+          reason: 'die Fixture waere sonst keine Vor-Fix-3-Fixture');
+
       final gelesen = alt.map(SyncOp.tryFromJson).toList();
       expect(gelesen.every((o) => o != null), isTrue);
       expect(gelesen.map((o) => o!.kind).toList(), <SyncOpKind>[
@@ -755,27 +769,32 @@ void main() {
         SyncOpKind.trackingDay,
         SyncOpKind.mealDelete,
       ]);
-      expect(gelesen.first!.trackDay, isTrue,
+      expect(gelesen.map((o) => o!.entityId).toList(),
+          <String>['m-alt', '2026-08-10', 'm-weg']);
+      expect(gelesen.map((o) => o!.attempts).toList(), <int>[0, 0, 0]);
+
+      final erste = gelesen.first!;
+      expect(erste.trackDay, isTrue,
           reason: 'eine Alt-Op behaelt alles, was der neue Replay fuer ihren '
               'Folgeeintrag braucht — es gibt keinen Migrationspfad');
+      expect(erste.queuedAt, DateTime(2026, 8, 5, 12, 30),
+          reason: 'die FIFO-Position ueberlebt den Versionswechsel');
+      // Not just the envelope: the nested meal payload is readable too.
+      expect(erste.meal!.id, 'm-alt');
+      expect(erste.meal!.forcedSlot, MealSlot.lunch);
+      expect(erste.meal!.localDay, '2026-08-05');
+      expect(erste.meal!.result.caloriesKcal, 300);
+      expect(erste.meal!.result.items.single.name, 'Reis');
+      expect(erste.meal!.result.barcode, '4001234');
     });
 
-    test('ein unbekannter Kind reisst die uebrige Queue nicht mit', () {
-      // Downgrade direction: an old build reads a new blob. Unknown kinds drop
-      // per entry, same deliberate behaviour as the attempts field.
-      final gemischt = <Map<String, dynamic>>[
-        SyncOp.mealInsert(_meal('m-neu'), trackDay: false).toJson(),
-        <String, dynamic>{
-          'kind': 'einKuenftigerKind',
-          'entity_id': 'x',
-          'queued_at': '2026-08-15T10:00:00.000Z',
-          'payload': <String, dynamic>{},
-        },
-      ];
-      final gelesen =
-          gemischt.map(SyncOp.tryFromJson).whereType<SyncOp>().toList();
-      expect(gelesen, hasLength(1));
-      expect(gelesen.single.entityId, 'm-neu');
-    });
+    // Deliberately no 'an unknown kind does not take the queue down' test
+    // here: `whereType<SyncOp>()` in such a test does the skipping itself, so
+    // it can only assert its own filter. Both halves of the claim are pinned
+    // where they actually live — `tryFromJson` returning null for an unknown
+    // kind in 'korrupte Eintraege liefern null statt Crash' above, and the
+    // PRODUCTIVE skipping in `LocalCache.readOutbox` in
+    // test/services/local_cache_offline_state_test.dart ('Outbox roundtrippt;
+    // korrupte Einzel-Ops werden uebersprungen').
   });
 }

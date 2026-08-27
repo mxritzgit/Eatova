@@ -117,13 +117,19 @@ void main() {
 
     test('RPC-Fehler (500) wird durchgereicht (rethrow)', () async {
       final sync = _sync((req) async {
+        // `request: req` is mandatory: postgrest dereferences
+        // `response.request!` while building its exception, so a fake without
+        // it throws a TypeError and the assertion below would test the mock.
         return http.Response(jsonEncode({'message': 'boom'}), 500,
-            headers: const {'Content-Type': 'application/json'});
+            headers: const {'Content-Type': 'application/json'}, request: req);
       });
 
+      // Narrow on purpose: `isA<Object>()` would also pass on a broken mock
+      // (a TypeError from the handler), so it could not turn red for the
+      // claim in the test name.
       await expectLater(
         sync.increment(water: 100),
-        throwsA(isA<Object>()),
+        throwsA(isA<PostgrestException>()),
       );
     });
   });
@@ -181,36 +187,35 @@ void main() {
               'zweites Mal, weil die Wiedererkennung fehlt');
     });
 
-    test(
+    // A permanently missing overload: the only difference is whether there is
+    // a request id to leave out, which decides the call count.
+    for (final (name, requestId, aufrufeErwartet) in <(String, String?, int)>[
+      (
         'scheitert auch der Wiederholungsversuch, bleibt es bei genau zwei '
-        'Aufrufen — keine Schleife', () async {
-      var aufrufe = 0;
-      final sync = _sync((req) async {
-        aufrufe++;
-        return _keineUeberladung(req);
+            'Aufrufen — keine Schleife',
+        'req-3',
+        2
+      ),
+      (
+        'ohne Anfrage-Id gibt es nichts wegzulassen — kein zweiter Aufruf',
+        null,
+        1
+      ),
+    ]) {
+      test(name, () async {
+        var aufrufe = 0;
+        final sync = _sync((req) async {
+          aufrufe++;
+          return _keineUeberladung(req);
+        });
+
+        await expectLater(
+          sync.increment(meals: 1, requestId: requestId),
+          throwsA(isA<PostgrestException>()),
+        );
+        expect(aufrufe, aufrufeErwartet);
       });
-
-      await expectLater(
-        sync.increment(meals: 1, requestId: 'req-3'),
-        throwsA(isA<PostgrestException>()),
-      );
-      expect(aufrufe, 2);
-    });
-
-    test('ohne Anfrage-Id gibt es nichts wegzulassen — kein zweiter Aufruf',
-        () async {
-      var aufrufe = 0;
-      final sync = _sync((req) async {
-        aufrufe++;
-        return _keineUeberladung(req);
-      });
-
-      await expectLater(
-        sync.increment(meals: 1),
-        throwsA(isA<PostgrestException>()),
-      );
-      expect(aufrufe, 1);
-    });
+    }
   });
 
   group('LifetimeStatsSync.recordTrackingDay', () {

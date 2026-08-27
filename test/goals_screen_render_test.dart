@@ -1,114 +1,87 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_test/flutter_test.dart';
-
-import 'package:eatova/src/app/home_store.dart' show ReminderState;
-import 'package:eatova/src/l10n/l10n.dart';
-import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/screens/settings/goals_screen.dart';
-import 'package:eatova/src/services/kcal_calculator.dart';
-import 'package:eatova/src/theme/app_theme.dart';
-import 'package:eatova/src/theme/theme_mode_controller.dart';
-
 // DESIGN_REFACTOR §7.2 / §5: renders in BOTH brightnesses and at 200 % text
 // without RenderFlex overflow. [GoalsScreen] is the densest page in the app,
 // so it gets its own pump, and overflows are the subject, not swallowed.
+//
+// The four hand-written smokes (hell / dunkel / 2.0 hell / 2.0 dunkel) are one
+// `renderMatrix` now; the two EN regressions keep their own cases because they
+// pin a translated VALUE, not just "no exception".
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:eatova/src/app/home_store.dart' show ReminderState;
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
+import 'package:eatova/src/services/kcal_calculator.dart';
+import 'package:eatova/src/theme/theme_mode_controller.dart';
+
+import 'support/harness.dart';
+
+/// Stored goals matching the calculation exactly -> live mode.
+UserProfile _autoProfil() {
+  const basis = UserProfile();
+  final t = const KcalCalculator().calculate(basis);
+  return basis.copyWith(
+    dailyKcalGoal: t.kcal,
+    proteinGoalG: t.proteinG,
+    carbsGoalG: t.carbsG,
+    fatGoalG: t.fatG,
+  );
+}
+
+/// Pumps the page and pins what every case shares. Overflows are collected by
+/// the caller ([renderMatrix] or [collectOverflows]).
+Future<void> _pump(
+  WidgetTester tester, {
+  required Brightness brightness,
+  Locale locale = const Locale('de'),
+  double textScale = 1.0,
+  UserProfile profile = const UserProfile(),
+  ReminderState reminderState = ReminderState.off,
+  VoidCallback? onOpenSystemSettings,
+  ThemeModeController? themeController,
+}) async {
+  pinPhoneViewport(tester);
+  final Widget page = GoalsScreen(
+    profile: profile,
+    reminderState: reminderState,
+    onOpenSystemSettings: onOpenSystemSettings,
+  );
+  await pumpLocalized(
+    tester,
+    themeController == null
+        ? page
+        : ThemeModeScope(controller: themeController, child: page),
+    brightness: brightness,
+    locale: locale,
+    textScale: textScale,
+    // GoalsScreen brings its own Scaffold and SafeArea.
+    scaffold: false,
+    safeArea: false,
+    settle: true,
+  );
+
+  expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
+  expect(tester.takeException(), isNull);
+}
+
 void main() {
-  /// Stored goals matching the calculation exactly -> live mode.
-  UserProfile autoProfil() {
-    const basis = UserProfile();
-    final t = const KcalCalculator().calculate(basis);
-    return basis.copyWith(
-      dailyKcalGoal: t.kcal,
-      proteinGoalG: t.proteinG,
-      carbsGoalG: t.carbsG,
-      fatGoalG: t.fatG,
-    );
-  }
-
-  /// Pumps the page and reports every overflow collectively.
-  /// FlutterError.onError is restored BEFORE the expect(), or the binding
-  /// asserts on the first TestFailure.
-  Future<void> pumpOhneOverflow(
-    WidgetTester tester,
-    String fall, {
-    required Brightness brightness,
-    double textScale = 1.0,
-    UserProfile profile = const UserProfile(),
-    ReminderState reminderState = ReminderState.off,
-    VoidCallback? onOpenSystemSettings,
-    ThemeModeController? themeController,
-    Locale locale = const Locale('de'),
-  }) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    tester.platformDispatcher.textScaleFactorTestValue = textScale;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-
-    final app = MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: GoalsScreen(
-        profile: profile,
-        reminderState: reminderState,
-        onOpenSystemSettings: onOpenSystemSettings,
-      ),
-    );
-
-    try {
-      await tester.pumpWidget(
-        themeController == null
-            ? app
-            : ThemeModeScope(controller: themeController, child: app),
-      );
-      await tester.pumpAndSettle();
-    } finally {
-      FlutterError.onError = prior;
-    }
-
-    expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    expect(
-      overflows,
-      isEmpty,
-      reason: '$fall overflowt:\n${overflows.join('\n')}',
-    );
-  }
-
-  testWidgets('rendert im Hellmodus', (tester) async {
-    await pumpOhneOverflow(tester, 'hell', brightness: Brightness.light);
-  });
-
-  testWidgets('rendert im Dunkelmodus', (tester) async {
-    await pumpOhneOverflow(tester, 'dunkel', brightness: Brightness.dark);
-  });
+  renderMatrix(
+    'Die Ziele-Seite rendert overflow-frei',
+    (tester, c) async {
+      await _pump(tester, brightness: c.brightness, locale: c.locale,
+          textScale: c.textScale);
+    },
+    locales: const <Locale>[Locale('de'), Locale('en')],
+    textScales: const <double>[1.0, 2.0],
+  );
 
   testWidgets(
       'rendert unter EN mit englischem Tempo-Label statt deutschem Leck '
       '(i18n-Paket-7-Regression)', (tester) async {
     // The pace labels used to stay hardcoded German; this pins that shut.
-    await pumpOhneOverflow(
+    await _pump(
       tester,
-      'en',
       brightness: Brightness.light,
       locale: const Locale('en'),
     );
@@ -122,9 +95,8 @@ void main() {
       '(i18n-Nachzieh-Regression)', (tester) async {
     // Same leak one level deeper: `_formatRateKg` stayed German-formatted.
     // `lose05kg` gives exactly 0.5 kg/week, so the separator is unambiguous.
-    await pumpOhneOverflow(
+    await _pump(
       tester,
-      'en Dezimalrate',
       brightness: Brightness.light,
       locale: const Locale('en'),
       profile: const UserProfile(weightGoal: WeightGoal.lose05kg),
@@ -134,86 +106,55 @@ void main() {
     expect(find.text('−0,5 kg/Woche'), findsNothing);
   });
 
-  testWidgets('rendert bei textScale 2.0 (hell)', (tester) async {
-    await pumpOhneOverflow(
-      tester,
-      'hell @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-    );
-  });
+  renderMatrix(
+    'Der Live-Modus blendet die Energie-Felder aus und bleibt heil',
+    (tester, c) async {
+      await _pump(tester, brightness: c.brightness, textScale: c.textScale,
+          profile: _autoProfil());
+      expect(find.byKey(const ValueKey('settings-kcal')), findsNothing);
+    },
+    textScales: const <double>[2.0],
+  );
 
-  testWidgets('rendert bei textScale 2.0 (dunkel)', (tester) async {
-    await pumpOhneOverflow(
-      tester,
-      'dunkel @2.0',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-    );
-  });
-
-  testWidgets('Live-Modus blendet die Energie-Felder aus und bleibt heil',
-      (tester) async {
-    await pumpOhneOverflow(
-      tester,
-      'Live-Modus @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-      profile: autoProfil(),
-    );
-    expect(find.byKey(const ValueKey('settings-kcal')), findsNothing);
-  });
-
-  testWidgets('blockierte Erinnerungen blenden eine Extra-Zeile ein',
-      (tester) async {
-    await pumpOhneOverflow(
-      tester,
-      'blockiert @2.0',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-      reminderState: ReminderState.blocked,
-      onOpenSystemSettings: () {},
-    );
-    expect(
-      find.byKey(const ValueKey('settings-open-system-settings')),
-      findsOneWidget,
-    );
-  });
+  renderMatrix(
+    'Blockierte Erinnerungen blenden eine Extra-Zeile ein',
+    (tester, c) async {
+      await _pump(
+        tester,
+        brightness: c.brightness,
+        textScale: c.textScale,
+        reminderState: ReminderState.blocked,
+        onOpenSystemSettings: () {},
+      );
+      expect(
+        find.byKey(const ValueKey('settings-open-system-settings')),
+        findsOneWidget,
+      );
+    },
+    textScales: const <double>[2.0],
+  );
 
   testWidgets('die Fehler-Sammelmeldung sprengt die Seite nicht',
       (tester) async {
-    await pumpOhneOverflow(
-      tester,
-      'Fehlerfall @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-      profile: const UserProfile(weightKg: 30, heightCm: 100),
-    );
-
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-    try {
+    final overflows = await collectOverflows(() async {
+      await _pump(
+        tester,
+        brightness: Brightness.light,
+        textScale: 2.0,
+        profile: const UserProfile(weightKg: 30, heightCm: 100),
+      );
       await tester.enterText(
         find.byKey(const ValueKey('settings-weight')),
         '755',
       );
       await tester.pumpAndSettle();
-    } finally {
-      FlutterError.onError = prior;
-    }
+    });
 
     expect(
       find.byKey(const ValueKey('settings-validation-note')),
       findsOneWidget,
     );
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
+    expect(overflows, isEmpty, reason: describeOverflows(overflows));
   });
 
   testWidgets('der Anzeige-Modus steht NICHT mehr auf dieser Seite',
@@ -222,14 +163,16 @@ void main() {
     final controller = ThemeModeController();
     addTearDown(controller.dispose);
 
-    await pumpOhneOverflow(
-      tester,
-      'ohne ANZEIGE @2.0',
-      brightness: Brightness.light,
-      textScale: 2.0,
-      themeController: controller,
-    );
+    final overflows = await collectOverflows(() async {
+      await _pump(
+        tester,
+        brightness: Brightness.light,
+        textScale: 2.0,
+        themeController: controller,
+      );
+    });
 
+    expect(overflows, isEmpty, reason: describeOverflows(overflows));
     expect(find.text('ANZEIGE'), findsNothing);
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
@@ -238,24 +181,9 @@ void main() {
       (tester) async {
     // The pickers sit on their own route, and their title + subtitle rows
     // are what breaks at 2.0.
-    await pumpOhneOverflow(
-      tester,
-      'Picker-Grundzustand',
-      brightness: Brightness.dark,
-      textScale: 2.0,
-    );
+    final overflows = await collectOverflows(() async {
+      await _pump(tester, brightness: Brightness.dark, textScale: 2.0);
 
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-
-    try {
       for (final fall in const <(String, String)>[
         ('settings-sex', 'settings-sex-female'),
         ('settings-activity', 'settings-activity-moderate'),
@@ -272,11 +200,9 @@ void main() {
         Navigator.of(tester.element(find.byKey(ValueKey(fall.$2)))).pop();
         await tester.pumpAndSettle();
       }
-    } finally {
-      FlutterError.onError = prior;
-    }
+    });
 
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
+    expect(overflows, isEmpty, reason: describeOverflows(overflows));
   });
 
   // --- A11y: the cost of custom surfaces over Material widgets --------------
@@ -288,9 +214,8 @@ void main() {
       (tester) async {
     // Manual mode is a persisted flag (F7-01); only then are the kcal/macro
     // fields on the page at all. The water row is gone (F7-06).
-    await pumpOhneOverflow(
+    await _pump(
       tester,
-      'a11y-Felder',
       brightness: Brightness.light,
       profile: const UserProfile(manualEnergy: true),
     );
@@ -324,7 +249,7 @@ void main() {
   testWidgets('gesperrte Aktionen sagen dem Screenreader, dass sie gesperrt '
       'sind', (tester) async {
     // A disabled action must be ANNOUNCED as disabled, not silently inert.
-    await pumpOhneOverflow(tester, 'a11y-Knoepfe', brightness: Brightness.light);
+    await _pump(tester, brightness: Brightness.light);
 
     expect(
       tester.getSemantics(find.byKey(const ValueKey('settings-save'))),
@@ -342,11 +267,11 @@ void main() {
     );
   });
 
-  testWidgets('der Seitenfuss steht ohne vorheriges Scrollen im Baum',
-      (tester) async {
+  testWidgets('der Seitenfuss der Ziele-Seite steht ohne vorheriges Scrollen '
+      'im Baum', (tester) async {
     // Guards against ListView: a lazy list never builds the save button or
     // legal links, which several tests read unscrolled.
-    await pumpOhneOverflow(tester, 'Fuss', brightness: Brightness.light);
+    await _pump(tester, brightness: Brightness.light);
 
     expect(find.byKey(const ValueKey('settings-save')), findsOneWidget);
     // `settings-reset-day` was removed; pinned so it cannot return.

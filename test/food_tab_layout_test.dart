@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import 'support/harness.dart';
 
 // Layout tests for the food tab.
 //
@@ -34,65 +33,53 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // MealAnalysisScreen reads context.l10n.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        // Mirrors the text scaler cap from EatovaApp.
-        data: MediaQueryData(
-          textScaler: TextScaler.linear(textScale).clamp(maxScaleFactor: 2.0),
-          size: _usableSize,
-        ),
-        child: Scaffold(
-          // Page ground comes from the theme; a hard constant would rule out
-          // light mode. The nav bar carries the same four items as the real
-          // home page so the harness measures what the app draws.
-          bottomNavigationBar: AppNavBar(
-            index: 1,
-            onChanged: (_) {},
-            items: const <AppNavItem>[
-              AppNavItem(
-                icon: Icons.home_outlined,
-                activeIcon: Icons.home_rounded,
-                label: 'Heute',
-              ),
-              AppNavItem(
-                icon: Icons.restaurant_outlined,
-                activeIcon: Icons.restaurant_rounded,
-                label: 'Food',
-              ),
-              AppNavItem(
-                icon: Icons.menu_book_outlined,
-                activeIcon: Icons.menu_book_rounded,
-                label: 'Rezepte',
-              ),
-              AppNavItem(
-                icon: Icons.auto_awesome_outlined,
-                activeIcon: Icons.auto_awesome_rounded,
-                label: 'Coach',
-              ),
-            ],
+  await pumpLocalized(
+    tester,
+    Scaffold(
+      // Page ground comes from the theme; a hard constant would rule out
+      // light mode. The nav bar carries the same four items as the real
+      // home page so the harness measures what the app draws.
+      bottomNavigationBar: AppNavBar(
+        index: 1,
+        onChanged: (_) {},
+        items: const <AppNavItem>[
+          AppNavItem(
+            icon: Icons.home_outlined,
+            activeIcon: Icons.home_rounded,
+            label: 'Heute',
           ),
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: MealAnalysisScreen(dailyConsumedKcal: 0),
-            ),
+          AppNavItem(
+            icon: Icons.restaurant_outlined,
+            activeIcon: Icons.restaurant_rounded,
+            label: 'Food',
           ),
+          AppNavItem(
+            icon: Icons.menu_book_outlined,
+            activeIcon: Icons.menu_book_rounded,
+            label: 'Rezepte',
+          ),
+          AppNavItem(
+            icon: Icons.auto_awesome_outlined,
+            activeIcon: Icons.auto_awesome_rounded,
+            label: 'Coach',
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          child: MealAnalysisScreen(dailyConsumedKcal: 0),
         ),
       ),
     ),
+    // Mirrors the text scaler cap from EatovaApp.
+    textScale: textScale > 2.0 ? 2.0 : textScale,
+    // Motion as before the migration.
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 void main() {

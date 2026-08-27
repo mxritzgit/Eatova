@@ -22,14 +22,21 @@ class EatovaSync {
     required this.userRecipes,
   });
 
-  factory EatovaSync.forUser(SupabaseClient client, String userId) {
+  /// [coachChat] is a test seam: [CoachChatService] talks to an edge function,
+  /// not to PostgREST, so a fake PostgREST client cannot stand in for it.
+  /// Null (production) builds the real service.
+  factory EatovaSync.forUser(
+    SupabaseClient client,
+    String userId, {
+    CoachChatService? coachChat,
+  }) {
     return EatovaSync._(
       client: client,
       userId: userId,
       profile: ProfileSync(client, userId),
       meals: MealsSync(client, userId),
       tracking: TrackingSync(client, userId),
-      coachChat: CoachChatService(client, userId),
+      coachChat: coachChat ?? CoachChatService(client, userId),
       lifetimeStats: LifetimeStatsSync(client, userId),
       userRecipes: UserRecipesSync(client, userId),
     );

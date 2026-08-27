@@ -12,16 +12,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart' hide testWidgetsRobust;
 
 FitnessRecipe _recipe(String slug, {String title = 'Server-Bowl'}) =>
     FitnessRecipe(
@@ -69,26 +68,17 @@ class _HostState extends State<_Host> {
       setState(() => _recipes = next);
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: RecipesScreen(
-            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-            initialUserRecipes: _recipes,
-            onCreateRecipe: widget.onCreate,
-            onDeleteRecipe: widget.onDelete,
-          ),
-        ),
+  Widget build(BuildContext context) => RecipesScreen(
+        onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+        initialUserRecipes: _recipes,
+        onCreateRecipe: widget.onCreate,
+        onDeleteRecipe: widget.onDelete,
       );
 }
+
+/// [_Host] in the localized harness (dark, de) — same tree as before.
+Future<void> _pumpHost(WidgetTester tester, _Host host) =>
+    pumpLocalized(tester, host, reducedMotion: false, safeArea: false);
 
 /// Viewport pinning plus overflow tolerance.
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
@@ -147,7 +137,7 @@ void main() {
   group('Luecke E — die Meldung sagt, was wirklich passiert ist', () {
     testWidgetsRobust(
         'zugestellt: die schlichte Erfolgsmeldung', (tester) async {
-      await tester.pumpWidget(_Host(
+      await _pumpHost(tester, _Host(
         onCreate: (_) async => SyncDelivery.delivered,
       ));
       await _legeRezeptAn(tester);
@@ -158,7 +148,7 @@ void main() {
     testWidgetsRobust(
         'nur eingereiht (offline): die Meldung nennt die Warteschlange, statt '
         'Zustellung zu behaupten', (tester) async {
-      await tester.pumpWidget(_Host(
+      await _pumpHost(tester, _Host(
         onCreate: (_) async => SyncDelivery.queuedOffline,
       ));
       await _legeRezeptAn(tester);
@@ -175,7 +165,7 @@ void main() {
     testWidgetsRobust(
         'eingereiht, obwohl der Server antwortete: kein Offline-Versprechen',
         (tester) async {
-      await tester.pumpWidget(_Host(
+      await _pumpHost(tester, _Host(
         onCreate: (_) async => SyncDelivery.queuedRetry,
       ));
       await _legeRezeptAn(tester);
@@ -191,7 +181,7 @@ void main() {
         'die Meldung wartet auf den Ausgang, statt ihn vorwegzunehmen',
         (tester) async {
       final ausgang = Completer<SyncDelivery>();
-      await tester.pumpWidget(_Host(onCreate: (_) => ausgang.future));
+      await _pumpHost(tester, _Host(onCreate: (_) => ausgang.future));
       await _legeRezeptAn(tester);
 
       // Nothing to report until the store answers.
@@ -210,7 +200,7 @@ void main() {
     testWidgetsRobust(
         'GENAU EINE Meldung — kein Erfolg, der von einem Hinweis ueberschrieben '
         'wird', (tester) async {
-      await tester.pumpWidget(_Host(
+      await _pumpHost(tester, _Host(
         onCreate: (_) async => SyncDelivery.queuedOffline,
       ));
       await _legeRezeptAn(tester);
@@ -221,7 +211,7 @@ void main() {
     testWidgetsRobust(
         'ohne Persistenz-Hook (Vorschau/Test) bleibt es bei der schlichten '
         'Meldung — es gibt nichts zu synchronisieren', (tester) async {
-      await tester.pumpWidget(const _Host());
+      await _pumpHost(tester, const _Host());
       await _legeRezeptAn(tester);
 
       expect(find.text('„Protein-Bowl" gespeichert.'), findsOneWidget);
@@ -229,7 +219,7 @@ void main() {
 
     testWidgetsRobust(
         'die Loeschung meldet ebenso ehrlich', (tester) async {
-      await tester.pumpWidget(_Host(
+      await _pumpHost(tester, _Host(
         initial: <FitnessRecipe>[_recipe('user_weg', title: 'Weg-Bowl')],
         onDelete: (_) async => SyncDelivery.queuedOffline,
       ));
@@ -265,7 +255,7 @@ void main() {
       // the store brings the recipe back. With `_locallyMutated` the delete had
       // set the lock, so the screen never showed it again.
       final zurueck = _recipe('user_zurueck', title: 'Wieder-da-Bowl');
-      await tester.pumpWidget(_Host(
+      await _pumpHost(tester, _Host(
         initial: <FitnessRecipe>[zurueck],
         onDelete: (_) async => SyncDelivery.delivered,
       ));
@@ -301,7 +291,7 @@ void main() {
       // the fresh recipe. The store now merges instead of replacing, so the
       // late state already carries it.
       final eigenes = <FitnessRecipe>[];
-      await tester.pumpWidget(_Host(onCreate: (r) async {
+      await _pumpHost(tester, _Host(onCreate: (r) async {
         eigenes.add(r);
         return SyncDelivery.delivered;
       }));

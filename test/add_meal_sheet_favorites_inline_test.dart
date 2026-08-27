@@ -3,11 +3,9 @@
 // sheet, and unpins/adds made there flow back into the add sheet.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -15,8 +13,9 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -73,13 +72,6 @@ final List<FavoriteMeal> _fuenfGepinnt = <FavoriteMeal>[
   _favorit('Lachs', tag: 7),
 ];
 
-void _telefon(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
-
 Future<void> _pumpe(
   WidgetTester tester, {
   required List<FavoriteMeal> favoriten,
@@ -87,34 +79,26 @@ Future<void> _pumpe(
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
   Locale locale = const Locale('de'),
 }) async {
-  _telefon(tester);
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: AddMealSheet(
-          slot: MealSlot.snack,
-          analyzer: _StummerAnalyzer(),
-          productService: _StummerProduktdienst(),
-          photoInput: _StummeFotoquelle(),
-          favorites: favoriten,
-          onAdd: onAdd ?? (_, __) => 'id-1',
-          onUpdateMeal: (_, __) {},
-          onRemoveFavorite: (_) {},
-          onToggleFavorite: onToggleFavorite,
-        ),
-      ),
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    AddMealSheet(
+      slot: MealSlot.snack,
+      analyzer: _StummerAnalyzer(),
+      productService: _StummerProduktdienst(),
+      photoInput: _StummeFotoquelle(),
+      favorites: favoriten,
+      onAdd: onAdd ?? (_, __) => 'id-1',
+      onUpdateMeal: (_, __) {},
+      onRemoveFavorite: (_) {},
+      onToggleFavorite: onToggleFavorite,
     ),
+    locale: locale,
+    // Motion stays on: with duration 0 the sheet's AnimatedSize re-dirties
+    // itself inside its own performLayout.
+    reducedMotion: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 Finder _inlineKachel(int index) =>

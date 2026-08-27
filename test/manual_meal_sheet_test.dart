@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 // Manual entry: form per 100 g plus portion. Human input is REJECTED, not
 // clamped — save locks and the field shows the range error.
@@ -16,31 +15,19 @@ class _ResultHalter {
 
 Future<_ResultHalter> _open(WidgetTester tester, {String? initialName}) async {
   final halter = _ResultHalter();
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Builder(
-        builder: (context) => Scaffold(
-          body: Center(
-            child: FilledButton(
-              key: const ValueKey('open-manual'),
-              onPressed: () async {
-                halter.result = await showManualMealSheet(
-                  context,
-                  initialName: initialName,
-                );
-              },
-              child: const Text('open'),
-            ),
-          ),
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => Center(
+        child: FilledButton(
+          key: const ValueKey('open-manual'),
+          onPressed: () async {
+            halter.result = await showManualMealSheet(
+              context,
+              initialName: initialName,
+            );
+          },
+          child: const Text('open'),
         ),
       ),
     ),

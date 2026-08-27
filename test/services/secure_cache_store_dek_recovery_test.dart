@@ -127,6 +127,9 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(_blobKey), _deadBlob);
       expect(prefs.getInt(CacheKeyProvider.dekVanishStrikesKey), 1);
+      expect(await CacheKeyProvider.consumeCacheResetNotice(), isFalse,
+          reason: 'ein Abbruch IM Budget hinterlegt keinen Hinweis: noch ist '
+              'nichts aufgegeben, der naechste Start versucht es wieder');
     });
 
     test(
@@ -270,19 +273,6 @@ void main() {
           reason: 'Der Hinweis wird beim Lesen geloescht — einmal zeigen.');
     });
 
-    test('ein Abbruch im Budget hinterlegt KEINEN Hinweis', () async {
-      await _seedPrefs(<String, Object>{
-        CacheKeyProvider.dekProvisionedKey: true,
-        _blobKey: _deadBlob,
-      });
-
-      expect(
-          await CacheKeyProvider.obtain(keyStore: _AbsentDekKeyStore()), isNull);
-
-      expect(await CacheKeyProvider.consumeCacheResetNotice(), isFalse,
-          reason: 'Noch ist nichts aufgegeben, der naechste Start versucht es '
-              'wieder — nichts zu melden.');
-    });
   });
 
   group('A1/iOS Crash-Report', () {

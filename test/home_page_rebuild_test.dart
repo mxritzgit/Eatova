@@ -13,15 +13,14 @@
 // were re-measured for it.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/health_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 /// Health double returning the same step count on every refresh — the normal
 /// app-resume case: notifies that change NOTHING for the visible tab.
@@ -79,10 +78,7 @@ MealAnalysisResult _meal(String name) => MealAnalysisResult(
     );
 
 Future<void> _pumpHome(WidgetTester tester, {HealthService? health}) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  pinPhoneViewport(tester);
 
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {
@@ -92,23 +88,14 @@ Future<void> _pumpHome(WidgetTester tester, {HealthService? health}) async {
   addTearDown(() => FlutterError.onError = prior);
 
   debugTabBuilds.clear();
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() reads context.l10n, so without localizations
-      // AppLocalizations.of() throws while building the bottom nav.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: EatovaHomePage(healthService: health),
-    ),
+  await pumpLocalized(
+    tester,
+    EatovaHomePage(healthService: health),
+    // Motion as before the migration — the build counts are measured on it.
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
   );
-  await tester.pump();
 }
 
 Future<void> _pumpFrames(WidgetTester tester, {int frames = 12}) async {

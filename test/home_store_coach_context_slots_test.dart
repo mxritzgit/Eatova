@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -237,14 +235,8 @@ void main() {
       });
     });
 
-    test('der Cap-Spiegel im Store stimmt mit guardrails.ts ueberein', () {
-      // The store only mirrors the server limit; a stale mirror would make the
-      // length tests above worthless.
-      final source =
-          File('supabase/functions/coach-chat/guardrails.ts').readAsStringSync();
-      final match = RegExp(r'MAX_USER_CONTEXT_CHARS\s*=\s*(\d+)').firstMatch(source);
-      expect(match, isNotNull, reason: 'Konstante in guardrails.ts nicht gefunden');
-      expect(int.parse(match!.group(1)!), kCoachContextCapChars);
-    });
+    // The store only MIRRORS the server limit; a stale mirror would make the
+    // length tests above worthless. That comparison against guardrails.ts is a
+    // source-text rule and lives in test/repo_rules_test.dart.
   });
 }

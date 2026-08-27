@@ -41,5 +41,19 @@ linter:
     prefer_const_declarations: true
     prefer_const_literals_to_create_immutables: true
     prefer_final_locals: true
+    # F10-15: a StreamSubscription field that is never cancelled keeps the
+    # listener — and the object behind it — alive past dispose. The
+    # `onAuthStateChange` listeners are exactly that shape (see the Sentry
+    # round of 2026-08-26). The only rule of the F10-15 set the tree already
+    # satisfies, so it goes in as a gate rather than as a wish.
+    cancel_subscriptions: true
+    # Also proposed by F10-15, all measured against the current tree and NOT
+    # enabled: each has existing violations that only a lib/ change could
+    # clear, and a lint that has to be silenced everywhere protects nothing.
+    #   unawaited_futures    24 (13 lib · 11 test)
+    #   discarded_futures    89 (82 lib ·  7 test)
+    #   close_sinks           6 ( 0 lib ·  6 test)
+    #   avoid_slow_async_io  11 (10 lib ·  1 test) — recipe_image_store.dart
+    #   prefer_single_quotes 644 (643 lib · 1 test)
 
 # More on this file: https://dart.dev/guides/language/analysis-options

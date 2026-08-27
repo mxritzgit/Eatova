@@ -81,34 +81,29 @@ void main() {
   });
 
   group('Fehler AUS DEM TRANSPORT raeumen den Slot nicht', () {
-    test('Isolate-Spawn scheitert: null, Slot bleibt, naechster Read gelingt',
-        () async {
-      final (raw, cipher, store) = await _befuellt();
-      cipher.decryptErrors.add(IsolateSpawnException('kein Speicher'));
+    // The rule is one and the same for every transport error; only the
+    // exception type differs, so each type runs as its own named case.
+    for (final (name, baue) in <(String, Object Function())>[
+      ('Isolate-Spawn scheitert', () => IsolateSpawnException('kein Speicher')),
+      ('RemoteError', () => RemoteError('kaputt', '')),
+      ('OutOfMemoryError', () => const OutOfMemoryError()),
+    ]) {
+      test('$name: null, Slot bleibt, naechster Read gelingt', () async {
+        final (raw, cipher, store) = await _befuellt();
+        cipher.decryptErrors.add(baue());
 
-      expect(await store.getString(_key), isNull,
-          reason: 'Der Aufrufer sieht dasselbe wie bei leerem Cache.');
-      expect(raw.snapshot.containsKey(_key), isTrue,
-          reason: 'Ein gescheiterter Isolate-Spawn ist KEINE Aussage ueber den '
-              'Ciphertext — die bis zu 500 nie zugestellten Writes sind hier '
-              'unwiederbringlich.');
+        expect(await store.getString(_key), isNull,
+            reason: 'Der Aufrufer sieht dasselbe wie bei leerem Cache.');
+        expect(raw.snapshot.containsKey(_key), isTrue,
+            reason: 'Ein gescheiterter Isolate-Hop ist KEINE Aussage ueber den '
+                'Ciphertext — die bis zu 500 nie zugestellten Writes sind hier '
+                'unwiederbringlich.');
 
-      expect(await store.getString(_key), _blob,
-          reason: 'Der naechste Read bekommt seinen Isolate; ein geloeschter '
-              'Slot kaeme nie zurueck.');
-    });
-
-    test('RemoteError und OutOfMemoryError ebenso', () async {
-      final (raw, cipher, store) = await _befuellt();
-      cipher.decryptErrors
-        ..add(RemoteError('kaputt', ''))
-        ..add(const OutOfMemoryError());
-
-      expect(await store.getString(_key), isNull);
-      expect(await store.getString(_key), isNull);
-      expect(raw.snapshot.containsKey(_key), isTrue);
-      expect(await store.getString(_key), _blob);
-    });
+        expect(await store.getString(_key), _blob,
+            reason: 'Der naechste Read bekommt seinen Isolate; ein geloeschter '
+                'Slot kaeme nie zurueck.');
+      });
+    }
 
     test('gemeldet wird EINMAL pro Prozess, unter eigenem Kontext', () async {
       final (_, cipher, store) = await _befuellt();
@@ -146,25 +141,37 @@ void main() {
   });
 
   group('Nachgewiesene Ciphertext-Probleme raeumen weiterhin', () {
-    test('InvalidCipherTextException (falscher DEK) raeumt den Slot', () async {
+    // Both exception types arise in `decryptSync` alone, so both are a proven
+    // statement about the ciphertext — and both must clear AND report.
+    for (final (name, baue) in <(String, Object Function())>[
+      ('InvalidCipherTextException (GCM-Tag)',
+          () => InvalidCipherTextException('mac check in GCM failed')),
+      ('FormatException (kaputtes base64)',
+          () => const FormatException('Cache-Slot ist kein gueltiges base64')),
+    ]) {
+      test('$name raeumt den Slot und meldet unter cache_decrypt', () async {
+        final (raw, cipher, store) = await _befuellt();
+        cipher.decryptErrors.add(baue());
+
+        expect(await store.getString(_key), isNull);
+        expect(raw.snapshot.containsKey(_key), isFalse,
+            reason: 'Derselbe Blob geht auch beim naechsten Start nicht auf — '
+                'Wegwerfen IST das Self-Healing.');
+        await _settle();
+        expect(kontexte, <String?>['cache_decrypt']);
+      });
+    }
+
+    test('falscher DEK: derselbe Weg ueber den echten Tag-Vergleich', () async {
+      // Not scripted: the cipher itself rejects the foreign salt/AAD, exactly
+      // as AES-GCM rejects a wrong key.
       final (raw, _, _) = await _befuellt();
       final fremd = EncryptedKeyValueStore(raw, _ScriptedCipher('dek-b'));
 
       expect(await fremd.getString(_key), isNull);
-      expect(raw.snapshot.containsKey(_key), isFalse,
-          reason: 'Derselbe Blob geht auch beim naechsten Start nicht auf — '
-              'Wegwerfen IST das Self-Healing.');
+      expect(raw.snapshot.containsKey(_key), isFalse);
       await _settle();
       expect(kontexte, <String?>['cache_decrypt']);
-    });
-
-    test('FormatException (kaputtes base64) raeumt den Slot', () async {
-      final (raw, cipher, store) = await _befuellt();
-      cipher.decryptErrors
-          .add(const FormatException('Cache-Slot ist kein gueltiges base64'));
-
-      expect(await store.getString(_key), isNull);
-      expect(raw.snapshot.containsKey(_key), isFalse);
     });
   });
 }

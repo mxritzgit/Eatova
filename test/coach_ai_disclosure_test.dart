@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -10,7 +9,8 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // C8 — AI interaction disclosure in the coach tab (EU AI Act Art. 50(1)).
 //
@@ -94,30 +94,14 @@ Future<void> _pumpCoach(WidgetTester tester, {CoachChatService? service}) async 
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // The coach calls context.l10n, so without localizations
-      // AppLocalizations.of() throws on the first build.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        // Orb and composer animate forever otherwise, so pumpAndSettle would
-        // time out.
-        data: const MediaQueryData(disableAnimations: true),
-        child: Scaffold(
-          body: CoachChatScreen(service: service, userName: 'Moritz'),
-        ),
-      ),
-    ),
+  // reducedMotion (harness default): orb and composer animate forever
+  // otherwise, so pumpAndSettle would time out.
+  await pumpLocalized(
+    tester,
+    CoachChatScreen(service: service, userName: 'Moritz'),
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 void main() {

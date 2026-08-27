@@ -8,16 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
-import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
 import 'flow_test_helpers.dart';
-
-HomeStore _storeOf(WidgetTester tester) =>
-    (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
-        .debugStore;
 
 MealAnalysisResult _meal(
   String name, {
@@ -74,7 +69,7 @@ Future<HomeStore> _bootWithFavorites(WidgetTester tester) async {
     EatovaApp(productService: FakeProductLookupService()),
   );
 
-  final store = _storeOf(tester);
+  final store = storeOf(tester);
   for (var i = 0; i < _pinnedOldestFirst.length; i++) {
     // `addedAt` is the recency key of the sheet; a fixed clock per pin keeps
     // the order independent of how fast the loop runs.

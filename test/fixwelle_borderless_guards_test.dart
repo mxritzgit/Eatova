@@ -4,31 +4,17 @@
 // `fieldFocus`, error `fieldError`; never a hairline, never a focus ring.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-Widget _app(Widget home, Brightness brightness) => MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: home,
-    );
+import 'support/harness.dart';
 
 void _telefon(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -67,20 +53,16 @@ Future<void> _oeffneGewichtsSheet(
   Brightness brightness,
 ) async {
   _telefon(tester);
-  await tester.pumpWidget(
-    _app(
-      Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: WeightCard(
-            profile: const UserProfile(),
-            log: _log(),
-            onLogWeight: (_) {},
-          ),
-        ),
-      ),
-      brightness,
+  await pumpLocalized(
+    tester,
+    WeightCard(
+      profile: const UserProfile(),
+      log: _log(),
+      onLogWeight: (_) {},
     ),
+    brightness: brightness,
+    padding: const EdgeInsets.all(20),
+    safeArea: false,
   );
   await tester.tap(find.byKey(const ValueKey('profile-log-weight')));
   await tester.pumpAndSettle();
@@ -95,11 +77,12 @@ Future<void> _oeffnePasswortCode(
     initialUser: const EatovaUser(id: 'u1', email: 'jonas@beispiel.de'),
   );
   addTearDown(repo.dispose);
-  await tester.pumpWidget(
-    _app(
-      SettingsScreen(email: 'jonas@beispiel.de', authRepository: repo),
-      brightness,
-    ),
+  await pumpLocalized(
+    tester,
+    SettingsScreen(email: 'jonas@beispiel.de', authRepository: repo),
+    brightness: brightness,
+    scaffold: false,
+    safeArea: false,
   );
   await tester.pumpAndSettle();
 

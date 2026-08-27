@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -12,7 +11,8 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // W6-07 — "unknown" must not mean "full".
 //
@@ -173,25 +173,14 @@ class _TabHostState extends State<_TabHost> {
       );
 }
 
-/// Delegates + fixed locale `de`: the coach calls context.l10n, so
-/// AppLocalizations.of() would throw on the first build without them.
-const List<LocalizationsDelegate<dynamic>> _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
-
 Future<void> _pumpHost(WidgetTester tester, CoachChatService svc) async {
-  await tester.pumpWidget(MaterialApp(
-    // Without the Eatova theme `AppTokens.of` throws; the screen reads its
-    // colours via `context.t`.
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: _l10nDelegates,
-    home: _TabHost(service: svc),
-  ));
+  await pumpLocalized(
+    tester,
+    _TabHost(service: svc),
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
+  );
   await tester.pump(const Duration(milliseconds: 500));
   await tester.pump(const Duration(milliseconds: 500));
 }
@@ -317,16 +306,16 @@ void main() {
       try {
         final backend = _Backend()
           ..quotaZeile = const {'used': 0, 'remaining': 5, 'daily_limit': 5};
-        await tester.pumpWidget(MaterialApp(
-          theme: buildEatovaTheme(Brightness.dark),
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: _l10nDelegates,
-          home: _TabHost(
+        await pumpLocalized(
+          tester,
+          _TabHost(
             service: _service(backend),
             speechInput: const _StummesMikro(),
           ),
-        ));
+          reducedMotion: false,
+          scaffold: false,
+          safeArea: false,
+        );
         await tester.pump(const Duration(milliseconds: 500));
         await tester.pump(const Duration(milliseconds: 500));
 

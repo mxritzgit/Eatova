@@ -4,7 +4,6 @@
 // an error tints it, and the error text below stays.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -15,10 +14,11 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -41,25 +41,16 @@ class _StummeFotoquelle implements MealPhotoInput {
   Future<MealPhotoSelection?> pick(ImageSource source) async => null;
 }
 
-Widget _app(Widget body, Brightness brightness) => MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(body: body),
+/// `reducedMotion: false` keeps the motion behaviour from before the harness
+/// migration; the sheets' AnimatedSize re-dirties itself at duration 0.
+Widget _app(Widget body, Brightness brightness) => localizedApp(
+      body,
+      brightness: brightness,
+      reducedMotion: false,
+      safeArea: false,
     );
 
-void _telefon(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
+void _telefon(WidgetTester tester) => pinPhoneViewport(tester);
 
 /// The nearest decorated capsule around [inner].
 BoxDecoration _capsuleOf(WidgetTester tester, Finder inner) {

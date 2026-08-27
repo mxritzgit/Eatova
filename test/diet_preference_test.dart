@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // PROD-6: a vegetarian or vegan profile must NEVER be actively recommended a
 // meat or fish recipe, while manual browsing stays unrestricted on purpose.
@@ -96,25 +95,15 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.dark),
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          home: Scaffold(
-            body: RecipesScreen(
-              diet: diet,
-              remainingMacros: remaining,
-              onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-            ),
-          ),
+      await pumpLocalized(
+        tester,
+        RecipesScreen(
+          diet: diet,
+          remainingMacros: remaining,
+          onAddMeal: (MealAnalysisResult _, MealSlot __) {},
         ),
+        reducedMotion: false,
+        safeArea: false,
       );
       await tester.pumpAndSettle();
     }

@@ -1,14 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+
+import 'sync_test_helpers.dart';
 
 // DATA-7: the LocalCache also mirrors the diary, favorites, weight log, the
 // write outbox and the pending lifetime-stats deltas, so a cold start without
@@ -16,46 +16,7 @@ import 'package:eatova/src/services/sync_outbox.dart';
 // These tests pin the roundtrips, the defensive handling of corrupt slots and
 // that clear() wipes ALL new (PII) slots.
 
-MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
-    MealAnalysisResult(
-      mealName: name,
-      caloriesKcal: kcal,
-      estimatedGrams: 350,
-      kcalPer100G: 85.7,
-      protein: '30 g',
-      carbs: '40 g',
-      fat: '10 g',
-      confidence: 'Hoch',
-      portionNotes: 'Testportion.',
-      sourceLabel: 'Foto-KI',
-    );
-
-LoggedMeal _meal(String id) => LoggedMeal(
-      id: id,
-      result: _result(),
-      loggedAt: DateTime(2026, 8, 5, 12, 30),
-      forcedSlot: MealSlot.lunch,
-      localDay: '2026-08-05',
-    );
-
-FitnessRecipe _recipe(String slug, {String title = 'Eigene Bowl'}) =>
-    FitnessRecipe(
-      slug: slug,
-      title: title,
-      description: 'Eigenes Rezept',
-      portion: '1 Teller',
-      ingredients: 'Reis\nHaehnchen',
-      preparation: 'Eigenes Rezept — keine Zubereitung hinterlegt.',
-      professionalHint: 'Selbst angelegt. Werte beruhen auf deinen Angaben.',
-      imageAsset: '',
-      caloriesKcal: 600,
-      proteinG: 50,
-      carbsG: 60,
-      fatG: 15,
-      estimatedGrams: 400,
-      categories: const <String>['Eigene'],
-      userCreated: true,
-    );
+// Meal, result, recipe and favorite fixtures live in sync_test_helpers.dart.
 
 LocalCache _cache(InMemoryKeyValueStore store, [String userId = 'user-1']) =>
     LocalCache(store, userId);
@@ -65,7 +26,7 @@ void main() {
     test('loggedMeals roundtrippen verlustfrei (Slot, localDay, Result)',
         () async {
       final cache = _cache(InMemoryKeyValueStore());
-      await cache.writeLoggedMeals([_meal('m-1'), _meal('m-2')]);
+      await cache.writeLoggedMeals([testMeal('m-1'), testMeal('m-2')]);
 
       final back = await cache.readLoggedMeals();
       expect(back, hasLength(2));
@@ -79,14 +40,7 @@ void main() {
 
     test('favorites roundtrippen inkl. pinned', () async {
       final cache = _cache(InMemoryKeyValueStore());
-      await cache.writeFavorites([
-        FavoriteMeal(
-          id: 'name:bowl',
-          result: _result(),
-          addedAt: DateTime(2026, 8, 5, 13),
-          pinned: true,
-        ),
-      ]);
+      await cache.writeFavorites([testFavorite('name:bowl', pinned: true)]);
 
       final back = await cache.readFavorites();
       expect(back, hasLength(1));
@@ -143,8 +97,8 @@ void main() {
     test('roundtrippen verlustfrei inkl. Kategorien und Makros', () async {
       final cache = _cache(InMemoryKeyValueStore());
       await cache.writeUserRecipes([
-        _recipe('user_1717500000000', title: 'Eigene Protein-Bowl'),
-        _recipe('user_1717500000001'),
+        testRecipe('user_1717500000000', title: 'Eigene Protein-Bowl'),
+        testRecipe('user_1717500000001'),
       ]);
 
       final back = await cache.readUserRecipes();
@@ -174,7 +128,7 @@ void main() {
       // resolves the empty string into the current locale via
       // `FitnessRecipe.displayProfessionalHint`.
       final cache = _cache(InMemoryKeyValueStore());
-      await cache.writeUserRecipes([_recipe('user_1')]);
+      await cache.writeUserRecipes([testRecipe('user_1')]);
 
       final back = (await cache.readUserRecipes())!.single;
       expect(back.userCreated, isTrue);
@@ -192,7 +146,7 @@ void main() {
 
     test('Slot ist pro userId getrennt', () async {
       final store = InMemoryKeyValueStore();
-      await _cache(store, 'user-a').writeUserRecipes([_recipe('user_1')]);
+      await _cache(store, 'user-a').writeUserRecipes([testRecipe('user_1')]);
       expect(await _cache(store, 'user-b').readUserRecipes(), isNull);
     });
   });
@@ -202,7 +156,7 @@ void main() {
         () async {
       final cache = _cache(InMemoryKeyValueStore());
       await cache.writeOutbox([
-        SyncOp.mealInsert(_meal('m-1'), trackDay: true),
+        SyncOp.mealInsert(testMeal('m-1'), trackDay: true),
         SyncOp.mealDelete('m-2'),
       ]);
 
@@ -240,17 +194,15 @@ void main() {
         () async {
       final store = InMemoryKeyValueStore();
       final cache = _cache(store);
-      await cache.writeLoggedMeals([_meal('m-1')]);
-      await cache.writeFavorites([
-        FavoriteMeal(
-            id: 'name:bowl', result: _result(), addedAt: DateTime(2026, 8, 5)),
-      ]);
+      await cache.writeLoggedMeals([testMeal('m-1')]);
+      await cache
+          .writeFavorites([testFavorite('name:bowl', addedAt: DateTime(2026, 8, 5))]);
       await cache.writeWeightLog(WeightLog(entries: [
         WeightLogEntry(timestamp: DateTime(2026, 8, 5, 7), weightKg: 81.4),
       ]));
       await cache.writeOutbox([SyncOp.mealDelete('m-2')]);
       await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
-      await cache.writeUserRecipes([_recipe('user_1')]);
+      await cache.writeUserRecipes([testRecipe('user_1')]);
 
       await cache.clear();
 
@@ -274,17 +226,15 @@ void main() {
       await cache.writeProfile(const UserProfile(weightKg: 90));
       await cache.writeLifetimeStats(LifetimeStats(mealsLogged: 3));
       await cache.writeNotificationsEnabled(true);
-      await cache.writeLoggedMeals([_meal('m-1')]);
-      await cache.writeFavorites([
-        FavoriteMeal(
-            id: 'name:bowl', result: _result(), addedAt: DateTime(2026, 8, 5)),
-      ]);
+      await cache.writeLoggedMeals([testMeal('m-1')]);
+      await cache
+          .writeFavorites([testFavorite('name:bowl', addedAt: DateTime(2026, 8, 5))]);
       await cache.writeWeightLog(WeightLog(entries: [
         WeightLogEntry(timestamp: DateTime(2026, 8, 5, 7), weightKg: 81.4),
       ]));
-      await cache.writeOutbox([SyncOp.mealInsert(_meal('m-2'), trackDay: true)]);
+      await cache.writeOutbox([SyncOp.mealInsert(testMeal('m-2'), trackDay: true)]);
       await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
-      await cache.writeUserRecipes([_recipe('user_1')]);
+      await cache.writeUserRecipes([testRecipe('user_1')]);
 
       await cache.clear(preserveOutbox: true);
 
@@ -328,7 +278,7 @@ void main() {
 
     test('Slots sind pro userId getrennt', () async {
       final store = InMemoryKeyValueStore();
-      await _cache(store, 'user-a').writeLoggedMeals([_meal('m-1')]);
+      await _cache(store, 'user-a').writeLoggedMeals([testMeal('m-1')]);
       expect(await _cache(store, 'user-b').readLoggedMeals(), isNull);
     });
   });

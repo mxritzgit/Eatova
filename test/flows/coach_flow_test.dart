@@ -8,7 +8,6 @@
 // wait is a bounded pump loop, never pumpAndSettle. Runs in English.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -19,8 +18,9 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 
+// `testWidgetsRobust` exists in both files; the flows keep their own.
+import '../support/harness.dart' hide testWidgetsRobust;
 import 'flow_test_helpers.dart';
 
 const String _question = 'What should I eat tonight?';
@@ -138,30 +138,13 @@ void main() {
   ) async {
     final svc = _FlowCoach.create();
 
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
+    await pumpLocalized(
+      tester,
+      CoachChatScreen(service: svc, userName: 'Moritz', streak: 3),
       locale: const Locale('en'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            // Same shell as eatova_home_page.dart.
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: CoachChatScreen(
-              service: svc,
-              userName: 'Moritz',
-              streak: 3,
-            ),
-          ),
-        ),
-      ),
-    ));
+      // Same shell as eatova_home_page.dart.
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+    );
     await _pumpFrames(tester);
 
     expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);

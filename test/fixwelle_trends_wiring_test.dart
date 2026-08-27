@@ -4,15 +4,14 @@
 // TrendsScreen(burnedKcalFor:). Without the prop Trends stay on the base goal.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/trend_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 DateTime _vorTagen(int n) => addDays(startOfDay(DateTime.now()), -n);
 
@@ -32,33 +31,21 @@ Future<void> _pumpAndOpenTrends(
   WidgetTester tester, {
   int Function(DateTime day)? bonus,
 }) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  pinPhoneViewport(tester);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: MealAnalysisScreen(
-          dailyConsumedKcal: 0,
-          profile: const UserProfile(dailyKcalGoal: 2200),
-          trendTotalsLoader: () async => _totals,
-          trendBurnedKcalFor: bonus,
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    MealAnalysisScreen(
+      dailyConsumedKcal: 0,
+      profile: const UserProfile(dailyKcalGoal: 2200),
+      trendTotalsLoader: () async => _totals,
+      trendBurnedKcalFor: bonus,
     ),
+    // Motion as before the migration.
+    reducedMotion: false,
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('topbar-trends')));
   await tester.pumpAndSettle();
   expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);

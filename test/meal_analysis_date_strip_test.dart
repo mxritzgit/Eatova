@@ -12,13 +12,13 @@
 // one DST-dependent assertion is conditional, so it can never fail falsely.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
@@ -48,31 +48,13 @@ Future<void> _pumpFoodTab(
   WidgetTester tester, {
   ValueChanged<DateTime>? onDateSelected,
 }) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // MealAnalysisScreen reads context.l10n; without delegates/locale
-      // AppLocalizations.of() throws.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: MealAnalysisScreen(
-              dailyConsumedKcal: 0,
-              onDateSelected: onDateSelected,
-            ),
-          ),
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    MealAnalysisScreen(
+      dailyConsumedKcal: 0,
+      onDateSelected: onDateSelected,
     ),
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
   await tester.pumpAndSettle();
 }

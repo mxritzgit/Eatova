@@ -734,11 +734,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
                 else
                   // Removing a favorite collapses the list smoothly
                   // instead of jumping.
-                  AnimatedSize(
-                    duration: motionDuration(
-                      context,
-                      const Duration(milliseconds: 220),
-                    ),
+                  maybeAnimatedSize(
+                    context,
+                    duration: const Duration(milliseconds: 220),
                     curve: Curves.easeInOut,
                     alignment: Alignment.topCenter,
                     child: _buildFavorites(),

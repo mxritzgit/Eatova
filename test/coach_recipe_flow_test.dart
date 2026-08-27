@@ -2,13 +2,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/models/coach_recipe_proposal.dart';
@@ -16,7 +14,8 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Coach recipe generator:
 //   * /recipe is the only command (English in both app languages); unknown
@@ -146,45 +145,28 @@ Future<void> _pumpCoach(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        data: MediaQueryData.fromView(
-          tester.view,
-        ).copyWith(disableAnimations: true),
-        child: Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: CoachChatScreen(
-              service: service,
-              userName: 'Moritz',
-              // The shell mirrors the HomeStore: createUserRecipe makes the
-              // recipe visible at once, so the slug enters the live slug view
-              // in the same step.
-              onCreateRecipe: created == null
-                  ? null
-                  : (recipe) async {
-                      created.add(recipe);
-                      userRecipeSlugs?.add(recipe.slug);
-                      return SyncDelivery.delivered;
-                    },
-              userRecipeSlugs: userRecipeSlugs ?? const <String>{},
-            ),
-          ),
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    CoachChatScreen(
+      service: service,
+      userName: 'Moritz',
+      // The shell mirrors the HomeStore: createUserRecipe makes the
+      // recipe visible at once, so the slug enters the live slug view
+      // in the same step.
+      onCreateRecipe: created == null
+          ? null
+          : (recipe) async {
+              created.add(recipe);
+              userRecipeSlugs?.add(recipe.slug);
+              return SyncDelivery.delivered;
+            },
+      userRecipeSlugs: userRecipeSlugs ?? const <String>{},
     ),
+    locale: locale,
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 Future<void> _type(WidgetTester tester, String text) async {

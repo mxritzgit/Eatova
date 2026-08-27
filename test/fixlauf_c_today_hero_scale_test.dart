@@ -5,12 +5,11 @@
 // the 66 px hero number keeps its FittedBox.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/today/today_hero.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 const List<String> _tiles = <String>[
   'today-stat-eaten',
@@ -42,36 +41,20 @@ Future<List<String>> _pumpHero(
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Builder(
-        builder: (context) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: TextScaler.linear(scale)),
-          child: Scaffold(
-            body: Padding(
-              // The shell's 20 px side margin.
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TodayCalorieHero(
-                consumedKcal: consumed,
-                burnedKcal: burned,
-                kcalGoal: 2000,
-                streak: streak,
-              ),
-            ),
-          ),
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    TodayCalorieHero(
+      consumedKcal: consumed,
+      burnedKcal: burned,
+      kcalGoal: 2000,
+      streak: streak,
     ),
+    reducedMotion: false,
+    brightness: brightness,
+    textScale: scale,
+    // The shell's 20 px side margin.
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    safeArea: false,
   );
   await tester.pumpAndSettle();
   return overflows;

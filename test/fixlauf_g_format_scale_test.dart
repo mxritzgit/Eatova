@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/settings_plan_hero.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
+
+import 'support/harness.dart';
 
 // F7-09: hand-built "dd.MM." captions and "×1.45" showed the German dot
 // under `de` and the German order under `en`. Both go through intl now.
@@ -23,34 +23,20 @@ Future<void> _pumpHero(WidgetTester tester, {double scale = 1.0}) async {
   addTearDown(tester.view.resetDevicePixelRatio);
   final targets = const KcalCalculator().calculate(const UserProfile());
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.light),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
-        child: Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.all(20),
-            child: SettingsPlanHero(
-              kcal: targets.kcal,
-              protein: targets.proteinG,
-              carbs: targets.carbsG,
-              fat: targets.fatG,
-              targets: targets,
-              manual: false,
-            ),
-          ),
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    SettingsPlanHero(
+      kcal: targets.kcal,
+      protein: targets.proteinG,
+      carbs: targets.carbsG,
+      fat: targets.fatG,
+      targets: targets,
+      manual: false,
     ),
+    brightness: Brightness.light,
+    textScale: scale,
+    padding: const EdgeInsets.all(20),
+    safeArea: false,
   );
   await tester.pumpAndSettle();
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
@@ -488,31 +487,8 @@ void main() {
         reason: 'der Pop muss die Sheet-Route treffen, nicht die darunter');
   });
 
-  test('kein app_colors und keine harte Farbe mehr im Coach', () {
-    final dir = Directory('lib/src/screens/coach');
-    final verboten = <String>[
-      'app_colors',
-      'Color(0x',
-      'coachAccent',
-      'textPrimary',
-      'textMuted',
-      'surfaceSoft',
-      'hairline',
-      'cardShadow',
-    ];
-    final treffer = <String>[];
-    for (final file in dir.listSync().whereType<File>()) {
-      if (!file.path.endsWith('.dart')) continue;
-      final quelle = file.readAsStringSync();
-      for (final wort in verboten) {
-        if (quelle.contains(wort)) {
-          treffer.add('${file.uri.pathSegments.last}: $wort');
-        }
-      }
-    }
-    expect(treffer, isEmpty,
-        reason: 'Farbe kommt ausschliesslich aus context.t (AppTokens)');
-  });
+  // The source guard "kein app_colors und keine harte Farbe mehr im Coach"
+  // moved to test/repo_rules_test.dart, where `lib/` is walked once.
 
   group('EN-Render-Smoke (i18n-Paket 4, Spec §6)', () {
     // Renders under locale `en` in both brightnesses: no crash, and at least

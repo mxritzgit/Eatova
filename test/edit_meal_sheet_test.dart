@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
+
+// `testWidgetsRobust` is declared locally below; the local one shadows the
+// harness export.
+import 'support/harness.dart' hide testWidgetsRobust;
 
 // Edit sheet: tapping a logged meal opens a sheet that changes portion/items,
 // slot and day and saves through the outbox-safe store path. Standalone tests
@@ -93,31 +94,18 @@ Future<void> _openSheet(
   _EditCapture capture, {
   bool withRemove = true,
 }) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // EditMealSheet reads context.l10n.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: TextButton(
-              onPressed: () => showEditMealSheet(
-                context,
-                meal: _loggedMeal(),
-                onUpdateMeal: capture.update,
-                onRemoveMeal: withRemove ? capture.removed.add : null,
-              ),
-              child: const Text('open'),
-            ),
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => Center(
+        child: TextButton(
+          onPressed: () => showEditMealSheet(
+            context,
+            meal: _loggedMeal(),
+            onUpdateMeal: capture.update,
+            onRemoveMeal: withRemove ? capture.removed.add : null,
           ),
+          child: const Text('open'),
         ),
       ),
     ),

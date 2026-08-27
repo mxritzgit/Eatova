@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/health_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
+
+import '../support/harness.dart';
 
 // REVIEW B3 — "denied permission looks like 0 steps": hasPermission returns
 // nil for READ, `requestAuthorization` succeeds once the sheet was shown, and
@@ -179,32 +178,20 @@ void main() {
   });
 
   group('HealthConnectionCard — unverifiziert bleibt handlungsfaehig', () {
-    Future<void> pumpCard(WidgetTester tester, HealthAuthState state) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          // `AppTokens.of` throws without the ThemeExtension, so the real
-          // app theme is required.
-          theme: buildEatovaTheme(Brightness.dark),
-          // HealthConnectionCard reads context.l10n.
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          home: Scaffold(
-            body: HealthConnectionCard(
-              state: state,
-              lastFetch: DateTime.now(),
-              onConnect: () {},
-              onRefresh: () {},
-            ),
+    // `AppTokens.of` throws without the ThemeExtension and
+    // HealthConnectionCard reads context.l10n — both come from the harness.
+    Future<void> pumpCard(WidgetTester tester, HealthAuthState state) =>
+        pumpLocalized(
+          tester,
+          HealthConnectionCard(
+            state: state,
+            lastFetch: DateTime.now(),
+            onConnect: () {},
+            onRefresh: () {},
           ),
-        ),
-      );
-    }
+          reducedMotion: false,
+          safeArea: false,
+        );
 
     testWidgets('unverified zeigt KEIN "Synchronisiert" und keinen Refresh',
         (tester) async {

@@ -10,55 +10,21 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/screens/today/today_sections.dart';
 import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import '../../support/harness.dart';
 
 const ValueKey<String> _karte = ValueKey<String>('today-steps-card');
 const ValueKey<String> _wert = ValueKey<String>('today-steps-value');
 const ValueKey<String> _untertitel = ValueKey<String>('today-steps-subtitle');
 const ValueKey<String> _balken = ValueKey<String>('today-steps-bar');
-
-Widget _harness(
-  Widget child, {
-  Brightness brightness = Brightness.light,
-  TextScaler textScaler = TextScaler.noScaling,
-  Locale locale = const Locale('de'),
-}) {
-  return MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: buildEatovaTheme(brightness),
-    locale: locale,
-    supportedLocales: AppLocalizations.supportedLocales,
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Builder(
-      builder: (context) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-        child: Scaffold(
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: child,
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -67,7 +33,7 @@ Future<void> _pump(
   int goal = 8000,
   bool dayLoading = false,
   Brightness brightness = Brightness.light,
-  TextScaler textScaler = TextScaler.noScaling,
+  double textScale = 1.0,
   Locale locale = const Locale('de'),
 }) async {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -75,24 +41,28 @@ Future<void> _pump(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    _harness(
-      TodayScreen(
-        userName: 'Moritz',
-        profile: const UserProfile().copyWith(dailyStepsGoal: goal),
-        consumedKcal: 0,
-        burnedKcal: burnedKcal,
-        macroProgress: MacroProgress.empty,
-        meals: const <LoggedMeal>[],
-        selectedDate: startOfDay(clock.now()),
-        streak: 0,
-        steps: steps,
-        dayLoading: dayLoading,
-      ),
-      brightness: brightness,
-      textScaler: textScaler,
-      locale: locale,
+  await pumpLocalized(
+    tester,
+    TodayScreen(
+      userName: 'Moritz',
+      profile: const UserProfile().copyWith(dailyStepsGoal: goal),
+      consumedKcal: 0,
+      burnedKcal: burnedKcal,
+      macroProgress: MacroProgress.empty,
+      meals: const <LoggedMeal>[],
+      selectedDate: startOfDay(clock.now()),
+      streak: 0,
+      steps: steps,
+      dayLoading: dayLoading,
     ),
+    locale: locale,
+    brightness: brightness,
+    textScale: textScale,
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+    // The bar is a TweenAnimationBuilder over motionDuration(500ms). Under the
+    // harness default (reducedMotion: true) that collapses to zero and the
+    // "after the animation settles" assertions would read the first frame.
+    reducedMotion: false,
   );
   if (dayLoading) {
     // The loading card spins forever; pumpAndSettle would never settle.
@@ -232,7 +202,7 @@ void main() {
             steps: 12345,
             burnedKcal: 4321,
             brightness: helligkeit,
-            textScaler: const TextScaler.linear(2.0),
+            textScale: 2.0,
           );
 
           expect(tester.takeException(), isNull);

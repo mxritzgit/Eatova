@@ -33,6 +33,7 @@ class EatovaApp extends StatefulWidget {
     this.notificationService,
     this.themeModeController,
     this.localeController,
+    this.syncBuilder,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -54,6 +55,16 @@ class EatovaApp extends StatefulWidget {
   /// Display language (system/German/English). Injectable like
   /// [themeModeController], so a test can pin a language.
   final LocaleController? localeController;
+
+  /// Test seam for the sync layer. Null (production) uses
+  /// [buildSyncForUser], i.e. `Supabase.instance.client`.
+  ///
+  /// Without it a pumped `EatovaApp` always landed in preview mode
+  /// (`sync == null`): no onboarding gate, no outbox, no server writes — so a
+  /// flow test had to rebuild AuthGate + EatovaHomePage by hand. Returning
+  /// null keeps preview mode.
+  @visibleForTesting
+  final EatovaSync? Function(String userId)? syncBuilder;
 
   @override
   State<EatovaApp> createState() => _EatovaAppState();
@@ -182,7 +193,12 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
     );
   }
 
-  EatovaSync? _syncFor(String userId) => buildSyncForUser(userId);
+  EatovaSync? _syncFor(String userId) {
+    // Not `?? buildSyncForUser(...)`: an injected builder returning null MEANS
+    // preview and must not fall back to Supabase.
+    final builder = widget.syncBuilder;
+    return builder != null ? builder(userId) : buildSyncForUser(userId);
+  }
 }
 
 /// Builds the sync layer for [userId], or null when preview is allowed.

@@ -5,7 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Fix run 2026-08-27, package B:
 //  * F2-04 — stepper buttons carry a label, the slider speaks "75 kg" instead
@@ -21,17 +22,12 @@ Future<void> _pump(
 }) async {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
-  tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 
-  await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(Brightness.light),
-    locale: const Locale('de'),
-    supportedLocales: AppLocalizations.supportedLocales,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    home: OnboardingScreen(
+  await pumpLocalized(
+    tester,
+    OnboardingScreen(
       // Fresh state per pump: without a new key a second pump in the same
       // test would keep the first profile's state.
       key: UniqueKey(),
@@ -39,7 +35,11 @@ Future<void> _pump(
       initialProfile: profile,
       onComplete: (_) {},
     ),
-  ));
+    brightness: Brightness.light,
+    textScale: textScale,
+    scaffold: false,
+    safeArea: false,
+  );
   await tester.pumpAndSettle();
 }
 

@@ -148,7 +148,8 @@ enum MealResultConfidence {
 /// real model free text or the adjustment sentences built by
 /// `adjustedToGrams`/`adjustedToItems`, both of which stay hardcoded German
 /// (free text is effectively user data; the adjustment sentences are a
-/// documented remaining gap, see `hartkodierung_waechter_test.dart`).
+/// documented remaining gap, see the hardcoding rule in
+/// `test/repo_rules_test.dart`).
 enum MealResultPortionNote {
   autoSplit(
     'aiScanAutoSplitNote',

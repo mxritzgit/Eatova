@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
@@ -284,46 +284,33 @@ void main() {
     testWidgets('die sichtbaren Chips tragen die Kalendertage ab heute', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1179, 2556);
-      tester.view.devicePixelRatio = 3.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      pinPhoneViewport(tester);
 
       final today = startOfDay(DateTime.now());
       final erwartet = editMealPickerDays(today: today, count: pickerDays);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.dark),
-          // EditMealSheet reads context.l10n.
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => Center(
-                child: TextButton(
-                  onPressed: () => showEditMealSheet(
-                    context,
-                    meal: _loggedMeal(),
-                    onUpdateMeal: (
-                      id, {
-                      result,
-                      slot,
-                      day,
-                    }) => null,
-                  ),
-                  child: const Text('open'),
-                ),
+      await pumpLocalized(
+        tester,
+        Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () => showEditMealSheet(
+                context,
+                meal: _loggedMeal(),
+                onUpdateMeal: (
+                  id, {
+                  result,
+                  slot,
+                  day,
+                }) => null,
               ),
+              child: const Text('open'),
             ),
           ),
         ),
+        // Motion as before the migration.
+        reducedMotion: false,
+        safeArea: false,
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();

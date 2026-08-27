@@ -6,17 +6,16 @@
 // sheet through the real screen tree.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart' hide testWidgetsRobust;
 
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
   testWidgets(description, (tester) async {
@@ -81,31 +80,16 @@ void main() {
       final kamera = _AbbrechendeKamera();
       final analyzer = _NieAufgerufenerAnalyzer();
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.dark),
-          // MealAnalysisScreen reads context.l10n.
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          home: Scaffold(
-            body: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: MealAnalysisScreen(
-                  dailyConsumedKcal: 0,
-                  analyzer: analyzer,
-                  cameraLauncher: kamera,
-                ),
-              ),
-            ),
-          ),
+      // MealAnalysisScreen reads context.l10n.
+      await pumpLocalized(
+        tester,
+        MealAnalysisScreen(
+          dailyConsumedKcal: 0,
+          analyzer: analyzer,
+          cameraLauncher: kamera,
         ),
+        reducedMotion: false,
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       );
       await tester.pumpAndSettle();
 

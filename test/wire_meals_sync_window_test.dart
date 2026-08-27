@@ -263,49 +263,46 @@ void main() {
       ];
     });
 
-    test('eine vor zwei Stunden geloggte Mahlzeit ueberlebt den Kaltstart', () async {
-      final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
+    // Membership is one question asked of four ages, so it runs as one
+    // parametrised block — each age keeps its own name and its own reason.
+    for (final (id, imFenster, grund) in const <(String, bool, String)>[
+      (
+        'vor-2-stunden',
+        true,
+        'Das Boot-Fenster darf die Gegenwart nicht ausschliessen. Ein Fenster '
+            'von 0 Tagen setzt den Cutoff auf JETZT — dann faellt jede bereits '
+            'geloggte Mahlzeit heraus und das Tagebuch ist beim Kaltstart leer.'
+      ),
+      (
+        'gestern',
+        true,
+        'Der gestrige Tag ist der meistgeoeffnete Kalendertag ueberhaupt.'
+      ),
+      (
+        'vor-30-tagen',
+        true,
+        'Der Kalender im Food-Tab laedt Tage innerhalb des Boot-Fensters ohne '
+            'Nachladen. Ein Fenster unter 30 Tagen schrumpft diese Historie '
+            'still.'
+      ),
+      (
+        'vor-300-tagen',
+        false,
+        'Ohne Fenster laedt jeder Kaltstart die gesamte Historie inkl. '
+            'JSONB-Payload.'
+      ),
+    ]) {
+      final wasPassiert = imFenster
+          ? 'ueberlebt den Kaltstart'
+          : 'bleibt draussen (Fenster ist gedeckelt)';
+      test('$id $wasPassiert', () async {
+        final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
 
-      expect(
-        meals.map((m) => m.id),
-        contains('vor-2-stunden'),
-        reason:
-            'Das Boot-Fenster darf die Gegenwart nicht ausschliessen. Ein '
-            'Fenster von 0 Tagen setzt den Cutoff auf JETZT — dann faellt '
-            'jede bereits geloggte Mahlzeit heraus und das Tagebuch ist beim '
-            'Kaltstart leer.',
-      );
-      expect(meals, isNotEmpty);
-      expect(meals.first.result.mealName, 'Mittagessen heute');
-      expect(meals.first.result.caloriesKcal, 640);
-    });
-
-    test('eine 30 Tage alte Mahlzeit liegt noch im Fenster', () async {
-      final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
-
-      expect(
-        meals.map((m) => m.id),
-        contains('vor-30-tagen'),
-        reason:
-            'Der Kalender im Food-Tab laedt Tage innerhalb des Boot-Fensters '
-            'ohne Nachladen. Ein Fenster unter 30 Tagen schrumpft diese '
-            'Historie still.',
-      );
-    });
-
-    test('eine 300 Tage alte Mahlzeit bleibt draussen (Fenster ist gedeckelt)',
-        () async {
-      final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
-
-      expect(
-        meals.map((m) => m.id),
-        isNot(contains('vor-300-tagen')),
-        reason:
-            'Ohne Fenster laedt jeder Kaltstart die gesamte Historie inkl. '
-            'JSONB-Payload.',
-      );
-      expect(meals.length, 4);
-    });
+        expect(meals.map((m) => m.id),
+            imFenster ? contains(id) : isNot(contains(id)),
+            reason: grund);
+      });
+    }
 
     test('Ergebnis kommt neueste zuerst, so wie bestellt', () async {
       final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
@@ -316,6 +313,11 @@ void main() {
         'vor-6-tagen',
         'vor-30-tagen',
       ]);
+      expect(meals, hasLength(4),
+          reason: 'genau die vier im Fenster, nichts Aelteres');
+      // And the payload of the newest one arrives complete.
+      expect(meals.first.result.mealName, 'Mittagessen heute');
+      expect(meals.first.result.caloriesKcal, 640);
     });
 
     test('die Anfrage holt alle fuenf Spalten, die _mealFromRow braucht',
@@ -476,11 +478,8 @@ void main() {
         ),
         <String>['a', 'b'],
       );
-    });
-
-    test('ein Fenster, das JETZT beginnt, liefert nichts Vergangenes',
-        () async {
-      // Exactly the effect of loggedMealsWindowDays = 0.
+      // And the degenerate case: a window starting NOW returns nothing past —
+      // exactly the effect of loggedMealsWindowDays = 0.
       final jetzt = DateTime.now().toUtc().toIso8601String();
       expect(ids(await hole('at=gte.$jetzt')), isEmpty);
     });

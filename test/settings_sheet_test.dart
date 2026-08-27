@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
+
+import 'support/harness.dart';
 
 // Profile & goals: the gentle BMI hint on the target weight (appears and
 // disappears live while typing) and the GDPR minimum age of 16 — the same
@@ -37,35 +36,26 @@ void main() {
     addTearDown(() => FlutterError.onError = prior);
 
     late Future<SettingsResult?> result;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => Center(
-              child: FilledButton(
-                key: const ValueKey('open-settings'),
-                onPressed: () {
-                  result = Navigator.of(context).push<SettingsResult>(
-                    MaterialPageRoute<SettingsResult>(
-                      builder: (_) => GoalsScreen(profile: profile),
-                    ),
-                  );
-                },
-                child: const Text('open'),
-              ),
-            ),
+    await pumpLocalized(
+      tester,
+      Builder(
+        builder: (context) => Center(
+          child: FilledButton(
+            key: const ValueKey('open-settings'),
+            onPressed: () {
+              result = Navigator.of(context).push<SettingsResult>(
+                MaterialPageRoute<SettingsResult>(
+                  builder: (_) => GoalsScreen(profile: profile),
+                ),
+              );
+            },
+            child: const Text('open'),
           ),
         ),
       ),
+      reducedMotion: false,
+      brightness: Brightness.light,
+      safeArea: false,
     );
     await tester.tap(find.byKey(const ValueKey('open-settings')));
     await tester.pumpAndSettle();

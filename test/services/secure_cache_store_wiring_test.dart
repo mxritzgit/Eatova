@@ -117,65 +117,85 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
 
-    test('Android-READ traegt resetOnError=false', () async {
-      // `_selectOptions` picks by `defaultTargetPlatform`; without the
-      // override the test would see the host's options.
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    // Platform x operation matrix: the body is identical, only the target
+    // platform, the call and the option under test differ. Each combination
+    // stays its own named case — a Read that carries the options while the
+    // Write does not is exactly the gap this file exists for.
+    for (final fall in <({
+      String name,
+      TargetPlatform plattform,
+      bool schreiben,
+      String schluessel,
+      Matcher erwartet,
+      String grund,
+    })>[
+      (
+        name: 'Android-READ traegt resetOnError=false',
+        plattform: TargetPlatform.android,
+        schreiben: false,
+        schluessel: 'resetOnError',
+        erwartet: equals('false'),
+        grund: 'Kommt hier "true" (oder gar nichts) an, loescht die Java-Seite '
+            'den DEK bei JEDEM Keystore-Fehler und meldet Dart ein blankes '
+            'null — der komplette A1-Fix waere wirkungslos, obwohl '
+            'PluginSecureKeyStore.androidOptions korrekt aussieht.',
+      ),
+      (
+        name: 'Android-WRITE traegt resetOnError=false',
+        plattform: TargetPlatform.android,
+        schreiben: true,
+        schluessel: 'resetOnError',
+        erwartet: equals('false'),
+        grund: 'Der Write-Pfad legt den DEK an — mit den Default-Options liefe '
+            'schon das Anlegen unter der falschen Haltung.',
+      ),
+      (
+        name: 'iOS-READ traegt first_unlock_this_device',
+        plattform: TargetPlatform.iOS,
+        schreiben: false,
+        schluessel: 'accessibility',
+        erwartet: equals('first_unlock_this_device'),
+        grund: 'Der Plugin-Default ist "unlocked": der DEK waere dann in '
+            'Lifecycle- und Notification-Pfaden vor der ersten Entsperrung '
+            'unlesbar.',
+      ),
+      (
+        name: 'iOS-WRITE traegt first_unlock_this_device',
+        plattform: TargetPlatform.iOS,
+        schreiben: true,
+        schluessel: 'accessibility',
+        erwartet: equals('first_unlock_this_device'),
+        grund: 'Die Accessibility wird beim ANLEGEN festgeschrieben — ein '
+            'korrekter Read auf einem falsch angelegten Item hilft nicht.',
+      ),
+      (
+        name: 'iOS-WRITE ist nicht synchronizable (kein iCloud-Keychain-Sync)',
+        plattform: TargetPlatform.iOS,
+        schreiben: true,
+        schluessel: 'synchronizable',
+        erwartet: isNot('true'),
+        grund: 'Ein synchronisierter DEK laege auf fremden Geraeten — und der '
+            'Ciphertext dort ohne Bezug.',
+      ),
+    ]) {
+      test(fall.name, () async {
+        // `_selectOptions` picks by `defaultTargetPlatform`; without the
+        // override the test would see the host's options.
+        debugDefaultTargetPlatformOverride = fall.plattform;
 
-      await const PluginSecureKeyStore().read(CacheKeyProvider.dekStorageKey);
+        if (fall.schreiben) {
+          await const PluginSecureKeyStore()
+              .write(CacheKeyProvider.dekStorageKey, 'x');
+        } else {
+          await const PluginSecureKeyStore()
+              .read(CacheKeyProvider.dekStorageKey);
+        }
 
-      expect(platform.lastKey, CacheKeyProvider.dekStorageKey);
-      expect(platform.lastOptions?['resetOnError'], 'false',
-          reason: 'Kommt hier "true" (oder gar nichts) an, loescht die '
-              'Java-Seite den DEK bei JEDEM Keystore-Fehler und meldet Dart '
-              'ein blankes null — der komplette A1-Fix waere wirkungslos, '
-              'obwohl PluginSecureKeyStore.androidOptions korrekt aussieht.');
-    });
-
-    test('Android-WRITE traegt resetOnError=false', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-
-      await const PluginSecureKeyStore()
-          .write(CacheKeyProvider.dekStorageKey, 'x');
-
-      expect(platform.lastOptions?['resetOnError'], 'false',
-          reason: 'Der Write-Pfad legt den DEK an — mit den Default-Options '
-              'liefe schon das Anlegen unter der falschen Haltung.');
-    });
-
-    test('iOS-READ traegt first_unlock_this_device', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-
-      await const PluginSecureKeyStore().read(CacheKeyProvider.dekStorageKey);
-
-      expect(platform.lastOptions?['accessibility'], 'first_unlock_this_device',
-          reason: 'Der Plugin-Default ist "unlocked": der DEK waere dann in '
-              'Lifecycle- und Notification-Pfaden vor der ersten Entsperrung '
-              'unlesbar.');
-    });
-
-    test('iOS-WRITE traegt first_unlock_this_device', () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-
-      await const PluginSecureKeyStore()
-          .write(CacheKeyProvider.dekStorageKey, 'x');
-
-      expect(platform.lastOptions?['accessibility'], 'first_unlock_this_device',
-          reason: 'Die Accessibility wird beim ANLEGEN festgeschrieben — ein '
-              'korrekter Read auf einem falsch angelegten Item hilft nicht.');
-    });
-
-    test('iOS-WRITE ist nicht synchronizable (kein iCloud-Keychain-Sync)',
-        () async {
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-
-      await const PluginSecureKeyStore()
-          .write(CacheKeyProvider.dekStorageKey, 'x');
-
-      expect(platform.lastOptions?['synchronizable'], isNot('true'),
-          reason: 'Ein synchronisierter DEK laege auf fremden Geraeten — und '
-              'der Ciphertext dort ohne Bezug.');
-    });
+        expect(platform.lastKey, CacheKeyProvider.dekStorageKey);
+        expect(platform.lastOptions?[fall.schluessel], fall.erwartet,
+            reason: fall.grund);
+      });
+    }
   });
 
   group('CacheKeyProvider.obtain benutzt produktiv die echten Nahtstellen', () {

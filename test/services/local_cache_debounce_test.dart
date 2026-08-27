@@ -1,12 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/models/favorite_meal.dart';
-import 'package:eatova/src/models/fitness_recipe.dart';
-import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+
+import 'sync_test_helpers.dart';
 
 // G9b: `jsonEncode + AES-GCM + base64` costs ~91.5 ms at 210 meals (desktop
 // JIT, mobile AOT 2-4x slower) and runs synchronously in the tap handler. A
@@ -16,115 +14,138 @@ import 'package:eatova/src/services/sync_outbox.dart';
 // inside the debounce window produce exactly one write, the last state wins,
 // flush() forces the pending write out, reads see the pending state, and
 // clear() discards pending writes (no PII resurrection).
-
-MealAnalysisResult _result() => const MealAnalysisResult(
-      mealName: 'Bowl',
-      caloriesKcal: 300,
-      estimatedGrams: 350,
-      kcalPer100G: 85.7,
-      protein: '30 g',
-      carbs: '40 g',
-      fat: '10 g',
-      confidence: 'Hoch',
-      portionNotes: 'Testportion.',
-      sourceLabel: 'Foto-KI',
-    );
-
-LoggedMeal _meal(String id) => LoggedMeal(
-      id: id,
-      result: _result(),
-      loggedAt: DateTime(2026, 8, 5, 12, 30),
-      forcedSlot: MealSlot.lunch,
-      localDay: '2026-08-05',
-    );
-
-/// Counts setString per slot — the proxy for "encrypt the whole blob once".
-class _ZaehlenderStore implements KeyValueStore {
-  final Map<String, String> _data = {};
-  final Map<String, int> _writes = {};
-
-  int writesFuer(String key) => _writes[key] ?? 0;
-  Map<String, String> get snapshot => Map.unmodifiable(_data);
-
-  @override
-  Future<String?> getString(String key) async => _data[key];
-
-  @override
-  Future<void> setString(String key, String value) async {
-    _writes[key] = (_writes[key] ?? 0) + 1;
-    _data[key] = value;
-  }
-
-  @override
-  Future<void> remove(String key) async {
-    _data.remove(key);
-  }
-}
-
-FitnessRecipe _recipe(String slug) => FitnessRecipe(
-      slug: slug,
-      title: 'Eigene Bowl',
-      description: 'Eigenes Rezept',
-      portion: '1 Teller',
-      ingredients: 'Reis',
-      preparation: 'Kochen.',
-      professionalHint: 'Selbst angelegt. Werte beruhen auf deinen Angaben.',
-      imageAsset: '',
-      caloriesKcal: 600,
-      proteinG: 50,
-      carbsG: 60,
-      fatG: 15,
-      estimatedGrams: 400,
-      categories: const <String>['Eigene'],
-      userCreated: true,
-    );
+//
+// The four mirror slots share one mechanism, so they run as one parametrised
+// block — one named case per slot, so a slot that forgets the debounce still
+// names itself in the failure.
 
 const _mealsKey = 'eatova.v1.logged_meals.user-1';
+const _favoritesKey = 'eatova.v1.favorites.user-1';
+const _weightKey = 'eatova.v1.weight_log.user-1';
 const _recipesKey = 'eatova.v1.user_recipes.user-1';
+
+/// One debounced mirror slot: how the i-th state is written, how it is read
+/// back and which marker identifies it.
+class _Slot {
+  const _Slot({
+    required this.name,
+    required this.key,
+    required this.schreibe,
+    required this.lies,
+    required this.marke,
+  });
+
+  final String name;
+  final String key;
+  final void Function(LocalCache cache, int i) schreibe;
+  final Future<Object?> Function(LocalCache cache) lies;
+  final String Function(int i) marke;
+}
+
+final _slots = <_Slot>[
+  _Slot(
+    name: 'Tagebuch',
+    key: _mealsKey,
+    schreibe: (cache, i) => cache.writeLoggedMealsDebounced([testMeal('m-$i')]),
+    lies: (cache) async => (await cache.readLoggedMeals())?.single.id,
+    marke: (i) => 'm-$i',
+  ),
+  _Slot(
+    name: 'Favoriten',
+    key: _favoritesKey,
+    schreibe: (cache, i) =>
+        cache.writeFavoritesDebounced([testFavorite('name:bowl-$i')]),
+    lies: (cache) async => (await cache.readFavorites())?.single.id,
+    marke: (i) => 'name:bowl-$i',
+  ),
+  _Slot(
+    name: 'Gewichts-Log',
+    key: _weightKey,
+    schreibe: (cache, i) => cache.writeWeightLogDebounced(WeightLog(entries: [
+      WeightLogEntry(timestamp: DateTime(2026, 8, 5, 7), weightKg: 80.0 + i),
+    ])),
+    lies: (cache) async =>
+        (await cache.readWeightLog())?.latest?.weightKg.toString(),
+    marke: (i) => (80.0 + i).toString(),
+  ),
+  _Slot(
+    name: 'Eigen-Rezepte',
+    key: _recipesKey,
+    schreibe: (cache, i) => cache.writeUserRecipesDebounced([
+      testRecipe('user_$i', ingredients: 'Reis', preparation: 'Kochen.'),
+    ]),
+    lies: (cache) async => (await cache.readUserRecipes())?.single.slug,
+    marke: (i) => 'user_$i',
+  ),
+];
 
 void main() {
   group('LocalCache entprellte Blob-Writes (G9b)', () {
-    test('fuenf schnelle Tagebuch-Writes ergeben genau EINEN Write', () async {
-      final store = _ZaehlenderStore();
-      final cache = LocalCache(store, 'user-1');
+    for (final slot in _slots) {
+      test('${slot.name}: fuenf schnelle Writes ergeben genau EINEN Write mit '
+          'dem LETZTEN Stand', () async {
+        final store = CountingKeyValueStore();
+        final cache = LocalCache(store, 'user-1');
 
-      for (var i = 1; i <= 5; i++) {
-        cache.writeLoggedMealsDebounced([_meal('m-$i')]);
-      }
-      // Nothing has been encrypted yet inside the window.
-      expect(store.writesFuer(_mealsKey), 0);
-      expect(cache.hasPendingWrites, isTrue);
+        for (var i = 1; i <= 5; i++) {
+          slot.schreibe(cache, i);
+        }
+        // Nothing has been encrypted yet inside the window.
+        expect(store.writesFuer(slot.key), 0);
+        expect(cache.hasPendingWrites, isTrue);
 
-      await cache.flush();
+        await cache.flush();
 
-      expect(store.writesFuer(_mealsKey), 1,
-          reason: 'eine Fuenfer-Serie darf den Blob nur einmal verschluesseln');
-      expect(cache.hasPendingWrites, isFalse);
-    });
+        expect(store.writesFuer(slot.key), 1,
+            reason:
+                'eine Fuenfer-Serie darf den Blob nur einmal verschluesseln');
+        expect(await slot.lies(cache), slot.marke(5),
+            reason: 'der letzte Stand gewinnt');
+        expect(cache.hasPendingWrites, isFalse);
+      });
 
-    test('flush() schreibt den LETZTEN Stand raus', () async {
-      final store = _ZaehlenderStore();
-      final cache = LocalCache(store, 'user-1');
+      test('${slot.name}: Lesen sieht den ausstehenden Stand vor dem Write',
+          () async {
+        final store = CountingKeyValueStore();
+        final cache = LocalCache(store, 'user-1');
 
-      cache.writeLoggedMealsDebounced([_meal('m-1')]);
-      cache.writeLoggedMealsDebounced([_meal('m-1'), _meal('m-2')]);
-      cache.writeLoggedMealsDebounced([_meal('m-9')]);
+        slot.schreibe(cache, 7);
 
-      await cache.flush();
+        // Nothing on disk yet …
+        expect(store.snapshot.containsKey(slot.key), isFalse);
+        // … the cache still returns the pending state (no read-after-write
+        // hole for the boot hydration).
+        expect(await slot.lies(cache), slot.marke(7));
 
-      final back = await cache.readLoggedMeals();
-      expect(back, hasLength(1));
-      expect(back!.single.id, 'm-9');
-      expect(store.writesFuer(_mealsKey), 1);
-    });
+        await cache.flush();
+      });
+
+      test('${slot.name}: clear() verwirft den ausstehenden Write (keine '
+          'PII-Auferstehung)', () async {
+        final store = CountingKeyValueStore();
+        final cache = LocalCache(store, 'user-1');
+
+        slot.schreibe(cache, 1);
+        await cache.clear();
+        // The timer would long have fired — nothing may follow.
+        await Future<void>.delayed(
+            LocalCache.writeDebounce + const Duration(milliseconds: 200));
+
+        expect(store.writesFuer(slot.key), 0,
+            reason: 'ein laufender Timer darf den geraeumten Stand nicht '
+                'zurueckschreiben');
+        expect(store.snapshot, isEmpty);
+        expect(await slot.lies(cache), isNull);
+      });
+    }
 
     test('ohne flush() feuert der Timer nach writeDebounce von selbst',
         () async {
-      final store = _ZaehlenderStore();
+      final store = CountingKeyValueStore();
       final cache = LocalCache(store, 'user-1');
 
-      cache.writeLoggedMealsDebounced([_meal('m-1')]);
-      cache.writeLoggedMealsDebounced([_meal('m-2')]);
+      cache.writeLoggedMealsDebounced([testMeal('m-1')]);
+      cache.writeLoggedMealsDebounced([testMeal('m-2')]);
       await Future<void>.delayed(
           LocalCache.writeDebounce + const Duration(milliseconds: 200));
 
@@ -132,86 +153,9 @@ void main() {
       expect((await cache.readLoggedMeals())!.single.id, 'm-2');
     });
 
-    test('Lesen sieht den ausstehenden Stand vor dem Write', () async {
-      final store = _ZaehlenderStore();
-      final cache = LocalCache(store, 'user-1');
-
-      cache.writeLoggedMealsDebounced([_meal('m-7')]);
-
-      // Nothing on disk yet …
-      expect(store.snapshot.containsKey(_mealsKey), isFalse);
-      // … the cache still returns the pending state.
-      final back = await cache.readLoggedMeals();
-      expect(back, hasLength(1));
-      expect(back!.single.id, 'm-7');
-
-      await cache.flush();
-    });
-
-    test('Favoriten und Gewichts-Log werden ebenfalls entprellt', () async {
-      final store = _ZaehlenderStore();
-      final cache = LocalCache(store, 'user-1');
-
-      for (var i = 0; i < 4; i++) {
-        cache.writeFavoritesDebounced([
-          FavoriteMeal(
-              id: 'name:bowl-$i',
-              result: _result(),
-              addedAt: DateTime(2026, 8, 5)),
-        ]);
-        cache.writeWeightLogDebounced(WeightLog(entries: [
-          WeightLogEntry(
-              timestamp: DateTime(2026, 8, 5, 7), weightKg: 81.0 + i),
-        ]));
-      }
-
-      await cache.flush();
-
-      expect(store.writesFuer('eatova.v1.favorites.user-1'), 1);
-      expect(store.writesFuer('eatova.v1.weight_log.user-1'), 1);
-      expect((await cache.readFavorites())!.single.id, 'name:bowl-3');
-      expect((await cache.readWeightLog())!.latest!.weightKg, 84.0);
-    });
-
-    test(
-        'Eigen-Rezepte werden ebenfalls entprellt und ueberleben den Flush '
-        '(Luecke A)', () async {
-      final store = _ZaehlenderStore();
-      final cache = LocalCache(store, 'user-1');
-
-      // Three writes in quick succession may encrypt the blob only once …
-      cache.writeUserRecipesDebounced([_recipe('user_1')]);
-      cache.writeUserRecipesDebounced([_recipe('user_1'), _recipe('user_2')]);
-      cache.writeUserRecipesDebounced([_recipe('user_3')]);
-      expect(store.writesFuer(_recipesKey), 0);
-      // … and the read path still sees the pending state immediately (no
-      // read-after-write hole for the boot hydration).
-      expect((await cache.readUserRecipes())!.single.slug, 'user_3');
-
-      await cache.flush();
-
-      expect(store.writesFuer(_recipesKey), 1);
-      expect((await cache.readUserRecipes())!.single.slug, 'user_3');
-    });
-
-    test('clear() verwirft auch ausstehende Rezept-Writes', () async {
-      final store = _ZaehlenderStore();
-      final cache = LocalCache(store, 'user-1');
-
-      cache.writeUserRecipesDebounced([_recipe('user_privat')]);
-      await cache.clear();
-      await Future<void>.delayed(
-          LocalCache.writeDebounce + const Duration(milliseconds: 200));
-
-      expect(store.writesFuer(_recipesKey), 0,
-          reason: 'ein laufender Timer darf die geraeumten Rezepte nicht '
-              'zurueckschreiben');
-      expect(store.snapshot, isEmpty);
-    });
-
     test('Outbox und Stats-Deltas bleiben SOFORT (Kill-Sicherheit, DATA-7)',
         () async {
-      final store = _ZaehlenderStore();
+      final store = CountingKeyValueStore();
       final cache = LocalCache(store, 'user-1');
 
       await cache.writeOutbox([SyncOp.mealDelete('m-1')]);
@@ -228,11 +172,11 @@ void main() {
 
     test('ein sofortiger Write entwertet den ausstehenden entprellten Write',
         () async {
-      final store = _ZaehlenderStore();
+      final store = CountingKeyValueStore();
       final cache = LocalCache(store, 'user-1');
 
-      cache.writeLoggedMealsDebounced([_meal('m-alt')]);
-      await cache.writeLoggedMeals([_meal('m-neu')]);
+      cache.writeLoggedMealsDebounced([testMeal('m-alt')]);
+      await cache.writeLoggedMeals([testMeal('m-neu')]);
       await cache.flush();
 
       expect(store.writesFuer(_mealsKey), 1);
@@ -240,30 +184,14 @@ void main() {
           reason: 'der alte Blob darf den frischeren nicht ueberschreiben');
     });
 
-    test('clear() verwirft ausstehende Writes (keine PII-Auferstehung)',
-        () async {
-      final store = _ZaehlenderStore();
-      final cache = LocalCache(store, 'user-1');
-
-      cache.writeLoggedMealsDebounced([_meal('m-privat')]);
-      await cache.clear();
-
-      // The timer would long have fired — nothing may follow.
-      await Future<void>.delayed(
-          LocalCache.writeDebounce + const Duration(milliseconds: 200));
-
-      expect(store.writesFuer(_mealsKey), 0);
-      expect(store.snapshot, isEmpty);
-      expect(await cache.readLoggedMeals(), isNull);
-    });
-
     test('clear(preserveOutbox: true) verwirft die Spiegel-Writes ebenfalls',
         () async {
-      final store = _ZaehlenderStore();
+      final store = CountingKeyValueStore();
       final cache = LocalCache(store, 'user-1');
 
-      await cache.writeOutbox([SyncOp.mealInsert(_meal('m-2'), trackDay: true)]);
-      cache.writeLoggedMealsDebounced([_meal('m-privat')]);
+      await cache
+          .writeOutbox([SyncOp.mealInsert(testMeal('m-2'), trackDay: true)]);
+      cache.writeLoggedMealsDebounced([testMeal('m-privat')]);
 
       await cache.clear(preserveOutbox: true);
       await Future<void>.delayed(

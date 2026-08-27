@@ -2,26 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Fix run 2026-08-27, F4-03 / F4-04: the barcode sheet observes the app
 // lifecycle (stop on inactive/paused, start on resumed with permission guard)
 // and names a denied permission with "open Settings" + typed-barcode fallback.
-
-const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
 
 const MethodChannel _settingsChannel =
     MethodChannel('com.spencerccf.app_settings/methods');
@@ -104,25 +96,18 @@ Future<void> _oeffneScanner(
   _Ergebnis ergebnis,
 ) async {
   MobileScannerPlatform.instance = platform;
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: _l10nDelegates,
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () async {
-              ergebnis.scan = await showBarcodeScannerSheet(
-                context,
-                initialSlot: MealSlot.lunch,
-              );
-              ergebnis.geschlossen = true;
-            },
-            child: const Text('scannen'),
-          ),
-        ),
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => TextButton(
+        onPressed: () async {
+          ergebnis.scan = await showBarcodeScannerSheet(
+            context,
+            initialSlot: MealSlot.lunch,
+          );
+          ergebnis.geschlossen = true;
+        },
+        child: const Text('scannen'),
       ),
     ),
   );

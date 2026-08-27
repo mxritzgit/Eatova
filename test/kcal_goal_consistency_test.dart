@@ -13,16 +13,15 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 /// Sunday, 9 August 2026, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -69,25 +68,17 @@ void _pinViewport(WidgetTester tester) {
 /// The same shell `EatovaHomePage` gives the tab (SafeArea + 20/12/20/12),
 /// otherwise the test would measure a layout the app never draws.
 /// TodayScreen reads `context.l10n`, so the localization is required.
-Widget _schale(Widget child, Brightness brightness) => MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: buildEatovaTheme(brightness),
-      locale: const Locale('de'),
-      supportedLocales: AppLocalizations.supportedLocales,
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: child,
-          ),
-        ),
-      ),
+Future<void> _schale(
+  WidgetTester tester,
+  Widget child,
+  Brightness brightness,
+) =>
+    pumpLocalized(
+      tester,
+      child,
+      reducedMotion: false,
+      brightness: brightness,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
     );
 
 String _textOf(WidgetTester tester, String key) =>
@@ -117,20 +108,19 @@ Future<_Aussage> _heute(
 }) async {
   _pinViewport(tester);
   await withClock(Clock.fixed(_jetzt), () async {
-    await tester.pumpWidget(
-      _schale(
-        TodayScreen(
-          userName: 'Moritz',
-          profile: profile,
-          consumedKcal: consumedKcal,
-          burnedKcal: burnedKcal,
-          macroProgress: MacroProgress.empty,
-          meals: const <LoggedMeal>[],
-          selectedDate: selectedDate,
-          streak: 3,
-        ),
-        brightness,
+    await _schale(
+      tester,
+      TodayScreen(
+        userName: 'Moritz',
+        profile: profile,
+        consumedKcal: consumedKcal,
+        burnedKcal: burnedKcal,
+        macroProgress: MacroProgress.empty,
+        meals: const <LoggedMeal>[],
+        selectedDate: selectedDate,
+        streak: 3,
       ),
+      brightness,
     );
     await tester.pumpAndSettle();
   });

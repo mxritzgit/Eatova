@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart' hide testWidgetsRobust;
 
 // D5: sheets discard filled-in forms silently.
 //
@@ -73,24 +72,15 @@ class _CreateCapture {
 }
 
 Future<void> _openSheet(WidgetTester tester, _CreateCapture capture) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: RecipesScreen(
-          onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-          onCreateRecipe: capture.add,
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    RecipesScreen(
+      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+      onCreateRecipe: capture.add,
     ),
+    // Motion as before the migration.
+    reducedMotion: false,
+    safeArea: false,
   );
   await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
   await tester.pumpAndSettle();

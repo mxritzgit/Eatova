@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,21 +10,24 @@ import 'package:eatova/src/theme/app_tokens.dart';
 // LIGHT MODE AUDIT
 //
 // app_tokens_test.dart checks the palettes themselves; this checks whether the
-// APP actually uses them. Three levels:
+// APP actually uses them. Two levels:
 //
 //   1. RUNTIME — every core screen and the two busiest sheets are pumped in
 //      light AND dark. Exceptions and overflows are collected, not swallowed.
 //      Each screen also verifies the tokens in the tree are the expected
 //      palette, else pumping the same palette twice would pass silently.
-//   2. SOURCE — the three hard rules from DESIGN_REFACTOR §3 scanned over
-//      `lib/`: no `app_colors.dart`, no `Color(0x…)`, no brightness branch.
-//   3. CONTRAST — the pairings that tip over in light mode, including
+//   2. CONTRAST — the pairings that tip over in light mode, including
 //      semi-transparent surfaces: composited first, then measured.
+//
+// The SOURCE level (the three hard rules from DESIGN_REFACTOR §3 scanned over
+// `lib/`: no `app_colors.dart`, no `Color(0x…)`, no brightness branch) lives
+// in test/repo_rules_test.dart with the other source-text guards — including
+// the `_festeFarbenErlaubt` allowlist and its reasons.
 // ---------------------------------------------------------------------------
 
 const Size _viewport = Size(393, 852); // iPhone 14
 
-// --- 3. CONTRAST: math helpers ----------------------------------------------
+// --- 2. CONTRAST: math helpers ----------------------------------------------
 
 /// WCAG 2.1 contrast ratio of two OPAQUE colors (1.0 … 21.0).
 double _contrast(Color a, Color b) {
@@ -144,54 +146,6 @@ void _erwartePalette(
   );
   expect(gelesen.ink, erwartet.ink);
 }
-
-// --- 2. SOURCE: scanner -----------------------------------------------------
-
-/// Files that may hold fixed colors, each with its reason. Everything here is
-/// a surface that must NOT follow the display mode; a new entry needs a
-/// reason of the same kind.
-const Map<String, String> _festeFarbenErlaubt = <String, String>{
-  'lib/src/screens/auth_screen.dart':
-      'Google "G" in the OAuth button: third-party brand colors per Google sign-in branding guidelines, never themed',
-  'lib/src/screens/barcode_scanner_sheet.dart':
-      'camera overlay on the live viewfinder: black/white scrims and glyphs on video, deliberately mode-independent',
-  'lib/src/screens/meal_camera_sheet.dart':
-      'camera overlay on the live viewfinder (see file comment), deliberately mode-independent',
-  'lib/src/widgets/kcal/scan_slot_chips.dart':
-      'slot chips drawn ON the camera overlay: black/white on video',
-  'lib/src/screens/recipes/recipe_cards.dart':
-      'legibility scrim over a recipe photo: black gradient on an image, not on a surface',
-};
-
-/// All Dart sources under `lib/` as (path with `/`, content).
-List<MapEntry<String, String>> _libQuellen() {
-  final wurzel = Directory('lib');
-  if (!wurzel.existsSync()) {
-    fail('lib/ fehlt (aufgeloest von ${Directory.current.path})');
-  }
-  final quellen = <MapEntry<String, String>>[];
-  for (final e in wurzel.listSync(recursive: true)) {
-    if (e is! File || !e.path.endsWith('.dart')) continue;
-    quellen.add(
-      MapEntry<String, String>(
-        e.path.replaceAll(r'\', '/'),
-        e.readAsStringSync(),
-      ),
-    );
-  }
-  expect(quellen, isNotEmpty);
-  return quellen;
-}
-
-/// Source without comments, else an explanatory comment would trip the scan.
-String _ohneKommentare(String quelle) => quelle
-    .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
-    .split('\n')
-    .map((z) {
-      final i = z.indexOf('//');
-      return i < 0 ? z : z.substring(0, i);
-    })
-    .join('\n');
 
 void main() {
   // =========================================================================
@@ -338,82 +292,7 @@ void main() {
   });
 
   // =========================================================================
-  // 2. SOURCE — the three hard rules from DESIGN_REFACTOR §3
-  // =========================================================================
-  group('Token-Disziplin in lib/', () {
-    test('niemand importiert app_colors.dart mehr (die Datei ist weg)', () {
-      expect(File('lib/src/theme/app_colors.dart').existsSync(), isFalse,
-          reason: 'die alte Dunkel-Palette wurde mit der Auth-Runde geloescht');
-      final treffer = <String>[];
-      for (final quelle in _libQuellen()) {
-        if (_ohneKommentare(quelle.value).contains('app_colors.dart')) {
-          treffer.add(quelle.key);
-        }
-      }
-      expect(
-        treffer,
-        isEmpty,
-        reason: 'Diese Dateien haengen noch an der festen Dunkel-Palette und '
-            'wuerden im Hell-Modus dunkle Flaechen zeichnen:\n'
-            '${treffer.join('\n')}',
-      );
-    });
-
-    test('kein Color(0x…), Color.fromARGB( oder Colors.* ausserhalb von '
-        'lib/src/theme/ (Allowlist mit Begruendung)', () {
-      // `Colors.transparent` is no color choice and stays allowed everywhere.
-      final feste = RegExp(r'Color\(0x|Color\.fromARGB\(|Colors\.(?!transparent\b)[a-zA-Z]');
-      final treffer = <String>[];
-      for (final quelle in _libQuellen()) {
-        if (quelle.key.startsWith('lib/src/theme/')) continue;
-        if (_festeFarbenErlaubt.containsKey(quelle.key)) continue;
-        for (final zeile in _ohneKommentare(quelle.value).split('\n')) {
-          if (feste.hasMatch(zeile)) {
-            treffer.add('${quelle.key}: ${zeile.trim()}');
-          }
-        }
-      }
-      expect(
-        treffer,
-        isEmpty,
-        reason: 'Eine Konstante kann nicht hell UND dunkel sein — diese '
-            'Farben gehoeren als Token nach app_tokens.dart (oder mit '
-            'Begruendung in _festeFarbenErlaubt):\n${treffer.join('\n')}',
-      );
-      // The allowlist must not outlive its files.
-      for (final pfad in _festeFarbenErlaubt.keys) {
-        expect(File(pfad).existsSync(), isTrue, reason: '$pfad fehlt');
-      }
-    });
-
-    test('kein Brightness-Abzweig fuer Farben ausserhalb von lib/src/theme/',
-        () {
-      // An `if (isDark)` in widget code rebuilds the palette a second time.
-      // Allowed: the branch inside lib/src/theme/ (which picks the palette)
-      // and the camera overlays, which name `AppTokens.dark` directly instead
-      // of querying device brightness.
-      final treffer = <String>[];
-      for (final quelle in _libQuellen()) {
-        if (quelle.key.startsWith('lib/src/theme/')) continue;
-        for (final zeile in _ohneKommentare(quelle.value).split('\n')) {
-          if (zeile.contains('Theme.of(context).brightness') ||
-              zeile.contains('platformBrightnessOf') ||
-              zeile.contains('MediaQuery.of(context).platformBrightness')) {
-            treffer.add('${quelle.key}: ${zeile.trim()}');
-          }
-        }
-      }
-      expect(
-        treffer,
-        isEmpty,
-        reason: 'Farbwahl ueber die Helligkeit gehoert als Token nach '
-            'AppTokens:\n${treffer.join('\n')}',
-      );
-    });
-  });
-
-  // =========================================================================
-  // 3. CONTRAST — including the semi-transparent surfaces
+  // 2. CONTRAST — including the semi-transparent surfaces
   // =========================================================================
   group('Kontrast an den kritischen Flaechen', () {
     test('Text auf forest erreicht AA (4.5:1)', () {

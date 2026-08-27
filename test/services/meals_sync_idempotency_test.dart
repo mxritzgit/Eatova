@@ -83,15 +83,22 @@ void main() {
     });
 
     test('echter Server-Fehler (500) wird weiterhin durchgereicht', () async {
+      // `request: req` is mandatory: postgrest dereferences
+      // `response.request!` while building its exception, so a fake without it
+      // throws a TypeError and the assertion below would test the mock.
       final sync = _sync((req) async => http.Response(
             jsonEncode({'message': 'permission denied'}),
             500,
             headers: const {'Content-Type': 'application/json'},
+            request: req,
           ));
 
+      // Narrow on purpose: `isA<Object>()` would also pass on a broken mock
+      // (a TypeError from the handler), so it could not turn red for the
+      // claim in the test name.
       await expectLater(
         sync.insertLoggedMeal(_meal('meal-fail')),
-        throwsA(isA<Object>()),
+        throwsA(isA<PostgrestException>()),
       );
     });
   });

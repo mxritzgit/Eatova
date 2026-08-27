@@ -171,6 +171,16 @@ Future<void> _pumpGate(
   await tester.pumpAndSettle();
 }
 
+// The auth events the parametrised identity-binding block drives. Named
+// functions, not inline closures, so each case reads as what it models.
+void _keinEreignis(_ScriptedAuthRepository repository) {}
+void _meldeSessionVerlust(_ScriptedAuthRepository repository) =>
+    repository.emit(null);
+void _wechsleKonto(_ScriptedAuthRepository repository) =>
+    repository.emit(_andererUser);
+void _meldeTokenRefresh(_ScriptedAuthRepository repository) =>
+    repository.emit(_user);
+
 void main() {
   testWidgets(
       'Extern ausgeloester Session-Verlust raeumt die gepushte Route ab',
@@ -356,68 +366,56 @@ void main() {
     // including those signOutCleanup never sees: involuntary session loss and
     // a direct A -> B switch.
 
-    testWidgets('Kaltstart bindet den restaurierten Nutzer', (tester) async {
-      final rekorder = _BindungsRekorder();
-      RecipeImageStore.instance = rekorder;
-      addTearDown(RecipeImageStore.resetInstance);
-      final repository = _ScriptedAuthRepository(_user);
-      addTearDown(repository.dispose);
+    // Same shell every time: only the auth event and the expected binding
+    // sequence differ, so the four transitions run as one parametrised block.
+    for (final (name, ereignis, erwartet, grund) in <(
+      String,
+      void Function(_ScriptedAuthRepository),
+      List<String?>,
+      String
+    )>[
+      (
+        'Kaltstart bindet den restaurierten Nutzer',
+        _keinEreignis,
+        <String?>['user-1'],
+        'Schon der initState muss binden — sonst rendert der erste Frame '
+            'gegen einen ungebundenen Store.'
+      ),
+      (
+        'Session-Verlust meldet null an den Store',
+        _meldeSessionVerlust,
+        <String?>['user-1', null],
+        'Der externe Widerruf laeuft NICHT ueber signOutCleanup — ohne diese '
+            'Meldung bliebe der Bestand des Nutzers liegen.'
+      ),
+      (
+        'direkter Wechsel A -> B meldet die neue Identitaet',
+        _wechsleKonto,
+        <String?>['user-1', 'user-2'],
+        'Beim Kontowechsel ohne explizites Abmelden muss der Store den '
+            'Wechsel erfahren, BEVOR das neue Konto rendert.'
+      ),
+      (
+        'ein Token-Refresh meldet denselben Nutzer erneut (No-Op im Store)',
+        _meldeTokenRefresh,
+        <String?>['user-1', 'user-1'],
+        'Dieselbe id darf gemeldet werden — setActiveUser macht daraus ein '
+            'No-Op und purgt nichts.'
+      ),
+    ]) {
+      testWidgets(name, (tester) async {
+        final rekorder = _BindungsRekorder();
+        RecipeImageStore.instance = rekorder;
+        addTearDown(RecipeImageStore.resetInstance);
+        final repository = _ScriptedAuthRepository(_user);
+        addTearDown(repository.dispose);
 
-      await _pumpGate(tester, repository);
+        await _pumpGate(tester, repository);
+        ereignis(repository);
+        await tester.pumpAndSettle();
 
-      expect(rekorder.bindungen, <String?>['user-1'],
-          reason: 'Schon der initState muss binden — sonst rendert der '
-              'erste Frame gegen einen ungebundenen Store.');
-    });
-
-    testWidgets('Session-Verlust meldet null an den Store', (tester) async {
-      final rekorder = _BindungsRekorder();
-      RecipeImageStore.instance = rekorder;
-      addTearDown(RecipeImageStore.resetInstance);
-      final repository = _ScriptedAuthRepository(_user);
-      addTearDown(repository.dispose);
-      await _pumpGate(tester, repository);
-
-      repository.emit(null);
-      await tester.pumpAndSettle();
-
-      expect(rekorder.bindungen, <String?>['user-1', null],
-          reason: 'Der externe Widerruf laeuft NICHT ueber signOutCleanup — '
-              'ohne diese Meldung bliebe der Bestand des Nutzers liegen.');
-    });
-
-    testWidgets('direkter Wechsel A -> B meldet die neue Identitaet',
-        (tester) async {
-      final rekorder = _BindungsRekorder();
-      RecipeImageStore.instance = rekorder;
-      addTearDown(RecipeImageStore.resetInstance);
-      final repository = _ScriptedAuthRepository(_user);
-      addTearDown(repository.dispose);
-      await _pumpGate(tester, repository);
-
-      repository.emit(_andererUser);
-      await tester.pumpAndSettle();
-
-      expect(rekorder.bindungen, <String?>['user-1', 'user-2'],
-          reason: 'Beim Kontowechsel ohne explizites Abmelden muss der Store '
-              'den Wechsel erfahren, BEVOR das neue Konto rendert.');
-    });
-
-    testWidgets('ein Token-Refresh meldet denselben Nutzer erneut (No-Op im '
-        'Store)', (tester) async {
-      final rekorder = _BindungsRekorder();
-      RecipeImageStore.instance = rekorder;
-      addTearDown(RecipeImageStore.resetInstance);
-      final repository = _ScriptedAuthRepository(_user);
-      addTearDown(repository.dispose);
-      await _pumpGate(tester, repository);
-
-      repository.emit(_user);
-      await tester.pumpAndSettle();
-
-      expect(rekorder.bindungen, <String?>['user-1', 'user-1'],
-          reason: 'Dieselbe id darf gemeldet werden — setActiveUser macht '
-              'daraus ein No-Op und purgt nichts.');
-    });
+        expect(rekorder.bindungen, erwartet, reason: grund);
+      });
+    }
   });
 }

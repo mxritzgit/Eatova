@@ -6,7 +6,7 @@ import 'package:eatova/src/models/recipe_catalog_en.dart';
 /// Guard for spec §6: the German and English recipe catalogs must carry the
 /// exact same slug set. The slug is the language-neutral identity favorites and
 /// goal matching hang on, so a missing slug makes a recipe vanish on language
-/// switch. Counterpart to `arb_parity_test.dart`.
+/// switch. Counterpart to the ARB parity rule in `test/repo_rules_test.dart`.
 void main() {
   test('beide Kataloge tragen 30 Rezepte mit identischer Slug-Menge', () {
     expect(recipeCatalogDe, hasLength(30));

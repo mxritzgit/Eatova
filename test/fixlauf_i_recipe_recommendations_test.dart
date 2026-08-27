@@ -7,16 +7,15 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 const _eigenes = FitnessRecipe(
   slug: 'user_mein_teller',
@@ -36,32 +35,19 @@ const _eigenes = FitnessRecipe(
   userCreated: true,
 );
 
-Widget _app({
+Future<void> _pumpApp(
+  WidgetTester tester, {
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
   DietPreference diet = DietPreference.none,
 }) {
-  return MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: RecipesScreen(
-            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-            initialUserRecipes: userRecipes,
-            diet: diet,
-          ),
-        ),
-      ),
+  return pumpLocalized(
+    tester,
+    RecipesScreen(
+      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+      initialUserRecipes: userRecipes,
+      diet: diet,
     ),
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
 }
 
@@ -83,7 +69,7 @@ void main() {
   testWidgets('eigene Rezepte stehen nie im Karussell — auch nicht an '
       'erster Stelle', (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(_app(userRecipes: [_eigenes]));
+    await _pumpApp(tester, userRecipes: [_eigenes]);
     await tester.pumpAndSettle();
 
     expect(_karussell(), findsOneWidget);
@@ -99,7 +85,7 @@ void main() {
   testWidgets('der Badge „EMPFOHLEN" hängt nur an Katalog-Karten',
       (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(_app(userRecipes: [_eigenes]));
+    await _pumpApp(tester, userRecipes: [_eigenes]);
     await tester.pumpAndSettle();
 
     // Jede gerenderte Karte im Karussell trägt den Badge — und jede davon ist
@@ -133,14 +119,14 @@ void main() {
     final tag2 = DateTime(2026, 8, 28, 12);
 
     await withClock(Clock.fixed(tag1), () async {
-      await tester.pumpWidget(_app());
+      await _pumpApp(tester);
       await tester.pumpAndSettle();
       final erwartet = rotatedRecommendations(recipeCatalogDe, tag1).first;
       expect(_karte(erwartet.slug), findsOneWidget);
     });
 
     await withClock(Clock.fixed(tag2), () async {
-      await tester.pumpWidget(_app());
+      await _pumpApp(tester);
       await tester.pumpAndSettle();
       final erwartet1 = rotatedRecommendations(recipeCatalogDe, tag1).first;
       final erwartet2 = rotatedRecommendations(recipeCatalogDe, tag2).first;
@@ -155,7 +141,7 @@ void main() {
       'im Karussell', (tester) async {
     _pinViewport(tester);
     await withClock(Clock.fixed(DateTime(2026, 8, 27, 12)), () async {
-      await tester.pumpWidget(_app(diet: DietPreference.vegan));
+      await _pumpApp(tester, diet: DietPreference.vegan);
       await tester.pumpAndSettle();
 
       final vegan = recipeCatalogDe

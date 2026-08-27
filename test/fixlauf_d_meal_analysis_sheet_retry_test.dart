@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
@@ -11,9 +10,10 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
+
+import 'support/harness.dart';
 
 // Fix run 2026-08-27, F4-02: an analysis error no longer pops the sheet with
 // a snack and loses the photo. The error lives in the sheet with "try again"
@@ -22,13 +22,6 @@ import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 //
 // Errors are delivered through Completers AFTER the sheet listens: a
 // `Future.error` built before `pumpWidget` is an unhandled error in the zone.
-
-const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
@@ -55,25 +48,21 @@ Widget _host(
   MealAnalysisCancellation? cancellation,
   Uint8List? previewImage,
 }) {
-  return MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: _l10nDelegates,
-    home: Scaffold(
-      body: MealAnalysisSheet(
-        slot: MealSlot.lunch,
-        resultFuture: resultFuture,
-        previewImage: previewImage,
-        onAdd: (_, __) => 'id',
-        onUpdateMeal: (_, __) {},
-        failureMessage: _de.foodAnalysisFailedMessage,
-        retry: retry,
-        cancellation: cancellation,
-      ),
-    ),
+  return MealAnalysisSheet(
+    slot: MealSlot.lunch,
+    resultFuture: resultFuture,
+    previewImage: previewImage,
+    onAdd: (_, __) => 'id',
+    onUpdateMeal: (_, __) {},
+    failureMessage: _de.foodAnalysisFailedMessage,
+    retry: retry,
+    cancellation: cancellation,
   );
 }
+
+/// [_host] in the localized harness — the sheet sits directly in the body.
+Future<void> _pumpHost(WidgetTester tester, Widget host) =>
+    pumpLocalized(tester, host, reducedMotion: false, safeArea: false);
 
 /// Frames plus microtasks without `pumpAndSettle`, whose loading-card
 /// animation never settles.
@@ -90,7 +79,7 @@ void main() {
     var retries = 0;
     final first = Completer<MealAnalysisResult>();
     final second = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(_host(
+    await _pumpHost(tester, _host(
       first.future,
       retry: () {
         retries++;
@@ -136,7 +125,7 @@ void main() {
       (tester) async {
     var retries = 0;
     final first = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(_host(
+    await _pumpHost(tester, _host(
       first.future,
       retry: () {
         retries++;
@@ -162,7 +151,7 @@ void main() {
   testWidgets('ohne retry (Barcode) gibt es keinen Retry-Button, aber '
       '"Manuell eintragen"', (tester) async {
     final first = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(_host(first.future));
+    await _pumpHost(tester, _host(first.future));
     await _flush(tester);
     first.completeError(const FormatException('not found'));
     await _flush(tester);
@@ -177,31 +166,28 @@ void main() {
     MealAnalysisSheetOutcome? outcome;
     var closed = false;
     final first = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: _l10nDelegates,
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () async {
-              outcome = await showMealAnalysisSheet(
-                context,
-                slot: MealSlot.dinner,
-                resultFuture: first.future,
-                previewImage: null,
-                onAdd: (_, __) => 'id',
-                onUpdateMeal: (_, __) {},
-                failureMessage: _de.foodAnalysisFailedMessage,
-              );
-              closed = true;
-            },
-            child: const Text('open'),
-          ),
+    await pumpLocalized(
+      tester,
+      Builder(
+        builder: (context) => TextButton(
+          onPressed: () async {
+            outcome = await showMealAnalysisSheet(
+              context,
+              slot: MealSlot.dinner,
+              resultFuture: first.future,
+              previewImage: null,
+              onAdd: (_, __) => 'id',
+              onUpdateMeal: (_, __) {},
+              failureMessage: _de.foodAnalysisFailedMessage,
+            );
+            closed = true;
+          },
+          child: const Text('open'),
         ),
       ),
-    ));
+      reducedMotion: false,
+      safeArea: false,
+    );
 
     await tester.tap(find.text('open'));
     await _flush(tester, 20);
@@ -231,32 +217,29 @@ void main() {
       () => never.completeError(const MealAnalysisCancelled()),
     );
     var closed = false;
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: _l10nDelegates,
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () async {
-              await showMealAnalysisSheet(
-                context,
-                slot: MealSlot.lunch,
-                resultFuture: never.future,
-                previewImage: null,
-                onAdd: (_, __) => 'id',
-                onUpdateMeal: (_, __) {},
-                failureMessage: _de.foodAnalysisFailedMessage,
-                cancellation: cancellation,
-              );
-              closed = true;
-            },
-            child: const Text('open'),
-          ),
+    await pumpLocalized(
+      tester,
+      Builder(
+        builder: (context) => TextButton(
+          onPressed: () async {
+            await showMealAnalysisSheet(
+              context,
+              slot: MealSlot.lunch,
+              resultFuture: never.future,
+              previewImage: null,
+              onAdd: (_, __) => 'id',
+              onUpdateMeal: (_, __) {},
+              failureMessage: _de.foodAnalysisFailedMessage,
+              cancellation: cancellation,
+            );
+            closed = true;
+          },
+          child: const Text('open'),
         ),
       ),
-    ));
+      reducedMotion: false,
+      safeArea: false,
+    );
 
     await tester.tap(find.text('open'));
     await _flush(tester, 20);
@@ -297,7 +280,7 @@ void main() {
     cancellation.register(
       () => never.completeError(const MealAnalysisCancelled()),
     );
-    await tester.pumpWidget(_host(never.future, cancellation: cancellation));
+    await _pumpHost(tester, _host(never.future, cancellation: cancellation));
     await _flush(tester);
 
     await tester.pumpWidget(const MaterialApp(home: Scaffold()));
@@ -310,7 +293,7 @@ void main() {
   testWidgets('dispose bei laufendem Request cancelt', (tester) async {
     final never = Completer<MealAnalysisResult>();
     final cancellation = MealAnalysisCancellation();
-    await tester.pumpWidget(_host(never.future, cancellation: cancellation));
+    await _pumpHost(tester, _host(never.future, cancellation: cancellation));
     await _flush(tester);
     expect(cancellation.isCancelled, isFalse);
 
@@ -322,7 +305,7 @@ void main() {
 
   testWidgets('dispose nach fertigem Ergebnis cancelt NICHT', (tester) async {
     final cancellation = MealAnalysisCancellation();
-    await tester.pumpWidget(_host(
+    await _pumpHost(tester, _host(
       Future<MealAnalysisResult>.value(_ergebnis),
       cancellation: cancellation,
     ));
@@ -339,7 +322,7 @@ void main() {
   testWidgets('ein synchron werfendes retry landet in der Fehlerkarte',
       (tester) async {
     final first = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(_host(
+    await _pumpHost(tester, _host(
       first.future,
       retry: () => throw const MealAnalysisReauthRequired(),
     ));

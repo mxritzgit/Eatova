@@ -25,7 +25,7 @@ eine saubere, natürliche englische Übersetzung (kein Wort-für-Wort-Deutsch).
 3. Code auf `context.l10n.<key>` umstellen. Widgets ohne BuildContext-Zugriff
    bekommen den String als Parameter gereicht (kein globales Lookup bauen).
 4. `flutter gen-l10n`, dann die Paket-Tests + betroffene Suiten grün.
-5. Der Hartkodierungs-Wächter (`test/l10n/hartkodierung_waechter_test.dart`)
+5. Der Hartkodierungs-Wächter (die i18n-Regeln in `test/repo_rules_test.dart`)
    bekommt die fertig migrierten Verzeichnisse/Dateien in seine Liste.
 
 ## Bekannte Fallen (alle schon einmal passiert)

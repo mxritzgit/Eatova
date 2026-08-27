@@ -8,45 +8,16 @@
 //     design mock shows both, we have neither).
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
-/// iPhone 14 viewport (393x852 logical).
-void _pinViewport(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-}
-
-Future<void> _expectNoOverflow(Future<void> Function() body) async {
-  final overflows = <String>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) {
-      final full = details.toString();
-      final culprit = RegExp(r'\S+:file:///\S+').firstMatch(full)?.group(0);
-      overflows.add('${details.summary} (${culprit ?? 'unbekannt'})');
-      return;
-    }
-    prior?.call(details);
-  };
-  try {
-    await body();
-  } finally {
-    FlutterError.onError = prior;
-  }
-  expect(overflows, isEmpty, reason: overflows.join('\n'));
-}
+import '../support/harness.dart';
 
 Widget _profile({
   UserProfile profile = const UserProfile(),
@@ -74,67 +45,63 @@ Widget _profile({
   );
 }
 
-/// Pumps the screen as its own route above a start screen, so
-/// `profile-close` (maybePop) actually has something to close.
+/// The start screen the profile is pushed from, so `profile-close`
+/// (maybePop) actually has something to close.
+Widget _opener(Widget screen) => Builder(
+      builder: (context) => Center(
+        child: ElevatedButton(
+          key: const ValueKey('open-profile'),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => screen),
+          ),
+          child: const Text('öffnen'),
+        ),
+      ),
+    );
+
+/// Pumps the screen as its own route above that start screen.
 Future<void> _pumpAsRoute(
   WidgetTester tester,
   Widget screen, {
   Brightness brightness = Brightness.dark,
-  TextScaler? textScaler,
+  double textScale = 1.0,
   Locale locale = const Locale('de'),
 }) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      // ProfileScreen reads context.l10n.
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      builder: textScaler == null
-          ? null
-          : (context, child) => MediaQuery(
-                data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-                child: child!,
-              ),
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: ElevatedButton(
-              key: const ValueKey('open-profile'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => screen),
-              ),
-              child: const Text('öffnen'),
-            ),
-          ),
-        ),
-      ),
-    ),
+  await pumpLocalized(
+    tester,
+    _opener(screen),
+    brightness: brightness,
+    locale: locale,
+    textScale: textScale,
+    safeArea: false,
   );
   await tester.tap(find.byKey(const ValueKey('open-profile')));
   await tester.pumpAndSettle();
 }
 
 void main() {
-  for (final brightness in <Brightness>[Brightness.light, Brightness.dark]) {
-    testWidgets('rendert in ${brightness.name} ohne Exception', (tester) async {
-      _pinViewport(tester);
-      await _pumpAsRoute(tester, _profile(), brightness: brightness);
+  // Both brightnesses AND both languages from one call; the old file declared
+  // the same four cases in two separate loops.
+  renderMatrix(
+    'Das Profil rendert overflow-frei',
+    (tester, c) async {
+      pinPhoneViewport(tester);
+      await c.pump(tester, _opener(_profile()), safeArea: false);
+      await tester.tap(find.byKey(const ValueKey('open-profile')));
+      await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
-      expect(find.text('Mein Profil'), findsOneWidget);
+      expect(find.text(c.l10n.profileTitle), findsOneWidget);
       expect(find.text('Moritz Schneider'), findsOneWidget);
-    });
-  }
+      // The last section heading, in the language of this case.
+      expect(find.text(c.l10n.profileSectionConnections), findsOneWidget);
+    },
+    locales: const <Locale>[Locale('de'), Locale('en')],
+  );
 
   testWidgets('der Kopf traegt Zurueck-Knopf und Zahnrad', (tester) async {
-    _pinViewport(tester);
+    pinPhoneViewport(tester);
     var einstellungen = 0;
     var ziele = 0;
     await _pumpAsRoute(
@@ -163,7 +130,7 @@ void main() {
   // their counterparts in the settings so the removal is not a silent loss.
   testWidgets('der Block „Daten & Konto" steht nicht mehr im Profil',
       (tester) async {
-    _pinViewport(tester);
+    pinPhoneViewport(tester);
     await _pumpAsRoute(tester, _profile());
 
     for (final key in <String>[
@@ -191,7 +158,7 @@ void main() {
     // `profile-action-edit` went with the account block, so the route to the
     // goals page now hangs solely on these two buttons (plus
     // `settings-open-goals`).
-    _pinViewport(tester);
+    pinPhoneViewport(tester);
     var editCalls = 0;
     await _pumpAsRoute(tester, _profile(onEditProfile: () => editCalls++));
 
@@ -211,7 +178,7 @@ void main() {
   testWidgets(
       'die Schritte-Zeile rendert EIN Text-Widget im Format <ist>/<soll>',
       (tester) async {
-    _pinViewport(tester);
+    pinPhoneViewport(tester);
     await _pumpAsRoute(tester, _profile(dailySteps: 1000));
 
     // Findable without scrolling: the screen builds eagerly
@@ -224,7 +191,7 @@ void main() {
   });
 
   testWidgets('die Identitaetskarte erfindet keine Daten', (tester) async {
-    _pinViewport(tester);
+    pinPhoneViewport(tester);
     await _pumpAsRoute(tester, _profile());
 
     expect(find.text('PREMIUM'), findsNothing);
@@ -257,13 +224,9 @@ void main() {
   ]) {
     testWidgets('Sheet „${sheet.name}" oeffnet bei textScaler 2.0 ohne '
         'Overflow', (tester) async {
-      _pinViewport(tester);
-      await _expectNoOverflow(() async {
-        await _pumpAsRoute(
-          tester,
-          _profile(),
-          textScaler: const TextScaler.linear(2.0),
-        );
+      pinPhoneViewport(tester);
+      final overflows = await collectOverflows(() async {
+        await _pumpAsRoute(tester, _profile(), textScale: 2.0);
         final oeffner = sheet.tooltip != null
             ? find.byTooltip(sheet.tooltip!)
             : find.byKey(ValueKey(sheet.key));
@@ -273,38 +236,47 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
       });
+      expect(overflows, isEmpty, reason: describeOverflows(overflows));
     });
   }
 
-  testWidgets('rendert bei textScaler 2.0 ohne Overflow', (tester) async {
-    _pinViewport(tester);
-    await _expectNoOverflow(() async {
-      await _pumpAsRoute(
+  // The dense variant (target weight, sparkline, health card) at double font
+  // size — a fixture the matrix above deliberately does not carry.
+  renderMatrix(
+    'Das gefuellte Profil rendert bei doppelter Schrift overflow-frei',
+    (tester, c) async {
+      pinPhoneViewport(tester);
+      await c.pump(
         tester,
-        _profile(
-          profile: const UserProfile(
-            weightKg: 78,
-            targetWeightKg: 68,
-            weightGoal: WeightGoal.lose05kg,
-            activityLevel: ActivityLevel.athlete,
+        _opener(
+          _profile(
+            profile: const UserProfile(
+              weightKg: 78,
+              targetWeightKg: 68,
+              weightGoal: WeightGoal.lose05kg,
+              activityLevel: ActivityLevel.athlete,
+            ),
+            weightLog: WeightLog(
+              entries: <WeightLogEntry>[
+                WeightLogEntry(
+                  timestamp: DateTime(2026, 7, 1),
+                  weightKg: 80.4,
+                ),
+                WeightLogEntry(
+                  timestamp: DateTime(2026, 8, 1),
+                  weightKg: 77.8,
+                ),
+              ],
+            ),
+            healthAuthState: HealthAuthState.unverified,
+            dailySteps: 12345,
           ),
-          weightLog: WeightLog(
-            entries: <WeightLogEntry>[
-              WeightLogEntry(
-                timestamp: DateTime(2026, 7, 1),
-                weightKg: 80.4,
-              ),
-              WeightLogEntry(
-                timestamp: DateTime(2026, 8, 1),
-                weightKg: 77.8,
-              ),
-            ],
-          ),
-          healthAuthState: HealthAuthState.unverified,
-          dailySteps: 12345,
         ),
-        textScaler: const TextScaler.linear(2.0),
+        safeArea: false,
       );
+      await tester.tap(find.byKey(const ValueKey('open-profile')));
+      await tester.pumpAndSettle();
+
       // Scroll to the end so the lower cards actually lay out. The anchor is
       // the health card's connect button, the page's last control (visible at
       // `unverified`).
@@ -312,29 +284,8 @@ void main() {
         find.byKey(const ValueKey('profile-health-connect')),
       );
       await tester.pumpAndSettle();
-    });
-  });
-
-  group('EN-Render-Smoke (i18n-Paket 5, Spec §6)', () {
-    // Renders under locale `en` in both brightnesses: no crash, and at least
-    // one real English translation is in the tree.
-    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
-      testWidgets('rendert unter en in $brightness ohne Ausnahme',
-          (tester) async {
-        _pinViewport(tester);
-        await _pumpAsRoute(
-          tester,
-          _profile(),
-          brightness: brightness,
-          locale: const Locale('en'),
-        );
-
-        expect(tester.takeException(), isNull,
-            reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
-        // The two headings in their English wording.
-        expect(find.text('My Profile'), findsOneWidget);
-        expect(find.text('Connections'), findsOneWidget);
-      });
-    }
-  });
+    },
+    brightnesses: const <Brightness>[Brightness.dark],
+    textScales: const <double>[2.0],
+  );
 }

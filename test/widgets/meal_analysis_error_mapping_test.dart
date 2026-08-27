@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
@@ -11,8 +10,9 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
+
+import '../support/harness.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 final AppLocalizations _en = lookupAppLocalizations(const Locale('en'));
@@ -38,27 +38,18 @@ Widget _sheetHost(
   String failureMessage = _fallback,
   String Function(MealAnalysisResult, MealSlot)? onAdd,
 }) {
-  return MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    // MealAnalysisSheet reads context.l10n since the i18n migration.
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(
-      body: MealAnalysisSheet(
-        slot: MealSlot.lunch,
-        resultFuture: resultFuture,
-        previewImage: null,
-        onAdd: onAdd ?? (_, __) => '',
-        onUpdateMeal: (_, __) {},
-        failureMessage: failureMessage,
-      ),
+  return localizedApp(
+    MealAnalysisSheet(
+      slot: MealSlot.lunch,
+      resultFuture: resultFuture,
+      previewImage: null,
+      onAdd: onAdd ?? (_, __) => '',
+      onUpdateMeal: (_, __) {},
+      failureMessage: failureMessage,
     ),
+    // Motion as before the migration.
+    reducedMotion: false,
+    safeArea: false,
   );
 }
 

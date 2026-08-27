@@ -4,11 +4,9 @@
 // created, but existing data remains.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -18,8 +16,9 @@ import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/meals_sync.dart'
     show mealResultFromJson, mealResultToJson;
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -70,34 +69,24 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final geloggt = <MealAnalysisResult>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        // AddMealSheet reads context.l10n.
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: AddMealSheet(
-            slot: MealSlot.snack,
-            analyzer: _StummerAnalyzer(),
-            productService: _StummerProduktdienst(),
-            photoInput: _StummeFotoquelle(),
-            favorites: <FavoriteMeal>[altlast],
-            onAdd: (result, slot) {
-              geloggt.add(result);
-              return 'id-1';
-            },
-            onUpdateMeal: (_, __) {},
-            onRemoveFavorite: (_) {},
-          ),
-        ),
+    await pumpLocalized(
+      tester,
+      AddMealSheet(
+        slot: MealSlot.snack,
+        analyzer: _StummerAnalyzer(),
+        productService: _StummerProduktdienst(),
+        photoInput: _StummeFotoquelle(),
+        favorites: <FavoriteMeal>[altlast],
+        onAdd: (result, slot) {
+          geloggt.add(result);
+          return 'id-1';
+        },
+        onUpdateMeal: (_, __) {},
+        onRemoveFavorite: (_) {},
       ),
+      // Motion on: the favorites list sits in an AnimatedSize, and a zero
+      // duration makes it re-dirty itself during layout.
+      reducedMotion: false,
     );
     await tester.pumpAndSettle();
 
@@ -141,34 +130,24 @@ void main() {
     );
 
     final geloggt = <MealAnalysisResult>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        // AddMealSheet reads context.l10n.
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: AddMealSheet(
-            slot: MealSlot.snack,
-            analyzer: _StummerAnalyzer(),
-            productService: _StummerProduktdienst(),
-            photoInput: _StummeFotoquelle(),
-            favorites: <FavoriteMeal>[wasser],
-            onAdd: (result, slot) {
-              geloggt.add(result);
-              return 'id-1';
-            },
-            onUpdateMeal: (_, __) {},
-            onRemoveFavorite: (_) {},
-          ),
-        ),
+    await pumpLocalized(
+      tester,
+      AddMealSheet(
+        slot: MealSlot.snack,
+        analyzer: _StummerAnalyzer(),
+        productService: _StummerProduktdienst(),
+        photoInput: _StummeFotoquelle(),
+        favorites: <FavoriteMeal>[wasser],
+        onAdd: (result, slot) {
+          geloggt.add(result);
+          return 'id-1';
+        },
+        onUpdateMeal: (_, __) {},
+        onRemoveFavorite: (_) {},
       ),
+      // Motion on: the favorites list sits in an AnimatedSize, and a zero
+      // duration makes it re-dirty itself during layout.
+      reducedMotion: false,
     );
     await tester.pumpAndSettle();
 

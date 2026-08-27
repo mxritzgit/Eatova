@@ -1,32 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 
-/// Delegates for the MaterialApp instances here; the screen uses
-/// `context.l10n` throughout.
-const _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
+import 'support/harness.dart';
 
 // Behaviour tests for the onboarding flow: steps, validation, keys and texts.
-// Every pumpWidget needs `theme:`, because the screen reads its colors via
-// `context.t` and AppTokens.of throws without the theme extension.
+// The shared harness supplies theme and localizations: the screen reads its
+// colors via `context.t` and AppTokens.of throws without the theme extension.
 void main() {
   Future<UserProfile> runFullFlow(WidgetTester tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    pinPhoneViewport(tester);
 
     final prior = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -36,20 +23,20 @@ void main() {
     addTearDown(() => FlutterError.onError = prior);
 
     UserProfile? captured;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: _l10nDelegates,
-        home: OnboardingScreen(
-          firstName: 'Moritz',
-          initialProfile: const UserProfile(),
-          onComplete: (p) => captured = p,
-        ),
+    await pumpLocalized(
+      tester,
+      OnboardingScreen(
+        firstName: 'Moritz',
+        initialProfile: const UserProfile(),
+        onComplete: (p) => captured = p,
       ),
+      brightness: Brightness.light,
+      // Motion as before the migration.
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+      settle: true,
     );
-    await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
     expect(find.text('Willkommen, Moritz.'), findsOneWidget);
@@ -126,10 +113,7 @@ void main() {
   });
 
   testWidgets('maintain goal skips target and pace steps', (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    pinPhoneViewport(tester);
 
     final prior = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -139,20 +123,20 @@ void main() {
     addTearDown(() => FlutterError.onError = prior);
 
     UserProfile? captured;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: _l10nDelegates,
-        home: OnboardingScreen(
-          firstName: 'Moritz',
-          initialProfile: const UserProfile(),
-          onComplete: (p) => captured = p,
-        ),
+    await pumpLocalized(
+      tester,
+      OnboardingScreen(
+        firstName: 'Moritz',
+        initialProfile: const UserProfile(),
+        onComplete: (p) => captured = p,
       ),
+      brightness: Brightness.light,
+      // Motion as before the migration.
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+      settle: true,
     );
-    await tester.pumpAndSettle();
 
     Future<void> next() async {
       await tester.tap(find.byKey(const ValueKey('onboarding-next')));
@@ -196,10 +180,7 @@ void main() {
     // state object is merely updated and keeps its step.
     Key? screenKey,
   }) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    pinPhoneViewport(tester);
 
     final prior = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -208,21 +189,21 @@ void main() {
     };
     addTearDown(() => FlutterError.onError = prior);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: _l10nDelegates,
-        home: OnboardingScreen(
-          key: screenKey,
-          firstName: 'Moritz',
-          initialProfile: initialProfile,
-          onComplete: onComplete ?? (_) {},
-        ),
+    await pumpLocalized(
+      tester,
+      OnboardingScreen(
+        key: screenKey,
+        firstName: 'Moritz',
+        initialProfile: initialProfile,
+        onComplete: onComplete ?? (_) {},
       ),
+      brightness: Brightness.light,
+      // Motion as before the migration.
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+      settle: true,
     );
-    await tester.pumpAndSettle();
   }
 
   testWidgets('age is clamped to a minimum of 16 (DSGVO Art. 8)',

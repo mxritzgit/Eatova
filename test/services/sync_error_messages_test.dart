@@ -142,21 +142,64 @@ void main() {
     PostgrestException pg(String code) =>
         PostgrestException(message: 'irgendwas Technisches', code: code);
 
-    test('payload-determinierte Constraint-Fehler werden SOFORT verworfen',
-        () {
-      // 23502 not_null_violation — no user input produces this.
-      expect(classifyOutboxFailure(pg('23502'), 0), OutboxVerdict.drop);
-      // Class 22 (data exception), here numeric_value_out_of_range.
-      expect(classifyOutboxFailure(pg('22003'), 0), OutboxVerdict.drop);
-      expect(classifyOutboxFailure(pg('22P02'), 0), OutboxVerdict.drop);
-    });
+    // The verdict table for a FRESH failure (attempts 0, no op kind). Every
+    // code runs as its own named case: moving one between the columns is a
+    // data-loss decision, and the failure has to say which code moved.
+    final urteile = <(String, OutboxVerdict, String)>[
+      // Payload-determined — no user input produces these, so a retry would
+      // fail identically forever.
+      ('23502', OutboxVerdict.drop, 'not_null_violation'),
+      ('22003', OutboxVerdict.drop, 'Klasse 22, numeric_value_out_of_range'),
+      ('22P02', OutboxVerdict.drop, 'Klasse 22, invalid_text_representation'),
+      // "75,5" in the weight field (-> 755 kg) is reproducible USER input, and
+      // the correction window the attempts reset is built on.
+      ('23514', OutboxVerdict.retryCounted, 'Check-Constraint aus Nutzereingabe'),
+      ('23503', OutboxVerdict.retryCounted,
+          'Fremdschluessel, waehrend Migration/Signup-Rennen transient'),
+      // HTTP status codes: PostgREST only puts them in `code` when the body
+      // carries none.
+      ('500', OutboxVerdict.retryCounted, 'Serverfehler'),
+      ('502', OutboxVerdict.retryCounted, 'Gateway'),
+      ('503', OutboxVerdict.retryCounted, 'Gateway'),
+      ('429', OutboxVerdict.retryCounted, 'Rate-Limit'),
+      // 401/403: almost always an expired token, which the refresh heals.
+      ('401', OutboxVerdict.retryCounted, 'Token-Alter, der Refresh heilt es'),
+      ('403', OutboxVerdict.retryCounted, 'Token-Alter, der Refresh heilt es'),
+      ('404', OutboxVerdict.drop, 'uebrige 4xx'),
+      ('400', OutboxVerdict.drop, 'uebrige 4xx'),
+      ('422', OutboxVerdict.drop, 'uebrige 4xx'),
+      ('42501', OutboxVerdict.retryCounted, 'RLS, oft eine Sessionfrage'),
+      ('PGRST301', OutboxVerdict.retryCounted, 'JWT abgelaufen'),
+      // Sentry FLUTTER-9 (2026-08-26): PostgREST >= 12.2 reports an expired
+      // JWT as PGRST303, which until then fell into the drop branch — a write
+      // rejected only because of token age would have been thrown away.
+      ('PGRST303', OutboxVerdict.retryCounted, 'JWT abgelaufen, FLUTTER-9'),
+      // Other PGRST codes describe a structurally broken request; PGRST302
+      // (anonymous access disabled) is a config error, not a token age.
+      ('PGRST302', OutboxVerdict.drop, 'Konfigurationsfehler, kein Token-Alter'),
+      ('PGRST204', OutboxVerdict.drop, 'strukturell kaputte Anfrage'),
+      ('PGRST100', OutboxVerdict.drop, 'strukturell kaputte Anfrage'),
+      // Transient SQLSTATE classes.
+      ('08006', OutboxVerdict.retryCounted, 'Verbindungsklasse 08'),
+      ('40001', OutboxVerdict.retryCounted, 'serialization_failure'),
+      ('53300', OutboxVerdict.retryCounted, 'too_many_connections'),
+      ('57P03', OutboxVerdict.retryCounted, 'cannot_connect_now'),
+      ('58030', OutboxVerdict.retryCounted, 'io_error'),
+      // Unknown stays in the queue: dropping on a code nobody classified is
+      // the expensive direction.
+      ('99999', OutboxVerdict.retryCounted, 'unbekannter Code'),
+      ('', OutboxVerdict.retryCounted, 'leerer Code'),
+    ];
+    for (final (code, urteil, warum) in urteile) {
+      test('frischer Fehlschlag mit Code "$code" -> ${urteil.name} ($warum)',
+          () {
+        expect(classifyOutboxFailure(pg(code), 0), urteil);
+      });
+    }
 
     test(
-        '23514 (Check-Constraint) ist KEIN Sofort-Verwurf — das ist der '
+        '23514 (Check-Constraint) ueberlebt bis an den Budget-Rand — der '
         'Normalfall einer Nutzereingabe, nicht korrupte Daten', () {
-      // "75,5" in the weight field (-> 755 kg) is reproducible user input,
-      // and the correction window the attempts reset is built on.
-      expect(classifyOutboxFailure(pg('23514'), 0), OutboxVerdict.retryCounted);
       expect(classifyOutboxFailure(pg('23514'), kOutboxMaxAttempts - 2),
           OutboxVerdict.retryCounted);
       // The budget stays the emergency brake: not even a 23514 loops forever.
@@ -164,13 +207,7 @@ void main() {
           OutboxVerdict.drop);
     });
 
-    test('23503 (Fremdschluessel) bleibt retrybar — waehrend einer Migration '
-        'bzw. eines Signup-Rennens ist das transient', () {
-      expect(classifyOutboxFailure(pg('23503'), 0), OutboxVerdict.retryCounted);
-    });
-
     test('500 verbrennt Versuche und faellt erst am Budget-Rand raus', () {
-      expect(classifyOutboxFailure(pg('500'), 0), OutboxVerdict.retryCounted);
       expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 2),
           OutboxVerdict.retryCounted);
       expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 1),
@@ -178,35 +215,6 @@ void main() {
           reason: 'dieser Versuch ist der letzte des Budgets');
       expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts + 99),
           OutboxVerdict.drop);
-    });
-
-    test('429/5xx sind retrybar, uebrige 4xx nicht', () {
-      expect(classifyOutboxFailure(pg('429'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('503'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('502'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('404'), 0), OutboxVerdict.drop);
-      expect(classifyOutboxFailure(pg('400'), 0), OutboxVerdict.drop);
-      expect(classifyOutboxFailure(pg('422'), 0), OutboxVerdict.drop);
-      // 401/403: almost always an expired token, which the refresh heals.
-      expect(classifyOutboxFailure(pg('401'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('403'), 0), OutboxVerdict.retryCounted);
-    });
-
-    test('42501 (RLS) und PGRST301/PGRST303 (JWT abgelaufen) sind retrybar',
-        () {
-      expect(classifyOutboxFailure(pg('42501'), 0), OutboxVerdict.retryCounted);
-      expect(
-          classifyOutboxFailure(pg('PGRST301'), 0), OutboxVerdict.retryCounted);
-      // Sentry FLUTTER-9 (2026-08-26): PostgREST >= 12.2 reports an expired
-      // JWT as PGRST303, which until then fell into the drop branch — a write
-      // rejected only because of token age would have been thrown away.
-      expect(
-          classifyOutboxFailure(pg('PGRST303'), 0), OutboxVerdict.retryCounted);
-      // Other PGRST codes describe a structurally broken request; PGRST302
-      // (anonymous access disabled) is a config error, not a token age.
-      expect(classifyOutboxFailure(pg('PGRST302'), 0), OutboxVerdict.drop);
-      expect(classifyOutboxFailure(pg('PGRST204'), 0), OutboxVerdict.drop);
-      expect(classifyOutboxFailure(pg('PGRST100'), 0), OutboxVerdict.drop);
     });
 
     test('isStaleAuthError kennt die drei Token-Ablehnungen und sonst nichts',
@@ -221,14 +229,6 @@ void main() {
       expect(isStaleAuthError(const SocketException('offline')), isFalse);
       expect(
           isStaleAuthError(AuthRetryableFetchException(message: 'x')), isFalse);
-    });
-
-    test('transiente SQLSTATE-Klassen bleiben liegen', () {
-      expect(classifyOutboxFailure(pg('08006'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('40001'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('53300'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('57P03'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('58030'), 0), OutboxVerdict.retryCounted);
     });
 
     test(
@@ -362,9 +362,9 @@ void main() {
       }
     });
 
-    test('unbekannter Code / unbekannter Typ -> behalten (retryCounted)', () {
-      expect(classifyOutboxFailure(pg('99999'), 0), OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg(''), 0), OutboxVerdict.retryCounted);
+    test('unbekannter TYP -> behalten (retryCounted)', () {
+      // The unknown CODES sit in the verdict table above; here it is about
+      // errors that are not a PostgrestException at all.
       expect(
           classifyOutboxFailure(
               const PostgrestException(message: 'ohne code'), 0),

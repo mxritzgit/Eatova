@@ -4,27 +4,17 @@ import 'package:camera/camera.dart';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-/// MealCameraSheet reads `context.l10n`; a constant because several
-/// `MaterialApp` setups in this file need the same delegates.
-const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
+import 'support/harness.dart';
 
 /// Replaces the real device camera: one back camera, immediate init success,
 /// logged lockCaptureOrientation calls. Streams stay open.
@@ -180,18 +170,14 @@ bool _hasExifSegment(Uint8List bytes) {
 }
 
 Future<void> _pumpSheet(WidgetTester tester) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: _l10nDelegates,
-      home: const Scaffold(
-        body: MealCameraSheet(initialSlot: MealSlot.lunch),
-      ),
-    ),
+  await pumpLocalized(
+    tester,
+    const MealCameraSheet(initialSlot: MealSlot.lunch),
+    // Motion as before the migration.
+    reducedMotion: false,
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
 }
 
 /// Runs frames AND pending futures without waiting for quiescence.
@@ -320,18 +306,13 @@ void main() {
         fake.initGate = Completer<void>();
         CameraPlatform.instance = fake;
 
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildEatovaTheme(Brightness.dark),
-            locale: const Locale('de'),
-            supportedLocales: const [Locale('de'), Locale('en')],
-            localizationsDelegates: _l10nDelegates,
-            home: const Scaffold(
-              body: MealCameraSheet(initialSlot: MealSlot.lunch),
-            ),
-          ),
+        await pumpLocalized(
+          tester,
+          const MealCameraSheet(initialSlot: MealSlot.lunch),
+          // Motion as before the migration.
+          reducedMotion: false,
+          safeArea: false,
         );
-        await tester.pump();
 
         // The picker opens before initialize() returns.
         _sendToBackground(tester);
@@ -354,18 +335,13 @@ void main() {
         fake.initGate = Completer<void>();
         CameraPlatform.instance = fake;
 
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildEatovaTheme(Brightness.dark),
-            locale: const Locale('de'),
-            supportedLocales: const [Locale('de'), Locale('en')],
-            localizationsDelegates: _l10nDelegates,
-            home: const Scaffold(
-              body: MealCameraSheet(initialSlot: MealSlot.lunch),
-            ),
-          ),
+        await pumpLocalized(
+          tester,
+          const MealCameraSheet(initialSlot: MealSlot.lunch),
+          // Motion as before the migration.
+          reducedMotion: false,
+          safeArea: false,
         );
-        await tester.pump();
 
         _bringToForeground(tester);
         await tester.pump();
@@ -472,28 +448,24 @@ void main() {
       ImagePickerPlatform.instance = picker;
 
       MealCameraCapture? captured;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.dark),
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: _l10nDelegates,
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () async {
-                  captured = await showModalBottomSheet<MealCameraCapture>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) =>
-                        const MealCameraSheet(initialSlot: MealSlot.lunch),
-                  );
-                },
-                child: const Text('open'),
-              ),
-            ),
+      await pumpLocalized(
+        tester,
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              captured = await showModalBottomSheet<MealCameraCapture>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) =>
+                    const MealCameraSheet(initialSlot: MealSlot.lunch),
+              );
+            },
+            child: const Text('open'),
           ),
         ),
+        // Motion as before the migration.
+        reducedMotion: false,
+        safeArea: false,
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();

@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import 'support/harness.dart';
 
 // ---------------------------------------------------------------------------
 // A11y guarantees of the shared controls (verification 2026-08-09).
@@ -16,19 +16,19 @@ import 'package:eatova/src/widgets/design/design.dart';
 // they SAY to a screen reader, which a refactor drops silently.
 // ---------------------------------------------------------------------------
 
-Widget _harness(Widget child, {Brightness brightness = Brightness.light}) {
-  return MaterialApp(
-    theme: buildEatovaTheme(brightness),
-    // PageHeader reads context.l10n, which throws without localizations.
-    locale: const Locale('de'),
-    supportedLocales: AppLocalizations.supportedLocales,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    home: Scaffold(body: SafeArea(child: Padding(
+/// PageHeader reads context.l10n, which throws without localizations.
+Future<void> _harness(
+  WidgetTester tester,
+  Widget child, {
+  Brightness brightness = Brightness.light,
+}) =>
+    pumpLocalized(
+      tester,
+      child,
+      reducedMotion: false,
+      brightness: brightness,
       padding: const EdgeInsets.all(20),
-      child: child,
-    ))),
-  );
-}
+    );
 
 void main() {
   group('PrimaryActionButton', () {
@@ -36,8 +36,9 @@ void main() {
         (tester) async {
       final handle = tester.ensureSemantics();
 
-      await tester.pumpWidget(
-        _harness(PrimaryActionButton(label: 'Essen loggen', onTap: () {})),
+      await _harness(
+        tester,
+        PrimaryActionButton(label: 'Essen loggen', onTap: () {}),
       );
       expect(
         tester.getSemantics(find.byType(PrimaryActionButton)),
@@ -46,8 +47,9 @@ void main() {
 
       // `onTap == null` is the disabled convention; without `hasEnabledState`
       // a locked button sounds like a normal one.
-      await tester.pumpWidget(
-        _harness(const PrimaryActionButton(label: 'Speichern')),
+      await _harness(
+        tester,
+        const PrimaryActionButton(label: 'Speichern'),
       );
       expect(
         tester.getSemantics(find.byType(PrimaryActionButton)),
@@ -62,15 +64,14 @@ void main() {
         (tester) async {
       final handle = tester.ensureSemantics();
 
-      await tester.pumpWidget(
-        _harness(
-          Row(
-            children: <Widget>[
-              FilterChipPill(label: 'Alle', selected: true, onTap: () {}),
-              const SizedBox(width: 8),
-              FilterChipPill(label: 'Eigene', selected: false, onTap: () {}),
-            ],
-          ),
+      await _harness(
+        tester,
+        Row(
+          children: <Widget>[
+            FilterChipPill(label: 'Alle', selected: true, onTap: () {}),
+            const SizedBox(width: 8),
+            FilterChipPill(label: 'Eigene', selected: false, onTap: () {}),
+          ],
         ),
       );
 
@@ -89,13 +90,12 @@ void main() {
     testWidgets('SegmentedPill meldet die gewaehlte Option', (tester) async {
       final handle = tester.ensureSemantics();
 
-      await tester.pumpWidget(
-        _harness(
-          SegmentedPill(
-            options: const <String>['Metrisch', 'Imperial'],
-            selected: 'Metrisch',
-            onChanged: (_) {},
-          ),
+      await _harness(
+        tester,
+        SegmentedPill(
+          options: const <String>['Metrisch', 'Imperial'],
+          selected: 'Metrisch',
+          onChanged: (_) {},
         ),
       );
 
@@ -118,7 +118,7 @@ void main() {
       // out literally.
       final handle = tester.ensureSemantics();
 
-      await tester.pumpWidget(_harness(const PageHeader(title: 'Mein Profil')));
+      await _harness(tester, const PageHeader(title: 'Mein Profil'));
 
       expect(
         tester.getSemantics(find.byType(SquareIconButton)),
@@ -154,34 +154,33 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        _harness(
-          AppCard(
-            child: Column(
-              children: <Widget>[
-                MacroBar(
-                  label: 'Protein',
-                  value: 90,
-                  goal: 130,
-                  unit: 'g',
-                  color: AppTokens.light.protein,
-                ),
-                MacroBar(
-                  label: 'Kohlenhydrate',
-                  value: 180,
-                  goal: 250,
-                  unit: 'g',
-                  color: AppTokens.light.carbs,
-                ),
-                MacroBar(
-                  label: 'Fett',
-                  value: 50,
-                  goal: 70,
-                  unit: 'g',
-                  color: AppTokens.light.fat,
-                ),
-              ],
-            ),
+      await _harness(
+        tester,
+        AppCard(
+          child: Column(
+            children: <Widget>[
+              MacroBar(
+                label: 'Protein',
+                value: 90,
+                goal: 130,
+                unit: 'g',
+                color: AppTokens.light.protein,
+              ),
+              MacroBar(
+                label: 'Kohlenhydrate',
+                value: 180,
+                goal: 250,
+                unit: 'g',
+                color: AppTokens.light.carbs,
+              ),
+              MacroBar(
+                label: 'Fett',
+                value: 50,
+                goal: 70,
+                unit: 'g',
+                color: AppTokens.light.fat,
+              ),
+            ],
           ),
         ),
       );

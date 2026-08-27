@@ -8,13 +8,12 @@
 // when the clamp eats the whole deficit. Both are pinned here.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
+
+import '../support/harness.dart';
 
 /// Standard profile: BMR 1664.5, maintenance 2164 (PAL 1.3), cap 78 × 11 = 858
 /// rounded down to 825 kcal/day → 1339 → 1350 kcal. That equals the neutral
@@ -68,27 +67,13 @@ Future<void> _pumpCard(WidgetTester tester, UserProfile profile) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // GoalPlanCard reads context.l10n.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      // No backgroundColor: the theme sets scaffoldBackgroundColor from the
-      // tokens, and a hard value would break light mode.
-      home: Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: GoalPlanCard(profile: profile, onEdit: () {}),
-        ),
-      ),
-    ),
+  // No backgroundColor: the theme sets scaffoldBackgroundColor from the
+  // tokens, and a hard value would break light mode.
+  await pumpLocalized(
+    tester,
+    GoalPlanCard(profile: profile, onEdit: () {}),
+    padding: const EdgeInsets.all(20),
+    safeArea: false,
   );
   await tester.pumpAndSettle();
 }

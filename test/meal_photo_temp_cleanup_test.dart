@@ -18,26 +18,18 @@ import 'dart:io';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/meal_photo_temp_file.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 
-const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
+import 'support/harness.dart';
 
 /// A JPEG with a GPS sub-IFD, as the system camera writes it. The scrub must be
 /// able to decode it, otherwise the success path checks nothing.
@@ -168,29 +160,23 @@ Future<void> _durchlaufen(
   }
 }
 
+/// `localizedApp` instead of `pumpLocalized`: the suite pumps this widget
+/// itself, inside `tester.runAsync` bookkeeping.
 Widget _sheetApp(void Function(MealCameraCapture?) merken) {
-  return MaterialApp(
-    // MealCameraSheet reads colours via `context.t` and texts via
-    // `context.l10n`; without both the shutter is never built.
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: _l10nDelegates,
-    home: Scaffold(
-      body: Builder(
-        builder: (context) => TextButton(
-          onPressed: () async {
-            merken(
-              await showModalBottomSheet<MealCameraCapture>(
-                context: context,
-                isScrollControlled: true,
-                builder: (_) =>
-                    const MealCameraSheet(initialSlot: MealSlot.lunch),
-              ),
-            );
-          },
-          child: const Text('open'),
-        ),
+  return localizedApp(
+    Builder(
+      builder: (context) => TextButton(
+        onPressed: () async {
+          merken(
+            await showModalBottomSheet<MealCameraCapture>(
+              context: context,
+              isScrollControlled: true,
+              builder: (_) =>
+                  const MealCameraSheet(initialSlot: MealSlot.lunch),
+            ),
+          );
+        },
+        child: const Text('open'),
       ),
     ),
   );

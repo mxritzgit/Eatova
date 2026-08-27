@@ -3,15 +3,25 @@
 // Deliberately no `_test` suffix — this file is not a suite.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/services/eatova_sync.dart';
+import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/theme/app_theme.dart';
+
+import '../fixlauf_a_helpers.dart';
 
 // testWidgets wrapper for the CI setup:
 //
@@ -69,6 +79,122 @@ Future<void> expectTagestotalAufHeute(WidgetTester tester, String kcal) async {
     findsOneWidget,
     reason: 'der Heute-Hero nennt nicht „$kcal" gegessene kcal',
   );
+}
+
+// --- SHELL HELPERS ----------------------------------------------------------
+//
+// The suites that drive a shell WITH a real sync (lebenszyklus, offline_sync,
+// tageswechsel, favorites_menu, coach_rezept) used to carry byte-identical
+// copies of the four helpers below. They live here so a change to the boot
+// path costs one edit instead of four.
+
+/// The [HomeStore] behind the mounted [EatovaHomePage].
+HomeStore storeOf(WidgetTester tester) =>
+    (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
+        .debugStore;
+
+/// Bounded settle instead of `pumpAndSettle`.
+///
+/// A shell WITH sync never settles: the welcome gate orbits its comet with
+/// `repeat()` and every progress indicator on the boot path animates forever.
+/// The default 40 x 16 ms = 640 ms of fake time, well past the longest
+/// animation involved (sheet 300 ms, slidable resize 220 ms).
+///
+/// Deliberately no `disableAnimations` either: reduced motion collapses the
+/// sheets' `AnimatedSize` to `Duration.zero`, which then re-dirties itself
+/// inside its own `performLayout` — a framework assert with nothing to do with
+/// the flow under test.
+Future<void> settleFrames(
+  WidgetTester tester, {
+  int rounds = 40,
+  Duration step = const Duration(milliseconds: 16),
+}) async {
+  for (var i = 0; i < rounds; i++) {
+    await tester.pump(step);
+  }
+}
+
+/// Pumps until [done] holds; fails with [what] instead of hanging.
+Future<void> pumpUntil(
+  WidgetTester tester,
+  bool Function() done,
+  String what, {
+  int maxFrames = 900,
+}) async {
+  for (var i = 0; i < maxFrames && !done(); i++) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  expect(done(), isTrue, reason: '$what tritt nicht ein');
+  await settleFrames(tester);
+}
+
+/// Boots the shell for a returning user (profile complete, no onboarding) over
+/// [server] and waits out the welcome gate.
+///
+/// [store] is the backing key-value store of the injected [LocalCache]; pass
+/// one to assert against the PERSISTED slots, otherwise a fresh in-memory
+/// store is used.
+Future<HomeStore> pumpSignedIn(
+  WidgetTester tester,
+  FixlaufServer server, {
+  KeyValueStore? store,
+}) async {
+  // NOT disposed in a tearDown: `SupabaseClient.dispose()` awaits its REST,
+  // functions and isolate layers, and a tearDown runs OUTSIDE the fake-async
+  // zone, so that await never completes and the test hangs into the
+  // ten-minute timeout. The MockClient holds no socket worth closing.
+  final client = SupabaseClient(
+    'https://example.supabase.co',
+    'test-anon-key',
+    httpClient: server.client(),
+    // Or GoTrue's refresh ticker stays a pending timer past the test.
+    authOptions: const AuthClientOptions(autoRefreshToken: false),
+  );
+
+  await tester.pumpWidget(MaterialApp(
+    theme: buildEatovaTheme(Brightness.light),
+    locale: const Locale('en'),
+    supportedLocales: const [Locale('de'), Locale('en')],
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    home: EatovaHomePage(
+      productService: FakeProductLookupService(),
+      sync: EatovaSync.forUser(client, kFixlaufUser),
+      debugCache: LocalCache(store ?? InMemoryKeyValueStore(), kFixlaufUser),
+      showWelcome: false,
+    ),
+  ));
+  await pumpUntil(
+    tester,
+    () => find.byKey(const ValueKey('screen-welcome')).evaluate().isEmpty,
+    'das Boot-Gate verschwindet',
+  );
+  return storeOf(tester);
+}
+
+/// Logs the fake Salami (252 kcal) into [slot] through the add sheet.
+Future<void> logSalami(WidgetTester tester, String slot) async {
+  await tester.tap(find.byKey(ValueKey('food-slot-add-$slot')));
+  await settleFrames(tester);
+  await tester.enterText(
+    find.byKey(const ValueKey('kcal-product-search-input')),
+    'Dr Oetker Salami',
+  );
+  await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
+  await settleFrames(tester);
+  await tester.tap(find.byKey(const ValueKey('kcal-product-suggestion-0')));
+  await settleFrames(tester);
+  final addButton = find.byKey(const ValueKey('kcal-product-suggestion-add-0'));
+  await tester.ensureVisible(addButton);
+  await settleFrames(tester);
+  await tester.tap(addButton);
+  await settleFrames(tester);
+  await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
+  await settleFrames(tester);
 }
 
 class FakeMealAnalyzer implements MealAnalyzer {

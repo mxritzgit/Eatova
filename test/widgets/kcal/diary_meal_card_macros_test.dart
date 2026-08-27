@@ -4,14 +4,13 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show FontLoader;
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
+
+import '../../support/harness.dart';
 
 // ---------------------------------------------------------------------------
 // Macros per slot and per meal in the food tab's slot card.
@@ -42,35 +41,13 @@ Future<void> _pump(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Builder(
-        builder: (context) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            disableAnimations: true,
-            textScaler: TextScaler.linear(textScale),
-          ),
-          child: Scaffold(
-            body: SafeArea(
-              // Same 20/12 padding as the food tab in EatovaHomePage.
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: child,
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
+  await pumpLocalized(
+    tester,
+    child,
+    locale: locale,
+    textScale: textScale,
+    // Same 20/12 padding as the food tab in EatovaHomePage.
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
   await tester.pump();
 }

@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 // ---------------------------------------------------------------------------
 // Review 2026-08-19, finding 3: the day picker of the edit sheet overflowed at
@@ -55,7 +54,7 @@ LoggedMeal? _update(
 
 Future<void> _openSheet(
   WidgetTester tester, {
-  TextScaler textScaler = TextScaler.noScaling,
+  double textScale = 1.0,
 }) async {
   tester.view.physicalSize = const Size(1179, 2556);
   tester.view.devicePixelRatio = 3.0;
@@ -71,38 +70,26 @@ Future<void> _openSheet(
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.light),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      // The `builder` sits above the Navigator, so the scaling also reaches
-      // the modal sheet route.
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
-        child: child!,
-      ),
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: TextButton(
-              onPressed: () => showEditMealSheet(
-                context,
-                meal: _loggedMeal(),
-                onUpdateMeal: _update,
-              ),
-              child: const Text('open'),
-            ),
+  // The harness puts the scaling above the Navigator, so it also reaches the
+  // modal sheet route.
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => Center(
+        child: TextButton(
+          onPressed: () => showEditMealSheet(
+            context,
+            meal: _loggedMeal(),
+            onUpdateMeal: _update,
           ),
+          child: const Text('open'),
         ),
       ),
     ),
+    reducedMotion: false,
+    brightness: Brightness.light,
+    textScale: textScale,
+    safeArea: false,
   );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
@@ -121,7 +108,7 @@ void main() {
 
   testWidgets('bei doppelter Systemschrift waechst der Streifen mit',
       (tester) async {
-    await _openSheet(tester, textScaler: const TextScaler.linear(2));
+    await _openSheet(tester, textScale: 2.0);
 
     expect(
       tester.getSize(find.byKey(const ValueKey('edit-meal-day-picker'))).height,
@@ -133,7 +120,7 @@ void main() {
 
   testWidgets('bei doppelter Systemschrift bleiben beide Zeilen im Chip',
       (tester) async {
-    await _openSheet(tester, textScaler: const TextScaler.linear(2));
+    await _openSheet(tester, textScale: 2.0);
 
     final chip = find.byKey(const ValueKey('edit-day-chip-0'));
     expect(chip, findsOneWidget);

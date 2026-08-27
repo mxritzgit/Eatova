@@ -8,15 +8,14 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import '../../support/harness.dart';
 
 /// 2026-08-09, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -38,42 +37,25 @@ Future<void> _pumpToday(
   int consumedKcal = 0,
   MacroProgress macroProgress = MacroProgress.empty,
 }) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  pinPhoneViewport(tester);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: buildEatovaTheme(Brightness.light),
-      locale: const Locale('de'),
-      supportedLocales: AppLocalizations.supportedLocales,
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: TodayScreen(
-              userName: 'Moritz',
-              profile: _profil,
-              consumedKcal: consumedKcal,
-              burnedKcal: 0,
-              macroProgress: macroProgress,
-              meals: const [],
-              selectedDate: _archivtag,
-              streak: 4,
-              dayLoading: dayLoading,
-            ),
-          ),
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    TodayScreen(
+      userName: 'Moritz',
+      profile: _profil,
+      consumedKcal: consumedKcal,
+      burnedKcal: 0,
+      macroProgress: macroProgress,
+      meals: const [],
+      selectedDate: _archivtag,
+      streak: 4,
+      dayLoading: dayLoading,
     ),
+    brightness: Brightness.light,
+    // Motion as before the migration.
+    reducedMotion: false,
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
 
   // No pumpAndSettle: the loading card spins a CircularProgressIndicator

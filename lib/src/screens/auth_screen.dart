@@ -591,8 +591,9 @@ class _EmailForm extends StatelessWidget {
       key: const ValueKey('auth-email-card'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AnimatedSize(
-          duration: motionDuration(context, const Duration(milliseconds: 220)),
+        maybeAnimatedSize(
+          context,
+          duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
           alignment: Alignment.topCenter,
           child: isRegister

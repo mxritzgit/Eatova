@@ -20,10 +20,10 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Shared harness for the fix run 2026-08-27, package A (core/boot/sync).
 //
-// Same shape as the fake in home_store_outbox_test.dart, plus the one thing
-// the boot-race tests need: reads can be HELD. A held GET captures its answer
-// at request time and delivers it on release — exactly a server whose snapshot
-// predates a live write that landed while the request was in flight.
+// Same shape as the fake in test/outbox/outbox_test_helpers.dart, plus the one
+// thing the boot-race tests need: reads can be HELD. A held GET captures its
+// answer at request time and delivers it on release — exactly a server whose
+// snapshot predates a live write that landed while the request was in flight.
 
 const String kFixlaufUser = 'user-fixlauf-a';
 

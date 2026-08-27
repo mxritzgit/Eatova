@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Covers `_humanizeTimestamp`'s >=7-day date fallback, reachable only through
 // the rendered `_SessionTile`: 'de' stays byte-identical to 'dd.MM.yyyy' and
@@ -65,28 +64,12 @@ Future<void> _pumpCoach(WidgetTester tester, {required Locale locale}) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: locale,
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: MediaQuery(
-        data: MediaQueryData.fromView(tester.view)
-            .copyWith(disableAnimations: true),
-        child: Scaffold(
-          body: CoachChatScreen(
-            service: _FakeCoach.create(),
-            userName: 'Moritz',
-          ),
-        ),
-      ),
-    ),
+  // `reducedMotion` (default) is the disableAnimations this suite needs.
+  await pumpLocalized(
+    tester,
+    CoachChatScreen(service: _FakeCoach.create(), userName: 'Moritz'),
+    locale: locale,
+    safeArea: false,
   );
   await tester.pumpAndSettle();
 

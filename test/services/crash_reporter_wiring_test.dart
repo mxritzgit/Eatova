@@ -8,14 +8,14 @@
 // binding and would spin up real Sentry with a DSN set). A named function
 // taking `SentryFlutterOptions` is the seam.
 //
-// Two layers:
-//   1. BEHAVIOUR — run `configureSentry` on real options and assert every
-//      security-relevant assignment.
-//   2. SOURCE — `main.dart` must actually pass `configureSentry` to
-//      `SentryFlutter.init` and must not touch `options` itself. Layer 1 alone
-//      would wave through a never-called function.
-
-import 'dart:io';
+// The BEHAVIOUR layers live here: run `configureSentry` on real options and
+// assert every security-relevant assignment (Lage 1), and check the services
+// actually injected into the built widget (Lage 3).
+//
+// The SOURCE layer — `main.dart` must pass `configureSentry` to
+// `SentryFlutter.init` and must not touch `options` itself, which Lage 1 alone
+// would wave through — moved to test/repo_rules_test.dart with the other
+// source-text guards.
 
 import 'package:eatova/main.dart' show buildEatovaApp;
 import 'package:eatova/src/app/eatova_app.dart';
@@ -78,57 +78,6 @@ void main() {
     test('configureSentry ist idempotent und wirft nicht', () {
       expect(() => configureSentry(options), returnsNormally);
       expect(options.beforeSend, sanitizeSentryEvent);
-    });
-  });
-
-  group('Lage 2 — main.dart reicht die Konfiguration auch wirklich weiter', () {
-    // `flutter test` runs with the package root as CWD.
-    final String quelle =
-        File('lib/main.dart').readAsStringSync().replaceAll('\r\n', '\n');
-    // Strip comment lines: the rationale in `main.dart` quotes the very
-    // strings searched for here. A comment configures nothing and must
-    // neither trip nor calm the guard.
-    final String code = quelle
-        .split('\n')
-        .where((String zeile) => !zeile.trimLeft().startsWith('//'))
-        .join('\n');
-    final String kompakt = code.replaceAll(RegExp(r'\s+'), ' ');
-
-    test('lib/main.dart ist ueberhaupt lesbar (sonst prueft Lage 2 nichts)',
-        () {
-      expect(quelle, contains('SentryFlutter.init'));
-      expect(code, contains('SentryFlutter.init'),
-          reason: 'sonst hat das Kommentar-Filter zu viel weggeworfen');
-    });
-
-    test('SentryFlutter.init bekommt configureSentry als erstes Argument', () {
-      expect(kompakt, contains('SentryFlutter.init( configureSentry,'),
-          reason: 'ohne diesen Aufruf ist der ganze Filter tot — genau die '
-              'Mutation, die V3 in Welle 5 unbemerkt durchbekommen hat');
-    });
-
-    test('main.dart konfiguriert die Optionen nicht mehr an configureSentry '
-        'vorbei', () {
-      // A reintroduced inline closure would replace configureSentry without
-      // layer 1 noticing.
-      expect(kompakt, isNot(contains('options.')),
-          reason: 'die gesamte Sentry-Konfiguration gehoert in '
-              'configureSentry, wo sie testbar ist');
-    });
-
-    test('main.dart ruft debugPrint nicht mehr auf', () {
-      // C1, leak 1b: a boot-failure debugPrint sat two lines before the clean
-      // capture, and DebugPrintIntegration would have turned it into a console
-      // breadcrumb with the raw error and full stack in release.
-      expect(code, isNot(contains('debugPrint')),
-          reason: 'dart:developer verlaesst das Geraet nie, debugPrint schon');
-    });
-
-    test('der Boot-Fehler wird weiterhin lokal geloggt UND gemeldet', () {
-      // The fix must not simply drop the developer diagnosis on boot failure.
-      expect(kompakt, contains("name: 'boot'"));
-      expect(kompakt, contains("CrashReporter.capture(error, stack, context: "
-          "'boot')"));
     });
   });
 

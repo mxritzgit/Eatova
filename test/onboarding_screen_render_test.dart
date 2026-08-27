@@ -1,20 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 
-/// Delegates for the MaterialApp instances here; the screen uses
-/// `context.l10n` throughout.
-const _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
+import 'support/harness.dart';
+
+/// The screen brings its own Scaffold and uses `context.l10n` throughout.
+Future<void> _pumpOnboarding(
+  WidgetTester tester,
+  Widget screen, {
+  required Brightness brightness,
+  double textScale = 1.0,
+}) =>
+    pumpLocalized(
+      tester,
+      screen,
+      reducedMotion: false,
+      brightness: brightness,
+      textScale: textScale,
+      scaffold: false,
+      safeArea: false,
+    );
 
 // DESIGN_REFACTOR §7.2 / §5: every screen renders in both brightnesses and at
 // 200 % system text without RenderFlex overflow. All eleven onboarding steps
@@ -68,18 +75,15 @@ void main() {
     final gesehen = <String>[];
 
     try {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(brightness),
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: _l10nDelegates,
-          home: OnboardingScreen(
-            firstName: 'Moritz',
-            initialProfile: vollerFlow,
-            onComplete: (_) {},
-          ),
+      await _pumpOnboarding(
+        tester,
+        OnboardingScreen(
+          firstName: 'Moritz',
+          initialProfile: vollerFlow,
+          onComplete: (_) {},
         ),
+        brightness: brightness,
+        textScale: textScale,
       );
       await tester.pumpAndSettle();
 
@@ -143,18 +147,14 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.light),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: _l10nDelegates,
-        home: OnboardingScreen(
-          firstName: 'Moritz',
-          initialProfile: vollerFlow,
-          onComplete: (_) {},
-        ),
+    await _pumpOnboarding(
+      tester,
+      OnboardingScreen(
+        firstName: 'Moritz',
+        initialProfile: vollerFlow,
+        onComplete: (_) {},
       ),
+      brightness: Brightness.light,
     );
     await tester.pumpAndSettle();
 
@@ -198,21 +198,18 @@ void main() {
     };
 
     try {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.light),
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: _l10nDelegates,
-          home: OnboardingScreen(
-            firstName: 'Moritz',
-            initialProfile: const UserProfile(
-              weightGoal: WeightGoal.lose075kg,
-              targetWeightKg: 68,
-            ),
-            onComplete: (_) {},
+      await _pumpOnboarding(
+        tester,
+        OnboardingScreen(
+          firstName: 'Moritz',
+          initialProfile: const UserProfile(
+            weightGoal: WeightGoal.lose075kg,
+            targetWeightKg: 68,
           ),
+          onComplete: (_) {},
         ),
+        brightness: Brightness.light,
+        textScale: 2.0,
       );
       await tester.pumpAndSettle();
       for (var i = 0; i < 10; i++) {

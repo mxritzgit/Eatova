@@ -2,24 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 
-/// The sheet reads `context.l10n` — same delegate bundle as
-/// test/meal_camera_sheet_test.dart.
-const List<LocalizationsDelegate<Object?>> _l10nDelegates = [
-  AppLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
-];
+import 'support/harness.dart';
 
 /// Replaces the real scanner platform: the camera starts at once and [emit]
 /// pushes a hit into the same stream the real analyzer feeds, which is the
@@ -111,38 +101,33 @@ Future<void> _oeffneScannerUeberSheet(
   _FakeScannerPlatform platform,
   _Ergebnis ergebnis,
 ) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: _l10nDelegates,
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => showModalBottomSheet<void>(
-              context: context,
-              builder: (sheetContext) => SizedBox(
-                height: 260,
-                child: Center(
-                  child: TextButton(
-                    onPressed: () async {
-                      ergebnis.scan = await showBarcodeScannerSheet(
-                        sheetContext,
-                        initialSlot: MealSlot.lunch,
-                      );
-                      ergebnis.geschlossen = true;
-                    },
-                    child: const Text('scannen'),
-                  ),
-                ),
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => TextButton(
+        onPressed: () => showModalBottomSheet<void>(
+          context: context,
+          builder: (sheetContext) => SizedBox(
+            height: 260,
+            child: Center(
+              child: TextButton(
+                onPressed: () async {
+                  ergebnis.scan = await showBarcodeScannerSheet(
+                    sheetContext,
+                    initialSlot: MealSlot.lunch,
+                  );
+                  ergebnis.geschlossen = true;
+                },
+                child: const Text('scannen'),
               ),
             ),
-            child: const Text('add-sheet'),
           ),
         ),
+        child: const Text('add-sheet'),
       ),
     ),
+    reducedMotion: false,
+    safeArea: false,
   );
 
   await tester.tap(find.text('add-sheet'));
