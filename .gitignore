@@ -57,3 +57,13 @@ dart_defines.*.json
 # Streu-Screenshots aus Design-Sitzungen (Design-Refactor 2026-08)
 p_bento_*.png
 p_hero_*.png
+/Screenshot *.png
+
+# Agent-/Editor-Artefakte, maschinenlokal (Review 2026-08-27, F10-12):
+# .agents/ trägt Test-Logs, .claude/settings*.json Plugin-/Permission-Flags
+# des jeweiligen Rechners, skills-lock.json den lokalen Skill-Stand. Ein
+# `git add -A` zöge sonst alles mit in die (gitleaks-geprüfte) Historie.
+/.agents/
+/.claude/settings.json
+/.claude/settings.local.json
+/skills-lock.json

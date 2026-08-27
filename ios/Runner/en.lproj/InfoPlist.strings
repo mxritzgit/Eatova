@@ -1,0 +1,12 @@
+/* English usage descriptions (F10-01). Identical to the Info.plist values,
+   which are the fallback for every other language; kept here so Xcode lists
+   English as a real localization next to German. Health texts cover exactly
+   the scopes apple_health_service.dart requests: steps + weight read, weight
+   write — no sleep. */
+
+"NSCameraUsageDescription" = "Eatova needs camera access so you can photograph meals, scan product barcodes and send your coach a picture. The photos are analysed for nutrition values.";
+"NSMicrophoneUsageDescription" = "Eatova needs microphone access so you can dictate a question to your coach instead of typing it. Audio is captured only while voice input in the coach chat is active.";
+"NSSpeechRecognitionUsageDescription" = "Eatova turns your dictated coach question into text. If your iPhone has the speech model for your language on device, the audio stays on the device; otherwise Apple processes it on its servers.";
+"NSPhotoLibraryUsageDescription" = "Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis.";
+"NSHealthShareUsageDescription" = "Eatova reads your step count and your weight from Apple Health so your daily target and your weight history stay up to date automatically.";
+"NSHealthUpdateUsageDescription" = "Eatova optionally writes a weight you log back to Apple Health.";

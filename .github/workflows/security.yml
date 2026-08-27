@@ -56,10 +56,15 @@ jobs:
             echo "::error::coverage/lcov.info nicht gefunden — lief 'flutter test --coverage'?"
             exit 1
           fi
+          # Generated l10n code (lib/src/l10n/generated/, ~724 getters x 3
+          # files) is excluded before summing: it is not ours to test and would
+          # otherwise dilute the ratio by several points and mask the ratchet
+          # (Review 2026-08-27, F10-07). The floor value stays where it was.
           # LCOV: LF = lines found, LH = lines hit; coverage = sum(LH)/sum(LF).
           PCT="$(awk -F: '
-            /^LF:/ { found += $2 }
-            /^LH:/ { hit   += $2 }
+            /^SF:/ { skip = ($2 ~ /lib\/src\/l10n\/generated\//) }
+            /^LF:/ { if (!skip) found += $2 }
+            /^LH:/ { if (!skip) hit   += $2 }
             END {
               if (found == 0) { print "0.0"; exit }
               printf "%.1f", (hit / found) * 100

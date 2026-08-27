@@ -10,6 +10,18 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ### Added
 
+- **Macros per slot and per meal** (#49) — the diary shows protein, carbs and
+  fat for every meal slot and every logged meal, not only for the day; the
+  coach receives the same per-slot sums as context ("per meal today"). Bottom
+  sheets now sit below the Dynamic Island and respect the keyboard.
+- **Steps card on the Today tab** (#50) — the day's step count from the
+  connected health source, following the selected diary date; without a
+  source the card stays away instead of showing 0.
+- **Slot choice in the barcode scanner** (#50) — the same slot chips as the
+  camera scan, so a scanned product lands in the intended meal directly.
+- **Favorites menu in the add sheet** (#53) — the top three favorites inline
+  plus "All (N)", which opens a favorites sheet with search, add-to-slot and
+  unpin.
 - **English localization** — everything behind sign-in speaks German and
   English (`gen_l10n` over `lib/l10n/app_de.arb` / `app_en.arb`): screens, the
   recipe catalog, the AI scan, dictation and the service texts all follow the
@@ -53,11 +65,28 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ### Changed
 
+- **Calorie model reworked after the calorie review of 2026-08-21** (#47,
+  #48). The activity ladder no longer includes walking (PAL 1.3 … 1.9 instead
+  of a 1.2 floor), and every recorded step counts on top of it — the old
+  step baseline that silently swallowed the first few thousand steps is
+  gone. Daily targets have a floor of 1200 kcal (women), 1500 kcal (men) and
+  1350 kcal (unspecified) instead of a unisex 1200; the deficit is capped at
+  1 % of body weight per week on a 0.05 kg grid; protein targets use a
+  reference weight rather than the current weight; the goal date is shown
+  as a range, and pace labels round to 0.05 kg steps.
 - Calories burned are frozen per day instead of showing 0 for archive days.
 - The coach's empty state no longer suggests example questions.
 
 ### Fixed
 
+- **Boot load no longer fails on a fresh session** (#52, Sentry FLUTTER-9/-A/
+  -B) — the server occasionally rejected a token that had just been issued;
+  the boot load treated that 401/PGRST303 as a dead session and dropped the
+  data. It is now retried once with the refreshed token (`StaleAuthRetry`),
+  and both status codes count as retryable.
+- **A failed OAuth sheet no longer crashes the app** (#52, FLUTTER-8) — the
+  auth-state listener behind the OAuth sheet had no `onError`, so a stream
+  error surfaced as a fatal uncaught exception instead of a message.
 - **Review 2026-08-08, six waves** — data-loss paths, silently wrong health
   numbers, UI/navigation/state, the Android and iOS platform layer, plus wire
   tests against the silent switches; CI builds the real release artifact.
@@ -171,6 +200,34 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   `chat_sessions` title read and PATCH ran with the service key filtered by
   session id alone, relying on the caller having checked ownership first;
   both requests now carry a `user_id` filter as defense in depth.
+
+### Internal
+
+- All source comments are English and compact (#51) — roughly 27,000 comment
+  lines became 16,700 across twenty packages; test names and string
+  literals deliberately stay German.
+- `app_settings`, `http` and `supabase` are declared as direct dependencies
+  (80ea946) — they were imported directly but only reached the app
+  transitively via `supabase_flutter`; the basis for the review fix run of
+  2026-08-27.
+
+### Fix-Lauf Review 2026-08-27
+
+Closes every High and Medium finding of the 2026-08-27 full review (10 packages, 117 findings). Highlights:
+
+- **Goals:** the manual-energy switch is persisted (`profiles.manual_energy`, migration `20260828100000`) instead of being reconstructed by comparing stored goals with the calculator; live profiles heal themselves on boot and write back once. Manually set targets are reset to the calculator once (no SQL backfill possible).
+- **Food tab:** the add sheet mirrors logged and adjusted meals immediately in "already added" and the slot total; snacks (including undo) render inside the open sheet and stay tappable; search fields are borderless; fixed heights respect large text.
+- **Auth:** both auth screens follow the design system in light and dark mode, `app_colors.dart` is gone, ~70 new ARB keys, typed auth exceptions, screen-reader labels and 44 pt targets, AutofillGroup, inline "enter code" action after an unconfirmed sign-up.
+- **Design system:** button themes (text = ink, filled = ink/bg, min 48 pt; 54 pt only for the primary button), borderless `inputDecorationTheme` plus `FieldCapsule`/`SheetField`, one focus language (`field` -> `fieldFocus` -> `fieldError`) across all 13 input capsules, toggle-off contrast >= 3:1, light-mode carbs colour 3.4:1, `t.scrim`, radius tokens, disabled state for `PrimaryActionButton`.
+- **Meal scan:** typed `MealAnalysisException`s with server `error` codes mapped to localized texts, status check before decode, retry/cancel/manual-entry inside the result sheet with the photo kept, barcode scanner app-lifecycle handling, "open settings" on denied permission plus manual EAN entry, constructor seams with a loopback wire test.
+- **Sync:** per-collection mutation counters against the boot race, `LocalCache.closed` fences (no PII writes after logout), backoff escalates per replay only, offline replays no longer reach Sentry, PostgREST request timeout 20 s, "connection slow" screen instead of onboarding when the boot budget expires, boot re-entry guard, stats requeue inherits the in-flight request id.
+- **Coach:** retry marker without duplicate bubbles, dictation fills the field instead of sending, microphone iOS-only, borderless composer, selectable answers, localized default session title; server: empty completion = 502 + refund (a bare `__REFUSE__` stays a refusal), app context placed right before the question plus a "USING APP DATA" block, history without refusal pairs, plain text, 800 tokens.
+- **Backend:** analyze-meal daily and global caps (IP -> user-day -> user -> global), search-key Meilisearch tenant tokens behind `EATOVA_MIRROR_KEY_UID` (600 s grace, `no-store`), image-text injection guard, referer eatova.de.
+- **Profile:** weight input validated (Health imports outside 20-400 kg are dropped), a single weight-log cap (365) with an explicit baseline, reminders via `TZDateTime.from`, trends goal line with the step bonus (wired through the shell), water/sleep goals removed, notification init fenced.
+- **Recipes:** one cooked-weight method for all 30 catalog entries (de/en), category search in English plus ingredients and umlaut folding, "Own" chip, undo on delete, catalog-only rotating carousel, client limits equal to DB constraints.
+- **Platform/docs:** iOS `InfoPlist.strings` de/en plus `CFBundleLocalizations`, privacy docs without sleep reading, coverage filter for generated l10n, onboarding and coach flow tests, `.gitignore` for session artifacts, CONTRIBUTING with the exact CI commands.
+
+Verification: `flutter analyze --fatal-infos --fatal-warnings` clean, 2688 Flutter tests green with the CI defines, Deno 187/187.
 
 ## [1.1.0] - 2026-08-07
 

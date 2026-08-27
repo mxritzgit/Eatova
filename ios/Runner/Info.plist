@@ -14,6 +14,15 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- F10-01: the usage descriptions below are English (fallback); German
+	     lives in Runner/de.lproj/InfoPlist.strings, English is mirrored in
+	     en.lproj. Both lproj folders hang in the project as the
+	     "InfoPlist.strings" variant group. -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>de</string>
+		<string>en</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>Eatova</string>
 	<key>CFBundlePackageType</key>
@@ -91,15 +100,19 @@
 	     Ist-Zustaende: Kamera = Mahlzeitenfoto (meal_camera_sheet.dart),
 	     Barcode-Scanner (barcode_scanner_sheet.dart, mobile_scanner) und
 	     Coach-Bild (coach_chat_screen.dart:561); Galerie = dieselben zwei
-	     Analyse-Pfade (add_meal_sheet.dart:481, coach_chat_screen.dart:571). -->
+	     Analyse-Pfade (add_meal_sheet.dart:481, coach_chat_screen.dart:571).
+
+	     Wording changes go to BOTH InfoPlist.strings files as well — the
+	     .strings value wins on a German/English device, this one is the
+	     fallback for every other language and what a US reviewer reads. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Eatova braucht Kamerazugriff, damit du Mahlzeiten fotografieren, Produkt-Barcodes scannen und deinem Coach ein Bild schicken kannst. Die Aufnahmen werden zur Nährwert-Analyse ausgewertet.</string>
+	<string>Eatova needs camera access so you can photograph meals, scan product barcodes and send your coach a picture. The photos are analysed for nutrition values.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Eatova braucht Mikrofonzugriff, damit du deinem Coach eine Frage diktieren kannst, statt sie zu tippen. Aufgenommen wird nur, solange die Sprachaufnahme im Coach-Chat aktiv ist.</string>
+	<string>Eatova needs microphone access so you can dictate a question to your coach instead of typing it. Audio is captured only while voice input in the coach chat is active.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Eatova wandelt deine diktierte Coach-Frage in Text um. Hat dein iPhone das Sprachmodell für deine Sprache lokal, bleibt das Audio auf dem Gerät; sonst verarbeitet Apple es auf seinen Servern.</string>
+	<string>Eatova turns your dictated coach question into text. If your iPhone has the speech model for your language on device, the audio stays on the device; otherwise Apple processes it on its servers.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Eatova braucht Zugriff auf deine Fotobibliothek, damit du ein bereits vorhandenes Foto einer Mahlzeit oder ein Coach-Bild aus der Galerie zur Analyse auswählen kannst.</string>
+	<string>Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis.</string>
 	<!-- Die Health-Zwecktexte muessen exakt die Scopes abdecken, die
 	     `apple_health_service.dart:_types`/`_permissions` anfragen — nicht
 	     mehr und nicht weniger. Apple prueft im Review beides: einen Scope
@@ -121,9 +134,9 @@
 	     nirgends beobachten kann. Wer den Scope je zurueckholt, braucht zuerst
 	     das Feature, dann den Satz hier. -->
 	<key>NSHealthShareUsageDescription</key>
-	<string>Eatova liest deine Schritte und dein Gewicht aus Apple Health, damit dein Tagesziel und dein Gewichtsverlauf automatisch aktuell bleiben.</string>
+	<string>Eatova reads your step count and your weight from Apple Health so your daily target and your weight history stay up to date automatically.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Eatova schreibt optional dein eingetragenes Gewicht nach Apple Health zurück.</string>
+	<string>Eatova optionally writes a weight you log back to Apple Health.</string>
 	<!-- PROD-1 (flutter_local_notifications, on-device): Lokale Notifications
 	     brauchen KEINEN eigenen Usage-Description-Key — der iOS-Permission-
 	     Dialog ist systemgeneriert und wird ueber requestPermissions() (alert/
