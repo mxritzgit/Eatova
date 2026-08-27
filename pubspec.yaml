@@ -89,6 +89,9 @@ dependencies:
   # build breaks the moment it drops out of the transitive chain;
   # `depend_on_referenced_packages: ignore` hides that until then.
   path_provider: ^2.1.0
+  app_settings: ^9.0.0
+  http: ^1.6.0
+  supabase: ^2.16.1
 
 dev_dependencies:
   flutter_test:
