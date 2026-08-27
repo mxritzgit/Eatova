@@ -9,6 +9,7 @@ import '../../models/favorite_meal.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
+import '../../services/favorites_view.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/open_food_facts_product_service.dart';
@@ -19,6 +20,7 @@ import '../common/motion.dart';
 import '../design/design.dart';
 import 'edit_meal_sheet.dart';
 import 'existing_meals_list.dart';
+import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
 import 'meal_suggestion_item.dart';
@@ -552,6 +554,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     }
 
     widget.onAdd(result, _selectedSlot);
+    _touchFavorite(result);
     if (mounted) {
       final l10n = context.l10n;
       showAppSnack(
@@ -759,28 +762,45 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  // Pinned favorites first, then auto recents — one list, split by the
-  // pinned flag.
-  List<FavoriteMeal> get _pinned =>
-      _favorites.where((f) => f.pinned).toList(growable: false);
+  // Pinned favorites first (by recency, see favorites_view.dart), then auto
+  // recents in store order — one list, split by the pinned flag.
+  List<FavoriteMeal> get _pinned => pinnedFavoritesByRecency(_favorites);
   List<FavoriteMeal> get _recents =>
       _favorites.where((f) => !f.pinned).toList(growable: false);
 
+  /// Favorites section (feature 2026-08-27): only the top
+  /// [kInlineFavoritesCount] pinned by recency sit inline, the rest live in
+  /// the favorites sheet behind the "All (N)" button. A long pinned list used
+  /// to push search results and recents off screen; the button shows from the
+  /// first pinned favorite on so unpinning stays reachable.
   Widget _buildFavorites() {
     if (_favorites.isEmpty) {
       return const _EmptyState();
     }
+    // One sort for both count and slice (inlineFavorites would sort again).
     final pinned = _pinned;
+    final pinnedCount = pinned.length;
+    final inline = pinned.take(kInlineFavoritesCount).toList(growable: false);
     final recents = _recents;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (pinned.isNotEmpty) ...[
-          _SectionLabel(context.l10n.foodSectionFavorites),
-          const SizedBox(height: 8),
-          for (var i = 0; i < pinned.length; i++) ...[
-            _favoriteItem(pinned[i], i, pinned: true),
-            if (i != pinned.length - 1) const SizedBox(height: 8),
+        if (inline.isNotEmpty) ...[
+          Row(
+            children: [
+              Expanded(
+                child: _SectionLabel(context.l10n.foodSectionFavorites),
+              ),
+              _FavoritesAllButton(
+                count: pinnedCount,
+                onTap: _openFavoritesSheet,
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          for (var i = 0; i < inline.length; i++) ...[
+            _favoriteItem(inline[i], i, pinned: true),
+            if (i != inline.length - 1) const SizedBox(height: 8),
           ],
           if (recents.isNotEmpty) const SizedBox(height: 18),
         ],
@@ -852,6 +872,50 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _favorites = next;
       }
     });
+  }
+
+  /// Unpin-only path for the favorites sheet: the heart there never re-pins,
+  /// so a row that is already unpinned locally (or unknown) is left alone
+  /// instead of being toggled back on.
+  void _unpinFavorite(MealAnalysisResult result) {
+    final id = FavoriteMeal.idFor(result);
+    final idx = _favorites.indexWhere((f) => f.id == id);
+    if (idx == -1 || !_favorites[idx].pinned) return;
+    _handleToggleFavorite(result);
+  }
+
+  /// Opens the favorites sheet on top of this one. Adds go to `widget.onAdd`
+  /// with the slot chosen here; the tile check lives in the favorites sheet
+  /// itself. The rebuild after closing refreshes count and top 3 after unpins
+  /// and after adds ([_touchFavorite]).
+  Future<void> _openFavoritesSheet() async {
+    await showFavoritesSheet(
+      context,
+      favorites: _favorites,
+      slot: _selectedSlot,
+      onAdd: (result, slot) {
+        final id = widget.onAdd(result, slot);
+        _touchFavorite(result);
+        return id;
+      },
+      onUnpin: _unpinFavorite,
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// Mirrors the store's "last used" bump (`_rememberRecent` rewrites
+  /// `addedAt` on every log) into the local copy, so the inline top 3 follow
+  /// "most recently used first" within this sheet session too (review A,
+  /// 2026-08-27). Unknown results (fresh search hits) are left alone: the
+  /// store creates the recent, this copy is rebuilt on the next open.
+  void _touchFavorite(MealAnalysisResult result) {
+    final id = FavoriteMeal.idFor(result);
+    final idx = _favorites.indexWhere((f) => f.id == id);
+    if (idx == -1) return;
+    final next = [..._favorites];
+    next[idx] = _favorites[idx].copyWith(addedAt: DateTime.now());
+    setState(() => _favorites = next);
   }
 }
 
@@ -1086,6 +1150,55 @@ class _SectionLabel extends StatelessWidget {
     return Text(
       text.toUpperCase(),
       style: AppType.eyebrow(context.t.ink2, size: 11),
+    );
+  }
+}
+
+/// "All (N)" link on the favorites section head (feature 2026-08-27). Bare
+/// accent text plus chevron, no capsule: it sits beside an eyebrow label and
+/// must not compete with the tiles. The 44 pt minimum keeps the tap target.
+class _FavoritesAllButton extends StatelessWidget {
+  const _FavoritesAllButton({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final label = context.l10n.foodFavoritesAllButton(count);
+    return Semantics(
+      button: true,
+      label: label,
+      // excludeSemantics drops InkWell's own tap action, so a screen reader
+      // needs it re-declared here (review B, 2026-08-27).
+      onTap: onTap,
+      excludeSemantics: true,
+      child: InkWell(
+        key: const ValueKey('add-meal-favorites-all'),
+        borderRadius: BorderRadius.circular(rPill),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.only(left: 10, right: 2),
+          alignment: Alignment.centerRight,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: AppType.ui(
+                  12.5,
+                  weight: FontWeight.w600,
+                  color: t.accent,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(Icons.chevron_right_rounded, size: 18, color: t.accent),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

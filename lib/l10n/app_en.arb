@@ -1394,5 +1394,11 @@
   "exportPreviewShortened": "Preview shortened — the full data is in the file.",
   "exportNothingLoaded": "Not a single section could be loaded. Are you online?",
   "searchRateLimited": "Too many searches — try again in a moment.",
-  "commonFavoriteRemoved": "Favourite removed"
+  "commonFavoriteRemoved": "Favorite removed",
+  "foodFavoritesAllButton": "All ({count})",
+  "foodFavoritesSheetTitle": "Favorites ({count})",
+  "foodFavoritesSheetSubtitle": "Tap to expand. \"Add\" logs into the selected meal, the heart removes the favorite.",
+  "foodFavoritesSearchHint": "Search favorites",
+  "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
+  "foodFavoritesNoMatchHint": "No favorite matches your search."
 }

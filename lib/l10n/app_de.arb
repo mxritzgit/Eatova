@@ -1394,5 +1394,21 @@
   "exportPreviewShortened": "Vorschau gekürzt — die vollständigen Daten stecken in der Datei.",
   "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
   "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal.",
-  "commonFavoriteRemoved": "Favorit entfernt"
+  "commonFavoriteRemoved": "Favorit entfernt",
+  "foodFavoritesAllButton": "Alle ({count})",
+  "@foodFavoritesAllButton": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodFavoritesSheetTitle": "Favoriten ({count})",
+  "@foodFavoritesSheetTitle": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "foodFavoritesSheetSubtitle": "Antippen zum Aufklappen. „Hinzufügen\" loggt in die gewählte Mahlzeit, das Herz entfernt den Favoriten.",
+  "foodFavoritesSearchHint": "Favoriten durchsuchen",
+  "foodFavoritesEmptyHint": "Noch keine Favoriten. Tippe bei einem Suchtreffer oder Scan-Ergebnis auf das Herz, dann landet die Mahlzeit hier.",
+  "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche."
 }
