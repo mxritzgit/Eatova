@@ -20,14 +20,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
+
+import 'support/harness.dart' hide testWidgetsRobust;
 
 /// Viewport pinning + overflow tolerance, as in the other widget suites.
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
@@ -89,35 +88,25 @@ Future<void> _oeffne(
   int postenAnzahl = 2,
 }) async {
   final result = _ergebnis(postenAnzahl: postenAnzahl);
-  await tester.pumpWidget(
-    MaterialApp(
-      // The adjust surfaces read their colours from the AppTokens theme
-      // extension; a bare MaterialApp theme lacks it and AppTokens.of throws.
-      theme: buildEatovaTheme(Brightness.dark),
-      // showWeightAdjustmentSheet reads context.l10n.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => TextButton(
-            key: const ValueKey('open-adjust'),
-            onPressed: () async {
-              final r = await showWeightAdjustmentSheet(context, result);
-              fang
-                ..wert = r
-                ..aufrufe += 1;
-            },
-            child: const Text('anpassen'),
-          ),
-        ),
+  // The adjust surfaces read their colours from the AppTokens theme extension
+  // and `showWeightAdjustmentSheet` reads context.l10n — both come from the
+  // harness, which also pins the locale to `de` (the label below is German).
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => TextButton(
+        key: const ValueKey('open-adjust'),
+        onPressed: () async {
+          final r = await showWeightAdjustmentSheet(context, result);
+          fang
+            ..wert = r
+            ..aufrufe += 1;
+        },
+        child: const Text('anpassen'),
       ),
     ),
+    reducedMotion: false,
+    safeArea: false,
   );
   await tester.tap(find.byKey(const ValueKey('open-adjust')));
   await tester.pumpAndSettle();

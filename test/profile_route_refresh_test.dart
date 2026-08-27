@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/health_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // INT-B / ARCH-1+PERF-2 tests for eatova_home_page.dart:
 //
@@ -88,23 +87,18 @@ void main() {
     // authorization and reads the snapshot, making the refresh button visible.
     final health = _StepsHealthService(1000);
 
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() reads context.l10n; without these delegates
-      // AppLocalizations.of() throws while building the bottom nav.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: EatovaHomePage(
+    // _navItems() reads context.l10n; without the harness's delegates
+    // AppLocalizations.of() throws while building the bottom nav.
+    await pumpLocalized(
+      tester,
+      EatovaHomePage(
         initialUserName: 'Moritz',
         healthService: health,
       ),
-    ));
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+    );
     await tester.pumpAndSettle();
 
     // The shell lands on Today (tab 0); the TopBar avatar this test uses as
@@ -146,23 +140,18 @@ void main() {
     _pinViewport(tester);
     final health = _StepsHealthService(2000);
 
-    await tester.pumpWidget(MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() reads context.l10n; without these delegates
-      // AppLocalizations.of() throws while building the bottom nav.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: EatovaHomePage(
+    // _navItems() reads context.l10n; without the harness's delegates
+    // AppLocalizations.of() throws while building the bottom nav.
+    await pumpLocalized(
+      tester,
+      EatovaHomePage(
         initialUserName: 'Moritz',
         healthService: health,
       ),
-    ));
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+    );
     await tester.pumpAndSettle();
 
     // To the Food tab first (index 1): both the avatar and the date chip

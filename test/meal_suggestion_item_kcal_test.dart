@@ -3,13 +3,12 @@
 // button show the value that gets logged on tap?
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
+
+import 'support/harness.dart';
 
 /// What `fromEdgeFunction` builds from an answer without grams or density:
 /// 420 kcal measured, 150 g default, 52 kcal/100 g from the name table. The
@@ -60,35 +59,25 @@ Future<List<MealAnalysisResult>> pumpItem(
   MealAnalysisResult result,
 ) async {
   final geloggt = <MealAnalysisResult>[];
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // MealSuggestionItem reads context.l10n.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Center(
-          child: SizedBox(
-            width: 360,
-            child: MealSuggestionItem(
-              result: result,
-              expanded: true,
-              onTap: () {},
-              onAdd: geloggt.add,
-              addButtonKey: _addKey,
-            ),
-          ),
+  await pumpLocalized(
+    tester,
+    Center(
+      child: SizedBox(
+        width: 360,
+        child: MealSuggestionItem(
+          result: result,
+          expanded: true,
+          onTap: () {},
+          onAdd: geloggt.add,
+          addButtonKey: _addKey,
         ),
       ),
     ),
+    // Motion as before the migration.
+    reducedMotion: false,
+    safeArea: false,
+    settle: true,
   );
-  await tester.pumpAndSettle();
   return geloggt;
 }
 

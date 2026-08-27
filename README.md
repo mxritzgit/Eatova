@@ -17,9 +17,10 @@ signed in, and targets Android and iOS only.
 
 > **i18n scope:** the screens behind sign-in follow the language picker
 > (`gen_l10n` over `lib/l10n/app_de.arb` / `app_en.arb`), guarded by
-> `test/l10n/hartkodierung_waechter_test.dart` — which since the 2026-08-19
-> review also looks for German display words that carry no umlaut, the class
-> its character filter was blind to. Two things stay outside the picker:
+> the hardcoding rule in `test/repo_rules_test.dart` — which since the
+> 2026-08-19 review also looks for German display words that carry no umlaut,
+> the class its character filter was blind to. Two things stay outside the
+> picker:
 >
 > - the **sign-in/sign-up flow** itself (`lib/src/screens/auth_screen.dart`,
 >   `lib/src/screens/auth_code_screen.dart`) is **not** part of that migration
@@ -198,8 +199,8 @@ folders. Desktop and web scaffolding was removed on purpose (services use
 - External API / sync logic → `lib/src/services/` (don't call APIs from widgets)
 - Colors and theme → `lib/src/theme/` only
 - User-facing text → a key in `lib/l10n/app_de.arb` **and** `app_en.arb`, never
-  a string literal in a widget (`test/l10n/hartkodierung_waechter_test.dart`
-  fails on hard-coded text)
+  a string literal in a widget (`test/repo_rules_test.dart` fails on hard-coded
+  text and on an ARB key missing from either file)
 - Keep `lib/main.dart` small
 
 ---

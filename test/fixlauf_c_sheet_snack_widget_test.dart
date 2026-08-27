@@ -5,11 +5,9 @@
 // the sheet content, and it steps aside once the sheet closes.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -17,9 +15,10 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -81,65 +80,56 @@ Future<void> _pumpHome(WidgetTester tester) async {
   addTearDown(tester.view.resetDevicePixelRatio);
   _undoCalls = 0;
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Builder(
-          builder: (context) {
-            _homeContext = context;
-            return Center(
-              child: TextButton(
-                key: const ValueKey('open'),
-                onPressed: () => showAddMealSheet(
-                  context,
-                  slot: MealSlot.snack,
-                  analyzer: _StummerAnalyzer(),
-                  productService: _StummerProduktdienst(),
-                  photoInput: _StummeFotoquelle(),
-                  favorites: [
-                    FavoriteMeal(
-                      id: FavoriteMeal.idFor(_apfel),
-                      result: _apfel,
-                      addedAt: DateTime(2026, 8, 20),
-                      pinned: false,
-                    ),
-                    // Pinned -> "All (1)" opens the favorites sheet.
-                    FavoriteMeal(
-                      id: FavoriteMeal.idFor(_skyr),
-                      result: _skyr,
-                      addedAt: DateTime(2026, 8, 21),
-                      pinned: true,
-                    ),
-                  ],
-                  onAdd: (_, __) => 'id-1',
-                  onUpdateMeal: (_, __) {},
-                  onRemoveFavorite: (_) {},
-                  onRemoveMeal: (_) => showAppSnack(
-                    _homeContext,
-                    'Mahlzeit gelöscht',
-                    tone: SnackTone.error,
-                    action: SnackBarAction(
-                      label: 'Rückgängig',
-                      onPressed: () => _undoCalls++,
-                    ),
-                  ),
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) {
+        _homeContext = context;
+        return Center(
+          child: TextButton(
+            key: const ValueKey('open'),
+            onPressed: () => showAddMealSheet(
+              context,
+              slot: MealSlot.snack,
+              analyzer: _StummerAnalyzer(),
+              productService: _StummerProduktdienst(),
+              photoInput: _StummeFotoquelle(),
+              favorites: [
+                FavoriteMeal(
+                  id: FavoriteMeal.idFor(_apfel),
+                  result: _apfel,
+                  addedAt: DateTime(2026, 8, 20),
+                  pinned: false,
                 ),
-                child: const Text('open'),
+                // Pinned -> "All (1)" opens the favorites sheet.
+                FavoriteMeal(
+                  id: FavoriteMeal.idFor(_skyr),
+                  result: _skyr,
+                  addedAt: DateTime(2026, 8, 21),
+                  pinned: true,
+                ),
+              ],
+              onAdd: (_, __) => 'id-1',
+              onUpdateMeal: (_, __) {},
+              onRemoveFavorite: (_) {},
+              onRemoveMeal: (_) => showAppSnack(
+                _homeContext,
+                'Mahlzeit gelöscht',
+                tone: SnackTone.error,
+                action: SnackBarAction(
+                  label: 'Rückgängig',
+                  onPressed: () => _undoCalls++,
+                ),
               ),
-            );
-          },
-        ),
-      ),
+            ),
+            child: const Text('open'),
+          ),
+        );
+      },
     ),
+    // Motion on: the favorites list sits in an AnimatedSize, and a zero
+    // duration makes it re-dirty itself during layout.
+    reducedMotion: false,
   );
   await tester.tap(find.byKey(const ValueKey('open')));
   await tester.pumpAndSettle();

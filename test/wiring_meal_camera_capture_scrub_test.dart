@@ -17,16 +17,15 @@ import 'dart:async';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 /// Longest edge [compressMealPhoto] scales down to. The test source is larger
 /// on purpose, so recompression shows in two independent ways: metadata gone
@@ -167,37 +166,26 @@ void main() {
       CameraPlatform.instance = camera;
 
       MealCameraCapture? captured;
-      await tester.pumpWidget(
-        MaterialApp(
-          // MealCameraSheet reads colors via `context.t`; `AppTokens.of`
-          // throws without the ThemeExtension, so without `theme:` the
-          // shutter button is never built.
-          theme: buildEatovaTheme(Brightness.dark),
-          // MealCameraSheet reads context.l10n.
-          locale: const Locale('de'),
-          supportedLocales: const [Locale('de'), Locale('en')],
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          home: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () async {
-                  captured = await showModalBottomSheet<MealCameraCapture>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) =>
-                        const MealCameraSheet(initialSlot: MealSlot.lunch),
-                  );
-                },
-                child: const Text('open'),
-              ),
-            ),
+      // MealCameraSheet reads colors via `context.t` (AppTokens.of throws
+      // without the ThemeExtension, so the shutter button would never be
+      // built) and context.l10n — both come from the harness.
+      await pumpLocalized(
+        tester,
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              captured = await showModalBottomSheet<MealCameraCapture>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) =>
+                    const MealCameraSheet(initialSlot: MealSlot.lunch),
+              );
+            },
+            child: const Text('open'),
           ),
         ),
+        reducedMotion: false,
+        safeArea: false,
       );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();

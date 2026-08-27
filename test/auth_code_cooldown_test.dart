@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
@@ -11,8 +10,9 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/services/local_cache.dart'
     show InMemoryKeyValueStore, KeyValueStore;
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
+
+import 'support/harness.dart';
 
 // Send guard of the code screen (Audit 2026-08-14).
 //
@@ -60,23 +60,18 @@ Future<void> _pumpCode(
   KeyValueStore speicher, {
   AuthCodeFlow flow = AuthCodeFlow.signup,
 }) async {
-  await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: AuthCodeScreen(
+  await pumpLocalized(
+    tester,
+    AuthCodeScreen(
       authRepository: repo,
       flow: flow,
       initialEmail: _adresse,
       throttleStore: speicher,
     ),
-  ));
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
+  );
   await tester.pumpAndSettle();
 }
 

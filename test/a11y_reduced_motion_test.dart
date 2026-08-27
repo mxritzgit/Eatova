@@ -5,21 +5,20 @@
 // `MealLoadingCard`'s progress (see the last test).
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
+
+import 'support/harness.dart';
 
 // ---------------------------------------------------------------------------
 // The sweep
@@ -83,46 +82,22 @@ Matcher get _keineBewegung => isEmpty;
 // Harness
 // ---------------------------------------------------------------------------
 
-/// Runs the app with "reduce motion" on. The `MediaQueryData` is derived from
-/// the real view and only gets the flag added — a bare `MediaQueryData()`
-/// would have size 0 and break every layout measurement.
+/// Runs the app with "reduce motion" on. The shared harness derives the
+/// MediaQuery from the real view and only adds the flag — a bare
+/// `MediaQueryData()` would have size 0 and break every layout measurement.
 Future<void> _pump(
   WidgetTester tester,
   Widget child, {
   bool reduceMotion = true,
   Brightness brightness = Brightness.dark,
 }) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(brightness),
-      // Several of the pumped screens read context.l10n.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Builder(
-        builder: (context) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(disableAnimations: reduceMotion),
-          child: Scaffold(
-            body: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: child,
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    child,
+    brightness: brightness,
+    reducedMotion: reduceMotion,
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
 }
 

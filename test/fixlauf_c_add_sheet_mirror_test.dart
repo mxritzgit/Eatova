@@ -4,11 +4,9 @@
 // sheet keeps a local copy and does not rebuild from the store.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -17,8 +15,9 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -103,34 +102,24 @@ Future<void> _pumpe(
   addTearDown(tester.view.resetDevicePixelRatio);
 
   var nextId = 1;
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: AddMealSheet(
-          slot: MealSlot.snack,
-          analyzer: _StummerAnalyzer(),
-          productService: _StummerProduktdienst(),
-          photoInput: _StummeFotoquelle(),
-          favorites: favoriten,
-          existingMeals: vorhanden,
-          foodDate: foodDate,
-          onAdd: (_, __) => 'id-${nextId++}',
-          onUpdateMeal: (_, __) {},
-          onRemoveFavorite: (_) {},
-          onRemoveMeal: (_) {},
-          onUpdateMealDetails: capture?.update,
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    AddMealSheet(
+      slot: MealSlot.snack,
+      analyzer: _StummerAnalyzer(),
+      productService: _StummerProduktdienst(),
+      photoInput: _StummeFotoquelle(),
+      favorites: favoriten,
+      existingMeals: vorhanden,
+      foodDate: foodDate,
+      onAdd: (_, __) => 'id-${nextId++}',
+      onUpdateMeal: (_, __) {},
+      onRemoveFavorite: (_) {},
+      onRemoveMeal: (_) {},
+      onUpdateMealDetails: capture?.update,
     ),
+    reducedMotion: false,
+    safeArea: false,
   );
   await tester.pumpAndSettle();
 }

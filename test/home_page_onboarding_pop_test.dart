@@ -14,7 +14,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -22,10 +21,10 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 HomeStore _storeOf(WidgetTester tester) =>
     (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
@@ -82,24 +81,19 @@ Future<void> _pumpOnboarding(WidgetTester tester) async {
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  // theme: onboarding and shell read colors via `context.t`, and AppTokens.of
-  // throws on purpose when the ThemeExtension is missing.
-  await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(Brightness.light),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: EatovaHomePage(
+  // Onboarding and shell read colors via `context.t`, and AppTokens.of throws
+  // on purpose when the ThemeExtension is missing — hence the themed harness.
+  await pumpLocalized(
+    tester,
+    EatovaHomePage(
       sync: _sync(),
       debugCache: LocalCache(InMemoryKeyValueStore(), 'user-onboarding-pop'),
       showWelcome: false,
     ),
-  ));
+    brightness: Brightness.light,
+    scaffold: false,
+    safeArea: false,
+  );
 
   final welcome = find.byKey(const ValueKey('screen-welcome'));
   for (var i = 0; i < 80 && welcome.evaluate().isNotEmpty; i++) {

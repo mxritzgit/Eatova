@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/tracking_sync.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
+
+import 'support/harness.dart';
 
 // F7-02: the weigh-in sheet accepted anything > 0, so "7.55" (slipped
 // decimal) reached log, cache and HealthKit, the server rejected it with
@@ -36,33 +35,20 @@ Future<void> _pumpCard(
   WidgetTester tester, {
   required ValueChanged<double> onLogWeight,
 }) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  pinPhoneViewport(tester);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.light),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: WeightCard(
-            profile: const UserProfile(),
-            log: _log(3),
-            onLogWeight: onLogWeight,
-          ),
-        ),
-      ),
+  await pumpLocalized(
+    tester,
+    WeightCard(
+      profile: const UserProfile(),
+      log: _log(3),
+      onLogWeight: onLogWeight,
     ),
+    brightness: Brightness.light,
+    // Motion as before the migration.
+    reducedMotion: false,
+    padding: const EdgeInsets.all(20),
+    safeArea: false,
   );
   await tester.tap(find.byKey(const ValueKey('profile-log-weight')));
   await tester.pumpAndSettle();

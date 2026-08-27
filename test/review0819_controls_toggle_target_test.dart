@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart' show ReminderState;
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+
+import 'support/harness.dart';
 
 // ---------------------------------------------------------------------------
 // Finding 1 — the hit area of [AppToggle].
@@ -19,19 +18,12 @@ import 'package:eatova/src/widgets/design/design.dart';
 // 44 px target itself, and the row toggles too.
 // ---------------------------------------------------------------------------
 
-Widget _harness(Widget child) {
-  return MaterialApp(
-    theme: buildEatovaTheme(Brightness.light),
-    locale: const Locale('de'),
-    supportedLocales: AppLocalizations.supportedLocales,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    home: Scaffold(
-      body: SafeArea(
-        child: Padding(padding: const EdgeInsets.all(20), child: child),
-      ),
-    ),
-  );
-}
+Future<void> _pumpHarness(WidgetTester tester, Widget child) => pumpLocalized(
+      tester,
+      child,
+      brightness: Brightness.light,
+      padding: const EdgeInsets.all(20),
+    );
 
 Future<void> _openGoals(
   WidgetTester tester, {
@@ -42,22 +34,15 @@ Future<void> _openGoals(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.light),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: GoalsScreen(
-        profile: const UserProfile(),
-        reminderState: reminderState,
-      ),
+  await pumpLocalized(
+    tester,
+    GoalsScreen(
+      profile: const UserProfile(),
+      reminderState: reminderState,
     ),
+    brightness: Brightness.light,
+    scaffold: false,
+    safeArea: false,
   );
   await tester.pumpAndSettle();
 }
@@ -79,9 +64,7 @@ void main() {
   group('AppToggle', () {
     testWidgets('ist mindestens 44 px hoch, ohne dass die Kapsel waechst',
         (tester) async {
-      await tester.pumpWidget(
-        _harness(AppToggle(value: false, onChanged: (_) {})),
-      );
+      await _pumpHarness(tester, AppToggle(value: false, onChanged: (_) {}));
 
       expect(
         tester.getSize(find.byType(AppToggle)).height,
@@ -103,8 +86,9 @@ void main() {
     testWidgets('der durchsichtige Saum ueber der Kapsel schaltet mit',
         (tester) async {
       bool? empfangen;
-      await tester.pumpWidget(
-        _harness(AppToggle(value: false, onChanged: (v) => empfangen = v)),
+      await _pumpHarness(
+        tester,
+        AppToggle(value: false, onChanged: (v) => empfangen = v),
       );
 
       // Top edge of the target: above the drawn capsule, and only reachable

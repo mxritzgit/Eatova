@@ -9,14 +9,13 @@
 // 156.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
+
+import 'support/harness.dart' hide testWidgetsRobust;
 
 /// Viewport pinning plus overflow tolerance, as in the other widget suites.
 void testWidgetsRobust(String description, WidgetTesterCallback callback) {
@@ -89,29 +88,18 @@ const _mitMakros = MealAnalysisResult(
 /// Host with a button that opens the adjust sheet and captures its return —
 /// exactly what `MealAnalysisSheet` would pass to `adjustedToItems`.
 Widget _host(MealAnalysisResult result, void Function(Object?) onResult) {
-  return MaterialApp(
-    // The adjust surfaces read their colors from the AppTokens
-    // ThemeExtension; without the Eatova theme AppTokens.of throws.
-    theme: buildEatovaTheme(Brightness.dark),
-    // showWeightAdjustmentSheet reads context.l10n.
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: Scaffold(
-      body: Builder(
-        builder: (context) => TextButton(
-          key: const ValueKey('open-adjust'),
-          onPressed: () async =>
-              onResult(await showWeightAdjustmentSheet(context, result)),
-          child: const Text('anpassen'),
-        ),
+  return localizedApp(
+    Builder(
+      builder: (context) => TextButton(
+        key: const ValueKey('open-adjust'),
+        onPressed: () async =>
+            onResult(await showWeightAdjustmentSheet(context, result)),
+        child: const Text('anpassen'),
       ),
     ),
+    // Motion as before the migration.
+    reducedMotion: false,
+    safeArea: false,
   );
 }
 

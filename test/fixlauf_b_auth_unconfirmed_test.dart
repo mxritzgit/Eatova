@@ -5,7 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 // Fix run 2026-08-27, package B:
 //  * F2-03 — "please confirm your e-mail first" is no dead end any more: the
@@ -55,18 +56,17 @@ class _FailingAuthRepository extends InMemoryAuthRepository {
 }
 
 Future<void> _pumpAuth(WidgetTester tester, AuthRepository repo) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: AppLocalizations.supportedLocales,
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    home: AuthScreen(authRepository: repo),
-  ));
-  await tester.pumpAndSettle();
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    AuthScreen(authRepository: repo),
+    // Motion stays on: with duration 0 the screen's AnimatedSize re-dirties
+    // itself inside its own performLayout.
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
+    settle: true,
+  );
 }
 
 Future<void> _login(WidgetTester tester, String email) async {

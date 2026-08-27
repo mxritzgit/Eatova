@@ -1,20 +1,19 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/services/profile_sync.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
+
+import 'support/harness.dart';
 
 // F7-01 (review 2026-08-27): the goals page RECONSTRUCTED "manual" by
 // comparing stored kcal/macros with the calculator. After PR #47/#48 (PAL
@@ -52,35 +51,26 @@ Future<Future<SettingsResult?>> _openGoals(
   addTearDown(tester.view.resetDevicePixelRatio);
 
   late Future<SettingsResult?> result;
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.light),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: FilledButton(
-              key: const ValueKey('open-goals'),
-              onPressed: () {
-                result = Navigator.of(context).push<SettingsResult>(
-                  MaterialPageRoute<SettingsResult>(
-                    builder: (_) => GoalsScreen(profile: profile),
-                  ),
-                );
-              },
-              child: const Text('open'),
-            ),
-          ),
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => Center(
+        child: FilledButton(
+          key: const ValueKey('open-goals'),
+          onPressed: () {
+            result = Navigator.of(context).push<SettingsResult>(
+              MaterialPageRoute<SettingsResult>(
+                builder: (_) => GoalsScreen(profile: profile),
+              ),
+            );
+          },
+          child: const Text('open'),
         ),
       ),
     ),
+    reducedMotion: false,
+    brightness: Brightness.light,
+    safeArea: false,
   );
   await tester.tap(find.byKey(const ValueKey('open-goals')));
   await tester.pumpAndSettle();

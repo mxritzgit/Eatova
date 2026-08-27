@@ -4,11 +4,9 @@
 // total keep the old kcal until the sheet is reopened.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -16,8 +14,9 @@ import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 /// 855 kcal from three components; halving the potatoes (200 g -> 100 g)
 /// takes 80 kcal off: 775 kcal / 500 g.
@@ -92,10 +91,7 @@ void main() {
   testWidgets(
       'Foto -> Hinzufügen -> Anpassen: „Bereits hinzugefügt" und Slot-Summe '
       'zeigen die neuen kcal', (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    pinPhoneViewport(tester);
 
     // The adjust sheet's item rows (meal_widgets_adjust.dart, Paket D) overflow
     // by 29–51 px in this viewport — not this test's subject. Everything
@@ -114,32 +110,23 @@ void main() {
     addTearDown(() => expect(overflows, isEmpty, reason: overflows.join('\n')));
 
     final updates = <(String, int)>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: AddMealSheet(
-            slot: MealSlot.lunch,
-            analyzer: _TellerAnalyzer(),
-            productService: _StummerProduktdienst(),
-            photoInput: _Galerie(),
-            favorites: const [],
-            onAdd: (_, __) => 'id-1',
-            onUpdateMeal: (id, scaled) => updates.add((id, scaled.caloriesKcal)),
-            onRemoveFavorite: (_) {},
-          ),
-        ),
+    await pumpLocalized(
+      tester,
+      AddMealSheet(
+        slot: MealSlot.lunch,
+        analyzer: _TellerAnalyzer(),
+        productService: _StummerProduktdienst(),
+        photoInput: _Galerie(),
+        favorites: const [],
+        onAdd: (_, __) => 'id-1',
+        onUpdateMeal: (id, scaled) => updates.add((id, scaled.caloriesKcal)),
+        onRemoveFavorite: (_) {},
       ),
+      // Motion as before the migration.
+      reducedMotion: false,
+      safeArea: false,
+      settle: true,
     );
-    await tester.pumpAndSettle();
 
     await tester.tap(_key('analyse-gallery-button'));
     await tester.pumpAndSettle();

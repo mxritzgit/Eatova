@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
+
+import 'support/harness.dart';
 
 // Review B of the favorites sheet (2026-08-27): rows are keyed by INDEX, so
 // after an unpin/filter the State of row 0 receives the NEXT row's result.
@@ -29,33 +28,23 @@ final _haferdrink = _mahlzeit('Haferdrink');
 final _skyr = _mahlzeit('Skyr');
 
 Widget _liste(List<MealAnalysisResult> zeilen, {required String? offen}) {
-  return MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
+  return ListView(
+    children: [
+      for (var i = 0; i < zeilen.length; i++)
+        MealSuggestionItem(
+          // Index keys on purpose: that is what the sheets use.
+          key: ValueKey('row-$i'),
+          result: zeilen[i],
+          expanded: zeilen[i].mealName == offen,
+          onTap: () {},
+          onAdd: (_) {},
+        ),
     ],
-    home: Scaffold(
-      body: ListView(
-        children: [
-          for (var i = 0; i < zeilen.length; i++)
-            MealSuggestionItem(
-              // Index keys on purpose: that is what the sheets use.
-              key: ValueKey('row-$i'),
-              result: zeilen[i],
-              expanded: zeilen[i].mealName == offen,
-              onTap: () {},
-              onAdd: (_) {},
-            ),
-        ],
-      ),
-    ),
   );
 }
+
+Future<void> _pumpListe(WidgetTester tester, Widget liste) =>
+    pumpLocalized(tester, liste, reducedMotion: false, safeArea: false);
 
 String _grammText(WidgetTester tester, String rowKey) {
   final feld = tester.widget<TextField>(find.descendant(
@@ -69,7 +58,7 @@ void main() {
   testWidgets(
       'nach dem Entfernen von Zeile 0 zeigt die nachrueckende Zeile IHRE Gramm, '
       'nicht die bearbeiteten der entfernten', (tester) async {
-    await tester.pumpWidget(_liste([_haferdrink, _skyr], offen: 'Haferdrink'));
+    await _pumpListe(tester, _liste([_haferdrink, _skyr], offen: 'Haferdrink'));
     await tester.pumpAndSettle();
     expect(_grammText(tester, 'row-0'), '100');
 
@@ -84,7 +73,7 @@ void main() {
         reason: 'der Stepper muss die Gramm veraendert haben');
 
     // Row 0 disappears (unpin); Skyr moves into the same index key.
-    await tester.pumpWidget(_liste([_skyr], offen: 'Skyr'));
+    await _pumpListe(tester, _liste([_skyr], offen: 'Skyr'));
     await tester.pumpAndSettle();
 
     expect(find.text('Skyr'), findsOneWidget);
@@ -96,7 +85,7 @@ void main() {
 
   testWidgets('ein Rebuild mit DERSELBEN Result-Instanz behaelt die Gramm',
       (tester) async {
-    await tester.pumpWidget(_liste([_haferdrink], offen: 'Haferdrink'));
+    await _pumpListe(tester, _liste([_haferdrink], offen: 'Haferdrink'));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.add_rounded).first);
     await tester.pumpAndSettle();
@@ -105,7 +94,7 @@ void main() {
 
     // Parent rebuild (e.g. a setState elsewhere in the sheet) with the same
     // objects must not throw away what the user typed.
-    await tester.pumpWidget(_liste([_haferdrink], offen: 'Haferdrink'));
+    await _pumpListe(tester, _liste([_haferdrink], offen: 'Haferdrink'));
     await tester.pumpAndSettle();
     expect(_grammText(tester, 'row-0'), bearbeitet);
   });

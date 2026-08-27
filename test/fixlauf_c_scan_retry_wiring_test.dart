@@ -5,11 +5,9 @@
 // (food tab via the MealCameraLauncher seam, add sheet via MealPhotoInput).
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -18,8 +16,9 @@ import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
+
+import 'support/harness.dart';
 
 const MealAnalysisResult _bowl = MealAnalysisResult(
   mealName: 'Bowl',
@@ -94,26 +93,15 @@ class _StummerProduktdienst implements ProductLookupService {
       const <ProductSearchResult>[];
 }
 
-Widget _app(Widget body) => MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(body: body),
-    );
+/// `reducedMotion: false` keeps the motion behaviour from before the harness
+/// migration; the sheets' AnimatedSize re-dirties itself at duration 0.
+Widget _app(Widget body) =>
+    localizedApp(body, reducedMotion: false, safeArea: false);
 
 /// Phone viewport; overflows are collected and asserted empty at the end of
 /// each test, not swallowed.
 List<String> _telefon(WidgetTester tester) {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  pinPhoneViewport(tester);
   final overflows = <String>[];
   final prior = FlutterError.onError;
   FlutterError.onError = (details) {

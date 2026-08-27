@@ -8,11 +8,9 @@
 // the rendered geometry against the `sheetMaxHeight` formula.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -20,11 +18,10 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/sheets.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
-import 'widgets/design/design_harness.dart' show pinIphone14Pro;
+import 'support/harness.dart';
 
 const double _hoehe = 844;
 const double _safeAreaOben = 59;
@@ -79,38 +76,29 @@ final List<FavoriteMeal> _vieleFavoriten = List<FavoriteMeal>.generate(
 );
 
 Future<void> _oeffneSheet(WidgetTester tester) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: Scaffold(
-        body: Builder(
-          builder: (context) => Center(
-            child: TextButton(
-              onPressed: () => showAddMealSheet(
-                context,
-                slot: MealSlot.dinner,
-                analyzer: _StummerAnalyzer(),
-                productService: _StummerProduktdienst(),
-                photoInput: _StummeFotoquelle(),
-                favorites: _vieleFavoriten,
-                onAdd: (_, __) => 'id-1',
-                onUpdateMeal: (_, __) {},
-                onRemoveFavorite: (_) {},
-              ),
-              child: const Text('Dinner'),
-            ),
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => Center(
+        child: TextButton(
+          onPressed: () => showAddMealSheet(
+            context,
+            slot: MealSlot.dinner,
+            analyzer: _StummerAnalyzer(),
+            productService: _StummerProduktdienst(),
+            photoInput: _StummeFotoquelle(),
+            favorites: _vieleFavoriten,
+            onAdd: (_, __) => 'id-1',
+            onUpdateMeal: (_, __) {},
+            onRemoveFavorite: (_) {},
           ),
+          child: const Text('Dinner'),
         ),
       ),
     ),
+    // No SafeArea: the suite measures against the real device insets that
+    // `pinIphone14Pro` installs.
+    safeArea: false,
   );
   await tester.pumpAndSettle();
   await tester.tap(find.text('Dinner'));

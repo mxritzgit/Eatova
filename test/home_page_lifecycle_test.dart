@@ -16,16 +16,15 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 /// Health double with a countable read path. [authState] moves on EVERY
 /// `readSnapshot()`, exactly as in the real AppleHealthService — that is what
@@ -127,28 +126,16 @@ Future<void> _pumpHome(
   NotificationService? notifications,
   LocalCache? cache,
 }) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      // The shell reads colors via `context.t` (AppTokens as ThemeExtension),
-      // and `AppTokens.of` throws on purpose when the extension is missing.
-      theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() reads context.l10n, so without localizations
-      // AppLocalizations.of() throws while building the bottom nav.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: EatovaHomePage(
-        healthService: health,
-        notificationService:
-            notifications ?? const NoopNotificationService(),
-        debugCache: cache,
-      ),
+  await pumpLocalized(
+    tester,
+    EatovaHomePage(
+      healthService: health,
+      notificationService: notifications ?? const NoopNotificationService(),
+      debugCache: cache,
     ),
+    // The shell brings its own Scaffold and safe-area handling.
+    scaffold: false,
+    safeArea: false,
   );
   await tester.pump();
 }

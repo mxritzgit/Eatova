@@ -1,6 +1,5 @@
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase/supabase.dart';
 
@@ -12,9 +11,9 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
-import 'package:eatova/src/theme/app_theme.dart';
 
 import 'fixlauf_a_helpers.dart';
+import 'support/harness.dart';
 
 // Review 2026-08-27, F1-06: without a cached profile the boot budget opened
 // the gate on ctor defaults, and `needsOnboarding` (a ctor default too) sent a
@@ -276,18 +275,13 @@ Future<void> _pumpHome(
       const FakeAccessibilityFeatures(disableAnimations: true);
   addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
 
-  await tester.pumpWidget(MaterialApp(
-    theme: buildEatovaTheme(Brightness.dark),
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de'), Locale('en')],
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    home: EatovaHomePage(sync: sync, debugCache: cache, showWelcome: false),
-  ));
+  await pumpLocalized(
+    tester,
+    EatovaHomePage(sync: sync, debugCache: cache, showWelcome: false),
+    // The shell brings its own Scaffold and safe-area handling.
+    scaffold: false,
+    safeArea: false,
+  );
   await _drain(tester);
   expect(find.byKey(const ValueKey('screen-welcome')), findsOneWidget,
       reason: 'Vorbedingung: ohne Cache-Profil haelt das Gate');

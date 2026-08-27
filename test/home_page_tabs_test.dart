@@ -11,17 +11,16 @@
 // recipes 2, coach 3.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
-import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart';
 
 HomeStore _storeOf(WidgetTester tester) =>
     (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
@@ -51,21 +50,12 @@ Future<void> _pumpHome(WidgetTester tester) async {
   };
   addTearDown(() => FlutterError.onError = prior);
 
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildEatovaTheme(Brightness.dark),
-      // _navItems() reads context.l10n, so without localizations
-      // AppLocalizations.of() throws while building the bottom nav.
-      locale: const Locale('de'),
-      supportedLocales: const [Locale('de'), Locale('en')],
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: EatovaHomePage(),
-    ),
+  await pumpLocalized(
+    tester,
+    EatovaHomePage(),
+    // The shell brings its own Scaffold and safe-area handling.
+    scaffold: false,
+    safeArea: false,
   );
   await tester.pump();
 }
