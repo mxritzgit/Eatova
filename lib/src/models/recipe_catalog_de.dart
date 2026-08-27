@@ -9,6 +9,14 @@ import 'fitness_recipe.dart';
 ///
 /// Deliberately not listed in the hardcoded-string guard: German content is
 /// this file's purpose.
+/// `estimatedGrams` is the COOKED plate weight, one rule for all 30 (F6-01,
+/// fix run 2026-08-27): rice/quinoa/couscous/dry lentils raw x2.5, pasta raw
+/// x2.2, meat/fish x0.75 (fish served raw 1:1), vegetables/fruit x0.9,
+/// liquids/eggs/dairy/drained cans/oats 1:1, rounded to 5 g. Only weighed
+/// items count, plus eggs at 55 g each, `ca.` figures, 1/2 banana 50 g,
+/// 1/2 tomato 60 g, 1/4 cucumber 75 g, 1 bell pepper 150 g, 1/2 bell pepper
+/// 75 g; aromatics, herbs and spoon measures are ignored. Per-recipe
+/// arithmetic: test/fixlauf_i_recipe_catalog_test.dart.
 const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
   FitnessRecipe(
     slug: "hahnchen_mit_reis_and_brokkoli",
@@ -23,7 +31,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 55,
     carbsG: 62,
     fatG: 12,
-    estimatedGrams: 483,
+    estimatedGrams: 530,
     categories: <String>["High Protein", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -39,7 +47,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 43,
     carbsG: 55,
     fatG: 29,
-    estimatedGrams: 690,
+    estimatedGrams: 595,
     categories: <String>["Fisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -55,7 +63,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 58,
     carbsG: 57,
     fatG: 15,
-    estimatedGrams: 530,
+    estimatedGrams: 560,
     categories: <String>["High Protein", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -71,7 +79,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 52,
     carbsG: 48,
     fatG: 28,
-    estimatedGrams: 710,
+    estimatedGrams: 610,
     categories: <String>["High Protein", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -87,7 +95,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 48,
     carbsG: 68,
     fatG: 11,
-    estimatedGrams: 543,
+    estimatedGrams: 570,
     categories: <String>["Fisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -103,7 +111,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 36,
     carbsG: 18,
     fatG: 44,
-    estimatedGrams: 465,
+    estimatedGrams: 600,
     categories: <String>["Frühstück", "Low Carb"],
   ),
   FitnessRecipe(
@@ -119,7 +127,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 56,
     carbsG: 58,
     fatG: 15,
-    estimatedGrams: 538,
+    estimatedGrams: 585,
     categories: <String>["Fisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -135,7 +143,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 35,
     carbsG: 78,
     fatG: 18,
-    estimatedGrams: 433,
+    estimatedGrams: 530,
     categories: <String>["Vegetarisch", "Vegan", "High Protein"],
   ),
   FitnessRecipe(
@@ -151,7 +159,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 55,
     carbsG: 60,
     fatG: 16,
-    estimatedGrams: 720,
+    estimatedGrams: 620,
     categories: <String>["High Protein", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -167,7 +175,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 55,
     carbsG: 65,
     fatG: 18,
-    estimatedGrams: 573,
+    estimatedGrams: 660,
     categories: <String>["High Protein", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -199,7 +207,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 30,
     carbsG: 62,
     fatG: 9,
-    estimatedGrams: 470,
+    estimatedGrams: 445,
     categories: <String>["Frühstück", "Vegetarisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -215,7 +223,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 38,
     carbsG: 48,
     fatG: 9,
-    estimatedGrams: 420,
+    estimatedGrams: 410,
     categories: <String>["Frühstück", "High Protein", "Vegetarisch"],
   ),
   FitnessRecipe(
@@ -231,7 +239,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 28,
     carbsG: 22,
     fatG: 30,
-    estimatedGrams: 600,
+    estimatedGrams: 750,
     categories: <String>["Frühstück", "Vegetarisch", "Low Carb"],
   ),
   FitnessRecipe(
@@ -247,7 +255,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 28,
     carbsG: 34,
     fatG: 31,
-    estimatedGrams: 380,
+    estimatedGrams: 375,
     categories: <String>["Frühstück", "Vegetarisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -263,7 +271,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 48,
     carbsG: 52,
     fatG: 16,
-    estimatedGrams: 380,
+    estimatedGrams: 425,
     categories: <String>["Hauptgericht", "High Protein"],
   ),
   FitnessRecipe(
@@ -279,7 +287,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 50,
     carbsG: 70,
     fatG: 16,
-    estimatedGrams: 560,
+    estimatedGrams: 635,
     categories: <String>["Hauptgericht", "High Protein"],
   ),
   FitnessRecipe(
@@ -295,7 +303,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 47,
     carbsG: 52,
     fatG: 22,
-    estimatedGrams: 620,
+    estimatedGrams: 610,
     categories: <String>["Hauptgericht", "High Protein"],
   ),
   FitnessRecipe(
@@ -311,7 +319,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 45,
     carbsG: 62,
     fatG: 18,
-    estimatedGrams: 520,
+    estimatedGrams: 525,
     categories: <String>["Hauptgericht", "High Protein"],
   ),
   FitnessRecipe(
@@ -327,7 +335,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 52,
     carbsG: 50,
     fatG: 18,
-    estimatedGrams: 600,
+    estimatedGrams: 610,
     categories: <String>["Hauptgericht", "High Protein"],
   ),
   FitnessRecipe(
@@ -343,7 +351,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 50,
     carbsG: 66,
     fatG: 22,
-    estimatedGrams: 480,
+    estimatedGrams: 515,
     categories: <String>["Hauptgericht", "High Protein"],
   ),
   FitnessRecipe(
@@ -359,7 +367,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 50,
     carbsG: 18,
     fatG: 22,
-    estimatedGrams: 420,
+    estimatedGrams: 345,
     categories: <String>["Hauptgericht", "High Protein", "Low Carb"],
   ),
   FitnessRecipe(
@@ -375,7 +383,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 45,
     carbsG: 72,
     fatG: 13,
-    estimatedGrams: 470,
+    estimatedGrams: 600,
     categories: <String>["Fisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -391,7 +399,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 44,
     carbsG: 50,
     fatG: 12,
-    estimatedGrams: 640,
+    estimatedGrams: 570,
     categories: <String>["Fisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -407,7 +415,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 40,
     carbsG: 65,
     fatG: 20,
-    estimatedGrams: 540,
+    estimatedGrams: 590,
     categories: <String>["Fisch", "High Protein"],
   ),
   FitnessRecipe(
@@ -423,7 +431,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 26,
     carbsG: 88,
     fatG: 10,
-    estimatedGrams: 560,
+    estimatedGrams: 660,
     categories: <String>["Vegetarisch", "Vegan", "High Protein", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -439,7 +447,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 22,
     carbsG: 92,
     fatG: 12,
-    estimatedGrams: 580,
+    estimatedGrams: 680,
     categories: <String>["Vegetarisch", "Vegan", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -471,7 +479,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 34,
     carbsG: 66,
     fatG: 20,
-    estimatedGrams: 500,
+    estimatedGrams: 550,
     categories: <String>["Vegetarisch", "Vegan", "High Protein", "Hauptgericht"],
   ),
   FitnessRecipe(
@@ -487,7 +495,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     proteinG: 28,
     carbsG: 24,
     fatG: 38,
-    estimatedGrams: 520,
+    estimatedGrams: 455,
     categories: <String>["Vegetarisch", "Low Carb"],
   ),
 ];

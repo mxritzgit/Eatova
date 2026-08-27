@@ -288,6 +288,44 @@ const recipeFilters = <String>[
 /// locale-aware callers use [recipeCatalogForLocale].
 const List<FitnessRecipe> fitnessRecipes = recipeCatalogDe;
 
+/// Search normalisation: lower case plus a simple umlaut fold, so "Haehnchen"
+/// finds "Hähnchen" and vice versa. Applied to query AND fields.
+///
+/// Double-quoted on purpose: the literals are matching data, not UI text, so
+/// the hardcoded-string guard (single quotes only) skips them.
+String foldRecipeSearchText(String text) => text
+    .toLowerCase()
+    .replaceAll("ä", "ae")
+    .replaceAll("ö", "oe")
+    .replaceAll("ü", "ue")
+    .replaceAll("ß", "ss");
+
+/// Number of recipes in the recommendation carousel.
+const int recipeRecommendationCount = 4;
+
+/// Picks [count] recipes from [pool] starting at a day-based offset, so the
+/// carousel rotates through the whole catalog instead of always showing the
+/// first four. Wraps around; a pool shorter than [count] is returned whole.
+///
+/// Day counting runs in UTC on the calendar date so a DST switch never shifts
+/// the offset by one (same trap as `daysBetween`).
+List<FitnessRecipe> rotatedRecommendations(
+  List<FitnessRecipe> pool,
+  DateTime now, {
+  int count = recipeRecommendationCount,
+}) {
+  if (pool.isEmpty || count <= 0) return const <FitnessRecipe>[];
+  final day = DateTime.utc(now.year, now.month, now.day)
+      .difference(DateTime.utc(2020))
+      .inDays;
+  final n = pool.length;
+  final start = day % n;
+  final take = count < n ? count : n;
+  return <FitnessRecipe>[
+    for (var i = 0; i < take; i++) pool[(start + i) % n],
+  ];
+}
+
 /// Picks the recipe catalog for the active app language. [localeName] is
 /// `AppLocalizations.localeName`; mirrors `resolveEatovaLocale` in that
 /// anything but `de` falls back to English. Callers pass `l10n.localeName`

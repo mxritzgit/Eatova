@@ -44,57 +44,69 @@ class _RecipeSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Container(
-      // Not the template's fixed `height: 48`: fixed height plus growing text
-      // is a guaranteed overflow.
-      constraints: const BoxConstraints(minHeight: 48),
-      decoration: BoxDecoration(
-        color: t.surf,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: t.line),
-      ),
-      child: TextField(
-        key: const ValueKey('recipes-search-input'),
-        controller: controller,
-        cursorOpacityAnimates: false,
-        style: AppType.ui(14, color: t.ink),
-        // Not the template's `t.forest`: in dark mode that is a dark surface,
-        // so the cursor would be invisible on `surf`. `accent` is its ink twin.
-        cursorColor: t.accent,
-        decoration: InputDecoration(
-          isDense: true,
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          // Horizontal part taken from the template; without it the text
-          // sticks to the magnifier and to the clear button.
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
-          prefixIcon: Icon(Icons.search_rounded, size: 18, color: t.ink2),
-          prefixIconConstraints: const BoxConstraints(minWidth: 44),
-          hintText: context.l10n.recipesSearchHint,
-          hintStyle: AppType.ui(14, color: t.ink2),
-          // The search text survives scrolling and tab switches, so there must
-          // be a visible way to clear it.
-          suffixIcon: ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, _) {
-              if (value.text.isEmpty) return const SizedBox.shrink();
-              return IconButton(
-                key: const ValueKey('recipes-search-clear'),
-                onPressed: onClear,
-                tooltip: context.l10n.recipesSearchClearTooltip,
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                constraints: const BoxConstraints(
-                  minWidth: 44,
-                  minHeight: 44,
+    // [FieldCapsule] carries the fill language (field / fieldFocus, shadow,
+    // no ring). The `Focus` ancestor only observes: `Focus.of` rebuilds the
+    // builder whenever the inner field gains or loses focus.
+    return Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      includeSemantics: false,
+      child: Builder(
+        builder: (context) {
+          return FieldCapsule(
+            focused: Focus.of(context).hasFocus,
+            // Not the template's fixed `height: 48`: fixed height plus growing
+            // text is a guaranteed overflow.
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: EdgeInsets.zero,
+            child: TextField(
+              key: const ValueKey('recipes-search-input'),
+              controller: controller,
+              cursorOpacityAnimates: false,
+              style: AppType.ui(14, color: t.ink),
+              // Not the template's `t.forest`: in dark mode that is a dark
+              // surface, so the cursor would be invisible on `surf`. `accent`
+              // is its ink twin.
+              cursorColor: t.accent,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                // Horizontal part taken from the template; without it the
+                // text sticks to the magnifier and to the clear button.
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
+                prefixIcon:
+                    Icon(Icons.search_rounded, size: 18, color: t.ink2),
+                prefixIconConstraints: const BoxConstraints(minWidth: 44),
+                hintText: context.l10n.recipesSearchHint,
+                hintStyle: AppType.ui(14, color: t.ink2),
+                // The search text survives scrolling and tab switches, so
+                // there must be a visible way to clear it.
+                suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: controller,
+                  builder: (context, value, _) {
+                    if (value.text.isEmpty) return const SizedBox.shrink();
+                    return IconButton(
+                      key: const ValueKey('recipes-search-clear'),
+                      onPressed: onClear,
+                      tooltip: context.l10n.recipesSearchClearTooltip,
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 44,
+                        minHeight: 44,
+                      ),
+                      icon: Icon(Icons.close_rounded, color: t.ink2, size: 18),
+                    );
+                  },
                 ),
-                icon: Icon(Icons.close_rounded, color: t.ink2, size: 18),
-              );
-            },
-          ),
-        ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -102,9 +114,14 @@ class _RecipeSearchField extends StatelessWidget {
 
 class _RecipeFilterChips extends StatelessWidget {
   const _RecipeFilterChips({
+    required this.filters,
     required this.selected,
     required this.onSelected,
   });
+
+  /// Neutral filter identities in display order (the screen decides whether
+  /// "Eigene" is part of it).
+  final List<String> filters;
 
   final String selected;
   final ValueChanged<String> onSelected;
@@ -118,10 +135,10 @@ class _RecipeFilterChips extends StatelessWidget {
       height: MediaQuery.textScalerOf(context).scale(38).clamp(38.0, 80.0),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: recipeFilters.length,
+        itemCount: filters.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final filter = recipeFilters[index];
+          final filter = filters[index];
           // `Center` keeps the chip at its natural size inside the bar's fixed
           // height. Keys and callbacks stay on the neutral `filter` value;
           // only the visible label is localised.

@@ -519,6 +519,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
     await tester.pumpAndSettle();
 
+    // F6-03: inside the undo window nothing is committed yet, so the bytes
+    // must still be there — the recipe could come back.
+    expect(_store.resolveSync(referenz), isNotNull,
+        reason: 'Solange „Rueckgaengig" moeglich ist, bleibt das Foto.');
+    await tester.pump(kRecipeUndoWindow + const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
     expect(_store.resolveSync(referenz), isNull,
         reason: 'Ein geloeschtes Rezept darf sein Foto nicht auf der Platte '
             'zuruecklassen.');

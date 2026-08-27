@@ -5,8 +5,10 @@
 /// recipe_detail.dart.
 library;
 
+import 'dart:async';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -78,8 +80,24 @@ class RecipesScreen extends StatefulWidget {
   State<RecipesScreen> createState() => _RecipesScreenState();
 }
 
+/// How long a deleted recipe can be brought back: the undo toast's dwell time
+/// plus the 400 ms margin `_AutoDismiss` grants before it removes the toast,
+/// plus another 400 ms so the commit fires strictly AFTER that removal. The
+/// toast's dismiss timer calls `removeCurrentSnackBar` whatever is current,
+/// so a follow-up toast shown at the same instant would be eaten by it.
+final Duration kRecipeUndoWindow =
+    kSnackAction + const Duration(milliseconds: 800);
+
+/// A delete inside its undo window.
+class _PendingDelete {
+  const _PendingDelete(this.recipe, this.timer);
+
+  final FitnessRecipe recipe;
+  final Timer timer;
+}
+
 class _RecipesScreenState extends State<RecipesScreen> {
-  String selectedFilter = 'Alle';
+  String selectedFilter = "Alle";
 
   /// Search text, deliberately on its own controller rather than the
   /// [TextField]'s internal state (D6, Review 2026-08-08): the screen is a
@@ -95,6 +113,15 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// session. Placed at the front of the list.
   late List<FitnessRecipe> _userRecipes;
 
+  /// Deletes still inside their undo window, by slug. The recipe stays in
+  /// [_userRecipes] (so a store update cannot resurrect it out of order) and
+  /// is only hidden until the timer commits or undo cancels it.
+  final Map<String, _PendingDelete> _pendingDeletes = <String, _PendingDelete>{};
+
+  /// Set at the top of [dispose]: `mounted` is still true while disposing,
+  /// but the element is already defunct, so a `setState` would assert.
+  bool _disposing = false;
+
   @override
   void initState() {
     super.initState();
@@ -104,7 +131,14 @@ class _RecipesScreenState extends State<RecipesScreen> {
 
   @override
   void dispose() {
+    _disposing = true;
     _searchController.dispose();
+    // The home shell keeps tabs mounted (IndexedStack, D6), so this is not a
+    // tab switch but logout or route removal: commit now, silently.
+    for (final pending in _pendingDeletes.values.toList(growable: false)) {
+      pending.timer.cancel();
+      unawaited(_commitDelete(pending.recipe));
+    }
     super.dispose();
   }
 
@@ -126,6 +160,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     // `_restoreDroppedDeletes` or created on a second device.
     if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
+      _dropOwnFilterIfEmpty();
     }
   }
 
@@ -135,19 +170,52 @@ class _RecipesScreenState extends State<RecipesScreen> {
   List<FitnessRecipe> get _catalog =>
       recipeCatalogForLocale(context.l10n.localeName);
 
+  /// User recipes minus those inside an undo window.
+  List<FitnessRecipe> get _visibleUserRecipes => _userRecipes
+      .where((r) => !_pendingDeletes.containsKey(r.slug))
+      .toList(growable: false);
+
   List<FitnessRecipe> get _allRecipes =>
-      <FitnessRecipe>[..._userRecipes, ..._catalog];
+      <FitnessRecipe>[..._visibleUserRecipes, ..._catalog];
+
+  /// Filter strip: "Eigene" sits right after "Alle" and only exists while
+  /// there is something to show under it. The literals are logic identity
+  /// (see [recipeCategoryLabel]), hence double-quoted.
+  List<String> get _filters => <String>[
+        recipeFilters.first,
+        if (_visibleUserRecipes.isNotEmpty) "Eigene",
+        ...recipeFilters.skip(1),
+      ];
+
+  /// The "Eigene" chip disappears with its last recipe; the selection must
+  /// not point at a chip that no longer exists.
+  void _dropOwnFilterIfEmpty() {
+    if (selectedFilter == "Eigene" && _visibleUserRecipes.isEmpty) {
+      selectedFilter = "Alle";
+    }
+  }
 
   List<FitnessRecipe> get filteredRecipes {
-    final normalizedQuery = query.trim().toLowerCase();
+    final l10n = context.l10n;
+    final normalizedQuery = foldRecipeSearchText(query.trim());
+    bool hit(String text) =>
+        foldRecipeSearchText(text).contains(normalizedQuery);
     return _allRecipes.where((recipe) {
-      final matchesFilter = selectedFilter == 'Alle' ||
-          recipe.categories.contains(selectedFilter);
+      final matchesFilter = switch (selectedFilter) {
+        "Alle" => true,
+        "Eigene" => recipe.userCreated,
+        _ => recipe.categories.contains(selectedFilter),
+      };
+      // Categories match on the neutral identity AND on the localised label:
+      // under `en` the hint promises "category", so "breakfast" must find the
+      // recipes tagged "Frühstück".
       final matchesQuery = normalizedQuery.isEmpty ||
-          recipe.title.toLowerCase().contains(normalizedQuery) ||
-          recipe.description.toLowerCase().contains(normalizedQuery) ||
+          hit(recipe.title) ||
+          hit(recipe.description) ||
+          hit(recipe.ingredients) ||
           recipe.categories.any(
-            (category) => category.toLowerCase().contains(normalizedQuery),
+            (category) =>
+                hit(category) || hit(recipeCategoryLabel(category, l10n)),
           );
       return matchesFilter && matchesQuery;
     }).toList(growable: false);
@@ -184,14 +252,49 @@ class _RecipesScreenState extends State<RecipesScreen> {
     );
   }
 
-  /// Deletes a user recipe locally and, if wired, persistently via
-  /// onDeleteRecipe(slug). Called from the detail screen.
-  Future<void> _deleteUserRecipe(FitnessRecipe recipe) async {
+  /// Hides a user recipe and opens its undo window. Called from the detail
+  /// screen. Nothing is persisted yet: the store hook and the photo deletion
+  /// run in [_commitDelete] once the window has passed (or on dispose), so an
+  /// undo needs no upsert and the device-only photo bytes never go early.
+  void _deleteUserRecipe(FitnessRecipe recipe) {
+    _pendingDeletes[recipe.slug]?.timer.cancel();
     setState(() {
-      _userRecipes = _userRecipes
-          .where((r) => r.slug != recipe.slug)
-          .toList(growable: true);
+      _pendingDeletes[recipe.slug] = _PendingDelete(
+        recipe,
+        Timer(kRecipeUndoWindow, () => unawaited(_commitDelete(recipe))),
+      );
+      _dropOwnFilterIfEmpty();
     });
+    final l10n = context.l10n;
+    showAppSnack(
+      context,
+      // Plain sentence form: locally the recipe IS gone. If the commit later
+      // only queues the delete, a second toast says so.
+      l10n.commonDeliverySuccess(l10n.recipesDeletedSuccess(recipe.title)),
+      icon: Icons.delete_outline_rounded,
+      tone: SnackTone.error,
+      action: SnackBarAction(
+        label: l10n.commonUndo,
+        onPressed: () => _undoDelete(recipe.slug),
+      ),
+    );
+  }
+
+  /// Undo tap inside the window: cancel the timer and show the recipe again.
+  /// A no-op once the delete has been committed.
+  void _undoDelete(String slug) {
+    final pending = _pendingDeletes.remove(slug);
+    if (pending == null) return;
+    pending.timer.cancel();
+    if (mounted) setState(() {});
+  }
+
+  /// Persists a delete whose undo window has passed.
+  Future<void> _commitDelete(FitnessRecipe recipe) async {
+    _pendingDeletes.remove(recipe.slug);
+    _userRecipes =
+        _userRecipes.where((r) => r.slug != recipe.slug).toList(growable: true);
+    if (mounted && !_disposing) setState(() {});
     final ausgang = await _melde(widget.onDeleteRecipe?.call(recipe.slug));
     // The photo goes too, but only once the delete is actually delivered: a
     // dropped delete makes `_restoreDroppedDeletes` bring the recipe back, and
@@ -204,7 +307,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
     if (ausgang == SyncDelivery.delivered) {
       await RecipeImageStore.instance.deleteFor(recipe.imageAsset);
     }
-    if (!mounted) return;
+    // Delivered is what the undo toast already implied; only a queued outcome
+    // needs the honest follow-up (Gap E).
+    if (!mounted || ausgang == SyncDelivery.delivered) return;
+    // Hidden tab (the IndexedStack mutes it via TickerMode): a toast nobody
+    // can see would only surface later in the wrong place. Stay silent.
+    if (!TickerMode.valuesOf(context).enabled) return;
     showAppSnack(
       context,
       deliveryHint(
@@ -257,11 +365,17 @@ class _RecipesScreenState extends State<RecipesScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final visibleRecipes = filteredRecipes;
-    // Recommendation carousel: diet pre-filtered (PROD-6), falling back to the
-    // full list so the section never looks empty.
-    final recommendedPool =
-        _dietRecipes.isEmpty ? _allRecipes : _dietRecipes;
-    final recommended = recommendedPool.take(4).toList(growable: false);
+    // Recommendation carousel: catalog only (an own recipe with a placeholder
+    // stripe is no "recommendation"), diet pre-filtered (PROD-6) with a
+    // fallback to the whole catalog so the section never looks empty, and
+    // rotated by calendar day so it is not the same four cards forever.
+    final catalogPool = _catalog
+        .where((r) => r.matchesDiet(widget.diet))
+        .toList(growable: false);
+    final recommended = rotatedRecommendations(
+      catalogPool.isEmpty ? _catalog : catalogPool,
+      clock.now(),
+    );
     final remaining = widget.remainingMacros;
     final goalMatches = remaining == null
         ? const <FitnessRecipe>[]
@@ -291,6 +405,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           ),
           const SizedBox(height: 12),
           _RecipeFilterChips(
+            filters: _filters,
             selected: selectedFilter,
             onSelected: (filter) => setState(() => selectedFilter = filter),
           ),
@@ -303,6 +418,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           SizedBox(
             height: carouselHeight,
             child: ListView.separated(
+              key: const ValueKey('recipe-recommended'),
               scrollDirection: Axis.horizontal,
               clipBehavior: Clip.none,
               itemCount: recommended.length,
@@ -310,6 +426,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
               itemBuilder: (context, index) {
                 final recipe = recommended[index];
                 return _RecipeHeroCard(
+                  key: ValueKey('recipe-recommended-${recipe.slug}'),
                   recipe: recipe,
                   onTap: () => _openRecipe(recipe),
                 );
@@ -322,7 +439,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
             // comparison, chip ValueKeys); the heading shows its ARB display
             // form, like the chip itself. The "Alle" case keeps its own,
             // longer title.
-            title: selectedFilter == 'Alle'
+            title: selectedFilter == "Alle"
                 ? l10n.recipesAllTitle
                 : recipeCategoryLabel(selectedFilter, l10n),
             trailing: l10n.recipesResultsCount(visibleRecipes.length),

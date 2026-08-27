@@ -32,6 +32,9 @@ String recipeCategoryLabel(String category, AppLocalizations l10n) {
 
 /// Small label: filled as a marker on a photo, unfilled as a quiet hint on a
 /// card.
+///
+/// Filled = forest with `onForest`, the one selection language of every chip
+/// in the app; lime stays reserved for the nav capsule (F8-07).
 class _RecipeBadge extends StatelessWidget {
   const _RecipeBadge({required this.text, this.icon, this.filled = false});
 
@@ -42,12 +45,12 @@ class _RecipeBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final foreground = filled ? t.onLime : t.ink;
+    final foreground = filled ? t.onForest : t.ink;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: filled ? t.lime : t.surf,
-        borderRadius: BorderRadius.circular(7),
+        color: filled ? t.forest : t.surf,
+        borderRadius: BorderRadius.circular(rChip),
         border: filled ? null : Border.all(color: t.line),
       ),
       child: Row(

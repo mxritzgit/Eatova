@@ -121,6 +121,16 @@ Future<void> _legeRezeptAn(WidgetTester tester, {String name = 'Protein-Bowl'}) 
   await tester.pumpAndSettle();
 }
 
+/// Lets the delete's undo window pass in 100 ms frames (a single big pump
+/// drops the follow-up snack under FakeAsync — ticker jump), then settles.
+Future<void> _undoFristAblaufen(WidgetTester tester) async {
+  final schritte = (kRecipeUndoWindow.inMilliseconds + 200) ~/ 100;
+  for (var i = 0; i < schritte; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  await tester.pumpAndSettle();
+}
+
 /// All currently visible snack texts.
 Iterable<String> _snackTexte(WidgetTester tester) => tester
     .widgetList<SnackBar>(find.byType(SnackBar))
@@ -229,6 +239,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
       await tester.pumpAndSettle();
 
+      // F6-03: first the undo toast — the delete is local only until the
+      // window passes, so there is no outcome to report yet.
+      expect(find.text('„Weg-Bowl" gelöscht.'), findsOneWidget);
+      expect(find.text('Rückgängig'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+
+      await _undoFristAblaufen(tester);
+
       expect(
         find.text('„Weg-Bowl" gelöscht — wird synchronisiert, sobald du '
             'wieder online bist.'),
@@ -256,6 +274,9 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
       await tester.pumpAndSettle();
+      // F6-03: the delete op only exists once the undo window has passed, so
+      // a dropped op (and its restore) can only follow the commit.
+      await _undoFristAblaufen(tester);
       expect(find.byKey(const ValueKey('recipe-tile-user_zurueck')),
           findsNothing,
           reason: 'Vorbedingung: lokal ist das Rezept weg');
