@@ -116,6 +116,14 @@ class SettingsPlanHero extends StatelessWidget {
                                 manual
                                     ? l10n.settingsPlanHeroEyebrowManual
                                     : l10n.settingsPlanHeroEyebrow,
+                                // Stable handle for tests: without it they
+                                // hang off the ARB text, which every wording
+                                // change breaks.
+                                key: ValueKey(
+                                  manual
+                                      ? 'settings-plan-eyebrow-manual'
+                                      : 'settings-plan-eyebrow-live',
+                                ),
                                 style: AppType.eyebrow(
                                   t.onForest.withValues(alpha: 0.70),
                                 ),

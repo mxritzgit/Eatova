@@ -204,8 +204,9 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
             onToggleFavorite: widget.onToggleFavorite,
             favoriteButtonKey: widget.favoriteButtonKey,
           ),
-          AnimatedSize(
-            duration: motionDuration(context, const Duration(milliseconds: 180)),
+          maybeAnimatedSize(
+            context,
+            duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
             alignment: Alignment.topCenter,
             child: widget.expanded

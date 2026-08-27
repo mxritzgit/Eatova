@@ -219,11 +219,9 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
           child: SingleChildScrollView(
             key: const ValueKey('favorites-sheet-scroll'),
             padding: EdgeInsets.fromLTRB(20, 12, 20, 28 + bottomInset),
-            child: AnimatedSize(
-              duration: motionDuration(
-                context,
-                const Duration(milliseconds: 220),
-              ),
+            child: maybeAnimatedSize(
+              context,
+              duration: const Duration(milliseconds: 220),
               curve: Curves.easeInOut,
               alignment: Alignment.topCenter,
               child: _buildList(pinned, visible),
