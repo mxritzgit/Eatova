@@ -182,37 +182,27 @@ void main() {
   });
 
   group('EncryptedKeyValueStore Legacy-Migration', () {
-    test('erster Read liefert Klartext UND verschluesselt den Slot', () async {
+    test(
+        'erster Read liefert Klartext UND verschluesselt den Slot — ueber drei '
+        'Reads idempotent', () async {
       const key = 'eatova.v1.profile.user-1';
       final raw = InMemoryKeyValueStore({key: _profileJson});
       final store = EncryptedKeyValueStore(raw, _FakeCipher('dek-a'));
 
       expect(await store.getString(key), _profileJson);
-      expect(raw.snapshot[key], startsWith(cacheCipherMagic));
-      expect(raw.snapshot[key], isNot(contains('weight_kg')));
+      final nachErstem = raw.snapshot[key];
+      expect(nachErstem, startsWith(cacheCipherMagic));
+      expect(nachErstem, isNot(contains('weight_kg')));
 
       // The second read takes the decryption branch, same result.
       expect(await store.getString(key), _profileJson);
-    });
+      final nachZweitem = raw.snapshot[key];
+      // The third read proves it stays there: after the first migration the
+      // raw value no longer changes, so no read re-encrypts the blob.
+      expect(await store.getString(key), _profileJson);
 
-    test('Migration ist ueber drei Reads idempotent', () async {
-      const key = 'eatova.v1.outbox.user-1';
-      final raw = InMemoryKeyValueStore({key: '{"items":[]}'});
-      final store = EncryptedKeyValueStore(raw, _FakeCipher('dek-a'));
-
-      final first = await store.getString(key);
-      final afterFirst = raw.snapshot[key];
-      final second = await store.getString(key);
-      final afterSecond = raw.snapshot[key];
-      final third = await store.getString(key);
-
-      expect(first, '{"items":[]}');
-      expect(second, '{"items":[]}');
-      expect(third, '{"items":[]}');
-      // After the first migration the raw value no longer changes.
-      expect(afterFirst, startsWith(cacheCipherMagic));
-      expect(afterSecond, afterFirst);
-      expect(raw.snapshot[key], afterFirst);
+      expect(nachZweitem, nachErstem);
+      expect(raw.snapshot[key], nachErstem);
     });
   });
 
@@ -358,14 +348,6 @@ void main() {
           results[0]);
     });
 
-    test('vorhandener DEK wird gelesen statt neu erzeugt', () async {
-      final keyStore = _CountingKeyStore()
-        ..data[CacheKeyProvider.dekStorageKey] = base64.encode(_hardCodedDek);
-
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), _hardCodedDek);
-      expect(keyStore.writes, 0);
-    });
-
     test('EncryptedKeyValueStore.create liefert null ohne DEK', () async {
       final store = await EncryptedKeyValueStore.create(
         InMemoryKeyValueStore(),
@@ -410,9 +392,12 @@ void main() {
     });
 
     test('Erststart schreibt den Sentinel nach SharedPreferences', () async {
+      // Fresh device: neither DEK nor sentinel.
       final keyStore = _ResettingKeyStore();
 
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNotNull);
+      expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNotNull,
+          reason: 'ohne Sentinel bleibt der Erststart moeglich — der Schutz '
+              'darf eine frische Installation nicht bricken');
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
@@ -427,21 +412,17 @@ void main() {
       final keyStore = _ResettingKeyStore()
         ..data[CacheKeyProvider.dekStorageKey] = base64.encode(_hardCodedDek);
 
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), _hardCodedDek);
-      expect(keyStore.writes, 0);
+      expect(await CacheKeyProvider.obtain(keyStore: keyStore), _hardCodedDek,
+          reason: 'ein vorhandener DEK wird GELESEN, nicht neu erzeugt');
+      expect(keyStore.writes, 0,
+          reason: 'ein zweiter Write waere ein zweiter DEK — alles darunter '
+              'waere lautlos weg');
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       expect(prefs.getBool('eatova.v1.dek_provisioned'), isTrue,
           reason: 'Sonst waere jede Installation von VOR dieser Aenderung '
               'dauerhaft ungeschuetzt.');
-    });
-
-    test('ohne Sentinel bleibt der Erststart moeglich (kein Bricking)',
-        () async {
-      final keyStore = _ResettingKeyStore();
-      // Fresh device: neither DEK nor sentinel.
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNotNull);
     });
   });
 
@@ -523,7 +504,9 @@ void main() {
               'Keystore-Fehler und meldet Dart ein blankes null.');
       // Counter-check, in case the plugin changes its default again.
       expect(const AndroidOptions().toMap()['resetOnError'], 'true',
-          reason: 'Der 10.x-Plugin-Default — genau der Fund A1.');
+          reason: 'flutter_secure_storage hat seinen Default geaendert — das '
+              'Override oben neu bewerten (mit true loescht die Java-Seite '
+              'den DEK bei jedem Keystore-Fehler: Fund A1).');
     });
 
     test('iOS bleibt bei first_unlock_this_device', () {

@@ -304,24 +304,14 @@ void main() {
       expect(raw.snapshot.containsKey(_slot), isFalse,
           reason: 'Behandlung wie ein unentschluesselbarer Slot: raeumen.');
       expect(keyStore.writes, 1, reason: 'Kein zweiter DEK.');
-    });
 
-    test('ein Klartext-Slot wird nicht mehr verschluesselt nachgezogen',
-        () async {
-      final keyStore = _MemoryKeyStore();
-      await _boot(InMemoryKeyValueStore(), keyStore);
-
-      _restartApp();
-      final raw = InMemoryKeyValueStore({_slot: _plaintext});
-      final store = await _boot(raw, keyStore);
-      await store.getString(_slot);
       // A migration would run through the write chain, so wait for it or the
       // snapshot merely proves it has not finished yet.
       await Future<void>.delayed(Duration.zero);
-
       expect(raw.snapshot, isEmpty,
-          reason: 'Ein untergeschobener Wert darf nicht durch die Migration '
-              'zu einem gueltig signierten Ciphertext aufgewertet werden.');
+          reason: 'Ein untergeschobener Wert darf auch nicht nachtraeglich '
+              'durch die Migration zu einem gueltig signierten Ciphertext '
+              'aufgewertet werden.');
     });
   });
 

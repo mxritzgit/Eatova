@@ -41,40 +41,41 @@ class _Harness {
 
 void main() {
   group('StaleAuthRetry', () {
-    test('eine Ablehnung -> nur warten, KEIN Refresh, zweiter Versuch liefert',
-        () async {
-      final h = _Harness([_pg('PGRST303'), 'ok']);
-      expect(await h.retry.run(h.load), 'ok');
-      expect(h.loads, 2);
-      expect(h.refreshes, 0,
-          reason: 'der Token war frisch — ein Refresh praegt nur den naechsten');
-      expect(h.waits, [StaleAuthRetry.firstRetryDelay]);
-    });
+    // All three rejections mean the same thing — a token the server did not
+    // accept — so the whole escalation runs once per code. A code that stops
+    // counting as stale auth names itself in the failure.
+    // Bare HTTP status = the gateway answered, not PostgREST (FLUTTER-B).
+    for (final code in const <String>['PGRST303', 'PGRST301', '401']) {
+      test('$code: eine Ablehnung -> nur warten, KEIN Refresh, zweiter '
+          'Versuch liefert', () async {
+        final h = _Harness([_pg(code), 'ok']);
+        expect(await h.retry.run(h.load), 'ok');
+        expect(h.loads, 2);
+        expect(h.refreshes, 0,
+            reason:
+                'der Token war frisch — ein Refresh praegt nur den naechsten');
+        expect(h.waits, [StaleAuthRetry.firstRetryDelay]);
+      });
 
-    test('zwei Ablehnungen -> Refresh + warten, dritter Versuch liefert',
-        () async {
-      final h = _Harness([_pg('PGRST303'), _pg('PGRST303'), 'ok']);
-      expect(await h.retry.run(h.load), 'ok');
-      expect(h.loads, 3);
-      expect(h.refreshes, 1);
-      expect(h.waits,
-          [StaleAuthRetry.firstRetryDelay, StaleAuthRetry.secondRetryDelay]);
-    });
+      test('$code: zwei Ablehnungen -> Refresh + warten, dritter Versuch '
+          'liefert', () async {
+        final h = _Harness([_pg(code), _pg(code), 'ok']);
+        expect(await h.retry.run(h.load), 'ok');
+        expect(h.loads, 3);
+        expect(h.refreshes, 1);
+        expect(h.waits,
+            [StaleAuthRetry.firstRetryDelay, StaleAuthRetry.secondRetryDelay]);
+      });
 
-    test('drei Ablehnungen -> der Fehler erreicht den Aufrufer, KEINE Schleife',
-        () async {
-      final h = _Harness([_pg('PGRST303'), _pg('PGRST303'), _pg('PGRST303')]);
-      await expectLater(h.retry.run(h.load), throwsA(isA<PostgrestException>()));
-      expect(h.loads, 3);
-      expect(h.refreshes, 1);
-    });
-
-    test('PGRST301 und ein blankes 401 (Gateway) zaehlen genauso', () async {
-      final a = _Harness([_pg('PGRST301'), 'ok']);
-      expect(await a.retry.run(a.load), 'ok');
-      final b = _Harness([_pg('401'), 'ok']);
-      expect(await b.retry.run(b.load), 'ok');
-    });
+      test('$code: drei Ablehnungen -> der Fehler erreicht den Aufrufer, '
+          'KEINE Schleife', () async {
+        final h = _Harness([_pg(code), _pg(code), _pg(code)]);
+        await expectLater(
+            h.retry.run(h.load), throwsA(isA<PostgrestException>()));
+        expect(h.loads, 3);
+        expect(h.refreshes, 1);
+      });
+    }
 
     test('andere PostgREST-Fehler gehen sofort durch: kein Warten, kein Refresh',
         () async {

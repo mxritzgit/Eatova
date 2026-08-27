@@ -176,6 +176,12 @@ Future<void> _pumpGate(
   await tester.pumpAndSettle();
 }
 
+// The three auth events the parametrised purge block drives. Named functions,
+// not inline closures, so each case reads as what it models.
+void _emitVerlust(_ScriptedAuthRepository repository) => repository.emit(null);
+void _emitWechsel(_ScriptedAuthRepository repository) => repository.emit(_userB);
+void _emitRefresh(_ScriptedAuthRepository repository) => repository.emit(_userA);
+
 void main() {
   setUp(() {
     IntentionalSignOut.clear();
@@ -188,50 +194,49 @@ void main() {
 
   group('Fund 1 — jeder Identitaetswechsel raeumt den Cache des Vorgaengers',
       () {
-    testWidgets('unfreiwilliger Session-Verlust raeumt', (tester) async {
-      final repository = _ScriptedAuthRepository(_userA);
-      addTearDown(repository.dispose);
-      final geraeumt = <String>[];
-      await _pumpGate(tester, repository,
-          purge: (id) async => geraeumt.add(id));
+    // One shell, three auth events: the emitted event and the expected purge
+    // list are the only difference.
+    for (final (name, ereignis, erwartet, grund) in <(
+      String,
+      void Function(_ScriptedAuthRepository),
+      List<String>,
+      String
+    )>[
+      (
+        'unfreiwilliger Session-Verlust raeumt',
+        _emitVerlust,
+        <String>['user-a'],
+        'der serverseitige Widerruf laeuft NICHT ueber signOutCleanup — ohne '
+            'diese Raeumung bleiben Profil, Tagebuch und Gewichtsreihe auf '
+            'dem Geraet liegen'
+      ),
+      (
+        'direkter Wechsel A -> B raeumt A',
+        _emitWechsel,
+        <String>['user-a'],
+        'auf dem Familien-Tablet saehe B sonst As Bestand'
+      ),
+      (
+        'ein Token-Refresh raeumt NICHTS',
+        _emitRefresh,
+        <String>[],
+        'derselbe Nutzer erneut ist kein Wechsel — hier faellt sonst dem '
+            'eingeloggten Nutzer sein eigener Offline-Bestand weg'
+      ),
+    ]) {
+      testWidgets(name, (tester) async {
+        final repository = _ScriptedAuthRepository(_userA);
+        addTearDown(repository.dispose);
+        final geraeumt = <String>[];
+        await _pumpGate(tester, repository,
+            purge: (id) async => geraeumt.add(id));
 
-      repository.emit(null);
-      await tester.pumpAndSettle();
+        ereignis(repository);
+        await tester.pumpAndSettle();
 
-      expect(geraeumt, <String>['user-a'],
-          reason: 'der serverseitige Widerruf laeuft NICHT ueber '
-              'signOutCleanup — ohne diese Raeumung bleiben Profil, Tagebuch '
-              'und Gewichtsreihe auf dem Geraet liegen');
-    });
-
-    testWidgets('direkter Wechsel A -> B raeumt A', (tester) async {
-      final repository = _ScriptedAuthRepository(_userA);
-      addTearDown(repository.dispose);
-      final geraeumt = <String>[];
-      await _pumpGate(tester, repository,
-          purge: (id) async => geraeumt.add(id));
-
-      repository.emit(_userB);
-      await tester.pumpAndSettle();
-
-      expect(geraeumt, <String>['user-a'],
-          reason: 'auf dem Familien-Tablet saehe B sonst As Bestand');
-    });
-
-    testWidgets('ein Token-Refresh raeumt NICHTS', (tester) async {
-      final repository = _ScriptedAuthRepository(_userA);
-      addTearDown(repository.dispose);
-      final geraeumt = <String>[];
-      await _pumpGate(tester, repository,
-          purge: (id) async => geraeumt.add(id));
-
-      repository.emit(_userA);
-      await tester.pumpAndSettle();
-
-      expect(geraeumt, isEmpty,
-          reason: 'derselbe Nutzer erneut ist kein Wechsel — hier faellt sonst '
-              'dem eingeloggten Nutzer sein eigener Offline-Bestand weg');
-    });
+        expect(geraeumt, erwartet, reason: grund);
+      });
+    }
 
     test('die Raeumung nimmt die PII mit und laesst die Outbox stehen',
         () async {

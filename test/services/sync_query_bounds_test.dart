@@ -36,6 +36,47 @@ import 'package:eatova/src/services/user_recipes_sync.dart';
   return (client: client, requests: requests);
 }
 
+/// The bounds every boot read shares: the user filter, `order desc` and an
+/// explicit limit. One place, so a new loader inherits the same check.
+void _erwarteGedeckelt(
+  http.Request req, {
+  required String pfad,
+  required String orderSpalte,
+  required int limit,
+}) {
+  expect(req.url.path, endsWith(pfad));
+  final params = req.url.queryParameters;
+  expect(params['user_id'], 'eq.user-1');
+  expect(params['order'], startsWith('$orderSpalte.desc'));
+  expect(params['limit'], '$limit');
+}
+
+/// The reads whose ONLY difference is table, sort column and limit.
+final _gedeckelteReads =
+    <(String, String, String, int, Future<void> Function(SupabaseClient))>[
+  (
+    'MealsSync.loadFavorites',
+    '/favorite_meals',
+    'added_at',
+    MealsSync.favoritesLimit,
+    (c) => MealsSync(c, 'user-1').loadFavorites()
+  ),
+  (
+    'TrackingSync.loadWeightLog',
+    '/weight_log',
+    'recorded_at',
+    TrackingSync.weightLogLimit,
+    (c) => TrackingSync(c, 'user-1').loadWeightLog()
+  ),
+  (
+    'UserRecipesSync.load',
+    '/user_recipes',
+    'created_at',
+    UserRecipesSync.userRecipesLimit,
+    (c) => UserRecipesSync(c, 'user-1').load()
+  ),
+];
+
 void main() {
   group('MealsSync.loadLoggedMeals', () {
     test('sendet Datumsfenster, order desc und explizites Limit', () async {
@@ -43,13 +84,12 @@ void main() {
       await MealsSync(c.client, 'user-1').loadLoggedMeals();
 
       final req = c.requests.single;
-      expect(req.url.path, endsWith('/logged_meals'));
-      final params = req.url.queryParameters;
-      expect(params['user_id'], 'eq.user-1');
-      expect(params['order'], startsWith('logged_at.desc'));
-      expect(params['limit'], '${MealsSync.loggedMealsMaxRows}');
+      _erwarteGedeckelt(req,
+          pfad: '/logged_meals',
+          orderSpalte: 'logged_at',
+          limit: MealsSync.loggedMealsMaxRows);
 
-      final gte = params['logged_at'];
+      final gte = req.url.queryParameters['logged_at'];
       expect(gte, isNotNull, reason: 'Datumsfilter fehlt auf dem Wire');
       expect(gte, startsWith('gte.'));
       final cutoff = DateTime.parse(gte!.substring('gte.'.length));
@@ -99,11 +139,10 @@ void main() {
           .loadLoggedMealsForDay(DateTime(2026, 3, 14, 15, 30));
 
       final req = c.requests.single;
-      expect(req.url.path, endsWith('/logged_meals'));
-      final params = req.url.queryParameters;
-      expect(params['user_id'], 'eq.user-1');
-      expect(params['order'], startsWith('logged_at.desc'));
-      expect(params['limit'], '${MealsSync.loggedMealsDayMaxRows}');
+      _erwarteGedeckelt(req,
+          pfad: '/logged_meals',
+          orderSpalte: 'logged_at',
+          limit: MealsSync.loggedMealsDayMaxRows);
 
       // gte and lt share the query key logged_at -> queryParametersAll.
       final bounds = req.url.queryParametersAll['logged_at'] ?? const [];
@@ -120,21 +159,19 @@ void main() {
     });
   });
 
-  test('MealsSync.loadFavorites: order desc + grosszuegiges Limit', () async {
-    final c = _recordingClient(const <dynamic>[]);
-    await MealsSync(c.client, 'user-1').loadFavorites();
+  for (final (name, pfad, spalte, limit, lade) in _gedeckelteReads) {
+    test('$name: user_id, order desc und explizites Limit auf dem Wire',
+        () async {
+      final c = _recordingClient(const <dynamic>[]);
+      await lade(c.client);
 
-    final req = c.requests.single;
-    expect(req.url.path, endsWith('/favorite_meals'));
-    final params = req.url.queryParameters;
-    expect(params['user_id'], 'eq.user-1');
-    expect(params['order'], startsWith('added_at.desc'));
-    expect(params['limit'], '${MealsSync.favoritesLimit}');
-  });
+      _erwarteGedeckelt(c.requests.single,
+          pfad: pfad, orderSpalte: spalte, limit: limit);
+    });
+  }
 
-  test(
-      'TrackingSync.loadWeightLog: bounded auf dem Wire (desc + Limit), '
-      'Ergebnis aufsteigend (WeightLog-Kontrakt)', () async {
+  test('TrackingSync.loadWeightLog: Ergebnis aufsteigend (WeightLog-Kontrakt)',
+      () async {
     // Server answers desc (newest first), exactly as the query asked.
     final c = _recordingClient([
       {'recorded_at': '2026-08-05T07:00:00Z', 'weight_kg': 81.0},
@@ -143,30 +180,11 @@ void main() {
     ]);
     final log = await TrackingSync(c.client, 'user-1').loadWeightLog();
 
-    final req = c.requests.single;
-    expect(req.url.path, endsWith('/weight_log'));
-    final params = req.url.queryParameters;
-    expect(params['user_id'], 'eq.user-1');
-    expect(params['order'], startsWith('recorded_at.desc'));
-    expect(params['limit'], '${TrackingSync.weightLogLimit}');
-
     // Flipped back to ascending on the client: latest == entries.last, and the
     // history chart draws old on the left, new on the right.
     expect(log.entries.map((e) => e.weightKg).toList(), [84.0, 82.5, 81.0]);
     expect(log.latest?.weightKg, 81.0);
     final timestamps = log.entries.map((e) => e.timestamp).toList();
     expect(timestamps, orderedEquals([...timestamps]..sort()));
-  });
-
-  test('UserRecipesSync.load: order desc + grosszuegiges Limit', () async {
-    final c = _recordingClient(const <dynamic>[]);
-    await UserRecipesSync(c.client, 'user-1').load();
-
-    final req = c.requests.single;
-    expect(req.url.path, endsWith('/user_recipes'));
-    final params = req.url.queryParameters;
-    expect(params['user_id'], 'eq.user-1');
-    expect(params['order'], startsWith('created_at.desc'));
-    expect(params['limit'], '${UserRecipesSync.userRecipesLimit}');
   });
 }

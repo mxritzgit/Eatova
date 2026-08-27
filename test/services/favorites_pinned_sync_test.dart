@@ -40,42 +40,41 @@ const _result = MealAnalysisResult(
 
 void main() {
   group('MealsSync favorite pinned round-trip', () {
-    test('upsertFavorite schreibt pinned=true mit', () async {
-      Map<String, dynamic>? body;
-      final sync = _sync((req) async {
-        final decoded = jsonDecode(req.body);
-        body = (decoded is List ? decoded.first : decoded)
-            as Map<String, dynamic>;
-        return http.Response('', 201, request: req);
+    // The flag is the ONLY difference between a pinned favorite and an
+    // auto-recent, so both values run through the same write path.
+    for (final gepinnt in <bool>[true, false]) {
+      test('upsertFavorite schreibt pinned=$gepinnt mit', () async {
+        Map<String, dynamic>? body;
+        final sync = _sync((req) async {
+          final decoded = jsonDecode(req.body);
+          body = (decoded is List ? decoded.first : decoded)
+              as Map<String, dynamic>;
+          return http.Response('', 201, request: req);
+        });
+
+        await sync.upsertFavorite(FavoriteMeal(
+          id: 'name:protein-bowl',
+          result: _result,
+          addedAt: DateTime(2026, 6, 4, 12, 0),
+          pinned: gepinnt,
+        ));
+
+        expect(body, containsPair('favorite_key', 'name:protein-bowl'));
+        expect(body, containsPair('pinned', gepinnt));
       });
+    }
 
-      await sync.upsertFavorite(FavoriteMeal(
-        id: 'name:protein-bowl',
-        result: _result,
-        addedAt: DateTime(2026, 6, 4, 12, 0),
-        pinned: true,
-      ));
-
-      expect(body, containsPair('favorite_key', 'name:protein-bowl'));
-      expect(body, containsPair('pinned', true));
-    });
-
-    test('upsertFavorite schreibt pinned=false fuer Auto-Recents', () async {
-      Map<String, dynamic>? body;
-      final sync = _sync((req) async {
-        final decoded = jsonDecode(req.body);
-        body = (decoded is List ? decoded.first : decoded)
-            as Map<String, dynamic>;
-        return http.Response('', 201, request: req);
-      });
-
-      await sync.upsertFavorite(FavoriteMeal(
-        id: 'name:protein-bowl',
-        result: _result,
-        addedAt: DateTime(2026, 6, 4, 12, 0),
-      ));
-
-      expect(body, containsPair('pinned', false));
+    test('ohne pinned-Argument ist ein Favorit ein Auto-Recent', () {
+      // The default is what the recents path relies on: it never passes the
+      // flag, and a default of true would pin every scanned meal.
+      expect(
+        FavoriteMeal(
+          id: 'name:protein-bowl',
+          result: _result,
+          addedAt: DateTime(2026, 6, 4, 12, 0),
+        ).pinned,
+        isFalse,
+      );
     });
 
     test('loadFavorites liest pinned zurueck (true und fehlend->false)',
