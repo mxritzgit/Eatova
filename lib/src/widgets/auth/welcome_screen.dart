@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 
@@ -27,7 +28,7 @@ class WelcomeScreen extends StatefulWidget {
     this.celebrateLogin = false,
   });
 
-  /// First name for the greeting; falls back to "Pilot".
+  /// First name for the greeting (see `EatovaUser.firstNameFor`).
   final String firstName;
 
   /// Resolves once the profile load is done.
@@ -482,11 +483,12 @@ class _WelcomeText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'Willkommen, $firstName.',
+          l10n.onboardingWelcomeTitle(firstName),
           textAlign: TextAlign.center,
           style: AppType.display(
             22,
@@ -497,7 +499,7 @@ class _WelcomeText extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'Du bist drin.',
+          l10n.authWelcomeSignedIn,
           textAlign: TextAlign.center,
           style: AppType.ui(
             14,

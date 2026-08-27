@@ -7,6 +7,7 @@ part of 'recipes_screen.dart';
 /// Photo background with a bottom gradient carrying badge, title and metrics.
 class _RecipeHeroCard extends StatelessWidget {
   const _RecipeHeroCard({
+    super.key,
     required this.recipe,
     required this.onTap,
     this.badgeText,
@@ -56,12 +57,18 @@ class _RecipeHeroCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _RecipeBadge(
-                        text: badgeText ?? context.l10n.recipesRecommendedBadge,
-                        icon: badgeText == null ? null : Icons.bolt_rounded,
-                        filled: true,
-                      ),
-                      const SizedBox(height: 9),
+                      // The default "recommended" badge is reserved for the
+                      // catalog; an own recipe only carries an explicit badge
+                      // (goal match).
+                      if (badgeText != null || !recipe.userCreated) ...[
+                        _RecipeBadge(
+                          text:
+                              badgeText ?? context.l10n.recipesRecommendedBadge,
+                          icon: badgeText == null ? null : Icons.bolt_rounded,
+                          filled: true,
+                        ),
+                        const SizedBox(height: 9),
+                      ],
                       Text(
                         recipe.title,
                         maxLines: 2,

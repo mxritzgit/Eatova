@@ -488,13 +488,9 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                             l10n.foodApplyButton,
                             style: AppType.ui(14, weight: FontWeight.w600),
                           ),
+                          // Colours/shape from filledButtonTheme (F8-10).
                           style: FilledButton.styleFrom(
-                            backgroundColor: t.forest,
-                            foregroundColor: t.onForest,
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(rControl),
-                            ),
                           ),
                         ),
                       ),
@@ -581,49 +577,63 @@ class _ItemEditCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Container(
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: t.surf2,
-                      borderRadius: BorderRadius.circular(rPill),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 64,
-                          // No `onChanged`: the `_neuerPosten` listener reads
-                          // the controller and sees programmatic text too.
-                          child: TextField(
-                            key: ValueKey('analyse-item-weight-input-$index'),
-                            cursorOpacityAnimates: false,
-                            controller: controller,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            textAlign: TextAlign.center,
-                            style: AppType.display(18, color: t.ink),
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              filled: false,
-                              isCollapsed: true,
-                              contentPadding: EdgeInsets.zero,
+                  // Observer only (cannot take focus, skipped in traversal):
+                  // `Focus.of` rebuilds the pill when the field's focus
+                  // changes. Fill language: field / fieldFocus, no ring.
+                  child: Focus(
+                    canRequestFocus: false,
+                    skipTraversal: true,
+                    includeSemantics: false,
+                    child: Builder(
+                      builder: (context) => FieldCapsule(
+                        focused: Focus.of(context).hasFocus,
+                        shape: SheetFieldShape.pill,
+                        // Sits on the item card, which is already raised.
+                        shadow: false,
+                        constraints: const BoxConstraints(minHeight: 46),
+                        padding: EdgeInsets.zero,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 64,
+                              // No `onChanged`: the `_neuerPosten` listener
+                              // reads the controller and sees programmatic
+                              // text too.
+                              child: TextField(
+                                key: ValueKey(
+                                  'analyse-item-weight-input-$index',
+                                ),
+                                cursorOpacityAnimates: false,
+                                controller: controller,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                textAlign: TextAlign.center,
+                                style: AppType.display(18, color: t.ink),
+                                decoration: const InputDecoration(
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  filled: false,
+                                  isCollapsed: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 3),
+                            Text(
+                              'g',
+                              style: AppType.ui(
+                                13,
+                                weight: FontWeight.w600,
+                                color: t.ink2,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 3),
-                        Text(
-                          'g',
-                          style: AppType.ui(
-                            13,
-                            weight: FontWeight.w600,
-                            color: t.ink2,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -1117,19 +1127,12 @@ class _AddItemDialogState extends State<_AddItemDialog> {
           TextButton(
             // maybePop, not pop: an explicit cancel also asks first.
             onPressed: () => Navigator.of(context).maybePop(),
-            style: TextButton.styleFrom(foregroundColor: t.ink2),
             child: Text(l10n.commonCancel),
           ),
+          // Colours/shape from filledButtonTheme (F8-10).
           FilledButton(
             key: const ValueKey('analyse-add-item-save'),
             onPressed: _isValid ? _submit : null,
-            style: FilledButton.styleFrom(
-              backgroundColor: t.forest,
-              foregroundColor: t.onForest,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(rControl),
-              ),
-            ),
             child: Text(
               l10n.commonAdd,
               style: AppType.ui(14, weight: FontWeight.w600),

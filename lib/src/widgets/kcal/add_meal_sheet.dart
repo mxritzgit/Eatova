@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,9 +8,11 @@ import 'package:image_picker/image_picker.dart';
 import '../../l10n/l10n.dart';
 import '../../models/favorite_meal.dart';
 import '../../models/logged_meal.dart';
+import '../../models/meal_analysis_request.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/favorites_view.dart';
+import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/open_food_facts_product_service.dart';
@@ -48,6 +51,7 @@ Future<void> showAddMealSheet(
   bool Function(MealAnalysisResult)? isFavorite,
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
   List<LoggedMeal> existingMeals = const <LoggedMeal>[],
+  DateTime? foodDate,
   ValueChanged<String>? onRemoveMeal,
   UpdateMealDetails? onUpdateMealDetails,
 }) {
@@ -60,9 +64,7 @@ Future<void> showAddMealSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // No token on purpose: the scrim darkens in both display modes, a light
-    // scrim would dim nothing.
-    barrierColor: Colors.black.withValues(alpha: 0.55),
+    barrierColor: context.t.scrim,
     builder: (sheetContext) {
       return AddMealSheet(
         slot: slot,
@@ -72,6 +74,7 @@ Future<void> showAddMealSheet(
         photoInput: photoInput,
         favorites: favorites,
         existingMeals: existingMeals,
+        foodDate: foodDate,
         onAdd: onAdd,
         onUpdateMeal: onUpdateMeal,
         onRemoveFavorite: onRemoveFavorite,
@@ -99,6 +102,7 @@ class AddMealSheet extends StatefulWidget {
     this.isFavorite,
     this.onToggleFavorite,
     this.existingMeals = const <LoggedMeal>[],
+    this.foodDate,
     this.onRemoveMeal,
     this.onUpdateMealDetails,
   });
@@ -124,6 +128,11 @@ class AddMealSheet extends StatefulWidget {
   /// Favorite toggle (pin/unpin). Null -> no heart.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final List<LoggedMeal> existingMeals;
+
+  /// The diary day the sheet logs into (null = today). Only the mirror rows
+  /// need it: the store books an archive-day log on that day, and the sheet's
+  /// copy must say the same or an edit would drop the row as "moved".
+  final DateTime? foodDate;
   final ValueChanged<String>? onRemoveMeal;
 
   /// Details update for the edit sheet (portion/slot/day). Null -> already
@@ -274,6 +283,39 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _justAddedKeys.remove('favorite:$id');
     });
     widget.onRemoveFavorite(id);
+  }
+
+  /// The one logging path of this sheet (review F3-01): logs via
+  /// [AddMealSheet.onAdd] and mirrors the new row into the local day copy, so
+  /// "already added" and the slot total change on the spot instead of on the
+  /// next open. Also bumps the favorite's recency like the store does.
+  String _logAndMirror(MealAnalysisResult result, MealSlot slot) {
+    final id = widget.onAdd(result, slot);
+    if (!mounted) return id;
+    final day = widget.foodDate;
+    final mirrored = LoggedMeal(
+      id: id,
+      result: result,
+      loggedAt: clock.now(),
+      forcedSlot: slot,
+      localDay: day == null ? null : localDayKey(DateUtils.dateOnly(day)),
+    );
+    setState(() => _existing = [mirrored, ..._existing]);
+    _touchFavorite(result);
+    return id;
+  }
+
+  /// Re-portioning from the analysis sheet ("adjust" after adding): forwards
+  /// to the store AND updates the mirror row, so "already added" and the slot
+  /// total show the new kcal at once.
+  void _updateAndMirror(String id, MealAnalysisResult scaled) {
+    widget.onUpdateMeal(id, scaled);
+    if (!mounted) return;
+    setState(() {
+      _existing = [
+        for (final m in _existing) m.id == id ? m.copyWith(result: scaled) : m,
+      ];
+    });
   }
 
   // ─── Search ───────────────────────────────────────────────────────────
@@ -477,18 +519,45 @@ class _AddMealSheetState extends State<AddMealSheet> {
     }
     if (selection == null || !mounted) return;
 
-    await showMealAnalysisSheet(
+    // One request for first try and retries: the sheet re-runs it from the
+    // same bytes, and the shared cancel handle lets a swiped-away sheet abort
+    // whichever attempt is in flight (review F4-02).
+    final request = _cancellable(
+      selection.request.withLanguage(context.l10n.localeName),
+    );
+    // An attempt that fails before the sheet listens (validation, already
+    // cancelled) must not surface as an unhandled zone error; the sheet's
+    // error card reports it once it is up. `ignore` only marks it handled.
+    final first = widget.analyzer.analyze(request)..ignore();
+    final outcome = await showMealAnalysisSheet(
       context,
       slot: _selectedSlot,
-      resultFuture: widget.analyzer.analyze(
-        selection.request.withLanguage(context.l10n.localeName),
-      ),
+      resultFuture: first,
+      retry: () => widget.analyzer.analyze(request),
+      cancellation: request.cancellation,
       previewImage: selection.previewBytes,
-      onAdd: widget.onAdd,
-      onUpdateMeal: widget.onUpdateMeal,
+      onAdd: _logAndMirror,
+      onUpdateMeal: _updateAndMirror,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
       failureMessage: context.l10n.foodAnalysisFailedMessage,
+    );
+    if (outcome == MealAnalysisSheetOutcome.manualEntry && mounted) {
+      await _openManualEntry();
+    }
+  }
+
+  /// The picker's request carries no cancel handle; attach one so the result
+  /// sheet can abort. A request that already has one is left alone.
+  static MealAnalysisRequest _cancellable(MealAnalysisRequest request) {
+    if (request.cancellation != null) return request;
+    return MealAnalysisRequest(
+      imageId: request.imageId,
+      imageBytes: request.imageBytes,
+      portionHint: request.portionHint,
+      freeTextHint: request.freeTextHint,
+      language: request.language,
+      cancellation: MealAnalysisCancellation(),
     );
   }
 
@@ -504,17 +573,21 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // header would show one slot while the hit went to another.
     _selectSlot(scan.slot);
 
-    await showMealAnalysisSheet(
+    // No retry/cancel: a lookup is cheap and its "not found" is final.
+    final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
       resultFuture: widget.productService.lookupBarcode(scan.code),
       previewImage: null,
-      onAdd: widget.onAdd,
-      onUpdateMeal: widget.onUpdateMeal,
+      onAdd: _logAndMirror,
+      onUpdateMeal: _updateAndMirror,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
     );
+    if (outcome == MealAnalysisSheetOutcome.manualEntry && mounted) {
+      await _openManualEntry();
+    }
   }
 
   // ─── Manual entry ─────────────────────────────────────────────────────
@@ -553,8 +626,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       return;
     }
 
-    widget.onAdd(result, _selectedSlot);
-    _touchFavorite(result);
+    _logAndMirror(result, _selectedSlot);
     if (mounted) {
       final l10n = context.l10n;
       showAppSnack(
@@ -598,6 +670,88 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
     // No SheetScaffold: three fixed zones (header, search bar, slot picker)
     // over a capped scroll area, and no footer action — every row logs itself.
+    final body = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const _SheetHandle(),
+        _SheetHeader(
+          slot: _selectedSlot,
+          searchMode: widget.searchMode,
+          onClose: () => Navigator.of(context).pop(),
+          onCamera: () => _pickAndAnalyze(ImageSource.camera),
+          onGallery: () => _pickAndAnalyze(ImageSource.gallery),
+          onBarcode: _scanBarcode,
+        ),
+        _SearchBar(
+          controller: _searchController,
+          isSearching: _isSearchingProducts,
+          onChanged: _scheduleProductSearch,
+          onSubmitted: (_) => _searchProducts(),
+          onSearchPressed: _searchProducts,
+        ),
+        Padding(
+          key: const ValueKey('add-meal-slot-select'),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+          child: SlotSelector(
+            selected: _selectedSlot,
+            onSelected: _selectSlot,
+          ),
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            key: const ValueKey('add-meal-sheet-scroll'),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              12,
+              20,
+              28 + mediaQuery.viewPadding.bottom,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Standing entry point for manual entry while no search is
+                // active; after that the contextual CTA under "nothing
+                // found" takes over (_buildSearchResults).
+                if (!_searchActive) ...[
+                  _ManualEntryRow(onTap: () => _openManualEntry()),
+                  const SizedBox(height: 16),
+                ],
+                if (_slotMeals.isNotEmpty) ...[
+                  ExistingMealsList(
+                    meals: _slotMeals,
+                    slot: _selectedSlot,
+                    onRemove: widget.onRemoveMeal == null
+                        ? null
+                        : _removeExisting,
+                    onEdit: widget.onUpdateMealDetails == null
+                        ? null
+                        : _editExisting,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (_searchActive)
+                  _buildSearchResults()
+                else
+                  // Removing a favorite collapses the list smoothly
+                  // instead of jumping.
+                  AnimatedSize(
+                    duration: motionDuration(
+                      context,
+                      const Duration(milliseconds: 220),
+                    ),
+                    curve: Curves.easeInOut,
+                    alignment: Alignment.topCenter,
+                    child: _buildFavorites(),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+    // SnackHost INSIDE the ground color: the sheet stays open after adds and
+    // deletes, so its toasts (and the store's undo) render above the scrim,
+    // in a strip the host reserves below the content.
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(
@@ -609,85 +763,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
             top: Radius.circular(rSheet),
           ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const _SheetHandle(),
-            _SheetHeader(
-              slot: _selectedSlot,
-              searchMode: widget.searchMode,
-              onClose: () => Navigator.of(context).pop(),
-              onCamera: () => _pickAndAnalyze(ImageSource.camera),
-              onGallery: () => _pickAndAnalyze(ImageSource.gallery),
-              onBarcode: _scanBarcode,
-            ),
-            _SearchBar(
-              controller: _searchController,
-              isSearching: _isSearchingProducts,
-              onChanged: _scheduleProductSearch,
-              onSubmitted: (_) => _searchProducts(),
-              onSearchPressed: _searchProducts,
-            ),
-            Padding(
-              key: const ValueKey('add-meal-slot-select'),
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-              child: SlotSelector(
-                selected: _selectedSlot,
-                onSelected: _selectSlot,
-              ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                key: const ValueKey('add-meal-sheet-scroll'),
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  12,
-                  20,
-                  28 + mediaQuery.viewPadding.bottom,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Standing entry point for manual entry while no search is
-                    // active; after that the contextual CTA under "nothing
-                    // found" takes over (_buildSearchResults).
-                    if (!_searchActive) ...[
-                      _ManualEntryRow(onTap: () => _openManualEntry()),
-                      const SizedBox(height: 16),
-                    ],
-                    if (_slotMeals.isNotEmpty) ...[
-                      ExistingMealsList(
-                        meals: _slotMeals,
-                        slot: _selectedSlot,
-                        onRemove: widget.onRemoveMeal == null
-                            ? null
-                            : _removeExisting,
-                        onEdit: widget.onUpdateMealDetails == null
-                            ? null
-                            : _editExisting,
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    if (_searchActive)
-                      _buildSearchResults()
-                    else
-                      // Removing a favorite collapses the list smoothly
-                      // instead of jumping.
-                      AnimatedSize(
-                        duration: motionDuration(
-                          context,
-                          const Duration(milliseconds: 220),
-                        ),
-                        curve: Curves.easeInOut,
-                        alignment: Alignment.topCenter,
-                        child: _buildFavorites(),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+        child: SnackHost(child: body),
       ),
     );
   }
@@ -860,7 +936,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
           FavoriteMeal(
             id: id,
             result: result,
-            addedAt: DateTime.now(),
+            addedAt: clock.now(),
             pinned: true,
           ),
           ..._favorites,
@@ -884,20 +960,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _handleToggleFavorite(result);
   }
 
-  /// Opens the favorites sheet on top of this one. Adds go to `widget.onAdd`
-  /// with the slot chosen here; the tile check lives in the favorites sheet
-  /// itself. The rebuild after closing refreshes count and top 3 after unpins
-  /// and after adds ([_touchFavorite]).
+  /// Opens the favorites sheet on top of this one. Adds go through
+  /// [_logAndMirror] with the slot chosen here; the tile check lives in the
+  /// favorites sheet itself. The rebuild after closing refreshes count and
+  /// top 3 after unpins and after adds.
   Future<void> _openFavoritesSheet() async {
     await showFavoritesSheet(
       context,
       favorites: _favorites,
       slot: _selectedSlot,
-      onAdd: (result, slot) {
-        final id = widget.onAdd(result, slot);
-        _touchFavorite(result);
-        return id;
-      },
+      onAdd: _logAndMirror,
       onUnpin: _unpinFavorite,
     );
     if (!mounted) return;
@@ -914,7 +986,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx == -1) return;
     final next = [..._favorites];
-    next[idx] = _favorites[idx].copyWith(addedAt: DateTime.now());
+    next[idx] = _favorites[idx].copyWith(addedAt: clock.now());
     setState(() => _favorites = next);
   }
 }
@@ -1049,7 +1121,9 @@ class _HeaderIconButton extends StatelessWidget {
 
 // ─── Search bar ─────────────────────────────────────────────────────────
 
-class _SearchBar extends StatelessWidget {
+/// Borderless soft capsule ([FieldCapsule]): rest `field`, focus `fieldFocus`,
+/// no hairline, no focus ring.
+class _SearchBar extends StatefulWidget {
   const _SearchBar({
     required this.controller,
     required this.isSearching,
@@ -1065,18 +1139,30 @@ class _SearchBar extends StatelessWidget {
   final VoidCallback onSearchPressed;
 
   @override
+  State<_SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends State<_SearchBar> {
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Padding(
       key: const ValueKey('kcal-product-search-card'),
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-      child: Container(
-        height: 46,
-        decoration: BoxDecoration(
-          color: t.surf,
-          borderRadius: BorderRadius.circular(rControl),
-          border: Border.all(color: t.line),
-        ),
+      child: FieldCapsule(
+        focusNode: _focus,
+        // Minimum, not fixed: at large system text the hint needs more than
+        // 46 pt and would hang out of a fixed capsule (review F3-05).
+        constraints: const BoxConstraints(minHeight: 46),
+        padding: EdgeInsets.zero,
         child: Row(
           children: [
             const SizedBox(width: 12),
@@ -1085,15 +1171,16 @@ class _SearchBar extends StatelessWidget {
             Expanded(
               child: TextField(
                 key: const ValueKey('kcal-product-search-input'),
-                controller: controller,
+                controller: widget.controller,
+                focusNode: _focus,
                 autofocus: true,
                 // The iOS default fades the cursor continuously, keeping the
                 // app at ~60fps while the sheet is open. Discrete blinking
                 // repaints ~2x/s (app-wide rule for all fields).
                 cursorOpacityAnimates: false,
                 cursorColor: t.accent,
-                onChanged: onChanged,
-                onSubmitted: onSubmitted,
+                onChanged: widget.onChanged,
+                onSubmitted: widget.onSubmitted,
                 textInputAction: TextInputAction.search,
                 style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                 decoration: InputDecoration(
@@ -1115,8 +1202,8 @@ class _SearchBar extends StatelessWidget {
             IconButton(
               key: const ValueKey('kcal-product-search-button'),
               tooltip: context.l10n.foodSearchButtonTooltip,
-              onPressed: isSearching ? null : onSearchPressed,
-              icon: isSearching
+              onPressed: widget.isSearching ? null : widget.onSearchPressed,
+              icon: widget.isSearching
                   ? SizedBox(
                       height: 16,
                       width: 16,
@@ -1206,7 +1293,7 @@ class _FavoritesAllButton extends StatelessWidget {
 /// Standing entry point for manual entry (user feedback 2026-08-13): a bare
 /// pencil icon in the header was hard to find and wrapped the slot title. Now
 /// a labeled full-width row below the slot picker, styled like the search bar
-/// capsule so both entry points share one shape.
+/// capsule (borderless, same radius) so both entry points share one shape.
 class _ManualEntryRow extends StatelessWidget {
   const _ManualEntryRow({required this.onTap});
 
@@ -1216,19 +1303,17 @@ class _ManualEntryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return Material(
-      color: t.surf,
+      // Same fill as the search capsule at rest (`field`), not a card.
+      color: t.field,
       borderRadius: BorderRadius.circular(rControl),
       child: InkWell(
         key: const ValueKey('manual-entry-button'),
         borderRadius: BorderRadius.circular(rControl),
         onTap: onTap,
         child: Container(
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 13),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: t.line),
-          ),
+          // Grows with the label at large system text (review F3-05).
+          constraints: const BoxConstraints(minHeight: 46),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
           child: Row(
             children: [
               Icon(Icons.edit_rounded, size: 18, color: t.accent),

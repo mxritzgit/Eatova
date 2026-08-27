@@ -1,0 +1,11 @@
+/* German usage descriptions (F10-01). Keys mirror Info.plist, whose English
+   values are the fallback for every other language. Health texts cover
+   exactly the scopes apple_health_service.dart requests: steps + weight
+   read, weight write — no sleep. */
+
+"NSCameraUsageDescription" = "Eatova braucht Kamerazugriff, damit du Mahlzeiten fotografieren, Produkt-Barcodes scannen und deinem Coach ein Bild schicken kannst. Die Aufnahmen werden zur Nährwert-Analyse ausgewertet.";
+"NSMicrophoneUsageDescription" = "Eatova braucht Mikrofonzugriff, damit du deinem Coach eine Frage diktieren kannst, statt sie zu tippen. Aufgenommen wird nur, solange die Sprachaufnahme im Coach-Chat aktiv ist.";
+"NSSpeechRecognitionUsageDescription" = "Eatova wandelt deine diktierte Coach-Frage in Text um. Hat dein iPhone das Sprachmodell für deine Sprache lokal, bleibt das Audio auf dem Gerät; sonst verarbeitet Apple es auf seinen Servern.";
+"NSPhotoLibraryUsageDescription" = "Eatova braucht Zugriff auf deine Fotobibliothek, damit du ein bereits vorhandenes Foto einer Mahlzeit oder ein Coach-Bild aus der Galerie zur Analyse auswählen kannst.";
+"NSHealthShareUsageDescription" = "Eatova liest deine Schritte und dein Gewicht aus Apple Health, damit dein Tagesziel und dein Gewichtsverlauf automatisch aktuell bleiben.";
+"NSHealthUpdateUsageDescription" = "Eatova schreibt optional dein eingetragenes Gewicht nach Apple Health zurück.";

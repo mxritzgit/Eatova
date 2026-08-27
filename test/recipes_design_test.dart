@@ -271,7 +271,7 @@ void main() {
             .toList();
 
         // The title uses the display family, the metrics row 11 pt; the badge
-        // (dark on lime, correctly so) falls through both filters.
+        // (onForest on forest, 9.5 pt) falls through both filters.
         final aufDemFoto = texte.where(
           (w) =>
               w.style?.fontFamily == AppType.displayFamily ||

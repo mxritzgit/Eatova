@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -13,10 +14,16 @@ import 'package:eatova/src/theme/app_theme.dart';
 //    confirmed, no account enumeration) -> verify -> new password.
 //  * Signup confirms the email by code too (AuthCodeFlow.signup).
 //  * Wrong or expired codes show a hint plus a resend path.
+//
+// The auth screens read `context.l10n`, so both harnesses pin `de` with the
+// generated delegates; the German expectations below stay byte-identical.
 
 Future<void> _pumpAuth(WidgetTester tester, InMemoryAuthRepository repo) async {
   await tester.pumpWidget(MaterialApp(
     theme: buildEatovaTheme(Brightness.dark),
+    locale: const Locale('de'),
+    supportedLocales: AppLocalizations.supportedLocales,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
     home: AuthScreen(authRepository: repo),
   ));
   await tester.pumpAndSettle();
@@ -30,6 +37,9 @@ Future<void> _pumpCode(
 }) async {
   await tester.pumpWidget(MaterialApp(
     theme: buildEatovaTheme(Brightness.dark),
+    locale: const Locale('de'),
+    supportedLocales: AppLocalizations.supportedLocales,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
     home: AuthCodeScreen(
       authRepository: repo,
       flow: flow,

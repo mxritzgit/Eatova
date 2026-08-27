@@ -150,12 +150,13 @@ void main() {
 
   testWidgets('manuelles Tagesziel bestimmt das angezeigte Tempo',
       (tester) async {
-    // 2500 stored against a computed 2150 starts manual mode: +336 kcal/day,
+    // 2500 stored with the persisted manual flag (F7-01): +336 kcal/day,
     // i.e. +0.3 kg/week. NOT the default 2200 — those +36 kcal/day stay in the
     // noise band and would render the same string as the computed target.
     await openSettings(
       tester,
-      profile: const UserProfile().copyWith(dailyKcalGoal: 2500),
+      profile: const UserProfile()
+          .copyWith(dailyKcalGoal: 2500, manualEnergy: true),
     );
 
     expect(find.text('Erhaltung 2164 · +0,3 kg/Woche'), findsOneWidget);

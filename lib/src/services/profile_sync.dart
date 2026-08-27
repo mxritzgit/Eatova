@@ -3,6 +3,7 @@ import 'dart:developer' as dev;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
+import 'kcal_calculator.dart';
 
 /// Maps a raw public.profiles.sex string to [BiologicalSex]; null/unknown
 /// falls back to [BiologicalSex.neutral]. Pure, so it needs no client.
@@ -59,12 +60,29 @@ DietPreference parseDietPreference(String? raw) {
 /// Reads and writes UserProfile against public.profiles on Supabase.
 /// Save uses UPSERT(.select().single()) so schema/auth/RLS errors surface as a
 /// PostgrestException instead of a silent no-op. One instance per auth user id.
+///
+/// Live-mode self-healing (F7-01): [load] returns the profile with the goals
+/// the CURRENT calculator yields whenever `manual_energy` is false and the
+/// stored goals differ ([KcalCalculator.applyLiveGoals]). The load boundary
+/// is the one place every boot passes and the only source that carries the
+/// flag authoritatively, so the Heute tab and the plan hero show the
+/// calculator right after boot. The server row is not written back here — a
+/// load must stay a read; the healed values reach the server with the next
+/// profile save, and every load heals again until then.
 class ProfileSync {
   ProfileSync(this._client, this._userId);
 
   final SupabaseClient _client;
   final String _userId;
 
+  /// Whether the last [load] healed the live goals, i.e. the server row
+  /// differs from what the caller received. The boot hook uses this exact
+  /// signal to queue the write-back (F7-01). Reset by every load.
+  bool lastLoadHealed = false;
+
+  /// Every column [load] reads and [save] writes. A new column needs a grant
+  /// in supabase/migrations (column grants since 20260819100000) — guarded by
+  /// test/fixlauf_g_manual_energy_migration_test.dart.
   static const _columns =
       'weight_kg, height_cm, age_years, sex, '
       'activity_level, target_weight_kg, '
@@ -72,9 +90,10 @@ class ProfileSync {
       'daily_sleep_goal_minutes, '
       'protein_goal_g, carbs_goal_g, fat_goal_g, weight_goal, '
       'diet_preference, '
-      'onboarding_completed';
+      'onboarding_completed, manual_energy';
 
   Future<UserProfile?> load() async {
+    lastLoadHealed = false;
     try {
       final row = await _client
           .from('profiles')
@@ -100,7 +119,7 @@ class ProfileSync {
         return wert;
       }
 
-      return UserProfile(
+      final loaded = UserProfile(
         weightKg: leseZahl('weight_kg'),
         heightCm: leseZahl('height_cm'),
         ageYears: leseZahl('age_years'),
@@ -117,7 +136,19 @@ class ProfileSync {
         weightGoal: _parseGoal(row['weight_goal']?.toString()),
         diet: _parseDiet(row['diet_preference']?.toString()),
         onboardingCompleted: row['onboarding_completed'] == true,
+        // Missing (older row, pre-migration) counts as live — the default the
+        // column carries too. Never reconstructed by comparing numbers.
+        manualEnergy: row['manual_energy'] == true,
       );
+      final healed = const KcalCalculator().applyLiveGoals(loaded);
+      if (!identical(healed, loaded)) {
+        lastLoadHealed = true;
+        dev.log(
+            'ProfileSync.load: Live-Ziele geheilt '
+            '(${loaded.dailyKcalGoal} -> ${healed.dailyKcalGoal} kcal)',
+            name: 'profile_sync');
+      }
+      return healed;
     } catch (e, stack) {
       dev.log('ProfileSync.load failed', error: e, stackTrace: stack, name: 'profile_sync');
       rethrow;
@@ -143,6 +174,7 @@ class ProfileSync {
       'weight_goal': profile.weightGoal.name,
       'diet_preference': profile.diet.name,
       'onboarding_completed': profile.onboardingCompleted,
+      'manual_energy': profile.manualEnergy,
     };
     try {
       // UPSERT, not UPDATE: the profile row may not exist yet.

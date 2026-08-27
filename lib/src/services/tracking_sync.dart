@@ -14,7 +14,9 @@ class TrackingSync {
 
   /// Bounded load: 365 points cover a year of daily weigh-ins. Server-side desc
   /// + limit so extra history drops the OLDEST points, never the current ones.
-  static const int weightLogLimit = 365;
+  /// Same number as the local ring buffer ([WeightLog.maxEntries]) on purpose
+  /// (F7-03): a different local cap moved the baseline on every weigh-in.
+  static const int weightLogLimit = WeightLog.maxEntries;
 
   Future<WeightLog> loadWeightLog() async {
     try {

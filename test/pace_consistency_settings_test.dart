@@ -238,14 +238,16 @@ void main() {
   testWidgets(
       'im Manuell-Modus sagt der Picker, dass die Auswahl das Tagesziel nicht bewegt',
       (tester) async {
-    // Default profile with 2500 kcal stored (2150 calculated) starts the
-    // screen in manual mode, where the daily goal no longer follows the pace.
+    // Default profile with 2500 kcal stored and the persisted manual flag
+    // (F7-01) starts the screen in manual mode, where the daily goal no
+    // longer follows the pace.
     //
     // Deliberately not the 2200 default: +36 kcal/day over maintenance stays
     // below the 0.05 noise floor, so there would be no extra line to check.
     await openSettings(
       tester,
-      profile: const UserProfile().copyWith(dailyKcalGoal: 2500),
+      profile: const UserProfile()
+          .copyWith(dailyKcalGoal: 2500, manualEnergy: true),
     );
 
     // Goal "maintain", but 2500 kcal over a maintenance of 2164:

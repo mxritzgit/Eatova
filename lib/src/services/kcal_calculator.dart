@@ -353,6 +353,29 @@ class KcalCalculator {
     );
   }
 
+  /// Live mode self-healing (review 2026-08-27, F7-01): in live mode
+  /// ([UserProfile.manualEnergy] false) the calculator is the truth, and the
+  /// stored kcal/macros are a cache that goes stale with every calculator
+  /// change. Returns the profile with the computed goals, or the SAME instance
+  /// when nothing changes (manual mode, onboarding not done, already equal) —
+  /// callers use `identical` to decide whether a write-back is due.
+  UserProfile applyLiveGoals(UserProfile profile) {
+    if (profile.manualEnergy || !profile.onboardingCompleted) return profile;
+    final t = calculate(profile);
+    if (profile.dailyKcalGoal == t.kcal &&
+        profile.proteinGoalG == t.proteinG &&
+        profile.carbsGoalG == t.carbsG &&
+        profile.fatGoalG == t.fatG) {
+      return profile;
+    }
+    return profile.copyWith(
+      dailyKcalGoal: t.kcal,
+      proteinGoalG: t.proteinG,
+      carbsGoalG: t.carbsG,
+      fatGoalG: t.fatG,
+    );
+  }
+
   /// Weeks to target weight — **optimistic lower bound**; prefer
   /// [weeksToGoalRange] for display. Uses [KcalTargets.effectiveWeeklyRateKg],
   /// not [WeightGoalInfo.weeklyRateKg], which would promise a pace the caps

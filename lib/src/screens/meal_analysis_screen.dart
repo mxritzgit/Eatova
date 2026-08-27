@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -21,10 +22,13 @@ import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
+import '../theme/meal_slot_style.dart';
+import '../widgets/common/app_snack.dart';
 import '../widgets/common/motion.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/diary_meal_card.dart';
+import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import 'barcode_scanner_sheet.dart';
 import 'trends_screen.dart';
@@ -63,12 +67,13 @@ class MealAnalysisScreen extends StatelessWidget {
     this.onProfilePressed,
     this.profileInitial,
     this.trendTotalsLoader,
+    this.trendBurnedKcalFor,
     this.addSlotRequest,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
        cameraLauncher = cameraLauncher ?? const InAppMealCameraLauncher(),
-       selectedDate = DateUtils.dateOnly(selectedDate ?? DateTime.now()),
+       selectedDate = DateUtils.dateOnly(selectedDate ?? clock.now()),
        onDateSelected = onDateSelected ?? _noopDate,
        onAddMeal = onAddMeal ?? _noopAdd,
        onUpdateMeal = onUpdateMeal ?? _noopUpdate,
@@ -142,6 +147,10 @@ class MealAnalysisScreen extends StatelessWidget {
   /// never touches Supabase.
   final TrendTotalsLoader? trendTotalsLoader;
 
+  /// Step bonus per day for the trends corridor (F7-05), the store's
+  /// `burnedKcalForFoodDate`. Null keeps Trends on the base goal.
+  final int Function(DateTime day)? trendBurnedKcalFor;
+
   void _openAddSheet(
     BuildContext context,
     MealSlot slot, {
@@ -161,6 +170,9 @@ class MealAnalysisScreen extends StatelessWidget {
       photoInput: photoInput,
       favorites: favorites,
       existingMeals: existingForDay,
+      // The sheet mirrors its own adds; on an archive day the mirror must
+      // carry THAT day, like the store does.
+      foodDate: selectedDate,
       onAdd: onAddMeal,
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
@@ -170,36 +182,62 @@ class MealAnalysisScreen extends StatelessWidget {
     );
   }
 
-  // Slot heuristic for the sheet openers; matches LoggedMeal.slot so a new
-  // entry lands in the right slot.
-  MealSlot _heuristicSlot() {
-    final h = DateTime.now().hour;
-    if (h < 11) return MealSlot.breakfast;
-    if (h < 15) return MealSlot.lunch;
-    if (h < 21) return MealSlot.dinner;
-    return MealSlot.snack;
-  }
-
   // AI scan: in-app camera with slot picker -> photo -> analysis -> result
   // sheet in the chosen slot.
   Future<void> _scanWithCamera(BuildContext context) async {
     final capture = await cameraLauncher.launch(
       context,
-      initialSlot: _heuristicSlot(),
+      initialSlot: currentMealSlot(),
     );
     if (capture == null || !context.mounted) return;
-    await showMealAnalysisSheet(
+    // One request for first try and retries (same bytes); the camera sheet's
+    // cancel handle lets a swiped-away result sheet abort the attempt in
+    // flight (review F4-02).
+    final request = capture.request.withLanguage(context.l10n.localeName);
+    // An attempt that fails before the sheet listens (validation, already
+    // cancelled) must not surface as an unhandled zone error; the sheet's
+    // error card reports it once it is up. `ignore` only marks it handled.
+    final first = analyzer.analyze(request)..ignore();
+    final outcome = await showMealAnalysisSheet(
       context,
       slot: capture.slot,
-      resultFuture: analyzer.analyze(
-        capture.request.withLanguage(context.l10n.localeName),
-      ),
+      resultFuture: first,
+      retry: () => analyzer.analyze(request),
+      cancellation: request.cancellation,
       previewImage: capture.previewBytes,
       onAdd: onAddMeal,
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
       failureMessage: context.l10n.foodAnalysisFailedMessage,
+    );
+    if (outcome == MealAnalysisSheetOutcome.manualEntry && context.mounted) {
+      await _manualEntryFor(context, capture.slot);
+    }
+  }
+
+  /// "Enter manually" from a failed scan: the form builds the result, this
+  /// logs it into [slot] with the same 0-kcal guard and success toast as
+  /// `AddMealSheet._handleAdd`.
+  Future<void> _manualEntryFor(BuildContext context, MealSlot slot) async {
+    final result = await showManualMealSheet(context);
+    if (result == null || !context.mounted) return;
+    final l10n = context.l10n;
+    if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
+      showAppSnack(
+        context,
+        l10n.foodSuggestionWithoutCaloriesMessage,
+        icon: Icons.error_outline_rounded,
+        tone: SnackTone.error,
+        duration: kSnackError,
+      );
+      return;
+    }
+    onAddMeal(result, slot);
+    showAppSnack(
+      context,
+      l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
+      icon: Icons.check_circle_rounded,
     );
   }
 
@@ -210,10 +248,11 @@ class MealAnalysisScreen extends StatelessWidget {
     // selectable from this button before).
     final scan = await showBarcodeScannerSheet(
       context,
-      initialSlot: _heuristicSlot(),
+      initialSlot: currentMealSlot(),
     );
     if (scan == null || !context.mounted) return;
-    await showMealAnalysisSheet(
+    // No retry/cancel: a lookup is cheap and its "not found" is final.
+    final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
       resultFuture: productService.lookupBarcode(scan.code),
@@ -224,6 +263,9 @@ class MealAnalysisScreen extends StatelessWidget {
       onToggleFavorite: onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
     );
+    if (outcome == MealAnalysisSheetOutcome.manualEntry && context.mounted) {
+      await _manualEntryFor(context, scan.slot);
+    }
   }
 
   // Trends as a full page. The kcal goal comes from the already passed profile
@@ -233,8 +275,11 @@ class MealAnalysisScreen extends StatelessWidget {
     final loader = trendTotalsLoader ?? _supabaseTrendLoader;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            TrendsScreen(kcalGoal: profile.dailyKcalGoal, loadTotals: loader),
+        builder: (_) => TrendsScreen(
+          kcalGoal: profile.dailyKcalGoal,
+          loadTotals: loader,
+          burnedKcalFor: trendBurnedKcalFor ?? noTrendStepBonus,
+        ),
       ),
     );
   }
@@ -301,7 +346,7 @@ class MealAnalysisScreen extends StatelessWidget {
           // reliably hit-testable in widget tests.
           _FoodAddBlock(
             onSearch: () =>
-                _openAddSheet(context, _heuristicSlot(), searchMode: true),
+                _openAddSheet(context, currentMealSlot(), searchMode: true),
             onBarcode: () => _scanBarcode(context),
             onAiScan: () => _scanWithCamera(context),
           ),
@@ -699,7 +744,7 @@ class _KcalHeader extends StatelessWidget {
           subtitle: foodHeaderDateLabel(selectedDate, l10n),
           trailing: _KcalTile(
             kcal: consumedKcal,
-            isToday: DateUtils.isSameDay(selectedDate, DateTime.now()),
+            isToday: DateUtils.isSameDay(selectedDate, clock.now()),
           ),
         ),
       ],
@@ -812,7 +857,7 @@ class _ProfileBadge extends StatelessWidget {
 // `.difference(...).inDays` was off by the same 23-hour day.
 //
 // Both now go through `day_math.dart`, as free functions so they can be tested
-// against an arbitrary anchor instead of only `DateTime.now()`.
+// against an arbitrary anchor instead of only `clock.now()`.
 
 /// The strip's days: [pastDays] past days plus [today], ascending.
 @visibleForTesting
@@ -833,6 +878,17 @@ String foodDateChipLabel(DateTime today, DateTime date, AppLocalizations l10n) {
   if (offset == 1) return l10n.todayDateYesterday;
   _ensureDateSymbols();
   return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
+}
+
+/// A chip's date line, locale-aware via `intl`'s `Md` skeleton ("27.8." in
+/// `de`, "8/27" in `en`) — the same format the store's move snack uses.
+@visibleForTesting
+String foodDateChipDate({
+  required DateTime date,
+  required AppLocalizations l10n,
+}) {
+  _ensureDateSymbols();
+  return DateFormat.Md(l10n.localeName).format(date);
 }
 
 /// The line above the chips naming the selected day. Reads the same ARB keys
@@ -895,7 +951,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
 
   void _scrollToSelected() {
     if (!mounted || !_scroll.hasClients) return;
-    final today = DateUtils.dateOnly(DateTime.now());
+    final today = DateUtils.dateOnly(clock.now());
     final selected = DateUtils.dateOnly(widget.selectedDate);
     final index = daysBetween(today, selected);
     // Beyond the chips the archive chip sits at the start of the list.
@@ -916,7 +972,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final today = DateUtils.dateOnly(DateTime.now());
+    final today = DateUtils.dateOnly(clock.now());
     final selected = DateUtils.dateOnly(widget.selectedDate);
     // Descending (today first): with 31 scrollable chips the relevant edge
     // must lead. Chip index == day offset (chip-0 = today).
@@ -1026,7 +1082,7 @@ class _FoodDateStripState extends State<_FoodDateStrip> {
   /// active app language, and the selection runs through the same [onSelected]
   /// path as the chips, including on-demand loading in the store.
   Future<void> _pickFromCalendar(BuildContext context) async {
-    final today = DateUtils.dateOnly(DateTime.now());
+    final today = DateUtils.dateOnly(clock.now());
     final firstDate = DateTime(today.year - 2, today.month, today.day);
     final selectedDay = DateUtils.dateOnly(widget.selectedDate);
     final picked = await showDatePicker(
@@ -1094,7 +1150,8 @@ class _FoodDateChip extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                '${date.day}.${date.month}.',
+                // Locale-aware ("27.8." / "8/27"), same as the store's snack.
+                foodDateChipDate(date: date, l10n: context.l10n),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppType.display(

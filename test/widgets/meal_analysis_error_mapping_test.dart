@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,19 +9,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
+final AppLocalizations _en = lookupAppLocalizations(const Locale('en'));
 
 // meal_analyzer.dart puts explicit .timeout(...) on request completion and
 // body read, so a hanging LLM provider reaches the analysis sheet as a
 // TimeoutException. The user must then see an honest "takes too long"
-// message, not the generic one implying a broken connection.
+// message, not the generic one implying a broken connection. Since the
+// 2026-08-27 fix run the analyzer also throws typed MealAnalysisExceptions,
+// which the sheet resolves to ARB texts at display time (F4-01/F9-03).
 
 const String _fallback =
-    'Analyse fehlgeschlagen. Prüfe Internet, Supabase und OpenRouter.';
+    'Die Analyse hat nicht geklappt. Prüfe deine Internetverbindung und '
+    'versuch es nochmal.';
 const String _timeoutText =
     'Das dauert gerade zu lange. Bitte versuch es gleich nochmal.';
 
@@ -93,7 +99,7 @@ void main() {
       expect(mealAnalysisErrorMessage(error, _fallback, _de), _timeoutText);
     });
 
-    test('andere Fehler -> generische Meldung des jeweiligen Flows', () {
+    test('untypisierte Fehler -> generische Meldung des jeweiligen Flows', () {
       expect(
         mealAnalysisErrorMessage(const HttpException('boom'), _fallback, _de),
         _fallback,
@@ -103,6 +109,132 @@ void main() {
             const FormatException('bad'), _fallback, _de),
         _fallback,
       );
+    });
+
+    test('SocketException -> Verbindungsmeldung', () {
+      expect(
+        mealAnalysisErrorMessage(
+            const SocketException('no route'), _fallback, _de),
+        _de.foodAnalysisOfflineMessage,
+      );
+    });
+
+    // F4-01: the typed errors reach the user with THEIR message, not the
+    // generic one — and in the display language, not the server's German.
+    test('typisierte Fehler -> spezifische ARB-Texte in beiden Sprachen', () {
+      expect(
+        mealAnalysisErrorMessage(
+            const MealAnalysisReauthRequired(), _fallback, _de),
+        _de.foodReauthRequiredError,
+      );
+      expect(
+        mealAnalysisErrorMessage(
+            const MealAnalysisReauthRequired(), _fallback, _en),
+        _en.foodReauthRequiredError,
+      );
+      expect(
+        mealAnalysisErrorMessage(const MealImageTooLarge(), _fallback, _de),
+        _de.foodImageTooLargeError,
+      );
+      expect(
+        mealAnalysisErrorMessage(
+            const MealAnalysisRateLimited(), _fallback, _de),
+        _de.foodAnalysisRateLimitError,
+      );
+      expect(
+        mealAnalysisErrorMessage(
+            const MealAnalysisRateLimited(), _fallback, _en),
+        _en.foodAnalysisRateLimitError,
+      );
+    });
+
+    test('429 mit resetAt in der Zukunft nennt die Uhrzeit (lokal)', () {
+      final now = DateTime(2026, 8, 27, 14, 5);
+      withClock(Clock.fixed(now), () {
+        final resetAt = now.add(const Duration(minutes: 37));
+        final text = mealAnalysisErrorMessage(
+          MealAnalysisRateLimited(resetAt: resetAt),
+          _fallback,
+          _de,
+        );
+        expect(text, _de.foodAnalysisRateLimitUntilMessage('14:42'));
+        expect(text, contains('14:42'));
+      });
+    });
+
+    test('429 mit resetAt in der Vergangenheit -> Standardtext', () {
+      final now = DateTime(2026, 8, 27, 14, 5);
+      withClock(Clock.fixed(now), () {
+        final text = mealAnalysisErrorMessage(
+          MealAnalysisRateLimited(
+              resetAt: now.subtract(const Duration(minutes: 1))),
+          _fallback,
+          _de,
+        );
+        expect(text, _de.foodAnalysisRateLimitError);
+      });
+    });
+
+    // F9-03: the server's `error` codes are mapped client-side; `message`
+    // (German) is never shown.
+    test('Server-Codes -> ARB-Keys, message bleibt Debug', () {
+      String map(String code, [AppLocalizations? l10n]) =>
+          mealAnalysisErrorMessage(
+            MealAnalysisServerError(
+              statusCode: 502,
+              code: code,
+              debugMessage: 'Analyse konnte nicht abgeschlossen werden.',
+            ),
+            _fallback,
+            l10n ?? _de,
+          );
+
+      expect(map('provider_timeout'), _de.foodAnalysisTimeoutMessage);
+      for (final code in const [
+        'provider_error',
+        'provider_invalid_response',
+        'provider_invalid_json',
+        'provider_empty_response',
+        'invalid_result',
+      ]) {
+        expect(map(code), _de.foodAnalysisProviderErrorMessage,
+            reason: code);
+        expect(map(code, _en), _en.foodAnalysisProviderErrorMessage,
+            reason: code);
+      }
+      for (final code in const [
+        'rate_limit_unavailable',
+        'internal_error',
+        'server_misconfigured',
+        'provider_not_configured',
+      ]) {
+        expect(map(code), _de.foodAnalysisServiceUnavailableMessage,
+            reason: code);
+      }
+      for (final code in const [
+        'missing_image',
+        'invalid_image_base64',
+        'image_too_small',
+      ]) {
+        expect(map(code), _de.foodAnalysisImageUnusableMessage, reason: code);
+      }
+      // Unknown code: the flow's fallback, never the raw server message.
+      expect(map('something_new'), _fallback);
+      expect(map('something_new'), isNot(contains('Analyse konnte')));
+    });
+
+    test('kein Text nennt Infrastruktur beim Namen', () {
+      for (final l10n in [_de, _en]) {
+        for (final text in [
+          l10n.foodAnalysisFailedMessage,
+          l10n.foodAnalysisProviderErrorMessage,
+          l10n.foodAnalysisServiceUnavailableMessage,
+          l10n.foodAnalysisOfflineMessage,
+        ]) {
+          expect(text, isNot(contains('Supabase')));
+          expect(text, isNot(contains('OpenRouter')));
+        }
+      }
     });
 
     // B7: the service knows the product exists but carries no loggable
@@ -166,9 +298,6 @@ void main() {
       findsOneWidget,
     );
     expect(find.text(_barcodeFallback), findsNothing);
-
-    await tester.pump(const Duration(seconds: 4));
-    await tester.pumpAndSettle();
   });
 
   // W2-08's last brake: `_addToDaily` called `onAdd` unconditionally. Search
@@ -233,7 +362,8 @@ void main() {
     });
   });
 
-  testWidgets('Analyse-Sheet zeigt bei Timeout die Timeout-Meldung als Snack',
+  // F4-02: errors live IN the sheet now (error card, no snack, no auto-pop).
+  testWidgets('Analyse-Sheet zeigt bei Timeout die Timeout-Meldung im Sheet',
       (tester) async {
     final completer = Completer<MealAnalysisResult>();
     await tester.pumpWidget(_sheetHost(completer.future));
@@ -242,18 +372,15 @@ void main() {
       TimeoutException('Future not completed', const Duration(seconds: 60)),
     );
     await tester.pump(); // process the error
-    await tester.pump(); // show the snack
+    await tester.pump(); // render the card
 
+    expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget);
     expect(find.text(_timeoutText), findsOneWidget);
     expect(find.text(_fallback), findsNothing);
-
-    // Let the snack expire (kSnackError 3000 ms + 400 ms safety net) so no
-    // timers are pending at the end of the test.
-    await tester.pump(const Duration(seconds: 4));
-    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
   });
 
-  testWidgets('Analyse-Sheet zeigt bei sonstigen Fehlern die Flow-Meldung',
+  testWidgets('Analyse-Sheet zeigt bei untypisierten Fehlern die Flow-Meldung',
       (tester) async {
     final completer = Completer<MealAnalysisResult>();
     await tester.pumpWidget(_sheetHost(completer.future));
@@ -264,8 +391,27 @@ void main() {
 
     expect(find.text(_fallback), findsOneWidget);
     expect(find.text(_timeoutText), findsNothing);
+  });
 
-    await tester.pump(const Duration(seconds: 4));
-    await tester.pumpAndSettle();
+  testWidgets('Analyse-Sheet zeigt 401/429/413 mit ihrem eigenen Text',
+      (tester) async {
+    for (final (error, expected) in <(Object, String)>[
+      (const MealAnalysisReauthRequired(), _de.foodReauthRequiredError),
+      (const MealAnalysisRateLimited(), _de.foodAnalysisRateLimitError),
+      (const MealImageTooLarge(), _de.foodImageTooLargeError),
+    ]) {
+      // Fresh tree per case: the same widget type in the same slot would
+      // keep its State and never listen to the new future. No MaterialApp
+      // in between — its theme would lerp from a token-less default.
+      await tester.pumpWidget(const SizedBox.shrink());
+      final completer = Completer<MealAnalysisResult>();
+      await tester.pumpWidget(_sheetHost(completer.future));
+      completer.completeError(error);
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(expected), findsOneWidget, reason: '$error');
+      expect(find.text(_fallback), findsNothing, reason: '$error');
+    }
   });
 }

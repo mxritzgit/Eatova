@@ -9,7 +9,9 @@ gewinnt. Wenn etwas fehlt: melde es in deinem Bericht, erfinde es nicht.
 ## 1. Was passiert hier
 
 Die App bekommt eine neue Designsprache und einen **Hell-Modus**. Vorlage ist
-`newScreen/nutrition_app(1).dart` (3126 Zeilen) — ein einzelner Entwurf mit
+`docs/design/reference/nutrition_app_template.dart.txt` (3126 Zeilen, als
+`.txt` abgelegt, damit der Analyzer die nicht im pubspec liegende
+`google_fonts`-Abhängigkeit nicht sieht) — ein einzelner Entwurf mit
 sechs Screens und einer kompletten Design-Schicht. Die Vorlage ist englisch,
 zustandslos und arbeitet mit Demo-Daten. Unsere Aufgabe ist die Umkehrung:
 

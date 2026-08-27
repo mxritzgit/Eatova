@@ -127,9 +127,11 @@ class WeightCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Row(
                   children: <Widget>[
-                    _Caption(_formatShort(entries.first.timestamp, l10n)),
+                    // Baseline and latest — the same two points delta pill
+                    // and progress bar are built on (F7-03).
+                    _Caption(_formatShort(log.baseline!.timestamp, l10n)),
                     const Spacer(),
-                    _Caption(_formatShort(entries.last.timestamp, l10n)),
+                    _Caption(_formatShort(log.latest!.timestamp, l10n)),
                   ],
                 ),
               ],
@@ -149,7 +151,9 @@ class WeightCard extends StatelessWidget {
     );
   }
 
-  /// Progress from the FIRST measured weight to the target weight.
+  /// Progress from the explicit baseline ([WeightLog.baseline], the first
+  /// weigh-in still in the history; the onboarding weight without one) to
+  /// the target weight (F7-03).
   ///
   /// If the target sits on the start value ("maintain") the row is dropped: a
   /// 100 % bar for a non-goal would be a fake success, and (start - target)
@@ -157,9 +161,7 @@ class WeightCard extends StatelessWidget {
   List<Widget> _buildGoalProgress(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final start = log.entries.isNotEmpty
-        ? log.entries.first.weightKg
-        : profile.weightKg.toDouble();
+    final start = log.baseline?.weightKg ?? profile.weightKg.toDouble();
     final ziel = profile.targetWeightKg.toDouble();
     final spanne = (start - ziel).abs();
     if (spanne < 0.1) return const <Widget>[];
@@ -240,8 +242,7 @@ class WeightCard extends StatelessWidget {
     if (d.year == now.year && d.month == now.month && d.day == now.day) {
       return l10n.profileWeightCaptionToday;
     }
-    return '${d.day.toString().padLeft(2, '0')}.'
-        '${d.month.toString().padLeft(2, '0')}.';
+    return formatShortDate(d, l10n);
   }
 }
 
@@ -537,6 +538,7 @@ class _ProfileWeightInputSheet extends StatefulWidget {
 
 class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
   late final TextEditingController _controller;
+  final FocusNode _focus = FocusNode();
 
   @override
   void initState() {
@@ -544,18 +546,52 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
     _controller = TextEditingController(
       text: widget.initial.toStringAsFixed(1),
     );
+    _controller.addListener(_onChanged);
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onChanged);
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
+  }
+
+  void _onChanged() => setState(() {});
+
+  /// The typed value, or null when it is not a number.
+  double? get _value =>
+      double.tryParse(_controller.text.trim().replaceAll(',', '.'));
+
+  /// Range check against the `weight_log` table (20..400 kg, F7-02). Before
+  /// this, "7.55" (slipped decimal) went to log, cache and HealthKit, the
+  /// server rejected it with 23514 and the value vanished on the next boot.
+  bool get _valid {
+    final v = _value;
+    return v != null && isValidWeightLogKg(v);
+  }
+
+  /// Error text under the field; only once something is typed.
+  String? _errorText(AppLocalizations l10n) {
+    if (_controller.text.trim().isEmpty || _valid) return null;
+    return l10n.profileWeightInputRangeError(
+      WeightLogLimits.weightKgMin.toInt(),
+      WeightLogLimits.weightKgMax.toInt(),
+    );
+  }
+
+  void _save() {
+    final v = _value;
+    if (v == null || !isValidWeightLogKg(v)) return;
+    Navigator.pop(context, v);
   }
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    final fehler = _errorText(l10n);
+    final gesperrt = !_valid;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
@@ -571,31 +607,71 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
           Text(l10n.profileLogWeightCta,
               style: AppType.display(20, color: t.ink)),
           const SizedBox(height: 16),
-          // Local TextField instead of SheetField: the field must hold focus
-          // on open (`autofocus`), which SheetField does not expose. The
-          // InputDecoration still comes from the theme.
-          TextField(
-            key: const ValueKey('profile-weight-input'),
-            cursorOpacityAnimates: false,
-            controller: _controller,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: l10n.profileWeightInputLabel,
-              suffixText: 'kg',
+          // Local TextField on a [FieldCapsule] (field / fieldFocus /
+          // fieldError, shadow, no ring) instead of SheetField: the floating
+          // `labelText` and the `kg` suffix are not part of its API.
+          FieldCapsule(
+            focusNode: _focus,
+            error: fehler != null,
+            padding: EdgeInsets.zero,
+            child: TextField(
+              key: const ValueKey('profile-weight-input'),
+              cursorOpacityAnimates: false,
+              controller: _controller,
+              focusNode: _focus,
+              autofocus: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              onSubmitted: (_) => _save(),
+              style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
+              decoration: InputDecoration(
+                labelText: l10n.profileWeightInputLabel,
+                suffixText: 'kg',
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
             ),
           ),
+          if (fehler != null) ...<Widget>[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                fehler,
+                key: const ValueKey('profile-weight-error'),
+                style: AppType.ui(
+                  11.5,
+                  weight: FontWeight.w500,
+                  color: t.danger,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
-          PrimaryActionButton(
-            key: const ValueKey('profile-weight-save'),
-            label: l10n.commonSave,
-            icon: Icons.check_rounded,
-            height: 50,
-            onTap: () {
-              final raw = _controller.text.trim().replaceAll(',', '.');
-              final value = double.tryParse(raw);
-              if (value != null && value > 0) Navigator.pop(context, value);
-            },
+          Semantics(
+            // Same pattern as the goals page: PrimaryActionButton cannot
+            // express "disabled" itself.
+            button: true,
+            enabled: !gesperrt,
+            child: Opacity(
+              opacity: gesperrt ? 0.4 : 1,
+              child: PrimaryActionButton(
+                key: const ValueKey('profile-weight-save'),
+                label: l10n.commonSave,
+                icon: Icons.check_rounded,
+                height: 50,
+                onTap: gesperrt ? null : _save,
+              ),
+            ),
           ),
         ],
       ),

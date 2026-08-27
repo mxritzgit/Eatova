@@ -8,7 +8,7 @@ import 'design_harness.dart';
 
 void main() {
   group('AppCard', () {
-    testWidgets('traegt Kind, Standard-Radius 24 und die Kartenflaeche',
+    testWidgets('traegt Kind, Standard-Radius rCard und die Kartenflaeche',
         (tester) async {
       await tester.pumpWidget(
         designHarness(const AppCard(child: Text('Inhalt'))),
@@ -17,7 +17,7 @@ void main() {
       expect(find.text('Inhalt'), findsOneWidget);
       final deco = decorationOf(tester, find.byType(AppCard));
       expect(deco.color, AppTokens.light.surf);
-      expect(deco.borderRadius, BorderRadius.circular(24));
+      expect(deco.borderRadius, BorderRadius.circular(rCard));
       expect(deco.border, Border.all(color: AppTokens.light.line));
     });
 

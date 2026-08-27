@@ -53,7 +53,8 @@ Future<ActivityLevel?> showActivityPicker(
           _PickerRow<ActivityLevel>(
             key: ValueKey<String>('settings-activity-${option.name}'),
             title: option.label(l10n),
-            subtitle: '${option.description(l10n)} · ×${option.palFactor}',
+            subtitle:
+                '${option.description(l10n)} · ×${formatPalFactor(option, l10n)}',
             result: option,
             selected: value == option,
           ),

@@ -28,6 +28,18 @@ const Duration kOutboxDeleteMinAge = Duration(days: 7);
 /// replay is idempotent.
 const Duration kSyncDeliveryWindow = Duration(seconds: 3);
 
+/// Upper bound for the delivery attempt inside [_HomeStoreSyncPart.signOutCleanup]
+/// (F1-05). A silent socket must not pin the logout; what is not delivered
+/// by then survives in the preserved sync slots (A2) and replays on the next
+/// login. Above the 20 s PostgREST request timeout, so a healthy but slow
+/// request still gets its answer.
+const Duration kSignOutDeliveryBudget = Duration(seconds: 25);
+
+/// Upper bound for waiting on a running cache snapshot before a purge
+/// (F1-02). Local IO — anything longer is a hung keystore, and then the
+/// closed flag on the cache takes over.
+const Duration kCacheSnapshotWaitBudget = Duration(seconds: 3);
+
 /// The payload of an outbox op is unreadable (Review 2026-08-08, A8).
 ///
 /// [SyncOp.tryFromJson] keeps an op with a non-Map payload and substitutes
@@ -158,10 +170,17 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// [message] replaces only the snack text, for callers that know more than
   /// the generic classification (e.g. [deleteAccountErrorMessage] knows the
   /// server-side reauth rejection). Log and CrashReporter stay untouched.
+  ///
+  /// [netzfehlerMelden]: report even a plain outage. Default off (F1-04: the
+  /// user sees the offline text, Sentry only what is not an outage); the
+  /// account deletion turns it on — a GDPR request that did not go through
+  /// must be visible, whatever the cause.
   void _reportSyncError(String operation, Object error, StackTrace stack,
-      {String? message}) {
+      {String? message, bool netzfehlerMelden = false}) {
     dev.log('$operation failed', error: error, name: 'eatova_sync');
-    unawaited(CrashReporter.capture(error, stack, context: operation));
+    unawaited(netzfehlerMelden
+        ? CrashReporter.capture(error, stack, context: operation)
+        : CrashReporter.captureSyncFailure(error, stack, context: operation));
     if (_disposed) return;
     _emitSnack(
       message ?? directSyncErrorMessage(error, _l10n),
@@ -271,6 +290,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// key: a younger op may have coalesced into its place while the write ran,
   /// and that one describes state the server does not have yet.
   void _dequeueDeliveredOp(SyncOp op) {
+    // A delivery confirmed after dispose belongs to a session that is gone;
+    // its persisted op replays idempotently on the next login (F1-02).
+    if (_disposed) return;
     final at = _outbox.indexWhere((o) => identical(o, op));
     if (at < 0) return;
     _outbox = [..._outbox]..removeAt(at);
@@ -484,7 +506,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   void _reportRestoreFailure(String what, Object e, StackTrace st) {
     dev.log('Outbox: Wiedereinblendung nach verworfenem Delete '
         'fehlgeschlagen ($what)', error: e, name: 'eatova_sync');
-    unawaited(CrashReporter.capture(e, st, context: 'outbox-restore-$what'));
+    unawaited(CrashReporter.captureSyncFailure(e, st,
+        context: 'outbox-restore-$what'));
   }
 
   /// After a successful sync write: end the error episode, reset the backoff
@@ -500,8 +523,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
-  /// Schedules the next outbox/stats retry with exponential backoff
-  /// (30s -> 1m -> 2m -> 4m cap; reset on success). No connectivity package:
+  /// Arms the next outbox/stats retry at the CURRENT backoff stage
+  /// (30s -> 1m -> 2m -> 4m cap; reset on success) — but only while no timer
+  /// is active (F1-03). Every failure used to cancel and re-arm it and bump
+  /// the stage, so four offline meals in two minutes pushed the first replay
+  /// four minutes past the last log. The stage now moves only in
+  /// [_bumpRetryStage], at the end of a failed pass. No connectivity package:
   /// the timer is the only guard, plus boot, lifecycle flush and the next
   /// success trigger a replay.
   void _scheduleOutboxRetry() {
@@ -511,13 +538,33 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         _pendingWeightLogsDelta == 0) {
       return;
     }
-    _outboxRetryTimer?.cancel();
+    if (_outboxRetryTimer?.isActive ?? false) return;
     final delay = Duration(seconds: 30 * (1 << _outboxRetryAttempt));
-    if (_outboxRetryAttempt < 3) _outboxRetryAttempt++;
     _outboxRetryTimer = Timer(delay, () {
-      unawaited(_replayOutbox());
-      unawaited(_flushStatsDelta());
+      _outboxRetryTimer = null;
+      unawaited(_retryTick());
     });
+  }
+
+  /// Next backoff stage — only after a pass that ended with something still
+  /// undelivered. Applies to the NEXT arming; an armed timer keeps its delay.
+  void _bumpRetryStage() {
+    if (_outboxRetryAttempt < 3) _outboxRetryAttempt++;
+  }
+
+  /// The timer's work: replay, then flush the stats channel. If only deltas
+  /// are open the replay has no end to escalate at, so the tick climbs the
+  /// stage itself before the flush — its failure then arms at the new stage,
+  /// its success resets to 0 as usual.
+  Future<void> _retryTick() async {
+    final hatteOps = _outbox.isNotEmpty;
+    await _replayOutbox(vomTimer: true);
+    if (_disposed) return;
+    if (!hatteOps &&
+        (_pendingMealsDelta != 0 || _pendingWeightLogsDelta != 0)) {
+      _bumpRetryStage();
+    }
+    await _flushStatsDelta();
   }
 
   /// Replays the persisted outbox strictly FIFO against Supabase. Order per
@@ -533,7 +580,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///  * [OutboxVerdict.retryCounted] — stays, spends one attempt.
   ///  * [OutboxVerdict.retryFree] — stays without spending budget (network
   ///    errors; offline, boot + flush + timer must not drain the budget).
-  Future<void> _replayOutbox() async {
+  ///
+  /// [vomTimer]: the pass was started by the backoff timer. Only such a pass
+  /// climbs the stage when it ends blocked; a resume/backgrounding flush or a
+  /// boot pass failing offline leaves the ladder alone (F1-03).
+  Future<void> _replayOutbox({bool vomTimer = false}) async {
     final s = sync;
     if (s == null || _outboxReplayInFlight || _outbox.isEmpty) return;
     _outboxReplayInFlight = true;
@@ -603,7 +654,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           }
           dev.log('Outbox-Replay: ${op.kind.name} bleibt liegen',
               error: e, name: 'eatova_sync');
-          unawaited(CrashReporter.capture(e, st,
+          // Sync filter (F1-04): an offline pass raised one event per op per
+          // pass, every 30 s, for the whole outage.
+          unawaited(CrashReporter.captureSyncFailure(e, st,
               context: 'outbox-replay-${op.kind.name}'));
           blocked.add(op.entityKey);
           i++;
@@ -664,13 +717,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // so a backoff timer would have nothing left to do.
     if (blocked.isEmpty || _outbox.isEmpty) {
       _outboxRetryAttempt = 0;
-      _outboxRetryTimer?.cancel();
+      // Only the outbox is done; open stats deltas keep their timer.
+      if (_pendingMealsDelta == 0 && _pendingWeightLogsDelta == 0) {
+        _outboxRetryTimer?.cancel();
+        _outboxRetryTimer = null;
+      }
       if (anySuccess) {
         _syncHintShown = false;
         _outboxLossNotified = false;
         _outboxDeleteLossNotified = false;
       }
     } else {
+      // A timer pass ended with ops still blocked: climb one stage, then arm
+      // at it. Any other pass (resume flush, boot) only arms if idle. Ladder
+      // from the first live failure: 30 s, 60 s, 120 s, 240 s (F1-03).
+      if (vomTimer) _bumpRetryStage();
       _scheduleOutboxRetry();
     }
   }
@@ -927,7 +988,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       // The server-side reauth rejection (EX_REAUTH_REQUIRED) needs its own
       // sentence: retrying later does not help, a new mail code is required.
       _reportSyncError('Konto-Löschung', e, st,
-          message: deleteAccountErrorMessage(e, _l10n));
+          message: deleteAccountErrorMessage(e, _l10n),
+          netzfehlerMelden: true);
       return false;
     }
     // D9: scheduled reminders live in the OS, not in our cache — without this
@@ -963,14 +1025,25 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// falls.
   Future<void> signOutCleanup() async {
     // Deliver before discarding: online the queue is empty afterwards and the
-    // full clear applies as before.
-    await _replayOutbox();
+    // full clear applies as before. Bounded (F1-05): a silent socket must not
+    // pin the logout — whatever is still undelivered at the deadline is
+    // counted below and survives in the preserved slots.
+    await _replayOutbox()
+        .timeout(kSignOutDeliveryBudget, onTimeout: _logSignOutDeadline);
     // The pending lifetime deltas are their own state, not part of the outbox:
     // the meal write can succeed while `increment_lifetime_stats` fails. So
     // this channel needs its own delivery attempt too, otherwise the logout
     // pulls away the streak basis. A live write finishing during the replay can
     // still book a delta.
-    await _flushStatsDelta();
+    var flushDeadlineHit = false;
+    await _flushStatsDelta().timeout(kSignOutDeliveryBudget, onTimeout: () {
+      flushDeadlineHit = true;
+      _logSignOutDeadline();
+    });
+    // Only a flush THIS call started and that ran past the deadline is put
+    // back: its numbers are neither in the slot nor confirmed. A flight that
+    // was already running (the call returned at once) keeps its own outcome.
+    if (flushDeadlineHit && _statsFlushInFlight) _requeueInFlightStatsBundle();
     // Only what delivery could not shift justifies a surviving slot. The store
     // state is authoritative once boot has run. `preserveOutbox` holds
     // _outboxKey AND _pendingStatsKey.
@@ -989,6 +1062,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     await _clearCache(preserveOutbox: remaining > 0 || !_syncStateHydrated);
   }
 
+  void _logSignOutDeadline() {
+    dev.log(
+        'signOutCleanup: Zustellversuch nach '
+        '${kSignOutDeliveryBudget.inSeconds}s abgebrochen — Rest bleibt im '
+        'Sync-Slot',
+        name: 'eatova_sync');
+  }
+
   /// Disconnects Apple Health on user change — service AND store field.
   /// `health.reset()` clears verifier and cached `authState`;
   /// `healthAuthState` is the copy the profile card renders.
@@ -1003,6 +1084,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///
   /// [preserveOutbox] holds back `_outboxKey`/`_pendingStatsKey` (A2).
   Future<void> _clearCache({bool preserveOutbox = false}) async {
+    // F1-02: a snapshot still writing (logout right after boot) must finish
+    // BEFORE the purge, or its remaining slots land on cleared keys — the
+    // encrypting store serialises per key, not across keys. Bounded: past the
+    // budget the closed flag set by clear() turns the rest into no-ops.
+    final laufend = _cacheSnapshotInFlight;
+    if (laufend != null) {
+      await laufend.timeout(kCacheSnapshotWaitBudget, onTimeout: () {});
+    }
     final cache = _cache ?? debugCache ?? await _resolveCacheForCurrentUser();
     await cache?.clear(preserveOutbox: preserveOutbox);
     // Own-recipe photos are files in the app directory, not in the LocalCache,
@@ -1021,7 +1110,27 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   // --- Persistence helpers --------------------------------------------------
 
+  /// The snapshot currently writing, so a purge can wait for it (F1-02).
+  Future<void>? _cacheSnapshotInFlight;
+
+  /// Writes the full mirror state after a server load. Tracked in
+  /// [_cacheSnapshotInFlight]; never runs twice concurrently — the second
+  /// caller waits for the first, then writes the (newer) state.
   Future<void> _writeCacheSnapshot() async {
+    final laufend = _cacheSnapshotInFlight;
+    if (laufend != null) await laufend;
+    final eigener = _writeCacheSnapshotNow();
+    _cacheSnapshotInFlight = eigener;
+    try {
+      await eigener;
+    } finally {
+      if (identical(_cacheSnapshotInFlight, eigener)) {
+        _cacheSnapshotInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _writeCacheSnapshotNow() async {
     final cache = _cache;
     if (cache == null) return;
     // A1: without a real hydration source (cache unreadable AND server boot
@@ -1029,11 +1138,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // existing data, and the NEXT boot would read them as a real source,
     // opening applySettings' clobber lock. No knowledge -> no snapshot.
     if (!_hydratedFromRealSource) return;
+    // `_disposed` between slots: a session loss mid-snapshot must not write
+    // the remaining slots after the AuthGate's purge (F1-02).
+    if (_disposed) return;
     await cache.writeProfile(profile);
+    if (_disposed) return;
     await cache.writeLifetimeStats(lifetimeStats);
+    if (_disposed) return;
     await cache.writeLoggedMeals(_cacheableLoggedMeals());
+    if (_disposed) return;
     await cache.writeFavorites(favorites);
+    if (_disposed) return;
     await cache.writeWeightLog(weightLog);
+    if (_disposed) return;
     // Gap A: without this only the just-created recipe reached the cache
     // (write-through), never the server-loaded ones — an offline cold start
     // showed an empty own-recipe list.
@@ -1081,6 +1198,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   void _persistOutbox() {
+    // After dispose the blob on disk is the last valid state of this session;
+    // an in-memory queue touched by a late callback is not (F1-02).
+    if (_disposed) return;
     // Gap F: the in-memory state is a valid version of the blob only if
     // hydration could read it. Otherwise `_outbox` is a fresh queue from this
     // session, and writing it destroys up to [kOutboxMaxOps] undelivered
@@ -1282,7 +1402,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     int meals = 0,
     int weightLogs = 0,
   }) {
-    if (sync == null) return;
+    // A delivery confirmed after dispose: no slot write, no flush timer with
+    // a signed-out client (F1-02). The replay path counts the meal instead if
+    // its op is still persisted.
+    if (sync == null || _disposed) return;
     _pendingMealsDelta += meals;
     _pendingWeightLogsDelta += weightLogs;
     // A fresh bundle gets its request id here, and ONLY here. `??=` is the
@@ -1320,6 +1443,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // server ADDS, so a replayed booked delta corrupts the counters for good).
     _persistPendingStatsDeltas();
     _statsFlushInFlight = true;
+    _inFlightStatsBundle =
+        (meals: meals, weightLogs: weightLogs, requestId: requestId);
     try {
       final fresh = await s.lifetimeStats.increment(
         meals: meals,
@@ -1333,8 +1458,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           // undelivered streak day — this is where it used to vanish.
           _overlayPendingTrackingDays();
         });
+        _cacheLifetimeStats();
       }
-      _cacheLifetimeStats();
       _onSyncSuccess();
     } catch (e, st) {
       // DATA-7: no red toast, no rollback — the deltas go back into the
@@ -1349,18 +1474,49 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       // shortfall in a rare abort window instead of a permanent overcount.
       dev.log('Statistik-Sync failed — Deltas bleiben gequeued',
           error: e, name: 'eatova_sync');
-      unawaited(CrashReporter.capture(e, st, context: 'lifetime-stats-flush'));
-      _pendingMealsDelta += meals;
-      _pendingWeightLogsDelta += weightLogs;
-      _pendingStatsRequestId = requestId;
-      _persistPendingStatsDeltas();
+      // Sync filter (F1-04): offline is the designed flow here too.
+      unawaited(CrashReporter.captureSyncFailure(e, st,
+          context: 'lifetime-stats-flush'));
+      // Already re-queued by the logout deadline: adding again would count
+      // the bundle twice on the next login (same id, but doubled numbers).
+      if (_inFlightStatsBundle != null) {
+        _pendingMealsDelta += meals;
+        _pendingWeightLogsDelta += weightLogs;
+        _pendingStatsRequestId = requestId;
+        _persistPendingStatsDeltas();
+      }
       if (!_disposed) {
         _notifyQueued(e);
         _scheduleOutboxRetry();
       }
     } finally {
       _statsFlushInFlight = false;
+      _inFlightStatsBundle = null;
     }
+  }
+
+  /// The bundle currently on the wire, so a bounded logout can put it back
+  /// into the slot (F1-05). Null outside a flight.
+  ({int meals, int weightLogs, String requestId})? _inFlightStatsBundle;
+
+  /// Logout deadline hit while a flush is on the wire: the slot holds 0 (the
+  /// flight persisted its start state), so the bundle would be lost. Re-queue
+  /// it under the SAME request id — if the hanging call lands after all, the
+  /// next login's retry is a server-side repeat and adds nothing.
+  ///
+  /// The id is ASSIGNED, not `??=`: a bundle opened during the flight merges
+  /// into this one and must inherit the flight's id (same reasoning as the
+  /// catch branch of [_flushStatsDelta]) — only that id can already be
+  /// booked; under a fresh id a landed call would be added again on the next
+  /// login, a permanent overcount.
+  void _requeueInFlightStatsBundle() {
+    final bundle = _inFlightStatsBundle;
+    if (bundle == null) return;
+    _inFlightStatsBundle = null;
+    _pendingMealsDelta += bundle.meals;
+    _pendingWeightLogsDelta += bundle.weightLogs;
+    _pendingStatsRequestId = bundle.requestId;
+    _persistPendingStatsDeltas();
   }
 
   /// Flushes pending debounced writes immediately (app backgrounding) and

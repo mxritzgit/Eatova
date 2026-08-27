@@ -90,9 +90,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
 - **Reminders** — one local, on-device notification type: the evening
   streak-at-risk nudge, planned as dated single shots over a four-week horizon
   (daily for the first week, then weekly). No push infrastructure required.
-- **Health integration** — reads daily steps, body-weight history, and sleep
-  duration from Apple HealthKit on iOS, and writes back a body-weight entry
-  when you log a weigh-in; the step count drives the calories-burned estimate.
+- **Health integration** — reads the step count and body-weight history from
+  Apple HealthKit on iOS, and writes back a body-weight entry when you log a
+  weigh-in; the step count drives the calories-burned estimate.
   No-op on Android (no Health Connect integration).
 - **Auth** — Supabase e-mail auth plus native Google Sign-In (Credential
   Manager on Android, Google SDK on iOS) with a web-OAuth fallback.
@@ -104,14 +104,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 | Layer            | Technology                                                        |
 | ---------------- | ----------------------------------------------------------------- |
-| App              | [Flutter](https://flutter.dev) / Dart (SDK `^3.11.5`), German + English (`gen_l10n`/ARB) |
+| App              | [Flutter](https://flutter.dev) 3.44.0 stable (CI-pinned; Dart 3.12, pubspec lower bound `^3.11.5`), German + English (`gen_l10n`/ARB) |
 | Backend          | [Supabase](https://supabase.com) — Auth, Postgres + RLS           |
 | Serverless       | Supabase Edge Functions (Deno / TypeScript)                       |
 | Product search   | Self-hosted [Meilisearch](https://www.meilisearch.com) index of [Open Food Facts](https://world.openfoodfacts.org), OFF API fallback |
 | AI meal analysis | Gemini vision model via [OpenRouter](https://openrouter.ai)       |
 | AI coach         | Grok via OpenRouter, with server-side quota + safety layers       |
 | AI recipe image  | Gemini image model via the OpenRouter image API (`/recipe` only)  |
-| Health           | Apple HealthKit (`package:health`, iOS only) — read: steps, weight, sleep · write: weight |
+| Health           | Apple HealthKit (`package:health`, iOS only) — read: step count, body-weight history · write: weight |
 | Crash reporting  | [Sentry](https://sentry.io) (optional, DSN via dart-define)       |
 
 Key Flutter packages: `supabase_flutter`, `camera`, `image_picker`,
@@ -137,7 +137,7 @@ Key Flutter packages: `supabase_flutter`, `camera`, `image_picker`,
                │
                ├── Meilisearch product index (self-hosted, search-only key)
                ├── Open Food Facts API (barcode + search fallback)
-               ├── Apple HealthKit (read: steps/weight/sleep · write: weight; iOS only)
+               ├── Apple HealthKit (read: steps/weight · write: weight; iOS only)
                ├── Local notifications (on-device, no push backend)
                └── Sentry (crashes only, opt-in via SENTRY_DSN)
 ```
@@ -208,7 +208,9 @@ folders. Desktop and web scaffolding was removed on purpose (services use
 
 ### Prerequisites
 
-- [Flutter SDK](https://docs.flutter.dev/get-started/install) (Dart `^3.11.5`)
+- [Flutter SDK](https://docs.flutter.dev/get-started/install) — CI pins
+  **3.44.0 stable** (Dart 3.12); use the same locally. The pubspec constraint
+  `^3.11.5` is the lower bound only.
 - Xcode (iOS) and/or Android Studio for device/emulator builds
 
 ### Run
@@ -270,14 +272,19 @@ flutter build apk --release --dart-define-from-file=dart_defines.json
 ```
 
 If `android/key.properties` is missing, any release *assemble*/*bundle*/*package*
-task **fails** with a `GradleException` naming the offending tasks
-(`android/app/build.gradle.kts:118-143`). This is deliberate: without the file the
+task **fails** with a `GradleException` naming the offending tasks (the E5
+guard in `android/app/build.gradle.kts`: the `gradle.taskGraph.whenReady`
+block matching `releaseAssemblePattern`). This is deliberate: without the file the
 artifact would be signed with the universal Android **debug** key — Play rejects
 the upload, and a sideloaded build silently breaks Google Sign-In because the
 SHA-1 fingerprint no longer matches. Create `android/key.properties` as shown
-above; for a pure compile check, build `--debug` instead. Debug builds (which is
-all CI builds) are unaffected. Release builds run R8 (minify + resource
-shrinking); plugin keep rules live in `android/app/proguard-rules.pro`.
+above; for a pure compile check, build `--debug` instead. Debug builds are
+unaffected. CI builds both: a debug APK as a fast pre-check and a release AAB
+(job `build-android-release` in `.github/workflows/security.yml`), which
+satisfies the guard with a per-run throwaway keystore and verifies that R8
+produced a `mapping.txt`; the artifact is never uploaded. Release builds run
+R8 (minify + resource shrinking); plugin keep rules live in
+`android/app/proguard-rules.pro`.
 
 > **Warning:** Back up the keystore and its passwords outside the repository
 > (password manager + offline copy). If the upload key is lost, the only

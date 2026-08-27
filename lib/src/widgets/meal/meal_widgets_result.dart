@@ -191,13 +191,10 @@ class _MealResultCardState extends State<MealResultCard> {
                         : l10n.commonAdd,
                     style: AppType.ui(14, weight: FontWeight.w700),
                   ),
+                  // Colour and shape come from filledButtonTheme (F8-10);
+                  // only the height parity with the adjust button stays.
                   style: FilledButton.styleFrom(
-                    backgroundColor: t.forest,
-                    foregroundColor: t.onForest,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(rControl),
-                    ),
                   ),
                 ),
               ),

@@ -12,6 +12,7 @@ import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/services/local_cache.dart'
     show InMemoryKeyValueStore, KeyValueStore;
 import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/widgets/design/controls.dart';
 
 // Send guard of the code screen (Audit 2026-08-14).
 //
@@ -186,7 +187,7 @@ void main() {
 
       expect(find.text(deL10n.authCodeTooManyAttempts), findsOneWidget);
       expect(tester.widget<TextField>(_codeFeld).enabled, isFalse);
-      expect(tester.widget<FilledButton>(_primaerKnopf).onPressed, isNull);
+      expect(tester.widget<PrimaryActionButton>(_primaerKnopf).onTap, isNull);
 
       // The sixth attempt no longer reaches the server — without the counter it
       // would pass (verifyFails is spent) and land in verifiedCodes.

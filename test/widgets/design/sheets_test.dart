@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/controls.dart';
 import 'package:eatova/src/widgets/design/sheets.dart';
 
 import 'design_harness.dart';
@@ -65,15 +66,17 @@ void main() {
       await tester.tap(find.text('Loeschen'), warnIfMissed: false);
       expect(calls, 0);
 
-      final opacity = tester.widget<Opacity>(
+      // The dimming is the PrimaryActionButton's own disabled fill (alpha
+      // < 1), not an Opacity wrapper — one disabled look app-wide.
+      final material = tester.widget<Material>(
         find
             .descendant(
-              of: find.byType(SheetScaffold),
-              matching: find.byType(Opacity),
+              of: find.byType(PrimaryActionButton),
+              matching: find.byType(Material),
             )
             .first,
       );
-      expect(opacity.opacity, lessThan(1.0));
+      expect(material.color!.a, lessThan(1.0));
     });
 
     testWidgets('destructive faerbt die Aktionsflaeche auf danger',
@@ -97,7 +100,9 @@ void main() {
           ),
         ),
       );
-      expect(actionMaterial().color, AppTokens.light.forest);
+      // ONE primary semantics (F8-10): the sheet action is the same ink
+      // surface as PrimaryActionButton, not a forest block.
+      expect(actionMaterial().color, AppTokens.light.ink);
 
       await tester.pumpWidget(
         designHarness(
@@ -226,10 +231,19 @@ void main() {
         ),
         findsNothing,
       );
-      expect(
-        decorationOf(tester, find.byType(SheetField)).border,
-        Border.all(color: AppTokens.light.line),
+      // Repo rule: inputs are borderless soft capsules — no hairline in any
+      // state, the capsule is an AnimatedContainer (focus lightens the fill).
+      final kapsel = tester.widget<AnimatedContainer>(
+        find
+            .descendant(
+              of: find.byType(SheetField),
+              matching: find.byType(AnimatedContainer),
+            )
+            .first,
       );
+      final deco = kapsel.decoration! as BoxDecoration;
+      expect(deco.border, isNull);
+      expect(deco.color, AppTokens.light.field);
     });
 
     testWidgets('enabled:false sperrt das Feld', (tester) async {

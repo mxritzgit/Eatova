@@ -71,7 +71,7 @@ You enter and the app stores the following, tied to your account:
   from system backups entirely. See "Where it is stored and who processes it" and
   "Transfers outside the EU/EEA": this feature involves a transfer to the USA.
 - **Apple Health (optional, iOS only):** if you grant permission, the app reads
-  your step count, body-weight history, and sleep duration from Apple Health.
+  your step count and body-weight history from Apple Health.
   With the same permission it also writes back to Apple Health: a body-weight
   entry when you record a weigh-in. It reads and writes only these categories
   and accesses no other Apple Health data. The step count is used on the device

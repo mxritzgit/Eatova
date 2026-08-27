@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 
 import 'app_tokens.dart';
 
+/// The capsule outline of every input state: rounded, no visible side.
+const InputBorder _noLine = OutlineInputBorder(
+  borderRadius: BorderRadius.all(Radius.circular(rControl)),
+  borderSide: BorderSide.none,
+);
+
 /// The Eatova theme — Material 3 as the base, [AppTokens] as the visible layer.
 ///
 /// Material owns behaviour, semantics and platform correctness (ripple, focus,
@@ -78,7 +84,9 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       modalBackgroundColor: t.bg,
       surfaceTintColor: Colors.transparent,
       showDragHandle: false,
+      // One handle geometry app-wide (same as [SheetHandle]).
       dragHandleColor: t.line,
+      dragHandleSize: const Size(40, 4),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
@@ -117,35 +125,73 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(rChip),
       ),
     ),
-    // Input fields: soft capsule, NO focus ring (user feedback) — focus shows
-    // as a lightened surface. The 1 px edge is the same [AppTokens.line] every
-    // card uses; it separates the surface, it does not frame the field.
+    // Material buttons without a local style used to fall back to
+    // ColorScheme.primary = forest: 1.33:1 on `surf` in dark mode. One
+    // semantics for all three: text = quiet `ink` (a screen sets `accent`
+    // only for an explicitly affirmative action), filled = the primary action
+    // (ink/bg, like [PrimaryActionButton]), outlined = line edge + ink.
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: t.ink,
+        disabledForegroundColor: t.ink2.withValues(alpha: 0.5),
+        textStyle: AppType.ui(13, weight: FontWeight.w700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rControl),
+        ),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: t.ink,
+        foregroundColor: t.bg,
+        disabledBackgroundColor: t.ink.withValues(alpha: 0.4),
+        disabledForegroundColor: t.bg.withValues(alpha: 0.8),
+        textStyle: AppType.ui(15, weight: FontWeight.w700),
+        // Touch floor, NOT the 54 px primary height: a FilledButton also
+        // sits in dialogs next to a TextButton.
+        minimumSize: const Size(64, kButtonMinHeight),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rButton),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: t.ink,
+        disabledForegroundColor: t.ink2.withValues(alpha: 0.5),
+        side: BorderSide(color: t.line),
+        textStyle: AppType.ui(14, weight: FontWeight.w600),
+        minimumSize: const Size(64, kButtonMinHeight),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rButton),
+        ),
+      ),
+    ),
+    // Input fields: borderless soft capsule (user rule) — no hairline, no
+    // focus ring, no red ring. State lives in the FILL: rest `field`, focus
+    // `fieldFocus` (lighter in both modes), error a danger tint plus the
+    // error line. Every border slot is set, otherwise Material's default
+    // underline bleeds through for the missing state.
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: t.surf,
+      fillColor: WidgetStateColor.resolveWith((states) {
+        if (states.contains(WidgetState.error)) return t.fieldError;
+        if (states.contains(WidgetState.focused)) return t.fieldFocus;
+        return t.field;
+      }),
       hintStyle: AppType.ui(14, color: t.ink2),
       labelStyle: AppType.ui(14, color: t.ink2),
+      floatingLabelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
+      errorStyle: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(rControl),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(rControl),
-        borderSide: BorderSide(color: t.line),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(rControl),
-        borderSide: BorderSide(color: t.line),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(rControl),
-        borderSide: BorderSide(color: t.danger),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(rControl),
-        borderSide: BorderSide(color: t.danger),
-      ),
+      border: _noLine,
+      enabledBorder: _noLine,
+      focusedBorder: _noLine,
+      errorBorder: _noLine,
+      focusedErrorBorder: _noLine,
+      disabledBorder: _noLine,
     ),
     textSelectionTheme: TextSelectionThemeData(
       cursorColor: t.accent,

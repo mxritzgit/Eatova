@@ -1,10 +1,23 @@
 import 'dart:typed_data';
 
+import 'package:app_settings/app_settings.dart';
 import 'package:flutter/material.dart';
 
 import '../models/logged_meal.dart' show MealSlot;
 import '../models/meal_analysis_request.dart';
 import '../screens/meal_camera_sheet.dart';
+import '../theme/app_tokens.dart';
+
+/// Sends the user to the app's system settings page after a denied camera
+/// permission (F4-04). Never throws: without the plugin (tests, desktop) the
+/// tap is a no-op.
+Future<void> openAppSettingsForCamera() async {
+  try {
+    await AppSettings.openAppSettings();
+  } catch (_) {
+    // MissingPluginException / PlatformException: nothing to open here.
+  }
+}
 
 /// Result of the in-app camera: the analysis request (image), a preview for
 /// the result sheet, and the slot chosen in the camera screen.
@@ -45,8 +58,7 @@ class InAppMealCameraLauncher implements MealCameraLauncher {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      // Deliberately not a token: the scrim must darken in both themes.
-      barrierColor: Colors.black.withValues(alpha: 0.55),
+      barrierColor: context.t.scrim,
       builder: (_) => MealCameraSheet(initialSlot: initialSlot),
     );
   }

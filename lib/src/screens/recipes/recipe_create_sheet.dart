@@ -14,6 +14,17 @@ const int _gramsMax = 10000; // LoggedMealLimits.estimatedGMax
 const int _macroMax = 1000; // LoggedMealLimits.macroGMax
 const int _nameMaxChars = 160; // LoggedMealLimits.mealNameMaxChars
 
+/// Client caps for the free-text fields, well under the DB clamps
+/// (`user_recipes.portion` 1000, `ingredients` 20000, migration
+/// 20260819140000) so a 23514 can never turn a recipe into a local-only one.
+const int _portionMaxChars = 200;
+const int _ingredientsMaxChars = 4000;
+
+/// `user_recipes.title` is `char_length(title) <= 300`, i.e. CODE POINTS.
+/// Flutter's `maxLength` counts grapheme clusters, so 160 ZWJ family emoji
+/// (7 code points each) pass the field cap and still overshoot the server.
+const int _nameMaxCodePoints = 300;
+
 /// Floors. `logged_meals` would allow 0, but 0 g breaks
 /// `MealAnalysisResult.adjustedToGrams` (division by the source portion,
 /// `kcalPer100G == 0`).
@@ -64,12 +75,12 @@ Future<bool> _confirmDiscardChanges(BuildContext context) async {
       actions: [
         TextButton(
           key: const ValueKey('discard-changes-cancel'),
-          style: TextButton.styleFrom(foregroundColor: t.ink2),
           onPressed: () => Navigator.of(dialogContext).pop(false),
           child: Text(l10n.foodDiscardChangesKeepEditing),
         ),
         TextButton(
           key: const ValueKey('discard-changes-confirm'),
+          // Destructive red is the one colour the theme may not decide.
           style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: Text(l10n.foodDiscardChangesConfirm),
@@ -335,13 +346,20 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         bereichstext: context.l10n.recipesRangeErrorGrams,
       );
 
+  /// Code-point cap on the name (see [_nameMaxCodePoints]); `maxLength` alone
+  /// cannot enforce it.
+  String? get _nameFehler => _name.text.trim().runes.length > _nameMaxCodePoints
+      ? context.l10n.recipesNameTooLongError
+      : null;
+
   /// Save is enabled when the required fields are filled and all fields are
   /// within their limits.
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
     // Required fields: empty means missing, not optional.
     if (_kcal.text.trim().isEmpty || _grams.text.trim().isEmpty) return false;
-    return _kcalFehler == null &&
+    return _nameFehler == null &&
+        _kcalFehler == null &&
         _gramsFehler == null &&
         _makroFehler(_protein) == null &&
         _makroFehler(_carbs) == null &&
@@ -358,9 +376,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   Future<void> _save() async {
     if (!_isValid || _saving) return;
     final l10n = context.l10n;
-    // `maxLength` already caps the name at <= 160 UTF-16 units; Postgres'
-    // `char_length` counts code points and is never larger. Only trim left.
+    // `maxLength` caps the name at 160 GRAPHEMES, which can still be more
+    // than the 300 code points Postgres' `char_length` allows; `_isValid`
+    // (via `_nameFehler`) has already rejected that case. Only trim left.
     final name = _name.text.trim();
+    if (name.runes.length > _nameMaxCodePoints) return;
     final ingredients = _ingredients.text.trim();
     // description/preparation/professionalHint have no field here and are
     // stored empty (neutral marker); display resolves them into the CURRENT
@@ -522,6 +542,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     label: l10n.foodAddItemNameLabel,
                     hint: l10n.recipesNameHint,
                     maxChars: _nameMaxChars,
+                    errorText: _nameFehler,
                   ),
                   const SizedBox(height: 12),
                   _FieldGrid(
@@ -534,6 +555,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                         controller: _portion,
                         label: l10n.recipesSectionPortion,
                         hint: l10n.recipesPortionHint,
+                        maxChars: _portionMaxChars,
                       ),
                       _RecipeSheetField(
                         fieldKey: const ValueKey('recipe-create-grams'),
@@ -607,6 +629,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 label: l10n.recipesSectionIngredients,
                 hint: l10n.recipesIngredientsHint,
                 maxLines: 3,
+                maxChars: _ingredientsMaxChars,
                 // The group header already carries the label; a second one
                 // would duplicate it. Screen-reader label stays (Semantics).
                 showLabel: false,
@@ -615,25 +638,21 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             const SizedBox(height: 14),
             // Must stay a `FilledButton` with `onPressed: _isValid ? _save :
             // null` — recipe_create_sheet_test casts to it and reads
-            // `onPressed == null` as the disabled signal.
-            FilledButton.icon(
-              key: const ValueKey('recipe-create-save'),
-              onPressed: _isValid && !_saving ? _save : null,
-              icon: const Icon(Icons.check_rounded, size: 18),
-              label: Text(
-                l10n.recipesSaveButtonLabel,
-                style: AppType.ui(14.5, weight: FontWeight.w700),
+            // `onPressed == null` as the disabled signal. Colours and shape
+            // come from the button theme (F8-10); only the stature is local,
+            // as a MINIMUM so a 2x label never outgrows the button.
+            ConstrainedBox(
+              constraints: const BoxConstraints(
+                minWidth: double.infinity,
+                minHeight: 52,
               ),
-              style: FilledButton.styleFrom(
-                backgroundColor: t.forest,
-                foregroundColor: t.onForest,
-                disabledBackgroundColor: t.surf2,
-                disabledForegroundColor: t.ink2,
-                // `minimumSize` instead of a fixed height: at 2x text scale
-                // the label would otherwise be taller than the button.
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+              child: FilledButton.icon(
+                key: const ValueKey('recipe-create-save'),
+                onPressed: _isValid && !_saving ? _save : null,
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text(
+                  l10n.recipesSaveButtonLabel,
+                  style: AppType.ui(14.5, weight: FontWeight.w700),
                 ),
               ),
             ),
@@ -925,14 +944,11 @@ class _PhotoAction extends StatelessWidget {
   }
 }
 
-/// Labeled input in the `SheetField` look, rebuilt locally: the library widget
-/// has no key on the inner [TextField] and no
-/// `maxLines`/`maxLength`/`inputFormatters`, and the [ValueKey] must sit
-/// directly on the [TextField] because recipe_create_sheet_test casts to it.
-///
-/// The capsule keeps the design contract (`surf` with a `line` border, red
-/// when it carries an error); the unit lives in the header rather than as a
-/// suffix, which overflows next to an `Expanded` field at large text scale.
+/// Labeled input on a [FieldCapsule] (field / fieldFocus / fieldError plus
+/// the text line below). Stays local because of the header: macro dot, unit
+/// suffix and a fixed one-line height that `SheetField.label` does not offer.
+/// The [ValueKey] sits directly on the [TextField] because
+/// recipe_create_sheet_test casts to it.
 class _RecipeSheetField extends StatelessWidget {
   const _RecipeSheetField({
     required this.fieldKey,
@@ -967,8 +983,10 @@ class _RecipeSheetField extends StatelessWidget {
   /// same colors as the detail view's nutrition grid.
   final Color? dot;
 
-  /// Hard length limit during input. Counts UTF-16 units, so never more
-  /// generous than Postgres' `char_length` (code points).
+  /// Hard length limit during input. Flutter counts GRAPHEME clusters here,
+  /// which can be more generous than Postgres' `char_length` (code points) —
+  /// a ZWJ emoji is one grapheme but up to seven code points. Server-bound
+  /// caps therefore get a separate code-point check ([_nameMaxCodePoints]).
   final int? maxChars;
 
   /// Field error instead of silent clamping. Blocks saving together with
@@ -1021,55 +1039,66 @@ class _RecipeSheetField extends StatelessWidget {
           ),
           const SizedBox(height: 5),
         ],
-        Container(
-          decoration: BoxDecoration(
-            color: t.surf,
-            borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: hasError ? t.danger : t.line),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 13),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                // The label is a separate all-caps line above the field, not
-                // `InputDecoration.labelText`, which would leave the field
-                // unlabeled for screen readers. This annotation restores it.
-                child: Semantics(
-                  label: label,
-                  child: TextField(
-                    key: fieldKey,
-                    cursorOpacityAnimates: false,
-                    controller: controller,
-                    maxLines: maxLines,
-                    maxLength: maxChars,
-                    keyboardType:
-                        numeric ? TextInputType.number : TextInputType.text,
-                    inputFormatters: numeric
-                        ? [FilteringTextInputFormatter.digitsOnly]
-                        : null,
-                    textCapitalization: numeric
-                        ? TextCapitalization.none
-                        : TextCapitalization.sentences,
-                    style: AppType.ui(14, color: t.ink),
-                    cursorColor: t.accent,
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                      hintText: hint,
-                      hintStyle: AppType.ui(14, color: t.ink2),
-                      // The character counter is noise here; input visibly
-                      // stops at the limit anyway.
-                      counterText: '',
+        // The `Focus` ancestor only observes: `Focus.of` rebuilds the builder
+        // whenever the inner field gains or loses focus.
+        Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          includeSemantics: false,
+          child: Builder(
+            builder: (context) {
+              return FieldCapsule(
+                focused: Focus.of(context).hasFocus,
+                error: hasError,
+                padding: const EdgeInsets.symmetric(horizontal: 13),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      // The label is a separate all-caps line above the
+                      // field, not `InputDecoration.labelText`, which would
+                      // leave the field unlabeled for screen readers. This
+                      // annotation restores it.
+                      child: Semantics(
+                        label: label,
+                        child: TextField(
+                          key: fieldKey,
+                          cursorOpacityAnimates: false,
+                          controller: controller,
+                          maxLines: maxLines,
+                          maxLength: maxChars,
+                          keyboardType: numeric
+                              ? TextInputType.number
+                              : TextInputType.text,
+                          inputFormatters: numeric
+                              ? [FilteringTextInputFormatter.digitsOnly]
+                              : null,
+                          textCapitalization: numeric
+                              ? TextCapitalization.none
+                              : TextCapitalization.sentences,
+                          style: AppType.ui(14, color: t.ink),
+                          cursorColor: t.accent,
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                            isDense: true,
+                            contentPadding:
+                                const EdgeInsets.symmetric(vertical: 12),
+                            hintText: hint,
+                            hintStyle: AppType.ui(14, color: t.ink2),
+                            // The character counter is noise here; input
+                            // visibly stops at the limit anyway.
+                            counterText: '',
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ),
-            ],
+              );
+            },
           ),
         ),
         if (hasError) ...[

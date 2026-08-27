@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/auth/welcome_screen.dart';
@@ -53,6 +54,11 @@ Future<void> _pumpWelcome(
     MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: buildEatovaTheme(brightness),
+      // The greeting comes from the ARB (`context.l10n`); `de` keeps the
+      // German expectations below valid.
+      locale: const Locale('de'),
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       home: Builder(
         builder: (context) => MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: textScaler),

@@ -80,10 +80,50 @@ class InMemoryKeyValueStore implements KeyValueStore {
 /// Keyed per user (SharedPreferences is global). All reads/writes are
 /// defensive: a corrupt entry yields null instead of crashing.
 class LocalCache {
-  LocalCache(this._store, this._userId);
+  LocalCache(this._store, this._userId) {
+    _open.add(this);
+  }
 
   final KeyValueStore _store;
   final String _userId;
+
+  /// Every instance not yet closed, so a purge from OUTSIDE the store (the
+  /// AuthGate builds its own instance on session loss) can silence the
+  /// store's instance first — see [closeInstancesFor]. Instances are few
+  /// (one per session) and leave the set on [close].
+  static final Set<LocalCache> _open = <LocalCache>{};
+
+  /// Lifecycle fence (review 2026-08-27, F1-02): once set, EVERY write path
+  /// is a no-op, the debounce drain included. Reads keep working. Set by
+  /// [clear] and [close]; never reset — a purged namespace is not reused by
+  /// this instance.
+  bool _closed = false;
+
+  bool get isClosed => _closed;
+
+  /// Closes this instance: drops pending debounced writes and turns every
+  /// later write into a no-op. Idempotent. [clear] calls it first, so a
+  /// straggling write (debounce timer, running snapshot, late live-op
+  /// callback) cannot put PII back into a purged slot.
+  void close() {
+    _closed = true;
+    _discardPendingWrites();
+    _open.remove(this);
+  }
+
+  /// Closes every open instance of [userId] — the AuthGate purge runs on a
+  /// SECOND instance and must silence the store's own one, else its debounce
+  /// timer and late callbacks write after the purge.
+  static void closeInstancesFor(String userId) {
+    for (final cache in _open.toList(growable: false)) {
+      if (cache._userId == userId) cache.close();
+    }
+  }
+
+  /// Drops pending debounced writes WITHOUT closing — `HomeStore.dispose`
+  /// uses it: the instance may outlive the store, the store's last mirror
+  /// state must not.
+  void discardPendingWrites() => _discardPendingWrites();
 
   /// Builds the production cache on SharedPreferences, encrypted with the OS
   /// keystore DEK (SEC-1, secure_cache_store.dart). Returns null on plugin
@@ -447,9 +487,10 @@ class LocalCache {
   ///
   /// Default `false` = account deletion clears everything.
   Future<void> clear({bool preserveOutbox = false}) async {
-    // Drop pending debounced writes BEFORE clearing, or a still-running
-    // debounce timer would write the just-deleted PII straight back (G9b).
-    _discardPendingWrites();
+    // Close BEFORE clearing: drops pending debounced writes (G9b) and turns
+    // every later write into a no-op, so nothing running past this point can
+    // write the just-deleted PII straight back (F1-02).
+    close();
 
     await _store.remove(_profileKey);
     await _store.remove(_legacyDailyKey);
@@ -527,6 +568,7 @@ class LocalCache {
   }
 
   void _scheduleWrite(String key, Map<String, dynamic> value) {
+    if (_closed) return;
     // Last state wins: the slot is always written whole, so an older blob of
     // the same slot is worthless.
     _pendingWrites[key] = value;
@@ -541,6 +583,8 @@ class LocalCache {
     final batch = Map<String, Map<String, dynamic>>.of(_pendingWrites);
     _pendingWrites.clear();
     for (final entry in batch.entries) {
+      // Re-checked per slot: a clear() can land between two awaits.
+      if (_closed) return;
       await _writeJson(entry.key, entry.value);
     }
   }
@@ -554,6 +598,7 @@ class LocalCache {
   // ---- Low-level ----------------------------------------------------------
 
   Future<void> _writeJson(String key, Map<String, dynamic> value) async {
+    if (_closed) return;
     // An immediate write to the same slot invalidates a pending debounced
     // one, which would otherwise overwrite the fresher state later.
     _pendingWrites.remove(key);
@@ -584,6 +629,9 @@ class LocalCache {
     String slot,
     Map<String, dynamic> value,
   ) async {
+    // Closed = not on disk, and the caller is told so; the outbox keeps its
+    // in-memory copy and replays on the next login (A2).
+    if (_closed) return false;
     // Same invariant as in [_writeJson]: it belongs to the slot, not the
     // caller. A no-op for the two sync slots, which are never debounced.
     _pendingWrites.remove(key);

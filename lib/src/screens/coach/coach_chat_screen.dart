@@ -134,6 +134,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   bool get _sending => _laufendeSendungen > 0;
 
+  /// Session the in-flight request belongs to. [_sending] is per user, so
+  /// without this the thinking dots showed in whichever session was open.
+  String? _sendendeSessionId;
+
+  bool get _sendingInActiveSession =>
+      _sending && _sendendeSessionId == _activeSessionId;
+
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
   /// Only a *known* empty quota blocks. An unknown state (cold start without
@@ -424,7 +431,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // the user switched meanwhile, the view is theirs — the new session is in
     // the list, one tap away.
     final vorher = _activeSessionId;
-    final id = await svc.createSession();
+    final id = await svc.createSession(
+      title: context.l10n.coachSessionDefaultTitle,
+    );
     if (id == null) return;
     await _refreshSessions();
     if (!mounted || _activeSessionId != vorher) return;
@@ -557,7 +566,6 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       createdAt: DateTime.now(),
       imageBytes: imageBytes,
     );
-    final entwurf = _input.text;
     // Retry job built before the request: same bubble, text and image.
     // [_wiederholen] removes the message from the history and resends exactly
     // this, instead of creating a second bubble with the same content.
@@ -569,7 +577,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     );
 
     setState(() {
-      _messages = [..._messages, userMsg];
+      _messages = [..._ohneAltenFehlschlag(displayText), userMsg];
+      if (_wiederholtFehlschlag(displayText)) _fehlgeschlagen = null;
+      _sendendeSessionId = sessionId;
       _input.clear();
       _draft = '';
       _laufendeSendungen++;
@@ -620,7 +630,6 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         );
       });
       if (_activeSessionId != sessionId) return;
-      _entwurfZurueck(entwurf);
       // Marked here too: the slot was gone, the question did not go out. The
       // retry button hangs on [_canInteract] and stays off, but the marker
       // remains — otherwise the bubble would look sent.
@@ -630,7 +639,6 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
     } on CoachChatException catch (e) {
       if (!mounted || _activeSessionId != sessionId) return;
-      _entwurfZurueck(entwurf);
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -641,6 +649,27 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _sendevorgangBeendet();
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  /// Whether a new attempt with [text] is the failed question typed again.
+  /// Only then does the old bubble (and its marker) give way; a DIFFERENT
+  /// text leaves the old bubble standing WITH its marker — it was never
+  /// delivered and must not look so.
+  bool _wiederholtFehlschlag(String text) {
+    final alt = _fehlgeschlagen;
+    return alt != null && alt.text.trim() == text.trim();
+  }
+
+  /// History without the previous failure's bubble when the new attempt
+  /// carries the same text. The marker (retry job) is the only place a failed
+  /// question lives on; the field is NOT refilled, so typing it again and
+  /// pressing send must replace the bubble, not duplicate it.
+  List<ChatMessage> _ohneAltenFehlschlag(String text) {
+    if (!_wiederholtFehlschlag(text)) return _messages;
+    final alt = _fehlgeschlagen!;
+    return _messages
+        .where((m) => m.id != alt.messageId)
+        .toList(growable: false);
   }
 
   /// Takes over a quota state the server just named.
@@ -665,11 +694,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// exit counts. After unmount only the bookkeeping runs, no setState.
   void _sendevorgangBeendet() {
     final rest = math.max(0, _laufendeSendungen - 1);
+    // Nothing in flight: no session is "the sending one" any more.
+    final sendende = rest == 0 ? null : _sendendeSessionId;
     if (!mounted) {
       _laufendeSendungen = rest;
+      _sendendeSessionId = sendende;
       return;
     }
-    setState(() => _laufendeSendungen = rest);
+    setState(() {
+      _laufendeSendungen = rest;
+      _sendendeSessionId = sendende;
+    });
   }
 
   /// Retries the last undelivered question.
@@ -681,9 +716,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   Future<void> _wiederholen() async {
     final auftrag = _fehlgeschlagen;
     if (auftrag == null || !_canInteract) return;
-    // The restored draft belongs to this message and is consumed by the
-    // retry. A newly typed text must survive: [_send] always clears the field,
-    // even with `textOverride`.
+    // A newly typed text must survive: [_send] always clears the field, even
+    // with `textOverride`. The failed question itself typed again is consumed
+    // by the retry, not restored.
     final fremderEntwurf =
         _input.text.trim() == auftrag.text.trim() ? '' : _input.text;
     setState(() {
@@ -693,17 +728,20 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _fehlgeschlagen = null;
       _error = null;
     });
-    await _send(
+    final versand = _send(
       textOverride: auftrag.text,
       imageBytes: auftrag.imageBytes,
       imageMimeType: auftrag.imageMimeType,
     );
+    // `_send` clears the field synchronously before its first await, so the
+    // draft goes back right away instead of vanishing while the retry runs.
     if (mounted) _entwurfZurueck(fremderEntwurf);
+    await versand;
   }
 
-  /// Puts the typed text back into the field after a failure — it was never
-  /// sent. A newly typed draft wins: typing is allowed while an answer is in
-  /// flight ([_canType]), and overwriting it would be worse.
+  /// Restores a draft the retry had to clear. Only that: a failed question is
+  /// NOT put back here — the unsent marker is its single home, or the send
+  /// button would create a duplicate next to the retry.
   void _entwurfZurueck(String entwurf) {
     if (entwurf.isEmpty || _input.text.isNotEmpty) return;
     _input.text = entwurf;
@@ -794,7 +832,6 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       content: displayText,
       createdAt: DateTime.now(),
     );
-    final entwurf = _input.text;
     // As in [_send]: [displayText] carries the command, so a retry lands in
     // this branch again by itself.
     final auftrag = _FehlgeschlageneSendung(
@@ -802,7 +839,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       text: displayText,
     );
     setState(() {
-      _messages = [..._messages, userMsg];
+      _messages = [..._ohneAltenFehlschlag(displayText), userMsg];
+      if (_wiederholtFehlschlag(displayText)) _fehlgeschlagen = null;
+      _sendendeSessionId = sessionId;
       _input.clear();
       _draft = '';
       _laufendeSendungen++;
@@ -860,14 +899,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         );
       });
       if (_activeSessionId != sessionId) return;
-      _entwurfZurueck(entwurf);
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
       });
     } on CoachChatException catch (e) {
       if (!mounted || _activeSessionId != sessionId) return;
-      _entwurfZurueck(entwurf);
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -1090,8 +1127,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         setState(() => _error = l10n.coachErrorSpeechEmpty);
         return;
       }
+      // Into the field only, never straight to the server: a misheard
+      // sentence would cost a daily slot and seed the auto title. The user
+      // reviews and presses send.
       _input.text = text;
-      await _send(textOverride: text);
+      _input.selection = TextSelection.collapsed(offset: text.length);
+      _inputFocus.requestFocus();
     } on CoachSpeechException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1237,7 +1278,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     controller: _scroll,
                     focus: _inputFocus,
                     messages: _messages,
-                    sending: _sending,
+                    sending: _sendingInActiveSession,
                     recipeAddedFor: _isRecipeAdded,
                     // Card buttons stay disabled without a hook
                     // (preview/test) and while an add is running.

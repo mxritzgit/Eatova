@@ -147,11 +147,20 @@ void _erwartePalette(
 
 // --- 2. SOURCE: scanner -----------------------------------------------------
 
-/// The two auth screens are deliberately deferred (DESIGN_REFACTOR §3) and are
-/// the ONLY allowed exemption; a third one is a finding.
-const Set<String> _authAusnahmen = <String>{
-  'lib/src/screens/auth_screen.dart',
-  'lib/src/screens/auth_code_screen.dart',
+/// Files that may hold fixed colors, each with its reason. Everything here is
+/// a surface that must NOT follow the display mode; a new entry needs a
+/// reason of the same kind.
+const Map<String, String> _festeFarbenErlaubt = <String, String>{
+  'lib/src/screens/auth_screen.dart':
+      'Google "G" in the OAuth button: third-party brand colors per Google sign-in branding guidelines, never themed',
+  'lib/src/screens/barcode_scanner_sheet.dart':
+      'camera overlay on the live viewfinder: black/white scrims and glyphs on video, deliberately mode-independent',
+  'lib/src/screens/meal_camera_sheet.dart':
+      'camera overlay on the live viewfinder (see file comment), deliberately mode-independent',
+  'lib/src/widgets/kcal/scan_slot_chips.dart':
+      'slot chips drawn ON the camera overlay: black/white on video',
+  'lib/src/screens/recipes/recipe_cards.dart':
+      'legibility scrim over a recipe photo: black gradient on an image, not on a surface',
 };
 
 /// All Dart sources under `lib/` as (path with `/`, content).
@@ -332,12 +341,11 @@ void main() {
   // 2. SOURCE — the three hard rules from DESIGN_REFACTOR §3
   // =========================================================================
   group('Token-Disziplin in lib/', () {
-    test('nur die zurueckgestellten Auth-Screens importieren app_colors.dart',
-        () {
+    test('niemand importiert app_colors.dart mehr (die Datei ist weg)', () {
+      expect(File('lib/src/theme/app_colors.dart').existsSync(), isFalse,
+          reason: 'die alte Dunkel-Palette wurde mit der Auth-Runde geloescht');
       final treffer = <String>[];
       for (final quelle in _libQuellen()) {
-        if (quelle.key.endsWith('theme/app_colors.dart')) continue;
-        if (_authAusnahmen.contains(quelle.key)) continue;
         if (_ohneKommentare(quelle.value).contains('app_colors.dart')) {
           treffer.add(quelle.key);
         }
@@ -351,13 +359,16 @@ void main() {
       );
     });
 
-    test('kein Color(0x…) ausserhalb von lib/src/theme/', () {
+    test('kein Color(0x…), Color.fromARGB( oder Colors.* ausserhalb von '
+        'lib/src/theme/ (Allowlist mit Begruendung)', () {
+      // `Colors.transparent` is no color choice and stays allowed everywhere.
+      final feste = RegExp(r'Color\(0x|Color\.fromARGB\(|Colors\.(?!transparent\b)[a-zA-Z]');
       final treffer = <String>[];
       for (final quelle in _libQuellen()) {
         if (quelle.key.startsWith('lib/src/theme/')) continue;
-        if (_authAusnahmen.contains(quelle.key)) continue;
+        if (_festeFarbenErlaubt.containsKey(quelle.key)) continue;
         for (final zeile in _ohneKommentare(quelle.value).split('\n')) {
-          if (zeile.contains('Color(0x')) {
+          if (feste.hasMatch(zeile)) {
             treffer.add('${quelle.key}: ${zeile.trim()}');
           }
         }
@@ -366,9 +377,13 @@ void main() {
         treffer,
         isEmpty,
         reason: 'Eine Konstante kann nicht hell UND dunkel sein — diese '
-            'Farben gehoeren als Token nach app_tokens.dart:\n'
-            '${treffer.join('\n')}',
+            'Farben gehoeren als Token nach app_tokens.dart (oder mit '
+            'Begruendung in _festeFarbenErlaubt):\n${treffer.join('\n')}',
       );
+      // The allowlist must not outlive its files.
+      for (final pfad in _festeFarbenErlaubt.keys) {
+        expect(File(pfad).existsSync(), isTrue, reason: '$pfad fehlt');
+      }
     });
 
     test('kein Brightness-Abzweig fuer Farben ausserhalb von lib/src/theme/',
@@ -380,7 +395,6 @@ void main() {
       final treffer = <String>[];
       for (final quelle in _libQuellen()) {
         if (quelle.key.startsWith('lib/src/theme/')) continue;
-        if (_authAusnahmen.contains(quelle.key)) continue;
         for (final zeile in _ohneKommentare(quelle.value).split('\n')) {
           if (zeile.contains('Theme.of(context).brightness') ||
               zeile.contains('platformBrightnessOf') ||

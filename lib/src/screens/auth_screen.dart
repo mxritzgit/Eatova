@@ -2,21 +2,26 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
 import '../l10n/l10n.dart';
 import '../services/secure_screen.dart';
-import 'auth_code_screen.dart';
-import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/auth/auth_controls.dart';
+import '../widgets/common/motion.dart';
 import '../widgets/shared/eatova_wordmark.dart';
+import 'auth_code_screen.dart';
+import 'settings/account_change_messages.dart' show kAccountMinPasswordLength;
 
-/// Eatova auth: a calm, immersive dark single screen.
+/// Eatova auth: one calm single screen that follows the display mode.
 ///
-/// Deep black with one soft lime aurora, compact brand mark, large headline,
-/// Google OAuth as the primary action, email fields and a lime CTA below, and
-/// the login/register switch as a quiet text toggle at the bottom.
+/// Soft accent aurora at the top, compact brand mark, large headline, Google
+/// OAuth as the primary action, borderless e-mail fields and the primary CTA
+/// below, the login/register switch as a quiet text toggle at the bottom.
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key, required this.authRepository});
 
@@ -25,9 +30,6 @@ class AuthScreen extends StatefulWidget {
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
-
-const _dim = Color(0xFF5A5B63);
-const _ink = bg; // text/glyph on lime
 
 class _AuthScreenState extends State<AuthScreen> {
   final _nameController = TextEditingController();
@@ -40,6 +42,10 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _message;
   String? _error;
 
+  /// Address whose login failed with "e-mail not confirmed": the error note
+  /// then offers the signup code page instead of ending in a dead end.
+  String? _unconfirmedEmail;
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -50,13 +56,18 @@ class _AuthScreenState extends State<AuthScreen> {
 
   bool get _busy => _loading || _oauthLoading != null;
 
+  void _clearNotes() {
+    _error = null;
+    _message = null;
+    _unconfirmedEmail = null;
+  }
+
   Future<void> _startOAuth(EatovaOAuthProvider provider) async {
     // Double-tap latch here AND on the button (`enabled`): the button lock
     // only takes effect with the next frame.
     if (_busy) return;
     setState(() {
-      _error = null;
-      _message = null;
+      _clearNotes();
       _oauthLoading = provider;
     });
     try {
@@ -72,25 +83,24 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _submit() async {
     // Latch as in [_startOAuth]: `_busy` flips now, the CTA only next frame.
     if (_busy) return;
+    final l10n = context.l10n;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
     final name = _nameController.text.trim();
 
-    setState(() {
-      _error = null;
-      _message = null;
-    });
+    setState(_clearNotes);
 
     if (!email.contains('@') || !email.contains('.')) {
-      setState(() => _error = 'Bitte gib eine gültige E-Mail ein.');
+      setState(() => _error = l10n.authErrorInvalidEmail);
       return;
     }
-    if (password.length < 8) {
-      setState(() => _error = 'Das Passwort braucht mindestens 8 Zeichen.');
+    if (password.length < kAccountMinPasswordLength) {
+      setState(() => _error =
+          l10n.authErrorPasswordTooShort(kAccountMinPasswordLength));
       return;
     }
     if (_isRegister && name.length < 2) {
-      setState(() => _error = 'Wie dürfen wir dich nennen?');
+      setState(() => _error = l10n.authErrorNameMissing);
       return;
     }
 
@@ -107,32 +117,39 @@ class _AuthScreenState extends State<AuthScreen> {
           _zeigeNeutralenLoginHinweis();
           return;
         }
-        setState(
-          () => _message =
-              'Bestätigungs-Code unterwegs an $email (10 Minuten gültig).',
-        );
+        // Lets the password manager store the new credentials.
+        TextInput.finishAutofillContext();
+        setState(() => _message = l10n.authSignupCodeSent(email));
         // Straight to code entry: confirmation runs through the 8-digit code
         // from the mail, no longer a link.
-        await Navigator.of(context).push(MaterialPageRoute<void>(
-          builder: (_) => AuthCodeScreen(
-            authRepository: widget.authRepository,
-            flow: AuthCodeFlow.signup,
-            initialEmail: email,
-          ),
-        ));
+        await _openSignupCode(email);
       } else {
         await widget.authRepository.signIn(email: email, password: password);
+        TextInput.finishAutofillContext();
       }
     } catch (error) {
       if (!mounted) return;
       if (_isRegister && _isExistingAccount(error)) {
         _zeigeNeutralenLoginHinweis();
       } else {
-        setState(() => _error = _friendlyError(error));
+        setState(() {
+          _error = _friendlyError(error);
+          if (_isEmailNotConfirmed(error)) _unconfirmedEmail = email;
+        });
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _openSignupCode(String email) {
+    return Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => AuthCodeScreen(
+        authRepository: widget.authRepository,
+        flow: AuthCodeFlow.signup,
+        initialEmail: email,
+      ),
+    ));
   }
 
   /// Answer to "this address already has an account", in both shapes GoTrue
@@ -153,13 +170,19 @@ class _AuthScreenState extends State<AuthScreen> {
     return raw.contains('already registered') || raw.contains('already exists');
   }
 
+  /// GoTrue code first, then its known sentence — never a localized text.
+  static bool _matches(Object error, String code, String sentence) {
+    if (error is AuthException && error.code == code) return true;
+    return error.toString().toLowerCase().contains(sentence);
+  }
+
+  bool _isEmailNotConfirmed(Object error) =>
+      _matches(error, 'email_not_confirmed', 'email not confirmed');
+
   /// Opens the code flow page (8-digit OTP instead of a mail link) with the
   /// email prefilled; entering/changing it happens there.
   void _forgotPassword() {
-    setState(() {
-      _error = null;
-      _message = null;
-    });
+    setState(_clearNotes);
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => AuthCodeScreen(
         authRepository: widget.authRepository,
@@ -170,61 +193,54 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   String _friendlyError(Object error) {
-    final raw = error.toString().toLowerCase();
-    if (raw.contains('invalid login') || raw.contains('invalid credentials')) {
-      return 'E-Mail oder Passwort stimmt nicht.';
+    final l10n = context.l10n;
+    if (error is AuthCancelledException) return l10n.authErrorCancelled;
+    if (error is AuthUnavailableException) return l10n.authErrorUnavailable;
+    if (_matches(error, 'invalid_credentials', 'invalid login') ||
+        _matches(error, 'invalid_credentials', 'invalid credentials')) {
+      return l10n.authErrorInvalidCredentials;
     }
     // No branch for 'already registered': that case belongs to
     // [_isExistingAccount] and is answered neutrally there — naming it would
     // confirm account existence to a stranger.
-    if (raw.contains('email not confirmed')) {
-      return 'Bitte bestätige zuerst deine E-Mail.';
-    }
+    if (_isEmailNotConfirmed(error)) return l10n.authErrorEmailNotConfirmed;
+    final raw = error.toString().toLowerCase();
     if (raw.contains('provider') && raw.contains('enabled')) {
-      return 'Dieser Login-Anbieter ist in Supabase noch nicht aktiviert.';
+      return l10n.authErrorProviderDisabled;
     }
     if (raw.contains('redirect') || raw.contains('callback')) {
-      return 'OAuth Redirect ist noch nicht korrekt eingetragen.';
+      return l10n.authErrorRedirect;
     }
-    // 'cancel' catches English SDK errors, 'abgebrochen' our own German
-    // AuthExceptions; otherwise a plain user cancel hits the generic message.
-    if (raw.contains('cancel') || raw.contains('abgebrochen')) {
-      return 'Login wurde abgebrochen.';
-    }
-    return 'Das hat gerade nicht geklappt. Bitte nochmal versuchen.';
+    // Our own cancellations are typed (above); 'cancel' only catches the
+    // English SDK/platform errors of the browser sheet.
+    if (raw.contains('cancel')) return l10n.authErrorCancelled;
+    return l10n.authErrorGeneric;
   }
 
   void _setMode(bool register) {
     if (register == _isRegister) return;
     setState(() {
       _isRegister = register;
-      _error = null;
-      _message = null;
+      _clearNotes();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final insets = MediaQuery.viewInsetsOf(context).bottom;
+    final unconfirmed = _unconfirmedEmail;
 
     return SecureScreenGuard(
       child: Scaffold(
-      key: const ValueKey('screen-auth'),
-      backgroundColor: bg,
-      body: Stack(
-        children: [
-          const Positioned.fill(child: _AuroraBackdrop()),
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, 28 + insets),
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: 1),
-                duration: const Duration(milliseconds: 420),
-                curve: Curves.easeOutCubic,
-                // Static entrance: the former opacity/transform animation left
-                // the lower screen unpainted in the first frame (NEEDS-PAINT),
-                // so the mode toggle was not hit-testable in tests.
-                builder: (context, t, child) => child!,
+        key: const ValueKey('screen-auth'),
+        backgroundColor: t.bg,
+        body: Stack(
+          children: [
+            const Positioned.fill(child: _AuroraBackdrop()),
+            SafeArea(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(24, 0, 24, 28 + insets),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -241,20 +257,27 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 14),
                     const _OrDivider(),
                     const SizedBox(height: 14),
-                    _EmailForm(
-                      isRegister: _isRegister,
-                      loading: _loading,
-                      busy: _busy,
-                      passwordVisible: _passwordVisible,
-                      nameController: _nameController,
-                      emailController: _emailController,
-                      passwordController: _passwordController,
-                      error: _error,
-                      message: _message,
-                      onTogglePassword: () =>
-                          setState(() => _passwordVisible = !_passwordVisible),
-                      onSubmit: _submit,
-                      onForgotPassword: _forgotPassword,
+                    // One autofill context for the whole form, so the
+                    // password manager sees name, e-mail and password together.
+                    AutofillGroup(
+                      child: _EmailForm(
+                        isRegister: _isRegister,
+                        loading: _loading,
+                        busy: _busy,
+                        passwordVisible: _passwordVisible,
+                        nameController: _nameController,
+                        emailController: _emailController,
+                        passwordController: _passwordController,
+                        error: _error,
+                        message: _message,
+                        onTogglePassword: () => setState(
+                            () => _passwordVisible = !_passwordVisible),
+                        onSubmit: _submit,
+                        onForgotPassword: _forgotPassword,
+                        onEnterCode: unconfirmed == null
+                            ? null
+                            : () => _openSignupCode(unconfirmed),
+                      ),
                     ),
                     const SizedBox(height: 14),
                     _ModeToggle(
@@ -267,16 +290,15 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Aurora backdrop - one soft lime light source at the top.
+// Aurora backdrop - one soft accent light source at the top, decorative.
 // ═════════════════════════════════════════════════════════════════════
 
 class _AuroraBackdrop extends StatelessWidget {
@@ -284,14 +306,18 @@ class _AuroraBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const IgnorePointer(
+    final t = context.t;
+    return IgnorePointer(
       child: DecoratedBox(
         decoration: BoxDecoration(
           gradient: RadialGradient(
-            center: Alignment(0.0, -1.15),
+            center: const Alignment(0.0, -1.15),
             radius: 1.05,
-            colors: [Color(0x2BB6F36A), Color(0x00B6F36A)],
-            stops: [0.0, 1.0],
+            colors: [
+              t.lime.withValues(alpha: 0.17),
+              t.lime.withValues(alpha: 0.0),
+            ],
+            stops: const [0.0, 1.0],
           ),
         ),
       ),
@@ -308,9 +334,13 @@ class _BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    final t = context.t;
+    // On the mode ground the mark takes ink/accent, not the brand pair.
+    return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: [EatovaWordmark(fontSize: 26)],
+      children: [
+        EatovaWordmark(fontSize: 26, textColor: t.ink, ringColor: t.accent),
+      ],
     );
   }
 }
@@ -326,40 +356,29 @@ class _Hero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
     return Column(
       key: const ValueKey('auth-hero'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          isRegister ? 'KONTO ERSTELLEN' : 'WILLKOMMEN ZURÜCK',
-          style: const TextStyle(
-            fontSize: 11,
-            letterSpacing: 1.2,
-            fontWeight: FontWeight.w600,
-            color: lime,
-          ),
+          isRegister ? l10n.authEyebrowRegister : l10n.authEyebrowLogin,
+          style: AppType.eyebrow(t.accent, size: 11),
         ),
         const SizedBox(height: 12),
         Text(
-          isRegister ? 'Starte deine\nReise.' : 'Schön,\ndich zu sehen.',
-          style: const TextStyle(
-            fontSize: 30,
-            height: 1.08,
-            letterSpacing: -1.0,
-            fontWeight: FontWeight.w700,
-            color: textPrimary,
-          ),
+          isRegister ? l10n.authHeadlineRegister : l10n.authHeadlineLogin,
+          style: AppType.display(30, color: t.ink, height: 1.08),
         ),
         const SizedBox(height: 12),
         Text(
-          isRegister
-              ? 'Erstell dein Konto und richte in einer Minute dein Tagesziel ein.'
-              : 'Melde dich an und mach genau da weiter, wo du aufgehört hast.',
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 15,
+          isRegister ? l10n.authSublineRegister : l10n.authSublineLogin,
+          style: AppType.ui(
+            15,
+            weight: FontWeight.w500,
+            color: t.ink2,
             height: 1.45,
-            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -368,7 +387,7 @@ class _Hero extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Google button - white, prominent primary action (OAuth).
+// Google button - card surface, prominent primary action (OAuth).
 // ═════════════════════════════════════════════════════════════════════
 
 class _GoogleButton extends StatelessWidget {
@@ -384,57 +403,63 @@ class _GoogleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      key: const ValueKey('auth-google-oauth'),
-      onTap: enabled ? onTap : null,
-      behavior: HitTestBehavior.opaque,
+    final t = context.t;
+    return Semantics(
+      button: true,
+      enabled: enabled,
       child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 160),
+        duration: motionDuration(context, const Duration(milliseconds: 160)),
         opacity: enabled ? 1 : 0.55,
         child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: t.surf,
             borderRadius: BorderRadius.circular(rPill),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x33000000),
-                blurRadius: 20,
-                offset: Offset(0, 8),
-              ),
-            ],
+            border: Border.all(color: t.line),
+            boxShadow: softShadow(t),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: loading
-                    ? const CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        color: _ink,
-                      )
-                    : const CustomPaint(painter: _GoogleGPainter()),
-              ),
-              const SizedBox(width: 12),
-              // Flexible + ellipsis: at 200% system font the label would
-              // otherwise burst the button width.
-              const Flexible(
-                child: Text(
-                  'Mit Google anmelden',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1A1C1E),
-                    letterSpacing: -0.1,
-                  ),
+          child: Material(
+            type: MaterialType.transparency,
+            borderRadius: BorderRadius.circular(rPill),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: const ValueKey('auth-google-oauth'),
+              onTap: enabled ? onTap : null,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: loading
+                          ? CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: t.ink,
+                            )
+                          : const CustomPaint(painter: _GoogleGPainter()),
+                    ),
+                    const SizedBox(width: 12),
+                    // Flexible + ellipsis: at 200% system font the label would
+                    // otherwise burst the button width.
+                    Flexible(
+                      child: Text(
+                        context.l10n.authGoogleCta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.ui(
+                          15.5,
+                          weight: FontWeight.w700,
+                          color: t.ink,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -444,6 +469,13 @@ class _GoogleButton extends StatelessWidget {
 
 class _GoogleGPainter extends CustomPainter {
   const _GoogleGPainter();
+
+  // Google's own brand colors (sign-in branding guidelines): the "G" must not
+  // follow the app theme, so these are the one place with fixed colors.
+  static const Color _blue = Color.fromARGB(255, 66, 133, 244);
+  static const Color _green = Color.fromARGB(255, 52, 168, 83);
+  static const Color _yellow = Color.fromARGB(255, 251, 188, 5);
+  static const Color _red = Color.fromARGB(255, 234, 67, 53);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -466,12 +498,12 @@ class _GoogleGPainter extends CustomPainter {
       );
     }
 
-    arc(-90, 90, const Color(0xFF4285F4));
-    arc(0, 90, const Color(0xFF34A853));
-    arc(90, 90, const Color(0xFFFBBC05));
-    arc(180, 90, const Color(0xFFEA4335));
+    arc(-90, 90, _blue);
+    arc(0, 90, _green);
+    arc(90, 90, _yellow);
+    arc(180, 90, _red);
 
-    final p = Paint()..color = const Color(0xFF4285F4);
+    final p = Paint()..color = _blue;
     canvas.drawRect(Rect.fromLTWH(cx, cy - 1.4, r, 2.8), p);
   }
 
@@ -488,27 +520,28 @@ class _OrDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Row(
       children: [
-        const Expanded(child: Divider(color: hairline, height: 1)),
+        const Expanded(child: Divider()),
         const SizedBox(width: 12),
         // Flexible + ellipsis: large system fonts must not burst the
         // divider row.
         Flexible(
           child: Text(
-            'oder mit E-Mail',
+            context.l10n.authOrWithEmail,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              color: textMuted.withValues(alpha: 0.85),
+            style: AppType.ui(
+              12,
+              weight: FontWeight.w600,
+              color: t.ink2,
               letterSpacing: 0.2,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ),
         const SizedBox(width: 12),
-        const Expanded(child: Divider(color: hairline, height: 1)),
+        const Expanded(child: Divider()),
       ],
     );
   }
@@ -532,6 +565,7 @@ class _EmailForm extends StatelessWidget {
     required this.onTogglePassword,
     required this.onSubmit,
     required this.onForgotPassword,
+    required this.onEnterCode,
   });
 
   final bool isRegister;
@@ -547,50 +581,57 @@ class _EmailForm extends StatelessWidget {
   final VoidCallback onSubmit;
   final VoidCallback onForgotPassword;
 
+  /// Set only after "e-mail not confirmed": opens the signup code page.
+  final VoidCallback? onEnterCode;
+
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Column(
       key: const ValueKey('auth-email-card'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AnimatedSize(
-          duration: const Duration(milliseconds: 220),
+          duration: motionDuration(context, const Duration(milliseconds: 220)),
           curve: Curves.easeOutCubic,
           alignment: Alignment.topCenter,
           child: isRegister
               ? Padding(
                   key: const ValueKey('name-field-wrap'),
                   padding: const EdgeInsets.only(bottom: 14),
-                  child: _AuthField(
+                  child: AuthField(
                     fieldKey: const ValueKey('auth-name-field'),
                     icon: Icons.person_outline_rounded,
-                    label: 'Name',
-                    hint: 'Dein Name',
+                    label: l10n.authFieldNameLabel,
+                    hint: l10n.authFieldNameHint,
                     controller: nameController,
                     enabled: !busy,
                     textInputAction: TextInputAction.next,
+                    textCapitalization: TextCapitalization.words,
                     autofillHints: const [AutofillHints.name],
                   ),
                 )
               : const SizedBox.shrink(key: ValueKey('no-name-field')),
         ),
-        _AuthField(
+        AuthField(
           fieldKey: const ValueKey('auth-email-field'),
           icon: Icons.alternate_email_rounded,
-          label: 'E-Mail',
-          hint: 'du@beispiel.de',
+          label: l10n.authFieldEmailLabel,
+          hint: l10n.authFieldEmailHint,
           controller: emailController,
           enabled: !busy,
           keyboardType: TextInputType.emailAddress,
           textInputAction: TextInputAction.next,
+          autocorrect: false,
+          enableSuggestions: false,
           autofillHints: const [AutofillHints.email],
         ),
         const SizedBox(height: 14),
-        _AuthField(
+        AuthField(
           fieldKey: const ValueKey('auth-password-field'),
           icon: Icons.lock_outline_rounded,
-          label: 'Passwort',
-          hint: 'Mind. 8 Zeichen',
+          label: l10n.authFieldPasswordLabel,
+          hint: l10n.authFieldPasswordHint,
           controller: passwordController,
           enabled: !busy,
           obscure: !passwordVisible,
@@ -599,272 +640,54 @@ class _EmailForm extends StatelessWidget {
               ? const [AutofillHints.newPassword]
               : const [AutofillHints.password],
           onSubmitted: (_) => busy ? null : onSubmit(),
-          trailing: GestureDetector(
-            key: const ValueKey('auth-toggle-password'),
+          trailing: AuthPasswordToggle(
+            toggleKey: const ValueKey('auth-toggle-password'),
+            visible: passwordVisible,
+            showLabel: l10n.authShowPasswordTooltip,
+            hideLabel: l10n.authHidePasswordTooltip,
             onTap: busy ? null : onTogglePassword,
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Icon(
-                passwordVisible
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded,
-                size: 19,
-                color: textMuted,
-              ),
-            ),
           ),
         ),
         if (!isRegister) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Align(
             alignment: Alignment.centerRight,
-            child: GestureDetector(
-              key: const ValueKey('auth-forgot-password'),
+            child: AuthTextLink(
+              linkKey: const ValueKey('auth-forgot-password'),
+              label: l10n.authForgotPasswordCta,
               onTap: busy ? null : onForgotPassword,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                child: Text(
-                  'Passwort vergessen?',
-                  style: TextStyle(
-                    color: textMuted,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    decoration: TextDecoration.underline,
-                    decorationColor: textMuted.withValues(alpha: 0.5),
-                  ),
-                ),
-              ),
             ),
           ),
         ],
         if (error != null) ...[
           const SizedBox(height: 14),
-          _InlineNote(text: error!, isError: true),
+          AuthInlineNote(
+            noteKey: const ValueKey('auth-error'),
+            text: error!,
+            tone: AuthNoteTone.error,
+            actionKey: const ValueKey('auth-enter-code'),
+            actionLabel: onEnterCode == null ? null : l10n.authEnterCodeCta,
+            onAction: busy ? null : onEnterCode,
+          ),
         ],
         if (message != null) ...[
           const SizedBox(height: 14),
-          _InlineNote(text: message!, isError: false),
+          AuthInlineNote(
+            noteKey: const ValueKey('auth-message'),
+            text: message!,
+            tone: AuthNoteTone.info,
+          ),
         ],
         const SizedBox(height: 22),
-        _PrimaryCta(
+        AuthPrimaryButton(
           buttonKey: const ValueKey('auth-submit'),
-          label: isRegister ? 'Account erstellen' : 'Einloggen',
+          label: isRegister ? l10n.authSubmitRegister : l10n.authSubmitLogin,
+          icon: Icons.arrow_forward_rounded,
           loading: loading,
           enabled: !busy,
           onTap: onSubmit,
         ),
       ],
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════
-// Auth field - label on top, filled field with leading icon, lime focus.
-// ═════════════════════════════════════════════════════════════════════
-
-class _AuthField extends StatefulWidget {
-  const _AuthField({
-    required this.fieldKey,
-    required this.icon,
-    required this.label,
-    required this.hint,
-    required this.controller,
-    this.enabled = true,
-    this.obscure = false,
-    this.keyboardType,
-    this.textInputAction,
-    this.autofillHints,
-    this.onSubmitted,
-    this.trailing,
-  });
-
-  final Key fieldKey;
-  final IconData icon;
-  final String label;
-  final String hint;
-  final TextEditingController controller;
-  final bool enabled;
-  final bool obscure;
-  final TextInputType? keyboardType;
-  final TextInputAction? textInputAction;
-  final Iterable<String>? autofillHints;
-  final ValueChanged<String>? onSubmitted;
-  final Widget? trailing;
-
-  @override
-  State<_AuthField> createState() => _AuthFieldState();
-}
-
-class _AuthFieldState extends State<_AuthField> {
-  final _focus = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    _focus.addListener(() => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _focus.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final focused = _focus.hasFocus;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          widget.label.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 11,
-            letterSpacing: 1.2,
-            color: textMuted,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 8),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: surfaceSoft,
-            borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(
-              color: focused ? lime : hairline,
-              width: focused ? 1.5 : 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(widget.icon, size: 19, color: focused ? lime : textMuted),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  key: widget.fieldKey,
-                  cursorOpacityAnimates: false,
-                  controller: widget.controller,
-                  focusNode: _focus,
-                  enabled: widget.enabled,
-                  obscureText: widget.obscure,
-                  keyboardType: widget.keyboardType,
-                  textInputAction: widget.textInputAction,
-                  autofillHints: widget.autofillHints,
-                  onSubmitted: widget.onSubmitted,
-                  cursorColor: lime,
-                  cursorWidth: 1.6,
-                  style: const TextStyle(
-                    fontSize: 15.5,
-                    color: textPrimary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  decoration: InputDecoration(
-                    isCollapsed: true,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    filled: false,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                    hintText: widget.hint,
-                    hintStyle: const TextStyle(
-                      fontSize: 15.5,
-                      color: _dim,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ),
-              if (widget.trailing != null) widget.trailing!,
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════
-// Primary CTA - lime pill (email login/register).
-// ═════════════════════════════════════════════════════════════════════
-
-class _PrimaryCta extends StatelessWidget {
-  const _PrimaryCta({
-    required this.buttonKey,
-    required this.label,
-    required this.loading,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final Key buttonKey;
-  final String label;
-  final bool loading;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final disabled = !enabled;
-    return GestureDetector(
-      key: buttonKey,
-      onTap: disabled ? null : onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 17),
-        decoration: BoxDecoration(
-          color: disabled ? surfaceSoft : lime,
-          borderRadius: BorderRadius.circular(rPill),
-          boxShadow: disabled
-              ? null
-              : [
-                  BoxShadow(
-                    color: lime.withValues(alpha: 0.30),
-                    blurRadius: 22,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (loading)
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2.2, color: _ink),
-              )
-            else ...[
-              // Flexible + ellipsis: keeps the arrow visible at 200% system
-              // font instead of bursting the row.
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w700,
-                    color: disabled ? textMuted : _ink,
-                    letterSpacing: -0.1,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.arrow_forward_rounded,
-                size: 18,
-                color: disabled ? textMuted : _ink,
-              ),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }
@@ -881,86 +704,57 @@ class _ModeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      key: ValueKey(isRegister ? 'auth-toggle-login' : 'auth-toggle-register'),
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        // Wrap, not Row: at 200% system font the two texts stack instead of
-        // running off screen (WCAG 1.4.4).
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 6,
-          children: [
-            Text(
-              isRegister ? 'Schon dabei?' : 'Noch kein Konto?',
-              style: const TextStyle(
-                color: textMuted,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
+    final t = context.t;
+    final l10n = context.l10n;
+    // MergeSemantics: prompt and action read as ONE button, not two texts.
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        enabled: onTap != null,
+        child: InkWell(
+          key: ValueKey(
+              isRegister ? 'auth-toggle-login' : 'auth-toggle-register'),
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(rChip),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Center(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                // Wrap, not Row: at 200% system font the two texts stack
+                // instead of running off screen (WCAG 1.4.4).
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 6,
+                  children: [
+                    Text(
+                      isRegister
+                          ? l10n.authTogglePromptRegister
+                          : l10n.authTogglePromptLogin,
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                      ),
+                    ),
+                    Text(
+                      isRegister
+                          ? l10n.authToggleActionLogin
+                          : l10n.authToggleActionRegister,
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w700,
+                        color: t.accent,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            Text(
-              isRegister ? 'Einloggen' : 'Registrieren',
-              style: const TextStyle(
-                color: lime,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════
-// Inline note - error (danger) / confirmation (lime).
-// ═════════════════════════════════════════════════════════════════════
-
-class _InlineNote extends StatelessWidget {
-  const _InlineNote({required this.text, required this.isError});
-
-  final String text;
-  final bool isError;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isError ? danger : lime;
-    return Container(
-      key: ValueKey(isError ? 'auth-error' : 'auth-message'),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(rControl),
-        border: Border.all(color: color.withValues(alpha: 0.30)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            isError
-                ? Icons.error_outline_rounded
-                : Icons.check_circle_outline_rounded,
-            size: 16,
-            color: color,
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: color,
-                fontSize: 12.5,
-                height: 1.4,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -968,44 +762,62 @@ class _InlineNote extends StatelessWidget {
 
 /// Legal notice with tappable links to the terms and the privacy policy
 /// (GDPR Art. 13 / app store); both live on eatova.de.
-class _ConsentNotice extends StatelessWidget {
+///
+/// Stateful only for the two recognizers, which must be disposed.
+class _ConsentNotice extends StatefulWidget {
   const _ConsentNotice();
+
+  @override
+  State<_ConsentNotice> createState() => _ConsentNoticeState();
+}
+
+class _ConsentNoticeState extends State<_ConsentNotice> {
+  late final TapGestureRecognizer _terms = TapGestureRecognizer()
+    ..onTap = () => _open(kTermsUrl);
+  late final TapGestureRecognizer _privacy = TapGestureRecognizer()
+    ..onTap = () => _open(kPrivacyUrl);
 
   static Future<void> _open(String url) async {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
-  TextSpan _link(String text, String url) {
-    return TextSpan(
-      text: text,
-      style: const TextStyle(color: forgeLime, fontWeight: FontWeight.w700),
-      recognizer: TapGestureRecognizer()..onTap = () => _open(url),
-    );
+  @override
+  void dispose() {
+    _terms.dispose();
+    _privacy.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final linkStyle = TextStyle(color: t.accent, fontWeight: FontWeight.w700);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Text.rich(
         key: const ValueKey('auth-consent-notice'),
         TextSpan(
-          style: const TextStyle(
-            color: textMuted,
-            fontSize: 11.5,
+          style: AppType.ui(
+            11.5,
+            weight: FontWeight.w500,
+            color: t.ink2,
             height: 1.4,
-            fontWeight: FontWeight.w500,
           ),
           children: [
-            const TextSpan(text: 'Mit der Anmeldung akzeptierst du unsere '),
-            _link('AGB', kTermsUrl),
-            const TextSpan(
-              text:
-                  ' und stimmst der Verarbeitung deiner Gesundheits- und '
-                  'Ernährungsdaten gemäß der ',
+            TextSpan(text: l10n.authConsentPrefix),
+            TextSpan(
+              text: l10n.authConsentTerms,
+              style: linkStyle,
+              recognizer: _terms,
             ),
-            _link('Datenschutzerklärung', kPrivacyUrl),
-            const TextSpan(text: ' zu.'),
+            TextSpan(text: l10n.authConsentMiddle),
+            TextSpan(
+              text: l10n.authConsentPrivacy,
+              style: linkStyle,
+              recognizer: _privacy,
+            ),
+            TextSpan(text: l10n.authConsentSuffix),
           ],
         ),
         textAlign: TextAlign.center,

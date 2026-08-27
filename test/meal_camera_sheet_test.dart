@@ -15,6 +15,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 /// MealCameraSheet reads `context.l10n`; a constant because several
 /// `MaterialApp` setups in this file need the same delegates.
@@ -43,6 +44,9 @@ class _FakeCameraPlatform extends CameraPlatform
   /// Simulates a camera permission revoked mid-flight.
   bool denyCamera = false;
 
+  /// Simulates a plugin error that is NOT a permission problem.
+  bool failGeneric = false;
+
   final StreamController<DeviceOrientationChangedEvent> _orientationEvents =
       StreamController<DeviceOrientationChangedEvent>.broadcast();
   final StreamController<CameraErrorEvent> _errorEvents =
@@ -69,6 +73,9 @@ class _FakeCameraPlatform extends CameraPlatform
   ) async {
     if (denyCamera) {
       throw CameraException('CameraAccessDenied', 'Permission revoked');
+    }
+    if (failGeneric) {
+      throw CameraException('cameraNotFound', 'No camera');
     }
     createCalls += 1;
     return createCalls;
@@ -222,6 +229,40 @@ void main() {
     },
   );
 
+  // Review I-2: capture and gallery errors toast while the sheet stays open,
+  // so the sheet needs its own host above the scrim. The error paths are not
+  // triggerable here (takePicture has no fake), so pin the host in the tree —
+  // around the controls, inside the panel.
+  testWidgets('das Kamera-Sheet traegt einen SnackHost um seine Bedienelemente',
+      (tester) async {
+    final fake = _FakeCameraPlatform();
+    CameraPlatform.instance = fake;
+
+    await _pumpSheet(tester);
+
+    expect(find.byType(SnackHost), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('meal-camera-shutter')),
+        matching: find.byType(SnackHost),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: find.byType(SnackHost),
+        matching: find.byType(MealCameraSheet),
+      ),
+      findsOneWidget,
+      reason: 'der Host gehoert INS Sheet, nicht um es herum',
+    );
+    // The host must not swallow the controls: the close button still works.
+    expect(find.byKey(const ValueKey('meal-camera-close')).hitTestable(),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('meal-camera-gallery')).hitTestable(),
+        findsOneWidget);
+  });
+
   group('D3 · Kamera nach Unterbrechung', () {
     testWidgets(
       'nach Pause und Resume laeuft die Vorschau wieder, statt im '
@@ -353,8 +394,53 @@ void main() {
         _bringToForeground(tester);
         await _flush(tester);
 
-        expect(find.textContaining('Kamera nicht verfügbar'), findsOneWidget);
+        // F4-04: `CameraAccessDenied` is named as such, with the way out.
+        expect(find.textContaining('Kein Zugriff auf die Kamera'),
+            findsOneWidget);
+        expect(find.byKey(const ValueKey('meal-camera-open-settings')),
+            findsOneWidget);
         expect(find.byType(CircularProgressIndicator), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '"Einstellungen oeffnen" ruft app_settings auf, ein sonstiger '
+      'Kamerafehler zeigt den Button nicht',
+      (tester) async {
+        final settingsCalls = <String>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('com.spencerccf.app_settings/methods'),
+          (call) async {
+            settingsCalls.add(call.method);
+            return null;
+          },
+        );
+        addTearDown(() => tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+                const MethodChannel('com.spencerccf.app_settings/methods'),
+                null));
+
+        final fake = _FakeCameraPlatform();
+        fake.denyCamera = true;
+        CameraPlatform.instance = fake;
+
+        await _pumpSheet(tester);
+        await tester.tap(
+            find.byKey(const ValueKey('meal-camera-open-settings')));
+        await _flush(tester);
+        expect(settingsCalls, isNotEmpty);
+
+        // A non-permission failure: generic message, no Settings button.
+        fake.denyCamera = false;
+        fake.failGeneric = true;
+        _sendToBackground(tester);
+        await _flush(tester);
+        _bringToForeground(tester);
+        await _flush(tester);
+
+        expect(find.textContaining('Kamera nicht verfügbar'), findsOneWidget);
+        expect(find.byKey(const ValueKey('meal-camera-open-settings')),
+            findsNothing);
       },
     );
 

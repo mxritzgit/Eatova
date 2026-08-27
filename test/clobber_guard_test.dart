@@ -199,9 +199,13 @@ void main() {
 
     await _pumpHome(tester, sync: sync, debugCache: cache);
 
-    // Without a real profile source the app shows mandatory onboarding, so
-    // the user never reaches the settings to save defaults.
-    expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
+    // Without a real profile source the app shows the "slow connection"
+    // state (review 2026-08-27, F1-06) — not onboarding, whose completion
+    // would overwrite the real row. Either way the user never reaches the
+    // settings to save defaults.
+    expect(find.byKey(const ValueKey('screen-boot-unanswered')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
 
     // And the boot itself sent no profiles write with the 78 kg defaults.
     expect(recorder.clobberedWithDefaults, isFalse);

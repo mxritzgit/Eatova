@@ -257,6 +257,9 @@ void main() {
     expect(_textInZeile(0, 'Skyr'), findsOneWidget);
     expect(_zeile(1), findsNothing);
 
+    // The toast lives INSIDE the sheet (F3-02) in a strip the host reserves
+    // below the content — the last row's heart stays tappable meanwhile.
+    expect(find.text('Favorit entfernt'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
     await tester.pump(const Duration(milliseconds: 300));
     expect(_titel(tester), 'Favoriten (0)');

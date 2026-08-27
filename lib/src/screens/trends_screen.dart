@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart' hide TextDirection;
@@ -13,6 +14,9 @@ import '../widgets/common/lively.dart';
 import '../widgets/common/motion.dart';
 import '../widgets/design/design.dart';
 
+/// No step bonus: the trend goal is the base goal on every day.
+int noTrendStepBonus(DateTime _) => 0;
+
 /// Long-term trend view: daily calorie bars with target line and corridor, a
 /// 7/30/90-day range switch, and metrics. Data comes from the injected
 /// [TrendTotalsLoader], INDEPENDENT of HomeStore's 35-day window.
@@ -21,12 +25,19 @@ class TrendsScreen extends StatefulWidget {
     super.key,
     required this.kcalGoal,
     required this.loadTotals,
+    this.burnedKcalFor = noTrendStepBonus,
   });
 
   /// Daily target in kcal, passed through from the profile.
   final int kcalGoal;
 
   final TrendTotalsLoader loadTotals;
+
+  /// Step bonus per local calendar day (`HomeStore.burnedKcalForFoodDate`).
+  /// The Today tab steers by goal + bonus (model B), so the hit rate, the
+  /// corridor and the target line use the same per-day goal (F7-05). The
+  /// default [noTrendStepBonus] keeps the corridor on the base goal.
+  final int Function(DateTime day) burnedKcalFor;
 
   @override
   State<TrendsScreen> createState() => _TrendsScreenState();
@@ -135,19 +146,31 @@ class _TrendsScreenState extends State<TrendsScreen> {
     // would count as a full one.
     final completed = completedDaysOf(window);
     final avgKcal = averageKcalOf(completed);
-    final hits = goalHitsOf(completed, goalKcal: widget.kcalGoal);
+    final hits = goalHitsOf(
+      completed,
+      goalKcal: widget.kcalGoal,
+      burnedKcalFor: widget.burnedKcalFor,
+    );
     final macros = averageMacrosOf(completed);
+    // B5: calendar arithmetic (DST-safe), as in denseTrendWindow.
+    final firstDay = addDays(startOfDay(today), -(_rangeDays - 1));
+    // Per-slot goal for the chart: base plus that day's step bonus (F7-05).
+    final goalPerDay = <int>[
+      for (var i = 0; i < window.length; i++)
+        widget.kcalGoal + widget.burnedKcalFor(addDays(firstDay, i)),
+    ];
+    final hatBonus = goalPerDay.any((g) => g != widget.kcalGoal);
 
     return [
       _ChartCard(
         window: window,
         rangeDays: _rangeDays,
         kcalGoal: widget.kcalGoal,
+        goalPerDay: goalPerDay,
         avgKcal: avgKcal,
         // Counts drawn bars so the a11y announcement matches the chart.
         trackedDays: trackedDaysOf(window),
-        // B5: calendar arithmetic (DST-safe), as in denseTrendWindow.
-        firstDay: addDays(startOfDay(today), -(_rangeDays - 1)),
+        firstDay: firstDay,
       ),
       const SizedBox(height: 14),
       // IntrinsicHeight: height is unbounded here, so stretch means Infinity.
@@ -188,30 +211,45 @@ class _TrendsScreenState extends State<TrendsScreen> {
       _MacroAveragesCard(macros: macros),
       const SizedBox(height: 10),
       // B6: the label must match the maths, which excludes the current day.
-      const _MetricsNote(),
+      _MetricsNote(showBonusNote: hatBonus),
     ];
   }
 }
 
 /// Footnote saying the current day is excluded from the averages and hit
 /// rate (B6). One line for all three tiles, since the sublabels would wrap it
-/// three times.
+/// three times. With a step bonus in the window a second line explains the
+/// per-day goal (F7-05).
 class _MetricsNote extends StatelessWidget {
-  const _MetricsNote();
+  const _MetricsNote({required this.showBonusNote});
+
+  final bool showBonusNote;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final style = AppType.ui(
+      11,
+      weight: FontWeight.w500,
+      color: context.t.ink2,
+      height: 1.4,
+    );
     return Padding(
       key: const ValueKey('trends-metrics-note'),
       padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Text(
-        context.l10n.trendsMetricsNote,
-        style: AppType.ui(
-          11,
-          weight: FontWeight.w500,
-          color: context.t.ink2,
-          height: 1.4,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.trendsMetricsNote, style: style),
+          if (showBonusNote) ...[
+            const SizedBox(height: 6),
+            Text(
+              l10n.trendsGoalBonusNote,
+              key: const ValueKey('trends-goal-bonus-note'),
+              style: style,
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -262,6 +300,7 @@ class _ChartCard extends StatelessWidget {
     required this.window,
     required this.rangeDays,
     required this.kcalGoal,
+    required this.goalPerDay,
     required this.avgKcal,
     required this.trackedDays,
     required this.firstDay,
@@ -269,7 +308,13 @@ class _ChartCard extends StatelessWidget {
 
   final List<TrendDayTotals?> window;
   final int rangeDays;
+
+  /// Base goal — what the a11y announcement names.
   final int kcalGoal;
+
+  /// Effective goal per window slot (base + step bonus), what the painter
+  /// draws as a stepped line and corridor.
+  final List<int> goalPerDay;
   final double? avgKcal;
   final int trackedDays;
   final DateTime firstDay;
@@ -278,19 +323,23 @@ class _ChartCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    _ensureDateSymbols();
     // A11y: the chart is only painted, so values go out as speech. [avgKcal]
     // can be null while a bar already shows, so the average clause is dropped
     // rather than announcing a false 0.
     final avg = avgKcal;
+    // The announced goal is the one the label shows: today's slot including
+    // its step bonus (G M-1), not the base goal.
+    final spokenGoal = goalPerDay.isEmpty ? kcalGoal : goalPerDay.last;
     final semanticsValue = trackedDays == 0
         ? l10n.trendsChartSemanticsEmpty
         : avg == null
-        ? l10n.trendsChartSemanticsNoAvg(trackedDays, rangeDays, kcalGoal)
+        ? l10n.trendsChartSemanticsNoAvg(trackedDays, rangeDays, spokenGoal)
         : l10n.trendsChartSemanticsWithAvg(
             trackedDays,
             rangeDays,
             avg.round(),
-            kcalGoal,
+            spokenGoal,
           );
     return AppCard(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
@@ -343,7 +392,7 @@ class _ChartCard extends StatelessWidget {
                     key: const ValueKey('trends-chart'),
                     painter: _KcalTrendPainter(
                       window: window,
-                      goalKcal: kcalGoal,
+                      goalPerDay: goalPerDay,
                       firstDay: firstDay,
                       progress: value,
                       gridColor: t.line,
@@ -366,7 +415,8 @@ class _ChartCard extends StatelessWidget {
               padding: const EdgeInsets.only(left: 40, right: 8),
               child: Row(
                 children: [
-                  _Caption('${firstDay.day}.${firstDay.month}.'),
+                  // Locale-aware day.month (F7-09): `de` "1.8.", `en` "8/1".
+                  _Caption(DateFormat.Md(l10n.localeName).format(firstDay)),
                   const Spacer(),
                   _Caption(l10n.todayDateToday),
                 ],
@@ -618,10 +668,15 @@ class _ErrorCard extends StatelessWidget {
 /// Daily calorie bars (one series, so no legend), growing from the 0
 /// baseline; gap days stay gaps, since "not tracked" is not a 0 kcal day.
 /// All five colours arrive as fields and are checked in [shouldRepaint].
+///
+/// Target line and corridor are STEPPED per slot ([goalPerDay], F7-05): on a
+/// day with a step bonus the goal sits higher, exactly as the Today tab
+/// steered it. Without a bonus every slot carries the base goal and the line
+/// is straight, as before.
 class _KcalTrendPainter extends CustomPainter {
   _KcalTrendPainter({
     required this.window,
-    required this.goalKcal,
+    required this.goalPerDay,
     required this.firstDay,
     required this.progress,
     required this.gridColor,
@@ -630,10 +685,12 @@ class _KcalTrendPainter extends CustomPainter {
     required this.bandColor,
     required this.axisTextColor,
     required this.l10n,
-  });
+  }) : assert(goalPerDay.length == window.length);
 
   final List<TrendDayTotals?> window;
-  final int goalKcal;
+
+  /// Effective goal per slot, same length as [window].
+  final List<int> goalPerDay;
   final DateTime firstDay;
   final double progress;
   final Color gridColor, barColor, goalLineColor, bandColor, axisTextColor;
@@ -662,8 +719,12 @@ class _KcalTrendPainter extends CustomPainter {
       tracked++;
       maxKcal = math.max(maxKcal, day.kcal);
     }
+    var maxGoal = 0;
+    for (final g in goalPerDay) {
+      maxGoal = math.max(maxGoal, g);
+    }
 
-    final base = math.max(maxKcal, goalKcal);
+    final base = math.max(maxKcal, maxGoal);
     final niceMax = _niceMax(base);
 
     // Quiet grid: 4 solid hairlines (0 to niceMax in thirds).
@@ -687,26 +748,27 @@ class _KcalTrendPainter extends CustomPainter {
       return;
     }
 
-    // Target corridor (±10 %) as a quiet area behind the bars.
-    if (goalKcal > 0) {
-      final loY =
-          inner.bottom -
-          (goalKcal * (1 - trendGoalTolerance) / niceMax) * inner.height;
-      final hiY =
-          inner.bottom -
-          (goalKcal * (1 + trendGoalTolerance) / niceMax) * inner.height;
+    final n = window.length;
+    final slotW = inner.width / n;
+    double yOf(num kcal) => (inner.bottom - (kcal / niceMax) * inner.height)
+        .clamp(inner.top, inner.bottom)
+        .toDouble();
+
+    // Target corridor (±10 %) as a quiet area behind the bars, per slot.
+    final bandPaint = Paint()..color = bandColor;
+    for (var i = 0; i < n; i++) {
+      final goal = goalPerDay[i];
+      if (goal <= 0) continue;
       final band = Rect.fromLTRB(
-        inner.left,
-        hiY.clamp(inner.top, inner.bottom),
-        inner.right,
-        loY.clamp(inner.top, inner.bottom),
+        inner.left + slotW * i,
+        yOf(goal * (1 + trendGoalTolerance)),
+        inner.left + slotW * (i + 1),
+        yOf(goal * (1 - trendGoalTolerance)),
       );
-      canvas.drawRect(band, Paint()..color = bandColor);
+      canvas.drawRect(band, bandPaint);
     }
 
     // Rounded at the data end, square at the base; height from [progress].
-    final n = window.length;
-    final slotW = inner.width / n;
     final gapW = slotW >= 8 ? 2.0 : 1.0;
     final barW = math.min(24.0, math.max(slotW - gapW, slotW * 0.55));
     final barPaint = Paint()..color = barColor.withValues(alpha: 0.92);
@@ -726,24 +788,43 @@ class _KcalTrendPainter extends CustomPainter {
       );
     }
 
-    // Target line: brighter than the grid, solid, labelled at the right end.
-    if (goalKcal > 0) {
-      final goalY = inner.bottom - (goalKcal / niceMax) * inner.height;
+    // Target line: brighter than the grid, solid, stepped per slot, labelled
+    // at the right end with the LAST slot's goal (today's, incl. bonus).
+    final lastGoal = goalPerDay.isEmpty ? 0 : goalPerDay.last;
+    if (goalPerDay.any((g) => g > 0)) {
       final goalPaint = Paint()
         ..color = goalLineColor
         ..strokeWidth = 1.4;
-      canvas.drawLine(
-        Offset(inner.left, goalY),
-        Offset(inner.right, goalY),
-        goalPaint,
-      );
-      _drawText(
-        canvas,
-        l10n.trendsChartGoalLabel(formatThousands(goalKcal, l10n.localeName)),
-        Offset(inner.right, goalY - 4),
-        alignRight: true,
-        above: true,
-      );
+      final path = Path();
+      var offen = false;
+      for (var i = 0; i < n; i++) {
+        final goal = goalPerDay[i];
+        if (goal <= 0) {
+          offen = false;
+          continue;
+        }
+        final y = yOf(goal);
+        final x0 = inner.left + slotW * i;
+        final x1 = inner.left + slotW * (i + 1);
+        if (!offen) {
+          path.moveTo(x0, y);
+          offen = true;
+        } else {
+          // Vertical riser between two different goals — a step, not a ramp.
+          path.lineTo(x0, y);
+        }
+        path.lineTo(x1, y);
+      }
+      canvas.drawPath(path, goalPaint..style = PaintingStyle.stroke);
+      if (lastGoal > 0) {
+        _drawText(
+          canvas,
+          l10n.trendsChartGoalLabel(formatThousands(lastGoal, l10n.localeName)),
+          Offset(inner.right, yOf(lastGoal) - 4),
+          alignRight: true,
+          above: true,
+        );
+      }
     }
 
     // 7-day view: weekday abbreviations under each slot as the x labels.
@@ -822,7 +903,7 @@ class _KcalTrendPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _KcalTrendPainter old) =>
       old.window != window ||
-      old.goalKcal != goalKcal ||
+      !listEquals(old.goalPerDay, goalPerDay) ||
       old.firstDay != firstDay ||
       old.progress != progress ||
       old.gridColor != gridColor ||

@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -254,6 +257,82 @@ void main() {
     expect(deco.enabledBorder, InputBorder.none);
     expect(deco.focusedBorder, InputBorder.none);
     expect(deco.disabledBorder, InputBorder.none);
+
+    // The capsule itself (nearest AnimatedContainer above the field): soft
+    // surface with shadow, NO hairline — the rejected look (F5-04).
+    final kapsel = tester.widget<AnimatedContainer>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey('coach-input')),
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+    final kapselDeco = kapsel.decoration! as BoxDecoration;
+    expect(kapselDeco.border, isNull,
+        reason: 'rahmenlose Eingabe: Tiefe kommt vom Schatten, nicht von line');
+    expect(kapselDeco.boxShadow, isNotEmpty);
+    expect(kapselDeco.color, AppTokens.dark.field);
+  });
+
+  testWidgets('Fokus hellt die Composer-Kapsel auf (field → fieldFocus), kein Ring',
+      (tester) async {
+    await _pumpCoach(tester, service: _FakeCoach.create());
+
+    BoxDecoration kapsel() => tester
+        .widget<AnimatedContainer>(
+          find
+              .ancestor(
+                of: find.byKey(const ValueKey('coach-input')),
+                matching: find.byType(AnimatedContainer),
+              )
+              .first,
+        )
+        .decoration! as BoxDecoration;
+
+    const t = AppTokens.dark;
+    expect(kapsel().color, t.field);
+
+    await tester.tap(find.byKey(const ValueKey('coach-input')));
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('coach-input')))
+        .focusNode
+        ?.hasFocus, isTrue);
+    expect(kapsel().color, t.fieldFocus,
+        reason: 'Fokus = Flaechen-Aufhellung, nicht Rahmen');
+    expect(kapsel().border, isNull);
+  });
+
+  testWidgets('„Abbrechen" im Loesch-Dialog bleibt leise (ink2, nicht accent)',
+      (tester) async {
+    await _pumpCoach(tester, service: _FakeCoach.create());
+
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    const t = AppTokens.dark;
+    final abbrechen = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.widgetWithText(TextButton, 'Abbrechen'),
+        matching: find.text('Abbrechen'),
+      ),
+    );
+    expect(abbrechen.text.style?.color, t.ink2,
+        reason: 'ein lautes Abbrechen neben dem roten Loeschen kehrt die '
+            'Gewichtung um');
+    expect(abbrechen.text.style?.color, isNot(t.accent));
+
+    final loeschen = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.widgetWithText(TextButton, 'Löschen'),
+        matching: find.text('Löschen'),
+      ),
+    );
+    expect(loeschen.text.style?.color, t.danger);
   });
 
   testWidgets('Verlauf nicht ladbar zeigt keinen Hero', (tester) async {
@@ -316,32 +395,40 @@ void main() {
 
   testWidgets('der Zuhoer-Zustand des Mikros ist in beiden Modi sichtbar',
       (tester) async {
-    // `lime` on the light composer capsule reaches only ~1.2:1, so the mic
-    // would look idle while listening. The state uses `accent` instead.
-    for (final (brightness, tokens) in <(Brightness, AppTokens)>[
-      (Brightness.dark, AppTokens.dark),
-      (Brightness.light, AppTokens.light),
-    ]) {
-      await _pumpCoach(
-        tester,
-        service: _FakeCoach.create(),
-        brightness: brightness,
-        speechInput: const _EndlosMikro(),
-      );
+    // The mic renders on iOS only (the speech channel lives in the iOS
+    // runner); tests run as Android by default. Reset in `finally`, not in a
+    // tearDown: the binding checks foundation vars before tearDowns run.
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      // `lime` on the light composer capsule reaches only ~1.2:1, so the mic
+      // would look idle while listening. The state uses `accent` instead.
+      for (final (brightness, tokens) in <(Brightness, AppTokens)>[
+        (Brightness.dark, AppTokens.dark),
+        (Brightness.light, AppTokens.light),
+      ]) {
+        await _pumpCoach(
+          tester,
+          service: _FakeCoach.create(),
+          brightness: brightness,
+          speechInput: const _EndlosMikro(),
+        );
 
-      final mic = find.byKey(const ValueKey('coach-mic'));
-      final glyph = find.descendant(
-        of: mic,
-        matching: find.byIcon(Icons.mic_none_rounded),
-      );
-      expect(tester.widget<Icon>(glyph).color, tokens.ink2,
-          reason: 'im Ruhezustand bleibt das Mikro eine stille Beschriftung');
+        final mic = find.byKey(const ValueKey('coach-mic'));
+        final glyph = find.descendant(
+          of: mic,
+          matching: find.byIcon(Icons.mic_none_rounded),
+        );
+        expect(tester.widget<Icon>(glyph).color, tokens.ink2,
+            reason: 'im Ruhezustand bleibt das Mikro eine stille Beschriftung');
 
-      await tester.tap(mic);
-      await tester.pumpAndSettle();
+        await tester.tap(mic);
+        await tester.pumpAndSettle();
 
-      expect(tester.widget<Icon>(glyph).color, tokens.accent);
-      expect(find.text('Ich höre zu…'), findsOneWidget);
+        expect(tester.widget<Icon>(glyph).color, tokens.accent);
+        expect(find.text('Ich höre zu…'), findsOneWidget);
+      }
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
     }
   });
 

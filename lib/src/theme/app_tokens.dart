@@ -37,6 +37,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.danger,
     required this.warning,
     required this.shadowTint,
+    required this.field,
+    required this.fieldFocus,
+    required this.fieldError,
+    required this.scrim,
   });
 
   /// Page ground (scaffold).
@@ -90,6 +94,33 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Tinted shadow for raised surfaces (never pure black).
   final Color shadowTint;
 
+  /// Input capsule at rest.
+  ///
+  /// APP-WIDE FOCUS LANGUAGE for every text input (repo rule): no hairline,
+  /// no focus ring, no red ring. The capsule is [field] with [softShadow];
+  /// focus LIGHTENS it to [fieldFocus]; an error tints it to [fieldError]
+  /// and adds the error line. `FieldCapsule` / `SheetField` implement it —
+  /// private capsules must use these three tokens, never surf/surf2/tile.
+  ///
+  /// Own tones, deliberately none of surf/surf2/bg: the capsule must stay
+  /// visible on a card (surf) AND on a sheet (bg). Constraint: `ink2` (hint)
+  /// needs 4.5:1 on all three, which caps how dark the light-mode tones may
+  /// go — bg and surf are only 1.13:1 apart there, so ≥ 1.2:1 against both
+  /// at once is impossible; the shadow carries the rest of the edge.
+  final Color field;
+
+  /// Input capsule with focus — always LIGHTER than [field], in both modes,
+  /// and never identical to surf/bg (a focused field on a dialog vanished).
+  final Color fieldFocus;
+
+  /// Input capsule in error: a faint [danger] tint, no red ring. Pre-mixed
+  /// as a token because `ink2` (hint text) has little headroom on [field] —
+  /// a runtime blend dropped it under 4.5:1 in both modes.
+  final Color fieldError;
+
+  /// Modal barrier behind sheets and dialogs.
+  final Color scrim;
+
   static const AppTokens light = AppTokens(
     bg: Color(0xFFF2EFE6),
     surf: Color(0xFFFFFDF8),
@@ -107,12 +138,21 @@ class AppTokens extends ThemeExtension<AppTokens> {
     onLime: Color(0xFF123322),
     accent: Color(0xFF123322),
     protein: Color(0xFF3C5CCC),
-    carbs: Color(0xFFDE9426),
+    // Darker than the draft (#DE9426, 2.47:1 on `surf`): the carb tone is a
+    // 9 px bar, i.e. a graphical object needing 3:1 (WCAG 1.4.11).
+    carbs: Color(0xFFC27A10),
     fat: Color(0xFFCE6448),
     snack: Color(0xFF3F7D68),
     danger: Color(0xFFB23A28),
     warning: Color(0xFF8A6212),
     shadowTint: Color(0x1A151E18),
+    // Rest: 1.26:1 to surf, 1.11:1 to bg, ink2 4.56:1 (the floor).
+    field: Color(0xFFE8E3D6),
+    // Focus: +20 % over field, 1.05:1 to surf, 1.08:1 to bg, ink2 5.5:1.
+    fieldFocus: Color(0xFFFAF7EE),
+    // danger @ 8 % over surf; ink2 holds 5.1:1.
+    fieldError: Color(0xFFF9EDE7),
+    scrim: Color(0x8C151E18),
   );
 
   static const AppTokens dark = AppTokens(
@@ -135,6 +175,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
     danger: Color(0xFFF08A72),
     warning: Color(0xFFF0B458),
     shadowTint: Color(0x59060810),
+    // Rest: 1.21:1 to surf, 1.34:1 to bg, ink2 4.9:1.
+    field: Color(0xFF232D27),
+    // Focus: 1.28:1 to surf, 1.42:1 to bg, ink2 4.6:1 (the ceiling).
+    fieldFocus: Color(0xFF28312B),
+    // danger @ 4 % over field; ink2 holds 4.6:1 — the error line carries.
+    fieldError: Color(0xFF2B312A),
+    scrim: Color(0xA6060810),
   );
 
   /// Tokens of the nearest theme. Throws deliberately when the extension is
@@ -173,6 +220,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? danger,
     Color? warning,
     Color? shadowTint,
+    Color? field,
+    Color? fieldFocus,
+    Color? fieldError,
+    Color? scrim,
   }) {
     return AppTokens(
       bg: bg ?? this.bg,
@@ -194,6 +245,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
       danger: danger ?? this.danger,
       warning: warning ?? this.warning,
       shadowTint: shadowTint ?? this.shadowTint,
+      field: field ?? this.field,
+      fieldFocus: fieldFocus ?? this.fieldFocus,
+      fieldError: fieldError ?? this.fieldError,
+      scrim: scrim ?? this.scrim,
     );
   }
 
@@ -221,6 +276,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
       danger: c(danger, other.danger),
       warning: c(warning, other.warning),
       shadowTint: c(shadowTint, other.shadowTint),
+      field: c(field, other.field),
+      fieldFocus: c(fieldFocus, other.fieldFocus),
+      fieldError: c(fieldError, other.fieldError),
+      scrim: c(scrim, other.scrim),
     );
   }
 }
@@ -237,13 +296,24 @@ extension TokensX on BuildContext {
 //   rCard    cards, panels
 //   rSheet   bottom sheets, dialogs
 //   rHero    large brand surfaces (calorie hero, identity card)
+//   rButton  the primary action (PrimaryActionButton, FilledButton, sheet
+//            action) — ONE radius for one semantics
 //   rPill    fully round (pills, FAB, avatars)
 const double rChip = 11;
 const double rControl = 15;
+const double rButton = 18;
 const double rCard = 22;
 const double rSheet = 28;
 const double rHero = 28;
 const double rPill = 999;
+
+/// Minimum height of the PRIMARY action only: [PrimaryActionButton] and the
+/// [SheetScaffold] action. Themed Filled/OutlinedButtons stay at
+/// [kButtonMinHeight] so dialog actions next to a TextButton do not tower.
+const double kPrimaryButtonHeight = 54;
+
+/// Touch-target floor for themed Material buttons (Filled/Outlined).
+const double kButtonMinHeight = 48;
 
 /// Soft elevation for floating surfaces (nav bar, sheets). Depth normally
 /// comes from [AppTokens.line]; shadows stay the exception for things that

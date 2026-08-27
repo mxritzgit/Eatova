@@ -167,26 +167,47 @@ class SettingsPlanHero extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Row(
-          children: <Widget>[
-            _MacroTile(
-              label: l10n.todayMacroProtein,
-              value: '$protein ${l10n.commonUnitG}',
-              color: t.protein,
-            ),
-            const SizedBox(width: 10),
-            _MacroTile(
-              label: l10n.foodMacroTileCarbsLabel,
-              value: '$carbs ${l10n.commonUnitG}',
-              color: t.carbs,
-            ),
-            const SizedBox(width: 10),
-            _MacroTile(
-              label: l10n.todayMacroFat,
-              value: '$fat ${l10n.commonUnitG}',
-              color: t.fat,
-            ),
-          ],
+        // Text scaling as a layout feature (F8-09): FittedBox.scaleDown kept
+        // the 11-px labels at 11 px whatever the system font. The tiles now
+        // reserve their width from the text scaler and wrap to two or three
+        // rows instead of shrinking the text.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const gap = 10.0;
+            final scaler = MediaQuery.textScalerOf(context);
+            // 96 px holds "240 g" over "Kohlenhydrate" at scale 1.0 inside a
+            // third of the 335-px page; scaled with the font so the label
+            // stays legible instead of shrinking.
+            final minTile = scaler.scale(96);
+            final width = constraints.maxWidth;
+            final perRow =
+                ((width + gap) / (minTile + gap)).floor().clamp(1, 3);
+            final tileWidth = (width - gap * (perRow - 1)) / perRow;
+            final tiles = <Widget>[
+              _MacroTile(
+                label: l10n.todayMacroProtein,
+                value: '$protein ${l10n.commonUnitG}',
+                color: t.protein,
+              ),
+              _MacroTile(
+                label: l10n.foodMacroTileCarbsLabel,
+                value: '$carbs ${l10n.commonUnitG}',
+                color: t.carbs,
+              ),
+              _MacroTile(
+                label: l10n.todayMacroFat,
+                value: '$fat ${l10n.commonUnitG}',
+                color: t.fat,
+              ),
+            ];
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: <Widget>[
+                for (final tile in tiles) SizedBox(width: tileWidth, child: tile),
+              ],
+            );
+          },
         ),
         if (warnung != null) ...<Widget>[
           const SizedBox(height: 12),
@@ -217,33 +238,29 @@ class _MacroTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Expanded(
-      child: AppCard(
-        radius: rControl,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-        child: Column(
-          children: <Widget>[
-            // The tile is a third of the row wide and the number grows with
-            // the system font — without shrinking it overflows at 2.0.
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                value,
-                maxLines: 1,
-                style: AppType.display(16, weight: FontWeight.w700, color: color),
-              ),
-            ),
-            const SizedBox(height: 3),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                style: AppType.ui(11, weight: FontWeight.w600, color: t.ink2),
-              ),
-            ),
-          ],
-        ),
+    // Width is reserved by the parent from the text scaler, so the texts keep
+    // their scaled size; ellipsis is the safety net, not the plan.
+    return AppCard(
+      radius: rControl,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+      child: Column(
+        children: <Widget>[
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: AppType.display(16, weight: FontWeight.w700, color: color),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: AppType.ui(11, weight: FontWeight.w600, color: t.ink2),
+          ),
+        ],
       ),
     );
   }

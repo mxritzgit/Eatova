@@ -670,8 +670,10 @@ class MealAnalysisResult {
       confidence: confidence == null || confidence.isEmpty
           ? _MealResultConfidenceCodes.unknown
           : _confidenceCodeFromModel(confidence),
-      portionNotes:
-          json['explanation']?.toString() ??
+      // The server normalizes a missing explanation to '' (normalize.ts), so
+      // empty counts as absent — otherwise the i18n marker never fires and
+      // the info sheet shows a blank line (F4-06).
+      portionNotes: _nonEmpty(json['explanation']?.toString()) ??
           (autoSplit
               ? MealResultPortionNote.autoSplit.code
               : normalizedItems.isNotEmpty
@@ -1018,6 +1020,12 @@ class MealAnalysisResult {
       }
     }
     return null;
+  }
+
+  /// Null for null AND whitespace-only — the server's "no explanation" is ''.
+  static String? _nonEmpty(String? raw) {
+    final trimmed = raw?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : raw;
   }
 
   static String? _firstNonEmptyString(

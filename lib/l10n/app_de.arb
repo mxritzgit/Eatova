@@ -102,7 +102,7 @@
   "todayDayLoading": "Tag wird geladen…",
   "todaySemanticsDatePrev": "Tag zurück",
   "todaySemanticsDateNext": "Tag vor",
-  "foodAnalysisFailedMessage": "Analyse fehlgeschlagen. Prüfe Internet, Supabase und OpenRouter.",
+  "foodAnalysisFailedMessage": "Die Analyse hat nicht geklappt. Prüfe deine Internetverbindung und versuch es nochmal.",
   "foodBarcodeNotFoundMessage": "Barcode {code} nicht gefunden oder OpenFoodFacts nicht erreichbar.",
   "@foodBarcodeNotFoundMessage": {
     "placeholders": {
@@ -183,6 +183,20 @@
   "foodEmptyStateTitle": "Suche oben oder scanne einen Barcode",
   "foodEmptyStateSubtitle": "Eingaben erscheinen direkt in der Liste oben.",
   "foodAnalysisTimeoutMessage": "Das dauert gerade zu lange. Bitte versuch es gleich nochmal.",
+  "foodAnalysisErrorTitle": "Das hat nicht geklappt",
+  "foodAnalysisRetryButton": "Erneut versuchen",
+  "foodAnalysisManualEntryButton": "Manuell eintragen",
+  "foodAnalysisSlowHint": "Dauert länger als üblich …",
+  "foodAnalysisOfflineMessage": "Keine Verbindung. Prüfe dein Internet und versuch es nochmal.",
+  "foodAnalysisProviderErrorMessage": "Die Analyse konnte nicht abgeschlossen werden. Bitte versuch es gleich nochmal.",
+  "foodAnalysisServiceUnavailableMessage": "Die Analyse ist gerade nicht verfügbar. Bitte versuch es später nochmal.",
+  "foodAnalysisImageUnusableMessage": "Das Foto konnte nicht verarbeitet werden. Bitte nimm ein neues auf.",
+  "foodAnalysisRateLimitUntilMessage": "Zu viele Foto-Analysen. Ab {time} Uhr geht es weiter.",
+  "@foodAnalysisRateLimitUntilMessage": {
+    "placeholders": {
+      "time": { "type": "String" }
+    }
+  },
   "foodReviewAnalysisSubtitle": "Analyse prüfen",
   "foodPortionAdjustedUpdated": "{grams} g angepasst. Tageswert aktualisiert.",
   "@foodPortionAdjustedUpdated": {
@@ -261,7 +275,7 @@
   "foodInfoConfidenceLabel": "Sicherheit",
   "foodEstimateDisclaimer": "Schätzungen sind Näherungen. Zutaten, Öl und Portion können abweichen.",
   "foodAddedToDailyLabel": "Zu heute hinzugefügt",
-  "foodPortionItemized": "{count, plural, other{{count} Bestandteile}} · {grams} g",
+  "foodPortionItemized": "{count, plural, one{{count} Bestandteil} other{{count} Bestandteile}} · {grams} g",
   "@foodPortionItemized": {
     "placeholders": {
       "count": { "type": "int" },
@@ -371,6 +385,14 @@
   "foodPhotoCaptureFailedMessage": "Foto konnte nicht aufgenommen werden. Versuch es nochmal.",
   "foodImageLoadFailedMessage": "Das Bild konnte nicht geladen werden.",
   "foodCameraUnavailableGalleryMessage": "Kamera nicht verfügbar. Prüfe die Berechtigung oder wähle ein Foto aus der Galerie.",
+  "foodCameraPermissionDeniedMessage": "Kein Zugriff auf die Kamera. Erlaube ihn in den Einstellungen oder wähle ein Foto aus der Galerie.",
+  "foodBarcodePermissionDeniedMessage": "Kein Zugriff auf die Kamera. Erlaube ihn in den Einstellungen oder tippe den Barcode ein.",
+  "foodOpenSettingsButton": "Einstellungen öffnen",
+  "foodBarcodeTypeInButton": "Barcode eintippen",
+  "foodBarcodeManualLabel": "Barcode-Nummer",
+  "foodBarcodeManualHint": "8, 12 oder 13 Ziffern",
+  "foodBarcodeManualInvalid": "Bitte 8, 12 oder 13 Ziffern eingeben.",
+  "foodBarcodeManualSubmit": "Produkt suchen",
   "foodScanMealTitle": "Mahlzeit scannen",
   "recipesSubtitle": "Clean Meals mit echten Bildern und Tracker-Werten.",
   "recipesCreateSemantics": "Eigenes Rezept anlegen",
@@ -471,6 +493,10 @@
       "max": { "type": "int" }
     }
   },
+  "recipesNameTooLongError": "Name ist zu lang – bitte kürzen.",
+  "@recipesNameTooLongError": {
+    "description": "Field error under the recipe name when it exceeds the server limit of 300 code points (Flutter's maxLength counts graphemes, so ZWJ emoji can overshoot)."
+  },
   "recipesPhotoSaveFailedError": "Das Foto konnte nicht abgelegt werden.",
   "recipesNoDataProvided": "Keine Angabe",
   "recipesNoPreparationYet": "Eigenes Rezept — keine Zubereitung hinterlegt.",
@@ -547,6 +573,10 @@
   "coachSessionsTitle": "Coach-Sessions",
   "coachSessionsNewLabel": "Neu",
   "coachSessionsEmpty": "Noch keine Unterhaltungen. Stell deinem Coach die erste Frage.",
+  "coachSessionDefaultTitle": "Neue Unterhaltung",
+  "@coachSessionDefaultTitle": {
+    "description": "Title of a freshly created coach conversation until the server derives one from the first question; also shown for stored default titles."
+  },
   "coachSessionDeleteTitle": "Session löschen?",
   "coachSessionDeleteBody": "\"{title}\" und alle Nachrichten darin werden entfernt.",
   "@coachSessionDeleteBody": {
@@ -573,7 +603,7 @@
       "count": { "type": "int" }
     }
   },
-  "coachSpeechPermissionDenied": "Mikrofon oder Spracherkennung wurde nicht erlaubt. Du kannst die Berechtigung in den iOS-Einstellungen wieder aktivieren.",
+  "coachSpeechPermissionDenied": "Mikrofon oder Spracherkennung wurde nicht erlaubt. Du kannst die Berechtigung in den Systemeinstellungen wieder aktivieren.",
   "coachSpeechUnavailable": "Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.",
   "coachSpeechFailed": "Spracherkennung fehlgeschlagen.",
   "coachErrorNotLoggedIn": "Bitte erst einloggen, um den Coach zu nutzen.",
@@ -592,7 +622,7 @@
   "coachErrorImageOpenFailed": "Das Bild konnte nicht geöffnet werden.",
   "coachCameraAccessNoun": "Kamerazugriff",
   "coachPhotoAccessNoun": "Fotozugriff",
-  "coachPermissionDenied": "{access} wurde nicht erlaubt. Du kannst die Berechtigung in den iOS-Einstellungen wieder aktivieren.",
+  "coachPermissionDenied": "{access} wurde nicht erlaubt. Du kannst die Berechtigung in den Systemeinstellungen wieder aktivieren.",
   "@coachPermissionDenied": {
     "placeholders": {
       "access": { "type": "String" }
@@ -688,6 +718,14 @@
   "profileBmiInfoSheetTitle": "BMI Orientierung",
   "profileBmiInfoSheetBody": "Body Mass Index ist eine grobe Heuristik. Für Athleten und athletische Körper ist die Tendenz interessanter als der absolute Wert.",
   "profileWeightInputLabel": "Aktuelles Gewicht",
+  "profileWeightInputRangeError": "{min}–{max} kg",
+  "@profileWeightInputRangeError": {
+    "description": "Error line under the weigh-in field when the value is outside the weight_log table range.",
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "profileGoalsCalories": "Kalorien",
   "profileGoalsSteps": "Schritte",
   "profileGoalsEditCta": "Ziele anpassen",
@@ -743,6 +781,10 @@
     }
   },
   "trendsMetricsNote": "Kennzahlen zählen nur abgeschlossene Tage. Heute läuft noch und ist nur im Verlauf oben enthalten.",
+  "trendsGoalBonusNote": "Ziel je Tag = Basisziel plus die an dem Tag durch Schritte verbrannten kcal — wie im Heute-Tab.",
+  "@trendsGoalBonusNote": {
+    "description": "Footnote under the trend metrics when at least one day in the window carries a step bonus."
+  },
   "trendsRangeDaysLabel": "{days} Tage",
   "@trendsRangeDaysLabel": {
     "placeholders": {
@@ -905,6 +947,9 @@
   "commonSyncErrorOffline": "Offline — das hat gerade nicht geklappt. Bitte versuch es mit Internetverbindung erneut.",
   "commonOutboxLossHint": "Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.",
   "commonOutboxDeleteLossHint": "Eine Löschung ließ sich nicht speichern — der Eintrag ist wieder da. Bitte lösch ihn noch einmal.",
+  "commonBootUnansweredTitle": "Verbindung langsam",
+  "commonBootUnansweredBody": "Deine Daten konnten noch nicht vom Server geladen werden. Prüf deine Verbindung und versuch es erneut.",
+  "commonBootUnansweredRetry": "Erneut versuchen",
 
   "settingsFieldRequired": "Bitte ausfüllen",
   "settingsRangeErrorKg": "{min}–{max} kg (ganze Zahl)",
@@ -988,7 +1033,7 @@
       "minutes": { "type": "String" }
     }
   },
-  "goalsDailyTargetsNote": "Nur fürs Tracking – ändert deine Kalorien nicht.",
+  "goalsDailyTargetsNote": "Das Schrittziel steuert nur die Schritte-Karte – dein Kalorienziel ändert es nicht.",
   "goalsGroupReminders": "ERINNERUNGEN",
   "goalsFieldReminders": "Erinnerungen",
   "goalsRemindersSubtitle": "Tägliche Streak-Erinnerung am Abend — lokal, ohne Server.",
@@ -1029,7 +1074,6 @@
   "settingsDeleteAccountBlockSubtitle": "Entfernt alle Einträge dauerhaft",
   "settingsDeleteAccountPromptPrefix": "Du wirst gebeten, ",
   "settingsDeleteConfirmWord": "LÖSCHEN",
-  "settingsDeleteAccountPromptSuffix": " zu tippen. Danach ist dein Konto samt aller Daten sofort und unwiderruflich weg.",
   "settingsAboutAppName": "Eatova",
   "settingsAboutTagline": "Ernährung. Tracking. Coach.",
   "settingsAboutDescription": "Kalorien und Makros ohne Reibung tracken — per KI-Foto-Scan, Barcode und Produktsuche, mit einem persönlichen Ernährungs-Coach.",
@@ -1071,7 +1115,6 @@
   "settingsAccountCodeRejected": "Der Code stimmt nicht oder ist abgelaufen. Fordere einen neuen an.",
   "settingsAccountOfflineError": "Offline — die Änderung ließ sich nicht abschicken. Bitte versuch es mit Internetverbindung erneut.",
   "settingsAccountRateLimited": "Zu viele Versuche in kurzer Zeit. Bitte warte einen Moment und versuch es dann erneut.",
-  "settingsAccountEmailInUse": "Diese E-Mail-Adresse wird bereits verwendet.",
   "settingsAccountEmailLooksInvalid": "Diese E-Mail-Adresse sieht nicht gültig aus.",
   "settingsAccountPasswordSameAsOld": "Das neue Passwort muss sich vom bisherigen unterscheiden.",
   "settingsAccountPasswordWeak": "Dieses Passwort ist zu schwach. Nimm ein längeres oder ungewöhnlicheres.",
@@ -1175,10 +1218,17 @@
       "firstName": { "type": "String" }
     }
   },
-  "onboardingWelcomeBody": "In 6 kurzen Schritten berechnen wir dein persönliches Tagesziel — genau abgestimmt auf deinen Körper und dein Wunschgewicht.",
+  "onboardingWelcomeBody": "In {steps} kurzen Schritten berechnen wir dein persönliches Tagesziel — genau abgestimmt auf deinen Körper und dein Wunschgewicht.",
+  "@onboardingWelcomeBody": {
+    "placeholders": {
+      "steps": { "type": "int" }
+    }
+  },
   "onboardingBulletFormula": "Wissenschaftliche Mifflin-St-Jeor-Formel",
   "onboardingBulletAutoMacros": "Kalorien & Makros automatisch gesetzt",
   "onboardingBulletAdjustable": "Jederzeit in den Einstellungen anpassbar",
+  "onboardingStepDownSemanticLabel": "Verringern",
+  "onboardingStepUpSemanticLabel": "Erhöhen",
   "onboardingSexMale": "Männlich",
   "onboardingSexFemale": "Weiblich",
   "onboardingSexNeutral": "Divers",
@@ -1323,14 +1373,124 @@
 
   "authCodeRateLimited": "Zu viele Anfragen in kurzer Zeit. Der Versand ist vorübergehend gesperrt — bitte warte etwa eine Minute, bevor du es erneut versuchst.",
   "authCodeResendCountdown": "Neuen Code in {sekunden} s anfordern",
+  "@authCodeResendCountdown": {
+    "placeholders": {
+      "sekunden": { "type": "int" }
+    }
+  },
   "authCodeThrottleWait": "Zu viele Anfragen. Der nächste Code ist in {sekunden} s möglich.",
+  "@authCodeThrottleWait": {
+    "placeholders": {
+      "sekunden": { "type": "int" }
+    }
+  },
   "authCodeTooManyAttempts": "Zu viele falsche Codes. Fordere aus Sicherheitsgründen einen neuen Code an.",
   "authSignupExistingAccountHint": "Falls es zu dieser Adresse schon ein Konto gibt, melde dich bitte an.",
+  "authBackSemanticLabel": "Zurück",
+  "authEyebrowLogin": "WILLKOMMEN ZURÜCK",
+  "authEyebrowRegister": "KONTO ERSTELLEN",
+  "authHeadlineLogin": "Schön,\ndich zu sehen.",
+  "authHeadlineRegister": "Starte deine\nReise.",
+  "authSublineLogin": "Melde dich an und mach genau da weiter, wo du aufgehört hast.",
+  "authSublineRegister": "Erstell dein Konto und richte in einer Minute dein Tagesziel ein.",
+  "authGoogleCta": "Mit Google anmelden",
+  "authOrWithEmail": "oder mit E-Mail",
+  "authFieldNameLabel": "Name",
+  "authFieldNameHint": "Dein Name",
+  "authFieldEmailLabel": "E-Mail",
+  "authFieldEmailHint": "du@beispiel.de",
+  "authFieldPasswordLabel": "Passwort",
+  "authFieldPasswordHint": "Mind. 8 Zeichen",
+  "authShowPasswordTooltip": "Passwort anzeigen",
+  "authHidePasswordTooltip": "Passwort verbergen",
+  "authForgotPasswordCta": "Passwort vergessen?",
+  "authSubmitLogin": "Einloggen",
+  "authSubmitRegister": "Account erstellen",
+  "authTogglePromptLogin": "Noch kein Konto?",
+  "authToggleActionRegister": "Registrieren",
+  "authTogglePromptRegister": "Schon dabei?",
+  "authToggleActionLogin": "Einloggen",
+  "authConsentPrefix": "Mit der Anmeldung akzeptierst du unsere ",
+  "authConsentTerms": "AGB",
+  "authConsentMiddle": " und stimmst der Verarbeitung deiner Gesundheits- und Ernährungsdaten gemäß der ",
+  "authConsentPrivacy": "Datenschutzerklärung",
+  "authConsentSuffix": " zu.",
+  "authErrorInvalidEmail": "Bitte gib eine gültige E-Mail ein.",
+  "authErrorPasswordTooShort": "Das Passwort braucht mindestens {minLength} Zeichen.",
+  "@authErrorPasswordTooShort": {
+    "placeholders": {
+      "minLength": { "type": "int" }
+    }
+  },
+  "authErrorNameMissing": "Wie dürfen wir dich nennen?",
+  "authSignupCodeSent": "Bestätigungs-Code unterwegs an {email} (10 Minuten gültig).",
+  "@authSignupCodeSent": {
+    "placeholders": {
+      "email": { "type": "String" }
+    }
+  },
+  "authErrorInvalidCredentials": "E-Mail oder Passwort stimmt nicht.",
+  "authErrorEmailNotConfirmed": "Bitte bestätige zuerst deine E-Mail.",
+  "authEnterCodeCta": "Code eingeben",
+  "authErrorProviderDisabled": "Dieser Login-Anbieter ist in Supabase noch nicht aktiviert.",
+  "authErrorRedirect": "OAuth Redirect ist noch nicht korrekt eingetragen.",
+  "authErrorCancelled": "Login wurde abgebrochen.",
+  "authErrorUnavailable": "Anmeldung derzeit nicht möglich. Bitte starte die App neu.",
+  "authErrorGeneric": "Das hat gerade nicht geklappt. Bitte nochmal versuchen.",
+  "authFallbackFirstName": "Gast",
+  "authWelcomeSignedIn": "Du bist drin.",
+  "authCodeTitleEmail": "Passwort zurücksetzen",
+  "authCodeTitleCode": "Code eingeben",
+  "authCodeTitlePassword": "Neues Passwort",
+  "authCodeSubtitleEmail": "Wir schicken dir einen {digits}-stelligen Code per E-Mail.",
+  "@authCodeSubtitleEmail": {
+    "placeholders": {
+      "digits": { "type": "int" }
+    }
+  },
+  "authCodeSubtitleRecovery": "Gib den Code aus der E-Mail an {email} ein.",
+  "@authCodeSubtitleRecovery": {
+    "placeholders": {
+      "email": { "type": "String" }
+    }
+  },
+  "authCodeSubtitleSignup": "Bestätige deine E-Mail {email} mit dem Code aus der Willkommens-Mail.",
+  "@authCodeSubtitleSignup": {
+    "placeholders": {
+      "email": { "type": "String" }
+    }
+  },
+  "authCodeSubtitlePassword": "Der Code stimmt. Leg jetzt dein neues Passwort fest.",
+  "authCodeFieldLabel": "Bestätigungs-Code",
+  "authCodeRequestCta": "Code anfordern",
+  "authCodeVerifyCta": "Code prüfen",
+  "authCodeSavePasswordCta": "Passwort speichern",
+  "authCodeResendCta": "Keinen Code bekommen? Neuen anfordern",
+  "authCodeSentNeutral": "Falls ein Konto mit dieser E-Mail existiert, ist der {digits}-stellige Code unterwegs. Er ist 10 Minuten gültig.",
+  "@authCodeSentNeutral": {
+    "placeholders": {
+      "digits": { "type": "int" }
+    }
+  },
+  "authCodeResent": "Neuer Code angefordert — er ist 10 Minuten gültig.",
+  "authCodeErrorLength": "Der Code hat {digits} Ziffern.",
+  "@authCodeErrorLength": {
+    "placeholders": {
+      "digits": { "type": "int" }
+    }
+  },
+  "authCodeErrorRejected": "Der Code stimmt nicht oder ist abgelaufen. Fordere unten einfach einen neuen an.",
+  "authCodePasswordUpdated": "Passwort aktualisiert. Du bist eingeloggt.",
   "coachInfoLimitUnknown": "Wie viele Fragen heute frei sind, lässt sich gerade nicht abrufen. Reset um Mitternacht (UTC).",
   "settingsAccountEmailNotAvailable": "Diese Adresse können wir nicht übernehmen. Falls es dazu schon ein Konto gibt, melde dich damit an; sonst prüfe bitte die Schreibweise.",
   "settingsDeleteAccountCheckingCta": "Wird geprüft…",
   "settingsDeleteAccountCodeFieldLabel": "Bestätigungs-Code",
   "settingsDeleteAccountCodeSentTo": "Zur Sicherheit schicken wir dir einen 8-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn wird nichts gelöscht.",
+  "@settingsDeleteAccountCodeSentTo": {
+    "placeholders": {
+      "adresse": { "type": "String" }
+    }
+  },
   "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 8-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
   "settingsDeleteAccountReauthExpired": "Die Bestätigung ist abgelaufen. Bitte starte die Kontolöschung neu und fordere einen neuen Code an.",
   "settingsDeleteAccountRequestCta": "Code anfordern",

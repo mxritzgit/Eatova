@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -309,31 +311,39 @@ void main() {
     testWidgets(
         'ein Fehlerbanner ueberlebt den Tab-Wechsel nicht — es ist Rueckmeldung '
         'auf eine Aktion, kein Dauerzustand', (tester) async {
-      final backend = _Backend()
-        ..quotaZeile = const {'used': 0, 'remaining': 5, 'daily_limit': 5};
-      await tester.pumpWidget(MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: const [Locale('de'), Locale('en')],
-        localizationsDelegates: _l10nDelegates,
-        home: _TabHost(
-          service: _service(backend),
-          speechInput: const _StummesMikro(),
-        ),
-      ));
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.pump(const Duration(milliseconds: 500));
+      // The mic renders on iOS only; tests run as Android by default. Reset
+      // in `finally`: the binding checks foundation vars before tearDowns.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        final backend = _Backend()
+          ..quotaZeile = const {'used': 0, 'remaining': 5, 'daily_limit': 5};
+        await tester.pumpWidget(MaterialApp(
+          theme: buildEatovaTheme(Brightness.dark),
+          locale: const Locale('de'),
+          supportedLocales: const [Locale('de'), Locale('en')],
+          localizationsDelegates: _l10nDelegates,
+          home: _TabHost(
+            service: _service(backend),
+            speechInput: const _StummesMikro(),
+          ),
+        ));
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 500));
 
-      await tester.tap(find.byKey(const ValueKey('coach-mic')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text(_StummesMikro.meldung), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('coach-mic')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.text(_StummesMikro.meldung), findsOneWidget);
 
-      await _wechsleTab(tester);
-      await _wechsleTab(tester);
+        await _wechsleTab(tester);
+        await _wechsleTab(tester);
 
-      expect(find.text(_StummesMikro.meldung), findsNothing,
-          reason: 'vor D6 raeumte der Tab-Wechsel das Banner mit dem Screen ab');
+        expect(find.text(_StummesMikro.meldung), findsNothing,
+            reason:
+                'vor D6 raeumte der Tab-Wechsel das Banner mit dem Screen ab');
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
   });
 }

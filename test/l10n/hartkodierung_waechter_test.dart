@@ -76,6 +76,10 @@ const List<String> _migriertePfade = <String>[
   'lib/src/app/eatova_app.dart',
   'lib/src/app/auth_gate.dart',
   'lib/src/app/locale_controller.dart',
+  'lib/src/screens/auth_screen.dart',
+  'lib/src/screens/auth_code_screen.dart',
+  'lib/src/widgets/auth/',
+  'lib/src/auth/',
 ];
 
 /// Documented per-literal exceptions (file -> literals): deliberately

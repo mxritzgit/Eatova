@@ -638,12 +638,13 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('die Hero-Kennzahlen schrumpfen, statt umzubrechen',
+    testWidgets('die Hero-Kennzahlen stapeln sich bei 2.0, statt zu schrumpfen',
         (tester) async {
       // Each tile takes a third of the card (~92 px), narrower than its
-      // content at textScaler 2.0; without FittedBox the text wrapped mid-word
-      // (174 px instead of 24). An overflow does not THROW, so no
-      // `takeException` test catches it.
+      // content at textScaler 2.0. The old FittedBox shrank the text back to
+      // its 1.0 size and so undid the user's setting (review F8-09); now the
+      // tiles stack and keep their real size. An overflow does not THROW, so
+      // the geometry is asserted directly.
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(
           tester,
@@ -653,20 +654,34 @@ void main() {
           streak: 365,
         );
       });
+      expect(tester.takeException(), isNull);
 
-      for (final fall in const <List<String>>[
+      const faelle = <List<String>>[
         <String>['today-stat-eaten', '12.345', 'GEGESSEN'],
         <String>['today-stat-burned', '1.234', 'VERBRANNT'],
         <String>['today-stat-streak', '365', 'TAGE-STREAK'],
-      ]) {
+      ];
+      double? vorherigeOberkante;
+      for (final fall in faelle) {
         final kachel = find.byKey(ValueKey<String>(fall[0]));
-        final kachelBreite = tester.getSize(kachel).width;
+        final hero = find.byKey(const ValueKey('today-kcal-hero'));
+
+        // Stacked: each tile starts below the previous one and spans the card.
+        final oberkante = tester.getTopLeft(kachel).dy;
+        if (vorherigeOberkante != null) {
+          expect(oberkante, greaterThan(vorherigeOberkante));
+        }
+        vorherigeOberkante = oberkante;
+        expect(
+          tester.getSize(kachel).width,
+          greaterThan(tester.getSize(hero).width / 2),
+        );
 
         for (final text in <String>[fall[1], fall[2]]) {
           final zeile = find.descendant(of: kachel, matching: find.text(text));
           expect(zeile, findsOneWidget);
-          // Single line: 20 / 10.5 px base type at 2.0 gives at most ~48 px
-          // line height; anything above that is a wrap.
+          // Single line at the REAL size: 20 / 10.5 px base type at 2.0 gives
+          // at most ~48 px line height; anything above that is a wrap.
           expect(
             tester.getSize(zeile).height,
             lessThan(80),
@@ -674,20 +689,11 @@ void main() {
           );
         }
 
-        // And the shrunken rendering stays inside the tile.
-        for (final box in tester.widgetList<FittedBox>(
+        // No FittedBox left in the tiles: the text is not shrunk.
+        expect(
           find.descendant(of: kachel, matching: find.byType(FittedBox)),
-        )) {
-          expect(box.fit, BoxFit.scaleDown);
-        }
-        for (final element in find
-            .descendant(of: kachel, matching: find.byType(FittedBox))
-            .evaluate()) {
-          expect(
-            (element.renderObject! as RenderBox).size.width,
-            lessThanOrEqualTo(kachelBreite + 0.5),
-          );
-        }
+          findsNothing,
+        );
       }
     });
 

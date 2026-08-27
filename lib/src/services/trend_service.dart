@@ -180,21 +180,27 @@ double? averageKcalOf(Iterable<TrendDayTotals?> window) {
   return tracked == 0 ? null : sum / tracked;
 }
 
-/// Tracked days inside `goalKcal * (1 +/- tolerance)`, bounds inclusive. Gap
-/// days count as neither; a goal <= 0 has no corridor -> 0 hits.
+/// Tracked days inside `goal(day) * (1 +/- tolerance)`, bounds inclusive,
+/// where `goal(day) = goalKcal + burnedKcalFor(day)` — the same "goal plus
+/// step bonus" the Today tab steers by (model B, F7-05). Without
+/// [burnedKcalFor] the corridor sits on the base goal. Gap days count as
+/// neither; a goal <= 0 has no corridor -> 0 hits.
 ({int hit, int tracked}) goalHitsOf(
   Iterable<TrendDayTotals?> window, {
   required int goalKcal,
   double tolerance = trendGoalTolerance,
+  int Function(DateTime day)? burnedKcalFor,
 }) {
   var hit = 0;
   var tracked = 0;
-  final lo = goalKcal * (1 - tolerance);
-  final hi = goalKcal * (1 + tolerance);
   for (final day in window) {
     if (day == null) continue;
     tracked++;
-    if (goalKcal > 0 && day.kcal >= lo && day.kcal <= hi) hit++;
+    final goal = goalKcal + (burnedKcalFor?.call(day.day) ?? 0);
+    if (goal <= 0) continue;
+    final lo = goal * (1 - tolerance);
+    final hi = goal * (1 + tolerance);
+    if (day.kcal >= lo && day.kcal <= hi) hit++;
   }
   return (hit: hit, tracked: tracked);
 }

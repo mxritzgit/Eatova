@@ -174,7 +174,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
 
     // showEatovaSheet supplies handle, keyboard inset and the height cap; this
     // is only the inside: header, search, capped scroll area, no footer.
-    return Column(
+    final body = Column(
       key: const ValueKey('favorites-sheet'),
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -232,6 +232,9 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
         ),
       ],
     );
+    // SnackHost: adds and unpins keep the sheet open, so their toasts must
+    // land inside it, above the scrim (review F3-02).
+    return SnackHost(child: body);
   }
 
   Widget _buildList(List<FavoriteMeal> pinned, List<FavoriteMeal> visible) {
@@ -277,9 +280,8 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
   }
 }
 
-/// Borderless soft capsule (repo rule: no hairline, no focus ring). Focus is
-/// the surface lightening `tile` -> `surf`, the same step `_GramsField` uses.
-/// Local filter only — no network, no debounce.
+/// Borderless pill on a [FieldCapsule] (rest `field`, focus `fieldFocus`; no
+/// hairline, no focus ring). Local filter only — no network, no debounce.
 class _SearchField extends StatefulWidget {
   const _SearchField({
     required this.controller,
@@ -299,17 +301,6 @@ class _SearchField extends StatefulWidget {
 
 class _SearchFieldState extends State<_SearchField> {
   final FocusNode _focus = FocusNode();
-  bool _focused = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _focus.addListener(() {
-      if (_focused != _focus.hasFocus) {
-        setState(() => _focused = _focus.hasFocus);
-      }
-    });
-  }
 
   @override
   void dispose() {
@@ -320,16 +311,13 @@ class _SearchFieldState extends State<_SearchField> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return AnimatedContainer(
-      duration: motionDuration(context, const Duration(milliseconds: 160)),
-      curve: Curves.easeOutCubic,
+    return FieldCapsule(
+      focusNode: _focus,
+      shape: SheetFieldShape.pill,
       // Minimum, not fixed: at textScaler 2.0 the hint needs ~56 pt and a
       // fixed 46 let it hang out of the capsule (safe-area test 2026-08-27).
       constraints: const BoxConstraints(minHeight: 46),
-      decoration: BoxDecoration(
-        color: _focused ? t.surf : t.tile,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
+      padding: EdgeInsets.zero,
       child: Row(
         children: [
           const SizedBox(width: 14),

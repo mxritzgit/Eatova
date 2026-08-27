@@ -4,8 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
+import 'auth_exceptions.dart';
 import 'google_id_token_provider.dart';
+
+export 'auth_exceptions.dart';
 
 class EatovaUser {
   const EatovaUser({required this.id, this.email, this.displayName});
@@ -14,7 +18,11 @@ class EatovaUser {
   final String? email;
   final String? displayName;
 
-  String get firstName {
+  /// First name for greetings: display name, else the mailbox part of the
+  /// address, else a neutral ARB fallback. Nothing here is persisted, so the
+  /// fallback may be localized; [l10n] defaults to the German bundle for
+  /// context-free callers.
+  String firstNameFor([AppLocalizations? l10n]) {
     final name = displayName?.trim();
     if (name != null && name.isNotEmpty) {
       return name.split(RegExp(r'\s+')).first;
@@ -23,8 +31,10 @@ class EatovaUser {
     if (mail != null && mail.isNotEmpty) {
       return mail.split('@').first;
     }
-    return 'Pilot';
+    return (l10n ?? deL10n).authFallbackFirstName;
   }
+
+  String get firstName => firstNameFor();
 }
 
 enum EatovaOAuthProvider { apple, google }
@@ -310,7 +320,7 @@ class SupabaseAuthRepository implements AuthRepository {
       authScreenLaunchMode: LaunchMode.inAppBrowserView,
     );
     if (!launched) {
-      throw AuthException('${provider.displayName} Login wurde abgebrochen.');
+      throw AuthCancelledException(provider.displayName);
     }
   }
 
@@ -545,7 +555,7 @@ class InMemoryAuthRepository implements AuthRepository {
 
   @override
   Future<void> signIn({required String email, required String password}) async {
-    _user = EatovaUser(id: 'test-user', email: email, displayName: 'Test Pilot');
+    _user = EatovaUser(id: 'test-user', email: email, displayName: 'Test User');
     _controller.add(_user);
   }
 
@@ -569,7 +579,7 @@ class InMemoryAuthRepository implements AuthRepository {
     _user = EatovaUser(
       id: 'oauth-test-user',
       email: '${provider.displayName.toLowerCase()}@example.com',
-      displayName: '${provider.displayName} Pilot',
+      displayName: '${provider.displayName} User',
     );
     _controller.add(_user);
   }
@@ -591,12 +601,12 @@ class UnavailableAuthRepository implements AuthRepository {
   const UnavailableAuthRepository(this.cause);
 
   /// Why building the real repository failed. Goes into the crash report; the
-  /// user-facing message stays generic because '$cause' can contain internal
-  /// URLs or assertion text.
+  /// user sees a typed [AuthUnavailableException] (localized by the screen)
+  /// because '$cause' can contain internal URLs or assertion text.
   final Object cause;
 
-  static Future<Never> _fail() => Future.error(const AuthException(
-      'Anmeldung derzeit nicht möglich. Bitte starte die App neu.'));
+  static Future<Never> _fail() =>
+      Future.error(const AuthUnavailableException());
 
   @override
   EatovaUser? get currentUser => null;

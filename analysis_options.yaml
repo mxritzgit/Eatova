@@ -11,11 +11,8 @@ analyzer:
   exclude:
     - "**/*.g.dart"
     - "build/**"
-    # `newScreen/` holds the imported design TEMPLATE (DESIGN_REFACTOR.md §1),
-    # not app code: it imports `package:google_fonts`, which is not in the
-    # pubspec, so it can never analyze cleanly. Untracked but not gitignored,
-    # so one `git add -A` would turn the CI analyze step red.
-    - "newScreen/**"
+    # The imported design template lives as a non-Dart file under
+    # docs/design/reference/ (DESIGN_REFACTOR.md §1), so no exclude is needed.
   errors:
     # ARCH-2: a global ignore here used to hide freshly created dead code.
     # `warning`, not `error`, so a single orphan does not fail the build.

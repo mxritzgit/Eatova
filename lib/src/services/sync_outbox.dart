@@ -584,6 +584,10 @@ Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
       // profiles.diet_preference.
       'diet_preference': p.diet.name,
       'onboarding_completed': p.onboardingCompleted,
+      // F7-01: the manual/live switch must survive the cache and the outbox,
+      // or an offline goal edit would be healed back to the calculator on the
+      // next load. Mirrors profiles.manual_energy.
+      'manual_energy': p.manualEnergy,
     };
 
 /// Sentinel finding 3 (2026-08-08): missing numeric fields used to be filled
@@ -640,6 +644,9 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
     diet: _profileEnum(
         DietPreference.values, j['diet_preference'], DietPreference.none),
     onboardingCompleted: j['onboarding_completed'] == true,
+    // Missing (blob from an older build) counts as live, like the column
+    // default — never reconstructed from the numbers.
+    manualEnergy: j['manual_energy'] == true,
   );
 }
 

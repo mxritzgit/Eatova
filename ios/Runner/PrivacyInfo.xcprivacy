@@ -54,11 +54,12 @@
 		<!--
 		  Gesundheitsdaten: Gewicht, Groesse, Alter, Geschlecht, Zielgewicht und
 		  saemtliche Ernaehrungsdaten (geloggte Mahlzeiten mit kcal/Makros),
-		  dazu Schlafdauer aus HealthKit.
+		  dazu Schrittzahl und Gewichtsverlauf aus HealthKit (Schlaf ist seit
+		  PR #46 raus: `readLastSleep` liefert immer null, kein SLEEP-Scope).
 		  Beleg: profile_sync.dart:122-138 (weight_kg, height_cm, age_years,
 		  sex, target_weight_kg, Makro-Ziele) => Supabase-Tabelle `profiles`;
 		  tracking_sync.dart:63-66 => `weight_log`; meals_sync => `logged_meals`;
-		  apple_health_service.dart:173-176 liest STEPS/WEIGHT/SLEEP_ASLEEP.
+		  apple_health_service.dart `_types` liest nur STEPS/WEIGHT.
 		  Ausserdem geht ein Koerperdaten-Snapshot an den Coach:
 		  home_store.dart:146-166 (Gewicht, Zielgewicht, kcal, Makros, heutige
 		  Mahlzeiten) -> coach_chat_service.dart:202 -> Edge Function ->

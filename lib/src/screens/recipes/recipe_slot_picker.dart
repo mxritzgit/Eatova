@@ -81,18 +81,16 @@ class _MealSlotPickerSheet extends StatelessWidget {
                 if (i != slots.length - 1) const SizedBox(height: 9),
               ],
               const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
+              // Colours and shape come from the button theme; only the
+              // stature is local.
+              ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: double.infinity,
+                  minHeight: 46,
+                ),
                 child: TextButton(
                   key: const ValueKey('recipe-meal-picker-cancel'),
                   onPressed: () => Navigator.of(context).pop(),
-                  style: TextButton.styleFrom(
-                    foregroundColor: t.ink2,
-                    minimumSize: const Size.fromHeight(46),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(rControl),
-                    ),
-                  ),
                   child: Text(
                     l10n.commonCancel,
                     style: AppType.ui(13.5, weight: FontWeight.w600),
