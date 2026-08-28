@@ -8,6 +8,7 @@
 // silently swapping base URL and key. Functionally a no-op, since the edge
 // runtime fixes the environment at isolate start.
 
+import { authFailGate } from '../_shared/auth_fail_gate.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { positiveIntFromEnv } from '../_shared/env.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
@@ -127,6 +128,9 @@ type RateLimitResult = {
   resetAt: string;
   windowSeconds: number;
 };
+/** authenticateUser either identifies the caller or, after too many failed
+ *  introspections from one IP, asks for a 429 instead of the 401. */
+type AuthOutcome = { user: AuthUser } | { rateLimited: RateLimitResult };
 
 type Language = 'de' | 'en';
 
@@ -161,7 +165,11 @@ export async function handleRequest(request: Request): Promise<Response> {
     assertConfigured(secrets);
     enforceContentLength(request);
 
-    const user = await authenticateUser(request, secrets);
+    const auth = await authenticateUser(request, secrets);
+    if ('rateLimited' in auth) {
+      return rateLimitedResponse(request, auth.rateLimited, requestId);
+    }
+    const user = auth.user;
     // Not the leftmost x-forwarded-for entry: Cloudflare appends, so that one
     // is client-controlled. Reasoning: ../_shared/client_ip.ts.
     const ipSubject = clientIpSubject(request, user.id);
@@ -321,13 +329,15 @@ async function readBodyLimited(request: Request, maxBytes: number): Promise<stri
   return new TextDecoder().decode(buf);
 }
 
-async function authenticateUser(request: Request, secrets: Secrets): Promise<AuthUser> {
+async function authenticateUser(request: Request, secrets: Secrets): Promise<AuthOutcome> {
   const authorization = request.headers.get('authorization') ?? '';
   const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match) {
     throw new HttpError(401, 'missing_bearer_token', 'Bitte erneut anmelden.');
   }
 
+  // Rejected LOCALLY (no roundtrip, no fail bucket): the anon key is not a
+  // user token, and without this anyone holding it could reach the model.
   const token = match[1].trim();
   if (!token || token === secrets.anonKey) {
     throw new HttpError(401, 'user_token_required', 'Bitte erneut anmelden.');
@@ -341,6 +351,26 @@ async function authenticateUser(request: Request, secrets: Secrets): Promise<Aut
   });
 
   if (!response.ok) {
+    // F-28-1: the lookup cost a GoTrue roundtrip, so failures are capped per
+    // IP before the 401 — only here, never for the local rejections above or
+    // the unusable-id case below. Rules in ../_shared/auth_fail_gate.ts.
+    const gate = await authFailGate({
+      supabaseUrl: secrets.supabaseUrl,
+      serviceKey: secrets.serviceKey,
+      scope: 'analyze-meal:auth-fail',
+      subject: clientIpSubject(request, 'anon'),
+    });
+    if (gate.limited) {
+      return {
+        rateLimited: {
+          allowed: false,
+          limit: gate.limit,
+          remaining: gate.remaining,
+          resetAt: gate.resetAt,
+          windowSeconds: gate.windowSeconds,
+        },
+      };
+    }
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
 
@@ -348,7 +378,7 @@ async function authenticateUser(request: Request, secrets: Secrets): Promise<Aut
   if (typeof user.id !== 'string' || user.id.length < 10) {
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
-  return { id: user.id, email: typeof user.email === 'string' ? user.email : undefined };
+  return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };
 }
 
 async function consumeRateLimit(
