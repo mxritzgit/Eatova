@@ -82,6 +82,14 @@ interface StubOptions {
    * (E6): a limiter outage, not a measured limit.
    */
   rateLimitBroken?: boolean;
+  /**
+   * Budget of the analyze-meal:auth-fail bucket (F-28-1). The stub mirrors
+   * the real RPC's atomic check+increment: every consume counts up, then
+   * allowed=false. Unset: allowed without counting.
+   */
+  authFailBudget?: number;
+  /** HTTP status of the consume for the auth-fail scope (limiter outage). */
+  authFailGateStatus?: number;
 }
 
 interface FetchStub {
@@ -122,6 +130,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   const calls: RecordedCall[] = [];
   const openRouterBodies: JsonRecord[] = [];
   const original = globalThis.fetch;
+  let authFailConsumes = 0;
 
   function route(url: string, body: string): Response {
     if (url.includes('/auth/v1/user')) {
@@ -131,8 +140,25 @@ function installFetch(options: StubOptions = {}): FetchStub {
       return jsonRes(options.authBody ?? { id: USER_ID });
     }
     if (url.includes('/rest/v1/rpc/consume_edge_rate_limit')) {
-      if (options.rateLimitBroken) return jsonRes({ ok: true });
       const params = JSON.parse(body) as JsonRecord;
+      if (params.p_scope === 'analyze-meal:auth-fail') {
+        if (options.authFailGateStatus !== undefined) {
+          return jsonRes({ message: 'limiter down' }, options.authFailGateStatus);
+        }
+        // Atomic check+increment like the real RPC (migration
+        // 20260518000100): the consume itself decides allowed.
+        authFailConsumes++;
+        const budget = options.authFailBudget ?? Number.POSITIVE_INFINITY;
+        const windowSeconds = Number(params.p_window_seconds);
+        return jsonRes({
+          allowed: authFailConsumes <= budget,
+          limit: Number(params.p_limit),
+          remaining: Math.max(Number(params.p_limit) - authFailConsumes, 0),
+          resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+          windowSeconds,
+        });
+      }
+      if (options.rateLimitBroken) return jsonRes({ ok: true });
       const allowedByScope: Record<string, boolean | undefined> = {
         'analyze-meal:ip': options.ipAllowed,
         'analyze-meal:global': options.globalAllowed,
@@ -207,10 +233,13 @@ interface RequestOptions {
   /** null = omit the header (missing bearer token). */
   authorization?: string | null;
   contentType?: string | null;
+  /** Sets cf-connecting-ip, the subject source of the IP-keyed gates. */
+  ip?: string;
 }
 
 function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request {
   const headers: Record<string, string> = {};
+  if (options.ip !== undefined) headers['cf-connecting-ip'] = options.ip;
   const authorization = options.authorization === undefined
     ? `Bearer ${USER_JWT}`
     : options.authorization;
@@ -295,7 +324,13 @@ Deno.test('abgelehnter Token -> 401 invalid_user_token', async () => {
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'invalid_user_token', 'Fehlercode');
     assertEquals(stub.callsTo('/auth/v1/user').length, 1, 'Auth-Lookups');
-    assertEquals(stub.rateLimitScopes().length, 0, 'kein Gate nach fehlgeschlagener Auth');
+    // Since F-28-1 the failed lookup itself is metered (fail bucket), but no
+    // application gate runs without a verified user.
+    assertEquals(
+      stub.rateLimitScopes().join(','),
+      'analyze-meal:auth-fail',
+      'nur das Fail-Bucket nach fehlgeschlagener Auth',
+    );
   } finally {
     stub.restore();
   }
@@ -546,6 +581,96 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
       /Text im Bild[\s\S]*Bildinhalt[\s\S]*Anweisung/i.test(promptText),
       'Schutzsatz gegen Anweisungen im Bild fehlt im BASE_PROMPT',
     );
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// F-28-1 (review 2026-08-28): auth failures are capped per IP BEFORE any
+// further backend work, like coach-chat. Without this, every signature-valid
+// but revoked token cost an uncapped /auth/v1/user introspection.
+// ---------------------------------------------------------------------------
+
+Deno.test('F-28-1: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucket bis 429', async () => {
+  // Budget 2: the first two failures answer 401 (and count), the third hits
+  // the atomic check+increment and gets a 429.
+  const stub = installFetch({ authStatus: 401, authFailBudget: 2 });
+  try {
+    const request = () => makeRequest({ imageBase64: IMAGE_BASE64 }, { ip: '203.0.113.7' });
+    const first = await handleRequest(request());
+    assertEquals(first.status, 401, '1. Fehlversuch: Status');
+    const second = await handleRequest(request());
+    assertEquals(second.status, 401, '2. Fehlversuch: Status');
+    const third = await handleRequest(request());
+    assertEquals(third.status, 429, '3. Fehlversuch: Status');
+    const body = await third.json() as JsonRecord;
+    assertEquals(body.error, 'rate_limited', 'Fehlercode');
+    assert(third.headers.get('retry-after') !== null, 'retry-after fehlt');
+
+    // Each failure costs exactly one lookup and one consume in the fail
+    // bucket, with the numbers shared with coach-chat.
+    assertEquals(stub.callsTo('/auth/v1/user').length, 3, 'Auth-Lookups');
+    const scopes = stub.rateLimitScopes();
+    assertEquals(scopes.length, 3, `nur das Fail-Bucket: ${scopes.join(',')}`);
+    assert(scopes.every((scope) => scope === 'analyze-meal:auth-fail'), 'keine ip/user-Gates auf dem Fehlschlag-Pfad');
+    const params = stub.rateLimitParams('analyze-meal:auth-fail');
+    assertEquals(params?.p_limit, 30, 'konservatives Limit (30/h)');
+    assertEquals(params?.p_window_seconds, 3600, 'Stunden-Fenster');
+    // Keyed by the client IP, never by a token-derived value.
+    assertEquals(params?.p_subject, 'ip:203.0.113.7', 'Subject');
+    assertEquals(stub.openRouterBodies.length, 0, 'kein Provider-Call');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('F-28-1: ohne IP-Header landet der Fehlschlag im dokumentierten anon-Fallback', async () => {
+  const stub = installFetch({ authStatus: 401, authFailBudget: 5 });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 401, 'Status');
+    // Unreachable behind Cloudflare; only failures land in this shared bucket.
+    assertEquals(stub.rateLimitParams('analyze-meal:auth-fail')?.p_subject, 'uid:anon', 'Fallback-Subject');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('F-28-1: erfolgreiche Auth beruehrt das Fail-Bucket nicht', async () => {
+  const stub = installFetch({ authFailBudget: 0 });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'nur die vier Anwendungs-Gates');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('F-28-1: Auth-200 ohne brauchbare User-Id zaehlt nicht ins Fail-Bucket', async () => {
+  // The lookup succeeded, so nothing was amplified; counting it would let a
+  // broken auth server 429 whole IPs (same rule as coach-chat).
+  const stub = installFetch({ authBody: { id: 'kurz' }, authFailBudget: 0 });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 401, 'Status');
+    assertEquals(stub.rateLimitScopes().length, 0, 'kein Consume');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('F-28-1: Limiter-Ausfall am Fail-Bucket blockiert die 401 nicht', async () => {
+  // The gate is a damper, not an auth boundary: with the limiter down the
+  // caller still gets its honest 401 instead of a 500.
+  const stub = installFetch({ authStatus: 401, authFailGateStatus: 500 });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 401, 'Status');
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, 'invalid_user_token', 'Fehlercode');
+    assertEquals(stub.rateLimitScopes().length, 1, 'der Consume wurde versucht');
   } finally {
     stub.restore();
   }

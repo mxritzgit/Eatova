@@ -23,6 +23,7 @@ import {
   sanitizeUserContext,
   shouldRunClassifier,
 } from "./guardrails.ts";
+import { authFailGate } from "../_shared/auth_fail_gate.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
 import { pruneRateLimits } from "../_shared/rate_limit_prune.ts";
@@ -51,10 +52,8 @@ const MAX_CONTENT_LENGTH     = 6_250_000;
 const HISTORY_LIMIT          = 10;
 const REQUEST_USER_LIMIT     = 60;
 const REQUEST_IP_LIMIT       = 120;
-// Caps repeated FAILED /auth/v1/user lookups per IP (CWE-400). A legitimate
-// client only lands here with an expired token, so 30/h is enough.
-const AUTH_FAIL_LIMIT          = 30;
-const AUTH_FAIL_WINDOW_SECONDS = 3600;
+// The cap on repeated FAILED /auth/v1/user lookups per IP (CWE-400) lives in
+// ../_shared/auth_fail_gate.ts since F-28-1, shared with the other functions.
 
 // Hard deadline for both provider roundtrips (CWE-400): without AbortSignal a
 // slow upstream hung until the platform limit, burning a claimed quota slot
@@ -1261,26 +1260,21 @@ export async function handleRequest(req: Request): Promise<Response> {
   const auth = await userIdFromJwt(req.headers.get("authorization"), supabaseUrl, anonKey);
   if (!auth.ok) {
     if (auth.reason === "lookup_failed") {
-      // Pre-auth IP limiter for auth FAILURES. consume_edge_rate_limit is
-      // check+increment ATOMICALLY, so there is no "peek" and consuming before
-      // the lookup would count successful auths — hence: only on failure.
-      // Without a verified user id the fallback subject is "anon", a SHARED
-      // bucket, acceptable because only failed logins land in it.
-      const failGate = await rpcConsumeEdgeRateLimit(
-        serviceKey,
+      // Pre-auth IP limiter for auth FAILURES, shared with analyze-meal and
+      // search-key since F-28-1; rules (consume only on failure, limiter
+      // outage never blocks the 401, shared "anon" fallback bucket) in
+      // ../_shared/auth_fail_gate.ts.
+      const failGate = await authFailGate({
         supabaseUrl,
-        "coach-chat:auth-fail",
-        clientIpSubject(req, "anon"),
-        AUTH_FAIL_LIMIT,
-        AUTH_FAIL_WINDOW_SECONDS,
-      );
-      // A limiter outage does not block the 401: this is a damper, not an auth
-      // boundary — unlike the gates below, which protect paid work.
-      if (!("error" in failGate) && !failGate.allowed) {
+        serviceKey,
+        scope: "coach-chat:auth-fail",
+        subject: clientIpSubject(req, "anon"),
+      });
+      if (failGate.limited) {
         return json(
           { error: "rate_limited", reply: LIMIT_TEXTS.auth_rate_limited[headerLocale] },
           429,
-          { "Retry-After": String(retryAfterSeconds(failGate.resetAt, failGate.windowSeconds)) },
+          { "Retry-After": String(failGate.retryAfterSeconds) },
         );
       }
     }
