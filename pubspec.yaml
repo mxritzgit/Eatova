@@ -6,7 +6,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # <build-name>+<build-number>; both can be overridden via --build-name /
 # --build-number. Android: versionName/versionCode, iOS:
 # CFBundleShortVersionString/CFBundleVersion.
-version: 1.1.0+2
+version: 1.1.0+3
 
 environment:
   sdk: ^3.11.5
