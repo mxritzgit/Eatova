@@ -16,6 +16,7 @@ import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
+import '../../services/meals_sync.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -153,6 +154,67 @@ Future<void> showAddMealSheet(
       );
     },
   );
+}
+
+/// Adopts an incoming favorites list but keeps every entry the sheet already
+/// holds whose content did not change (P8-07b).
+///
+/// [MealSuggestionItem] resets a typed portion as soon as its `result` instance
+/// changes — the guard against index-keyed rows handing a State the NEXT row's
+/// meal (review B, 2026-08-27). It rests on callers handing out stable
+/// instances; the boot load hands out new ones for unchanged rows and so turned
+/// that guard into data loss. Reusing the old instance restores the contract
+/// without weakening the reset: an entry that really moved (the store rewriting
+/// a recent with the logged result, P8-07) arrives as a new instance and still
+/// resets its row.
+///
+/// The fingerprint is [mealResultToJson] — the projection the persistence layer
+/// already keeps complete and round-trip-safe, so this cannot fall behind a new
+/// model field and hand a stale result to `onAdd`.
+List<FavoriteMeal> _uebernommeneFavoriten(
+  List<FavoriteMeal> bisher,
+  List<FavoriteMeal> neu,
+) {
+  final vorhanden = <String, FavoriteMeal>{for (final f in bisher) f.id: f};
+  return <FavoriteMeal>[
+    for (final f in neu)
+      if (_favoritUnveraendert(vorhanden[f.id], f)) vorhanden[f.id]! else f,
+  ];
+}
+
+bool _favoritUnveraendert(FavoriteMeal? bisher, FavoriteMeal neu) {
+  if (bisher == null) return false;
+  if (identical(bisher, neu)) return true;
+  return bisher.pinned == neu.pinned &&
+      bisher.addedAt.isAtSameMomentAs(neu.addedAt) &&
+      _gleicherJsonWert(
+        mealResultToJson(bisher.result),
+        mealResultToJson(neu.result),
+      );
+}
+
+/// Deep equality over the JSON shapes [mealResultToJson] produces (scalars,
+/// lists, string-keyed maps). Hand-rolled: `package:collection` is not a
+/// declared dependency here, and `jsonEncode` would throw on a non-finite
+/// double — `kcalPer100G` can be one. Unequal is the safe answer, so NaN
+/// simply falls through to "changed".
+bool _gleicherJsonWert(Object? a, Object? b) {
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final eintrag in a.entries) {
+      if (!b.containsKey(eintrag.key)) return false;
+      if (!_gleicherJsonWert(eintrag.value, b[eintrag.key])) return false;
+    }
+    return true;
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_gleicherJsonWert(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
 }
 
 class AddMealSheet extends StatefulWidget {
@@ -332,10 +394,18 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// the same frame, by what the store really did.
   ///
   /// Identity, not content: both lists are reassigned by the store on every
-  /// mutation, so identity is an O(1) fingerprint. It also has to be identity
-  /// for [_favorites] — [MealSuggestionItem] throws away a typed portion as
-  /// soon as its `result` INSTANCE differs (review B, 2026-08-27), so an
-  /// unchanged favorites list must keep its exact entries.
+  /// mutation, so identity is an O(1) fingerprint.
+  ///
+  /// For [_favorites] the entries themselves matter too — [MealSuggestionItem]
+  /// throws away a typed portion as soon as its `result` INSTANCE differs
+  /// (review B, 2026-08-27), and that contract says callers hand out stable
+  /// instances across rebuilds. The boot load breaks it: it replaces the whole
+  /// favorites list with freshly parsed server rows, same content, new objects
+  /// (P8-07b). A user whose shell is already up from the cache can be typing
+  /// 175 g into an open sheet when that answer lands, and the field snapped
+  /// back to 100. [_uebernommeneFavoriten] keeps the promise instead of
+  /// weakening the reset: an entry that really changed still arrives as a new
+  /// instance and still resets the row.
   @override
   void didUpdateWidget(AddMealSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -343,7 +413,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _existing = List<LoggedMeal>.of(widget.existingMeals);
     }
     if (!identical(oldWidget.favorites, widget.favorites)) {
-      _favorites = List<FavoriteMeal>.of(widget.favorites);
+      _favorites = _uebernommeneFavoriten(_favorites, widget.favorites);
     }
   }
 

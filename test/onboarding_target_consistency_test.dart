@@ -143,6 +143,54 @@ void main() {
     expect(find.text('15 kg zunehmen'), findsNothing);
   });
 
+  testWidgets('ein selbst gesetztes Ziel ueberlebt den Gewichtswechsel',
+      (tester) async {
+    // P9-07b — der Welle-2-Fix hatte NEBEN `_targetSafe` noch eine Nachfuehrung
+    // `_target = _targetSafe` im Gewichts-onChanged. Die kostet die Eingabe:
+    // 80 kg, Ziel von Hand auf 70, Gewicht auf 60 (zeigt 59) und zurueck auf
+    // 80 — und das Ziel stand auf 59 statt auf den 70, die der Nutzer gewaehlt
+    // hatte. `_targetSafe` allein traegt die Konsistenz (die drei Faelle
+    // darueber), die Nachfuehrung war nur Verlust.
+    await starte(tester);
+
+    for (var i = 0; i < 4; i++) {
+      await weiter(tester);
+    }
+    await setze(tester, 'weight', 80);
+    await weiter(tester); // activity
+    await weiter(tester); // goal
+    await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
+    await tester.pumpAndSettle();
+    await weiter(tester); // target
+
+    // Das Ziel von Hand setzen — nicht der Richtungs-Default 75.
+    await setze(tester, 'target', 70);
+    expect(angezeigt(tester, 'target'), '70');
+
+    // Gewicht unter das Ziel: das Fenster ist jetzt 30 … 59, gezeigt wird 59.
+    for (var i = 0; i < 3; i++) {
+      await zurueck(tester);
+    }
+    await setze(tester, 'weight', 60);
+    for (var i = 0; i < 3; i++) {
+      await weiter(tester);
+    }
+    expect(angezeigt(tester, 'target'), '59');
+    expect(find.text('1 kg abnehmen'), findsOneWidget);
+
+    // Zurueck auf 80 kg: das Fenster gibt die 70 wieder frei.
+    for (var i = 0; i < 3; i++) {
+      await zurueck(tester);
+    }
+    await setze(tester, 'weight', 80);
+    for (var i = 0; i < 3; i++) {
+      await weiter(tester);
+    }
+    expect(angezeigt(tester, 'target'), '70',
+        reason: 'die 70 war eine Eingabe, kein Zwischenstand');
+    expect(find.text('10 kg abnehmen'), findsOneWidget);
+  });
+
   testWidgets('der gespeicherte Plan nimmt genau die angezeigte Zahl',
       (tester) async {
     await starte(tester);

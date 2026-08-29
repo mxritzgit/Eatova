@@ -158,12 +158,19 @@ void main() {
     handle.dispose();
   });
 
-  testWidgets('Titel ist als Überschrift markiert', (tester) async {
+  testWidgets('Titel ist die einzige Überschrift und trägt Ebene 1',
+      (tester) async {
     final handle = tester.ensureSemantics();
     await _pump(tester);
 
-    // Read the node first, so a red expectation does not also leak the handle.
+    // Read the nodes first, so a red expectation does not also leak the handle.
     final knoten = tester.getSemantics(find.byKey(_titel));
+    final marken = find.semantics
+        .byPredicate((node) => node.flagsCollection.isHeader)
+        .evaluate()
+        .map((node) => '${node.label} (${node.headingLevel})')
+        .toList();
+    final herz = tester.getSemantics(find.byKey(_herz0));
     handle.dispose();
     expect(
       knoten,
@@ -172,6 +179,20 @@ void main() {
           'Semantics(header: true); ein Screenreader kann nicht zum '
           'Sheet-Kopf springen',
     );
+    expect(
+      knoten.headingLevel,
+      1,
+      reason: 'Sheet-Titel = Ebene 1 (P9-06b); ohne Rang bleibt die Marke '
+          'auf iOS zwar erreichbar, im Web und auf Android aber rangfrei',
+    );
+    expect(
+      marken,
+      ['Favoriten (2) (1)'],
+      reason: 'die Favoriten-Zeilen sind keine Überschriften',
+    );
+    // Gegenprobe: die Aktionen darunter behalten ihre Tipp-Aktion.
+    expect(herz, isSemantics(isButton: true, hasTapAction: true,
+        isHeader: false));
   });
 
   testWidgets('Herz hat mindestens 40×40 pt Tap-Fläche (geteilte Kachel)',

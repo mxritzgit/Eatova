@@ -71,6 +71,15 @@ class _TestImageStore extends RecipeImageStore {
   Future<void> clear() async {
     if (ordner.existsSync()) ordner.deleteSync(recursive: true);
   }
+
+  /// Live sets the screen handed over, one entry per sweep.
+  final List<List<String>> abgleiche = <List<String>>[];
+
+  @override
+  Future<int> reconcileRecipePhotos(Iterable<String> liveReferences) async {
+    abgleiche.add(liveReferences.toList(growable: false));
+    return 0;
+  }
 }
 
 /// Writes a file as if saved in an earlier session, synchronously so the
@@ -156,6 +165,60 @@ class _StoreHarnessState extends State<_StoreHarness> {
       safeArea: false,
     );
   }
+}
+
+/// Harness for the orphan sweep (P3-04). It starts with the list the store
+/// holds BEFORE hydration — empty, and no statement whatsoever about what lies
+/// on the disk — and delivers the real one on demand, exactly as
+/// `StoreSelector` does when `_userRecipes` is assigned for the first time.
+class _HydrationHarness extends StatefulWidget {
+  const _HydrationHarness({required this.rezepte, this.sofort = false,
+      this.persistenz = true});
+
+  /// What hydration (cache or boot load) eventually delivers.
+  final List<FitnessRecipe> rezepte;
+
+  /// True = the screen is built when the list is already there.
+  final bool sofort;
+
+  /// False = preview/test without sync: the recipe list is session-local and
+  /// says nothing about the disk.
+  final bool persistenz;
+
+  @override
+  State<_HydrationHarness> createState() => _HydrationHarnessState();
+}
+
+class _HydrationHarnessState extends State<_HydrationHarness> {
+  late List<FitnessRecipe> _rezepte =
+      widget.sofort ? widget.rezepte : const <FitnessRecipe>[];
+
+  @override
+  Widget build(BuildContext context) => localizedApp(
+        Scaffold(
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: RecipesScreen(
+                onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+                onDeleteRecipe: widget.persistenz
+                    ? (_) async => SyncDelivery.delivered
+                    : null,
+                initialUserRecipes: _rezepte,
+              ),
+            ),
+          ),
+          bottomNavigationBar: TextButton(
+            key: const ValueKey('harness-hydrate'),
+            // A NEW list each time, like every store mutation.
+            onPressed: () => setState(
+                () => _rezepte = List<FitnessRecipe>.of(widget.rezepte)),
+            child: const Text('Hydrieren'),
+          ),
+        ),
+        scaffold: false,
+        safeArea: false,
+      );
 }
 
 late Directory _temp;
@@ -281,5 +344,91 @@ void main() {
     expect(_store.resolveSync(referenz), isNull,
         reason: 'Ein zugestellt geloeschtes Rezept darf sein Foto nicht auf '
             'der Platte zuruecklassen — es ist PII.');
+  });
+
+  // Review 2026-08-29, P3-04: `deleteFor` is the ONLY release, and only for a
+  // delete this device makes AND the server acknowledges at once. A delete on
+  // device B never reaches this device, an offline delete is deliberately not
+  // followed up, and an abandoned coach adoption leaves its bytes lying. The
+  // screen is the only place that knows the real recipe list, so it drives the
+  // comparison — a blind cap would delete photos whose recipe still exists.
+  group('P3-04: Abgleich gegen die tatsaechlich vorhandenen Rezepte', () {
+    testWidgets('vor der Hydration wird nichts abgeglichen', (tester) async {
+      final referenz = _legeAb(_store, 'user_a', _jpeg());
+      _pinViewport(tester);
+
+      await tester.pumpWidget(_HydrationHarness(
+        rezepte: <FitnessRecipe>[
+          _eigenes(slug: 'user_a', imageAsset: referenz),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      expect(_store.abgleiche, isEmpty,
+          reason: 'Die leere Liste vor dem Cache-/Server-Load ist keine '
+              'Aussage ueber die Platte — ein Abgleich darauf loeschte jedes '
+              'Foto des Nutzers.');
+    });
+
+    testWidgets('die erste gelieferte Liste startet genau einen Abgleich',
+        (tester) async {
+      final referenz = _legeAb(_store, 'user_a', _jpeg());
+      _pinViewport(tester);
+
+      await tester.pumpWidget(_HydrationHarness(
+        rezepte: <FitnessRecipe>[
+          _eigenes(slug: 'user_a', imageAsset: referenz),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
+      await tester.pumpAndSettle();
+
+      expect(_store.abgleiche, hasLength(1),
+          reason: 'Ein Verzeichnis-Scan pro Sitzung reicht; jede weitere '
+              'Store-Meldung waere reine Last.');
+      expect(_store.abgleiche.single, contains(referenz));
+    });
+
+    testWidgets('eine beim Aufbau schon vorhandene Liste wird abgeglichen',
+        (tester) async {
+      final referenz = _legeAb(_store, 'user_a', _jpeg());
+      _pinViewport(tester);
+
+      await tester.pumpWidget(_HydrationHarness(
+        sofort: true,
+        rezepte: <FitnessRecipe>[
+          _eigenes(slug: 'user_a', imageAsset: referenz),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      expect(_store.abgleiche.single, contains(referenz),
+          reason: 'Der Tab wird auch nach abgeschlossener Hydration erst '
+              'aufgebaut — dann kommt die Liste ueber initState.');
+    });
+
+    testWidgets('ohne echte Persistenz wird nie abgeglichen', (tester) async {
+      final referenz = _legeAb(_store, 'user_a', _jpeg());
+      _pinViewport(tester);
+
+      await tester.pumpWidget(_HydrationHarness(
+        persistenz: false,
+        rezepte: <FitnessRecipe>[
+          _eigenes(slug: 'user_a', imageAsset: referenz),
+        ],
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
+      await tester.pumpAndSettle();
+
+      expect(_store.abgleiche, isEmpty,
+          reason: 'Vorschau und Tests halten ihre Rezepte nur in der Sitzung; '
+              'diese Liste darf nichts von der Platte nehmen.');
+    });
+
   });
 }

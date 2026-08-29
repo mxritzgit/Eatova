@@ -287,6 +287,22 @@ jobs:
       - name: deno test
         working-directory: supabase/functions
         run: deno test --allow-env
+      # Befund P5-08b (Review 2026-08-29): the suite runs every test file in
+      # ONE isolate, so a file that forgets its own `Deno.env.set` block or
+      # leaves a `globalThis.fetch` stub behind can be carried by a sibling and
+      # still report green. That is the same class that once left this project
+      # with years of green tests over broken mocks. A test that only passes in
+      # company is no test, so every file also has to stand alone.
+      - name: deno test (jede Datei einzeln)
+        working-directory: supabase/functions
+        run: |
+          status=0
+          for f in $(find . -name '*_test.ts' | sort); do
+            echo "::group::deno test $f"
+            deno test --allow-env "$f" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
 
   # Befund P7-02 (Review 2026-08-29): none of the nine jobs here could see an
   # RLS regression. No job ever started a Postgres, and the drift job below

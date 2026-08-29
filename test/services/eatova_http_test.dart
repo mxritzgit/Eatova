@@ -209,16 +209,45 @@ void main() {
     // BELOW the sum or it is decoration.
     expect(HttpTimeoutPolicy.mirror.total, const Duration(seconds: 10));
     expect(HttpTimeoutPolicy.openFoodFacts.total, const Duration(seconds: 20));
+    // P10-02b: the photo path had `total` = the phase sum (15+60+15 = 90 s),
+    // i.e. a field that could never fire. Every policy's ceiling now really is
+    // one.
+    expect(HttpTimeoutPolicy.mealAnalysis.total, const Duration(seconds: 75));
     for (final policy in const <HttpTimeoutPolicy>[
       HttpTimeoutPolicy.mirror,
       HttpTimeoutPolicy.openFoodFacts,
+      HttpTimeoutPolicy.mealAnalysis,
     ]) {
       expect(policy.total, isNotNull);
       expect(policy.total!, lessThan(policy.connect + policy.response +
           policy.body));
     }
-    // The photo path keeps its ceiling ON PURPOSE (P10-02 is about the product
-    // search): total == the phase sum, so nothing about analyze-meal changed.
-    expect(HttpTimeoutPolicy.mealAnalysis.total, const Duration(seconds: 90));
+  });
+
+  test('Die Foto-Frist bleibt ueber der Serverfrist (P10-02b)', () {
+    // Calibration, not taste. analyze-meal aborts itself at
+    // ANALYZE_MEAL_REQUEST_BUDGET_MS (55 s by default) and the provider call
+    // at 45 s, so a client ceiling of 90 s meant waiting at least 35 s on
+    // something that was already dead. The new ceiling has to stay ABOVE the
+    // server's own deadline plus the connect phase plus the response transfer,
+    // otherwise a live-but-slow scan would be cut off by the client.
+    const serverBudget = Duration(seconds: 55);
+    const antwortTransfer = Duration(seconds: 5);
+    const policy = HttpTimeoutPolicy.mealAnalysis;
+
+    expect(
+      policy.total!,
+      greaterThanOrEqualTo(policy.connect + serverBudget + antwortTransfer),
+      reason: 'unter connect + Serverbudget + Antwort-Transfer wuerde der '
+          'Client eine noch lebende Analyse abschneiden',
+    );
+    // ... and below the blind wait it replaces.
+    expect(policy.total!, lessThan(const Duration(seconds: 90)));
+    // The body phase keeps room for the (small) JSON answer even when connect
+    // and the server both use their full budget.
+    expect(
+      policy.total! - policy.connect - serverBudget,
+      greaterThanOrEqualTo(antwortTransfer),
+    );
   });
 }

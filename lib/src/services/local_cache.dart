@@ -23,6 +23,25 @@ abstract class KeyValueStore {
   Future<void> remove(String key);
 }
 
+/// What the raw storage holds for a key — and, when it holds something the
+/// caller could not use, whether a later read can do better.
+///
+/// P3-02c: the two occupied cases look identical from the outside (both end in
+/// `null`) but call for opposite reactions, so they must not share a verdict.
+enum RawSlotState {
+  /// Nothing stored: overwriting or deleting loses nothing.
+  empty,
+
+  /// Bytes are there and the last read HANDED THEM OVER. If the caller still
+  /// could not use them, the CONTENT is broken and no retry changes that.
+  brokenContent,
+
+  /// Bytes are there and the last read could not even EXECUTE the decryption
+  /// (isolate spawn, OOM, RemoteError). The bytes are intact; the next read
+  /// can succeed, so the slot must not be given up.
+  unreadableForNow,
+}
+
 /// Extra capability of a store that TRANSFORMS values on read (decryption):
 /// tells whether the underlying storage still holds bytes for a key, without
 /// decoding them.
@@ -34,10 +53,14 @@ abstract class KeyValueStore {
 /// STORAGE instead of the cipher keeps the answer independent of which error
 /// class a future decryption failure falls into.
 abstract class RawSlotProbe {
-  /// `true` if a non-empty value is stored under [key], readable or not.
-  /// Throws if the storage itself cannot answer — the caller must not read
-  /// that as "empty".
-  Future<bool> hasRawValue(String key);
+  /// State of [key] in the raw storage. Throws if the storage itself cannot
+  /// answer — the caller must not read that as "empty".
+  ///
+  /// P3-02c: the store also reports WHY a read failed, which only it knows.
+  /// Without that, [LocalCache._assertSlotEmpty] had to call every occupied
+  /// slot equally unreadable, and the repair path could only bound itself by
+  /// counting attempts.
+  Future<RawSlotState> rawSlotState(String key);
 }
 
 /// Platform default: SharedPreferences, built in production via
@@ -798,23 +821,42 @@ class LocalCache {
   /// A provably broken ciphertext stays "empty": the decorator PURGES such a
   /// slot on read, so the raw look finds nothing — correct, since nothing is
   /// left that overwriting could lose.
+  ///
+  /// P3-02c: the throw carries [UnreadableCacheSlot.transient], so the caller
+  /// can tell a slot that is merely unreadable RIGHT NOW from one whose
+  /// content is provably beyond repair.
   Future<void> _assertSlotEmpty(String key, String slot) async {
     final store = _store;
     // `is` does not promote to an unrelated interface, hence the cast.
     final probe = store is RawSlotProbe ? store as RawSlotProbe : null;
-    final bool belegt;
+    final RawSlotState zustand;
     try {
-      belegt = probe != null
-          ? await probe.hasRawValue(key)
-          : (await store.getString(key))?.isNotEmpty ?? false;
+      zustand = probe != null
+          ? await probe.rawSlotState(key)
+          // No transforming store, hence no transient decryption failure:
+          // whatever is there is exactly what the reader could not parse.
+          : ((await store.getString(key))?.isNotEmpty ?? false)
+              ? RawSlotState.brokenContent
+              : RawSlotState.empty;
     } catch (e) {
       // Only the error type leaves. The caller reports the throw to the
       // CrashReporter, and e.g. a FormatException carries its source in the
       // message — here the decrypted slot content, i.e. health data.
-      throw UnreadableCacheSlot(slot, e.runtimeType.toString());
+      //
+      // Transient, fail-closed: a storage that refuses to answer may answer
+      // next time, and giving the slot up on a guess overwrites data.
+      throw UnreadableCacheSlot(slot, e.runtimeType.toString(),
+          transient: true);
     }
-    if (belegt) {
-      throw UnreadableCacheSlot(slot, 'Inhalt nicht lesbar');
+    switch (zustand) {
+      case RawSlotState.empty:
+        return;
+      case RawSlotState.unreadableForNow:
+        throw UnreadableCacheSlot(slot, 'Entschluesselung nicht ausfuehrbar',
+            transient: true);
+      case RawSlotState.brokenContent:
+        throw UnreadableCacheSlot(slot, 'Inhalt nicht lesbar',
+            transient: false);
     }
   }
 
@@ -858,7 +900,7 @@ class LocalCache {
 /// (holds the user id) and never the value (health data), because the object
 /// goes into the crash report.
 class UnreadableCacheSlot implements Exception {
-  const UnreadableCacheSlot(this.slot, this.reason);
+  const UnreadableCacheSlot(this.slot, this.reason, {this.transient = true});
 
   /// Short name like `outbox`, deliberately not the storage key.
   final String slot;
@@ -866,8 +908,26 @@ class UnreadableCacheSlot implements Exception {
   /// Error type or short reason, never a value.
   final String reason;
 
+  /// Whether a LATER read of the same slot can succeed (P3-02c).
+  ///
+  /// `true` — the read failed at executing the decryption, or the storage
+  /// refused to answer at all. The bytes are intact, so the slot must keep its
+  /// protection for as long as it takes; the loss on giving up early is up to
+  /// [kOutboxMaxOps] undelivered writes.
+  ///
+  /// `false` — the bytes handed themselves over and the reader still could not
+  /// use them. That is a statement about the CONTENT and it is permanent, so
+  /// the caller may give up at once instead of protecting a slot that will
+  /// never open.
+  ///
+  /// Defaults to `true`, fail-closed: not knowing is not a licence to
+  /// overwrite.
+  final bool transient;
+
   @override
-  String toString() => 'UnreadableCacheSlot($slot): $reason';
+  String toString() =>
+      'UnreadableCacheSlot($slot, ${transient ? 'transient' : 'dauerhaft'}): '
+      '$reason';
 }
 
 /// A sync-state slot could not be WRITTEN — counterpart to

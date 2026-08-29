@@ -1,7 +1,6 @@
 {
-  "SUPABASE_URL": "https://<dein-projekt-ref>.supabase.co",
-  "SUPABASE_ANON_KEY": "<dein-anon-key-aus-dem-supabase-dashboard>",
-  "SENTRY_DSN": "",
-  "OFF_MIRROR_URL": "https://eatova.de/meili",
-  "OFF_MIRROR_SEARCH_KEY": ""
+  "_README": "Every key in this file becomes a --dart-define, and a key with an EMPTY value is DEFINED, not absent: String.fromEnvironment falls back to its defaultValue only when the key is missing entirely. So never add a key here just to document it - an empty value overwrites the compiled-in default with nothing. SENTRY_DSN is safe empty because its compiled default is empty too (crash reporting off). Two more keys exist and are deliberately NOT listed: OFF_MIRROR_URL and OFF_MIRROR_SEARCH_KEY, the base URL and the search-only key of the product-search mirror. Their defaults in lib/src/config/search_config.dart are the working production values; add them only to point a build at your own Meilisearch index (an empty OFF_MIRROR_URL is the hard local kill switch). See README, section Product-search key rotation.",
+  "SUPABASE_URL": "https://<your-project-ref>.supabase.co",
+  "SUPABASE_ANON_KEY": "<your-anon-key-from-the-supabase-dashboard>",
+  "SENTRY_DSN": ""
 }

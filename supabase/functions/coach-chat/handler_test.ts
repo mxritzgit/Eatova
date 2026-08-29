@@ -1304,6 +1304,62 @@ Deno.test("Fund 1: echte JPEG/PNG/WebP-Header passieren den Guard", async () => 
   }
 });
 
+// P5-07b: the data: URL used to carry the mime type the CLIENT claimed, while
+// imageMimeFromMagic measured the real container two lines later purely to
+// accept or reject it. PNG bytes declared as image/jpeg therefore reached the
+// provider mislabelled. The measurement now wins; the claim is only the
+// fallback for bytes nothing can be measured from, and those get a 400.
+Deno.test("P5-07b: die data:-URL traegt den GEMESSENEN Typ, nicht die Behauptung des Clients", async () => {
+  const fuellung = new Array<number>(60).fill(0);
+  const faelle: { name: string; bytes: number[]; behauptet: string; erwartet: string }[] = [
+    {
+      name: "PNG-Bytes als image/jpeg deklariert",
+      bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d],
+      behauptet: "image/jpeg",
+      erwartet: "image/png",
+    },
+    {
+      name: "JPEG-Bytes als image/webp deklariert",
+      bytes: [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01],
+      behauptet: "image/webp",
+      erwartet: "image/jpeg",
+    },
+    {
+      name: "WebP-Bytes ganz ohne Angabe",
+      bytes: [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50],
+      behauptet: "",
+      erwartet: "image/webp",
+    },
+  ];
+
+  for (const { name, bytes, behauptet, erwartet } of faelle) {
+    const stub = installFetch({ classifierCategory: "fitness" });
+    try {
+      const base64 = btoa(String.fromCharCode(...bytes, ...fuellung));
+      const res = await handleRequest(makeRequest({
+        message: "Was siehst du auf dem Bild?",
+        image_base64: base64,
+        ...(behauptet === "" ? {} : { image_mime_type: behauptet }),
+      }));
+      assertEquals(res.status, 200, `${name}: Status`);
+
+      const antworten = stub.answerBodies();
+      assertEquals(antworten.length, 1, `${name}: genau ein Answer-Call`);
+      const roh = JSON.stringify(antworten[0]);
+      const treffer = /data:(image\/[a-z]+);base64,/.exec(roh);
+      assert(treffer !== null, `${name}: keine data:-URL im Answer-Body`);
+      assertEquals(
+        treffer![1],
+        erwartet,
+        `${name}: der Provider bekommt einen Typ, der die Nutzlast falsch ` +
+          `beschreibt (behauptet war "${behauptet || "nichts"}")`,
+      );
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Finding 2: quota and rate-limit messages were hardcoded German, and the
 // client shows those server texts verbatim (`serverReply ?? _l10n…`), so

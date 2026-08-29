@@ -324,6 +324,55 @@ void main() {
     }
   });
 
+  group('P10-06 · Biometrie-Berechtigungen aus dem Merge', () {
+    // androidx.biometric:1.1.0 kommt transitiv ueber
+    // google_sign_in_android -> androidx.credentials herein und deklariert
+    // beide Berechtigungen in seinem AAR-Manifest. Die App hat keinen
+    // Biometrie-Pfad (kein local_auth, flutter_secure_storage ohne
+    // setUserAuthenticationRequired), also weist der Play-Store sonst
+    // Biometrie- und Fingerabdruck-Hardware aus, die nie benutzt wird.
+    //
+    // Gemessen am gemergten Release-Manifest (gradlew
+    // :app:processReleaseMainManifest): mit den remove-Zeilen verschwinden
+    // genau diese zwei Eintraege, alle anderen bleiben.
+    for (final name in const <String>[
+      'android.permission.USE_BIOMETRIC',
+      'android.permission.USE_FINGERPRINT',
+    ]) {
+      test('$name wird per tools:node="remove" aus dem Merge genommen', () {
+        final p = _mitNamen(berechtigungen, name);
+        expect(p, isNotNull,
+            reason: 'Ohne diese Zeile taucht $name wieder im gemergten '
+                'Manifest auf, sobald jemand baut — die Herkunft ist eine '
+                'transitive Abhaengigkeit, nicht dieses Manifest.');
+        expect(p!['tools:node'], 'remove');
+      });
+    }
+
+    test('es gibt weiterhin keinen Biometrie-Pfad im Dart-Code', () {
+      // The other direction, same idea as the D1 dependency checks: wer
+      // Biometrie NACHRUESTET (local_auth, BiometricPrompt ueber einen
+      // eigenen Channel, setUserAuthenticationRequired in
+      // flutter_secure_storage), braucht USE_BIOMETRIC wieder — und bekaeme
+      // sonst eine SecurityException statt eines Prompts.
+      final wurzel = Directory(_libWurzel);
+      final treffer = <String>[];
+      for (final e in wurzel.listSync(recursive: true)) {
+        if (e is! File || !e.path.endsWith('.dart')) continue;
+        final text = _dartOhneKommentare(e.readAsStringSync());
+        if (text.contains('local_auth') ||
+            text.contains('BiometricPrompt') ||
+            text.contains('setUserAuthenticationRequired')) {
+          treffer.add(e.path);
+        }
+      }
+      expect(treffer, isEmpty,
+          reason: 'Diese Dateien deuten auf einen Biometrie-Pfad hin; dann '
+              'muessen die remove-Zeilen fuer USE_BIOMETRIC/USE_FINGERPRINT '
+              'raus:\n${treffer.join('\n')}');
+    });
+  });
+
   group('E4 · exportierte Komponenten', () {
     test('HealthDataSdkService wird aus dem Merge genommen', () {
       final s = _mitNamen(services, _serviceHealthSdk);

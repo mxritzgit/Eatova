@@ -384,6 +384,13 @@
   "foodAddItemNameHint": "z. B. Tomate",
   "foodAddItemWeightLabel": "Gewicht",
   "foodAddItemCaloriesLabel": "Kalorien",
+  "foodAddItemCaloriesRangeHint": "Kalorien zwischen {min} und {max}.",
+  "@foodAddItemCaloriesRangeHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "foodAddItemMacrosToggle": "Makros ergänzen (optional)",
   "foodMacroRangeHint": "Makros in Gramm, jeweils zwischen 0 und 1000.",
   "foodBarcodeHintText": "Barcode in den Rahmen halten",
@@ -970,6 +977,7 @@
   "commonSyncErrorOffline": "Offline — das hat gerade nicht geklappt. Bitte versuch es mit Internetverbindung erneut.",
   "commonOutboxLossHint": "Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.",
   "commonOutboxDeleteLossHint": "Eine Löschung ließ sich nicht speichern — der Eintrag ist wieder da. Bitte lösch ihn noch einmal.",
+  "commonCacheResetNotice": "Der Offline-Speicher musste neu angelegt werden. Deine Daten auf dem Server sind unberührt — nur noch nicht synchronisierte Einträge sind verloren.",
   "commonBootUnansweredTitle": "Verbindung langsam",
   "commonBootUnansweredBody": "Deine Daten konnten noch nicht vom Server geladen werden. Prüf deine Verbindung und versuch es erneut.",
   "commonBootUnansweredRetry": "Erneut versuchen",
@@ -1038,16 +1046,18 @@
   "goalsFieldActivity": "Aktivitätslevel",
   "goalsFieldActivitySubtitle": "Bestimmt deinen Bedarf ohne Gehen und Laufen – gezählte Schritte kommen obendrauf.",
   "goalsFieldTargetWeight": "Wunschgewicht",
-  "goalsTargetWeightBelowError": "Beim Abnehmen muss das Wunschgewicht unter deinem Gewicht ({weight} kg) liegen — oder wähle ein anderes Gewichtsziel.",
-  "@goalsTargetWeightBelowError": {
+  "goalsTargetWeightReachedLose": "Ziel erreicht! Mit {weight} kg hast du dein Wunschgewicht von {target} kg geschafft. Dein Plan wechselt aufs Halten — für ein neues Ziel trag ein niedrigeres Wunschgewicht ein.",
+  "@goalsTargetWeightReachedLose": {
     "placeholders": {
-      "weight": { "type": "int" }
+      "weight": { "type": "int" },
+      "target": { "type": "int" }
     }
   },
-  "goalsTargetWeightAboveError": "Beim Zunehmen muss das Wunschgewicht über deinem Gewicht ({weight} kg) liegen — oder wähle ein anderes Gewichtsziel.",
-  "@goalsTargetWeightAboveError": {
+  "goalsTargetWeightReachedGain": "Ziel erreicht! Mit {weight} kg hast du dein Wunschgewicht von {target} kg geschafft. Dein Plan wechselt aufs Halten — für ein neues Ziel trag ein höheres Wunschgewicht ein.",
+  "@goalsTargetWeightReachedGain": {
     "placeholders": {
-      "weight": { "type": "int" }
+      "weight": { "type": "int" },
+      "target": { "type": "int" }
     }
   },
   "goalsFieldWeightGoal": "Gewichtsziel",
@@ -1187,6 +1197,11 @@
   "settingsEmailChangeOldCodeLabel": "Code an die bisherige Adresse",
   "settingsEmailChangeNewCodeLabel": "Code an die neue Adresse",
   "settingsEmailChangeBothCodesHint": "Beide Codes sind nötig. Mit nur einem bleibt deine bisherige Adresse bestehen — genau das schützt dich, wenn jemand Zugriff auf nur eines der beiden Postfächer hätte.",
+  "settingsAccountDiscardTitle": "Vorgang abbrechen?",
+  "settingsAccountDiscardBody": "Der Code aus deiner E-Mail verfällt damit. Für einen neuen Anlauf brauchst du einen neuen Code — und davon gehen nur wenige pro Stunde raus.",
+  "settingsAccountDiscardBodyConfirmed": "Der erste Code ist schon bestätigt und damit verbraucht. Brichst du jetzt ab, fängt die Adressänderung komplett von vorn an — mit zwei neuen Codes.",
+  "settingsAccountDiscardKeep": "Weiter",
+  "settingsAccountDiscardConfirm": "Abbrechen",
 
   "exportSheetLoadingSubtitle": "Deine Daten werden vom Server geladen …",
   "exportSheetErrorSubtitle": "Server nicht erreichbar — die vollständige Kopie bitte mit Internet erneut öffnen.",
@@ -1414,7 +1429,15 @@
       "sekunden": { "type": "int" }
     }
   },
-  "authCodeQuotaExhausted": "Für diese Adresse wurden zu viele Codes angefordert. Das Kontingent füllt sich erst in etwa einer Stunde wieder auf — bis dahin geht keine Mail raus. Einen Code, der schon in deinem Postfach liegt, kannst du weiter eingeben.",
+  "authCodeRateLimitedMinutes": "Zu viele Anfragen in kurzer Zeit. Der Versand ist noch {minuten} min gesperrt.",
+  "@authCodeRateLimitedMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
+    }
+  },
+  "authCodeQuotaExhausted": "Für diese Adresse wurden zu viele Codes angefordert. Das Kontingent füllt sich schrittweise wieder auf — der nächste Versand ist voraussichtlich in einer guten halben Stunde möglich. Einen Code, der schon in deinem Postfach liegt, kannst du weiter eingeben.",
+  "authCodeSendAnyway": "Nichts angekommen? Trotzdem versuchen",
+  "authCodeSendAnywayUsed": "Der Versuch lief schon — der Server lässt gerade wirklich keine Mail durch. Ein Code aus einer früheren Mail ist weiter gültig, sonst hilft nur warten.",
   "authCodeOfflineError": "Offline — der Server war nicht erreichbar. Bitte prüf deine Internetverbindung und versuch es erneut.",
   "authCodeResendCountdown": "Neuen Code in {sekunden} s anfordern",
   "@authCodeResendCountdown": {
@@ -1442,6 +1465,7 @@
   },
   "authCodeTooManyAttempts": "Zu viele falsche Codes. Fordere aus Sicherheitsgründen einen neuen Code an.",
   "authSignupExistingAccountHint": "Falls es zu dieser Adresse schon ein Konto gibt, melde dich bitte an.",
+  "authSessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
   "authBackSemanticLabel": "Zurück",
   "authEyebrowLogin": "WILLKOMMEN ZURÜCK",
   "authEyebrowRegister": "KONTO ERSTELLEN",
@@ -1471,6 +1495,12 @@
   "authConsentMiddle": " und stimmst der Verarbeitung deiner Gesundheits- und Ernährungsdaten gemäß der ",
   "authConsentPrivacy": "Datenschutzerklärung",
   "authConsentSuffix": " zu.",
+  "authLegalLinkFailed": "Der Link ließ sich auf diesem Gerät nicht öffnen. Du findest den Text unter {url}.",
+  "@authLegalLinkFailed": {
+    "placeholders": {
+      "url": { "type": "String" }
+    }
+  },
   "authErrorInvalidEmail": "Bitte gib eine gültige E-Mail ein.",
   "authErrorPasswordTooShort": "Das Passwort braucht mindestens {minLength} Zeichen.",
   "@authErrorPasswordTooShort": {

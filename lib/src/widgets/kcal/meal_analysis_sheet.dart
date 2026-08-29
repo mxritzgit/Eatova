@@ -132,9 +132,9 @@ class MealPortionAdjustment {
 /// applied as a gram adjustment instead, which leaves `items` empty.
 MealPortionAdjustment? mealPortionAdjustment(
   MealAnalysisResult current,
-  Object? adjustment,
+  List<MealComponent>? adjustment,
 ) {
-  if (adjustment is! List<MealComponent> || adjustment.isEmpty) return null;
+  if (adjustment == null || adjustment.isEmpty) return null;
   final grams = _weightOnlyGrams(current, adjustment);
   if (grams != null) {
     return MealPortionAdjustment.weight(current.adjustedToGrams(grams));
@@ -149,13 +149,25 @@ MealPortionAdjustment? mealPortionAdjustment(
 /// (`MealComponent.adjustedToGrams` on [MealAnalysisResult.asSingleComponent]),
 /// so a user who removed the synthesized entry and added one of their own —
 /// a real, one-item breakdown — does not slip through.
+///
+/// **The macros belong in that comparison** (P8-03b): `asSingleComponent`
+/// carries none, so a component typed with the SAME name and exactly
+/// proportional calories but with own macros differed from the rescaled one in
+/// nothing but `proteinG`/`carbsG`/`fatG`. It went down the gram path, `items`
+/// stayed empty and the typed values were silently dropped in favour of the
+/// meal's old macro strings — the very "nutrients OFF does not deliver, typed
+/// in by hand" case. The macro-free identical case stays weight-only, which
+/// changes no number.
 int? _weightOnlyGrams(MealAnalysisResult current, List<MealComponent> adjusted) {
   if (current.hasItemizedBreakdown || adjusted.length != 1) return null;
   final single = adjusted.single;
   final rescaled = current.asSingleComponent.adjustedToGrams(single.grams);
   if (single.name != rescaled.name ||
       single.grams != rescaled.grams ||
-      single.caloriesKcal != rescaled.caloriesKcal) {
+      single.caloriesKcal != rescaled.caloriesKcal ||
+      single.proteinG != rescaled.proteinG ||
+      single.carbsG != rescaled.carbsG ||
+      single.fatG != rescaled.fatG) {
     return null;
   }
   return single.grams;

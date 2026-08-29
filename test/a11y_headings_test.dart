@@ -9,8 +9,14 @@
 // scheme (1 = screen title, 2 = section) and — the counter-check — that the
 // annotation stays on the title and does not swallow the tap actions of the
 // back button, the trailing action or a settings row.
+//
+// Second round (P9-06c): the titles the shared widgets never touched, because
+// those screens draw their own `Text` — today tab, coach tab, picker sheets.
+// They are checked the same way: the FULL list of marks with their ranks, in
+// reading order, plus the tap actions that must survive.
 // ---------------------------------------------------------------------------
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsNode;
 import 'package:flutter_test/flutter_test.dart';
@@ -18,10 +24,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
+import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/profile_screen.dart';
+import 'package:eatova/src/screens/settings/settings_pickers.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/screens/today/today_screen.dart';
+import 'package:eatova/src/screens/today/today_texts.dart';
+import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 import 'package:eatova/src/widgets/design/design.dart';
@@ -85,6 +97,28 @@ Widget _einstellungenSeite() {
     ),
   );
 }
+
+/// Sunday, 9 August 2026, 10:00 — far from any day boundary, so greeting and
+/// eyebrow cannot straddle midnight while the test runs.
+final DateTime _jetzt = DateTime(2026, 8, 9, 10);
+
+Widget _heuteTab() => TodayScreen(
+      userName: 'Moritz Schneider',
+      profile: const UserProfile(),
+      consumedKcal: 900,
+      burnedKcal: 200,
+      macroProgress: MacroProgress.empty,
+      meals: const [],
+      selectedDate: startOfDay(_jetzt),
+      streak: 3,
+      onOpenProfile: () {},
+      onOpenCoach: () {},
+    );
+
+/// The coach greeting reads the wall clock (`DateTime.now()`), not the
+/// injectable one — the expectation has to be built the same way.
+String _coachBegruessung(AppLocalizations l10n, String vorname) =>
+    '${greetingForHour(DateTime.now().hour, l10n)}, $vorname';
 
 void main() {
   group('Rang-Schema der geteilten Ueberschriften', () {
@@ -343,6 +377,131 @@ void main() {
         zurueck,
         isSemantics(isButton: true, hasTapAction: true, isHeader: false),
       );
+    });
+
+    testWidgets('Heute: die Begruessung ist die Ebene-1-Marke ueber den '
+        'beiden Abschnitten', (tester) async {
+      final l10n = _de;
+      final handle = tester.ensureSemantics();
+      await withClock(Clock.fixed(_jetzt), () async {
+        await pumpLocalized(
+          tester,
+          _heuteTab(),
+          surfaceSize: const Size(430, 3000),
+          settle: true,
+        );
+      });
+
+      final marken = _sprungmarken();
+      final profil =
+          tester.getSemantics(find.byKey(const ValueKey('today-profile')));
+      handle.dispose();
+
+      expect(
+        marken,
+        <Sprungmarke>[
+          (label: todayGreeting(l10n, _jetzt), level: 1),
+          (label: l10n.todayMacrosTitle, level: 2),
+          (label: l10n.todayMealsTitleToday, level: 2),
+        ],
+        reason: 'der Tab hatte nur Abschnitte (Ebene 2) und keinen '
+            'Seitentitel — im Navigationsmodus „Überschriften" landet der '
+            'Nutzer mitten in der Seite',
+      );
+      // Der Bildschirm ist eine ListView: ohne eigenen Knoten haette die
+      // Marke die Augenbraue („SONNTAG, 9. AUGUST 2026") mitgelesen.
+      expect(
+        marken.first.label,
+        isNot(contains(todayEyebrow(startOfDay(_jetzt), l10n))),
+        reason: 'IndexedSemantics verschmilzt die Kopfzeile zu EINEM Knoten',
+      );
+      // Gegenprobe: die Profil-Kachel neben dem Titel bleibt tippbar.
+      expect(
+        profil,
+        isSemantics(isButton: true, hasTapAction: true, isHeader: false),
+      );
+    });
+
+    testWidgets('Coach: der Kopfzeilen-Titel ist Ebene 1, die '
+        'Hero-Begruessung darunter Ebene 2', (tester) async {
+      final l10n = _de;
+      final handle = tester.ensureSemantics();
+      await pumpLocalized(
+        tester,
+        const CoachChatScreen(service: null, userName: 'Moritz Schneider'),
+        // The hero is tall; on the binding's 800x600 default it overflows.
+        surfaceSize: const Size(402, 900),
+        safeArea: false,
+        settle: true,
+      );
+
+      final marken = _sprungmarken();
+      final info = tester.getSemantics(find.byKey(const ValueKey('coach-info')));
+      final sitzungen = tester
+          .getSemantics(find.byKey(const ValueKey('coach-sessions-open')));
+      handle.dispose();
+
+      expect(
+        marken,
+        <Sprungmarke>[
+          (label: l10n.coachTitle, level: 1),
+          (label: _coachBegruessung(l10n, 'Moritz'), level: 2),
+        ],
+        reason: 'der Tab trug gar keine Marke. Genau EINE Ebene 1 (die '
+            'immer sichtbare Kopfzeile), die Begruessung des Leerzustands '
+            'haengt als Ebene 2 darunter — zwei Ebene-1-Marken waeren eine '
+            'Sackgasse',
+      );
+      // Gegenprobe: die beiden Knoepfe der Kopfzeile behalten ihre Aktion.
+      expect(
+        info,
+        isSemantics(isButton: true, hasTapAction: true, isHeader: false),
+      );
+      expect(
+        sitzungen,
+        isSemantics(isButton: true, hasTapAction: true, isHeader: false),
+      );
+    });
+
+    testWidgets('Picker-Sheet: Titel Ebene 1 ueber der Gruppe Ebene 2',
+        (tester) async {
+      final l10n = _de;
+      BiologicalSex? gewaehlt;
+      final handle = tester.ensureSemantics();
+      await pumpLocalized(
+        tester,
+        Builder(
+          builder: (context) => TextButton(
+            key: const ValueKey('picker-oeffnen'),
+            onPressed: () async {
+              gewaehlt =
+                  await showSexPicker(context, value: BiologicalSex.female);
+            },
+            child: const Text('Auswahl'),
+          ),
+        ),
+        settle: true,
+      );
+      await tester.tap(find.byKey(const ValueKey('picker-oeffnen')));
+      await tester.pumpAndSettle();
+
+      final marken = _sprungmarken();
+      handle.dispose();
+
+      expect(
+        marken,
+        <Sprungmarke>[
+          (label: l10n.goalsFieldSex, level: 1),
+          (label: l10n.settingsSexPickerGroupLabel, level: 2),
+        ],
+        reason: 'die Gruppen-Beschriftung ist seit P9-06 Ebene 2 — ohne den '
+            'Sheet-Titel als Ebene 1 haengt sie ueber nichts',
+      );
+
+      // Gegenprobe: die Optionszeilen bleiben tippbar und liefern ihren Wert.
+      await tester.tap(find.byKey(const ValueKey('settings-sex-male')));
+      await tester.pumpAndSettle();
+      expect(gewaehlt, BiologicalSex.male);
     });
   });
 }

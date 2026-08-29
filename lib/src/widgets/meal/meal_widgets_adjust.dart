@@ -4,11 +4,16 @@ part of 'meal_widgets.dart';
 ///
 /// **D5, no `showDragHandle`:** the route's handle sits outside every guard, so
 /// dragging it bypassed the confirmation. [_SheetGrabber] draws it inside.
-Future<Object?> showWeightAdjustmentSheet(
+///
+/// The return type is the component list, not `Object?` (P8-03b): the sheet
+/// only ever pops that list or nothing, and `mealPortionAdjustment` used to
+/// carry a runtime type check for a branch that cannot happen. `null` means
+/// "apply nothing" — cancel, barrier, discard.
+Future<List<MealComponent>?> showWeightAdjustmentSheet(
   BuildContext context,
   MealAnalysisResult result,
 ) {
-  return showModalBottomSheet<Object>(
+  return showModalBottomSheet<List<MealComponent>>(
     context: context,
     backgroundColor: context.t.bg,
     isScrollControlled: true,
@@ -160,18 +165,39 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
 const int _postenMinG = 1;
 const int _postenMaxG = 10000;
 
+/// Upper bound for one component's calories, in kcal; mirrors
+/// `LoggedMealLimits.caloriesKcalMax`, the window `MealComponent.adjustedToGrams`
+/// clamps to. Mirrored for the same reason as [_postenMaxG].
+const int _postenMaxKcal = 10000;
+
+/// Is [grams] a portion the sheet may work with? The single range gate behind
+/// the field listener, the start value and the add dialog — one bound, not
+/// three copies (P8-02b).
+bool _plausiblesPostenGewicht(int grams) =>
+    grams >= _postenMinG && grams <= _postenMaxG;
+
 /// One component in the sheet: model, input field, start weight and current
 /// weight. Only created in [_MealItemAdjustmentSheetState._neuerPosten].
 class _Posten {
   _Posten({required this.item, required this.controller})
     : startGramm = item.grams,
-      gramm = item.grams;
+      gramm = item.grams,
+      // P8-02b: the listener never fires for the INITIAL text, so an
+      // implausible start weight (a scan item at 0 g — `clampMealEstimatedG`
+      // starts at 0) reached "Übernehmen" unflagged and was saved clamped to
+      // 1 g. The start value has to pass the same gate as every typed one.
+      ungueltig = !_plausiblesPostenGewicht(item.grams),
+      startUngueltig = !_plausiblesPostenGewicht(item.grams);
 
   final MealComponent item;
   final TextEditingController controller;
 
   /// Weight at open time — the [_dirty] reference, not "was ever typed".
   final int startGramm;
+
+  /// Was the start weight already implausible? [gewichtVeraendert] compares
+  /// against this, so an untouched 0 g item does not open the discard dialog.
+  final bool startUngueltig;
 
   /// The last **valid** weight, always within [_postenMinG].._postenMaxG.
   ///
@@ -182,11 +208,14 @@ class _Posten {
 
   /// The field holds something that is not a plausible portion — empty, 0 or
   /// past the bound. Apply stays locked and a hint says why.
-  bool ungueltig = false;
+  bool ungueltig;
 
   /// [ungueltig] counts as changed too: the field no longer shows the start
-  /// value, so a drag-away must still ask before discarding it.
-  bool get gewichtVeraendert => gramm != startGramm || ungueltig;
+  /// value, so a drag-away must still ask before discarding it. Compared
+  /// against [startUngueltig], not against `false` — otherwise a sheet that
+  /// OPENED invalid would ask on every close (P8-02b).
+  bool get gewichtVeraendert =>
+      gramm != startGramm || ungueltig != startUngueltig;
 
   /// This component recalculated to the last valid weight — **one**
   /// calculation for preview, total row and save path (B1: preferring
@@ -241,8 +270,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     final posten = _Posten(item: item, controller: controller);
     controller.addListener(() {
       final getippt = int.tryParse(controller.text.trim());
-      final ungueltig =
-          getippt == null || getippt < _postenMinG || getippt > _postenMaxG;
+      final ungueltig = getippt == null || !_plausiblesPostenGewicht(getippt);
       // An implausible input keeps the last valid weight (P8-02).
       final neuesGramm = ungueltig ? posten.gramm : getippt;
       // The listener also fires on pure cursor movement — nothing to do then.
@@ -375,7 +403,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     final canSave = adjustedItems.isNotEmpty && invalidGrams.isEmpty;
     final addedCount = _posten.length - _startAnzahl;
 
-    return PopScope<Object?>(
+    return PopScope<List<MealComponent>?>(
       // Only while something is at stake. `Navigator.pop` — apply — bypasses
       // `canPop`.
       canPop: !_dirty,
@@ -993,18 +1021,40 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     return l10n.foodMacroHintComplete;
   }
 
+  /// `true` if the field is empty OR carries a whole number within range —
+  /// the integer twin of [_makroFeldOk], so an untouched field does not shout.
+  static bool _zahlFeldOk(TextEditingController controller, int min, int max) {
+    final text = controller.text.trim();
+    if (text.isEmpty) return true;
+    final wert = int.tryParse(text);
+    return wert != null && wert >= min && wert <= max;
+  }
+
+  /// P8-02b: `> 0` alone let 99999 g through, and everything downstream
+  /// (`adjustedToGrams`) clamped it to 10000 g — the exact silent bend the
+  /// component row rejects. Same story one field over: 99999 kcal came back as
+  /// 10000. Both are rejected here now, with the reason on screen.
+  bool get _grammGueltig => _zahlFeldOk(_grams, _postenMinG, _postenMaxG);
+
+  bool get _kcalGueltig => _zahlFeldOk(_kcal, 0, _postenMaxKcal);
+
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
     final g = int.tryParse(_grams.text.trim());
     final k = int.tryParse(_kcal.text.trim());
-    return g != null && g > 0 && k != null && k >= 0 && _makrosGueltig;
+    return g != null &&
+        _plausiblesPostenGewicht(g) &&
+        k != null &&
+        k >= 0 &&
+        k <= _postenMaxKcal &&
+        _makrosGueltig;
   }
 
   void _submit() {
+    if (!_isValid) return;
     final name = _name.text.trim();
     final grams = int.tryParse(_grams.text.trim()) ?? 0;
     final kcal = int.tryParse(_kcal.text.trim()) ?? 0;
-    if (name.isEmpty || grams <= 0 || !_makrosGueltig) return;
     final per100 = grams > 0 ? kcal * 100 / grams : null;
     Navigator.pop(
       context,
@@ -1093,6 +1143,10 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       keyboardType: TextInputType.number,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
+                        // Same five digits as the component row's field: the
+                        // bound (10000) has five, the range check below
+                        // rejects the rest (P8-02b).
+                        LengthLimitingTextInputFormatter(5),
                       ],
                       decoration: InputDecoration(
                         labelText: l10n.foodAddItemWeightLabel,
@@ -1109,6 +1163,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       keyboardType: TextInputType.number,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(5),
                       ],
                       decoration: InputDecoration(
                         labelText: l10n.foodAddItemCaloriesLabel,
@@ -1118,6 +1173,31 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                   ),
                 ],
               ),
+              // The locked button states its own reason, like the row does.
+              if (!_grammGueltig) ...[
+                const SizedBox(height: 6),
+                Text(
+                  l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
+                  key: const ValueKey('analyse-add-item-grams-hint'),
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w600,
+                    color: t.warning,
+                  ),
+                ),
+              ],
+              if (!_kcalGueltig) ...[
+                const SizedBox(height: 6),
+                Text(
+                  l10n.foodAddItemCaloriesRangeHint(0, _postenMaxKcal),
+                  key: const ValueKey('analyse-add-item-kcal-hint'),
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w600,
+                    color: t.warning,
+                  ),
+                ),
+              ],
               const SizedBox(height: 4),
               // Expandable instead of three more required fields.
               Align(

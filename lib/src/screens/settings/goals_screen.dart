@@ -199,42 +199,54 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String? get _ageError => _fehler(_age, isValidProfileAgeYears, _bereichAlter);
 
   /// The current weight as a number, or `null` while the field is empty or out
-  /// of range — the consistency check below then stays silent, since there is
-  /// nothing to compare against and the weight field already shows its own
-  /// error.
+  /// of range — the target-weight comparison below then stays silent, since
+  /// there is nothing to compare against and the weight field already shows its
+  /// own error.
   int? get _gueltigesGewicht {
     final wert = int.tryParse(_weight.text.trim());
     return (wert != null && isValidProfileWeightKg(wert)) ? wert : null;
   }
 
-  /// Range first (the DB column), then the consistency rule the onboarding has
-  /// always enforced at its target step: losing aims BELOW today's weight,
-  /// gaining ABOVE it. Without it "lose 0.5 kg/week" saved next to a target 10
-  /// kg higher — a deficit plan whose plan card claimed "80 → 90" and whose
-  /// contradiction left the app in the coach prompt (P9-08).
+  /// Only the range of the DB column (30..300). The consistency rule — losing
+  /// aims BELOW today's weight, gaining ABOVE it — is NOT an error here, see
+  /// [_zielErreicht].
+  String? get _targetWeightError =>
+      _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
+
+  /// The target weight as a number, or `null` while it is empty or out of
+  /// range — [_targetWeightError] carries that case.
+  int? get _gueltigesZielgewicht {
+    final wert = int.tryParse(_targetWeight.text.trim());
+    return (wert != null && isValidProfileTargetWeightKg(wert)) ? wert : null;
+  }
+
+  /// The chosen goal has nothing left to do: the current weight is at or past
+  /// the target (`hasReachedTargetWeight`, one rule with the onboarding).
   ///
-  /// [WeightGoal.maintain] is deliberately unbounded: it has no direction, so
-  /// no target weight can contradict it, and a stricter rule would reject
-  /// saved profiles for nothing.
+  /// This used to be a blocking field error, and it locked the WHOLE page — no
+  /// step goal, no reminders — the moment someone typed the weight they had
+  /// worked for: 80 kg, target 75, "Abnehmen", weighs 74 today (P9-08e).
+  /// Reaching a target is the normal course of a weight app, not a typo.
   ///
-  /// Rejected, never bent into shape (model_limits.dart): clamping 90 to 79
-  /// would write a target nobody chose. Both ways out sit on this page — edit
-  /// the field, or pick another goal one row below — so a profile that arrives
-  /// contradictory (saved before this check existed) can always be resolved.
-  String? get _targetWeightError {
-    final bereich =
-        _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
-    if (bereich != null) return bereich;
+  /// `false` while either number is missing or out of range: there is nothing
+  /// to compare, and the field with the range error says so itself.
+  bool get _zielErreicht {
     final gewicht = _gueltigesGewicht;
-    if (gewicht == null) return null;
-    final ziel = int.parse(_targetWeight.text.trim());
-    if (_goal.isLoss && ziel >= gewicht) {
-      return context.l10n.goalsTargetWeightBelowError(gewicht);
-    }
-    if (_goal.isGain && ziel <= gewicht) {
-      return context.l10n.goalsTargetWeightAboveError(gewicht);
-    }
-    return null;
+    final ziel = _gueltigesZielgewicht;
+    if (gewicht == null || ziel == null) return false;
+    return hasReachedTargetWeight(_goal, gewicht, ziel);
+  }
+
+  /// The congratulation that replaced the lock, or `null`. Says out loud what
+  /// saving will do, so switching the plan to "hold" is announced, not silent.
+  String? get _zielErreichtHinweis {
+    if (!_zielErreicht) return null;
+    final l10n = context.l10n;
+    final gewicht = _gueltigesGewicht!;
+    final ziel = _gueltigesZielgewicht!;
+    return _goal.isGain
+        ? l10n.goalsTargetWeightReachedGain(gewicht, ziel)
+        : l10n.goalsTargetWeightReachedLose(gewicht, ziel);
   }
 
   String? get _stepsError =>
@@ -281,7 +293,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   /// Profile with the calorie-relevant fields only — the basis for the live
   /// calculation (energy fields do NOT feed into calculate()).
-  UserProfile _draftForCalc() {
+  ///
+  /// `withEffectiveWeightGoal` is the healing point (P9-08d/e): a direction the
+  /// two weights no longer support becomes "hold" here, so the plan card, the
+  /// picker outcomes and the SAVED profile all say the same thing and no
+  /// contradiction can leave the page. The user is told before saving, see
+  /// [_zielErreichtHinweis].
+  UserProfile _draftForCalc() => _rohEntwurf().withEffectiveWeightGoal;
+
+  /// The same profile BEFORE the healing — only [_zielFolge] needs it, to swap
+  /// in the option it is describing before healing that one instead.
+  UserProfile _rohEntwurf() {
     final p = widget.profile;
     return p.copyWith(
       weightKg: _wertOder(_weight, isValidProfileWeightKg, p.weightKg),
@@ -318,8 +340,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String _zielFolge(WeightGoal option) {
     final l10n = context.l10n;
     if (_manualEnergy) return l10n.goalsManualNoChangeHint;
-    final t = const KcalCalculator()
-        .calculate(_draftForCalc().copyWith(weightGoal: option));
+    // Through the same healing as the plan card: while the target is reached,
+    // picking a pace changes nothing, and a row promising a deficit would be a
+    // button that lies.
+    final t = const KcalCalculator().calculate(
+      _rohEntwurf().copyWith(weightGoal: option).withEffectiveWeightGoal,
+    );
     return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
@@ -635,6 +661,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         ) !=
         null;
     final abweichung = _zielAbweichung(tagesziel: heroKcal, t: ziele);
+    final zielErreicht = _zielErreichtHinweis;
 
     return <Widget>[
       SettingsGroup(
@@ -655,6 +682,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
             errorText: _targetWeightError,
             onChanged: (_) => _recompute(),
           ),
+          // Where the blocking consistency error used to sit: the same state,
+          // told as what it is (P9-08e). Accent, not danger — the boxed note
+          // writes in `ink` either way, so the tone is the glyph and the frame.
+          if (zielErreicht != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: SettingsNote(
+                zielErreicht,
+                key: const ValueKey('settings-target-reached'),
+                tone: t.accent,
+                icon: Icons.emoji_events_rounded,
+                boxed: true,
+              ),
+            ),
           if (zeigtBmiHinweis)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),

@@ -36,6 +36,9 @@ import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
 import '../services/uuid.dart';
 import '../widgets/common/app_snack.dart';
+// P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
+// so it is the only place that can hand the sign-out intent back to the gate.
+import 'auth_gate.dart' show IntentionalSignOut;
 
 part 'home_store_meals.dart';
 part 'home_store_profile.dart';
@@ -500,9 +503,7 @@ class HomeStore extends _HomeStoreBase
     unawaited(CacheKeyProvider.consumeCacheResetNotice().then((liegtAn) {
       if (!liegtAn || _disposed) return;
       _emitSnack(
-        'Der Offline-Speicher musste neu angelegt werden. Deine Daten auf dem '
-        'Server sind unberuehrt — nur noch nicht synchronisierte Eintraege '
-        'sind verloren.',
+        _l10n.commonCacheResetNotice,
         icon: Icons.info_outline_rounded,
         duration: const Duration(seconds: 6),
       );

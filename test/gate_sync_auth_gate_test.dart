@@ -130,12 +130,13 @@ Future<void> _pumpGate(
   WidgetTester tester,
   _ScriptedAuthRepository repository, {
   Future<void> Function(String userId)? purge,
+  Locale locale = const Locale('de'),
 }) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
       // The signed-out branch renders AuthScreen, which reads `context.l10n`.
-      locale: const Locale('de'),
+      locale: locale,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       home: AuthGate(
@@ -345,6 +346,22 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 6));
     });
 
+    // P1-04: the only text on this path was hardcoded German — a rendered
+    // sentence in a file that has been listed as migrated for two rounds.
+    testWidgets('der Hinweis folgt der App-Sprache', (tester) async {
+      final repository = _ScriptedAuthRepository(_userA);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository, locale: const Locale('en'));
+
+      repository.emit(null);
+      await tester.pumpAndSettle();
+
+      expect(find.text(enL10n.authSessionExpired), findsOneWidget);
+      expect(find.textContaining('Sitzung ist abgelaufen'), findsNothing,
+          reason: 'die englische App darf den Satz nicht auf Deutsch zeigen');
+      await tester.pumpAndSettle(const Duration(seconds: 6));
+    });
+
     test('die Absicht gilt fuer GENAU einen Uebergang', () {
       IntentionalSignOut.mark();
       expect(IntentionalSignOut.consume(), isTrue);
@@ -360,6 +377,35 @@ void main() {
       withClock(Clock(() => jetzt), () {
         IntentionalSignOut.mark();
         jetzt = start
+            .add(IntentionalSignOut.gueltigkeit + const Duration(seconds: 1));
+        expect(IntentionalSignOut.consume(), isFalse);
+      });
+    });
+
+    // P1-03: the cleanup before `signOut` may take longer than the window, so
+    // the intent hangs off the END of that work instead of off the button
+    // press. Wiring and reason: test/sign_out_cleanup_test.dart.
+    test('refresh() setzt die Frist neu, erfindet aber keine Absicht', () {
+      final start = DateTime(2026, 8, 19, 10);
+      var jetzt = start;
+      withClock(Clock(() => jetzt), () {
+        // Nothing declared: the same cleanup runs on an INVOLUNTARY session
+        // end, and an intent invented here would silence its message.
+        IntentionalSignOut.refresh();
+        expect(IntentionalSignOut.consume(), isFalse);
+
+        // Declared, then a long cleanup: the window starts at its end.
+        IntentionalSignOut.mark();
+        jetzt = start.add(IntentionalSignOut.gueltigkeit * 3);
+        IntentionalSignOut.refresh();
+        jetzt = jetzt.add(const Duration(seconds: 1));
+        expect(IntentionalSignOut.consume(), isTrue);
+
+        // And the refreshed window still expires — the guarantee the deadline
+        // exists for stays intact.
+        IntentionalSignOut.mark();
+        IntentionalSignOut.refresh();
+        jetzt = jetzt
             .add(IntentionalSignOut.gueltigkeit + const Duration(seconds: 1));
         expect(IntentionalSignOut.consume(), isFalse);
       });

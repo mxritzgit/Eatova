@@ -66,8 +66,27 @@ Color _legibleOnSnack(Color tone, Color ground, Color onGround) {
       ) >=
       _kSnackIconMinContrast;
   if (holds(tone)) return tone;
+  // Postcondition (P9-04b): the search only ever returns `hi`, and `hi` starts
+  // at the FULL mix without being tested. Verify that upper bound first — if
+  // even `onGround` misses the floor, no point on the line reaches it and
+  // there is nothing to search for. Report it instead of handing back a value
+  // that quietly breaks the contract. With the shipped palettes this cannot
+  // happen (`onForest` on its own disc over `forest` is far above the floor),
+  // so the branch is a guard against a future toast surface, not a live case.
+  if (!holds(onGround)) {
+    assert(
+      false,
+      'Snack tone: even the full mix towards $onGround stays under '
+      '$_kSnackIconMinContrast:1 on $ground — this surface has no legible '
+      'glyph tone at all, so the toast needs a different ground, not a '
+      'different tone.',
+    );
+    return onGround;
+  }
   // Binary search on the mix. Monotonic: lightening the glyph lifts its disc
   // by only 18 % of the same step. 8 rounds ≈ 1/256, the color resolution.
+  // `hi` is now a verified solution, so the invariant "hi holds, lo does not"
+  // is true on entry and preserved by every round.
   var lo = 0.0;
   var hi = 1.0;
   for (var i = 0; i < 8; i++) {

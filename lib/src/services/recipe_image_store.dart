@@ -38,6 +38,12 @@ import 'meal_photo_compressor.dart';
 /// coordinates, permanently on disk. [save] runs every byte sequence through
 /// [compressMealPhoto] and stores only the result; undecodable bytes are
 /// dropped fail-closed.
+///
+/// **Nothing outlives its recipe (P3-04).** [deleteFor] only fires when THIS
+/// device deletes and the server acknowledges at once, so a delete on a second
+/// device, an offline delete delivered later and an abandoned coach adoption
+/// all leave bytes behind. [reconcileRecipePhotos] compares the folder against
+/// the recipes that actually exist and releases the rest.
 class RecipeImageStore {
   RecipeImageStore({Future<Directory> Function()? baseDirectory})
       : _resolveBaseDirectory = baseDirectory ?? _appDocumentsFolder;
@@ -84,6 +90,25 @@ class RecipeImageStore {
     _maintenance = run.then<void>((_) {}).catchError((Object _) {});
     return run;
   }
+
+  /// Counts the purges ([clear], [_purgeNamespace]) of this process, raised
+  /// INSIDE the maintenance chain so it is ordered against everything else on
+  /// it (P3-03).
+  ///
+  /// A write captures the value before its awaits and compares again right
+  /// before `writeAsBytes`: a changed count means the namespace it resolved
+  /// has been wiped meanwhile, and the bytes must be dropped instead of
+  /// recreating the folder. The identity check alone does not cover this —
+  /// [clear] runs on logout WITHOUT touching [_activeUserId], and the AuthGate
+  /// transition that does is not ordered against it.
+  int _purgeEpoch = 0;
+
+  /// Names [save] wrote in THIS process. [reconcileRecipePhotos] spares them:
+  /// between a successful save and the recipe reaching the caller's list lie
+  /// several hops (the coach adoption saves `unawaited`, the create sheet
+  /// saves before the sheet pops), and in that window the photo looks orphaned
+  /// while it is not. A purge empties the set with the files.
+  final Set<String> _writtenThisSession = <String>{};
 
   // --- Process-wide instance ------------------------------------------------
   // Image tiles sit deep in the tree, partly behind a route push, so an
@@ -229,6 +254,9 @@ class RecipeImageStore {
   /// location, undecodable, write error); the caller then saves the recipe
   /// without an image rather than with a dangling reference.
   Future<String?> save({required Uint8List bytes}) async {
+    final uid = _activeUserId;
+    if (uid == null) return null;
+    final epoch = _purgeEpoch;
     final namespace = await _ensureNamespace();
     if (namespace == null) return null;
 
@@ -243,18 +271,35 @@ class RecipeImageStore {
     }
 
     final name = _randomFileName();
-    try {
-      // The folder is created only here; reading creates nothing, else
-      // `clear()` would find it back on disk right away.
-      if (!await namespace.exists()) await namespace.create(recursive: true);
-      final file = File('${namespace.path}/$name');
-      await file.writeAsBytes(scrubbed, flush: true);
-      return '$referencePrefix$name';
-    } catch (e, s) {
-      dev.log('RecipeImageStore: Schreiben fehlgeschlagen',
-          error: e, stackTrace: s, name: 'recipe_image_store');
-      return null;
-    }
+    // P3-03: the WRITE rides the maintenance chain and rechecks identity and
+    // [_purgeEpoch]. Two awaits lie between resolving the namespace and here —
+    // the namespace hop and the EXIF scrub's `compute()` — and a purge landing
+    // in that window used to be undone by the lines below, which recreate the
+    // folder on purpose. A logout or a lost session while a photo was being
+    // saved therefore left exactly that photo on a disk that had just been
+    // wiped.
+    return _afterMaintenance<String?>(() async {
+      if (_activeUserId != uid || _purgeEpoch != epoch) {
+        dev.log(
+            'RecipeImageStore: Ablage verworfen — der Namensraum wurde '
+            'waehrend des Scrubs gepurgt',
+            name: 'recipe_image_store');
+        return null;
+      }
+      try {
+        // The folder is created only here; reading creates nothing, else
+        // `clear()` would find it back on disk right away.
+        if (!await namespace.exists()) await namespace.create(recursive: true);
+        final file = File('${namespace.path}/$name');
+        await file.writeAsBytes(scrubbed, flush: true);
+        _writtenThisSession.add(name);
+        return '$referencePrefix$name';
+      } catch (e, s) {
+        dev.log('RecipeImageStore: Schreiben fehlgeschlagen',
+            error: e, stackTrace: s, name: 'recipe_image_store');
+        return null;
+      }
+    });
   }
 
   /// Strip EXIF, bake in orientation, cap the longest edge — same function as
@@ -298,20 +343,34 @@ class RecipeImageStore {
     required String messageId,
     required Uint8List bytes,
   }) async {
+    final uid = _activeUserId;
+    if (uid == null) return false;
+    final epoch = _purgeEpoch;
     final namespace = await _ensureNamespace();
     if (namespace == null) return false;
-    try {
-      if (!await namespace.exists()) await namespace.create(recursive: true);
-      final name = '$_proposalPrefix${_sanitize(messageId)}.jpg';
-      final file = File('${namespace.path}/$name');
-      await file.writeAsBytes(bytes, flush: true);
-      await _pruneProposalImages(namespace);
-      return true;
-    } catch (e, s) {
-      dev.log('RecipeImageStore: Vorschlagsbild nicht abgelegt',
-          error: e, stackTrace: s, name: 'recipe_image_store');
-      return false;
-    }
+    // Same chain and same recheck as [save] (P3-03): this path creates the
+    // folder too, so it could revive a purged namespace just as well.
+    return _afterMaintenance<bool>(() async {
+      if (_activeUserId != uid || _purgeEpoch != epoch) {
+        dev.log(
+            'RecipeImageStore: Vorschlagsbild verworfen — der Namensraum '
+            'wurde waehrend der Ablage gepurgt',
+            name: 'recipe_image_store');
+        return false;
+      }
+      try {
+        if (!await namespace.exists()) await namespace.create(recursive: true);
+        final name = '$_proposalPrefix${_sanitize(messageId)}.jpg';
+        final file = File('${namespace.path}/$name');
+        await file.writeAsBytes(bytes, flush: true);
+        await _pruneProposalImages(namespace);
+        return true;
+      } catch (e, s) {
+        dev.log('RecipeImageStore: Vorschlagsbild nicht abgelegt',
+            error: e, stackTrace: s, name: 'recipe_image_store');
+        return false;
+      }
+    });
   }
 
   /// Bytes of the proposal image for [messageId]; null when it is not in this
@@ -376,6 +435,70 @@ class RecipeImageStore {
     }
   }
 
+  /// Releases photos whose recipe no longer exists, and returns how many
+  /// files fell (P3-04).
+  ///
+  /// Until now `img_*` was released ONLY by [deleteFor], and only when this
+  /// device deleted the recipe AND the server acknowledged at once
+  /// (`recipes_screen.dart`). A delete on a second device never reaches this
+  /// one, an offline delete deliberately keeps the bytes and is never followed
+  /// up, and an adoption abandoned in the coach leaves its photo lying. Each
+  /// leftover is 200-400 kB of PII that nothing ever collects.
+  ///
+  /// [liveReferences] are the `imageAsset` values of the recipes that exist —
+  /// non-local ones (bundle assets, empty) are ignored. A COMPARISON, not a
+  /// cap: a cap would delete by age and take photos whose recipe still exists.
+  ///
+  /// **The caller vouches for the list.** An empty or half-loaded one deletes
+  /// everything, so only sweep with a list the store has actually delivered
+  /// (see `_RecipesScreenState._sweepOrphanPhotos`). Spared regardless:
+  /// proposal images (own lifetime, see [proposalImageCap]) and everything
+  /// [save] wrote in this process ([_writtenThisSession]).
+  Future<int> reconcileRecipePhotos(Iterable<String> liveReferences) async {
+    final uid = _activeUserId;
+    if (uid == null) return 0;
+    final epoch = _purgeEpoch;
+    final namespace = await _ensureNamespace();
+    if (namespace == null) return 0;
+    final keep = <String>{};
+    for (final reference in liveReferences) {
+      final name = _fileNameFor(reference);
+      if (name != null) keep.add(name);
+    }
+    // On the maintenance chain like every other bulk operation, so no purge or
+    // legacy migration is running while the folder is being walked.
+    return _afterMaintenance<int>(() async {
+      if (_activeUserId != uid || _purgeEpoch != epoch) return 0;
+      var removed = 0;
+      try {
+        if (!await namespace.exists()) return 0;
+        await for (final entity in namespace.list(followLinks: false)) {
+          if (entity is! File) continue;
+          final name = entity.uri.pathSegments.last;
+          // The namespace holds exactly two kinds of file: recipe photos
+          // (`img_*`, plus adopted legacy names) and proposal images. Only the
+          // latter are excluded here — a third kind added later would have to
+          // be excluded too, or it would count as an orphan.
+          if (name.startsWith(_proposalPrefix)) continue;
+          if (keep.contains(name)) continue;
+          if (_writtenThisSession.contains(name)) continue;
+          try {
+            await entity.delete();
+            removed++;
+          } catch (e) {
+            // One failure is fine: the next session's sweep reconsiders it.
+            dev.log('RecipeImageStore: verwaistes Foto nicht loeschbar',
+                error: e, name: 'recipe_image_store');
+          }
+        }
+      } catch (e, s) {
+        dev.log('RecipeImageStore: Foto-Abgleich fehlgeschlagen',
+            error: e, stackTrace: s, name: 'recipe_image_store');
+      }
+      return removed;
+    });
+  }
+
   /// Wipes the whole root folder — all namespaces and the flat legacy files.
   ///
   /// Recipe photos are PII and must vanish on sign-out or account deletion
@@ -385,6 +508,10 @@ class RecipeImageStore {
     // Via the maintenance chain, so no concurrent migration moves a file into
     // a namespace while the folder is being deleted.
     return _afterMaintenance(() async {
+      // BEFORE the awaits: a save hanging in its scrub compares this value and
+      // must see the purge even if the delete below fails (P3-03).
+      _purgeEpoch++;
+      _writtenThisSession.clear();
       final root = await _ensureRoot();
       if (root == null) return;
       try {
@@ -394,7 +521,8 @@ class RecipeImageStore {
             error: e, name: 'recipe_image_store');
       }
       // [_root]/[_namespace] stay: the paths remain valid, only the folders
-      // are gone. The next [save] recreates them.
+      // are gone. A LATER [save] recreates them — a save that was already
+      // running when this ran does not (P3-03).
     });
   }
 
@@ -402,6 +530,9 @@ class RecipeImageStore {
   /// namespaces and belong to the previous device user, so they go too even if
   /// his migration never ran. Fail-closed; errors are logged, never rethrown.
   Future<void> _purgeNamespace(String uid) async {
+    // Same reason as in [clear]: raised before the first await.
+    _purgeEpoch++;
+    _writtenThisSession.clear();
     final root = await _ensureRoot();
     if (root == null) return;
     try {

@@ -421,6 +421,77 @@ class SheetHandle extends StatelessWidget {
   }
 }
 
+/// Intercepts the drag-down dismiss of a modal bottom sheet.
+///
+/// A [PopScope] alone covers only half of it: system back and a barrier tap go
+/// through `Navigator.maybePop` (which asks the pop disposition), while a drag
+/// goes `BottomSheet._handleDragEnd` -> `onClosing` -> `Navigator.pop` and asks
+/// nobody. The only lever from inside the sheet is the gesture arena — a
+/// vertical drag recognizer in the builder child sits below
+/// `_BottomSheetGestureDetector` and wins. Scrollables sit below this guard and
+/// stay unaffected.
+///
+/// Open the sheet with `dragHandle: false` ([showEatovaSheet]) and draw a
+/// [SheetHandle] instead: a pull on Material's own handle pops via the same
+/// `onClosing` path, above this guard.
+///
+/// With [active] false no recognizer is registered at all, so a sheet with
+/// nothing to lose still drags away.
+///
+/// Two older private twins exist (`recipe_create_sheet.dart`,
+/// `meal_widgets_adjust.dart`); they predate this one and are unchanged.
+class SheetDismissGuard extends StatefulWidget {
+  const SheetDismissGuard({
+    super.key,
+    required this.active,
+    required this.onDismissAttempt,
+    required this.child,
+  });
+
+  final bool active;
+  final VoidCallback onDismissAttempt;
+  final Widget child;
+
+  @override
+  State<SheetDismissGuard> createState() => _SheetDismissGuardState();
+}
+
+class _SheetDismissGuardState extends State<SheetDismissGuard> {
+  /// Minimum downward distance counted as "close". Deliberately small: the
+  /// guard swallows the gesture either way, the only question is whether the
+  /// user gets an answer.
+  static const double _closeIntentPx = 32;
+
+  /// Fling threshold, mirroring `_kMinFlingVelocity` from bottom_sheet.dart.
+  static const double _flingVelocity = 700;
+
+  double _dy = 0;
+
+  void _onStart(DragStartDetails details) => _dy = 0;
+
+  void _onUpdate(DragUpdateDetails details) => _dy += details.primaryDelta ?? 0;
+
+  void _onEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (_dy > _closeIntentPx || velocity > _flingVelocity) {
+      widget.onDismissAttempt();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return widget.child;
+    return GestureDetector(
+      // Without translucent, gaps between children stay uncovered.
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragStart: _onStart,
+      onVerticalDragUpdate: _onUpdate,
+      onVerticalDragEnd: _onEnd,
+      child: widget.child,
+    );
+  }
+}
+
 /// Gap between the top safe area and a sheet's top edge.
 const double kSheetTopGap = 12;
 

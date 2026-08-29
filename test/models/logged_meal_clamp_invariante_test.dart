@@ -30,6 +30,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/models/model_limits.dart';
+import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 /// 👨‍👩‍👧‍👦 — 4 Personen + 3 ZWJ = 7 Codepunkte, 1 Graphem.
 final String _familie = String.fromCharCodes(const <int>[
@@ -174,8 +175,6 @@ Map<String, MealAnalysisResult> _alleErzeuger() {
       },
     ),
     // Realistischer Barcode: der Scanner ist auf EAN-8/EAN-13/UPC-A begrenzt.
-    // `fromOpenFoodFacts` reicht `barcode` ungeklemmt durch — dokumentierter
-    // Fremdbedarf an meal_analysis_result.dart, hier nicht behebbar.
     'MealAnalysisResult.fromOpenFoodFacts': MealAnalysisResult.fromOpenFoodFacts(
       <String, dynamic>{
         'product_name': _titel210,
@@ -189,6 +188,20 @@ Map<String, MealAnalysisResult> _alleErzeuger() {
         },
       },
       '4001234567890',
+    ),
+    // P2-01b: der Code kommt NICHT nur von der Kamera. `ProductSearchResult
+    // .fromOpenFoodFacts` nimmt `product['code']` wortwoertlich aus dem
+    // Meilisearch-/OFF-Index — ueber 64 Zeichen reisst `logged_meals.barcode`,
+    // ueber 172 zusaetzlich der `favorite_key`, der aus `barcode:<code>` gebaut
+    // wird.
+    'MealAnalysisResult.fromOpenFoodFacts (Index-Code aus der Suche)':
+        MealAnalysisResult.fromOpenFoodFacts(
+      <String, dynamic>{
+        'product_name': _titel210,
+        'brands': 'b' * 400,
+        'nutriments': <String, dynamic>{'energy-kcal_100g': 500},
+      },
+      '9' * 400,
     ),
     'MealAnalysisResult.manualEntry': MealAnalysisResult.manualEntry(
       name: _titel210,
@@ -394,6 +407,49 @@ void main() {
     });
   });
 
+  group('P2-01b: der Barcode kommt geklemmt aus der Produktsuche', () {
+    /// Ein Code, wie ihn nur der Index liefern kann — nie der Scanner.
+    final langerCode = '9' * 400;
+
+    test('fromOpenFoodFacts kuerzt auf die logged_meals-Spalte', () {
+      final meal = MealAnalysisResult.fromOpenFoodFacts(
+        <String, dynamic>{
+          'product_name': 'Riegel',
+          'nutriments': <String, dynamic>{'energy-kcal_100g': 500},
+        },
+        langerCode,
+      );
+      expect(charLength(meal.barcode!), LoggedMealLimits.barcodeMaxChars);
+      expect(meal.barcode, '9' * LoggedMealLimits.barcodeMaxChars);
+      // Und die zweite Haelfte desselben Constraints: `barcode:` + 64 = 71.
+      expect(isValidFavoriteKey(FavoriteMeal.idFor(meal)), isTrue);
+    });
+
+    test('ein echter EAN bleibt Zeichen fuer Zeichen stehen', () {
+      final meal = MealAnalysisResult.fromOpenFoodFacts(
+        <String, dynamic>{
+          'product_name': 'Riegel',
+          'nutriments': <String, dynamic>{'energy-kcal_100g': 500},
+        },
+        '4001234567890',
+      );
+      expect(meal.barcode, '4001234567890');
+    });
+
+    test('ProductSearchResult nimmt product[code] nicht mehr wortwoertlich',
+        () {
+      final treffer = ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
+        'code': langerCode,
+        'product_name': 'Riegel',
+        'nutriments': <String, dynamic>{'energy-kcal_100g': 500},
+      });
+      expect(charLength(treffer.code), LoggedMealLimits.barcodeMaxChars);
+      expect(treffer.result.barcode, treffer.code,
+          reason: 'Trefferliste und Ergebnis muessen denselben Code fuehren, '
+              'sonst laufen Favoriten-Schluessel auseinander');
+    });
+  });
+
   group('Registratur: der naechste fehlende Clamp faellt hier auf', () {
     test('nur bekannte Dateien bauen ein MealAnalysisResult', () {
       expect(
@@ -411,6 +467,30 @@ void main() {
         _upsertSpalten.keys.toSet(),
         reason: 'MealsSync schreibt eine Spalte, die diese Invariante nicht '
             'kennt — sie ist damit ungeprueft.',
+      );
+    });
+
+    test('clampBarcode ist kein toter Code mehr (P2-01b)', () {
+      // Der Befund war zweiteilig: `fromOpenFoodFacts` reichte den Code roh
+      // durch UND `clampBarcode` stand nirgends in `lib/`. Eine Klemmfunktion,
+      // die niemand ruft, ist keine Klemmung.
+      final rufer = <String>{};
+      for (final eintrag in Directory('lib').listSync(recursive: true)) {
+        if (eintrag is! File || !eintrag.path.endsWith('.dart')) continue;
+        final quelle = _ohneKommentare(eintrag.readAsStringSync());
+        if (quelle.contains('clampBarcode(')) {
+          rufer.add(eintrag.path.replaceAll(r'\', '/'));
+        }
+      }
+      expect(
+        rufer,
+        <String>{
+          'lib/src/models/meal_analysis_result.dart',
+          'lib/src/models/model_limits.dart',
+          'lib/src/services/open_food_facts_product_service.dart',
+        },
+        reason: 'beide Eingaenge des Barcodes — der Parser und die Trefferliste '
+            'der Produktsuche — muessen durch clampBarcode gehen',
       );
     });
 

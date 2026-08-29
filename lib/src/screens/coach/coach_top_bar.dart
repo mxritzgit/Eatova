@@ -54,9 +54,17 @@ class _CoachTopBar extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Text(
-                      l10n.coachTitle,
-                      style: AppType.display(22, color: t.ink, height: 1.1),
+                    // The tab's rank-1 mark (P9-06c). It sits here and not on
+                    // the hero because this header is on screen in EVERY
+                    // state; the hero only exists while the chat is empty.
+                    // Title only: the status line below is context, and the
+                    // three controls on the right keep their own nodes.
+                    HeadingSemantics(
+                      level: 1,
+                      child: Text(
+                        l10n.coachTitle,
+                        style: AppType.display(22, color: t.ink, height: 1.1),
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Row(

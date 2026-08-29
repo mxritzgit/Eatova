@@ -200,6 +200,24 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   `chat_sessions` title read and PATCH ran with the service key filtered by
   session id alone, relying on the caller having checked ownership first;
   both requests now carry a `user_id` filter as defense in depth.
+- **Failed authentications are rate-limited per IP on every function** (#56) —
+  the gateway's `verify_jwt` rejects a garbage signature, but a
+  signature-valid yet revoked token (signed-out session, deleted account)
+  still reaches the function and costs one GoTrue introspection each time, so
+  a replay flood was unbounded amplification (CWE-400). `coach-chat` had that
+  damper inline; `analyze-meal` and `search-key` had none. It is now one
+  shared helper (`_shared/auth_fail_gate.ts`) with one set of numbers,
+  consumed only *after* a failed lookup, and a limiter outage never turns into
+  a blocked 401.
+- **Per-user row caps and database hardening** — five tables now refuse
+  unbounded growth per user (`offset cap-1 limit 1` instead of `count(*)`, so
+  the cost hangs on the caller's own rows), `edge_rate_limits(window_start)`
+  is indexed, the unused `DELETE` grant on `profiles` is revoked, and the
+  first cross-user RLS check in the repo's history runs against a real
+  PostgreSQL 16 with all migrations applied.
+- **Provider answers are redacted before they are logged** — `finishReason`
+  and `usage` used to reach the logs unredacted; both go through allowlists
+  now (CWE-532), covered by a mutation test.
 
 ### Internal
 
@@ -210,6 +228,61 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
   (80ea946) — they were imported directly but only reached the app
   transitively via `supabase_flutter`; the basis for the review fix run of
   2026-08-27.
+- **Test suite consolidated** (#55) — a shared harness
+  (`pumpLocalized`/`renderMatrix`/`collectOverflows`) replaced the copied
+  localization boilerplate in 118 files, render smokes became matrices that
+  cover combinations nobody had written by hand (English at text scale 2.0,
+  light mode in a scale suite), the 3,164-line outbox monolith was split into
+  six suites (104 s -> 37 s) and seventeen source guards now share one `lib/`
+  tree walk. 2,688 -> 2,816 cases at 91.24 -> 91.60 % line coverage. It also
+  turned up two real defects: `motionDuration` returned `Duration.zero` under
+  "reduce motion" and four `AnimatedSize` widgets passed it straight into a
+  framework assertion on real devices (fixed via `maybeAnimatedSize`), and two
+  tests had been green for a year without ever reaching their path, because
+  their 500-mocks built an `http.Response` without `request:`.
+
+### Fix-Lauf Review 2026-08-29
+
+Closes the findings of the 2026-08-29 full review; every fix was re-checked by
+an independent verifier who had to revert it and watch the test go red.
+Highlights:
+
+- **Data loss paths:** a decrypt that could not *run* (isolate spawn, OOM)
+  counted as an empty slot, so up to 500 never-delivered outbox operations
+  were overwritten and dropped at sign-out — a new raw-slot probe makes that
+  fail-closed regardless of the error class. The queue cap now marks discarded
+  entities as orphaned (a zero-row `PATCH` is a 204 and had been passing for
+  success), the retry timer survives skipped operations, and the repair path
+  no longer overwrites a blob that is merely unreadable right now.
+- **Food tab:** the undo toast reached the open add sheet but the sheet held a
+  dead copy of the list, so undo looked ineffective and users logged the meal a
+  second time; a `FoodStoreScope` gives the sheet a live channel to the store.
+- **Edge functions:** a new gate order (IP -> user -> body -> day -> global)
+  means the daily caps only count calls that reach paid work, every stage has a
+  time budget including the body read, a missing energy statement is a 502
+  instead of a 200 with an empty meal, and `image_mime_type` comes from the
+  data's magic bytes rather than the provider's own claim.
+- **Product search:** a deadline per layer, each capping the sum of the ones
+  below it — the worst case fell from 298 s to 18 s, with a hint after 6 s and
+  a cancel button. A cleanly empty result now beats a later stage's error, and
+  a 2xx without a product list is no longer reported as "nothing found".
+- **Coach:** the composer mirrors both server checks (1,000 characters *and*
+  4,000 bytes), the daily limit comes from the server and fails open, the
+  prompt-leak net answers in the user's language, and both recipe refund paths
+  are pinned by tests against a quota ledger.
+- **Accessibility and contrast:** the selection state moved from forest to
+  ink/bg (1.10:1 -> 12.31:1 in dark mode; the selected calendar day had been at
+  1.04:1, effectively invisible), macro values sit in text tokens with a
+  coloured dot (3.39:1 -> 16.78:1), and `HeadingSemantics` sets `header` *and*
+  `headingLevel`, since neither alone makes a jump mark.
+- **Platform and docs:** `dart_defines.example.json` no longer ships an empty
+  `OFF_MIRROR_SEARCH_KEY` (an empty `--dart-define` *defines* the key and wiped
+  the compiled-in search key, silently degrading product search to the public
+  Open Food Facts fallback), the merged Android manifest drops the
+  `USE_BIOMETRIC`/`USE_FINGERPRINT` permissions that `androidx.biometric`
+  contributed to an app with no biometric path, and the privacy documents match
+  the platform configuration again — the Android backup wording, and evidence
+  references by symbol name instead of line numbers.
 
 ### Fix-Lauf Review 2026-08-27
 

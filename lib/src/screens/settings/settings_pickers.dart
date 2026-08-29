@@ -114,7 +114,16 @@ class _PickerSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(title, style: AppType.display(23, color: t.ink, height: 1.15)),
+            // Sheet title = rank 1 (P9-06c). The SettingsGroup caption below
+            // is rank 2 since P9-06, and without this it would hang under
+            // nothing.
+            HeadingSemantics(
+              level: 1,
+              child: Text(
+                title,
+                style: AppType.display(23, color: t.ink, height: 1.15),
+              ),
+            ),
             const SizedBox(height: 14),
             SettingsGroup(label: groupLabel, children: children),
           ],

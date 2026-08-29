@@ -736,10 +736,12 @@ class _BootUnansweredScreen extends StatelessWidget {
               children: <Widget>[
                 Icon(Icons.cloud_off_rounded, size: 40, color: t.ink2),
                 const SizedBox(height: 18),
-                // `header: true` lets a screen reader jump to the screen
-                // title, as in the sheets.
-                Semantics(
-                  header: true,
+                // Screen title, so rank 1 — the shared widget adds the
+                // `header` trait AND the rank a hand-written Semantics
+                // cannot express (P9-06b). Type stays display-22: this is an
+                // a11y fix, not a design change.
+                HeadingSemantics(
+                  level: 1,
                   child: Text(
                     l10n.commonBootUnansweredTitle,
                     textAlign: TextAlign.center,

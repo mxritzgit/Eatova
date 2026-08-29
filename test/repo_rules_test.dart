@@ -119,6 +119,33 @@ const Map<String, String> _festeFarbenErlaubt = <String, String>{
       'legibility scrim over a recipe photo: black gradient on an image, not on a surface',
 };
 
+/// Files that may name the raw heading properties (`header:`,
+/// `headingLevel:`) themselves, each with its reason. See the rule
+/// "Ueberschriften kommen aus HeadingSemantics" below.
+const Map<String, String> _eigeneUeberschriftErlaubt = <String, String>{
+  'lib/src/widgets/design/surfaces.dart':
+      'defines HeadingSemantics — the one place both properties are set, and the only one that can guarantee they stay paired',
+};
+
+/// The two Semantics properties that make a jump mark. `header` alone is what
+/// TalkBack and VoiceOver navigate by, `headingLevel` alone is the rank —
+/// either without the other is the exact defect P9-06/P9-06b found, so both
+/// are banned outside [HeadingSemantics].
+final RegExp _ueberschriftEigenschaft =
+    RegExp(r'\b(header|headingLevel)\s*:');
+
+/// Findings for ONE source. Own function so the self-checks below can feed it
+/// a snippet instead of walking the tree.
+List<String> _eigeneUeberschriftFunde(String pfad, String quelle) {
+  final funde = <String>[];
+  for (final zeile in _dartOhneKommentare(quelle).split('\n')) {
+    if (_ueberschriftEigenschaft.hasMatch(zeile)) {
+      funde.add('$pfad: ${zeile.trim()}');
+    }
+  }
+  return funde;
+}
+
 /// [_migriertePfade] is a COVERAGE list, not an exception list: every finished
 /// i18n package appends its directory or file, and the list only ever grows.
 /// At the end of the migration it covers `lib/` completely.
@@ -126,9 +153,6 @@ const Map<String, String> _festeFarbenErlaubt = <String, String>{
 /// Deliberate, permanent exclusions — design decisions, not migration gaps:
 ///  * `main.dart` — the boot error screen runs before l10n exists, so
 ///    `AppLocalizations.of` is structurally unreachable there.
-///  * `lib/src/app/home_store.dart` — `coachContext`/`_todaysFoodSummary` are
-///    free-text CONTEXT for the coach prompt, never rendered; the model reads
-///    German context regardless of the answer language.
 ///  * `lib/src/models/recipe_catalog_de.dart` — German content by design.
 ///  * `lib/src/models/meal_analysis_result.dart` — remaining hits are legacy
 ///    compatibility DATA the `resolve()` methods must recognise, plus the
@@ -161,6 +185,7 @@ const List<String> _migriertePfade = <String>[
   'lib/src/services/kcal_calculator.dart',
   'lib/src/services/sync_error_messages.dart',
   'lib/src/services/coach_chat_service.dart',
+  'lib/src/app/home_store.dart',
   'lib/src/app/home_store_meals.dart',
   'lib/src/app/home_store_sync.dart',
   'lib/src/app/home_store_tracking.dart',
@@ -187,9 +212,26 @@ const List<String> _migriertePfade = <String>[
 /// deny list, not a coverage list. `_supabaseTrendLoader()` is a `static`
 /// function without a `BuildContext`; TrendsScreen always catches the throw
 /// and never renders it raw — same category as log/Sentry text (spec §4).
+///
+/// P1-04: `home_store.dart` used to be excluded as a WHOLE file, justified
+/// with the coach prompt context. A file is the wrong unit — the exclusion
+/// also covered a rendered `_emitSnack` two hundred lines further down, which
+/// stayed German through two i18n rounds. The prompt context is now listed
+/// literal by literal, so a new German literal in that file is a finding.
 const Map<String, List<String>> _bekannteAusnahmen = <String, List<String>>{
   'lib/src/screens/meal_analysis_screen.dart': [
     "'Kein angemeldeter Nutzer für die Trend-Ansicht.'",
+  ],
+  // `coachContext`/`_todaysSlotSummary`/`_todaysFoodSummary`: free-text
+  // CONTEXT for the coach prompt, never rendered. The model reads German
+  // context regardless of the answer language (the reply language is set by
+  // the system prompt), so these lines stay German on purpose.
+  'lib/src/app/home_store.dart': [
+    "'Körpergewicht: \${p.weightKg} kg (Ziel \${p.targetWeightKg} kg).'",
+    "'(noch \$remKcal kcal übrig).'",
+    "'Makros heute noch offen: Protein \$remProt g, Kohlenhydrate \$remCarbs g, '",
+    "'\$n Einträge'",
+    "'Pro Mahlzeit heute: \$parts.'",
   ],
   // The `operation` argument of `_reportSyncError`/`_syncOrQueue` only reaches
   // `dev.log` and `CrashReporter.capture(context: ...)` — diagnostic text,
@@ -232,6 +274,54 @@ const List<String> _anzeigeWoerterOhneUmlaut = <String>[
   'hinzugefuegt',
 ];
 
+/// Third layer (P1-04): German FUNCTION words — the skeleton of a sentence,
+/// not its subject.
+///
+/// The first two layers both look for the same thing in the end: a word this
+/// repo happens to have written down. They missed two rendered snacks at
+/// once —
+///  * `'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.'` carries no
+///    umlaut and none of the eight display words, and
+///  * `'… Deine Daten auf dem Server sind unberuehrt — … Eintraege …'` was
+///    typed in ASCII transliteration, which makes the CHARACTER filter
+///    structurally blind: `ue`/`ae`/`oe` are exactly what a German text looks
+///    like once someone avoids umlauts.
+///
+/// Function words need no umlaut and survive every transliteration, so this
+/// layer is immune to the trick that beat layers 1 and 2. It is also the
+/// layer that cannot be enumerated away: German prose without `der/die/ist/
+/// nicht/und` does not exist, while a nouns-only list would have to grow with
+/// every feature.
+///
+/// Matching is case-INSENSITIVE (unlike [_anzeigeWoerterOhneUmlaut], where
+/// capitals do the cutting): a sentence starts with a capital, and "Deine"
+/// vs "deine" is not the distinction that matters here. The cut is
+/// [_satzSchwelle] instead — see there.
+///
+/// Words that also exist in English (`die`, `den`, `dir`, `war`, `man`, `in`,
+/// `an`, `so`) stay OUT: this layer must not turn an English log line into a
+/// finding.
+const List<String> _deutscheSatzWoerter = <String>[
+  'aber', 'auf', 'aus', 'beim', 'bereits', 'bitte', 'dein', 'deine', //
+  'deinem', 'deinen', 'deiner', 'dem', 'der', 'des', 'dich', 'diese', //
+  'diesem', 'diesen', 'dieser', 'dieses', 'doch', 'dort', 'du', 'ein', //
+  'eine', 'einem', 'einen', 'einer', 'erneut', 'erst', 'hier', 'ihre', //
+  'ist', 'jetzt', 'kann', 'kannst', 'keine', 'keinen', 'konnte', 'mit', //
+  'muss', 'musst', 'musste', 'nicht', 'noch', 'nur', 'oder', 'sich', //
+  'sind', 'und', 'vom', 'von', 'werden', 'wieder', 'wird', 'wirst', //
+  'wurde', 'wurden', 'zum', 'zur',
+];
+
+/// How many DIFFERENT [_deutscheSatzWoerter] make a literal a German sentence.
+///
+/// One is too little: a single `von`/`ist` also shows up in a product name or
+/// a mixed-language diagnostic. Two independent function words in one literal
+/// no longer happen by accident — measured against the whole migrated tree,
+/// two produces exactly the real findings and not one false positive, while
+/// one additionally hits three German exception messages in
+/// `coach_chat_service.dart` and the coach-context lines.
+const int _satzSchwelle = 2;
+
 // ---------------------------------------------------------------------------
 // i18n heuristic (spec §6)
 //
@@ -246,8 +336,12 @@ const List<String> _anzeigeWoerterOhneUmlaut = <String>[
 //     would be a bug in its own right (keys are language-neutral, spec §4).
 //
 // The character filter is blind to German words without umlauts. A second
-// layer catches part of that class — see [_anzeigeWoerterOhneUmlaut]. Full
+// layer catches part of that class — see [_anzeigeWoerterOhneUmlaut] — and a
+// third one the sentences neither of them sees ([_deutscheSatzWoerter]). Full
 // extraction stays manual per package; this is a safety net.
+//
+// Diagnostics are cut out STRUCTURALLY, not per literal: everything inside a
+// `dev.log(...)` call is exempt (spec §4), see [_diagnoseBereiche].
 // ---------------------------------------------------------------------------
 
 final RegExp _literal = RegExp(r"'[^'\n]*'");
@@ -263,23 +357,133 @@ final List<RegExp> _wortTreffer = _anzeigeWoerterOhneUmlaut
     .map((wort) => RegExp('\\b$wort\\b'))
     .toList(growable: false);
 
-/// Both layers for ONE literal, quotes included as [_literal] returns it. Its
-/// own function so the self-check below can feed it directly instead of
+final List<RegExp> _satzTreffer = _deutscheSatzWoerter
+    .map((wort) => RegExp('\\b$wort\\b', caseSensitive: false))
+    .toList(growable: false);
+
+// ---------------------------------------------------------------------------
+// Build-time environment declarations
+//
+// One parse of every `*.fromEnvironment(...)` / `bool.hasEnvironment(...)` in
+// `lib/`, so the rule below compares the example file against the CODE rather
+// than a hardcoded list.
+// ---------------------------------------------------------------------------
+
+/// One `String.fromEnvironment` call site: the declaration name and the
+/// compiled-in default (concatenated literals behind `defaultValue:`, empty
+/// when the argument is absent).
+class _Deklaration {
+  const _Deklaration(this.name, this.standard);
+
+  final String name;
+  final String standard;
+}
+
+final RegExp _fromEnvironment =
+    RegExp(r'(String|bool|int)\.fromEnvironment\(');
+final RegExp _hasEnvironment = RegExp(r"bool\.hasEnvironment\(\s*'([^']+)'");
+
+/// Text from [start] (just past the opening paren) to its matching `)`,
+/// skipping over single-quoted literals so a paren inside a string cannot
+/// close the argument list early.
+String _bisKlammerZu(String quelle, int start) {
+  var tiefe = 1;
+  var i = start;
+  while (i < quelle.length) {
+    final c = quelle[i];
+    if (c == "'") {
+      i++;
+      while (i < quelle.length && quelle[i] != "'") {
+        if (quelle[i] == r'\') i++;
+        i++;
+      }
+    } else if (c == '(') {
+      tiefe++;
+    } else if (c == ')') {
+      tiefe--;
+      if (tiefe == 0) return quelle.substring(start, i);
+    }
+    i++;
+  }
+  return quelle.substring(start);
+}
+
+/// Every declaration `lib/` reads, keyed by name.
+Map<String, _Deklaration> _deklarationen() {
+  final gefunden = <String, _Deklaration>{};
+  for (final quelle in _libQuellen) {
+    final text = quelle.ohneKommentare;
+    for (final m in _fromEnvironment.allMatches(text)) {
+      final rumpf = _bisKlammerZu(text, m.end);
+      final literale =
+          _literal.allMatches(rumpf).map((l) => l.group(0)!).toList();
+      if (literale.isEmpty) continue;
+      final name = literale.first.substring(1, literale.first.length - 1);
+      final standardIndex = rumpf.indexOf('defaultValue:');
+      final standard = standardIndex < 0
+          ? ''
+          : _literal
+              .allMatches(rumpf.substring(standardIndex))
+              .map((l) => l.group(0)!.substring(1, l.group(0)!.length - 1))
+              .join();
+      gefunden[name] = _Deklaration(name, standard);
+    }
+    for (final m in _hasEnvironment.allMatches(text)) {
+      gefunden.putIfAbsent(
+          m.group(1)!, () => _Deklaration(m.group(1)!, ''));
+    }
+  }
+  return gefunden;
+}
+
+/// All three layers for ONE literal, quotes included as [_literal] returns it.
+/// Its own function so the self-check below can feed it directly instead of
 /// walking the file tree.
 bool _istDeutscheHartkodierung(String literalMitQuotes) {
   if (_deutschesZeichen.hasMatch(literalMitQuotes)) return true;
   final inhalt = literalMitQuotes.substring(1, literalMitQuotes.length - 1);
   if (_bezeichnerLiteral.hasMatch(inhalt)) return false;
-  return _wortTreffer.any((treffer) => treffer.hasMatch(inhalt));
+  if (_wortTreffer.any((treffer) => treffer.hasMatch(inhalt))) return true;
+  // Layer 3 asks for a SENTENCE. A single token stays out: it is a label, a
+  // key or a name, and prose it is not.
+  if (!inhalt.trim().contains(' ')) return false;
+  var gefunden = 0;
+  for (final treffer in _satzTreffer) {
+    if (treffer.hasMatch(inhalt) && ++gefunden >= _satzSchwelle) return true;
+  }
+  return false;
 }
 
+/// Half-open char ranges of the `dev.log(...)` calls in [code].
+///
+/// Spec §4 exempts diagnostics: `dev.log` text never reaches a screen, and
+/// `dart:developer` never leaves the device. Listing those sentences one by
+/// one in [_bekannteAusnahmen] would fill a deny list — meant for real
+/// UI-adjacent decisions — with text nobody ever reads, and a deny list nobody
+/// can survey stops being read at all. So diagnostics are cut by CALL.
+///
+/// [_bisKlammerZu] counts parens string-aware, which this needs:
+/// `dev.log('(noch 3 kcal)')` would otherwise close the call inside its own
+/// message.
+List<({int von, int bis})> _diagnoseBereiche(String code) => _devLog
+    .allMatches(code)
+    .map((m) => (von: m.start, bis: m.end + _bisKlammerZu(code, m.end).length))
+    .toList(growable: false);
+
+final RegExp _devLog = RegExp(r'\bdev\.log\(');
+
 /// All findings of one source file, formatted as `path: literal`. [ausnahmen]
-/// is the [_bekannteAusnahmen] entry and covers BOTH layers.
+/// is the [_bekannteAusnahmen] entry and covers ALL THREE layers.
 List<String> _fundeIn(String relativ, String quelle, List<String> ausnahmen) {
+  final code = _dartOhneKommentare(quelle);
+  final diagnose = _diagnoseBereiche(code);
   final funde = <String>[];
-  for (final match in _literal.allMatches(_dartOhneKommentare(quelle))) {
+  for (final match in _literal.allMatches(code)) {
     final text = match.group(0)!;
     if (ausnahmen.contains(text)) continue;
+    if (diagnose.any((b) => b.von <= match.start && match.end <= b.bis)) {
+      continue;
+    }
     if (_istDeutscheHartkodierung(text)) funde.add('$relativ: $text');
   }
   return funde;
@@ -397,6 +601,77 @@ void main() {
   });
 
   // =========================================================================
+  // A11y — jump marks (review 2026-08-29, P9-06d)
+  //
+  // P9-06 gave the shared widgets a heading each; P9-06b/c found six titles
+  // that had drifted away from them — two with a hand-written
+  // `Semantics(header: true)` and no rank, four with nothing at all. Both
+  // halves matter: `header` is the trait TalkBack and VoiceOver navigate by,
+  // `headingLevel` is the rank (aria-level on web, isHeading on Android), and
+  // a hand-written annotation reliably carries only one of them.
+  //
+  // The rule is deliberately narrow: it names the two HEADING properties, not
+  // `Semantics` as such. `Semantics(button: true, label: ...)`,
+  // `ExcludeSemantics`, `MergeSemantics` and every other annotation stay
+  // untouched — those are not titles and have nothing to do with this.
+  // =========================================================================
+  group('Ueberschriften kommen aus HeadingSemantics', () {
+    test('niemand setzt header:/headingLevel: von Hand (Allowlist mit '
+        'Begruendung)', () {
+      final treffer = <String>[];
+      for (final quelle in _libQuellen) {
+        if (_eigeneUeberschriftErlaubt.containsKey(quelle.pfad)) continue;
+        treffer.addAll(_eigeneUeberschriftFunde(quelle.pfad, quelle.roh));
+      }
+      expect(
+        treffer,
+        isEmpty,
+        reason: 'Ein Seitentitel wird mit HeadingSemantics(level: …) '
+            'ausgezeichnet (lib/src/widgets/design/surfaces.dart, ueber das '
+            'design.dart-Barrel). Von Hand gesetzt fehlt regelmaessig die '
+            'zweite Haelfte: header ohne Rang (Android/Web kennen die Ebene '
+            'nicht) oder Rang ohne header (iOS findet die Marke gar '
+            'nicht):\n${treffer.join('\n')}',
+      );
+      // The allowlist must not outlive its files.
+      for (final pfad in _eigeneUeberschriftErlaubt.keys) {
+        expect(File(pfad).existsSync(), isTrue, reason: '$pfad fehlt');
+      }
+    });
+
+    test('die Regel haette genau den alten Zustand gefangen', () {
+      // Verbatim from eatova_home_page.dart and favorites_sheet.dart before
+      // P9-06b — restated here so the self-check does not depend on those
+      // files having kept the shape.
+      const alt = '''
+Semantics(
+  header: true,
+  child: Text(l10n.commonBootUnansweredTitle),
+),
+''';
+      expect(_eigeneUeberschriftFunde('probe.dart', alt), hasLength(1));
+      // The other half of the defect: a rank without the trait.
+      const nurRang = 'Semantics(headingLevel: 1, child: Text(titel)),';
+      expect(_eigeneUeberschriftFunde('probe.dart', nurRang), hasLength(1));
+    });
+
+    test('die Regel laesst Nicht-Titel-Semantics und Kommentare in Ruhe', () {
+      // Everything `Semantics` is legitimately used for elsewhere in this
+      // repo, plus the shared widget's own call site.
+      const harmlos = '''
+// `header: true` waere hier falsch — reiner Erklaertext
+/// Streak pill in the header: lime dot plus day count.
+Semantics(button: true, label: l10n.todaySemanticsOpenProfile, child: tile),
+Semantics(container: true, liveRegion: true, child: Text(status)),
+ExcludeSemantics(child: handle),
+MergeSemantics(child: row),
+HeadingSemantics(level: 1, child: Text(titel)),
+''';
+      expect(_eigeneUeberschriftFunde('probe.dart', harmlos), isEmpty);
+    });
+  });
+
+  // =========================================================================
   // i18n — hardcoded German (spec §6)
   // =========================================================================
   group('Hartkodierungs-Waechter', () {
@@ -416,7 +691,8 @@ void main() {
         funde,
         isEmpty,
         reason: 'Diese String-Literale tragen noch deutsche Hartkodierungen '
-            '(Umlaut/ß/„ oder ein Wort aus _anzeigeWoerterOhneUmlaut) unter '
+            '(Umlaut/ß/„, ein Wort aus _anzeigeWoerterOhneUmlaut oder '
+            '$_satzSchwelle Funktionswoerter aus _deutscheSatzWoerter) unter '
             'einem als migriert gemeldeten Pfad — entweder fehlt die '
             'ARB-Extraktion, oder der Pfad wurde zu früh '
             'eingetragen:\n${funde.join('\n')}',
@@ -473,6 +749,85 @@ void main() {
       for (final probe in durchgelassen) {
         expect(_istDeutscheHartkodierung(probe), isFalse, reason: probe);
       }
+    });
+
+    test(
+        'die Satz-Lage sieht die zwei Snacks, an denen Zeichenfilter UND '
+        'Wortliste vorbeiliefen (P1-04)', () {
+      // The literals as auth_gate.dart and home_store.dart really carried them
+      // — restated here so the self-check survives their localisation.
+      //
+      // The second one is the interesting case: it was typed in ASCII
+      // transliteration ("unberuehrt", "Eintraege"), and that is precisely
+      // what German prose looks like once someone avoids umlauts. A guard that
+      // only knows umlauts is blind to exactly the texts written by people who
+      // avoid umlauts.
+      const uebersehen = <String>[
+        "'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.'",
+        "'Der Offline-Speicher musste neu angelegt werden. Deine Daten auf dem '",
+        "'Server sind unberuehrt — nur noch nicht synchronisierte Eintraege '",
+      ];
+      for (final probe in uebersehen) {
+        expect(_istDeutscheHartkodierung(probe), isTrue, reason: probe);
+        expect(_deutschesZeichen.hasMatch(probe), isFalse,
+            reason: 'sonst haette Lage 1 gereicht und die Probe taugt nicht: '
+                '$probe');
+        expect(_wortTreffer.any((t) => t.hasMatch(probe)), isFalse,
+            reason: 'sonst haette Lage 2 gereicht und die Probe taugt nicht: '
+                '$probe');
+      }
+    });
+
+    test('die Satz-Lage braucht einen SATZ, kein einzelnes Funktionswort', () {
+      // The threshold is the whole point: one `von`/`ist` also shows up in a
+      // product name or a mixed-language diagnostic.
+      const einzeln = <String>[
+        "'Kein Nutzer'", // no word from the list at all
+        "'ist'", // one word, and not even a sentence
+        "'Der'",
+        "'Protein von Alpro'", // one word inside a product line
+      ];
+      for (final probe in einzeln) {
+        expect(_istDeutscheHartkodierung(probe), isFalse, reason: probe);
+      }
+      // Counter-check, so the threshold cannot go silently unreachable: two
+      // function words in one literal ARE a finding.
+      expect(_istDeutscheHartkodierung("'Protein von der Alpro-Reihe'"), isTrue);
+    });
+
+    test('die Satz-Lage laesst Englisch und Bezeichner in Ruhe', () {
+      const durchgelassen = <String>[
+        "'Meal updated.'",
+        "'No signed-in user for the trend view.'",
+        "'the meal was updated and is now in the outbox'",
+        "'assets/images/onboarding.png'",
+        "'food-heute-strip'",
+        "'Content-Type'",
+      ];
+      for (final probe in durchgelassen) {
+        expect(_istDeutscheHartkodierung(probe), isFalse, reason: probe);
+      }
+    });
+
+    test('dev.log-Texte sind Diagnose, der Aufruf daneben aber nicht', () {
+      // Spec §4: log text never reaches a screen. The paren counting has to be
+      // string-aware, or the `)` inside the message would end the call early
+      // and the following line would silently drop out of the scan too.
+      const quelle = '''
+void f() {
+  dev.log(
+      'Boot-Budget aufgebraucht — die App wird ohne '
+      'Server-Antwort angezeigt (noch nicht fertig), der Boot laeuft weiter',
+      name: 'eatova_sync');
+  _emitSnack('Der Speicher wurde neu angelegt und ist jetzt leer.');
+}
+''';
+      expect(
+        _fundeIn('probe.dart', quelle, const <String>[]),
+        <String>[
+          "probe.dart: 'Der Speicher wurde neu angelegt und ist jetzt leer.'",
+        ],
+      );
     });
 
     test('die Wort-Lage loest in Kommentaren nicht aus', () {
@@ -617,5 +972,84 @@ const x = 'today';
     expect(bytes, isNotNull,
         reason: 'MAX_INPUT_BYTES in handler.ts nicht gefunden');
     expect(zahl(bytes!.group(1)!), kCoachMaxInputBytes);
+  });
+
+  // =========================================================================
+  // dart_defines.example.json — an empty value is NOT "unset" (P10-03)
+  //
+  // README tells everyone to copy this file, so every key in it ships in the
+  // builds people make from the repo. `String.fromEnvironment` takes its
+  // `defaultValue` only when the declaration is UNDEFINED; a key present with
+  // '' defines it as the empty string and wipes the compiled-in default.
+  // Measured with the SDK: no define -> the 64-char key, `--define=
+  // OFF_MIRROR_SEARCH_KEY=` -> length 0. That is why the example file must
+  // never carry a documentation-only entry for a declaration that HAS a
+  // default — the mirror search would silently degrade to the public Open
+  // Food Facts search, which still returns plausible results.
+  // =========================================================================
+  group('dart_defines.example.json', () {
+    late Map<String, dynamic> beispiel;
+    late Map<String, _Deklaration> deklarationen;
+
+    setUpAll(() {
+      beispiel =
+          jsonDecode(_lies('dart_defines.example.json')) as Map<String, dynamic>;
+      deklarationen = _deklarationen();
+    });
+
+    test('die Datei ist eine flache Map aus Strings', () {
+      // `--dart-define-from-file` turns every entry into one -D NAME=VALUE.
+      for (final eintrag in beispiel.entries) {
+        expect(eintrag.value, isA<String>(), reason: eintrag.key);
+      }
+      expect(deklarationen.keys, contains('SUPABASE_URL'),
+          reason: 'sonst hat der Scanner nichts gefunden und die Regel unten '
+              'ist blind');
+    });
+
+    test('kein Schluessel mit leerem Wert loescht einen kompilierten Standard',
+        () {
+      final funde = <String>[];
+      for (final eintrag in beispiel.entries) {
+        if (eintrag.key.startsWith('_')) continue; // documentation entry
+        final wert = eintrag.value as String;
+        if (wert.trim().isNotEmpty) continue;
+        final standard = deklarationen[eintrag.key]?.standard ?? '';
+        if (standard.trim().isNotEmpty) {
+          funde.add('${eintrag.key}: "" ueberschreibt den Standard '
+              '"${standard.substring(0, standard.length.clamp(0, 12))}…"');
+        }
+      }
+      expect(funde, isEmpty,
+          reason: 'Wer die Datei laut README kopiert, baut damit eine App '
+              'OHNE diese Werte. Entweder einen echten Wert eintragen oder '
+              'den Schluessel weglassen (und im _README-Eintrag '
+              'dokumentieren):\n${funde.join('\n')}');
+    });
+
+    test('jeder Schluessel wird von lib/ ueberhaupt gelesen', () {
+      // The other direction: a key nobody reads is dead documentation, and a
+      // renamed declaration would leave exactly that behind.
+      final unbekannt = beispiel.keys
+          .where((k) => !k.startsWith('_'))
+          .where((k) => !deklarationen.containsKey(k))
+          .toList();
+      expect(unbekannt, isEmpty,
+          reason: 'Diese Schluessel liest kein String.fromEnvironment in '
+              'lib/:\n${unbekannt.join('\n')}');
+    });
+
+    test('der Scanner erkennt Standard und Nicht-Standard auseinander', () {
+      // Self-check: without it the rule above would go green on a broken
+      // parse. Both forms occur in lib/ today.
+      expect(deklarationen['OFF_MIRROR_SEARCH_KEY']?.standard, isNotNull,
+          reason: 'OFF_MIRROR_SEARCH_KEY nicht gefunden');
+      expect(deklarationen['OFF_MIRROR_SEARCH_KEY']!.standard, isNotEmpty,
+          reason: 'der eincompilierte Suchschluessel ist der Standard, um den '
+              'es geht');
+      expect(deklarationen['SENTRY_DSN']?.standard, '',
+          reason: 'SENTRY_DSN hat bewusst keinen Standard — deshalb darf es '
+              'als "" in der Beispieldatei stehen');
+    });
   });
 }

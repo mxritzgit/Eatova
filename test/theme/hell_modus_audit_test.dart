@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/main.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
@@ -13,6 +14,7 @@ import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_controls.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/theme/meal_slot_style.dart';
+import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import '../support/harness.dart';
 
@@ -202,10 +204,21 @@ void _erwarteKeineMakroTexte(WidgetTester tester, AppTokens t) {
   );
 }
 
+/// Tones a macro MARKER may legitimately carry: the raw tone, which holds the
+/// 3:1 for graphical objects on `surf`, and its [AppTokens.readableOnTint]
+/// correction, which a darker ground needs — on `surf2` the raw carb tone is
+/// only 2.77:1, so the scan result's tiles (P9-01b) lift their dot.
+Map<Color, String> _makroPunktToene(AppTokens t) => <Color, String>{
+      for (final eintrag in _makroToene(t).entries) ...<Color, String>{
+        eintrag.key: eintrag.value,
+        t.readableOnTint(eintrag.key): '${eintrag.value} (readableOnTint)',
+      },
+    };
+
 /// Circular markers painted in a macro tone — what replaces the coloured
 /// number. Counts them so a fix that merely drops the colour fails too.
 int _makroPunkte(WidgetTester tester, AppTokens t) {
-  final toene = _makroToene(t);
+  final toene = _makroPunktToene(t);
   var anzahl = 0;
   for (final element in find.byType(Container).evaluate()) {
     final deko = (element.widget as Container).decoration;
@@ -233,6 +246,21 @@ final FitnessRecipe _rezept = FitnessRecipe(
   estimatedGrams: 300,
   categories: const <String>['Eigene'],
   userCreated: true,
+);
+
+/// A scan result with all three macros filled — the only way into
+/// [MealResultCard], which is what kept its tiles out of this section.
+const MealAnalysisResult _scanErgebnis = MealAnalysisResult(
+  mealName: 'Linsensuppe',
+  caloriesKcal: 420,
+  estimatedGrams: 350,
+  kcalPer100G: 120,
+  protein: '24 g',
+  carbs: '48 g',
+  fat: '9 g',
+  confidence: 'Hoch',
+  portionNotes: 'Ein tiefer Teller.',
+  sourceLabel: 'Foto-KI',
 );
 
 /// Walks the onboarding to its summary — the only place the macro chips are
@@ -679,6 +707,31 @@ void main() {
       await _zurOnboardingZusammenfassung(tester);
       expect(
         find.byKey(const ValueKey('onboarding-summary-kcal')),
+        findsOneWidget,
+      );
+      _erwarteKeineMakroTexte(tester, AppTokens.light);
+      expect(_makroPunkte(tester, AppTokens.light), greaterThanOrEqualTo(3));
+    });
+
+    // The FOURTH tile, and the one this section could not see: it needs a scan
+    // RESULT, so neither the runtime walk (which boots into the tab shell) nor
+    // the three cases above ever build it. Its ground is `surf2`, half a point
+    // darker than the `surf` the others sit on — the reason it was the worst
+    // of the four (carbs 2.77:1) while looking like the same code.
+    testWidgets('Makro-Kacheln des KI-Scan-Ergebnisses', (tester) async {
+      await pumpLocalized(
+        tester,
+        MealResultCard(
+          result: _scanErgebnis,
+          addedToDailyTotal: false,
+          onAdjustRequested: () {},
+          onAddToDailyRequested: () {},
+        ),
+        brightness: Brightness.light,
+        settle: true,
+      );
+      expect(
+        find.byKey(const ValueKey('analyse-result-card')),
         findsOneWidget,
       );
       _erwarteKeineMakroTexte(tester, AppTokens.light);

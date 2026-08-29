@@ -103,6 +103,14 @@ void main() {
       final karussell = find.byKey(const ValueKey('recipe-recommended'));
       expect(karussell, findsOneWidget);
       final empfohlen = rotatedRecommendations(recipeCatalogDe, _jetzt);
+      // Without this the loop below can have ZERO iterations: an empty
+      // rotation would satisfy every assertion and the flow would stay green
+      // while the carousel showed nothing.
+      expect(
+        empfohlen,
+        hasLength(recipeRecommendationCount),
+        reason: 'ohne Empfehlungen prueft die Schleife unten nichts',
+      );
       // Two of the four cards fit the 393 px viewport (280 px each).
       for (final rezept in empfohlen.take(2)) {
         expect(

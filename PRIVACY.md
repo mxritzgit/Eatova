@@ -40,8 +40,12 @@ You enter and the app stores the following, tied to your account:
   never uploaded to our servers, and a second device shows that recipe with a
   placeholder. Like other app documents, this on-device copy is included in your
   operating system's device backup if you use one (on iOS: the iCloud backup of
-  your device); on Android, Eatova excludes its app data from system backups
-  entirely. See "Retention" for when it is deleted.
+  your device). On Android, Eatova is excluded from cloud backups entirely —
+  neither a Google Drive backup nor an `adb` backup ever contains app data.
+  What Android does still do is carry the pictures over in a **direct
+  device-to-device transfer** to your own new phone, so you keep them when you
+  switch devices; the app's encrypted local cache and your login session are
+  excluded even there. See "Retention" for when it is deleted.
 - **Weight & progress:** your weight history and your logging streak (the run of
   consecutive days on which you logged a meal), plus lifetime counters (meals
   logged, weigh-ins recorded). Accounts created before August 2026 may still
@@ -67,8 +71,10 @@ You enter and the app stores the following, tied to your account:
   device** — it is never uploaded to our servers, and a second device shows the
   card with a placeholder. Like other app documents, this on-device copy is
   included in your operating system's device backup if you use one (on iOS:
-  the iCloud backup of your device); on Android, Eatova excludes its app data
-  from system backups entirely. See "Where it is stored and who processes it" and
+  the iCloud backup of your device); on Android it is excluded from cloud
+  backups entirely and only a direct device-to-device transfer to your own new
+  phone carries it across — exactly as described for your own recipe photos
+  above. See "Where it is stored and who processes it" and
   "Transfers outside the EU/EEA": this feature involves a transfer to the USA.
 - **Apple Health (optional, iOS only):** if you grant permission, the app reads
   your step count and body-weight history from Apple Health.

@@ -603,7 +603,8 @@ class _FoodSearchBar extends StatelessWidget {
 ///
 /// Deliberately not [FilterChipPill]: the shared chip sets no `maxLines`, and
 /// `food_tab_layout_test` expects exactly one text descendant with
-/// `maxLines == 1`.
+/// `maxLines == 1`. Its COLOURS are the shared ones all the same — see the
+/// note on [filled].
 class _FoodQuickChip extends StatelessWidget {
   const _FoodQuickChip({
     super.key,
@@ -615,17 +616,26 @@ class _FoodQuickChip extends StatelessWidget {
 
   final IconData icon;
   final String label;
+
+  /// Static emphasis (AI scan yes, barcode no), NOT a selection state — both
+  /// chips stay labelled, so this is no 1.4.11 case. It was painted in
+  /// `forest` on a `surf` neighbour all the same, which is mode-asymmetric:
+  /// 13.57:1 in light mode, 1.34:1 in dark, where the emphasis simply was not
+  /// there. [SelectionTone] is the app's one answer to that pairing, so the
+  /// chip speaks it too — `ink`/`bg` carry 16.78:1 (hell) / 14.93:1 (dunkel)
+  /// against the neighbour. The lime glyph goes with it: on the `ink` fill it
+  /// would be 1.31:1 in dark mode.
   final bool filled;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final fg = filled ? t.onForest : t.ink2;
+    final fg = filled ? t.onSelected : t.ink2;
     return Semantics(
       button: true,
       child: Material(
-        color: filled ? t.forest : t.surf,
+        color: filled ? t.selectedFill : t.surf,
         borderRadius: BorderRadius.circular(rChip),
         child: InkWell(
           onTap: onTap,
@@ -635,14 +645,17 @@ class _FoodQuickChip extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(rChip),
+              // Ring in the fill colour rather than transparent, like
+              // [FilterChipPill]: same pixels, but the geometry no longer
+              // depends on the state.
               border: Border.all(
-                color: filled ? Colors.transparent : t.line,
+                color: filled ? t.selectedFill : t.line,
               ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 17, color: filled ? t.lime : t.ink2),
+                Icon(icon, size: 17, color: fg),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(

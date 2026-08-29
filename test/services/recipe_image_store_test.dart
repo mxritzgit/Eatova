@@ -363,6 +363,167 @@ void main() {
     });
   });
 
+  // Review 2026-08-29, P3-03: between resolving the namespace and
+  // `writeAsBytes` lies the `compute()` hop of the EXIF scrub. A purge landing
+  // in that window used to be UNDONE by the rest of `save()`, which recreates
+  // the folder on purpose — the photo of a logged-out user came back onto a
+  // disk that had just been wiped.
+  group('P3-03 — ein Purge waehrend des Scrubs belebt den Namensraum nicht', () {
+    /// Starts a save and lets [stoerung] land while it hangs in the scrub.
+    /// The `await` on the disturbance is the ordering guarantee: the save can
+    /// only continue after its isolate hop, which is orders of magnitude
+    /// slower than the disturbance's microtasks plus two file operations.
+    Future<String?> speichernMitStoerung(Future<void> Function() stoerung) async {
+      final speichern = store.save(bytes: _geotaggedJpeg());
+      await stoerung();
+      return speichern;
+    }
+
+    test('clear() waehrend des Scrubs: die Bytes fallen, der Ordner bleibt weg',
+        () async {
+      // Warm-up, so the namespace is resolved and `save` really only waits on
+      // the scrub.
+      await store.save(bytes: _geotaggedJpeg());
+
+      final referenz = await speichernMitStoerung(store.clear);
+
+      expect(wurzel.existsSync(), isFalse,
+          reason: 'Der Rest von save() legt den gepurgten Namensraum '
+              'ausdruecklich wieder an — genau das darf er nach einem '
+              'Logout nicht mehr.');
+      if (referenz != null) {
+        expect(await store.resolve(referenz), isNull);
+      }
+    });
+
+    test('Identitaetswechsel waehrend des Scrubs: kein Byte im Namensraum '
+        'des Vorgaengers', () async {
+      await store.save(bytes: _geotaggedJpeg());
+
+      final referenz =
+          await speichernMitStoerung(() => store.setActiveUser('nutzer-b'));
+
+      expect(referenz, isNull,
+          reason: 'Die Bytes gehoerten A; B darf sie weder bekommen noch '
+              'ablegen.');
+      expect(Directory('${wurzel.path}/nutzer-a').existsSync(), isFalse,
+          reason: 'Der Purge des Vorgaengers muss haltbar sein.');
+    });
+
+    test('Session-Verlust waehrend des Scrubs: nichts wird abgelegt', () async {
+      await store.save(bytes: _geotaggedJpeg());
+
+      final referenz =
+          await speichernMitStoerung(() => store.setActiveUser(null));
+
+      expect(referenz, isNull);
+      expect(wurzel.existsSync() &&
+              Directory('${wurzel.path}/nutzer-a').existsSync(),
+          isFalse);
+    });
+
+    test('saveProposalImage waehrend eines clear(): ebenso', () async {
+      await store.save(bytes: _geotaggedJpeg());
+      final bytes = Uint8List.fromList(List<int>.generate(64, (i) => i));
+
+      final gespeichert =
+          store.saveProposalImage(messageId: 'msg-1', bytes: bytes);
+      await store.clear();
+      await gespeichert;
+
+      expect(wurzel.existsSync(), isFalse,
+          reason: 'Auch der Vorschlags-Pfad legt den Ordner an — dieselbe '
+              'Wiederbelebung.');
+    });
+
+    test('Gegenprobe: ohne Stoerung landet das Foto ganz normal', () async {
+      final referenz = await store.save(bytes: _geotaggedJpeg());
+      expect(referenz, matches(_zufallsReferenz));
+      expect(await store.resolve(referenz!), isNotNull);
+    });
+  });
+
+  // Review 2026-08-29, P3-04: `img_*` was released ONLY by `deleteFor`, and
+  // only when this device deleted the recipe AND the server acknowledged at
+  // once. A delete on device B, an offline delete delivered later, and an
+  // abandoned coach adoption all leave 200-400 kB of PII behind forever.
+  group('P3-04 — verwaiste Rezeptfotos', () {
+    test('ein Foto ohne Rezept faellt, eines MIT Rezept ueberlebt', () async {
+      final behalten = await store.save(bytes: _geotaggedJpeg());
+      final verwaist = await store.save(bytes: _geotaggedJpeg());
+
+      // Fresh store = next app start: the session ledger is empty, so nothing
+      // is protected by "I wrote that myself just now".
+      final neu = await neustart();
+      final gefallen = await neu.reconcileRecipePhotos(<String>[
+        behalten!,
+        // Catalog references carry no bytes and must not disturb the match.
+        'assets/recipes/lachs.jpg',
+        '',
+      ]);
+
+      expect(gefallen, 1);
+      expect(await neu.resolve(behalten), isNotNull,
+          reason: 'Ein blinder Cap wuerde hier loeschen, obwohl das Rezept '
+              'noch existiert.');
+      expect(await neu.resolve(verwaist!), isNull);
+    });
+
+    test('ein gerade gespeichertes Foto ueberlebt, auch wenn sein Rezept die '
+        'Liste noch nicht erreicht hat', () async {
+      // The coach adoption path saves `unawaited` and the create sheet saves
+      // before the sheet pops: in both windows the caller's recipe list does
+      // not know the reference yet.
+      final frisch = await store.save(bytes: _geotaggedJpeg());
+
+      expect(await store.reconcileRecipePhotos(const <String>[]), 0);
+      expect(await store.resolve(frisch!), isNotNull);
+    });
+
+    test('Vorschlagsbilder ruehrt der Abgleich nicht an', () async {
+      final bytes = Uint8List.fromList(List<int>.generate(64, (i) => i));
+      await store.saveProposalImage(messageId: 'msg-1', bytes: bytes);
+      await store.save(bytes: _geotaggedJpeg());
+
+      final neu = await neustart();
+      expect(await neu.reconcileRecipePhotos(const <String>[]), 1);
+      expect(await neu.readProposalImage('msg-1'), bytes,
+          reason: 'Vorschlagsbilder haengen an Chat-Nachrichten, nicht an '
+              'Rezepten — sie haben mit [proposalImageCap] ihre eigene '
+              'Obergrenze.');
+    });
+
+    test('auch der flache Alt-Bestand wird abgeglichen, sobald er migriert ist',
+        () async {
+      wurzel.createSync(recursive: true);
+      await File('${wurzel.path}/user_1717500000000.jpg')
+          .writeAsBytes(_geotaggedJpeg());
+
+      final neu = await neustart();
+      // Resolving migrates the flat file into the namespace.
+      expect(await neu.resolve('local:user_1717500000000.jpg'), isNotNull);
+
+      expect(await neu.reconcileRecipePhotos(const <String>[]), 1);
+      expect(await neu.resolve('local:user_1717500000000.jpg'), isNull);
+    });
+
+    test('ohne angemeldeten Nutzer raeumt der Abgleich nichts', () async {
+      final referenz = await store.save(bytes: _geotaggedJpeg());
+      final anonym = RecipeImageStore(baseDirectory: () async => wurzel);
+
+      expect(await anonym.reconcileRecipePhotos(const <String>[]), 0);
+
+      final neu = await neustart();
+      expect(await neu.resolve(referenz!), isNotNull,
+          reason: 'Fail-closed wie resolve/save: ohne Identitaet keine '
+              'Aussage darueber, welche Rezepte es gibt.');
+    });
+
+    test('ein leerer Namensraum ist kein Fehler', () async {
+      expect(await store.reconcileRecipePhotos(const <String>[]), 0);
+    });
+  });
+
   group('/recipe-Vorschlagsbilder (Nachtrag 2026-08-13)', () {
     final bytes = Uint8List.fromList(List<int>.generate(64, (i) => i));
 

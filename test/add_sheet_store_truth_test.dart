@@ -17,6 +17,7 @@ import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
@@ -140,8 +141,63 @@ class _FakeFoodStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// What the boot load does (`home_store.dart`, `loadedFavorites`): the list
+  /// is REPLACED by freshly parsed server rows — same content, new instances.
+  void reloadFromServer() {
+    favorites = favorites
+        .map((f) => FavoriteMeal(
+              id: f.id,
+              result: _frischGeparst(f.result),
+              addedAt: f.addedAt,
+              pinned: f.pinned,
+            ))
+        .toList();
+    notifyListeners();
+  }
+
+  /// Ein Server-Load, der wirklich etwas anderes bringt: gleicher Eintrag,
+  /// neue Zahlen.
+  void replaceFavoriteResult(MealAnalysisResult result) {
+    final id = FavoriteMeal.idFor(result);
+    favorites = <FavoriteMeal>[
+      for (final f in favorites)
+        if (f.id == id)
+          FavoriteMeal(
+            id: f.id,
+            result: result,
+            addedAt: f.addedAt,
+            pinned: f.pinned,
+          )
+        else
+          f,
+    ];
+    notifyListeners();
+  }
+
   /// A notify that changes neither list — steps, sync, profile.
   void tick() => notifyListeners();
+}
+
+/// Feld für Feld dasselbe Ergebnis, aber eine neue Instanz — was
+/// `mealResultFromJson` beim Boot-Load aus der Server-Zeile baut.
+MealAnalysisResult _frischGeparst(MealAnalysisResult r) {
+  return MealAnalysisResult(
+    mealName: r.mealName,
+    caloriesKcal: r.caloriesKcal,
+    estimatedGrams: r.estimatedGrams,
+    kcalPer100G: r.kcalPer100G,
+    protein: r.protein,
+    carbs: r.carbs,
+    fat: r.fat,
+    confidence: r.confidence,
+    portionNotes: r.portionNotes,
+    items: List<MealComponent>.of(r.items),
+    isAdjusted: r.isAdjusted,
+    sourceLabel: r.sourceLabel,
+    barcode: r.barcode,
+    brand: r.brand,
+    explicitZeroKcal: r.explicitZeroKcal,
+  );
 }
 
 final Finder _liste = find.byKey(const ValueKey('analyse-existing-meals'));
@@ -157,49 +213,94 @@ Finder _summe(String kcal) => find.descendant(
 
 /// Mounts a host under the scope and opens the sheet through the real opener —
 /// the live channel lives there, not in [AddMealSheet].
+///
+/// [mitScope] false is the standalone path (previews, plain widget tests):
+/// without a [FoodStoreScope] the sheet never gets re-fed and its own mirror
+/// writes are all it has. Only there does `_touchFavorite` decide alone.
 Future<void> _oeffneSheet(
   WidgetTester tester,
   _FakeFoodStore store, {
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
+  bool mitScope = true,
 }) async {
   pinPhoneViewport(tester);
+  final host = Builder(
+    builder: (context) => TextButton(
+      key: const ValueKey('sheet-oeffnen'),
+      onPressed: () => showAddMealSheet(
+        context,
+        slot: MealSlot.snack,
+        analyzer: _StummerAnalyzer(),
+        productService: _StummerProduktdienst(),
+        photoInput: _StummeFotoquelle(),
+        favorites: store.favorites,
+        existingMeals: store.meals,
+        onAdd: store.logMeal,
+        onUpdateMeal: (_, __) {},
+        onRemoveFavorite: store.removeFavorite,
+        onRemoveMeal: store.removeMeal,
+        isFavorite: (result) {
+          final treffer =
+              store.favorites.where((f) => f.id == FavoriteMeal.idFor(result));
+          return treffer.isNotEmpty && treffer.first.pinned;
+        },
+        onToggleFavorite: onToggleFavorite,
+      ),
+      child: const Text('auf'),
+    ),
+  );
   await pumpLocalized(
     tester,
-    FoodStoreScope(
-      store: store,
-      mealsOfSelectedDay: () => store.meals,
-      favorites: () => store.favorites,
-      child: Builder(
-        builder: (context) => TextButton(
-          key: const ValueKey('sheet-oeffnen'),
-          onPressed: () => showAddMealSheet(
-            context,
-            slot: MealSlot.snack,
-            analyzer: _StummerAnalyzer(),
-            productService: _StummerProduktdienst(),
-            photoInput: _StummeFotoquelle(),
-            favorites: store.favorites,
-            existingMeals: store.meals,
-            onAdd: store.logMeal,
-            onUpdateMeal: (_, __) {},
-            onRemoveFavorite: store.removeFavorite,
-            onRemoveMeal: store.removeMeal,
-            isFavorite: (result) {
-              final treffer = store.favorites
-                  .where((f) => f.id == FavoriteMeal.idFor(result));
-              return treffer.isNotEmpty && treffer.first.pinned;
-            },
-            onToggleFavorite: onToggleFavorite,
-          ),
-          child: const Text('auf'),
-        ),
-      ),
-    ),
+    mitScope
+        ? FoodStoreScope(
+            store: store,
+            mealsOfSelectedDay: () => store.meals,
+            favorites: () => store.favorites,
+            child: host,
+          )
+        : host,
     reducedMotion: false,
   );
   await tester.tap(find.byKey(const ValueKey('sheet-oeffnen')));
   await tester.pumpAndSettle();
   expect(find.byKey(const ValueKey('add-meal-sheet')), findsOneWidget);
+}
+
+/// Das Gramm-Feld der ersten Recent-Kachel — es traegt keinen eigenen Key und
+/// ist das einzige TextField der Kachel.
+final Finder _grammFeld = find.descendant(
+  of: find.byKey(const ValueKey('favorite-tile-0')),
+  matching: find.byType(TextField),
+);
+
+/// Klappt die erste Recent-Kachel auf und tippt [gramm] ins Portionsfeld.
+Future<void> _tippeGramm(WidgetTester tester, String gramm) async {
+  await tester.tap(find.byKey(const ValueKey('favorite-tile-0')));
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(_grammFeld);
+  await tester.enterText(_grammFeld, gramm);
+  await tester.pump();
+}
+
+/// Legt „Apfel" mit [kcal100] kcal/100 g ueber den manuellen Eintrag an.
+Future<void> _logManuell(
+  WidgetTester tester, {
+  required String name,
+  required String kcal100,
+}) async {
+  await tester.tap(find.byKey(const ValueKey('manual-entry-button')));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const ValueKey('manual-meal-name')), name);
+  await tester.enterText(
+    find.byKey(const ValueKey('manual-meal-kcal100')),
+    kcal100,
+  );
+  await tester.enterText(find.byKey(const ValueKey('manual-meal-grams')), '100');
+  await tester.pump();
+  final speichern = find.byKey(const ValueKey('manual-meal-save'));
+  await tester.ensureVisible(speichern);
+  await tester.tap(speichern);
+  await tester.pumpAndSettle();
 }
 
 /// The X inside a suggestion tile (it carries no key of its own).
@@ -381,26 +482,84 @@ void main() {
       favorites: <FavoriteMeal>[_favorit(_mahlzeit('Apfel'))],
     );
     await _oeffneSheet(tester, store);
-
-    await tester.tap(find.byKey(const ValueKey('favorite-tile-0')));
-    await tester.pumpAndSettle();
-    // The gram field carries no key; it is the tile's only TextField.
-    final feld = find.descendant(
-      of: find.byKey(const ValueKey('favorite-tile-0')),
-      matching: find.byType(TextField),
-    );
-    await tester.ensureVisible(feld);
-    await tester.enterText(feld, '175');
-    await tester.pump();
+    await _tippeGramm(tester, '175');
 
     // Steps, sync, profile — a notify that touches neither list.
     store.tick();
     await tester.pumpAndSettle();
 
     expect(
-      tester.widget<TextField>(feld).controller!.text,
+      tester.widget<TextField>(_grammFeld).controller!.text,
       '175',
       reason: 'der identical-Reset in MealSuggestionItem feuert unnötig',
+    );
+  });
+
+  // P8-07b (1): der committete P8-07-Test lief MIT Scope, und dort schreibt der
+  // Reseed die Kachel im selben Frame neu. Er blieb deshalb auch gegen die alte
+  // `copyWith(addedAt:)`-Fassung von `_touchFavorite` gruen. Ohne Scope
+  // entscheidet `_touchFavorite` allein.
+  testWidgets(
+      'P8-07b: ohne Scope schreibt _touchFavorite den Recent selbst neu',
+      (tester) async {
+    final store = _FakeFoodStore(
+      favorites: <FavoriteMeal>[_favorit(_mahlzeit('Apfel', kcal: 250))],
+    );
+    await _oeffneSheet(tester, store, mitScope: false);
+    expect(find.text('250 kcal / 100 g'), findsOneWidget);
+
+    await _logManuell(tester, name: 'Apfel', kcal100: '500');
+
+    expect(
+      find.text('500 kcal / 100 g'),
+      findsOneWidget,
+      reason: 'copyWith(addedAt:) verschiebt nur den Zeitstempel und laesst '
+          'das alte result stehen — ohne Scope raeumt das niemand auf',
+    );
+    expect(find.text('250 kcal / 100 g'), findsNothing);
+  });
+
+  // P8-07b (2): der Boot-Load ersetzt die Favoritenliste durch frisch geparste
+  // Server-Zeilen — gleicher Inhalt, neue Instanzen. Vor dem Welle-1-Fix war
+  // das offene Sheet immun, weil es nie zuhoerte.
+  testWidgets(
+      'P8-07b: ein Boot-Load mit gleichem Inhalt laesst die Eingabe stehen',
+      (tester) async {
+    final store = _FakeFoodStore(
+      favorites: <FavoriteMeal>[_favorit(_mahlzeit('Apfel'))],
+    );
+    await _oeffneSheet(tester, store);
+    await _tippeGramm(tester, '175');
+
+    store.reloadFromServer();
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(_grammFeld).controller!.text,
+      '175',
+      reason: 'gleicher Inhalt in neuen Objekten darf die Eingabe nicht '
+          'zurueckwerfen',
+    );
+  });
+
+  testWidgets(
+      'P8-07b: ein wirklich geänderter Favorit setzt die Eingabe sehr wohl '
+      'zurück', (tester) async {
+    final store = _FakeFoodStore(
+      favorites: <FavoriteMeal>[_favorit(_mahlzeit('Apfel', kcal: 250))],
+    );
+    await _oeffneSheet(tester, store);
+    await _tippeGramm(tester, '175');
+
+    // Gleicher Eintrag, andere Zahlen — der identical-Reset muss greifen.
+    store.replaceFavoriteResult(_mahlzeit('Apfel', kcal: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('500 kcal / 100 g'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(_grammFeld).controller!.text,
+      '100',
+      reason: 'eine echt geaenderte Portion soll die Eingabe zuruecksetzen',
     );
   });
 }

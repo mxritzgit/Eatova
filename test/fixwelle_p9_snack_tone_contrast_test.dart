@@ -174,6 +174,92 @@ void main() {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // P9-04b — die Nachbedingung der Binaersuche
+  //
+  // The search only ever returns `hi`, and `hi` starts at 1.0 (the full mix
+  // towards the toast's text colour) WITHOUT ever being tested. On a surface
+  // where even that mix misses the floor the helper used to hand back a glyph
+  // under the threshold in silence. It has to report instead.
+  // -------------------------------------------------------------------------
+  group('Die Hebung sichert ihre Nachbedingung', () {
+    test('mit den echten Paletten haelt schon die volle Mischung', () {
+      // Why the guard never fires in the shipped app: `onForest` on its own
+      // 18-%-disc over `forest` is far above the 3.2 floor in both palettes,
+      // so `hi = 1.0` is always a valid answer and the search is sound.
+      for (final paar in <(String, AppTokens)>[
+        ('hell', AppTokens.light),
+        ('dunkel', AppTokens.dark),
+      ]) {
+        final t = paar.$2;
+        final scheibe = Color.alphaBlend(
+          t.onForest.withValues(alpha: 0.18),
+          t.forest,
+        );
+        expect(_kontrast(t.onForest, scheibe), greaterThanOrEqualTo(3.2),
+            reason: '${paar.$1}: die volle Mischung als obere Schranke');
+      }
+    });
+
+    testWidgets('eine Flaeche ohne jede Loesung wird gemeldet, nicht '
+        'stillschweigend unterschritten', (tester) async {
+      // Degenerate but perfectly legal theme: the toast's text colour IS its
+      // background. `onGround` then equals `ground`, so NO mix on the line
+      // tone -> onGround can ever reach the floor — the postcondition is
+      // unsatisfiable and the helper must say so instead of returning `hi`.
+      const grau = Color(0xFF808080);
+      final theme = buildEatovaTheme(Brightness.dark).copyWith(
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: grau,
+          contentTextStyle: TextStyle(color: grau),
+        ),
+      );
+
+      // Collected, not swallowed: the failing build also puts an ErrorWidget
+      // in the toast row, which then overflows. That follow-up error must not
+      // hide the one this case is about.
+      final fehler = <Object>[];
+      final vorher = FlutterError.onError;
+      FlutterError.onError = (details) => fehler.add(details.exception);
+      try {
+        late BuildContext ctx;
+        await tester.pumpWidget(MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: Builder(builder: (context) {
+              ctx = context;
+              return const SizedBox.shrink();
+            }),
+          ),
+        ));
+        await tester.pumpAndSettle();
+
+        showAppSnack(
+          ctx,
+          'Ton-Kanal',
+          icon: _testIcon,
+          accent: grau,
+          duration: const Duration(milliseconds: 300),
+        );
+        await tester.pump();
+        // Let the toast and its dismiss timer go so nothing outlives the case.
+        await tester.pump(const Duration(milliseconds: 1200));
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      } finally {
+        FlutterError.onError = vorher;
+      }
+
+      expect(
+        fehler.whereType<AssertionError>(),
+        isNotEmpty,
+        reason: 'Die Schleife prueft ihr hi nie — ohne Wache liefert sie hier '
+            'den vollen Mix bei 1,00:1 zurueck, als waere die Schwelle '
+            'gehalten. Gesehen: $fehler',
+      );
+    });
+  });
+
   test('readableOnTint waere hier der falsche Weg', () {
     // Documents why the app-wide helper is NOT used on the toast: it mixes
     // towards `ink`, which is near-black in the light palette, so on the dark

@@ -66,6 +66,26 @@ const _einPosten = MealAnalysisResult(
   ],
 );
 
+/// A scan hit whose single component carries 0 g — `clampMealEstimatedG`
+/// starts at 0, so the model may deliver exactly this. The start value never
+/// runs through the field listener, so before P8-02b it reached "Übernehmen"
+/// unflagged and was saved as 1 g.
+const _nullGramm = MealAnalysisResult(
+  mealName: 'Suppe',
+  caloriesKcal: 120,
+  estimatedGrams: 0,
+  kcalPer100G: 60,
+  protein: '-',
+  carbs: '-',
+  fat: '-',
+  confidence: 'Mittel',
+  portionNotes: 'Testposten.',
+  sourceLabel: 'Foto-KI',
+  items: [
+    MealComponent(name: 'Suppe', grams: 0, caloriesKcal: 120, kcalPer100G: 60),
+  ],
+);
+
 /// Two components, so "eine Zeile ist ungültig" can be told apart from
 /// "das ganze Sheet ist ungültig".
 const _zweiPosten = MealAnalysisResult(
@@ -141,6 +161,63 @@ bool _uebernehmenAktiv(WidgetTester tester) {
     find.byKey(const ValueKey('analyse-save-weight-button')),
   );
   return button.onPressed != null;
+}
+
+/// `true` if der Sheet sich ohne Nachfrage schliessen laesst — genau
+/// `PopScope.canPop`, also `!_dirty`.
+bool _kannSchliessen(WidgetTester tester) {
+  return tester
+      .widget<PopScope<List<MealComponent>?>>(
+        find.byType(PopScope<List<MealComponent>?>),
+      )
+      .canPop;
+}
+
+/// `true` if „Hinzufuegen" im Dialog tappbar ist.
+bool _hinzufuegenAktiv(WidgetTester tester) {
+  final button = tester.widget<FilledButton>(
+    find.byKey(const ValueKey('analyse-add-item-save')),
+  );
+  return button.onPressed != null;
+}
+
+String _dialogText(WidgetTester tester, String key) =>
+    tester.widget<TextField>(find.byKey(ValueKey(key))).controller!.text;
+
+Future<void> _oeffneDialog(WidgetTester tester) async {
+  final knopf = find.byKey(const ValueKey('analyse-item-add-button'));
+  await tester.ensureVisible(knopf);
+  await tester.pumpAndSettle();
+  await tester.tap(knopf);
+  await tester.pumpAndSettle();
+  expect(find.byKey(const ValueKey('analyse-add-item-name')), findsOneWidget);
+}
+
+Future<void> _fuelleDialog(
+  WidgetTester tester, {
+  String? name,
+  String? gramm,
+  String? kcal,
+}) async {
+  if (name != null) {
+    await tester.enterText(
+      find.byKey(const ValueKey('analyse-add-item-name')),
+      name,
+    );
+  }
+  if (gramm != null) {
+    await tester.enterText(
+      find.byKey(const ValueKey('analyse-add-item-grams')),
+      gramm,
+    );
+  }
+  if (kcal != null) {
+    await tester.enterText(
+      find.byKey(const ValueKey('analyse-add-item-kcal')),
+      kcal,
+    );
+  }
+  await tester.pumpAndSettle();
 }
 
 /// Every `<n> g · <k> kcal` line the sheet currently renders, as (g, kcal).
@@ -303,6 +380,169 @@ void main() {
 
         await _tippe(tester, find.byKey(const ValueKey('analyse-item-remove-1')));
         expect(_uebernehmenAktiv(tester), isTrue);
+      },
+    );
+  });
+
+  // P8-02b: derselbe stille Klemm-Pfad lebte an zwei weiteren Stellen, weil
+  // `ungueltig` nur im Controller-Listener gesetzt wurde — und der feuert fuer
+  // den Anfangstext nie.
+  group('P8-02b — der Dialog „Bestandteil hinzufuegen"', () {
+    testWidgetsRobust(
+      '99999 g sperrt Hinzufuegen und nennt den Grund',
+      (tester) async {
+        await tester.pumpWidget(_host(_einPosten, (_) {}));
+        await _oeffne(tester);
+        await _oeffneDialog(tester);
+
+        await _fuelleDialog(tester, name: 'Riesenportion', gramm: '99999');
+
+        expect(
+          _hinzufuegenAktiv(tester),
+          isFalse,
+          reason:
+              'Vorher: aktiv, ohne Hinweis — gespeichert wurden 10000 g statt '
+              'der getippten 99999.',
+        );
+        expect(
+          find.byKey(const ValueKey('analyse-add-item-grams-hint')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgetsRobust(
+      'sechs Ziffern kommen gar nicht erst ins Feld',
+      (tester) async {
+        await tester.pumpWidget(_host(_einPosten, (_) {}));
+        await _oeffne(tester);
+        await _oeffneDialog(tester);
+
+        await _fuelleDialog(tester, name: 'Riesenportion', gramm: '123456');
+
+        // Wie an der Postenzeile: fuenf Ziffern, weil die Obergrenze fuenf hat.
+        expect(_dialogText(tester, 'analyse-add-item-grams'), '12345');
+        expect(_hinzufuegenAktiv(tester), isFalse);
+      },
+    );
+
+    testWidgetsRobust(
+      '99999 kcal sperrt ebenfalls — dieselbe stille Klemme, ein Feld weiter',
+      (tester) async {
+        await tester.pumpWidget(_host(_einPosten, (_) {}));
+        await _oeffne(tester);
+        await _oeffneDialog(tester);
+
+        await _fuelleDialog(
+          tester,
+          name: 'Riesenportion',
+          gramm: '200',
+          kcal: '99999',
+        );
+
+        expect(_hinzufuegenAktiv(tester), isFalse);
+        expect(
+          find.byKey(const ValueKey('analyse-add-item-kcal-hint')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('analyse-add-item-grams-hint')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgetsRobust(
+      'die Korrektur gibt Hinzufuegen frei und legt genau diesen Posten an',
+      (tester) async {
+        await tester.pumpWidget(_host(_einPosten, (_) {}));
+        await _oeffne(tester);
+        await _oeffneDialog(tester);
+
+        await _fuelleDialog(
+          tester,
+          name: 'Riesenportion',
+          gramm: '99999',
+          kcal: '9000',
+        );
+        expect(_hinzufuegenAktiv(tester), isFalse);
+
+        await _fuelleDialog(tester, gramm: '200', kcal: '900');
+        expect(_hinzufuegenAktiv(tester), isTrue);
+
+        await tester.tap(find.byKey(const ValueKey('analyse-add-item-save')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Riesenportion'), findsOneWidget);
+        expect(_postenZeilen(tester), const [(100, 521), (200, 900)]);
+      },
+    );
+  });
+
+  group('P8-02b — ein Posten, der schon mit 0 g aufgeht', () {
+    testWidgetsRobust(
+      '0 g sperrt Uebernehmen sofort, statt still 1 g zu speichern',
+      (tester) async {
+        Object? gespeichert;
+        await tester.pumpWidget(_host(_nullGramm, (v) => gespeichert = v));
+        await _oeffne(tester);
+
+        expect(
+          _uebernehmenAktiv(tester),
+          isFalse,
+          reason:
+              'Vorher: aktiv und ohne Hinweis — gespeichert wurde 1 g fuer '
+              'einen Posten, den niemand angefasst hat.',
+        );
+        expect(
+          find.byKey(const ValueKey('analyse-item-weight-hint-0')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('analyse-invalid-weight-hint')),
+          findsOneWidget,
+        );
+        // Zeile und Summenkarte bleiben einig (diese Haelfte war schon heil).
+        expect(_postenZeilen(tester), const [(1, 1)]);
+        expect(gespeichert, isNull);
+      },
+    );
+
+    testWidgetsRobust(
+      'unberuehrt gilt das Sheet trotzdem nicht als geaendert',
+      (tester) async {
+        await tester.pumpWidget(_host(_nullGramm, (_) {}));
+        await _oeffne(tester);
+
+        expect(
+          _kannSchliessen(tester),
+          isTrue,
+          reason:
+              'Ein von Anfang an ungueltiger Posten darf nicht bei jedem '
+              'Schliessen nach „Aenderungen verwerfen?" fragen.',
+        );
+      },
+    );
+
+    testWidgetsRobust(
+      'ein gueltiges Gewicht macht Uebernehmen frei und speichert genau es',
+      (tester) async {
+        Object? gespeichert;
+        await tester.pumpWidget(_host(_nullGramm, (v) => gespeichert = v));
+        await _oeffne(tester);
+
+        await tester.enterText(_feld(0), '250');
+        await tester.pumpAndSettle();
+        expect(_uebernehmenAktiv(tester), isTrue);
+        expect(_kannSchliessen(tester), isFalse);
+
+        await tester.tap(
+          find.byKey(const ValueKey('analyse-save-weight-button')),
+        );
+        await tester.pumpAndSettle();
+
+        final posten = gespeichert! as List<MealComponent>;
+        expect(posten.single.grams, 250);
       },
     );
   });

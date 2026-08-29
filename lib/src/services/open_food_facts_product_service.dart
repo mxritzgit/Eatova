@@ -37,7 +37,10 @@ class ProductSearchResult {
   final String? imageUrl;
 
   factory ProductSearchResult.fromOpenFoodFacts(Map<String, dynamic> product) {
-    final code = product['code']?.toString().trim() ?? '';
+    // Straight out of the search index, not from the scanner (which is pinned
+    // to EAN/UPC): clamped to the `logged_meals.barcode` column before anything
+    // builds a favorite key or a log row from it (P2-01b).
+    final code = clampBarcode(product['code']?.toString()) ?? '';
     final result = MealAnalysisResult.fromOpenFoodFacts(product, code);
     final brand = result.brand?.trim();
     final quantity = _firstNonEmptyString(product, const ['quantity']);

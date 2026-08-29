@@ -54,9 +54,11 @@ void main() {
 
       final kcalSum = items.fold<int>(0, (s, c) => s + c.caloriesKcal);
       final gramSum = items.fold<int>(0, (s, c) => s + c.grams);
-      // Per-item rounding keeps the sums close to the model's targets.
-      expect(kcalSum, closeTo(800, 3));
-      expect(gramSum, closeTo(480, 3));
+      // EXACT, not close: autoSplitItems spreads the rounding remainder over
+      // the items (_spreadRemainder), so both totals land on the model's
+      // anchors. A tolerance would wave a returning drift straight through.
+      expect(kcalSum, 800);
+      expect(gramSum, 480);
 
       // The table only supplies ratios: the steak outweighs the tomato, but no
       // item sits on its reference value.

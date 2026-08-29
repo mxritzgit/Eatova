@@ -27,7 +27,13 @@ void main() {
     WeightGoal goal, {
     UserProfile basis = const UserProfile(),
   }) {
-    final p = basis.copyWith(weightGoal: goal);
+    // Ein Wunschgewicht, das zur Richtung passt. Seit P9-08e faellt eine
+    // Richtung ohne Rest-Weg (Ziel == Gewicht, wie im Standardprofil) auf
+    // "Halten" zurueck — diese Suite misst aber genau die Defizit-Plaene.
+    final p = basis.copyWith(
+      weightGoal: goal,
+      targetWeightKg: goal.isGain ? basis.weightKg + 8 : basis.weightKg - 8,
+    );
     final t = const KcalCalculator().calculate(p);
     return p.copyWith(
       dailyKcalGoal: t.kcal,

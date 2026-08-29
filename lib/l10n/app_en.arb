@@ -384,6 +384,13 @@
   "foodAddItemNameHint": "e.g. Tomato",
   "foodAddItemWeightLabel": "Weight",
   "foodAddItemCaloriesLabel": "Calories",
+  "foodAddItemCaloriesRangeHint": "Calories between {min} and {max}.",
+  "@foodAddItemCaloriesRangeHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "foodAddItemMacrosToggle": "Add macros (optional)",
   "foodMacroRangeHint": "Macros in grams, each between 0 and 1000.",
   "foodBarcodeHintText": "Hold the barcode inside the frame",
@@ -959,6 +966,7 @@
   "commonSyncErrorOffline": "Offline — that didn't work just now. Please try again with an internet connection.",
   "commonOutboxLossHint": "Some changes couldn't be saved and were discarded.",
   "commonOutboxDeleteLossHint": "A deletion couldn't be saved — the entry is back. Please delete it again.",
+  "commonCacheResetNotice": "The offline storage had to be created from scratch. Your data on the server is untouched — only entries that had not been synced yet are lost.",
   "commonBootUnansweredTitle": "Slow connection",
   "commonBootUnansweredBody": "Your data couldn't be loaded from the server yet. Check your connection and try again.",
   "commonBootUnansweredRetry": "Try again",
@@ -1027,8 +1035,8 @@
   "goalsFieldActivity": "Activity level",
   "goalsFieldActivitySubtitle": "Determines your needs without walking and running – counted steps are added on top.",
   "goalsFieldTargetWeight": "Target weight",
-  "goalsTargetWeightBelowError": "To lose weight your target has to be below your current weight ({weight} kg) — or pick a different weight goal.",
-  "goalsTargetWeightAboveError": "To gain weight your target has to be above your current weight ({weight} kg) — or pick a different weight goal.",
+  "goalsTargetWeightReachedLose": "Goal reached! At {weight} kg you have hit your target weight of {target} kg. Your plan switches to holding — for a new goal, enter a lower target weight.",
+  "goalsTargetWeightReachedGain": "Goal reached! At {weight} kg you have hit your target weight of {target} kg. Your plan switches to holding — for a new goal, enter a higher target weight.",
   "goalsFieldWeightGoal": "Weight goal",
   "goalsGroupEnergyMacros": "ENERGY & MACROS",
   "goalsFieldManual": "Manual",
@@ -1166,6 +1174,11 @@
   "settingsEmailChangeOldCodeLabel": "Code to the current address",
   "settingsEmailChangeNewCodeLabel": "Code to the new address",
   "settingsEmailChangeBothCodesHint": "Both codes are required. With only one, your current address stays in place — that's exactly what protects you if someone gained access to only one of the two inboxes.",
+  "settingsAccountDiscardTitle": "Cancel this change?",
+  "settingsAccountDiscardBody": "The code from your e-mail expires with it. A fresh attempt needs a fresh code — and only a few of those go out per hour.",
+  "settingsAccountDiscardBodyConfirmed": "The first code is already confirmed and used up. Cancelling now restarts the address change from scratch, with two new codes.",
+  "settingsAccountDiscardKeep": "Keep going",
+  "settingsAccountDiscardConfirm": "Cancel",
 
   "exportSheetLoadingSubtitle": "Your data is loading from the server …",
   "exportSheetErrorSubtitle": "Server not reachable — please reopen the full copy with an internet connection.",
@@ -1393,7 +1406,15 @@
       "sekunden": { "type": "int" }
     }
   },
-  "authCodeQuotaExhausted": "Too many codes have been requested for this address. The quota only refills in about an hour — until then no mail goes out. A code already sitting in your inbox still works.",
+  "authCodeRateLimitedMinutes": "Too many requests in a short time. Sending stays blocked for another {minuten} min.",
+  "@authCodeRateLimitedMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
+    }
+  },
+  "authCodeQuotaExhausted": "Too many codes have been requested for this address. The quota refills gradually — the next mail should be possible in a little over half an hour. A code already sitting in your inbox still works.",
+  "authCodeSendAnyway": "Nothing arrived? Try anyway",
+  "authCodeSendAnywayUsed": "That attempt already ran — the server really is letting no mail through right now. A code from an earlier mail still works; otherwise only waiting helps.",
   "authCodeOfflineError": "Offline — the server could not be reached. Please check your internet connection and try again.",
   "authCodeResendCountdown": "Request a new code in {sekunden} s",
   "@authCodeResendCountdown": {
@@ -1421,6 +1442,7 @@
   },
   "authCodeTooManyAttempts": "Too many incorrect codes. For security reasons, please request a new code.",
   "authSignupExistingAccountHint": "If an account already exists for this address, please sign in.",
+  "authSessionExpired": "Your session has expired. Please sign in again.",
   "authBackSemanticLabel": "Back",
   "authEyebrowLogin": "WELCOME BACK",
   "authEyebrowRegister": "CREATE ACCOUNT",
@@ -1450,6 +1472,12 @@
   "authConsentMiddle": " and consent to the processing of your health and nutrition data as described in our ",
   "authConsentPrivacy": "Privacy Policy",
   "authConsentSuffix": ".",
+  "authLegalLinkFailed": "That link would not open on this device. You can read the text at {url}.",
+  "@authLegalLinkFailed": {
+    "placeholders": {
+      "url": { "type": "String" }
+    }
+  },
   "authErrorInvalidEmail": "Please enter a valid email address.",
   "authErrorPasswordTooShort": "Your password needs at least {minLength} characters.",
   "@authErrorPasswordTooShort": {

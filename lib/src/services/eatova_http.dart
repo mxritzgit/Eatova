@@ -57,16 +57,23 @@ class HttpTimeoutPolicy {
   );
 
   /// analyze-meal Edge Function: `close()` covers the image upload plus LLM
-  /// latency. The function aborts after 45 s, so the client outlasts it.
+  /// latency. The provider call aborts after 45 s, so the client outlasts it.
   ///
-  /// [total] equals the phase sum ON PURPOSE: P10-02 is about the product
-  /// search, and tightening the photo path is a separate decision with its own
-  /// evidence. The field is set anyway so the ceiling has one place to move.
+  /// [total] used to be 90 s — exactly 15 + 60 + 15, i.e. the phase sum
+  /// itself, a ceiling that could never fire (P10-02b). The server side is
+  /// what calibrates it: the function gives up on its OWN request at
+  /// `ANALYZE_MEAL_REQUEST_BUDGET_MS` (55 s), so past that point the client
+  /// was waiting at least 35 s on something already dead. 75 s is the sum of
+  /// the three things that can legitimately cost time — the connect phase
+  /// (15 s), the server's whole budget (55 s) and 5 s for the small JSON
+  /// answer — and no more. Move it together with `REQUEST_BUDGET_MS`: it must
+  /// stay ABOVE that budget plus the response transfer, or a slow but live
+  /// analysis gets cut off by its own client.
   static const HttpTimeoutPolicy mealAnalysis = HttpTimeoutPolicy(
     connect: Duration(seconds: 15),
     response: Duration(seconds: 60),
     body: Duration(seconds: 15),
-    total: Duration(seconds: 90),
+    total: Duration(seconds: 75),
   );
 }
 

@@ -182,11 +182,17 @@ class GoalPlanCard extends StatelessWidget {
           Row(
             children: <Widget>[
               IconTile(
+                // The arrow follows the two numbers below it, not the stored
+                // goal (P9-08c): the goals page cannot save the contradiction
+                // any more, but a row written before that rule keeps carrying
+                // it until it is saved once — and drew "80 → 90" under
+                // `trending_down`. `targetPointsUp` is null only when both
+                // weights are equal; the goal decides then.
                 icon: isMaintain
                     ? Icons.shield_moon_outlined
-                    : (goal.isGain
+                    : (profile.targetPointsUp ?? goal.isGain)
                         ? Icons.trending_up_rounded
-                        : Icons.trending_down_rounded),
+                        : Icons.trending_down_rounded,
                 color: accent,
                 size: 38,
               ),

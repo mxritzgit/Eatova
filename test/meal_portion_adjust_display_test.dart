@@ -238,6 +238,44 @@ void main() {
       expect(applied.result.caloriesKcal, 700);
     });
 
+    // P8-03b: der Vergleich liess proteinG/carbsG/fatG aus. Ein Posten mit
+    // exakt gleichem Namen und exakt proportionalen kcal, aber eigenen Makros,
+    // unterschied sich in nichts anderem — er lief über den Gewichtsweg,
+    // `items` blieb leer und die getippten Nährwerte waren still weg.
+    test('eigene Makros am synthetischen Posten sind eine echte Zerlegung', () {
+      final basis = _produkt.asSingleComponent.adjustedToGrams(100);
+      final applied = mealPortionAdjustment(_produkt, [
+        MealComponent(
+          name: basis.name,
+          grams: basis.grams,
+          caloriesKcal: basis.caloriesKcal,
+          kcalPer100G: basis.kcalPer100G,
+          proteinG: 5,
+          carbsG: 5,
+          fatG: 5,
+        ),
+      ]);
+
+      expect(
+        applied!.isWeightOnly,
+        isFalse,
+        reason: 'Über den Gewichtsweg fallen die Makros ersatzlos weg.',
+      );
+      expect(applied.result.items, hasLength(1));
+      expect(applied.result.protein, '5 g');
+      expect(applied.result.carbs, '5 g');
+      expect(applied.result.fat, '5 g');
+    });
+
+    test('ohne Makros bleibt der identische Posten reine Gewichtsanpassung', () {
+      final applied = mealPortionAdjustment(_produkt, [
+        _produkt.asSingleComponent.adjustedToGrams(180),
+      ]);
+      expect(applied!.isWeightOnly, isTrue);
+      expect(applied.result.items, isEmpty);
+      expect(applied.result.estimatedGrams, 180);
+    });
+
     test('ein Ergebnis MIT Posten geht nie über den Gewichtsweg', () {
       final applied = mealPortionAdjustment(_teller, [_teller.items.first]);
       expect(applied!.isWeightOnly, isFalse);

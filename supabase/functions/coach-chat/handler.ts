@@ -1379,10 +1379,14 @@ export async function handleRequest(req: Request): Promise<Response> {
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const imageBase64Raw = typeof body?.image_base64 === "string" ? body.image_base64.trim() : "";
   const imageBase64 = imageBase64Raw.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
-  const imageMimeType = typeof body?.image_mime_type === "string"
+  const hasImage = imageBase64.length > 0;
+  // Only the CLAIM so far. It is overwritten by the measured container at the
+  // magic-byte guard below (P5-07b) — measuring here would run ahead of the
+  // size cap, and decodeBase64Head scans the whole string for MIME line breaks
+  // before it looks at the head.
+  let imageMimeType = typeof body?.image_mime_type === "string"
     ? safeImageMimeType(body.image_mime_type)
     : "image/jpeg";
-  const hasImage = imageBase64.length > 0;
   // mode: "recipe": recipe JSON + image instead of a chat reply; the branch
   // sits after the classifier block.
   const isRecipeMode = body?.mode === "recipe";
@@ -1439,8 +1443,17 @@ export async function handleRequest(req: Request): Promise<Response> {
   // Container magic BEFORE claiming a slot and paying for the first call: the
   // charset guard above only says "looks like base64". Same answer as a
   // charset violation — that client has a protocol problem.
-  if (hasImage && imageMimeFromMagic(imageBase64) === null) {
-    return json({ error: "Invalid image_base64" }, 400);
+  if (hasImage) {
+    const measured = imageMimeFromMagic(imageBase64);
+    if (measured === null) {
+      return json({ error: "Invalid image_base64" }, 400);
+    }
+    // P5-07b: the MEASURED container wins over the client's self-report, the
+    // same rule the generated recipe image already follows. A client shipping
+    // PNG bytes as `image/jpeg` would otherwise build a data: URL that
+    // misdescribes its own payload to the provider. Nothing reads
+    // imageMimeType before this point.
+    imageMimeType = measured;
   }
 
   // ---------------------------------------------------------------- LAYER 1

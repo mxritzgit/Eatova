@@ -237,10 +237,12 @@ void main() {
       );
       expect(items.length, 3);
       final kcalSum = items.fold<int>(0, (s, c) => s + c.caloriesKcal);
-      // Rounded per item, so the sum lands near the target.
-      expect(kcalSum, closeTo(700, 3));
+      // EXACT, not close: autoSplitItems spreads the rounding remainder over
+      // the items (_spreadRemainder), so both totals land on the anchor. A
+      // tolerance here would wave that drift straight back through.
+      expect(kcalSum, 700);
       final gramSum = items.fold<int>(0, (s, c) => s + c.grams);
-      expect(gramSum, closeTo(600, 3));
+      expect(gramSum, 600);
     });
     test('autoSplitItems gibt [] zurück wenn nicht teilbar', () {
       expect(

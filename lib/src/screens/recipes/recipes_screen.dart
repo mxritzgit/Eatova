@@ -122,11 +122,21 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// but the element is already defunct, so a `setState` would assert.
   bool _disposing = false;
 
+  /// Whether the orphan sweep has run (P3-04). Once per screen lifetime: the
+  /// screen stays mounted for the whole session (IndexedStack), so this is one
+  /// directory scan per session, and everything a later mutation orphans is
+  /// caught by the next start's sweep.
+  bool _photoSweepDone = false;
+
   @override
   void initState() {
     super.initState();
     _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
     _searchController.addListener(_onSearchChanged);
+    // A non-empty list at build time can only come from the store, so it is
+    // already authoritative — the tab is often built after hydration, and then
+    // no [didUpdateWidget] follows.
+    if (widget.initialUserRecipes.isNotEmpty) _sweepOrphanPhotos();
   }
 
   @override
@@ -161,7 +171,37 @@ class _RecipesScreenState extends State<RecipesScreen> {
     if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
       _dropOwnFilterIfEmpty();
+      // A fresh list identity means the store ASSIGNED one — from the cache or
+      // from a successful load. That is the moment the list becomes an
+      // authoritative statement about which photos still have a recipe.
+      _sweepOrphanPhotos();
     }
+  }
+
+  /// Releases recipe photos whose recipe is gone (P3-04).
+  ///
+  /// The screen drives this because it holds the only complete list of user
+  /// recipes; the store's own delete path ([_commitDelete]) covers exactly one
+  /// case — this device deleting with an immediate server ack. Everything else
+  /// (a delete on device B, an offline delete delivered later, a coach
+  /// adoption abandoned after the photo was saved) leaves bytes lying.
+  ///
+  /// TWO conditions, because a sweep against a list that is not authoritative
+  /// deletes every photo the user has:
+  ///
+  ///   * a real persistence hook — without sync the recipes are session-local
+  ///     (preview, tests) and say nothing about the disk;
+  ///   * a list the store delivered, never the `const []` a tab built before
+  ///     hydration starts with.
+  ///
+  /// [_userRecipes] rather than [_visibleUserRecipes]: a recipe inside its undo
+  /// window still needs its bytes.
+  void _sweepOrphanPhotos() {
+    if (_photoSweepDone || widget.onDeleteRecipe == null) return;
+    _photoSweepDone = true;
+    unawaited(RecipeImageStore.instance.reconcileRecipePhotos(
+      _userRecipes.map((r) => r.imageAsset).toList(growable: false),
+    ));
   }
 
   /// Built-in catalog for the ACTIVE app language. `context.l10n.localeName`

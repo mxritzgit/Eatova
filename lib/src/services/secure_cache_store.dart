@@ -912,25 +912,41 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
   /// slot could land in reverse order. Serialized PER KEY only.
   final Map<String, Future<void>> _writeQueue = <String, Future<void>>{};
 
+  /// Keys whose LAST read failed at executing the decryption (P3-02c).
+  ///
+  /// Cleared by every read that hands a value over, by the purge path (the
+  /// slot is gone then) and by every write. It is the one thing only this
+  /// class knows: from the outside a transient failure and a decrypted-but-
+  /// unusable value are both `null`.
+  final Set<String> _cipherUnavailableKeys = <String>{};
+
   @override
   Future<String?> getString(String key) async {
     final raw = await _inner.getString(key);
-    if (raw == null || raw.isEmpty) return null;
+    if (raw == null || raw.isEmpty) {
+      _cipherUnavailableKeys.remove(key);
+      return null;
+    }
 
     if (raw.startsWith(cacheCipherMagic)) {
       try {
-        return await _cipher.decrypt(key, raw);
+        final plaintext = await _cipher.decrypt(key, raw);
+        _cipherUnavailableKeys.remove(key);
+        return plaintext;
       } catch (e, s) {
         // Not every throw is a statement ABOUT THE SLOT, so
         // [_provesBrokenCiphertext] decides whether to purge.
         if (_provesBrokenCiphertext(e)) {
+          _cipherUnavailableKeys.remove(key);
           await _onUndecryptable(key, e, s);
         } else {
+          _cipherUnavailableKeys.add(key);
           _onCipherUnavailable(key, e, s);
         }
         return null;
       }
     }
+    _cipherUnavailableKeys.remove(key);
 
     // After the migration a magic-less slot has neither tag nor AAD: same
     // path as a broken ciphertext.
@@ -962,11 +978,23 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
   /// [LocalCache] need the difference, or an unreadable outbox counts as empty
   /// and the next write overwrites it.
   ///
+  /// P3-02c: an occupied slot additionally reports WHY the read failed, taken
+  /// from [_cipherUnavailableKeys] rather than from a fresh decryption
+  /// attempt. A fresh attempt would answer the wrong question — memory
+  /// pressure that has eased since would make the slot look readable and thus
+  /// permanently broken, exactly backwards.
+  ///
   /// A failing inner read propagates: "cannot say" must not become "empty".
   @override
-  Future<bool> hasRawValue(String key) async {
+  Future<RawSlotState> rawSlotState(String key) async {
     final raw = await _inner.getString(key);
-    return raw != null && raw.isNotEmpty;
+    if (raw == null || raw.isEmpty) return RawSlotState.empty;
+    return _cipherUnavailableKeys.contains(key)
+        ? RawSlotState.unreadableForNow
+        // The last read handed the value over (or none has run): whatever the
+        // caller stumbled over sits in the CONTENT, and re-reading it produces
+        // the same bytes.
+        : RawSlotState.brokenContent;
   }
 
   /// W7a: adopts ALL inherited plaintext slots, then closes the migration
@@ -1043,6 +1071,9 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
   /// its own caller but does NOT block successors, which one plugin error
   /// would otherwise stall for the process.
   Future<void> _enqueueWrite(String key, Future<void> Function() task) {
+    // Any write (or remove) replaces what the last read stumbled over, so its
+    // verdict no longer describes this slot (P3-02c).
+    _cipherUnavailableKeys.remove(key);
     final previous = _writeQueue[key];
     final Future<void> queued = previous == null
         ? task()

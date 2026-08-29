@@ -89,12 +89,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     } else {
       _direction = _GoalDirection.maintain;
     }
-    _target = p.targetWeightKg
-        .clamp(
-          ProfileLimits.targetWeightKgMin,
-          ProfileLimits.targetWeightKgMax,
-        )
-        .toInt();
+    _target = clampProfileTargetWeightKg(p.targetWeightKg);
     _diet = p.diet;
   }
 
@@ -124,12 +119,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Bounds the target weight to the chosen direction (lose -> below, gain ->
   /// above). The only remaining narrowing against the DB, and the only one
   /// that cannot be mirrored because it depends on the current weight.
-  int get _targetMin => _direction == _GoalDirection.gain
-      ? _weight + 1
-      : ProfileLimits.targetWeightKgMin;
-  int get _targetMax => _direction == _GoalDirection.lose
-      ? _weight - 1
-      : ProfileLimits.targetWeightKgMax;
+  ///
+  /// The rule itself lives in `user_profile.dart` — the goals page enforces the
+  /// same one on typed input, and two copies drift (P9-08b).
+  int get _targetMin => targetWeightMinFor(_weightGoal, _weight);
+  int get _targetMax => targetWeightMaxFor(_weightGoal, _weight);
 
   /// clamp without an assert crash on inverted bounds (weight at an extreme).
   static int _safeClamp(int v, int lo, int hi) =>
@@ -143,7 +137,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// `_target` in the footnote made the sentence contradict the number right
   /// above it as soon as the weight moved under a target picked earlier
   /// (80 kg → "lose" → back → 60 kg showed "59 kg" over "15 kg abnehmen").
-  int get _targetSafe => _safeClamp(_target, _targetMin, _targetMax);
+  ///
+  /// The DB clamp on top catches the one window that inverts: gaining at
+  /// 300 kg leaves min 301 > max 300, and `_safeClamp` would hand 301 to a
+  /// column that ends at 300.
+  int get _targetSafe =>
+      clampProfileTargetWeightKg(_safeClamp(_target, _targetMin, _targetMax));
 
   UserProfile _draftProfile() {
     final target =
@@ -212,22 +211,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _onDirectionChosen(_GoalDirection dir) {
     setState(() {
       _direction = dir;
-      // Pick a sensible default target weight for the direction.
-      if (dir == _GoalDirection.lose) {
-        _target = _safeClamp(
-          _weight - 5,
-          ProfileLimits.targetWeightKgMin,
-          _weight - 1,
-        );
-      } else if (dir == _GoalDirection.gain) {
-        _target = _safeClamp(
-          _weight + 5,
-          _weight + 1,
-          ProfileLimits.targetWeightKgMax,
-        );
-      } else {
-        _target = _weight;
-      }
+      // A sensible default INSIDE the window the new direction opens: 5 kg
+      // along it. The window itself comes from `_targetMin`/`_targetMax`, which
+      // already read the direction assigned one line above — spelling the
+      // bounds out a second time here is how the rule started drifting.
+      _target = dir == _GoalDirection.maintain
+          ? _weight
+          : _safeClamp(
+              dir == _GoalDirection.lose ? _weight - 5 : _weight + 5,
+              _targetMin,
+              _targetMax,
+            );
     });
   }
 
@@ -368,13 +362,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             min: ProfileLimits.weightKgMin,
             max: ProfileLimits.weightKgMax,
             unit: l10n.commonUnitKg,
-            onChanged: (v) => setState(() {
-              _weight = v;
-              // The target window hangs off the weight, so a weight change can
-              // push the target out of it. Follow it here instead of leaving a
-              // value in the state that no step can show any more.
-              _target = _targetSafe;
-            }),
+            // Deliberately does NOT follow the target weight along (P9-07b):
+            // [_targetSafe] already keeps every shown number inside the window,
+            // and writing the clamped value back would COST the choice. 80 kg
+            // with a target of 70, weight down to 60 and back to 80 then ended
+            // at 59 instead of the 70 the user had picked.
+            onChanged: (v) => setState(() => _weight = v),
           ),
         ),
       _Step.activity => _StepFrame(

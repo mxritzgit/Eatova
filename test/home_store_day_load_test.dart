@@ -507,6 +507,26 @@ void main() {
                 'Fenster-Praedikat — sonst behauptet der Store „geladen" '
                 'ueber einen Tag, den der Server nie geschickt hat');
 
+        // P1-06b: the write-through filter is the THIRD place this window is
+        // computed (_cacheableLoggedMeals). On `DateTime.now()` it drifted
+        // against the two above, so a row loaded and led as „im Fenster" fell
+        // out of the durable cache — and the next offline cold start showed
+        // the day empty although nobody ever left the window.
+        //
+        // A logged meal is what triggers the write-through; the boot snapshot
+        // stays out because this fake server answers /profiles empty and the
+        // store writes no snapshot without a real hydration source.
+        s.store.setFoodDate(DateTime(2026, 4, 20));
+        final heuteId = s.store.addResultToDailyTotal(_result('Fenster-Bowl'));
+        await _settle();
+        s.store.flushPendingWrites();
+        await _settle();
+        expect((await s.cache.readLoggedMeals())?.map((m) => m.id),
+            containsAll(<String>['im-fenster', heuteId]),
+            reason: 'was im Fenster liegt, gehoert auch in den durablen '
+                'Cache — sonst ist der Offline-Bestand nach dem naechsten '
+                'Kaltstart lueckenhaft');
+
         // And the store treats the day as inside the window: no reload …
         s.store.setFoodDate(DateTime(2026, 3, 17));
         await _settle();

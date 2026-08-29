@@ -282,18 +282,75 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(rSheet),
       ),
     ),
+    // UNREACHED TODAY, kept as a net — same reasoning as `chipTheme`, and here
+    // DELETING would have been the worse option: Material's M3 defaults take
+    // the dial hand from `ColorScheme.primary`, which this file pins to
+    // `forest`, so the exact defect below would come straight back through the
+    // scheme (forest vs surfaceContainerHighest = surf2: 1.16:1 dark) and the
+    // hour/minute box would arrive in an unvetted `primaryContainer` out of
+    // `fromSeed`. `lib/` has no `showTimePicker` yet; a settable reminder time
+    // (today the fixed `streakReminderHour` = 20:00) is the obvious caller.
+    //
+    // What was broken (P9-02c), all three pinned in
+    // review0829_selection_contrast_test.dart:
+    //   dialHandColor `forest` on the dial (`tile` over `surf`)  1.10:1 dark
+    //   dialTextColor flat `ink` — i.e. also ON that forest hand  1.24:1 light
+    //   hourMinuteColor identical for picked and unpicked         1.00:1 both
+    // The clock is a SELECTION, so it speaks the one language that carries in
+    // both palettes: filled = `ink`, label = `bg` (`SelectionTone`, P9-02).
+    // `accent` — the obvious pick for the hand, and fine against the dial in
+    // both modes — is `lime` in dark and `forest` in light, and NO single
+    // token reads on both (ink 1.07 dark / 1.24 light), so the number on the
+    // hand would have needed the brightness branch repo_rules forbids.
     timePickerTheme: TimePickerThemeData(
       backgroundColor: t.surf,
+      elevation: 0,
       dialBackgroundColor: t.tile,
-      dialHandColor: t.forest,
-      dialTextColor: t.ink,
-      hourMinuteColor: t.tile,
-      hourMinuteTextColor: t.ink,
+      dialHandColor: t.ink,
+      dialTextColor: WidgetStateColor.resolveWith((states) {
+        // The picked number sits inside the dot at the hand's end.
+        if (states.contains(WidgetState.selected)) return t.bg;
+        return t.ink;
+      }),
+      dialTextStyle: AppType.display(16, weight: FontWeight.w600),
+      hourMinuteColor: WidgetStateColor.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.ink;
+        return t.tile;
+      }),
+      hourMinuteTextColor: WidgetStateColor.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.bg;
+        return t.ink;
+      }),
+      // Smaller than Material's displayLarge (57): Bricolage runs wide, and
+      // the hour box is a fixed 96x80 with text scaling switched off.
+      hourMinuteTextStyle: AppType.display(44, weight: FontWeight.w700),
+      // AM/PM shows only in 12-hour locales (en) — same language again. An
+      // unpicked half stays transparent so the dialog shows through.
+      dayPeriodColor: WidgetStateColor.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.ink;
+        return Colors.transparent;
+      }),
+      dayPeriodTextColor: WidgetStateColor.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return t.bg;
+        return t.ink2;
+      }),
+      dayPeriodTextStyle: AppType.ui(14, weight: FontWeight.w700),
+      dayPeriodBorderSide: BorderSide(color: t.line),
+      entryModeIconColor: t.ink2,
       helpTextStyle: AppType.ui(
         11,
         weight: FontWeight.w700,
         color: t.ink2,
         letterSpacing: 1.1,
+      ),
+      // Footer like the calendar's: cancel muted, confirm carries the accent.
+      cancelButtonStyle: TextButton.styleFrom(
+        foregroundColor: t.ink2,
+        textStyle: AppType.ui(13, weight: FontWeight.w600),
+      ),
+      confirmButtonStyle: TextButton.styleFrom(
+        foregroundColor: t.accent,
+        textStyle: AppType.ui(13, weight: FontWeight.w800),
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rSheet),

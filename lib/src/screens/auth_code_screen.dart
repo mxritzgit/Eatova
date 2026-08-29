@@ -69,9 +69,22 @@ class _AuthErrorBefund {
 /// "For security purposes, you can only request this after 51 seconds."
 final RegExp _sekundenImText = RegExp(r'(\d+)\s*second');
 
-/// Above this many seconds the wait is spoken in minutes — an hour-long quota
-/// block would otherwise read "in 3600 s".
+/// Above this many seconds the wait is spoken in minutes — a half-hour quota
+/// block would otherwise read "in 1800 s".
 const int _minutenSchwelleSekunden = 120;
+
+/// GoTrue codes that really mean "the code did not work".
+const Set<String> _abgelehnteCodes = <String>{
+  'otp_expired',
+  'otp_disabled',
+  'invalid_credentials',
+};
+
+/// Text fallback for GoTrue answers that carry no code ("Token has expired or
+/// is invalid", "Invalid token"). A bare `invalid` is missing on purpose — see
+/// [_classifyAuthError].
+final RegExp _abgelehntImText =
+    RegExp(r'expired|invalid token|invalid otp|invalid code|\botp\b');
 
 /// Classifies [error] for [_AuthCodeScreenState._friendlyError].
 ///
@@ -118,7 +131,16 @@ _AuthErrorBefund _classifyAuthError(Object error) {
     return const _AuthErrorBefund(_AuthErrorKind.rateLimited);
   }
 
-  if (raw.contains('expired') || raw.contains('invalid')) {
+  // GoTrue's OWN code for a refused code first (P4-02c) — `auth_screen.dart`
+  // takes exactly this route for `invalid_credentials`.
+  if (code != null && _abgelehnteCodes.contains(code)) {
+    return const _AuthErrorBefund(_AuthErrorKind.codeRejected);
+  }
+  // Text fallback for answers without a code. The bare `invalid` that used to
+  // stand here also caught `AuthApiException('Invalid API key')` — a
+  // misconfigured anon key read as "your code is wrong" AND burned one of the
+  // five attempts against a lockout only a new code can lift.
+  if (_abgelehntImText.hasMatch(raw)) {
     return const _AuthErrorBefund(_AuthErrorKind.codeRejected);
   }
   return const _AuthErrorBefund(_AuthErrorKind.unknown);
@@ -130,15 +152,22 @@ class _ThrottleState {
     this.lastSent,
     this.failedAttempts = 0,
     this.cooldown = _OtpSendThrottle.cooldown,
+    this.bypassUsed = false,
   });
 
   final DateTime? lastSent;
   final int failedAttempts;
 
   /// How long [lastSent] blocks the next send. Variable since P4-03: the
-  /// server's own wait wins when it is longer, and the hourly quota blocks for
+  /// server's own wait wins when it is longer, and the mail quota blocks for
   /// [_OtpSendThrottle.quotaCooldown] instead of a minute.
   final Duration cooldown;
+
+  /// The "try anyway" escape out of the quota block was already spent for this
+  /// lock (P4-03b). Persisted with the rest, or leaving and reopening the page
+  /// would hand out a fresh escape every time — exactly the hole the address
+  /// binding closed in the first place.
+  final bool bypassUsed;
 }
 
 /// Persistent, ADDRESS-bound guard for sending codes (audit 2026-08-14).
@@ -169,12 +198,17 @@ class _OtpSendThrottle {
   /// value named by the server does not lower it: the brake is ours.
   static const Duration cooldown = Duration(seconds: 60);
 
-  /// Lock after GoTrue's hourly mail quota (`rate_limit_email_sent`) is spent.
-  /// The bucket refills per hour and the server does not say when, so this is
-  /// the honest upper bound — and the only thing that ends the knock loop of
-  /// one real mail request per minute (P4-03). Verifying a code that already
-  /// arrived stays possible the whole time.
-  static const Duration quotaCooldown = Duration(hours: 1);
+  /// Lock after GoTrue's mail quota (`rate_limit_email_sent` = 2/h) is spent.
+  ///
+  /// Not an hour: that quota is a TOKEN BUCKET (burst 2, refill 2 per hour), so
+  /// the FIRST token is back after ~1800 s, not after 3600 (P4-03b). A full
+  /// hour was the honest upper bound for the bucket to be full again — but the
+  /// user only needs one token, and locking them out for twice the real wait
+  /// with no way out was the one path where the P4-03 fix made things worse.
+  /// The escape link ([_AuthCodeScreenState._resend] with `trotzdem: true`)
+  /// covers the rest of the guess. Verifying a code that already arrived stays
+  /// possible the whole time.
+  static const Duration quotaCooldown = Duration(minutes: 30);
 
   static const int maxAttempts = 5;
   static const String storagePrefix = 'eatova.v1.otp_guard.';
@@ -231,6 +265,7 @@ class _OtpSendThrottle {
         cooldown: warte is int && warte > 0
             ? Duration(seconds: warte.clamp(1, quotaCooldown.inSeconds))
             : cooldown,
+        bypassUsed: map['bypass'] == true,
       );
       // Clean up on read (W3c): `otp_guard.<hash>` keys would otherwise pile
       // up forever; no background job needed.
@@ -268,6 +303,7 @@ class _OtpSendThrottle {
           'sent': state.lastSent?.millisecondsSinceEpoch,
           'failed': state.failedAttempts,
           'wait': state.cooldown.inSeconds,
+          'bypass': state.bypassUsed,
         }),
       );
       return true;
@@ -329,8 +365,12 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   int _cooldownSeconds = 0;
 
   /// How long [_lastSent] blocks — 60 s after a normal send, the server's own
-  /// wait when it is longer, an hour after the mail quota (P4-03).
+  /// wait when it is longer, [_OtpSendThrottle.quotaCooldown] after the mail
+  /// quota (P4-03).
   Duration _cooldownDauer = _OtpSendThrottle.cooldown;
+
+  /// The escape out of the quota block is spent for the current lock (P4-03b).
+  bool _bypassUsed = false;
 
   Timer? _ticker;
 
@@ -353,6 +393,12 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   static String _normalisiert(String email) => email.trim().toLowerCase();
 
   bool get _locked => _failedAttempts >= _OtpSendThrottle.maxAttempts;
+
+  /// True while the running lock is our own ESTIMATE of the mail quota rather
+  /// than a wait the server named. Only then is "try anyway" honest — a
+  /// server-named number is authoritative and needs no escape (P4-03b).
+  bool get _sperreIstSchaetzung =>
+      _cooldownDauer >= _OtpSendThrottle.quotaCooldown;
 
   AppLocalizations get _l10n => context.l10n;
 
@@ -390,6 +436,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       _lastSent = stand.lastSent;
       _failedAttempts = stand.failedAttempts;
       _cooldownDauer = stand.cooldown;
+      _bypassUsed = stand.bypassUsed;
       _cooldownSeconds = _remainingSeconds();
     });
     _syncTicker();
@@ -406,6 +453,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       _lastSent = null;
       _failedAttempts = 0;
       _cooldownDauer = _OtpSendThrottle.cooldown;
+      _bypassUsed = false;
       _cooldownSeconds = 0;
     });
     _syncTicker();
@@ -436,6 +484,11 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   String _wartehinweis(int sekunden) => sekunden > _minutenSchwelleSekunden
       ? _l10n.authCodeThrottleWaitMinutes((sekunden / 60).ceil())
       : _l10n.authCodeThrottleWait(sekunden);
+
+  /// And for the server's own throttle answer.
+  String _drosselHinweis(int sekunden) => sekunden > _minutenSchwelleSekunden
+      ? _l10n.authCodeRateLimitedMinutes((sekunden / 60).ceil())
+      : _l10n.authCodeRateLimitedSeconds(sekunden);
 
   void _syncTicker() {
     if (_cooldownSeconds <= 0) {
@@ -475,6 +528,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     String email, {
     required bool resetAttempts,
     required Duration cooldown,
+    bool bypassUsed = false,
   }) {
     final jetzt = clock.now();
     final versuche = resetAttempts ? 0 : _failedAttempts;
@@ -485,6 +539,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         lastSent: jetzt,
         failedAttempts: versuche,
         cooldown: cooldown,
+        bypassUsed: bypassUsed,
       ),
     ));
     if (!mounted) return;
@@ -493,6 +548,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       _lastSent = jetzt;
       _failedAttempts = versuche;
       _cooldownDauer = cooldown;
+      _bypassUsed = bypassUsed;
       _cooldownSeconds = _remainingSeconds();
     });
     _syncTicker();
@@ -509,6 +565,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         lastSent: _lastSent,
         failedAttempts: naechster,
         cooldown: _cooldownDauer,
+        bypassUsed: _bypassUsed,
       ),
     ));
     if (!mounted) return;
@@ -541,8 +598,10 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         return _l10n.authCodeOfflineError;
       case _AuthErrorKind.sendThrottled:
         // The number the guard really holds — not the server's raw one, which
-        // can be below our own floor.
-        return _l10n.authCodeRateLimitedSeconds(_sperrDauer(befund).inSeconds);
+        // can be below our own floor. Seconds or minutes by the SAME threshold
+        // as the countdown link (P4-03c): a 180 s lock used to read "noch 180 s
+        // gesperrt" right above "Neuen Code in 3 min anfordern".
+        return _drosselHinweis(_sperrDauer(befund).inSeconds);
       case _AuthErrorKind.quotaExhausted:
         return _l10n.authCodeQuotaExhausted;
       case _AuthErrorKind.rateLimited:
@@ -584,17 +643,26 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   /// inviting blind retries.
   Future<void> _sendGuarded(
     String email,
-    Future<void> Function() versand,
-  ) async {
+    Future<void> Function() versand, {
+    bool bypassUsed = false,
+  }) async {
     try {
       await versand();
     } catch (error) {
       final sperre = _sperrDauer(_classifyAuthError(error));
       if (sperre > Duration.zero) {
-        _stamp(email, resetAttempts: false, cooldown: sperre);
+        // [bypassUsed] carries into the new stamp: the escape is one per lock,
+        // and a failed escape must not hand out the next one.
+        _stamp(
+          email,
+          resetAttempts: false,
+          cooldown: sperre,
+          bypassUsed: bypassUsed,
+        );
       }
       rethrow;
     }
+    // A mail really went out: the lock is over and its escape with it.
     _stamp(
       email,
       resetAttempts: true,
@@ -627,10 +695,16 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     });
   }
 
-  Future<void> _resend() async {
+  /// [trotzdem] is the escape out of a lock this app only GUESSED at
+  /// ([_sperreIstSchaetzung]): it sends once despite the countdown. See
+  /// [_OtpSendThrottle.quotaCooldown] — the mail bucket refills gradually and
+  /// the server never says when, so the server is the only authority on
+  /// whether the next mail goes out. One escape per lock; if it fails, the
+  /// lock is stamped anew and the link is gone.
+  Future<void> _resend({bool trotzdem = false}) async {
     final email = _guardEmail;
     final rest = _remainingSeconds();
-    if (rest > 0) {
+    if (rest > 0 && !trotzdem) {
       setState(() => _error = _wartehinweis(rest));
       return;
     }
@@ -640,6 +714,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         () => _isRecovery
             ? widget.authRepository.sendPasswordReset(email)
             : widget.authRepository.resendSignupCode(email),
+        bypassUsed: trotzdem,
       );
       if (!mounted) return;
       setState(() => _message = _l10n.authCodeResent);
@@ -855,9 +930,35 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                         // The tap stays enabled during the cooldown so
                         // _resend can say how long is left; a dead link
                         // would leave the user guessing.
-                        onTap: _busy ? null : _resend,
+                        onTap: _busy ? null : () => _resend(),
                       ),
                     ),
+                    // The escape out of a GUESSED lock (P4-03b). Shown only
+                    // while that lock runs, and traded for a sentence once
+                    // spent — a dimmed dead link would say less.
+                    if (_cooldownSeconds > 0 && _sperreIstSchaetzung)
+                      Center(
+                        child: _bypassUsed
+                            ? Padding(
+                                key: const ValueKey('code-send-anyway-used'),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 6),
+                                child: Text(
+                                  l10n.authCodeSendAnywayUsed,
+                                  textAlign: TextAlign.center,
+                                  style: AppType.ui(12, color: t.ink2,
+                                      height: 1.4),
+                                ),
+                              )
+                            : AuthTextLink(
+                                linkKey: const ValueKey('code-send-anyway'),
+                                label: l10n.authCodeSendAnyway,
+                                emphasis: true,
+                                onTap: _busy
+                                    ? null
+                                    : () => _resend(trotzdem: true),
+                              ),
+                      ),
                   ],
                 ],
               ),

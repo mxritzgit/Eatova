@@ -56,13 +56,15 @@
 		  saemtliche Ernaehrungsdaten (geloggte Mahlzeiten mit kcal/Makros),
 		  dazu Schrittzahl und Gewichtsverlauf aus HealthKit (Schlaf ist seit
 		  PR #46 raus: `readLastSleep` liefert immer null, kein SLEEP-Scope).
-		  Beleg: profile_sync.dart:122-138 (weight_kg, height_cm, age_years,
-		  sex, target_weight_kg, Makro-Ziele) => Supabase-Tabelle `profiles`;
-		  tracking_sync.dart:63-66 => `weight_log`; meals_sync => `logged_meals`;
+		  Beleg: `ProfileSync.load`/`save` in profile_sync.dart (weight_kg,
+		  height_cm, age_years, sex, target_weight_kg, Makro-Ziele) =>
+		  Supabase-Tabelle `profiles`; `TrackingSync.insertWeight` =>
+		  `weight_log`; meals_sync => `logged_meals`;
 		  apple_health_service.dart `_types` liest nur STEPS/WEIGHT.
 		  Ausserdem geht ein Koerperdaten-Snapshot an den Coach:
-		  home_store.dart:146-166 (Gewicht, Zielgewicht, kcal, Makros, heutige
-		  Mahlzeiten) -> coach_chat_service.dart:202 -> Edge Function ->
+		  `coachContext` in home_store.dart (Gewicht, Zielgewicht, kcal, Makros,
+		  heutige Mahlzeiten aus `_todaysFoodSummary`) ->
+		  `CoachChatService.send` (`user_context`) -> Edge Function ->
 		  OpenRouter/xAI. Verknuepft mit der Identitaet: jede Zeile haengt an
 		  der Supabase-user_id. Zweck ist die Kernfunktion (Tagesziel,
 		  Kalorienrechnung, Coach-Antwort), keine Analyse, keine Werbung.
@@ -82,9 +84,10 @@
 
 		<!--
 		  Fitnessdaten: Schrittzahl und Aktivitaetsniveau.
-		  Beleg: apple_health_service.dart:174 (HealthDataType.STEPS),
-		  profile_sync.dart:127/129 (activity_level, daily_steps_goal),
-		  lifetime_stats_sync.dart:69 (p_steps -> lifetime_stats.steps_recorded).
+		  Beleg: `AppleHealthService._types` (HealthDataType.STEPS),
+		  `ProfileSync.load` (activity_level, daily_steps_goal),
+		  `_rpcIncrement` in lifetime_stats_sync.dart (p_steps ->
+		  lifetime_stats.steps_recorded).
 		  Verlaesst das Geraet Richtung Supabase, an die user_id gebunden.
 		-->
 		<dict>
@@ -102,9 +105,10 @@
 
 		<!--
 		  E-Mail-Adresse: Konto-Anlage und Login.
-		  Beleg: auth_repository.dart:157 (user.email aus Supabase Auth) — per
-		  Passwort-Registrierung ODER Google Sign-In (Google Ireland). Liegt
-		  dauerhaft in auth.users. Zweck: Authentifizierung = App-Funktion.
+		  Beleg: `_mapUser` in auth_repository.dart (user.email aus Supabase
+		  Auth) — per Passwort-Registrierung ODER Google Sign-In (Google
+		  Ireland). Liegt dauerhaft in auth.users. Zweck: Authentifizierung =
+		  App-Funktion.
 		-->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
@@ -122,10 +126,11 @@
 		<!--
 		  Name: der bei der Registrierung eingegebene bzw. von Google gelieferte
 		  Anzeigename.
-		  Beleg: auth_repository.dart:98 (data: {'display_name': ...}) und
-		  :150-158 (full_name aus den Google-userMetadata); Spalte
-		  profiles.display_name (model_limits.dart:126-130). Nur zur Anrede in
-		  der App = App-Funktion.
+		  Beleg: `signUp` in auth_repository.dart (data: {'display_name': ...})
+		  und `_mapUser` ebenda (display_name/full_name/name aus den
+		  Google-userMetadata); Spalte profiles.display_name
+		  (`ProfileLimits.displayNameMaxChars` in model_limits.dart). Nur zur
+		  Anrede in der App = App-Funktion.
 		-->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
@@ -143,8 +148,8 @@
 		<!--
 		  User ID: die Supabase-Auth-UUID.
 		  Beleg: sie ist der Fremdschluessel in JEDER synchronisierten Tabelle
-		  (profile_sync.dart:122 'id', tracking_sync.dart:63 'user_id') und der
-		  Subjekt-Schluessel der Rate-Limits (search-key/index.ts:83-94). Sie
+		  (`ProfileSync.load` 'id', `TrackingSync.insertWeight` 'user_id') und
+		  der Subjekt-Schluessel der Nutzer-Drossel in search-key/index.ts. Sie
 		  ist der Grund, warum alle Eintraege oben "Linked" sind.
 		-->
 		<dict>
@@ -162,16 +167,20 @@
 
 		<!--
 		  Fotos: Mahlzeitenfotos und Coach-Bilder.
-		  Beleg: meal_analyzer.dart:62-63 (imageBase64 an die Edge Function
-		  analyze-meal) und coach_chat_screen.dart:314 (imageBase64 an
-		  coach-chat). Von dort weiter an OpenRouter (US), Google Gemini (US)
-		  bzw. xAI (US) zur Bilderkennung. Kein Supabase-Storage-Bucket, kein
-		  dauerhafter Ablageort in der App — aber die Uebertragung laeuft im
+		  Beleg: `buildAnalyzeMealBody` in meal_analyzer.dart (imageBase64 an die
+		  Edge Function analyze-meal) und `_send` in coach_chat_screen.dart
+		  (imageBase64 an coach-chat). Von dort weiter an OpenRouter (US),
+		  Google Gemini (US) bzw. xAI (US) zur Bilderkennung. Kein
+		  Supabase-Storage-Bucket, kein dauerhafter Ablageort in der App — aber
+		  die Uebertragung laeuft im
 		  authentifizierten Request des Nutzers, ist also der Identitaet
 		  zuordenbar, deshalb "Linked". Zweck ist die Kernfunktion (Naehrwerte
 		  aus dem Bild), NICHT Personalisierung oder Werbung.
-		  Hinweis: EXIF-GPS wird derzeit nicht entfernt (Review C4) — wird das
-		  gefixt, aendert das an dieser Deklaration nichts.
+		  Hinweis: EXIF-GPS verlaesst das Geraet nicht — `compressMealPhoto`
+		  laeuft vor JEDEM Upload (Kamera-Sheet, Coach-Anhang, Rezept-Sheet)
+		  und wirft bei nicht dekodierbaren Bytes, statt sie
+		  durchzureichen. An dieser Deklaration aendert das nichts: das Bild
+		  selbst geht weiterhin an die Edge Function.
 		-->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
@@ -192,7 +201,7 @@
 		  Beleg: Tabellen chat_messages, user_recipes, favorite_meals,
 		  logged_meals (coach_chat_service.dart, user_recipes_sync.dart). Die
 		  Chat-Nachricht selbst geht zusaetzlich an OpenRouter/xAI
-		  (coach_chat_service.dart:194-202). Alles an der user_id haengend.
+		  (`CoachChatService.send`). Alles an der user_id haengend.
 		-->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
@@ -209,8 +218,8 @@
 
 		<!--
 		  Suchverlauf: eingetippte Produktsuchbegriffe und gescannte Barcodes.
-		  Beleg: meilisearch_product_service.dart:95-104 (Suchbegriff an den
-		  eigenen Meilisearch-Mirror auf eatova.de) und
+		  Beleg: `searchProducts` in meilisearch_product_service.dart
+		  (Suchbegriff an den eigenen Meilisearch-Mirror auf eatova.de) und
 		  open_food_facts_product_service.dart (Suchbegriff/Barcode an Open
 		  Food Facts, FR). NICHT verknuepft: die Suchanfrage traegt nur den
 		  kurzlebigen Such-Key, keine user_id (search-key/index.ts vergibt ihn,
@@ -233,20 +242,23 @@
 
 		<!--
 		  Absturzdaten: Sentry (ingest.de.sentry.io, EU-Region).
-		  Beleg: main.dart:34-50 (Init nur mit gesetztem SENTRY_DSN) plus
-		  crash_reporter.dart:188 ff. (configureSentry). Bewusst eng
-		  konfiguriert: sendDefaultPii=false, attachScreenshot=false, kein
-		  Tracing, kein Session-Replay, enableAutoSessionTracking=false
-		  (crash_reporter.dart:227), und beforeSend=sanitizeSentryEvent
-		  (crash_reporter.dart:405 ff.) putzt Nutzdaten aus dem Event. Es wird
-		  NIRGENDS Sentry.setUser/configureScope aufgerufen (Grep: kein
-		  Treffer), das Event traegt also weder E-Mail noch user_id =>
-		  "Linked" = false.
-		  Mit erfasst sind die technischen Breadcrumbs aus home_store.dart:354
-		  und home_store_sync.dart:194 (nur Zaehler, ausdruecklich keine
-		  Nutzdaten): sie verlassen das Geraet ausschliesslich als Anhang eines
-		  Absturzberichts, sind also Teil dieses Eintrags und keine eigene
-		  Erhebung.
+		  Belege werden ueber SYMBOLE benannt, nicht ueber Zeilennummern:
+		  die veralten still, und genau das war P10-01b (die vorherigen
+		  Verweise zeigten nach zwei Fix-Wellen ins Leere).
+		  Beleg: `SentryFlutter.init` in main.dart (laeuft nur mit gesetztem
+		  SENTRY_DSN) plus `configureSentry` in crash_reporter.dart. Bewusst
+		  eng konfiguriert: sendDefaultPii=false, attachScreenshot=false, kein
+		  Tracing, kein Session-Replay, enableAutoSessionTracking=false, und
+		  beforeSend=`sanitizeSentryEvent` (dieselbe Datei) putzt Nutzdaten aus
+		  dem Event. Es wird NIRGENDS Sentry.setUser/configureScope aufgerufen
+		  (Grep: kein Treffer), das Event traegt also weder E-Mail noch user_id
+		  => "Linked" = false.
+		  Mit erfasst sind die technischen Breadcrumbs, die
+		  `CrashReporter.breadcrumb` setzt — heute in home_store.dart und
+		  home_store_sync.dart, auffindbar per Grep auf diesen Namen (nur
+		  Zaehler und Op-Arten, ausdruecklich keine Nutzdaten). Sie verlassen
+		  das Geraet ausschliesslich als Anhang eines Absturzberichts, sind
+		  also Teil dieses Eintrags und keine eigene Erhebung.
 		-->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
@@ -266,9 +278,10 @@
 
 		  * ProductInteraction (App-Starts/Sessions): Sentrys
 		    enableAutoSessionTracking ist per Default true
-		    (sentry_flutter_options.dart:42) und wurde bis Review P10-01 nicht
-		    abgeschaltet — damit gingen Session-Start/-Ende, also App-Starts und
-		    Vordergrundwechsel, an Sentry. crash_reporter.dart:227 setzt die
+		    (Standardwert in sentry_flutter_options.dart) und wurde bis Review
+		    P10-01 nicht abgeschaltet — damit gingen Session-Start/-Ende, also
+		    App-Starts und Vordergrundwechsel, an Sentry. `configureSentry` in
+		    crash_reporter.dart setzt die
 		    Option jetzt ausdruecklich auf false, geprueft von
 		    test/services/crash_reporter_wiring_test.dart. Damit erhebt die App
 		    keine Nutzungssignale mehr und der Eintrag entfaellt; die
@@ -294,7 +307,8 @@
 		  * SensitiveInfo: Apples Definition zaehlt Ethnie, sexuelle
 		    Orientierung, Schwangerschaft, Behinderung, Religion, Gewerkschaft,
 		    politische Meinung, Genetik und Biometrie auf. Die Ernaehrungsform
-		    (user_profile.dart:49: none/vegetarian/vegan/pescetarian) ist DSGVO-
+		    (`DietPreference` in user_profile.dart: none, vegetarian, vegan,
+		    pescetarian) ist DSGVO-
 		    seitig heikel, faellt aber unter keinen dieser Punkte; sie ist als
 		    Gesundheits-/Ernaehrungsdatum oben mit erfasst.
 		  * DeviceID: kein IDFA, kein IDFV im Code. Sentry vergibt eine eigene

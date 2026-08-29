@@ -15,12 +15,20 @@ import 'support/harness.dart';
 // model as "Körpergewicht: 80 kg (Ziel 90 kg)" on a deficit plan.
 //
 // The onboarding has enforced the rule since day one (`_targetMin`/`_targetMax`
-// with the explicit "consistency bound, not a range" comment); this suite pins
-// the same rule for the settings page.
+// with the explicit "consistency bound, not a range" comment); since P9-08b
+// both sides read it from ONE place (`isConsistentTargetWeight`).
 //
-// REJECT, not clamp (model_limits.dart): bending 90 down to 79 would write a
-// target weight nobody asked for. "Maintain" stays deliberately free — every
-// target near today's weight is plausible there.
+// P9-08e hat die DURCHSETZUNG gedreht, nicht die Regel: der Zustand "das Ziel
+// liegt auf der falschen Seite des Gewichts" heisst immer, dass die gewaehlte
+// Richtung nichts mehr zu tun hat — meistens, weil der Nutzer sein Ziel
+// ERREICHT hat (80 kg, Ziel 75, wiegt heute 74). Das war eine Sperre, die die
+// ganze Seite dichtmachte, Schrittziel und Erinnerungen eingeschlossen.
+//
+// Die Zusage bleibt trotzdem gleich und wird hier gemessen: **ein Defizit-Plan
+// mit Ziel ueber dem Gewicht darf die App nicht verlassen.** Nur loest ihn die
+// Seite jetzt auf (Plan wechselt aufs Halten, sichtbar angekuendigt), statt zu
+// blockieren. "Maintain" bleibt frei — jedes Ziel nahe dem heutigen Gewicht
+// ist dort plausibel.
 void main() {
   /// 80 kg, target 80 kg, goal "maintain" — the consistent starting point.
   const basis = UserProfile(weightKg: 80, targetWeightKg: 80);
@@ -100,79 +108,98 @@ void main() {
     return result;
   }
 
-  const abnehmFehler =
-      'Beim Abnehmen muss das Wunschgewicht unter deinem Gewicht (80 kg) '
-      'liegen — oder wähle ein anderes Gewichtsziel.';
-  const zunehmFehler =
-      'Beim Zunehmen muss das Wunschgewicht über deinem Gewicht (80 kg) '
-      'liegen — oder wähle ein anderes Gewichtsziel.';
+  /// Die Erfolgsmeldung, die an die Stelle der Sperre getreten ist.
+  String erreichtLose(int gewicht, int ziel) =>
+      'Ziel erreicht! Mit $gewicht kg hast du dein Wunschgewicht von $ziel kg '
+      'geschafft. Dein Plan wechselt aufs Halten — für ein neues Ziel trag ein '
+      'niedrigeres Wunschgewicht ein.';
+  String erreichtGain(int gewicht, int ziel) =>
+      'Ziel erreicht! Mit $gewicht kg hast du dein Wunschgewicht von $ziel kg '
+      'geschafft. Dein Plan wechselt aufs Halten — für ein neues Ziel trag ein '
+      'höheres Wunschgewicht ein.';
+
+  Finder erreichtHinweis() =>
+      find.byKey(const ValueKey('settings-target-reached'));
 
   group('Ziele-Seite: Wunschgewicht und Gewichtsziel', () {
     testWidgets(
-        'Abnehmen mit hoeherem Wunschgewicht laesst sich nicht speichern',
-        (tester) async {
+        'Abnehmen mit hoeherem Wunschgewicht verlaesst die App nicht als '
+        'Defizit-Plan', (tester) async {
       // Exactly the reported trigger: target 90 typed at 80 kg, then the goal
       // switched to "Abnehmen · −0,5 kg/Woche".
-      await openSettings(tester);
+      final resultFuture = await openSettings(tester);
       await tippe(tester, 'settings-target-weight', '90');
-      expect(saveHandler(tester), isNotNull,
-          reason: '90 kg passt zu "Halten" — erst das Ziel macht es falsch');
+      expect(erreichtHinweis(), findsNothing,
+          reason: '90 kg passt zu "Halten" — erst das Ziel macht es zum Thema');
 
       await waehleZiel(tester, 'lose05kg');
 
-      expect(find.text(abnehmFehler), findsOneWidget);
-      expect(saveHandler(tester), isNull,
-          reason: 'ein Defizit-Plan mit Ziel ueber dem Gewicht darf die App '
-              'nicht verlassen');
+      expect(find.text(erreichtLose(80, 90)), findsOneWidget);
       expect(
         find.byKey(const ValueKey('settings-validation-note')),
-        findsOneWidget,
+        findsNothing,
+        reason: 'kein Feldfehler mehr — die Seite loest auf, statt zu sperren',
       );
+      expect(saveHandler(tester), isNotNull);
+
+      final result = (await speichere(tester, resultFuture))!.profile;
+      expect(result.targetWeightKg, 90, reason: 'die Eingabe bleibt stehen');
+      expect(result.weightGoal, WeightGoal.maintain,
+          reason: 'ein Defizit-Plan mit Ziel ueber dem Gewicht darf die App '
+              'nicht verlassen');
     });
 
-    testWidgets('Abnehmen auf das aktuelle Gewicht sperrt ebenfalls',
+    testWidgets('Abnehmen auf das aktuelle Gewicht zaehlt als erreicht',
         (tester) async {
       // Same bound as the onboarding (`_targetMax = weight - 1`): losing down
-      // to today's weight is no goal, it is "maintain" under another name.
-      await openSettings(tester);
+      // to today's weight is no goal, it is "maintain" under another name — und
+      // genau so wird es jetzt auch gespeichert.
+      final resultFuture = await openSettings(tester);
       await waehleZiel(tester, 'lose025kg');
 
-      expect(find.text(abnehmFehler), findsOneWidget);
-      expect(saveHandler(tester), isNull);
+      expect(find.text(erreichtLose(80, 80)), findsOneWidget);
+      expect(saveHandler(tester), isNotNull);
+
+      final result = (await speichere(tester, resultFuture))!.profile;
+      expect(result.weightGoal, WeightGoal.maintain);
     });
 
-    testWidgets(
-        'Zunehmen mit niedrigerem Wunschgewicht laesst sich nicht speichern',
+    testWidgets('Zunehmen mit niedrigerem Wunschgewicht: derselbe Weg',
         (tester) async {
-      await openSettings(tester);
+      final resultFuture = await openSettings(tester);
       await tippe(tester, 'settings-target-weight', '70');
       await waehleZiel(tester, 'gain025kg');
 
-      expect(find.text(zunehmFehler), findsOneWidget);
-      expect(saveHandler(tester), isNull);
+      expect(find.text(erreichtGain(80, 70)), findsOneWidget);
+      expect(saveHandler(tester), isNotNull);
+
+      final result = (await speichere(tester, resultFuture))!.profile;
+      expect(result.targetWeightKg, 70);
+      expect(result.weightGoal, WeightGoal.maintain);
     });
 
-    testWidgets('passende Abnehm-Kombination bleibt speicherbar',
+    testWidgets('passende Abnehm-Kombination bleibt unangetastet',
         (tester) async {
       final resultFuture = await openSettings(tester);
       await tippe(tester, 'settings-target-weight', '72');
       await waehleZiel(tester, 'lose05kg');
 
-      expect(find.text(abnehmFehler), findsNothing);
+      expect(erreichtHinweis(), findsNothing);
       expect(saveHandler(tester), isNotNull);
 
       final result = (await speichere(tester, resultFuture))!.profile;
       expect(result.targetWeightKg, 72);
-      expect(result.weightGoal, WeightGoal.lose05kg);
+      expect(result.weightGoal, WeightGoal.lose05kg,
+          reason: 'solange die Richtung etwas zu tun hat, bleibt sie stehen');
     });
 
-    testWidgets('passende Zunehm-Kombination bleibt speicherbar',
+    testWidgets('passende Zunehm-Kombination bleibt unangetastet',
         (tester) async {
       final resultFuture = await openSettings(tester);
       await tippe(tester, 'settings-target-weight', '86');
       await waehleZiel(tester, 'gain05kg');
 
-      expect(find.text(zunehmFehler), findsNothing);
+      expect(erreichtHinweis(), findsNothing);
       expect(saveHandler(tester), isNotNull);
 
       final result = (await speichere(tester, resultFuture))!.profile;
@@ -190,8 +217,7 @@ void main() {
       expect(saveHandler(tester), isNotNull);
       await tippe(tester, 'settings-target-weight', '95');
       expect(saveHandler(tester), isNotNull);
-      expect(find.text(abnehmFehler), findsNothing);
-      expect(find.text(zunehmFehler), findsNothing);
+      expect(erreichtHinweis(), findsNothing);
 
       final result = (await speichere(tester, resultFuture))!.profile;
       expect(result.targetWeightKg, 95);
@@ -201,8 +227,8 @@ void main() {
     testWidgets(
         'Bestandsprofil mit Widerspruch: das Wunschgewicht loest ihn auf',
         (tester) async {
-      // Profiles saved BEFORE this rule existed open straight into the error.
-      // The page must show the way out, not lock the user in.
+      // Profiles saved BEFORE this rule existed open straight into the note —
+      // und speichern trotzdem, falls der Nutzer nur das Schrittziel wollte.
       final resultFuture = await openSettings(
         tester,
         profile: basis.copyWith(
@@ -211,16 +237,16 @@ void main() {
         ),
       );
 
-      expect(find.text(abnehmFehler), findsOneWidget);
-      expect(saveHandler(tester), isNull);
+      expect(find.text(erreichtLose(80, 90)), findsOneWidget);
+      expect(saveHandler(tester), isNotNull);
 
       await tippe(tester, 'settings-target-weight', '75');
-      expect(find.text(abnehmFehler), findsNothing);
-      expect(saveHandler(tester), isNotNull);
+      expect(erreichtHinweis(), findsNothing);
 
       final result = (await speichere(tester, resultFuture))!.profile;
       expect(result.targetWeightKg, 75);
-      expect(result.weightGoal, WeightGoal.lose05kg);
+      expect(result.weightGoal, WeightGoal.lose05kg,
+          reason: 'ein wieder sinnvolles Ziel behaelt die gewaehlte Richtung');
     });
 
     testWidgets(
@@ -234,25 +260,22 @@ void main() {
         ),
       );
 
-      expect(find.text(zunehmFehler), findsOneWidget);
-      expect(saveHandler(tester), isNull);
+      expect(find.text(erreichtGain(80, 70)), findsOneWidget);
 
       // The second way out: keep the target, change the direction.
       await waehleZiel(tester, 'lose05kg');
-      expect(find.text(zunehmFehler), findsNothing);
-      expect(saveHandler(tester), isNotNull);
+      expect(erreichtHinweis(), findsNothing);
 
       final result = (await speichere(tester, resultFuture))!.profile;
       expect(result.targetWeightKg, 70);
       expect(result.weightGoal, WeightGoal.lose05kg);
     });
 
-    testWidgets(
-        'ungueltiges Gewicht erzeugt keinen Konsistenzfehler am Wunschgewicht',
+    testWidgets('ungueltiges Gewicht erzeugt keinen Erreicht-Hinweis',
         (tester) async {
       // "75,5" -> 755 via digitsOnly. The weight field carries its own range
-      // error; a second, contradictory message at the target weight would only
-      // confuse — there is no current weight to compare against.
+      // error; a congratulation next to it would be absurd — there is no
+      // current weight to compare against.
       await openSettings(tester);
       await waehleZiel(tester, 'lose05kg');
       await tippe(tester, 'settings-target-weight', '72');
@@ -260,24 +283,22 @@ void main() {
 
       expect(find.text('30–300 kg (ganze Zahl)'), findsOneWidget,
           reason: 'nur der Bereichsfehler am Gewicht');
+      expect(erreichtHinweis(), findsNothing);
       expect(saveHandler(tester), isNull);
     });
 
-    testWidgets('die Bereichsgrenze hat Vorrang vor der Konsistenzregel',
-        (tester) async {
+    testWidgets('die Bereichsgrenze bleibt eine Sperre', (tester) async {
       await openSettings(tester);
       await waehleZiel(tester, 'lose05kg');
       await tippe(tester, 'settings-target-weight', '755');
 
       expect(find.text('30–300 kg (ganze Zahl)'), findsOneWidget);
-      expect(find.text(abnehmFehler), findsNothing,
-          reason: '755 kg ist zuerst ausserhalb der Spalte, dann erst falsch '
-              'herum');
+      expect(erreichtHinweis(), findsNothing,
+          reason: '755 kg ist ausserhalb der Spalte — kein Erfolg, ein Fehler');
       expect(saveHandler(tester), isNull);
     });
 
-    testWidgets('die englische Fassung nennt denselben Widerspruch',
-        (tester) async {
+    testWidgets('die englische Fassung nennt denselben Erfolg', (tester) async {
       await openSettings(
         tester,
         profile: basis.copyWith(
@@ -288,11 +309,62 @@ void main() {
       );
 
       expect(
-        find.text('To lose weight your target has to be below your current '
-            'weight (80 kg) — or pick a different weight goal.'),
+        find.text('Goal reached! At 80 kg you have hit your target weight of '
+            '90 kg. Your plan switches to holding — for a new goal, enter a '
+            'lower target weight.'),
         findsOneWidget,
       );
-      expect(saveHandler(tester), isNull);
+      expect(saveHandler(tester), isNotNull);
+    });
+  });
+
+  // =========================================================================
+  // P9-08e — der gemessene Fall: Zielerreichung ist der Normalfall
+  // =========================================================================
+  group('Ziel erreicht: 80 kg, Wunschgewicht 75, heute 74', () {
+    const abnehmer = UserProfile(
+      weightKg: 80,
+      targetWeightKg: 75,
+      weightGoal: WeightGoal.lose05kg,
+      dailyStepsGoal: 8000,
+    );
+
+    testWidgets('das neue Gewicht sperrt die Seite nicht', (tester) async {
+      final resultFuture = await openSettings(tester, profile: abnehmer);
+      expect(erreichtHinweis(), findsNothing, reason: '80 > 75, alles offen');
+
+      await tippe(tester, 'settings-weight', '74');
+
+      expect(find.text(erreichtLose(74, 75)), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('settings-validation-note')),
+        findsNothing,
+      );
+      expect(saveHandler(tester), isNotNull,
+          reason: 'Zielerreichung ist der Normalfall einer Abnehm-App');
+
+      // Und das, was der Nutzer eigentlich wollte, geht mit durch.
+      await tippe(tester, 'settings-steps-goal', '9000');
+      final result = (await speichere(tester, resultFuture))!.profile;
+      expect(result.weightKg, 74);
+      expect(result.dailyStepsGoal, 9000);
+      expect(result.targetWeightKg, 75);
+      expect(result.weightGoal, WeightGoal.maintain,
+          reason: 'der Plan haelt jetzt, statt weiter Defizit zu fahren');
+    });
+
+    testWidgets('ein neues, niedrigeres Ziel nimmt die Richtung wieder auf',
+        (tester) async {
+      final resultFuture = await openSettings(tester, profile: abnehmer);
+      await tippe(tester, 'settings-weight', '74');
+      expect(erreichtHinweis(), findsOneWidget);
+
+      await tippe(tester, 'settings-target-weight', '70');
+      expect(erreichtHinweis(), findsNothing);
+
+      final result = (await speichere(tester, resultFuture))!.profile;
+      expect(result.targetWeightKg, 70);
+      expect(result.weightGoal, WeightGoal.lose05kg);
     });
   });
 }

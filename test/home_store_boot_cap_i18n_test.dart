@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/home_store.dart';
@@ -20,6 +21,8 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/meals_sync.dart' show mealResultToJson;
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/services/secure_cache_store.dart'
+    show CacheKeyProvider;
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Review 2026-08-19, "home store core": the welcome gate hung on the untimed
@@ -342,6 +345,39 @@ void main() {
         s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
         expect(s.snacks.messages.last, 'Meal moved to today.');
       });
+    });
+  });
+
+  // P1-04: the second hardcoded German snack. It only fires after a DEK
+  // restart, so it never showed up in a normal run — and the file was excluded
+  // from the hardcoding guard as a whole, justified with the coach prompt
+  // context two hundred lines further up.
+  group('P1-04 — der Cache-Reset-Hinweis folgt der App-Sprache', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues(
+          <String, Object>{CacheKeyProvider.cacheResetNoticeKey: true});
+    });
+
+    Future<List<String>> hinweise(HomeStore store, _SnackCapture snacks) async {
+      store.start();
+      await pumpEventQueue(times: 60);
+      return snacks.messages;
+    }
+
+    test('Deutsch bleibt inhaltsgleich zum hartkodierten Bestand', () async {
+      final s = _setup();
+      expect(await hinweise(s.store, s.snacks),
+          contains(deL10n.commonCacheResetNotice));
+      expect(deL10n.commonCacheResetNotice, contains('Offline-Speicher'),
+          reason: 'derselbe Satz wie vorher, nur mit echten Umlauten');
+    });
+
+    test('Englisch bekommt den englischen Satz', () async {
+      final s = _setup();
+      s.store.setLocalizations(enL10n);
+      final gezeigt = await hinweise(s.store, s.snacks);
+      expect(gezeigt, contains(enL10n.commonCacheResetNotice));
+      expect(gezeigt, isNot(contains(deL10n.commonCacheResetNotice)));
     });
   });
 }

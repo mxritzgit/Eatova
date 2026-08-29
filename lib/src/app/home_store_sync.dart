@@ -1161,6 +1161,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // a wrongly kept empty slot costs nothing, a wrongly cleared one costs up
     // to 500 unacknowledged writes (A2).
     await _clearCache(preserveOutbox: remaining > 0 || !_syncStateHydrated);
+    // P1-03: everything above may take up to 2 x kSignOutDeliveryBudget plus
+    // kCacheSnapshotWaitBudget — longer than IntentionalSignOut.gueltigkeit.
+    // The intent was declared BEFORE this call, so its window has to start
+    // where the waiting ENDS; `signOut` and its auth event follow from here.
+    // Refresh, not mark: a cleanup without a declared intent stays without one
+    // (an involuntary session end must keep its message).
+    //
+    // Stays the LAST statement: anything appended below would wait outside the
+    // refreshed window again.
+    IntentionalSignOut.refresh();
   }
 
   void _logSignOutDeadline() {
@@ -1262,8 +1272,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// loaded older days stay in memory: they would inflate the SharedPreferences
   /// blob without bound and are reloaded from the server anyway. Pending WRITES
   /// for older days stay kill-safe in the persisted outbox.
+  ///
+  /// P1-06b: `clock.now()`, the same clock as `_isOutsideBootWindow` and
+  /// `MealsSync.loadLoggedMeals`. On `DateTime.now()` this third window drifted
+  /// against the other two, and a row the store loaded and counts as "inside"
+  /// fell out of the durable cache on the write-through.
   List<LoggedMeal> _cacheableLoggedMeals() {
-    final cutoff = DateTime.now()
+    final cutoff = clock
+        .now()
         .subtract(const Duration(days: MealsSync.loggedMealsWindowDays));
     return loggedMeals
         .where((m) => !m.loggedAt.isBefore(cutoff))
