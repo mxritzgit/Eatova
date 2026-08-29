@@ -4,12 +4,14 @@ import 'dart:convert';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import '../auth/auth_repository.dart';
 import '../l10n/l10n.dart';
 import '../services/local_cache.dart'
     show KeyValueStore, SharedPreferencesStore;
 import '../services/secure_screen.dart';
+import '../services/sync_error_messages.dart' show isNetworkSyncError;
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/common/app_snack.dart';
@@ -21,33 +23,122 @@ import 'settings/account_change_messages.dart'
 /// Which code flow is running: password reset or signup confirmation.
 enum AuthCodeFlow { recovery, signup }
 
-/// Coarse classification of an auth error — enough for the three messages
-/// this page shows.
-enum _AuthErrorKind { rateLimited, codeRejected, unknown }
+/// Coarse classification of an auth error — one branch per statement this page
+/// can honestly make.
+///
+/// The first two are TYPED (P4-02). Classifying by server text alone had no
+/// answer offline (there is no server text to read) and none for a failed auth
+/// layer, so both landed in [unknown] — "please try again", advice that cannot
+/// work in either case.
+enum _AuthErrorKind {
+  /// The auth layer never came up (see `UnavailableAuthRepository`); only a
+  /// restart helps. Same statement as `auth_screen.dart` makes.
+  unavailable,
 
-/// Order as in `settings/account_change_messages.dart`: rate limit first, then
-/// the rejected code. GoTrue's throttle message must NOT fall into the catch-all
-/// branch that invites a retry — that is the tap loop which drains the quota.
-_AuthErrorKind _classifyAuthError(Object error) {
+  /// No connection to the server: nothing was sent, nothing was checked.
+  offline,
+
+  /// GoTrue's PER-REQUEST send lock, which names the seconds it has left.
+  sendThrottled,
+
+  /// GoTrue's HOURLY mail quota (`rate_limit_email_sent` = 2, see
+  /// supabase/AUTH_EMAIL_OTP.md) is spent. That is minutes to an hour, not
+  /// the "about a minute" both throttles used to claim.
+  quotaExhausted,
+
+  /// A throttle without a usable number in it.
+  rateLimited,
+
+  /// The server really did check the code and refused it.
+  codeRejected,
+
+  unknown,
+}
+
+/// A classified error plus what the server said about the wait.
+class _AuthErrorBefund {
+  const _AuthErrorBefund(this.kind, {this.retryAfter});
+
+  final _AuthErrorKind kind;
+
+  /// The wait GoTrue named, when it named one at all.
+  final Duration? retryAfter;
+}
+
+/// GoTrue's per-request lock carries its remaining time in the message:
+/// "For security purposes, you can only request this after 51 seconds."
+final RegExp _sekundenImText = RegExp(r'(\d+)\s*second');
+
+/// Above this many seconds the wait is spoken in minutes — an hour-long quota
+/// block would otherwise read "in 3600 s".
+const int _minutenSchwelleSekunden = 120;
+
+/// Classifies [error] for [_AuthCodeScreenState._friendlyError].
+///
+/// TYPE first, text fragments only as the last stage. The reverse order let
+/// "invalid certificate" pass as an expired code and dropped every offline
+/// error into the catch-all (P4-02).
+_AuthErrorBefund _classifyAuthError(Object error) {
+  if (error is AuthUnavailableException) {
+    return const _AuthErrorBefund(_AuthErrorKind.unavailable);
+  }
+  // Same helper and same position as `settings/account_change_messages.dart`:
+  // IOException (Socket/Tls), TimeoutException, ClientException and GoTrue's
+  // own AuthRetryableFetchException. A 429 becomes an AuthApiException in
+  // gotrue's fetch.dart, so this branch cannot swallow a throttle.
+  if (isNetworkSyncError(error)) {
+    return const _AuthErrorBefund(_AuthErrorKind.offline);
+  }
+
   final raw = error.toString().toLowerCase();
-  if (raw.contains('rate limit') ||
+  final code = error is AuthException ? error.code : null;
+  final istMailDrossel = code == 'over_email_send_rate_limit';
+  final istDrossel = istMailDrossel ||
+      code == 'over_request_rate_limit' ||
+      raw.contains('rate limit') ||
       raw.contains('rate_limit') ||
       raw.contains('too many') ||
-      raw.contains('for security purposes')) {
-    return _AuthErrorKind.rateLimited;
+      raw.contains('for security purposes');
+
+  if (istDrossel) {
+    // Both mail throttles ship the SAME error code; only the message tells
+    // them apart — the per-request lock names its seconds, the hourly quota
+    // does not (P4-03).
+    final treffer = _sekundenImText.firstMatch(raw);
+    final sekunden = treffer == null ? null : int.tryParse(treffer.group(1)!);
+    if (sekunden != null && sekunden > 0) {
+      return _AuthErrorBefund(
+        _AuthErrorKind.sendThrottled,
+        retryAfter: Duration(seconds: sekunden),
+      );
+    }
+    if (istMailDrossel || raw.contains('email rate limit')) {
+      return const _AuthErrorBefund(_AuthErrorKind.quotaExhausted);
+    }
+    return const _AuthErrorBefund(_AuthErrorKind.rateLimited);
   }
+
   if (raw.contains('expired') || raw.contains('invalid')) {
-    return _AuthErrorKind.codeRejected;
+    return const _AuthErrorBefund(_AuthErrorKind.codeRejected);
   }
-  return _AuthErrorKind.unknown;
+  return const _AuthErrorBefund(_AuthErrorKind.unknown);
 }
 
 /// Guard state for ONE address.
 class _ThrottleState {
-  const _ThrottleState({this.lastSent, this.failedAttempts = 0});
+  const _ThrottleState({
+    this.lastSent,
+    this.failedAttempts = 0,
+    this.cooldown = _OtpSendThrottle.cooldown,
+  });
 
   final DateTime? lastSent;
   final int failedAttempts;
+
+  /// How long [lastSent] blocks the next send. Variable since P4-03: the
+  /// server's own wait wins when it is longer, and the hourly quota blocks for
+  /// [_OtpSendThrottle.quotaCooldown] instead of a minute.
+  final Duration cooldown;
 }
 
 /// Persistent, ADDRESS-bound guard for sending codes (audit 2026-08-14).
@@ -74,7 +165,17 @@ class _ThrottleState {
 class _OtpSendThrottle {
   _OtpSendThrottle(this._injected);
 
+  /// Floor for every lock, and the wait after a successful send. A shorter
+  /// value named by the server does not lower it: the brake is ours.
   static const Duration cooldown = Duration(seconds: 60);
+
+  /// Lock after GoTrue's hourly mail quota (`rate_limit_email_sent`) is spent.
+  /// The bucket refills per hour and the server does not say when, so this is
+  /// the honest upper bound — and the only thing that ends the knock loop of
+  /// one real mail request per minute (P4-03). Verifying a code that already
+  /// arrived stays possible the whole time.
+  static const Duration quotaCooldown = Duration(hours: 1);
+
   static const int maxAttempts = 5;
   static const String storagePrefix = 'eatova.v1.otp_guard.';
 
@@ -118,11 +219,18 @@ class _OtpSendThrottle {
       final map = jsonDecode(roh) as Map<String, dynamic>;
       final gesendet = map['sent'];
       final fehl = map['failed'];
+      final warte = map['wait'];
       final stand = _ThrottleState(
         lastSent: gesendet is int
             ? DateTime.fromMillisecondsSinceEpoch(gesendet)
             : null,
         failedAttempts: fehl is int && fehl > 0 ? fehl : 0,
+        // Clamped to [quotaCooldown]: an entry written by an older build has
+        // no 'wait' at all, and a broken (or tampered) one must not be able to
+        // block sending for days.
+        cooldown: warte is int && warte > 0
+            ? Duration(seconds: warte.clamp(1, quotaCooldown.inSeconds))
+            : cooldown,
       );
       // Clean up on read (W3c): `otp_guard.<hash>` keys would otherwise pile
       // up forever; no background job needed.
@@ -146,7 +254,7 @@ class _OtpSendThrottle {
     if (stand.failedAttempts >= maxAttempts) return false;
     final start = stand.lastSent;
     if (start == null) return false;
-    return clock.now().difference(start) >= cooldown;
+    return clock.now().difference(start) >= stand.cooldown;
   }
 
   /// `true` when the state was actually persisted.
@@ -159,6 +267,7 @@ class _OtpSendThrottle {
         jsonEncode(<String, dynamic>{
           'sent': state.lastSent?.millisecondsSinceEpoch,
           'failed': state.failedAttempts,
+          'wait': state.cooldown.inSeconds,
         }),
       );
       return true;
@@ -218,6 +327,11 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   DateTime? _lastSent;
   int _failedAttempts = 0;
   int _cooldownSeconds = 0;
+
+  /// How long [_lastSent] blocks — 60 s after a normal send, the server's own
+  /// wait when it is longer, an hour after the mail quota (P4-03).
+  Duration _cooldownDauer = _OtpSendThrottle.cooldown;
+
   Timer? _ticker;
 
   /// Address [_lastSent] and [_failedAttempts] currently belong to, and the
@@ -275,6 +389,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     setState(() {
       _lastSent = stand.lastSent;
       _failedAttempts = stand.failedAttempts;
+      _cooldownDauer = stand.cooldown;
       _cooldownSeconds = _remainingSeconds();
     });
     _syncTicker();
@@ -290,6 +405,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       _guardTouched = false;
       _lastSent = null;
       _failedAttempts = 0;
+      _cooldownDauer = _OtpSendThrottle.cooldown;
       _cooldownSeconds = 0;
     });
     _syncTicker();
@@ -299,14 +415,27 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   int _remainingSeconds() {
     final start = _lastSent;
     if (start == null) return 0;
-    final rest = _OtpSendThrottle.cooldown - clock.now().difference(start);
+    final dauer = _cooldownDauer;
+    final rest = dauer - clock.now().difference(start);
     // `isNegative` clamps the low end; the high end needs the same clamp: a
     // remainder above the cooldown itself means a rewound device clock, not a
     // longer cooldown. Without it the user is stuck in a persistent self-DoS
     // ("next code in 86400 s") (W3b).
-    if (rest.isNegative || rest > _OtpSendThrottle.cooldown) return 0;
+    if (rest.isNegative || rest > dauer) return 0;
     return (rest.inMilliseconds / 1000).ceil();
   }
+
+  /// Label of the resend link. Seconds up to [_minutenSchwelleSekunden],
+  /// minutes above it — the hourly quota block would otherwise count down
+  /// from "3600 s" (P4-03).
+  String _countdownLabel(int sekunden) => sekunden > _minutenSchwelleSekunden
+      ? _l10n.authCodeResendCountdownMinutes((sekunden / 60).ceil())
+      : _l10n.authCodeResendCountdown(sekunden);
+
+  /// Same split for the inline hint on a tap that came too early.
+  String _wartehinweis(int sekunden) => sekunden > _minutenSchwelleSekunden
+      ? _l10n.authCodeThrottleWaitMinutes((sekunden / 60).ceil())
+      : _l10n.authCodeThrottleWait(sekunden);
 
   void _syncTicker() {
     if (_cooldownSeconds <= 0) {
@@ -321,6 +450,16 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     final rest = _remainingSeconds();
     // No rebuild without a visible change.
     if (rest == _cooldownSeconds) return;
+    // Above the threshold only a changed MINUTE is visible; an hour-long quota
+    // block would otherwise rebuild the page 3600 times to show the same text.
+    // The value still has to advance, or the next tick compares against a
+    // stale one.
+    if (rest > _minutenSchwelleSekunden &&
+        _cooldownSeconds > _minutenSchwelleSekunden &&
+        (rest / 60).ceil() == (_cooldownSeconds / 60).ceil()) {
+      _cooldownSeconds = rest;
+      return;
+    }
     setState(() => _cooldownSeconds = rest);
     if (rest <= 0) {
       _ticker?.cancel();
@@ -330,20 +469,30 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
 
   /// Stamps a send. The guard applies IMMEDIATELY; persisting runs alongside
   /// and only makes it durable. [resetAttempts] is for real sends — a new code
-  /// voids the old failed attempts.
-  void _stamp(String email, {required bool resetAttempts}) {
+  /// voids the old failed attempts. [cooldown] is how long the stamp blocks;
+  /// it goes to storage too, so the block survives navigation and restarts.
+  void _stamp(
+    String email, {
+    required bool resetAttempts,
+    required Duration cooldown,
+  }) {
     final jetzt = clock.now();
     final versuche = resetAttempts ? 0 : _failedAttempts;
     _guardTouched = true;
     unawaited(_throttle.write(
       email,
-      _ThrottleState(lastSent: jetzt, failedAttempts: versuche),
+      _ThrottleState(
+        lastSent: jetzt,
+        failedAttempts: versuche,
+        cooldown: cooldown,
+      ),
     ));
     if (!mounted) return;
     setState(() {
       _guardFor = _normalisiert(email);
       _lastSent = jetzt;
       _failedAttempts = versuche;
+      _cooldownDauer = cooldown;
       _cooldownSeconds = _remainingSeconds();
     });
     _syncTicker();
@@ -356,7 +505,11 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     _guardTouched = true;
     unawaited(_throttle.write(
       email,
-      _ThrottleState(lastSent: _lastSent, failedAttempts: naechster),
+      _ThrottleState(
+        lastSent: _lastSent,
+        failedAttempts: naechster,
+        cooldown: _cooldownDauer,
+      ),
     ));
     if (!mounted) return;
     setState(() => _failedAttempts = naechster);
@@ -380,7 +533,18 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   }
 
   String _friendlyError(Object error) {
-    switch (_classifyAuthError(error)) {
+    final befund = _classifyAuthError(error);
+    switch (befund.kind) {
+      case _AuthErrorKind.unavailable:
+        return _l10n.authErrorUnavailable;
+      case _AuthErrorKind.offline:
+        return _l10n.authCodeOfflineError;
+      case _AuthErrorKind.sendThrottled:
+        // The number the guard really holds — not the server's raw one, which
+        // can be below our own floor.
+        return _l10n.authCodeRateLimitedSeconds(_sperrDauer(befund).inSeconds);
+      case _AuthErrorKind.quotaExhausted:
+        return _l10n.authCodeQuotaExhausted;
       case _AuthErrorKind.rateLimited:
         return _l10n.authCodeRateLimited;
       case _AuthErrorKind.codeRejected:
@@ -390,8 +554,34 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     }
   }
 
-  /// Catches the server's throttle error and stamps the guard too, so the
-  /// countdown shows when sending resumes instead of blind retries.
+  /// How long a rejected send blocks the next one — `Duration.zero` when the
+  /// error says nothing about sending.
+  ///
+  /// [_OtpSendThrottle.cooldown] stays the floor: a server wait BELOW it must
+  /// not weaken our own abuse brake, and the message quotes exactly the value
+  /// used here, so hint and countdown can never disagree.
+  Duration _sperrDauer(_AuthErrorBefund befund) {
+    switch (befund.kind) {
+      case _AuthErrorKind.quotaExhausted:
+        return _OtpSendThrottle.quotaCooldown;
+      case _AuthErrorKind.sendThrottled:
+        final genannt = befund.retryAfter ?? Duration.zero;
+        return genannt > _OtpSendThrottle.cooldown
+            ? genannt
+            : _OtpSendThrottle.cooldown;
+      case _AuthErrorKind.rateLimited:
+        return _OtpSendThrottle.cooldown;
+      case _AuthErrorKind.unavailable:
+      case _AuthErrorKind.offline:
+      case _AuthErrorKind.codeRejected:
+      case _AuthErrorKind.unknown:
+        return Duration.zero;
+    }
+  }
+
+  /// Catches the server's throttle error and stamps the guard with the wait it
+  /// really implies, so the countdown shows when sending resumes instead of
+  /// inviting blind retries.
   Future<void> _sendGuarded(
     String email,
     Future<void> Function() versand,
@@ -399,12 +589,17 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     try {
       await versand();
     } catch (error) {
-      if (_classifyAuthError(error) == _AuthErrorKind.rateLimited) {
-        _stamp(email, resetAttempts: false);
+      final sperre = _sperrDauer(_classifyAuthError(error));
+      if (sperre > Duration.zero) {
+        _stamp(email, resetAttempts: false, cooldown: sperre);
       }
       rethrow;
     }
-    _stamp(email, resetAttempts: true);
+    _stamp(
+      email,
+      resetAttempts: true,
+      cooldown: _OtpSendThrottle.cooldown,
+    );
   }
 
   Future<void> _sendCode() async {
@@ -418,7 +613,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     // first send.
     final rest = _remainingSeconds();
     if (rest > 0) {
-      setState(() => _error = _l10n.authCodeThrottleWait(rest));
+      setState(() => _error = _wartehinweis(rest));
       return;
     }
     await _run(() async {
@@ -436,7 +631,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     final email = _guardEmail;
     final rest = _remainingSeconds();
     if (rest > 0) {
-      setState(() => _error = _l10n.authCodeThrottleWait(rest));
+      setState(() => _error = _wartehinweis(rest));
       return;
     }
     await _run(() async {
@@ -477,7 +672,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       } catch (error) {
         // Only a truly REJECTED code counts: a network or throttle error means
         // the server never checked it.
-        if (_classifyAuthError(error) == _AuthErrorKind.codeRejected) {
+        if (_classifyAuthError(error).kind == _AuthErrorKind.codeRejected) {
           _countFailedAttempt(email);
           if (_locked) {
             // This attempt just triggered the lockout; from here the standing
@@ -655,7 +850,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                       child: AuthTextLink(
                         linkKey: const ValueKey('code-resend'),
                         label: _cooldownSeconds > 0
-                            ? l10n.authCodeResendCountdown(_cooldownSeconds)
+                            ? _countdownLabel(_cooldownSeconds)
                             : l10n.authCodeResendCta,
                         // The tap stays enabled during the cooldown so
                         // _resend can say how long is left; a dead link

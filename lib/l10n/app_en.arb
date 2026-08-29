@@ -346,6 +346,13 @@
     }
   },
   "foodAtLeastOneItemRequired": "At least one ingredient must remain.",
+  "foodItemWeightInvalidHint": "Every weight needs a number between {min} and {max} g.",
+  "@foodItemWeightInvalidHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "foodApplyButton": "Apply",
   "foodDecreaseItemSemantics": "Less {name}",
   "@foodDecreaseItemSemantics": {
@@ -1376,16 +1383,36 @@
   "notifStreakStartBody": "One log is enough to start your streak.",
 
   "authCodeRateLimited": "Too many requests in a short time. Sending is paused for now — please wait about a minute before trying again.",
+  "authCodeRateLimitedSeconds": "Too many requests in a short time. Sending stays blocked for another {sekunden} s.",
+  "@authCodeRateLimitedSeconds": {
+    "placeholders": {
+      "sekunden": { "type": "int" }
+    }
+  },
+  "authCodeQuotaExhausted": "Too many codes have been requested for this address. The quota only refills in about an hour — until then no mail goes out. A code already sitting in your inbox still works.",
+  "authCodeOfflineError": "Offline — the server could not be reached. Please check your internet connection and try again.",
   "authCodeResendCountdown": "Request a new code in {sekunden} s",
   "@authCodeResendCountdown": {
     "placeholders": {
       "sekunden": { "type": "int" }
     }
   },
+  "authCodeResendCountdownMinutes": "Request a new code in {minuten} min",
+  "@authCodeResendCountdownMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
+    }
+  },
   "authCodeThrottleWait": "Too many requests. The next code can be requested in {sekunden} s.",
   "@authCodeThrottleWait": {
     "placeholders": {
       "sekunden": { "type": "int" }
+    }
+  },
+  "authCodeThrottleWaitMinutes": "Too many requests. The next code can be requested in {minuten} min.",
+  "@authCodeThrottleWaitMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
     }
   },
   "authCodeTooManyAttempts": "Too many incorrect codes. For security reasons, please request a new code.",

@@ -128,13 +128,69 @@ class LocalCache {
     _open.remove(this);
   }
 
-  /// Closes every open instance of [userId] — the AuthGate purge runs on a
-  /// SECOND instance and must silence the store's own one, else its debounce
-  /// timer and late callbacks write after the purge.
-  static void closeInstancesFor(String userId) {
-    for (final cache in _open.toList(growable: false)) {
-      if (cache._userId == userId) cache.close();
+  /// Closes every open instance of [userId] AND waits for the writes already
+  /// inside the store — the AuthGate purge runs on a SECOND instance and must
+  /// silence the store's own one, else its debounce timer and late callbacks
+  /// write after the purge.
+  ///
+  /// P3-01: closing alone is not enough. The [_closed] fence only stops writes
+  /// that have not STARTED; a blob already handed to the encryption isolate is
+  /// past it and lands 200-400 ms later (see [writeDebounce]). The purge
+  /// removes through the SECOND instance's own [EncryptedKeyValueStore], whose
+  /// write queue serialises per key AND per instance, so that `remove` does not
+  /// queue behind the running `setString` — the PII slot came back after the
+  /// purge and survived the logout on the device. Waiting orders the two.
+  ///
+  /// Same reasoning as `HomeStore._clearCache`, which waits for a running
+  /// snapshot; this is the AuthGate half of that protection. Bounded by
+  /// [settleBudget] and never throws, so a hung store cannot block the auth
+  /// transition — [_writeJson]'s own cleanup then takes over.
+  static Future<void> closeInstancesFor(String userId) async {
+    final betroffen =
+        _open.where((cache) => cache._userId == userId).toList(growable: false);
+    for (final cache in betroffen) {
+      cache.close();
     }
+    await Future.wait(betroffen.map((cache) => cache.settle()));
+  }
+
+  /// Upper bound for [settle]: local IO plus one isolate hop. Anything longer
+  /// is a hung plugin, and a purge must not stall the auth transition behind
+  /// it. Same value as `kCacheSnapshotWaitBudget` for the sibling wait.
+  static const Duration settleBudget = Duration(seconds: 3);
+
+  /// Writes that passed the [_closed] fence and are still running. Holds
+  /// error-swallowing copies: [settle] only WAITS, the originating caller
+  /// keeps its own error handling.
+  final Set<Future<void>> _inFlightWrites = <Future<void>>{};
+
+  /// Waits until every write that passed the fence has finished, at most
+  /// [settleBudget]. Never throws.
+  ///
+  /// Needed by every purge that runs on a DIFFERENT instance, because only the
+  /// store's per-key queue can order a `remove` behind a `setString` — and
+  /// that queue is per instance ([closeInstancesFor]).
+  Future<void> settle() {
+    if (_inFlightWrites.isEmpty) return Future<void>.value();
+    return _settleWrites().timeout(settleBudget, onTimeout: () {});
+  }
+
+  Future<void> _settleWrites() async {
+    // A landing write can release the next one (the debounce drain walks its
+    // slots one by one), so loop instead of waiting once.
+    while (_inFlightWrites.isNotEmpty) {
+      await Future.wait(_inFlightWrites.toList(growable: false));
+    }
+  }
+
+  /// Registers [write] for [settle] and returns it UNCHANGED, so the caller
+  /// still sees its result and its errors.
+  Future<T> _trackWrite<T>(Future<T> write) {
+    final Future<void> tracked =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _inFlightWrites.add(tracked);
+    unawaited(tracked.whenComplete(() => _inFlightWrites.remove(tracked)));
+    return write;
   }
 
   /// Drops pending debounced writes WITHOUT closing — `HomeStore.dispose`
@@ -614,13 +670,26 @@ class LocalCache {
 
   // ---- Low-level ----------------------------------------------------------
 
-  Future<void> _writeJson(String key, Map<String, dynamic> value) async {
-    if (_closed) return;
+  Future<void> _writeJson(String key, Map<String, dynamic> value) {
+    if (_closed) return Future<void>.value();
     // An immediate write to the same slot invalidates a pending debounced
     // one, which would otherwise overwrite the fresher state later.
     _pendingWrites.remove(key);
+    // Tracked so a purge on ANOTHER instance can wait for it ([settle]).
+    return _trackWrite(_writeJsonNow(key, value));
+  }
+
+  Future<void> _writeJsonNow(String key, Map<String, dynamic> value) async {
     try {
       await _store.setString(key, jsonEncode(value));
+      // P3-01, second fence: the instance can be closed DURING the write. The
+      // one above only stops writes that have not started, and the encryption
+      // runs in an isolate. Whoever closed is purging, and every slot on this
+      // path is cleared unconditionally (see [clear]), so take the blob back
+      // out. The `remove` rides the store's OWN per-key queue and therefore
+      // lands after this write. Deliberately not in [_writeDurable]: a purge
+      // with `preserveOutbox` keeps exactly those two slots.
+      if (_closed) await _store.remove(key);
     } catch (e) {
       // A cache write must never kill the UI path — it is pure speed-up for
       // the next cold start, so failures are dropped silently.
@@ -645,13 +714,23 @@ class LocalCache {
     String key,
     String slot,
     Map<String, dynamic> value,
-  ) async {
+  ) {
     // Closed = not on disk, and the caller is told so; the outbox keeps its
     // in-memory copy and replays on the next login (A2).
-    if (_closed) return false;
+    if (_closed) return Future<bool>.value(false);
     // Same invariant as in [_writeJson]: it belongs to the slot, not the
     // caller. A no-op for the two sync slots, which are never debounced.
     _pendingWrites.remove(key);
+    // Tracked like [_writeJson]: an account deletion purges these slots too,
+    // so it has to wait for a running write (P3-01).
+    return _trackWrite(_writeDurableNow(key, slot, value));
+  }
+
+  Future<bool> _writeDurableNow(
+    String key,
+    String slot,
+    Map<String, dynamic> value,
+  ) async {
     try {
       await _store.setString(key, jsonEncode(value));
       return true;

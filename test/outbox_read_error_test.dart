@@ -206,9 +206,20 @@ void main() {
         reason: 'der Enqueue muss ueber _repairOutboxHydration laufen: ohne '
             'erkannten Lesefehler schriebe er ungeprueft ueber den Slot, und '
             'genau diese Methode waere toter Code');
+    expect(probe.blobs[_outboxSlot], '{"items": [ kein json',
+        reason: 'P3-02b: der Slot ist noch BELEGT. Auf dieser Ebene ist '
+            '„Inhalt kaputt" nicht von „gerade nicht lesbar" zu '
+            'unterscheiden, also gilt erst einmal der teurere Fall und der '
+            'Blob bleibt stehen');
 
-    // Then the slot heals: the second read finds the same broken blob, treats
-    // it as permanently undeliverable, and the normal write path resumes.
+    // Then the slot heals: after the bounded number of attempts the broken
+    // blob is treated as permanently undeliverable and the normal write path
+    // resumes — a slot that never opens must not cost the session its
+    // durability.
+    for (var i = 0; i < kOutboxRepairMaxAttempts; i++) {
+      store.addResultToDailyTotal(_result('Bowl-$i'));
+      await _settle();
+    }
     expect((await LocalCache(probe, _uid).readOutbox())!, isNotEmpty,
         reason: 'ein dauerhaft kaputter Slot darf die Sitzung nicht dauerhaft '
             'am Persistieren hindern');

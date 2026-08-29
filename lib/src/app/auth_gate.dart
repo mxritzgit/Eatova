@@ -48,7 +48,13 @@ Future<void> purgePersonalCacheFor(String userId) async {
   // F1-02: silence the store's OWN instance first — its debounce timer and
   // late live-op callbacks would otherwise write into the slots this purge
   // clears. Independent of whether the second instance can be built.
-  LocalCache.closeInstancesFor(userId);
+  //
+  // P3-01: AWAITED. Closing only stops writes that have not started; a blob
+  // already encrypting in the isolate lands 200-400 ms later, and the second
+  // instance cannot order its `remove` behind it (the store's write queue is
+  // per instance). `closeInstancesFor` waits for those writes — bounded and
+  // never throwing, so it stays outside the catch below.
+  await LocalCache.closeInstancesFor(userId);
   try {
     final cache = await LocalCache.create(userId);
     if (cache != null) await purgePersonalCache(cache);

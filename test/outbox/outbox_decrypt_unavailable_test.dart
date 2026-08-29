@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/api.dart' show InvalidCipherTextException;
 
+import 'package:eatova/src/app/home_store.dart' show kOutboxRepairMaxAttempts;
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
@@ -185,6 +186,82 @@ void main() {
 
       expect(raw.snapshot.containsKey(_deltaKey), isTrue,
           reason: 'sonst nimmt der Logout die Streak-Basis mit');
+    });
+  });
+
+  // Review 2026-08-29, P3-02b: the residual window of the fix above. The
+  // hydration brake held, but `_repairOutboxHydration` cleared
+  // `_outboxHydrationFailed` in its `finally` UNCONDITIONALLY and then wrote
+  // the blob. If the same transient failure also swallowed the REPAIR read,
+  // the intact slot was overwritten after all — with two Sentry reports, but
+  // gone. The two cases are distinguishable: a slot that still holds bytes
+  // makes `readOutboxOrThrow` throw [UnreadableCacheSlot], while a provably
+  // broken ciphertext is purged on read and arrives as plain `null`.
+  group('P3-02b: die Stoerung haelt auch ueber die Nachhydration an', () {
+    test('der Blob wird NICHT ueberschrieben und kommt spaeter zurueck',
+        () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedOutbox(store);
+      final vorher = raw.snapshot[_outboxKey];
+      // Blocked through the cold start AND the repair read. `encrypt` keeps
+      // working, so an overwrite really is possible here.
+      cipher.blockiert = true;
+
+      final a = setup(injizierterCache: LocalCache(store, _uid));
+      a.server.offline = true;
+      await boot(a.store);
+      expect(a.store.pendingOutbox, isEmpty,
+          reason: 'Vorbedingung: die Hydration hat den Blob nicht gesehen');
+
+      // The first write runs the repair — whose read fails again.
+      final erste = a.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+      await settle();
+
+      // Read back through a SECOND, working decorator on the same raw store —
+      // the blocked one would report the loss as "unreadable".
+      final geschuetzt = await LocalCache(
+              EncryptedKeyValueStore(raw, _AussetzenderCipher()), _uid)
+          .readOutbox();
+      expect(geschuetzt!.map((o) => o.entityId), <String>['m-alt'],
+          reason: 'ein Slot, der nur gerade nicht LESBAR war, ist nicht '
+              'nachweislich kaputt — lieber gar nicht persistieren als den '
+              'nie zugestellten Write der Vorsitzung ueberschreiben');
+      expect(raw.snapshot[_outboxKey], vorher, reason: 'Byte fuer Byte');
+
+      // Pressure over: the next write merges both queues into the slot.
+      cipher.blockiert = false;
+      final zweite = a.store.addResultToDailyTotal(mealResult('Zweite-Bowl'));
+      await settle();
+
+      final blob = await LocalCache(store, _uid).readOutbox();
+      expect(blob!.map((o) => o.entityId),
+          containsAll(<String>['m-alt', erste, zweite]),
+          reason: 'der geschuetzte Blob und die Ops dieser Sitzung');
+    });
+
+    test(
+        'bleibt der Slot dauerhaft unlesbar, gewinnen irgendwann die Writes '
+        'dieser Sitzung', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedOutbox(store);
+      final vorher = raw.snapshot[_outboxKey];
+      cipher.blockiert = true;
+
+      final a = setup(injizierterCache: LocalCache(store, _uid));
+      a.server.offline = true;
+      await boot(a.store);
+
+      // Every write retries the read; after the bounded number of attempts the
+      // session's own durability wins.
+      for (var i = 0; i < kOutboxRepairMaxAttempts + 1; i++) {
+        a.store.addResultToDailyTotal(mealResult('Bowl-$i'));
+        await settle();
+      }
+
+      expect(raw.snapshot[_outboxKey], isNot(vorher),
+          reason: 'ein Slot, der nach mehreren Versuchen immer noch nicht '
+              'aufgeht, darf die Sitzung nicht dauerhaft ohne Persistenz '
+              'lassen — sonst nimmt ein Kill ALLE neuen Writes mit');
     });
   });
 

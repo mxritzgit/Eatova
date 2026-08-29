@@ -505,7 +505,11 @@ class CacheKeyProvider {
   }
 
   /// Reads and clears the "cache abandoned" notice; the caller shows it once.
-  /// NOT YET WIRED UP — the UI side lives outside this file.
+  ///
+  /// WIRED UP: `HomeStore._hydrateThenBoot` (home_store.dart) is the sole
+  /// consumer. It calls this unawaited during boot and emits a snack, so a
+  /// silent fresh start does not leave the user believing the offline diary is
+  /// still there. Reading clears the flag, hence exactly one showing.
   static Future<bool> consumeCacheResetNotice() async {
     try {
       final prefs = await SharedPreferences.getInstance();

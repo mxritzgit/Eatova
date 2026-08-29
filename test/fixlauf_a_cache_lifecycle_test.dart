@@ -95,7 +95,8 @@ void main() {
       fremd.writeLoggedMealsDebounced([_meal('m-fremd')]);
 
       // The AuthGate purge path: a SECOND instance for the same user.
-      LocalCache.closeInstancesFor('u');
+      // Awaited since P3-01 — the call also settles running writes.
+      await LocalCache.closeInstancesFor('u');
       await purgePersonalCache(LocalCache(kv, 'u'));
       await Future<void>.delayed(
           LocalCache.writeDebounce + const Duration(milliseconds: 100));

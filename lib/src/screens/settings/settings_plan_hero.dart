@@ -241,6 +241,11 @@ class _MacroTile extends StatelessWidget {
 
   final String label;
   final String value;
+
+  /// Macro tone for the MARKER only, never for the number: on `surf` in light
+  /// mode `carbs` reaches 3.39:1 and `fat` 3.73:1 — enough for a graphical
+  /// object (WCAG 1.4.11, 3:1), short of text (4.5:1). Same rule as
+  /// `trends_screen`: coloured dot, text in text tokens.
   final Color color;
 
   @override
@@ -253,12 +258,20 @@ class _MacroTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
       child: Column(
         children: <Widget>[
+          // Above the number, not beside it: the tile width is reserved for
+          // the text, and a leading dot would eat into it at every scale.
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(height: 7),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: AppType.display(16, weight: FontWeight.w700, color: color),
+            style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
           ),
           const SizedBox(height: 3),
           Text(

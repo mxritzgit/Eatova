@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
-import '../../models/meal_component.dart';
 import '../../services/day_math.dart';
 import '../../services/local_day.dart';
 import '../../theme/app_tokens.dart';
@@ -14,6 +13,7 @@ import '../../theme/meal_slot_style.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
+import 'meal_analysis_sheet.dart';
 import 'slot_selector.dart';
 
 /// Store callback for the edit sheet: changes portion/components, slot and/or
@@ -246,21 +246,17 @@ class _EditMealSheetState extends State<EditMealSheet> {
 
   /// Adjusts portion/components through the existing
   /// showWeightAdjustmentSheet editor. Same pattern as
-  /// MealAnalysisSheet._adjustPortion, but without an immediate save: the
-  /// change only lands on "save".
+  /// MealAnalysisSheet._adjustPortion — [mealPortionAdjustment] included, so a
+  /// meal without components does not grow a fake one-item breakdown — but
+  /// without an immediate save: the change only lands on "save".
   Future<void> _adjustPortion() async {
     final adjustment = await showWeightAdjustmentSheet(context, _result);
-    if (!mounted || adjustment == null) return;
+    if (!mounted) return;
 
-    MealAnalysisResult? candidate;
-    if (adjustment is int && adjustment > 0) {
-      candidate = _result.adjustedToGrams(adjustment);
-    } else if (adjustment is List<MealComponent>) {
-      candidate = _result.adjustedToItems(adjustment);
-    }
-    if (candidate == null) return;
+    final applied = mealPortionAdjustment(_result, adjustment);
+    if (applied == null) return;
     setState(() {
-      _result = candidate!;
+      _result = applied.result;
       _resultChanged = true;
     });
   }

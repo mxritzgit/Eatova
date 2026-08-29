@@ -96,6 +96,64 @@ String _clockLabel(DateTime at) {
   return '$hh:$mm';
 }
 
+/// One finished round of `showWeightAdjustmentSheet`, classified: the new
+/// result plus how the user got there. See [mealPortionAdjustment].
+class MealPortionAdjustment {
+  const MealPortionAdjustment.weight(this.result) : isWeightOnly = true;
+  const MealPortionAdjustment.items(this.result) : isWeightOnly = false;
+
+  final MealAnalysisResult result;
+
+  /// True when only a total weight moved, false when the user confirmed or
+  /// edited an itemized breakdown. Callers need it for their message; the
+  /// result itself already carries everything else.
+  final bool isWeightOnly;
+}
+
+/// Applies what `showWeightAdjustmentSheet` returned to [current], or null when
+/// it was cancelled or carries nothing usable.
+///
+/// The sheet always pops a `List<MealComponent>`. For a result WITHOUT an
+/// itemized breakdown it synthesizes ONE component from the meal itself, so a
+/// barcode product comes back as a one-element list even when the user only
+/// moved the gram dial. Handing that list to
+/// [MealAnalysisResult.adjustedToItems] would give the product an `items` list
+/// and make `hasItemizedBreakdown` true: the card then claims "INGREDIENTS · 1"
+/// over a row that merely repeats the product name, the portion line says
+/// "adjusted via individual items" and the info sheet adds the "components were
+/// manually confirmed" paragraph — for a plain weight change. That case is
+/// applied as a gram adjustment instead, which leaves `items` empty.
+MealPortionAdjustment? mealPortionAdjustment(
+  MealAnalysisResult current,
+  Object? adjustment,
+) {
+  if (adjustment is! List<MealComponent> || adjustment.isEmpty) return null;
+  final grams = _weightOnlyGrams(current, adjustment);
+  if (grams != null) {
+    return MealPortionAdjustment.weight(current.adjustedToGrams(grams));
+  }
+  return MealPortionAdjustment.items(current.adjustedToItems(adjustment));
+}
+
+/// The dialed weight when [adjusted] is nothing but the synthesized single
+/// component rescaled, else null.
+///
+/// The comparison is against exactly what the sheet computes for that component
+/// (`MealComponent.adjustedToGrams` on [MealAnalysisResult.asSingleComponent]),
+/// so a user who removed the synthesized entry and added one of their own —
+/// a real, one-item breakdown — does not slip through.
+int? _weightOnlyGrams(MealAnalysisResult current, List<MealComponent> adjusted) {
+  if (current.hasItemizedBreakdown || adjusted.length != 1) return null;
+  final single = adjusted.single;
+  final rescaled = current.asSingleComponent.adjustedToGrams(single.grams);
+  if (single.name != rescaled.name ||
+      single.grams != rescaled.grams ||
+      single.caloriesKcal != rescaled.caloriesKcal) {
+    return null;
+  }
+  return single.grams;
+}
+
 /// What the sheet was closed with. Null = plain close.
 enum MealAnalysisSheetOutcome {
   /// The user chose "enter manually" from the error state; the caller opens
@@ -339,16 +397,11 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     if (current == null) return;
 
     final adjustment = await showWeightAdjustmentSheet(context, current);
-    if (!mounted || adjustment == null) return;
+    if (!mounted) return;
 
-    MealAnalysisResult? candidate;
-    if (adjustment is int && adjustment > 0) {
-      candidate = current.adjustedToGrams(adjustment);
-    } else if (adjustment is List<MealComponent>) {
-      candidate = current.adjustedToItems(adjustment);
-    }
-    if (candidate == null) return;
-    final updated = candidate;
+    final applied = mealPortionAdjustment(current, adjustment);
+    if (applied == null) return;
+    final updated = applied.result;
 
     final wasAdded = _addedToDailyTotal;
     final loggedId = _addedMealId;
@@ -363,19 +416,21 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       widget.onUpdateMeal(loggedId, updated);
     }
 
-    if (adjustment is int && adjustment > 0) {
-      final l10n = context.l10n;
-      final message = wasAdded
-          ? l10n.foodPortionAdjustedUpdated(adjustment)
-          : l10n.foodPortionAdjusted(adjustment);
-      showAppSnack(context, message, icon: Icons.tune_rounded);
-    } else if (adjustment is List<MealComponent>) {
-      final l10n = context.l10n;
-      final message = wasAdded
-          ? l10n.foodPortionAdjustedItemsUpdated(updated.estimatedGrams)
-          : l10n.foodPortionAdjustedItems(updated.estimatedGrams);
-      showAppSnack(context, message, icon: Icons.tune_rounded);
+    // The message names the WAY the portion changed; "via individual items"
+    // over a product that has none is the very claim this distinction avoids.
+    final l10n = context.l10n;
+    final grams = updated.estimatedGrams;
+    final String message;
+    if (applied.isWeightOnly) {
+      message = wasAdded
+          ? l10n.foodPortionAdjustedUpdated(grams)
+          : l10n.foodPortionAdjusted(grams);
+    } else {
+      message = wasAdded
+          ? l10n.foodPortionAdjustedItemsUpdated(grams)
+          : l10n.foodPortionAdjustedItems(grams);
     }
+    showAppSnack(context, message, icon: Icons.tune_rounded);
   }
 
   @override

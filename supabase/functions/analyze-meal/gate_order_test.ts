@@ -89,6 +89,8 @@ interface FetchStub {
   calls: RecordedCall[];
   callsTo(fragment: string): RecordedCall[];
   rateLimitScopes(): string[];
+  /** Parameters of the consume_edge_rate_limit call for `scope`. */
+  rateLimitParams(scope: string): JsonRecord | undefined;
   restore(): void;
 }
 
@@ -181,6 +183,11 @@ function installFetch(options: StubOptions = {}): FetchStub {
       calls
         .filter((call) => call.url.includes('/rpc/consume_edge_rate_limit'))
         .map((call) => String((JSON.parse(call.body) as JsonRecord).p_scope)),
+    rateLimitParams: (scope: string) =>
+      calls
+        .filter((call) => call.url.includes('/rpc/consume_edge_rate_limit'))
+        .map((call) => JSON.parse(call.body) as JsonRecord)
+        .find((params) => params.p_scope === scope),
     restore: () => {
       globalThis.fetch = original;
     },
@@ -204,10 +211,40 @@ function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request
   });
 }
 
+/**
+ * A body the CLIENT paces: the chunks arrive `gapMs` apart, and with
+ * `endless` the stream never closes at all — the slow-upload attack from
+ * P6-01b. No content-length either, so the cheap 413 fast path cannot fire.
+ *
+ * `endless` deliberately schedules no timer of its own: the last read simply
+ * never resolves, so nothing is left pending when the handler gives up.
+ */
+function makeStreamingRequest(chunks: string[], gapMs: number, endless = false): Request {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const [index, chunk] of chunks.entries()) {
+        if (index > 0) await new Promise((resolve) => setTimeout(resolve, gapMs));
+        controller.enqueue(encoder.encode(chunk));
+      }
+      if (!endless) controller.close();
+    },
+  });
+  return new Request('https://edge.test.invalid/analyze-meal', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${USER_JWT}`, 'content-type': 'application/json' },
+    body,
+    // Required for a streamed request body; not in Deno's RequestInit types.
+    ...{ duplex: 'half' },
+  } as RequestInit);
+}
+
 // One module instance per timing profile. Specifiers must be string literals.
 const LOADERS: Record<string, () => Promise<{ handleRequest: Handler }>> = {
   'quick-steps': () => import('./handler.ts?p6=quick-steps'),
   'tiny-budget': () => import('./handler.ts?p6=tiny-budget'),
+  'slow-body': () => import('./handler.ts?p6=slow-body'),
+  'day-window': () => import('./handler.ts?p6=day-window'),
 };
 
 /** Loads a fresh handler instance with `env` applied for the duration of the
@@ -439,6 +476,82 @@ Deno.test('P6-07: der Prune-Call im Erfolgsfall bekommt ein Zeitlimit', async ()
     const prune = stub.callsTo('prune_edge_rate_limits');
     assertEquals(prune.length, 1, 'Prune-Calls');
     assert(prune[0].signal instanceof AbortSignal, 'Prune-Call ohne AbortSignal');
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-01b: the body read is the one stage the CLIENT paces, so it needs a
+// budget of its own. Without it, uploading slowly until REQUEST_BUDGET_MS was
+// nearly gone passed the fast day gates and left the provider milliseconds:
+// a burnt slot in the shared bill cap at no model cost — the very class P6-01
+// closed for junk bodies, reopened through the timing side.
+// ---------------------------------------------------------------------------
+
+/** 400 ms body ceiling: the tests must fail fast, the production default
+ *  (15 s) is in handler.ts. */
+const SLOW_BODY = { ANALYZE_MEAL_BODY_READ_TIMEOUT_MS: '400' };
+/** Head of a valid request body — enough for the reader to have something,
+ *  never enough to be complete JSON. */
+const BODY_HEAD = `{"imageBase64":"${IMAGE_BASE64}"`;
+
+Deno.test('P6-01b: ein tropfender Upload endet mit 408 VOR den Tagesgates', async () => {
+  const handler = await loadHandler('slow-body', SLOW_BODY);
+  const stub = installFetch();
+  const started = Date.now();
+  try {
+    const res = await handleWithGuard(handler, makeStreamingRequest([BODY_HEAD], 0, true));
+    const elapsed = Date.now() - started;
+    assertEquals(res.status, 408, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'request_timeout', 'Fehlercode');
+    // THE assertion of this finding: both day buckets snap to 00:00 UTC, so a
+    // slot burnt there stays burnt. A client that only uploads slowly must not
+    // be able to reach them — the two rolling attempt gates are its whole cost.
+    assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    // The body ceiling governs, NOT the request budget (55 s): what is left
+    // for the stages behind it is a server-side number again.
+    assert(elapsed < 3_000, `Abbruch dauerte ${elapsed} ms — es greift nicht die Body-Grenze`);
+    assert(elapsed >= 200, `Abbruch nach ${elapsed} ms — das Zeitlimit greift gar nicht`);
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('P6-01b: ein langsamer, aber vollstaendiger Upload kommt normal durch', async () => {
+  // The guard must slow honest clients down, not reject them: same instance,
+  // same streaming body, only complete within the ceiling.
+  const handler = await loadHandler('slow-body', SLOW_BODY);
+  const stub = installFetch();
+  try {
+    const request = makeStreamingRequest([BODY_HEAD, ',"portionHint":"large"', '}'], 10);
+    const res = await handleWithGuard(handler, request);
+    assertEquals(res.status, 200, 'Status');
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 1, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-03: a window value an operator sets must reach the RPC. Without an
+// explicit max, positiveIntFromEnv capped at the LIMIT bound (10000) and a day
+// window fell back to the code default — 24x looser, silently, at a paid cap.
+// ---------------------------------------------------------------------------
+
+Deno.test('P6-03: ANALYZE_MEAL_USER_WINDOW_SECONDS=86400 kommt bei der RPC an', async () => {
+  const handler = await loadHandler('day-window', {
+    ANALYZE_MEAL_USER_WINDOW_SECONDS: '86400',
+    ANALYZE_MEAL_IP_WINDOW_SECONDS: '86400',
+  });
+  const stub = installFetch();
+  try {
+    const res = await handler(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    assertEquals(stub.rateLimitParams('analyze-meal:user')?.p_window_seconds, 86400, 'Nutzer-Fenster');
+    assertEquals(stub.rateLimitParams('analyze-meal:ip')?.p_window_seconds, 86400, 'IP-Fenster');
   } finally {
     stub.restore();
   }

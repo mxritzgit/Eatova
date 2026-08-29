@@ -47,10 +47,20 @@ const MODEL_RESULT = {
   ],
 };
 
+// P6-04: a marker standing in for leaked user content. It rides in every
+// provider answer under test and must never come back out — neither in the
+// response nor in a log line (CWE-532, security review 2026-08-11 finding 4:
+// provider bodies and model output derive from the photo and the user hint).
+// No braces: extractJson would otherwise find a JSON candidate in it.
+const PROVIDER_ECHO = 'ECHO-Steak-mit-Kartoffeln-und-Nutzerhinweis-4711';
+/** Same idea for the request side: user data that must not reach a log. */
+const BODY_PROBE = 'PROBE-Nutzerdaten-aus-dem-Body-4711';
+const OPENROUTER_KEY = 'test-openrouter-key';
+
 Deno.env.set('SUPABASE_URL', BASE_URL);
 Deno.env.set('SUPABASE_ANON_KEY', ANON_KEY);
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'test-service-key');
-Deno.env.set('OPENROUTER_API_KEY', 'test-openrouter-key');
+Deno.env.set('OPENROUTER_API_KEY', OPENROUTER_KEY);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -90,6 +100,19 @@ interface StubOptions {
   authFailBudget?: number;
   /** HTTP status of the consume for the auth-fail scope (limiter outage). */
   authFailGateStatus?: number;
+  /**
+   * P6-04, provider failures. Until this existed the openrouter.ai route could
+   * only succeed, so the whole error family — five codes, all of them logging
+   * paths — was untested.
+   */
+  /** HTTP status of the provider answer; non-2xx -> provider_error. */
+  providerStatus?: number;
+  /** RAW provider body, bypassing JSON.stringify: "no JSON at all". */
+  providerRaw?: string;
+  /** Provider answer as an object, for the choices/content shapes. */
+  providerJson?: JsonRecord;
+  /** The provider fetch aborts exactly like a real one on signal timeout. */
+  providerTimeout?: boolean;
 }
 
 interface FetchStub {
@@ -188,9 +211,23 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes('openrouter.ai')) {
       openRouterBodies.push(JSON.parse(body) as JsonRecord);
-      return jsonRes({
-        choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }],
-      });
+      if (options.providerTimeout) {
+        // Exactly what a real fetch rejects with once AbortSignal.timeout
+        // fires; handler.ts recognises the provider timeout by this shape.
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      if (options.providerRaw !== undefined) {
+        return new Response(options.providerRaw, {
+          status: options.providerStatus ?? 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (options.providerStatus !== undefined) {
+        return jsonRes({ error: { message: `upstream rejected: ${PROVIDER_ECHO}` } }, options.providerStatus);
+      }
+      return jsonRes(
+        options.providerJson ?? { choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }] },
+      );
     }
     throw new Error(`Unerwarteter fetch im Test: ${url}`);
   }
@@ -207,7 +244,13 @@ function installFetch(options: StubOptions = {}): FetchStub {
     const method = (init?.method ?? 'GET').toUpperCase();
     const body = typeof init?.body === 'string' ? init.body : '';
     calls.push({ url, method, body, headers: new Headers(init?.headers) });
-    return Promise.resolve(route(url, body));
+    try {
+      return Promise.resolve(route(url, body));
+    } catch (error) {
+      // A real fetch REJECTS; a synchronous throw here would take a different
+      // path through the handler than production does.
+      return Promise.reject(error);
+    }
   }) as typeof globalThis.fetch;
 
   return {
@@ -236,6 +279,8 @@ interface RequestOptions {
   contentType?: string | null;
   /** Sets cf-connecting-ip, the subject source of the IP-keyed gates. */
   ip?: string;
+  /** Raw body, bypassing JSON.stringify (the invalid-JSON cases). */
+  raw?: string;
 }
 
 function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request {
@@ -253,8 +298,47 @@ function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request
   return new Request('https://edge.test.invalid/analyze-meal', {
     method,
     headers,
-    body: hasBody ? JSON.stringify(payload) : undefined,
+    body: hasBody ? options.raw ?? JSON.stringify(payload) : undefined,
   });
+}
+
+interface ConsoleCapture {
+  /** Everything the handler logged during the capture, one line per call. */
+  text(): string;
+  restore(): void;
+}
+
+/** Records log/warn/error so the redaction can be asserted (P6-04). */
+function captureConsole(): ConsoleCapture {
+  const lines: string[] = [];
+  const original = { log: console.log, warn: console.warn, error: console.error };
+  const record = (...args: unknown[]) => {
+    lines.push(args.map((arg) => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' '));
+  };
+  console.log = record;
+  console.warn = record;
+  console.error = record;
+  return {
+    text: () => lines.join('\n'),
+    restore: () => {
+      console.log = original.log;
+      console.warn = original.warn;
+      console.error = original.error;
+    },
+  };
+}
+
+/**
+ * The rule every error path shares: neither the raw provider body nor the
+ * provider key may appear — in the answer OR in the log. A regression that
+ * puts `raw: text` back into the log line fails here, not silently in
+ * production.
+ */
+function assertRedacted(logs: string, responseText: string, label: string): void {
+  assert(!logs.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext im Log: ${logs}`);
+  assert(!responseText.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext in der Antwort: ${responseText}`);
+  assert(!logs.includes(OPENROUTER_KEY), `${label}: Provider-Key im Log: ${logs}`);
+  assert(!responseText.includes(OPENROUTER_KEY), `${label}: Provider-Key in der Antwort: ${responseText}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -677,3 +761,147 @@ Deno.test('F-28-1: Limiter-Ausfall am Fail-Bucket blockiert die 401 nicht', asyn
     stub.restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// P6-04 (review 2026-08-29): the error families of analyze-meal.
+//
+// The provider route of the stub could only ever succeed, so five codes that
+// the client maps to their own messages (meal_analysis_sheet.dart) and five
+// body-validation codes had no server-side test at all. Every provider case
+// additionally asserts the REDACTION: these paths log, and what they log
+// derives from the photo and the user hint.
+// ---------------------------------------------------------------------------
+
+/** What a request rejected by the body validation may spend (P6-01). */
+const ATTEMPT_GATES = 'analyze-meal:ip,analyze-meal:user';
+
+interface ProviderCase {
+  name: string;
+  options: StubOptions;
+  status: number;
+  code: string;
+  /** The log line must carry the redacted metadata instead of the content. */
+  digest: boolean;
+}
+
+const PROVIDER_CASES: ProviderCase[] = [
+  {
+    name: 'Provider antwortet 502',
+    options: { providerStatus: 502 },
+    status: 502,
+    code: 'provider_error',
+    digest: true,
+  },
+  {
+    name: 'Provider antwortet ueberhaupt kein JSON',
+    options: { providerRaw: `<html>bad gateway ${PROVIDER_ECHO}</html>` },
+    status: 502,
+    code: 'provider_invalid_response',
+    digest: false,
+  },
+  {
+    name: 'Modell schreibt nichts in content',
+    options: {
+      providerJson: {
+        choices: [{ finish_reason: 'length', message: { content: '   ' } }],
+        usage: { total_tokens: 4096 },
+      },
+    },
+    status: 502,
+    code: 'provider_empty_response',
+    digest: false,
+  },
+  {
+    name: 'Modell antwortet Fliesstext statt JSON',
+    options: { providerJson: { choices: [{ message: { content: PROVIDER_ECHO } }] } },
+    status: 502,
+    code: 'provider_invalid_json',
+    digest: true,
+  },
+  {
+    name: 'Provider-Call laeuft in sein Zeitlimit',
+    options: { providerTimeout: true },
+    status: 504,
+    code: 'provider_timeout',
+    digest: false,
+  },
+];
+
+for (const testCase of PROVIDER_CASES) {
+  Deno.test(`P6-04: ${testCase.name} -> ${testCase.status} ${testCase.code}`, async () => {
+    const stub = installFetch(testCase.options);
+    const logs = captureConsole();
+    try {
+      const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+      const text = await res.text();
+      assertEquals(res.status, testCase.status, 'Status');
+      assertEquals((JSON.parse(text) as JsonRecord).error, testCase.code, 'Fehlercode');
+      // The call happened and was paid for; the four gates ran before it.
+      assertEquals(stub.openRouterBodies.length, 1, 'Provider-Calls');
+      assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+
+      assertRedacted(logs.text(), text, testCase.code);
+      if (testCase.digest) {
+        // Not "nothing is logged" — the allowlisted metadata from
+        // normalize.ts must be there, otherwise the case is undiagnosable.
+        assert(logs.text().includes('"sha256"'), `Digest fehlt im Log: ${logs.text()}`);
+        assert(logs.text().includes('"len"'), `Laenge fehlt im Log: ${logs.text()}`);
+      }
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  });
+}
+
+interface BodyCase {
+  name: string;
+  payload?: JsonRecord;
+  raw?: string;
+  code: string;
+  /** User data from the request that must not show up in a log. */
+  probe?: string;
+}
+
+const BODY_CASES: BodyCase[] = [
+  { name: 'abgeschnittenes JSON', raw: `{"imageBase64":"${BODY_PROBE}"`, code: 'invalid_json', probe: BODY_PROBE },
+  { name: 'JSON-Array statt Objekt', raw: `["${BODY_PROBE}"]`, code: 'invalid_body', probe: BODY_PROBE },
+  {
+    name: 'Feld imageBase64 fehlt',
+    payload: { portionHint: 'normal', freeTextHint: BODY_PROBE },
+    code: 'missing_image',
+    probe: BODY_PROBE,
+  },
+  {
+    name: 'Bilddaten mit fremden Zeichen',
+    payload: { imageBase64: `<<<${BODY_PROBE}>>>` },
+    code: 'invalid_image_base64',
+    probe: BODY_PROBE,
+  },
+  // 4 base64 chars ~ 3 bytes, weit unter MIN_IMAGE_BYTES (128).
+  { name: 'winziges Bild', payload: { imageBase64: 'QUJD' }, code: 'image_too_small' },
+];
+
+for (const testCase of BODY_CASES) {
+  Deno.test(`P6-04: ${testCase.name} -> 400 ${testCase.code}`, async () => {
+    const stub = installFetch();
+    const logs = captureConsole();
+    try {
+      const res = await handleRequest(makeRequest(testCase.payload ?? {}, { raw: testCase.raw }));
+      const text = await res.text();
+      assertEquals(res.status, 400, 'Status');
+      assertEquals((JSON.parse(text) as JsonRecord).error, testCase.code, 'Fehlercode');
+      assertEquals(stub.openRouterBodies.length, 0, 'Provider-Calls');
+      // P6-01: a rejected body costs the two rolling attempt gates, never a
+      // day slot.
+      assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
+      if (testCase.probe) {
+        assert(!logs.text().includes(testCase.probe), `Body-Inhalt im Log: ${logs.text()}`);
+        assert(!text.includes(testCase.probe), `Body-Inhalt in der Antwort: ${text}`);
+      }
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  });
+}

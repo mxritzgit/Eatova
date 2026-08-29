@@ -346,6 +346,13 @@
     }
   },
   "foodAtLeastOneItemRequired": "Mindestens ein Bestandteil muss übrig bleiben.",
+  "foodItemWeightInvalidHint": "Jedes Gewicht braucht eine Zahl zwischen {min} und {max} g.",
+  "@foodItemWeightInvalidHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "foodApplyButton": "Übernehmen",
   "foodDecreaseItemSemantics": "Weniger {name}",
   "@foodDecreaseItemSemantics": {
@@ -1386,16 +1393,36 @@
   "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten.",
 
   "authCodeRateLimited": "Zu viele Anfragen in kurzer Zeit. Der Versand ist vorübergehend gesperrt — bitte warte etwa eine Minute, bevor du es erneut versuchst.",
+  "authCodeRateLimitedSeconds": "Zu viele Anfragen in kurzer Zeit. Der Versand ist noch {sekunden} s gesperrt.",
+  "@authCodeRateLimitedSeconds": {
+    "placeholders": {
+      "sekunden": { "type": "int" }
+    }
+  },
+  "authCodeQuotaExhausted": "Für diese Adresse wurden zu viele Codes angefordert. Das Kontingent füllt sich erst in etwa einer Stunde wieder auf — bis dahin geht keine Mail raus. Einen Code, der schon in deinem Postfach liegt, kannst du weiter eingeben.",
+  "authCodeOfflineError": "Offline — der Server war nicht erreichbar. Bitte prüf deine Internetverbindung und versuch es erneut.",
   "authCodeResendCountdown": "Neuen Code in {sekunden} s anfordern",
   "@authCodeResendCountdown": {
     "placeholders": {
       "sekunden": { "type": "int" }
     }
   },
+  "authCodeResendCountdownMinutes": "Neuen Code in {minuten} min anfordern",
+  "@authCodeResendCountdownMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
+    }
+  },
   "authCodeThrottleWait": "Zu viele Anfragen. Der nächste Code ist in {sekunden} s möglich.",
   "@authCodeThrottleWait": {
     "placeholders": {
       "sekunden": { "type": "int" }
+    }
+  },
+  "authCodeThrottleWaitMinutes": "Zu viele Anfragen. Der nächste Code ist in {minuten} min möglich.",
+  "@authCodeThrottleWaitMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
     }
   },
   "authCodeTooManyAttempts": "Zu viele falsche Codes. Fordere aus Sicherheitsgründen einen neuen Code an.",

@@ -140,8 +140,9 @@ class SettingsNote extends StatelessWidget {
 
   final String text;
 
-  /// Icon and text color; defaults to the quiet [AppTokens.ink2].
-  /// [AppTokens.warning] and [AppTokens.danger] mark notes that need action.
+  /// Glyph color — and, on an UNBOXED note, the text color too; defaults to
+  /// the quiet [AppTokens.ink2]. [AppTokens.warning] and [AppTokens.danger]
+  /// mark notes that need action. A [boxed] note always writes in `ink`.
   final Color? tone;
 
   final IconData icon;
@@ -151,6 +152,15 @@ class SettingsNote extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final ton = tone ?? t.ink2;
+    // Signal-banner contract (hell_modus_audit_test): fill = tone at 10 %,
+    // GLYPH in the full tone, TEXT in `ink`. The tinted fill eats the
+    // headroom the tone still had on the bare ground — over `bg` (where these
+    // boxes actually sit) 12 px text measures warning 4.20:1, danger 4.48:1
+    // and even the quiet ink2 4.48:1, all below AA. `ink` gives 12.9-14.7:1.
+    // Unboxed notes keep the tone as text color: without a fill it carries
+    // (warning 4.76:1 on bg, 5.38:1 on surf), and the tone IS the signal
+    // there.
+    final textFarbe = boxed ? t.ink : ton;
 
     final zeile = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -160,7 +170,12 @@ class SettingsNote extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: AppType.ui(12, weight: FontWeight.w500, color: ton, height: 1.4),
+            style: AppType.ui(
+              12,
+              weight: FontWeight.w500,
+              color: textFarbe,
+              height: 1.4,
+            ),
           ),
         ),
       ],
@@ -186,6 +201,17 @@ class SettingsNote extends StatelessWidget {
   }
 }
 
+/// Transparent tap margin above and below a segment. The drawn capsule is
+/// ~22 px tall (11 px label + 2x5 padding), which was the whole target; 12 px
+/// of invisible margin per side lifts it over the 44 px floor without moving
+/// a single pixel of paint — the same trick [AppToggle] uses.
+const double _segmentSaum = 12;
+
+/// Inset of the PAINTED pill inside that enlarged target. The capsule keeps
+/// the 3 px gutter it always had ([_segmentSaum] - 3), so the pill still
+/// measures capsule + 6 in height no matter how the label scales.
+const double _pillSaum = _segmentSaum - 3;
+
 /// Shared rendering base of the settings pills: geometry of [SegmentedPill],
 /// plus test keys per option and a width cap so segments wrap at textScaler
 /// 2.0 instead of blowing up the row.
@@ -206,45 +232,77 @@ class _SettingsChoicePill<T> extends StatelessWidget {
     return ConstrainedBox(
       constraints:
           BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.55),
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: t.tile,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Wrap(
-          runSpacing: 3,
-          children: <Widget>[
-            for (final (wert, beschriftung, schluessel) in optionen)
-              GestureDetector(
-                key: ValueKey<String>(schluessel),
-                onTap: () => onChanged(wert),
-                child: AnimatedContainer(
-                  // DESIGN_REFACTOR §5: respects "reduce motion".
-                  duration:
-                      motionDuration(context, const Duration(milliseconds: 160)),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: wert == value ? t.forest : Colors.transparent,
-                    borderRadius: BorderRadius.circular(7),
-                  ),
-                  child: Semantics(
-                    selected: wert == value,
-                    button: true,
-                    child: Text(
-                      beschriftung,
-                      style: AppType.ui(
-                        11,
-                        weight: FontWeight.w600,
-                        color: wert == value ? t.onForest : t.ink2,
+      // The tap floor lives in transparent margins around the segments, so
+      // the pill must NOT grow with it — it is painted as a background layer
+      // inset by exactly those margins and keeps its compact geometry.
+      child: Stack(
+        children: <Widget>[
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: _pillSaum),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: t.tile,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            // The 3 px side gutter of the old `EdgeInsets.all(3)`; the
+            // vertical half of it is inside [_pillSaum].
+            padding: const EdgeInsets.symmetric(horizontal: 3),
+            child: Wrap(
+              // No runSpacing: the transparent margins already separate the
+              // rows once the labels wrap at textScaler 2.0.
+              children: <Widget>[
+                for (final (wert, beschriftung, schluessel) in optionen)
+                  GestureDetector(
+                    key: ValueKey<String>(schluessel),
+                    // Opaque, or the margin is not part of the target: the
+                    // default `deferToChild` ends it at the drawn capsule.
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onChanged(wert),
+                    // Outside the padding, so the semantics node covers the
+                    // whole 44 px target and not just the label.
+                    child: Semantics(
+                      selected: wert == value,
+                      button: true,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: _segmentSaum,
+                        ),
+                        child: AnimatedContainer(
+                          // DESIGN_REFACTOR §5: respects "reduce motion".
+                          duration: motionDuration(
+                            context,
+                            const Duration(milliseconds: 160),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                wert == value ? t.forest : Colors.transparent,
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                          child: Text(
+                            beschriftung,
+                            style: AppType.ui(
+                              11,
+                              weight: FontWeight.w600,
+                              color: wert == value ? t.onForest : t.ink2,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-          ],
-        ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

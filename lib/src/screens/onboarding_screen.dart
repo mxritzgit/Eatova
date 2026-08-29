@@ -135,10 +135,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   static int _safeClamp(int v, int lo, int hi) =>
       hi < lo ? lo : v.clamp(lo, hi).toInt();
 
+  /// The target weight actually in play: [_target] narrowed to the window the
+  /// direction leaves open. The ONE number the target step may show — picker,
+  /// footnote, BMI hint and the saved plan all read this.
+  ///
+  /// [_NumberPicker] clamps what it draws but cannot write back, so a raw
+  /// `_target` in the footnote made the sentence contradict the number right
+  /// above it as soon as the weight moved under a target picked earlier
+  /// (80 kg → "lose" → back → 60 kg showed "59 kg" over "15 kg abnehmen").
+  int get _targetSafe => _safeClamp(_target, _targetMin, _targetMax);
+
   UserProfile _draftProfile() {
-    final target = _direction == _GoalDirection.maintain
-        ? _weight
-        : _safeClamp(_target, _targetMin, _targetMax);
+    final target =
+        _direction == _GoalDirection.maintain ? _weight : _targetSafe;
     return widget.initialProfile.copyWith(
       sex: _sex,
       ageYears: _age,
@@ -359,7 +368,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             min: ProfileLimits.weightKgMin,
             max: ProfileLimits.weightKgMax,
             unit: l10n.commonUnitKg,
-            onChanged: (v) => setState(() => _weight = v),
+            onChanged: (v) => setState(() {
+              _weight = v;
+              // The target window hangs off the weight, so a weight change can
+              // push the target out of it. Follow it here instead of leaving a
+              // value in the state that no step can show any more.
+              _target = _targetSafe;
+            }),
           ),
         ),
       _Step.activity => _StepFrame(
@@ -387,23 +402,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             children: [
               _NumberPicker(
                 field: 'target',
-                value: _target,
+                // [_targetSafe], not `_target`: number and footnote have to
+                // mean the same kilograms.
+                value: _targetSafe,
                 min: _targetMin,
                 max: _targetMax,
                 unit: l10n.commonUnitKg,
                 onChanged: (v) => setState(() => _target = v),
                 footnote: _direction == _GoalDirection.lose
                     ? l10n.onboardingTargetFootnoteLose(
-                        (_weight - _target).abs())
+                        (_weight - _targetSafe).abs())
                     : l10n.onboardingTargetFootnoteGain(
-                        (_weight - _target).abs()),
+                        (_weight - _targetSafe).abs()),
               ),
               // Soft, non-blocking BMI hint — same thresholds as the settings
               // sheet (below 18.5 / above 35).
               TargetBmiHint(
                 margin: const EdgeInsets.only(top: 16),
                 heightCm: _height,
-                targetWeightKg: _safeClamp(_target, _targetMin, _targetMax),
+                targetWeightKg: _targetSafe,
               ),
             ],
           ),
@@ -1451,6 +1468,11 @@ class _MacroChip extends StatelessWidget {
 
   final String label;
   final String value;
+
+  /// Macro tone for the MARKER only, never for the number: on `surf` in light
+  /// mode `carbs` reaches 3.39:1 and `fat` 3.73:1 — enough for a graphical
+  /// object (WCAG 1.4.11, 3:1), short of text (4.5:1). Same rule as
+  /// `trends_screen`: coloured dot, text in text tokens.
   final Color color;
 
   @override
@@ -1462,6 +1484,14 @@ class _MacroChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
         child: Column(
           children: [
+            // Above the number, not beside it: three tiles share a phone width
+            // and a leading dot would eat the number's own line at 200 % font.
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(height: 8),
             // No FittedBox (F8-09): the texts scale with the system font and
             // wrap inside the tile instead of shrinking back to 16/12 px.
             Text(
@@ -1469,7 +1499,7 @@ class _MacroChip extends StatelessWidget {
               maxLines: 2,
               textAlign: TextAlign.center,
               style:
-                  AppType.display(16, weight: FontWeight.w700, color: color),
+                  AppType.display(16, weight: FontWeight.w700, color: t.ink),
             ),
             const SizedBox(height: 4),
             Text(

@@ -10,7 +10,7 @@
 
 import { authFailGate } from '../_shared/auth_fail_gate.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
-import { positiveIntFromEnv } from '../_shared/env.ts';
+import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import {
   isRecord,
@@ -40,28 +40,55 @@ const MAX_CONTENT_LENGTH = 7_000_000;
 // Ceiling for the provider roundtrip. Not the whole story: the effective value
 // is the smaller of this and what is left of REQUEST_BUDGET_MS (see below).
 const OPENROUTER_TIMEOUT_MS = 45_000;
-// P6-07: budget for the WHOLE request. The client gives up after 60 s
+// P6-07: budget for the whole request. The client gives up after 60 s
 // (lib/src/services/eatova_http.dart, HttpTimeoutPolicy.mealAnalysis), so a
 // timeout that only covers the provider call is not enough — a PostgREST that
 // hangs 20 s used to push the total to 65 s and the caller saw exactly the
 // generic connection drop the provider timeout exists to prevent. Every
-// outbound call is therefore clamped to the remainder of this budget: a slow
-// preliminary step shortens the provider call instead of the total.
+// stage — every outbound call AND the client-paced body read (P6-01b) — is
+// therefore clamped to the remainder of this budget: a slow preliminary step
+// shortens the one after it instead of the total.
 const REQUEST_BUDGET_MS = positiveIntFromEnv('ANALYZE_MEAL_REQUEST_BUDGET_MS', 55_000, 120_000);
 // Ceiling for ONE Supabase roundtrip (auth lookup, one rate-limit RPC, the
 // fail bucket). 5 s x 5 calls = 25 s worst case, which still leaves the
 // provider 30 s of the budget.
 const SUPABASE_TIMEOUT_MS = positiveIntFromEnv('ANALYZE_MEAL_SUPABASE_TIMEOUT_MS', 5_000, 120_000);
+// P6-01b: ceiling for reading the request body. This is the ONE stage the
+// client paces, and until it had a limit it was the way around the budget:
+// upload the body in slow chunks until REQUEST_BUDGET_MS is nearly spent, sail
+// through the fast day gates and leave the provider a few milliseconds — a
+// burnt slot in the shared bill cap at no model cost, i.e. exactly the
+// "outage for everyone without paying" class P6-01 closed for junk bodies.
+const BODY_READ_TIMEOUT_MS = positiveIntFromEnv('ANALYZE_MEAL_BODY_READ_TIMEOUT_MS', 15_000, 120_000);
+// A provider call below this is not worth making, so the body read has to
+// leave it (plus the two day gates that run in between) behind.
+const MIN_PROVIDER_MS = 15_000;
+// Floor for the body read: a deliberately small REQUEST_BUDGET_MS must slow
+// honest uploads down, not reject them. Capped by the remaining budget, so it
+// can never push the total past it.
+const MIN_BODY_READ_MS = 2_000;
 const MAX_IMAGE_BYTES = 5_000_000;
 const MIN_IMAGE_BYTES = 128;
 const MAX_HINT_CHARS = 400;
 // positiveIntFromEnv, not Number(): a non-numeric secret would become NaN ->
 // JSON null -> the SQL guard throws -> every request fails with
 // `rate_limit_unavailable`. A typo would be a total outage.
+// P6-03: WINDOWS pass EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS explicitly. Without
+// it the default cap is the LIMIT bound (10000), so an operator switching to a
+// day window (86400) silently got the code default back — 24x looser than
+// intended. Limits keep the default cap, which is their own RPC bound.
 const USER_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_USER_LIMIT', 20);
-const USER_WINDOW_SECONDS = positiveIntFromEnv('ANALYZE_MEAL_USER_WINDOW_SECONDS', 3600);
+const USER_WINDOW_SECONDS = positiveIntFromEnv(
+  'ANALYZE_MEAL_USER_WINDOW_SECONDS',
+  3600,
+  EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS,
+);
 const IP_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_IP_LIMIT', 60);
-const IP_WINDOW_SECONDS = positiveIntFromEnv('ANALYZE_MEAL_IP_WINDOW_SECONDS', 600);
+const IP_WINDOW_SECONDS = positiveIntFromEnv(
+  'ANALYZE_MEAL_IP_WINDOW_SECONDS',
+  600,
+  EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS,
+);
 // Day caps (F9-01): 20/h/user alone allowed 480 paid vision calls per user
 // and day, with free OTP signups and no ceiling on the bill at all.
 //  - analyze-meal:global, subject 'all': one bucket for everyone, the cost
@@ -184,6 +211,20 @@ function isTimeout(error: unknown): boolean {
 }
 
 /**
+ * Time the body read may take (P6-01b): its own ceiling, reduced by what the
+ * stages behind it still need, never below MIN_BODY_READ_MS and never beyond
+ * what is left of the budget. All three inputs are server-side, so what the
+ * day gates and the provider see afterwards is no longer client-steerable.
+ */
+function bodyReadBudgetMs(deadline: Deadline): number {
+  const remaining = deadline.remainingMs();
+  // Behind the read: analyze-meal:user-day, analyze-meal:global, provider.
+  const reserve = 2 * SUPABASE_TIMEOUT_MS + MIN_PROVIDER_MS;
+  const spare = Math.max(MIN_BODY_READ_MS, remaining - reserve);
+  return Math.max(1, Math.min(BODY_READ_TIMEOUT_MS, spare, remaining));
+}
+
+/**
  * Bounds work that cannot take a signal of its own and resolves to `onTimeout`
  * instead. Only for calls whose result is optional — the underlying request
  * keeps running, it is merely no longer waited for.
@@ -269,7 +310,10 @@ export async function handleRequest(request: Request): Promise<Response> {
     }
 
     // The dividing line: from here on a request is one that would be paid for.
-    const body = await parseBody(request);
+    // The read has a time budget of its own (P6-01b), so a body that trickles
+    // in ends here with a 408 — before the two day buckets, whose slots stay
+    // burnt until 00:00 UTC.
+    const body = await parseBody(request, deadline, requestId);
     const prompt = buildPrompt(body.portionHint, body.freeTextHint, body.language);
 
     const userDayLimit = await consumeRateLimit(
@@ -386,24 +430,60 @@ function enforceContentLength(request: Request) {
   }
 }
 
-// Streams the body and aborts at maxBytes (null = too large) before it is
-// fully in memory.
-async function readBodyLimited(request: Request, maxBytes: number): Promise<string | null> {
+// Streams the body and gives up on two counts: at maxBytes (null = too large)
+// before it is fully in memory, and — P6-01b — at budgetMs, because the client
+// decides how slowly the bytes arrive (408, see the throw site).
+async function readBodyLimited(
+  request: Request,
+  maxBytes: number,
+  budgetMs: number,
+  requestId: string,
+): Promise<string | null> {
   if (!request.body) return '';
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return null;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      // Operator signal: separates a slow uploader from a budget that earlier
+      // stages already spent (bytesRead stays near 0 in the second case).
+      console.warn('analyze-meal body read timeout', { requestId, budgetMs, bytesRead: total });
+      // 408, not 413: nothing here is about size. RFC 9110 15.5.9 is exactly
+      // this case — the server did not get a complete request within the time
+      // it was prepared to wait. A 413 would tell the client to send a smaller
+      // photo, which fixes nothing when the upload is merely slow.
+      reject(new HttpError(408, 'request_timeout', 'Anfrage hat zu lange gedauert. Bitte erneut versuchen.'));
+    }, Math.max(1, budgetMs));
+  });
+
+  try {
+    while (true) {
+      const pending = reader.read();
+      // The losing side of the race stays unobserved; without this a later
+      // stream error would surface as an unhandled rejection.
+      pending.catch(() => {});
+      const { done, value } = await Promise.race([pending, expired]);
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch (error) {
+    // Release the stream: an open reader would keep the isolate busy with an
+    // upload nobody is waiting for any more.
+    void reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    // Always: a leftover timer would keep the isolate alive after the response.
+    clearTimeout(timer);
   }
+
   const buf = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
@@ -544,15 +624,16 @@ async function consumeRateLimit(
   };
 }
 
-async function parseBody(request: Request): Promise<ParsedBody> {
+async function parseBody(request: Request, deadline: Deadline, requestId: string): Promise<ParsedBody> {
   const contentType = request.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
     throw new HttpError(415, 'unsupported_content_type', 'Bitte JSON senden.');
   }
 
   // Capped server-side rather than trusting content-length
-  // (enforceContentLength is only the cheap fast path).
-  const raw = await readBodyLimited(request, MAX_CONTENT_LENGTH);
+  // (enforceContentLength is only the cheap fast path), and capped in TIME as
+  // well: bytes and seconds are two different budgets (P6-01b).
+  const raw = await readBodyLimited(request, MAX_CONTENT_LENGTH, bodyReadBudgetMs(deadline), requestId);
   if (raw === null) {
     throw new HttpError(413, 'payload_too_large', 'Bild ist zu groß. Bitte kleineres Foto wählen.');
   }

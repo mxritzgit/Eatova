@@ -28,6 +28,59 @@ Color _toneColor(AppTokens t, SnackTone tone) => switch (tone) {
       SnackTone.error => t.danger,
     };
 
+/// Alpha of the disc behind the glyph. Glyph and disc share one color, so the
+/// disc IS the glyph's ground — the correction below has to know it.
+const double _kSnackIconTint = 0.18;
+
+/// Contrast floor for the glyph on that disc: WCAG 1.4.11 asks 3:1 for
+/// graphical objects, plus a little headroom.
+const double _kSnackIconMinContrast = 3.2;
+
+/// Contrast ratio per WCAG 2.1 (1..21).
+double _contrast(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
+
+/// A [tone] that stays legible on the toast.
+///
+/// The toast is [AppTokens.forest] in BOTH modes, so in the LIGHT palette the
+/// signal tones sit dark on dark: neutral 2.05:1, warning 2.20:1, error
+/// 2.15:1 on their own disc. The tone channel goes silent — error, warning and
+/// a neutral notice look alike. (The message text is unaffected, it runs in
+/// `onForest` at 12.28:1.)
+///
+/// [AppTokens.readableOnTint] is NOT the tool here: it mixes towards
+/// [AppTokens.ink], right for a faint tint on a light card but the wrong
+/// direction on this surface — in light mode it drives the same three tones
+/// down to 1.31…1.38:1. So mix towards the toast's OWN text color instead,
+/// and only as far as the floor needs: dark mode already passes and stays
+/// untouched, light mode keeps as much hue as the floor allows (the four tones
+/// stay ≥ 31 dE76 apart).
+Color _legibleOnSnack(Color tone, Color ground, Color onGround) {
+  bool holds(Color c) =>
+      _contrast(
+        c,
+        Color.alphaBlend(c.withValues(alpha: _kSnackIconTint), ground),
+      ) >=
+      _kSnackIconMinContrast;
+  if (holds(tone)) return tone;
+  // Binary search on the mix. Monotonic: lightening the glyph lifts its disc
+  // by only 18 % of the same step. 8 rounds ≈ 1/256, the color resolution.
+  var lo = 0.0;
+  var hi = 1.0;
+  for (var i = 0; i < 8; i++) {
+    final mid = (lo + hi) / 2;
+    if (holds(Color.lerp(tone, onGround, mid)!)) {
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+  return Color.lerp(tone, onGround, hi)!;
+}
+
 /// Shows a short floating toast. ALWAYS removes the current one first so
 /// snackbars do not stack on rapid actions.
 ///
@@ -54,7 +107,8 @@ void showAppSnack(
   messenger.removeCurrentSnackBar();
   // The toast sits on the brand surface (snackBarTheme), so the icon takes the
   // lime accent, not the card accent, which would be invisible here. [accent]
-  // stays as a direct override for surfaces that still pass a color.
+  // stays as a direct override for surfaces that still pass a color. Whichever
+  // it is, [_SnackIcon] lifts it onto that surface's contrast floor.
   final effectiveAccent = accent ?? _toneColor(context.t, tone);
   final effective = duration ?? (action != null ? kSnackAction : kSnackShort);
   final snackBar = SnackBar(
@@ -276,6 +330,12 @@ class _SnackIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The ground comes from the theme rather than from a token guess, so the
+    // math follows if the toast surface is ever repainted.
+    final snackTheme = Theme.of(context).snackBarTheme;
+    final ground = snackTheme.backgroundColor ?? context.t.forest;
+    final onGround = snackTheme.contentTextStyle?.color ?? context.t.onForest;
+    final tone = _legibleOnSnack(accent, ground, onGround);
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0.5, end: 1.0),
       duration: motionDuration(context, const Duration(milliseconds: 260)),
@@ -285,10 +345,10 @@ class _SnackIcon extends StatelessWidget {
         width: 24,
         height: 24,
         decoration: BoxDecoration(
-          color: accent.withValues(alpha: 0.18),
+          color: tone.withValues(alpha: _kSnackIconTint),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, size: 15, color: accent),
+        child: Icon(icon, size: 15, color: tone),
       ),
     );
   }

@@ -30,6 +30,11 @@ export const EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS = 86400;
  *
  * `max` defaults to the tighter of the two RPC bounds: an ignored secret is a
  * config error, an oversized value passed through is a 500 on EVERY request.
+ *
+ * P6-03: a value that IS set but unusable is logged. Silence was the actual
+ * trap — `ANALYZE_MEAL_USER_WINDOW_SECONDS=86400` without an explicit `max`
+ * became 3600, i.e. 24x looser than intended, at a cap that costs money, and
+ * nothing anywhere said so.
  */
 export function positiveIntFromEnv(
   name: string,
@@ -37,8 +42,19 @@ export function positiveIntFromEnv(
   max: number = EDGE_RATE_LIMIT_MAX_LIMIT,
 ): number {
   const raw = Deno.env.get(name)?.trim();
-  if (!raw || !/^\d+$/.test(raw)) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > max) return fallback;
+  // Unset or empty is the normal case, not a config error: stays silent.
+  if (!raw) return fallback;
+  const parsed = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > max) {
+    // The value is operator configuration (a plain number), never a secret;
+    // truncated anyway so a pasted blob cannot flood the log.
+    console.warn('env value ignored, code default applies', {
+      name,
+      value: raw.slice(0, 32),
+      max,
+      fallback,
+    });
+    return fallback;
+  }
   return parsed;
 }

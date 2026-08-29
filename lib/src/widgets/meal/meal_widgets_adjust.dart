@@ -149,6 +149,17 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
 // The sheet
 // ---------------------------------------------------------------------------
 
+/// Portion bounds for one component, in grams; mirrors
+/// `PlausibilityLimits.portionGramsMin/Max` from `model_limits.dart`, the same
+/// window `MealComponent.adjustedToGrams` clamps to. Mirrored rather than
+/// imported because this is a `part` file and the library's imports are fixed
+/// — like [_makroMaxG] does for `LoggedMealLimits.macroGMax`.
+///
+/// **Typed values are rejected, not clamped** (P8-02): bending 12000 g to
+/// 10000 g and saving it silently falsifies the input.
+const int _postenMinG = 1;
+const int _postenMaxG = 10000;
+
 /// One component in the sheet: model, input field, start weight and current
 /// weight. Only created in [_MealItemAdjustmentSheetState._neuerPosten].
 class _Posten {
@@ -162,12 +173,22 @@ class _Posten {
   /// Weight at open time — the [_dirty] reference, not "was ever typed".
   final int startGramm;
 
-  /// The currently typed weight (0 = invalid intermediate state).
+  /// The last **valid** weight, always within [_postenMinG].._postenMaxG.
+  ///
+  /// An implausible input leaves it untouched and raises [ungueltig], so row,
+  /// total card and save path keep citing ONE number. Before P8-02 this held
+  /// the raw typed value while everything downstream clamped it.
   int gramm;
 
-  bool get gewichtVeraendert => gramm != startGramm;
+  /// The field holds something that is not a plausible portion — empty, 0 or
+  /// past the bound. Apply stays locked and a hint says why.
+  bool ungueltig = false;
 
-  /// This component recalculated to the currently typed weight — **one**
+  /// [ungueltig] counts as changed too: the field no longer shows the start
+  /// value, so a drag-away must still ask before discarding it.
+  bool get gewichtVeraendert => gramm != startGramm || ungueltig;
+
+  /// This component recalculated to the last valid weight — **one**
   /// calculation for preview, total row and save path (B1: preferring
   /// `kcalPer100G` over `caloriesKcal` showed 654 kcal but saved 156).
   MealComponent get angepasst => item.adjustedToGrams(gramm);
@@ -219,10 +240,15 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     final controller = TextEditingController(text: item.grams.toString());
     final posten = _Posten(item: item, controller: controller);
     controller.addListener(() {
-      final getippt = int.tryParse(controller.text.trim()) ?? 0;
+      final getippt = int.tryParse(controller.text.trim());
+      final ungueltig =
+          getippt == null || getippt < _postenMinG || getippt > _postenMaxG;
+      // An implausible input keeps the last valid weight (P8-02).
+      final neuesGramm = ungueltig ? posten.gramm : getippt;
       // The listener also fires on pure cursor movement — nothing to do then.
-      if (getippt == posten.gramm) return;
-      posten.gramm = getippt;
+      if (neuesGramm == posten.gramm && ungueltig == posten.ungueltig) return;
+      posten.gramm = neuesGramm;
+      posten.ungueltig = ungueltig;
       if (mounted) setState(() {});
     });
     _posten.add(posten);
@@ -291,13 +317,6 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     }
   }
 
-  int _itemKcalFor(int index) {
-    // 0 g is an invalid intermediate state; `adjustedToGrams` would clamp to
-    // 1 g and show calories next to the typed 0.
-    if (_posten[index].gramm <= 0) return 0;
-    return _posten[index].angepasst.caloriesKcal;
-  }
-
   String _statusLine(int addedCount, AppLocalizations l10n) {
     final parts = <String>[];
     if (_removed.isNotEmpty) {
@@ -333,9 +352,14 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     final t = context.t;
     final l10n = context.l10n;
     final uebrig = _uebrigeIndizes;
-    final adjustedItems = <MealComponent>[
-      for (final index in uebrig) _posten[index].angepasst,
-    ];
+    // ONE instance per component per build: the row prints it and the total
+    // card sums the very same objects, so "row and total agree" is a fact, not
+    // a promise (P8-02: the row printed the raw typed grams next to clamped
+    // calories while the card summed the clamped ones).
+    final angepasstJeIndex = <int, MealComponent>{
+      for (final index in uebrig) index: _posten[index].angepasst,
+    };
+    final adjustedItems = angepasstJeIndex.values.toList(growable: false);
     final totalGrams = adjustedItems.fold<int>(
       0,
       (sum, item) => sum + item.grams,
@@ -346,7 +370,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     );
     final invalidGrams = [
       for (final index in uebrig)
-        if (_posten[index].gramm <= 0) index,
+        if (_posten[index].ungueltig) index,
     ];
     final canSave = adjustedItems.isNotEmpty && invalidGrams.isEmpty;
     final addedCount = _posten.length - _startAnzahl;
@@ -406,8 +430,8 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                             index: index,
                             item: _posten[index].item,
                             controller: _posten[index].controller,
-                            liveKcal: _itemKcalFor(index),
-                            liveGrams: _posten[index].gramm,
+                            angepasst: angepasstJeIndex[index]!,
+                            gramsInvalid: _posten[index].ungueltig,
                             onRemove: () => _remove(index),
                           ),
                         const SizedBox(height: 10),
@@ -475,6 +499,23 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                           ),
                         ),
                       ],
+                      // The offending row may have scrolled out of view, so the
+                      // locked button states its own reason (P8-02).
+                      if (invalidGrams.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.foodItemWeightInvalidHint(
+                            _postenMinG,
+                            _postenMaxG,
+                          ),
+                          key: const ValueKey('analyse-invalid-weight-hint'),
+                          style: AppType.ui(
+                            11,
+                            weight: FontWeight.w600,
+                            color: t.warning,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       SizedBox(
                         width: double.infinity,
@@ -511,24 +552,43 @@ class _ItemEditCard extends StatelessWidget {
     required this.index,
     required this.item,
     required this.controller,
-    required this.liveKcal,
-    required this.liveGrams,
+    required this.angepasst,
+    required this.gramsInvalid,
     required this.onRemove,
   });
 
   final int index;
   final MealComponent item;
   final TextEditingController controller;
-  final int liveKcal;
-  final int liveGrams;
+
+  /// Exactly the instance the total card sums — the row's grams and calories
+  /// come from it, not from a second calculation (P8-02).
+  final MealComponent angepasst;
+
+  /// The field holds an implausible portion: the row keeps showing
+  /// [angepasst], and a hint explains why "Übernehmen" is locked.
+  final bool gramsInvalid;
+
   final VoidCallback onRemove;
 
   /// Stepper changes use the SAME channel as typing, via the controller
   /// listener — one source, no second state.
+  ///
+  /// Clamping is right HERE, unlike for typed input: stepping against an end
+  /// asserts no number (same reasoning as `MealSuggestionItem._setGrams`). An
+  /// empty field falls back to the last valid weight, not to the original one.
   void _bump(int delta) {
-    final aktuell = int.tryParse(controller.text) ?? item.grams;
-    final neu = (aktuell + delta).clamp(1, 10000);
-    controller.text = '$neu';
+    final aktuell = int.tryParse(controller.text.trim()) ?? angepasst.grams;
+    final neu = (aktuell + delta).clamp(_postenMinG, _postenMaxG);
+    // P8-09: the `text` setter collapses the selection to offset -1
+    // (editable_text.dart), and the stepper does not pull focus off the field,
+    // so the next typed digits landed at the START of the number. Set the
+    // caret explicitly, like `MealSuggestionItem._syncControllerText`.
+    final text = '$neu';
+    controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
   }
 
   @override
@@ -609,6 +669,10 @@ class _ItemEditCard extends StatelessWidget {
                                 keyboardType: TextInputType.number,
                                 inputFormatters: [
                                   FilteringTextInputFormatter.digitsOnly,
+                                  // Five digits because the upper bound
+                                  // (_postenMaxG = 10000 g) has five; the
+                                  // range check below rejects the rest.
+                                  LengthLimitingTextInputFormatter(5),
                                 ],
                                 textAlign: TextAlign.center,
                                 style: AppType.display(18, color: t.ink),
@@ -647,6 +711,21 @@ class _ItemEditCard extends StatelessWidget {
               ],
             ),
           ),
+          if (gramsInvalid) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Text(
+                l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
+                key: ValueKey('analyse-item-weight-hint-$index'),
+                style: AppType.ui(
+                  11,
+                  weight: FontWeight.w600,
+                  color: t.warning,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.only(right: 6),
@@ -671,7 +750,7 @@ class _ItemEditCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  '$liveGrams g · $liveKcal kcal',
+                  '${angepasst.grams} g · ${angepasst.caloriesKcal} kcal',
                   style: AppType.display(
                     12,
                     weight: FontWeight.w600,

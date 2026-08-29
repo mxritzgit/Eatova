@@ -63,6 +63,21 @@ class FakeServer {
   /// ONLY record_tracking_day fails — the combination that lost the streak day.
   bool rejectTrackingDay = false;
 
+  /// logged_meals writes wait for [releaseMealWrites] before they are applied
+  /// and answered: the window in which a LIVE write is still in flight while
+  /// another path runs (P1-01b).
+  Completer<void>? _mealWriteGate;
+
+  /// Opens the window; every logged_meals write from here on hangs.
+  void holdMealWrites() => _mealWriteGate ??= Completer<void>();
+
+  /// Closes it again and answers everything that piled up.
+  void releaseMealWrites() {
+    final gate = _mealWriteGate;
+    _mealWriteGate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
+
   /// Last day booked via record_tracking_day, i.e. last_workout_date.
   String? trackedDay;
 
@@ -147,6 +162,8 @@ class FakeServer {
       return ok(_statsRow());
     }
     if (path.contains('/logged_meals')) {
+      final gate = _mealWriteGate;
+      if (gate != null && req.method != 'GET') await gate.future;
       if (poisonMealWrites && req.method != 'GET') return poison();
       if (req.method == 'POST') {
         if (rejectMealWrites) return fail();
@@ -398,6 +415,9 @@ class DeltaLesefehlerCache extends LocalCache {
   // Two sessions sharing one server (kill simulation): dedup state and tables
   // must survive the "restart".
   FakeServer? geteilterServer,
+  // Off under fakeAsync: the teardown runs outside the fake zone, where a
+  // request that never answers would hang the dispose.
+  bool disposeClient = true,
 }) {
   final server = geteilterServer ?? FakeServer();
   final client = SupabaseClient(
@@ -407,7 +427,7 @@ class DeltaLesefehlerCache extends LocalCache {
     // No GoTrue auto-refresh ticker in tests (see clobber_guard_test).
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
-  addTearDown(client.dispose);
+  if (disposeClient) addTearDown(client.dispose);
   final cache =
       injizierterCache ?? LocalCache(kv ?? InMemoryKeyValueStore(), 'user-outbox');
   final snacks = SnackCapture();
