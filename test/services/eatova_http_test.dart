@@ -292,17 +292,23 @@ const Duration _antwortTransfer = Duration(seconds: 5);
 ///
 /// The declaration reads
 /// `positiveIntFromEnv('ANALYZE_MEAL_REQUEST_BUDGET_MS', 55_000, 55_000)`,
-/// so the DEFAULT is the SECOND argument — the third is the clamp ceiling and
-/// deliberately NOT what this reads: the ceiling is not what ships. The two are
-/// equal today because the ceiling was lowered to the client's tolerance (a
-/// budget above it would have the function work on a request nobody waits for);
-/// an operator can still SHORTEN the budget, and `request_budget_test.ts` on the
-/// Deno side keeps the ceiling from drifting back up. Reading the second
-/// argument stays right either way. Matched by shape (the call, its second
-/// argument), not by
-/// line number, so moving the declaration around in handler.ts does not turn
-/// this red for no reason. `\x27` is the apostrophe — the pattern is a raw
-/// string, so it cannot carry one directly.
+/// so the DEFAULT is the SECOND argument — what actually ships. The THIRD is
+/// the ceiling an operator's env value is clamped to, and this asserts the two
+/// are EQUAL: the ceiling was lowered to the client's tolerance, because a
+/// budget above it would have the function work on a request nobody waits for.
+/// Shortening stays possible (any env value below the default still applies);
+/// lengthening has to go through the client first, and then both numbers move
+/// together.
+///
+/// Guarded from the Dart side on purpose. The Deno suite runs in CI with
+/// `--allow-env` and deliberately without `--allow-read` (minimal permissions,
+/// see .github/workflows/security.yml), so a server-side guard would have had
+/// to weaken that for a source read. This file already has handler.ts open.
+///
+/// Matched by shape (the call, its arguments), not by line number, so moving
+/// the declaration around in handler.ts does not turn this red for no reason.
+/// `\x27` is the apostrophe — the pattern is a raw string, so it cannot carry
+/// one directly.
 Duration _analyzeMealServerBudget() {
   final datei = File(_analyzeMealHandlerPfad);
   if (!datei.existsSync()) {
@@ -334,13 +340,31 @@ Duration _analyzeMealServerBudget() {
     reason: 'ein Budget von 0 ms waere kein Budget',
   );
   final clampRoh = treffer.group(2);
-  if (clampRoh != null) {
-    expect(
-      standard,
-      lessThanOrEqualTo(zahl(clampRoh)),
-      reason: 'der Standardwert liegt ueber der eigenen Clamp-Obergrenze — '
-          'dann steht in handler.ts etwas anderes, als hier gelesen wird',
-    );
-  }
+  expect(
+    clampRoh,
+    isNotNull,
+    reason:
+        'der dritte Parameter fehlt. Ohne eigene Obergrenze gilt der Vorgabewert '
+        'aus env.ts (EDGE_RATE_LIMIT_MAX_LIMIT), und der hat mit der Wartezeit '
+        'des Clients nichts zu tun — ein Betreiber koennte das Budget dann per '
+        'Umgebungsvariable beliebig hoch setzen',
+  );
+  expect(
+    zahl(clampRoh!),
+    standard,
+    reason:
+        'die Clamp-Obergrenze in handler.ts ist nicht mehr gleich dem Standard. '
+        'Damit laesst sich per Umgebungsvariable ein Serverbudget setzen, auf '
+        'das der Client gar nicht mehr wartet: mealAnalysis.total gibt nach '
+        '${HttpTimeoutPolicy.mealAnalysis.total?.inSeconds} s auf, davon gehen '
+        '${HttpTimeoutPolicy.mealAnalysis.connect.inSeconds} s Verbindungsaufbau '
+        'und ${_antwortTransfer.inSeconds} s Antwort-Transfer ab. '
+        'Die Function arbeitet dann an einer Anfrage weiter, der niemand mehr '
+        'zuhoert — der Nutzer sieht eine Zeitueberschreitung UND der '
+        'Provider-Slot ist verbraucht. KUERZEN bleibt erlaubt (jeder Wert unter '
+        'dem Standard greift weiterhin); verlaengern muss ueber '
+        'HttpTimeoutPolicy.mealAnalysis.total gehen, und dann wandern beide '
+        'Zahlen gemeinsam',
+  );
   return Duration(milliseconds: standard);
 }
