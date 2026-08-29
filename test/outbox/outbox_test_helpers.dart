@@ -63,6 +63,17 @@ class FakeServer {
   /// ONLY record_tracking_day fails — the combination that lost the streak day.
   bool rejectTrackingDay = false;
 
+  /// Mirrors the source proof of migration 20260811120000: the RPC counts a
+  /// day only once a logged_meals row carries that local_day, otherwise it
+  /// raises EX_DAY_NOT_LOGGED — SQLSTATE P0001, i.e. HTTP 400 with the code in
+  /// the body. Opt-in, so the suites that are not about that guard keep the
+  /// forgiving fake.
+  bool enforceTrackingDaySourceProof = false;
+
+  /// Days the source proof rejected. One entry means a wasted delivery
+  /// attempt: the RPC reached the server before the meal row did.
+  final List<String> trackingDayRejections = <String>[];
+
   /// logged_meals writes wait for [releaseMealWrites] before they are applied
   /// and answered: the window in which a LIVE write is still in flight while
   /// another path runs (P1-01b).
@@ -158,7 +169,22 @@ class FakeServer {
     if (path.contains('/rpc/record_tracking_day')) {
       if (rejectTrackingDay) return fail();
       final body = jsonDecode(req.body) as Map<String, dynamic>;
-      trackedDay = body['p_day'] as String?;
+      final day = body['p_day'] as String?;
+      if (enforceTrackingDaySourceProof &&
+          !mealRows.values.any((r) => r['local_day'] == day)) {
+        trackingDayRejections.add(day ?? '');
+        return http.Response(
+            jsonEncode({
+              'code': 'P0001',
+              'message': 'EX_DAY_NOT_LOGGED',
+              'details': null,
+              'hint': null,
+            }),
+            400,
+            headers: const {'Content-Type': 'application/json'},
+            request: req);
+      }
+      trackedDay = day;
       return ok(_statsRow());
     }
     if (path.contains('/logged_meals')) {

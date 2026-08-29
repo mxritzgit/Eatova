@@ -227,6 +227,58 @@ List<String> zerlegeSql(String sql) {
 /// Collapses every run of whitespace to one blank.
 String _flach(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim();
 
+/// Strips `--` and `/* */` comments. Unlike [zerlegeSql] this does NOT spare
+/// string literals: it runs on a PL/pgSQL body, where an explanatory comment
+/// would otherwise read like the statement it explains.
+String _ohneSqlKommentare(String s) => s
+    .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), ' ')
+    .split('\n')
+    .map((z) {
+      final i = z.indexOf('--');
+      return i < 0 ? z : z.substring(0, i);
+    })
+    .join('\n');
+
+/// Content between the first `$tag$ … $tag$` pair, or null when there is none.
+String? _dollarKoerper(String s) {
+  final auf = RegExp(r'\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$').firstMatch(s);
+  if (auf == null) return null;
+  final marke = auf.group(0)!;
+  final zu = s.indexOf(marke, auf.end);
+  if (zu < 0) return null;
+  return s.substring(auf.end, zu);
+}
+
+/// What a DO block must not contain: finding label -> pattern. The label also
+/// keys [kDoAusnahmen], so a waiver always names the ONE check it waives.
+final Map<String, RegExp> kDoPruefungen = {
+  'POLICY': RegExp(r'\b(create|alter|drop)\s+policy\b'),
+  'GRANT/REVOKE': RegExp(r'\b(grant|revoke)\b'),
+  'RLS-Umschaltung': RegExp(r'row\s+level\s+security'),
+  'ALTER DEFAULT PRIVILEGES': RegExp(r'alter\s+default\s+privileges'),
+  'CREATE/DROP TABLE': RegExp(r'\b(create|drop)\s+table\b'),
+  'security definer': RegExp(r'security\s+definer'),
+  // Last, and on purpose: dynamic SQL is assembled at runtime, so the checks
+  // above may not see what it eventually runs.
+  'dynamisches SQL': RegExp(r'\bexecute\b'),
+};
+
+/// Findings waived for ONE migration each, with the reason. File -> label ->
+/// why. Everything not named here still bites, so a waiver can never turn a
+/// whole file into a blind spot.
+const Map<String, Map<String, String>> kDoAusnahmen = {
+  '20260814120000_audit_rls_guard.sql': {
+    'CREATE/DROP TABLE':
+        'the words are the TAG LIST of the event trigger `ensure_rls` '
+            '(`when tag in (\'CREATE TABLE\', …)`): the block reacts to a '
+            'CREATE TABLE, it does not run one',
+    'dynamisches SQL':
+        'CREATE EVENT TRIGGER needs superuser, so it is wrapped in an '
+            'exception handler; the executed text is a dollar-quoted literal '
+            'creating `ensure_rls` and moves no privilege and no policy',
+  },
+};
+
 /// Content of the parenthesis group opening at [auf], without the parentheses.
 String? _klammerGruppe(String s, int auf) {
   var tiefe = 0;
@@ -274,7 +326,6 @@ const List<String> _harmlos = [
   'begin',
   'commit',
   'rollback',
-  'do ',
   'create index',
   'create unique index',
   'drop index',
@@ -333,8 +384,10 @@ final RegExp _reDefaults = RegExp(
   r'(grant|revoke) (.+?) on (tables|sequences|functions) (?:to|from) (.+)$',
 );
 
-/// Reads every migration and replays it. [wurzel] defaults to the repo layout.
-SchemaState leseSchema({String wurzel = kMigrationsVerzeichnis}) {
+/// File name -> raw SQL of every migration, in the order they are applied.
+Map<String, String> leseMigrationsQuellen({
+  String wurzel = kMigrationsVerzeichnis,
+}) {
   final verzeichnis = Directory(wurzel);
   if (!verzeichnis.existsSync()) {
     throw StateError(
@@ -348,12 +401,16 @@ SchemaState leseSchema({String wurzel = kMigrationsVerzeichnis}) {
       .toList()
     ..sort((a, b) => a.path.compareTo(b.path));
 
-  return schemaAusQuellen({
+  return {
     for (final datei in dateien)
       datei.path.replaceAll(r'\', '/').split('/').last:
           datei.readAsStringSync(),
-  });
+  };
 }
+
+/// Reads every migration and replays it. [wurzel] defaults to the repo layout.
+SchemaState leseSchema({String wurzel = kMigrationsVerzeichnis}) =>
+    schemaAusQuellen(leseMigrationsQuellen(wurzel: wurzel));
 
 /// Replays SQL given in memory, applied in key order. Same code path as
 /// [leseSchema]; the invariant self-tests use it to feed the rules a
@@ -439,8 +496,48 @@ class _Replay {
       _rechte(l, s, datei);
       return;
     }
+    if (l == 'do' || l.startsWith('do ') || l.startsWith(r'do$')) {
+      _doBlock(roh, s, datei);
+      return;
+    }
     if (_harmlos.any(l.startsWith)) return;
     zustand.unverstanden.add('$datei: $s');
+  }
+
+  // -- DO blocks ------------------------------------------------------------
+
+  /// A `do $$ … $$` block is PL/pgSQL, not SQL: the replay cannot execute it,
+  /// and until 2026-08-29 it was simply skipped as harmless. That made the
+  /// guard blind to the one thing a migration can hide anywhere —
+  /// `do $$ begin execute 'grant select on public.logged_meals to anon'; end $$`
+  /// replayed GREEN (P7-02b).
+  ///
+  /// The block is therefore read as TEXT (comments stripped, so an explanatory
+  /// `-- grant …` does not trip it) and rejected when it names anything that
+  /// could move a privilege, a policy, a table or RLS — inside a string
+  /// literal too, which is exactly where dynamic SQL hides it. What the replay
+  /// cannot model, it must not wave through.
+  void _doBlock(String roh, String s, String datei) {
+    final koerper = _dollarKoerper(roh);
+    if (koerper == null) {
+      zustand.unverstanden.add('$datei: DO-Block ohne lesbaren Rumpf: $s');
+      return;
+    }
+    final text = _flach(_ohneSqlKommentare(koerper)).toLowerCase();
+    final waiver = kDoAusnahmen[datei] ?? const <String, String>{};
+
+    for (final eintrag in kDoPruefungen.entries) {
+      if (waiver.containsKey(eintrag.key)) continue;
+      if (!eintrag.value.hasMatch(text)) continue;
+      zustand.unverstanden.add(
+        '$datei: DO-Block enthaelt `${eintrag.key}` — der Replay kann PL/pgSQL '
+        'nicht ausfuehren und wuerde die Wirkung STILL uebergehen. '
+        'Sicherheitsrelevantes gehoert als normale Anweisung in die Migration, '
+        'nicht in einen DO-Block; ein begruendeter Einzelfall nach '
+        'kDoAusnahmen.',
+      );
+      return;
+    }
   }
 
   // -- tables ---------------------------------------------------------------
@@ -604,7 +701,9 @@ class _Replay {
     if (art == 'tables') {
       for (final rolle in rollen) {
         final ziel = _standardTabellenrechte.putIfAbsent(rolle, () => {});
-        for (final p in privs.keys) {
+        // `all` expands to EXECUTE/USAGE too; on a table those are phantoms
+        // and would show up as rights the role does not really hold.
+        for (final p in privs.keys.where(kAlleTabellenrechte.contains)) {
           gewaehren ? ziel.add(p) : ziel.remove(p);
         }
       }
@@ -757,16 +856,35 @@ class _Replay {
 // Expression normalisation
 // ---------------------------------------------------------------------------
 
+/// Redundant parentheses around the WHOLE expression, removed.
+String _ohneAeussereKlammern(String s) {
+  var r = s;
+  while (r.startsWith('(') && r.endsWith(')')) {
+    final innen = _klammerGruppe(r, 0);
+    if (innen == null || innen.length != r.length - 2) break;
+    r = innen;
+  }
+  return r;
+}
+
 /// Canonical form of a policy expression: lower case, no whitespace, redundant
 /// outer parentheses removed, and the two sides of a top-level `=` sorted, so
 /// `auth.uid() = user_id` and `user_id=auth.uid()` compare equal.
+///
+/// `(select …)` loses its SELECT (P7-06, review 2026-08-29): PostgreSQL's own
+/// recommendation against per-row evaluation of a `stable` function is to wrap
+/// it as `(select auth.uid())`, which the planner hoists into an InitPlan. That
+/// is the SAME condition, so the guard must not read the rewrite as a weakened
+/// policy — otherwise the performance fix could only be bought by turning this
+/// file red. The unwrap is deliberately blunt: a real subquery loses its
+/// keyword too, but then the result matches no owner condition and the rules
+/// above report it rather than accept it.
 String normalisiereAusdruck(String ausdruck) {
-  var s = ausdruck.toLowerCase().replaceAll(RegExp(r'\s+'), '');
-  while (s.startsWith('(') && s.endsWith(')')) {
-    final innen = _klammerGruppe(s, 0);
-    if (innen == null || innen.length != s.length - 2) break;
-    s = innen;
-  }
+  var s = ausdruck
+      .toLowerCase()
+      .replaceAll(RegExp(r'\(\s*select\s+'), '(')
+      .replaceAll(RegExp(r'\s+'), '');
+  s = _ohneAeussereKlammern(s);
   // Top-level `=` only; `auth.uid()` carries no `=`, but a future expression
   // might nest one.
   var tiefe = 0;
@@ -775,8 +893,8 @@ String normalisiereAusdruck(String ausdruck) {
     if (c == '(') tiefe++;
     if (c == ')') tiefe--;
     if (c == '=' && tiefe == 0) {
-      final links = s.substring(0, i);
-      final rechts = s.substring(i + 1);
+      final links = _ohneAeussereKlammern(s.substring(0, i));
+      final rechts = _ohneAeussereKlammern(s.substring(i + 1));
       if (links.contains('=') || rechts.contains('=')) break;
       final paar = [links, rechts]..sort();
       return '${paar[0]}=${paar[1]}';

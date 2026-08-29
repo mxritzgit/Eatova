@@ -1,12 +1,55 @@
 import '../l10n/l10n.dart';
 import 'macro_progress.dart';
 import 'meal_analysis_result.dart';
+import 'model_limits.dart';
 import 'recipe_catalog_de.dart';
 import 'recipe_catalog_en.dart';
 import 'user_profile.dart';
 
 export 'recipe_catalog_de.dart' show recipeCatalogDe;
 export 'recipe_catalog_en.dart' show recipeCatalogEn;
+
+/// The `High Protein` category, as a constant instead of a repeated literal:
+/// it is the one tag that is DERIVED from the numbers (see [HighProteinRule]),
+/// so tag and rule must stay spelled the same in both catalogs.
+///
+/// Double-quoted like [recipeFilters]: the value is language-neutral matching
+/// data, not UI text.
+const String highProteinCategory = "High Protein";
+
+/// When a recipe may carry [highProteinCategory].
+///
+/// Before the fix run of 2026-08-29 the tag was assigned by feel, and no
+/// threshold separated the two groups: the highest untagged recipe had 36 g of
+/// protein (23.2 % of its energy) while the lowest tagged one had 26 g
+/// (18.6 %). Two conditions, BOTH required:
+///
+///  1. **[minEnergyShare] of the energy comes from protein.** This is the legal
+///     definition of the claim — EU Regulation (EC) No 1924/2006, Annex,
+///     "HIGH PROTEIN" — so the tag means the same thing here as on a package.
+///  2. **At least [minProteinG] per portion.** The regulation judges
+///     composition, not amount; these 30 entries are whole meals, and a tag
+///     that promises "high protein" on a 400 kcal plate with 22 g would be a
+///     share statement dressed up as a meal statement. 30 g is the usual
+///     per-meal protein dose and roughly a third of a 90–120 g day.
+///
+/// Condition 2 is what currently binds — every catalog recipe with >= 30 g
+/// also clears 20 % — while condition 1 catches the opposite shape a future
+/// recipe could have: a 1200 kcal plate with 32 g of protein.
+///
+/// `test/models/recipe_high_protein_rule_test.dart` checks all 30 recipes of
+/// BOTH catalogs against [FitnessRecipe.meetsHighProteinRule], so a new recipe
+/// cannot be tagged by feel again.
+abstract final class HighProteinRule {
+  /// Minimum share of the energy that must come from protein (EU 1924/2006).
+  static const double minEnergyShare = 0.20;
+
+  /// Minimum grams of protein per portion.
+  static const int minProteinG = 30;
+
+  /// Atwater factor: protein carries 4 kcal per gram.
+  static const int kcalPerProteinG = 4;
+}
 
 class FitnessRecipe {
   const FitnessRecipe({
@@ -48,6 +91,16 @@ class FitnessRecipe {
 
   double get kcalPer100G =>
       estimatedGrams <= 0 ? 0 : caloriesKcal * 100 / estimatedGrams;
+
+  /// True when this recipe earns [highProteinCategory] — see [HighProteinRule]
+  /// for both conditions and why they are the ones. A recipe without calories
+  /// has no energy share to compute, so it never qualifies.
+  bool get meetsHighProteinRule {
+    if (proteinG < HighProteinRule.minProteinG) return false;
+    if (caloriesKcal <= 0) return false;
+    return proteinG * HighProteinRule.kcalPerProteinG >=
+        caloriesKcal * HighProteinRule.minEnergyShare;
+  }
 
   /// 0..1 fit against the day's remaining macros (protein weighted double) plus
   /// a kcal term; filling the remainder without overshooting ranks highest.
@@ -91,10 +144,10 @@ class FitnessRecipe {
   /// True if the recipe fits diet preference [diet], driving recommendation
   /// filtering. Decided purely from [categories] so it stays deterministic
   /// without parsing ingredients: `Fisch` means fish, `Vegetarisch`/`Vegan`
-  /// mean meat- and fish-free, anything else tagged `Hauptgericht`/`High
-  /// Protein` counts as meat. Vegan matches only explicitly vegan dishes, so
-  /// egg/dairy vegetarian ones drop out. User recipes are never filtered.
-  /// A recommendation heuristic, not an allergy guarantee.
+  /// mean meat- and fish-free, and everything else counts as meat. Vegan
+  /// matches only explicitly vegan dishes, so egg/dairy vegetarian ones drop
+  /// out. User recipes are never filtered. A recommendation heuristic, not an
+  /// allergy guarantee.
   bool matchesDiet(DietPreference diet) {
     if (diet == DietPreference.none) return true;
     if (userCreated) return true;
@@ -104,12 +157,13 @@ class FitnessRecipe {
     // `Vegan` implies vegetarian; the `Vegetarisch` tag covers non-vegan
     // egg/dairy dishes.
     final isVegetarian = isVegan || categories.contains('Vegetarisch');
-    // Meat = a main/protein dish marked neither fish nor vegetarian/vegan.
-    final isMeat =
-        !isFish &&
-        !isVegetarian &&
-        (categories.contains('Hauptgericht') ||
-            categories.contains('High Protein'));
+    // Fail-safe default: whatever is not POSITIVELY marked fish, vegetarian or
+    // vegan is treated as meat. The rule used to additionally require
+    // `Hauptgericht`/`High Protein`, so a dish tagged only `Frühstück` or
+    // `Low Carb` slipped through as diet-neutral and was actively recommended
+    // to vegetarians. For a diet filter the safe direction is to hold an
+    // unlabelled dish back, not to offer it.
+    final isMeat = !isFish && !isVegetarian;
 
     return switch (diet) {
       DietPreference.none => true,
@@ -248,19 +302,43 @@ class FitnessRecipe {
         )
       : professionalHint;
 
+  /// A macro value as the text `MealAnalysisResult` carries, clamped to
+  /// `logged_meals.protein_g` & co. (0..1000).
+  ///
+  /// `user_recipes` bounds macros only at `>= 0`, but `MealsSync` parses the
+  /// first number out of this very text into a `numeric` column that has an
+  /// upper bound — so `'5000 g'` would be written as 5000 and rejected.
+  static String _macroText(int gramm) => '${clampMealMacroG(gramm).round()} g';
+
   /// [l10n] optional, defaults to [deL10n] so context-free callers (tests) stay
   /// German. `portionNotes` uses the resolved display values, not the raw
   /// fields, or a fresh user recipe would log an empty gap.
+  ///
+  /// **This is the enforcement point [UserRecipeLimits] names**: every field
+  /// that ends up in a `logged_meals` COLUMN is clamped here. A recipe may be
+  /// perfectly legal as a `user_recipes` row (title up to 300 code points,
+  /// numbers only `>= 0`) and still break `logged_meals_safe_ranges_check` —
+  /// e.g. 30 ZWJ family emoji are 30 graphemes for the create sheet's
+  /// `maxLength` but 210 code points for `char_length(meal_name) <= 160`. That
+  /// mismatch is silent data loss, not a visible error: the entry appears in
+  /// the diary, the outbox reads the 23514 as an active server rejection,
+  /// retries it eight times, drops it — and the meal is gone after the next
+  /// cold start.
+  ///
+  /// `confidence` and `portionNotes` are NOT clamped: they live in the
+  /// `payload` JSON, which is bounded only as a whole
+  /// ([LoggedMealLimits.payloadMaxBytes]) and is fed from fields the create
+  /// sheet already caps.
   MealAnalysisResult toMealResult([AppLocalizations? l10n]) {
     final sprache = l10n ?? deL10n;
     return MealAnalysisResult(
-      mealName: title,
-      caloriesKcal: caloriesKcal,
-      estimatedGrams: estimatedGrams,
-      kcalPer100G: kcalPer100G,
-      protein: '$proteinG g',
-      carbs: '$carbsG g',
-      fat: '$fatG g',
+      mealName: clampMealName(title),
+      caloriesKcal: clampMealCaloriesKcal(caloriesKcal),
+      estimatedGrams: clampMealEstimatedG(estimatedGrams),
+      kcalPer100G: clampKcalPer100G(kcalPer100G),
+      protein: _macroText(proteinG),
+      carbs: _macroText(carbsG),
+      fat: _macroText(fatG),
       confidence: MealResultConfidence.recipe.code,
       portionNotes:
           '${displayPortion(sprache)} · '

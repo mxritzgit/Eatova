@@ -27,6 +27,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart' show kCoachContextCapChars;
+import 'package:eatova/src/screens/coach/coach_chat_screen.dart'
+    show kCoachMaxInputBytes, kCoachMaxInputChars;
 
 // ---------------------------------------------------------------------------
 // The single tree walk
@@ -592,5 +594,28 @@ const x = 'today';
     expect(match, isNotNull,
         reason: 'Konstante in guardrails.ts nicht gefunden');
     expect(int.parse(match!.group(1)!), kCoachContextCapChars);
+  });
+
+  test('der Eingabe-Deckel im Composer stimmt mit coach-chat ueberein', () {
+    // P5-03: the composer stops the draft AT the server's cap, so the 413
+    // never happens and the message is never lost from an emptied field. The
+    // client is only a mirror; TypeScript owns both numbers. A drift would
+    // silently make the cap either useless (too high) or a false refusal of
+    // messages the server accepts (too low).
+    int zahl(String roh) => int.parse(roh.replaceAll('_', ''));
+
+    final prefilter = _lies('supabase/functions/coach-chat/prefilter.ts');
+    final zeichen =
+        RegExp(r'MAX_INPUT_CHARS\s*=\s*([\d_]+)').firstMatch(prefilter);
+    expect(zeichen, isNotNull,
+        reason: 'MAX_INPUT_CHARS in prefilter.ts nicht gefunden');
+    expect(zahl(zeichen!.group(1)!), kCoachMaxInputChars);
+
+    final handler = _lies('supabase/functions/coach-chat/handler.ts');
+    final bytes =
+        RegExp(r'MAX_INPUT_BYTES\s*=\s*([\d_]+)').firstMatch(handler);
+    expect(bytes, isNotNull,
+        reason: 'MAX_INPUT_BYTES in handler.ts nicht gefunden');
+    expect(zahl(bytes!.group(1)!), kCoachMaxInputBytes);
   });
 }

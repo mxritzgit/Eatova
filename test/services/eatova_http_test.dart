@@ -90,6 +90,42 @@ void main() {
   );
 
   test(
+    'total deckelt die SUMME der Phasen (Review P10-02)',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {});
+
+      // Every phase generous, the sum tight: without `total` this request
+      // would sit here for the 30 s the three phases add up to.
+      const policy = HttpTimeoutPolicy(
+        connect: Duration(seconds: 10),
+        response: Duration(seconds: 10),
+        body: Duration(seconds: 10),
+        total: Duration(milliseconds: 200),
+      );
+      final client = createHttpClient(policy);
+      final uhr = Stopwatch()..start();
+      try {
+        await expectLater(
+          sendTextRequest(
+            client,
+            method: 'GET',
+            uri: Uri.parse('http://127.0.0.1:${server.port}/hang'),
+            policy: policy,
+            operation: 'test.total',
+          ),
+          throwsA(isA<TimeoutException>()),
+        );
+      } finally {
+        uhr.stop();
+        client.close(force: true);
+      }
+      expect(uhr.elapsed, lessThan(const Duration(seconds: 5)));
+    },
+  );
+
+  test(
     'sendTextRequest folgt Redirects NICHT — der Auth-Header leckt nicht ans '
     'Redirect-Ziel (Sicherheits-Audit 2026-08-09)',
     () async {
@@ -167,5 +203,22 @@ void main() {
       const Duration(seconds: 60),
     );
     expect(HttpTimeoutPolicy.mealAnalysis.body, const Duration(seconds: 15));
+
+    // Review P10-02: the phases run one after another, so their SUM is what a
+    // request costs. `total` is the ceiling on that sum, and it has to be
+    // BELOW the sum or it is decoration.
+    expect(HttpTimeoutPolicy.mirror.total, const Duration(seconds: 10));
+    expect(HttpTimeoutPolicy.openFoodFacts.total, const Duration(seconds: 20));
+    for (final policy in const <HttpTimeoutPolicy>[
+      HttpTimeoutPolicy.mirror,
+      HttpTimeoutPolicy.openFoodFacts,
+    ]) {
+      expect(policy.total, isNotNull);
+      expect(policy.total!, lessThan(policy.connect + policy.response +
+          policy.body));
+    }
+    // The photo path keeps its ceiling ON PURPOSE (P10-02 is about the product
+    // search): total == the phase sum, so nothing about analyze-meal changed.
+    expect(HttpTimeoutPolicy.mealAnalysis.total, const Duration(seconds: 90));
   });
 }

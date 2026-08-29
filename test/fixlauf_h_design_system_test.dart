@@ -873,7 +873,11 @@ void main() {
       expect(find.byKey(const ValueKey('filter-chip-dot')), findsOneWidget);
     });
 
-    renderMatrix('Selektion ist immer forest + onForest, Radius rChip',
+    // Since P9-02 the language is `ink` + `bg` instead of `forest` +
+    // `onForest`: forest is itself a dark surface and carried the selected
+    // state at 1.33:1 in dark mode. The numbers live in
+    // review0829_selection_contrast_test.
+    renderMatrix('Selektion ist immer ink + bg, Radius rChip',
         (tester, c) async {
       final t = c.t;
       for (final tone in FilterChipTone.values) {
@@ -891,12 +895,12 @@ void main() {
           padding: _rand,
         );
         final material = materialOf(tester);
-        expect(material.color, t.forest, reason: '$tone');
+        expect(material.color, t.ink, reason: '$tone');
         expect(material.borderRadius, BorderRadius.circular(rChip));
         final text = tester.widget<Text>(find.text('Alle'));
-        expect(text.style?.color, t.onForest);
+        expect(text.style?.color, t.bg);
         final icon = tester.widget<Icon>(find.byIcon(Icons.star_rounded));
-        expect(icon.color, t.onForest);
+        expect(icon.color, t.bg);
       }
     });
 

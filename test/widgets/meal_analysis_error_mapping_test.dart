@@ -180,12 +180,22 @@ void main() {
             l10n ?? _de,
           );
 
-      expect(map('provider_timeout'), _de.foodAnalysisTimeoutMessage);
+      // P6-01c: `request_timeout` (408) is the server's answer to a body that
+      // trickles in — the same situation as `provider_timeout` from the
+      // user's side, so it gets the same text, not the generic fallback.
+      for (final code in const ['provider_timeout', 'request_timeout']) {
+        expect(map(code), _de.foodAnalysisTimeoutMessage, reason: code);
+        expect(map(code, _en), _en.foodAnalysisTimeoutMessage, reason: code);
+        expect(map(code), isNot(_fallback), reason: code);
+      }
       for (final code in const [
         'provider_error',
         'provider_invalid_response',
         'provider_invalid_json',
         'provider_empty_response',
+        // P6-06: the server rejects an answer that carries no usable value at
+        // all instead of delivering it as a 200 full of nulls.
+        'provider_unusable_result',
         'invalid_result',
       ]) {
         expect(map(code), _de.foodAnalysisProviderErrorMessage,

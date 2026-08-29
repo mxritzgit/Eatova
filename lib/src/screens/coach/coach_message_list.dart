@@ -161,12 +161,18 @@ class _MessageView extends StatelessWidget {
                         onAdd: onAddRecipe,
                       )
                     else if (fromUser)
-                      Text(
-                        message.content,
-                        style: AppType.ui(
-                          13.5,
-                          color: t.onForest,
-                          height: 1.5,
+                      // Selectable like the coach bubble (P5-03): once the
+                      // composer clears the field, this bubble is the only
+                      // copy of what the user wrote. If the send failed, plain
+                      // `Text` left retyping as the only way back.
+                      SelectionArea(
+                        child: Text(
+                          message.content,
+                          style: AppType.ui(
+                            13.5,
+                            color: t.onForest,
+                            height: 1.5,
+                          ),
                         ),
                       )
                     else

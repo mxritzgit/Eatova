@@ -800,11 +800,14 @@ const PROVIDER_CASES: ProviderCase[] = [
     digest: false,
   },
   {
+    // P6-04b: the marker rides in finish_reason and in usage, the two
+    // provider-controlled values this path logs. Without it assertRedacted was
+    // vacuous for the one provider case that actually writes a log line.
     name: 'Modell schreibt nichts in content',
     options: {
       providerJson: {
-        choices: [{ finish_reason: 'length', message: { content: '   ' } }],
-        usage: { total_tokens: 4096 },
+        choices: [{ finish_reason: PROVIDER_ECHO, message: { content: '   ' } }],
+        usage: { total_tokens: 4096, note: PROVIDER_ECHO },
       },
     },
     status: 502,
@@ -853,6 +856,166 @@ for (const testCase of PROVIDER_CASES) {
     }
   });
 }
+
+// P6-04b: closing the gap above must not cost the diagnostics. finish_reason
+// and usage stay in the log — as an allowlist, so a provider-chosen string
+// cannot ride along.
+Deno.test('P6-04b: bekannter finish_reason und Token-Zahlen bleiben im Log', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{ finish_reason: 'length', message: { content: '   ' } }],
+      usage: { total_tokens: 4096, prompt_tokens: 1200, note: PROVIDER_ECHO },
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 502, 'Status');
+    const text = await res.text();
+    const logged = logs.text();
+    assert(logged.includes('"finishReason":"length"'), `finishReason fehlt im Log: ${logged}`);
+    assert(logged.includes('4096'), `total_tokens fehlt im Log: ${logged}`);
+    assert(logged.includes('1200'), `prompt_tokens fehlt im Log: ${logged}`);
+    // The allowlist drops everything else the provider put into `usage`.
+    assert(!logged.includes('note'), `nicht gelistetes usage-Feld im Log: ${logged}`);
+    assertRedacted(logged, text, 'provider_empty_response');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-04b: unbekannter finish_reason wird kategorisiert, nicht durchgereicht', async () => {
+  const stub = installFetch({
+    providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: '   ' } }] },
+  });
+  const logs = captureConsole();
+  try {
+    await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const logged = logs.text();
+    assert(logged.includes('"finishReason":"other"'), `Kategorie fehlt im Log: ${logged}`);
+    assert(!logged.includes(PROVIDER_ECHO), `Provider-Rohtext im Log: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-06 (review 2026-08-29): valid JSON that carries none of the contract's
+// fields used to leave here as a 200 with every number null — and without a
+// single log line, so a model downgrade was invisible to the operator.
+// ---------------------------------------------------------------------------
+
+Deno.test('P6-06: schemafremde Modellantwort -> 502 statt 200 mit lauter null', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{ message: { content: JSON.stringify({ ok: true, answer: 'Ich bin ein Sprachmodell.' }) } }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const text = await res.text();
+    assertEquals(res.status, 502, 'Status');
+    assertEquals((JSON.parse(text) as JsonRecord).error, 'provider_unusable_result', 'Fehlercode');
+    const logged = logs.text();
+    assert(logged.includes('unusable model result'), `Betreiber-Logzeile fehlt: ${logged}`);
+    // Field NAMES from our own constant, never values from the model.
+    assert(logged.includes('caloriesKcal'), `fehlende Pflichtfelder fehlen im Log: ${logged}`);
+    assert(!logged.includes('Sprachmodell'), `Modellinhalt im Log: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-06: ein einzelnes fehlendes Feld bleibt 200 — mit Warnung fuer den Betreiber', async () => {
+  // A model that omits estimatedGrams still delivered an analysis; only the
+  // one that delivers nothing usable is rejected.
+  const stub = installFetch({
+    providerJson: {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            mealName: 'Apfel',
+            caloriesKcal: 94,
+            kcalPer100G: 52,
+            items: [{ name: 'Apfel', grams: 180, caloriesKcal: 94, kcalPer100G: 52 }],
+          }),
+        },
+      }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const body = await res.json() as JsonRecord;
+    assertEquals(res.status, 200, 'Status');
+    assertEquals((body.result as JsonRecord).mealName, 'Apfel', 'Ergebnis bleibt unangetastet');
+    const logged = logs.text();
+    assert(logged.includes('incomplete model result'), `Warnung fehlt: ${logged}`);
+    assert(logged.includes('estimatedGrams'), `fehlendes Feld nicht benannt: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-06: nur items tragen Energie -> 200, keine Ablehnung', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            mealName: 'Teller',
+            items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
+          }),
+        },
+      }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    const logged = logs.text();
+    assert(!logged.includes('unusable model result'), `Item-Energie zaehlt als Analyse: ${logged}`);
+    assert(logged.includes('incomplete model result'), `fehlende Pflichtfelder muessen warnen: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-06: vollstaendige Modellantwort loest weder Warnung noch Ablehnung aus', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            mealName: 'Teller',
+            caloriesKcal: 780,
+            estimatedGrams: 300,
+            kcalPer100G: 260,
+            items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
+          }),
+        },
+      }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    const logged = logs.text();
+    assert(!logged.includes('incomplete model result'), `vollstaendige Antwort warnt: ${logged}`);
+    assert(!logged.includes('unusable model result'), `vollstaendige Antwort wird abgelehnt: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
 
 interface BodyCase {
   name: string;

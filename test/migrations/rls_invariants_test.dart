@@ -49,12 +49,14 @@ class Erwartung {
     required this.besitzerSpalte,
     required this.clientBefehle,
     required this.grund,
+    this.spaltenRechte = const {},
   });
 
   /// Server-only table: no owner column, no policy, no client privilege.
   const Erwartung.nurServer({required this.grund})
       : besitzerSpalte = null,
-        clientBefehle = const {};
+        clientBefehle = const {},
+        spaltenRechte = const {};
 
   /// The column carrying the row owner; every policy must compare it against
   /// `auth.uid()`.
@@ -64,10 +66,42 @@ class Erwartung {
   /// must have neither a policy nor a grant.
   final Set<String> clientBefehle;
 
+  /// Column grants `authenticated` holds: privilege -> the EXACT column set.
+  /// Empty means the table carries no column grant at all — anything else is a
+  /// finding, and so is a single extra column in a listed privilege.
+  final Map<String, Set<String>> spaltenRechte;
+
   final String grund;
 
   bool get nurServer => besitzerSpalte == null;
 }
+
+/// The `profiles` columns `ProfileSync.save` writes, from 20260819100000 plus
+/// `manual_energy` (20260828100000). This list is the point of the whole
+/// column-grant exercise: everything NOT in it — `email`, `display_name`,
+/// `avatar_url`, `created_at`, `updated_at`,
+/// `daily_kcal_goal_before_live_reset` — is set by a trigger, a default or the
+/// server alone, and a client that could write it would be mass assignment.
+const Set<String> _profilSchreibSpalten = {
+  'id',
+  'weight_kg',
+  'height_cm',
+  'age_years',
+  'sex',
+  'activity_level',
+  'target_weight_kg',
+  'daily_steps_goal',
+  'daily_kcal_goal',
+  'daily_water_goal_ml',
+  'daily_sleep_goal_minutes',
+  'protein_goal_g',
+  'carbs_goal_g',
+  'fat_goal_g',
+  'weight_goal',
+  'diet_preference',
+  'onboarding_completed',
+  'manual_energy',
+};
 
 const Set<String> _voll = {'select', 'insert', 'update', 'delete'};
 
@@ -75,9 +109,17 @@ const Set<String> _voll = {'select', 'insert', 'update', 'delete'};
 const Map<String, Erwartung> _erwartet = {
   'profiles': Erwartung(
     besitzerSpalte: 'id',
-    clientBefehle: _voll,
+    clientBefehle: {'select', 'insert', 'update'},
+    spaltenRechte: {
+      'insert': _profilSchreibSpalten,
+      'update': _profilSchreibSpalten,
+    },
     grund: 'Profil und Ziele; die App schreibt sie direkt. Besitzerspalte ist '
-        'die PK `id` (= auth.users.id), nicht user_id.',
+        'die PK `id` (= auth.users.id), nicht user_id. KEIN delete (P7-05, '
+        'Review 2026-08-29): Kontoloeschen laeuft ueber rpc(delete_account) '
+        'und den `on delete cascade` von auth.users; das ungenutzte Recht '
+        'konnte nur die server-eigene Spalte '
+        'daily_kcal_goal_before_live_reset unwiederbringlich vernichten.',
   ),
   'logged_meals': Erwartung(
     besitzerSpalte: 'user_id',
@@ -337,6 +379,86 @@ List<String> regelClientRechte(SchemaState s, Map<String, Erwartung> soll) {
   return funde;
 }
 
+/// P7-02b: [regelClientRechte] only ever compared privilege NAMES, so
+/// `grant update (email, display_name) on public.profiles to authenticated` —
+/// mass assignment, the exact class 20260819100000 was written to close — went
+/// through green: `update` was expected, and which COLUMNS it covered was
+/// never looked at. This rule compares the column sets themselves.
+List<String> regelSpaltenRechte(SchemaState s, Map<String, Erwartung> soll) {
+  final funde = <String>[];
+  for (final name in (s.tabellen.keys.toList()..sort())) {
+    final erwartung = soll[name];
+    if (erwartung == null) continue; // regelTabellenMenge reports this
+    final ist = s.tabellen[name]!.spaltenRechte['authenticated'] ??
+        const <String, Set<String>>{};
+    final privs = <String>{...ist.keys, ...erwartung.spaltenRechte.keys}
+        .toList()
+      ..sort();
+    for (final priv in privs) {
+      final istSpalten = ist[priv] ?? const <String>{};
+      final sollSpalten = erwartung.spaltenRechte[priv] ?? const <String>{};
+      final zuviel = istSpalten.difference(sollSpalten).toList()..sort();
+      final fehlt = sollSpalten.difference(istSpalten).toList()..sort();
+      if (zuviel.isNotEmpty) {
+        funde.add(
+          'Tabelle `$name`: `authenticated` darf `$priv` auf '
+          '${zuviel.join(', ')} — diese Spalte(n) stehen in keiner Erwartung. '
+          'Genau so sieht Mass Assignment aus: die Rolle schreibt ein Feld, '
+          'das die App nie schreibt (${erwartung.grund})',
+        );
+      }
+      if (fehlt.isNotEmpty) {
+        funde.add(
+          'Tabelle `$name`: `authenticated` fehlt `$priv` auf '
+          '${fehlt.join(', ')} — ohne Spalten-Grant scheitert der Upsert der '
+          'App mit 42501',
+        );
+      }
+    }
+  }
+  return funde;
+}
+
+/// P7-07: exactly one of the 35 migrations opened its own transaction
+/// (20260803120000). Supabase already runs each file in one, so the inner
+/// `commit;` ENDS the outer one — everything after it would run
+/// unprotected, and a failure could no longer roll the file back. Harmless
+/// there because nothing follows the commit, but it must not come back.
+List<String> regelKeineTransaktionsklammer(Map<String, String> quellen) {
+  const klammern = {
+    'begin',
+    'start transaction',
+    'commit',
+    'end',
+    'rollback',
+  };
+  final funde = <String>[];
+  for (final datei in (quellen.keys.toList()..sort())) {
+    if (kTransaktionsklammerErlaubt.containsKey(datei)) continue;
+    for (final stmt in zerlegeSql(quellen[datei]!)) {
+      final l = stmt.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
+      if (klammern.contains(l) || l.startsWith('savepoint ')) {
+        funde.add(
+          '$datei: `$l;` — eine Migration laeuft bereits in der Transaktion '
+          'des Migrationslaufs. Ein eigenes `commit` beendet DIESE, sodass '
+          'alles danach ungeschuetzt laeuft und der Lauf die Datei nicht mehr '
+          'zuruecknehmen kann.',
+        );
+      }
+    }
+  }
+  return funde;
+}
+
+/// Migrations that may carry their own transaction, with the reason. Grows
+/// only for a documented, historical case — new migrations must not appear.
+const Map<String, String> kTransaktionsklammerErlaubt = {
+  '20260803120000_drop_removed_feature_tables.sql':
+      'historical (P7-07, review 2026-08-29): applied and registered long ago, '
+          'and nothing follows its `commit;`, so the damage is in the past. '
+          'Migrations are immutable once applied, so the file stays as it is.',
+};
+
 List<String> regelFremdeRollen(SchemaState s) {
   final funde = <String>[];
   for (final name in (s.tabellen.keys.toList()..sort())) {
@@ -382,16 +504,18 @@ List<PolicyState> _sortiert(SchemaState s) =>
 
 void main() {
   late SchemaState schema;
+  late Map<String, String> quellen;
 
   setUpAll(() {
-    schema = leseSchema();
+    quellen = leseMigrationsQuellen();
+    schema = schemaAusQuellen(quellen);
   });
 
   group('Der Waechter sieht die ganze Historie', () {
     test('alle Migrationen werden eingelesen', () {
       expect(
         schema.dateien.length,
-        greaterThanOrEqualTo(35),
+        greaterThanOrEqualTo(36),
         reason: 'supabase/migrations/ wurde nicht (vollstaendig) gefunden — '
             'aufgeloest von ${Uri.base.toFilePath()}',
       );
@@ -465,6 +589,44 @@ void main() {
         reason: 'PostgreSQL prueft Rechte VOR RLS. Ein Recht fuer `anon` '
             'macht die Tabelle unabhaengig von jeder Policy erreichbar.',
       );
+    });
+
+    test('die Spalten-Grants decken genau die Spalten der Erwartung', () {
+      expect(
+        regelSpaltenRechte(schema, _erwartet),
+        isEmpty,
+        reason: 'Ein Spalten-Grant ist die zweite Haelfte des Mass-Assignment-'
+            'Schutzes: `update` allein sagt nichts darueber, WELCHE Spalte '
+            'der Client schreiben darf.',
+      );
+    });
+  });
+
+  group('Migrationshygiene', () {
+    test('keine Migration klammert sich in eine eigene Transaktion', () {
+      expect(
+        regelKeineTransaktionsklammer(quellen),
+        isEmpty,
+        reason: 'Der Migrationslauf haelt bereits eine Transaktion; ein '
+            'eigenes `commit;` beendet sie mitten in der Datei.',
+      );
+    });
+
+    test('die Ausnahmelisten ueberleben ihre Dateien nicht', () {
+      // An allowlist entry for a file that is gone would silently widen the
+      // rule for a name someone could reuse; a mistyped label would waive
+      // nothing and hide that fact.
+      for (final datei in [
+        ...kTransaktionsklammerErlaubt.keys,
+        ...kDoAusnahmen.keys,
+      ]) {
+        expect(quellen.containsKey(datei), isTrue, reason: datei);
+      }
+      for (final eintrag in kDoAusnahmen.entries) {
+        for (final label in eintrag.value.keys) {
+          expect(kDoPruefungen.keys, contains(label), reason: eintrag.key);
+        }
+      }
     });
   });
 
@@ -670,6 +832,194 @@ end;
           'using (true);');
       expect(regelReplayVollstaendig(s), isNotEmpty);
     });
+
+    // -----------------------------------------------------------------------
+    // P7-02b, Luecke 1: der DO-Block. `'do '` stand in _harmlos, also lief
+    // GENAU diese Migration bis 2026-08-29 gruen durch.
+    // -----------------------------------------------------------------------
+    group('DO-Bloecke sind kein blinder Fleck mehr', () {
+      test('eine Policy aus einem DO-Block heraus faellt auf', () {
+        final s = schemaAusQuellen({
+          '00_test.sql': gesund,
+          '01_sabotage.sql': r'''
+do $$
+begin
+  execute 'create policy "notizen_alle" on public.notizen for select '
+       || 'to authenticated using (true)';
+end $$;
+''',
+        });
+        expect(
+          regelReplayVollstaendig(s),
+          contains(contains('DO-Block enthaelt `POLICY`')),
+        );
+      });
+
+      test('ein Grant an `anon` aus einem DO-Block heraus faellt auf', () {
+        final s = schemaAusQuellen({
+          '00_test.sql': gesund,
+          '01_sabotage.sql': r'''
+do $$
+begin
+  execute 'grant select on public.notizen to anon';
+end $$;
+''',
+        });
+        expect(
+          regelReplayVollstaendig(s),
+          contains(contains('GRANT/REVOKE')),
+        );
+      });
+
+      test('dynamisches SQL im DO-Block faellt auch ohne Stichwort auf', () {
+        // The evasion the keyword scan alone cannot see: the text is only
+        // assembled at runtime.
+        final s = bau(r'''
+do $$
+begin
+  execute 'gr' || 'ant select on public.notizen to anon';
+end $$;
+''');
+        expect(
+          regelReplayVollstaendig(s),
+          contains(contains('dynamisches SQL')),
+        );
+      });
+
+      test('die Bestandsform — Constraint-Probe ohne Dynamik — bleibt gruen',
+          () {
+        final s = bau('''
+$gesund
+do \$\$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'notizen_len') then
+    alter table public.notizen add constraint notizen_len
+      check (char_length(text) <= 500);
+  end if;
+end \$\$;
+''');
+        expect(regelReplayVollstaendig(s), isEmpty);
+      });
+
+      test('ein erklaerender Kommentar im DO-Block loest nicht aus', () {
+        // Same trap as everywhere else: the block explains itself in prose.
+        final s = bau(r'''
+do $$
+begin
+  -- grant select on public.notizen to anon  (frueher, heute verboten)
+  perform 1;
+end $$;
+''');
+        expect(regelReplayVollstaendig(s), isEmpty);
+      });
+    });
+
+    // -----------------------------------------------------------------------
+    // P7-02b, Luecke 2: Spalten-Grants wurden nur nach Privilegienname
+    // verglichen — die Mass-Assignment-Klasse lief gruen durch.
+    // -----------------------------------------------------------------------
+    group('Spalten-Grants werden wirklich verglichen', () {
+      const spaltenSoll = {
+        'notizen': Erwartung(
+          besitzerSpalte: 'user_id',
+          clientBefehle: _voll,
+          spaltenRechte: {
+            'update': {'text'},
+          },
+          grund: 'Testtabelle: nur `text` ist vom Client schreibbar',
+        ),
+      };
+
+      /// Same table, but UPDATE narrowed to one column — the shape
+      /// 20260819100000 gave `profiles`.
+      final spaltenGesund = gesund.replaceFirst(
+        'grant select, insert, update, delete on public.notizen '
+            'to authenticated;',
+        'grant select, insert, delete on public.notizen to authenticated;\n'
+            'grant update (text) on public.notizen to authenticated;',
+      );
+
+      test('der eingeschraenkte Ausgangsfall ist sauber', () {
+        final s = bau(spaltenGesund);
+        expect(regelClientRechte(s, spaltenSoll), isEmpty);
+        expect(regelSpaltenRechte(s, spaltenSoll), isEmpty);
+      });
+
+      test('eine zusaetzlich freigegebene Spalte faellt auf', () {
+        // The sabotage of the review: `grant update (email, display_name) …`
+        // — the privilege name is unchanged, only its column set grows.
+        final s = schemaAusQuellen({
+          '00_test.sql': spaltenGesund,
+          '01_sabotage.sql':
+              'grant update (user_id) on public.notizen to authenticated;',
+        });
+        expect(
+          regelClientRechte(s, spaltenSoll),
+          isEmpty,
+          reason: 'genau deshalb braucht es die neue Regel: die alte sieht '
+              'nur den Privilegiennamen `update` und bleibt gruen',
+        );
+        expect(
+          regelSpaltenRechte(s, spaltenSoll),
+          contains(contains('user_id')),
+        );
+      });
+
+      test('ein weggefallener Spalten-Grant faellt ebenso auf', () {
+        final s = bau(gesund.replaceFirst(
+          'grant select, insert, update, delete on public.notizen '
+              'to authenticated;',
+          'grant select, insert, delete on public.notizen to authenticated;',
+        ));
+        expect(regelSpaltenRechte(s, spaltenSoll),
+            contains(contains('fehlt `update`')));
+      });
+
+      test('eine Tabelle ohne erwartete Spalten-Grants darf keine haben', () {
+        final s = schemaAusQuellen({
+          '00_test.sql': gesund,
+          '01_sabotage.sql':
+              'grant update (user_id) on public.notizen to authenticated;',
+        });
+        expect(regelSpaltenRechte(s, soll), contains(contains('user_id')));
+      });
+    });
+
+    group('Transaktionsklammern in Migrationen', () {
+      test('ein eigenes begin/commit faellt auf', () {
+        expect(
+          regelKeineTransaktionsklammer({'01_x.sql': 'begin;\nselect 1;\ncommit;'}),
+          hasLength(2),
+        );
+      });
+
+      test('plpgsql-`begin`/`end` im Funktionsrumpf faellt NICHT auf', () {
+        expect(
+          regelKeineTransaktionsklammer({
+            '01_x.sql': r'''
+create or replace function public.f() returns void
+language plpgsql set search_path = public as $$
+begin
+  perform 1;
+end;
+$$;
+do $$ begin perform 1; end $$;
+''',
+          }),
+          isEmpty,
+        );
+      });
+
+      test('die dokumentierte Bestandsdatei bleibt ausgenommen', () {
+        expect(
+          regelKeineTransaktionsklammer({
+            '20260803120000_drop_removed_feature_tables.sql':
+                'begin;\ndrop table if exists public.x cascade;\ncommit;',
+          }),
+          isEmpty,
+        );
+      });
+    });
   });
 
   group('Ausdrucksnormalisierung', () {
@@ -688,6 +1038,43 @@ end;
       expect(
         normalisiereAusdruck('auth.uid() = owner_id'),
         isNot(besitzerBedingung('user_id')),
+      );
+    });
+
+    // P7-06: the InitPlan spelling PostgreSQL recommends for a `stable`
+    // function must read as the SAME condition, or the guard would forbid the
+    // performance fix instead of checking it.
+    test('`(select auth.uid())` ist dieselbe Bedingung wie `auth.uid()`', () {
+      expect(
+        normalisiereAusdruck('(select auth.uid()) = user_id'),
+        besitzerBedingung('user_id'),
+      );
+      expect(
+        normalisiereAusdruck('user_id = ( select auth.uid() )'),
+        besitzerBedingung('user_id'),
+      );
+    });
+
+    test('die InitPlan-Schreibweise macht `true` nicht unsichtbar', () {
+      final s = schemaAusQuellen({
+        '00_test.sql': '''
+create table public.n (id uuid, user_id uuid);
+alter table public.n enable row level security;
+create policy "n_select_own" on public.n for select to authenticated
+  using ((select true));
+grant select on public.n to authenticated;
+''',
+      });
+      const soll = {
+        'n': Erwartung(
+          besitzerSpalte: 'user_id',
+          clientBefehle: {'select'},
+          grund: 'Testtabelle',
+        ),
+      };
+      expect(
+        regelPolicyBedingungen(s, soll),
+        contains(contains('konstant wahr')),
       );
     });
   });

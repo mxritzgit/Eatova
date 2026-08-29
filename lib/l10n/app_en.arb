@@ -169,6 +169,8 @@
   "foodSearchMinCharsHint": "At least 2 characters, e.g. Dr Oetker Salami.",
   "foodSearchNoResultsHint": "No matching products found. Try a brand plus product name.",
   "foodSearchUnreachableHint": "OpenFoodFacts is currently unreachable.",
+  "foodSearchTimeoutHint": "The search took too long. Add the product manually for now.",
+  "foodSearchCanceledHint": "Search canceled.",
   "foodCameraPermissionError": "Couldn't open the camera. Check the permission.",
   "foodGalleryPermissionError": "Couldn't open the gallery. Check the permission.",
   "foodSectionSearchResults": "Search results",
@@ -551,6 +553,8 @@
   "coachComposerHintLimitReached": "Limit reached for today",
   "coachComposerHintListening": "Listening…",
   "coachComposerHintDefault": "Ask the AI coach…",
+  "coachComposerLengthHint": "{used}/{max} characters",
+  "coachComposerLengthReached": "Maximum length reached ({max} characters)",
   "coachQuotaHint": "{count, plural, one{1 question left today} other{{count} questions left today}}",
   "@coachQuotaHint": {
     "placeholders": {

@@ -13,8 +13,12 @@ import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import {
+  hasEnergyStatement,
   isRecord,
   kcalPer100GMismatch,
+  loggableFinishReason,
+  loggableUsage,
+  missingContractFields,
   normalizeMealResult,
   redactedContentMeta,
   unparseableShape,
@@ -349,6 +353,41 @@ export async function handleRequest(request: Request): Promise<Response> {
 
     const providerResult = await callOpenRouter(secrets, body, prompt, requestId, deadline);
     const result = normalizeMealResult(providerResult);
+
+    // P6-06: valid JSON that matches nothing in the contract used to leave as a
+    // 200 with every number null and no log line at all — the exact shape a
+    // model downgrade takes, invisible in function_logs while every gate was
+    // spent and the provider paid.
+    //
+    // Two different situations, two different answers:
+    //  - no energy statement anywhere: this is not an analysis. The client
+    //    cannot log it either (the sheet's B7 guard refuses a 0-kcal result),
+    //    so a 200 would only dress a provider failure up as an empty meal.
+    //    502, same family as provider_empty_response.
+    //  - some required field missing but kcal present: a usable analysis with
+    //    a gap. It stays a 200 — the model that omits estimatedGrams is not
+    //    the model that stopped understanding the task — and only warns.
+    // Only field NAMES are logged; they come from REQUIRED_MEAL_FIELDS, never
+    // from the answer (CWE-532).
+    const missingFields = missingContractFields(providerResult, result);
+    if (!hasEnergyStatement(result)) {
+      console.error('analyze-meal unusable model result', {
+        requestId,
+        model: OPENROUTER_MODEL,
+        missing: missingFields.join(','),
+        keyCount: Object.keys(providerResult).length,
+        itemCount: result.items.length,
+      });
+      throw new HttpError(502, 'provider_unusable_result', 'Analyse-Antwort war unvollständig.');
+    }
+    if (missingFields.length > 0) {
+      console.warn('analyze-meal incomplete model result', {
+        requestId,
+        model: OPENROUTER_MODEL,
+        missing: missingFields.join(','),
+        itemCount: result.items.length,
+      });
+    }
 
     // The three numbers come from the model independently and can contradict
     // each other (Review 2026-08-08, B1). The server only reports it: which
@@ -831,8 +870,11 @@ async function callOpenRouter(
     console.error('Empty model content', {
       requestId,
       model: OPENROUTER_MODEL,
-      finishReason,
-      usage: completion.usage,
+      // P6-04b: both values come from the provider, so both go through the
+      // allowlists in normalize.ts — this line is the one empty-answer
+      // diagnostic and used to pass them through unfiltered.
+      finishReason: loggableFinishReason(finishReason),
+      usage: loggableUsage(completion.usage),
     });
     throw new HttpError(502, 'provider_empty_response', 'Analyse-Antwort war leer.');
   }
@@ -849,7 +891,7 @@ async function callOpenRouter(
     console.error('Invalid model JSON', {
       requestId,
       model: OPENROUTER_MODEL,
-      finishReason,
+      finishReason: loggableFinishReason(finishReason),
       ...(await redactedContentMeta(rawContent)),
       shape: unparseableShape(jsonText, parseError),
     });

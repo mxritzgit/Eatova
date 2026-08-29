@@ -6,6 +6,9 @@ import '../../config/legal_links.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/motion.dart';
+// Only for [SelectionTone]: these pills are a clone of [SegmentedPill] and
+// must speak the same selection language, not a second one.
+import '../../widgets/design/controls.dart';
 
 // ---------------------------------------------------------------------------
 // Controls of the settings page. Package-local clones because the shared
@@ -283,8 +286,12 @@ class _SettingsChoicePill<T> extends StatelessWidget {
                             vertical: 5,
                           ),
                           decoration: BoxDecoration(
-                            color:
-                                wert == value ? t.forest : Colors.transparent,
+                            // App-wide selection language ([SelectionTone]):
+                            // `forest` measured 1.10:1 against this `tile`
+                            // track in dark mode.
+                            color: wert == value
+                                ? t.selectedFill
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(7),
                           ),
                           child: Text(
@@ -292,7 +299,7 @@ class _SettingsChoicePill<T> extends StatelessWidget {
                             style: AppType.ui(
                               11,
                               weight: FontWeight.w600,
-                              color: wert == value ? t.onForest : t.ink2,
+                              color: wert == value ? t.onSelected : t.ink2,
                             ),
                           ),
                         ),

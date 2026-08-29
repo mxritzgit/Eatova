@@ -95,6 +95,63 @@ export function optionalInt(value: unknown, min: number, max: number): number | 
   return number === null ? null : Math.round(number);
 }
 
+// ---------------------------------------------------------------------------
+// P6-06 (review 2026-08-29): telling "a field is missing" from "this is not an
+// analysis".
+//
+// normalizeMealResult rejects nothing on purpose — a missing value stays
+// missing rather than becoming an invented 0 (B1). The consequence was that
+// valid JSON WITHOUT any of the contract's fields left the function as a 200
+// with every number null and not a single log line: all gates spent, the
+// provider paid, and the shape a model downgrade takes invisible to the
+// operator. These two helpers give index.ts the two answers it needs; the
+// decision itself (warn vs. 502) lives there.
+// ---------------------------------------------------------------------------
+
+/** The fields BASE_PROMPT marks as required. Macros, confidence, explanation
+ *  and items may legitimately be absent, so they are NOT in here. */
+export const REQUIRED_MEAL_FIELDS = [
+  'mealName',
+  'caloriesKcal',
+  'estimatedGrams',
+  'kcalPer100G',
+] as const;
+
+/**
+ * Which required fields the model did not deliver usably.
+ *
+ * The names come from REQUIRED_MEAL_FIELDS, never from the answer: a model
+ * could hide photo- or hint-derived content in its own keys, and this list is
+ * written to the log (CWE-532). `mealName` is read from the RAW answer because
+ * the normalised result always carries the 'Mahlzeit' fallback — which is
+ * exactly the case to detect; the numbers are read from the result, so
+ * "usable" means the same here as everywhere else.
+ */
+export function missingContractFields(
+  raw: Record<string, unknown>,
+  result: NormalizedMealResult,
+): string[] {
+  const missing: string[] = [];
+  if (typeof raw.mealName !== 'string' || !raw.mealName.trim()) missing.push('mealName');
+  if (result.caloriesKcal === null) missing.push('caloriesKcal');
+  if (result.estimatedGrams === null) missing.push('estimatedGrams');
+  if (result.kcalPer100G === null) missing.push('kcalPer100G');
+  return missing;
+}
+
+/**
+ * Does the answer carry ANY energy statement — top level or in one item?
+ *
+ * This is the line between a thin analysis (still a 200: the client can work
+ * with kcal alone) and an answer that is not an analysis at all. An explicit 0
+ * counts as a statement: whether it is loggable is the client's B7 decision,
+ * not the server's.
+ */
+export function hasEnergyStatement(result: NormalizedMealResult): boolean {
+  if (result.caloriesKcal !== null || result.kcalPer100G !== null) return true;
+  return result.items.some((item) => item.caloriesKcal !== null || item.kcalPer100G !== null);
+}
+
 export interface KcalRatioMismatch {
   /** What the model claimed as kcalPer100G. */
   reported: number;
@@ -136,6 +193,40 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 // food photo and user hint, so index.ts logs only the allowlisted metadata
 // from these two helpers, kept here so normalize_test.ts can prove it.
 // ---------------------------------------------------------------------------
+
+/** The finish_reason values the OpenAI/OpenRouter contract defines. */
+const KNOWN_FINISH_REASONS = [
+  'stop',
+  'length',
+  'content_filter',
+  'tool_calls',
+  'function_call',
+  'error',
+];
+
+/**
+ * P6-04b: `finish_reason` and `usage` are as provider-controlled as the model
+ * output next to them, and the two "the model gave us nothing usable" log
+ * lines wrote both of them through unfiltered. Reported as an allowlist: the
+ * contract's enum value, or the category 'other' for anything else. An
+ * unlisted value stays visible as 'other' — enough to notice, without letting
+ * a provider-chosen string into the log (CWE-532).
+ */
+export function loggableFinishReason(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return typeof value === 'string' && KNOWN_FINISH_REASONS.includes(value) ? value : 'other';
+}
+
+/** Same for `usage`: the three token counters, as numbers, nothing else. */
+export function loggableUsage(value: unknown): Record<string, number> | undefined {
+  if (!isRecord(value)) return undefined;
+  const counters: Record<string, number> = {};
+  for (const key of ['prompt_tokens', 'completion_tokens', 'total_tokens']) {
+    const count = value[key];
+    if (typeof count === 'number' && Number.isFinite(count)) counters[key] = count;
+  }
+  return Object.keys(counters).length > 0 ? counters : undefined;
+}
 
 export type UnparseableShape = 'empty' | 'not_json' | 'not_object';
 

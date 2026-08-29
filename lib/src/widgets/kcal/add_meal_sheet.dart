@@ -12,6 +12,7 @@ import '../../models/meal_analysis_request.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/favorites_view.dart';
+import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
@@ -230,10 +231,29 @@ class _AddMealSheetState extends State<AddMealSheet> {
   bool _isSearchingProducts = false;
   String? _productSearchMessage;
 
-  /// True only after a definitively empty (error-free) search — the one state
-  /// that shows the manual-entry CTA. Network errors and the min-chars hint
-  /// mean "search broken/too short", not "does not exist" (spec 2026-08-13).
+  /// True only after a definitively empty (error-free) search — one of the two
+  /// states that show the manual-entry CTA. Network errors and the min-chars
+  /// hint mean "search broken/too short", not "does not exist" (spec
+  /// 2026-08-13).
   bool _searchCameUpEmpty = false;
+
+  /// True after the search RAN OUT — the total deadline expired, or the user
+  /// hit cancel (review P10-02).
+  ///
+  /// Deliberately not folded into [_searchCameUpEmpty]: giving up says nothing
+  /// about whether the product exists, and that distinction still drives the
+  /// message. It shares only the CTA — someone who waited 18 s wants to log
+  /// their meal, not diagnose a network.
+  bool _searchGaveUp = false;
+
+  /// Definitively nothing found OR the search gave up: both hand the user the
+  /// manual form. A 429 and the min-chars hint deliberately do not.
+  bool get _offerManualEntry => _searchCameUpEmpty || _searchGaveUp;
+
+  /// True once [_productSearchSlowAfter] passed with the search still running
+  /// — shows the "taking longer" line plus the cancel button.
+  bool _searchIsSlow = false;
+  Timer? _searchSlowTimer;
 
   /// Did the user trigger the search explicitly (magnifier/enter)? Only then
   /// does a fragment below [_autoSearchMinChars] count as an active search.
@@ -266,6 +286,26 @@ class _AddMealSheetState extends State<AddMealSheet> {
   static const Duration _productSearchRetryDelay = Duration(milliseconds: 600);
   static const int _productSearchMaxAttempts = 3;
   static const Duration _justAddedFadeDelay = Duration(seconds: 2);
+
+  /// THE ceiling on one search cycle — every attempt, every retry pause, every
+  /// leg inside them (review P10-02).
+  ///
+  /// Each stage used to carry its own timeout and nothing carried the chain:
+  /// mirror 16 s + rotation 3 s + mirror retry 16 s + OFF-de 32 s + OFF-world
+  /// 32 s = 99 s per attempt, times three attempts plus two 600 ms pauses =
+  /// 298.2 s of bare spinner. The service layer now caps each chain too, but
+  /// this is the number the USER is promised.
+  ///
+  /// Tighter than the service caps on purpose: a fast failure still gets its
+  /// three attempts (≈1.2 s), while a chain that hangs is over long before its
+  /// legs would have finished arguing.
+  static const Duration _productSearchCycleBudget = Duration(seconds: 18);
+
+  /// After this long the loading state gets the "taking longer" line plus a
+  /// cancel button — the same gesture (and the same wording,
+  /// `foodAnalysisSlowHint`) the photo scan uses at
+  /// [MealAnalysisSheet.slowAfter], scaled to the shorter ceiling here.
+  static const Duration _productSearchSlowAfter = Duration(seconds: 6);
 
   /// Shortest input worth a search at all — applies to the explicit path
   /// (magnifier/enter).
@@ -320,6 +360,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   @override
   void dispose() {
     _productSearchDebounce?.cancel();
+    _searchSlowTimer?.cancel();
     for (final t in _justAddedTimers.values) {
       t.cancel();
     }
@@ -426,14 +467,17 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
     if (query.length < _autoSearchMinChars) {
       _productSearchRequestId++;
+      _searchSlowTimer?.cancel();
       setState(() {
         // New input revokes the magnifier/enter unlock: the previous hits
         // belong to a different term.
         _explicitSearchRequested = false;
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = null;
         _searchCameUpEmpty = false;
+        _searchGaveUp = false;
       });
       return;
     }
@@ -466,6 +510,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = context.l10n.foodSearchMinCharsHint;
         _searchCameUpEmpty = false;
+        _searchGaveUp = false;
       });
       return;
     }
@@ -477,24 +522,30 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final cached = _productSearchCache[cacheKey];
     if (cached != null) {
       _productSearchRequestId++;
+      _searchSlowTimer?.cancel();
       setState(() {
         _productSuggestions = cached;
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSearchMessage = cached.isEmpty
             ? context.l10n.foodSearchNoResultsHint
             : null;
         _searchCameUpEmpty = cached.isEmpty;
+        _searchGaveUp = false;
       });
       return;
     }
     // Known empty search: answer immediately, no retry cycle.
     if (_emptyQueryCache.contains(cacheKey)) {
       _productSearchRequestId++;
+      _searchSlowTimer?.cancel();
       setState(() {
         _productSuggestions = const <ProductSearchResult>[];
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSearchMessage = context.l10n.foodSearchNoResultsHint;
         _searchCameUpEmpty = true;
+        _searchGaveUp = false;
       });
       return;
     }
@@ -502,8 +553,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final requestId = ++_productSearchRequestId;
     setState(() {
       _isSearchingProducts = true;
+      _searchIsSlow = false;
+      _searchGaveUp = false;
       _productSearchMessage = null;
     });
+    _armSlowHint(requestId);
 
     try {
       final suggestions = await _searchWithRetry(query, requestId);
@@ -512,13 +566,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
           query != _searchController.text.trim()) {
         return;
       }
+      _searchSlowTimer?.cancel();
       setState(() {
         _productSuggestions = suggestions;
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSearchMessage = suggestions.isEmpty
             ? context.l10n.foodSearchNoResultsHint
             : null;
         _searchCameUpEmpty = suggestions.isEmpty;
+        _searchGaveUp = false;
       });
     } catch (error) {
       if (!mounted) return;
@@ -527,21 +584,65 @@ class _AddMealSheetState extends State<AddMealSheet> {
         return;
       }
       final gedrosselt = _istDrosselung(error);
+      // The total deadline (or a chain deadline below it) ran out. Named on
+      // BOTH paths, typed one included: after 18 s of spinner an empty result
+      // zone is the one answer the user cannot act on.
+      final abgelaufen = error is TimeoutException;
+      _searchSlowTimer?.cancel();
       setState(() {
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         // Rate limiting is always named, even on the typed path
         // (showTransientError == false): otherwise the zone stays silent and
         // the next keystroke runs into the same limit.
         _productSearchMessage = gedrosselt
             ? context.l10n.searchRateLimited
+            : abgelaufen
+            ? context.l10n.foodSearchTimeoutHint
             : (showTransientError
                   ? context.l10n.foodSearchUnreachableHint
                   : null);
-        // Not "does not exist": rate limiting says nothing about the product,
-        // so it must not open the manual CTA.
+        // Not "does not exist": neither rate limiting nor a deadline says
+        // anything about the product.
         _searchCameUpEmpty = false;
+        _searchGaveUp = abgelaufen;
       });
     }
+  }
+
+  /// Arms the "taking longer" line for [requestId]. Fires only while THAT
+  /// search is still the current one and still running.
+  void _armSlowHint(int requestId) {
+    _searchSlowTimer?.cancel();
+    _searchSlowTimer = Timer(_productSearchSlowAfter, () {
+      if (!mounted ||
+          requestId != _productSearchRequestId ||
+          !_isSearchingProducts) {
+        return;
+      }
+      setState(() => _searchIsSlow = true);
+    });
+  }
+
+  /// The user's handle on a search that is taking too long — the counterpart
+  /// to the photo scan's cancel button.
+  ///
+  /// Bumping the request id is what actually ends it: the running chain has no
+  /// cancel token, so its answer is dropped on arrival (and its own deadlines
+  /// stop the sockets). The zone drops straight to the manual form, which is
+  /// what someone who just gave up on the search wants.
+  void _cancelProductSearch() {
+    _productSearchDebounce?.cancel();
+    _searchSlowTimer?.cancel();
+    _productSearchRequestId++;
+    setState(() {
+      _isSearchingProducts = false;
+      _searchIsSlow = false;
+      _productSuggestions = const <ProductSearchResult>[];
+      _productSearchMessage = context.l10n.foodSearchCanceledHint;
+      _searchCameUpEmpty = false;
+      _searchGaveUp = true;
+    });
   }
 
   /// Coarse classification like `auth_code_screen.dart`: the search paths
@@ -563,35 +664,59 @@ class _AddMealSheetState extends State<AddMealSheet> {
   ) async {
     Object? lastError;
     final cacheKey = _normalizeQuery(query);
+    // THE ceiling (P10-02): attempts, retry pauses and every leg inside them
+    // race against this one budget, so the cycle ends after
+    // [_productSearchCycleBudget] no matter how many stages still wanted a
+    // timeout of their own.
+    final deadline = ChainDeadline(
+      _productSearchCycleBudget,
+      operation: 'product.search.cycle',
+    );
 
-    for (var attempt = 0; attempt < _productSearchMaxAttempts; attempt++) {
-      try {
-        final suggestions = await widget.productService.searchProducts(query);
-        // A successful answer is authoritative, the empty one included: empty
-        // is information, not an error. Retrying it would fan one search out
-        // over mirror + OFF-de + OFF-world three times over. Retries stay
-        // where they belong: real errors.
-        if (suggestions.isEmpty) {
-          _emptyQueryCache.add(cacheKey);
-        } else {
-          _productSearchCache[cacheKey] = suggestions;
+    try {
+      for (var attempt = 0; attempt < _productSearchMaxAttempts; attempt++) {
+        try {
+          final suggestions = await deadline.guard(
+            widget.productService.searchProducts(query),
+          );
+          // A successful answer is authoritative, the empty one included:
+          // empty is information, not an error. Retrying it would fan one
+          // search out over mirror + OFF-de + OFF-world three times over.
+          // Retries stay where they belong: real errors.
+          if (suggestions.isEmpty) {
+            _emptyQueryCache.add(cacheKey);
+          } else {
+            _productSearchCache[cacheKey] = suggestions;
+          }
+          return suggestions;
+        } catch (error) {
+          lastError = error;
         }
-        return suggestions;
-      } catch (error) {
-        lastError = error;
+
+        final isLastAttempt = attempt == _productSearchMaxAttempts - 1;
+        // Rate limiting gets worse from retrying: bail out, the caller names
+        // it. An expired budget bails for the same reason — the next attempt
+        // would only be cut off again.
+        if (isLastAttempt ||
+            deadline.isExpired ||
+            _istDrosselung(lastError) ||
+            requestId != _productSearchRequestId) {
+          break;
+        }
+        // The pause counts against the budget too, or the ceiling would be
+        // the budget plus 600 ms per retry.
+        try {
+          await deadline.guard(Future<void>.delayed(_productSearchRetryDelay));
+        } on TimeoutException catch (error) {
+          lastError = error;
+          break;
+        }
       }
 
-      final isLastAttempt = attempt == _productSearchMaxAttempts - 1;
-      // Rate limiting gets worse from retrying: bail out, the caller names it.
-      if (isLastAttempt ||
-          _istDrosselung(lastError) ||
-          requestId != _productSearchRequestId) {
-        break;
-      }
-      await Future<void>.delayed(_productSearchRetryDelay);
+      throw lastError!;
+    } finally {
+      deadline.dispose();
     }
-
-    throw lastError!;
   }
 
   static String _normalizeQuery(String query) =>
@@ -870,15 +995,24 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (_isSearchingProducts && _productSuggestions.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: context.t.accent,
+        child: Column(
+          children: [
+            SizedBox(
+              key: const ValueKey('product-search-spinner'),
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: context.t.accent,
+              ),
             ),
-          ),
+            // Same gesture as the photo scan: after
+            // [_productSearchSlowAfter] the wait gets a name and a way out.
+            if (_searchIsSlow) ...[
+              const SizedBox(height: 12),
+              _SearchSlowHint(onCancel: _cancelProductSearch),
+            ],
+          ],
         ),
       );
     }
@@ -886,9 +1020,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
       return Column(
         children: [
           _HintBlock(text: _productSearchMessage!),
-          if (_searchCameUpEmpty)
-            // Definitively nothing found -> straight into the form, with the
-            // query prefilled as the name.
+          if (_offerManualEntry)
+            // Definitively nothing found, or the search gave up -> straight
+            // into the form, with the query prefilled as the name.
             TextButton.icon(
               key: const ValueKey('manual-entry-cta'),
               onPressed: () =>
@@ -1446,6 +1580,43 @@ class _ManualEntryRow extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// "Taking longer" line plus cancel, shown under the search spinner once
+/// `_AddMealSheetState._productSearchSlowAfter` passed.
+///
+/// Deliberately the same shape and the same ARB key as `_SlowHint` in
+/// `meal_analysis_sheet.dart`: one wording for "this is taking a while", so
+/// the photo scan and the product search speak with one voice. Its own widget
+/// rather than a shared one — the analysis sheet's version sits under a
+/// loading CARD and carries that card's insets.
+class _SearchSlowHint extends StatelessWidget {
+  const _SearchSlowHint({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Row(
+      key: const ValueKey('product-search-slow-hint'),
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Flexible(
+          child: Text(
+            l10n.foodAnalysisSlowHint,
+            style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink2),
+          ),
+        ),
+        TextButton(
+          key: const ValueKey('product-search-cancel'),
+          onPressed: onCancel,
+          child: Text(l10n.commonCancel),
+        ),
+      ],
     );
   }
 }

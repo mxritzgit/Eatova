@@ -23,9 +23,21 @@ import 'search_credentials.dart';
 class MeilisearchProductService implements ProductLookupService {
   const MeilisearchProductService({
     this.credentials = const GlobalSearchCredentialsSource(),
+    this.searchChainBudget = defaultSearchChainBudget,
   });
 
+  /// Ceiling over search + key rotation + retry (review P10-02). The rotation
+  /// path chains three waits — request, `invalidate` (3 s of its own), retry
+  /// — which at 10 s per request ([HttpTimeoutPolicy.mirror]) added up to
+  /// 23 s for a source whose whole point is being faster than OpenFoodFacts.
+  /// 12 s covers one full request plus a rotation; anything slower is a
+  /// broken mirror and belongs to the fallback.
+  static const Duration defaultSearchChainBudget = Duration(seconds: 12);
+
   final SearchCredentialsSource credentials;
+
+  /// Test seam plus tuning knob for [defaultSearchChainBudget].
+  final Duration searchChainBudget;
 
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) {
@@ -53,29 +65,46 @@ class MeilisearchProductService implements ProductLookupService {
     // Tight timeouts (HttpTimeoutPolicy.mirror): the mirror is either fast or
     // the fallback should move on to OpenFoodFacts.
     final client = createHttpClient(HttpTimeoutPolicy.mirror);
+    // One ceiling over request + rotation + retry (P10-02). On expiry the
+    // `finally` below closes the client, which cuts the request in flight.
+    final deadline = ChainDeadline(
+      searchChainBudget,
+      operation: 'mirror.search',
+    );
     try {
-      try {
-        return await _searchOnce(client, creds, cleanQuery);
-      } on _MirrorAuthException {
-        // THE rotation path. Meilisearch answers a revoked or wrong key with
-        // 403 (missing header: 401). Without this branch every installed build
-        // would silently fall back to OpenFoodFacts forever after a rotation.
-        final replacement = await credentials.invalidate(creds);
-        if (!replacement.isUsable ||
-            replacement.searchKey == creds.searchKey) {
-          // No other key available -> throw, the fallback takes OFF.
-          throw const HttpException(
-            'Mirror search rejected the key and no replacement was available.',
-          );
-        }
-        // EXACTLY one retry: _searchOnce never recurses, another 401/403
-        // leaves this block into the fallback.
-        return await _searchOnce(client, replacement, cleanQuery);
-      }
+      return await deadline.guard(
+        _searchWithRotation(client, creds, cleanQuery, deadline),
+      );
     } finally {
+      deadline.dispose();
       // Closed exactly once, retry included: the second attempt reuses the
       // already connected client.
       client.close(force: true);
+    }
+  }
+
+  Future<List<ProductSearchResult>> _searchWithRotation(
+    HttpClient client,
+    SearchCredentials creds,
+    String cleanQuery,
+    ChainDeadline deadline,
+  ) async {
+    try {
+      return await _searchOnce(client, creds, cleanQuery);
+    } on _MirrorAuthException {
+      // THE rotation path. Meilisearch answers a revoked or wrong key with
+      // 403 (missing header: 401). Without this branch every installed build
+      // would silently fall back to OpenFoodFacts forever after a rotation.
+      final replacement = await deadline.guard(credentials.invalidate(creds));
+      if (!replacement.isUsable || replacement.searchKey == creds.searchKey) {
+        // No other key available -> throw, the fallback takes OFF.
+        throw const HttpException(
+          'Mirror search rejected the key and no replacement was available.',
+        );
+      }
+      // EXACTLY one retry: _searchOnce never recurses, another 401/403
+      // leaves this block into the fallback.
+      return _searchOnce(client, replacement, cleanQuery);
     }
   }
 

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../models/meal_analysis_result.dart';
 import 'crash_reporter.dart';
+import 'eatova_http.dart';
 import 'open_food_facts_product_service.dart';
 
 /// Tries [primary] (our own search index) first, falling back to live
@@ -15,13 +16,39 @@ import 'open_food_facts_product_service.dart';
 /// than swallowed (G2), so an OFF format change cannot hide behind the
 /// fallback.
 class FallbackProductService implements ProductLookupService {
-  const FallbackProductService(this.primary, this.fallback);
+  const FallbackProductService(
+    this.primary,
+    this.fallback, {
+    this.searchChainBudget = defaultSearchChainBudget,
+  });
+
+  /// Ceiling over BOTH legs (review P10-02). Mirror (12 s) and OpenFoodFacts
+  /// (24 s) each cap themselves, but they run one after the other, so their
+  /// sum — 36 s — is what a caller would wait. 30 s is the ceiling on one
+  /// full attempt; the caller's own retry cycle caps the attempts.
+  static const Duration defaultSearchChainBudget = Duration(seconds: 30);
 
   final ProductLookupService primary;
   final ProductLookupService fallback;
 
+  /// Test seam plus tuning knob for [defaultSearchChainBudget].
+  final Duration searchChainBudget;
+
   @override
-  Future<List<ProductSearchResult>> searchProducts(String query) async {
+  Future<List<ProductSearchResult>> searchProducts(String query) {
+    // One ceiling over primary + fallback. No client of its own to close, so
+    // this only stops the WAIT; each leg cuts its own socket on its own
+    // budget.
+    final deadline = ChainDeadline(
+      searchChainBudget,
+      operation: 'product.search.chain',
+    );
+    return deadline
+        .guard(_searchProducts(query))
+        .whenComplete(deadline.dispose);
+  }
+
+  Future<List<ProductSearchResult>> _searchProducts(String query) async {
     try {
       final results = _nurLoggbare(await primary.searchProducts(query));
       if (results.isNotEmpty) {

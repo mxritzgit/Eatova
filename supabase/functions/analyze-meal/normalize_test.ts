@@ -6,11 +6,16 @@
 // that clamping to max must survive that fix.
 
 import {
+  hasEnergyStatement,
   kcalPer100GMismatch,
+  loggableFinishReason,
+  loggableUsage,
+  missingContractFields,
   normalizeMealResult,
   optionalInt,
   optionalNumber,
   redactedContentMeta,
+  REQUIRED_MEAL_FIELDS,
   unparseableShape,
 } from "./normalize.ts";
 
@@ -222,6 +227,92 @@ Deno.test("der Widerspruch aus B1 wird NICHT serverseitig ueberschrieben", () =>
   assertEquals(result.kcalPer100G, 260, "Modellwert bleibt unangetastet");
 });
 
+// --- P6-06: schemafremde Antworten erkennen -------------------------------
+//
+// normalizeMealResult rejects nothing by design (a missing field is missing,
+// not zero). These two helpers say WHAT is missing, so index.ts can tell "the
+// model left a field out" from "the model returned no analysis at all".
+
+Deno.test("P6-06: fehlende Pflichtfelder werden benannt, gefuellte nicht", () => {
+  assertEquals(
+    missingContractFields({}, normalizeMealResult({})).join(","),
+    REQUIRED_MEAL_FIELDS.join(","),
+    "leeres Objekt: alle vier Pflichtfelder fehlen",
+  );
+
+  const komplett = {
+    mealName: "Steak mit Kartoffeln",
+    caloriesKcal: 780,
+    estimatedGrams: 300,
+    kcalPer100G: 260,
+  };
+  assertEquals(
+    missingContractFields(komplett, normalizeMealResult(komplett)).length,
+    0,
+    "vollstaendige Antwort meldet nichts",
+  );
+
+  // A numeric STRING is a delivered value (optionalInt parses it), text is not.
+  const teils = { mealName: "   ", caloriesKcal: "780", estimatedGrams: "viel" };
+  assertEquals(
+    missingContractFields(teils, normalizeMealResult(teils)).join(","),
+    "mealName,estimatedGrams,kcalPer100G",
+    "leerer mealName und unparsebare Gramm fehlen, der Zahlenstring nicht",
+  );
+});
+
+Deno.test("P6-06: gemeldet werden nur Feldnamen aus der eigenen Konstante", () => {
+  // CWE-532: a model could hide user content in its own keys, so nothing the
+  // model chose may reach the log line.
+  const boesartig = {
+    "Nutzerhinweis: Diabetes Typ 2": 1,
+    mealName: 42,
+  };
+  const gemeldet = missingContractFields(boesartig, normalizeMealResult(boesartig));
+  for (const feld of gemeldet) {
+    assert(
+      (REQUIRED_MEAL_FIELDS as readonly string[]).includes(feld),
+      `Feldname stammt nicht aus der Konstante: ${feld}`,
+    );
+  }
+});
+
+Deno.test("P6-06: eine Energieaussage genuegt — oben oder in items", () => {
+  assertEquals(hasEnergyStatement(normalizeMealResult({})), false, "leeres Objekt traegt nichts");
+  assertEquals(
+    hasEnergyStatement(normalizeMealResult({ mealName: "Salat", explanation: "Kein Anhaltspunkt." })),
+    false,
+    "Text allein ist keine Analyse",
+  );
+  assertEquals(
+    hasEnergyStatement(normalizeMealResult({ caloriesKcal: 780 })),
+    true,
+    "caloriesKcal allein genuegt",
+  );
+  assertEquals(
+    hasEnergyStatement(normalizeMealResult({ kcalPer100G: 260 })),
+    true,
+    "kcalPer100G allein genuegt",
+  );
+  assertEquals(
+    hasEnergyStatement(normalizeMealResult({ items: [{ name: "Steak", caloriesKcal: 450 }] })),
+    true,
+    "Energie nur im Item genuegt",
+  );
+  assertEquals(
+    hasEnergyStatement(normalizeMealResult({ estimatedGrams: 300, items: [{ name: "Steak", grams: 180 }] })),
+    false,
+    "Gramm ohne kcal sind keine Energieaussage",
+  );
+  // An explicit zero is the model's statement, not a missing value: the
+  // client's B7 guard decides what to do with it, the server does not.
+  assertEquals(
+    hasEnergyStatement(normalizeMealResult({ caloriesKcal: 0 })),
+    true,
+    "0 kcal ist eine Aussage, kein fehlender Wert",
+  );
+});
+
 // --- Log redaction (security review 2026-08-11, finding 4, CWE-532) --------
 //
 // index.ts used to log `raw: rawContent.slice(0, 500)`, leaking photo- and
@@ -252,6 +343,27 @@ Deno.test("CWE-532: Digest ist deterministisch und inhaltsabhaengig (Dedupe)", a
   const b = await redactedContentMeta("kein json B");
   assertEquals(a1.sha256, a2.sha256, "gleicher Inhalt -> gleicher Digest");
   assert(a1.sha256 !== b.sha256, "anderer Inhalt -> anderer Digest");
+});
+
+Deno.test("P6-04b: finish_reason und usage werden per Allowlist geloggt", () => {
+  assertEquals(loggableFinishReason("length"), "length", "Vertragswert bleibt lesbar");
+  assertEquals(loggableFinishReason("stop"), "stop", "Vertragswert bleibt lesbar");
+  assertEquals(loggableFinishReason(undefined), undefined, "fehlender Wert bleibt fehlend");
+  assertEquals(loggableFinishReason(null), undefined, "null bleibt fehlend");
+  // Anything the provider invents is reported as a category, not quoted.
+  assertEquals(loggableFinishReason("Nutzerhinweis: Diabetes"), "other", "Fremdtext -> Kategorie");
+  assertEquals(loggableFinishReason({ text: "Diabetes" }), "other", "Fremdform -> Kategorie");
+
+  const usage = loggableUsage({
+    prompt_tokens: 1200,
+    completion_tokens: 0,
+    total_tokens: 4096,
+    note: "Diabetes Typ 2",
+    prompt_tokens_details: { cached: 1 },
+  });
+  assertEquals(JSON.stringify(usage), '{"prompt_tokens":1200,"completion_tokens":0,"total_tokens":4096}', "nur Zaehler");
+  assertEquals(loggableUsage({ total_tokens: "viele" }), undefined, "nicht-numerisch -> nichts");
+  assertEquals(loggableUsage("4096"), undefined, "kein Objekt -> nichts");
 });
 
 Deno.test("CWE-532: unparseableShape kategorisiert ohne Inhalt", () => {

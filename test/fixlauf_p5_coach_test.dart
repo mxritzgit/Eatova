@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/models/coach_recipe_proposal.dart';
@@ -24,12 +27,19 @@ import 'support/harness.dart';
 //   P5-02  /rezept schickte `user_context` (Gewicht, Zielgewicht, Tagesbilanz,
 //          Namen der heute geloggten Lebensmittel) mit, obwohl
 //          `handleRecipeMode` den Parameter gar nicht entgegennimmt.
+//   P5-03  Das Eingabefeld hatte keinen Deckel. Ab 1000 Zeichen lehnte der
+//          Server mit 413 ab — nach dem Absenden, also mit geleertem Feld, und
+//          die eigene Blase war als blankes `Text` nicht mal markierbar:
+//          Abtippen war der einzige Weg zurueck.
 //   P5-04  Weder `send` noch `requestRecipe` hatten eine Frist. Eine haengende
 //          Antwort liess `_laufendeSendungen > 0` stehen: Senden, Mikrofon,
 //          Anhang und Wiederholen waren tot, ohne Abbruchmoeglichkeit.
 //   P5-06  Das Tageslimit stand zweimal: `claim_chat_quota` erzwingt
 //          COACH_DAILY_LIMIT, `get_chat_quota_today` rechnet `remaining` gegen
 //          den Wert, den der CLIENT uebergibt (harte 5).
+//   P5-06b Der Fix zu P5-06 machte den Composer bei ANGENOMMENEM Limit wieder
+//          tippbar, die Anzeige zog nicht nach: der Platzhalter sagte weiter
+//          „Limit fuer heute erreicht" ueber einem Feld, das Text annimmt.
 
 const Size _flaeche = Size(402, 781);
 
@@ -259,6 +269,35 @@ bool _composerTippbar(WidgetTester tester) =>
     tester.widget<TextField>(find.byKey(const ValueKey('coach-input'))).enabled ??
     true;
 
+/// Was WIRKLICH im Feld steht — nicht, was hineingetippt wurde.
+String _feldText(WidgetTester tester) => tester
+    .widget<TextField>(find.byKey(const ValueKey('coach-input')))
+    .controller!
+    .text;
+
+bool _sendenAktiv(WidgetTester tester) =>
+    tester
+        .widget<GestureDetector>(find.byKey(const ValueKey('coach-send')))
+        .onTap !=
+    null;
+
+/// Diktat, das laenger zurueckkommt als der Server annimmt.
+///
+/// Die Spracheingabe schreibt den Controller direkt — der einzige Weg, an den
+/// inputFormattern des Feldes vorbei in den Entwurf zu kommen.
+class _LangesDiktat extends CoachSpeechInput {
+  const _LangesDiktat();
+
+  static const int laenge = 1200;
+
+  @override
+  Future<String?> listen({
+    String localeId = 'de_DE',
+    required AppLocalizations l10n,
+  }) async =>
+      'a' * laenge;
+}
+
 void main() {
   group('P5-01 · der Client folgt der Session, die der Server benutzt hat', () {
     testWidgets(
@@ -369,6 +408,103 @@ void main() {
     });
   });
 
+  group('P5-03 · der Client haelt die Eingabegrenze des Servers ein', () {
+    testWidgets('das Feld nimmt genau 1000 Zeichen — und keins mehr',
+        (tester) async {
+      await _pumpCoach(tester, service: _NotizCoach.create());
+      final feld = find.byKey(const ValueKey('coach-input'));
+
+      await tester.enterText(feld, 'a' * kCoachMaxInputChars);
+      await tester.pump();
+      expect(_feldText(tester).length, kCoachMaxInputChars,
+          reason: 'die Grenze selbst muss noch hineingehen');
+
+      await tester.enterText(feld, 'a' * (kCoachMaxInputChars + 1));
+      await tester.pump();
+      expect(_feldText(tester).length, kCoachMaxInputChars,
+          reason: 'ohne Deckel ging das Zeichen durch und der Server '
+              'antwortete mit 413 — auf ein Feld, das schon geleert war');
+    });
+
+    testWidgets('der sichtbare Grund steht ueber dem Feld', (tester) async {
+      await _pumpCoach(tester, service: _NotizCoach.create());
+      final feld = find.byKey(const ValueKey('coach-input'));
+
+      expect(find.byKey(const ValueKey('coach-length-hint')), findsNothing,
+          reason: 'ein Dauerzaehler waere Gemecker an jeder kurzen Frage');
+
+      await tester.enterText(feld, 'a' * 950);
+      await tester.pump();
+      expect(find.text('950/1000 Zeichen'), findsOneWidget);
+
+      await tester.enterText(feld, 'a' * kCoachMaxInputChars);
+      await tester.pump();
+      expect(find.text('Maximale Länge erreicht (1000 Zeichen)'), findsOneWidget,
+          reason: 'ab hier schluckt das Feld Tasten — ohne genannten Grund '
+              'sieht das nach einem kaputten Feld aus');
+    });
+
+    testWidgets(
+        'ein zu langes Diktat kommt am Feld vorbei — der Senden-Knopf bleibt '
+        'trotzdem aus', (tester) async {
+      // Das Mikrofon rendert nur auf iOS. Reset im `finally`: das Binding
+      // prueft die foundation-Variablen vor den tearDowns.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await pumpLocalized(
+          tester,
+          CoachChatScreen(
+            service: _NotizCoach.create(),
+            userName: 'M',
+            speechInput: const _LangesDiktat(),
+          ),
+          surfaceSize: _flaeche,
+          reducedMotion: false,
+        );
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 500));
+
+        await tester.tap(find.byKey(const ValueKey('coach-mic')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(_feldText(tester).length, _LangesDiktat.laenge,
+            reason: 'die Spracheingabe schreibt den Controller direkt');
+        expect(
+            find.text('Maximale Länge erreicht (1000 Zeichen)'), findsOneWidget);
+        expect(_sendenAktiv(tester), isFalse,
+            reason: 'der garantierte 413 wuerde beide Rate-Limit-Fenster '
+                'kosten und das Feld dabei leeren');
+
+        // Kuerzen muss weiter gehen, sonst waere das Feld eine Sackgasse.
+        await tester.enterText(
+            find.byKey(const ValueKey('coach-input')), 'kurze Frage');
+        await tester.pump();
+        expect(_feldText(tester), 'kurze Frage');
+        expect(_sendenAktiv(tester), isTrue);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('die eigene Blase ist auswaehlbar wie die des Coachs',
+        (tester) async {
+      final coach = _NotizCoach.create()..antwortSessionId = 's-alt';
+      await _pumpCoach(tester, service: coach);
+      await _sende(tester, 'Wie sieht mein Tag aus?');
+
+      Finder inAuswahl(String text) => find.ancestor(
+            of: find.text(text),
+            matching: find.byType(SelectionArea),
+          );
+      expect(inAuswahl('Antwort vom Coach.'), findsOneWidget,
+          reason: 'Gegenprobe: die Coach-Blase konnte das schon');
+      expect(inAuswahl('Wie sieht mein Tag aus?'), findsOneWidget,
+          reason: 'nach dem Absenden ist die eigene Blase die einzige Kopie '
+              'des Textes — als blankes Text blieb nur Abtippen');
+    });
+  });
+
   group('P5-04 · Coach-Anfragen haben eine Frist', () {
     testWidgets(
         'eine nie aufloesende Antwort endet in einer lesbaren Meldung und '
@@ -431,6 +567,54 @@ void main() {
       expect(_composerTippbar(tester), isTrue,
           reason: 'der Client kennt COACH_DAILY_LIMIT nicht — im Zweifel darf '
               'er nicht sperren, der Server lehnt notfalls mit 429 ab');
+    });
+
+    testWidgets(
+        'P5-06b · … und der Platzhalter behauptet dann auch nicht mehr, das '
+        'Limit sei erreicht', (tester) async {
+      final backend = _Backend(
+        quotaZeile: const {'used': 5, 'remaining': 0, 'daily_limit': 5},
+      );
+      await pumpLocalized(
+        tester,
+        CoachChatScreen(service: _echterService(backend), userName: 'M'),
+        surfaceSize: _flaeche,
+        reducedMotion: false,
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(_composerTippbar(tester), isTrue);
+      expect(find.text('Limit für heute erreicht'), findsNothing,
+          reason: 'das Feld nimmt Text an — der Platzhalter darf nicht das '
+              'Gegenteil behaupten. Die 0 stammt aus einer Annahme, nicht '
+              'vom Server');
+      expect(find.text('Frag den KI-Coach…'), findsOneWidget);
+      expect(find.byKey(const ValueKey('coach-quota-hint')), findsNothing);
+    });
+
+    testWidgets(
+        'Gegenprobe: nennt der Server sein Limit, sagt der Platzhalter es auch',
+        (tester) async {
+      final backend = _Backend(
+        quotaZeile: const {'used': 5, 'remaining': 0, 'daily_limit': 5},
+      );
+      // Ein Limit, das die Edge Function selbst genannt hat — ab hier ist die
+      // 0 eine Aussage und keine Rechnung gegen die eigene Annahme.
+      final svc = _echterService(backend)..serverDailyLimit = 5;
+      await pumpLocalized(
+        tester,
+        CoachChatScreen(service: svc, userName: 'M'),
+        surfaceSize: _flaeche,
+        reducedMotion: false,
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(_composerTippbar(tester), isFalse);
+      expect(find.text('Limit für heute erreicht'), findsOneWidget,
+          reason: 'hier gehoert die Meldung hin — sonst waere der Fix eine '
+              'Loeschung statt eines Nachzugs');
     });
 
     test('nach der ersten Server-Antwort fragt die RPC mit dem Server-Limit',

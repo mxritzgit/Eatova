@@ -63,11 +63,18 @@ String _mealAnalysisExceptionMessage(
           ? l10n.foodAnalysisRateLimitUntilMessage(_clockLabel(resetAt))
           : l10n.foodAnalysisRateLimitError,
     MealAnalysisServerError(:final code) => switch (code) {
-        'provider_timeout' => l10n.foodAnalysisTimeoutMessage,
+        // `request_timeout` (408) is the server giving up on a body that
+        // trickles in; from the user's side that is the same situation as the
+        // provider taking too long, so it gets the same text.
+        'provider_timeout' ||
+        'request_timeout' =>
+          l10n.foodAnalysisTimeoutMessage,
         'provider_error' ||
         'provider_invalid_response' ||
         'provider_invalid_json' ||
         'provider_empty_response' ||
+        // The model answered, but with nothing that could be logged.
+        'provider_unusable_result' ||
         'invalid_result' =>
           l10n.foodAnalysisProviderErrorMessage,
         'provider_not_configured' ||

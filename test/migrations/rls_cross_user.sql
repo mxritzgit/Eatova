@@ -49,9 +49,31 @@ exception
     return;
 end $$;
 
+-- Runs [p_sql] and insists on a rejection with EXACTLY [p_code]. Needed for
+-- the row caps (P7-03), which must fail with 22023 and nothing else: only
+-- class 22 makes the client outbox drop the item instead of retrying it for a
+-- day.
+create or replace function rlstest.erwarte_sqlstate(
+  p_sql text, p_code text, p_was text
+) returns void
+language plpgsql
+as $$
+begin
+  execute p_sql;
+  raise exception 'ERWARTUNG VERFEHLT: % ging DURCH, erwartet war %', p_was, p_code;
+exception
+  when others then
+    if sqlstate = p_code then
+      return;
+    end if;
+    raise exception 'ERWARTUNG VERFEHLT: % scheiterte mit %, erwartet war %',
+      p_was, sqlstate, p_code;
+end $$;
+
 grant execute on function
   rlstest.erwarte_zeilen(text, integer, text),
-  rlstest.erwarte_ablehnung(text, text)
+  rlstest.erwarte_ablehnung(text, text),
+  rlstest.erwarte_sqlstate(text, text, text)
   to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -238,6 +260,12 @@ begin
     'update public.profiles set display_name = ''X''',
     'UPDATE auf profiles.display_name');
 
+  -- P7-05: the client never deletes its profile — that runs through
+  -- rpc(delete_account) and the auth.users cascade. The unused right could
+  -- only destroy the server-only column daily_kcal_goal_before_live_reset.
+  perform rlstest.erwarte_ablehnung(
+    'delete from public.profiles', 'DELETE auf profiles als Client');
+
   -- TRUNCATE ignores RLS completely and must be out of reach.
   perform rlstest.erwarte_ablehnung(
     'truncate public.logged_meals', 'TRUNCATE auf logged_meals');
@@ -313,5 +341,59 @@ begin
     'consume_edge_rate_limit als Client');
 end $$;
 commit;
+
+-- ---------------------------------------------------------------------------
+-- 6) P7-03: the per-user row cap really bites — and only where it should
+--
+-- The live caps are five figures, so they cannot be reached in a test. The
+-- trigger FUNCTION is the thing to prove, so a second trigger with a cap of 2
+-- is hung on the real public.logged_meals (real indexes, real RLS, real
+-- upsert path) and removed again afterwards. Both triggers fire; the tighter
+-- one decides.
+-- ---------------------------------------------------------------------------
+create trigger logged_meals_row_cap_probe
+  before insert on public.logged_meals
+  for each row
+  execute function public.enforce_user_row_cap('user_id', '2', 'id');
+
+begin;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+do $$
+declare
+  a text := '11111111-1111-1111-1111-111111111111';
+  v_id uuid;
+begin
+  -- A holds one seeded row, so the second one still fits.
+  perform rlstest.erwarte_zeilen(
+    format($sql$insert into public.logged_meals
+      (user_id, meal_name, calories_kcal, estimated_g, payload, local_day)
+      values (%L, 'Zweite', 100, 100, '{}'::jsonb, current_date)$sql$, a),
+    1, 'INSERT unterhalb der Obergrenze');
+
+  -- The third exceeds it and must fail with 22023 — the class the client
+  -- outbox drops at once instead of retrying for 24 hours.
+  perform rlstest.erwarte_sqlstate(
+    format($sql$insert into public.logged_meals
+      (user_id, meal_name, calories_kcal, estimated_g, payload, local_day)
+      values (%L, 'Dritte', 100, 100, '{}'::jsonb, current_date)$sql$, a),
+    '22023', 'INSERT ueber der Obergrenze');
+
+  -- An UPSERT onto an EXISTING row replaces it and grows nothing, so it must
+  -- pass even at the cap — otherwise a replayed outbox item would start
+  -- failing exactly there.
+  select id into v_id from public.logged_meals limit 1;
+  perform rlstest.erwarte_zeilen(
+    format($sql$insert into public.logged_meals
+      (id, user_id, meal_name, calories_kcal, estimated_g, payload, local_day)
+      values (%L, %L, 'Wiederholt', 100, 100, '{}'::jsonb, current_date)
+      on conflict (id) do update set meal_name = excluded.meal_name$sql$,
+      v_id, a),
+    1, 'UPSERT auf eine bestehende Zeile an der Obergrenze');
+end $$;
+rollback;
+
+drop trigger logged_meals_row_cap_probe on public.logged_meals;
 
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;

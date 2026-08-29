@@ -169,6 +169,8 @@
   "foodSearchMinCharsHint": "Mindestens 2 Zeichen, z.B. Dr Oetker Salami.",
   "foodSearchNoResultsHint": "Keine passenden Produkte gefunden. Versuche Marke + Produktname.",
   "foodSearchUnreachableHint": "OpenFoodFacts gerade nicht erreichbar.",
+  "foodSearchTimeoutHint": "Die Suche hat zu lange gedauert. Trag das Produkt so lange manuell ein.",
+  "foodSearchCanceledHint": "Suche abgebrochen.",
   "foodCameraPermissionError": "Kamera konnte nicht geöffnet werden. Prüfe die Berechtigung.",
   "foodGalleryPermissionError": "Galerie konnte nicht geöffnet werden. Prüfe die Berechtigung.",
   "foodSectionSearchResults": "Suchtreffer",
@@ -551,6 +553,19 @@
   "coachComposerHintLimitReached": "Limit für heute erreicht",
   "coachComposerHintListening": "Ich höre zu…",
   "coachComposerHintDefault": "Frag den KI-Coach…",
+  "coachComposerLengthHint": "{used}/{max} Zeichen",
+  "@coachComposerLengthHint": {
+    "placeholders": {
+      "used": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "coachComposerLengthReached": "Maximale Länge erreicht ({max} Zeichen)",
+  "@coachComposerLengthReached": {
+    "placeholders": {
+      "max": { "type": "int" }
+    }
+  },
   "coachQuotaHint": "{count, plural, one{Noch 1 Frage heute} other{Noch {count} Fragen heute}}",
   "@coachQuotaHint": {
     "placeholders": {

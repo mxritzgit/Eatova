@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import 'controls.dart';
+import 'surfaces.dart' show HeadingSemantics;
 
 // ---------------------------------------------------------------------------
 // ROWS — page header, settings group, settings row.
@@ -38,6 +39,7 @@ class PageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final centered = title ?? '';
     return Row(
       children: <Widget>[
         SquareIconButton(
@@ -53,18 +55,29 @@ class PageHeader extends StatelessWidget {
         if (large != null) ...<Widget>[
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              large!,
-              style: AppType.display(28, color: t.ink, height: 1.1),
+            // Only the title is the jump mark: back button and [trailing] are
+            // siblings in this Row and keep their own nodes and tap actions.
+            child: HeadingSemantics(
+              level: 1,
+              child: Text(
+                large!,
+                style: AppType.display(28, color: t.ink, height: 1.1),
+              ),
             ),
           ),
         ] else
           Expanded(
             child: Center(
-              child: Text(
-                title ?? '',
-                textAlign: TextAlign.center,
-                style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
+              // An unnamed header would be a jump mark with nothing to read,
+              // so the annotation only goes on real text.
+              child: _maybeHeading(
+                level: 1,
+                enabled: centered.isNotEmpty,
+                child: Text(
+                  centered,
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
+                ),
               ),
             ),
           ),
@@ -78,6 +91,14 @@ class PageHeader extends StatelessWidget {
     );
   }
 }
+
+/// [child] as a heading of [level] when [enabled], otherwise untouched.
+Widget _maybeHeading({
+  required int level,
+  required bool enabled,
+  required Widget child,
+}) =>
+    enabled ? HeadingSemantics(level: level, child: child) : child;
 
 /// Card with an all-caps label above it; children separated by 1 px lines.
 class SettingsGroup extends StatelessWidget {
@@ -102,7 +123,13 @@ class SettingsGroup extends StatelessWidget {
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.only(left: 2, bottom: 8),
-          child: Text(label, style: AppType.eyebrow(labelColor ?? t.ink2)),
+          // The caption is the only section marker the settings pages have;
+          // without it those screens offer a single jump mark for the whole
+          // list. Same rank as [SectionHeading].
+          child: HeadingSemantics(
+            level: 2,
+            child: Text(label, style: AppType.eyebrow(labelColor ?? t.ink2)),
+          ),
         ),
         Container(
           clipBehavior: Clip.antiAlias,

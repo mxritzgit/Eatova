@@ -155,6 +155,16 @@ export function normalizeIp(raw: unknown): string | null {
   return normalizeIpv4(value);
 }
 
+/** Namespace prefix of an IP-keyed subject. The `uid:` counterpart is the
+ *  fallback below; callers that treat the two differently (auth_fail_gate.ts)
+ *  ask with isIpSubject instead of matching the string themselves. */
+export const IP_SUBJECT_PREFIX = "ip:";
+
+/** True when the subject names one client IP rather than the uid fallback. */
+export function isIpSubject(subject: string): boolean {
+  return subject.startsWith(IP_SUBJECT_PREFIX);
+}
+
 /**
  * Returns the subject for the IP rate limit.
  *
@@ -166,14 +176,14 @@ export function normalizeIp(raw: unknown): string | null {
  */
 export function clientIpSubject(req: Request, verifiedUserId: string): string {
   const connecting = normalizeIp(req.headers.get("cf-connecting-ip"));
-  if (connecting) return `ip:${connecting}`;
+  if (connecting) return `${IP_SUBJECT_PREFIX}${connecting}`;
 
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) {
     const parts = forwarded.split(",");
     for (let i = parts.length - 1; i >= 0; i--) {
       const candidate = normalizeIp(parts[i]);
-      if (candidate) return `ip:${candidate}`;
+      if (candidate) return `${IP_SUBJECT_PREFIX}${candidate}`;
     }
   }
 

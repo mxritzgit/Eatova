@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
@@ -531,5 +533,102 @@ void main() {
         isEmpty,
         reason: 'eine Op, deren Tag laengst verbucht ist, haelt sonst die '
             'Queue (und damit preserveOutbox beim Logout) unnoetig offen');
+  });
+
+  // --- P1-05: order of streak booking vs. meal upsert -----------------------
+  //
+  // record_tracking_day needs a logged_meals row with local_day = p_day (the
+  // source proof of migration 20260811120000), else EX_DAY_NOT_LOGGED /
+  // P0001. That proof is exactly what is missing when today holds nothing yet
+  // and the user moves a meal from yesterday ONTO today, so the RPC may only
+  // reach the server once the upsert has written the row.
+  // [FakeServer.enforceTrackingDaySourceProof] mirrors the proof — without it
+  // the fake would define the failure away.
+
+  group('P1-05 — Verschieben AUF heute bucht den Tag nach dem Upsert', () {
+    /// Logged for yesterday, today still empty — the finding's starting state.
+    Future<({String id, DateTime heute})> nachtragVonGestern(
+        HomeStore store) async {
+      final heute = DateUtils.dateOnly(DateTime.now());
+      final id = store.addResultToDailyTotal(mealResult('Nachtrag'),
+          foodDate: heute.subtract(const Duration(days: 1)));
+      await settle();
+      return (id: id, heute: heute);
+    }
+
+    test(
+        'live: die RPC erreicht den Server erst NACH dem PATCH und wird beim '
+        'ersten Versuch angenommen', () async {
+      final s = setup();
+      s.server.enforceTrackingDaySourceProof = true;
+      await boot(s.store);
+      final vor = await nachtragVonGestern(s.store);
+      expect(s.server.trackedDay, isNull, reason: 'Vorbedingung: heute leer');
+      final abHier = s.server.requests.length;
+
+      s.store.updateLoggedMealDetails(vor.id, day: DateTime.now());
+      await settle();
+
+      final danach = s.server.requests.skip(abHier).toList();
+      final patch = danach.indexWhere((r) =>
+          r.method == 'PATCH' && r.url.path.contains('/logged_meals'));
+      final rpc = danach.indexWhere(
+          (r) => r.url.path.contains('/rpc/record_tracking_day'));
+      expect(patch, isNonNegative, reason: 'der Upsert muss rausgegangen sein');
+      expect(rpc, isNonNegative, reason: 'der Tag muss gebucht worden sein');
+      expect(patch, lessThan(rpc),
+          reason: 'die Streak-Buchung vor dem Upsert trifft auf eine Zeile, '
+              'die es fuer heute noch gar nicht gibt');
+      expect(s.server.trackingDayRejections, isEmpty,
+          reason: 'jede Ablehnung ist ein verbrannter Zustellversuch plus ein '
+              'Sentry-Sync-Ereignis');
+      expect(s.server.trackedDay, localDayKey(vor.heute));
+      expect(s.store.pendingOutbox, isEmpty,
+          reason: 'live zugestellt heisst: nichts bleibt liegen');
+    });
+
+    test(
+        'offline: Upsert und Streak-Tag liegen in dieser Reihenfolge in der '
+        'Queue — der Replay bucht erst die Zeile, dann den Tag', () async {
+      final s = setup();
+      s.server.enforceTrackingDaySourceProof = true;
+      await boot(s.store);
+      final vor = await nachtragVonGestern(s.store);
+      expect(s.store.pendingOutbox, isEmpty, reason: 'Vorbedingung');
+
+      s.server.offline = true;
+      s.store.updateLoggedMealDetails(vor.id, day: DateTime.now());
+      await settle();
+
+      expect(
+          s.store.pendingOutbox.map((o) => o.kind).toList(),
+          <SyncOpKind>[SyncOpKind.mealUpsert, SyncOpKind.trackingDay],
+          reason: 'FIFO: steht der Tag vorn, scheitert der erste Pass '
+              'zwangslaeufig an EX_DAY_NOT_LOGGED');
+
+      s.server.offline = false;
+      s.store.flushPendingWrites();
+      await settle();
+
+      expect(s.server.trackingDayRejections, isEmpty);
+      expect(s.server.trackedDay, localDayKey(vor.heute));
+      expect(s.store.pendingOutbox, isEmpty);
+    });
+
+    test(
+        'Streak bleibt sichtbar, solange der Tag nur in der Queue liegt',
+        () async {
+      final s = setup();
+      await boot(s.store);
+      final vor = await nachtragVonGestern(s.store);
+
+      s.server.offline = true;
+      s.store.updateLoggedMealDetails(vor.id, day: DateTime.now());
+      await settle();
+
+      expect(s.store.lifetimeStats.lastTrackedDate, vor.heute,
+          reason: 'die optimistische Buchung darf nicht verschwinden, nur '
+              'weil die Zustellung wartet');
+    });
   });
 }

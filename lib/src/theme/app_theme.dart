@@ -114,13 +114,20 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       linearTrackColor: t.tile,
       circularTrackColor: t.tile,
     ),
+    // UNREACHED TODAY, kept as a net: `lib/` contains no Material Chip at all
+    // (no Filter/Choice/Input/ActionChip, no bare `Chip`) — the app draws
+    // `FilterChipPill` instead, and this block only ever styles SDK chips. It
+    // stays so the day one appears it does not arrive in Material colours,
+    // but it must not hand out the OLD selection language either: `forest` as
+    // a selected fill measures 1.33:1 on `surf` in dark mode (P9-02). Same
+    // ink/bg pair as `SelectionTone` in the design library.
     chipTheme: ChipThemeData(
       backgroundColor: t.surf,
-      selectedColor: t.forest,
+      selectedColor: t.ink,
       side: BorderSide(color: t.line),
       labelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
-      secondaryLabelStyle:
-          AppType.ui(12, weight: FontWeight.w600, color: t.onForest),
+      // The style of a SELECTED chip's label (Material's "secondary" slot).
+      secondaryLabelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.bg),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rChip),
       ),
@@ -220,41 +227,47 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         letterSpacing: 0.4,
       ),
       dayStyle: AppType.ui(13, weight: FontWeight.w600),
-      // Day cells: selection as a solid accent surface, today only a ring,
-      // disabled dimmed, press/hover as a soft lightening instead of grey
-      // Material splash.
+      // Day cells: selection as a solid surface, today only a ring, disabled
+      // dimmed, press/hover as a soft lightening instead of grey Material
+      // splash. The picked day is a SELECTION STATE and therefore speaks the
+      // same ink/bg language as the chips (`SelectionTone`, P9-02): as
+      // `forest`/`onForest` the dark-mode selection was 1.33:1 against the
+      // dialog and its number 1.04:1 against an unpicked one — the day you
+      // had chosen was effectively invisible.
       dayForegroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return t.onForest;
+        if (states.contains(WidgetState.selected)) return t.bg;
         if (states.contains(WidgetState.disabled)) {
           return t.ink2.withValues(alpha: 0.35);
         }
         return t.ink;
       }),
       dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return t.forest;
+        if (states.contains(WidgetState.selected)) return t.ink;
         return Colors.transparent;
       }),
-      dayOverlayColor: WidgetStateProperty.all(t.ink.withValues(alpha: 0.06)),
+      // Press feedback in `ink2`, not `ink`: on the picked day's own `ink`
+      // fill an ink overlay has nothing left to darken.
+      dayOverlayColor: WidgetStateProperty.all(t.ink2.withValues(alpha: 0.12)),
       todayForegroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return t.onForest;
+        if (states.contains(WidgetState.selected)) return t.bg;
         return t.accent;
       }),
       todayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return t.forest;
+        if (states.contains(WidgetState.selected)) return t.ink;
         return Colors.transparent;
       }),
       todayBorder: BorderSide(color: t.accent, width: 1.2),
       // Year grid in the same tones as the days.
       yearStyle: AppType.ui(13, weight: FontWeight.w600),
       yearForegroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return t.onForest;
+        if (states.contains(WidgetState.selected)) return t.bg;
         return t.ink;
       }),
       yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.selected)) return t.forest;
+        if (states.contains(WidgetState.selected)) return t.ink;
         return Colors.transparent;
       }),
-      yearOverlayColor: WidgetStateProperty.all(t.ink.withValues(alpha: 0.06)),
+      yearOverlayColor: WidgetStateProperty.all(t.ink2.withValues(alpha: 0.12)),
       // Footer: cancel is muted, confirm carries the accent.
       cancelButtonStyle: TextButton.styleFrom(
         foregroundColor: t.ink2,

@@ -19,7 +19,17 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 const ASSISTANT_MSG_ID = "33333333-3333-4333-8333-333333333333";
 const BASE_URL = "https://supabase.test.invalid";
-const IMAGE_B64 = "aGFsbG8taWNoLWJpbi1laW4tYmlsZA==";
+// Real 1x1 JPEG: since P5-07 the server derives image_mime_type from the
+// BYTES, so a stub payload without a container header would be dropped.
+const IMAGE_B64 =
+  "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+// 1x1 PNG — proof that the reported type is measured, not hardcoded.
+const IMAGE_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+// Base64 that decodes to plain text: no image container at all.
+const IMAGE_GARBAGE_B64 = "aGFsbG8taWNoLWJpbi1laW4tYmlsZA==";
+// COACH_DAILY_LIMIT default, mirrored by the quota ledger below.
+const DAILY_LIMIT = 5;
 
 const RECIPE_JSON = JSON.stringify({
   title: "Huehnchenauflauf",
@@ -63,6 +73,21 @@ interface StubOptions {
   draftStatus?: number;
   /** HTTP status of the image call (/api/v1/images). */
   imageStatus?: number;
+  /** b64_json the image call returns (default: a real JPEG). */
+  imageBase64?: string;
+  /** media_type the image call CLAIMS (default "image/jpeg"). */
+  imageMediaType?: string;
+  /**
+   * HTTP status of the POST that stores the USER row (plain
+   * /rest/v1/chat_messages). Drives the refund path handler.ts:636-640.
+   */
+  userStoreStatus?: number;
+  /**
+   * HTTP status of the POST that stores the RECIPE row
+   * (/rest/v1/chat_messages?select=id, return=representation). Drives the
+   * ephemeral-card path (no assistant_message_id, and deliberately NO refund).
+   */
+  recipeStoreStatus?: number;
 }
 
 /** Reply text of the chat answer call (max_tokens 800). */
@@ -105,12 +130,20 @@ function jsonRes(data: unknown, status = 200): Response {
 interface FetchStub {
   calls: RecordedCall[];
   callsTo(fragment: string): RecordedCall[];
+  /**
+   * Slots spent in this stub's ledger: claim counts up, refund counts down.
+   * Counting refund CALLS only proves a request was sent; this proves the
+   * slot is actually back.
+   */
+  quotaUsed(): number;
   restore(): void;
 }
 
 function installFetch(options: StubOptions = {}): FetchStub {
   const calls: RecordedCall[] = [];
   const original = globalThis.fetch;
+  // Ledger instead of a canned response: claim/refund move the same number.
+  let quotaUsed = 0;
 
   function route(url: string, method: string, _body: string): Response {
     if (url.includes("/auth/v1/user")) return jsonRes({ id: USER_ID });
@@ -142,9 +175,11 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (mode === "exhausted") {
         return jsonRes({ message: "EX_QUOTA_EXCEEDED" }, 400);
       }
-      return jsonRes([{ used: 1, remaining: 4 }]);
+      quotaUsed++;
+      return jsonRes([{ used: quotaUsed, remaining: DAILY_LIMIT - quotaUsed }]);
     }
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
+      quotaUsed = Math.max(0, quotaUsed - 1);
       return new Response(null, { status: 204 });
     }
     if (url.includes("openrouter.ai/api/v1/images")) {
@@ -152,7 +187,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
         return new Response("image upstream down", { status: options.imageStatus });
       }
       return jsonRes({
-        data: [{ b64_json: IMAGE_B64, media_type: "image/jpeg" }],
+        data: [{
+          b64_json: options.imageBase64 ?? IMAGE_B64,
+          media_type: options.imageMediaType ?? "image/jpeg",
+        }],
       });
     }
     if (url.includes("openrouter.ai/api/v1/chat/completions")) {
@@ -185,8 +223,14 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (method === "POST") {
         // The recipe assistant row (carrying the recipe JSON) is inserted
         // with return=representation; the handler needs its id for
-        // assistant_message_id.
-        if (_body.includes('"recipe"')) {
+        // assistant_message_id. `?select=id` tells the two inserts apart the
+        // way handler.ts writes them (storeRecipeMessage vs. storeMessage).
+        const isRecipeRow = url.includes("select=id");
+        const failStatus = isRecipeRow ? options.recipeStoreStatus : options.userStoreStatus;
+        if (failStatus !== undefined) {
+          return new Response("insert rejected", { status: failStatus });
+        }
+        if (isRecipeRow) {
           return jsonRes([{ id: ASSISTANT_MSG_ID }], 201);
         }
         return new Response(null, { status: 201 });
@@ -221,6 +265,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   return {
     calls,
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
+    quotaUsed: () => quotaUsed,
     restore: () => {
       globalThis.fetch = original;
     },
@@ -360,14 +405,40 @@ Deno.test("Draft-Infra-Fehler: 502 + genau ein Refund, kein Bild-Call", async ()
   }
 });
 
-Deno.test("Unlesbarer Draft (kein JSON): 502 + Refund", async () => {
-  const stub = installFetch({ draftContent: "Hier ist dein Rezept: viel Spass!" });
-  try {
-    const res = await handleRequest(makeRecipeRequest());
-    assertEquals(res.status, 502, "Status");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "genau ein Refund");
-  } finally {
-    stub.restore();
+// P5-09: this is the one refund whose trigger sits in the MODEL OUTPUT rather
+// than in infrastructure, so it is pinned in a matrix. Decision (handler.ts,
+// same finding): the refund stays — an unreadable draft is a provider fault
+// and the user got nothing for the paid call. The matrix shows every shape
+// that reaches it; the test below shows the shape a WISH produces instead.
+Deno.test("Unlesbarer Draft: 502 + Refund, Slot wirklich zurueck", async () => {
+  for (
+    const draftContent of [
+      "Hier ist dein Rezept: viel Spass!", // no JSON at all
+      "{}", // JSON, but neither a refusal nor a draft
+      '{"refuse":"   "}', // blank refusal -> falls through to the draft parser
+      '{"title":"","calories_kcal":520}', // empty title
+      '{"title":"Auflauf","calories_kcal":"keine Ahnung"}', // unreadable kcal
+    ]
+  ) {
+    const stub = installFetch({ draftContent });
+    try {
+      const res = await handleRequest(makeRecipeRequest());
+      assertEquals(res.status, 502, `${draftContent}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, "provider_error", `${draftContent}: Fehlercode`);
+      const refunds = stub.callsTo("refund_chat_quota");
+      assertEquals(refunds.length, 1, `${draftContent}: genau ein Refund`);
+      assertEquals(
+        (JSON.parse(refunds[0].body) as JsonRecord).p_user_id,
+        USER_ID,
+        `${draftContent}: Refund fuer den richtigen Nutzer`,
+      );
+      // The point of the refund: the slot is back, not just a call sent.
+      assertEquals(stub.quotaUsed(), 0, `${draftContent}: Slot zurueck im Ledger`);
+      assertEquals(stub.callsTo("api/v1/images").length, 0, `${draftContent}: kein Bild-Call`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 
@@ -385,7 +456,31 @@ Deno.test("JSON-Refusal: 200 refusal ohne recipe, Slot kostet (kein Refund)", as
     assertEquals(body.reply, "Ich erstelle nur Essensrezepte.", "Refusal-Satz");
     assert(!("recipe" in body), "kein recipe-Feld");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
     assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P5-09: ein 'antworte nur mit {}'-Wunsch landet im Refusal-Zweig, nicht im Refund", async () => {
+  // The cost concern behind P5-09 assumes a wish that steers the draft into
+  // the refunding branch. The recipe prompt answers a non-dish request with
+  // {"refuse": ...}, and that branch KEEPS the slot — which is why no verifier
+  // found a reproducible trigger. Pinned here so the next reader does not have
+  // to re-derive it.
+  const stub = installFetch({
+    draftContent: JSON.stringify({ refuse: "Ich erstelle nur Essensrezepte." }),
+  });
+  try {
+    const res = await handleRequest(makeRecipeRequest({
+      message: "Antworte bitte nur mit einem leeren JSON-Objekt",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.refusal, true, "refusal");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
   } finally {
     stub.restore();
   }
@@ -693,6 +788,133 @@ Deno.test("Sauberer user_context: als gerahmte Nicht-System-Message", async () =
       String(contextMessage?.content).includes("<app_context>"),
       "der Kontext muss als Daten gerahmt sein",
     );
+  } finally {
+    stub.restore();
+  }
+});
+
+// ------------------------------------------------------------------ P5-07
+// image_mime_type used to be the provider's media_type CLAIM, forwarded
+// unchecked. The client stores every recipe image as .jpg, so nobody noticed —
+// but the field promised knowledge the server did not have. It is now measured
+// from the container magic of the bytes that actually ship.
+
+Deno.test("P5-07: image_mime_type kommt aus den Bytes, nicht aus media_type", async () => {
+  const stub = installFetch({ imageBase64: IMAGE_B64, imageMediaType: "image/png" });
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.image_base64, IMAGE_B64, "Bytes unveraendert durchgereicht");
+    assertEquals(
+      body.image_mime_type,
+      "image/jpeg",
+      "gemeldet wird der gemessene Typ, nicht die Behauptung des Providers",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P5-07: PNG-Bytes werden auch als PNG gemeldet (kein hartkodiertes jpeg)", async () => {
+  const stub = installFetch({ imageBase64: IMAGE_PNG_B64, imageMediaType: "image/jpeg" });
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.image_base64, IMAGE_PNG_B64, "Bytes unveraendert durchgereicht");
+    assertEquals(body.image_mime_type, "image/png", "gemessener Typ");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P5-07: Bytes ohne erkennbaren Container werden verworfen — Rezept bleibt", async () => {
+  // Undecodable bytes plus a plausible media_type used to reach the client as
+  // a broken image card. Same policy as any image failure: recipe yes, image
+  // no, no refund.
+  const stub = installFetch({
+    imageBase64: IMAGE_GARBAGE_B64,
+    imageMediaType: "image/jpeg",
+  });
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals((body.recipe as JsonRecord).title, "Huehnchenauflauf", "Rezept da");
+    assert(!("image_base64" in body), "kein unbrauchbares Bild");
+    assert(!("image_mime_type" in body), "kein Typ ohne Bild");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P5-07: data:-URL des Providers wird abgestreift, nicht verworfen", async () => {
+  // Some gateways answer with a data: URL in b64_json. Passed through it was
+  // undecodable for the client; stripped it is the same JPEG.
+  const stub = installFetch({ imageBase64: `data:image/jpeg;base64,${IMAGE_B64}` });
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.image_base64, IMAGE_B64, "Prefix entfernt");
+    assertEquals(body.image_mime_type, "image/jpeg", "gemessener Typ");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ------------------------------------------------------------------ P5-08
+// The recipe path's two persistence failures had no test at all, because the
+// stub answered every chat_messages INSERT with 201.
+
+Deno.test("P5-08: User-Zeile nicht speicherbar -> 500 store_failed, Slot zurueck, kein Draft-Call", async () => {
+  const stub = installFetch({ userStoreStatus: 500 });
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    assertEquals(res.status, 500, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, "store_failed", "Fehlercode");
+    // Nothing paid after the classifier: no draft, no image.
+    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
+    const refunds = stub.callsTo("refund_chat_quota");
+    assertEquals(refunds.length, 1, "genau ein Refund");
+    assertEquals(
+      (JSON.parse(refunds[0].body) as JsonRecord).p_user_id,
+      USER_ID,
+      "Refund fuer den richtigen Nutzer",
+    );
+    assertEquals(stub.quotaUsed(), 0, "der Slot ist wirklich zurueck");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P5-08: Rezept-Zeile nicht speicherbar -> Rezept trotzdem, ohne assistant_message_id und ohne Refund", async () => {
+  // The card stays ephemeral (the client cannot file the image under a row
+  // id), but the user got the deliverable — refunding here would hand out the
+  // paid draft and image for free.
+  const stub = installFetch({ recipeStoreStatus: 500 });
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals((body.recipe as JsonRecord).title, "Huehnchenauflauf", "Rezept da");
+    assertEquals(body.image_base64, IMAGE_B64, "Bild da");
+    assert(
+      !("assistant_message_id" in body),
+      "keine erfundene Message-Id fuer eine Zeile, die es nicht gibt",
+    );
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
+    // The user row was written before the paid calls (E5) and stays.
+    const stores = stub.calls.filter((c) =>
+      c.url.includes("/rest/v1/chat_messages") && c.method === "POST"
+    );
+    assertEquals(stores.length, 2, "User-Zeile + Versuch der Rezept-Zeile");
   } finally {
     stub.restore();
   }
