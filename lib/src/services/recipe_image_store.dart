@@ -450,7 +450,9 @@ class RecipeImageStore {
   /// cap: a cap would delete by age and take photos whose recipe still exists.
   ///
   /// **The caller vouches for the list.** An empty or half-loaded one deletes
-  /// everything, so only sweep with a list the store has actually delivered
+  /// everything, so only sweep once the boot load has ANSWERED for the recipes
+  /// (`HomeStore.userRecipesAuthoritative`, P3-04b) — a list the store merely
+  /// assigned can still be a stale-empty cache slot
   /// (see `_RecipesScreenState._sweepOrphanPhotos`). Spared regardless:
   /// proposal images (own lifetime, see [proposalImageCap]) and everything
   /// [save] wrote in this process ([_writtenThisSession]).

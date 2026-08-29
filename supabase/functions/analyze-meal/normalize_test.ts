@@ -8,7 +8,6 @@
 import {
   hasEnergyStatement,
   kcalPer100GMismatch,
-  loggableFinishReason,
   loggableUsage,
   missingContractFields,
   normalizeMealResult,
@@ -345,15 +344,9 @@ Deno.test("CWE-532: Digest ist deterministisch und inhaltsabhaengig (Dedupe)", a
   assert(a1.sha256 !== b.sha256, "anderer Inhalt -> anderer Digest");
 });
 
-Deno.test("P6-04b: finish_reason und usage werden per Allowlist geloggt", () => {
-  assertEquals(loggableFinishReason("length"), "length", "Vertragswert bleibt lesbar");
-  assertEquals(loggableFinishReason("stop"), "stop", "Vertragswert bleibt lesbar");
-  assertEquals(loggableFinishReason(undefined), undefined, "fehlender Wert bleibt fehlend");
-  assertEquals(loggableFinishReason(null), undefined, "null bleibt fehlend");
-  // Anything the provider invents is reported as a category, not quoted.
-  assertEquals(loggableFinishReason("Nutzerhinweis: Diabetes"), "other", "Fremdtext -> Kategorie");
-  assertEquals(loggableFinishReason({ text: "Diabetes" }), "other", "Fremdform -> Kategorie");
-
+// The finish_reason half of this rule moved to ../_shared/provider_log.ts
+// (P6-04c) and is proven in _shared/provider_log_test.ts.
+Deno.test("P6-04b: usage wird per Allowlist geloggt", () => {
   const usage = loggableUsage({
     prompt_tokens: 1200,
     completion_tokens: 0,

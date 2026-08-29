@@ -26,6 +26,7 @@ import {
 import { authFailGate } from "../_shared/auth_fail_gate.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
+import { loggableFinishReason } from "../_shared/provider_log.ts";
 import { pruneRateLimits } from "../_shared/rate_limit_prune.ts";
 import {
   parseRecipeDraft,
@@ -435,10 +436,12 @@ async function answer(
   }
   const data = await resp.json();
   const choice = data?.choices?.[0];
-  // Provider-controlled string: capped before it reaches a log line.
-  const finishReason = typeof choice?.finish_reason === "string"
-    ? choice.finish_reason.slice(0, 32)
-    : "unknown";
+  // P6-04c: this used to cap the value at 32 characters before putting it into
+  // a ProviderError message, i.e. into console.error and function_logs. A cap
+  // is no redaction — `finish_reason` is a free string, and the first 32
+  // characters of whatever the model wrote there are still provider-chosen
+  // (CWE-532). Same allowlist as analyze-meal now: contract value or category.
+  const finishReason = loggableFinishReason(choice?.finish_reason) ?? "unknown";
   let reply: string = choice?.message?.content ?? "";
   reply = reply.trim();
 

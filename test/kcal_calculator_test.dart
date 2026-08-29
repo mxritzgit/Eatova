@@ -8,6 +8,23 @@ import 'package:eatova/src/services/kcal_calculator.dart';
 // cap, protein on reference weight, forecast as a range. The numbers come from
 // the Python mirror and were checked against calculator.net / NIH BWP.
 
+/// [profil] mit [ziel] UND einem Wunschgewicht, das zu dieser Richtung passt.
+///
+/// Seit P9-08d plant `calculate` mit dem WIRKSAMEN Gewichtsziel: eine Richtung,
+/// deren Wunschgewicht auf der falschen Seite des heutigen Gewichts liegt — im
+/// Standardprofil ist Wunsch == Gewicht — hat nichts mehr zu tun und faellt auf
+/// Halten zurueck. Diese Datei misst die Delta-Arithmetik, also braucht sie
+/// Profile, deren Richtung noch etwas zu tun hat.
+UserProfile _mitPassendemZiel(UserProfile profil, WeightGoal ziel) =>
+    profil.copyWith(
+      weightGoal: ziel,
+      targetWeightKg: ziel.isGain
+          ? profil.weightKg + 8
+          : ziel.isLoss
+              ? profil.weightKg - 8
+              : profil.targetWeightKg,
+    );
+
 void main() {
   group('estimateKcalBurnedFromSteps', () {
     test('uses body weight and height-derived walking distance', () {
@@ -164,8 +181,8 @@ void main() {
 
     test('weight goal applies its kcal delta on top of maintenance', () {
       final maintain = calc.calculate(base.copyWith(weightGoal: WeightGoal.maintain));
-      final lose = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose05kg));
-      final gain = calc.calculate(base.copyWith(weightGoal: WeightGoal.gain05kg));
+      final lose = calc.calculate(_mitPassendemZiel(base, WeightGoal.lose05kg));
+      final gain = calc.calculate(_mitPassendemZiel(base, WeightGoal.gain05kg));
 
       expect(lose.kcal, maintain.kcal - 550); // −0.5 kg/week → 1600
       expect(gain.kcal, maintain.kcal + 550); // +0.5 kg/week → 2700
@@ -196,7 +213,7 @@ void main() {
     test('1-%-Deckel: unter 100 kg wird das Defizit begrenzt', () {
       // 78 kg → 858 kcal/day, rounded down to a 0.05 kg/week step = 825, so
       // "−1 kg/week" really means −0.75 kg/week.
-      final t = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose1kg));
+      final t = calc.calculate(_mitPassendemZiel(base, WeightGoal.lose1kg));
       expect(KcalCalculator.maxDeficitKcalPerDay(78), 825);
       expect(t.maxDeficitKcal, 825);
       expect(t.appliedKcalDelta, -825);
@@ -212,7 +229,7 @@ void main() {
       expect(t.paceWarning(), contains('−0,75 kg/Woche statt −1 kg/Woche'));
 
       // −0.75 kg/week hits the cap exactly: not a capped case, same plan.
-      final t075 = calc.calculate(base.copyWith(weightGoal: WeightGoal.lose075kg));
+      final t075 = calc.calculate(_mitPassendemZiel(base, WeightGoal.lose075kg));
       expect(t075.deficitCapApplied, isFalse);
       expect(t075.kcal, 1350);
       expect(t075.paceWarning(), isNull);
@@ -239,7 +256,7 @@ void main() {
     });
 
     test('Zunahme-Stufen kennen keinen Deckel', () {
-      final t = calc.calculate(base.copyWith(weightGoal: WeightGoal.gain05kg));
+      final t = calc.calculate(_mitPassendemZiel(base, WeightGoal.gain05kg));
       expect(t.appliedKcalDelta, 550);
       expect(t.deficitCapApplied, isFalse);
     });

@@ -95,11 +95,16 @@ void main() {
       '(i18n-Nachzieh-Regression)', (tester) async {
     // Same leak one level deeper: `_formatRateKg` stayed German-formatted.
     // `lose05kg` gives exactly 0.5 kg/week, so the separator is unambiguous.
+    // Wunschgewicht 70: die Zeile zeigt seit P9-08d das WIRKSAME Tempo, und
+    // ohne Rest-Weg (Wunsch == Gewicht) gaebe es gar keine Dezimalrate mehr.
     await _pump(
       tester,
       brightness: Brightness.light,
       locale: const Locale('en'),
-      profile: const UserProfile(weightGoal: WeightGoal.lose05kg),
+      profile: const UserProfile(
+        weightGoal: WeightGoal.lose05kg,
+        targetWeightKg: 70,
+      ),
     );
 
     expect(find.text('−0.5 kg/week'), findsOneWidget);

@@ -640,6 +640,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // for the "fits your goal" filter.
         selector: () => (
           _store.userRecipes,
+          // The flag flips with the boot answer and gates the photo sweep
+          // (P3-04b); without it in the slice the screen could miss the flip.
+          _store.userRecipesAuthoritative,
           _store.profile,
           _store.macroProgress,
         ),
@@ -653,6 +656,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               slot: slot,
             ),
             initialUserRecipes: _store.userRecipes,
+            // Only after the boot load answered is the list complete enough
+            // to conclude that a photo has no recipe left (P3-04b).
+            userRecipesAuthoritative: _store.userRecipesAuthoritative,
             // Persistence only with real sync (test/preview: session-local).
             onCreateRecipe:
                 widget.sync == null ? null : _store.createUserRecipe,

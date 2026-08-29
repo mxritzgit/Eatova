@@ -686,7 +686,10 @@ class _SexPicker extends StatelessWidget {
                       Icon(
                         labels[sex]!.$2,
                         size: 30,
-                        color: value == sex ? t.lime : t.ink2,
+                        // Glyph and label sit ON [_TileCard]'s fill, so they
+                        // take its counterpart — `lime` would be 1.07:1 there
+                        // in dark mode.
+                        color: value == sex ? t.onSelected : t.ink2,
                       ),
                       const SizedBox(height: 10),
                       Text(
@@ -696,7 +699,7 @@ class _SexPicker extends StatelessWidget {
                         style: AppType.ui(
                           14,
                           weight: FontWeight.w700,
-                          color: value == sex ? t.onForest : t.ink2,
+                          color: value == sex ? t.onSelected : t.ink2,
                         ),
                       ),
                     ],
@@ -1074,12 +1077,14 @@ class _TileCard extends StatelessWidget {
                 motionDuration(context, const Duration(milliseconds: 160)),
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
             decoration: BoxDecoration(
-              // Selected means a full brand surface, not a tinted border, so
-              // the selection reads through contrast rather than hue.
-              color: selected ? t.forest : t.surf,
+              // Selected means a full fill, not a tinted border, so the
+              // selection reads through contrast rather than hue — and the
+              // fill is [SelectionTone], not `forest`: in dark mode `forest`
+              // is itself a surface and the card sat at 1.33:1 on `surf`.
+              color: selected ? t.selectedFill : t.surf,
               borderRadius: BorderRadius.circular(rCard),
               border: Border.all(
-                color: selected ? t.forest : t.line,
+                color: selected ? t.selectedFill : t.line,
               ),
             ),
             child: child,
@@ -1124,10 +1129,12 @@ class _RowCard extends StatelessWidget {
       child: AnimatedContainer(
         duration: motionDuration(context, const Duration(milliseconds: 160)),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        // [SelectionTone] — same language as [_TileCard] and every chip in
+        // the app. See there for why `forest` had to go.
         decoration: BoxDecoration(
-          color: selected ? t.forest : t.surf,
+          color: selected ? t.selectedFill : t.surf,
           borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: selected ? t.forest : t.line),
+          border: Border.all(color: selected ? t.selectedFill : t.line),
         ),
         child: Row(
           children: [
@@ -1135,7 +1142,7 @@ class _RowCard extends StatelessWidget {
               Icon(
                 leadingIcon,
                 size: 22,
-                color: selected ? t.lime : t.ink2,
+                color: selected ? t.onSelected : t.ink2,
               ),
               const SizedBox(width: 14),
             ],
@@ -1148,7 +1155,7 @@ class _RowCard extends StatelessWidget {
                     style: AppType.ui(
                       15,
                       weight: FontWeight.w700,
-                      color: selected ? t.onForest : t.ink,
+                      color: selected ? t.onSelected : t.ink,
                       letterSpacing: -0.2,
                     ),
                   ),
@@ -1159,7 +1166,7 @@ class _RowCard extends StatelessWidget {
                       12.5,
                       weight: FontWeight.w500,
                       color: selected
-                          ? t.onForest.withValues(alpha: 0.78)
+                          ? t.onSelected.withValues(alpha: 0.78)
                           : t.ink2,
                       height: 1.3,
                     ),
@@ -1174,13 +1181,16 @@ class _RowCard extends StatelessWidget {
                 style: AppType.display(
                   13,
                   weight: FontWeight.w700,
-                  color: selected ? t.lime : t.ink2,
+                  color: selected ? t.onSelected : t.ink2,
                 ),
               ),
             ],
             if (selected) ...[
               const SizedBox(width: 10),
-              Icon(Icons.check_circle_rounded, color: t.lime, size: 20),
+              // The tick is the second state channel next to the fill, so it
+              // has to READ on that fill: `lime` on `ink` is 1.07:1 in dark
+              // mode, [SelectionTone.onSelected] is 16.35:1.
+              Icon(Icons.check_circle_rounded, color: t.onSelected, size: 20),
             ],
           ],
         ),

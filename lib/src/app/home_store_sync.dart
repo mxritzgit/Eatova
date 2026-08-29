@@ -43,13 +43,16 @@ const Duration kCacheSnapshotWaitBudget = Duration(seconds: 3);
 /// How often a failed re-hydration may protect a slot that is present but
 /// unreadable before this session's own writes take it over (P3-02b).
 ///
-/// The brake only ever engages for a slot the storage still HOLDS bytes for —
-/// a provably broken ciphertext is purged on read and never gets here. Such a
-/// failure is transient by nature (isolate spawn, OOM) and gone within a few
-/// attempts; a slot that still will not open after that is broken in a way
-/// this layer cannot name, and blocking every write of the session forever is
-/// the worse loss. Attempts, not wall clock: each one is triggered by a write,
-/// so the count is exactly the number of chances the slot got.
+/// The brake only ever engages for a slot the storage still HOLDS bytes for
+/// AND that [UnreadableCacheSlot.transient] calls merely unreadable RIGHT NOW
+/// (P3-02d) — a provably broken ciphertext is purged on read and never gets
+/// here, and provably broken CONTENT gives up at once, without spending a
+/// single attempt. What is left is transient by nature (isolate spawn, OOM)
+/// and gone within a few attempts; a slot that still will not open after that
+/// is broken in a way this layer cannot name, and blocking every write of the
+/// session forever is the worse loss. Attempts, not wall clock: each one is
+/// triggered by a write, so the count is exactly the number of chances the
+/// slot got.
 const int kOutboxRepairMaxAttempts = 3;
 
 /// The payload of an outbox op is unreadable (Review 2026-08-08, A8).
@@ -1338,13 +1341,20 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///  * it SUCCEEDS -> the first error was transient. The read ops are the
   ///    older ones and go before this session's; the normal path then writes
   ///    the merged queue.
-  ///  * it throws [UnreadableCacheSlot] -> the storage still HOLDS bytes for
-  ///    the slot (P3-02b). That is the transient case — a provably broken
-  ///    ciphertext is purged by the decorator on read and comes back as plain
-  ///    `null`, without a throw. Not readable is not the same as not there, so
-  ///    the brake stays on and nothing is written; the next write retries the
-  ///    read. Bounded by [kOutboxRepairMaxAttempts], or a slot that never opens
-  ///    would leave the whole session without durability.
+  ///  * it throws [UnreadableCacheSlot] with `transient` -> the storage still
+  ///    HOLDS bytes for the slot and the read failed at EXECUTING the
+  ///    decryption (P3-02b); a provably broken ciphertext is purged by the
+  ///    decorator on read and comes back as plain `null`, without a throw. Not
+  ///    readable is not the same as not there, so the brake stays on and
+  ///    nothing is written; the next write retries the read. Bounded by
+  ///    [kOutboxRepairMaxAttempts], or a slot that never opens would leave the
+  ///    whole session without durability.
+  ///  * it throws [UnreadableCacheSlot] with `transient: false` -> the bytes
+  ///    handed themselves over and the reader still could not use them
+  ///    (P3-02d). Every further read produces the same bytes and the same
+  ///    failure, so protecting the slot can never gain anything and costs this
+  ///    session up to [kOutboxRepairMaxAttempts] unpersisted writes. Give up
+  ///    at once instead.
   ///  * it fails otherwise, or the bound is spent -> the blob is unreadable and
   ///    hence undeliverable. It is already lost, and keeping it would drag THIS
   ///    session's writes down too.
@@ -1366,7 +1376,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _outboxRepairAttempts = 0;
     } catch (e, st) {
       _outboxRepairAttempts++;
+      // P3-02d: the TYPE alone is not the verdict — `transient` is. Bytes that
+      // handed themselves over and still could not be parsed are a statement
+      // about the CONTENT, and it is permanent: every further attempt reads
+      // the same bytes and fails the same way, while the brake keeps this
+      // session's own writes off disk. Only "unreadable right now" earns
+      // protection.
       slotGeschuetzt = e is UnreadableCacheSlot &&
+          e.transient &&
           _outboxRepairAttempts < kOutboxRepairMaxAttempts;
       dev.log(
           slotGeschuetzt
@@ -1445,10 +1462,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Also via the throwing read variant, else a broken slot would arrive as
   /// "empty" and the failure would stay invisible.
   ///
-  /// P3-02b applies here too: an [UnreadableCacheSlot] means the slot still
-  /// holds bytes, so the numbers are not lost — only unreadable right now. The
-  /// brake stays on for [kOutboxRepairMaxAttempts] attempts before the
-  /// session's own bundle takes the slot over.
+  /// P3-02b applies here too: a TRANSIENT [UnreadableCacheSlot] means the slot
+  /// still holds bytes, so the numbers are not lost — only unreadable right
+  /// now. The brake stays on for [kOutboxRepairMaxAttempts] attempts before
+  /// the session's own bundle takes the slot over. P3-02d: a slot whose
+  /// CONTENT is provably broken (`transient: false`) skips the brake
+  /// altogether — no later read can turn those bytes into numbers.
   ///
   /// Runs at most once concurrently.
   Future<void> _repairStatsHydration() async {
@@ -1461,7 +1480,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _statsRepairAttempts = 0;
     } catch (e, st) {
       _statsRepairAttempts++;
+      // Same verdict as in [_repairOutboxHydration] (P3-02d): provably broken
+      // content is not worth a single protected attempt.
       slotGeschuetzt = e is UnreadableCacheSlot &&
+          e.transient &&
           _statsRepairAttempts < kOutboxRepairMaxAttempts;
       dev.log(
           slotGeschuetzt
@@ -1513,6 +1535,20 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// have to rebuild kill safety, FIFO, coalescing, cap, budget, backoff, loss
   /// reporting and logout survival. The day replays idempotently, so it belongs
   /// in the existing queue.
+  ///
+  /// The [_scheduleOutboxRetry] is load-bearing, not habit (P1-05b). Two paths
+  /// reach here with NO other alarm armed:
+  ///  * the eager twin in `_applyLoggedMealDetails`, when the meal PATCH HANGS
+  ///    (PostgREST carries no timeout). `_syncOrQueue` stays deliberately
+  ///    silent while only a live write is running, and `_handleSyncFailure`
+  ///    never fires on a request that neither answers nor throws — without the
+  ///    timer the queued day would sit until the next boot.
+  ///  * the `catchError` in [_recordTrackingDay], when the meal write SUCCEEDED
+  ///    and only the RPC failed: nothing on that path arms one either.
+  /// Price on the fully live path: ONE timer per move onto today. It fires
+  /// 30 s later, finds an empty queue and no open deltas, and returns without
+  /// a request — cheap enough not to be worth a second mechanism that would
+  /// have to guess in advance whether the live path will answer.
   void _queueTrackingDay(DateTime day) {
     if (sync == null || _disposed) return;
     _enqueueOp(SyncOp.trackingDay(localDayKey(day)));

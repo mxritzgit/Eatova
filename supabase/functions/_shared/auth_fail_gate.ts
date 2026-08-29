@@ -129,8 +129,13 @@ export async function authFailGate(options: AuthFailGateOptions): Promise<AuthFa
   // P6-05: only the shared no-IP bucket, and only on exhaustion — from here on
   // callers who never failed themselves are answered 429 instead of 401.
   if (!isIpSubject(options.subject)) {
+    // Only the NAMESPACE, never the subject itself: all three callers pass
+    // clientIpSubject(req, "anon") today, so the fallback reads `uid:anon` —
+    // but the same helper turns a verified user id into `uid:<uuid>`, and one
+    // caller changing its fallback would have put that id into function_logs
+    // (CWE-532). Which bucket it is, is all this warning ever needed.
     console.warn(
-      `${label}: geteilter ${options.subject}-Bucket erschoepft — bis ${resetAt} wird jede 401 als 429 beantwortet`,
+      `${label}: geteilter ${options.subject.split(":")[0]}-Bucket erschoepft — bis ${resetAt} wird jede 401 als 429 beantwortet`,
     );
   }
   const reportedWindow = Number(record.windowSeconds);

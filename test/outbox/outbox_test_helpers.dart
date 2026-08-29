@@ -60,8 +60,23 @@ class FakeServer {
   /// "offline" would be a lie there).
   bool rejectRecipeWrites = false;
 
+  /// ONLY the user_recipes READ fails (500). The boot load then gets an answer
+  /// for five collections and none for the sixth — the state
+  /// `userRecipesAuthoritative` has to tell apart (P3-04b).
+  bool rejectRecipeReads = false;
+
   /// ONLY record_tracking_day fails — the combination that lost the streak day.
   bool rejectTrackingDay = false;
+
+  /// record_tracking_day NEVER answers while this holds.
+  ///
+  /// The kill window of P1-05b: the meal PATCH is through, the booking is on
+  /// the wire, and the app dies before the answer. Neither `then` nor
+  /// `catchError` ever runs, so only something already PERSISTED can catch the
+  /// day. Requests already issued stay hanging when the flag is cleared —
+  /// which is exactly how the restarted session gets a real answer while the
+  /// session that died never gets one.
+  bool hangTrackingDay = false;
 
   /// Mirrors the source proof of migration 20260811120000: the RPC counts a
   /// day only once a logged_meals row carries that local_day, otherwise it
@@ -167,6 +182,7 @@ class FakeServer {
       return ok(_statsRow());
     }
     if (path.contains('/rpc/record_tracking_day')) {
+      if (hangTrackingDay) return Completer<http.Response>().future;
       if (rejectTrackingDay) return fail();
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       final day = body['p_day'] as String?;
@@ -264,6 +280,7 @@ class FakeServer {
         return Completer<http.Response>().future;
       }
       if (rejectRecipeWrites && req.method != 'GET') return fail();
+      if (rejectRecipeReads && req.method == 'GET') return fail();
       if (req.method == 'POST') {
         for (final row in rowsOf(req.body)) {
           recipeRows[row['slug'] as String] = row;

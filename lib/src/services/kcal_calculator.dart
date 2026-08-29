@@ -300,6 +300,14 @@ class KcalCalculator {
   }
 
   KcalTargets calculate(UserProfile profile) {
+    // P9-08d: the PLAN follows the effective goal, not the stored intent. A
+    // direction the two weights no longer support ("lose" at 80 kg with target
+    // 90) has nothing left to do, so it yields the maintenance plan. Derived
+    // here rather than written into the profile, so this holds for every stored
+    // row from the first read on — no save, no migration — while
+    // `profile.weightGoal` keeps the user's intent and a new target weight
+    // takes the direction up again.
+    final goal = profile.effectiveWeightGoal;
     final bmr = basalMetabolicRate(
       weightKg: profile.weightKg,
       heightCm: profile.heightCm,
@@ -310,7 +318,7 @@ class KcalCalculator {
 
     // 1 % cap only when losing; gain steps stay as chosen.
     final maxDeficit = maxDeficitKcalPerDay(profile.weightKg);
-    final wishedDelta = profile.weightGoal.kcalDelta;
+    final wishedDelta = goal.kcalDelta;
     final appliedDelta = wishedDelta < -maxDeficit ? -maxDeficit : wishedDelta;
 
     final goalAdjusted = maintenance + appliedDelta;
@@ -346,7 +354,10 @@ class KcalCalculator {
       fatG: fatG,
       bmr: bmr.round(),
       maintenanceKcal: maintenance.round(),
-      goal: profile.weightGoal,
+      // The EFFECTIVE goal: everything derived from it — `promisedWeeklyRateKg`,
+      // `paceWarning`, the pace labels — must describe the plan that is really
+      // running, or the card would warn about missing a pace nobody is on.
+      goal: goal,
       floor: floor,
       appliedKcalDelta: appliedDelta,
       maxDeficitKcal: maxDeficit,
@@ -359,6 +370,12 @@ class KcalCalculator {
   /// change. Returns the profile with the computed goals, or the SAME instance
   /// when nothing changes (manual mode, onboarding not done, already equal) —
   /// callers use `identical` to decide whether a write-back is due.
+  ///
+  /// Since P9-08d this also heals the DIRECTION at the load boundary, without
+  /// touching [UserProfile.weightGoal]: [calculate] reads
+  /// [UserProfileWeightPlan.effectiveWeightGoal], so a stored row whose target
+  /// lies on the wrong side of today's weight gets the maintenance kcal here —
+  /// the cached deficit never survives the first read.
   UserProfile applyLiveGoals(UserProfile profile) {
     if (profile.manualEnergy || !profile.onboardingCompleted) return profile;
     final t = calculate(profile);

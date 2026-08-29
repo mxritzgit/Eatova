@@ -294,16 +294,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// Profile with the calorie-relevant fields only — the basis for the live
   /// calculation (energy fields do NOT feed into calculate()).
   ///
-  /// `withEffectiveWeightGoal` is the healing point (P9-08d/e): a direction the
-  /// two weights no longer support becomes "hold" here, so the plan card, the
-  /// picker outcomes and the SAVED profile all say the same thing and no
-  /// contradiction can leave the page. The user is told before saving, see
-  /// [_zielErreichtHinweis].
-  UserProfile _draftForCalc() => _rohEntwurf().withEffectiveWeightGoal;
-
-  /// The same profile BEFORE the healing — only [_zielFolge] needs it, to swap
-  /// in the option it is describing before healing that one instead.
-  UserProfile _rohEntwurf() {
+  /// It carries [_goal] unchanged, i.e. the user's INTENT. A direction the two
+  /// weights no longer support turns into "hold" one level down, inside
+  /// `KcalCalculator.calculate`, which reads
+  /// [UserProfileWeightPlan.effectiveWeightGoal] (P9-08d). So plan hero, picker
+  /// outcomes, weight-goal row and the SAVED energy goals all say the same
+  /// thing, and no deficit plan can leave the page — while the chosen direction
+  /// stays stored, which is what makes the way out in [_zielErreichtHinweis]
+  /// ("enter a lower target weight") work at all.
+  UserProfile _draftForCalc() {
     final p = widget.profile;
     return p.copyWith(
       weightKg: _wertOder(_weight, isValidProfileWeightKg, p.weightKg),
@@ -326,6 +325,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
   KcalTargets get _liveTargets =>
       const KcalCalculator().calculate(_draftForCalc());
 
+  /// The goal the plan on this page can act on — "hold" while the target is
+  /// reached, the chosen goal otherwise. Derived from the same draft the hero
+  /// and the plan card use, so no two numbers on the page can drift apart while
+  /// a field is out of range.
+  WeightGoal get _wirksamesZiel => _draftForCalc().effectiveWeightGoal;
+
   // --- Pace: choice vs. plan (B2) ------------------------------------------
   //
   // The plan card shows the effective pace, the goal row the promised one.
@@ -340,12 +345,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String _zielFolge(WeightGoal option) {
     final l10n = context.l10n;
     if (_manualEnergy) return l10n.goalsManualNoChangeHint;
-    // Through the same healing as the plan card: while the target is reached,
-    // picking a pace changes nothing, and a row promising a deficit would be a
-    // button that lies.
-    final t = const KcalCalculator().calculate(
-      _rohEntwurf().copyWith(weightGoal: option).withEffectiveWeightGoal,
-    );
+    // Through the same derivation as the plan hero (calculate() reads the
+    // effective goal): while the target is reached, picking a pace changes
+    // nothing, and a row promising a deficit would be a button that lies.
+    final t = const KcalCalculator()
+        .calculate(_draftForCalc().copyWith(weightGoal: option));
     return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
@@ -353,14 +357,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// label as the plan card.
   ///
   /// Compares **strings**, not numbers: the user sees text, and the explanation
-  /// is needed exactly when two different texts are on screen.
+  /// is needed exactly when two different texts are on screen. Compared against
+  /// the pace the ROW shows ([_wirksamesZiel]), not against the stored choice —
+  /// otherwise a reached target would put three different pace strings on one
+  /// screen instead of connecting two.
   String? _zielAbweichung({required int tagesziel, required KcalTargets t}) {
     final l10n = context.l10n;
     final label = paceLabelForWeeklyRateKg(
       wochenrateKg(tagesziel: tagesziel, erhaltung: t.maintenanceKcal),
       l10n,
     );
-    if (label == _goal.paceLabel(l10n)) return null;
+    if (label == _wirksamesZiel.paceLabel(l10n)) return null;
     return l10n.commonKcalOutcomeLabel(tagesziel, label);
   }
 
@@ -711,10 +718,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
               SettingsRow(
                 key: const ValueKey('settings-weight-goal'),
                 title: l10n.goalsFieldWeightGoal,
+                // The CHOICE, so the row and the picker that opens from it
+                // agree on what is selected.
                 subtitle: _goal.label(l10n),
-                // Stays the CHOSEN pace: the row shows what the user picked;
-                // what it turns into is the line below.
-                value: _goal.paceLabel(l10n),
+                // The pace the plan really runs at. Normally that IS the chosen
+                // pace; once the target is reached the choice has no
+                // consequence left, and promising "−0,5 kg/Woche" right under
+                // the "goal reached, your plan switches to holding" note was
+                // the contradiction P9-08e left behind.
+                value: _wirksamesZiel.paceLabel(l10n),
                 onTap: _pickWeightGoal,
               ),
               if (abweichung != null)

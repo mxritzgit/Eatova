@@ -191,33 +191,18 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 // Log redaction for raw provider content (Security review 2026-08-11,
 // finding 4, CWE-532): model output and provider error bodies derive from the
 // food photo and user hint, so index.ts logs only the allowlisted metadata
-// from these two helpers, kept here so normalize_test.ts can prove it.
+// from these helpers, kept here so normalize_test.ts can prove it.
+//
+// The `finish_reason` allowlist is NOT here: coach-chat needs the same rule,
+// so it lives in ../_shared/provider_log.ts (P6-04c). `usage` stays — it is
+// the analyze-meal answer shape and leans on isRecord above.
 // ---------------------------------------------------------------------------
 
-/** The finish_reason values the OpenAI/OpenRouter contract defines. */
-const KNOWN_FINISH_REASONS = [
-  'stop',
-  'length',
-  'content_filter',
-  'tool_calls',
-  'function_call',
-  'error',
-];
-
 /**
- * P6-04b: `finish_reason` and `usage` are as provider-controlled as the model
- * output next to them, and the two "the model gave us nothing usable" log
- * lines wrote both of them through unfiltered. Reported as an allowlist: the
- * contract's enum value, or the category 'other' for anything else. An
- * unlisted value stays visible as 'other' — enough to notice, without letting
- * a provider-chosen string into the log (CWE-532).
+ * P6-04b: `usage` is as provider-controlled as the model output next to it,
+ * and the "the model gave us nothing usable" log line wrote it through
+ * unfiltered. Allowlist: the three token counters, as numbers, nothing else.
  */
-export function loggableFinishReason(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  return typeof value === 'string' && KNOWN_FINISH_REASONS.includes(value) ? value : 'other';
-}
-
-/** Same for `usage`: the three token counters, as numbers, nothing else. */
 export function loggableUsage(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return undefined;
   const counters: Record<string, number> = {};

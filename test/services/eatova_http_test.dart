@@ -224,22 +224,36 @@ void main() {
     }
   });
 
-  test('Die Foto-Frist bleibt ueber der Serverfrist (P10-02b)', () {
+  test('Die Foto-Frist bleibt ueber der Serverfrist (P10-02b/P10-02c)', () {
     // Calibration, not taste. analyze-meal aborts itself at
-    // ANALYZE_MEAL_REQUEST_BUDGET_MS (55 s by default) and the provider call
-    // at 45 s, so a client ceiling of 90 s meant waiting at least 35 s on
-    // something that was already dead. The new ceiling has to stay ABOVE the
-    // server's own deadline plus the connect phase plus the response transfer,
-    // otherwise a live-but-slow scan would be cut off by the client.
-    const serverBudget = Duration(seconds: 55);
-    const antwortTransfer = Duration(seconds: 5);
+    // ANALYZE_MEAL_REQUEST_BUDGET_MS and the provider call at 45 s, so a client
+    // ceiling of 90 s meant waiting at least 35 s on something that was
+    // already dead. The new ceiling has to stay ABOVE the server's own
+    // deadline plus the connect phase plus the response transfer, otherwise a
+    // live-but-slow scan would be cut off by the client.
+    //
+    // P10-02c: the server budget used to sit HERE as a Dart literal (`const
+    // serverBudget = Duration(seconds: 55)`) — the same number as in
+    // handler.ts, maintained in only one of the two places. Raising it on the
+    // server (the clamp allows up to 120 s) left this test green and cut live
+    // analyses off at the 75 s client ceiling: the user reads "this is taking
+    // too long" while the function is still working. The number is now READ
+    // from handler.ts, so the two move together or the build turns red.
+    final serverBudget = _analyzeMealServerBudget();
     const policy = HttpTimeoutPolicy.mealAnalysis;
 
     expect(
       policy.total!,
-      greaterThanOrEqualTo(policy.connect + serverBudget + antwortTransfer),
-      reason: 'unter connect + Serverbudget + Antwort-Transfer wuerde der '
-          'Client eine noch lebende Analyse abschneiden',
+      greaterThanOrEqualTo(policy.connect + serverBudget + _antwortTransfer),
+      reason:
+          'HttpTimeoutPolicy.mealAnalysis.total ist ${policy.total!.inSeconds} '
+          's, gebraucht werden aber connect (${policy.connect.inSeconds} s) + '
+          'ANALYZE_MEAL_REQUEST_BUDGET_MS aus $_analyzeMealHandlerPfad '
+          '(${serverBudget.inSeconds} s) + Antwort-Transfer '
+          '(${_antwortTransfer.inSeconds} s) = '
+          '${(policy.connect + serverBudget + _antwortTransfer).inSeconds} s. '
+          'Darunter schneidet der Client eine noch LEBENDE Analyse ab. '
+          'Beide Zahlen gehoeren zusammen bewegt.',
     );
     // ... and below the blind wait it replaces.
     expect(policy.total!, lessThan(const Duration(seconds: 90)));
@@ -247,7 +261,86 @@ void main() {
     // and the server both use their full budget.
     expect(
       policy.total! - policy.connect - serverBudget,
-      greaterThanOrEqualTo(antwortTransfer),
+      greaterThanOrEqualTo(_antwortTransfer),
+      reason: 'fuer die (kleine) JSON-Antwort bleibt keine Zeit mehr uebrig',
     );
   });
+}
+
+// ---------------------------------------------------------------------------
+// P10-02c — the server deadline, read instead of copied
+//
+// `HttpTimeoutPolicy.mealAnalysis.total` (75 s) is not a taste decision but an
+// arithmetic one: connect (15 s) + the edge function's OWN request budget
+// (55 s) + the response transfer (5 s). Two of those three live in
+// eatova_http.dart, the third one lives in TypeScript. Writing it down twice
+// is the failure mode this block exists to prevent — the same class the
+// MAX_INPUT_CHARS/MAX_INPUT_BYTES rule in repo_rules_test.dart closes for the
+// coach composer: extract, never transcribe.
+// ---------------------------------------------------------------------------
+
+/// The file that OWNS the server-side deadline.
+const String _analyzeMealHandlerPfad =
+    'supabase/functions/analyze-meal/handler.ts';
+
+/// The client's share of [HttpTimeoutPolicy.mealAnalysis.total] beyond connect
+/// and the server budget: time for the small JSON answer to come back. Lives
+/// nowhere else, so it stays a literal here.
+const Duration _antwortTransfer = Duration(seconds: 5);
+
+/// `REQUEST_BUDGET_MS` from [_analyzeMealHandlerPfad], as a [Duration].
+///
+/// The declaration reads
+/// `positiveIntFromEnv('ANALYZE_MEAL_REQUEST_BUDGET_MS', 55_000, 55_000)`,
+/// so the DEFAULT is the SECOND argument — the third is the clamp ceiling and
+/// deliberately NOT what this reads: the ceiling is not what ships. The two are
+/// equal today because the ceiling was lowered to the client's tolerance (a
+/// budget above it would have the function work on a request nobody waits for);
+/// an operator can still SHORTEN the budget, and `request_budget_test.ts` on the
+/// Deno side keeps the ceiling from drifting back up. Reading the second
+/// argument stays right either way. Matched by shape (the call, its second
+/// argument), not by
+/// line number, so moving the declaration around in handler.ts does not turn
+/// this red for no reason. `\x27` is the apostrophe — the pattern is a raw
+/// string, so it cannot carry one directly.
+Duration _analyzeMealServerBudget() {
+  final datei = File(_analyzeMealHandlerPfad);
+  if (!datei.existsSync()) {
+    fail(
+      '$_analyzeMealHandlerPfad fehlt (aufgeloest von '
+      '${Directory.current.path})',
+    );
+  }
+  final quelle = datei.readAsStringSync();
+  final treffer = RegExp(
+    r'REQUEST_BUDGET_MS\s*=\s*positiveIntFromEnv\(\s*[\x27"]'
+    r'ANALYZE_MEAL_REQUEST_BUDGET_MS[\x27"]\s*,\s*([\d_]+)\s*'
+    r'(?:,\s*([\d_]+)\s*)?,?\s*\)',
+  ).firstMatch(quelle);
+  expect(
+    treffer,
+    isNotNull,
+    reason:
+        'ANALYZE_MEAL_REQUEST_BUDGET_MS nicht in $_analyzeMealHandlerPfad '
+        'gefunden — ohne die Zahl waere diese Zusicherung blind, und genau '
+        'das war P10-02c. Aufruf-Form geaendert? Dann hier den Ausdruck '
+        'nachziehen, NICHT die Zahl abschreiben.',
+  );
+  int zahl(String roh) => int.parse(roh.replaceAll('_', ''));
+  final standard = zahl(treffer!.group(1)!);
+  expect(
+    standard,
+    greaterThan(0),
+    reason: 'ein Budget von 0 ms waere kein Budget',
+  );
+  final clampRoh = treffer.group(2);
+  if (clampRoh != null) {
+    expect(
+      standard,
+      lessThanOrEqualTo(zahl(clampRoh)),
+      reason: 'der Standardwert liegt ueber der eigenen Clamp-Obergrenze — '
+          'dann steht in handler.ts etwas anderes, als hier gelesen wird',
+    );
+  }
+  return Duration(milliseconds: standard);
 }

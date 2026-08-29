@@ -93,6 +93,46 @@ Future<void> _seedDeltas(EncryptedKeyValueStore store) =>
     LocalCache(store, _uid).writePendingStatsDeltas(
         meals: 3, weightLogs: 0, requestId: 'rid-alt');
 
+/// A slot in the real wire frame whose PLAINTEXT is unusable: `decrypt`
+/// succeeds and hands the bytes over, and the reader still cannot parse them.
+///
+/// That is [RawSlotState.brokenContent], i.e. `UnreadableCacheSlot.transient ==
+/// false` — the opposite of the blocked cipher above, where the bytes were
+/// never handed over at all.
+Future<void> _seedKaputtenInhalt(
+  InMemoryKeyValueStore raw,
+  _AussetzenderCipher cipher,
+  String key,
+) async =>
+    raw.setString(key, await cipher.encrypt(key, '{"items": [ kein json'));
+
+/// Counts the RE-READS of the two sync slots.
+///
+/// The real evidence for P3-02d: every protected write pays one re-read, so
+/// the counter says how many attempts the brake spent. Deciding by
+/// `transient` there is exactly ONE (the one that fetches the verdict); the
+/// slot's takeover alone does not tell the two builds apart, because the
+/// bounded brake reaches it too, just three writes later.
+class _ZaehlenderCache extends LocalCache {
+  _ZaehlenderCache(super.store, super.userId);
+
+  int outboxLeseversuche = 0;
+  int deltaLeseversuche = 0;
+
+  @override
+  Future<List<SyncOp>?> readOutboxOrThrow() {
+    outboxLeseversuche++;
+    return super.readOutboxOrThrow();
+  }
+
+  @override
+  Future<({int meals, int weightLogs, String? requestId})?>
+      readPendingStatsDeltasOrThrow() {
+    deltaLeseversuche++;
+    return super.readPendingStatsDeltasOrThrow();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -292,6 +332,95 @@ void main() {
       expect(blob.map((o) => o.entityId), isNot(contains('m-alt')),
           reason: 'was nachweislich nicht aufgeht, ist bereits verloren — es '
               'darf nicht als „unlesbar" jeden weiteren Write blockieren');
+    });
+  });
+
+  // Review 2026-08-29, P3-02d: der Rest von P3-02c. Der Cache unterscheidet
+  // seit dieser Nacht „gerade nicht lesbar" von „Inhalt nachweislich kaputt"
+  // (RawSlotState -> UnreadableCacheSlot.transient), aber die Reparaturstelle
+  // las den Wert nie: sie verzweigte nur ueber `e is UnreadableCacheSlot`.
+  // Damit war ein Slot, der beweisbar nie wieder aufgeht, genauso lange
+  // geschuetzt wie einer, der es gleich wieder tut — und die Sitzung stand so
+  // lange ohne Persistenz da. Die Feld-Doku sagte schon immer das Richtige
+  // („the caller may give up at once"), also gibt der Code nach.
+  group('P3-02d: nachweislich kaputter INHALT verbraucht keinen Versuch', () {
+    test('Outbox: der ERSTE Write nimmt den Slot in Besitz', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedKaputtenInhalt(raw, cipher, _outboxKey);
+      final kaputt = raw.snapshot[_outboxKey];
+
+      final cache = _ZaehlenderCache(store, _uid);
+      final a = setup(injizierterCache: cache);
+      a.server.offline = true;
+      await boot(a.store);
+      expect(a.store.pendingOutbox, isEmpty,
+          reason: 'Vorbedingung: die Hydration konnte den Slot nicht lesen');
+      final nachBoot = cache.outboxLeseversuche;
+
+      // GENAU EIN Write — keine Schleife ueber kOutboxRepairMaxAttempts.
+      final neu = a.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+      await settle();
+
+      expect(cache.outboxLeseversuche, nachBoot + 1,
+          reason: 'ein einziger Nachlesevorgang, der das Urteil holt — jeder '
+              'weitere waere ein geschuetzter und damit ungesicherter Write');
+      expect(raw.snapshot[_outboxKey], isNot(kaputt),
+          reason: 'die Bytes haben sich ausgehaendigt und waren trotzdem '
+              'unbrauchbar — das ist eine Aussage ueber den INHALT und sie '
+              'ist endgueltig. Jeder geschuetzte Versuch kostet einen '
+              'ungesicherten Write und kann nichts gewinnen');
+      final blob = await LocalCache(store, _uid).readOutbox();
+      expect(blob!.map((o) => o.entityId), contains(neu),
+          reason: 'die Op dieser Sitzung muss sofort kill-sicher liegen');
+    });
+
+    test('Deltas: ebenso — die naechsten Zahlen landen sofort', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedKaputtenInhalt(raw, cipher, _deltaKey);
+      final kaputt = raw.snapshot[_deltaKey];
+
+      final cache = _ZaehlenderCache(store, _uid);
+      final a = setup(injizierterCache: cache);
+      await boot(a.store);
+      final nachBoot = cache.deltaLeseversuche;
+
+      // Die Mahlzeit geht durch, nur increment_lifetime_stats scheitert: genau
+      // die Lage, die ein Delta bucht und den Slot neu schreibt.
+      a.server.statsOffline = true;
+      a.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+      await settle();
+      a.store.flushPendingWrites();
+      await settle();
+
+      expect(cache.deltaLeseversuche, nachBoot + 1,
+          reason: 'derselbe Nachweis wie oben: die Bremse haette pro '
+              'geschuetztem Flush einen weiteren Nachlesevorgang gekostet');
+      expect(raw.snapshot[_deltaKey], isNot(kaputt));
+      final deltas = await LocalCache(store, _uid).readPendingStatsDeltas();
+      expect(deltas!.meals, 1,
+          reason: 'aus kaputten Bytes wird durch Wiederlesen keine Zahl — die '
+              'Mahlzeiten dieser Sitzung fielen sonst so lange aus dem '
+              'kill-sicheren Slot, wie die Bremse laeuft');
+    });
+
+    test(
+        'Gegenprobe: nur gerade nicht lesbar bleibt den vollen Bremsweg lang '
+        'geschuetzt', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedOutbox(store);
+      final vorher = raw.snapshot[_outboxKey];
+      cipher.blockiert = true;
+
+      final a = setup(injizierterCache: LocalCache(store, _uid));
+      a.server.offline = true;
+      await boot(a.store);
+
+      a.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+      await settle();
+
+      expect(raw.snapshot[_outboxKey], vorher,
+          reason: 'derselbe erste Write, nur mit transient: true — hier ist '
+              'Nichtwissen weiterhin keine Erlaubnis zum Ueberschreiben');
     });
   });
 }

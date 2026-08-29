@@ -1490,6 +1490,64 @@ Deno.test("F5-02: 200 mit leerem content -> Refund + 502, keine Assistant-Zeile"
   }
 });
 
+// P6-04c (review 2026-08-29): the log line asserted above is the ONE place
+// coach-chat writes a provider-chosen string into function_logs. It used to
+// arrive there capped at 32 characters — a cap is not a redaction:
+// `finish_reason` is a free string, and 32 characters of the user's question
+// are still the user's question (CWE-532). The cap was also held by no test at
+// all; removing it left the suite green. Same allowlist as analyze-meal now.
+Deno.test("P6-04c: fremder finish_reason wird kategorisiert, nicht gekappt geloggt", async () => {
+  const leak = "Nutzerhinweis Diabetes Typ 2 seit 2019, Metformin 1000mg";
+  const stub = installFetch({
+    classifierCategory: "fitness",
+    answerContent: "",
+    answerFinishReason: leak,
+  });
+  const logs = captureConsoleError();
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
+    assertEquals(res.status, 502, "Status");
+    const responseText = await res.text();
+    const joined = logs.lines.join("\n");
+    // The diagnostic stays — as a category, so the case is still readable.
+    assert(joined.includes("finish_reason=other"), `Kategorie fehlt im Log: ${joined}`);
+    assert(!joined.includes("Nutzerhinweis"), `Provider-Freitext im Log: ${joined}`);
+    // Not just "the whole value is gone": no PREFIX may survive either, which
+    // is exactly what the old .slice(0, 32) let through.
+    assert(
+      !joined.includes(leak.slice(0, 32)),
+      `gekappter Provider-Freitext im Log: ${joined}`,
+    );
+    assert(
+      !responseText.includes("Nutzerhinweis"),
+      `Provider-Freitext in der Antwort: ${responseText}`,
+    );
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test("P6-04c: Vertragswert bleibt im Log lesbar", async () => {
+  const stub = installFetch({
+    classifierCategory: "fitness",
+    answerContent: "",
+    answerFinishReason: "content_filter",
+  });
+  const logs = captureConsoleError();
+  try {
+    await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
+    const joined = logs.lines.join("\n");
+    assert(
+      joined.includes("finish_reason=content_filter"),
+      `Vertragswert fehlt im Log: ${joined}`,
+    );
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
 Deno.test("F5-02: blanker __REFUSE__-Marker bleibt ein Refusal (Katalogtext, kein Refund)", async () => {
   // A refund here would be a quota bypass (provoke a refusal -> slot back ->
   // 60/h instead of 5/day) and would drop the crisis text on the floor.

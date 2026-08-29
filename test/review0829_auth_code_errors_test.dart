@@ -57,6 +57,16 @@ class _WerfendesAuthRepository extends InMemoryAuthRepository {
     if (aktuell != null) throw aktuell;
   }
 
+  /// The recovery flow's send — the ADDRESS step goes through this one, so the
+  /// same counter has to see it (P4-03b, Loch 2).
+  @override
+  Future<void> sendPasswordReset(String email) async {
+    sendeVersuche++;
+    final aktuell = fehler;
+    if (aktuell != null) throw aktuell;
+    await super.sendPasswordReset(email);
+  }
+
   @override
   Future<void> verifySignupCode({
     required String email,
@@ -74,17 +84,21 @@ AuthApiException _kontingentErschoepft() => const AuthApiException(
       code: 'over_email_send_rate_limit',
     );
 
+/// The signup flow starts at the CODE step; [flow] + [initialEmail] open the
+/// recovery flow at the ADDRESS step instead.
 Future<void> _pumpCode(
   WidgetTester tester,
   AuthRepository repo,
-  KeyValueStore speicher,
-) async {
+  KeyValueStore speicher, {
+  AuthCodeFlow flow = AuthCodeFlow.signup,
+  String initialEmail = _adresse,
+}) async {
   await pumpLocalized(
     tester,
     AuthCodeScreen(
       authRepository: repo,
-      flow: AuthCodeFlow.signup,
-      initialEmail: _adresse,
+      flow: flow,
+      initialEmail: initialEmail,
       throttleStore: speicher,
     ),
     reducedMotion: false,
@@ -104,7 +118,22 @@ Future<void> _entsorgeScreen(WidgetTester tester) async {
 Finder get _resendLink => find.byKey(const ValueKey('code-resend'));
 Finder get _primaerKnopf => find.byKey(const ValueKey('code-primary'));
 Finder get _codeFeld => find.byKey(const ValueKey('code-field'));
+Finder get _emailFeld => find.byKey(const ValueKey('code-email-field'));
 Finder get _ausweichLink => find.byKey(const ValueKey('code-send-anyway'));
+
+/// GoTrue's answer when the project has OTP sign-in switched off — a SERVER
+/// configuration fault, not a wrong code (P4-02d).
+AuthApiException _otpAbgeschaltet() => const AuthApiException(
+      'Signups not allowed for otp',
+      code: 'otp_disabled',
+    );
+
+/// A plain server fault: no wait named, nothing to classify as a throttle.
+AuthApiException _serverfehler500() => const AuthApiException(
+      'Unexpected failure, please check server logs for more information',
+      statusCode: '500',
+      code: 'unexpected_failure',
+    );
 
 /// Taps "request a new code" once and settles.
 Future<void> _tippeNeuAnfordern(WidgetTester tester) async {
@@ -560,6 +589,293 @@ void main() {
         await _pruefeCode(tester);
 
         expect(find.text(deL10n.authCodeErrorRejected), findsOneWidget);
+        await _entsorgeScreen(tester);
+      });
+    });
+  });
+
+  group('P4-02d — ein abgeschaltetes OTP ist kein falscher Code', () {
+    testWidgets(
+        'otp_disabled sperrt die Eingabe nicht und verbrennt keine Versuche',
+        (tester) async {
+      // `otp_disabled` heisst: das PROJEKT hat OTP-Anmeldung aus. Als
+      // "abgelehnter Code" gefuehrt las der Nutzer "Der Code stimmt nicht" und
+      // war nach fuenf Anlaeufen mit "Zu viele Fehlversuche" dicht — gegen eine
+      // Sperre, die nur ein NEUER Code loest, den der Server gerade prinzipiell
+      // nicht ausgibt. Dieselbe Fehlklassifikation wie P4-02c bei
+      // `Invalid API key`, nur vom Textfallback in die Code-Liste umgezogen.
+      final repo = _WerfendesAuthRepository(_otpAbgeschaltet());
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore());
+
+        for (var versuch = 1; versuch <= 5; versuch++) {
+          await _pruefeCode(tester);
+        }
+
+        expect(find.text(deL10n.authCodeErrorRejected), findsNothing,
+            reason: 'ueber den eingegebenen Code sagt dieser Fehler nichts');
+        expect(find.text(deL10n.authCodeTooManyAttempts), findsNothing,
+            reason: 'gemessen war hier gesperrt=true nach fuenf Antworten');
+        expect(tester.widget<TextField>(_codeFeld).enabled, isTrue,
+            reason: 'ein Server-Konfigfehler darf die Eingabe nicht zumachen');
+        expect(find.text(deL10n.authErrorGeneric), findsOneWidget,
+            reason: 'unknown ist die ehrliche Einstufung — wir wissen nur, '
+                'dass es nicht am Code lag');
+        await _entsorgeScreen(tester);
+      });
+    });
+
+    testWidgets(
+        'auch beim ANFORDERN bleibt otp_disabled generisch statt "Code falsch"',
+        (tester) async {
+      final repo = _WerfendesAuthRepository(_otpAbgeschaltet());
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore());
+        await _tippeNeuAnfordern(tester);
+
+        expect(find.text(deL10n.authErrorGeneric), findsOneWidget);
+        expect(find.text(deL10n.authCodeErrorRejected), findsNothing);
+        await _entsorgeScreen(tester);
+      });
+    });
+  });
+
+  group('P4-03b/Loch 1 — der Ausweg ist ein VERSUCH, kein Erfolgsversprechen',
+      () {
+    for (final fall in <({String name, Object fehler})>[
+      (name: 'ein 500er ohne Wartezeit', fehler: _serverfehler500()),
+      (
+        name: 'ein Funkloch',
+        fehler: const SocketException('Failed host lookup: ci.invalid'),
+      ),
+    ]) {
+      testWidgets('${fall.name} verbraucht den Ausweg trotzdem',
+          (tester) async {
+        // Gestempelt wurde bisher NUR bei drossel- oder kontingentfoermigen
+        // Fehlern (_sperrDauer > 0). Alles andere liess `bypassUsed` auf false
+        // — der Link kam zurueck und jeder Tap war eine echte Anfrage waehrend
+        // der laufenden Sperre.
+        final repo = _WerfendesAuthRepository(_kontingentErschoepft());
+
+        await withClock(Clock.fixed(_jetzt), () async {
+          await _pumpCode(tester, repo, InMemoryKeyValueStore());
+          await _tippeNeuAnfordern(tester);
+          expect(repo.sendeVersuche, 1);
+          expect(_ausweichLink, findsOneWidget);
+
+          repo.fehler = fall.fehler;
+          await _tippeTrotzdem(tester);
+
+          expect(repo.sendeVersuche, 2, reason: 'der Ausweg ging wirklich raus');
+          expect(_ausweichLink, findsNothing,
+              reason: 'verbraucht ist er, sobald er rausging — nicht erst, '
+                  'wenn der Server drosselfoermig antwortet');
+          expect(find.text(deL10n.authCodeSendAnywayUsed), findsOneWidget,
+              reason: 'statt eines toten Links steht da, warum');
+          await _entsorgeScreen(tester);
+        });
+      });
+    }
+
+    testWidgets(
+        'PROBE-500 nachgestellt: in einer halben Stunde bleibt es bei ZWEI '
+        'echten Sendeversuchen', (tester) async {
+      // Die Messung des Pruefers: sendeVersuche=6, linkNochDa=true.
+      final repo = _WerfendesAuthRepository(_kontingentErschoepft());
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore());
+        await _tippeNeuAnfordern(tester);
+        repo.fehler = _serverfehler500();
+
+        // Der Pruefer hat einfach getippt, was da war — fuenf Runden lang.
+        for (var runde = 1; runde <= 5; runde++) {
+          if (_ausweichLink.evaluate().isNotEmpty) {
+            await _tippeTrotzdem(tester);
+          }
+          await _tippeNeuAnfordern(tester);
+        }
+
+        expect(repo.sendeVersuche, 2,
+            reason: 'die erste Anfrage plus der EINE Ausweg — gemessen waren '
+                'sechs');
+        expect(_ausweichLink, findsNothing, reason: 'gemessen: linkNochDa=true');
+        expect(find.text(deL10n.authCodeSendAnywayUsed), findsOneWidget);
+        await _entsorgeScreen(tester);
+      });
+    });
+
+    testWidgets('ein gescheiterter Ausweg verlaengert die Sperre NICHT',
+        (tester) async {
+      // Deshalb setzt der Fix nur das Verbraucht-Flag statt neu zu stempeln:
+      // ein Serverfehler ist nicht die Schuld des Nutzers, die Wartezeit bleibt
+      // wo sie war.
+      final repo = _WerfendesAuthRepository(_kontingentErschoepft());
+      var jetzt = _jetzt;
+
+      await withClock(Clock(() => jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore());
+        await _tippeNeuAnfordern(tester);
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)),
+            findsOneWidget);
+
+        // 25 Minuten spaeter: der Countdown steht bei 5 Minuten.
+        jetzt = _jetzt.add(const Duration(minutes: 25));
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(5)),
+            findsOneWidget);
+
+        repo.fehler = _serverfehler500();
+        await _tippeTrotzdem(tester);
+
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(5)),
+            findsOneWidget,
+            reason: 'der Riegel endet weiter zum urspruenglichen Zeitpunkt');
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)), findsNothing,
+            reason: 'neu zu stempeln haette den Nutzer fuer den Serverfehler '
+                'bestraft');
+        await _entsorgeScreen(tester);
+      });
+    });
+
+    testWidgets(
+        'der Verbrauch haengt an der SPERRE — die naechste bringt einen neuen '
+        'Ausweg mit', (tester) async {
+      // Gegenprobe zu den Zeilen darueber: das Flag darf nicht einfach kleben
+      // bleiben, sonst gaebe es pro Adresse genau einen Ausweg ueberhaupt.
+      final repo = _WerfendesAuthRepository(_kontingentErschoepft());
+      var jetzt = _jetzt;
+
+      await withClock(Clock(() => jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore());
+        await _tippeNeuAnfordern(tester);
+        repo.fehler = _serverfehler500();
+        await _tippeTrotzdem(tester);
+        expect(repo.sendeVersuche, 2);
+        expect(_ausweichLink, findsNothing);
+
+        // Die halbe Stunde ist um: der Riegel faellt.
+        jetzt = _jetzt.add(const Duration(minutes: 31));
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(find.text(deL10n.authCodeResendCta), findsOneWidget);
+
+        // Die naechste Kontingent-Sperre bringt einen frischen Ausweg mit.
+        repo.fehler = _kontingentErschoepft();
+        await _tippeNeuAnfordern(tester);
+        expect(repo.sendeVersuche, 3);
+        expect(_ausweichLink, findsOneWidget,
+            reason: 'eine neue Sperre ist eine neue Schaetzung — sonst gaebe '
+                'es pro Adresse genau einen Ausweg ueberhaupt');
+        await _entsorgeScreen(tester);
+      });
+    });
+  });
+
+  group('P4-03b/Loch 2 — auch der Adress-Schritt hat einen Ausweg', () {
+    testWidgets(
+        'laeuft der ERSTE Versand ins Kontingent, steht der Nutzer nicht ohne '
+        'Handlungsmoeglichkeit da', (tester) async {
+      // Gemessen: ausweichLink=0, resendLink=0. Der Screen bleibt im
+      // Adress-Schritt, und der Ausweg hing an `_step == _Step.code`.
+      final repo = _WerfendesAuthRepository(_kontingentErschoepft());
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore(),
+            flow: AuthCodeFlow.recovery, initialEmail: '');
+        await tester.enterText(_emailFeld, _adresse);
+        await tester.tap(_primaerKnopf);
+        await tester.pumpAndSettle();
+
+        expect(repo.sendeVersuche, 1);
+        expect(_emailFeld, findsOneWidget,
+            reason: 'der Screen bleibt im Adress-Schritt — der Code-Schritt '
+                'wird nie erreicht');
+        expect(find.text(deL10n.authCodeQuotaExhausted), findsOneWidget);
+        expect(_ausweichLink, findsOneWidget,
+            reason: 'sonst sitzt der Nutzer eine halbe Stunde fest — genau der '
+                'Zustand, den P4-03b beseitigen sollte, nur einen Schritt '
+                'frueher');
+        await _entsorgeScreen(tester);
+      });
+    });
+
+    testWidgets(
+        'der Ausweg im Adress-Schritt erreicht den Server und traegt weiter in '
+        'den Code-Schritt', (tester) async {
+      final repo = _WerfendesAuthRepository(_kontingentErschoepft());
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore(),
+            flow: AuthCodeFlow.recovery, initialEmail: '');
+        await tester.enterText(_emailFeld, _adresse);
+        await tester.tap(_primaerKnopf);
+        await tester.pumpAndSettle();
+
+        // Der Bucket hat wieder einen Token.
+        repo.fehler = null;
+        await _tippeTrotzdem(tester);
+
+        expect(repo.sendeVersuche, 2,
+            reason: 'der Ausweg geht wirklich raus, sonst waere er Theater');
+        expect(repo.passwordResets, <String>[_adresse]);
+        expect(_codeFeld, findsOneWidget,
+            reason: 'ein geglueckter Versand fuehrt weiter — nicht bloss eine '
+                'Meldung im Adress-Schritt');
+        await _entsorgeScreen(tester);
+      });
+    });
+
+    testWidgets('auch im Adress-Schritt gilt der Ausweg genau einmal',
+        (tester) async {
+      final repo = _WerfendesAuthRepository(_kontingentErschoepft());
+      final speicher = InMemoryKeyValueStore();
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpCode(tester, repo, speicher,
+            flow: AuthCodeFlow.recovery, initialEmail: '');
+        await tester.enterText(_emailFeld, _adresse);
+        await tester.tap(_primaerKnopf);
+        await tester.pumpAndSettle();
+
+        await _tippeTrotzdem(tester);
+        expect(repo.sendeVersuche, 2);
+        expect(_ausweichLink, findsNothing);
+        expect(find.text(deL10n.authCodeSendAnywayUsed), findsOneWidget);
+
+        // Der Hauptknopf bleibt der normalen Sperre unterworfen.
+        await tester.tap(_primaerKnopf);
+        await tester.pumpAndSettle();
+        expect(repo.sendeVersuche, 2,
+            reason: 'die Sperre haelt den blinden Tap weiterhin lokal auf');
+        expect(find.text(deL10n.authCodeThrottleWaitMinutes(30)), findsOneWidget);
+        await _entsorgeScreen(tester);
+      });
+    });
+
+    testWidgets(
+        'eine vom Server GENANNTE Wartezeit bekommt auch im Adress-Schritt '
+        'keinen Ausweg', (tester) async {
+      final repo = _WerfendesAuthRepository(const AuthApiException(
+        'For security purposes, you can only request this after 180 seconds.',
+        statusCode: '429',
+        code: 'over_email_send_rate_limit',
+      ));
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pumpCode(tester, repo, InMemoryKeyValueStore(),
+            flow: AuthCodeFlow.recovery, initialEmail: '');
+        await tester.enterText(_emailFeld, _adresse);
+        await tester.tap(_primaerKnopf);
+        await tester.pumpAndSettle();
+
+        expect(_emailFeld, findsOneWidget);
+        expect(_ausweichLink, findsNothing,
+            reason: 'gegen eine Zahl, die der Server selbst genannt hat, '
+                'anzuklopfen kostet nur eine Anfrage');
         await _entsorgeScreen(tester);
       });
     });

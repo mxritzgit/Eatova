@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -546,10 +547,17 @@ void main() {
   // the fake would define the failure away.
 
   group('P1-05 — Verschieben AUF heute bucht den Tag nach dem Upsert', () {
+    /// All tests of this group run under a PINNED clock: they log onto
+    /// yesterday and move onto today, which across midnight would silently
+    /// become a move onto TOMORROW (K-02, date-dependent tests).
+    final jetzt = DateTime(2026, 5, 14, 12, 30);
+    Future<void> anTag(Future<void> Function() koerper) =>
+        withClock(Clock.fixed(jetzt), koerper);
+
     /// Logged for yesterday, today still empty — the finding's starting state.
     Future<({String id, DateTime heute})> nachtragVonGestern(
         HomeStore store) async {
-      final heute = DateUtils.dateOnly(DateTime.now());
+      final heute = DateUtils.dateOnly(clock.now());
       final id = store.addResultToDailyTotal(mealResult('Nachtrag'),
           foodDate: heute.subtract(const Duration(days: 1)));
       await settle();
@@ -558,77 +566,176 @@ void main() {
 
     test(
         'live: die RPC erreicht den Server erst NACH dem PATCH und wird beim '
-        'ersten Versuch angenommen', () async {
-      final s = setup();
-      s.server.enforceTrackingDaySourceProof = true;
-      await boot(s.store);
-      final vor = await nachtragVonGestern(s.store);
-      expect(s.server.trackedDay, isNull, reason: 'Vorbedingung: heute leer');
-      final abHier = s.server.requests.length;
+        'ersten Versuch angenommen', () => anTag(() async {
+          final s = setup();
+          s.server.enforceTrackingDaySourceProof = true;
+          await boot(s.store);
+          final vor = await nachtragVonGestern(s.store);
+          expect(s.server.trackedDay, isNull,
+              reason: 'Vorbedingung: heute leer');
+          final abHier = s.server.requests.length;
 
-      s.store.updateLoggedMealDetails(vor.id, day: DateTime.now());
-      await settle();
+          s.store.updateLoggedMealDetails(vor.id, day: clock.now());
+          await settle();
 
-      final danach = s.server.requests.skip(abHier).toList();
-      final patch = danach.indexWhere((r) =>
-          r.method == 'PATCH' && r.url.path.contains('/logged_meals'));
-      final rpc = danach.indexWhere(
-          (r) => r.url.path.contains('/rpc/record_tracking_day'));
-      expect(patch, isNonNegative, reason: 'der Upsert muss rausgegangen sein');
-      expect(rpc, isNonNegative, reason: 'der Tag muss gebucht worden sein');
-      expect(patch, lessThan(rpc),
-          reason: 'die Streak-Buchung vor dem Upsert trifft auf eine Zeile, '
-              'die es fuer heute noch gar nicht gibt');
-      expect(s.server.trackingDayRejections, isEmpty,
-          reason: 'jede Ablehnung ist ein verbrannter Zustellversuch plus ein '
-              'Sentry-Sync-Ereignis');
-      expect(s.server.trackedDay, localDayKey(vor.heute));
-      expect(s.store.pendingOutbox, isEmpty,
-          reason: 'live zugestellt heisst: nichts bleibt liegen');
-    });
+          final danach = s.server.requests.skip(abHier).toList();
+          final patch = danach.indexWhere((r) =>
+              r.method == 'PATCH' && r.url.path.contains('/logged_meals'));
+          final rpc = danach.indexWhere(
+              (r) => r.url.path.contains('/rpc/record_tracking_day'));
+          expect(patch, isNonNegative,
+              reason: 'der Upsert muss rausgegangen sein');
+          expect(rpc, isNonNegative, reason: 'der Tag muss gebucht worden sein');
+          expect(patch, lessThan(rpc),
+              reason: 'die Streak-Buchung vor dem Upsert trifft auf eine '
+                  'Zeile, die es fuer heute noch gar nicht gibt');
+          expect(s.server.trackingDayRejections, isEmpty,
+              reason: 'jede Ablehnung ist ein verbrannter Zustellversuch plus '
+                  'ein Sentry-Sync-Ereignis');
+          expect(s.server.trackedDay, localDayKey(vor.heute));
+          expect(s.store.pendingOutbox, isEmpty,
+              reason: 'live zugestellt heisst: nichts bleibt liegen');
+        }));
 
+    // P1-05b, Loch 1: dieser Test blieb beim vollstaendigen Rueckbau des Fixes
+    // gruen. Der alte `catchError -> _queueTrackingDay`-Pfad landet ebenfalls
+    // HINTER dem synchron eingereihten Upsert, also sagte die Reihenfolge
+    // allein nichts. Unterscheidend ist der ZEITPUNKT: der eifrige Zwilling
+    // steht in der Queue, bevor ueberhaupt eine Antwort da sein koennte.
     test(
-        'offline: Upsert und Streak-Tag liegen in dieser Reihenfolge in der '
-        'Queue — der Replay bucht erst die Zeile, dann den Tag', () async {
-      final s = setup();
-      s.server.enforceTrackingDaySourceProof = true;
-      await boot(s.store);
-      final vor = await nachtragVonGestern(s.store);
-      expect(s.store.pendingOutbox, isEmpty, reason: 'Vorbedingung');
+        'offline: der Zwilling steht SYNCHRON hinter dem Upsert — vor jeder '
+        'Netzantwort; der Replay bucht dann erst die Zeile, dann den Tag',
+        () => anTag(() async {
+              final s = setup();
+              s.server.enforceTrackingDaySourceProof = true;
+              await boot(s.store);
+              final vor = await nachtragVonGestern(s.store);
+              expect(s.store.pendingOutbox, isEmpty, reason: 'Vorbedingung');
 
-      s.server.offline = true;
-      s.store.updateLoggedMealDetails(vor.id, day: DateTime.now());
-      await settle();
+              s.server.offline = true;
+              s.store.updateLoggedMealDetails(vor.id, day: clock.now());
 
-      expect(
-          s.store.pendingOutbox.map((o) => o.kind).toList(),
-          <SyncOpKind>[SyncOpKind.mealUpsert, SyncOpKind.trackingDay],
-          reason: 'FIFO: steht der Tag vorn, scheitert der erste Pass '
-              'zwangslaeufig an EX_DAY_NOT_LOGGED');
+              // KEIN settle: hier ist noch kein einziger Microtask gelaufen.
+              expect(
+                  s.store.pendingOutbox.map((o) => o.kind).toList(),
+                  <SyncOpKind>[SyncOpKind.mealUpsert, SyncOpKind.trackingDay],
+                  reason: 'zwei Zusagen in einer Zeile: FIFO (steht der Tag '
+                      'vorn, scheitert der erste Pass zwangslaeufig an '
+                      'EX_DAY_NOT_LOGGED) UND unabhaengig vom Netz — ein Tag, '
+                      'der erst durch eine Fehlerantwort entsteht, existiert '
+                      'im haengenden und im gekillten Fall nie');
+              await settle();
+              expect((await s.cache.readOutbox())!.map((o) => o.kind),
+                  contains(SyncOpKind.trackingDay),
+                  reason: 'und kill-sicher, nicht nur im Speicher');
 
-      s.server.offline = false;
-      s.store.flushPendingWrites();
-      await settle();
+              s.server.offline = false;
+              s.store.flushPendingWrites();
+              await settle();
 
-      expect(s.server.trackingDayRejections, isEmpty);
-      expect(s.server.trackedDay, localDayKey(vor.heute));
-      expect(s.store.pendingOutbox, isEmpty);
-    });
+              expect(s.server.trackingDayRejections, isEmpty);
+              expect(s.server.trackedDay, localDayKey(vor.heute));
+              expect(s.store.pendingOutbox, isEmpty);
+            }));
+
+    // P1-05b, Loch 2a: der Fall, fuer den der Fix eigentlich gutgeschrieben
+    // ist. PostgREST kennt keinen Timeout — ein PATCH, der nie antwortet,
+    // feuert weder `then` noch `catchError`. Der alte Pfad lief hier nie, also
+    // deckte ihn auch kein Test.
+    test(
+        'haengender PATCH: der Tag liegt kill-sicher in der Queue, und die '
+        'RPC trifft nie auf die noch leere Zeile',
+        () => anTag(() async {
+              final s = setup();
+              s.server.enforceTrackingDaySourceProof = true;
+              await boot(s.store);
+              final vor = await nachtragVonGestern(s.store);
+
+              s.server.holdMealWrites();
+              s.store.updateLoggedMealDetails(vor.id, day: clock.now());
+              await settle();
+
+              expect(s.server.trackingDayRejections, isEmpty,
+                  reason: 'die Buchung vor dem Upsert trifft hier auf eine '
+                      'Zeile, die noch auf gestern steht — P0001, ein '
+                      'verbrannter Zustellversuch plus ein Sentry-Ereignis');
+              expect(s.server.trackedDay, isNull,
+                  reason: 'Vorbedingung: der Upsert haengt, live ist nichts '
+                      'gebucht');
+              expect((await s.cache.readOutbox())!.map((o) => o.kind),
+                  contains(SyncOpKind.trackingDay),
+                  reason: 'nur der eingereihte Zwilling haelt den Tag fest — '
+                      'ein Pfad, der erst an einer Antwort haengt, bekommt '
+                      'hier nie eine');
+
+              // Aufraeumen: die Antwort kommt doch noch.
+              s.server.releaseMealWrites();
+              await settle();
+              expect(s.server.trackedDay, localDayKey(vor.heute));
+            }));
+
+    // P1-05b, Loch 2b: der Kill zwischen Bearbeitung und RPC-Antwort. Der
+    // PATCH ist durch, die Buchung fliegt — und die App stirbt. Auch hier
+    // laeuft weder `then` noch `catchError`.
+    test(
+        'Kill zwischen Bearbeitung und RPC-Antwort: der Tag ueberlebt im '
+        'eingereihten Zwilling und wird beim naechsten Start gebucht',
+        () => anTag(() async {
+              final kv = InMemoryKeyValueStore();
+              final server = FakeServer()
+                ..enforceTrackingDaySourceProof = true;
+
+              final a = setup(kv: kv, geteilterServer: server);
+              await boot(a.store);
+              final vor = await nachtragVonGestern(a.store);
+
+              server.hangTrackingDay = true;
+              a.store.updateLoggedMealDetails(vor.id, day: clock.now());
+              await settle();
+              a.store.flushPendingWrites();
+              await settle();
+
+              expect(server.mealRows[vor.id]!['local_day'],
+                  localDayKey(vor.heute),
+                  reason: 'Vorbedingung: der PATCH ist durch');
+              expect(server.trackedDay, isNull,
+                  reason: 'Vorbedingung: die Antwort der Buchung steht aus');
+              expect((await a.cache.readOutbox())!.map((o) => o.kind),
+                  contains(SyncOpKind.trackingDay),
+                  reason: 'nur was VOR dem Absenden persistiert wurde, kann '
+                      'einen Kill in diesem Fenster ueberleben');
+
+              // Neustart auf demselben Geraet, gegen denselben Server. Die
+              // schon abgesetzte Anfrage der toten Sitzung bleibt haengen —
+              // nur neue bekommen wieder eine Antwort.
+              server.hangTrackingDay = false;
+              final b = setup(kv: kv, geteilterServer: server);
+              await boot(b.store);
+
+              expect(server.trackedDay, localDayKey(vor.heute),
+                  reason: 'sonst sieht der Server eine Luecke und die Streak '
+                      'reisst beim naechsten Log');
+              expect(
+                  b.store.pendingOutbox
+                      .where((o) => o.kind == SyncOpKind.trackingDay),
+                  isEmpty,
+                  reason: 'zugestellt heisst: die Op ist wieder raus');
+            }));
 
     test(
         'Streak bleibt sichtbar, solange der Tag nur in der Queue liegt',
-        () async {
-      final s = setup();
-      await boot(s.store);
-      final vor = await nachtragVonGestern(s.store);
+        () => anTag(() async {
+              final s = setup();
+              await boot(s.store);
+              final vor = await nachtragVonGestern(s.store);
 
-      s.server.offline = true;
-      s.store.updateLoggedMealDetails(vor.id, day: DateTime.now());
-      await settle();
+              s.server.offline = true;
+              s.store.updateLoggedMealDetails(vor.id, day: clock.now());
+              await settle();
 
-      expect(s.store.lifetimeStats.lastTrackedDate, vor.heute,
-          reason: 'die optimistische Buchung darf nicht verschwinden, nur '
-              'weil die Zustellung wartet');
-    });
+              expect(s.store.lifetimeStats.lastTrackedDate, vor.heute,
+                  reason: 'die optimistische Buchung darf nicht verschwinden, '
+                      'nur weil die Zustellung wartet');
+            }));
   });
 }

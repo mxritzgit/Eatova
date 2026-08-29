@@ -43,6 +43,7 @@ class RecipesScreen extends StatefulWidget {
     this.onCreateRecipe,
     this.onDeleteRecipe,
     this.initialUserRecipes = const <FitnessRecipe>[],
+    this.userRecipesAuthoritative = false,
     this.photoInput,
   });
 
@@ -71,6 +72,15 @@ class RecipesScreen extends StatefulWidget {
   /// User recipes loaded from Supabase at boot; taken as the initial state so
   /// self-created recipes survive a restart.
   final List<FitnessRecipe> initialUserRecipes;
+
+  /// Whether [initialUserRecipes] is COMPLETE — the boot load has answered for
+  /// user_recipes (`HomeStore.userRecipesAuthoritative`). False means the list
+  /// may still grow, and an entry missing from it says nothing.
+  ///
+  /// Only the photo sweep reads this (P3-04b); the display shows whatever is
+  /// there, finished or not. Default false: without a store saying otherwise,
+  /// no list is authoritative.
+  final bool userRecipesAuthoritative;
 
   /// Source for the recipe photo. Null uses the real [DeviceMealPhotoInput],
   /// which already returns EXIF-free bytes. Exists purely as a test seam.
@@ -133,10 +143,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
     super.initState();
     _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
     _searchController.addListener(_onSearchChanged);
-    // A non-empty list at build time can only come from the store, so it is
-    // already authoritative — the tab is often built after hydration, and then
-    // no [didUpdateWidget] follows.
-    if (widget.initialUserRecipes.isNotEmpty) _sweepOrphanPhotos();
+    // The tab is built lazily (IndexedStack), often only after the boot load
+    // has answered — then no [didUpdateWidget] follows and this is the only
+    // chance to sweep.
+    _sweepOrphanPhotos();
   }
 
   @override
@@ -171,11 +181,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
     if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
       _dropOwnFilterIfEmpty();
-      // A fresh list identity means the store ASSIGNED one — from the cache or
-      // from a successful load. That is the moment the list becomes an
-      // authoritative statement about which photos still have a recipe.
-      _sweepOrphanPhotos();
     }
+    // Outside the identity check on purpose (P3-04b): the sweep hangs off the
+    // BOOT being finished, not off a list changing. A fresh identity says only
+    // that the store assigned something — hydration assigns a stale-empty
+    // cache slot exactly the same way.
+    _sweepOrphanPhotos();
   }
 
   /// Releases recipe photos whose recipe is gone (P3-04).
@@ -191,13 +202,31 @@ class _RecipesScreenState extends State<RecipesScreen> {
   ///
   ///   * a real persistence hook — without sync the recipes are session-local
   ///     (preview, tests) and say nothing about the disk;
-  ///   * a list the store delivered, never the `const []` a tab built before
-  ///     hydration starts with.
+  ///   * [RecipesScreen.userRecipesAuthoritative], i.e. the boot load has
+  ///     ANSWERED for user_recipes.
+  ///
+  /// The second condition used to be "the store assigned a list" (a fresh list
+  /// identity, or a non-empty one in [initState]). That is a proxy, and it
+  /// breaks in the one window it has to hold (P3-04b): the cache write is
+  /// debounced by 400 ms, so a kill inside that window leaves a stale-EMPTY
+  /// recipe slot behind. The next start hydrates `[]` — a fresh identity from
+  /// the store, indistinguishable from a real answer — and the sweep would
+  /// then delete every `img_*` file while the boot load is still fetching the
+  /// recipes those files belong to. The photos exist ONLY on this device, so
+  /// the recipe comes back seconds later pointing at nothing.
+  ///
+  /// An `isNotEmpty` guard would be the wrong repair: "the user deleted all
+  /// recipes" is a valid state that MUST collect. Empty is not the problem —
+  /// unfinished is.
   ///
   /// [_userRecipes] rather than [_visibleUserRecipes]: a recipe inside its undo
   /// window still needs its bytes.
   void _sweepOrphanPhotos() {
-    if (_photoSweepDone || widget.onDeleteRecipe == null) return;
+    if (_photoSweepDone ||
+        widget.onDeleteRecipe == null ||
+        !widget.userRecipesAuthoritative) {
+      return;
+    }
     _photoSweepDone = true;
     unawaited(RecipeImageStore.instance.reconcileRecipePhotos(
       _userRecipes.map((r) => r.imageAsset).toList(growable: false),

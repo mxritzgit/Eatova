@@ -154,21 +154,34 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
 // The sheet
 // ---------------------------------------------------------------------------
 
-/// Portion bounds for one component, in grams; mirrors
-/// `PlausibilityLimits.portionGramsMin/Max` from `model_limits.dart`, the same
-/// window `MealComponent.adjustedToGrams` clamps to. Mirrored rather than
-/// imported because this is a `part` file and the library's imports are fixed
-/// — like [_makroMaxG] does for `LoggedMealLimits.macroGMax`.
+/// Portion bounds for one component, in grams — the same window
+/// `MealComponent.adjustedToGrams` clamps to (`clampPortionGrams`).
+///
+/// **P8-02c: taken from `model_limits.dart`, not copied.** These used to be
+/// hand-written `1` / `10000` "mirrors" bound to the model only by a doc
+/// comment. They happened to agree, but nothing held them together — and a
+/// surface that knows a different number than the clamp is exactly how the
+/// third silent bend (P8-02b) came about. A `part` file cannot import, so the
+/// library file does it (`meal_widgets.dart`).
 ///
 /// **Typed values are rejected, not clamped** (P8-02): bending 12000 g to
 /// 10000 g and saving it silently falsifies the input.
-const int _postenMinG = 1;
-const int _postenMaxG = 10000;
+const int _postenMinG = PlausibilityLimits.portionGramsMin;
+const int _postenMaxG = PlausibilityLimits.portionGramsMax;
 
-/// Upper bound for one component's calories, in kcal; mirrors
-/// `LoggedMealLimits.caloriesKcalMax`, the window `MealComponent.adjustedToGrams`
-/// clamps to. Mirrored for the same reason as [_postenMaxG].
-const int _postenMaxKcal = 10000;
+/// Upper bound for one component's calories, in kcal — the window
+/// `MealComponent.adjustedToGrams` clamps to (`clampMealCaloriesKcal`). Taken
+/// from the model for the same reason as [_postenMaxG].
+const int _postenMaxKcal = LoggedMealLimits.caloriesKcalMax;
+
+/// How many digits the gram and kcal fields accept
+/// ([LengthLimitingTextInputFormatter]). Derived from [_postenMaxG] /
+/// [_postenMaxKcal] — both are five digits today — but deliberately still a
+/// number of its own: the component row's weight capsule is LAID OUT for five
+/// digits, so widening the bound is a design decision, not a mechanical
+/// substitution. `review0829_sheet_limits_binding_test.dart` fails when the
+/// bounds outgrow it, which is the moment a human has to look at the row.
+const int _postenEingabeZiffern = 5;
 
 /// Is [grams] a portion the sheet may work with? The single range gate behind
 /// the field listener, the start value and the add dialog — one bound, not
@@ -697,10 +710,11 @@ class _ItemEditCard extends StatelessWidget {
                                 keyboardType: TextInputType.number,
                                 inputFormatters: [
                                   FilteringTextInputFormatter.digitsOnly,
-                                  // Five digits because the upper bound
-                                  // (_postenMaxG = 10000 g) has five; the
+                                  // As many digits as _postenMaxG has; the
                                   // range check below rejects the rest.
-                                  LengthLimitingTextInputFormatter(5),
+                                  LengthLimitingTextInputFormatter(
+                                    _postenEingabeZiffern,
+                                  ),
                                 ],
                                 textAlign: TextAlign.center,
                                 style: AppType.display(18, color: t.ink),
@@ -890,9 +904,10 @@ class _RemovedItemCard extends StatelessWidget {
   }
 }
 
-/// Upper bound for one component's macro, in grams; mirrors
-/// `LoggedMealLimits.macroGMax`. Typed values are **rejected, not clamped**.
-const double _makroMaxG = 1000;
+/// Upper bound for one component's macro, in grams — taken from
+/// `LoggedMealLimits.macroGMax`, not copied (P8-02c, see [_postenMaxG]).
+/// Typed values are **rejected, not clamped**.
+const double _makroMaxG = LoggedMealLimits.macroGMax;
 
 /// One macro input: optional, grams, comma OR dot as decimal separator.
 /// Deliberately not `digitsOnly` — 0.5 g of fat must be typeable.
@@ -1143,10 +1158,10 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       keyboardType: TextInputType.number,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
-                        // Same five digits as the component row's field: the
-                        // bound (10000) has five, the range check below
-                        // rejects the rest (P8-02b).
-                        LengthLimitingTextInputFormatter(5),
+                        // Same digit budget as the component row's field: as
+                        // many as the bound has, the range check below rejects
+                        // the rest (P8-02b).
+                        LengthLimitingTextInputFormatter(_postenEingabeZiffern),
                       ],
                       decoration: InputDecoration(
                         labelText: l10n.foodAddItemWeightLabel,
@@ -1163,7 +1178,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       keyboardType: TextInputType.number,
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(5),
+                        LengthLimitingTextInputFormatter(_postenEingabeZiffern),
                       ],
                       decoration: InputDecoration(
                         labelText: l10n.foodAddItemCaloriesLabel,

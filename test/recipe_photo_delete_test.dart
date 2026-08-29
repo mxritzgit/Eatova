@@ -167,19 +167,30 @@ class _StoreHarnessState extends State<_StoreHarness> {
   }
 }
 
-/// Harness for the orphan sweep (P3-04). It starts with the list the store
-/// holds BEFORE hydration — empty, and no statement whatsoever about what lies
-/// on the disk — and delivers the real one on demand, exactly as
-/// `StoreSelector` does when `_userRecipes` is assigned for the first time.
+/// Harness for the orphan sweep (P3-04/P3-04b). It models the two store events
+/// the screen sees, and keeps them APART:
+///
+///   * "Hydrieren" = `_hydrateFromCache` assigns the cache slot — a new list
+///     identity, but the boot load is still running;
+///   * "Boot" = the boot load answered (`userRecipesAuthoritative`), the only
+///     moment the list is a complete statement about which recipes exist.
 class _HydrationHarness extends StatefulWidget {
-  const _HydrationHarness({required this.rezepte, this.sofort = false,
-      this.persistenz = true});
+  const _HydrationHarness({
+    required this.rezepte,
+    this.sofort = false,
+    this.bootFertig = false,
+    this.persistenz = true,
+  });
 
-  /// What hydration (cache or boot load) eventually delivers.
+  /// What hydration and the boot load eventually deliver.
   final List<FitnessRecipe> rezepte;
 
   /// True = the screen is built when the list is already there.
   final bool sofort;
+
+  /// True = the screen is built when the boot load has already answered (the
+  /// lazy tab, opened after the boot).
+  final bool bootFertig;
 
   /// False = preview/test without sync: the recipe list is session-local and
   /// says nothing about the disk.
@@ -192,6 +203,7 @@ class _HydrationHarness extends StatefulWidget {
 class _HydrationHarnessState extends State<_HydrationHarness> {
   late List<FitnessRecipe> _rezepte =
       widget.sofort ? widget.rezepte : const <FitnessRecipe>[];
+  late bool _bootFertig = widget.bootFertig;
 
   @override
   Widget build(BuildContext context) => localizedApp(
@@ -205,15 +217,29 @@ class _HydrationHarnessState extends State<_HydrationHarness> {
                     ? (_) async => SyncDelivery.delivered
                     : null,
                 initialUserRecipes: _rezepte,
+                userRecipesAuthoritative: _bootFertig,
               ),
             ),
           ),
-          bottomNavigationBar: TextButton(
-            key: const ValueKey('harness-hydrate'),
-            // A NEW list each time, like every store mutation.
-            onPressed: () => setState(
-                () => _rezepte = List<FitnessRecipe>.of(widget.rezepte)),
-            child: const Text('Hydrieren'),
+          bottomNavigationBar: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: <Widget>[
+              TextButton(
+                key: const ValueKey('harness-hydrate'),
+                // A NEW list each time, like every store mutation.
+                onPressed: () => setState(
+                    () => _rezepte = List<FitnessRecipe>.of(widget.rezepte)),
+                child: const Text('Hydrieren'),
+              ),
+              TextButton(
+                key: const ValueKey('harness-boot'),
+                onPressed: () => setState(() {
+                  _rezepte = List<FitnessRecipe>.of(widget.rezepte);
+                  _bootFertig = true;
+                }),
+                child: const Text('Boot'),
+              ),
+            ],
           ),
         ),
         scaffold: false,
@@ -370,8 +396,9 @@ void main() {
               'Foto des Nutzers.');
     });
 
-    testWidgets('die erste gelieferte Liste startet genau einen Abgleich',
-        (tester) async {
+    testWidgets(
+        'der beantwortete Boot-Load startet genau einen Abgleich — die '
+        'Hydration davor keinen', (tester) async {
       final referenz = _legeAb(_store, 'user_a', _jpeg());
       _pinViewport(tester);
 
@@ -384,7 +411,13 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
+      expect(_store.abgleiche, isEmpty,
+          reason: 'Der Cache-Slot ist eine Anzeige-Quelle, keine vollstaendige '
+              'Aussage: der Boot-Load laeuft noch.');
+
+      await tester.tap(find.byKey(const ValueKey('harness-boot')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('harness-boot')));
       await tester.pumpAndSettle();
 
       expect(_store.abgleiche, hasLength(1),
@@ -393,13 +426,14 @@ void main() {
       expect(_store.abgleiche.single, contains(referenz));
     });
 
-    testWidgets('eine beim Aufbau schon vorhandene Liste wird abgeglichen',
+    testWidgets('eine beim Aufbau schon fertige Liste wird abgeglichen',
         (tester) async {
       final referenz = _legeAb(_store, 'user_a', _jpeg());
       _pinViewport(tester);
 
       await tester.pumpWidget(_HydrationHarness(
         sofort: true,
+        bootFertig: true,
         rezepte: <FitnessRecipe>[
           _eigenes(slug: 'user_a', imageAsset: referenz),
         ],
@@ -407,8 +441,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(_store.abgleiche.single, contains(referenz),
-          reason: 'Der Tab wird auch nach abgeschlossener Hydration erst '
-              'aufgebaut — dann kommt die Liste ueber initState.');
+          reason: 'Der Tab wird auch nach abgeschlossenem Boot erst aufgebaut '
+              '(IndexedStack) — dann kommt die Liste ueber initState und ein '
+              'didUpdateWidget folgt nie.');
     });
 
     testWidgets('ohne echte Persistenz wird nie abgeglichen', (tester) async {
@@ -422,7 +457,7 @@ void main() {
         ],
       ));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
+      await tester.tap(find.byKey(const ValueKey('harness-boot')));
       await tester.pumpAndSettle();
 
       expect(_store.abgleiche, isEmpty,
@@ -430,5 +465,60 @@ void main() {
               'diese Liste darf nichts von der Platte nehmen.');
     });
 
+    // P3-04b, der Datenverlustpfad des Pruefers. `_cacheUserRecipes` ist um
+    // 400 ms entprellt: wird die App in diesem Fenster getoetet, NACHDEM der
+    // Upsert live durchging (also ohne ueberlebende Outbox-Op), liegt beim
+    // naechsten Start ein veraltet-leerer Rezepte-Slot da. Die Hydration weist
+    // ihn zu — eine frische Listen-Identitaet, von einer echten Antwort nicht
+    // zu unterscheiden. Wer daran den Abgleich festmacht, loescht jede
+    // img_*-Datei, waehrend der Boot-Load die zugehoerigen Rezepte gerade erst
+    // holt; die Fotos liegen ausschliesslich auf diesem Geraet.
+    //
+    // Die beiden Faelle beschreiben zusammen die Regel: leer ist erlaubt,
+    // unfertig nicht.
+    testWidgets(
+        'veraltet-leerer Cache-Slot waehrend des Bootens: kein Abgleich',
+        (tester) async {
+      final referenz = _legeAb(_store, 'user_verwaist', _jpeg());
+      _pinViewport(tester);
+
+      // Der Store liefert die leere Liste — der Boot-Load laeuft noch.
+      await tester.pumpWidget(const _HydrationHarness(
+        rezepte: <FitnessRecipe>[],
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
+      await tester.pumpAndSettle();
+
+      expect(_store.abgleiche, isEmpty,
+          reason: 'Ein Abgleich gegen die leere Liste haette hier jedes Foto '
+              'geloescht — der Boot-Load bringt das Rezept Sekunden spaeter '
+              'mit einer ins Leere zeigenden local:-Referenz zurueck.');
+      expect(_store.resolveSync(referenz), isNotNull,
+          reason: 'Und die Bytes liegen nur hier: kein Server hat eine Kopie.');
+    });
+
+    testWidgets(
+        'alle Rezepte geloescht: nach beantwortetem Boot-Load wird trotzdem '
+        'eingesammelt', (tester) async {
+      _legeAb(_store, 'user_verwaist', _jpeg());
+      _pinViewport(tester);
+
+      await tester.pumpWidget(const _HydrationHarness(
+        rezepte: <FitnessRecipe>[],
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('harness-boot')));
+      await tester.pumpAndSettle();
+
+      // Die Loeschung selbst prueft test/services/recipe_image_store_test.dart;
+      // hier zaehlt, dass der Abgleich mit LEEREM Behalte-Satz laeuft.
+      expect(_store.abgleiche, hasLength(1),
+          reason: 'Eine leere Liste ist ein gueltiger Zustand — hat der Nutzer '
+              'alle Rezepte geloescht, muss das Aufraeumen laufen. Ein '
+              'isNotEmpty-Waechter waere die falsche Reparatur.');
+      expect(_store.abgleiche.single, isEmpty,
+          reason: 'Kein Rezept mehr = kein Foto behalten.');
+    });
   });
 }

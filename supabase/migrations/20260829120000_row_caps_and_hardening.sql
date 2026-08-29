@@ -46,7 +46,20 @@
 --   * Every capped table carries user_id as the LEADING index column
 --     (logged_meals_user_logged_at_idx, the favorite_meals PK,
 --     user_recipes_user_created_at_idx, weight_log_user_recorded_at_idx,
---     chat_sessions_user_recent_idx), so the probe is an index-only scan.
+--     chat_sessions_user_recent_idx), so one owner's rows are a contiguous
+--     index range instead of a table-wide search. Which PLAN the planner picks
+--     for that is NOT promised here, and measuring says it varies: on 490000
+--     rows across 21 users a normal user's probe was an index-only scan (2
+--     buffers, 0.011 ms), the same probe standing AT the cap a bitmap heap
+--     scan (810 buffers, 3.5 ms), and with one dominating user a sequential
+--     scan. The property the guard rests on is the one above — bounded by the
+--     caller's own rows — and it holds for all three.
+--   * A row whose owner column is null cannot be attributed and therefore
+--     cannot be capped, so the trigger REFUSES it (EX_ROW_CAP_NO_OWNER)
+--     instead of waving it through. Unreachable today, all five owner columns
+--     being NOT NULL, but the function is generic: the next table wired to it
+--     with a nullable owner column would otherwise be silently uncapped, and a
+--     guard that fails open is worse than none, because it is believed.
 --   * The app writes through `upsert(… onConflict: …)`, i.e. `insert … on
 --     conflict do update`, and a BEFORE INSERT trigger fires BEFORE the
 --     conflict is resolved. An upsert onto an existing row replaces it and
@@ -57,10 +70,18 @@
 --     payload-determined and drops the item at once; the default P0001 would
 --     make it retry on the backoff ladder for 24 hours first.
 --
--- KNOWN AND ACCEPTED: a single multi-row INSERT can overshoot, because a
--- BEFORE ROW trigger does not see the rows its own statement inserted. The app
--- writes one row per statement, and an overshoot of a batch length against a
--- five-figure cap changes nothing about the purpose of the guard.
+-- KNOWN AND ACCEPTED: the cap can be overshot slightly, in two ways.
+--   * A single multi-row INSERT overshoots by the batch length, because a
+--     BEFORE ROW trigger does not see the rows its own statement inserted. The
+--     app writes one row per statement.
+--   * CONCURRENT sessions overshoot by the number of writers: the probe is a
+--     plain read, not a lock, so two sessions that both sit at cap - 1 both
+--     read "not full" before either commits and the table ends at cap + 1.
+-- Both are of the same order — batch length, writer count — against a four- to
+-- five-figure cap, and change nothing about the purpose of the guard: it is
+-- there to stop UNBOUNDED growth, not to hold an exact number. A hard exact
+-- cap would need a lock on the owner's rows in every insert, which is the cost
+-- the bounded probe exists to avoid.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.enforce_user_row_cap()
@@ -79,8 +100,15 @@ declare
 begin
   execute format('select ($1).%I', v_besitzer_spalte)
     into v_besitzer using new;
+  -- No owner, no cap: fail loudly instead of letting the row through. Dead
+  -- today (all five owner columns are NOT NULL); the day a table with a
+  -- nullable owner column is wired to this generic function, it must not go
+  -- silently unlimited.
   if v_besitzer is null then
-    return new;
+    raise exception
+      'EX_ROW_CAP_NO_OWNER: public.%.% ist null, keine Begrenzung moeglich',
+      tg_table_name, v_besitzer_spalte
+      using errcode = '22023';
   end if;
 
   -- Upsert onto an existing row: replaces, does not grow.
@@ -115,7 +143,9 @@ $$;
 comment on function public.enforce_user_row_cap() is
   'BEFORE INSERT row trigger: caps the rows one user may hold in the table. '
   'Arguments: owner column, cap, identity column for the upsert check (empty '
-  'string when the table has none). Review 2026-08-29, P7-03.';
+  'string when the table has none). A null owner column raises '
+  'EX_ROW_CAP_NO_OWNER: an unattributable row cannot be capped, and failing '
+  'open would be worse. Review 2026-08-29, P7-03.';
 
 -- EXECUTE is only checked at CREATE TRIGGER time, so the triggers below keep
 -- firing without any client grant (same reasoning as 20260802120000).

@@ -1139,17 +1139,25 @@ class _FoodDateChip extends StatelessWidget {
           // Tight vertical padding: the 1 px border costs 2 px and the strip
           // is pinned to 52 px (chip geometry 66/6 feeds _scrollToSelected).
           padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+          // [SelectionTone], like every other chip in the app: the selected
+          // day fills with `ink` and labels in `bg`. As `forest`/`onForest`
+          // the picked day sat at 1.33:1 on `surf` in dark mode and its number
+          // at 1.04:1 against an unpicked one — the state was invisible there
+          // while looking correct in light mode (P9-02c).
           decoration: BoxDecoration(
-            color: selected ? t.forest : t.surf,
+            color: selected ? t.selectedFill : t.surf,
             borderRadius: BorderRadius.circular(rChip),
-            border: Border.all(color: selected ? Colors.transparent : t.line),
+            // Ring in the fill colour instead of transparent: same pixels,
+            // but the geometry no longer depends on the state.
+            border: Border.all(color: selected ? t.selectedFill : t.line),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // The weekday recedes and the date leads; on the selected chip
-              // it is the other way round, because context matters there.
+              // The weekday recedes and the date leads. On the selected chip
+              // the hierarchy comes from OPACITY, not from a second hue:
+              // `lime` on the `ink` fill would be 1.07:1 in dark mode.
               Text(
                 label,
                 maxLines: 1,
@@ -1157,7 +1165,9 @@ class _FoodDateChip extends StatelessWidget {
                 style: AppType.ui(
                   10.5,
                   weight: FontWeight.w700,
-                  color: selected ? t.lime : t.ink2,
+                  color: selected
+                      ? t.onSelected.withValues(alpha: 0.78)
+                      : t.ink2,
                   letterSpacing: 0.1,
                 ),
               ),
@@ -1170,7 +1180,7 @@ class _FoodDateChip extends StatelessWidget {
                 style: AppType.display(
                   11.5,
                   weight: FontWeight.w700,
-                  color: selected ? t.onForest : t.ink,
+                  color: selected ? t.onSelected : t.ink,
                 ),
               ),
             ],
@@ -1213,15 +1223,19 @@ class _CalendarDayButton extends StatelessWidget {
           curve: Curves.easeOut,
           width: 44,
           alignment: Alignment.center,
+          // Same [SelectionTone] as the chips it stands next to — it fills
+          // like an active chip, so it has to fill in the same language.
           decoration: BoxDecoration(
-            color: selected ? t.forest : t.surf,
+            color: selected ? t.selectedFill : t.surf,
             borderRadius: BorderRadius.circular(rChip),
-            border: Border.all(color: selected ? Colors.transparent : t.line),
+            border: Border.all(color: selected ? t.selectedFill : t.line),
           ),
           child: Icon(
             Icons.calendar_month_rounded,
             size: 18,
-            color: selected ? t.lime : t.ink2,
+            // Not `lime`: on the `ink` fill that is 1.07:1 in dark mode, and
+            // the glyph is the only thing inside this button.
+            color: selected ? t.onSelected : t.ink2,
           ),
         ),
       ),

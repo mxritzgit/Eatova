@@ -293,16 +293,47 @@ jobs:
       # still report green. That is the same class that once left this project
       # with years of green tests over broken mocks. A test that only passes in
       # company is no test, so every file also has to stand alone.
+      #
+      # P6-05c (Gegenprobe 2026-08-29): the loop itself could report a silent
+      # green — the exact failure mode it exists to prevent. A wrong
+      # `working-directory`, a rename away from `*_test.ts` (deno also
+      # discovers `*.test.ts`) or an edited glob makes `find` come back empty,
+      # the loop runs nothing and the step exits 0.
+      #
+      # The guard is a coverage check against deno's OWN discovery, not a
+      # number pasted in here: `--filter` with a pattern no test name carries
+      # registers every discovered case and runs none, so its "filtered out"
+      # count IS the size of the suite. Adding or deleting tests therefore
+      # never needs an edit here (a hardcoded 272 would be stale by the next
+      # PR), while a file the loop misses fails loudly.
       - name: deno test (jede Datei einzeln)
         working-directory: supabase/functions
         run: |
+          expected=$(deno test --allow-env --filter 'KEIN-TEST-TRAEGT-DIESEN-NAMEN' 2>&1 \
+            | sed -n 's/.*| \([0-9][0-9]*\) filtered out.*/\1/p' | tail -1)
           status=0
-          for f in $(find . -name '*_test.ts' | sort); do
+          files=0
+          covered=0
+          for f in $(find . \( -name '*_test.ts' -o -name '*.test.ts' \) | sort); do
             echo "::group::deno test $f"
-            deno test --allow-env "$f" || status=1
+            out=$(deno test --allow-env "$f" 2>&1) || status=1
+            echo "$out"
             echo "::endgroup::"
+            files=$((files + 1))
+            ran=$(printf '%s\n' "$out" | sed -n 's/.*| \([0-9][0-9]*\) passed.*/\1/p' | tail -1)
+            skipped=$(printf '%s\n' "$out" | sed -n 's/.*| \([0-9][0-9]*\) ignored.*/\1/p' | tail -1)
+            covered=$((covered + ${ran:-0} + ${skipped:-0}))
           done
-          exit $status
+          echo "Einzellauf: $files Dateien, $covered Faelle; die Suite kennt ${expected:-0}."
+          if [ "$files" -eq 0 ] || [ "${expected:-0}" -eq 0 ]; then
+            echo "::error::Der Einzellauf hat keine Testdatei gefunden - dieser Schritt haette still gruen gemeldet."
+            exit 1
+          fi
+          [ "$status" -eq 0 ] || exit "$status"
+          if [ "$covered" -ne "$expected" ]; then
+            echo "::error::Einzellauf deckt $covered von $expected Faellen ab - mindestens eine Datei entgeht der Schleife (Umbenennung? anderes Glob?)."
+            exit 1
+          fi
 
   # Befund P7-02 (Review 2026-08-29): none of the nine jobs here could see an
   # RLS regression. No job ever started a Postgres, and the drift job below

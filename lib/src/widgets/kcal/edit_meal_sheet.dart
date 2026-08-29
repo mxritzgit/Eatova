@@ -725,11 +725,16 @@ class _DayPicker extends StatelessWidget {
                 curve: Curves.easeOut,
                 width: 64,
                 padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+                // [SelectionTone], byte for byte the food tab's date chip:
+                // `forest` is itself a dark surface in dark mode, so the
+                // picked day sat at 1.33:1 on `surf` and its number at 1.04:1
+                // against an unpicked one (P9-02c). Ring in the fill colour,
+                // so the geometry does not depend on the state.
                 decoration: BoxDecoration(
-                  color: isSelected ? t.forest : t.surf,
+                  color: isSelected ? t.selectedFill : t.surf,
                   borderRadius: BorderRadius.circular(rControl),
                   border: Border.all(
-                    color: isSelected ? Colors.transparent : t.line,
+                    color: isSelected ? t.selectedFill : t.line,
                   ),
                 ),
                 child: Column(
@@ -742,7 +747,11 @@ class _DayPicker extends StatelessWidget {
                       style: AppType.ui(
                         10.5,
                         weight: FontWeight.w700,
-                        color: isSelected ? t.lime : t.ink2,
+                        // Opacity carries the hierarchy, not a second hue:
+                        // `lime` on the `ink` fill is 1.07:1 in dark mode.
+                        color: isSelected
+                            ? t.onSelected.withValues(alpha: 0.78)
+                            : t.ink2,
                         letterSpacing: 0.1,
                       ),
                     ),
@@ -756,7 +765,7 @@ class _DayPicker extends StatelessWidget {
                       style: AppType.display(
                         11.5,
                         weight: FontWeight.w700,
-                        color: isSelected ? t.onForest : t.ink,
+                        color: isSelected ? t.onSelected : t.ink,
                       ),
                     ),
                   ],

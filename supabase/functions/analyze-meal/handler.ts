@@ -11,12 +11,12 @@
 import { authFailGate } from '../_shared/auth_fail_gate.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
+import { loggableFinishReason } from '../_shared/provider_log.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import {
   hasEnergyStatement,
   isRecord,
   kcalPer100GMismatch,
-  loggableFinishReason,
   loggableUsage,
   missingContractFields,
   normalizeMealResult,
@@ -44,7 +44,7 @@ const MAX_CONTENT_LENGTH = 7_000_000;
 // Ceiling for the provider roundtrip. Not the whole story: the effective value
 // is the smaller of this and what is left of REQUEST_BUDGET_MS (see below).
 const OPENROUTER_TIMEOUT_MS = 45_000;
-// P6-07: budget for the whole request. The client gives up after 60 s
+// P6-07: budget for the whole request. The client gives up after 75 s
 // (lib/src/services/eatova_http.dart, HttpTimeoutPolicy.mealAnalysis), so a
 // timeout that only covers the provider call is not enough — a PostgREST that
 // hangs 20 s used to push the total to 65 s and the caller saw exactly the
@@ -52,7 +52,16 @@ const OPENROUTER_TIMEOUT_MS = 45_000;
 // stage — every outbound call AND the client-paced body read (P6-01b) — is
 // therefore clamped to the remainder of this budget: a slow preliminary step
 // shortens the one after it instead of the total.
-const REQUEST_BUDGET_MS = positiveIntFromEnv('ANALYZE_MEAL_REQUEST_BUDGET_MS', 55_000, 120_000);
+// The env ceiling is the client's tolerance, not a round number: the client
+// waits total (75 s) minus connect (15 s) minus response transfer (5 s) = 55 s.
+// An operator may still SHORTEN the budget, but raising it past what the client
+// waits for cannot help: the function would keep working on a request nobody is
+// listening to any more, the caller would see a timeout, and the provider slot
+// would stay spent. A value above the ceiling is ignored (with a warning) and
+// this default applies. Raising it for real means raising
+// HttpTimeoutPolicy.mealAnalysis.total first — eatova_http_test.dart reads the
+// default below out of this file and turns red if the two drift apart.
+const REQUEST_BUDGET_MS = positiveIntFromEnv('ANALYZE_MEAL_REQUEST_BUDGET_MS', 55_000, 55_000);
 // Ceiling for ONE Supabase roundtrip (auth lookup, one rate-limit RPC, the
 // fail bucket). 5 s x 5 calls = 25 s worst case, which still leaves the
 // provider 30 s of the budget.

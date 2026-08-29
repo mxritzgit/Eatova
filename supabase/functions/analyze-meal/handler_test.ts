@@ -335,10 +335,20 @@ function captureConsole(): ConsoleCapture {
  * production.
  */
 function assertRedacted(logs: string, responseText: string, label: string): void {
-  assert(!logs.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext im Log: ${logs}`);
+  assertLogRedacted(logs, label);
   assert(!responseText.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext in der Antwort: ${responseText}`);
-  assert(!logs.includes(OPENROUTER_KEY), `${label}: Provider-Key im Log: ${logs}`);
   assert(!responseText.includes(OPENROUTER_KEY), `${label}: Provider-Key in der Antwort: ${responseText}`);
+}
+
+/**
+ * The log half on its own, for the paths that legitimately hand the model's
+ * text back to the requesting user (P6-06 answers with a 200). Going back to
+ * the caller who supplied the photo is fine; going into `function_logs` is
+ * not — that is where CWE-532 lives.
+ */
+function assertLogRedacted(logs: string, label: string): void {
+  assert(!logs.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext im Log: ${logs}`);
+  assert(!logs.includes(OPENROUTER_KEY), `${label}: Provider-Key im Log: ${logs}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -815,13 +825,25 @@ const PROVIDER_CASES: ProviderCase[] = [
     digest: false,
   },
   {
+    // P6-04c: the marker must ride in finish_reason here TOO, not only in
+    // content. loggableFinishReason has a SECOND call site — the 'Invalid
+    // model JSON' line, which this case is the only one to reach — and
+    // without a marker in finish_reason assertRedacted was vacuous for it:
+    // turning that call site back into the raw value left the suite green.
     name: 'Modell antwortet Fliesstext statt JSON',
-    options: { providerJson: { choices: [{ message: { content: PROVIDER_ECHO } }] } },
+    options: {
+      providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: PROVIDER_ECHO } }] },
+    },
     status: 502,
     code: 'provider_invalid_json',
     digest: true,
   },
   {
+    // NO marker, and none may be added: the fetch aborts, so there are no
+    // provider bytes at all on this path. The vacuity of assertRedacted here
+    // is the correct one — a marker would only prove that a value nobody ever
+    // received cannot leak. What this case is for is the 504 and the gate
+    // order above it.
     name: 'Provider-Call laeuft in sein Zeitlimit',
     options: { providerTimeout: true },
     status: 504,
@@ -901,6 +923,29 @@ Deno.test('P6-04b: unbekannter finish_reason wird kategorisiert, nicht durchgere
   }
 });
 
+// P6-04c: the SECOND call site of loggableFinishReason — the 'Invalid model
+// JSON' line. Symmetrical to the test above on purpose: the redaction was
+// tested only for the empty-content path, so reverting THIS line to the raw
+// value left the whole suite green.
+Deno.test('P6-04c: auch die Invalid-JSON-Logzeile kategorisiert den finish_reason', async () => {
+  const stub = installFetch({
+    providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: 'kein JSON' } }] },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const text = await res.text();
+    assertEquals((JSON.parse(text) as JsonRecord).error, 'provider_invalid_json', 'Fehlercode');
+    const logged = logs.text();
+    assert(logged.includes('Invalid model JSON'), `Logzeile fehlt: ${logged}`);
+    assert(logged.includes('"finishReason":"other"'), `Kategorie fehlt im Log: ${logged}`);
+    assertRedacted(logged, text, 'provider_invalid_json');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // P6-06 (review 2026-08-29): valid JSON that carries none of the contract's
 // fields used to leave here as a 200 with every number null — and without a
@@ -910,7 +955,21 @@ Deno.test('P6-04b: unbekannter finish_reason wird kategorisiert, nicht durchgere
 Deno.test('P6-06: schemafremde Modellantwort -> 502 statt 200 mit lauter null', async () => {
   const stub = installFetch({
     providerJson: {
-      choices: [{ message: { content: JSON.stringify({ ok: true, answer: 'Ich bin ein Sprachmodell.' }) } }],
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            ok: true,
+            answer: 'Ich bin ein Sprachmodell.',
+            // P6-04c: the two log lines P6-06 introduced write into
+            // function_logs like every other provider path, so the marker
+            // rides in the fields a well-meaning "more diagnostics" patch
+            // reaches for first — mealName and explanation, both derived from
+            // the photo and the user hint.
+            mealName: PROVIDER_ECHO,
+            explanation: PROVIDER_ECHO,
+          }),
+        },
+      }],
     },
   });
   const logs = captureConsole();
@@ -924,6 +983,7 @@ Deno.test('P6-06: schemafremde Modellantwort -> 502 statt 200 mit lauter null', 
     // Field NAMES from our own constant, never values from the model.
     assert(logged.includes('caloriesKcal'), `fehlende Pflichtfelder fehlen im Log: ${logged}`);
     assert(!logged.includes('Sprachmodell'), `Modellinhalt im Log: ${logged}`);
+    assertRedacted(logged, text, 'provider_unusable_result');
   } finally {
     logs.restore();
     stub.restore();
@@ -938,7 +998,12 @@ Deno.test('P6-06: ein einzelnes fehlendes Feld bleibt 200 — mit Warnung fuer d
       choices: [{
         message: {
           content: JSON.stringify({
-            mealName: 'Apfel',
+            // P6-04c: marker in the two free-text fields. It may go back to
+            // the caller who supplied the photo — this is a 200 — but it must
+            // not reach the operator warning, hence assertLogRedacted below
+            // instead of the full assertRedacted.
+            mealName: PROVIDER_ECHO,
+            explanation: PROVIDER_ECHO,
             caloriesKcal: 94,
             kcalPer100G: 52,
             items: [{ name: 'Apfel', grams: 180, caloriesKcal: 94, kcalPer100G: 52 }],
@@ -952,10 +1017,11 @@ Deno.test('P6-06: ein einzelnes fehlendes Feld bleibt 200 — mit Warnung fuer d
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
     const body = await res.json() as JsonRecord;
     assertEquals(res.status, 200, 'Status');
-    assertEquals((body.result as JsonRecord).mealName, 'Apfel', 'Ergebnis bleibt unangetastet');
+    assertEquals((body.result as JsonRecord).mealName, PROVIDER_ECHO, 'Ergebnis bleibt unangetastet');
     const logged = logs.text();
     assert(logged.includes('incomplete model result'), `Warnung fehlt: ${logged}`);
     assert(logged.includes('estimatedGrams'), `fehlendes Feld nicht benannt: ${logged}`);
+    assertLogRedacted(logged, 'incomplete model result');
   } finally {
     logs.restore();
     stub.restore();

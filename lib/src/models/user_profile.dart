@@ -244,25 +244,33 @@ extension UserProfileWeightPlan on UserProfile {
   /// A deficit toward a target already undercut is not a plan, it is a leftover
   /// — and it is exactly what made the plan card claim "80 → 90" and the coach
   /// prompt carry a deficit next to a higher target weight (P9-08d).
+  ///
+  /// **Derived, never written back.** [weightGoal] keeps what its name says:
+  /// the user's INTENT. Everything that shows or computes a PLAN reads this
+  /// instead — `KcalCalculator.calculate` (and through it `applyLiveGoals` at
+  /// the load boundary), the coach context and the plan card. Two consequences,
+  /// both wanted:
+  ///
+  ///  * P9-08d closes for every stored row **without a save**: a profile that
+  ///    has carried the contradiction since before the rule existed gets the
+  ///    holding plan the moment it is read, not the next time someone happens
+  ///    to open the goals page.
+  ///  * The way out stays open. The goals page promises "for a new goal, enter
+  ///    a lower target weight" — that only works while the stored direction
+  ///    survives. An earlier `withEffectiveWeightGoal` overwrote it on save, so
+  ///    opening the page and pressing save silently turned `lose05kg` into
+  ///    `maintain` and the promised way out stopped working.
   WeightGoal get effectiveWeightGoal =>
       reachedTargetWeight ? WeightGoal.maintain : weightGoal;
-
-  /// The profile with [effectiveWeightGoal] applied — the single healing point
-  /// for a contradiction an older build (or an old server row) let through.
-  ///
-  /// Returns the same instance when nothing changes, so callers can use
-  /// `identical` to decide on a write-back.
-  UserProfile get withEffectiveWeightGoal {
-    final wirksam = effectiveWeightGoal;
-    return wirksam == weightGoal ? this : copyWith(weightGoal: wirksam);
-  }
 
   /// Direction the two weights themselves describe, `null` when they are equal
   /// and only the goal knows.
   ///
-  /// Second line of defence for everything that DRAWS a direction (P9-08c): the
-  /// goals page can no longer create a contradiction, but a row saved before
-  /// the rule existed keeps carrying one until it is saved once.
+  /// Reads the direction off the two numbers a card DRAWS, so an arrow can
+  /// never point away from the pair below it (P9-08c). With
+  /// [effectiveWeightGoal] the two agree by construction — a directional
+  /// effective goal implies a consistent target — which is exactly why the
+  /// plan card may keep drawing straight from the numbers.
   bool? get targetPointsUp => targetWeightKg == weightKg
       ? null
       : targetWeightKg > weightKg;

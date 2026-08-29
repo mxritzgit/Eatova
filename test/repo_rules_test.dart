@@ -46,15 +46,149 @@ class _Quelle {
   String get basisName => pfad.split('/').last;
 }
 
+// ---------------------------------------------------------------------------
+// The shared character scanner
+//
+// Both source-text helpers below ([_dartOhneKommentare] and [_bisKlammerZu])
+// have to tell CODE from the inside of a STRING LITERAL, so they share these
+// three primitives instead of each guessing on its own.
+//
+// P10-03b: the comment stripper used to cut every line at its first `//`,
+// literals included. `defaultValue: 'https://eatova.de/meili'` became
+// `defaultValue: 'https:` — closing quote and paren gone — and the declaration
+// parser then ran past the end of that call into the next one. A probe
+// declaration whose default was a URL and that stood LAST in its file was read
+// as the empty string, which made the "empty value deletes a compiled default"
+// rule go green on exactly the regression it exists for.
+// ---------------------------------------------------------------------------
+
+const int _zEinfach = 0x27; // '
+const int _zDoppelt = 0x22; // "
+const int _zSchraeg = 0x2f; // /
+const int _zStern = 0x2a; // *
+const int _zR = 0x72; // r
+
+/// Identifier characters, so the `r` in `for'` is not read as a raw literal.
+final RegExp _bezeichnerZeichen = RegExp(r'[A-Za-z0-9_$]');
+
+/// True when a string literal starts at [i]: a quote, or the `r` of `r'…'`.
+bool _literalBeginnt(String quelle, int i) {
+  final c = quelle.codeUnitAt(i);
+  if (c == _zEinfach || c == _zDoppelt) return true;
+  if (c != _zR || i + 1 >= quelle.length) return false;
+  final naechste = quelle.codeUnitAt(i + 1);
+  if (naechste != _zEinfach && naechste != _zDoppelt) return false;
+  return i == 0 || !_bezeichnerZeichen.hasMatch(quelle[i - 1]);
+}
+
+/// Index just past the literal that starts at [i] (see [_literalBeginnt]).
+///
+/// Handles both quote characters, `r'…'` raw literals (no escapes inside),
+/// `'''…'''` blocks, escaped quotes and `${…}` interpolations — the last one
+/// because `'${x.split('.').first}'` carries quotes that belong to the
+/// EXPRESSION, not to the literal. A single-quoted literal ends at the line
+/// break at the latest: an unbalanced quote must not swallow the rest of the
+/// file.
+int _literalEnde(String quelle, int i) {
+  var j = i;
+  final roh = quelle.codeUnitAt(j) == _zR;
+  if (roh) j++;
+  final anfuehrung = quelle[j];
+  final dreifach = quelle.startsWith(anfuehrung * 3, j);
+  final schluss = dreifach ? anfuehrung * 3 : anfuehrung;
+  j += schluss.length;
+  while (j < quelle.length) {
+    if (quelle.startsWith(schluss, j)) return j + schluss.length;
+    final c = quelle[j];
+    if (!dreifach && c == '\n') return j;
+    if (!roh && c == r'\') {
+      j += 2;
+      continue;
+    }
+    if (!roh && quelle.startsWith(r'${', j)) {
+      j = _geschweiftEnde(quelle, j + 2);
+      continue;
+    }
+    j++;
+  }
+  return quelle.length;
+}
+
+/// Index just past the `}` matching the `${` whose body starts at [start].
+int _geschweiftEnde(String quelle, int start) {
+  var tiefe = 1;
+  var j = start;
+  while (j < quelle.length) {
+    if (_literalBeginnt(quelle, j)) {
+      j = _literalEnde(quelle, j);
+      continue;
+    }
+    final c = quelle[j];
+    if (c == '{') {
+      tiefe++;
+    } else if (c == '}') {
+      tiefe--;
+      if (tiefe == 0) return j + 1;
+    }
+    j++;
+  }
+  return quelle.length;
+}
+
 /// Source without comments, else an explanatory comment would trip a scan.
-String _dartOhneKommentare(String quelle) => quelle
-    .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
-    .split('\n')
-    .map((z) {
-      final i = z.indexOf('//');
-      return i < 0 ? z : z.substring(0, i);
-    })
-    .join('\n');
+///
+/// Literal-aware (P10-03b): a `//` or `/*` INSIDE a string literal is text,
+/// not a comment. Block comments nest as Dart nests them and leave their line
+/// breaks behind, so line-based rules stay on their own line.
+String _dartOhneKommentare(String quelle) {
+  final aus = StringBuffer();
+  var i = 0;
+  var laufAb = 0;
+  while (i < quelle.length) {
+    final c = quelle.codeUnitAt(i);
+    if ((c == _zEinfach || c == _zDoppelt || c == _zR) &&
+        _literalBeginnt(quelle, i)) {
+      i = _literalEnde(quelle, i); // stays inside the copied run
+      continue;
+    }
+    if (c != _zSchraeg || i + 1 >= quelle.length) {
+      i++;
+      continue;
+    }
+    final naechste = quelle.codeUnitAt(i + 1);
+    if (naechste == _zSchraeg) {
+      aus.write(quelle.substring(laufAb, i));
+      while (i < quelle.length && quelle[i] != '\n') {
+        i++;
+      }
+      laufAb = i;
+      continue;
+    }
+    if (naechste == _zStern) {
+      aus.write(quelle.substring(laufAb, i));
+      final von = i;
+      var tiefe = 0;
+      while (i < quelle.length) {
+        if (quelle.startsWith('/*', i)) {
+          tiefe++;
+          i += 2;
+        } else if (quelle.startsWith('*/', i)) {
+          tiefe--;
+          i += 2;
+          if (tiefe == 0) break;
+        } else {
+          i++;
+        }
+      }
+      aus.write('\n' * (quelle.substring(von, i).split('\n').length - 1));
+      laufAb = i;
+      continue;
+    }
+    i++;
+  }
+  aus.write(quelle.substring(laufAb));
+  return aus.toString();
+}
 
 late List<_Quelle> _libQuellen;
 
@@ -384,20 +518,20 @@ final RegExp _fromEnvironment =
 final RegExp _hasEnvironment = RegExp(r"bool\.hasEnvironment\(\s*'([^']+)'");
 
 /// Text from [start] (just past the opening paren) to its matching `)`,
-/// skipping over single-quoted literals so a paren inside a string cannot
-/// close the argument list early.
+/// skipping over string literals so a paren inside a string cannot close the
+/// argument list early. Uses the same [_literalEnde] scanner as
+/// [_dartOhneKommentare], so both helpers draw the literal boundaries at the
+/// same places — double quotes, `r'…'` and interpolations included.
 String _bisKlammerZu(String quelle, int start) {
   var tiefe = 1;
   var i = start;
   while (i < quelle.length) {
+    if (_literalBeginnt(quelle, i)) {
+      i = _literalEnde(quelle, i);
+      continue;
+    }
     final c = quelle[i];
-    if (c == "'") {
-      i++;
-      while (i < quelle.length && quelle[i] != "'") {
-        if (quelle[i] == r'\') i++;
-        i++;
-      }
-    } else if (c == '(') {
+    if (c == '(') {
       tiefe++;
     } else if (c == ')') {
       tiefe--;
@@ -408,11 +542,14 @@ String _bisKlammerZu(String quelle, int start) {
   return quelle.substring(start);
 }
 
-/// Every declaration `lib/` reads, keyed by name.
-Map<String, _Deklaration> _deklarationen() {
+/// Every declaration `lib/` reads, keyed by name — or, with [quellen] given,
+/// every declaration in those RAW sources. The parameter exists so the
+/// self-check below can feed the parser a snippet instead of the file tree,
+/// comment stripping included.
+Map<String, _Deklaration> _deklarationen([Iterable<String>? quellen]) {
   final gefunden = <String, _Deklaration>{};
-  for (final quelle in _libQuellen) {
-    final text = quelle.ohneKommentare;
+  for (final roh in quellen ?? _libQuellen.map((q) => q.roh)) {
+    final text = _dartOhneKommentare(roh);
     for (final m in _fromEnvironment.allMatches(text)) {
       final rumpf = _bisKlammerZu(text, m.end);
       final literale =
@@ -830,6 +967,47 @@ void f() {
       );
     });
 
+    test('ein https:// im Literal schneidet den Rest der Zeile nicht weg '
+        '(P10-03b)', () {
+      // Second victim of the comment stripper: it feeds THIS rule too. Cutting
+      // the line at the `//` inside the URL dropped everything behind it out
+      // of the scan — here the German snack text on the very same line.
+      const quelle = '''
+void f() {
+  _oeffne('https://eatova.de/agb', 'Die Mahlzeit wurde gespeichert.');
+}
+''';
+      expect(
+        _fundeIn('probe.dart', quelle, const <String>[]),
+        <String>[
+          "probe.dart: 'Die Mahlzeit wurde gespeichert.'",
+        ],
+      );
+    });
+
+    test('ein doppelt gequotetes dev.log mit Apostroph dehnt die Ausnahme '
+        'nicht aus (P10-03b)', () {
+      // The dangerous half: the `dev.log(...)` range is an EXEMPTION. When the
+      // paren counting only knew single quotes, the apostrophe in a
+      // DOUBLE-quoted message opened a literal that ran to the next quote in
+      // the file — the exempt range grew over the following code and swallowed
+      // real findings without a word. Measured today: the 141 `dev.log` ranges
+      // in lib/ span at most seven lines, so nothing is triggered yet; one
+      // `"it's"` in a log line is enough to tip it.
+      const quelle = '''
+void f() {
+  dev.log("cache miss, it's cold", name: 'eatova_sync');
+  _emitSnack('Die Mahlzeit wurde gespeichert.');
+}
+''';
+      expect(
+        _fundeIn('probe.dart', quelle, const <String>[]),
+        <String>[
+          "probe.dart: 'Die Mahlzeit wurde gespeichert.'",
+        ],
+      );
+    });
+
     test('die Wort-Lage loest in Kommentaren nicht aus', () {
       // Same trap as the character filter: the guard explains itself in German
       // comments and would otherwise flag itself.
@@ -1050,6 +1228,51 @@ const x = 'today';
       expect(deklarationen['SENTRY_DSN']?.standard, '',
           reason: 'SENTRY_DSN hat bewusst keinen Standard — deshalb darf es '
               'als "" in der Beispieldatei stehen');
+    });
+
+    test('ein URL-Standard wird ganz gelesen, nicht bis zum // (P10-03b)', () {
+      // The assertion that nails the defect: `OFF_MIRROR_URL` is the one
+      // declaration whose default CONTAINS a `//`. The old comment stripper
+      // cut the line there, so the scanner read `https:` and ran on into the
+      // next declaration. `OFF_MIRROR_SEARCH_KEY` above cannot see this — its
+      // default carries no slash.
+      expect(deklarationen['OFF_MIRROR_URL']?.standard,
+          'https://eatova.de/meili',
+          reason: 'der Standard muss VOLLSTAENDIG gelesen werden, sonst ist '
+              'das Urteil der Regel oben Zufall');
+      expect(deklarationen['SUPABASE_URL']?.standard,
+          startsWith('https://'),
+          reason: 'zweiter URL-Standard, gleiche Falle');
+    });
+
+    test('der Parser haengt nicht an der Nachbardeklaration (P10-03b)', () {
+      // The probe that showed the blind spot, kept as a permanent test: a
+      // declaration with a URL default standing LAST in its file. That is the
+      // case where the broken parse produced the EMPTY string — and an empty
+      // default is exactly what makes the rule above wave a key through.
+      const letzte = '''
+class Probe {
+  static const String url = String.fromEnvironment(
+    'PROBE_URL',
+    defaultValue: 'https://example.invalid/probe',
+  );
+}
+''';
+      expect(_deklarationen(<String>[letzte])['PROBE_URL']?.standard,
+          'https://example.invalid/probe');
+
+      // Same declaration on ONE line, so the fix does not depend on the line
+      // break between name and default.
+      const einzeiler =
+          "const u = String.fromEnvironment('PROBE_URL', defaultValue: "
+          "'https://example.invalid/probe');";
+      expect(_deklarationen(<String>[einzeiler])['PROBE_URL']?.standard,
+          'https://example.invalid/probe');
+
+      // Counter-check, so the two assertions above cannot pass on a parser
+      // that simply reports every default: no `defaultValue:` stays empty.
+      const ohne = "const u = String.fromEnvironment('PROBE_URL');";
+      expect(_deklarationen(<String>[ohne])['PROBE_URL']?.standard, '');
     });
   });
 }

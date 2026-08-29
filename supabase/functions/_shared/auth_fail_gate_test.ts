@@ -268,7 +268,7 @@ Deno.test("P6-05: erschoepfter anon-Sammelbucket meldet sich beim Betreiber", as
     const result = await authFailGate({ ...OPTIONS, subject: "uid:anon" });
     assert(result.limited, "der Bucket drosselt weiterhin");
     const zeilen = warn.zeilen.join("\n");
-    assert(zeilen.includes("uid:anon"), `der geteilte Bucket muss benannt sein: ${zeilen}`);
+    assert(zeilen.includes("uid-Bucket"), `der geteilte Bucket muss benannt sein: ${zeilen}`);
     assert(zeilen.includes("401"), `die Verwechslungsgefahr muss dranstehen: ${zeilen}`);
     assert(zeilen.includes(OPTIONS.scope), `die Function muss erkennbar sein: ${zeilen}`);
     // Deliberately unchanged: same limit and window as the per-IP bucket, one
@@ -276,6 +276,32 @@ Deno.test("P6-05: erschoepfter anon-Sammelbucket meldet sich beim Betreiber", as
     const params = JSON.parse(String(fetchStub.aufrufe[0].init?.body)) as JsonRecord;
     assertEquals(params.p_limit, 30, "Limit bleibt");
     assertEquals(params.p_window_seconds, 3600, "Fenster bleibt");
+  } finally {
+    warn.restore();
+    fetchStub.restore();
+  }
+});
+
+// P6-04c (Gegenprobe 2026-08-29): the warning above names the BUCKET, not the
+// subject. Today every caller passes clientIpSubject(req, "anon"), so the
+// subject is the constant "uid:anon" — but the same helper turns a verified
+// user id into "uid:<uuid>", and the old line would have written that id into
+// function_logs the moment one caller changed its fallback (CWE-532).
+Deno.test("P6-04c: eine echte User-ID im Subject landet nicht im Log", async () => {
+  const userId = "11111111-1111-4111-8111-111111111111";
+  const fetchStub = installFetch(rpcAntwort({
+    allowed: false,
+    limit: 30,
+    remaining: 0,
+    resetAt: new Date(Date.now() + 1800_000).toISOString(),
+    windowSeconds: 3600,
+  }));
+  const warn = installWarnLog();
+  try {
+    await authFailGate({ ...OPTIONS, subject: `uid:${userId}` });
+    const zeilen = warn.zeilen.join("\n");
+    assert(zeilen.includes("uid-Bucket"), `der Bucket muss benannt bleiben: ${zeilen}`);
+    assert(!zeilen.includes(userId), `User-ID im Log: ${zeilen}`);
   } finally {
     warn.restore();
     fetchStub.restore();

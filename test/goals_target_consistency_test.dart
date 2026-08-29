@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
+import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
 
@@ -29,6 +30,19 @@ import 'support/harness.dart';
 // Seite jetzt auf (Plan wechselt aufs Halten, sichtbar angekuendigt), statt zu
 // blockieren. "Maintain" bleibt frei — jedes Ziel nahe dem heutigen Gewicht
 // ist dort plausibel.
+//
+// P9-08d hat den Ort der Aufloesung verschoben, nicht die Zusage: die Seite
+// SCHRIEB die Richtung frueher auf `maintain` um und nahm dem Nutzer damit
+// seine Absicht (Seite oeffnen und speichern reichte). Heute wird sie
+// ABGELEITET — `KcalCalculator.calculate` liest `effectiveWeightGoal` —, also
+// verlaesst das gespeicherte Tagesziel die Seite als Erhaltungsziel, waehrend
+// `weightGoal` die Wahl des Nutzers bleibt. Genau darauf baut der Hinweistext
+// auf ("trag ein niedrigeres Wunschgewicht ein"): ohne gespeicherte Richtung
+// waere dieser Weg zurueck nicht mehr da.
+
+/// Der Plan, den ein gespeichertes Profil ergibt — das, was den Nutzer
+/// tatsaechlich erreicht.
+KcalTargets _plan(UserProfile p) => const KcalCalculator().calculate(p);
 void main() {
   /// 80 kg, target 80 kg, goal "maintain" — the consistent starting point.
   const basis = UserProfile(weightKg: 80, targetWeightKg: 80);
@@ -144,9 +158,16 @@ void main() {
 
       final result = (await speichere(tester, resultFuture))!.profile;
       expect(result.targetWeightKg, 90, reason: 'die Eingabe bleibt stehen');
-      expect(result.weightGoal, WeightGoal.maintain,
+      expect(_plan(result).goal, WeightGoal.maintain,
           reason: 'ein Defizit-Plan mit Ziel ueber dem Gewicht darf die App '
               'nicht verlassen');
+      expect(_plan(result).appliedKcalDelta, 0);
+      expect(result.dailyKcalGoal, _plan(result).kcal,
+          reason: 'das gespeicherte Tagesziel ist das Erhaltungsziel');
+      expect(result.weightGoal, WeightGoal.lose05kg,
+          reason: 'die Richtung ist die ABSICHT und wird nicht ueberschrieben '
+              '— sonst haette ein spaeter eingetragenes niedrigeres '
+              'Wunschgewicht nichts mehr, worauf es zurueckgreifen koennte');
     });
 
     testWidgets('Abnehmen auf das aktuelle Gewicht zaehlt als erreicht',
@@ -161,7 +182,9 @@ void main() {
       expect(saveHandler(tester), isNotNull);
 
       final result = (await speichere(tester, resultFuture))!.profile;
-      expect(result.weightGoal, WeightGoal.maintain);
+      expect(_plan(result).goal, WeightGoal.maintain);
+      expect(result.weightGoal, WeightGoal.lose025kg,
+          reason: 'gewaehlt bleibt gewaehlt');
     });
 
     testWidgets('Zunehmen mit niedrigerem Wunschgewicht: derselbe Weg',
@@ -175,7 +198,8 @@ void main() {
 
       final result = (await speichere(tester, resultFuture))!.profile;
       expect(result.targetWeightKg, 70);
-      expect(result.weightGoal, WeightGoal.maintain);
+      expect(_plan(result).goal, WeightGoal.maintain);
+      expect(result.weightGoal, WeightGoal.gain025kg);
     });
 
     testWidgets('passende Abnehm-Kombination bleibt unangetastet',
@@ -349,8 +373,11 @@ void main() {
       expect(result.weightKg, 74);
       expect(result.dailyStepsGoal, 9000);
       expect(result.targetWeightKg, 75);
-      expect(result.weightGoal, WeightGoal.maintain,
+      expect(_plan(result).goal, WeightGoal.maintain,
           reason: 'der Plan haelt jetzt, statt weiter Defizit zu fahren');
+      expect(result.dailyKcalGoal, _plan(result).kcal);
+      expect(result.weightGoal, WeightGoal.lose05kg,
+          reason: 'die Absicht ueberlebt — sie ist der Weg zum naechsten Ziel');
     });
 
     testWidgets('ein neues, niedrigeres Ziel nimmt die Richtung wieder auf',

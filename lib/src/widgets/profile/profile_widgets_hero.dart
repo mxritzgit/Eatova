@@ -158,7 +158,11 @@ class GoalPlanCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final goal = profile.weightGoal;
+    // The card draws the PLAN, so it reads the effective goal (P9-08d): a
+    // direction the two weights no longer support is "hold" here — for every
+    // stored row, from the first read on and without rewriting the intent the
+    // user picked. Without it the card kept titling "80 → 90" as "Abnehmen".
+    final goal = profile.effectiveWeightGoal;
     final isMaintain = goal == WeightGoal.maintain;
     final gap = (profile.weightKg - profile.targetWeightKg).abs();
     // B2: with a concrete profile the card must show the EFFECTIVE result, not
@@ -182,11 +186,11 @@ class GoalPlanCard extends StatelessWidget {
           Row(
             children: <Widget>[
               IconTile(
-                // The arrow follows the two numbers below it, not the stored
-                // goal (P9-08c): the goals page cannot save the contradiction
-                // any more, but a row written before that rule keeps carrying
-                // it until it is saved once — and drew "80 → 90" under
-                // `trending_down`. `targetPointsUp` is null only when both
+                // The arrow follows the two numbers below it (P9-08c) — it drew
+                // "80 → 90" under `trending_down` while it read the stored
+                // goal. Since `goal` is the effective one the two can no longer
+                // disagree; the read stays direct because these are the numbers
+                // right under the icon. `targetPointsUp` is null only when both
                 // weights are equal; the goal decides then.
                 icon: isMaintain
                     ? Icons.shield_moon_outlined
