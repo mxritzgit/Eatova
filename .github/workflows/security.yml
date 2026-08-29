@@ -288,6 +288,112 @@ jobs:
         working-directory: supabase/functions
         run: deno test --allow-env
 
+  # Befund P7-02 (Review 2026-08-29): none of the nine jobs here could see an
+  # RLS regression. No job ever started a Postgres, and the drift job below
+  # compares only the version NUMBERS of the migration files against
+  # `supabase_migrations.schema_migrations` — registration, not content. So
+  # turning `using (user_id = auth.uid())` into `using (true)` left every check
+  # green while the table became readable for every logged-in user.
+  #
+  # Two halves close that, and they are deliberately different in kind:
+  #   * test/migrations/rls_invariants_test.dart replays the migrations as TEXT
+  #     and asserts the invariants. It rides inside `flutter test`, i.e. inside
+  #     the REQUIRED check, and needs no infrastructure.
+  #   * this job applies the same migrations to a REAL PostgreSQL and then tries
+  #     genuine cross-user access. It is the only place that can prove Postgres
+  #     agrees with the text reading — and, as a by-product, that the 35
+  #     migrations still replay from scratch, which nothing checked before.
+  #
+  # NOT one of the required checks: `main` is protected and a new required check
+  # has to be entered in the branch-protection settings, which only the repo
+  # owner can do. It runs and reports; making it binding is a manual step.
+  rls-postgres:
+    name: RLS gegen echtes Postgres (Kreuzzugriffe)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Digest-pinned like every action in this workflow (postgres:16).
+        image: postgres@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rls
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rls"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: rls
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # psql ships with the runner image; the fallback keeps the job from
+      # breaking silently should that ever change.
+      - name: psql bereitstellen
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql --version
+
+      # The roles, schema auth and auth.uid()/auth.jwt() that the migrations
+      # rest on. Deliberately minimal: what the migrations state must be what
+      # protects the rows, so the stand-in must not do the protecting.
+      - name: Supabase-Ersatz einspielen
+        run: psql -v ON_ERROR_STOP=1 -q -f test/migrations/pg_bootstrap.sql
+
+      # Every migration, in file-name order, exactly as `supabase db reset`
+      # would. A migration that no longer replays from scratch fails here.
+      - name: Alle Migrationen anwenden
+        run: |
+          set -euo pipefail
+          n=0
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$(basename "$f")"
+            psql -v ON_ERROR_STOP=1 -q -f "$f"
+            echo "::endgroup::"
+            n=$((n + 1))
+          done
+          echo "MIGRATIONEN=$n" >> "$GITHUB_ENV"
+          echo "$n Migrationen angewendet."
+
+      # Two users, rows for each, then real cross-user access as
+      # `authenticated` with the other user's JWT and as `anon`.
+      - name: Kreuzzugriffe pruefen
+        run: psql -v ON_ERROR_STOP=1 -f test/migrations/rls_cross_user.sql
+
+      - name: Zusammenfassung
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            {
+              echo "### RLS gegen echtes Postgres: OK"
+              echo ""
+              echo "Alle **${MIGRATIONEN:-?}** Migrationen wurden von Grund auf angewendet."
+              echo "Nutzer A kann die Zeilen von Nutzer B weder lesen noch aendern noch loeschen,"
+              echo "\`anon\` kommt an keine Tabelle, und die Server-Wahrheits-Tabellen"
+              echo "(\`chat_messages\`, \`chat_quota_usage\`, \`lifetime_stats\`) bleiben schreibgeschuetzt."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### RLS gegen echtes Postgres: FEHLGESCHLAGEN"
+              echo ""
+              echo "Entweder laesst sich \`supabase/migrations/\` nicht mehr von Grund auf anwenden,"
+              echo "oder ein Kreuzzugriff ist durchgekommen. Die genaue Erwartung steht als"
+              echo "\`RLS-VERLETZUNG: …\` im Log des fehlgeschlagenen Schritts."
+              echo ""
+              echo "Quellen: \`test/migrations/pg_bootstrap.sql\`, \`test/migrations/rls_cross_user.sql\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   supabase-migration-drift:
     name: Supabase migration drift (Management API)
     runs-on: ubuntu-latest

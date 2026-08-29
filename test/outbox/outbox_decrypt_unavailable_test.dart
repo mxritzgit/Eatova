@@ -1,0 +1,220 @@
+import 'dart:convert';
+import 'dart:isolate';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pointycastle/api.dart' show InvalidCipherTextException;
+
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/secure_cache_store.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
+
+import 'outbox_test_helpers.dart';
+
+// Review 2026-08-29, P3-02: the brake against "an empty in-memory queue
+// overwrites the filled persisted blob" hangs on `readOutboxOrThrow` throwing
+// while the slot is UNREADABLE. Under the production stack it could not.
+//
+// `EncryptedKeyValueStore.getString` answers a failed EXECUTION of the
+// decryption (isolate spawn, OOM, RemoteError) with `null` and LEAVES the slot
+// — rightly so, that error says nothing about the ciphertext. But the
+// counter-check `_assertSlotEmpty` used to read through the very same
+// decorator, got the same `null`, and therefore did not throw: hydration
+// counted as "slot empty", the next write overwrote up to 500 undelivered ops,
+// and the logout deleted the intact slot (`preserveOutbox` hangs on
+// `_syncStateHydrated`).
+//
+// These tests drive the REAL HomeStore over the REAL encrypting decorator with
+// a cipher whose decryption is switched off for the cold start only — the
+// transient case, in which `encrypt` (and thus the overwrite) keeps working.
+
+const String _uid = 'user-outbox';
+const String _outboxKey = 'eatova.v1.outbox.$_uid';
+const String _deltaKey = 'eatova.v1.pending_stats.$_uid';
+
+/// Cipher in the real wire frame whose DECRYPT can be switched off; [salt]
+/// stands for the DEK.
+///
+/// [blockiert] models an execution failure (no isolate, no memory), not a
+/// broken ciphertext: `encrypt` stays available, so a following write really
+/// can overwrite the intact blob.
+class _AussetzenderCipher implements CacheCipher {
+  _AussetzenderCipher([this.salt = 'dek-a']);
+
+  final String salt;
+  bool blockiert = false;
+
+  @override
+  Future<String> encrypt(String key, String plaintext) async =>
+      '$cacheCipherMagic'
+      '${base64.encode(utf8.encode(jsonEncode([salt, key, plaintext])))}';
+
+  @override
+  Future<String> decrypt(String key, String armored) async {
+    if (blockiert) throw IsolateSpawnException('kein Speicher');
+    final parts = jsonDecode(
+      utf8.decode(base64.decode(armored.substring(cacheCipherMagic.length))),
+    ) as List<dynamic>;
+    // Like the real cipher: a wrong key and a foreign AAD both fail the tag
+    // check.
+    if (parts[0] != salt || parts[1] != key) {
+      throw InvalidCipherTextException('mac check in GCM failed');
+    }
+    return parts[2] as String;
+  }
+}
+
+/// An undelivered meal from a previous session, as the persisted outbox holds
+/// it.
+LoggedMeal _meal(String id) => LoggedMeal(
+      id: id,
+      result: mealResult('Alt-Bowl'),
+      loggedAt: DateTime(2026, 8, 13, 12, 30),
+      forcedSlot: MealSlot.lunch,
+      localDay: '2026-08-13',
+    );
+
+/// Raw store + encrypting decorator, the production stacking.
+(InMemoryKeyValueStore, _AussetzenderCipher, EncryptedKeyValueStore)
+    _stapel() {
+  final raw = InMemoryKeyValueStore();
+  final cipher = _AussetzenderCipher();
+  return (raw, cipher, EncryptedKeyValueStore(raw, cipher));
+}
+
+/// One undelivered op of a previous session in the persisted outbox.
+Future<void> _seedOutbox(EncryptedKeyValueStore store) =>
+    LocalCache(store, _uid)
+        .writeOutbox([SyncOp.mealInsert(_meal('m-alt'), trackDay: false)]);
+
+/// Three never-booked meals in the persisted deltas slot.
+Future<void> _seedDeltas(EncryptedKeyValueStore store) =>
+    LocalCache(store, _uid).writePendingStatsDeltas(
+        meals: 3, weightLogs: 0, requestId: 'rid-alt');
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('Outbox-Slot', () {
+    test(
+        'nicht ausfuehrbare Entschluesselung beim Kaltstart: der naechste '
+        'Enqueue ueberschreibt den Blob nicht', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedOutbox(store);
+      // The whole cold start runs without a usable isolate.
+      cipher.blockiert = true;
+
+      final a = setup(injizierterCache: LocalCache(store, _uid));
+      a.server.offline = true;
+      await boot(a.store);
+      expect(a.store.pendingOutbox, isEmpty,
+          reason: 'Vorbedingung: die Hydration hat den Blob nicht gesehen');
+
+      // The pressure is over; from here decryption works again.
+      cipher.blockiert = false;
+      final neu = a.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+      await settle();
+
+      final blob = await LocalCache(store, _uid).readOutbox();
+      expect(blob!.map((o) => o.entityId), containsAll(<String>['m-alt', neu]),
+          reason: 'ein gescheiterter Isolate-Hop ist keine Aussage ueber den '
+              'Slot — er darf nicht als „leer" durchgehen und den nie '
+              'zugestellten Write ueberschreiben');
+      expect(raw.snapshot.containsKey(_outboxKey), isTrue);
+    });
+
+    test('der Logout loescht den ungelesenen Slot NICHT', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedOutbox(store);
+      cipher.blockiert = true;
+
+      final a = setup(injizierterCache: LocalCache(store, _uid));
+      a.server.offline = true;
+      await boot(a.store);
+      cipher.blockiert = false;
+
+      await a.store.signOutCleanup();
+
+      expect(raw.snapshot.containsKey(_outboxKey), isTrue,
+          reason: 'preserveOutbox haengt an _syncStateHydrated: gilt die '
+              'ungelesene Hydration als geglueckt, raeumt der Logout bis zu '
+              '500 nie zugestellte Writes weg — und remove braucht keine '
+              'Chiffre, scheitert also nie');
+    });
+  });
+
+  group('Pending-Stats-Slot', () {
+    test(
+        'nicht ausfuehrbare Entschluesselung beim Kaltstart: der naechste '
+        'Flush setzt die Deltas nicht auf 0 zurueck', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedDeltas(store);
+      cipher.blockiert = true;
+
+      final a = setup(injizierterCache: LocalCache(store, _uid));
+      await boot(a.store);
+
+      cipher.blockiert = false;
+      // The meal write lands, only increment_lifetime_stats fails — the
+      // constellation that books a delta and rewrites the slot.
+      a.server.statsOffline = true;
+      a.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+      await settle();
+      a.store.flushPendingWrites();
+      await settle();
+
+      final deltas = await LocalCache(store, _uid).readPendingStatsDeltas();
+      expect(deltas!.meals, 4,
+          reason: 'die drei nie verbuchten Mahlzeiten der Vorsitzung plus die '
+              'neue — ein verschluckter Lesefehler startete den Slot bei 0 '
+              'und die Lebenszeit-Zaehler blieben dauerhaft zu kurz');
+      expect(raw.snapshot.containsKey(_deltaKey), isTrue);
+    });
+
+    test('der Logout loescht den ungelesenen Slot NICHT', () async {
+      final (raw, cipher, store) = _stapel();
+      await _seedDeltas(store);
+      cipher.blockiert = true;
+
+      final a = setup(injizierterCache: LocalCache(store, _uid));
+      a.server.offline = true;
+      await boot(a.store);
+      cipher.blockiert = false;
+
+      await a.store.signOutCleanup();
+
+      expect(raw.snapshot.containsKey(_deltaKey), isTrue,
+          reason: 'sonst nimmt der Logout die Streak-Basis mit');
+    });
+  });
+
+  group('Gegenprobe: nachgewiesen kaputter Ciphertext bleibt „leer"', () {
+    test(
+        'ein geraeumter Slot gilt als leer — kein Reparaturpfad, kein '
+        'bewahrter Slot beim Logout', () async {
+      final (raw, _, store) = _stapel();
+      await _seedOutbox(store);
+      // Foreign DEK: the tag check fails, the decorator PURGES the slot on
+      // read. Nothing is left that an overwrite could lose.
+      final fremd = EncryptedKeyValueStore(raw, _AussetzenderCipher('dek-b'));
+      final a = setup(injizierterCache: LocalCache(fremd, _uid));
+      a.server.offline = true;
+      await boot(a.store);
+
+      expect(raw.snapshot.containsKey(_outboxKey), isFalse,
+          reason: 'Wegwerfen IST das Self-Healing — der Blob geht auch beim '
+              'naechsten Start nicht auf');
+
+      final neu = a.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+      await settle();
+
+      final blob = await LocalCache(fremd, _uid).readOutbox();
+      expect(blob!.map((o) => o.entityId), contains(neu),
+          reason: 'der geraeumte Slot darf die Sitzung nicht dauerhaft am '
+              'Persistieren hindern');
+      expect(blob.map((o) => o.entityId), isNot(contains('m-alt')),
+          reason: 'was nachweislich nicht aufgeht, ist bereits verloren — es '
+              'darf nicht als „unlesbar" jeden weiteren Write blockieren');
+    });
+  });
+}

@@ -255,6 +255,123 @@ void main() {
             'verschluckte der gemeinsame Aufruf mit deletesLost==true');
   });
 
+  test(
+      'P1-01/A6: was der Queue-Cap verwirft, macht die Entitaet zur Waise — '
+      'die spaetere Korrektur erreicht den Server wirklich', () async {
+    final kv = InMemoryKeyValueStore();
+    final gekappt = LoggedMeal(
+      id: 'm-gekappt',
+      result: mealResult('Cap-Bowl'),
+      loggedAt: DateTime.now(),
+    );
+    // Genau am Limit, und der aelteste Eintrag ist der einzige WRITE: die
+    // naechste Op schiebt exakt ihn ueber die Kante.
+    await seedRawOutbox(kv, [
+      SyncOp.mealInsert(gekappt, trackDay: false).toJson(),
+      for (var i = 0; i < kOutboxMaxOps - 1; i++)
+        SyncOp.mealDelete('m-fuell-$i').toJson(),
+    ]);
+
+    final s = setup(kv: kv);
+    s.server.offline = true;
+    await boot(s.store);
+    expect(s.store.pendingOutbox, hasLength(kOutboxMaxOps),
+        reason: 'Vorbedingung: die Queue steht genau am Limit');
+    expect(s.store.loggedMeals.map((m) => m.id), contains('m-gekappt'));
+
+    // Ein weiterer Offline-Write: der Cap wirft den aeltesten Write raus.
+    s.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+    await pumpEventQueue(times: 200);
+    expect(s.store.pendingOutbox.where((o) => o.entityKey == 'meal:m-gekappt'),
+        isEmpty,
+        reason: 'Vorbedingung: die Insert-Op ist am Cap gefallen');
+    expect(s.snacks.messages.where((m) => m == outboxLossHint()), hasLength(1));
+    expect(s.store.loggedMeals.map((m) => m.id), contains('m-gekappt'),
+        reason: 'lokal steht die Mahlzeit weiter im Tagebuch');
+
+    // Netz zurueck: der Rest der Queue laeuft durch — nur m-gekappt fehlt
+    // serverseitig, weil seine Op nie zugestellt wurde.
+    s.server.offline = false;
+    s.store.flushPendingWrites();
+    await pumpEventQueue(times: 400);
+    expect(s.server.mealRows.keys, isNot(contains('m-gekappt')));
+    expect(s.store.pendingOutbox.where((o) => o.entityKey == 'meal:m-gekappt'),
+        isEmpty);
+
+    // Der User korrigiert genau diese Mahlzeit.
+    s.store
+        .updateLoggedMealResult('m-gekappt', mealResult('Cap-Bowl', kcal: 500));
+    await settle();
+    expect(
+      s.server.requests.where(
+          (r) => r.method == 'PATCH' && r.url.path.contains('/logged_meals')),
+      isEmpty,
+      reason: 'ein PATCH auf 0 Zeilen ist ein 204 — die "Reparatur" meldete '
+          'Erfolg und reparierte nichts',
+    );
+
+    s.store.flushPendingWrites();
+    await pumpEventQueue(times: 200);
+    expect(s.server.mealRows.keys, contains('m-gekappt'),
+        reason: 'der Upsert-Weg legt die verworfene Zeile wirklich an');
+    expect(s.server.mealRows['m-gekappt']!['calories_kcal'], 500);
+  }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test(
+      'P1-01/A6: dieselbe Marke setzt der Cap der Nachhydration — dort raeumt '
+      'kein Boot-Load mehr hinterher', () async {
+    final kv = InMemoryKeyValueStore();
+    final gekappt = LoggedMeal(
+      id: 'm-nachhydriert',
+      result: mealResult('Merge-Bowl'),
+      loggedAt: DateTime.now(),
+    );
+    await seedRawOutbox(kv, [
+      SyncOp.mealInsert(gekappt, trackDay: false).toJson(),
+      for (var i = 0; i < kOutboxMaxOps - 1; i++)
+        SyncOp.mealDelete('m-fuell-$i').toJson(),
+    ]);
+    // Das Tagebuch kennt die Mahlzeit aus dem Cache — die Nachhydration selbst
+    // spielt sie nicht mehr ein, ihre Op faellt ja gerade dem Cap zum Opfer.
+    await LocalCache(kv, 'user-outbox').writeLoggedMeals(<LoggedMeal>[gekappt]);
+
+    // Erster Outbox-Read wirft: die Hydration adoptiert nichts, der erste
+    // Schreibversuch holt den Blob nach und merged ihn (kOutboxMaxOps + 1).
+    final s = setup(injizierterCache: OutboxLesefehlerCache(kv, 'user-outbox'));
+    s.server.offline = true;
+    await boot(s.store);
+    expect(s.store.pendingOutbox, isEmpty,
+        reason: 'Vorbedingung: die Hydration konnte den Blob nicht lesen');
+
+    s.store.addResultToDailyTotal(mealResult('Neu-Bowl'));
+    await pumpEventQueue(times: 200);
+    expect(s.store.pendingOutbox, hasLength(kOutboxMaxOps),
+        reason: 'Vorbedingung: der nachgeholte Blob ist da und gekappt');
+    expect(
+        s.store.pendingOutbox.where((o) => o.entityKey == 'meal:m-nachhydriert'),
+        isEmpty,
+        reason: 'Vorbedingung: die aelteste Insert-Op ist am Cap gefallen');
+
+    s.server.offline = false;
+    s.store.flushPendingWrites();
+    await pumpEventQueue(times: 400);
+    expect(s.server.mealRows.keys, isNot(contains('m-nachhydriert')));
+
+    s.store.updateLoggedMealResult(
+        'm-nachhydriert', mealResult('Merge-Bowl', kcal: 500));
+    await settle();
+    expect(
+      s.server.requests.where(
+          (r) => r.method == 'PATCH' && r.url.path.contains('/logged_meals')),
+      isEmpty,
+      reason: 'auch hier gilt: ein PATCH auf 0 Zeilen ist ein stiller Verlust',
+    );
+
+    s.store.flushPendingWrites();
+    await pumpEventQueue(times: 200);
+    expect(s.server.mealRows['m-nachhydriert']?['calories_kcal'], 500);
+  }, timeout: const Timeout(Duration(minutes: 3)));
+
   // --- A2/L3: the logout keeps the outbox and the pending deltas ------------
 
   test(

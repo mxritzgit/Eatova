@@ -842,7 +842,7 @@ class CacheKeyProvider {
 /// Decorator over a [KeyValueStore]: writes encrypted only, reads encrypted
 /// AND (migrating once) plaintext. Sits BELOW [LocalCache], wired only in
 /// `LocalCache.create`, so the cache and its serializers stay unchanged.
-class EncryptedKeyValueStore implements KeyValueStore {
+class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
   /// [acceptLegacyPlaintext] is the migration path from
   /// [CacheKeyProvider.plaintextMigrationClosedKey]. `true` by default, since
   /// production only builds via [create].
@@ -947,6 +947,22 @@ class EncryptedKeyValueStore implements KeyValueStore {
           error: e, name: 'secure_cache_store');
     }
     return raw;
+  }
+
+  /// P3-02: whether the slot still HOLDS bytes — no cipher, no purge, no
+  /// report.
+  ///
+  /// [getString] cannot answer this: it returns `null` both for an empty slot
+  /// and for one whose decryption was not executable ([_onCipherUnavailable]
+  /// leaves that slot in place on purpose). The `OrThrow` readers in
+  /// [LocalCache] need the difference, or an unreadable outbox counts as empty
+  /// and the next write overwrites it.
+  ///
+  /// A failing inner read propagates: "cannot say" must not become "empty".
+  @override
+  Future<bool> hasRawValue(String key) async {
+    final raw = await _inner.getString(key);
+    return raw != null && raw.isNotEmpty;
   }
 
   /// W7a: adopts ALL inherited plaintext slots, then closes the migration

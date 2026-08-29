@@ -70,22 +70,40 @@ class ChatQuotaSnapshot {
     required this.used,
     required this.remaining,
     required this.dailyLimit,
+    this.limitAssumed = false,
   });
 
   final int used;
   final int remaining;
   final int dailyLimit;
 
+  /// True when [dailyLimit] is the client's own assumption, not a number the
+  /// server named.
+  ///
+  /// `get_chat_quota_today` derives `remaining` from the limit the CALLER
+  /// passes in and echoes it back, so its answer is display arithmetic, not a
+  /// statement about `COACH_DAILY_LIMIT`. With a server limit of 10 it reports
+  /// `remaining = 0` after five slots and would lock a composer the server
+  /// still accepts. An assumed limit therefore never blocks — the server
+  /// answers 429 if the quota really is gone, and that path locks properly.
+  final bool limitAssumed;
+
   /// Daily limit assumed until the server names one, and the value requested
   /// via RPC. Display-only fallback for widgets that need a number; whether the
   /// composer locks depends solely on the snapshot, never on this constant.
   static const int standardTageslimit = 5;
 
-  ChatQuotaSnapshot copyWith({int? used, int? remaining, int? dailyLimit}) {
+  ChatQuotaSnapshot copyWith({
+    int? used,
+    int? remaining,
+    int? dailyLimit,
+    bool? limitAssumed,
+  }) {
     return ChatQuotaSnapshot(
       used: used ?? this.used,
       remaining: remaining ?? this.remaining,
       dailyLimit: dailyLimit ?? this.dailyLimit,
+      limitAssumed: limitAssumed ?? this.limitAssumed,
     );
   }
 }

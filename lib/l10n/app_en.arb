@@ -610,6 +610,7 @@
   "coachErrorNoSession": "Could not load a coach session.",
   "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
   "coachErrorDeleteFailed": "The conversation could not be deleted. Check your connection and try again.",
+  "coachSessionSwitchedNotice": "This conversation no longer exists. Your question and the answer are now in another conversation — it is open.",
   "coachImageDefaultCaption": "Analyze this image in a fitness context.",
   "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More tomorrow.",
   "@coachErrorDailyLimitReached": {
@@ -1015,6 +1016,8 @@
   "goalsFieldActivity": "Activity level",
   "goalsFieldActivitySubtitle": "Determines your needs without walking and running – counted steps are added on top.",
   "goalsFieldTargetWeight": "Target weight",
+  "goalsTargetWeightBelowError": "To lose weight your target has to be below your current weight ({weight} kg) — or pick a different weight goal.",
+  "goalsTargetWeightAboveError": "To gain weight your target has to be above your current weight ({weight} kg) — or pick a different weight goal.",
   "goalsFieldWeightGoal": "Weight goal",
   "goalsGroupEnergyMacros": "ENERGY & MACROS",
   "goalsFieldManual": "Manual",
@@ -1301,6 +1304,7 @@
 
   "coachErrorEmptyReply": "Empty reply from the coach.",
   "coachErrorUnreachable": "The coach isn't reachable right now. Please try again shortly.",
+  "coachErrorTimeout": "The coach took too long to answer. Please try again.",
   "coachErrorNoConnection": "No connection to the coach. Check your internet connection and try again.",
   "coachErrorSessionExpired": "Your session has expired. Please sign in again, then the coach will respond again.",
   "coachErrorQuotaFallback": "Daily limit reached. More tomorrow.",

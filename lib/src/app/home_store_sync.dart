@@ -156,6 +156,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Not yet synced write operations (view for tests/debug).
   List<SyncOp> get pendingOutbox => List.unmodifiable(_outbox);
 
+  /// Whether a retry alarm is armed (view for tests/debug). Undelivered ops
+  /// WITHOUT an armed timer is the state P1-02 produced: nothing touches them
+  /// again until the next lifecycle event.
+  bool get debugOutboxRetryTimerIsActive =>
+      _outboxRetryTimer?.isActive ?? false;
+
   /// Cross-reference to the tracking part (implemented in
   /// [_HomeStoreTrackingPart]): outbox replay books the streak day of a
   /// replayed meal server-side.
@@ -244,6 +250,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _inFlightOps[op.entityKey] = op;
     final zustellung = action().then<SyncDelivery>((_) {
       _inFlightOps.remove(op.entityKey);
+      // As in the replay success path: the row is on the server, so the live
+      // path may touch the entity again (A6). Only reachable when the cap
+      // dropped THIS op while its write was already running — the orphan check
+      // above routes every later write through the queue.
+      _orphanedEntities.remove(op.entityKey);
       _dequeueDeliveredOp(op);
       onDelivered?.call();
       _onSyncSuccess();
@@ -263,9 +274,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   /// Sync write failed: hint subtly, schedule a retry. No rollback, no red
-  /// toast. The op already sits in the persisted queue (gap B) and simply stays
-  /// there; re-queueing is deliberately avoided because it may legitimately be
-  /// gone by now (coalesced, capped, delivered by replay).
+  /// toast. The op NORMALLY still sits in the persisted queue (gap B) and
+  /// simply stays there; re-queueing is deliberately avoided because it may
+  /// legitimately be gone by now (coalesced, capped, delivered by replay).
+  ///
+  /// "Capped" is not theory: [_enqueueOp] runs the cap right after inserting,
+  /// and in a queue of pure deletes the fresh write op is the FIRST thing it
+  /// sheds (deletes fall last). Its net is A6: the cap marks the entity as
+  /// orphaned ([_markDroppedAsOrphaned]), so the next write to it takes the
+  /// outbox as a full upsert instead of a 0-row PATCH.
   void _handleSyncFailure(
     String operation,
     Object error,
@@ -338,6 +355,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         CrashReporter.breadcrumb(
             'outbox-cap: ${capped.dropped.length} ops dropped');
         _outbox = capped.queue;
+        // A6, exactly as in the replay drop path: a capped op is lost for
+        // good, so its entity may exist only locally from here on.
+        _markDroppedAsOrphaned(capped.dropped);
         // The cap trims deletes last, but it does trim them (hard limit, see
         // capOutbox) — then the replay path applies: restore entries, report
         // both loss kinds separately.
@@ -364,6 +384,29 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       icon: offline ? Icons.cloud_off_rounded : Icons.sync_problem_rounded,
       tone: SnackTone.neutral,
     );
+  }
+
+  /// Marks the entities of ops dropped FOR GOOD as potentially orphaned (A6).
+  ///
+  /// The single place that fills [_orphanedEntities], for all three drop paths
+  /// (replay verdict, queue cap in [_enqueueOp], cap of the merged queue in
+  /// [_repairOutboxHydration]). Without the mark the next write to such an
+  /// entity runs LIVE as a PATCH, and a PATCH hitting 0 rows is a 204: the
+  /// repair reports success and repairs nothing.
+  ///
+  /// Content ops only: nobody writes to a `stats:` key again, and its loss is
+  /// a counter, not an entry.
+  ///
+  /// NOT used by the boot hydration cap (home_store.dart): the server load
+  /// right after it replaces the meal list, so there is nothing left to repair
+  /// — and a mark from there would cut a healthy entity off from the live path
+  /// for the rest of the session.
+  void _markDroppedAsOrphaned(Iterable<SyncOp> dropped) {
+    for (final op in dropped) {
+      if (op.kind != SyncOpKind.statsIncrement) {
+        _orphanedEntities.add(op.entityKey);
+      }
+    }
   }
 
   /// Reports the losses of ONE cap event, split by kind. A single
@@ -598,9 +641,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         final op = _outbox[i];
         // If a live write is running for the entity, the op belongs to it
         // (gap B) — replaying it too would write the same row twice and a
-        // mealInsert would count the meal twice. Its outcome triggers the next
-        // pass itself; no `blocked` entry, else a silent request would keep the
-        // backoff timer alive forever.
+        // mealInsert would count the meal twice. No `blocked` entry: nothing
+        // FAILED here, so a hanging request must not climb the backoff ladder.
+        // That the op stays undelivered is handled at the end of the pass,
+        // which arms an alarm for any non-empty queue (P1-02) — the running
+        // write does NOT reliably trigger the next pass itself: on success
+        // `_onSyncSuccess` sees `_outboxReplayInFlight` and starts none.
         if (blocked.contains(op.entityKey) ||
             _inFlightOps.containsKey(op.entityKey)) {
           i++;
@@ -633,11 +679,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             }
             // A6: the entity is now potentially orphaned (present locally, not
             // server-side), so future writes must go through the outbox, where
-            // they arrive as a full upsert. Content ops only: nobody writes to
-            // 'stats:<uuid>' again, and its loss is a counter, not an entry.
-            if (op.kind != SyncOpKind.statsIncrement) {
-              _orphanedEntities.add(op.entityKey);
-            }
+            // they arrive as a full upsert.
+            _markDroppedAsOrphaned(<SyncOp>[op]);
             if (at >= 0) {
               _outbox = [..._outbox]..removeAt(at);
               _persistOutbox();
@@ -717,10 +760,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // so a backoff timer would have nothing left to do.
     if (blocked.isEmpty || _outbox.isEmpty) {
       _outboxRetryAttempt = 0;
-      // Only the outbox is done; open stats deltas keep their timer.
-      if (_pendingMealsDelta == 0 && _pendingWeightLogsDelta == 0) {
-        _outboxRetryTimer?.cancel();
-        _outboxRetryTimer = null;
+      // P1-02: ops SKIPPED for a running live write leave `blocked` empty but
+      // stay undelivered, and so does anything a parallel path queued during
+      // the pass. Only an actually empty queue may disarm the alarm — else the
+      // pass cancels the timer a parallel write just armed and nothing touches
+      // the op again until the next lifecycle event.
+      if (_outbox.isEmpty) {
+        // Only the outbox is done; open stats deltas keep their timer.
+        if (_pendingMealsDelta == 0 && _pendingWeightLogsDelta == 0) {
+          _outboxRetryTimer?.cancel();
+          _outboxRetryTimer = null;
+        }
+      } else {
+        // Nothing FAILED here, so the ladder stays at stage 0 (reset above):
+        // the wake-up comes in 30 s.
+        _scheduleOutboxRetry();
       }
       if (anySuccess) {
         _syncHintShown = false;
@@ -1261,7 +1315,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       if (capped.dropped.isNotEmpty) {
         // As with the regular cap in [_enqueueOp] — unlike the cap during
         // hydration, where the following boot load cleans up; here boot is long
-        // done.
+        // done. That is also why the orphan mark belongs here: nothing follows
+        // that would repair the entity by itself.
+        _markDroppedAsOrphaned(capped.dropped);
         final lostDeletes = capped.dropped.where((o) => o.isDelete).toList();
         if (lostDeletes.isNotEmpty) {
           unawaited(_restoreDroppedDeletes(lostDeletes));

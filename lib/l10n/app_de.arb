@@ -610,6 +610,7 @@
   "coachErrorNoSession": "Konnte keine Coach-Session laden.",
   "coachErrorHistoryUnavailable": "Dein Verlauf konnte nicht geladen werden. Prüf deine Verbindung und versuch es nochmal.",
   "coachErrorDeleteFailed": "Die Unterhaltung konnte nicht gelöscht werden. Prüf deine Verbindung und versuch es nochmal.",
+  "coachSessionSwitchedNotice": "Diese Unterhaltung gibt es nicht mehr. Deine Frage und die Antwort stehen jetzt in einer anderen Unterhaltung — sie ist geöffnet.",
   "coachImageDefaultCaption": "Analysiere dieses Bild im Fitness-Kontext.",
   "coachErrorDailyLimitReached": "Tageslimit erreicht ({limit} Coach-Fragen pro Tag). Morgen geht's weiter.",
   "@coachErrorDailyLimitReached": {
@@ -1015,6 +1016,18 @@
   "goalsFieldActivity": "Aktivitätslevel",
   "goalsFieldActivitySubtitle": "Bestimmt deinen Bedarf ohne Gehen und Laufen – gezählte Schritte kommen obendrauf.",
   "goalsFieldTargetWeight": "Wunschgewicht",
+  "goalsTargetWeightBelowError": "Beim Abnehmen muss das Wunschgewicht unter deinem Gewicht ({weight} kg) liegen — oder wähle ein anderes Gewichtsziel.",
+  "@goalsTargetWeightBelowError": {
+    "placeholders": {
+      "weight": { "type": "int" }
+    }
+  },
+  "goalsTargetWeightAboveError": "Beim Zunehmen muss das Wunschgewicht über deinem Gewicht ({weight} kg) liegen — oder wähle ein anderes Gewichtsziel.",
+  "@goalsTargetWeightAboveError": {
+    "placeholders": {
+      "weight": { "type": "int" }
+    }
+  },
   "goalsFieldWeightGoal": "Gewichtsziel",
   "goalsGroupEnergyMacros": "ENERGIE & MAKROS",
   "goalsFieldManual": "Manuell",
@@ -1301,6 +1314,7 @@
 
   "coachErrorEmptyReply": "Leere Antwort vom Coach.",
   "coachErrorUnreachable": "Der Coach ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.",
+  "coachErrorTimeout": "Der Coach hat zu lange gebraucht. Bitte versuch es nochmal.",
   "coachErrorNoConnection": "Keine Verbindung zum Coach. Prüf deine Internetverbindung und versuch es nochmal.",
   "coachErrorSessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich neu an, dann antwortet der Coach wieder.",
   "coachErrorQuotaFallback": "Tageslimit erreicht. Morgen geht's weiter.",

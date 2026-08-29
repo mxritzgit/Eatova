@@ -37,6 +37,56 @@ import 'slot_selector.dart';
 /// here (the expanded card only has a portion slider, and 0 kcal stays 0 at
 /// any portion). Two separate ARB keys instead of one mirrored constant.
 
+/// Live access to the two store lists the add-meal sheet renders.
+///
+/// The sheet lives in a modal route, and a `showModalBottomSheet` builder is
+/// never rebuilt by a store notify. So the sheet used to open with a COPY of
+/// "already added" and the favorites and only ever wrote INTO that copy:
+/// everything the store did on its own never arrived. The undo of a deleted
+/// meal was the worst case — the store put the row back, the sheet did not,
+/// the user re-entered the meal and had it twice in the diary (review P8-01,
+/// with P8-05/-06/-07 on the same root).
+///
+/// The scope is the active channel: [showAddMealSheet] resolves it from the
+/// OPENING context (like [MealEditScope]; the sheet's own context hangs off
+/// the navigator and no longer sees the food tab) and re-feeds the sheet the
+/// current lists on every notify. Without a scope — previews, standalone
+/// widget tests — the sheet keeps its opening snapshot and its own optimistic
+/// mirror, exactly as before.
+class FoodStoreScope extends InheritedWidget {
+  const FoodStoreScope({
+    super.key,
+    required this.store,
+    required this.mealsOfSelectedDay,
+    required this.favorites,
+    required super.child,
+  });
+
+  /// The store as a plain [Listenable]. The sheet only listens on it; every
+  /// read goes through the two suppliers below, so this widget layer never
+  /// learns the store's type.
+  final Listenable store;
+
+  /// Logged meals of the day the food tab shows, bucketed the DATA-6 way
+  /// (`mealsForFoodDate`) — the same list the opener passes as a value.
+  final List<LoggedMeal> Function() mealsOfSelectedDay;
+
+  /// The full favorites list (pinned + auto recents) in store order.
+  ///
+  /// Must return the store's own list instance while nothing changed: the
+  /// sheet uses its identity as the O(1) "did anything move" fingerprint.
+  final List<FavoriteMeal> Function() favorites;
+
+  /// Deliberately without dependency registration (like [MealEditScope]): the
+  /// lookup happens in the sheet opener, outside build.
+  static FoodStoreScope? maybeOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<FoodStoreScope>();
+
+  @override
+  bool updateShouldNotify(FoodStoreScope oldWidget) =>
+      !identical(store, oldWidget.store);
+}
+
 Future<void> showAddMealSheet(
   BuildContext context, {
   required MealSlot slot,
@@ -60,28 +110,45 @@ Future<void> showAddMealSheet(
   // home page's MealEditScope. Without a scope the list stays non-editable.
   final resolvedUpdateDetails =
       onUpdateMealDetails ?? MealEditScope.maybeOf(context)?.onUpdateMeal;
+  // Same reason, same moment: the live source of both lists (P8-01/-05).
+  final live = FoodStoreScope.maybeOf(context);
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     barrierColor: context.t.scrim,
     builder: (sheetContext) {
-      return AddMealSheet(
-        slot: slot,
-        searchMode: searchMode,
-        analyzer: analyzer,
-        productService: productService,
-        photoInput: photoInput,
-        favorites: favorites,
-        existingMeals: existingMeals,
-        foodDate: foodDate,
-        onAdd: onAdd,
-        onUpdateMeal: onUpdateMeal,
-        onRemoveFavorite: onRemoveFavorite,
-        isFavorite: isFavorite,
-        onToggleFavorite: onToggleFavorite,
-        onRemoveMeal: onRemoveMeal,
-        onUpdateMealDetails: resolvedUpdateDetails,
+      AddMealSheet sheet(
+        List<LoggedMeal> meals,
+        List<FavoriteMeal> favoriteMeals,
+      ) {
+        return AddMealSheet(
+          slot: slot,
+          searchMode: searchMode,
+          analyzer: analyzer,
+          productService: productService,
+          photoInput: photoInput,
+          favorites: favoriteMeals,
+          existingMeals: meals,
+          foodDate: foodDate,
+          onAdd: onAdd,
+          onUpdateMeal: onUpdateMeal,
+          onRemoveFavorite: onRemoveFavorite,
+          isFavorite: isFavorite,
+          onToggleFavorite: onToggleFavorite,
+          onRemoveMeal: onRemoveMeal,
+          onUpdateMealDetails: resolvedUpdateDetails,
+        );
+      }
+
+      if (live == null) return sheet(existingMeals, favorites);
+      // The channel: every store notify rebuilds here and hands the sheet the
+      // CURRENT lists, which its state adopts (see `didUpdateWidget`). Plain
+      // ListenableBuilder, no slice selector — the sheet is one modal at a
+      // time and both suppliers are O(1) reads plus one day filter.
+      return ListenableBuilder(
+        listenable: live.store,
+        builder: (_, __) => sheet(live.mealsOfSelectedDay(), live.favorites()),
       );
     },
   );
@@ -181,6 +248,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // The slot is sheet state, not a fixed input: it defaults to the passed
   // (time-of-day) suggestion and can be changed in the selector.
   late MealSlot _selectedSlot;
+
+  // Seeded from the opener and RE-seeded from it on every store notify
+  // (`didUpdateWidget`). The local writes below ("mirror") only lead by a
+  // frame; with a FoodStoreScope attached the store always has the last word,
+  // without one they are all the sheet has.
   late List<LoggedMeal> _existing;
   late List<FavoriteMeal> _favorites;
 
@@ -213,6 +285,28 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _favorites = List<FavoriteMeal>.of(widget.favorites);
   }
 
+  /// Adopts the lists the opener re-feeds on every store notify (see
+  /// [FoodStoreScope]) — this is what makes the store, not the copy, the
+  /// truth. Everything the sheet writes locally (see "mirror" below) is only
+  /// the optimistic leading edge of its OWN action and is overwritten here, in
+  /// the same frame, by what the store really did.
+  ///
+  /// Identity, not content: both lists are reassigned by the store on every
+  /// mutation, so identity is an O(1) fingerprint. It also has to be identity
+  /// for [_favorites] — [MealSuggestionItem] throws away a typed portion as
+  /// soon as its `result` INSTANCE differs (review B, 2026-08-27), so an
+  /// unchanged favorites list must keep its exact entries.
+  @override
+  void didUpdateWidget(AddMealSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.existingMeals, widget.existingMeals)) {
+      _existing = List<LoggedMeal>.of(widget.existingMeals);
+    }
+    if (!identical(oldWidget.favorites, widget.favorites)) {
+      _favorites = List<FavoriteMeal>.of(widget.favorites);
+    }
+  }
+
   void _selectSlot(MealSlot slot) {
     if (slot == _selectedSlot) return;
     setState(() => _selectedSlot = slot);
@@ -243,6 +337,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return _explicitSearchRequested && length >= _searchMinChars;
   }
 
+  /// Drops the row here and reports it upwards. The store answers with an undo
+  /// snack that lands in THIS sheet's SnackHost; tapping it restores the row in
+  /// the store, and the restored list reaches [didUpdateWidget] from there
+  /// (P8-01 — the local removal used to be a one-way street).
   void _removeExisting(String id) {
     setState(() {
       _existing = _existing.where((m) => m.id != id).toList();
@@ -277,6 +375,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     });
   }
 
+  /// Same shape as [_removeExisting], second list: the store's undo snack
+  /// restores the favorite and [didUpdateWidget] brings it back here (P8-05).
   void _removeFavorite(String id) {
     setState(() {
       _favorites = _favorites.where((f) => f.id != id).toList();
@@ -922,8 +1022,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  // Report the toggle upwards AND mirror it in the local list, so the heart
-  // flips without rebuilding the sheet (favorites <-> recents).
+  // Report the toggle upwards AND flip the heart locally, so it reacts on the
+  // spot (favorites <-> recents).
+  //
+  // Only the flip is mirrored, never the store's rules: an unpin runs through
+  // the recents cap there and can DELETE the row instead of demoting it. That
+  // outcome arrives via [FoodStoreScope]; the sheet used to keep showing a row
+  // the store had dropped (P8-06).
   void _handleToggleFavorite(MealAnalysisResult result) {
     widget.onToggleFavorite?.call(result);
     final id = FavoriteMeal.idFor(result);
@@ -974,18 +1079,30 @@ class _AddMealSheetState extends State<AddMealSheet> {
     setState(() {});
   }
 
-  /// Mirrors the store's "last used" bump (`_rememberRecent` rewrites
-  /// `addedAt` on every log) into the local copy, so the inline top 3 follow
-  /// "most recently used first" within this sheet session too (review A,
-  /// 2026-08-27). Unknown results (fresh search hits) are left alone: the
-  /// store creates the recent, this copy is rebuilt on the next open.
+  /// Mirrors the store's "last used" bump (`_rememberRecent`) into the local
+  /// copy, so the inline top 3 follow "most recently used first" within this
+  /// sheet session too (review A, 2026-08-27).
+  ///
+  /// Like the store: the entry is REBUILT from the logged result and moves to
+  /// the front. `copyWith(addedAt:)` only moved the timestamp and left the old
+  /// result behind, so a re-logged meal kept showing the old density in its
+  /// tile header (P8-07). What stays the store's alone is the recents cap —
+  /// its outcome (including a dropped entry) arrives via [FoodStoreScope].
+  /// Unknown results (fresh search hits) are left alone here for the same
+  /// reason: the store creates that recent and hands it over.
   void _touchFavorite(MealAnalysisResult result) {
     final id = FavoriteMeal.idFor(result);
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx == -1) return;
-    final next = [..._favorites];
-    next[idx] = _favorites[idx].copyWith(addedAt: clock.now());
-    setState(() => _favorites = next);
+    final refreshed = FavoriteMeal(
+      id: id,
+      result: result,
+      addedAt: clock.now(),
+      pinned: _favorites[idx].pinned,
+    );
+    setState(() {
+      _favorites = [refreshed, ..._favorites.where((f) => f.id != id)];
+    });
   }
 }
 

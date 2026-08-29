@@ -66,6 +66,28 @@ void main() {
       expect(options.replay.onErrorSampleRate, isNull);
     });
 
+    test('kein automatisches Session-Tracking — Sitzungen sind Nutzung, '
+        'keine Fehler', () {
+      // Review P10-01: the gap next to the two switches above. Session
+      // envelopes (session id, install id, start, duration, status) are built
+      // by the NATIVE SDKs and never pass `beforeSend`, so no filter in
+      // crash_reporter.dart sees them. PRIVACY.md promises "errors, not usage"
+      // and ios/Runner/PrivacyInfo.xcprivacy declares no ProductInteraction —
+      // both statements are only true while this stays false.
+      expect(options.enableAutoSessionTracking, isFalse);
+    });
+
+    test('der Default waere AN — deshalb muss die Option gesetzt werden', () {
+      // Makes the previous guard's premise executable. Unlike tracesSampleRate
+      // and replay.* this one does not default to off
+      // (sentry_flutter_options.dart:42), so leaving it unset is what shipped
+      // the sessions in the first place.
+      expect(SentryFlutterOptions().enableAutoSessionTracking, isTrue,
+          reason: 'sentry_flutter 9.26 liefert true; kippt der Default eines '
+              'Tages, ist das Setzen nur noch Doku und dieser Kommentar '
+              'falsch');
+    });
+
     test('der DSN kommt aus CrashReporter.dsn', () {
       expect(options.dsn, CrashReporter.dsn);
     });

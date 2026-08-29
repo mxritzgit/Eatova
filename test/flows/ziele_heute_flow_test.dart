@@ -37,8 +37,15 @@ import 'flow_test_helpers.dart';
 /// Written through `applyLiveGoals` on purpose: `ProfileSync.load` heals a row
 /// whose goals no longer match the calculator and would then queue a
 /// write-back — a second profiles write that has nothing to do with this flow.
-final UserProfile _startProfil = const KcalCalculator()
-    .applyLiveGoals(const UserProfile(onboardingCompleted: true));
+///
+/// The target weight is explicit and below every weight this flow types (90,
+/// later 70): since P9-08 the goals page rejects a target that contradicts the
+/// chosen direction, and the default 78 kg would collide with the deficit goal
+/// at step 4. Target weight feeds only the forecast, never `calculate`, so no
+/// number asserted here moves.
+final UserProfile _startProfil = const KcalCalculator().applyLiveGoals(
+  const UserProfile(onboardingCompleted: true, targetWeightKg: 65),
+);
 
 /// Manual target, deliberately far from every computed value so a stale hero
 /// cannot pass by accident. Inside the DB bounds (800..7000).

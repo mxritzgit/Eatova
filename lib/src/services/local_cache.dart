@@ -23,6 +23,23 @@ abstract class KeyValueStore {
   Future<void> remove(String key);
 }
 
+/// Extra capability of a store that TRANSFORMS values on read (decryption):
+/// tells whether the underlying storage still holds bytes for a key, without
+/// decoding them.
+///
+/// P3-02: such a store has to answer "slot unreadable" with the same `null` as
+/// "slot empty" — a failed isolate spawn says nothing about the ciphertext, so
+/// the slot must stay. For the `OrThrow` readers those two cases are opposites:
+/// only "empty" allows overwriting and deleting the persisted blob. Asking the
+/// STORAGE instead of the cipher keeps the answer independent of which error
+/// class a future decryption failure falls into.
+abstract class RawSlotProbe {
+  /// `true` if a non-empty value is stored under [key], readable or not.
+  /// Throws if the storage itself cannot answer — the caller must not read
+  /// that as "empty".
+  Future<bool> hasRawValue(String key);
+}
+
 /// Platform default: SharedPreferences, built in production via
 /// [LocalCache.create]. Already a transitive dependency of supabase_flutter.
 class SharedPreferencesStore implements KeyValueStore {
@@ -690,24 +707,35 @@ class LocalCache {
   /// separates the two.
   ///
   /// Deliberately AFTER, not before: the healthy case costs no second store
-  /// access, which under [EncryptedKeyValueStore] would decrypt the blob
-  /// again. Only empty and broken slots pay.
+  /// access. Only empty and broken slots pay.
   ///
-  /// Not covered: an undecryptable slot — [EncryptedKeyValueStore] clears it
-  /// on read and returns `null`, so it arrives here as empty. Correct, since
-  /// nothing is left that overwriting could lose.
+  /// Under [EncryptedKeyValueStore] the look goes to the RAW storage
+  /// ([RawSlotProbe]), not through the decorator again (P3-02): a read that
+  /// failed at EXECUTING the decryption — isolate spawn, OOM, RemoteError —
+  /// leaves the slot in place and still answers `null`, so a second read
+  /// through the decorator would return `null` once more and this check would
+  /// wave the loss through. The raw look needs no cipher and cannot.
+  ///
+  /// A provably broken ciphertext stays "empty": the decorator PURGES such a
+  /// slot on read, so the raw look finds nothing — correct, since nothing is
+  /// left that overwriting could lose.
   Future<void> _assertSlotEmpty(String key, String slot) async {
-    final String? raw;
+    final store = _store;
+    // `is` does not promote to an unrelated interface, hence the cast.
+    final probe = store is RawSlotProbe ? store as RawSlotProbe : null;
+    final bool belegt;
     try {
-      raw = await _store.getString(key);
+      belegt = probe != null
+          ? await probe.hasRawValue(key)
+          : (await store.getString(key))?.isNotEmpty ?? false;
     } catch (e) {
       // Only the error type leaves. The caller reports the throw to the
       // CrashReporter, and e.g. a FormatException carries its source in the
       // message — here the decrypted slot content, i.e. health data.
       throw UnreadableCacheSlot(slot, e.runtimeType.toString());
     }
-    if (raw != null && raw.isNotEmpty) {
-      throw UnreadableCacheSlot(slot, 'Inhalt nicht deserialisierbar');
+    if (belegt) {
+      throw UnreadableCacheSlot(slot, 'Inhalt nicht lesbar');
     }
   }
 

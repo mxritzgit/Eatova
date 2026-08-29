@@ -174,4 +174,83 @@ void main() {
       expect(kontexte, <String?>['cache_decrypt']);
     });
   });
+
+  // Review 2026-08-29, P3-02: the group above is the store's half — the slot
+  // survives. This one is the CACHE's half: the reader must not read that
+  // survival as "slot empty", or the brake in `_persistOutbox` /
+  // `signOutCleanup` never engages and the surviving slot is overwritten or
+  // deleted anyway. `getString` alone cannot tell the two apart (both `null`),
+  // so the counter-check asks the RAW storage.
+  group('…OrThrow: „nicht ausfuehrbar" ist nicht „leer"', () {
+    // TWO scripted failures throughout: memory pressure lasts longer than one
+    // read, and the old counter-check went through the decorator a second time
+    // — one failure would have been caught by that second, then successful
+    // read. The dangerous window is exactly the one that covers both.
+    test('readOutboxOrThrow meldet den belegten, unlesbaren Slot', () async {
+      final (raw, cipher, store) = await _befuellt();
+      cipher.decryptErrors
+        ..add(IsolateSpawnException('kein Speicher'))
+        ..add(IsolateSpawnException('kein Speicher'));
+      final cache = LocalCache(store, 'user-1');
+
+      await expectLater(
+          cache.readOutboxOrThrow(), throwsA(isA<UnreadableCacheSlot>()),
+          reason: 'nur ein Throw setzt _outboxHydrationFailed — ohne ihn '
+              'ueberschreibt der naechste Enqueue den Blob');
+      expect(raw.snapshot.containsKey(_key), isTrue);
+    });
+
+    test('readPendingStatsDeltasOrThrow ebenso', () async {
+      final raw = InMemoryKeyValueStore();
+      final cipher = _ScriptedCipher('dek-a');
+      final store = EncryptedKeyValueStore(raw, cipher);
+      await LocalCache(store, 'user-1')
+          .writePendingStatsDeltas(meals: 3, weightLogs: 0);
+      cipher.decryptErrors
+        ..add(const OutOfMemoryError())
+        ..add(const OutOfMemoryError());
+
+      final lesen = LocalCache(store, 'user-1').readPendingStatsDeltasOrThrow();
+      await expectLater(lesen, throwsA(isA<UnreadableCacheSlot>()));
+      expect(raw.snapshot.containsKey('eatova.v1.pending_stats.user-1'), isTrue,
+          reason: 'an dem Slot haengen Lebenszeit-Zaehler und Streak-Basis');
+    });
+
+    test('gemeldet werden nur Slot-Name und Grund, nie Schluessel oder Inhalt',
+        () async {
+      final (_, cipher, store) = await _befuellt();
+      cipher.decryptErrors
+        ..add(RemoteError('kaputt', ''))
+        ..add(RemoteError('kaputt', ''));
+
+      final fehler = await LocalCache(store, 'user-1')
+          .readOutboxOrThrow()
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(fehler.toString(), contains('outbox'));
+      expect(fehler.toString(), isNot(contains('user-1')));
+      expect(fehler.toString(), isNot(contains('mealInsert')));
+    });
+
+    test('Gegenprobe: der geraeumte Slot gilt weiter als leer', () async {
+      // A proven ciphertext problem clears the slot on read, so nothing is
+      // left an overwrite could lose — this must NOT become a read error.
+      final (raw, cipher, store) = await _befuellt();
+      cipher.decryptErrors
+          .add(InvalidCipherTextException('mac check in GCM failed'));
+
+      expect(await LocalCache(store, 'user-1').readOutboxOrThrow(), isNull);
+      expect(raw.snapshot.containsKey(_key), isFalse);
+    });
+
+    test('Gegenprobe: ein nie beschriebener Slot ist leer, kein Fehler',
+        () async {
+      final store = EncryptedKeyValueStore(
+          InMemoryKeyValueStore(), _ScriptedCipher('dek-a'));
+
+      final cache = LocalCache(store, 'user-1');
+      expect(await cache.readOutboxOrThrow(), isNull);
+      expect(await cache.readPendingStatsDeltasOrThrow(), isNull);
+    });
+  });
 }

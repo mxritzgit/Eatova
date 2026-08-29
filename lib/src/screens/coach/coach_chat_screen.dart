@@ -80,6 +80,9 @@ class CoachChatScreen extends StatefulWidget {
 
   /// Compact snapshot of profile + daily balance handed to the coach as
   /// context so it can advise concretely instead of generically.
+  ///
+  /// Chat mode only. /recipe deliberately gets none (P5-02): the function's
+  /// recipe branch never reads it, so it would be health data sent for nothing.
   final String? userContext;
 
   final ImagePicker? imagePicker;
@@ -145,9 +148,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   /// Only a *known* empty quota blocks. An unknown state (cold start without
   /// network) deliberately does not: the server decides and answers 429.
+  ///
+  /// An ASSUMED limit counts as unknown too (P5-06): `get_chat_quota_today`
+  /// derives `remaining` from the limit the client hands it, so with
+  /// `COACH_DAILY_LIMIT=10` it reports 0 free after five slots and would lock
+  /// a composer the server still accepts. The limit only becomes real once a
+  /// function answer or a quota 429 names it.
   bool get _kontingentErschoepft {
     final quota = _quota;
-    return quota != null && quota.remaining <= 0;
+    return quota != null && !quota.limitAssumed && quota.remaining <= 0;
   }
 
   /// Remaining count for display only. Widgets need a number, so an unknown
@@ -602,6 +611,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // switching stays possible while sending, and `mounted` alone does not
       // cover it because the screen stays mounted.
       if (!mounted || _activeSessionId != sessionId) return;
+      if (res.sessionId != sessionId) {
+        await _serverSessionUebernehmen(
+          angefragt: sessionId,
+          benutzt: res.sessionId,
+          l10n: l10n,
+        );
+        return;
+      }
       setState(() {
         _messages = [
           ..._messages,
@@ -672,6 +689,34 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         .toList(growable: false);
   }
 
+  /// The server persisted the exchange in a DIFFERENT session than the one
+  /// asked for (P5-01).
+  ///
+  /// It falls back to the default session once it has proven the requested one
+  /// is not the user's — typically because a second device deleted it — and
+  /// reports that in `session_id`. Appending the answer to the local
+  /// conversation would show it in a thread the server no longer has, and a
+  /// reload would move the exchange elsewhere without a word. So: say it, then
+  /// follow the server and load the session it actually used.
+  Future<void> _serverSessionUebernehmen({
+    required String angefragt,
+    required String benutzt,
+    required AppLocalizations l10n,
+  }) async {
+    if (!mounted || _activeSessionId != angefragt) return;
+    setState(() {
+      _error = l10n.coachSessionSwitchedNotice;
+      // The question WAS delivered — it just landed elsewhere. An unsent
+      // marker would invite a retry and burn a second daily slot.
+      _fehlgeschlagen = null;
+    });
+    // The deleted session is gone from the sheet and the used one may be new.
+    await _refreshSessions();
+    // [_switchToSession] does the full load; the history it fetches already
+    // contains both the question and the answer.
+    await _switchToSession(benutzt);
+  }
+
   /// Takes over a quota state the server just named.
   ///
   /// Called before the session comparison on purpose: the quota is per user,
@@ -686,6 +731,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         used: limit - frei,
         remaining: frei,
         dailyLimit: limit,
+        // Only a limit the server itself named makes the lock trustworthy
+        // (P5-06); an older deployment that sends none leaves it assumed.
+        limitAssumed: dailyLimit == null && (_quota?.limitAssumed ?? true),
       );
     });
   }
@@ -850,11 +898,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
 
     try {
+      // No `userContext` (P5-02): the function's recipe mode never reads it,
+      // so sending profile and daily balance would be data without a purpose.
       final res = await svc.requestRecipe(
         wish,
         sessionId: sessionId,
         locale: l10n.localeName,
-        userContext: widget.userContext,
       );
       // As in [_send]: the slot is spent even if the card is discarded.
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
@@ -865,13 +914,26 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // and the live card use the same key.
       final serverId = res.assistantMessageId;
       final imageBytes = res.proposal?.imageBytes;
-      if (serverId != null && imageBytes != null) {
-        unawaited(
-          RecipeImageStore.instance.saveProposalImage(
-            messageId: serverId,
-            bytes: imageBytes,
-          ),
+      // Fire and forget, except on the drift path below, which has to wait for
+      // the file. `catchError` keeps that await from throwing into a branch
+      // that only knows coach errors.
+      final bildGespeichert = serverId != null && imageBytes != null
+          ? RecipeImageStore.instance
+              .saveProposalImage(messageId: serverId, bytes: imageBytes)
+              .catchError((Object _) => false)
+          : null;
+      if (bildGespeichert != null) unawaited(bildGespeichert);
+      if (res.sessionId != sessionId) {
+        // Mirror of [_send]. The reload rebuilds the card from
+        // `chat_messages.recipe` and rehydrates its image from disk, so the
+        // write has to be finished first.
+        if (bildGespeichert != null) await bildGespeichert;
+        await _serverSessionUebernehmen(
+          angefragt: sessionId,
+          benutzt: res.sessionId,
+          l10n: l10n,
         );
+        return;
       }
       setState(() {
         _messages = [

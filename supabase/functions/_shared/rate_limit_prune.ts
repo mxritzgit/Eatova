@@ -14,7 +14,17 @@
 export type PruneRateLimitsOptions = {
   supabaseUrl: string;
   serviceKey: string;
+  /** Overrides PRUNE_TIMEOUT_MS; only meant for tests. */
+  timeoutMs?: number;
 };
+
+/**
+ * Deadline for the cleanup call (P6-07). Nobody waits for the result, but a
+ * hanging fetch keeps the isolate and its connection alive for as long as the
+ * platform allows. Generous, because this is housekeeping that may lose a race
+ * against a busy table without anyone noticing.
+ */
+export const PRUNE_TIMEOUT_MS = 10_000;
 
 /**
  * Calls the `prune_edge_rate_limits` RPC and swallows every error.
@@ -32,6 +42,7 @@ export async function pruneRateLimits(options: PruneRateLimitsOptions): Promise<
         "content-type": "application/json",
       },
       body: "{}",
+      signal: AbortSignal.timeout(Math.max(1, options.timeoutMs ?? PRUNE_TIMEOUT_MS)),
     });
     // fetch does not throw on 4xx/5xx. Without this, a permanently failing RPC
     // (revoked grant, missed migration) would stay invisible while the table

@@ -233,12 +233,20 @@
 
 		<!--
 		  Absturzdaten: Sentry (ingest.de.sentry.io, EU-Region).
-		  Beleg: main.dart:40-62. Bewusst eng konfiguriert: sendDefaultPii=false,
-		  attachScreenshot=false, kein Tracing, kein Session-Replay, und
-		  beforeSend=sanitizeSentryEvent (crash_reporter.dart:242 ff.) putzt
-		  Nutzdaten aus dem Event. Es wird NIRGENDS Sentry.setUser/configureScope
-		  aufgerufen (Grep: kein Treffer), das Event traegt also weder E-Mail
-		  noch user_id => "Linked" = false.
+		  Beleg: main.dart:34-50 (Init nur mit gesetztem SENTRY_DSN) plus
+		  crash_reporter.dart:188 ff. (configureSentry). Bewusst eng
+		  konfiguriert: sendDefaultPii=false, attachScreenshot=false, kein
+		  Tracing, kein Session-Replay, enableAutoSessionTracking=false
+		  (crash_reporter.dart:227), und beforeSend=sanitizeSentryEvent
+		  (crash_reporter.dart:405 ff.) putzt Nutzdaten aus dem Event. Es wird
+		  NIRGENDS Sentry.setUser/configureScope aufgerufen (Grep: kein
+		  Treffer), das Event traegt also weder E-Mail noch user_id =>
+		  "Linked" = false.
+		  Mit erfasst sind die technischen Breadcrumbs aus home_store.dart:354
+		  und home_store_sync.dart:194 (nur Zaehler, ausdruecklich keine
+		  Nutzdaten): sie verlassen das Geraet ausschliesslich als Anhang eines
+		  Absturzberichts, sind also Teil dieses Eintrags und keine eigene
+		  Erhebung.
 		-->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
@@ -254,32 +262,20 @@
 		</dict>
 
 		<!--
-		  Produktinteraktion (App-Starts/Sessions): ebenfalls Sentry.
-		  Beleg: sentry_flutter_options.dart:42 => enableAutoSessionTracking ist
-		  per Default true und wird in main.dart nicht abgeschaltet. Damit gehen
-		  Session-Start/-Ende (also App-Starts und Vordergrundwechsel) an Sentry,
-		  dazu die technischen Breadcrumbs aus home_store.dart:354 und
-		  home_store_sync.dart:194 (nur Zaehler, ausdruecklich keine Nutzdaten).
-		  Zweck ist die Crash-Freiheitsrate, nicht Verhaltensanalyse; ohne
-		  Nutzerbezug => "Linked" = false.
-		  Wird enableAutoSessionTracking abgeschaltet, kann dieser Eintrag weg.
-		-->
-		<dict>
-			<key>NSPrivacyCollectedDataType</key>
-			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
-			<key>NSPrivacyCollectedDataTypeLinked</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypePurposes</key>
-			<array>
-				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-			</array>
-		</dict>
-
-		<!--
 		  BEWUSST NICHT deklariert, mit Begruendung:
 
+		  * ProductInteraction (App-Starts/Sessions): Sentrys
+		    enableAutoSessionTracking ist per Default true
+		    (sentry_flutter_options.dart:42) und wurde bis Review P10-01 nicht
+		    abgeschaltet — damit gingen Session-Start/-Ende, also App-Starts und
+		    Vordergrundwechsel, an Sentry. crash_reporter.dart:227 setzt die
+		    Option jetzt ausdruecklich auf false, geprueft von
+		    test/services/crash_reporter_wiring_test.dart. Damit erhebt die App
+		    keine Nutzungssignale mehr und der Eintrag entfaellt; die
+		    Datenschutzerklaerung ("it reports errors, not usage") stimmt wieder
+		    mit dem Code ueberein. Wer die Option je wieder anschaltet — etwa
+		    fuer Sentrys Release Health / Crash-Freiheitsrate — muss diesen
+		    Eintrag zurueckholen UND PRIVACY.md nachziehen.
 		  * AudioData (Spracheingabe im Coach): Das Audio geht nie an uns und an
 		    keinen Dritt-SDK. AppDelegate.swift setzt requiresOnDeviceRecognition
 		    wo Apple ein lokales Modell hat; sonst verarbeitet Apples eigener

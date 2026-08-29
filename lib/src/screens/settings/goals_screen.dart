@@ -197,8 +197,46 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String? get _heightError =>
       _fehler(_height, isValidProfileHeightCm, _bereichCm);
   String? get _ageError => _fehler(_age, isValidProfileAgeYears, _bereichAlter);
-  String? get _targetWeightError =>
-      _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
+
+  /// The current weight as a number, or `null` while the field is empty or out
+  /// of range — the consistency check below then stays silent, since there is
+  /// nothing to compare against and the weight field already shows its own
+  /// error.
+  int? get _gueltigesGewicht {
+    final wert = int.tryParse(_weight.text.trim());
+    return (wert != null && isValidProfileWeightKg(wert)) ? wert : null;
+  }
+
+  /// Range first (the DB column), then the consistency rule the onboarding has
+  /// always enforced at its target step: losing aims BELOW today's weight,
+  /// gaining ABOVE it. Without it "lose 0.5 kg/week" saved next to a target 10
+  /// kg higher — a deficit plan whose plan card claimed "80 → 90" and whose
+  /// contradiction left the app in the coach prompt (P9-08).
+  ///
+  /// [WeightGoal.maintain] is deliberately unbounded: it has no direction, so
+  /// no target weight can contradict it, and a stricter rule would reject
+  /// saved profiles for nothing.
+  ///
+  /// Rejected, never bent into shape (model_limits.dart): clamping 90 to 79
+  /// would write a target nobody chose. Both ways out sit on this page — edit
+  /// the field, or pick another goal one row below — so a profile that arrives
+  /// contradictory (saved before this check existed) can always be resolved.
+  String? get _targetWeightError {
+    final bereich =
+        _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
+    if (bereich != null) return bereich;
+    final gewicht = _gueltigesGewicht;
+    if (gewicht == null) return null;
+    final ziel = int.parse(_targetWeight.text.trim());
+    if (_goal.isLoss && ziel >= gewicht) {
+      return context.l10n.goalsTargetWeightBelowError(gewicht);
+    }
+    if (_goal.isGain && ziel <= gewicht) {
+      return context.l10n.goalsTargetWeightAboveError(gewicht);
+    }
+    return null;
+  }
+
   String? get _stepsError =>
       _fehler(_steps, isValidDailyStepsGoal, _bereichSchritte);
 

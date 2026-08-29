@@ -103,9 +103,10 @@ interface FetchStub {
   restore(): void;
 }
 
-/** Gate order since F9-01: abuse hits its originator first; the global bill
- *  cap counts only requests that would actually trigger a paid call. */
-const GATE_ORDER = 'analyze-meal:ip,analyze-meal:user-day,analyze-meal:user,analyze-meal:global';
+/** Gate order since P6-01/P6-02: the two attempt counters first, then the body
+ *  validation, then the two day buckets that must count analyses rather than
+ *  attempts. Reasoning in handler.ts, the WHEN in gate_order_test.ts. */
+const GATE_ORDER = 'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day,analyze-meal:global';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -383,10 +384,11 @@ Deno.test('User-Limit erschoepft -> 429 vor dem globalen Gate', async () => {
     assertEquals(res.status, 429, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'rate_limited', 'Fehlercode');
-    // A user over their hourly budget must not consume the shared bill cap.
+    // A user over their hourly budget must not consume the shared bill cap —
+    // nor one of their own day slots (P6-02).
     assertEquals(
       stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user-day,analyze-meal:user',
+      'analyze-meal:ip,analyze-meal:user',
       'Gate-Reihenfolge',
     );
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
@@ -420,7 +422,7 @@ Deno.test('F9-01: globales Tageslimit erschoepft -> 429 als letztes Gate, kein P
   }
 });
 
-Deno.test('F9-01: User-Tageslimit erschoepft -> 429 direkt nach dem IP-Gate', async () => {
+Deno.test('F9-01: User-Tageslimit erschoepft -> 429 vor dem globalen Gate', async () => {
   const stub = installFetch({ userDayAllowed: false });
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
@@ -429,7 +431,7 @@ Deno.test('F9-01: User-Tageslimit erschoepft -> 429 direkt nach dem IP-Gate', as
     assertEquals(body.error, 'rate_limited', 'Fehlercode');
     assertEquals(
       stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user-day',
+      'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day',
       'Gate-Reihenfolge',
     );
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');

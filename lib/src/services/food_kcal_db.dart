@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/meal_component.dart';
 
 /// Local kcal database entry: caloric density and default portion size.
@@ -93,8 +95,9 @@ const Map<String, FoodEntry> _foodDb = {
   'kirschtomaten': (kcalPer100G: 18.0, defaultGrams: 60),
   'paprika': (kcalPer100G: 27.0, defaultGrams: 80),
   'gurke': (kcalPer100G: 16.0, defaultGrams: 80),
+  // 'salat' also carries "gemischter/gemischtem/gemischten Salat": the
+  // adjective is stripped before the lookup (see [_adjectiveStrip]).
   'salat': (kcalPer100G: 15.0, defaultGrams: 80),
-  'gemischter salat': (kcalPer100G: 20.0, defaultGrams: 100),
   'kopfsalat': (kcalPer100G: 14.0, defaultGrams: 80),
   'feldsalat': (kcalPer100G: 14.0, defaultGrams: 60),
   'rucola': (kcalPer100G: 27.0, defaultGrams: 50),
@@ -183,6 +186,14 @@ const Map<String, FoodEntry> _foodDb = {
 const FoodEntry _defaultEntry = (kcalPer100G: 100.0, defaultGrams: 100);
 
 /// Common German cooking adjectives that should be stripped before DB lookup.
+///
+/// This runs BEFORE the table is asked, so a key containing one of these words
+/// can never be found: 'gemischter salat' normalized to 'salat' and was a dead
+/// row. **Every key of [_foodDb] must survive [_normalize] unchanged** —
+/// asserted per key in `test/food_kcal_db_invariants_test.dart`. A two-word key
+/// with an adjective could not work anyway: German declension makes the model
+/// write 'gemischtem' as readily as 'gemischter', and this strip is exactly
+/// what makes those forms converge on one key.
 final RegExp _adjectiveStrip = RegExp(
   r'\b(gegrillt|gebraten|gekocht|gedämpft|gebacken|geröstet|frisch|roh|'
   r'mariniert|gegart|geräuchert|gefüllt|paniert|gemischt|gewürzt)'
@@ -204,6 +215,19 @@ String _normalize(String raw) {
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 }
+
+/// The table itself, so a test can walk every row (see [normalizeFoodName]).
+@visibleForTesting
+const Map<String, FoodEntry> foodDbEntries = _foodDb;
+
+/// [_normalize] for tests: every key of [foodDbEntries] must normalize to
+/// itself, or the row is unreachable — see the note on [_adjectiveStrip].
+@visibleForTesting
+String normalizeFoodName(String raw) => _normalize(raw);
+
+/// [_lookup] for tests: proves a row is actually reachable end to end.
+@visibleForTesting
+FoodEntry lookupFoodEntry(String rawName) => _lookup(rawName);
 
 FoodEntry _lookup(String rawName) {
   final cleaned = _normalize(rawName);
@@ -255,11 +279,48 @@ String _capitalize(String s) {
   return s[0].toUpperCase() + s.substring(1);
 }
 
+/// Hands [remainder] to the largest entries of [values] until it is used up,
+/// keeping every entry inside [min]..[max].
+///
+/// Same rule `_itemsMitGesamtKcal` (meal_analysis_result.dart) uses for
+/// calories: the biggest item absorbs the rounding, because that is where a
+/// gram or two disappears without changing the picture. The walk continues to
+/// the next largest only when a clamp blocks the first.
+void _spreadRemainder(
+  List<int> values,
+  int remainder, {
+  required int min,
+  required int max,
+}) {
+  var open = remainder;
+  final byDescendingValue = List<int>.generate(values.length, (i) => i)
+    ..sort((a, b) => values[b].compareTo(values[a]));
+  for (final i in byDescendingValue) {
+    if (open == 0) return;
+    final next = (values[i] + open).clamp(min, max);
+    open -= next - values[i];
+    values[i] = next;
+  }
+}
+
 /// Expands a combined meal into per-ingredient MealComponents, or an empty
 /// list when the name has < 2 parts or a total is missing (<= 0).
 ///
-/// The maths preserves both totals: the local table only contributes the
-/// *ratios* between items, never an absolute number of its own.
+/// The maths preserves both totals **exactly**: the item grams sum to
+/// [totalGrams], the item calories to [totalKcal]. The local table only
+/// contributes the *ratios* between items, never an absolute number of its own.
+///
+/// Per-item rounding drifts by up to n/2; the remainder goes onto the largest
+/// item (see [_spreadRemainder]). The grams here are nobody's statement — they
+/// are derived from the table's reference portions and [totalGrams] — so
+/// pinning them back to the anchor loses no information, while letting them
+/// drift did: confirming the components sheet unchanged turned a 100 g meal
+/// into 99 g and its 300 kcal/100 g into 303. (This is the opposite of
+/// `_itemsMitGesamtKcal`, which leaves grams alone on purpose — there they are
+/// the model's own numbers, with macros hanging off them.)
+///
+/// Only a portion below one gram per item can miss [totalGrams]: items are
+/// floored at 1 g, because a 0 g row reads as "not there".
 List<MealComponent> autoSplitItems({
   required String mealName,
   required int totalGrams,
@@ -287,6 +348,12 @@ List<MealComponent> autoSplitItems({
     final grams = (entry.defaultGrams * gramFactor).round().clamp(1, 5000);
     scaledGrams.add(grams);
   }
+  _spreadRemainder(
+    scaledGrams,
+    totalGrams - scaledGrams.fold<int>(0, (s, v) => s + v),
+    min: 1,
+    max: 5000,
+  );
 
   final naiveKcal = List<double>.generate(
     names.length,
@@ -298,15 +365,29 @@ List<MealComponent> autoSplitItems({
   if (naiveKcalSum <= 0) return const <MealComponent>[];
   final kcalFactor = totalKcal / naiveKcalSum;
 
+  final scaledKcal = <int>[];
+  for (var i = 0; i < names.length; i++) {
+    scaledKcal.add((naiveKcal[i] * kcalFactor).round().clamp(0, 5000));
+  }
+  // The caller reconciles the item calories against the model total once more
+  // (`_itemsMitGesamtKcal`); doing it here too keeps the promise in this
+  // function's own doc instead of borrowing it from a caller.
+  _spreadRemainder(
+    scaledKcal,
+    totalKcal - scaledKcal.fold<int>(0, (s, v) => s + v),
+    min: 0,
+    max: 5000,
+  );
+
   final items = <MealComponent>[];
   for (var i = 0; i < names.length; i++) {
     final grams = scaledGrams[i];
-    final scaledKcal = (naiveKcal[i] * kcalFactor).round().clamp(0, 5000);
-    final per100 = grams > 0 ? scaledKcal * 100 / grams : lookups[i].kcalPer100G;
+    final kcal = scaledKcal[i];
+    final per100 = grams > 0 ? kcal * 100 / grams : lookups[i].kcalPer100G;
     items.add(MealComponent(
       name: _capitalize(names[i]),
       grams: grams,
-      caloriesKcal: scaledKcal,
+      caloriesKcal: kcal,
       kcalPer100G: per100,
     ));
   }
